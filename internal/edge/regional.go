@@ -10,7 +10,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +27,7 @@ const forwardedClientHeader = "X-TerraBase-Forwarded-For"
 const (
 	maxRegionalSockets           = 512
 	maxRegionalSocketsPerAddress = 64
+	maxInternalTunnels           = 256
 )
 
 type regionalTunnel struct {
@@ -50,6 +53,7 @@ type regionalRouter struct {
 	tunnels   map[*regionalTunnel]struct{}
 	clients   map[string]int
 	sockets   int
+	internal  int
 }
 type regionalStatus struct {
 	Node   string `json:"node"`
@@ -151,13 +155,16 @@ func (b *regionalBody) Close() error { err := b.ReadCloser.Close(); b.once.Do(b.
 func (r *regionalRouter) openTunnel(t *regionalTunnel) (int, string) {
 	r.tunnelMu.Lock()
 	defer r.tunnelMu.Unlock()
-	if t.client != "" {
-		switch {
-		case r.clients[t.client] >= maxRegionalSocketsPerAddress:
-			return http.StatusTooManyRequests, fmt.Sprintf("this address already has %d open WebSockets to this region\n", maxRegionalSocketsPerAddress)
-		case r.sockets >= maxRegionalSockets:
-			return http.StatusServiceUnavailable, fmt.Sprintf("this region already relays %d WebSockets\n", maxRegionalSockets)
-		}
+	switch {
+	case t.client == "" && r.internal >= maxInternalTunnels:
+		return http.StatusServiceUnavailable, fmt.Sprintf("this edge already relays %d internal tunnels to this region\n", maxInternalTunnels)
+	case t.client == "":
+		r.internal++
+	case r.clients[t.client] >= maxRegionalSocketsPerAddress:
+		return http.StatusTooManyRequests, fmt.Sprintf("this address already has %d open WebSockets to this region\n", maxRegionalSocketsPerAddress)
+	case r.sockets >= maxRegionalSockets:
+		return http.StatusServiceUnavailable, fmt.Sprintf("this region already relays %d WebSockets\n", maxRegionalSockets)
+	default:
 		r.clients[t.client]++
 		r.sockets++
 	}
@@ -172,11 +179,13 @@ func (r *regionalRouter) closeTunnel(t *regionalTunnel) {
 		return
 	}
 	delete(r.tunnels, t)
-	if t.client != "" {
-		r.sockets--
-		if r.clients[t.client]--; r.clients[t.client] == 0 {
-			delete(r.clients, t.client)
-		}
+	if t.client == "" {
+		r.internal--
+		return
+	}
+	r.sockets--
+	if r.clients[t.client]--; r.clients[t.client] == 0 {
+		delete(r.clients, t.client)
 	}
 }
 
@@ -188,6 +197,15 @@ func (r *regionalRouter) endTunnels(node string, writer bool) {
 			t.cancel()
 		}
 	}
+}
+
+func socketAddress(client string) string {
+	address, err := netip.ParseAddr(client)
+	if err != nil || address.Unmap().Is4() {
+		return client
+	}
+	network, _ := address.Prefix(64)
+	return network.String()
 }
 
 func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Response, error) {
@@ -285,7 +303,7 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 	}
 	ctx := request.Context()
 	var transport http.RoundTripper = router.transport
-	tunnel := &regionalTunnel{node: peer.Node, client: client}
+	tunnel := &regionalTunnel{node: peer.Node, client: socketAddress(client)}
 	established := roundTripper(func(r *http.Request) (*http.Response, error) {
 		response, err := tunnelTransport{dial: router.transport.DialContext}.RoundTrip(r)
 		if err == nil && response.StatusCode/100 == 2 {
@@ -306,8 +324,9 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		if status, message := router.openTunnel(tunnel); status != 0 {
 			tunnel.cancel()
 			release()
+			header := http.Header{"Content-Type": {"text/plain; charset=utf-8"}, "Content-Length": {strconv.Itoa(len(message))}, "Retry-After": {"1"}}
 			return &http.Response{Status: fmt.Sprintf("%d %s", status, http.StatusText(status)), StatusCode: status, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
-				Header: http.Header{"Content-Type": {"text/plain; charset=utf-8"}}, Body: io.NopCloser(strings.NewReader(message)), ContentLength: int64(len(message)), Request: request}, nil
+				Header: header, Body: io.NopCloser(strings.NewReader(message)), ContentLength: int64(len(message)), Request: request}, nil
 		}
 		context.AfterFunc(ctx, func() { router.closeTunnel(tunnel) })
 	}

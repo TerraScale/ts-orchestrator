@@ -168,7 +168,7 @@ func (e *Edge) Bootstrap(ctx context.Context, action string, j rolloutmaintenanc
 		r.endTunnels(j.Owner, true)
 		r.transport.CloseIdleConnections()
 		e.bootstrapBarrier.id = j.ID
-		e.bootstrapBarrier.release = func() { r.ingress.Unlock(); r.changing.Unlock(); r.holding.Store(false) }
+		e.bootstrapBarrier.release = func() { r.ingress.Unlock(); r.holding.Store(false); r.changing.Unlock() }
 		return nil
 	case "release":
 		if j.Member != j.Owner {
