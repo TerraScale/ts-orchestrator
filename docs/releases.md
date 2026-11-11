@@ -63,8 +63,16 @@ requires a clean tree. Its producing job audits the package graphs and builds
 and checks both static release binaries (`make release-check`). Pull requests
 run `make lint` (formatting, templ output, `go vet`, shellcheck and policy
 checks) and the single-host E2E (job `e2e-m1`), which every main push runs
-again before `release-push`. The workflow installs Go 1.27.4 with
-`actions/setup-go`, and `.mise.toml` pins the same version for local development.
+again before `release-push`. The workflow installs the Go version in the `go`
+line of `go.mod` with `actions/setup-go`, and `.mise.toml` pins the same version
+for local development; `make lint` fails when `go.mod`, `.mise.toml` and
+`DefaultGoVersion` in `internal/release/receipt.go` disagree. Run
+`bash scripts/ci/audit-dependencies.sh source` with that Go to scan the package
+and test graphs of the root module and the three `third_party` replacements,
+and `bash scripts/ci/audit-dependencies.sh release` after `make release-check`
+to scan both release binaries; `lint` runs both on every pull request and main
+push, and the producing job runs them on main before it publishes. No advisory
+is ignored.
 The `go` lines of `third_party/*/go.mod` are minimums for the vendored modules,
 so a compiler move leaves them unchanged.
 
@@ -142,9 +150,10 @@ PEMs as secrets `gru-1-trust-root-private-key`,
 `gru-1-trust-root-public-key`, `gru-1-trust-release-leaf-private-key` and
 `gru-1-trust-release-leaf-public-key` (TS-534). They are not in OpenBao.
 
-Build the local signing helper from the same clean source checkout with Go
-1.27.1, low priority, and embedded VCS metadata. Check `go version -m` for the
-exact `vcs.revision` and `vcs.modified=false` before using it. This helper is
+Build the local signing helper from the same clean source checkout with the Go
+version in its `go.mod`, low priority, and embedded VCS metadata. Check
+`go version -m` for the exact `vcs.revision` and `vcs.modified=false` before
+using it. This helper is
 not the deployed orchestrator binary; deployments use the CI-retained bytes.
 For the signer's live GitHub check, install and authenticate the standard
 `gh` CLI on the operator host. `ts-orch release run-detail --repository
@@ -188,7 +197,7 @@ SOURCE_TREE=$(jq -r .source_tree "$WORK/qualification.json")
 test "$(git -C "$WORK/source-main" rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
 cd "$WORK/source-main"
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
-test "$(go env GOVERSION)" = go1.27.1
+test "$(go env GOVERSION)" = "go$(go list -m -f '{{.GoVersion}}')"
 nice -n 19 go build -trimpath -buildvcs=true \
   -o "$WORK/ts-orch" ./cmd/terrascale-orchestrator
 build_info=$(go version -m "$WORK/ts-orch")
