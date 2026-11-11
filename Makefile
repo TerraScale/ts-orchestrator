@@ -12,9 +12,9 @@ APP := ./cmd/terrascale-orchestrator
 # Keep the symbol table so govulncheck can inspect the actual release bytes.
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-w"
 CHANGE_BASE ?= $(shell git merge-base origin/main HEAD)
-LINT_CHECKS := format-check generate-check vet shellcheck netbird-backup-check retired-host-check zero-config-check
+LINT_CHECKS := format-check generate-check vet shellcheck netbird-backup-check retired-host-check zero-config-check observability-check
 
-.PHONY: lint retired-host-check zero-config-check format-check generate generate-check vet netbird-backup-check shellcheck build build-linux release-linux release-check image run host check clean
+.PHONY: lint retired-host-check zero-config-check format-check generate generate-check vet netbird-backup-check shellcheck observability-check build build-linux release-linux release-check image run host check clean
 
 lint:
 	$(MAKE) --jobs --keep-going $(LINT_CHECKS)
@@ -56,6 +56,9 @@ retired-host-check:
 # The ts-ops NetBird store backup script carries its own self-check.
 netbird-backup-check:
 	python3 deploy/netbird/manager/netbird-backup --self-check
+
+observability-check:
+	bash deploy/observability/production/install.sh --check
 
 build:
 	mkdir -p dist

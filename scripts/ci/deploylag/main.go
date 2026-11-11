@@ -21,14 +21,15 @@ const forge = "https://api.github.com/repos/TerraScale/"
 const alertTitle = "TS-768: Deployment lag exceeds 30 minutes"
 const lagLimit = 30 * time.Minute
 
-// app is a service ts-orch releases from the image job of a repository's main
-// push: the job's "Release to every region" step is its deployment.
-type app struct{ service, repo, workflow, job string }
+type app struct {
+	service, repo, workflow string
+	jobs                    []string
+}
 
 var apps = []app{
-	{"terrabase", "terrascale", "ci.yml", "main (terrabase)"},
-	{"ts-auth", "terrascale", "ci.yml", "main (auth)"},
-	{"ts-dashboard", "terrascale", "images-ghcr.yml", "Publish and release"},
+	{"terrabase", "terrascale", "ci.yml", []string{"main"}},
+	{"ts-auth", "terrascale", "ci.yml", []string{"main-auth", "main-auth-ordered"}},
+	{"ts-dashboard", "terrascale", "images-ghcr.yml", []string{"Publish and release"}},
 }
 
 // held services are released by hand for now: reported, never a failure.
@@ -163,13 +164,7 @@ func (a api) release(ctx context.Context, x app, now time.Time) ([]string, error
 			HeadSHA string `json:"head_sha"`
 		} `json:"workflow_runs"`
 	}
-	// Dashboard releases also originate from qualified manual and CI-completion
-	// runs. Their successful publication step proves an image exists to release.
-	query := "?branch=main&event=push&per_page=20"
-	if x.service == "ts-dashboard" {
-		query = "?branch=main&per_page=20"
-	}
-	url := fmt.Sprintf("%s%s/actions/workflows/%s/runs%s", forge, x.repo, x.workflow, query)
+	url := fmt.Sprintf("%s%s/actions/workflows/%s/runs?branch=main&per_page=20", forge, x.repo, x.workflow)
 	if err := a.request(ctx, "GET", url, a.readToken, nil, &runs); err != nil {
 		return nil, err
 	}
@@ -190,23 +185,26 @@ func (a api) release(ctx context.Context, x app, now time.Time) ([]string, error
 			return nil, err
 		}
 		for _, job := range jobs.Jobs {
-			if job.Name != x.job {
+			if !slices.Contains(x.jobs, job.Name) {
 				continue
 			}
 			var published time.Time
+			var buildOnly bool
 			released := "missing"
 			for _, step := range job.Steps {
 				// The last build-push step publishes; earlier ones only build.
 				if strings.HasPrefix(step.Name, "Run docker/build-push-action") && step.Conclusion == "success" {
 					published = step.CompletedAt
 				}
+				if step.Name == "Record the build-only digest (no release)" && step.Conclusion == "success" {
+					buildOnly = true
+				}
 				if step.Name == "Release to every region" {
 					released = cmp.Or(step.Conclusion, step.Status)
 				}
 			}
 			switch {
-			case published.IsZero():
-				// This run published no image for the service.
+			case published.IsZero() || buildOnly:
 			case released == "success":
 				return report(x, finding), nil
 			case now.Sub(published) >= lagLimit:

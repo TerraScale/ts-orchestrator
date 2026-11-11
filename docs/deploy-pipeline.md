@@ -119,11 +119,11 @@ when a main build was published but not released within 30 minutes:
 - ts-orchestrator: a main commit is released when its `deploy/release-push`
   succeeded, or a newer one did; a skipped release-push with a green `test`
   check had nothing to publish. A red main that skips release-push counts.
-- terrabase, ts-auth (terrascale `ci.yml` jobs `main (terrabase)`, `main (auth)`)
-  and ts-dashboard (terrascale `images-ghcr.yml` job `Publish and release`,
-  including qualified `workflow_dispatch` and `workflow_run` releases): the oldest image published
+- terrabase, ts-auth (terrascale `ci.yml` jobs `main`; `main-auth` or
+  `main-auth-ordered`) and ts-dashboard (terrascale `images-ghcr.yml` job
+  `Publish and release`), in main runs of every event: the oldest image published
   since the last successful `Release to every region` step starts the clock;
-  newer builds never reset it.
+  newer builds never reset it. A build-only dispatch counts as no publication.
 - Services in the code map `held` (today terrabase, until the batch-2 wipe)
   are logged, not alerted. Unreadable history is a finding.
 
