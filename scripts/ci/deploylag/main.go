@@ -20,6 +20,8 @@ import (
 const forge = "https://api.github.com/repos/TerraScale/"
 const alertTitle = "TS-768: Deployment lag exceeds 30 minutes"
 const lagLimit = 30 * time.Minute
+const publishStep = "Run docker/build-push-action"
+const releaseStep = "Release to every region"
 
 type app struct {
 	service, repo, workflow string
@@ -160,20 +162,24 @@ func (a api) orch(ctx context.Context, now time.Time) ([]string, error) {
 func (a api) release(ctx context.Context, x app, now time.Time) ([]string, error) {
 	var runs struct {
 		WorkflowRuns []struct {
-			ID      int64  `json:"id"`
-			HeadSHA string `json:"head_sha"`
+			ID         int64  `json:"id"`
+			HeadSHA    string `json:"head_sha"`
+			HTMLURL    string `json:"html_url"`
+			Conclusion string `json:"conclusion"`
 		} `json:"workflow_runs"`
 	}
 	url := fmt.Sprintf("%s%s/actions/workflows/%s/runs?branch=main&per_page=20", forge, x.repo, x.workflow)
 	if err := a.request(ctx, "GET", url, a.readToken, nil, &runs); err != nil {
 		return nil, err
 	}
-	var finding string
+	var finding, unread string
+walk:
 	for _, run := range runs.WorkflowRuns {
 		var jobs struct {
 			Jobs []struct {
-				Name  string `json:"name"`
-				Steps []struct {
+				Name       string `json:"name"`
+				Conclusion string `json:"conclusion"`
+				Steps      []struct {
 					Name        string    `json:"name"`
 					Status      string    `json:"status"`
 					Conclusion  string    `json:"conclusion"`
@@ -184,36 +190,55 @@ func (a api) release(ctx context.Context, x app, now time.Time) ([]string, error
 		if err := a.request(ctx, "GET", fmt.Sprintf("%s%s/actions/runs/%d/jobs?per_page=50", forge, x.repo, run.ID), a.readToken, nil, &jobs); err != nil {
 			return nil, err
 		}
+		listed := make(map[string]bool, len(jobs.Jobs))
+		for _, job := range jobs.Jobs {
+			listed[job.Name] = true
+		}
+		if absent := slices.IndexFunc(x.jobs, func(name string) bool { return !listed[name] }); run.Conclusion == "success" && absent >= 0 && unread == "" {
+			unread = fmt.Sprintf("- %s: %s %s run %s succeeded without a job `%s`", x.service, x.repo, x.workflow, run.HTMLURL, x.jobs[absent])
+		}
 		for _, job := range jobs.Jobs {
 			if !slices.Contains(x.jobs, job.Name) {
 				continue
 			}
 			var published time.Time
-			var buildOnly bool
+			var buildOnly, publishes bool
 			released := "missing"
 			for _, step := range job.Steps {
-				// The last build-push step publishes; earlier ones only build.
-				if strings.HasPrefix(step.Name, "Run docker/build-push-action") && step.Conclusion == "success" {
-					published = step.CompletedAt
+				if strings.HasPrefix(step.Name, publishStep) {
+					publishes = true
+					if step.Conclusion == "success" {
+						published = step.CompletedAt
+					}
 				}
 				if step.Name == "Record the build-only digest (no release)" && step.Conclusion == "success" {
 					buildOnly = true
 				}
-				if step.Name == "Release to every region" {
+				if step.Name == releaseStep {
 					released = cmp.Or(step.Conclusion, step.Status)
 				}
+			}
+			var missing string
+			switch {
+			case !publishes:
+				missing = publishStep
+			case released == "missing":
+				missing = releaseStep
+			}
+			if job.Conclusion == "success" && missing != "" && unread == "" {
+				unread = fmt.Sprintf("- %s: job `%s` of %s %s run %s succeeded without a `%s` step", x.service, job.Name, x.repo, x.workflow, run.HTMLURL, missing)
 			}
 			switch {
 			case published.IsZero() || buildOnly:
 			case released == "success":
-				return report(x, finding), nil
+				break walk
 			case now.Sub(published) >= lagLimit:
 				finding = fmt.Sprintf("- %s: image of %s main `%s` published %s ago, release: %s",
 					x.service, x.repo, run.HeadSHA, now.Sub(published).Round(time.Minute), released)
 			}
 		}
 	}
-	return report(x, finding), nil
+	return append(report(x, unread), report(x, finding)...), nil
 }
 
 // report turns a held service's finding into a log line.
