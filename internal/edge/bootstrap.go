@@ -164,6 +164,7 @@ func (e *Edge) Bootstrap(ctx context.Context, action string, j rolloutmaintenanc
 			case <-time.After(time.Millisecond):
 			}
 		}
+		r.endTunnels(j.Owner)
 		r.transport.CloseIdleConnections()
 		e.bootstrapBarrier.id = j.ID
 		e.bootstrapBarrier.release = func() { r.ingress.Unlock(); r.changing.Unlock(); r.holding.Store(false) }

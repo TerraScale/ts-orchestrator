@@ -22,6 +22,11 @@ import (
 const peerCredentialHeader = "X-TerraBase-Peer-Credential"
 const forwardedClientHeader = "X-TerraBase-Forwarded-For"
 
+type regionalTunnel struct {
+	node   string
+	cancel context.CancelFunc
+}
+
 type regionalRouter struct {
 	nodes atomic.Pointer[func() []mesh.WorkerPeer]
 	// Requests retain a read lease until their response body finishes. The write
@@ -36,6 +41,8 @@ type regionalRouter struct {
 	requests  chan struct{}
 	waiting   atomic.Int64
 	recovery  chan struct{}
+	tunnelMu  sync.Mutex
+	tunnels   map[*regionalTunnel]struct{}
 }
 type regionalStatus struct {
 	Node   string `json:"node"`
@@ -54,7 +61,8 @@ func (e *Edge) SetRegionalNodes(nodes func() []mesh.WorkerPeer) {
 	transport.ResponseHeaderTimeout = 60 * time.Second
 	router := e.regional.Load()
 	if router == nil {
-		candidate := &regionalRouter{transport: transport, requests: make(chan struct{}, 1024), recovery: make(chan struct{}, 2)}
+		candidate := &regionalRouter{transport: transport, requests: make(chan struct{}, 1024), recovery: make(chan struct{}, 2),
+			tunnels: map[*regionalTunnel]struct{}{}}
 		candidate.nodes.Store(&nodes)
 		if e.regional.CompareAndSwap(nil, candidate) {
 			return
@@ -132,6 +140,28 @@ func (b *regionalBody) Read(p []byte) (int, error) {
 	return n, err
 }
 func (b *regionalBody) Close() error { err := b.ReadCloser.Close(); b.once.Do(b.release); return err }
+
+func (r *regionalRouter) openTunnel(t *regionalTunnel) {
+	r.tunnelMu.Lock()
+	defer r.tunnelMu.Unlock()
+	r.tunnels[t] = struct{}{}
+}
+
+func (r *regionalRouter) closeTunnel(t *regionalTunnel) {
+	r.tunnelMu.Lock()
+	defer r.tunnelMu.Unlock()
+	delete(r.tunnels, t)
+}
+
+func (r *regionalRouter) endTunnels(node string) {
+	r.tunnelMu.Lock()
+	defer r.tunnelMu.Unlock()
+	for t := range r.tunnels {
+		if t.node == node {
+			t.cancel()
+		}
+	}
+}
 
 func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Response, error) {
 	if e.bootstrapErr != nil {
@@ -217,7 +247,23 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		release()
 		return nil, errors.New("TerraBase peer credential unavailable")
 	}
-	out := request.Clone(request.Context())
+	ctx := request.Context()
+	var transport http.RoundTripper = router.transport
+	tunnel := &regionalTunnel{node: peer.Node}
+	switch {
+	case isExtendedConnect(request):
+		transport = tunnelTransport{dial: router.transport.DialContext}
+	case request.Header.Get("Upgrade") != "":
+		transport = upgradeTunnel{tunnelTransport{dial: router.transport.DialContext}}
+	default:
+		tunnel = nil
+	}
+	if tunnel != nil {
+		ctx, tunnel.cancel = context.WithCancel(ctx)
+		router.openTunnel(tunnel)
+		context.AfterFunc(ctx, func() { router.closeTunnel(tunnel) })
+	}
+	out := request.Clone(ctx)
 	out.URL.Host = net.JoinHostPort(peer.Address, "8081")
 	out.URL.Scheme = "http"
 	out.Header.Set(peerCredentialHeader, string(*key))
@@ -230,22 +276,12 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		}
 		out.Header.Set(forwardedClientHeader, host)
 	}
-	var transport http.RoundTripper = router.transport
-	tunnel := true
-	switch {
-	case isExtendedConnect(out):
-		transport = tunnelTransport{dial: router.transport.DialContext}
-	case out.Header.Get("Upgrade") != "":
-		transport = upgradeTunnel{tunnelTransport{dial: router.transport.DialContext}}
-	default:
-		tunnel = false
-	}
 	response, err := transport.RoundTrip(out)
 	if err != nil {
 		release()
 		return nil, err
 	}
-	if tunnel && (response.StatusCode == http.StatusSwitchingProtocols || response.StatusCode/100 == 2) {
+	if tunnel != nil && (response.StatusCode == http.StatusSwitchingProtocols || response.StatusCode/100 == 2) {
 		release()
 		return response, nil
 	}
@@ -300,6 +336,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 		case <-time.After(time.Millisecond):
 		}
 	}
+	router.endTunnels(node)
 	held := true
 	releaseIngress := func() {
 		if held {
