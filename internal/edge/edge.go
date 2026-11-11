@@ -1,10 +1,3 @@
-// Package edge terminates public HTTPS on this host. It obtains certificates
-// from Let's Encrypt with ACME HTTP-01 and proxies each hostname to the
-// loopback port of the service that claims it. HTTP/1.1, websocket and SSE
-// reach the backend over HTTP/1.1; gRPC reaches it over cleartext HTTP/2.
-// A backend answer asking for a replay goes to the nearest region it names
-// (replay.go). Postgres clients reach a service's loopback Postgres port over
-// TLS on :5432 (postgres.go). TerraBase wire uses TLS on :7464 (wire.go).
 package edge
 
 import (

@@ -40,7 +40,8 @@ serialization conflicts and a busy tenant, not a 502.
   on, so TerraBase can still answer after it. The session ends when TerraBase
   ends its side, when either side resets, or when the client goes away.
   TerraBase must answer the CONNECT within 60 s.
-- HTTP/1.1 Upgrade is refused, as TerraBase's internal listener is h2-only.
+- HTTP/1.1, and with it an HTTP/1.1 Upgrade, is refused (the connection is
+  reset): like TerraBase's internal listener, this server speaks only h2c.
 
 Go 1.27 turns on extended CONNECT in `net/http` only through
 `GODEBUG=http2xconnect=1`, which it reads once at start. The binary sets it
@@ -48,13 +49,30 @@ itself: `internal/edge/extendedconnect` is initialized before `net/http` and
 the edge package removes the variable again, so child processes do not inherit
 it. Every HTTP/2 server in ts-orch therefore advertises extended CONNECT,
 public :443 included, and browsers then open WebSockets over HTTP/2 there. The
-edge turns such a request into the HTTP/1.1 Upgrade that the backend already
-serves (`internal/edge/upgrade.go`: a fresh `Sec-WebSocket-Key`, and
-`Upgrade`, `Connection` and `Sec-WebSocket-Accept` dropped from the answer)
-and relays the stream with the same routing, identity and security headers as
-an HTTP/1.1 WebSocket. Only a `101 Switching Protocols` from the backend opens
+edge turns such a request into an HTTP/1.1 Upgrade request
+(`internal/edge/upgrade.go`: a fresh `Sec-WebSocket-Key`, and `Upgrade`,
+`Connection` and `Sec-WebSocket-Accept` dropped from the answer) and relays
+the stream with the same routing, identity and security headers as an
+HTTP/1.1 WebSocket. Only a `101 Switching Protocols` from the backend opens
 the stream; any other 2xx (an SPA catch-all answering 200 with HTML) is sent
 as 502, because under RFC 8441 a 2xx tells the browser the WebSocket is open.
+
+A backend on a loopback port (a customer app, NetBird) gets that HTTP/1.1
+Upgrade on its port. TerraBase's public route (port 8080) does not: once the
+mesh runs, `regionalRoundTrip` (`internal/edge/regional.go`) sends every
+request for it to the region's fenced writer, on that node's internal
+listener over h2c, and HTTP/2 has no Upgrade. So an Upgrade for TerraBase,
+whether the client sent it over HTTP/1.1 or as RFC 8441, goes there as an
+extended CONNECT stream on a dedicated connection (`upgradeTunnel`), with the
+request's headers except `Sec-WebSocket-Key` and the hop-by-hop ones.
+TerraBase's 2xx reaches an HTTP/1.1 client as `101 Switching Protocols` with
+the `Sec-WebSocket-Accept` of its key, and an RFC 8441 client as the 200 of
+the adapter above; any other answer passes through as TerraBase's answer. The
+open socket keeps its regional ingress lease until it closes, like any
+regional request, so a regional drain waits for it. An Upgrade never fails
+over to another region (`failover` in `internal/edge/replay.go` skips it):
+while a stop-first service on a loopback port is replaced, it waits up to
+20 s for the new task, then gets 502.
 
 `GODEBUG=http2xconnect=0` in the service environment turns extended CONNECT
 off: the binary leaves any `http2xconnect=` value the operator set. Then no
