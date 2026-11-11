@@ -28,8 +28,7 @@ instructions. Removing runtime guards and completing automatic NetBird admission
 region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
 authorization, quorum, residency and destructive-operation safeguards still apply.
 
-Status: **implemented in source and tested locally with fake OCI Vault,
-the real TerraBase release and fake replicas; not run on OCI.** ts-auth (repository
+ts-auth (repository
 `TerraScale/ts-auth`, C# .NET 10) runs as a native single-file workload of
 role `ts-auth` on the gru-1 controllers and is served publicly at
 `https://gru.auth.terrascale.tech` through the OCI L7 load balancer `gru-1-api`
@@ -329,8 +328,8 @@ backend set over plain HTTP. These are the values it consumes,
 The controller without a replica, and a replica whose TerraBase is
 unreachable, fail the health check and get no traffic. The cell plan admits
 the load balancer: `network_security.nsg_rules` (controller NSG) has TCP 8080
-from `10.251.0.128/26`, and the plan validator accepts the public API subnet
-on the controllers for exactly that port (`TestPublicSubnetReachesControllersOnlyOnTSAuthPort`).
+from `10.251.0.128/26`, which the plan validator accepts as the ts-auth backend
+rule (`tsAuthBackendRule` in `internal/ociregion/plan.go`).
 TS-486 adds the public security list egress to `10.251.0.0/25` TCP 8080.
 Cloudflare closes a request after 100 s and the load balancer idles out after
 120 s, so no ts-auth request may hold a connection longer than 100 s.
