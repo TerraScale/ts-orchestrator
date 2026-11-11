@@ -151,6 +151,8 @@ type tunnelConn struct {
 	*io.PipeWriter
 }
 
+func (c tunnelConn) CloseWrite() error { return c.PipeWriter.Close() }
+
 func (c tunnelConn) Close() error {
 	_ = c.PipeWriter.Close()
 	return c.ReadCloser.Close()
