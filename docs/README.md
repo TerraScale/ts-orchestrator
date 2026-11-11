@@ -12,7 +12,7 @@ These pages describe the current greenfield Go implementation.
 | [Entity IDs](entity-ids.md) | Canonical ULIDs, operational keys, and the TS-754 clean-reset contract |
 | [Architecture and boundaries](architecture.md) | Regional NATS, authority, host delivery, OCI scope, and current limits |
 | [Unified CLI](cli.md) | Prefer Go `ts-orch` commands for operational tooling; bootstrap/release migration and remaining scripts |
-| [Contributing](../CONTRIBUTING.md) | CLI-first Go feature development, automation boundaries, and verification |
+| [Contributing](../AGENTS.md) | CLI-first Go feature development, automation boundaries, and verification |
 | [Global dashboard view](dashboard/global-view.md) | TS-805 design: per-region rollups pushed every 5 s, in-memory global view with last-known KV, overview and drill-down pages, 20-region budget |
 | [OCI cost](oci-cost.md) | TS-807 design: hourly per-region spend from the OCI Usage API, one forecast for the dashboard and the budget gate, cost tags |
 | [Region registry and cross-region subjects](region-registry.md) | v1 interface for features spanning regions: heartbeat, roster, cross-region subjects, role grants, 20-region fan-out |
@@ -34,7 +34,6 @@ These pages describe the current greenfield Go implementation.
 | [Self-healing and automatic maintenance](self-healing.md) | TS-568 design and slices: credential expiry watch, `ts-orch doctor`, renewal, host repair, OS patching, drift and SLOs |
 | [Decision journal](decision-journal.md) | Recording decisions (call pattern for every slice), metric history, insights, summaries and the region view |
 | [Capacity](capacity.md) | TS-804 design: 3 to 12 nodes per region on load, the dashboard budget cap, and regions added or removed by one explicit call |
-| [Workspace GOAL](../../GOAL.md) | Current cross-repository delivery authority and status |
 | [Shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md) | Gate index, formal count, live preview entries and current handoff; one evidence file per gate in [`evidence/gates/`](evidence/gates/) and per pipeline lane in [`evidence/pipeline/`](evidence/pipeline/) |
 | [Qualification status 2026-09-26](qualification-status-20260926.md) | Dated migration and qualification snapshot; not the current gate ledger |
 | [Production readiness checkpoint](production-readiness.md) | Checkpoint status and open areas |

@@ -22,7 +22,7 @@ is written by the home's global leader and mirrored to every region. It
 replaces `internal/cellscale` (deleted), the signed region approvals
 (deleted), `internal/hostpool`, the `autoscale.node_pools` and
 `region_planner` controller settings and the cell spec `budget`; the rest
-are deleted in the last slice ([autoscaling](autoscaling.md) describes
+are deleted in the last slice (autoscaling.md described
 them).
 
 ## Who decides what

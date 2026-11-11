@@ -109,34 +109,20 @@ replicas can bias fractions; no-data is never evidence of health.
 
 ## Validate and enable in a follow-up slice
 
-1. Run the evaluations with the pinned Prometheus 3.15.0 `promtool` (archive
-   SHA-256 is pinned in [the workflow](../../.github/workflows/slo.yml)):
-
-   ```sh
-   TS_SLO_PROMTOOL=/absolute/path/to/promtool GOMAXPROCS=2 GOFLAGS=-p=2 \
-     nice -n 19 mise exec -- go test ./tests/slo -count=1
-   ```
-
-2. Verify service-owned instrumentation and all serving targets before loading
+1. Verify service-owned instrumentation and all serving targets before loading
    rules. Confirm both zero-initialized outcomes, exclusions, replica identity,
    resets, streaming errors and loss of a target. Record the actual backend,
    storage decision and scrape inventory. Do not touch ts-ops/homelab
    hosts or re-found serving cells for this work.
-3. Load `slo-rules.yml` using the existing Prometheus backend's `rule_files`,
+2. Load `slo-rules.yml` using the existing Prometheus backend's `rule_files`,
    retaining at least 30 days. Verify its rules API reports no evaluation errors
    and each service has both outcome counters. No backend target is specified
    or mutated by this slice.
-4. Import [slo-dashboard.json](slo-dashboard.json) in Grafana and select the
+3. Import [slo-dashboard.json](slo-dashboard.json) in Grafana and select the
    Prometheus datasource. It shows objective, measured availability, remaining
    budget, requests, windowed burn rates and firing alerts. Confirm missing
    metrics display no data and never a green/100% default.
-5. Observe real traffic and a controlled fixture failure; verify paired-window
+4. Observe real traffic and a controlled fixture failure; verify paired-window
    firing and recovery. Record evidence before declaring coverage active.
    Remove the rule-file entry and imported dashboard to revert the policy
    assets; service telemetry remains useful independently.
-
-`tests/slo` evaluates the shipped rules with Prometheus itself: all three
-services, sustained burn, recovery, isolated short-window spikes, independent
-counter resets, request weighting, zero traffic and missing outcomes. The SLO
-workflow runs these checks on every change to the assets or tests; regular Go
-verification also checks the dashboard JSON without a Prometheus installation.

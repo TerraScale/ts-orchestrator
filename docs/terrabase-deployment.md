@@ -391,12 +391,7 @@ Inputs, outside Git except where named:
    the block volume grows. Retired volumes remain retained and are never
    reused for a new node-name incarnation. Deletion or detachment requires
    a separate explicit action.
-8. **Read-only host check.** Take the peer list from the log line of
-   `TS_OCI_LIVE_COMPARTMENT_ID=<gru-1-workload OCID> go test -count=1 -v -run '^TestLiveOCITerraBaseHostsReadOnly$' ./internal/terrabase`
-   and confirm it equals the profile's `TERRABASE_PEERS`. It fails when a
-   host is not A1, two hosts share a fault domain, an NSG keeps a member
-   from another member's peer port, or no A1 core is left in the region.
-9. **TerraBase release — LIVE (rollout).** `$A terrabase` downloads
+8. **TerraBase release — LIVE (rollout).** `$A terrabase` downloads
    `terrabase-linux-arm64` and `.sha256` for the configured tag into
    `terrabase/<tag>/` of the attempt directory, verifies them in-process
    (name, ELF64 aarch64, size, digest), checks the commit in a TerraBase
@@ -406,7 +401,7 @@ Inputs, outside Git except where named:
    terrabase-release --config /var/lib/terrascale-operator/operator.json
    --binary … --sha256 … --source-checkout … --commit <commit> --environment
    canary --profile <terrabase_profile> --wait 10m` as described in [Run](#run).
-10. **Verify.** The release prints `{"step":"ready", ...}` with two
+9. **Verify.** The release prints `{"step":"ready", ...}` with two
     members, and `operator hosts` shows a `terrabase` report `running` with
     the new digest on `gru-1-db-1` and `gru-1-db-2`. Capture the evidence in
     `docs/evidence`. `running` proves process liveness only; replication
@@ -469,14 +464,6 @@ touches the member, its volume or its host.
 TerraBase `origin/main` `807ad714` serves `/readyz` on the client listener
 (`ReadyzEndpoint.cs`, TS-483). It is the default readiness path for the
 drill. The document read remains the restore proof.
-
-## Qualification
-
-Unit and real-binary tests are listed in the
-[runtime contract](terrabase-runtime-contract.md#qualification).
-`make terrabase-release-process TERRABASE_BINARY=<path>` runs the real-binary
-deploy, upgrade and rollback test against an in-process controller and host
-agent. Nothing in this workflow has run on OCI.
 
 ## Retired terrabase-rust managed path
 

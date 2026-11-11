@@ -9,7 +9,7 @@ authorization, quorum, residency and destructive-operation safeguards still appl
 
 ## Current workspace delivery scope
 
-The [workspace GOAL](../../GOAL.md) is the current delivery authority and
+The workspace GOAL is the current delivery authority and
 supersedes earlier plan-only and AMD-only restrictions in this dated plan.
 Current Go orchestration work belongs to `ts-orchestrator`; TerraBase is the
 database service. The former `ts-deploy`-era guidance is historical. See the
@@ -99,7 +99,7 @@ the findings below. `AGENTS.md` is human-owned and is not an
 implementation target.
 
 Qualification results are revision- and scope-specific. The broad Go
-suite/vet check recorded Go 1.27.1, `go test -count=1 ./...`, and `go vet ./...`
+suite/vet check recorded Go 1.27.1, the full Go test suite and `go vet ./...`
 passing on its frozen pre-founder snapshot: archive base `93ca72c6` plus 13
 overlays whose hashes match every tracked path changed through the preceding
 `4c284550` enrollment checkpoint. It excludes untracked files and the nested
@@ -667,7 +667,7 @@ are tracked separately in the [shared-goal acceptance ledger](evidence/shared-go
 ## Production-readiness follow-on
 
 The API-first preview sequence and M0/M1 exit criteria are defined in the
-[workspace GOAL](../../GOAL.md#5-delivery-sequence) and tracked in the
+workspace GOAL and tracked in the
 [shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
 After that milestone, close the production gates above: signed release and
 pinned-image qualification, host enrollment and runtime recovery, durable

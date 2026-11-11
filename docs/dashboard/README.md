@@ -209,16 +209,6 @@ Every page carries the time range (`range=15m|1h|6h|24h`), the selected
 region (`r=`) and the live toggle (`live=0`) in its URL. Ctrl/⌘+K or `/`
 opens the command palette.
 
-## Dashboard fixtures
-
-```sh
-nice -n 19 mise exec -- go test ./internal/dashboard/devfake
-```
-
-The moving three-region fixtures (GRU, SJC, FRA) drive the real history sampler,
-insight engine, region provider and summarizer in tests. All fixture sources
-live in `_test.go` files; executable builds cannot import them.
-
 ## Screenshots
 
 Historical screenshots of fixture data, taken with headless Chromium.

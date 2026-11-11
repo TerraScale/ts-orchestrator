@@ -3,36 +3,52 @@
 ## Current GitHub workflow
 
 Use the public [GitHub repository](https://github.com/TerraScale/ts-orchestrator)
-and the [contribution workflow](../CONTRIBUTING.md#github-workflow): ready-for-review
+and the [contribution workflow](../AGENTS.md#shipping-code): ready-for-review
 PRs, CI as the gate, a rebase on current main and green checks on the latest
-head. Local tests are optional before push. Fix and answer review findings;
+head. Local checks are optional before push. Fix and answer review findings;
 no review approval or named reviewer request is required. Use the T3 PR
 watcher while checks run.
 
-All CI runs on GitHub-hosted runners. The active
-[`ci.yml`](../.github/workflows/ci.yml) checks affected packages for PRs,
-then the repository's required merge queue verifies full coverage against
-current main. Queue entries also run
-[`e2e-m1.yml`](../.github/workflows/e2e-m1.yml) on GitHub-hosted ARM64.
-`gh pr merge --auto --squash` enters that queue; it cannot bypass its checks.
-New PR pushes cancel older PR runs. A main run finishes so publication and
-delivery retain their provenance.
+All CI runs on GitHub-hosted runners in one workflow,
+[`ci.yml`](../.github/workflows/ci.yml) (`CI`). A pull request runs two jobs in
+parallel: `lint` (`make lint`, `make release-check` for both release binaries
+and the dependency audit) and `e2e-m1`, the single-host E2E
+(`test/e2e/m1/run.sh`) on a disposable GitHub-hosted ARM64 runner. The last
+job, `all-green`, is the one required check; it fails when any job failed or
+was cancelled. `gh pr merge --auto --squash` merges once it passes; the branch
+need not be up to date with main. New PR pushes cancel older PR runs. On main,
+a newer push cancels an older run's `verify/go + artifact/linux-amd64-arm64`
+and `e2e-m1` jobs while they run or wait, so that run skips
+`deploy/release-push` and fails `all-green`; the newer run's commit carries
+both changes. `deploy/release-push` jobs share the `production-ts-orch` lock
+and never cancel a running rollout.
 
-After merge, `ci.yml` compares executable inputs with the last retained
-qualification. Changed inputs build static amd64/arm64 binaries, verify their
-source metadata and publish the binaries plus `qualification.json` on the
-GitHub release `ci-<sha>-run-<id>`. Documentation-only changes do not publish
-binaries or deploy. Scheduled/manual verification and develop pushes run the
-full test tier. Use `gh run view` for individual run details and
-`gh release view` or `gh release download` for retained artifacts.
+Every main push runs `e2e-m1` again on the merged tree, beside the
+`verify/go + artifact/linux-amd64-arm64` job. That job compares the push's
+executable inputs with the newest retained `ci-*` release in its history:
+different inputs publish, and the same inputs skip publication and
+`deploy/release-push` when that release's run succeeded; a release whose run
+did not succeed is passed over for the next older one. Publishing builds static
+amd64/arm64 binaries, verifies their source metadata and publishes the binaries
+plus `qualification.json` on the GitHub release `ci-<sha>-run-<id>`. Use
+`gh run view` for individual run details and `gh release view` or
+`gh release download` for retained artifacts.
 
-The main-only `deploy/release-push` job downloads that run's retained binaries
+The main-only `deploy/release-push` job runs only after both jobs passed. It
+downloads that run's retained binaries
 and calls `ts-orch release push` for the regions in
 [`deploy/m1/regions.json`](../deploy/m1/regions.json). GitHub OIDC is the push
 credential; workflow identity and permissions authorize the release listener.
 The job fails if any target region does not report the release serving and
 retains its JSONL result and timings. Runtime credentials remain managed by
-OCI Vault. This documentation change performs no live rollout.
+OCI Vault.
+
+If `e2e-m1` fails or is cancelled after the build published, the run leaves its
+public `ci-<sha>-run-<id>` prerelease behind, skips `deploy/release-push` and
+fails `all-green`, so nothing reaches the regions. The comparison above passes
+over that release, so the next push to main publishes and rolls out again
+whatever it changes, documentation included, unless a successful run already
+published the same executable inputs.
 
 App image workflows in the public
 [TerraScale monorepo](https://github.com/TerraScale/terrascale) release through
@@ -76,7 +92,7 @@ operator paths, not evidence of automatic image publication or serving readiness
 
 `scripts/ci/pin-terrabase.sh` can open a data-only GitHub PR for an existing
 qualified standalone release. It uses `gh`, the GitHub Actions commit identity
-and the repository's merge queue. It needs scoped cross-repository write
+and auto-merge (`gh pr merge --auto --squash`). It needs scoped cross-repository write
 authority when invoked from another repository; `GITHUB_TOKEN` only grants
 its own repository's permissions. Public source and release reads need no
 operator-managed source-host token. Production credentials are created and

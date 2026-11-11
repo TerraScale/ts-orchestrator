@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Check that every committed *_templ.go file is exactly what the pinned templ
-# generator (the go.mod tool directive) produces from its .templ source, and
-# that the sources are templ-formatted. Generation runs on a scratch copy so
-# this check never rewrites the tree while other ci-verify jobs compile it.
 set -euo pipefail
 
 # GO may be a command with arguments, such as "mise exec -- go".

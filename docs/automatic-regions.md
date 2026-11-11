@@ -97,7 +97,7 @@ existing signed publication alone does not establish automatic region admission.
 `internal/natscell/interregion.go` validates explicit signed peer/topology and
 account material; generating and reconciling both ends automatically remains
 work. Preserve its scope and tree validation. NetBird/Vault bootstrap gaps are
-tracked in [REFACTOR.md](../REFACTOR.md) and [Atlas](atlas.md).
+tracked in REFACTOR.md and [Atlas](atlas.md).
 
 Reuse the existing feature packages and one operation/membership authority.
 Replace manual inputs in the target path; do not add activation flags, alternate
@@ -118,6 +118,6 @@ provisioners or a second source of regional truth.
    automatically when dependencies return without re-founding existing clusters.
 5. Prove six directed regional request/replies and a real signed rollout,
    record stage timings/resource usage and show corresponding CLI/dashboard
-   state. Publish redacted evidence under `benchmark/bench/`.
+   state. Publish redacted evidence.
 
 No infrastructure, IAM, credentials or paid resources are changed by this plan.

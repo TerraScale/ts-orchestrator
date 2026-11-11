@@ -47,9 +47,7 @@ TerraBase CI builds only `linux-x64` and publishes only
 publish `terrabase-linux-arm64` and `terrabase-linux-arm64.sha256`
 (TerraBase TS-483). The orchestrator side is ready: `operator
 terrabase-release` and the attempt's `terrabase` phase consume the arm64
-asset, tested with the checked-in stand-in
-`internal/terrabase/testdata/terrabase-linux-arm64` (a bare aarch64 ELF
-header) and its `.sha256` until TerraBase publishes the real asset.
+asset.
 
 `terrabase.VerifyRelease` checks that the file is named
 `terrabase-linux-amd64` or `terrabase-linux-arm64`, starts with an ELF64
@@ -520,120 +518,6 @@ to 45 s for its cgroup to empty, then kills the cgroup. The host unit's
 `TimeoutStopSec=90s` leaves room for it. Session loss, agent shutdown and
 agent restart recovery still kill the cgroup at once: workloads must stop before the host lease
 reserve runs out. The drain is not a durable drain receipt.
-
-## Qualification
-
-T0 unit tests in [`internal/terrabase`](../internal/terrabase) cover profile
-and peer parsing, the host-owned environment, release verification, CA and
-member certificate issue and renewal checks, and the health probe.
-`TestTerraBaseReleaseGateWithFakeMember` (`internal/app`, T0) runs
-`operator terrabase-release` against an in-process controller and host agent
-with an in-process stand-in for the binary that serves `/healthz` only when
-the host prepared its data directory and a member certificate chaining to
-the cell CA: deploy, upgrade, and a release that crashes after start, which
-fails the gate at once and is rolled back in place.
-`TestTerraBasePlacementKeepsMembersOnListedHosts` checks that members are
-placed only on listed hosts and replaced in place. In `internal/host`,
-`TestTerraBaseMemberRestartsBeforeLoadedCertificateExpires` (against a TLS
-listener serving the renewed or the expiring certificate),
-`TestTerraBaseExitReportedOnceBeforeRelaunch`,
-`TestTerraBasePeerCertificateFollowsCurrentRegistration`,
-`TestTerraBaseRootMustBeSeparate` and `TestTerraBaseMemberRefusesArguments`
-cover the certificate restart, exit reporting, certificate signing against
-the current registration, root validation and argument refusal. In
-`internal/app`, `TestTerraBaseReleaseStateRules`,
-`TestTerraBaseProfileRejectsArguments` and the broken-stdout step of the
-fake-member test cover the gate's state rules, profile arguments and
-output errors. `TestNativeDrainSendsTermBeforeKill`
-(`internal/host`) checks the cgroup runner's SIGTERM drain and its kill after
-the timeout; like the other native runner tests it needs root and a
-delegated cgroup and skips otherwise.
-
-The data volume has fake-OCI and pure-function T0 tests; none ran on OCI.
-In `internal/oci`, `TestMemberVolumeCreatesAndAttachesOnceIdempotently`,
-`TestMemberVolumeLostCreateResponseReplaysOneVolume`,
-`TestMemberVolumeReattachesSameVolumeAfterHostReplacement`,
-`TestMemberVolumeRefusesToStealLiveAttachment`,
-`TestMemberVolumeFailsClosedOnTerminatedVolume`,
-`TestMemberVolumeRejectsInstancesAndNamesOutsideTheMember`,
-`TestMemberVolumeHoldsWhenDeviceIsBusy`,
-`TestMemberVolumeResizeGrowsOnlyUnderETag`,
-`TestMemberVolumeDuplicateCreateKeyHolds`,
-`TestMemberVolumeRecordedVolumeIsNeverRecreated`,
-`TestMemberVolumeCarriesTheCellBackupPolicy` and
-`TestMemberVolumeRestoreDrill`. In `internal/terrabase`,
-`TestDataVolumeDryRunSizesFromThePlan`,
-`TestDataVolumeRejectsUnplannedMembersAndAmbiguousFlags`,
-`TestRestoreVolumeDryRunMakesNoOCICall`,
-`TestRestoreCheckPlanWithoutApply`, `TestRestoreCheckRejectsBadFlags`,
-`TestRestoreCheckEnvHasOnlyHostPathsAndNoPeers`,
-`TestVerifyRestoreReadsTheDocumentWithAReadOnlyKey` and
-`TestRestoreCheckRefusesLiveDevices`,
-`TestRestoreCheckRunsOnlyOnTheVerifiedScratchInstance`; in `internal/storage/hostvolume`,
-`TestBlockDeviceMountedMatchesExactDevice`. In
-`internal/host` (Linux), `TestTerraBaseDataVolumeNeverFormatsExistingData`,
-`TestTerraBaseDataVolumeFstab`, `TestTerraBaseDataVolumeWriteFstab`,
-`TestTerraBaseDataVolumeEmptyMountTarget`,
-`TestTerraBaseDataVolumeFilesystemUUID`,
-`TestTerraBaseDataVolumeExchangeFraming`,
-`TestTerraBaseDataVolumeAgentFailsClosed`,
-`TestTerraBaseDataVolumeNeedsTerraBaseRoot`,
-`TestTerraBaseDataVolumeFirstFormatIsGrantedOnce`,
-`TestTerraBaseDataVolumeFormatGrantVerification`,
-`TestTerraBaseDataVolumeAsksForGrantOnlyWhenBlank`,
-`TestTerraBaseDataVolumeEffectsFormatOnlyWithAnUnspentGrant`,
-`TestTerraBaseDataVolumeAdoptedFilesystemIsRecorded`,
-`TestTerraBaseDataVolumeLossStopsTheRunningMember`,
-`TestTerraBaseDataVolumeFilesystemSwapIsRefused`,
-`TestTerraBaseDataVolumeFenceStopsBeforeRepair`,
-`TestTerraBaseDataVolumeReadsTheSuperblockUUID`,
-`TestTerraBaseDataVolumeFenceFailsClosed`,
-`TestTerraBaseDataVolumeLostDuringMaintenanceStopsTheMember`,
-`TestEnsureOwnedDirWithoutFowner` and
-`TestTerraBaseDataVolumeRootWithInitializerCapabilities`. The last two run
-with exactly the host agent's and the initializer unit's capabilities, the
-second also taking back a workload-owned mount point; they need root and
-skip otherwise, and passed as root locally, as did the root-only part of
-`TestTerraBaseDataVolumeEmptyMountTarget`.
-
-Two T2 tests run the real binary. They skip unless `TS_TERRABASE_BINARY`
-names a `terrabase-linux-<arch>` asset with its `.sha256` file beside it:
-
-- `TestTerraBaseBinaryPeerMesh` (`internal/terrabase`): three members on
-  local ports, configured only through the host's environment contract. The
-  mutual-TLS mesh accepts orchestrator-issued peer certificates and rejects
-  foreign-CA and certificate-less clients; SIGTERM drains and exits 0.
-- `TestTerraBaseReleaseDeployUpgradeRollback` (`internal/app`): an
-  in-process controller and host agent with the real binary: deploy,
-  readiness, upgrade to a second digest, and a broken release rolled back
-  automatically.
-
-Run them with `make terrabase-release-process TERRABASE_BINARY=<path>`, or
-as the `terrabase-binary` and `terrabase-release` suites of
-`scripts/ci/qualify-image.sh`. Both passed locally against the linux-amd64
-asset of `ci-641274f7482bcf0ce2ae556af8be162d49e445be-run-13121`: the mesh
-members answered `Replication/Sync` with gRPC status 12 (`Unimplemented`)
-over mutual TLS, which shows the call reached the service.
-
-`TestLiveOCITerraBaseHostsReadOnly` (`internal/terrabase`) is an opt-in,
-read-only check against the real OCI API through the shared client factory
-and the operator's `~/.oci/config` DEFAULT profile. With
-`TS_OCI_LIVE_COMPARTMENT_ID` set (optional `TS_OCI_LIVE_REGION`,
-`TS_OCI_LIVE_HOST_PREFIX`, default `gru-1-db-`, and `TS_OCI_LIVE_PEER_PORT`,
-default 9443) it checks that the region offers `VM.Standard.A1.Flex`
-(Ampere, 1 OCPU, 6 GB per OCPU), that A1 cores are left, and that an Ubuntu
-ARM64 image fits A1. For the running hosts of the prefix it checks the A1
-shape, distinct fault domains and that every member's NSGs let the others
-reach the peer port, and logs the `TERRABASE_PEERS` value their primary
-private IPs give. It only lists and gets. On 2026-10-04 it passed for
-`sa-saopaulo-1` (A1 offered, 248 A1 cores available, 17 Ubuntu A1 images;
-GRU had no TerraBase hosts during its rebuild), and its host path read the
-VNIC and private IP of the running `ts-ops` A1 instance.
-
-Not tested: any live OCI host running a member, ARM64, the cgroup process runner as root with
-the real binary (its drain is covered by a root-only runner test), a real
-OCI data volume attach, format, mount and resize, a real backup restore
-drill, and real replication, which the binary does not implement yet.
 
 ## Retired terrabase-rust managed path
 

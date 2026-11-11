@@ -11,7 +11,7 @@ boundary, and remaining gates.
 
 | Area | Verified at the stated scope | Still open |
 | --- | --- | --- |
-| Go verification | The Go 1.27.1 check recorded `go test -count=1 ./...` and `go vet ./...` passing for its frozen pre-founder snapshot. | The check predates the founder changes through `d5fc307`; it is not a full-suite or build qualification of this checkpoint. The nested `third_party/nats-server` module and ARM64 execution were not covered. |
+| Go verification | The Go 1.27.1 check recorded the full Go test suite and `go vet ./...` passing for its frozen pre-founder snapshot. | The check predates the founder changes through `d5fc307`; it is not a full-suite or build qualification of this checkpoint. The nested `third_party/nats-server` module and ARM64 execution were not covered. |
 | Embedded regional NATS | NATS server runs embedded in the Go process. The committed controller test covers three local controllers and controller loss. | That test supplies explicit routes; it does not demonstrate automatic region discovery, founder formation, or safe admission of new regional peers. |
 | Founder bootstrap | Signed plan verification, current signed selection reading, a durable selection rollback floor, and an offline-testable OCI launch adapter have focused package evidence at their respective source checkpoints. | At `d5fc307`, no production `internal/app` caller connects the current-selection reader to the OCI adapter. No seed was launched; cold-cell formation, handoff, and multi-region formation remain unqualified. |
 | OCI sizing and storage | The SDK launch request sets Flex OCPU and memory `ShapeConfig`; its unit test checks request and response round-trip. Termination requests preservation of boot and launch-created data volumes. | No E4 VM was launched or re-observed. The volume-create request sets size but not VPU performance, read-back omits that tier, and the provider has no volume-delete operation. Exact network inputs, retained-volume ownership, and an approved dollar ceiling are unresolved. |
@@ -33,7 +33,7 @@ baseline; that plan/ledger slice was later committed in
 `0cc6ed525ac523060e6a813033f7e609224bd795`. The founder-selection check ran
 package tests, a focused race run, and vet for the reader/floor files committed
 in `6eaf230e1b78de393910c1196e4df9df6cd75a1a`. The founder-oci check ran
-`go test ./internal/bootstrap ./internal/bootstrapstart`,
+the `internal/bootstrap` and `internal/bootstrapstart` package tests,
 `go vet ./internal/bootstrapstart`, and focused `TestFounderOCI` coverage for
 the adapter committed in `d5fc307`. These checks made no live OCI calls and
 created no resources. None substitutes for an application caller, full suite after the

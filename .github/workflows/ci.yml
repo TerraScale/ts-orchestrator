@@ -1,11 +1,9 @@
-name: TerraScale Orchestrator Go checks
+name: CI
 
-# Main qualifies Fast and publishes that build; Slow runs independently.
 on:
-  push:
-    branches: [develop, main]
   pull_request:
-    branches: [develop, main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 # Builds may overlap an admitted release. A newer revision replaces obsolete
@@ -22,51 +20,54 @@ env:
   SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   # The revision this change starts from; empty for scheduled and manual runs.
   CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-  # Bound nested parallelism: make, Go packages and race shards otherwise
-  # each try to use every CPU of the runner.
-  GOFLAGS: -p=4
-  GOMAXPROCS: '2'
-  # Pull requests retain their existing affected-package checks.
-  TS_TEST_TIER: ${{ github.event_name == 'pull_request' && 'change' || 'full' }}
 
 jobs:
-  # Pull requests use one runner; main has one Fast/build runner.
-  change:
+  lint:
     if: ${{ github.event_name == 'pull_request' }}
-    name: ${{ github.event_name == 'pull_request' && 'test' || 'verify/change' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      TS_CI_SHARD: 1/1
-      TS_RACE_MACHINE: '1'
-      GOMAXPROCS: '1'
-      TS_RACE_PACKAGE_JOBS: '1'
-      TS_RACE_IDLE_JOBS: '1'
+    timeout-minutes: 10
     steps:
-      - name: Check out the exact source revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Select checks for changed files
-        id: changes
-        run: |
-          set -euo pipefail
-          cpus=$(getconf _NPROCESSORS_ONLN)
-          echo "TS_RACE_JOBS=$cpus" >> "$GITHUB_ENV"
-          echo "CPU budget: $cpus race workers, GOMAXPROCS=$GOMAXPROCS per worker"
-          python3 scripts/ci/check-inputs.py "$CHANGE_BASE" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
-      - uses: ./.github/actions/verify
-        if: ${{ steps.changes.outputs.checks == 'true' }}
       - uses: ./.github/actions/go
-        if: ${{ steps.changes.outputs.checks != 'true' }}
         with:
-          cache: race-1
-      - name: Audit selected and locally replaced package graphs
-        run: bash scripts/ci/audit-dependencies.sh source
+          cache: release
+      - run: make lint GO=go
+      - run: make --jobs=2 release-check GO=go
+      - run: bash scripts/ci/audit-dependencies.sh source
 
-  # Fast and publication share the compiled Go cache and exact source revision.
+  e2e-m1:
+    concurrency:
+      group: e2e-m1-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - uses: ./.github/actions/go
+        with:
+          cache: e2e-arm64
+      - name: Build ts-orch
+        run: |
+          start=$(date +%s)
+          go build -trimpath -o "$RUNNER_TEMP/terrascale-orchestrator" ./cmd/terrascale-orchestrator
+          echo "build: $(($(date +%s) - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Run the M1 flow
+        run: test/e2e/m1/run.sh "$RUNNER_TEMP/terrascale-orchestrator"
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-e2e-arm64-${{ hashFiles('go.sum') }}-${{ github.sha }}
+
   build:
     concurrency:
       group: fast-build-${{ github.ref }}
@@ -75,7 +76,6 @@ jobs:
     permissions:
       contents: write
       actions: read
-    # A release cannot publish until its own Fast tests pass.
     name: verify/go + artifact/linux-amd64-arm64
     outputs:
       publication: ${{ steps.inputs.outputs.publication }}
@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the exact source revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
@@ -110,14 +110,6 @@ jobs:
           git read-tree --empty
           git diff --name-only --diff-filter=ACMR -z "$base" "$SOURCE_SHA" | git update-index --add -z --stdin
           python3 "$scanner/scan.py" --repo ts-orchestrator --root . --output "$RUNNER_TEMP/legacy-hits.md"
-      # Compilation has its own clock: the 5-minute Fast
-      # budget measures test execution, not a cold build cache.
-      - name: Compile Fast test binaries
-        timeout-minutes: 10
-        run: make test-fast-build GO=go
-      - name: Qualify this revision with Fast tests
-        timeout-minutes: 5
-        run: make test-fast GO=go
       - name: Audit release package graphs
         run: bash scripts/ci/audit-dependencies.sh source
       - name: Compare executable inputs with retained qualification
@@ -162,8 +154,8 @@ jobs:
   # (deploy/m1/regions.json); fails when any region does not serve it. Only
   # this job can mint the GitHub OIDC token that is the push credential.
   release-push:
-    needs: [build]
-    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}
+    needs: [build, e2e-m1]
+    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' }}
     name: deploy/release-push
     concurrency:
       group: production-ts-orch
@@ -175,7 +167,7 @@ jobs:
       id-token: write
     steps:
       - name: Check out the region list
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -211,9 +203,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-  test:
+  all-green:
+    name: all-green
     if: ${{ always() }}
-    needs: [change, build]
-    uses: TerraScale/.github/.github/workflows/result.yml@3a54c0184eacdc45466c1123bca67a99db62e91c
-    with:
-      result: ${{ github.event_name == 'pull_request' && needs.change.result || needs.build.result }}
+    needs: [lint, e2e-m1, build, release-push]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - run: test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false

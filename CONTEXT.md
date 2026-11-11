@@ -17,15 +17,8 @@ The preferred operational interface to the single Go executable. New
 deployment, provisioning, bootstrap, release, and inspection tooling belongs
 in Go subcommands in the relevant feature package, rather than Python scripts
 or separate tools. CI and thin shell wrappers call these commands.
-See [contributing](CONTRIBUTING.md) and
+See [contributing](AGENTS.md) and
 [CLI boundaries](docs/cli.md).
-
-**Go testing**
-
-All first-party tests use Go's standard `testing` package and `go test`.
-Keep test cases, fixtures and assertions in Go alongside each feature.
-Operational tools and qualification drivers are native Go APIs exposed
-through `ts-orch`; tests exercise those APIs or the CLI. Do not add Python test runners.
 
 ## Product and regional control
 
@@ -130,10 +123,12 @@ does not prove that CI independently reproduced the build.
 
 **Repository build**
 
-The GitHub workflow checks the exact source revision, runs Go tests, vet, race
-checks, and builds static Linux amd64 and arm64 binaries. The current runner
-prints checksums but does not retain downloadable artifacts or sign a
-production release.
+The GitHub workflow checks out the exact source revision, runs lint (with
+`go vet`) and the single-host E2E, and builds static Linux amd64 and arm64
+binaries, printing their checksums. A main push that publishes retains both
+binaries and a qualification manifest as the GitHub prerelease
+`ci-<sha>-run-<id>`, from which `deploy/release-push` delivers them; the
+workflow signs nothing.
 
 **Regional rollout**
 
@@ -153,7 +148,7 @@ a new operation identity and generation under the current epoch.
 
 **OCI provider**
 
-The provider seam behind regional control. Current tests use fakes; no live OCI
+The provider seam behind regional control. No live OCI
 account mutation, automatic regional first boot, or production capacity
 convergence has been qualified.
 
@@ -180,10 +175,7 @@ IP and accepts the owner's Ed25519 key, which controller A receives in OCI
 
 Evidence that the actual Go binary and its caller preserve authority,
 durability, host recovery, safe scale-in, and rollback behavior under the
-required failures. The app-level signed host-to-workload caller is tested with
-an in-memory runner. The separate four-VM Firecracker qualification is needed
-for guest execution and failure recovery. Passing package tests or a
-fake-provider test alone does not establish production readiness.
+required failures.
 
 ## Storage limits
 

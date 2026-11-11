@@ -102,10 +102,6 @@ func (a api) requestOnce(ctx context.Context, method, url, token string, input, 
 	return json.Unmarshal(wire, output)
 }
 
-// orch reports ts-orchestrator main commits older than lagLimit that no
-// deploy/release-push has delivered: walking from the newest commit, a
-// successful release-push delivers it and everything older; a skipped one
-// with a green test check had nothing to publish.
 func (a api) orch(ctx context.Context, now time.Time) ([]string, error) {
 	var commits []struct {
 		SHA    string `json:"sha"`
@@ -141,7 +137,7 @@ func (a api) orch(ctx context.Context, now time.Time) ([]string, error) {
 			break
 		}
 		if release == "skipped" {
-			if test, err := conclusion("test"); err != nil {
+			if test, err := conclusion("all-green"); err != nil {
 				return nil, err
 			} else if test == "success" {
 				continue

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Bind patched sources to reviewed upstream baselines and query their advisories."""
 import hashlib
+import http.client
 import json
-from pathlib import Path
 import subprocess
 import sys
 import urllib.request
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 # Resolve once: a vendored module's tool-manager files must not select a different Go.
@@ -19,13 +19,13 @@ BASELINES = (
         "github.com/moby/swarmkit/v2", "v2.1.2", "third_party/swarmkit",
         "12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb",
         "docs/evidence/core-runtime-contract.md",
-        "59c8645e1ebfe9a77e0ba83603f4234beb3e61669f63d0467148fb0d70c2fefc",
+        "5e7d6144cc81b999cb115db0c356c21aa5d4084f96db5cc1cbc86770520489e8",
     ),
     (
         "github.com/nats-io/nats-server/v2", "v2.15.0", "third_party/nats-server",
         "eb763679aa3c24a40dcd3012aa046ad1996d851c",
         "third_party/nats-server/README.terrascale.md",
-        "f7e2e198c286a7f2cb780583a5f2bca444179e8c27bc4e6eafade36132bce59c",
+        "d7d9c6169ecf6333805c7c21492fdd30b31ac13182c4cf9fc4c5f59185285575",
     ),
     (
         "github.com/oracle/oci-go-sdk/v65", "v65.126.0", "third_party/oci-go-sdk",
@@ -99,7 +99,7 @@ def audit(module, version):
         raise ValueError("malformed OSV response")
     findings = result.get("vulns", [])
     if not isinstance(findings, list):
-        raise ValueError("malformed OSV findings")
+        raise TypeError("malformed OSV findings")
     if findings:
         raise ValueError(f"upstream advisory findings: {module}@{version}; see complete response above")
 
@@ -117,7 +117,7 @@ def main():
     for module, version, *_ in BASELINES:
         try:
             audit(module, version)
-        except Exception as error:
+        except (OSError, ValueError, TypeError, http.client.HTTPException) as error:
             failures.append(f"{module}: {error}")
     if failures:
         raise ValueError("\n".join(failures))
@@ -126,5 +126,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as error:
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
         sys.exit(f"replacement advisory qualification failed: {error}")

@@ -157,7 +157,7 @@ and customer payloads at collection boundaries, with scope-appropriate access.
    history gaps and reconnect/resynchronization without false healthy values.
 5. Measure collector/controller memory/CPU, retained history and dashboard
    responsiveness on the smallest qualified A1 host. Add ARM/x86/Wasm coverage
-   as each runtime is admitted. Publish evidence under `benchmark/bench/`.
+   as each runtime is admitted. Publish the evidence.
 
 Local integration checks exercise the implemented source interfaces; retained
 results and remaining gaps are in [OBS evidence](evidence/obs-refactor-20261016.md).

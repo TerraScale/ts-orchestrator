@@ -1,7 +1,7 @@
 # Generic workloads
 
 Historical design; its native/podman drivers and custom scheduler are superseded
-by [the SwarmKit/containerd replacement](../REFACTOR.md). The unwired Machines
+by the SwarmKit/containerd replacement. The unwired Machines
 planner has been removed. The contracts below describe retained schema and
 original proposals, not a working generic deployment or qualified runtime.
 SwarmKit service mapping must preserve required validation and database safety;

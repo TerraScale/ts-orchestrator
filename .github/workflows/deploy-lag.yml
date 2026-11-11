@@ -6,7 +6,7 @@ on:
     - cron: '23 4 * * *'
   workflow_dispatch:
   workflow_run:
-    workflows: [TerraScale Orchestrator Go checks]
+    workflows: [CI]
     types: [completed]
     branches: [main]
 

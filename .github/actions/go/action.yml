@@ -1,5 +1,5 @@
 name: Go toolchain and caches
-description: Installs the pinned Go, restores the calling job's build and module caches and stamps tracked files with content-derived times.
+description: Installs the pinned Go and restores the calling job's build and module caches.
 inputs:
   cache:
     description: Cache name of the calling job; main pushes save it under the same name.
@@ -11,8 +11,6 @@ runs:
       with:
         go-version: '1.27.3'
         cache: false
-    # Each job restores the newest cache main saved for it, so a shard's
-    # unchanged packages keep their compiled and test results.
     - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: |
@@ -25,9 +23,3 @@ runs:
     - name: Verify the Go toolchain
       shell: bash
       run: test "$(go env GOVERSION)" = go1.27.3
-    # Go's test cache keys the repository files a test reads on size and
-    # modification time. Content-derived times let tests whose inputs did
-    # not change hit the restored cache after this fresh checkout.
-    - name: Stamp tracked files with content-derived times
-      shell: bash
-      run: go run ./scripts/ci/stablemtime

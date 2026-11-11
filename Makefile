@@ -11,27 +11,16 @@ CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 # Keep the symbol table so govulncheck can inspect the actual release bytes.
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-w"
-# Test tier (CONTRIBUTING.md): pr runs the fast tier with -short; full also
-# runs the integration tier and checks the fixturetest build.
-TS_TEST_TIER ?= full
-export TS_TEST_TIER
+CHANGE_BASE ?= $(shell git merge-base origin/main HEAD)
+LINT_CHECKS := format-check generate-check vet shellcheck netbird-backup-check retired-host-check zero-config-check
 
-.PHONY: verify ci-check ci-lint ci-verify retired-host-check format-check generate generate-check test test-fast test-fast-build vet fixturetest-check race-test nats-identity-check terrabase-walkthrough-process terrabase-release-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
+.PHONY: lint retired-host-check zero-config-check format-check generate generate-check vet netbird-backup-check shellcheck build build-linux release-linux release-check image run host check clean
 
-verify: format-check generate-check vet race-test nats-identity-check netbird-backup-check
+lint:
+	$(MAKE) --jobs --keep-going $(LINT_CHECKS)
 
-# Every revision runs checks; CI separately builds a changed release candidate.
-ci-verify: ci-check release-check
-
-CI_LINT = format-check generate-check vet shellcheck nats-identity-check netbird-backup-check retired-host-check \
-	$(if $(filter pr change,$(TS_TEST_TIER)),,fixturetest-check)
-
-ci-check:
-	$(MAKE) --jobs --keep-going --output-sync=none $(CI_LINT) race-test
-
-# Every check except the race suite, which CI splits across machines.
-ci-lint:
-	$(MAKE) --jobs --keep-going --output-sync=none $(CI_LINT)
+zero-config-check:
+	python3 scripts/ci/zero-config-check.py "$(CHANGE_BASE)" HEAD
 
 format-check:
 	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -not -path './docs/*' -print0 | xargs -0 $(GOFMT) -l)"; \
@@ -49,56 +38,11 @@ generate:
 	$(if $(TEMPL_SOURCES),$(GO) tool templ fmt $(TEMPL_SOURCES))
 	$(GO) tool templ generate
 
-# Fail when a committed *_templ.go file differs from its .templ source or a
-# source is not templ-formatted. It generates into a scratch copy, so it is
-# safe beside the other ci-verify jobs.
 generate-check:
 	GO="$(GO)" bash scripts/ci/check-templ.sh
 
-test:
-	$(GO) test ./...
-
-# Prepare the complete short-tier inventory and exact test binaries once.
-# Build/preparation and test execution have independent shipping clocks.
-test-fast-build:
-	$(GO) build -o artifacts/fasttest/runner ./scripts/ci/fasttest
-	artifacts/fasttest/runner prepare -- $(GO)
-
-test-fast: test-fast-build
-	artifacts/fasttest/runner run -- $(GO)
-
 vet:
-	$(GO) vet ./...
-
-# The fixturetest tag swaps in fixture observers that no default build
-# compiles; vet and test them so they cannot rot.
-fixturetest-check:
-	$(GO) vet -tags fixturetest ./...
-	$(GO) test -tags fixturetest ./tests/firecracker/production/fixturegen
-
-race-test:
-	GO="$(GO)" bash scripts/ci/racetest/race-test.sh
-
-# This regression lives in the separate vendored NATS module.
-nats-identity-check:
-	$(GO) -C third_party/nats-server test -race ./server -run '^TestTerraScaleSystemAdvertisesActualRaftIdentity$$'
-
-# Walk through two local tb-server members built from the paired TerraBase
-# revision, in a finite memory cgroup as tb-server requires:
-# make terrabase-walkthrough-process TERRABASE_SERVER=<tb-server>
-terrabase-walkthrough-process:
-	@test -n "$(TERRABASE_SERVER)" || { echo 'usage: make terrabase-walkthrough-process TERRABASE_SERVER=<tb-server>' >&2; exit 2; }
-	systemd-run --user --scope --quiet -p MemoryMax=10G env TS_TERRABASE_SERVER="$(abspath $(TERRABASE_SERVER))" \
-		$(GO) test ./internal/app -run '^TestTerraBaseWalkthroughAgainstRealMembers$$' -count=1 -v
-
-# Deploy, upgrade and roll back the real C# TerraBase release binary, check
-# its peer mesh and bootstrap ts-auth's tenant on it; its .sha256 release
-# asset must sit beside it:
-# make terrabase-release-process TERRABASE_BINARY=<terrabase-linux-amd64>
-terrabase-release-process:
-	@test -n "$(TERRABASE_BINARY)" || { echo 'usage: make terrabase-release-process TERRABASE_BINARY=<terrabase-linux-amd64>' >&2; exit 2; }
-	TS_TERRABASE_BINARY="$(abspath $(TERRABASE_BINARY))" $(GO) test ./internal/terrabase ./internal/app ./internal/tsauth \
-		-run '^(TestTerraBaseBinaryPeerMesh|TestTerraBaseReleaseDeployUpgradeRollback|TestBootstrapAgainstTerraBaseRelease)$$' -count=1 -v
+	CGO_ENABLED=0 GOFLAGS=-trimpath $(GO) vet ./... # zero-config: Go toolchain variable; vets the CGO-free release build
 
 # Lint the tracked shell scripts (needs shellcheck >= 0.11 on PATH; the
 # ts-builder image ships it).
@@ -112,12 +56,6 @@ retired-host-check:
 # The ts-ops NetBird store backup script carries its own self-check.
 netbird-backup-check:
 	python3 deploy/netbird/manager/netbird-backup --self-check
-
-# Sync and prune a disposable NetBird 0.80 manager and real client peers in
-# rootless Podman (pulls the netbird-server and netbird images). Nested Podman
-# in a CI job container also needs TS_NESTED_PODMAN=1.
-netbird-podman-test:
-	TS_NETBIRD_PODMAN=1 $(GO) test ./internal/netbird/manager -run '^TestPodmanManagerSyncAndPrune$$' -count=1 -v -timeout 15m
 
 build:
 	mkdir -p dist

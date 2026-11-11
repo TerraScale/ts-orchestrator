@@ -6,7 +6,7 @@
 
 - Ship every change as a pull request to `main`. Fetch `origin` first and branch from fresh `origin/main` in your own worktree or clone, outside shared checkouts. Commit small changes; no AI attribution. Ignore outside contributors' PRs unless asked.
 - Record non-obvious choices in the commit message as `DECISION: <choice>. Reason: <why>`.
-- Before pushing, build or type-check only the project you changed. Don't run test suites locally: GitHub CI runs them on the PR. A PR squash-merges as soon as its checks are green and its review passed; rebase it when it conflicts. Never push directly to, force-push or delete `main`.
+- Before pushing, build or type-check only the project you changed. GitHub CI on the PR is the gate. A PR squash-merges as soon as its checks are green and its review passed; rebase it when it conflicts. Never push directly to, force-push or delete `main`.
 - Deploy only green main. If your merge makes main red, fix or revert within about 30 minutes. For a red main you did not cause, wait for its owner's fix and rebase.
 - Never run anything on or SSH to mariogk-desktop.
 - StorageFormat.cs bumps and production resets need the user's approval; otherwise put `Needs format bump` in the commit message.
@@ -14,16 +14,15 @@
 ### Code
 
 - No comments: no `//`, `#`, `/* */`, `///` doc comments or commented-out code in code, scripts or build files, including code you move or rewrite. Names and types carry the meaning; non-obvious choices go in the commit message as `DECISION:`.
-- Fix the root cause. No workarounds: no retries, sleeps, longer timeouts, swallowed errors, special cases, flags or skipped or weakened tests that hide a symptom. If the cause is outside your task or outside our code, report it instead of patching around it.
+- Fix the root cause. No workarounds: no retries, sleeps, longer timeouts, swallowed errors, special cases, flags or skipped or weakened journey steps that hide a symptom. If the cause is outside your task or outside our code, report it instead of patching around it.
 - No legacy: no deprecated paths, compatibility shims, fallbacks, old-format readers, dead code or copies kept "for now". Replace the old path and delete it in the same change.
-- No unit tests. Tests drive the real service through its public interface (integration or end-to-end); never test a single class or function in isolation or mock our own code. Delete unit tests you come across; cover a critical path they guarded with an integration test.
+- No tests but the journey. The only test is the user-journey E2E suite in terrascale: it runs on every terrascale PR against a throwaway environment and after every release against production. Never add unit, integration, contract, Fast or Slow tests, test projects, fakes or fixtures in any repo; delete any you find. A behaviour that matters becomes a journey step. Production monitors (ts-orchestrator `multi-region`, `deploy-lag`, `app-canary`) are not tests; keep them. ts-orchestrator also keeps its single-host E2E (job `e2e-m1`) as its PR gate.
 
-### Tests
+### CI and proof
 
-- Keep tests few. Fast covers only the happy path and critical paths. Slow keeps only heavy critical tests; delete everything else.
-- A new feature adds at most one happy-path and one critical-failure test. Refactors, renames, docs and config changes add none. Deleting low-value tests is welcome.
-- Fast tests run fully parallel. Each single test finishes in under 10 s, each area's Fast suite in under 30 s, and every CI test job in under 5 minutes. Anything slower is a bug.
-- Prove flaky fixes with 5 repeats; benchmarks with 3 measured repeats in `benchmark/bench/`.
+- One PR workflow per repo (`ci.yml`); its last job is `all-green`, the one required check. Release, deploy and monitor workflows stay separate.
+- CI must be as fast as it can be: no test jobs, no duplicate builds, cached toolchains, jobs in parallel.
+- The shared CI-time check (`ci-time.yml` in `TerraScale/.github`) runs after every CI run. A run more than 30 s slower than the median of the last 5 successful runs of the same workflow opens or updates a `CI time regression: <workflow>` issue. It never blocks a merge; investigate the issue and fix the cause like a bug.
 - UI changes: screenshot every changed page before (`origin/main`) and after (your branch), same viewport, data and theme, in every supported theme. Save the PNGs outside the repo as `~/.local/state/shots/<branch>/<page>-before.png` and `-after.png`; never commit screenshots. Show them in your T3 thread: if you have T3 tools, `html_render` a before/after grid (absolute local image paths are inlined); otherwise embed each as a Markdown image with its absolute path, e.g. `![after: /settings](/home/<user>/.local/state/shots/<branch>/settings-after.png)`, in your final reply. List the pages in the PR body.
 
 ### Secrets and hard gates
@@ -32,7 +31,7 @@
 - Never expose secret values in chat, arguments, history, logs, git or commits. Use stdin or a 0600 file. Credential installs are one-command handoffs the user runs.
 - Ask first before new paid capacity, security permissions or credentials.
 - ts-auth and ts-dashboard store data in TerraBase through ts-dotnet; keep the SDK current with TerraBase's API.
-- Outside the monorepo, never download or run TerraBase binaries in tests, CI or helpers; use HTTP fakes or contract fixtures. Live ts-status API monitoring is allowed. Never publish TerraBase binaries.
+- Outside the monorepo, never download or run TerraBase binaries in CI or helpers. Live ts-status API monitoring is allowed. Never publish TerraBase binaries.
 - Use GitHub and `gh`; no polling loops.
 
 <!-- shared-rules:end -->
@@ -42,10 +41,9 @@
 
 - TerraScale's Go orchestrator replaces Kubernetes for its services. Ship one easy-to-update binary. Group related and dependent code by feature.
 - Manage regional OCI resources and scale TerraBase up and down. Regional controllers embed NATS and JetStream; use NATS for orchestrator communication. Regions form their clusters automatically.
-- Every feature is always on; every region serves automatically. No feature flags, enabled booleans, opt-in settings, deploy toggles or kill switches. Delete guarded paths. Values have one correct setting in code; no tuning knobs. Fakes, demo stores and skip-auth belong only in test binaries.
+- Every feature is always on; every region serves automatically. No feature flags, enabled booleans, opt-in settings, deploy toggles or kill switches. Delete guarded paths. Values have one correct setting in code; no tuning knobs.
 - Discover NetBird members, regions, placement and releases automatically; infer node identity from execution location. Keep the bootstrap gap documented in `docs/region-bootstrap.md` rather than claiming it is solved. Create and deliver each service's production credentials automatically through the platform secret integration.
 - CI rejects switch-style configuration; unavoidable third-party names need a narrow allowance and one-line reason.
 - Entry point: `cmd/terrascale-orchestrator`; features: `internal/`; deployment assets: `deploy/`; runbooks: `docs/`; vendored NATS: `third_party/nats-server` (go.mod replacement).
 - Build: `make build` produces `dist/ts-orch`; `make release-linux` builds Linux amd64/arm64. `make release-check` validates release binaries.
-- Fast: `make test-fast` (`go test -short ./...`). Full tests: `make test`; race/checks: `make verify` or `make ci-check`. `make generate-check` checks committed templ output; `make generate` regenerates it with the pinned Go tool. Use Makefile toolchain selection through mise when available. This area's Fast suite must finish in under 30 s wall time; each single test must finish in under 10 s.
-- `make nats-identity-check` runs the separate vendored NATS regression. `make fixturetest-check` validates the fixturetest-only build. Use HTTP fakes and contract fixtures for TerraBase boundaries, per workspace rules.
+- Checks: `make lint` and `make release-check`. The only test is the single-host E2E (`test/e2e/m1/run.sh`, CI job `e2e-m1`); product behaviour is proven by the journey E2E in the terrascale repo.

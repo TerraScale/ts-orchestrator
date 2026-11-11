@@ -34,16 +34,6 @@ and systemd service commands therefore keep their existing names.
 | `python3 deploy/oci-region/attempt.py ...` | `ts-orch oci-region attempt ...` |
 | `python3 deploy/oci-region/import-image.py ...` | `ts-orch image promote ...` (requires independent final-disk qualification) |
 | `python3 deploy/oci-region/public-api.py ...` | `ts-orch oci-region public-api ...` |
-| `python3 tests/runtime_priority/qualify.py ...` | `ts-orch runtime-priority qualify ...` |
-| `python3 tests/runtime_priority/pressure.py ...` | `ts-orch runtime-priority pressure ...` |
-| `python3 tests/runtime_priority/alpha_runner.py ...` | `ts-orch runtime-priority pressure ...` |
-| `python3 tests/runtime_priority/alpha_adapter.py ...` | `ts-orch runtime-priority adapter ...` |
-| `python3 tests/runtime_priority/probe_admission.py ...` | `ts-orch runtime-priority probe-admission ...` |
-| `python3 tests/firecracker/qualify.py ...` | `ts-orch qualification firecracker generic ...` |
-| `python3 tests/firecracker/memberstatus/qualify.py ...` | `ts-orch qualification firecracker memberstatus ...` |
-| `python3 tests/firecracker/managedmember/qualify.py ...` | `ts-orch qualification firecracker managedmember ...` |
-| `python3 tests/firecracker/production/qualify.py ...` | `ts-orch qualification firecracker production ...` |
-| `python3 tests/firecracker/production/prepare_base.py ...` | `ts-orch qualification firecracker prepare-base ...` |
 | `python3 scripts/ci/m0_oci_real_caller.py ...` | `ts-orch qualification real-caller ...` |
 | `python3 scripts/ci/terrabase-source-digest-v1.py ...` | `ts-orch source-digest ...` |
 
@@ -180,19 +170,14 @@ Prefer `ts-orch` for new operational features. Implement them as Go commands
 in their feature packages instead of adding Python scripts or separate
 executables. CI and operator automation should invoke those commands. Keep
 business logic, validation, and provider effects in Go; use thin wrappers only
-for environment setup and invocation. See [contributing](../CONTRIBUTING.md).
+for environment setup and invocation. See [contributing](../AGENTS.md).
 
 `internal/cli` dispatches commands. Runtime composition stays in `internal/app`;
-bootstrap commands and their tests live in `internal/bootstrap/cli`, and release
-commands and their tests live in `internal/release/cli`. Domain verification and
+bootstrap commands live in `internal/bootstrap/cli`, and release
+commands live in `internal/release/cli`. Domain verification and
 provider code remain in their existing feature packages. CLI command packages
 receive cancellation and output from the executable without changing global
 process output or starting NATS.
-
-Keep all first-party tests in Go using the standard `testing` package. Driver
-contracts call native Go feature APIs or the unified CLI; Go owns their
-fixtures, provider substitutions, assertions, and lifecycle.
-See [Go testing](testing.md) for verification and feature-local fixtures.
 
 Bootstrap and release commands retain normal SIGINT/SIGTERM termination in the
 executable, including during synchronous OCI credential setup. Their Go `Run`

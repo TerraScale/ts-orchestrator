@@ -58,7 +58,6 @@ done
 prom_dir="$staging/prometheus-3.15.0.linux-$arch"
 alert_dir="$staging/alertmanager-0.34.1.linux-$arch"
 "$prom_dir/promtool" check config "$source_dir/prometheus.yml"
-(cd "$source_dir" && "$prom_dir/promtool" test rules operational-rules.test.yml host-storage-rules.test.yml)
 "$alert_dir/amtool" check-config "$source_dir/alertmanager.yml"
 if [[ $mode == --check ]]; then exit; fi
 

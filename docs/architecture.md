@@ -19,7 +19,7 @@ New operational tooling belongs in Go commands under `ts-orch`, with command
 logic and tests kept in the relevant feature package. CI invokes the CLI;
 new deployment, provisioning, or release features should not be introduced as
 Python scripts. Existing scripts migrate incrementally while preserving their
-contracts. See [CLI boundaries](cli.md) and [contributing](../CONTRIBUTING.md).
+contracts. See [CLI boundaries](cli.md) and [contributing](../AGENTS.md).
 
 ## Regional cells
 

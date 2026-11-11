@@ -41,8 +41,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/hostnetwork"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/teardown"
-	"github.com/TerraScale/ts-orchestrator/internal/qualification/firecracker"
-	"github.com/TerraScale/ts-orchestrator/internal/qualification/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
@@ -331,37 +329,13 @@ func commandStatus(ctx context.Context, code int, diagnostics *bytes.Buffer) err
 
 func runQualification(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" || args[0] == "-h" {
-		_, err := io.WriteString(out, "Usage: ts-orch qualification <command> [flags]\n\n  real-caller    Qualify admitted real OCI callers\n  firecracker    Run disposable Firecracker qualification\n")
+		_, err := io.WriteString(out, "Usage: ts-orch qualification <command> [flags]\n\n  real-caller    Qualify admitted real OCI callers\n")
 		return err
 	}
 	var diagnostics bytes.Buffer
 	switch args[0] {
 	case "real-caller":
 		return commandStatus(ctx, realcaller.Run(ctx, args[1:], out, &diagnostics), &diagnostics)
-	case "firecracker":
-		if len(args) == 1 || args[1] == "--help" || args[1] == "help" || args[1] == "-h" {
-			_, err := io.WriteString(out, "Usage: ts-orch qualification firecracker <generic|memberstatus|managedmember|production|prepare-base> [flags]\n")
-			return err
-		}
-		var err error
-		switch args[1] {
-		case "generic":
-			err = firecracker.RunGeneric(ctx, args[2:], out, &diagnostics)
-		case "production":
-			err = firecracker.RunProduction(ctx, args[2:], out, &diagnostics)
-		case "prepare-base":
-			err = firecracker.RunPrepareBase(ctx, args[2:], out, &diagnostics)
-		case "memberstatus":
-			err = memberstatus.Run(ctx, args[2:], out, &diagnostics)
-		case "managedmember":
-			err = firecracker.RunManagedMember(ctx, args[2:], out, &diagnostics)
-		default:
-			return fmt.Errorf("unknown Firecracker qualification %q", args[1])
-		}
-		if err != nil {
-			return err
-		}
-		return nil
 	default:
 		return fmt.Errorf("unknown qualification command %q", args[0])
 	}

@@ -448,7 +448,7 @@ a `Content-Security-Policy` of `'self'` only (plus `'unsafe-eval'` for
 Datastar expressions), `X-Frame-Options: DENY` and `no-store`.
 
 Regenerate templates with `make generate`; `make generate-check` (part of
-`verify` and `ci-verify`) fails when a committed `*_templ.go` file is stale.
+`make lint`) fails when a committed `*_templ.go` file is stale.
 
 ## Dashboard contract
 

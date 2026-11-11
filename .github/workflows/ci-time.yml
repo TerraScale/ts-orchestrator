@@ -1,0 +1,11 @@
+name: CI time
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+permissions:
+  actions: read
+  issues: write
+jobs:
+  ci-time:
+    uses: TerraScale/.github/.github/workflows/ci-time.yml@7e35a16cab085bf9e465e4b91d86feecd1fdca5d
