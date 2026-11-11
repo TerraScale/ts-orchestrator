@@ -40,6 +40,9 @@ jobs:
       - run: bash scripts/ci/audit-dependencies.sh source
 
   e2e-m1:
+    concurrency:
+      group: e2e-m1-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     steps:
