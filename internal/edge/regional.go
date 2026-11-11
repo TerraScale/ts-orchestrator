@@ -22,9 +22,14 @@ import (
 const peerCredentialHeader = "X-TerraBase-Peer-Credential"
 const forwardedClientHeader = "X-TerraBase-Forwarded-For"
 
+const (
+	maxRegionalSockets           = 512
+	maxRegionalSocketsPerAddress = 64
+)
+
 type regionalTunnel struct {
-	node   string
-	cancel context.CancelFunc
+	node, client string
+	cancel       context.CancelFunc
 }
 
 type regionalRouter struct {
@@ -43,6 +48,8 @@ type regionalRouter struct {
 	recovery  chan struct{}
 	tunnelMu  sync.Mutex
 	tunnels   map[*regionalTunnel]struct{}
+	clients   map[string]int
+	sockets   int
 }
 type regionalStatus struct {
 	Node   string `json:"node"`
@@ -62,7 +69,7 @@ func (e *Edge) SetRegionalNodes(nodes func() []mesh.WorkerPeer) {
 	router := e.regional.Load()
 	if router == nil {
 		candidate := &regionalRouter{transport: transport, requests: make(chan struct{}, 1024), recovery: make(chan struct{}, 2),
-			tunnels: map[*regionalTunnel]struct{}{}}
+			tunnels: map[*regionalTunnel]struct{}{}, clients: map[string]int{}}
 		candidate.nodes.Store(&nodes)
 		if e.regional.CompareAndSwap(nil, candidate) {
 			return
@@ -141,16 +148,33 @@ func (b *regionalBody) Read(p []byte) (int, error) {
 }
 func (b *regionalBody) Close() error { err := b.ReadCloser.Close(); b.once.Do(b.release); return err }
 
-func (r *regionalRouter) openTunnel(t *regionalTunnel) {
+func (r *regionalRouter) openTunnel(t *regionalTunnel) (int, string) {
 	r.tunnelMu.Lock()
 	defer r.tunnelMu.Unlock()
+	if t.client != "" {
+		switch {
+		case r.clients[t.client] >= maxRegionalSocketsPerAddress:
+			return http.StatusTooManyRequests, fmt.Sprintf("this address already has %d open WebSockets to this region\n", maxRegionalSocketsPerAddress)
+		case r.sockets >= maxRegionalSockets:
+			return http.StatusServiceUnavailable, fmt.Sprintf("this region already relays %d WebSockets\n", maxRegionalSockets)
+		}
+		r.clients[t.client]++
+		r.sockets++
+	}
 	r.tunnels[t] = struct{}{}
+	return 0, ""
 }
 
 func (r *regionalRouter) closeTunnel(t *regionalTunnel) {
 	r.tunnelMu.Lock()
 	defer r.tunnelMu.Unlock()
 	delete(r.tunnels, t)
+	if t.client != "" {
+		r.sockets--
+		if r.clients[t.client]--; r.clients[t.client] == 0 {
+			delete(r.clients, t.client)
+		}
+	}
 }
 
 func (r *regionalRouter) endTunnels(node string) {
@@ -247,9 +271,18 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		release()
 		return nil, errors.New("TerraBase peer credential unavailable")
 	}
+	client := ""
+	if !internal {
+		// X-Forwarded-For was derived by this edge (or its authenticated mesh peer).
+		// Never trust a public caller's peer-only client identity header.
+		client, _, _ = net.SplitHostPort(request.RemoteAddr)
+		if forwarded := request.Header.Get("X-Forwarded-For"); forwarded != "" {
+			client = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+		}
+	}
 	ctx := request.Context()
 	var transport http.RoundTripper = router.transport
-	tunnel := &regionalTunnel{node: peer.Node}
+	tunnel := &regionalTunnel{node: peer.Node, client: client}
 	switch {
 	case isExtendedConnect(request):
 		transport = tunnelTransport{dial: router.transport.DialContext}
@@ -260,7 +293,12 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 	}
 	if tunnel != nil {
 		ctx, tunnel.cancel = context.WithCancel(ctx)
-		router.openTunnel(tunnel)
+		if status, message := router.openTunnel(tunnel); status != 0 {
+			tunnel.cancel()
+			release()
+			return &http.Response{Status: fmt.Sprintf("%d %s", status, http.StatusText(status)), StatusCode: status, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+				Header: http.Header{"Content-Type": {"text/plain; charset=utf-8"}}, Body: io.NopCloser(strings.NewReader(message)), ContentLength: int64(len(message)), Request: request}, nil
+		}
 		context.AfterFunc(ctx, func() { router.closeTunnel(tunnel) })
 	}
 	out := request.Clone(ctx)
@@ -268,13 +306,7 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 	out.URL.Scheme = "http"
 	out.Header.Set(peerCredentialHeader, string(*key))
 	if !internal {
-		// X-Forwarded-For was derived by this edge (or its authenticated mesh peer).
-		// Never trust a public caller's peer-only client identity header.
-		host, _, _ := net.SplitHostPort(request.RemoteAddr)
-		if forwarded := request.Header.Get("X-Forwarded-For"); forwarded != "" {
-			host = strings.TrimSpace(strings.Split(forwarded, ",")[0])
-		}
-		out.Header.Set(forwardedClientHeader, host)
+		out.Header.Set(forwardedClientHeader, client)
 	}
 	response, err := transport.RoundTrip(out)
 	if err != nil {
