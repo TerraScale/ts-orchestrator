@@ -9,10 +9,19 @@
     "TERRABASE_AUTH_AUDIENCE": "https://api.terrascale.tech",
     "TERRABASE_AUTH_ISSUER": "https://auth.terrascale.tech/terrascale",
     "TERRABASE_BACKUP_RETENTION_DAYS": "hobby=7,pro=7,enterprise=7",
+    "TERRABASE_FILES_S3_ENDPOINT": "https://6cd3f3639e928077593d9b470765efeb.r2.cloudflarestorage.com",
     "TERRABASE_POSTGRES_PORT": "6432",
     "TS_NATS_URL": "nats://127.0.0.1:4223"
   },
   "secrets": {
+    "TERRABASE_FILES_S3_ACCESS_KEY_ID_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-files-access-key-id"
+    },
+    "TERRABASE_FILES_S3_SECRET_ACCESS_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-files-secret-key"
+    },
     "AWS_ACCESS_KEY_ID_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-terrabase-backup-access-key-id"
