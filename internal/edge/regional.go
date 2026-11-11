@@ -545,6 +545,7 @@ func (e *Edge) serveRegionalInternal(ln net.Listener) error {
 		}
 		proxy.ServeHTTP(w, r)
 	})
-	server := &http.Server{Handler: handler, Protocols: protocols, ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 64 << 10}
+	server := &http.Server{Handler: handler, Protocols: protocols, ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 64 << 10,
+		HTTP2: &http.HTTP2Config{WriteByteTimeout: clientIdleTimeout}}
 	return server.Serve(ln)
 }

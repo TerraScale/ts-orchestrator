@@ -279,8 +279,8 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case isExtendedConnect(r):
 		w, r = upgradeExtendedConnect(w, r)
-	case websocketHandshake(r):
-		w = websocketWriter{w}
+	case r.Header.Get("Upgrade") != "":
+		w = hijackWriter{w}
 	}
 	e.identify(w, r)
 	peer := fromPeer(r)
