@@ -180,11 +180,11 @@ func (r *regionalRouter) closeTunnel(t *regionalTunnel) {
 	}
 }
 
-func (r *regionalRouter) endTunnels(node string) {
+func (r *regionalRouter) endTunnels(node string, writer bool) {
 	r.tunnelMu.Lock()
 	defer r.tunnelMu.Unlock()
 	for t := range r.tunnels {
-		if t.node == node {
+		if writer || t.node == node {
 			t.cancel()
 		}
 	}
@@ -382,7 +382,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 		case <-time.After(time.Millisecond):
 		}
 	}
-	router.endTunnels(node)
+	router.endTunnels(node, owner.Node == node)
 	held := true
 	releaseIngress := func() {
 		if held {
