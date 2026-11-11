@@ -253,8 +253,11 @@ func (r *regionalRouter) endTunnels(node string, writer bool) {
 
 func socketAddress(client string) string {
 	address, err := netip.ParseAddr(client)
-	if err != nil || address.Unmap().Is4() {
+	if err != nil {
 		return client
+	}
+	if address = address.Unmap(); address.Is4() {
+		return address.String()
 	}
 	network, _ := address.Prefix(64)
 	return network.String()
