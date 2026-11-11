@@ -38,7 +38,7 @@ generate-check:
 	GO="$(GO)" bash scripts/ci/check-templ.sh
 
 vet:
-	$(GO) vet ./...
+	CGO_ENABLED=0 GOFLAGS=-trimpath $(GO) vet ./... # zero-config: Go toolchain variable; vets the CGO-free release build
 
 # Lint the tracked shell scripts (needs shellcheck >= 0.11 on PATH; the
 # ts-builder image ships it).
