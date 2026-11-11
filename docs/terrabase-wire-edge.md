@@ -38,7 +38,8 @@ serialization conflicts and a busy tenant, not a 502.
   TerraBase's status and headers, and then relays both directions as the bytes
   arrive, within a 256 KiB flow-control window. A client END_STREAM is passed
   on, so TerraBase can still answer after it. The session ends when TerraBase
-  ends its side, when either side resets, or when the client goes away.
+  ends its side, when either side resets, when the client goes away, or when
+  a regional drain or bootstrap hold of its TerraBase node starts (below).
   TerraBase must answer the CONNECT within 60 s.
 - HTTP/1.1, and with it an HTTP/1.1 Upgrade, is refused (the connection is
   reset): like TerraBase's internal listener, this server speaks only h2c.
@@ -61,18 +62,45 @@ A backend on a loopback port (a customer app, NetBird) gets that HTTP/1.1
 Upgrade on its port. TerraBase's public route (port 8080) does not: once the
 mesh runs, `regionalRoundTrip` (`internal/edge/regional.go`) sends every
 request for it to the region's fenced writer, on that node's internal
-listener over h2c, and HTTP/2 has no Upgrade. So an Upgrade for TerraBase,
-whether the client sent it over HTTP/1.1 or as RFC 8441, goes there as an
-extended CONNECT stream on a dedicated connection (`upgradeTunnel`), with the
-request's headers except `Sec-WebSocket-Key` and the hop-by-hop ones.
+listener over h2c, and HTTP/2 has no Upgrade. So a WebSocket handshake for
+TerraBase, whether the client sent it over HTTP/1.1 or as RFC 8441, goes there
+as an extended CONNECT stream on a dedicated connection (`upgradeTunnel`),
+with the request's headers except `Sec-WebSocket-Key` and the hop-by-hop ones.
 TerraBase's 2xx reaches an HTTP/1.1 client as `101 Switching Protocols` with
 the `Sec-WebSocket-Accept` of its key, and an RFC 8441 client as the 200 of
-the adapter above; any other answer passes through as TerraBase's answer. The
-open socket keeps its regional ingress lease until it closes, like any
-regional request, so a regional drain waits for it. An Upgrade never fails
-over to another region (`failover` in `internal/edge/replay.go` skips it):
-while a stop-first service on a loopback port is replaced, it waits up to
-20 s for the new task, then gets 502.
+the adapter above; any other answer passes through as TerraBase's answer. A
+handshake is a GET whose `Upgrade` lists `websocket`, with `Connection:
+Upgrade`, `Sec-WebSocket-Version: 13` and a `Sec-WebSocket-Key` of 16 bytes
+(RFC 6455 4.2.1); every backend gets it with `Upgrade: websocket`. Any other
+request with an `Upgrade` reaches TerraBase as the ordinary request it also
+is, without `Upgrade`. A complete handshake on a path that has no WebSocket
+endpoint gets TerraBase's answer to the CONNECT (404), where TerraBase asked
+over HTTP/1.1 ignores the upgrade. A client's half-close reaches TerraBase
+as END_STREAM, as on 127.0.0.1:8081.
+
+Once a stream is open (the 101, or the 2xx of an extended CONNECT on
+127.0.0.1:8081), it no longer counts as an admitted regional request: it gives
+back its ingress lease, its admission slot and its pacing, so a regional drain
+or bootstrap hold never waits for it. Instead, as soon as a drain or
+bootstrap hold of a node holds the ingress, the edge ends every stream it
+relayed to that node. The client sees its connection end, as when TerraBase
+restarts, and its next handshake meets the hold like any request. The edge
+sends no WebSocket close frame (1012) itself: it relays opaque bytes and
+cannot tell where TerraBase's current frame ends. What keeps an old socket
+from writing after the handoff is TerraBase: it fences the source
+(`RegionalOwners.Drain`) once every stream on it has ended, and its lease gate
+then refuses every write there.
+
+Public WebSocket streams have their own budget, apart from the 1,024
+admission slots: at most 64 per client address (the address the edge sends in
+`X-TerraBase-Forwarded-For`) and 512 per edge, half of TerraBase's 1,024
+regional ingress slots, which each socket holds for its life. Past either
+bound a handshake gets `429 Too Many Requests` (the address) or `503 Service
+Unavailable` (the edge), with a one-line body naming the bound. Streams on
+127.0.0.1:8081 come from this host's own services and count toward neither.
+An Upgrade never fails over to another region (`failover` in
+`internal/edge/replay.go` skips it): while a stop-first service on a loopback
+port is replaced, it waits up to 20 s for the new task, then gets 502.
 
 `GODEBUG=http2xconnect=0` in the service environment turns extended CONNECT
 off: the binary leaves any `http2xconnect=` value the operator set. Then no
