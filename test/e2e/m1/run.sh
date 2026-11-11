@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+exit 1
 # Milestone 1 end to end on a disposable arm64 host (the GitHub runner):
 # install with deploy/m1/install.sh, serve two services through the built-in
 # edge, survive a ts-orch and a task restart, roll back a never-ready deploy,
