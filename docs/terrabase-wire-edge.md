@@ -67,6 +67,17 @@ endpoint gets TerraBase's answer to the CONNECT (404), where TerraBase asked
 over HTTP/1.1 ignores the upgrade. A client's half-close reaches TerraBase
 as END_STREAM, as on 127.0.0.1:8081.
 
+Every regional request holds an ingress lease from its admission until its
+response body ends. A drain or bootstrap hold first withdraws admission, so a
+request that arrives during the hold waits without a lease, and then waits
+until no lease is left before it hands over or stops the writer. After a hold,
+and while a request that waited for it is still being answered, requests are
+paced through two recovery slots. A request waits for the hold to end, then
+for its slot, and only then takes its lease, so the next hold waits only for
+the requests being served, not for the paced backlog. A request that fails
+before its response reaches the client, or whose handler panics, gives its
+lease back at once.
+
 Once a stream is open (the 101, or the 2xx of an extended CONNECT on
 127.0.0.1:8081), it no longer counts as an admitted regional request: it gives
 back its ingress lease, its admission slot and its pacing, so a regional drain
@@ -107,12 +118,39 @@ the TCP connection still open) and then wait for the client without a
 deadline. A WebSocket has no half-close (RFC 6455 7.1.1), so the edge closes
 that connection, as it already ends an RFC 8441 client's stream.
 
-A write to a WebSocket client waits at most 120 s, the idle timeout of :80 and
-:443, for the client to take it; then the edge closes the HTTP/1.1 connection
-or resets the RFC 8441 stream. A write carries at most 32 KiB, so this cuts
-only a client that reads slower than about 270 bytes per second. When the edge
-ends a WebSocket while a write to the client still waits, it cuts that write
-at once.
+Every write the edge relays to an upgraded client waits at most 120 s, the
+idle timeout of :80 and :443, for the client to take it: a WebSocket or any
+other HTTP/1.1 Upgrade on :443, an RFC 8441 stream on :443, and an extended
+CONNECT stream on 127.0.0.1:8081. A client that takes no data for 120 s while
+the edge has some to send is cut, whatever its average rate: the edge closes
+its HTTP/1.1 connection or resets its HTTP/2 stream. A write carries at most
+32 KiB, so a client that reads slower than about 270 bytes per second is cut
+too. When the edge ends a stream while a write to the client still waits, it
+cuts that write at once.
+
+A client that stops reading its whole HTTP/2 connection to :443 or
+127.0.0.1:8081 is bounded too: the edge closes the connection once a write to
+it makes no progress for 120 s, which ends every stream on it, REST, SSE and
+gRPC included. On TLS a write that times out breaks the connection, so on
+:443 the bound applies to each socket write, at most one HTTP/2 frame (16 KiB
+unless the client allows larger frames): a client that takes at least that
+much every 120 s while the edge is sending is never cut, however long its
+response or stream lasts.
+
+`e2e-m1` drives this path through a second edge
+(`test/e2e/m1/regional`), built from the same tree and set up with the calls
+`internal/app/app.go` makes: `SetRoutes`, `SetRequestProofSecret`,
+`SetRegionalNodes`, and `DrainRegionalNode` from a control port. It runs in its
+own network namespace beside the installed ts-orch, in front of two writer
+stand-ins on 127.0.0.2:8081 and 127.0.0.3:8081 that check the peer credential,
+answer the rollout status, prime and drain calls, and echo extended CONNECT
+streams. Through the real :443 it sends one REST request, one HTTP/1.1
+WebSocket and one RFC 8441 WebSocket, each of which echoes a frame, then
+drains the writer with both sockets open: the drain must finish within 5 s
+and end both sockets, and the next REST request must reach the new writer. It
+does not cover the mesh wiring in `internal/app/app.go` (`mesh.Run`, the drain
+request over NATS, the Vault peer credential), TerraBase itself, NetBird,
+`HomeSocketRelay`, or a region with two edges; only a real region proves those.
 
 An Upgrade never fails over to another region (`failover` in
 `internal/edge/replay.go` skips it): while a stop-first service on a loopback
