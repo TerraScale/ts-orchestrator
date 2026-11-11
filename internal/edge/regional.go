@@ -36,12 +36,12 @@ type regionalTunnel struct {
 }
 
 type regionalRouter struct {
-	nodes atomic.Pointer[func() []mesh.WorkerPeer]
-	// Requests retain a read lease until their response body finishes. The write
-	// lease withdraws admission, then waits for every admitted request to finish.
-	holding   atomic.Bool
-	ingress   sync.RWMutex
+	nodes     atomic.Pointer[func() []mesh.WorkerPeer]
 	changing  chan struct{}
+	ingressMu sync.Mutex
+	leases    int
+	held      chan struct{}
+	drained   chan struct{}
 	mu        sync.Mutex
 	owner     mesh.WorkerPeer
 	checked   time.Time
@@ -161,6 +161,49 @@ func (r *regionalRouter) change(ctx context.Context) error {
 	}
 }
 
+func (r *regionalRouter) enter() chan struct{} {
+	r.ingressMu.Lock()
+	defer r.ingressMu.Unlock()
+	if r.held == nil {
+		r.leases++
+	}
+	return r.held
+}
+
+func (r *regionalRouter) leave() {
+	r.ingressMu.Lock()
+	defer r.ingressMu.Unlock()
+	if r.leases--; r.leases == 0 && r.drained != nil {
+		close(r.drained)
+		r.drained = nil
+	}
+}
+
+func (r *regionalRouter) hold(ctx context.Context) (func(), error) {
+	held, drained := make(chan struct{}), make(chan struct{})
+	r.ingressMu.Lock()
+	r.held = held
+	if r.leases == 0 {
+		close(drained)
+	} else {
+		r.drained = drained
+	}
+	r.ingressMu.Unlock()
+	release := func() {
+		r.ingressMu.Lock()
+		r.held, r.drained = nil, nil
+		r.ingressMu.Unlock()
+		close(held)
+	}
+	select {
+	case <-drained:
+		return release, nil
+	case <-ctx.Done():
+		release()
+		return nil, ctx.Err()
+	}
+}
+
 func (r *regionalRouter) openTunnel(t *regionalTunnel) (int, string) {
 	r.tunnelMu.Lock()
 	defer r.tunnelMu.Unlock()
@@ -250,15 +293,7 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 			<-router.requests
 		}
 	}()
-	// Waiting for admission is cancellation-aware; avoid stranding a goroutine on
-	// an RWMutex when a client disconnects during a bounded handoff.
-	for {
-		if !router.holding.Load() && router.ingress.TryRLock() {
-			if !router.holding.Load() {
-				break
-			}
-			router.ingress.RUnlock()
-		}
+	for held := router.enter(); held != nil; held = router.enter() {
 		if !waited {
 			waited = true
 			router.waiting.Add(1)
@@ -266,12 +301,12 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		select {
 		case <-request.Context().Done():
 			return nil, request.Context().Err()
-		case <-time.After(time.Millisecond):
+		case <-held:
 		}
 	}
 	admitted = true
 	release := func() {
-		router.ingress.RUnlock()
+		router.leave()
 		if paced {
 			<-router.recovery
 		}
@@ -403,21 +438,15 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 			return fmt.Errorf("regional prime HTTP %d", response.StatusCode)
 		}
 	}
-	router.holding.Store(true)
-	defer router.holding.Store(false)
-	for !router.ingress.TryLock() {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Millisecond):
-		}
+	release, err := router.hold(ctx)
+	if err != nil {
+		return err
 	}
 	router.endTunnels(node, owner.Node == node)
 	held := true
 	releaseIngress := func() {
 		if held {
-			router.ingress.Unlock()
-			router.holding.Store(false)
+			release()
 			held = false
 		}
 	}
