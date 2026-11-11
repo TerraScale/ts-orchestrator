@@ -133,6 +133,11 @@ func (b *regionalBody) Read(p []byte) (int, error) {
 }
 func (b *regionalBody) Close() error { err := b.ReadCloser.Close(); b.once.Do(b.release); return err }
 
+type regionalStream struct {
+	*regionalBody
+	io.Writer
+}
+
 func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Response, error) {
 	if e.bootstrapErr != nil {
 		return nil, e.bootstrapErr
@@ -231,15 +236,22 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		out.Header.Set(forwardedClientHeader, host)
 	}
 	var transport http.RoundTripper = router.transport
-	if isExtendedConnect(out) {
+	switch {
+	case isExtendedConnect(out):
 		transport = tunnelTransport{dial: router.transport.DialContext}
+	case out.Header.Get("Upgrade") != "":
+		transport = upgradeTunnel{tunnelTransport{dial: router.transport.DialContext}}
 	}
 	response, err := transport.RoundTrip(out)
 	if err != nil {
 		release()
 		return nil, err
 	}
-	response.Body = &regionalBody{ReadCloser: response.Body, release: release}
+	body := &regionalBody{ReadCloser: response.Body, release: release}
+	response.Body = body
+	if stream, ok := body.ReadCloser.(io.ReadWriteCloser); ok {
+		response.Body = regionalStream{body, stream}
+	}
 	return response, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/rand"
+	"crypto/sha1"
 	"encoding/base64"
 	"io"
 	"net"
@@ -111,3 +112,38 @@ func (c *upgradedConn) RemoteAddr() net.Addr             { return &net.TCPAddr{}
 func (c *upgradedConn) SetDeadline(time.Time) error      { return nil }
 func (c *upgradedConn) SetReadDeadline(time.Time) error  { return nil }
 func (c *upgradedConn) SetWriteDeadline(time.Time) error { return nil }
+
+const websocketAcceptGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+type upgradeTunnel struct{ tunnelTransport }
+
+func (t upgradeTunnel) RoundTrip(req *http.Request) (*http.Response, error) {
+	connect := req.Clone(req.Context())
+	connect.Method = http.MethodConnect
+	connect.Header.Set(":protocol", req.Header.Get("Upgrade"))
+	connect.Header.Del("Sec-WebSocket-Key")
+	stream, client := io.Pipe()
+	connect.Body = stream
+	response, err := t.tunnelTransport.RoundTrip(connect)
+	if err != nil || response.StatusCode/100 != 2 {
+		return response, err
+	}
+	accept := sha1.Sum([]byte(req.Header.Get("Sec-WebSocket-Key") + websocketAcceptGUID))
+	response.Header.Set("Connection", "Upgrade")
+	response.Header.Set("Upgrade", req.Header.Get("Upgrade"))
+	response.Header.Set("Sec-WebSocket-Accept", base64.StdEncoding.EncodeToString(accept[:]))
+	return &http.Response{
+		Status: "101 Switching Protocols", StatusCode: http.StatusSwitchingProtocols, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+		Header: response.Header, Body: tunnelConn{response.Body, client}, Request: req,
+	}, nil
+}
+
+type tunnelConn struct {
+	io.ReadCloser
+	*io.PipeWriter
+}
+
+func (c tunnelConn) Close() error {
+	_ = c.PipeWriter.Close()
+	return c.ReadCloser.Close()
+}
