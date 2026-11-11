@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/http/httpguts"
@@ -71,13 +72,20 @@ func (u *upgradedWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 
 type upgradedConn struct {
 	writer *upgradedWriter
+	mu     sync.Mutex
 	head   []byte
 	opened bool
+	closed bool
 }
 
 func (c *upgradedConn) Read(p []byte) (int, error) { return c.writer.stream.Read(p) }
 
 func (c *upgradedConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return 0, net.ErrClosed
+	}
 	if c.opened {
 		return c.relay(p)
 	}
@@ -108,7 +116,13 @@ func (c *upgradedConn) relay(p []byte) (int, error) {
 	return n, err
 }
 
-func (c *upgradedConn) Close() error                     { return c.writer.stream.Close() }
+func (c *upgradedConn) Close() error {
+	c.mu.Lock()
+	c.closed = true
+	c.mu.Unlock()
+	return c.writer.stream.Close()
+}
+
 func (c *upgradedConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
 func (c *upgradedConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
 func (c *upgradedConn) SetDeadline(time.Time) error      { return nil }
