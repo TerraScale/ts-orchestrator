@@ -237,26 +237,6 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	return plain, public
 }
 
-func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener) error {
-	plain, public := e.httpServers()
-	errs := make(chan error, 3)
-	go func() { errs <- plain.Serve(httpLn) }()
-	go func() { errs <- public.ServeTLS(tlsLn, "", "") }()
-	go func() { errs <- e.servePostgres(pgLn) }()
-	var err error
-	select {
-	case <-ctx.Done():
-	case err = <-errs:
-	}
-	plain.Close()
-	public.Close()
-	pgLn.Close()
-	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
-		err = nil
-	}
-	return err
-}
-
 const netbirdHost = "netbird.terrascale.tech"
 
 func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {

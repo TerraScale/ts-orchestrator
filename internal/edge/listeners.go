@@ -39,8 +39,6 @@ func (e *Edge) runListener(ctx context.Context, protocol string) {
 }
 
 func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listener) error {
-	stop := func() { ln.Close() }
-	defer stop()
 	defer observability.SetEdgeListenerReady(protocol, false)
 	observability.SetEdgeListenerReady(protocol, true)
 	served := make(chan error, 1)
@@ -63,10 +61,11 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 	}()
 	select {
 	case <-ctx.Done():
-		stop()
+		ln.Close()
 		<-served
 		return ctx.Err()
 	case err := <-served:
+		ln.Close()
 		return err
 	}
 }
