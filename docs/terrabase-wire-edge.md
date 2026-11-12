@@ -116,7 +116,10 @@ When a backend ends a WebSocket, the edge ends the client's side too. Go's
 reverse proxy would only half-close an HTTP/1.1 client (a TLS close_notify,
 the TCP connection still open) and then wait for the client without a
 deadline. A WebSocket has no half-close (RFC 6455 7.1.1), so the edge closes
-that connection, as it already ends an RFC 8441 client's stream.
+that connection, as it already ends an RFC 8441 client's stream. Any other
+HTTP/1.1 Upgrade keeps that half-close: a backend that finishes first still
+receives what the client sends after it, and every write to the client keeps
+the bound below.
 
 Every write the edge relays to an upgraded client waits at most 120 s, the
 idle timeout of :80 and :443, for the client to take it: a WebSocket or any

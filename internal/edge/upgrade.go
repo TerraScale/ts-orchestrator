@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/base64"
 	"io"
 	"net"
@@ -148,7 +149,10 @@ func (c *upgradedConn) SetWriteDeadline(time.Time) error { return nil }
 
 const websocketAcceptGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-type hijackWriter struct{ http.ResponseWriter }
+type hijackWriter struct {
+	http.ResponseWriter
+	halfClose bool
+}
 
 func (w hijackWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
@@ -156,6 +160,9 @@ func (w hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	conn, buffered, err := http.NewResponseController(w.ResponseWriter).Hijack()
 	if err != nil {
 		return nil, nil, err
+	}
+	if w.halfClose {
+		return halfClosingConn{hijackedConn{conn}, conn.(*tls.Conn).CloseWrite}, buffered, nil
 	}
 	return hijackedConn{conn}, buffered, nil
 }
@@ -165,6 +172,13 @@ type hijackedConn struct{ net.Conn }
 func (c hijackedConn) Write(p []byte) (int, error) {
 	return writeWithin(c.Conn, func() (int, error) { return c.Conn.Write(p) })
 }
+
+type halfClosingConn struct {
+	hijackedConn
+	closeWrite func() error
+}
+
+func (c halfClosingConn) CloseWrite() error { return c.closeWrite() }
 
 func websocketHandshake(r *http.Request) bool {
 	key, err := base64.StdEncoding.DecodeString(r.Header.Get("Sec-WebSocket-Key"))
