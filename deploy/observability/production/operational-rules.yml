@@ -3,13 +3,13 @@ groups:
     interval: 5s
     rules:
       - alert: RuntimePeerTopologyMismatch
-        expr: ts_orch_peer_topology_mismatch > 0 or ts_orch_peer_topology_runtime_mismatch > 0 or ts_orch_peer_topology_generation_rejected > 0 or ts_orch_peer_topology_age_seconds > 30
+        expr: ts_orch_peer_topology_mismatch > 0 or ts_orch_peer_topology_generation_rejected > 0 or ts_orch_peer_topology_age_seconds > 30
         for: 5s
         labels:
           severity: critical
         annotations:
-          summary: Runtime peers disagree with independently admitted service placement
-          description: Inspect the service topology manifest, native runtime verdict and admitted desired generation. A missed mesh ping does not authorize a drain. Do not repair production peer files by hand.
+          summary: A region's service peers file disagrees with the admitted placement, a peers generation was refused, or the region's attestation is missing or stale
+          description: ts_orch_peer_topology_mismatch is 1 when the region's peers file for the service is missing or differs from the file rendered from the admitted placement, a region of the service has no admitted node, the region could not write the service's topology manifest, or the region's attestation is missing, names another topology or region count, or is dated in the future. ts_orch_peer_topology_generation_rejected is 1 when the region kept its last peers file because the nodes answering the mesh ping differ from the admitted placement. ts_orch_peer_topology_age_seconds above 30 means the newest attestation from the region is more than 30 seconds old. Inspect the service peers file, its topology manifest and the admitted desired generation. A missed mesh ping does not authorize a drain. Do not repair production peer files by hand.
       - alert: PeerTopologyAttestationDown
         expr: up{job="peer-topology"} == 0
         for: 5s

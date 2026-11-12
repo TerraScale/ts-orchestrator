@@ -134,8 +134,7 @@ Activate one region at a time, in order sjc, gru, fra:
    both nodes' peers files list the founder, then the worker; the worker's
    TerraBase answers `/readyz`.
 
-`topology.json` (the attested topology) still lists founders only. R10 decides
-whether TerraBase's own topology check counts workers.
+`topology.json` (the attested topology) still lists founders only.
 - Capacity: 6 VM.Standard.A1.Flex nodes. Founders: gru 4 OCPU/24 GB, sjc and
   fra 2 OCPU/12 GB. All workers: 2 OCPU/12 GB. São Paulo initially had no A1
   capacity for that size, so `ts-gru-2` launched at 1 OCPU/6 GB on 2026-11-04.
