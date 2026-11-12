@@ -449,10 +449,12 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 	}
 	router.endTunnels(node, owner.Node == node)
 	held := true
+	switched := false
 	var ingressMu sync.Mutex
-	releaseIngress := func() bool {
+	releaseIngress := func(switchWriter bool) bool {
 		ingressMu.Lock()
 		defer ingressMu.Unlock()
+		switched = switched || switchWriter
 		if !held {
 			return false
 		}
@@ -460,19 +462,22 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 		held = false
 		return true
 	}
-	holdIngress := func() error {
+	holdIngress := func() (bool, error) {
 		ingressMu.Lock()
 		defer ingressMu.Unlock()
+		if switched {
+			return false, nil
+		}
 		nextRelease, err := router.hold(ctx)
 		if err != nil {
-			return err
+			return false, err
 		}
 		release, held = nextRelease, true
 		router.endTunnels(node, owner.Node == node)
 		router.transport.CloseIdleConnections()
-		return nil
+		return true, nil
 	}
-	defer releaseIngress()
+	defer releaseIngress(false)
 	slog.Info("regional edge requests drained", "source", node, "target", target.Node)
 	router.transport.CloseIdleConnections()
 	source := owner
@@ -500,7 +505,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 			router.owner = target
 			router.checked = time.Now()
 			router.mu.Unlock()
-			if releaseIngress() {
+			if releaseIngress(true) {
 				slog.Info("regional ingress resumed", "source", node, "target", target.Node, "epoch", status.Epoch)
 			}
 			if complete {
@@ -526,7 +531,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 	}
 }
 
-func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source, target mesh.WorkerPeer, holdIngress func() error, releaseIngress func() bool) error {
+func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source, target mesh.WorkerPeer, holdIngress func() (bool, error), releaseIngress func(bool) bool) error {
 	var lastErr error
 	for {
 		response, err := e.regionalRequest(ctx, router, source, http.MethodPost, "/v1/rollout/drain?target="+url.QueryEscape(target.Node))
@@ -559,14 +564,16 @@ func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source
 			return lastErr
 		}
 		switch refusal.Error.Code {
-		case "source_retiring", "target_not_ready", "target_unreachable", "drain_unavailable", "drain_timeout", "owner_changed":
+		case "source_retiring":
 		default:
 			return lastErr
 		}
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= delay+10*time.Second {
 			return fmt.Errorf("%w: %w", lastErr, context.DeadlineExceeded)
 		}
-		releaseIngress()
+		if !releaseIngress(false) {
+			return lastErr
+		}
 		slog.Info("regional handoff waiting", "source", source.Node, "target", target.Node, "code", refusal.Error.Code, "delay", delay)
 		timer := time.NewTimer(delay)
 		select {
@@ -575,8 +582,12 @@ func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source
 			return fmt.Errorf("%w: %w", lastErr, ctx.Err())
 		case <-timer.C:
 		}
-		if err := holdIngress(); err != nil {
+		held, err := holdIngress()
+		if err != nil {
 			return fmt.Errorf("%w: %w", lastErr, err)
+		}
+		if !held {
+			return lastErr
 		}
 	}
 }
