@@ -349,4 +349,45 @@ func main() {
 	step("RFC 8441 WebSocket ended by the drain", h2.ended())
 	step("REST after the drain served by the new writer n2", rest("rest from n2"))
 	step("Upgrade: tcp delivered the client's 1 MiB to a backend that half-closed first", uploadAfterHalfClose(roots, upgradeHost, received))
+	go func() {
+		if conn, err := backend.Accept(); err == nil {
+			defer conn.Close()
+			if _, err := http.ReadRequest(bufio.NewReader(conn)); err == nil {
+				_, _ = io.WriteString(conn, "HTTP/1.1 invalid\r\n\r\n")
+			}
+		}
+	}()
+	regional.SetRoutes(map[string]int{host: 8080, upgradeHost: backend.Addr().(*net.TCPAddr).Port, "api.terrascale.tech": 8080}, nil)
+	for _, check := range []struct {
+		host, path string
+		code       int
+	}{{"unknown.e2e.test", "/", 404}, {upgradeHost, "/", 502}, {"api.terrascale.tech", "/v1/regions/origins", 503}} {
+		request, err := http.NewRequest(http.MethodGet, "https://"+host+check.path, nil)
+		step("build edge status request", err)
+		request.Host = check.host
+		response, err := client.Do(request)
+		step("edge status for "+check.host, err)
+		_, err = io.Copy(io.Discard, response.Body)
+		response.Body.Close()
+		step("read edge status body", err)
+		if response.StatusCode != check.code {
+			step("edge status", fmt.Errorf("got %d, want %d", response.StatusCode, check.code))
+		}
+	}
+	step("close upgrade backend", backend.Close())
+	response, err := http.Get("http://127.0.0.1/")
+	step("HTTP unknown host", err)
+	response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		step("HTTP status", fmt.Errorf("got %d, want 404", response.StatusCode))
+	}
+	var metrics strings.Builder
+	observability.WriteEdgeResponseMetrics(&metrics)
+	for _, check := range []struct{ protocol, code, count string }{{"http", "404", "1"}, {"https", "200", "3"}, {"https", "101", "2"}, {"https", "404", "1"}, {"https", "502", "1"}, {"https", "503", "1"}} {
+		series := observability.Series("ts_orch_edge_responses_total", "protocol", check.protocol, "code", check.code) + " " + check.count + "\n"
+		if !strings.Contains(metrics.String(), series) {
+			step("edge response counters", fmt.Errorf("missing %s in %s", series, metrics.String()))
+		}
+	}
+	step("edge counts HTTP/HTTPS, local 404/502/503 and both upgrade statuses once", nil)
 }

@@ -81,6 +81,7 @@ func serve(ctx context.Context) error {
 				return
 			}
 			observability.WriteEdgeListenerMetrics(&body)
+			observability.WriteEdgeResponseMetrics(&body)
 			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 			_, _ = w.Write(body.Bytes())
 		})}
