@@ -235,9 +235,12 @@ push before any install. G0 accepts any running version. Each region must
 serve the requested SHA within three minutes (G1), then report healthy
 JetStream and regional services
 continuously for 15 seconds within three minutes (G2). Health requires a
-successful server health check, a leader and the configured count of current,
-online replicas for every stream (a named stream omitted from stream info
-fails with `no leader answered`), a READY SwarmKit node and no service below
+successful server health check, a leader and the configured replica count
+for every stream. Every replica must be online, active within two seconds
+(twice the Raft heartbeat interval), and at most 128 operations behind;
+the instantaneous `Current` flag is not required. A named stream omitted
+from stream info fails with `no leader answered`. Health also requires
+a READY SwarmKit node and no service below
 its desired replicas. Unreadable service state fails the gate; host memory
 and disk pressure do not gate releases.
 

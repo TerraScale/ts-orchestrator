@@ -273,6 +273,8 @@ func (h *Handler) health(ctx context.Context, _ []byte) Reply {
 }
 
 func (h *Handler) orch(ctx context.Context, data []byte) Reply {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	var release OrchRelease
 	if err := protocol.DecodeStrict(data, &release, 64<<10); err != nil {
 		return rejected(err)
@@ -281,8 +283,6 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	if err != nil {
 		return rejected(err)
 	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	if release.SHA == h.Revision {
 		return Reply{State: "current", Version: h.Revision}
 	}

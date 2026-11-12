@@ -12,6 +12,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+const (
+	replicaActiveMax = 2 * time.Second
+	replicaLagMax    = 128
+)
+
 func (n *Node) ReleaseHealth(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -55,8 +60,8 @@ func (n *Node) ReleaseHealth(ctx context.Context) error {
 				return fmt.Errorf("stream %s: got %d replicas, want %d", stream.Config.Name, 1+len(stream.Cluster.Replicas), stream.Config.Replicas)
 			}
 			for _, replica := range stream.Cluster.Replicas {
-				if !replica.Current || replica.Offline {
-					return fmt.Errorf("stream %s: replica %s not current", stream.Config.Name, replica.Name)
+				if replica.Offline || replica.Active > replicaActiveMax || replica.Lag > replicaLagMax {
+					return fmt.Errorf("stream %s: replica %s behind (lag %d, active %s)", stream.Config.Name, replica.Name, replica.Lag, replica.Active)
 				}
 			}
 		}
