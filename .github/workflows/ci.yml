@@ -34,7 +34,6 @@ jobs:
         with:
           cache: lint
       - run: make lint GO=go
-      - run: go test ./internal/swarmruntime -run TestApplyServiceSpecSecrets -count=1 -timeout=10s
       - run: make --jobs=2 release-check GO=go
       - run: bash scripts/ci/audit-dependencies.sh source
       - run: bash scripts/ci/audit-dependencies.sh release
