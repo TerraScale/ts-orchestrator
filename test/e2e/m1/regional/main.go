@@ -118,11 +118,10 @@ func (s socket) ended() error {
 }
 
 func openHTTP1(roots *x509.CertPool, host string) (socket, error) {
-	conn, err := tls.Dial("tcp", public, &tls.Config{ServerName: host, RootCAs: roots, NextProtos: []string{"http/1.1"}})
+	conn, err := dialEdge(roots, host, "http/1.1")
 	if err != nil {
 		return socket{}, err
 	}
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	key := make([]byte, 16)
 	_, _ = rand.Read(key)
 	encoded := base64.StdEncoding.EncodeToString(key)
@@ -141,11 +140,10 @@ func openHTTP1(roots *x509.CertPool, host string) (socket, error) {
 }
 
 func openHTTP2(roots *x509.CertPool, host string) (socket, error) {
-	conn, err := tls.Dial("tcp", public, &tls.Config{ServerName: host, RootCAs: roots, NextProtos: []string{"h2"}})
+	conn, err := dialEdge(roots, host, "h2")
 	if err != nil {
 		return socket{}, err
 	}
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	framer := http2.NewFramer(conn, conn)
 	framer.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
 	if _, err = io.WriteString(conn, http2.ClientPreface); err == nil {
