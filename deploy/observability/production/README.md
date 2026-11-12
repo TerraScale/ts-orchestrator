@@ -14,6 +14,18 @@ TerraBase native metrics at `127.0.0.1:9091/metrics` are scraped with `region=gr
 
 Deploy the dashboard emitter release and this orchestrator release before installing the updated Prometheus configuration. Dashboard app-listener metrics require loopback peers, literal loopback Hosts and absent forwarding headers; public proxy requests must remain 404. Existing TerraBase/auth histogram counts are normalized by recording rules; see [the HTTP coverage limits](../slo.md). Confirm `up{job="application-slo"} == 1`, both outcomes of `terrascale_slo_requests_total` for every serving process, and a distinct instance during overlap. After an eligible request, verify `slo:requests:rate5m` and the absence of `ServiceSLOTelemetryMissing`. A successful scrape alone cannot prove native SLO coverage. The relay at `127.0.0.1:9094/metrics` separately emits the three fixed service-readiness series; those probes supply no request successes.
 
+The four `ServiceSLOBurn*` alerts retain their paired-window burn thresholds and
+require at least 695 requests in 1h, 1,667 in 6h, 3,334 in 1d or 10,000 in 3d,
+respectively. These minimums require more than ten estimated bad requests at the
+threshold; see [the arithmetic and cancellation policy](../slo.md#burn-rate-alerts).
+Dashboard visitor disconnects must increment neither native outcome counter.
+The dashboard emitter correction ships separately in `terrascale`; updating
+these rules alone does not correct already misclassified cancellations.
+`ServiceReadinessFailed` retains its independent public probes and five-minute
+hold even below these request minimums. Missing request counters still produce
+`ServiceSLOTelemetryMissing`; scrapeable counters with no traffic do not prove
+availability.
+
 Operational alerts use existing backup/replication metric names. Failed daily restore drills use the existing `terrabase_backup_drills_total{result="failed"}` counter. Missing operational series cannot prove backup health. Counter rules use a five-minute increase plus first-observation detection: an existing nonzero value fires when collection starts, then ages out after five minutes without another failure. This also detects counter resets followed by failures. A failed scrape alerts immediately on the next evaluation.
 
 Alertmanager sends critical firing and resolved webhooks to `http://127.0.0.1:9094/alerts`. Critical firing groups email and push at once; resolved groups only push, since recovery needs no action. Warnings (SLO slow burns, missing telemetry, storage warnings) go to `/alerts/digest` as one group without resolved notices: at most one digest email per 24 hours and never a push. Readiness must fail for five minutes and recover for ten before the alert changes state, so probe flaps do not page. The installer manages the relay alongside Prometheus and Alertmanager and checks its `/healthz`; this proves listener readiness only. No installation, activation or live delivery proof is claimed here. A controlled firing alert and its resolution still need verification against the deployed release, provider responses and the owner's actual inbox/phone receipt.
