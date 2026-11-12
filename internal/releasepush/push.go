@@ -1,6 +1,7 @@
 package releasepush
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -17,12 +18,20 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
+)
+
+const (
+	healthWait   = 3 * time.Minute
+	healthSteady = 15 * time.Second
+	healthEvery  = 2 * time.Second
+	versionProbe = 10 * time.Second
 )
 
 const pushUsage = "usage: ts-orch release push --sha <40 hex> --dir <dir with " + assetPrefix + "<arch>> [--regions deploy/m1/regions.json]"
@@ -44,11 +53,12 @@ type Result struct {
 	AcceptedMS int64  `json:"accepted_ms"`
 	ServingMS  int64  `json:"serving_ms"`
 	ObservedAt string `json:"observed_at,omitempty"`
+	StartedAt  string `json:"started_at,omitempty"`
+	HealthyMS  int64  `json:"healthy_ms"`
+	Health     string `json:"health,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
 
-// Push sends a ts-orch release to every region concurrently and waits until
-// each serves it. It runs in GitHub Actions with id-token: write.
 func Push(ctx context.Context, args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("release push", flag.ContinueOnError)
 	flags.SetOutput(output)
@@ -65,6 +75,10 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	regions, err = pushOrder(regions)
+	if err != nil {
+		return err
+	}
 	token, err := MintToken(ctx)
 	if err != nil {
 		return err
@@ -73,7 +87,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	release := OrchRelease{SHA: *sha, Binaries: map[string]Binary{}, Token: token}
+	release := OrchRelease{SHA: *sha, Binaries: map[string]Binary{}}
 	for _, arch := range []string{"amd64", "arm64"} {
 		sum, err := fileSHA256(filepath.Join(*dir, assetPrefix+arch))
 		if errors.Is(err, os.ErrNotExist) {
@@ -87,23 +101,142 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	if len(release.Binaries) == 0 {
 		return errors.New("no " + assetPrefix + "<arch> binary in " + *dir)
 	}
-	results := make([]Result, len(regions))
-	var wg sync.WaitGroup
-	for i, region := range regions {
-		wg.Go(func() { results[i] = pushRegion(ctx, region, release) })
-	}
-	wg.Wait()
 	var failed error
-	for _, result := range results {
+	blocked := ""
+	for _, region := range regions {
+		if err := dialPreflight(ctx, region); err != nil {
+			failed = fmt.Errorf("region %s preflight: %w", region.Region, err)
+			blocked = region.Region
+			break
+		}
+	}
+	preflight := failed
+	for _, region := range regions {
+		result := Result{Region: region.Region}
+		if blocked != "" {
+			result.State, result.Error = "skipped", "not pushed: "+blocked+" failed"
+			if preflight != nil && region.Region == blocked {
+				result.State, result.Error = "failed", preflight.Error()
+			}
+		} else {
+			release.Token, err = MintToken(ctx)
+			if err == nil {
+				result = pushRegion(ctx, region, release)
+				if result.Error == "" {
+					result.HealthyMS, result.Health, err = awaitHealthy(ctx, region, release)
+				}
+			}
+			if err != nil {
+				result.Error = err.Error()
+			}
+			if result.Error != "" {
+				blocked = region.Region
+				failed = errors.Join(failed, fmt.Errorf("region %s: %s", region.Region, result.Error))
+			}
+		}
 		line, _ := json.Marshal(result)
 		if _, err := fmt.Fprintf(output, "%s\n", line); err != nil {
-			return err
-		}
-		if result.Error != "" {
-			failed = errors.Join(failed, fmt.Errorf("region %s: %s", result.Region, result.Error))
+			return errors.Join(failed, err)
 		}
 	}
 	return failed
+}
+
+func pushOrder(regions []Region) ([]Region, error) {
+	names := catalog.Names()
+	rank := make(map[string]int, len(names))
+	for i, name := range names {
+		rank[name] = i
+	}
+	rank[catalog.Founded()[0].Name()] = len(names)
+	for _, region := range regions {
+		if _, ok := rank[region.Region]; !ok {
+			return nil, fmt.Errorf("unknown region %q", region.Region)
+		}
+	}
+	ordered := slices.Clone(regions)
+	slices.SortStableFunc(ordered, func(a, b Region) int { return cmp.Compare(rank[a.Region], rank[b.Region]) })
+	return ordered, nil
+}
+
+func dialPreflight(ctx context.Context, region Region) error {
+	probeCtx, cancel := context.WithTimeout(ctx, versionProbe)
+	defer cancel()
+	token, err := MintToken(probeCtx)
+	if err != nil {
+		return err
+	}
+	deadline, _ := probeCtx.Deadline()
+	if err := probeCtx.Err(); err != nil {
+		return err
+	}
+	conn, err := Dial(region, token, nats.Timeout(time.Until(deadline)))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	version, err := request(probeCtx, conn, SubjectVersion, nil, versionProbe)
+	if err == nil && version.Version == "" {
+		err = errors.New("empty version reply")
+	}
+	if err != nil {
+		return err
+	}
+	health, err := request(ctx, conn, SubjectHealth, nil, healthRequestTimeout)
+	if errors.Is(err, nats.ErrNoResponders) || (err == nil && health.Health == "no health check") {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("health: %w", err)
+	}
+	if health.Health != "ok" {
+		return fmt.Errorf("health: %q", health.Health)
+	}
+	return nil
+}
+
+func awaitHealthy(ctx context.Context, region Region, release OrchRelease) (ms int64, last string, err error) {
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(ctx, healthWait)
+	defer cancel()
+	token, err := MintToken(ctx)
+	if err != nil {
+		return 0, "", err
+	}
+	conn, err := Dial(region, token, nats.Name("ts-orch release health"))
+	if err != nil {
+		return 0, "", err
+	}
+	defer conn.Close()
+	tick := time.NewTicker(healthEvery)
+	defer tick.Stop()
+	var steady time.Time
+	for {
+		reply, probeErr := request(ctx, conn, SubjectHealth, nil, healthRequestTimeout)
+		last = reply.Health
+		if probeErr != nil {
+			last = probeErr.Error()
+		} else if reply.Version != release.SHA {
+			last = fmt.Sprintf("health version %q, want %s", reply.Version, release.SHA)
+		} else if last == "" {
+			last = "empty health reply"
+		}
+		if last == "ok" && ctx.Err() == nil {
+			if steady.IsZero() {
+				steady = time.Now()
+			}
+			if time.Since(steady) >= healthSteady {
+				return time.Since(start).Milliseconds(), last, nil
+			}
+		} else {
+			steady = time.Time{}
+		}
+		select {
+		case <-ctx.Done():
+			return time.Since(start).Milliseconds(), last, fmt.Errorf("health of %s for %s: %w (last: %s)", region.Region, release.SHA, ctx.Err(), last)
+		case <-tick.C:
+		}
+	}
 }
 
 // LoadRegions reads deploy/m1/regions.json.
@@ -179,10 +312,9 @@ func MintToken(ctx context.Context) (string, error) {
 	return body.Value, nil
 }
 
-// pushRegion never returns early for another region's failure.
 func pushRegion(ctx context.Context, region Region, release OrchRelease) Result {
-	result := Result{Region: region.Region}
 	start := time.Now()
+	result := Result{Region: region.Region, StartedAt: start.UTC().Format(time.RFC3339Nano)}
 	since := func() int64 { return time.Since(start).Milliseconds() }
 	fail := func(err error) Result { result.Error = err.Error(); return result }
 	conn, err := Dial(region, release.Token, nats.Name("ts-orch release push"),

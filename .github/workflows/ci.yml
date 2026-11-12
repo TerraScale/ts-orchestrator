@@ -167,7 +167,7 @@ jobs:
       group: production-ts-orch
       cancel-in-progress: false
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
@@ -190,7 +190,7 @@ jobs:
             --pattern terrascale-orchestrator-linux-amd64 --pattern terrascale-orchestrator-linux-arm64
           chmod +x dist/terrascale-orchestrator-linux-amd64
 
-      - name: Push the release to every region
+      - name: Push the release one region at a time
         shell: bash
         run: |
           set -euo pipefail
@@ -198,8 +198,8 @@ jobs:
           dist/terrascale-orchestrator-linux-amd64 release push --sha "${GITHUB_SHA}" --dir dist \
             > "${RUNNER_TEMP}/release-push.jsonl" || status=$?
           cat "${RUNNER_TEMP}/release-push.jsonl"
-          jq -r '"| \(.region) | \(.state // "-") | \(.connect_ms) | \(.accepted_ms) | \(.serving_ms) | \(.error // "") |"' "${RUNNER_TEMP}/release-push.jsonl" \
-            | { printf '| Region | State | Connect ms | Accepted ms | Serving ms | Error |\n|---|---|---|---|---|---|\n'; cat; } >> "${GITHUB_STEP_SUMMARY}"
+          jq -r '"| \(.region) | \(.state // "-") | \(.started_at // "-") | \(.connect_ms) | \(.accepted_ms) | \(.serving_ms) | \(.healthy_ms) | \(.health // "") | \(.error // "") |"' "${RUNNER_TEMP}/release-push.jsonl" \
+            | { printf '| Region | State | Started | Connect ms | Accepted ms | Serving ms | Healthy ms | Health | Error |\n|---|---|---|---|---|---|---|---|---|\n'; cat; } >> "${GITHUB_STEP_SUMMARY}"
           exit "$status"
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
