@@ -71,6 +71,7 @@ groups:
           summary: A TerraBase region replica has gone an hour without a completed checksum verification
       - alert: TerraBaseMetricsDown
         expr: up{job="terrabase"} == 0
+        for: 2m
         labels:
           severity: critical
         annotations:
