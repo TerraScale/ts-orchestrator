@@ -150,8 +150,9 @@ answer the rollout status, prime and drain calls, and echo extended CONNECT
 streams. Through the real :443 it sends one REST request, one HTTP/1.1
 WebSocket and one RFC 8441 WebSocket, each of which echoes a frame, then
 drains the writer with both sockets open: the drain must finish within 5 s
-and end both sockets, and the next REST request must reach the new writer. It
-does not cover the mesh wiring in `internal/app/app.go` (`mesh.Run`, the drain
+and end both sockets, and the next REST request must reach the new writer.
+Last, an `Upgrade: tcp` on a loopback route whose backend half-closes first
+must still deliver the client's next 1 MiB to that backend. It does not cover the mesh wiring in `internal/app/app.go` (`mesh.Run`, the drain
 request over NATS, the Vault peer credential), TerraBase itself, NetBird,
 `HomeSocketRelay`, or a region with two edges; only a real region proves those.
 

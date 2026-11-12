@@ -213,6 +213,59 @@ func openHTTP2(roots *x509.CertPool, host string) (socket, error) {
 	return s, s.echo()
 }
 
+func dialEdge(roots *x509.CertPool, host, protocol string) (*tls.Conn, error) {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", public, &tls.Config{ServerName: host, RootCAs: roots, NextProtos: []string{protocol}})
+	if err != nil {
+		return nil, err
+	}
+	return conn, conn.SetDeadline(time.Now().Add(5 * time.Second))
+}
+
+func halfClose(conn net.Conn) int64 {
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	reader := bufio.NewReader(conn)
+	request, err := http.ReadRequest(reader)
+	if err != nil {
+		return 0
+	}
+	_, _ = fmt.Fprintf(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: %s\r\n\r\nbackend done", request.Header.Get("Upgrade"))
+	_ = conn.(*net.TCPConn).CloseWrite()
+	n, _ := io.Copy(io.Discard, reader)
+	return n
+}
+
+func uploadAfterHalfClose(roots *x509.CertPool, host string, received <-chan int64) error {
+	conn, err := dialEdge(roots, host, "http/1.1")
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	_, _ = fmt.Fprintf(conn, "GET /upload HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n", host)
+	reader := bufio.NewReader(conn)
+	response, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusSwitchingProtocols {
+		return fmt.Errorf("answered %s", response.Status)
+	}
+	if last, err := io.ReadAll(reader); err != nil || string(last) != "backend done" {
+		return fmt.Errorf("read %q and %v instead of the backend's last bytes and its half-close", last, err)
+	}
+	upload := make([]byte, 1<<20)
+	if _, err := conn.Write(upload); err != nil {
+		return fmt.Errorf("upload after the backend's half-close: %w", err)
+	}
+	if err := conn.CloseWrite(); err != nil {
+		return err
+	}
+	if n := <-received; n != int64(len(upload)) {
+		return fmt.Errorf("the backend received %d of the %d bytes sent after its half-close", n, len(upload))
+	}
+	return nil
+}
+
 func listening() bool {
 	var metrics strings.Builder
 	observability.WriteEdgeListenerMetrics(&metrics)
@@ -220,7 +273,7 @@ func listening() bool {
 }
 
 func main() {
-	state, ca, host := os.Args[1], os.Args[2], os.Args[3]
+	state, ca, host, upgradeHost := os.Args[1], os.Args[2], os.Args[3], os.Args[4]
 	secret := make([]byte, 32)
 	_, _ = rand.Read(secret)
 	writer := &writers{owner: "n1", secret: hex.EncodeToString(secret), epoch: 1}
@@ -232,8 +285,16 @@ func main() {
 		step("writer stand-in "+node.Node+" on "+node.Address+":8081", err)
 		go (&http.Server{Handler: writer.node(node.Node), Protocols: protocols}).Serve(listener)
 	}
+	backend, err := net.Listen("tcp", "127.0.0.1:0")
+	step("half-closing Upgrade backend", err)
+	received := make(chan int64, 1)
+	go func() {
+		if conn, err := backend.Accept(); err == nil {
+			received <- halfClose(conn)
+		}
+	}()
 	regional := edge.New(state)
-	regional.SetRoutes(map[string]int{host: 8080}, nil)
+	regional.SetRoutes(map[string]int{host: 8080, upgradeHost: backend.Addr().(*net.TCPAddr).Port}, nil)
 	step("SetRequestProofSecret", regional.SetRequestProofSecret(writer.secret))
 	regional.SetRegionalNodes(func() []mesh.WorkerPeer { return nodes })
 	control, err := net.Listen("tcp", "127.0.0.1:0")
@@ -289,4 +350,5 @@ func main() {
 	step("HTTP/1.1 WebSocket ended by the drain", h1.ended())
 	step("RFC 8441 WebSocket ended by the drain", h2.ended())
 	step("REST after the drain served by the new writer n2", rest("rest from n2"))
+	step("Upgrade: tcp delivered the client's 1 MiB to a backend that half-closed first", uploadAfterHalfClose(roots, upgradeHost, received))
 }

@@ -201,12 +201,14 @@ EOF
 end "upgrade -> whoami /echo echoed one frame through the edge"
 
 begin "regional path through a second edge in its own network namespace"
-leaf regional.e2e.test DNS:regional.e2e.test
 install -d -m 0700 "$work/regional/edge-certs"
-cat regional.e2e.test.key regional.e2e.test.pem >"$work/regional/edge-certs/regional.e2e.test"
+for host in regional.e2e.test upgrade.e2e.test; do
+	leaf "$host" "DNS:$host"
+	cat "$host.key" "$host.pem" >"$work/regional/edge-certs/$host"
+done
 go -C "$repo" build -trimpath -o "$work/regional-edge" ./test/e2e/m1/regional
-sudo unshare -n sh -c 'ip link set lo up && exec "$0" "$@"' "$work/regional-edge" "$work/regional" "$work/ca.pem" regional.e2e.test
-end "regional edge -> REST, two WebSockets, a drain with both open, REST after it"
+sudo unshare -n sh -c 'ip link set lo up && exec "$0" "$@"' "$work/regional-edge" "$work/regional" "$work/ca.pem" regional.e2e.test upgrade.e2e.test
+end "regional edge -> REST, two WebSockets, a drain with both open, REST after it, an upload after a backend's half-close"
 
 begin "restart ts-orch"
 sudo systemctl restart ts-orch
