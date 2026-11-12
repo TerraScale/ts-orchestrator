@@ -81,7 +81,7 @@ live rollout measurements remain pending.
 ## Boundaries
 
 This candidate covers HTTP request routing and planned TerraBase task replacement.
-PostgreSQL and native wire sessions need their own session-aware routing/drain
+PostgreSQL sessions need their own session-aware routing/drain
 proof before they can be called zero-downtime. Region bootstrap remains documented
 in [region-bootstrap.md](region-bootstrap.md). Durable notice replay across
 orchestrator/NATS restarts (#1104) is separate and has not been proven here.

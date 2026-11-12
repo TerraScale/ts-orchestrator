@@ -123,7 +123,7 @@ groups:
           severity: critical
         annotations:
           summary: A public edge listener is unavailable
-          description: Inspect listener bind errors and native wire readiness. Other edge protocols continue serving; no manual release prerequisite is required.
+          description: Inspect listener bind errors. Other edge protocols continue serving; no manual release prerequisite is required.
   - name: desired-state
     rules:
       - alert: ServiceSpecInvalid

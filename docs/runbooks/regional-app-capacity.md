@@ -63,8 +63,8 @@ with the rendered service using `proto.Equal` and returns without a write when
 they match. A global renderer change would therefore be unsafe.
 
 The new resource rendering applies only to services using TaskPort without
-mounts. Valid TaskPort services also require readiness and forbid PostgreSQL
-and wire listeners. TerraBase has mounted data, fixed ports and no TaskPort;
+mounts. Valid TaskPort services also require readiness and forbid a PostgreSQL
+listener. TerraBase has mounted data, fixed ports and no TaskPort;
 its render and update policy remain unchanged, including 1000m/4096 MiB and
 10 GiB disk. Its declaration is not embedded in the signed-app placement policy.
 The executor's equal-budget OCI CPU options also remain unchanged.
