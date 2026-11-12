@@ -9,4 +9,4 @@ permissions:
   issues: write
 jobs:
   ci-time:
-    uses: TerraScale/.github/.github/workflows/ci-time.yml@2feafc8286def3330eedcd3138b7bceac4af4a4f
+    uses: TerraScale/.github/.github/workflows/ci-time.yml@b2244dc7f9f527ca7a24e86854741ba7671ad265
