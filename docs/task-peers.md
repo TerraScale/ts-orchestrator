@@ -36,23 +36,19 @@ answered the last mesh ping round, sorted, `\n` terminated:
 The mesh also renews `topology.json` in the bound directory from persisted
 desired placement and the separate admission registry. It contains `generation`,
 UTC `observedAt`, `regions`, and `peers` (`node`, `region`, IPv4 `address`).
-TerraBase checks this manifest against the file, directory and loaded runtime
-membership; unknown, mismatched or over-30-second-old evidence refuses client
-work and readiness while preserving peer repair traffic. Deploy ts-orch before
-the companion TerraBase release; neither deployment is performed by this document.
 
 Ports 9095 (health) and 9096 (metrics) belong to NetBird.
 The loopback `127.0.0.1:9097/metrics` exporter aggregates every targeted region's
 authenticated mesh reports. `ts_orch_peer_topology_*` exposes mismatch, expected
-count, rejected generations, native runtime mismatch and observation age; missing
-reports fail closed. Reports are bound to the expected topology digest, and
+count, rejected generations and observation age; missing reports fail
+closed. Reports are bound to the expected topology digest, and
 monitoring uses an immutable desired snapshot independently of SwarmKit RPCs.
 Install the accompanying monitoring configuration through the rollout owner.
 Five-second scrape/evaluation/persistence/group waits put stale evidence on the
 existing capped, deduplicating relay within a minute under healthy monitoring.
 
-Validation after both releases: on an isolated cell, drop a peer from its file
-and verify mismatch/refusal within 60 seconds, then apply an authorized placement
-drain and verify agreement. Never modify a production peers file. Record native
-runtime mismatch=0 and expected/file agreement on each recovered production
-region, the loaded Prometheus rule and one synthetic deduplicated notification.
+Validation after the release: on an isolated cell, drop a peer from its file
+and verify the mismatch within 60 seconds, then apply an authorized placement
+drain and verify agreement. Never modify a production peers file. Record
+expected/file agreement on each recovered production region, the loaded
+Prometheus rule and one synthetic deduplicated notification.

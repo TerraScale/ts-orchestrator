@@ -1,7 +1,6 @@
 package mesh
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -19,8 +18,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
-	"github.com/prometheus/common/expfmt"
-	"github.com/prometheus/common/model"
 )
 
 type topologyPeer struct {
@@ -38,12 +35,11 @@ type peerTopology struct {
 
 // PeerAttestation has only counts and fixed diagnostics, never peer-controlled labels.
 type PeerAttestation struct {
-	Topology        string    `json:"topology"`
-	Expected        int       `json:"expected"`
-	RuntimeMismatch int       `json:"runtimeMismatch"`
-	Rejected        int       `json:"rejected"`
-	Mismatch        int       `json:"mismatch"`
-	CheckedAt       time.Time `json:"checkedAt"`
+	Topology  string    `json:"topology"`
+	Expected  int       `json:"expected"`
+	Rejected  int       `json:"rejected"`
+	Mismatch  int       `json:"mismatch"`
+	CheckedAt time.Time `json:"checkedAt"`
 }
 
 // Publish while holding n.mu; monitoring never waits for reconciliation RPCs.
@@ -180,8 +176,7 @@ func (p *peers) expectedFor(service string, regions []string) ([]byte, bool) {
 	return p.render(service, founders), len(founders) > 0
 }
 
-func (n *Node) attestPeers(ctx context.Context) {
-	runtimeMismatch := runtimePeerMismatch(ctx)
+func (n *Node) attestPeers() {
 	n.peers.mu.Lock()
 	defer n.peers.mu.Unlock()
 	reports := map[string]PeerAttestation{}
@@ -202,9 +197,6 @@ func (n *Node) attestPeers(ctx context.Context) {
 		expected, complete := n.peers.expectedFor(name, regions)
 		current, err := os.ReadFile(filepath.Join(n.peers.root, name, "peers"))
 		report := PeerAttestation{Expected: len(regions), CheckedAt: topology.ObservedAt, Rejected: n.peers.rejected[name], Topology: fmt.Sprintf("%x", sha256.Sum256(expected))}
-		if name == "terrabase" {
-			report.RuntimeMismatch = runtimeMismatch
-		}
 		if !complete || err != nil || !bytes.Equal(current, expected) {
 			report.Mismatch = 1
 		}
@@ -275,69 +267,9 @@ func (n *Node) writePeerMetrics(w io.Writer) {
 			fmt.Fprintf(w, "ts_orch_peer_topology_mismatch{region=%q,service=%q} %d\n", region, service, report.Mismatch)
 			fmt.Fprintf(w, "ts_orch_peer_topology_expected{region=%q,service=%q} %d\n", region, service, report.Expected)
 			fmt.Fprintf(w, "ts_orch_peer_topology_generation_rejected{region=%q,service=%q} %d\n", region, service, min(1, max(0, report.Rejected)))
-			if service == "terrabase" {
-				mismatch := report.RuntimeMismatch
-				if !ok || mismatch != 0 {
-					mismatch = 1
-				}
-				fmt.Fprintf(w, "ts_orch_peer_topology_runtime_mismatch{region=%q,service=%q} %d\n", region, service, mismatch)
-			}
 			fmt.Fprintf(w, "ts_orch_peer_topology_age_seconds{region=%q,service=%q} %.3f\n", region, service, max(0, time.Since(report.CheckedAt).Seconds()))
 		}
 	}
-}
-
-// This is the native exporter, not the switching edge or the peers file.
-func runtimePeerMismatch(ctx context.Context) int {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	transport := &http.Transport{DisableKeepAlives: true}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:9091/metrics", nil)
-	request.Header.Set("Accept", "text/plain; version=0.0.4")
-	response, err := client.Do(request)
-	if err != nil {
-		return 1
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return 1
-	}
-	return exportedPeerMismatch(response.Body)
-}
-
-// exportedPeerMismatch keeps only the topology gauge's lines: TerraBase's
-// exposition grows with its databases and once passed any whole-body cap,
-// which reported a mismatch for a member that had none.
-func exportedPeerMismatch(body io.Reader) int {
-	const name = "terrabase_peer_topology_mismatch"
-	var family bytes.Buffer
-	lines := bufio.NewScanner(body)
-	lines.Buffer(make([]byte, 0, 64<<10), 1<<20)
-	for lines.Scan() {
-		line := lines.Bytes()
-		sample := bytes.HasPrefix(line, []byte(name+"{")) || bytes.HasPrefix(line, []byte(name+" "))
-		comment := bytes.HasPrefix(line, []byte("# HELP "+name+" ")) || bytes.HasPrefix(line, []byte("# TYPE "+name+" "))
-		if !sample && !comment {
-			continue
-		}
-		if family.Len()+len(line) > 64<<10 {
-			return 1
-		}
-		family.Write(line)
-		family.WriteByte('\n')
-	}
-	if lines.Err() != nil {
-		return 1
-	}
-	parser := expfmt.NewTextParser(model.LegacyValidation)
-	families, err := parser.TextToMetricFamilies(&family)
-	metric := families[name].GetMetric()
-	if err != nil || len(metric) != 1 || metric[0].GetGauge() == nil || metric[0].GetGauge().GetValue() != 0 {
-		return 1
-	}
-	return 0
 }
 
 func (n *Node) servePeerMetrics(ctx context.Context) {

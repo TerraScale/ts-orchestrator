@@ -297,7 +297,7 @@ func (n *Node) watchPeers(ctx context.Context) {
 				}
 			}
 			n.peerReportMu.Unlock()
-			n.attestPeers(ctx)
+			n.attestPeers()
 			if err := n.peers.observe(up, workers); err != nil {
 				slog.WarnContext(ctx, "mesh peers file write failed", "error", err)
 			}
