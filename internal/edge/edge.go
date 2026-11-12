@@ -197,7 +197,7 @@ const clientIdleTimeout = 120 * time.Second
 func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
 	plain := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Handler: countResponses("http", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			e.identify(w, r)
 			// A Postgres hostname needs :80 only for its certificate's challenge.
 			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
@@ -215,7 +215,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 				return
 			}
 			e.challenges.ServeHTTP(w, r)
-		}),
+		})),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -227,7 +227,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	tlsConfig := e.certs.TLSConfig()
 	tlsConfig.GetConfigForClient = e.meshTLS
 	public := &http.Server{
-		Handler:           http.HandlerFunc(e.serveHTTPS),
+		Handler:           countResponses("https", http.HandlerFunc(e.serveHTTPS)),
 		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       clientIdleTimeout,
