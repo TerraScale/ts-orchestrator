@@ -157,9 +157,11 @@ sudo install -d -o 65532 -g 65532 -m 0755 /var/lib/ts-data "$data"
 	"$(sha256sum "$bin" | cut -d' ' -f1)"
 /usr/local/bin/containerd --version | grep -q ' v2.4.2 '
 end "install -> ts-orch active (cache hit $cache_hit)"
-if ! $cache_hit; then
+if $cache_hit; then
+	echo "NetBird client tested: $(netbird version), the pin restored from the runtime cache" | tee -a "$summary"
+else
+	echo "NetBird client tested: $(netbird version), apt's current release (runtime cache miss)" | tee -a "$summary"
 	begin "save the pinned packages for the next run"
-	netbird version
 	cache_pins
 	end "cache miss -> pinned packages saved for the next run"
 fi
