@@ -105,13 +105,14 @@ remains the first peer and keeps its existing data and identity.
   drops the count at the next 30 s reconcile.
 - **Founder restart.** A restarted founder knows no worker yet: announcements
   live only in its memory, and its SwarmKit dispatcher marks every worker
-  UNKNOWN until it registers again. For the first 15 s after the founder
-  starts listening, a reconcile that would lower a per-node service below the
-  replica count SwarmKit runs waits instead, and an apply waits with it. The
-  first refresh after those 15 s reconciles at once, so a healthy worker keeps
-  its task and a worker that is really gone leaves the count 15 to 20 s after
-  the founder's mesh starts. Raising the count still needs a fully joined
-  worker.
+  UNKNOWN until it registers again. A reconcile that would lower a per-node
+  service below the replica count SwarmKit runs waits, and an apply waits with
+  it, until the first refresh at least 15 s after the founder starts listening
+  and no worker that was READY is still UNKNOWN. A worker that re-registers
+  keeps its task. One that never comes back stays UNKNOWN until the
+  dispatcher's own DOWN, about 30 s after the restart, and the next refresh
+  then lowers the count. A worker that is already drained or DOWN leaves the
+  count as before. Raising the count still needs a fully joined worker.
 - **Release evidence.** Verification admits the founder and the exact
   READY/ACTIVE workers in its fresh mesh inventory, with one task per host.
   Readiness and bake checks probe each worker's own NetBird address. A healthy
