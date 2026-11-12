@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/base64"
 	"io"
 	"net"
@@ -87,7 +88,7 @@ func (c *upgradedConn) Write(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	}
 	if c.opened {
-		return c.relay(p)
+		return flushWithin(c.writer.ResponseWriter, p)
 	}
 	c.head = append(c.head, p...)
 	end := bytes.Index(c.head, []byte("\r\n\r\n"))
@@ -102,23 +103,30 @@ func (c *upgradedConn) Write(p []byte) (int, error) {
 		header.Del(name)
 	}
 	c.writer.ResponseWriter.WriteHeader(http.StatusOK)
-	if _, err := c.relay(rest); err != nil {
+	if _, err := flushWithin(c.writer.ResponseWriter, rest); err != nil {
 		return 0, err
 	}
 	return len(p), nil
 }
 
-func (c *upgradedConn) relay(p []byte) (int, error) {
-	controller := http.NewResponseController(c.writer.ResponseWriter)
-	if err := controller.SetWriteDeadline(time.Now().Add(clientIdleTimeout)); err != nil {
+func flushWithin(w http.ResponseWriter, p []byte) (int, error) {
+	controller := http.NewResponseController(w)
+	return writeWithin(controller, func() (int, error) {
+		n, err := w.Write(p)
+		if err == nil {
+			err = controller.Flush()
+		}
+		return n, err
+	})
+}
+
+func writeWithin(client interface{ SetWriteDeadline(time.Time) error }, write func() (int, error)) (int, error) {
+	if err := client.SetWriteDeadline(time.Now().Add(clientIdleTimeout)); err != nil {
 		return 0, err
 	}
-	n, err := c.writer.ResponseWriter.Write(p)
-	if err == nil {
-		err = controller.Flush()
-	}
-	if err == nil {
-		err = controller.SetWriteDeadline(time.Time{})
+	n, err := write()
+	if cleared := client.SetWriteDeadline(time.Time{}); err == nil {
+		err = cleared
 	}
 	return n, err
 }
@@ -141,30 +149,36 @@ func (c *upgradedConn) SetWriteDeadline(time.Time) error { return nil }
 
 const websocketAcceptGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-type websocketWriter struct{ http.ResponseWriter }
+type hijackWriter struct {
+	http.ResponseWriter
+	halfClose bool
+}
 
-func (w websocketWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w hijackWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-func (w websocketWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+func (w hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	conn, buffered, err := http.NewResponseController(w.ResponseWriter).Hijack()
 	if err != nil {
 		return nil, nil, err
 	}
-	return websocketConn{conn}, buffered, nil
+	if w.halfClose {
+		return halfClosingConn{hijackedConn{conn}, conn.(*tls.Conn).CloseWrite}, buffered, nil
+	}
+	return hijackedConn{conn}, buffered, nil
 }
 
-type websocketConn struct{ net.Conn }
+type hijackedConn struct{ net.Conn }
 
-func (c websocketConn) Write(p []byte) (int, error) {
-	if err := c.SetWriteDeadline(time.Now().Add(clientIdleTimeout)); err != nil {
-		return 0, err
-	}
-	n, err := c.Conn.Write(p)
-	if err == nil {
-		err = c.SetWriteDeadline(time.Time{})
-	}
-	return n, err
+func (c hijackedConn) Write(p []byte) (int, error) {
+	return writeWithin(c.Conn, func() (int, error) { return c.Conn.Write(p) })
 }
+
+type halfClosingConn struct {
+	hijackedConn
+	closeWrite func() error
+}
+
+func (c halfClosingConn) CloseWrite() error { return c.closeWrite() }
 
 func websocketHandshake(r *http.Request) bool {
 	key, err := base64.StdEncoding.DecodeString(r.Header.Get("Sec-WebSocket-Key"))

@@ -62,7 +62,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ts-m1-runtime
-          key: m1-runtime-${{ runner.arch }}-${{ hashFiles('deploy/m1/host-runtime.sh', 'internal/netbird/manager/server_cli.go') }}
+          key: m1-runtime-${{ runner.arch }}-${{ hashFiles('deploy/m1/host-runtime.sh', 'internal/netbird/manager/server_cli.go', 'deploy/m1/install.sh') }}
       - name: Run the M1 flow
         run: test/e2e/m1/run.sh "$RUNNER_TEMP/terrascale-orchestrator"
       - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}

@@ -56,15 +56,14 @@ func relayTunnel(w http.ResponseWriter, r *http.Request, transport http.RoundTri
 	defer response.Body.Close()
 	maps.Copy(w.Header(), response.Header)
 	w.WriteHeader(response.StatusCode)
-	flusher := http.NewResponseController(w)
-	if flusher.Flush() != nil {
+	if http.NewResponseController(w).Flush() != nil {
 		return
 	}
 	buffer := make([]byte, 32<<10)
 	for {
 		n, err := response.Body.Read(buffer)
 		if n > 0 {
-			if _, werr := w.Write(buffer[:n]); werr != nil || flusher.Flush() != nil {
+			if _, werr := flushWithin(w, buffer[:n]); werr != nil {
 				return
 			}
 		}

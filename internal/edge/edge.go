@@ -242,6 +242,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       clientIdleTimeout,
 		MaxHeaderBytes:    64 << 10,
+		HTTP2:             &http.HTTP2Config{WriteByteTimeout: clientIdleTimeout},
 	}
 	return plain, public
 }
@@ -278,8 +279,8 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case isExtendedConnect(r):
 		w, r = upgradeExtendedConnect(w, r)
-	case websocketHandshake(r):
-		w = websocketWriter{w}
+	case r.Header.Get("Upgrade") != "":
+		w = hijackWriter{w, !websocketHandshake(r)}
 	}
 	e.identify(w, r)
 	peer := fromPeer(r)
