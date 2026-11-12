@@ -35,7 +35,9 @@ terrascale_slo_requests_total{service="terrabase",outcome="bad"} 1
 ```
 
 Every serving instance must initialize both counters to zero and increment
-exactly one for each completed eligible operation. Scrape labels must preserve
+exactly one for each completed eligible operation. Caller-abandoned requests
+increment neither counter and are excluded from both numerator and denominator.
+Scrape labels must preserve
 instance identity until `rate`/`increase` is applied. Only the three service
 labels above and outcomes `good` and `bad` are allowed; never label tenants,
 users, credentials, request IDs or raw paths. Transport and streaming failures
@@ -63,8 +65,12 @@ ASP.NET HTTP duration counts on a dedicated ephemeral metrics listener. The
 orchestrator discovers that listener from the running task's owned sockets;
 no fixed port or service change is required. Recording rules normalize these
 existing counts into the contract, preserving `service`, `instance` and `region`.
-HTTP 5xx, 408, 499 and explicit transport errors count bad; other completed
-1xx–4xx responses count good. Probes, known internal routes and unclassified
+The HTTP recording adapter counts 5xx, 408, 499 and explicit transport errors as
+bad when caller attribution is unavailable; other completed 1xx–4xx responses
+count good. HTTP 499 is not inherently a service failure: a confirmed caller
+disconnect is excluded, including when reported as 499 or a cancellation
+exception. Status alone must not override positive caller attribution.
+Probes, known internal routes and unclassified
 routes are excluded, including auth metrics requests without a route. Both
 outcomes initialize to zero only when the real HTTP counter is present.
 
@@ -72,22 +78,37 @@ This HTTP baseline cannot distinguish capacity from tenant-quota 429s, OAuth
 errors encoded in HTTP 200, or every late protocol failure. It measures the
 available HTTP signal; it does not claim complete protocol-level coverage.
 Dashboard has no existing exporter and supplies native terminal counters on a
-guarded loopback `/metrics` app listener. Its caller cancellations conservatively
-count bad when attribution cannot be proven. Atlas and router are not deployed
-and have no objectives or dashboard selection. Never relabel readiness as request
+guarded loopback `/metrics` app listener. Its emitter must distinguish visitor
+disconnects from service-initiated aborts: a caller disconnect without an
+independent service failure is excluded, even if response completion throws.
+Service-initiated aborts, dependency failures and service-side deadlines remain
+bad; an aborted request must never become a good completion. A cancellation
+token alone does not establish a service failure. Unattributed transport errors
+remain bad. Atlas and router are not deployed and have no objectives or
+dashboard selection. Never relabel readiness as request
 success. Verify collection and outcomes against the installed releases.
 
 ## Burn-rate alerts
 
 Burn is `bad request fraction / 0.001`. Both windows must cross the threshold
-in the same evaluation; no additional `for` delays the burn alerts.
+in the same evaluation, and the long window must meet its minimum eligible
+request count; no additional `for` delays the burn alerts.
 
-| Alert | Long / short window | Burn | Severity | Budget consumed in long window |
-| --- | --- | --- | --- | --- |
-| `ServiceSLOBurnFast` | 1h / 5m | >14.4× | critical | 2% |
-| `ServiceSLOBurnSlow` | 6h / 30m | >6× | critical | 5% |
-| `ServiceSLOBurnDaily` | 1d / 2h | >3× | warning | 10% |
-| `ServiceSLOBurnSteady` | 3d / 6h | >1× | warning | 10% |
+| Alert | Long / short window | Burn | Severity | Budget consumed in long window | Minimum long-window requests |
+| --- | --- | --- | --- | --- | --- |
+| `ServiceSLOBurnFast` | 1h / 5m | >14.4× | critical | 2% | 695 |
+| `ServiceSLOBurnSlow` | 6h / 30m | >6× | critical | 5% | 1,667 |
+| `ServiceSLOBurnDaily` | 1d / 2h | >3× | warning | 10% | 3,334 |
+| `ServiceSLOBurnSteady` | 3d / 6h | >1× | warning | 10% | 10,000 |
+
+For burn threshold `B`, choose `N = ceil(10 / (B * 0.001))`.
+At `requests >= N`, crossing the unchanged threshold requires
+`bad > N * B * 0.001`: respectively 10.008, 10.002, 10.002 and 10.
+Thus one or two bad requests cannot trigger a burn alert. Counts use per-instance
+`increase` over the long window before summing by service, matching the burn
+ratio's reset handling and good/bad population. Prometheus extrapolates these
+counts; this is a minimum estimated volume, not an exact integer event count.
+Low-volume failures remain visible in the SLO dashboard and budget.
 
 The budget percentages assume stationary request volume. The rules use actual
 request-weighted fractions. Alerts may overlap; routing/deduplication is not
@@ -99,6 +120,11 @@ Zero traffic gives an undefined error fraction, not 100% availability and not
 a burn alert. `ServiceSLOTelemetryMissing` fires when no request counter of any outcome has
 samples in 5 minutes for a further 10 minutes, including a service that was
 never instrumented. This detects fleet-wide absence, not one missing replica.
+The production `ServiceReadinessFailed` alert independently probes public
+endpoints, including dashboard readiness and its dependencies, and pages after
+five minutes of sustained failure without any request-volume guard. It covers
+a dashboard outage even when request counters remain scrapeable and traffic is
+zero. Missing counters still trigger `ServiceSLOTelemetryMissing`.
 Scrape/ingress health and expected-instance inventory are separate prerequisites.
 
 The 30-day budget is `1 - bad_fraction / 0.001`, may be negative, and is not

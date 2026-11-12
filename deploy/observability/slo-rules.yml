@@ -116,41 +116,49 @@ groups:
       - record: slo:budget_remaining:ratio30d
         expr: 1 - slo:errors:ratio30d / slo:error_budget:ratio
       - alert: ServiceSLOBurnFast
-        expr: (slo:burn_rate:ratio1h > 14.4) and on (service, slo) (slo:burn_rate:ratio5m > 14.4)
+        expr: |
+          (slo:burn_rate:ratio1h > 14.4) and on (service, slo) (slo:burn_rate:ratio5m > 14.4)
+          and on (service) (sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[1h])) >= 695)
         labels:
           severity: critical
           long_window: 1h
           short_window: 5m
         annotations:
           summary: '{{ $labels.service }} availability error budget is burning'
-          description: 'Burn exceeds 14.4x in both 1h and 5m; inspect service failures before changing capacity or releases.'
+          description: 'Burn exceeds 14.4x in both 1h and 5m with at least 695 eligible requests in 1h; inspect service failures before changing capacity or releases.'
       - alert: ServiceSLOBurnSlow
-        expr: (slo:burn_rate:ratio6h > 6) and on (service, slo) (slo:burn_rate:ratio30m > 6)
+        expr: |
+          (slo:burn_rate:ratio6h > 6) and on (service, slo) (slo:burn_rate:ratio30m > 6)
+          and on (service) (sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[6h])) >= 1667)
         labels:
           severity: critical
           long_window: 6h
           short_window: 30m
         annotations:
           summary: '{{ $labels.service }} availability error budget is burning'
-          description: 'Burn exceeds 6x in both 6h and 30m; inspect service failures before changing capacity or releases.'
+          description: 'Burn exceeds 6x in both 6h and 30m with at least 1667 eligible requests in 6h; inspect service failures before changing capacity or releases.'
       - alert: ServiceSLOBurnDaily
-        expr: (slo:burn_rate:ratio1d > 3) and on (service, slo) (slo:burn_rate:ratio2h > 3)
+        expr: |
+          (slo:burn_rate:ratio1d > 3) and on (service, slo) (slo:burn_rate:ratio2h > 3)
+          and on (service) (sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[1d])) >= 3334)
         labels:
           severity: warning
           long_window: 1d
           short_window: 2h
         annotations:
           summary: '{{ $labels.service }} availability error budget is burning'
-          description: 'Burn exceeds 3x in both 1d and 2h; inspect service failures before changing capacity or releases.'
+          description: 'Burn exceeds 3x in both 1d and 2h with at least 3334 eligible requests in 1d; inspect service failures before changing capacity or releases.'
       - alert: ServiceSLOBurnSteady
-        expr: (slo:burn_rate:ratio3d > 1) and on (service, slo) (slo:burn_rate:ratio6h > 1)
+        expr: |
+          (slo:burn_rate:ratio3d > 1) and on (service, slo) (slo:burn_rate:ratio6h > 1)
+          and on (service) (sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[3d])) >= 10000)
         labels:
           severity: warning
           long_window: 3d
           short_window: 6h
         annotations:
           summary: '{{ $labels.service }} availability error budget is burning'
-          description: 'Burn exceeds 1x in both 3d and 6h; inspect service failures before changing capacity or releases.'
+          description: 'Burn exceeds 1x in both 3d and 6h with at least 10000 eligible requests in 3d; inspect service failures before changing capacity or releases.'
       - alert: ServiceSLOTelemetryMissing
         expr: |
           slo:objective unless on (service) sum by (service) (count_over_time(terrascale_slo_requests_total[5m]))
