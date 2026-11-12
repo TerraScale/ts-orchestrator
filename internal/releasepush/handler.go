@@ -42,7 +42,11 @@ const (
 	maxBinaryBytes = 512 << 20
 )
 
-const HandlerWait = 25 * time.Minute
+const (
+	HandlerWait          = 25 * time.Minute
+	healthHandlerBudget  = 5 * time.Second
+	healthRequestTimeout = 8 * time.Second
+)
 
 var (
 	hex40 = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -245,9 +249,17 @@ func (h *Handler) version() Reply {
 }
 
 func (h *Handler) health(ctx context.Context, _ []byte) Reply {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, healthHandlerBudget)
 	defer cancel()
 	text := "no health check"
+	if !h.mu.TryLock() {
+		return Reply{Version: h.Revision, Health: "release install in progress"}
+	}
+	pending := h.pending
+	h.mu.Unlock()
+	if pending != "" {
+		return Reply{Version: h.Revision, Health: "release restart pending"}
+	}
 	if h.Health != nil {
 		text = "ok"
 		if err := h.Health(ctx); err != nil {
@@ -257,7 +269,7 @@ func (h *Handler) health(ctx context.Context, _ []byte) Reply {
 	if previous := h.lastHealth.Swap(&text); previous == nil || *previous != text {
 		slog.Info("release health changed", "health", text)
 	}
-	return Reply{Health: text}
+	return Reply{Version: h.Revision, Health: text}
 }
 
 func (h *Handler) orch(ctx context.Context, data []byte) Reply {

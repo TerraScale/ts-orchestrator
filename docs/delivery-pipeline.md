@@ -47,13 +47,17 @@ and calls `ts-orch release push` for the regions in
 credential; workflow identity and permissions authorize the release listener.
 Regions roll one at a time in catalog order with the first founded region
 last: sjc, fra, gru today. G0 requires every target's version reply within
-10 seconds before installing anything. G1 waits up to three minutes for the
-requested SHA. G2 polls the updated region's release-health subject every
-two seconds with a five-second request timeout, requiring 15 uninterrupted
+10 seconds and health `ok` where the release-health subject is available,
+before installing anything. No responders or `no health check` accepts the
+version probe alone for the first push. G0 accepts any running version; an
+install in progress or a pending restart fails health. G1 waits up to three
+minutes for the requested SHA. G2 polls each region's release-health subject
+every two seconds with an eight-second request timeout around the handler's
+five-second total budget, requiring the requested SHA and 15 uninterrupted
 seconds of healthy JetStream leaders and replicas, a READY SwarmKit node and
 services at their desired replicas, within three minutes. Already-current
-regions skip both waits. G2 completes before the next install, keeping at most
-one JetStream peer down.
+regions still pass G1 and the full G2 health gate. G2 completes before the
+next install, keeping at most one JetStream peer down.
 
 Any failed gate stops the push; unreached regions are marked skipped with
 the blocking region's name. The job has a 30-minute limit and retains JSONL
@@ -62,7 +66,8 @@ reason. For a transient failure, run `gh run rerun <id> --failed`; for a bad
 build, open a revert PR. The mixed-version window can now last minutes.
 An already-unhealthy production stream intentionally stops the first release
 at sjc's G2. During the first push, regions still running the old binary
-provide only G0's version check; health is gated on the pushed binary itself.
+provide only G0's version check if health is unavailable; G2 always checks
+the requested binary, including on reruns where it is already current.
 Runtime credentials remain managed by OCI Vault.
 
 If `e2e-m1` fails or is cancelled after the build published, the run leaves its

@@ -228,19 +228,26 @@ not the global account) all differ. There is no bridge. Reasons:
 
 Releases roll through the region catalog with the first founded region last:
 sjc, fra, gru today. Before any install, every target must answer a version
-probe within 10 seconds (G0). Each changed region must serve the requested SHA
-within three minutes (G1), then report healthy JetStream and regional services
+probe within 10 seconds and report health `ok` where available (G0). No
+responders or `no health check` accepts version alone for the first push;
+other health failures, including an install or restart in progress, stop the
+push before any install. G0 accepts any running version. Each region must
+serve the requested SHA within three minutes (G1), then report healthy
+JetStream and regional services
 continuously for 15 seconds within three minutes (G2). Health requires a
 successful server health check, a leader and the configured count of current,
-online replicas for every stream, a READY SwarmKit node and no service below
+online replicas for every stream (a named stream omitted from stream info
+fails with `no leader answered`), a READY SwarmKit node and no service below
 its desired replicas. Unreadable service state fails the gate; host memory
 and disk pressure do not gate releases.
 
 Only after G2 may the next region restart, keeping at most one of the three
 JetStream peers down during the rollout. A region already running the release
-skips both waits. A failed gate stops the push and marks unreached regions
-skipped. G0 uses only the version subject so the first push can update hosts
-that do not yet implement release health; G2 queries the updated host.
+still passes G1 and the full G2 health gate. A failed gate stops the push
+and marks unreached regions skipped. G2 requires health replies from the
+requested SHA, polling every two seconds
+with an eight-second request timeout around a five-second handler budget.
+The next install waits for G2 even when a rerun finds a region already current.
 
 ## Accounts
 

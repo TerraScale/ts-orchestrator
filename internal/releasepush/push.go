@@ -87,7 +87,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	release := OrchRelease{SHA: *sha, Binaries: map[string]Binary{}, Token: token}
+	release := OrchRelease{SHA: *sha, Binaries: map[string]Binary{}}
 	for _, arch := range []string{"amd64", "arm64"} {
 		sum, err := fileSHA256(filepath.Join(*dir, assetPrefix+arch))
 		if errors.Is(err, os.ErrNotExist) {
@@ -104,7 +104,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	var failed error
 	blocked := ""
 	for _, region := range regions {
-		if err := dialVersion(ctx, region); err != nil {
+		if err := dialPreflight(ctx, region); err != nil {
 			failed = fmt.Errorf("region %s preflight: %w", region.Region, err)
 			blocked = region.Region
 			break
@@ -119,14 +119,11 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 				result.State, result.Error = "failed", preflight.Error()
 			}
 		} else {
-			result.StartedAt = time.Now().UTC().Format(time.RFC3339Nano)
 			release.Token, err = MintToken(ctx)
 			if err == nil {
 				result = pushRegion(ctx, region, release)
-				if result.Error == "" && result.State != "current" {
+				if result.Error == "" {
 					result.HealthyMS, result.Health, err = awaitHealthy(ctx, region, release)
-				} else if result.State == "current" {
-					result.Health = "current"
 				}
 			}
 			if err != nil {
@@ -162,15 +159,15 @@ func pushOrder(regions []Region) ([]Region, error) {
 	return ordered, nil
 }
 
-func dialVersion(ctx context.Context, region Region) error {
-	ctx, cancel := context.WithTimeout(ctx, versionProbe)
+func dialPreflight(ctx context.Context, region Region) error {
+	probeCtx, cancel := context.WithTimeout(ctx, versionProbe)
 	defer cancel()
-	token, err := MintToken(ctx)
+	token, err := MintToken(probeCtx)
 	if err != nil {
 		return err
 	}
-	deadline, _ := ctx.Deadline()
-	if err := ctx.Err(); err != nil {
+	deadline, _ := probeCtx.Deadline()
+	if err := probeCtx.Err(); err != nil {
 		return err
 	}
 	conn, err := Dial(region, token, nats.Timeout(time.Until(deadline)))
@@ -178,11 +175,24 @@ func dialVersion(ctx context.Context, region Region) error {
 		return err
 	}
 	defer conn.Close()
-	version, err := request(ctx, conn, SubjectVersion, nil, versionProbe)
+	version, err := request(probeCtx, conn, SubjectVersion, nil, versionProbe)
 	if err == nil && version.Version == "" {
 		err = errors.New("empty version reply")
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	health, err := request(ctx, conn, SubjectHealth, nil, healthRequestTimeout)
+	if errors.Is(err, nats.ErrNoResponders) || (err == nil && health.Health == "no health check") {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("health: %w", err)
+	}
+	if health.Health != "ok" {
+		return fmt.Errorf("health: %q", health.Health)
+	}
+	return nil
 }
 
 func awaitHealthy(ctx context.Context, region Region, release OrchRelease) (ms int64, last string, err error) {
@@ -202,10 +212,12 @@ func awaitHealthy(ctx context.Context, region Region, release OrchRelease) (ms i
 	defer tick.Stop()
 	var steady time.Time
 	for {
-		reply, probeErr := request(ctx, conn, SubjectHealth, nil, 5*time.Second)
+		reply, probeErr := request(ctx, conn, SubjectHealth, nil, healthRequestTimeout)
 		last = reply.Health
 		if probeErr != nil {
 			last = probeErr.Error()
+		} else if reply.Version != release.SHA {
+			last = fmt.Sprintf("health version %q, want %s", reply.Version, release.SHA)
 		} else if last == "" {
 			last = "empty health reply"
 		}
@@ -324,11 +336,6 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	result.State, result.AcceptedMS = reply.State, since()
 	if reply.State != "installed" && reply.State != "current" {
 		return fail(fmt.Errorf("release %s: %s", reply.State, reply.Error))
-	}
-	if reply.State == "current" {
-		result.ServingMS = since()
-		result.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		return result
 	}
 	deadline := time.Now().Add(3 * time.Minute)
 	for {
