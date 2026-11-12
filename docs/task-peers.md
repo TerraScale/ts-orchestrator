@@ -33,10 +33,6 @@ answered the last mesh ping round, sorted, `\n` terminated:
 - `ts-orch service apply` without a running mesh (this host only) sets none of
   the three variables.
 
-The mesh also renews `topology.json` in the bound directory from persisted
-desired placement and the separate admission registry. It contains `generation`,
-UTC `observedAt`, `regions`, and `peers` (`node`, `region`, IPv4 `address`).
-
 Ports 9095 (health) and 9096 (metrics) belong to NetBird.
 The loopback `127.0.0.1:9097/metrics` exporter aggregates every targeted region's
 authenticated mesh reports. `ts_orch_peer_topology_*` exposes mismatch, expected
