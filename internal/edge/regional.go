@@ -468,14 +468,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 	defer cancel()
 	drained := make(chan error, 1)
 	go func() {
-		response, err := e.regionalRequest(drainCtx, router, source, http.MethodPost, "/v1/rollout/drain?target="+url.QueryEscape(target.Node))
-		if err == nil {
-			response.Body.Close()
-			if response.StatusCode != http.StatusNoContent {
-				err = fmt.Errorf("regional handoff HTTP %d", response.StatusCode)
-			}
-		}
-		drained <- err
+		drained <- e.regionalDrain(drainCtx, router, source, target)
 	}()
 	complete := false
 	for {
@@ -506,10 +499,76 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 			}
 			complete = true
 		case <-ctx.Done():
+			if !complete {
+				if err := <-drained; err != nil {
+					return err
+				}
+			}
 			return ctx.Err()
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
+}
+
+func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source, target mesh.WorkerPeer) error {
+	var lastErr error
+	for {
+		response, err := e.regionalRequest(ctx, router, source, http.MethodPost, "/v1/rollout/drain?target="+url.QueryEscape(target.Node))
+		if err != nil {
+			if lastErr != nil && ctx.Err() != nil {
+				return fmt.Errorf("%w: %w", lastErr, ctx.Err())
+			}
+			return err
+		}
+		if response.StatusCode == http.StatusNoContent {
+			response.Body.Close()
+			return nil
+		}
+		var refusal struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		decodeErr := json.NewDecoder(io.LimitReader(response.Body, 16<<10)).Decode(&refusal)
+		response.Body.Close()
+		if decodeErr != nil && lastErr != nil && ctx.Err() != nil {
+			return fmt.Errorf("%w: %w", lastErr, ctx.Err())
+		}
+		lastErr = fmt.Errorf("regional handoff HTTP %d", response.StatusCode)
+		if refusal.Error.Code != "" {
+			lastErr = fmt.Errorf("%w: %s", lastErr, refusal.Error.Code)
+		}
+		delay, ok := regionalDrainDelay(response.Header.Get("Retry-After"))
+		if response.StatusCode != http.StatusServiceUnavailable || !ok {
+			return lastErr
+		}
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= delay {
+			return fmt.Errorf("%w: %w", lastErr, context.DeadlineExceeded)
+		}
+		slog.Info("regional handoff waiting", "source", source.Node, "target", target.Node, "code", refusal.Error.Code, "delay", delay)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("%w: %w", lastErr, ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
+func regionalDrainDelay(value string) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if seconds, err := strconv.ParseUint(value, 10, 64); err == nil {
+		if seconds >= 30 {
+			return 30 * time.Second, true
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+	when, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	return min(max(time.Until(when), 0), 30*time.Second), true
 }
 
 // serveRegionalInternal selects a backend for each HTTP/2 request, including
