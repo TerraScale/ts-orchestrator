@@ -81,9 +81,6 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		// Workloads keep serving; only release pushes are blocked until the next start.
 		fmt.Fprintf(output, "release listener firewall: %v\n", err)
 	}
-	if err := releasepush.CloseTCP(ctx, 7464); err != nil {
-		fmt.Fprintf(output, "retired wire firewall: %v\n", err)
-	}
 	for _, port := range []int{80, 443, edge.PostgresPort, hostmetrics.Port, hostdashboard.Port} {
 		if err := releasepush.OpenTCP(ctx, port); err != nil {
 			fmt.Fprintf(output, "edge firewall: %v\n", err)
