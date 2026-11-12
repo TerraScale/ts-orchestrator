@@ -826,9 +826,8 @@ func sameWorkload(a, b *api.ServiceSpec) bool {
 	return proto.Equal(at, bt) && proto.Equal(a.Endpoint, b.Endpoint)
 }
 
-// ApplyServiceSpec creates the named service or replaces its spec in place.
 func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec) (*api.Service, error) {
-	return applyServiceSpec(ctx, client, s, nil)
+	return applyServiceSpec(ctx, client, s, nil, vaultsecret.ReadInstanceSecrets)
 }
 
 // CompleteServiceSpec finishes metadata deferred by ApplyServiceSpec before exact
@@ -845,7 +844,7 @@ func CompleteServiceSpec(ctx context.Context, client api.ControlClient, s Servic
 	ctx, cancel := context.WithTimeout(ctx, serviceRollout+2*ReadyTimeout(want.Annotations.Labels))
 	defer cancel()
 	for {
-		current, err := applyServiceSpec(ctx, client, s, original)
+		current, err := applyServiceSpec(ctx, client, s, original, vaultsecret.ReadInstanceSecrets)
 		if err != nil {
 			return err
 		}
@@ -860,10 +859,17 @@ func CompleteServiceSpec(ctx context.Context, client api.ControlClient, s Servic
 	}
 }
 
-func applyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec, previous *api.Service) (*api.Service, error) {
+func applyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec, previous *api.Service, resolve SecretResolver) (*api.Service, error) {
 	spec, err := s.SwarmSpec()
 	if err != nil {
 		return nil, err
+	}
+	if len(s.Secrets) != 0 {
+		values, err := resolve(ctx, s.Name, s.Secrets)
+		clear(values)
+		if err != nil {
+			return nil, fmt.Errorf("preflight Vault secrets for service %s: %w", s.Name, err)
+		}
 	}
 	unlock, err := lockServiceSpecs(ctx, client)
 	if err != nil {
