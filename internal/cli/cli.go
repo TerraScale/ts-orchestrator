@@ -113,7 +113,7 @@ Operator tooling:
   disaster-recovery      Prepare cross-region Object Storage and Vault recovery copies
 
 Use ts-orch bootstrap --help or ts-orch release --help to list their commands.
-ts-orch release push sends a main build to every region in deploy/m1/regions.json (CI only);
+ts-orch release push sends a main build one region at a time (sjc, fra, gru), waiting for JetStream and the region's services (CI only);
 ts-orch release pin --state /var/lib/ts-orch prints a host's listener pin for that file.
 ts-orch release app --service <name> --image <ref@sha256> releases an app image to every region (app image CI only);
 ts-orch release digests --out <file> records every mesh service's desired image (app-digests CI only);

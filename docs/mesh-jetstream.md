@@ -214,14 +214,33 @@ A server on this release and a server on the previous one cannot talk: the
 cluster name, the transport (routes, not gateways) and the account (`ORCH`,
 not the global account) all differ. There is no bridge. Reasons:
 
-- The release push installs the binary in every region at the same time
-  (`internal/releasepush`), so the mixed window lasts about one download and
-  install.
+- The release push now installs one region at a time (`internal/releasepush`)
+  and waits for JetStream recovery. A transport or account migration that
+  cannot form a mixed-version cluster needs a separate migration design;
+  the health gate stops an ordinary push during such a split.
 - ts-orch's own updates use the release listener on 4222, not the mesh, so
   they keep working in the window and after it.
 - Service applies retry each region every 30 s while they wait, so an apply
   in the window completes when the last region restarts.
 - D24 allows production to break during the pivot.
+
+## Orchestrator releases
+
+Releases roll through the region catalog with the first founded region last:
+sjc, fra, gru today. Before any install, every target must answer a version
+probe within 10 seconds (G0). Each changed region must serve the requested SHA
+within three minutes (G1), then report healthy JetStream and regional services
+continuously for 15 seconds within three minutes (G2). Health requires a
+successful server health check, a leader and the configured count of current,
+online replicas for every stream, a READY SwarmKit node and no service below
+its desired replicas. Unreadable service state fails the gate; host memory
+and disk pressure do not gate releases.
+
+Only after G2 may the next region restart, keeping at most one of the three
+JetStream peers down during the rollout. A region already running the release
+skips both waits. A failed gate stops the push and marks unreached regions
+skipped. G0 uses only the version subject so the first push can update hosts
+that do not yet implement release health; G2 queries the updated host.
 
 ## Accounts
 

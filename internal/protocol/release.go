@@ -5,6 +5,7 @@ package protocol
 const (
 	ReleaseWildcard = "ts.release.>"
 	ReleaseVersion  = "ts.release.version"
+	ReleaseHealth   = "ts.release.health"
 	ReleaseOrch     = "ts.release.ts-orch"
 	ReleaseApp      = "ts.release.app"
 	// The multi-region workflow may publish only under ReleaseMeshWildcard;

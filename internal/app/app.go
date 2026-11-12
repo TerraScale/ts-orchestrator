@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
@@ -95,12 +97,14 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 		}()
 	}
 	// The mesh never stops local serving; it retries until it reaches Vault and peers.
+	var meshNode atomic.Pointer[mesh.Node]
 	meshDone := make(chan struct{})
 	if plan.joiner() && plan.address == "" {
 		close(meshDone) // a worker without IMDS stays out of the region's NATS cluster
 	} else {
 		go func() {
 			mesh.Run(ctx, *state, meshCluster(plan), func(node *mesh.Node) {
+				meshNode.Store(node)
 				handoff.SetTaskDrainer(node.DrainTask)
 				handoff.SetBootstrap(node.Bootstrap)
 				handoff.SetClearPeer(node.ClearPeer)
@@ -114,7 +118,13 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			close(meshDone)
 		}()
 	}
-	err = runSingleHost(ctx, *state, output, plan, probation, swarmReady)
+	err = runSingleHost(ctx, *state, output, plan, probation, swarmReady, func(ctx context.Context) error {
+		node := meshNode.Load()
+		if node == nil {
+			return errors.New("mesh not started")
+		}
+		return errors.Join(node.ReleaseHealth(ctx), regionhealth.Serving(ctx, *state))
+	})
 	cancel()
 	<-meshDone
 	return errors.Join(err, <-edgeDone)

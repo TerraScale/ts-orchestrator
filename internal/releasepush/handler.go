@@ -28,6 +28,7 @@ import (
 
 const (
 	SubjectVersion = protocol.ReleaseVersion
+	SubjectHealth  = protocol.ReleaseHealth
 	SubjectOrch    = protocol.ReleaseOrch
 	SubjectApp     = protocol.ReleaseApp
 	SubjectPing    = protocol.ReleaseMeshPing
@@ -41,8 +42,6 @@ const (
 	maxBinaryBytes = 512 << 20
 )
 
-// HandlerWait bounds one release request: three regions rolled in turn, each
-// up to a 180 s readiness timeout and bounded bake recovery, plus overhead.
 const HandlerWait = 25 * time.Minute
 
 var (
@@ -83,6 +82,7 @@ type MeshRequest struct {
 type Reply struct {
 	State   string `json:"state,omitempty"` // current, installed, stale, rolled_back, rejected; done, failed for mesh
 	Version string `json:"version,omitempty"`
+	Health  string `json:"health,omitempty"`
 	Error   string `json:"error,omitempty"`
 	// RolledBack is the release this host restored <binary>.prev over; Error says why.
 	RolledBack string `json:"rolled_back,omitempty"`
@@ -99,6 +99,7 @@ type Progress interface {
 
 // Handler serves the release subjects on any connection with full permissions.
 type Handler struct {
+	Health   func(context.Context) error
 	Verifier *Verifier
 	// Revision is the running build's vcs.revision.
 	Revision string
@@ -126,6 +127,7 @@ type Handler struct {
 	mu            sync.Mutex
 	pending       string // installed, waiting for the restart
 	rolledBack    atomic.Pointer[Rollback]
+	lastHealth    atomic.Pointer[string]
 	appOperations map[appOperationKey]*appOperation
 }
 
@@ -176,6 +178,7 @@ func Revision() string {
 func (h *Handler) Serve(conn *nats.Conn) error {
 	return h.serve(conn, map[string]func(context.Context, []byte) Reply{
 		SubjectVersion: func(context.Context, []byte) Reply { return h.version() },
+		SubjectHealth:  h.health,
 		SubjectOrch:    h.relayed,
 		SubjectApp:     h.app,
 		SubjectPing:    func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "ping", data) },
@@ -239,6 +242,22 @@ func (h *Handler) version() Reply {
 		return Reply{Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason}
 	}
 	return Reply{Version: h.Revision}
+}
+
+func (h *Handler) health(ctx context.Context, _ []byte) Reply {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	text := "no health check"
+	if h.Health != nil {
+		text = "ok"
+		if err := h.Health(ctx); err != nil {
+			text = err.Error()
+		}
+	}
+	if previous := h.lastHealth.Swap(&text); previous == nil || *previous != text {
+		slog.Info("release health changed", "health", text)
+	}
+	return Reply{Health: text}
 }
 
 func (h *Handler) orch(ctx context.Context, data []byte) Reply {
