@@ -12,7 +12,9 @@ nothing listening), so a refused dial to `<wt0 IPv4>:8081` is retried for up
 to 60 s, REST and extended CONNECT alike; the request fails with 502 only
 past that. A refused dial sent nothing, so the retry is safe for any method,
 and ts-auth and ts-dashboard need it: the .NET SDK retries only
-serialization conflicts and a busy tenant, not a 502.
+serialization conflicts and a busy tenant, not a 502. A connection with no
+open stream for 120 s, the idle timeout of :443, gets a GOAWAY and is closed;
+the client's next request opens a new one.
 
 - REST requests go through a reverse proxy that keeps the caller's `Host` and
   streams the response.
@@ -74,9 +76,15 @@ until no lease is left before it hands over or stops the writer. After a hold,
 and while a request that waited for it is still being answered, requests are
 paced through two recovery slots. A request waits for the hold to end, then
 for its slot, and only then takes its lease, so the next hold waits only for
-the requests being served, not for the paced backlog. A request that fails
-before its response reaches the client, or whose handler panics, gives its
-lease back at once.
+the requests being served, not for the paced backlog. A request that holds its
+slot when a new hold begins keeps the slot while it waits out that hold: the
+hold does not wait for it, since it has no lease yet, and it goes first after
+the hold. A request that fails before its response reaches the client, or
+whose handler panics, gives its lease back at once. A known limit, older than
+these rules: a long regional response body, such as an SSE stream or an SDK's
+streamed enumeration, keeps its lease for its whole life, so a consumer that
+stops reading it at the application level while its connection still flows
+can make a drain wait out its 2-minute budget.
 
 Once a stream is open (the 101, or the 2xx of an extended CONNECT on
 127.0.0.1:8081), it no longer counts as an admitted regional request: it gives
@@ -132,13 +140,16 @@ too. When the edge ends a stream while a write to the client still waits, it
 cuts that write at once.
 
 A client that stops reading its whole HTTP/2 connection to :443 or
-127.0.0.1:8081 is bounded too: the edge closes the connection once a write to
-it makes no progress for 120 s, which ends every stream on it, REST, SSE and
-gRPC included. On TLS a write that times out breaks the connection, so on
-:443 the bound applies to each socket write, at most one HTTP/2 frame (16 KiB
-unless the client allows larger frames): a client that takes at least that
-much every 120 s while the edge is sending is never cut, however long its
-response or stream lasts.
+127.0.0.1:8081 is bounded too: the edge closes the connection, which ends
+every stream on it, REST, SSE and gRPC included, about 120 s on :443 and
+between 120 and 360 s on 127.0.0.1:8081 after the edge's own socket stops
+accepting bytes. Each socket write gets 120 s. On TLS a write that times out
+breaks the connection, so on :443 the bound applies to each socket write, at
+most one HTTP/2 frame (16 KiB unless the client allows larger frames): a
+client that takes at least that much every 120 s while the edge is sending is
+never cut, however long its response or stream lasts. On plain TCP a write
+that times out after the kernel took part of it counts as progress and gets
+another 120 s, so 127.0.0.1:8081 cuts after two or three timeouts.
 
 `e2e-m1` drives this path through a second edge
 (`test/e2e/m1/regional`), built from the same tree and set up with the calls
@@ -152,8 +163,9 @@ WebSocket and one RFC 8441 WebSocket, each of which echoes a frame, then
 drains the writer with both sockets open: the drain must finish within 5 s
 and end both sockets, and the next REST request must reach the new writer.
 Last, an `Upgrade: tcp` on a loopback route whose backend half-closes first
-must still deliver the client's next 1 MiB to that backend. It does not cover the mesh wiring in `internal/app/app.go` (`mesh.Run`, the drain
-request over NATS, the Vault peer credential), TerraBase itself, NetBird,
+must still deliver the client's next 1 MiB to that backend. It does not
+cover the mesh wiring in `internal/app/app.go` (`mesh.Run`, the drain request
+over NATS, the Vault peer credential), TerraBase itself, NetBird,
 `HomeSocketRelay`, or a region with two edges; only a real region proves those.
 
 An Upgrade never fails over to another region (`failover` in
