@@ -34,11 +34,8 @@ type announcement struct {
 // the worker from its region's peers files and per-node replica count.
 const workerFresh = 3 * peersEvery
 
-// workerNodes is the founder's view of its region's SwarmKit workers.
 type workerNodes interface {
-	// ReadyWorkers is every worker hostname that is READY and ACTIVE (not
-	// drained or paused).
-	ReadyWorkers(ctx context.Context) (map[string]bool, error)
+	WorkerStates(context.Context) (map[string]bool, map[string]bool, error)
 	Replicas(ctx context.Context, service string) (uint64, error)
 }
 
@@ -115,12 +112,12 @@ func (n *Node) refreshJoined(ctx context.Context) {
 }
 
 func (n *Node) setJoined(ctx context.Context) {
-	var ready map[string]bool
+	var ready, pending map[string]bool
 	if lister, ok := n.cfg.applier.(workerNodes); ok {
 		var err error
-		if ready, err = lister.ReadyWorkers(ctx); err != nil {
+		if ready, pending, err = lister.WorkerStates(ctx); err != nil {
 			slog.WarnContext(ctx, "mesh worker membership unavailable", "error", err)
-			return // keep the last joined set rather than shrink it on a control-socket error
+			return
 		}
 	}
 	fresh := max(workerFresh, 3*n.cfg.peersEvery)
@@ -134,7 +131,7 @@ func (n *Node) setJoined(ctx context.Context) {
 	}
 	slices.SortFunc(joined, func(a, b WorkerPeer) int { return strings.Compare(a.Node, b.Node) })
 	n.joined = joined
-	if time.Since(n.listening) >= fresh {
+	if time.Since(n.listening) >= fresh && len(pending) == 0 {
 		select {
 		case <-n.settled:
 		default:
@@ -216,27 +213,31 @@ func (n *Node) trackWorkerServices(ctx context.Context) {
 	}
 }
 
-// ReadyWorkers lists this region's READY and ACTIVE SwarmKit workers.
-func (a swarmApplier) ReadyWorkers(ctx context.Context) (map[string]bool, error) {
+func (a swarmApplier) WorkerStates(ctx context.Context) (ready, pending map[string]bool, err error) {
 	client, done, err := a.control()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer done()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	ready := map[string]bool{}
+	ready, pending = map[string]bool{}, map[string]bool{}
 	for _, node := range nodes.Nodes {
-		if node.Spec.DesiredRole == api.NodeRoleWorker && node.Status.State == api.NodeStatus_READY &&
-			node.Spec.Availability == api.NodeAvailabilityActive && node.Description != nil {
+		if node.Spec.DesiredRole != api.NodeRoleWorker || node.Spec.Availability != api.NodeAvailabilityActive || node.Description == nil {
+			continue
+		}
+		switch node.Status.State {
+		case api.NodeStatus_READY:
 			ready[node.Description.Hostname] = true
+		case api.NodeStatus_UNKNOWN:
+			pending[node.Description.Hostname] = true
 		}
 	}
-	return ready, nil
+	return ready, pending, nil
 }
 
 func (a swarmApplier) Replicas(ctx context.Context, service string) (replicas uint64, err error) {

@@ -33,10 +33,6 @@ answered the last mesh ping round, sorted, `\n` terminated:
 - `ts-orch service apply` without a running mesh (this host only) sets none of
   the three variables.
 
-The mesh also renews `topology.json` in the bound directory from persisted
-desired placement and the separate admission registry. It contains `generation`,
-UTC `observedAt`, `regions`, and `peers` (`node`, `region`, IPv4 `address`).
-
 Ports 9095 (health) and 9096 (metrics) belong to NetBird.
 The loopback `127.0.0.1:9097/metrics` exporter aggregates every targeted region's
 authenticated mesh reports. `ts_orch_peer_topology_*` exposes mismatch, expected
@@ -44,8 +40,12 @@ count, rejected generations and observation age; missing reports fail
 closed. Reports are bound to the expected topology digest, and
 monitoring uses an immutable desired snapshot independently of SwarmKit RPCs.
 Install the accompanying monitoring configuration through the rollout owner.
-Five-second scrape/evaluation/persistence/group waits put stale evidence on the
-existing capped, deduplicating relay within a minute under healthy monitoring.
+Both peer-topology alerts hold for 30 seconds. With five-second scrape,
+evaluation and grouping intervals, a sustained mismatch or unavailable exporter
+reaches the capped, deduplicating relay within 45 seconds under healthy
+monitoring; aging evidence first crosses its 30-second threshold, so its
+notification budget is 75 seconds. Shorter restart gaps do not page. These
+are configuration budgets, excluding provider delivery latency.
 
 Validation after the release: on an isolated cell, drop a peer from its file
 and verify the mismatch within 60 seconds, then apply an authorized placement

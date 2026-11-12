@@ -105,13 +105,14 @@ remains the first peer and keeps its existing data and identity.
   drops the count at the next 30 s reconcile.
 - **Founder restart.** A restarted founder knows no worker yet: announcements
   live only in its memory, and its SwarmKit dispatcher marks every worker
-  UNKNOWN until it registers again. For the first 15 s after the founder
-  starts listening, a reconcile that would lower a per-node service below the
-  replica count SwarmKit runs waits instead, and an apply waits with it. The
-  first refresh after those 15 s reconciles at once, so a healthy worker keeps
-  its task and a worker that is really gone leaves the count 15 to 20 s after
-  the founder's mesh starts. Raising the count still needs a fully joined
-  worker.
+  UNKNOWN until it registers again. A reconcile that would lower a per-node
+  service below the replica count SwarmKit runs waits, and an apply waits with
+  it, until the first refresh at least 15 s after the founder starts listening
+  and no worker that was READY is still UNKNOWN. A worker that re-registers
+  keeps its task. One that never comes back stays UNKNOWN until the
+  dispatcher's own DOWN, about 30 s after the restart, and the next refresh
+  then lowers the count. A worker that is already drained or DOWN leaves the
+  count as before. Raising the count still needs a fully joined worker.
 - **Release evidence.** Verification admits the founder and the exact
   READY/ACTIVE workers in its fresh mesh inventory, with one task per host.
   Readiness and bake checks probe each worker's own NetBird address. A healthy
@@ -146,7 +147,6 @@ Activate one region at a time, in order sjc, gru, fra:
    both nodes' peers files list the founder, then the worker; the worker's
    TerraBase answers `/readyz`.
 
-`topology.json` (the attested topology) still lists founders only.
 - Capacity: 6 VM.Standard.A1.Flex nodes. Founders: gru 4 OCPU/24 GB, sjc and
   fra 2 OCPU/12 GB. All workers: 2 OCPU/12 GB. São Paulo initially had no A1
   capacity for that size, so `ts-gru-2` launched at 1 OCPU/6 GB on 2026-11-04.

@@ -26,13 +26,6 @@ type topologyPeer struct {
 	Address string `json:"address"`
 }
 
-type peerTopology struct {
-	Generation int64          `json:"generation"`
-	ObservedAt time.Time      `json:"observedAt"`
-	Regions    []string       `json:"regions"`
-	Peers      []topologyPeer `json:"peers"`
-}
-
 // PeerAttestation has only counts and fixed diagnostics, never peer-controlled labels.
 type PeerAttestation struct {
 	Topology  string    `json:"topology"`
@@ -188,21 +181,10 @@ func (n *Node) attestPeers() {
 		if len(regions) == 0 {
 			regions = n.peers.regions
 		}
-		topology := peerTopology{Generation: entry.Generation, ObservedAt: time.Now().UTC(), Regions: slices.Clone(regions), Peers: []topologyPeer{}}
-		for _, at := range topologyPeers(n.peers.admitted) {
-			if slices.Contains(regions, at.Region) {
-				topology.Peers = append(topology.Peers, at)
-			}
-		}
 		expected, complete := n.peers.expectedFor(name, regions)
 		current, err := os.ReadFile(filepath.Join(n.peers.root, name, "peers"))
-		report := PeerAttestation{Expected: len(regions), CheckedAt: topology.ObservedAt, Rejected: n.peers.rejected[name], Topology: fmt.Sprintf("%x", sha256.Sum256(expected))}
+		report := PeerAttestation{Expected: len(regions), CheckedAt: time.Now().UTC(), Rejected: n.peers.rejected[name], Topology: fmt.Sprintf("%x", sha256.Sum256(expected))}
 		if !complete || err != nil || !bytes.Equal(current, expected) {
-			report.Mismatch = 1
-		}
-		data, encodeErr := protocol.EncodeJSON(topology)
-		dir := filepath.Join(n.peers.root, name)
-		if encodeErr != nil || os.MkdirAll(dir, 0755) != nil || os.Chmod(dir, 0755) != nil || writePublic(filepath.Join(dir, "topology.json"), data) != nil {
 			report.Mismatch = 1
 		}
 		reports[name] = report
@@ -213,23 +195,6 @@ func (n *Node) attestPeers() {
 		n.peerReports = map[string]map[string]PeerAttestation{}
 	}
 	n.peerReports[n.cfg.region] = reports
-}
-
-func writePublic(path string, data []byte) error {
-	temp, err := os.CreateTemp(filepath.Dir(path), ".topology-")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(temp.Name())
-	err = temp.Chmod(0644)
-	if err == nil {
-		_, err = temp.Write(data)
-	}
-	err = errors.Join(err, temp.Close())
-	if err != nil {
-		return err
-	}
-	return os.Rename(temp.Name(), path)
 }
 
 func (n *Node) localAttestations() map[string]PeerAttestation {

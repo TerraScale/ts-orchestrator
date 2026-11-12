@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"log/slog"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -15,12 +16,7 @@ import (
 // TerraBase. No extra Vault secret, service reference or environment is needed.
 func refreshEdgeRequestProof(ctx context.Context, public *edge.Edge, services []*api.Service,
 	read func(context.Context, string, map[string]vaultsecret.Ref) (map[string]string, error),
-) (err error) {
-	defer func() {
-		if err != nil {
-			_ = public.SetRequestProofSecret("")
-		}
-	}()
+) error {
 	const key = "TERRABASE_PEER_SECRET_FILE"
 	for _, svc := range services {
 		labels := svc.Spec.Annotations.Labels
@@ -34,6 +30,7 @@ func refreshEdgeRequestProof(ctx context.Context, public *edge.Edge, services []
 		if ref, ok := refs[key]; ok {
 			values, readErr := read(ctx, "terrabase", map[string]vaultsecret.Ref{key: ref})
 			if readErr != nil || values[key] == "" {
+				slog.WarnContext(ctx, "edge request proof credential unavailable; the last good credential stays")
 				return errors.New("TerraBase request proof credential unavailable")
 			}
 			defer clear(values)

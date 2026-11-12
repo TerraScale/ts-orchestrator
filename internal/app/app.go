@@ -72,6 +72,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	swarmReady := make(chan struct{})
 	edgeDone := make(chan error, 1)
 	var public *edge.Edge // nil on a joiner, which serves no edge
 	if plan.joiner() {
@@ -84,7 +85,14 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			cancel() // a failed edge stops the node, so systemd restarts both
 			edgeDone <- err
 		}()
-		go syncEdgeRoutes(ctx, *state, public, plan.region)
+		go func() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-swarmReady:
+			}
+			syncEdgeRoutes(ctx, *state, public, plan.region)
+		}()
 	}
 	// The mesh never stops local serving; it retries until it reaches Vault and peers.
 	meshDone := make(chan struct{})
@@ -106,7 +114,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			close(meshDone)
 		}()
 	}
-	err = runSingleHost(ctx, *state, output, plan, probation)
+	err = runSingleHost(ctx, *state, output, plan, probation, swarmReady)
 	cancel()
 	<-meshDone
 	return errors.Join(err, <-edgeDone)
