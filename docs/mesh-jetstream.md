@@ -103,6 +103,15 @@ remains the first peer and keeps its existing data and identity.
   `MaxReplicas: 1` per node. The release waits for exactly those tasks. A
   worker that is not fully joined is never a target, and one that leaves
   drops the count at the next 30 s reconcile.
+- **Founder restart.** A restarted founder knows no worker yet: announcements
+  live only in its memory, and its SwarmKit dispatcher marks every worker
+  UNKNOWN until it registers again. For the first 15 s after the founder
+  starts listening, a reconcile that would lower a per-node service below the
+  replica count SwarmKit runs waits instead, and an apply waits with it. The
+  first refresh after those 15 s reconciles at once, so a healthy worker keeps
+  its task and a worker that is really gone leaves the count 15 to 20 s after
+  the founder's mesh starts. Raising the count still needs a fully joined
+  worker.
 - **Release evidence.** Verification admits the founder and the exact
   READY/ACTIVE workers in its fresh mesh inventory, with one task per host.
   Readiness and bake checks probe each worker's own NetBird address. A healthy
@@ -113,10 +122,13 @@ remains the first peer and keeps its existing data and identity.
   `TS_REGION` stays the region.
 - **Peers file.** Each founder's ping reply lists its fully joined workers. A
   per-node service's file lists each region's founder, then its workers,
-  sorted. TerraBase reaches another region at its first line, so cross-region
-  traffic still goes to founders. A founder-only service's file lists
-  founders only. A worker writes the same file for its own task. It learns the
-  per-node services from its founder's desired state.
+  sorted. A restarted founder's reply lists no worker until its worker has
+  announced itself again and been counted (5 to 10 s); for that time every
+  node's per-node file lists that region's founder alone. TerraBase reaches
+  another region at its first line, so cross-region traffic still goes to
+  founders. A founder-only service's file lists founders only. A worker writes
+  the same file for its own task. It learns the per-node services from its
+  founder's desired state.
 - **NATS.** TerraBase on a worker dials the worker's own mesh server
   (`127.0.0.1:4223`, same token). That server stores no JetStream, but JetStream
   works through it (`TestFullyJoinedWorkerJoinsPerNodeServices`).

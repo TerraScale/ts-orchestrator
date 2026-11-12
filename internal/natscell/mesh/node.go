@@ -193,6 +193,8 @@ type Node struct {
 	workerMu      sync.Mutex
 	announced     map[string]announcement // founder: worker node -> its last announcement
 	joined        []WorkerPeer            // founder: the fully joined workers, refreshed each peersEvery
+	listening     time.Time
+	settled       chan struct{}
 }
 
 func start(cfg config) (_ *Node, err error) {
@@ -257,7 +259,7 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, fabric: fabric, ctx: ctx, cancel: cancel, desired: desired,
-		specInvalid: specInvalid, peers: peerFiles}
+		specInvalid: specInvalid, peers: peerFiles, settled: make(chan struct{})}
 	if err := node.serveClockReports(); err != nil {
 		node.closeConns()
 		cancel()
@@ -306,6 +308,7 @@ func start(cfg config) (_ *Node, err error) {
 		cancel()
 		return nil, err
 	}
+	node.listening = time.Now()
 	node.goWork(func() { node.watchPeers(ctx) })
 	if cfg.applier == nil {
 		node.goWork(func() { node.announce(ctx) })
@@ -387,6 +390,7 @@ func (n *Node) run(ctx context.Context) {
 	tick := time.NewTicker(n.cfg.every)
 	defer tick.Stop()
 	var collected time.Time
+	settled := n.settled
 	for {
 		if n.cfg.applier != nil {
 			n.sync(ctx)
@@ -406,6 +410,8 @@ func (n *Node) run(ctx context.Context) {
 		case <-n.ctx.Done():
 			return
 		case <-tick.C:
+		case <-settled:
+			settled = nil
 		}
 	}
 }
@@ -480,7 +486,9 @@ func (n *Node) sync(ctx context.Context) {
 		if n.dependentRolling(name) {
 			continue // TerraBase waits for this region's ts-auth or ts-dashboard rollout
 		}
-		if applied, err := n.reconcile(ctx, name, n.desired[name]); err != nil {
+		if applied, err := n.reconcile(ctx, name, n.desired[name]); errors.Is(err, errWorkersSettling) {
+			slog.InfoContext(ctx, "mesh reconcile waits for worker announcements", "service", name, "reason", err)
+		} else if err != nil {
 			slog.WarnContext(ctx, "mesh reconcile failed", "service", name, "error", err)
 		} else if applied.result == "applied" || applied.result == "unchanged" {
 			n.goWork(func() { _, _ = n.evaluate(n.ctx, applied) })
@@ -534,6 +542,10 @@ func (n *Node) handleApply(m *nats.Msg) {
 		}
 		if err == nil {
 			applied, err = n.apply(ctx, request)
+		}
+		if errors.Is(err, errWorkersSettling) {
+			err = n.awaitWorkers(ctx)
+			continue
 		}
 		if !errors.Is(err, errDependentRolling) {
 			break
@@ -837,8 +849,13 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 		// One task per fully joined node: a worker counts only once it announces
 		// itself over the mesh and SwarmKit has it READY and ACTIVE, so a drained
 		// or half-joined worker is never a release target.
-		workers := n.joinedWorkers()
+		workers, settled := n.settledWorkers()
 		spec.Replicas = min(regionalReplicas(&spec), uint64(1+len(workers)))
+		if !settled {
+			if err := n.keepReplicas(ctx, spec); err != nil {
+				return applyResult{}, err
+			}
+		}
 		spec.WorkerAddresses = make(map[string]string, len(workers))
 		for _, worker := range workers {
 			spec.WorkerAddresses[worker.Node] = worker.Address

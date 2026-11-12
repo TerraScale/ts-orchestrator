@@ -2,6 +2,8 @@ package mesh
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
@@ -37,7 +39,10 @@ type workerNodes interface {
 	// ReadyWorkers is every worker hostname that is READY and ACTIVE (not
 	// drained or paused).
 	ReadyWorkers(ctx context.Context) (map[string]bool, error)
+	Replicas(ctx context.Context, service string) (uint64, error)
 }
+
+var errWorkersSettling = errors.New("the founder has not heard its workers for a full announcement window since it started")
 
 // PerNode reports whether spec runs one task on every fully joined node of
 // its region (a data owner such as TerraBase with replicas > 1) rather than
@@ -129,6 +134,13 @@ func (n *Node) setJoined(ctx context.Context) {
 	}
 	slices.SortFunc(joined, func(a, b WorkerPeer) int { return strings.Compare(a.Node, b.Node) })
 	n.joined = joined
+	if time.Since(n.listening) >= fresh {
+		select {
+		case <-n.settled:
+		default:
+			close(n.settled)
+		}
+	}
 }
 
 // joinedWorkers is the founder's fully joined workers, sorted; nil on a worker.
@@ -136,6 +148,41 @@ func (n *Node) joinedWorkers() []WorkerPeer {
 	n.workerMu.Lock()
 	defer n.workerMu.Unlock()
 	return slices.Clone(n.joined)
+}
+
+func (n *Node) settledWorkers() ([]WorkerPeer, bool) {
+	n.workerMu.Lock()
+	defer n.workerMu.Unlock()
+	select {
+	case <-n.settled:
+		return slices.Clone(n.joined), true
+	default:
+		return slices.Clone(n.joined), false
+	}
+}
+
+func (n *Node) keepReplicas(ctx context.Context, spec swarmruntime.ServiceSpec) error {
+	lister, ok := n.cfg.applier.(workerNodes)
+	if !ok {
+		return nil
+	}
+	current, err := lister.Replicas(ctx, spec.Name)
+	if err != nil {
+		return err
+	}
+	if spec.Replicas < current {
+		return fmt.Errorf("%w: %s keeps its %d replicas, %d counted so far", errWorkersSettling, spec.Name, current, spec.Replicas)
+	}
+	return nil
+}
+
+func (n *Node) awaitWorkers(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for worker announcements: %w", ctx.Err())
+	case <-n.settled:
+		return nil
+	}
 }
 
 // trackWorkerServices keeps a worker's peers files for the per-node services
@@ -190,4 +237,12 @@ func (a swarmApplier) ReadyWorkers(ctx context.Context) (map[string]bool, error)
 		}
 	}
 	return ready, nil
+}
+
+func (a swarmApplier) Replicas(ctx context.Context, service string) (replicas uint64, err error) {
+	err = a.rows(ctx, service, func(row swarmruntime.ServiceSpecStatus, _ bool, _ api.ControlClient) error {
+		replicas = row.Replicas
+		return nil
+	})
+	return replicas, err
 }
