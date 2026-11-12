@@ -168,6 +168,7 @@ private subnet, so their nodes are reached with NetBird SSH only.
 | `<cell>-servers-to-gru-servers-fabric` | `<cell>-servers` → `gru-servers` | TCP 7422, 9443 | one-way |
 | `operators-to-<cell>-servers-dashboard` | `operators`, `ops-automation` → `<cell>-servers` (also `gru-servers`) | TCP 9463, the operator dashboard on each controller's NetBird address | one-way |
 | `<cell>-servers-to-<cell>-servers-ping` | Each regional servers group → itself (also `gru-servers`) | ICMP diagnostics and sibling peer DNS visibility | one-way |
+| `gru-servers-to-servers-metrics` | `gru-servers`, where Prometheus runs on `ts-gru-1` → every `<cell>-servers` (also `gru-servers`) | TCP 9108 (host exporter), 9091 (TerraBase metrics) | one-way |
 | `operators-to-ts-ops-services` | `operators` → `ts-ops-gateway` | TCP 443, 2022 | one-way |
 | `operators-to-ts-ops-ping` | `operators` → `ts-ops-gateway` | ICMP | one-way |
 
