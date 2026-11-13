@@ -80,10 +80,9 @@ func desired(cellName string) (spec, error) {
 				{egress: true, proto: "all", cidr: vcn}, {egress: true, proto: "all", cidr: "169.254.0.0/16"},
 				{egress: true, proto: "6", cidr: "0.0.0.0/0", port: 80}, {egress: true, proto: "6", cidr: "0.0.0.0/0", port: 443},
 				{egress: true, proto: "6", cidr: "0.0.0.0/0", port: 587},
-				{egress: true, proto: "6", cidr: "0.0.0.0/0", port: 7222},
 				{egress: true, proto: "17", cidr: "0.0.0.0/0"}, {egress: true, proto: "1", cidr: "0.0.0.0/0"},
 			}},
-			{cellName + "-edge-nsg", []rule{tcp(80), tcp(443), udp(3478), udp(51820), tcp(4222), tcp(7222), tcp(5432)}},
+			{cellName + "-edge-nsg", []rule{tcp(80), tcp(443), udp(3478), udp(51820), tcp(4222), tcp(5432)}},
 		},
 	}, nil
 }
