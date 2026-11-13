@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -19,14 +20,15 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
-// One local record per generation retains evidence across restarts and later
-// fix-forward releases. Only a completed successful bake admits the next region.
 type bakeRecord struct {
-	Generation int64               `json:"generation"`
-	Image      string              `json:"image"`
-	Identity   [32]byte            `json:"identity"`
-	Rollout    bakeRuntime         `json:"runtime"`
-	Bake       rollout.BakeVerdict `json:"bake"`
+	Generation    int64               `json:"generation"`
+	Interruptions int                 `json:"interruptions"`
+	Image         string              `json:"image"`
+	Release       *Deployment         `json:"release,omitempty"`
+	Identity      [32]byte            `json:"identity"`
+	Rollout       bakeRuntime         `json:"runtime"`
+	Bake          rollout.BakeVerdict `json:"bake"`
+	ReplacedBy    *bakeReplacement    `json:"replacedBy,omitempty"`
 }
 
 type bakeRuntime struct {
@@ -56,14 +58,22 @@ func (n *Node) saveBake(key string, record bakeRecord) error {
 		if n.bakeUnsaved == nil {
 			n.bakeUnsaved = map[string]bakeRecord{}
 		}
+		record.Bake.Unsaved = true
 		n.bakeUnsaved[key] = record
 	} else {
 		delete(n.bakeUnsaved, key)
 	}
+	n.publishUnsaved()
 	return err
 }
 
+func (n *Node) publishUnsaved() {
+	pending := maps.Clone(n.bakeUnsaved)
+	n.stateUnsaved.Store(&pending)
+}
+
 func writeBake(key string, record bakeRecord) error {
+	record.Bake.Unsaved = false
 	data, err := protocol.EncodeJSON(record)
 	if err == nil {
 		err = writePrivate(key, data)
@@ -79,40 +89,47 @@ func bakeIdentity(state desiredState) ([32]byte, error) {
 	return sha256.Sum256(data), err
 }
 
-// bakeState is called with n.mu held. Readiness alone never releases a region.
 func (n *Node) bakeState(state *stateReply) {
 	if state.Failed == nil {
 		state.Failed = map[string]int64{}
 	}
-	for name, desired := range n.desired {
+	state.BakeRequired = map[string]bool{}
+	pending := map[string]bakeRecord{}
+	if snapshot := n.stateUnsaved.Load(); snapshot != nil {
+		pending = *snapshot
+	}
+	for name, desired := range state.Desired {
 		entry := desired.entry()
-		if entry.Spec == nil {
+		key := n.bakePath(name, entry.Generation)
+		record, err := n.readBake(name, entry.Generation)
+		_, unsaved := pending[key]
+		if retained, exists := pending[key]; exists {
+			record, err = retained, nil
+		}
+		state.BakeRequired[name] = entry.Spec != nil
+		if !state.BakeRequired[name] {
+			delete(state.Failed, name)
 			continue
 		}
-		record, err := n.readBake(name, entry.Generation)
-		_, unsaved := n.bakeUnsaved[n.bakePath(name, entry.Generation)]
 		identity, identityErr := bakeIdentity(desired)
-		if unsaved || err != nil || identityErr != nil || record.Identity != identity || record.Bake.Finished.IsZero() || record.Bake.Reason != "" {
+		if err != nil || identityErr != nil || record.Identity != identity || record.Bake.Finished.IsZero() || record.Bake.Reason != "" || unsaved {
 			delete(state.Ready, name)
-		}
-		if err == nil && record.Bake.Reason != "" && n.baking[n.bakePath(name, entry.Generation)] == nil {
-			if record.Bake.DependencyOnly {
-				if state.Excused == nil {
-					state.Excused = map[string]int64{}
-				}
-				state.Excused[name] = entry.Generation
-			} else {
-				state.Failed[name] = entry.Generation
-			}
 		}
 		if !unsaved && err == nil && identityErr == nil && record.Identity == identity && !record.Bake.Finished.IsZero() && record.Bake.Reason == "" {
 			delete(state.Failed, name)
 		}
+		if record.Bake.Reason != "" {
+			state.Failed[name] = entry.Generation
+			if record.Bake.Unsaved {
+				if state.Unsaved == nil {
+					state.Unsaved = map[string]int64{}
+				}
+				state.Unsaved[name] = entry.Generation
+			}
+		}
 	}
 }
 
-// evaluate coalesces CLI and anti-entropy work. An interrupted bake restarts
-// its full window; a failed one stays held until a new generation fixes forward.
 func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, error) {
 	spec, original := applied.spec, applied.service
 	identity, err := bakeIdentity(applied.state)
@@ -121,7 +138,6 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	}
 	key := n.bakePath(spec.Name, spec.Generation)
 	n.mu.Lock()
-	// This hold either registers the bake in baking or finds it settled.
 	delete(n.starting, spec.Name)
 	current := n.desired[spec.Name]
 	if !reflect.DeepEqual(current.entry(), applied.state.entry()) || !reflect.DeepEqual(current.Floor, applied.state.Floor) {
@@ -137,25 +153,18 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 		}
 		return n.evaluate(ctx, applied)
 	}
-	if record, ok := n.bakeUnsaved[key]; ok {
-		err := n.saveBake(key, record)
-		n.mu.Unlock()
-		if record.Bake.Reason != "" {
-			err = errors.Join(err, errors.New(record.Bake.Reason))
-		}
-		return record, err
-	}
 	record, err := n.readBake(spec.Name, spec.Generation)
-	if err == nil && record.Identity == identity && (!record.Bake.Finished.IsZero() || record.Bake.Reason != "") {
-		n.mu.Unlock()
-		if record.Bake.Reason != "" {
-			return record, errors.New(record.Bake.Reason)
-		}
-		return record, nil
+	if pending, exists := n.bakeUnsaved[key]; exists {
+		record, err = pending, nil
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		n.mu.Unlock()
 		return record, err
+	}
+	metadataChanged := record.Identity != identity
+	record.Generation, record.Image, record.Identity = spec.Generation, spec.Image, identity
+	if record.Release == nil {
+		record.Release = applied.state.entry().Deployment
 	}
 	if n.baking == nil {
 		n.baking = map[string]chan struct{}{}
@@ -164,45 +173,74 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	n.baking[key] = done
 	n.mu.Unlock()
 	defer func() { n.mu.Lock(); delete(n.baking, key); close(done); n.mu.Unlock() }()
+	if record.Bake.Reason != "" {
+		err := n.retainBakeFailure(n.ctx, spec.Name, key, record)
+		return record, errors.Join(errors.New(record.Bake.Reason), err)
+	}
+
+	if !record.Bake.Finished.IsZero() {
+		if metadataChanged {
+			n.mu.Lock()
+			err := n.saveBake(key, record)
+			n.mu.Unlock()
+			return record, err
+		}
+		return record, nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, regionWindow(&spec))
 	defer cancel()
-	record = bakeRecord{Generation: spec.Generation, Image: spec.Image, Identity: identity}
-	// Persist a fail-closed latch before observing the candidate. A crash or
-	// failed verdict write must never erase a detected regression on restart.
-	record.Bake = rollout.BakeVerdict{Started: time.Now().UTC(), Reason: "bake interrupted before durable verdict; publish a new generation"}
-	if err := writeBake(key, record); err != nil {
-		return record, err
-	}
-	record.Bake = rollout.BakeVerdict{} // The bake starts only after readiness succeeds.
 	ready, err := n.cfg.applier.Wait(ctx, spec, original)
 	record.Rollout = bakeRuntime{int64(ready.Running), int64(ready.Ready), ready.Tasks, ready.Revision, ready.StopFirst}
 	if err == nil && spec.Deployment != nil && spec.Image == spec.Deployment.Image && record.Rollout.Revision != spec.Deployment.Revision {
 		err = errors.New("running image revision does not match the signed release commit")
 	}
 	if err == nil {
-		record.Bake, err = n.cfg.applier.Bake(ctx, spec, ready)
-	}
-	if n.ctx.Err() != nil && (err == nil || errors.Is(err, context.Canceled)) {
-		record.Bake = rollout.BakeVerdict{} // A clean shutdown can restart its window.
-		return record, errors.Join(n.ctx.Err(), writeBake(key, record))
+		n.mu.Lock()
+		if !record.Bake.Started.IsZero() {
+			record.Interruptions++
+			slog.WarnContext(ctx, "interrupted regional bake may have an unsaved failure", "service", spec.Name, "generation", spec.Generation, "interruptions", record.Interruptions)
+		}
+		if record.Interruptions >= maxBakeInterruptions {
+			record.Bake.Reason, record.Bake.Finished = "bake could not complete within three attempts", time.Now()
+		} else {
+			record.Bake.Started = time.Now()
+		}
+		advanceErr := n.saveBake(key, record)
+		if advanceErr != nil {
+			record.Bake.Reason, record.Bake.Finished, record.Bake.Unsaved = "bake attempt budget could not be saved", time.Now(), true
+			n.bakeUnsaved[key] = record
+			n.publishUnsaved()
+		}
+		n.mu.Unlock()
+		if advanceErr != nil {
+			return record, advanceErr
+		}
+		if record.Bake.Reason != "" {
+			return record, errors.New(record.Bake.Reason)
+		}
+		record.Bake, err = n.cfg.applier.Bake(ctx, spec, ready, record.Bake, func(verdict rollout.BakeVerdict) error {
+			record.Bake = verdict
+			if verdict.Reason != "" {
+				return n.retainBakeFailure(n.ctx, spec.Name, key, record)
+			}
+			n.mu.Lock()
+			defer n.mu.Unlock()
+			return n.saveBake(key, record)
+		})
+	} else if n.ctx.Err() == nil && !errors.Is(err, context.Canceled) {
+		record.Bake.Reason, record.Bake.Finished = err.Error(), time.Now().UTC()
+		err = errors.Join(err, n.retainBakeFailure(n.ctx, spec.Name, key, record))
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if current := n.desired[spec.Name]; !reflect.DeepEqual(current.entry(), applied.state.entry()) || !reflect.DeepEqual(current.Floor, applied.state.Floor) {
-		err = swarmruntime.ErrSupersededDuringBake
+		return record, swarmruntime.ErrSupersededDuringBake
 	}
-	if err != nil {
-		record.Bake.Reason = err.Error()
-	}
-	if record.Bake.Finished.IsZero() {
-		record.Bake.Finished = time.Now().UTC()
-	}
-	saveErr := n.saveBake(key, record)
-	if err == nil && saveErr == nil {
+	if err == nil {
 		n.collectImages(ctx)
 	}
-	slog.InfoContext(ctx, "regional rollout bake verdict", "region", n.cfg.region, "service", spec.Name, "generation", spec.Generation, "image", spec.Image, "bake", record.Bake, "save_error", saveErr)
-	return record, errors.Join(err, saveErr)
+	slog.InfoContext(ctx, "regional rollout bake verdict", "region", n.cfg.region, "service", spec.Name, "generation", spec.Generation, "image", spec.Image, "bake", record.Bake)
+	return record, err
 }
 
 func bakeHeld(rows []Reply, service string) bool {
@@ -284,3 +322,5 @@ func parseBakeFile(file string) (string, int64, bool) {
 	}
 	return rest[:i], generation, true
 }
+
+const maxBakeInterruptions = 3

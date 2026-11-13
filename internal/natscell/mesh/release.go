@@ -95,13 +95,17 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	before := entries[service].entry()
 	previous := before.Spec
 	if err := entries[service].accepts(deployment); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s refused release %+v; current signed release %+v: %w", service, deployment, entries[service].Floor, err)
 	}
 	// The retained signed floor survives rollback and operator changes. Once
 	// this run's image is no longer desired, losing the handler's cache must
 	// not turn its terminal failure into a fresh attempt with a new generation.
 	if deployment != nil && entries[service].Floor != nil && *entries[service].Floor == *deployment && (before.RollbackOf != 0 || previous == nil || previous.Image != image) {
 		return nil, fmt.Errorf("%s: signed deployment was rolled back or replaced; retry requires a newer signed run", service)
+	}
+	resume := deployment != nil && before.Deployment != nil && *before.Deployment == *deployment && previous != nil && previous.Image == image
+	if resume && failedAnywhere(ctx, conn, service, before.Generation) {
+		return nil, fmt.Errorf("%s held at failed generation %d by release %+v; refused release %+v; repair the cause and release again from a strictly newer signed run or attempt", service, before.Generation, before.Deployment, deployment)
 	}
 	var next swarmruntime.ServiceSpec
 	if previous == nil {
@@ -124,30 +128,18 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 		return nil, fmt.Errorf("%s runs %s; a release may change only its digest", service, repository(next.Image))
 	}
 	next.Image = image
-	// A new signed release adopts the all-region declaration's placement and
-	// budgets, without replacing runtime credentials, routes or other fields.
-	// Holds retain their placement/order and budgets until explicitly resumed.
 	if deployment != nil && before.HoldAfter == "" {
 		if err := declaredReleasePlacement(&next, deployment); err != nil {
 			return nil, err
 		}
 	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
-	// A signed release does not inherit a canary hold: every region already
-	// waits for the earlier regions' successful bakes, and a hold left behind
-	// kept TerraBase's fix out of sjc and fra. Its placement stays as held.
-	// An unsigned apply of a held service stays held until `service resume`.
 	hold := before.HoldAfter
 	if deployment != nil {
 		hold = ""
 	}
 	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: hold}}
-	// A reconnect or process restart resumes the signed deployment's existing
-	// bake instead of publishing a fresh generation and restarting its window.
-	// A failed bake is not resumed: a retry bakes a fresh generation, rather
-	// than replaying a verdict a since-recovered dependency caused.
-	if deployment != nil && before.Deployment != nil && *before.Deployment == *deployment && previous != nil && previous.Image == image &&
-		!failedAnywhere(ctx, conn, service, before.Generation) {
+	if resume {
 		generation = before.Generation
 		request.Entry = before
 	}
@@ -211,10 +203,13 @@ func desiredImages(ctx context.Context, conn *nats.Conn) (map[string]string, err
 
 // failedAnywhere reports a region whose rollout of name's generation failed.
 func failedAnywhere(ctx context.Context, conn *nats.Conn, name string, generation int64) bool {
+	if generation <= 0 {
+		return false
+	}
 	failed := false
 	_ = collect(ctx, conn, StateSubject, nil, len(Regions()), stateWait, func(data []byte) bool {
 		var reply stateReply
-		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && (reply.Failed[name] >= generation || reply.Excused[name] >= generation) {
+		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && reply.Failed[name] == generation {
 			failed = true
 		}
 		return true

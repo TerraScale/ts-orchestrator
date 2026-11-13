@@ -33,6 +33,8 @@ type certificateManager struct {
 	client    *acme.Client
 	accountMu sync.Mutex
 	names     sync.Map
+	success   atomic.Uint64
+	failure   atomic.Uint64
 }
 
 func (m *certificateManager) TLSConfig() *tls.Config {
@@ -109,6 +111,13 @@ func (m *certificateManager) account(ctx context.Context) (*acme.Client, error) 
 		return nil, err
 	}
 	client := &acme.Client{Key: key, DirectoryURL: acme.LetsEncryptURL, RetryBackoff: func(int, *http.Request, *http.Response) time.Duration { return 0 }}
+	observed := *http.DefaultClient
+	transport := observed.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	observed.Transport = orderTransport{success: &m.success, failure: &m.failure, next: transport}
+	client.HTTPClient = &observed
 	if _, err = client.Register(ctx, &acme.Account{}, acme.AcceptTOS); err != nil && !errors.Is(err, acme.ErrAccountAlreadyExists) {
 		return nil, err
 	}
@@ -231,6 +240,12 @@ func (m *certificateManager) issue(ctx context.Context, client *acme.Client, key
 		if err != nil {
 			return nil, err
 		}
+		if err = m.cache.local.Put(context.Background(), challenge.Token+"+http-01", []byte(token)); err != nil {
+			return nil, err
+		}
+		defer func() {
+			_ = m.cache.local.Delete(context.Background(), challenge.Token+"+http-01")
+		}()
 		m.cache.mu.Lock()
 		tokens := m.cache.tokens
 		m.cache.mu.Unlock()
@@ -360,6 +375,14 @@ func (m *certificateManager) HTTPHandler(fallback http.Handler) http.Handler {
 			if until, exists := m.cache.live.Load(key); exists && time.Now().Before(until.(time.Time)) {
 				live = true
 			}
+		}
+		if data, err := m.cache.local.Get(r.Context(), token+"+http-01"); err == nil {
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = w.Write(data)
+			return
+		} else if err != nil && !errors.Is(err, autocert.ErrCacheMiss) {
+			http.Error(w, "challenge storage unavailable", http.StatusInternalServerError)
+			return
 		}
 		if m.cache.challengeReads.Add(1) > challengeReadLimit {
 			m.cache.challengeReads.Add(-1)

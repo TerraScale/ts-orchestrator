@@ -39,32 +39,33 @@ type certificateStore interface {
 }
 
 type certificateCache struct {
-	dirty          sync.Map
-	local          autocert.DirCache
-	source         func() (*nats.Conn, []byte, error)
-	roster         func() (string, []string, error)
-	inventoryMu    sync.Mutex
-	pending        sync.Map
-	variantLocks   sync.Map
-	mu             sync.Mutex
-	conn           *nats.Conn
-	certs          jetstream.KeyValue
-	tokens         jetstream.KeyValue
-	seal           cipher.AEAD
-	reader         nats.JetStreamContext
-	opening        bool
-	keyID          string
-	watch          jetstream.KeyWatcher
-	watchDone      chan struct{}
-	watchCancel    context.CancelFunc
-	required       sync.Map
-	memory         sync.Map
-	states         sync.Map
-	live           sync.Map
-	unsupported    sync.Map
-	warned         sync.Map
-	failures       sync.Map
-	challengeReads atomic.Int32
+	dirty                 sync.Map
+	local                 autocert.DirCache
+	source                func() (*nats.Conn, []byte, error)
+	roster                func() (string, []string, error)
+	inventoryMu           sync.Mutex
+	pending               sync.Map
+	variantLocks          sync.Map
+	mu                    sync.Mutex
+	conn                  *nats.Conn
+	certs                 jetstream.KeyValue
+	tokens                jetstream.KeyValue
+	seal                  cipher.AEAD
+	reader                nats.JetStreamContext
+	opening               bool
+	keyID                 string
+	watch                 jetstream.KeyWatcher
+	watchDone             chan struct{}
+	watchCancel           context.CancelFunc
+	required              sync.Map
+	memory                sync.Map
+	states                sync.Map
+	live                  sync.Map
+	unsupported           sync.Map
+	warned                sync.Map
+	failures              sync.Map
+	unsupportedHandshakes atomic.Uint64
+	challengeReads        atomic.Int32
 }
 
 func cacheKey(name string) string { return hex.EncodeToString([]byte(name)) }

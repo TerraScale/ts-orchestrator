@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
@@ -126,6 +127,10 @@ func writeDisks(w io.Writer, data, sysBlock string) error {
 
 func Handler(region, address string, executor *swarmruntime.Executor) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/edge/certificates" || r.URL.Path == "/edge/ready" {
+			edge.ServeLocal(w, r)
+			return
+		}
 		if r.URL.Path == "/services" || strings.HasPrefix(r.URL.Path, "/services/") {
 			serveServices(w, r, region, address, executor)
 			return
@@ -157,6 +162,8 @@ func Handler(region, address string, executor *swarmruntime.Executor) http.Handl
 			http.Error(w, "host runtime telemetry unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		swarmruntime.ReadinessMetrics.WritePrometheus(&body)
+		edge.WriteLocalCertificateMetrics(r.Context(), &body)
 		observability.WriteEdgeListenerMetrics(&body)
 		observability.WriteNodeFeatureMetrics(&body)
 		observability.WriteEdgeResponseMetrics(&body)

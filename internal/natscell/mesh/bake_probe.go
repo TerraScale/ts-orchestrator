@@ -19,9 +19,8 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, ready swarmruntime.ServiceRollout) (rollout.BakeVerdict, error) {
+func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, ready swarmruntime.ServiceRollout, initialVerdict rollout.BakeVerdict, observed func(rollout.BakeVerdict) error) (rollout.BakeVerdict, error) {
 	var logs []*bakeLog
-	var initial error
 	if spec.Name == "terrabase" {
 		for _, task := range ready.Tasks {
 			// Catalog/writer regressions belong to the founder's data owner.
@@ -32,7 +31,6 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 			}
 			for _, stream := range []string{"stdout", "stderr"} {
 				log := &bakeLog{path: swarmruntime.RuntimeLogFile(a.state, task.TaskID, stream)}
-				initial = errors.Join(initial, log.check())
 				logs = append(logs, log)
 			}
 		}
@@ -40,15 +38,11 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 	transport := &http.Transport{MaxResponseHeaderBytes: 8 << 10}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return rollout.RunBake(ctx, func(ctx context.Context) (map[string]string, error) {
+	return rollout.RunBake(ctx, initialVerdict, func(ctx context.Context) (map[string]string, error) {
 		checks := map[string]string{}
-		if initial != nil {
-			checks["terrabase-logs"] = initial.Error()
-			return checks, initial
-		}
 		control, close, err := a.control()
 		if err != nil {
-			checks["candidate"] = "control-unavailable"
+			checks["control"] = "control-unavailable"
 			return checks, errors.New("bake candidate control unavailable")
 		}
 		defer close()
@@ -83,17 +77,13 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 		}
 		local, err := localDependencies(ctx, control, spec.Name)
 		if err != nil {
-			checks["dependencies"] = "control-unavailable"
+			checks["control"] = "control-unavailable"
 			return checks, errors.New("bake dependency placement unavailable")
 		}
 		return checks, bakeDependencies(ctx, client, checks, a.region, local)
-	})
+	}, observed)
 }
 
-// candidateUnready is a running candidate whose application readiness failed.
-// The dashboard's readiness includes ts-auth, so a briefly unready candidate
-// recovers within the same window as a dependency; anything else about the
-// candidate (replaced, superseded, absent) stays fatal.
 func candidateUnready(service string, err error) *rollout.DependencyFailure {
 	var notReady *swarmruntime.TaskReadinessError
 	if !errors.As(err, &notReady) {
@@ -236,7 +226,9 @@ func (l *bakeLog) check() error {
 	if err != nil || int64(len(data)) != info.Size()-l.offset {
 		return errors.New("bake TerraBase logs unreadable")
 	}
-	for _, line := range bytes.Split(data, []byte{'\n'}) {
+	var regression error
+	complete := bytes.LastIndexByte(data, '\n') + 1
+	for _, line := range bytes.Split(data[:complete], []byte{'\n'}) {
 		var record struct {
 			Msg    string // Production JSON uses "msg"; decoding is case insensitive.
 			Waited *float64
@@ -246,22 +238,23 @@ func (l *bakeLog) check() error {
 			message = record.Msg
 		}
 		if strings.Contains(message, "catalog anchor could not be") {
-			return errors.New("bake TerraBase catalog anchor failure")
+			regression = errors.Join(regression, errors.New("bake TerraBase catalog anchor failure"))
 		}
 		if strings.HasPrefix(message, "Waited ") && strings.Contains(message, " s for a database's writer ") {
 			if waited, ok := writerWait(message, record.Waited); !ok || waited >= severeWriterWait {
-				return errors.New("bake TerraBase writer wait regression")
+				regression = errors.Join(regression, errors.New("bake TerraBase writer wait regression"))
+				continue
 			}
 			l.waits++
 		}
 	}
-	l.offset += int64(bytes.LastIndexByte(data, '\n') + 1)
+	l.offset += int64(complete)
 	checkpoint, err = io.ReadAll(io.NewSectionReader(f, max(0, l.offset-64), min(64, l.offset)))
 	l.sum = sha256.Sum256(checkpoint)
 	if err != nil || int64(len(checkpoint)) != min(64, l.offset) {
 		return errors.New("bake TerraBase logs unreadable")
 	}
-	return nil
+	return regression
 }
 
 // writerWait reads the seconds of a writer wait record: the structured

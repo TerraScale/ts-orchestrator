@@ -120,12 +120,14 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			close(meshDone)
 		}()
 	}
-	err = runSingleHost(ctx, *state, output, plan, probation, swarmReady, func(ctx context.Context) error {
-		node := meshNode.Load()
-		if node == nil {
-			return errors.New("mesh not started")
+	err = runSingleHost(ctx, *state, output, plan, probation, swarmReady, func(ctx context.Context, service string) releasepush.HealthResult {
+		result := releasepush.HealthResult{Service: regionhealth.Serving(ctx, *state, service)}
+		if node := meshNode.Load(); node != nil {
+			result.Mesh = node.ReleaseHealth(ctx)
+		} else {
+			result.Mesh = errors.New("mesh not started")
 		}
-		return errors.Join(node.ReleaseHealth(ctx), regionhealth.Serving(ctx, *state))
+		return result
 	})
 	cancel()
 	<-meshDone
@@ -342,7 +344,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 	if !memoryRuntime && release != "" {
 		go restartWhenKnownGood(ctx, layout, release, restart)
 	}
-	notifier := sdnotify.FromEnvironment()
+	notifier := sdnotify.Process()
 	if cfg.NATS.Embedded != nil {
 		return errors.New("host role cannot start the regional NATS server")
 	}

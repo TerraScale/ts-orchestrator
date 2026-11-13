@@ -10,7 +10,8 @@ cleanup() {
  exit "$result"
 }
 trap cleanup EXIT
-git fetch origin "${CHANGE_BASE:-main}"
+previous="${CERTIFICATE_PREVIOUS_REF:-fbeeb6c47}"
+git fetch origin "$previous"
 mkdir "$work/main"
 git archive FETCH_HEAD | tar -x -C "$work/main"
 nice -n 19 go build -p 2 -trimpath -o "$work/certificates" ./test/e2e/m1/certificates

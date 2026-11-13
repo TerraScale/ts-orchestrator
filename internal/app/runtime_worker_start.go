@@ -288,7 +288,7 @@ func runRuntimeWorker(ctx context.Context, output io.Writer) error {
 			return err
 		}
 	}
-	notifier := sdnotify.FromEnvironment()
+	notifier := sdnotify.Process()
 	if err := notifier.Ready("accepted worker node and signed host session ready"); err != nil {
 		return err
 	}

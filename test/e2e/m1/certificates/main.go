@@ -707,6 +707,9 @@ func journey(ctx context.Context, cfg configuration) error {
 		return errors.New("certificate envelope is not encrypted and versioned")
 	}
 	fmt.Println("PASS two production processes use the host seed and account path; two lease contenders, one order per name, HTTP-01 on every eligible node; TLS fingerprint", firstFingerprint)
+	if err := observationJourney(cfg); err != nil {
+		return err
+	}
 	if err := recoveryJourney(ctx, cfg, conn, current); err != nil {
 		return err
 	}

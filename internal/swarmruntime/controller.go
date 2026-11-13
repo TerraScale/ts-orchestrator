@@ -717,6 +717,10 @@ func (c *controller) waitExit(ctx context.Context, following func()) (uint32, ti
 		return 0, time.Time{}, err
 	}
 	following()
+	if _, named := c.spec.Labels[LabelReadyPath]; named {
+		watch := c.readinessWatch(ctx)
+		defer watch.close()
+	}
 	select {
 	case <-ctx.Done():
 		return 0, time.Time{}, ctx.Err()

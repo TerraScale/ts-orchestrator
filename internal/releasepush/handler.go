@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/datamount"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
@@ -85,6 +86,9 @@ type MeshRequest struct {
 
 // Reply answers every release request.
 type Reply struct {
+	DataMount      *datamount.Report `json:"data_mount,omitempty"`
+	DataMountError string            `json:"data_mount_error,omitempty"`
+
 	State   string `json:"state,omitempty"` // current, installed, stale, rolled_back, rejected; done, failed for mesh
 	Version string `json:"version,omitempty"`
 	Health  string `json:"health,omitempty"`
@@ -98,6 +102,19 @@ type Reply struct {
 	NodeList nodelist.Status `json:"node_list,omitzero"`
 }
 
+type HealthRequest struct {
+	Service string `json:"service"`
+}
+
+type HealthResult struct {
+	Mesh    error
+	Service error
+}
+
+func (result HealthResult) Err() error {
+	return errors.Join(result.Mesh, result.Service)
+}
+
 type Progress interface {
 	Deadline(time.Time)
 	Event(string)
@@ -106,7 +123,7 @@ type Progress interface {
 // Handler serves the release subjects on any connection with full permissions.
 type Handler struct {
 	NodeList *nodelist.Store
-	Health   func(context.Context) error
+	Health   func(context.Context, string) HealthResult
 	Verifier *Verifier
 	// Revision is the running build's vcs.revision.
 	Revision string
@@ -253,7 +270,13 @@ func (h *Handler) version() Reply {
 	return reply
 }
 
-func (h *Handler) health(ctx context.Context, _ []byte) Reply {
+func (h *Handler) health(ctx context.Context, data []byte) Reply {
+	var request HealthRequest
+	if len(data) != 0 {
+		if err := protocol.DecodeStrict(data, &request, 64<<10); err != nil {
+			return Reply{Version: h.Revision, Health: err.Error()}
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, healthHandlerBudget)
 	defer cancel()
 	text := "no health check"
@@ -267,14 +290,19 @@ func (h *Handler) health(ctx context.Context, _ []byte) Reply {
 	}
 	if h.Health != nil {
 		text = "ok"
-		if err := h.Health(ctx); err != nil {
+		if err := h.Health(ctx, request.Service).Err(); err != nil {
 			text = err.Error()
 		}
 	}
 	if previous := h.lastHealth.Swap(&text); previous == nil || *previous != text {
 		slog.Info("release health changed", "health", text)
 	}
-	return Reply{Version: h.Revision, Health: text}
+	mount, err := datamount.Read(ctx)
+	mountError := ""
+	if err != nil {
+		mountError = err.Error()
+	}
+	return Reply{Version: h.Revision, Health: text, DataMount: mount, DataMountError: mountError}
 }
 
 func (h *Handler) orch(ctx context.Context, data []byte) Reply {

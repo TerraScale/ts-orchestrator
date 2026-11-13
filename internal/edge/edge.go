@@ -2,6 +2,7 @@ package edge
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
@@ -85,6 +87,7 @@ func newEdge(stateDir string) *Edge {
 	e.certs = &certificateManager{policy: e.hostPolicy, cache: &certificateCache{local: autocert.DirCache(filepath.Join(stateDir, "edge-certs")), source: e.certificateStore, roster: e.certificateRoster}}
 	e.readyRoutes.Store(&[]ReadinessRoute{})
 	e.challenges = e.certs.HTTPHandler(nil)
+	localEdge.Store(e)
 	http1 := http.DefaultTransport.(*http.Transport).Clone()
 	http1.Proxy = nil
 	http1.DialContext = dialHandoff
@@ -258,7 +261,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	}
 	// No read or write timeout on :443: gRPC, SSE and websocket streams stay
 	// open for hours.
-	tlsConfig := e.certs.TLSConfig()
+	tlsConfig := e.certificateTLSConfig()
 	tlsConfig.GetConfigForClient = e.meshTLS
 	public := &http.Server{
 		Handler:           countResponses("https", http.HandlerFunc(e.serveHTTPS)),
@@ -411,3 +414,33 @@ func dialHandoffWithin(ctx context.Context, network, address string, wait time.D
 }
 
 func (f roundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func (e *Edge) certificateTLSConfig() *tls.Config {
+	config := e.certs.TLSConfig()
+	config.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		cert, err := e.certs.GetCertificate(hello)
+		if len(hello.SupportedProtos) == 1 && hello.SupportedProtos[0] == acme.ALPNProto {
+			return cert, err
+		}
+		if (err != nil || cert != nil && hello.SupportsCertificate(cert) != nil) && e.hostPolicy(hello.Context(), hello.ServerName) == nil {
+			covered := false
+			e.certs.cache.memory.Range(func(_, value any) bool {
+				candidate := value.(cachedCertificate).cert
+				if candidate.Leaf.VerifyHostname(hello.ServerName) != nil || time.Now().After(candidate.Leaf.NotAfter) {
+					return true
+				}
+				covered = true
+				if hello.SupportsCertificate(candidate) == nil {
+					cert, err = candidate, nil
+					return false
+				}
+				return true
+			})
+			if err != nil && covered {
+				e.certs.cache.unsupportedHandshakes.Add(1)
+			}
+		}
+		return cert, err
+	}
+	return config
+}

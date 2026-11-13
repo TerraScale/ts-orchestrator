@@ -2,8 +2,8 @@ package edge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"io"
 	"log/slog"
 	"net"
@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 type ReadinessRoute struct {
@@ -29,56 +31,87 @@ func listenerBit(protocol string) uint32 {
 
 func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	verdict := e.readyStatus.Load()
-	if verdict == nil || !verdict.ok || time.Since(verdict.at) > 10*time.Second {
+	_, missing, missingNames := e.readiness()
+	if len(missing) > 0 || len(missingNames) > 0 {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		return
+	} else {
+		w.WriteHeader(http.StatusOK)
 	}
-	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(struct {
+		Ready        bool     `json:"ready"`
+		Missing      []string `json:"missing"`
+		MissingNames []string `json:"missing_names"`
+	}{len(missing) == 0 && len(missingNames) == 0, missing, missingNames})
 }
 
-func (e *Edge) ready(ctx context.Context) error {
+func (e *Edge) readiness() (bool, []string, []string) {
+	verdict := e.readyStatus.Load()
+	missing := []string{}
+	if verdict == nil || !verdict.ok || time.Since(verdict.at) > 10*time.Second {
+		missing = append(missing, "edge readiness unavailable")
+	}
+	missing = append(missing, verdict.conditions...)
+	missingNames := []string{}
+	for _, name := range e.servedNames() {
+		if e.certMissing(name) {
+			missingNames = append(missingNames, name)
+		}
+	}
+	return len(missing) == 0 && len(missingNames) == 0, missing, missingNames
+}
+
+func (e *Edge) certMissing(name string) bool {
+	if _, err := e.certs.load(name); err == nil {
+		return false
+	}
+	seen, _ := e.certSeen.Load(name)
+	grace, ok := seen.(time.Time)
+	if !ok || time.Since(grace) < issueTTL {
+		return false
+	}
+	return true
+}
+
+func (e *Edge) ready(ctx context.Context) ([]string, error) {
+	conditions := []string{}
 	if e.listeners.Load() != 15 {
-		return fmt.Errorf("listeners unavailable")
+		conditions = append(conditions, "listeners unavailable")
 	}
 	if e.bootstrapErr != nil {
-		return e.bootstrapErr
+		return conditions, e.bootstrapErr
 	}
 	held, err := e.bootstrap.Ingress(ctx)
 	if err != nil {
-		return err
+		return conditions, err
 	}
 	if held != nil {
-		return fmt.Errorf("ingress held")
-	}
-	if router := e.regional.Load(); router != nil {
+		conditions = append(conditions, "ingress held")
+	} else if router := e.regional.Load(); router != nil {
 		router.ingressMu.Lock()
 		draining := router.held != nil
 		router.ingressMu.Unlock()
 		if draining {
-			return fmt.Errorf("node draining")
+			conditions = append(conditions, "node draining")
 		}
 	}
 	web, postgres := *e.routes.Load(), *e.postgres.Load()
 	if len(web)+len(postgres) == 0 {
-		return fmt.Errorf("routes unavailable")
+		conditions = append(conditions, "routes unavailable")
 	}
-	for _, names := range []map[string]int{web, postgres} {
-		for name := range names {
-			seen, _ := e.certSeen.Load(name)
-			if _, err := e.certs.load(name); err != nil && seen != nil && time.Since(seen.(time.Time)) >= issueTTL {
-				return err
-			}
+	for _, name := range e.servedNames() {
+		if _, err := e.certs.load(name); err != nil && !e.certMissing(name) {
+			conditions = append(conditions, "certificate "+name+" invalid")
 		}
 	}
 	routes := *e.readyRoutes.Load()
 	if len(routes) == 0 {
-		return fmt.Errorf("readiness routes unavailable")
+		conditions = append(conditions, "readiness routes unavailable")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
@@ -87,31 +120,34 @@ func (e *Edge) ready(ctx context.Context) error {
 	for _, route := range routes {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(route.Port))+route.Path, nil)
 		if err != nil {
-			return err
+			return conditions, err
 		}
 		req.Host = route.Host
 		resp, err := client.Do(req)
 		if err != nil {
-			return err
+			conditions = append(conditions, "backend unavailable")
+			continue
 		}
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("local backend unavailable")
+			conditions = append(conditions, "backend not ready")
 		}
 	}
 	for _, port := range postgres {
 		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
-			return err
+			conditions = append(conditions, "postgres backend unavailable")
+			continue
 		}
 		conn.Close()
 	}
-	return nil
+	return conditions, nil
 }
 
 type readinessVerdict struct {
-	ok bool
-	at time.Time
+	ok         bool
+	at         time.Time
+	conditions []string
 }
 
 func (e *Edge) reconcileReadiness(ctx context.Context) {
@@ -119,11 +155,15 @@ func (e *Edge) reconcileReadiness(ctx context.Context) {
 	defer tick.Stop()
 	for {
 		bounded, cancel := context.WithTimeout(ctx, 3*time.Second)
-		err := e.ready(bounded)
+		conditions, err := e.ready(bounded)
+		if err != nil {
+			conditions = append(conditions, err.Error())
+		}
 		cancel()
-		previous := e.readyStatus.Swap(&readinessVerdict{err == nil, time.Now()})
-		if previous == nil || previous.ok != (err == nil) {
-			slog.InfoContext(ctx, "edge readiness changed", "ready", err == nil)
+		ok := len(conditions) == 0
+		previous := e.readyStatus.Swap(&readinessVerdict{ok, time.Now(), conditions})
+		if previous == nil || previous.ok != ok {
+			slog.InfoContext(ctx, "edge readiness changed", "ready", ok)
 		}
 		select {
 		case <-ctx.Done():

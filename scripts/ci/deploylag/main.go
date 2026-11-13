@@ -34,9 +34,8 @@ var apps = []app{
 	{"ts-dashboard", "terrascale", "images-ghcr.yml", []string{"Publish and release"}},
 }
 
-// held services are released by hand for now: reported, never a failure.
 var held = map[string]string{
-	"terrabase": "released by hand until the TerraBase batch-2 wipe (terrascale #408, #398)",
+	"terrabase": "manual release-only job is not read by deploy lag",
 }
 
 type api struct {
@@ -247,7 +246,6 @@ walk:
 	return append(report(x, unread), report(x, finding)...), nil
 }
 
-// report turns a held service's finding into a log line.
 func report(x app, finding string) []string {
 	if finding == "" {
 		return nil
