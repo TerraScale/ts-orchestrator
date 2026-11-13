@@ -18,7 +18,6 @@ import (
 // Material generation install (TS-668): the operator's requests to the
 // authority leader. status needs a trusted signer; a change needs the
 // signer's can_install_material grant, and a chain must be root-signed.
-const ()
 
 // exactSecretReader reads exact Vault versions with the instance principal of
 // the cell cell returns, connecting on the first read.

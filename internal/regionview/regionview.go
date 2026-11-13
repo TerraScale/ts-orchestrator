@@ -20,8 +20,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 )
 
-const ()
-
 // Status is a region's overall condition.
 type Status string
 

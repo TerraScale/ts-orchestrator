@@ -9,8 +9,6 @@ import (
 	"encoding/json/v2"
 )
 
-const ()
-
 // NativeMaterialInput contains only public authority and S3 configuration bytes. The
 // expected identity comes from the authenticated preparation specification.
 type NativeMaterialInput struct {

@@ -15,7 +15,6 @@ import (
 // digest is recorded known bad. A check that already failed before is
 // logged, not blamed on the release, so a broken dependency neither blocks
 // a fix forward nor marks a good release bad. Rollbacks are not gated.
-const ()
 
 // canaryTarget is the node a release reaches first.
 type canaryTarget struct {
@@ -42,4 +41,3 @@ type canaryRecord struct {
 }
 
 // Smoke gate checks.
-const ()

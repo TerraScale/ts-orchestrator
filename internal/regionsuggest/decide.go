@@ -9,10 +9,7 @@ import (
 	"time"
 )
 
-const ()
-
 // Suggestion actions.
-const ()
 
 // Suggestion is the suggester's latest suggestion. Reason is always set.
 type Suggestion struct {

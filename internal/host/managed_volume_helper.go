@@ -12,8 +12,6 @@ import (
 
 const volumeInitSocketPath = "/run/terrascale-orchestrator-volume-init.sock"
 
-const ()
-
 func managedVolumeHasExactClaim(paths managedRuntimePaths, launch ManagedMemberLaunch) (bool, error) {
 	path := filepath.Join(paths.mount, managedVolumeClaimName)
 	info, err := os.Lstat(path)

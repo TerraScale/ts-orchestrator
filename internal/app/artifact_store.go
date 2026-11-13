@@ -17,5 +17,3 @@ const specStoreHeadroomBytes int64 = 2048<<20 + observability.HostMetricStreamBy
 // machinesAPIStoreBytes is what the Machines API's two buckets reserve
 // beside them while the cell spec carries machines_api.
 const machinesAPIStoreBytes int64 = 3 * machines.BucketMaxBytes
-
-const ()

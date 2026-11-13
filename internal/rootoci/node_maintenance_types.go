@@ -20,8 +20,6 @@ type NodeMaintenanceRequest struct {
 
 type NodeMaintenanceStep string
 
-const ()
-
 // Step narrows the original operation; it cannot authorize another action.
 type NodeMaintenanceAdvanceRequest struct {
 	NodeMaintenanceRequest

@@ -10,8 +10,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 )
 
-const ()
-
 // selfUpdateRoot returns the configured release root, which must be the
 // --root the unit's prepare and watchdog steps use.
 func selfUpdateRoot(root string) string {

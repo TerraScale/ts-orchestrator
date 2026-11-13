@@ -62,7 +62,6 @@ type SignedAuthority struct {
 }
 
 // TerraBase TBSCH001 field type and flag codes (tb-format document schema).
-const ()
 
 // SignInitialAuthorityV2 encodes the fixed TBCAU002 grammar consumed by the
 // TerraBase signed-v2 authority verifier. The Ed25519 signer must already be

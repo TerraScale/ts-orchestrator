@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-const ()
-
 // Evaluation is the result of one pass.
 type Evaluation struct {
 	At       time.Time `json:"at"`

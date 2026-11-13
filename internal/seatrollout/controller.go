@@ -6,8 +6,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 )
 
-const ()
-
 // Hosts reads desired state and host reports.
 type Hosts interface {
 	ListHosts(ctx context.Context) ([]host.HostStatus, error)

@@ -16,8 +16,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
-const ()
-
 // channelSource opens the region's head bucket once, from the controller's
 // instance principal; a failure (the metadata service, the namespace call)
 // is retried on the next use.

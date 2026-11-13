@@ -85,6 +85,3 @@ const (
 )
 
 // Incoming WAN evidence: member, node, role, receiver_region, source_region.
-const ()
-
-const ()

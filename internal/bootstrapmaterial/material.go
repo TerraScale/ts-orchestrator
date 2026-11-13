@@ -146,8 +146,6 @@ func (cfg Config) validate() error {
 // Validate binds the material cell to the canonical supported OCI region.
 func (cfg Config) Validate() error { return cfg.validate() }
 
-var ()
-
 // Generate creates an immutable local source. An incomplete directory is an
 // operator hold: no automatic cleanup can prove that publication never began.
 func Generate(directory string, cfg Config, now time.Time) (Record, error) {

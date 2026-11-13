@@ -55,7 +55,6 @@ func InterRegionLeafName(cell string) string { return "leaf." + cell + "." + int
 
 // PrivatePeerReceiptKind and PrivatePeerReceiptPass identify the reviewed
 // private-peer foundation readback (ociregion InspectPrivatePeer).
-const ()
 
 // nested reports whether path is parent or inside it.
 func nested(parent, path string) bool {

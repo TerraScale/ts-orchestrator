@@ -15,7 +15,6 @@ import (
 
 // Operator rollout requests travel on the host registration subject, like
 // cell spec requests, so every issued operator credential can already send them.
-const ()
 
 // rolloutControl answers operator rollout requests and runs cell self-updates:
 // every controller publishes signed health proofs, collects its peers' and

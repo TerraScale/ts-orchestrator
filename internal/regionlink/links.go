@@ -21,7 +21,3 @@ const (
 	WANFailed     = "failed"
 	WANCatchingUp = "catching_up"
 )
-
-var ()
-
-var ()

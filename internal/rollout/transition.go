@@ -66,8 +66,6 @@ func New(spec Spec, now time.Time) (Record, error) {
 	return record, nil
 }
 
-const ()
-
 // rollbackHead returns the next unit to return to FromDigest. Rollback moves
 // one unit at a time so the group peer of each step keeps serving.
 func (record *Record) rollbackHead() string {

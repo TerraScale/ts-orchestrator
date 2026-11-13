@@ -37,7 +37,6 @@ import (
 // anything changes, so a new leader resumes it. drain keeps the node out
 // (holder maintenance) until undrain; the other operations hold it out
 // (holder operation) while they run, and after they fail until undrain.
-const ()
 
 // nodeInstance is a node's OCI instance as observed.
 type nodeInstance struct {

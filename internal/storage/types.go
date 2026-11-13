@@ -13,8 +13,6 @@
 //	failover    reattach-on-host-loss core gated by terminated-instance proof
 package storage
 
-var ()
-
 // VolumeRole names what a measured or managed volume is used for.
 type VolumeRole string
 
@@ -42,4 +40,3 @@ const (
 
 // Telemetry defaults applied when the matching Config field is zero. Phase
 // deadlines default through lifecycle.DefaultDeadlines, not here.
-const ()

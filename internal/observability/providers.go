@@ -28,5 +28,3 @@ type EventSource interface {
 type ReadinessSource interface {
 	Evaluate(ctx context.Context) (bool, []CheckResult)
 }
-
-var ()

@@ -95,8 +95,6 @@ func preparationReceiptDigest(receipt PreparationReceipt) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-const ()
-
 type CredentialReceipt struct {
 	Version         uint64            `json:"version"`
 	DatabaseID      string            `json:"database_id"`

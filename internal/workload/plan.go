@@ -7,7 +7,5 @@ package workload
 // bits lets the next signed release supersede every reconciled step.
 const ReleaseShift = 24
 
-var ()
-
 // ReleaseOf returns the release part of a desired generation.
 func ReleaseOf(generation uint64) uint64 { return generation >> ReleaseShift }

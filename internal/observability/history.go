@@ -33,8 +33,6 @@ type Point struct {
 	Samples uint32 `json:"-"`
 }
 
-var ()
-
 // HistoryQuery selects series and a time range.
 type HistoryQuery struct {
 	Metric string

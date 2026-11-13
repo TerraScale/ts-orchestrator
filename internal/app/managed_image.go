@@ -41,8 +41,6 @@ type managedImageVerifier struct {
 	holdLaunch func() func()
 }
 
-var ()
-
 // managedImageVerifierFor selects the managed-host image qualification
 // source. By default the image must be the controller's own accepted boot
 // image. When both host image files are configured, the host image is

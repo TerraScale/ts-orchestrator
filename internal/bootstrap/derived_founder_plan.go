@@ -392,5 +392,3 @@ func (verified DerivedCompletedFounderPlan) StoredCompletionBeforeLaunchDeadline
 		!resultStored.Add(time.Second).After(verified.plan.LaunchDeadline) &&
 		!headStored.Add(time.Second).After(verified.plan.LaunchDeadline)
 }
-
-var ()

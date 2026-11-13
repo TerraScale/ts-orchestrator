@@ -2,5 +2,3 @@
 package brokerauth
 
 const maxAccountJWTBytes = 64 << 10
-
-var ()

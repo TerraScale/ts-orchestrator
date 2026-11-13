@@ -31,7 +31,6 @@ import (
 // Node operations and controller rollouts take nodes out the same way. A
 // node's record names its holders: release, rollout and maintenance. Its
 // backends return only when the last holder lets go.
-const ()
 
 func sequencedKey(role string, release uint64) string {
 	return "fence." + role + "." + strconv.FormatUint(release, 10)
@@ -40,7 +39,6 @@ func sequencedKey(role string, release uint64) string {
 func fencedKey(node string) string { return "fenced." + node }
 
 // Holders of a node's fence.
-const ()
 
 // releaseOf is the release a desired or report generation belongs to: a
 // reconciled role's release-scoped generation, or the generation itself.

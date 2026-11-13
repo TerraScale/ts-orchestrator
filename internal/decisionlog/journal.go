@@ -5,8 +5,6 @@ import (
 	"errors"
 )
 
-const ()
-
 // Source is the read side the dashboard, insights and remote regions use.
 // Journal and Federation implement it.
 type Source interface {
@@ -21,5 +19,3 @@ type LiveSource interface {
 
 // ErrNotFound reports a chain lookup for an unknown decision.
 var ErrNotFound = errors.New("decision not found")
-
-var ()
