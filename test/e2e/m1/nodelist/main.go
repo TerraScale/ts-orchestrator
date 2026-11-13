@@ -106,8 +106,8 @@ func main() {
 	inventory := []nodelist.Node{}
 	for index := 1; index <= 3; index++ {
 		state := filepath.Join(work, fmt.Sprintf("node-%d", index))
-		public := command("node", "keys", "--state", state)
-		require(bytes.Equal(public, command("node", "keys", "--state", state)), "node keys changed after a new process start")
+		public := command("node", "keys", state)
+		require(bytes.Equal(public, command("node", "keys", state)), "node keys changed after a new process start")
 		var keys nodelist.PublicKeys
 		must(json.Unmarshal(public, &keys))
 		require(len(keys.TLSSPKISHA256) == 64 && len(keys.WGPublicKey) == 44, "public output is incomplete")

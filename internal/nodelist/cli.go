@@ -2,7 +2,6 @@ package nodelist
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -13,16 +12,16 @@ import (
 
 func Run(args []string, out io.Writer) error {
 	if len(args) > 0 && args[0] == "keys" {
-		fs := flag.NewFlagSet("node keys", flag.ContinueOnError)
-		fs.SetOutput(out)
-		state := fs.String("state", "/var/lib/ts-orch", "local state directory")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
+
+		if len(args) > 2 {
+			return errors.New("usage: ts-orch node keys [STATE]")
 		}
-		if fs.NArg() != 0 {
-			return errors.New("usage: ts-orch node keys [--state DIR]")
+		state := "/var/lib/ts-orch"
+		if len(args) == 2 {
+			state = args[1]
 		}
-		keys, err := Keys(*state)
+
+		keys, err := Keys(state)
 		if err != nil {
 			return err
 		}

@@ -18,6 +18,7 @@ authenticated operator SSH path:
 
     ssh NODE 'sudo ts-orch node keys' > NODE-public.json
 
+An optional positional STATE directory selects another local state directory.
 Only wg_public_key and tls_spki_sha256 appear in that output. Never collect
 either private key file. For each node, combine that public output with its
 reviewed name, region and addresses:
