@@ -159,9 +159,15 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
             os.dup2(log.fileno(), 1)
             os.dup2(log.fileno(), 2)
             ptrace(0, 0)
+            os.kill(os.getpid(), signal.SIGSTOP)
             filter_syscalls(syscall_name)
             os.execv(helper, [helper, "commit-case", work, outcome])
         _, status = os.waitpid(root_pid, 0)
+        if not os.WIFSTOPPED(status):
+            log.seek(0)
+            raise RuntimeError(
+                f"{step}: tracer startup failed: {log.read().decode(errors='replace')[-3000:]}"
+            )
         ptrace(0x4200, root_pid, 0, 1 | 2 | 4 | 8 | 16 | 0x80 | 0x100000)
         ptrace(7, root_pid)
         live = {root_pid}
