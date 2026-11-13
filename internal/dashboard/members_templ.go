@@ -5,12 +5,13 @@ package dashboard
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
+import "github.com/a-h/templ"
+import templruntime "github.com/a-h/templ/runtime"
+
 import (
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
-	"github.com/a-h/templ"
-	templruntime "github.com/a-h/templ/runtime"
 )
 
 func membersBody(current view) templ.Component {
@@ -719,3 +720,5 @@ func resourceHosts(current view) templ.Component {
 		return nil
 	})
 }
+
+var _ = templruntime.GeneratedTemplate

@@ -8,8 +8,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
-// the registry's region limit
-
 // Region is one region of the view. Rollup is nil until one arrives.
 type Region struct {
 	Cell   string  `json:"cell"`

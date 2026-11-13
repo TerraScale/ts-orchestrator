@@ -5,10 +5,8 @@ package dashboard
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
-import (
-	"github.com/a-h/templ"
-	templruntime "github.com/a-h/templ/runtime"
-)
+import "github.com/a-h/templ"
+import templruntime "github.com/a-h/templ/runtime"
 
 // dataTable renders t as a striped table, or its empty note when it has no rows.
 func dataTable(t table) templ.Component {
@@ -246,3 +244,5 @@ func cellContent(c cell) templ.Component {
 		return nil
 	})
 }
+
+var _ = templruntime.GeneratedTemplate

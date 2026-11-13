@@ -85,10 +85,6 @@ const (
 )
 
 // Incoming WAN evidence: member, node, role, receiver_region, source_region.
-const (
+const ()
 
-// cumulative gauge; compare observations/reset
-)
-
-// Bounds on what the sampler remembers between snapshots.
 const ()
