@@ -13,6 +13,7 @@ The ARM journeys run as independent matrix jobs. Every lane runs for every pull 
 | host-logs | Journal settings applied once from current host state, unsupported hosts left untouched, syslog handling | 12 minutes | All paths |
 | monitoring | Alert rule sets, relay delivery, and task metrics that keep the recorded service identity across restart and adoption | 8 minutes | All paths |
 | boot-order | Management and peer cold boots, old declarations, dependency gates and running tasks | 8 minutes | All paths |
+| rollout | Regional bake windows, local holds, signed replacement, first installs and health sampling across three isolated regions | 15 minutes | All paths |
 | operator | Fleet routing contracts and startup metadata recovery/outage/cancellation | 8 minutes | All paths |
 
 Each lane restores the shared ARM Go cache and builds the static agent and its selected Go journey entry points with the same build.sh. Independent warm-cache builds avoid the artifact producer/upload/download dependency on the longest lane. The node-list journey additionally compiles distinct embedded-inventory variants as part of its assertions. Startup deliberately observes a five-minute metadata window; it runs alongside the other lanes. Boot-order installs the pinned runtime without running the agent installer. Regional and node-list create their own isolated environments. Core, WebSocket, restarts and rollback source the same installer/serving setup. Only core saves the Go cache on main, avoiding concurrent uploads of the same cache key.

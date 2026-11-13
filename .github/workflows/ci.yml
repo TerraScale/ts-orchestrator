@@ -55,6 +55,7 @@ jobs:
           - {lane: host-logs, entry: host-logs.sh, timeout: 12}
           - {lane: monitoring, entry: monitoring.sh, timeout: 8, packages: "./test/e2e/m1/monitoring"}
           - {lane: boot-order, entry: boot-order.sh, timeout: 8, packages: "./test/e2e/m1/boot-order"}
+          - {lane: rollout, entry: rollout.sh, timeout: 15}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
     name: e2e-m1 / ${{ matrix.lane }}
     concurrency:
