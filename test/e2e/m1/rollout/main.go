@@ -546,6 +546,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	must(err)
 	must(os.WriteFile(filepath.Join(root, "keys.json"), public, 0600))
 
+	var lagging swarmruntime.ServiceSpec
 	baselineGeneration := time.Now().UnixNano()
 	for i := range roots {
 		socketReady(ctx, filepath.Join(roots[i], "run", "containerd.sock"))
@@ -559,6 +560,16 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 		baseline.Name, baseline.Args, baseline.Port, baseline.Regions, baseline.Hostnames = "terrabase", []string{"--port", "18085"}, 18085, order, nil
 		baseline.Generation = baselineGeneration
 		command(ctx, names[i], roots[i], baseline)
+
+		if i == 0 {
+			lagging = baseline
+			lagging.Name, lagging.Port, lagging.Args, lagging.Regions = "e2e-lagging", 18086, []string{"--port", "18086"}, nil
+			lagging.Replicas, lagging.MilliCPU, lagging.MemoryMiB = 2, 4000, 24576
+			replacement, err := os.ReadFile(filepath.Join(roots[i], "replacement-image"))
+			must(err)
+			lagging.Image = string(replacement)
+			command(ctx, names[i], roots[i], lagging)
+		}
 		must(os.MkdirAll(filepath.Join(roots[i], "mesh"), 0700))
 		local, err := json.Marshal(map[string]mesh.Entry{"terrabase": {Generation: baselineGeneration, Spec: &baseline}})
 		must(err)
@@ -595,12 +606,6 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	var spec swarmruntime.ServiceSpec
 	must(json.Unmarshal(data, &spec))
 	spec.Name, spec.Args, spec.Port, spec.Regions, spec.Hostnames = "terrabase", []string{"--port", "18085"}, 18085, order, nil
-	lagging := spec
-	lagging.Name, lagging.Port, lagging.Args = "e2e-lagging", 18086, []string{"--port", "18086"}
-	lagging.Regions = nil
-	lagging.Replicas = 2
-	lagging.MilliCPU, lagging.MemoryMiB = 4000, 24576
-	command(ctx, names[0], roots[0], lagging)
 	apply := func(generation int64, hold string) {
 		request := mesh.ApplyRequest{Name: spec.Name, Entry: mesh.Entry{Generation: generation, Spec: &spec, HoldAfter: hold, Deployment: &mesh.Deployment{Repository: "TerraScale/terrascale", RunID: "100", RunAttempt: 1, Revision: revision, Image: spec.Image}}}
 		data, err := json.Marshal(request)
