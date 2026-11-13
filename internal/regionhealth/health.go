@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -119,47 +120,103 @@ func check(ctx context.Context, state string) Report {
 
 // read takes one Input from /proc, statfs and the single-host control socket.
 func read(ctx context.Context, state string) Input {
-	var in Input
-	system, err := observability.ReadSystem([]observability.FilesystemRole{{Role: "containerd", Path: containerdRoot}, {Role: "state", Path: state}})
-	if err != nil {
-		in.Failures = append(in.Failures, "memory unreadable")
-	}
-	in.System = system
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	runtime, err := containerd.New(swarmruntime.HostContainerdSocket)
-	if err == nil {
-		_, err = runtime.Version(ctx)
-		runtime.Close()
+	type reading struct {
+		check string
+		input Input
 	}
-	if err != nil {
-		in.Node = "container runtime unreachable"
-		return in
-	}
-	client, conn, err := swarmruntime.DialSingleHost(state)
-	if err != nil {
-		in.Node = "swarm node unreachable"
-		return in
-	}
-	defer conn.Close()
-	nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
-	if err != nil || len(nodes.Nodes) == 0 {
-		in.Node = "swarm node unreachable"
-		return in
-	}
-	for _, node := range nodes.Nodes {
-		if node.Status.State != api.NodeStatus_READY {
-			in.Node = "swarm node " + strings.ToLower(node.Status.State.String())
-			return in
+	results := make(chan reading, 4)
+	go func() {
+		system, err := observability.ReadSystem([]observability.FilesystemRole{{Role: "containerd", Path: containerdRoot}, {Role: "state", Path: state}})
+		part := Input{System: system}
+		if err != nil {
+			part.Failures = []string{"memory unreadable"}
 		}
+		results <- reading{check: "memory unreadable", input: part}
+	}()
+	go func() {
+		runtime, err := containerd.New(swarmruntime.HostContainerdSocket)
+		if err == nil {
+			_, err = runtime.Version(ctx)
+			runtime.Close()
+		}
+		part := Input{}
+		if err != nil {
+			part.Node = "container runtime unreachable"
+		}
+		results <- reading{check: "container runtime unreachable", input: part}
+	}()
+	go func() {
+		part := Input{}
+		client, conn, err := swarmruntime.DialSingleHost(state)
+		if err != nil {
+			part.Node = "swarm node unreachable"
+			results <- reading{check: "swarm node unreachable", input: part}
+			return
+		}
+		defer conn.Close()
+		nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+		if err != nil || len(nodes.Nodes) == 0 {
+			part.Node = "swarm node unreachable"
+		} else {
+			for _, node := range nodes.Nodes {
+				if node.Status.State != api.NodeStatus_READY {
+					part.Node = "swarm node " + strings.ToLower(node.Status.State.String())
+					break
+				}
+			}
+		}
+		results <- reading{check: "swarm node unreachable", input: part}
+	}()
+	go func() {
+		part := Input{}
+		client, conn, err := swarmruntime.DialSingleHost(state)
+		if err != nil {
+			part.Failures = []string{"services unreadable"}
+			results <- reading{check: "services unreadable", input: part}
+			return
+		}
+		defer conn.Close()
+		services, err := swarmruntime.ListServiceSpecs(ctx, client)
+		if err != nil {
+			part.Failures = []string{"services unreadable"}
+		}
+		for _, service := range services {
+			if service.Running < service.Replicas {
+				part.Lagging = append(part.Lagging, service.Name)
+			}
+		}
+		results <- reading{check: "services unreadable", input: part}
+	}()
+	var in Input
+	pending := map[string]bool{"memory unreadable": true, "container runtime unreachable": true, "swarm node unreachable": true, "services unreadable": true}
+	merge := func(result reading) {
+		delete(pending, result.check)
+		part := result.input
+		if part.System.MemTotalBytes != 0 {
+			in.System = part.System
+		}
+		if part.Node != "" {
+			in.Node = strings.TrimSpace(in.Node + " " + part.Node)
+		}
+		in.Failures = append(in.Failures, part.Failures...)
+		in.Lagging = append(in.Lagging, part.Lagging...)
 	}
-	services, err := swarmruntime.ListServiceSpecs(ctx, client)
-	if err != nil {
-		in.Failures = append(in.Failures, "services unreadable")
-	}
-	for _, service := range services {
-		if service.Running < service.Replicas {
-			in.Lagging = append(in.Lagging, service.Name)
+	for len(pending) != 0 {
+		select {
+		case part := <-results:
+			merge(part)
+		case <-ctx.Done():
+			for len(pending) != 0 {
+				select {
+				case part := <-results:
+					merge(part)
+				default:
+					in.Node = strings.TrimSpace(in.Node + " " + strings.Join(slices.Sorted(maps.Keys(pending)), ", ") + ": health check deadline exceeded")
+					return in
+				}
+			}
 		}
 	}
 	return in

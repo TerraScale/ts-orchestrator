@@ -121,7 +121,6 @@ type stateReply struct {
 	Serving map[string]ServingResult `json:"serving,omitempty"`
 	Failed  map[string]int64         `json:"failed,omitempty"`
 	Unsaved map[string]int64         `json:"unsaved,omitempty"`
-	Holds   map[string]bakeFailure   `json:"holds,omitempty"`
 }
 
 // Applier changes this host's services.
@@ -183,9 +182,6 @@ type Node struct {
 	// evaluate has not yet registered its bake in baking.
 	starting             map[string]bool
 	bakeUnsaved          map[string]bakeRecord
-	bakeFailures         map[string]bakeFailure
-	bakeFailureMu        sync.Mutex
-	bakeFailuresDirty    bool
 	peers                *peers
 	peerReports          map[string]map[string]PeerAttestation
 	peerReportMu         sync.Mutex
@@ -268,13 +264,6 @@ func start(cfg config) (_ *Node, err error) {
 		cancel()
 		return nil, err
 	}
-	if err := node.loadBakeFailures(); err != nil {
-		node.closeConns()
-		cancel()
-		embedded.Shutdown()
-		embedded.WaitForShutdown()
-		return nil, err
-	}
 	node.publishTopologyDesired()
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) {
@@ -293,7 +282,6 @@ func start(cfg config) (_ *Node, err error) {
 					state.Ready[name] = result.Generation
 				}
 			}
-			state.Holds = node.bakeFailureSnapshot()
 			node.bakeState(&state)
 			node.mu.Unlock()
 			node.respond(m, state)
@@ -301,7 +289,6 @@ func start(cfg config) (_ *Node, err error) {
 		// An apply waits for its tasks to run, so it must not hold up the next message.
 		ApplySubject: func(m *nats.Msg) { node.goWork(func() { node.handleApply(m) }) },
 	}
-	handlers[bakeFailureSubject+cfg.region] = func(m *nats.Msg) { node.goWork(func() { node.receiveBakeFailure(m) }) }
 	handlers[protocol.MeshWorkerPrefix+cfg.region] = node.recordWorker
 	handlers[protocol.MeshDrainPrefix+cfg.region] = func(m *nats.Msg) { node.goWork(func() { node.handleDrain(m) }) }
 	if cfg.applier == nil {
@@ -443,10 +430,6 @@ func (n *Node) sync(ctx context.Context) {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if err := n.mergeBakeFailures(states); err != nil {
-		slog.WarnContext(ctx, "mesh bake holds persistence failed", "error", err)
-		return
-	}
 	before := maps.Clone(n.desired)
 	changed := false
 	for _, desired := range peers {
@@ -480,9 +463,6 @@ func (n *Node) sync(ctx context.Context) {
 	for _, name := range slices.Sorted(maps.Keys(n.desired)) {
 		if n.ctx.Err() != nil {
 			return
-		}
-		if err := n.acceptBakeReplacement(name, n.desired[name].entry()); err != nil {
-			continue
 		}
 		if err, rejected := n.specInvalid[name]; rejected {
 			slog.ErrorContext(ctx, "stored service spec rejected; service not managed", "service", name,
@@ -605,7 +585,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 		if n.failed == nil {
 			n.failed = map[string]int64{}
 		}
-		if err != nil && (reply.Bake == nil || reply.Bake.Reason != "") {
+		if request.Entry.Deployment != nil && err != nil && (reply.Bake == nil || reply.Bake.Reason != "") {
 			n.failed[request.Name] = request.Entry.Generation
 		} else {
 			delete(n.failed, request.Name)
@@ -695,24 +675,15 @@ var errEarlierFailed = errors.New("an earlier region failed this rollout")
 // turn allows this region to apply only after every earlier region reports
 // the generation ready with a successful bake. Missing verdicts fail closed.
 func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int64, states map[string]stateReply) error {
-	if err := n.mergeBakeFailures(states); err != nil {
-		return err
-	}
 	for _, region := range n.earlier(spec) {
 		reply, answered := states[region]
 		if !answered {
 			return fmt.Errorf("%s has no bake verdict yet", region)
 		}
-		if n.stickyFailure(name, generation, region) {
-			if reply.Ready[name] >= generation {
-				slog.Warn("passed bake refused after sticky failure", "service", name, "generation", generation, "region", region)
-			}
-			return fmt.Errorf("%w: %s sticky verdict", errEarlierFailed, region)
-		}
 		if reply.Failed[name] == generation {
 			return fmt.Errorf("%w: %s", errEarlierFailed, region)
 		}
-		if reply.Ready[name] < generation || !reply.Serving[name].fresh() || reply.Serving[name].Generation < generation {
+		if reply.Ready[name] != generation || !reply.Serving[name].fresh() || reply.Serving[name].Generation != generation {
 			return fmt.Errorf("%s does not run %s generation %d ready yet", region, name, generation)
 		}
 	}

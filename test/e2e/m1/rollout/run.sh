@@ -27,6 +27,7 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$work/first/run" "$work/second/run" "$work/third/run" /run/nri
 cp "$orch" "$work/ts-orch"
+cp "$here/../../../../deploy/m1/services/netbird-server.json" "$work/management.json"
 ip link add c21-bridge type bridge
 ip addr add 10.203.21.1/24 dev c21-bridge
 ip link set c21-bridge up
@@ -47,6 +48,9 @@ for seat in first second third; do
  ip -n "c21-$seat" addr add "$address/24" dev eth0
  ip -n "c21-$seat" link set eth0 up
  ip -n "c21-$seat" link set lo up
+ ip -n "c21-$seat" link add wt0 type dummy
+ ip -n "c21-$seat" addr add "$address/32" dev wt0
+ ip -n "c21-$seat" link set wt0 up
  ip -n "c21-$seat" route add default via 10.203.21.1
  mkdir -p "/etc/netns/c21-$seat"
  printf 'nameserver 1.1.1.1\n' >"/etc/netns/c21-$seat/resolv.conf"

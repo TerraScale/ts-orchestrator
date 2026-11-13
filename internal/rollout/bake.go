@@ -10,6 +10,7 @@ import (
 
 const BakeWindow = 30 * time.Second
 const MaxBakeWindow = 10 * time.Minute
+const BakeFailureDuration = 15 * time.Second
 const sampleBudget = 5 * time.Second
 
 type DependencyFailure struct{ Service, Status string }
@@ -19,17 +20,18 @@ func (f *DependencyFailure) Error() string {
 }
 
 type BakeVerdict struct {
-	Started             time.Time         `json:"started"`
-	FirstSample         time.Time         `json:"firstSample"`
-	Finished            time.Time         `json:"finished"`
-	Samples             int               `json:"samples"`
-	Checks              map[string]string `json:"checks"`
-	Reason              string            `json:"reason,omitempty"`
-	HealthySince        time.Time         `json:"healthySince"`
-	FailedSamples       int               `json:"failedSamples"`
-	LastFailure         string            `json:"lastFailure,omitempty"`
-	ConsecutiveFailures map[string]int    `json:"consecutiveFailures,omitempty"`
-	Unsaved             bool              `json:"unsaved,omitempty"`
+	Started             time.Time            `json:"started"`
+	FirstSample         time.Time            `json:"firstSample"`
+	Finished            time.Time            `json:"finished"`
+	Samples             int                  `json:"samples"`
+	Checks              map[string]string    `json:"checks"`
+	Reason              string               `json:"reason,omitempty"`
+	HealthySince        time.Time            `json:"healthySince"`
+	FailedSamples       int                  `json:"failedSamples"`
+	LastFailure         string               `json:"lastFailure,omitempty"`
+	ConsecutiveFailures map[string]int       `json:"consecutiveFailures,omitempty"`
+	FailureSince        map[string]time.Time `json:"failureSince,omitempty"`
+	Unsaved             bool                 `json:"unsaved,omitempty"`
 }
 
 func RunBake(ctx context.Context, v BakeVerdict, probe func(context.Context) (map[string]string, error), observed func(BakeVerdict) error) (BakeVerdict, error) {
@@ -38,9 +40,8 @@ func RunBake(ctx context.Context, v BakeVerdict, probe func(context.Context) (ma
 	if v.FirstSample.IsZero() {
 		v.FirstSample = v.Started
 	}
-	if v.ConsecutiveFailures == nil {
-		v.ConsecutiveFailures = map[string]int{}
-	}
+	v.ConsecutiveFailures = map[string]int{}
+	v.FailureSince = map[string]time.Time{}
 	persist := func() error {
 		if observed == nil {
 			return nil
@@ -95,6 +96,7 @@ func RunBake(ctx context.Context, v BakeVerdict, probe func(context.Context) (ma
 			failure = errors.New("bake has no observations")
 		}
 		failed := map[string]int{}
+		since := map[string]time.Time{}
 		if failure != nil {
 			v.FailedSamples++
 			v.LastFailure = failure.Error()
@@ -110,10 +112,16 @@ func RunBake(ctx context.Context, v BakeVerdict, probe func(context.Context) (ma
 		} else if v.HealthySince.IsZero() {
 			v.HealthySince = time.Now().UTC()
 		}
-		v.ConsecutiveFailures = failed
-		for _, count := range failed {
-			if count >= 2 {
-				return fail("bake probe failed in two consecutive samples: " + v.LastFailure)
+		for key, count := range failed {
+			since[key] = v.FailureSince[key]
+			if count == 1 || since[key].IsZero() {
+				since[key] = time.Now().UTC()
+			}
+		}
+		v.ConsecutiveFailures, v.FailureSince = failed, since
+		for key, count := range failed {
+			if count >= 3 && time.Since(since[key]) >= BakeFailureDuration {
+				return fail("bake probe " + key + " failed continuously for at least 15 seconds: " + v.LastFailure)
 			}
 		}
 		if err := persist(); err != nil {

@@ -1,101 +1,93 @@
 # Regional rollout bake
 
-Install this orchestrator release on every target founder before rolling a
-service, so every participant enforces and persists the same verdict protocol.
+Only generations created by a release operation are baked and can be held.
+The operation starts at the authenticated release handler and carries the
+repository, run, attempt, revision and immutable image in its deployment record.
+Plain service applies, including first installs and services without a release
+path such as the network management server, wait for readiness but are not
+baked and cannot acquire a bake hold; they can be applied again.
 
-Every service generation requires a successful bake in every earlier target
-region before the next region applies it. An earlier region that stays down
-holds later regions until it returns or is removed from the placement. The
-placement declaration and its order determine the targets.
+A released generation reaches a later region only when every earlier target
+region reports a finished, passed bake and fresh serving evidence for that exact
+generation. The placement declaration determines the targets and their order.
+An earlier region that stays down holds later regions until it returns or is
+removed from placement. Waiting regions keep their existing serving tasks.
 
-A bake samples every two seconds after exact task readiness. It passes only
-after thirty seconds of consecutive healthy samples. A single failed sample
-resets the healthy clock and records its count, checks and last reason in the
-receipt. No failed sample is discarded. All probes follow this rule, including
-candidate readiness, control access, dependency readiness and log coverage.
+## Observation and local holds
 
-A bake fails in either of two ways:
+After exact task readiness, a bake samples every two seconds and passes after
+30 seconds of consecutive healthy observations. A failed sample restarts that
+healthy window and records its count, checks and last reason. A bake fails when
+the same probe fails in every sample for at least 15 seconds, with at least
+three consecutive failed samples (`BakeFailureDuration`), or when no full healthy
+window completes within ten minutes of the first recorded sample
+(`MaxBakeWindow`). Two failed samples alone do not fail a bake.
 
-- The same probe fails in two consecutive samples, even if its reason changes.
-- The full healthy window has not completed within ten minutes of the first
-  sample. The named total bound is MaxBakeWindow.
-
-These rules govern observation after readiness. Failure to establish readiness
-or verify the signed image identity refuses the rollout before sampling and
+The ten-minute bound uses wall-clock time, including time the observer was down.
+An interrupted bake remains unfinished and runs a full new window on restart;
+the first-sample time, total counters and last failure remain recorded, while
+consecutive probe streaks and the healthy window start again. Readiness or image
+revision failure before observation also refuses that released generation and
 retains a failed rollout receipt.
 
-The receipt retains the first-sample timestamp, total sample count, failed-sample
-count, last failure, consecutive failures per probe and healthy-window start.
-An observer restart requires a fresh full healthy window. It retains the first
-sample and consecutive-failure evidence, so restarting cannot extend the total
-bound or erase the previous failed sample. An interrupted observation is
-unfinished, rather than a failure that requires an operator.
+A hold lives only in the region that observed the failure, in its own durable
+`mesh/bake-SERVICE-GENERATION.json` receipt. That receipt retains the image,
+tasks, running revision, readiness timings, first sample, counters, last reason
+and finished verdict. A persisted failed verdict survives observer restarts and
+subsequent readiness recovery. Founders neither publish verdicts for persistence
+by peers nor import peer holds through state exchange; later regions ask earlier
+regions for their current verdict and serving evidence.
+
+If writing a failure fails, the observer retains it in memory, retries the local
+write, reports failed, unsaved for that generation, and never continues or passes
+that window while it lives; if it restarts before saving, the unfinished receipt
+requires a full new window whose result stands.
+This is acceptable because a persistent regression fails the new window again,
+and a transient regression receives the same treatment as a transient failure in
+any new observation window.
 
 Samples verify the same running tasks and their readiness. Services with
-application dependencies also check the relevant readiness endpoints. The
-database service checks appended task stdout and stderr for catalog-anchor and
-writer-wait regressions and verifies that log coverage remains readable.
-Raw log contents, environments, credentials and readiness response bodies are
-excluded from retained bake evidence.
+application dependencies also check their relevant local readiness endpoints.
+The database service checks appended task stdout and stderr for catalog-anchor
+and writer-wait regressions and verifies readable log coverage. Raw logs,
+environments, credentials and readiness response bodies are not retained.
 
-## Sticky failures
-
-A hold means a failed service generation cannot advance to later regions, even
-if its readiness subsequently recovers. Failed generations are terminal.
-An observer publishes a failed verdict for the service and generation to every
-other reachable region's founder in parallel with writing its own receipt.
-A receiving founder durably stores the verdict in mesh/bake-holds.json before
-acknowledging it. The ledger retains the reporting region and generation.
-A later passed verdict from a region that reported failure for that generation
-is refused and logged.
-
-The observation is handled when either the observer durably saves it locally or
-another founder acknowledges a durable copy. Until one succeeds, the observer
-retries both operations, pauses observation, and reports only failed, unsaved.
-The observer retains its failure in memory while persistence is unavailable.
-Peer state exchange also carries sticky verdicts so a restarted observer learns
-them again.
-
-The invariant is: a failure seen for generation G holds later regions for G
-unless both the observer's disk and its links to every other region failed at
-once and it then restarted.
-
-Each region retains mesh/bake-SERVICE-GENERATION.json under its state directory.
-The receipt contains the image digest, actual tasks and revision, elapsed
-readiness timings and bake evidence. Mesh state replies also require a fresh
-cached serving observation after a successful bake. Serving is readiness seen
-from inside the region, not a customer query from outside. It does not prove
+A passed bake alone does not prove serving: state replies additionally require
+fresh readiness evidence from inside the region. That evidence proves the
+requested service has its required running replicas and its configured readiness
+endpoint answers successfully, when one is configured. It does not prove
 external routing, customer authentication or a successful customer database
-query. Missing or stale serving evidence holds advancement.
+query. Missing, stale or failing serving evidence prevents advancement even
+after a bake passed.
 
 ## Clearing a hold
 
-Repair the cause, then dispatch the signed release workflow with the same
-digest or a corrected image. Only an authenticated release verified by the
-release handler may admit a new generation while the service is held.
-Each founder durably records the held generation it replaces and the new
-generation's release run, attempt, revision and image in its hold ledger before
-accepting the replacement. This applies to founders that learned the failure
-from another region.
+Repair the cause, then release again with the same digest or a corrected image.
+A held service admits a new generation only through a release declaration with
+its deployment record; before admission, the observing founder durably journals
+which held generation it replaces and the new release identity in the failed
+receipt. A plain `service apply`, configuration roll or `service resume` cannot
+bypass the hold: the founder refuses it, names the held generation and instructs
+the operator to release again. Resume only clears an ordinary canary hold.
 
-There is no other way to clear a failed bake, including when the code host is
-unavailable: the rollout remains held until the signed workflow can run.
-A local unsigned service apply is refused and names the held generation and
-the required release workflow. Service resume clears a canary hold only; it
-cannot clear a failed bake. A new generation receives its own observation
-window; older failed generations remain in the ledger and cannot hold the
-new generation after its signed acceptance. No automatic database downgrade
-is performed.
+The release handler verifies the release signature. Founders trust declarations
+relayed by other members of the mesh, as they do for every other declaration;
+the deployment record is not independent proof of signature verification.
+This rule stops an operator’s routine local apply from bypassing a hold; it is
+not a defence against a compromised mesh member.
 
-Signed releases retain the existing placement policy. Each subsequent region
-requires evidence from every earlier region. Regions waiting behind a hold
-retain their serving tasks.
+The new released generation re-bakes every region, taking about 30 seconds per
+region plus readiness time. Old failed receipts remain as local history and do
+not hold the newer admitted generation. No automatic database downgrade occurs.
+If the authenticated release path is unavailable, a released service’s hold
+remains until that path is available again.
 
 ## Release health
 
-Both named service health and unnamed binary-release health check the mesh,
-the container runtime API, SwarmKit node readiness and readable services.
-The runtime call shares the existing health deadline. A stopped daemon fails
-health even while cached node readiness and shim-owned tasks remain alive.
-Named health additionally checks the requested service's replicas and readiness
+Named service health and unnamed binary-release health check the mesh,
+container runtime API, SwarmKit node readiness and readable services. Independent
+host health checks run concurrently within the existing health deadline; a
+failed check or a check that misses the deadline fails health. A stopped runtime
+fails health even while cached node readiness and shim-owned tasks remain alive.
+Named health additionally checks the requested service’s replicas and readiness
 endpoint. An unrelated replica shortage does not fail that named check.

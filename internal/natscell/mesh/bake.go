@@ -27,6 +27,7 @@ type bakeRecord struct {
 	Identity   [32]byte            `json:"identity"`
 	Rollout    bakeRuntime         `json:"runtime"`
 	Bake       rollout.BakeVerdict `json:"bake"`
+	ReplacedBy *bakeReplacement    `json:"replacedBy,omitempty"`
 }
 
 type bakeRuntime struct {
@@ -56,6 +57,7 @@ func (n *Node) saveBake(key string, record bakeRecord) error {
 		if n.bakeUnsaved == nil {
 			n.bakeUnsaved = map[string]bakeRecord{}
 		}
+		record.Bake.Unsaved = true
 		n.bakeUnsaved[key] = record
 	} else {
 		delete(n.bakeUnsaved, key)
@@ -86,7 +88,8 @@ func (n *Node) bakeState(state *stateReply) {
 	}
 	for name, desired := range n.desired {
 		entry := desired.entry()
-		if entry.Spec == nil {
+		if entry.Spec == nil || entry.Deployment == nil {
+			delete(state.Failed, name)
 			continue
 		}
 		key := n.bakePath(name, entry.Generation)
@@ -96,17 +99,13 @@ func (n *Node) bakeState(state *stateReply) {
 			record, err = pending, nil
 		}
 		identity, identityErr := bakeIdentity(desired)
-		sticky := false
-		for _, region := range append(n.earlier(entry.Spec), n.cfg.region) {
-			sticky = sticky || n.stickyFailure(name, entry.Generation, region)
-		}
-		if err != nil || identityErr != nil || record.Identity != identity || record.Bake.Finished.IsZero() || record.Bake.Reason != "" || sticky || unsaved {
+		if err != nil || identityErr != nil || record.Identity != identity || record.Bake.Finished.IsZero() || record.Bake.Reason != "" || unsaved {
 			delete(state.Ready, name)
 		}
-		if !sticky && !unsaved && err == nil && identityErr == nil && record.Identity == identity && !record.Bake.Finished.IsZero() && record.Bake.Reason == "" {
+		if !unsaved && err == nil && identityErr == nil && record.Identity == identity && !record.Bake.Finished.IsZero() && record.Bake.Reason == "" {
 			delete(state.Failed, name)
 		}
-		if record.Bake.Reason != "" || sticky {
+		if record.Bake.Reason != "" {
 			state.Failed[name] = entry.Generation
 			if record.Bake.Unsaved {
 				if state.Unsaved == nil {
@@ -164,11 +163,6 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 		return record, errors.Join(errors.New(record.Bake.Reason), err)
 	}
 
-	for _, region := range append(n.earlier(&spec), n.cfg.region) {
-		if n.stickyFailure(spec.Name, spec.Generation, region) {
-			return record, errEarlierFailed
-		}
-	}
 	if !record.Bake.Finished.IsZero() {
 		return record, nil
 	}
@@ -178,6 +172,9 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	record.Rollout = bakeRuntime{int64(ready.Running), int64(ready.Ready), ready.Tasks, ready.Revision, ready.StopFirst}
 	if err == nil && spec.Deployment != nil && spec.Image == spec.Deployment.Image && record.Rollout.Revision != spec.Deployment.Revision {
 		err = errors.New("running image revision does not match the signed release commit")
+	}
+	if spec.Deployment == nil {
+		return record, err
 	}
 	if err == nil {
 		record.Bake, err = n.cfg.applier.Bake(ctx, spec, ready, record.Bake, func(verdict rollout.BakeVerdict) error {
