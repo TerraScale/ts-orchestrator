@@ -39,7 +39,7 @@ func Release(state string) func(ctx context.Context, service, image string, clai
 				return nil, err
 			}
 			attempt, _ := strconv.ParseUint(claims.RunAttempt, 10, 64)
-			if err = fence.RetainCandidate(ctx, rolloutmaintenance.Candidate{Image: image, Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA}); err != nil {
+			if err = fence.RetainCandidate(ctx, rolloutmaintenance.Candidate{Image: image, Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA, Workflow: claims.JobWorkflowRef}); err != nil {
 				return nil, err
 			}
 			return protocol.EncodeJSON(struct {

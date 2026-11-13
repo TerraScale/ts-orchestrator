@@ -16,6 +16,7 @@ type Candidate struct {
 	RunID      string `json:"runId"`
 	RunAttempt uint64 `json:"runAttempt"`
 	Revision   string `json:"revision"`
+	Workflow   string `json:"workflow,omitempty"`
 }
 
 func (s *Store) RetainCandidate(ctx context.Context, c Candidate) error {
