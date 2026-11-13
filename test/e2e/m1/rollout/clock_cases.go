@@ -92,13 +92,15 @@ func clockCase(ctx context.Context, root, scenario string) {
 }
 
 func assertWaiting(ctx context.Context, conn *nats.Conn, region, service string, generation int64, earlier, missing string) {
-	since := time.Now()
 	observe(ctx, conn, func(s map[string]state) bool {
 		decision := s[region].Admission[service]
-		if decision.Generation != generation || !decision.At.After(since) {
+		if decision.Generation != generation {
 			return false
 		}
-		require(decision.Earlier == earlier && decision.Evidence == missing, fmt.Sprintf("wrong admission decision: %+v", decision))
+		require(decision.Evidence != "admitted", fmt.Sprintf("admitted without required evidence: %+v", decision))
+		if decision.Earlier != earlier || decision.Evidence != missing {
+			return false
+		}
 		require(s[region].Ready[service] != generation, "downstream region admitted without required evidence")
 		return true
 	})

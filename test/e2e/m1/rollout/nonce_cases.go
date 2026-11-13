@@ -19,12 +19,9 @@ func nonceCases(ctx context.Context, conn *nats.Conn, roots, order, names []stri
 	for i, root := range roots {
 		must(os.WriteFile(filepath.Join(root, "clock-offset"), []byte(fmt.Sprint(int64(time.Duration(i)*10*time.Minute))), 0600))
 	}
-	defer func() {
-		for _, root := range roots {
-			must(os.Remove(filepath.Join(root, "clock-offset")))
-		}
-	}()
+
 	spec := baseline
+	spec.Dependencies = new([]string{})
 	spec.Name, spec.Port, spec.Args, spec.Regions = "nonce-canary", 18094, []string{"--port", "18094"}, []string{"syd", order[0]}
 	spec.Image = strings.Replace(baseline.Image, "/terrabase@", "/nonce-canary@", 1)
 	var mode, generation atomic.Int64

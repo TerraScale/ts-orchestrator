@@ -91,7 +91,7 @@ func installEvidence(ctx context.Context, root, name string, generation int64, f
 }
 
 func assertRuntimeBefore(ctx context.Context, namespace, launcher, root, name string, generation int64) {
-	output, err := exec.CommandContext(ctx, "ip", "netns", "exec", namespace, os.Args[0], "inventory", root).CombinedOutput()
+	output, err := exec.CommandContext(ctx, "ip", "netns", "exec", namespace, os.Args[0], "inventory", root).Output()
 	require(err == nil, fmt.Sprintf("runtime inventory: %v %s", err, output))
 	var rows []swarmruntime.ServiceSpecStatus
 	must(json.Unmarshal(output, &rows))

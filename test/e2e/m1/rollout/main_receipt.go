@@ -1,15 +1,15 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 type bakeRecord struct {
@@ -73,6 +73,6 @@ func olderHoldReceipt(root string, generation int64) {
 	data, err := os.ReadFile(path)
 	must(err)
 	var record bakeRecord
-	must(json.Unmarshal(data, &record))
+	must(protocol.DecodeTolerant(data, &record, 1<<20))
 	must(writeBake(path, record))
 }

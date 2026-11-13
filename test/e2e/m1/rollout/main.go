@@ -612,6 +612,9 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	if installOnly {
 		nonceCases(ctx, conn, roots, order, names, launcher, spec)
 		installCases(ctx, conn, nodes, boot, roots, order, names, launcher, spec)
+		for _, root := range roots {
+			must(os.Remove(filepath.Join(root, "clock-offset")))
+		}
 		unsavedCase(ctx, conn, releases, key, nodes, boot, roots, order, addresses, spec)
 		budgetCases(ctx, conn, releases, nodes, swarms, boot, roots, order, names, addresses, launcher, spec)
 		fmt.Println("install and budget journey passed")
