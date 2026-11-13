@@ -127,6 +127,20 @@ func node(ctx context.Context, root, name string) error {
 		switch r.URL.Path {
 		case "/metrics":
 			swarmruntime.ReadinessMetrics.WritePrometheus(w)
+		case "/shared-ready":
+			req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://127.0.0.1:18086/ready", nil)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			response, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			defer response.Body.Close()
+			w.WriteHeader(response.StatusCode)
+			_, _ = io.Copy(w, io.LimitReader(response.Body, 128))
 		case "/binary":
 			http.ServeFile(w, r, os.Args[4])
 		case "/agent-stop":
@@ -526,33 +540,17 @@ func run(ctx context.Context, root, image string) error {
 		}
 	}
 	fmt.Printf("agent stop/start retained PIDs %d %d %d %d %d; all served while stopped and after start\n", owner.process.Pid(), first.process.Pid(), second.process.Pid(), twins[0].process.Pid(), twins[1].process.Pid())
-	if err := j.freeze(first, second); err != nil {
-		return err
-	}
-	if err := j.reported("not replaced: correlated with 1 other tasks", map[*workload]int{}, first, second); err != nil {
-		return err
-	}
-	if err := j.retained(owner); err != nil {
-		return err
-	}
-	fmt.Printf("two correlated frozen tasks reported once; PIDs %d %d survived; witness PID %d survived\n", first.process.Pid(), second.process.Pid(), owner.process.Pid())
-	if err := j.recover(first, second); err != nil {
-		return err
-	}
-	for _, w := range []*workload{first, second} {
-		count, err := j.logCount(w, "task readiness unresponsive window cleared")
-		if err != nil || count != 1 {
-			return fmt.Errorf("correlation clear count %d: %w", count, err)
-		}
-	}
-	fmt.Printf("correlated tasks recovered and cleared once; same PIDs %d %d\n", first.process.Pid(), second.process.Pid())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://10.231.0.3:18086/ready", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://10.231.0.3:19090/shared-ready", nil)
 	if err != nil {
 		return err
 	}
 	response, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
 	if err != nil {
 		return err
+	}
+	if response.StatusCode != http.StatusOK {
+		response.Body.Close()
+		return fmt.Errorf("node-local shared service returned HTTP %d", response.StatusCode)
 	}
 	body, err := io.ReadAll(response.Body)
 	response.Body.Close()
@@ -582,7 +580,30 @@ func run(ctx context.Context, root, image string) error {
 	if _, err := container.SetLabels(namespaces.WithNamespace(ctx, "terrascale"), map[string]string{"terrascale.ports": "unreadable"}); err != nil {
 		return err
 	}
-	if err := j.freeze(sibling, owner, first, second); err != nil {
+	if err := j.freeze(sibling); err != nil {
+		return err
+	}
+	if err := j.freeze(first, second); err != nil {
+		return err
+	}
+	if err := j.reported("not replaced: correlated with 1 other tasks", map[*workload]int{}, first, second); err != nil {
+		return err
+	}
+	if err := j.retained(owner); err != nil {
+		return err
+	}
+	fmt.Printf("two correlated frozen tasks reported once; PIDs %d %d survived; witness PID %d survived\n", first.process.Pid(), second.process.Pid(), owner.process.Pid())
+	if err := j.recover(first, second); err != nil {
+		return err
+	}
+	for _, w := range []*workload{first, second} {
+		count, err := j.logCount(w, "task readiness unresponsive window cleared")
+		if err != nil || count != 1 {
+			return fmt.Errorf("correlation clear count %d: %w", count, err)
+		}
+	}
+	fmt.Printf("correlated tasks recovered and cleared once; same PIDs %d %d\n", first.process.Pid(), second.process.Pid())
+	if err := j.freeze(owner, first, second); err != nil {
 		return err
 	}
 	if err := j.reported("not replaced: no witness answered", map[*workload]int{}, first, second, sibling); err != nil {
