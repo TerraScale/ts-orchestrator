@@ -30,7 +30,7 @@ func (j *journey) reporting(first, second, owner *workload, twins []*workload) e
 	defer cancel()
 	original := j.ctx
 	j.ctx = period
-	err := j.reported("msg=\"task unresponsive\"", map[*workload]int{}, frozen...)
+	err := j.reported("WARN task unresponsive ", map[*workload]int{}, frozen...)
 	j.ctx = original
 	if err != nil {
 		return err
@@ -50,7 +50,7 @@ func (j *journey) reporting(first, second, owner *workload, twins []*workload) e
 			return err
 		}
 		for _, w := range frozen {
-			count, err := j.logCount(w, "msg=\"task unresponsive\"")
+			count, err := j.logCount(w, "WARN task unresponsive ")
 			if err != nil || count != 1 {
 				return fmt.Errorf("expected one warning throughout freeze, got %d: %w", count, err)
 			}
