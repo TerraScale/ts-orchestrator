@@ -388,12 +388,13 @@ func freePort() int {
 
 func serveRegion(ctx context.Context, args []string) {
 	work, port, jwks, binaryURL := args[0], args[1], args[2], args[3]
+	mode := candidateMode()
 	probation, err := releasepush.Probe(work, os.Stdout)
 	if err != nil {
 		fmt.Println("START", err)
 		return
 	}
-	if candidateMode() == "crash" {
+	if mode == "crash" {
 		os.Exit(3)
 	}
 	h, err := releasepush.NewHandler(work)
@@ -415,7 +416,7 @@ func serveRegion(ctx context.Context, args []string) {
 	fmt.Println("SERVING", probation.Served())
 	select {
 	case <-h.Installed:
-		if candidateMode() == "stuck" {
+		if mode == "stuck" {
 			<-ctx.Done()
 		}
 		conn.Close()

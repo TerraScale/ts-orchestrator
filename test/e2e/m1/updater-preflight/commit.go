@@ -403,7 +403,7 @@ func resumeReplace(ctx context.Context, work string, swapped, damaged bool) {
 		requireIncumbent(work)
 		if damaged {
 			state := startInstalled(ctx, work, "serve")
-			require(state.Revision == shaA && state.State == "unconfirmed" && strings.Contains(state.Error, "damaged") && !state.Served && string(read(trialPath)) == "{", fmt.Sprintf("a damaged incumbent trial stays the active unconfirmed marker: %+v", state))
+			require(state.Revision == shaA && state.State == "unconfirmed" && state.HealthState == "unconfirmed" && !state.Served && string(read(trialPath)) == "{", fmt.Sprintf("a damaged incumbent trial stays the active unconfirmed marker: %+v", state))
 			requireUnstaged(work)
 			fmt.Println("resume damaged replace: incumbent unconfirmed by its damaged trial; staged files removed")
 			return
