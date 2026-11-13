@@ -50,7 +50,10 @@ func Run(ctx context.Context, state string, cluster Cluster, started func(*Node)
 			started(node)
 			go node.servePeerMetrics(node.ctx)
 			node.Run(ctx)
-			node.Close()
+			if err := node.CloseContext(ctx); err != nil {
+				slog.Warn("mesh stop forced", "error", err)
+				node.ForceClose()
+			}
 			if ctx.Err() != nil {
 				return
 			}

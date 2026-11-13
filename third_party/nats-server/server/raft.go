@@ -907,6 +907,20 @@ func (s *Server) shutdownRaftNodes() {
 	}
 }
 
+func (s *Server) RaftNodes() []RaftNode {
+	s.rnMu.RLock()
+	defer s.rnMu.RUnlock()
+	nodes := make([]RaftNode, 0, len(s.raftNodes))
+	for _, node := range s.raftNodes {
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
+func (s *Server) TransferRaftLeaders() bool {
+	return s.transferRaftLeaders()
+}
+
 // Used in lameduck mode to move off the leaders.
 // We also put all nodes in observer mode so new leaders
 // can not be placed on this server.
@@ -927,10 +941,18 @@ func (s *Server) transferRaftLeaders() bool {
 
 	var didTransfer bool
 	for _, node := range nodes {
-		if err := node.StepDown(); err == nil {
-			didTransfer = true
-		}
 		node.SetObserver(true)
+		if !node.Leader() {
+			continue
+		}
+		for _, peer := range node.Peers() {
+			if peer.ID != node.ID() && peer.Current && time.Since(peer.Last) < hbInterval*2 {
+				if err := node.StepDown(peer.ID); err == nil {
+					didTransfer = true
+				}
+				break
+			}
+		}
 	}
 	return didTransfer
 }

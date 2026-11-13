@@ -36,6 +36,55 @@ with this one, this file wins.
   these names.
 - The loopback client listener stays on `127.0.0.1:4223`.
 
+## Planned embedded-server stops
+
+Before a planned stop, the agent checks every local replicated Raft group's
+membership and obtains current-replica facts from its leader through NATS's
+existing RAFTZ system request. Metadata, streams, and replicated consumers
+must retain their quorum without this member. Unknown leadership, unsettled
+membership, or insufficient current replicas refuse the stop and name the
+Raft group. Unreplicated groups do not have a remote handoff.
+
+The agent uses NATS's lame-duck leadership transfer step while keeping
+listeners and clients open. It chooses a current follower, prevents local
+reelection, and confirms successor leadership before stopping the server.
+Admission waits for recently active replicas to catch up within the same
+five-second budget as the handoff. Stale replicas refuse admission. An incomplete handoff refuses
+the planned stop and restores election eligibility. The single log entry
+`mesh leaders transferred` gives the transferred group count, elapsed time,
+and groups whose successor was still unconfirmed at the bound.
+
+A signed release prepares the handoff immediately before the binary swap.
+A refusal returns `host refused release restart` to the release caller and
+keeps the running binary and listeners. An unsuccessful installation restores
+election eligibility. Release health is healthy only when every local
+replicated metadata, stream, and consumer group has a leader and every
+replica is current; unhealthy replies name the group and available counts.
+The existing release ordering and health observation intervals are unchanged.
+
+The first SIGTERM or interrupt runs admission before canceling serving work.
+A refusal leaves the agent serving and restores default signal handling.
+A second signal terminates immediately. A systemd stop, restart, or host
+shutdown uses this same path, with the service unit's existing 180-second
+SIGKILL deadline as the outer bound. A refused signal outside a service
+manager leaves the process serving until it receives another signal.
+Internal runtime failure can force cleanup after a refused handoff.
+Crashes and SIGKILL retain their existing behavior.
+
+The handoff uses the existing preferred-peer Raft transfer message and
+elections, without changing wire or store formats. Old and new NATS members
+can receive leadership from each other during a rolling upgrade. Admission
+and health read the RAFTZ protocol already supported by the old members.
+
+`bash test/e2e/m1/fabric/run.sh /path/to/ts-orch` runs three embedded servers
+in separate network namespaces with replicated KV leases and a replicated
+consumer. It places all three Raft leaders on each member in turn, exercises
+the shared signal admission and lifecycle used by the agent, and checks
+lease continuity and successor election. SIGKILL supplies the election-gap
+baseline; a down member supplies the refusal and second-signal force cases.
+The supplied agent artifact is smoke-checked; the lane helper embeds the same
+lifecycle and signal packages against real NATS servers.
+
 ## Two nodes per region
 
 Each region runs two hosts in one availability domain and two fault

@@ -5,10 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cli"
+	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
@@ -38,17 +37,5 @@ func commandContext(args []string) (context.Context, context.CancelFunc) {
 		return parent, func() {}
 	}
 
-	signalContext, stopSignals := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
-	ctx, cancel := context.WithCancel(parent)
-	stopForwarding := context.AfterFunc(signalContext, func() {
-		// Restore default termination before the runtime starts graceful shutdown,
-		// so a second signal can stop a runtime whose cleanup is stuck.
-		stopSignals()
-		cancel()
-	})
-	return ctx, func() {
-		stopForwarding()
-		stopSignals()
-		cancel()
-	}
+	return plannedstop.NotifyContext(parent)
 }
