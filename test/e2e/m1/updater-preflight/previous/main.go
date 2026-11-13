@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -76,7 +77,11 @@ func signal(ctx context.Context, work string) int64 {
 	conn, err := nats.Connect(srv.ClientURL())
 	must(err)
 	defer conn.Close()
-	h.Relay = func(request []byte) { must(errors.Join(conn.Publish("lane.silent-workers", request), conn.Flush())) }
+	relay := reflect.ValueOf(h).Elem().FieldByName("Relay")
+	relay.Set(reflect.MakeFunc(relay.Type(), func(args []reflect.Value) []reflect.Value {
+		must(errors.Join(conn.Publish("lane.silent-workers", args[0].Bytes()), conn.Flush()))
+		return nil
+	}))
 	must(h.Serve(conn))
 	payload, err := os.ReadFile(os.Args[3])
 	must(err)
