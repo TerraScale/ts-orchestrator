@@ -2,9 +2,9 @@
 set -euo pipefail
 repo=$1
 work=$2
-go -C "$repo" run ./test/e2e/m1/region-volume
-go -C "$repo" build -o "$work/data-mount-report" ./test/e2e/m1/data-mount
-go -C "$repo" run ./test/e2e/m1/cloudinit > "$work/cloud-init.sh"
+binaries=$3
+"$binaries/region-volume"
+"$binaries/cloudinit" > "$work/cloud-init.sh"
 bash -n "$work/cloud-init.sh"
 sed -n "/^echo .*base64 -d > \\/usr\\/local\\/lib\\/ts-orch\\/data-volume.sh/p" "$work/cloud-init.sh" | cut -d "'" -f2 | base64 -d > "$work/data-volume.sh"
 bash -n "$work/data-volume.sh"
@@ -207,7 +207,7 @@ rm "$PROBE_MARKER"
 uuid=$("$(cat "$work/probe-bin/blkid.path")" -s UUID -o value "$data_loop")
 touch /var/lib/ts-data/terrabase/kept /var/lib/ts-orch/identity-kept
 bash /usr/local/lib/ts-orch/data-mount-check.sh
-"$work/data-mount-report" > "$work/mount-report.json"
+"$binaries/data-mount" > "$work/mount-report.json"
 python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["mount_point"]=="/var/lib/ts-data" and r["device"]=="/dev/oracleoci/oraclevdb" and r["uuid"]==sys.argv[2] and r["filesystem_type"]=="ext4" and r["size_bytes"]==3221225472 and r["serial"]=="0123456789abcdef0123456789abcdef"' "$work/mount-report.json" "$uuid"
 printf '%s\n' 22222222-2222-4222-8222-222222222222 > /etc/ts-orch/data-volume-uuid
 if bash /usr/local/lib/ts-orch/data-mount-check.sh; then exit 1; fi
@@ -260,7 +260,7 @@ for probe in blkid-type blkid-uuid; do
 done
 refuse adoption-serial-mismatch false "$uuid" fedcba9876543210fedcba9876543210
 grep -q expected-serial "$work/probe-adoption-serial-mismatch.log"
-if "$work/data-mount-report" >"$work/no-mount.log" 2>&1; then exit 1; fi
+if "$binaries/data-mount" >"$work/no-mount.log" 2>&1; then exit 1; fi
 "$(cat "$work/probe-bin/cmp.path")" "$data_loop" "$work/expected.img"
 bash "$work/data-volume.sh" false ocid1.volume.oc1.test.data "$uuid" 0123456789abcdef0123456789abcdef
 test "$("$(cat "$work/probe-bin/blkid.path")" -s UUID -o value "$data_loop")" = "$uuid"
@@ -271,3 +271,7 @@ echo "data volume: format once; consumed stale permission and second first boot 
 echo "data volume: real mount report and serial verified; adoption serial mismatch refuses with zero disk writes; unmounted host and UUID service precondition refuse"
 sed -i "s|serial=\$(lsblk |serial=\$($work/probe-bin/lsblk |" /usr/local/lib/ts-orch/data-mount-check.sh
 export PATH="$original_path"
+kill "$metadata_pid"
+wait "$metadata_pid" 2>/dev/null || true
+printf '%s\n' "$data_loop" > "$work/data-loop"
+trap - EXIT
