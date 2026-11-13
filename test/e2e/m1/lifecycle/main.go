@@ -135,20 +135,6 @@ func node(ctx context.Context, root, name string) error {
 		switch r.URL.Path {
 		case "/metrics":
 			swarmruntime.ReadinessMetrics.WritePrometheus(w)
-		case "/shared-ready":
-			req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://127.0.0.1:18086/ready", nil)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			response, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-			defer response.Body.Close()
-			w.WriteHeader(response.StatusCode)
-			_, _ = io.Copy(w, io.LimitReader(response.Body, 128))
 		case "/binary":
 			http.ServeFile(w, r, os.Args[4])
 		case "/agent-stop":
@@ -367,7 +353,7 @@ func (j *journey) reported(reason string, counts map[*workload]int, workloads ..
 	})
 }
 
-func (j *journey) running(service, host string, port int, runtime *containerd.Client) ([]*workload, error) {
+func (j *journey) running(service, host string, runtime *containerd.Client) ([]*workload, error) {
 	tasks, err := j.control.ListTasks(j.ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
 	if err != nil {
 		return nil, err
@@ -435,7 +421,7 @@ func (j *journey) create(image, name, host string, port int, owner bool, replica
 	var result []*workload
 	err = until(j.ctx, func() error {
 		var err error
-		result, err = j.running(service.Service.ID, host, port, runtime)
+		result, err = j.running(service.Service.ID, host, runtime)
 		if err != nil {
 			return err
 		}

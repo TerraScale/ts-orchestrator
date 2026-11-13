@@ -46,7 +46,7 @@ func (j *journey) quickContinuity(owner *workload, before [][]byte) error {
 		return err
 	}
 	if err := until(j.ctx, func() error {
-		running, err := j.running(owner.task.ServiceID, owner.host, 0, owner.runtime)
+		running, err := j.running(owner.task.ServiceID, owner.host, owner.runtime)
 		if err != nil {
 			return err
 		}

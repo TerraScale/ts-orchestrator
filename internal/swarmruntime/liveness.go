@@ -55,6 +55,9 @@ func (c *controller) readinessWatch(ctx context.Context) *readinessWatch {
 	w := &readinessWatch{controller: c, ctx: ctx}
 	service := c.task.ServiceAnnotations.Labels[LabelServiceSpec]
 	if service == "" {
+		service = c.task.ServiceAnnotations.Labels[LabelRole]
+	}
+	if service == "" {
 		service = c.task.ServiceAnnotations.Name
 	}
 	w.metric = observability.Series(observability.MetricPrefix+"task_unresponsive_seconds", "task", c.task.ID, "service", service)
