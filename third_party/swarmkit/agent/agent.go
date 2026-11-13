@@ -12,6 +12,7 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/log"
 	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -653,4 +654,17 @@ func nodesEqual(a, b *api.Node) bool {
 	a.Meta, b.Meta = api.Meta{}, api.Meta{}
 
 	return reflect.DeepEqual(a, b)
+}
+
+func (a *Agent) AssignedTasks() ([]*api.Task, error) {
+	var tasks []*api.Task
+	err := a.config.DB.View(func(tx *bolt.Tx) error {
+		return WalkTasks(tx, func(task *api.Task) error {
+			if TaskAssigned(tx, task.ID) {
+				tasks = append(tasks, task)
+			}
+			return nil
+		})
+	})
+	return tasks, err
 }

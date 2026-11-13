@@ -17,17 +17,18 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 // Port is reserved for bounded host evidence on the NetBird interface.
 const Port = 9108
 
 // Run serves automatically with the host runtime, retrying during NetBird startup.
-func Run(ctx context.Context) {
+func Run(ctx context.Context, region string, executor *swarmruntime.Executor) {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for ctx.Err() == nil {
-		if err := serve(ctx); err != nil {
+		if err := serve(ctx, region, executor); err != nil {
 			slog.WarnContext(ctx, "Host storage metrics unavailable", "error", err)
 		}
 		select {
@@ -38,7 +39,7 @@ func Run(ctx context.Context) {
 	}
 }
 
-func serve(ctx context.Context) error {
+func serve(ctx context.Context, region string, executor *swarmruntime.Executor) error {
 	iface, err := net.InterfaceByName("wt0")
 	if err != nil {
 		return err
@@ -59,33 +60,7 @@ func serve(ctx context.Context) error {
 		return errors.New("NetBird has no private IPv4 address")
 	}
 	server := &http.Server{Addr: address, ReadHeaderTimeout: 2 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 15 * time.Second,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/metrics" {
-				http.NotFound(w, r)
-				return
-			}
-			var body bytes.Buffer
-			view, err := observability.ReadSystem([]observability.FilesystemRole{{Role: "root", Path: "/"}, {Role: "data", Path: "/var/lib/ts-data"}})
-			if err == nil {
-				err = writeHost(&body, view)
-			}
-			if err == nil {
-				var data []byte
-				data, err = os.ReadFile("/proc/diskstats")
-				if err == nil {
-					err = writeDisks(&body, string(data), "/sys/block")
-				}
-			}
-			if err != nil {
-				http.Error(w, "host storage telemetry unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			observability.WriteEdgeListenerMetrics(&body)
-			observability.WriteNodeFeatureMetrics(&body)
-			observability.WriteEdgeResponseMetrics(&body)
-			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-			_, _ = w.Write(body.Bytes())
-		})}
+		Handler: Handler(region, address, executor)}
 	stop := context.AfterFunc(ctx, func() { _ = server.Close() })
 	defer stop()
 	err = server.ListenAndServe()
@@ -147,4 +122,45 @@ func writeDisks(w io.Writer, data, sysBlock string) error {
 		return errors.New("no block device telemetry")
 	}
 	return nil
+}
+
+func Handler(region, address string, executor *swarmruntime.Executor) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/services" || strings.HasPrefix(r.URL.Path, "/services/") {
+			serveServices(w, r, region, address, executor)
+			return
+		}
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		var body bytes.Buffer
+		view, err := observability.ReadSystem([]observability.FilesystemRole{{Role: "root", Path: "/"}, {Role: "data", Path: "/var/lib/ts-data"}})
+		if err == nil {
+			err = writeHost(&body, view)
+		}
+		if err == nil {
+			var data []byte
+			data, err = os.ReadFile("/proc/diskstats")
+			if err == nil {
+				err = writeDisks(&body, string(data), "/sys/block")
+			}
+		}
+		if err != nil {
+			http.Error(w, "host storage telemetry unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		observability.WriteSystemMetrics(&body, view)
+		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+		defer cancel()
+		if err := errors.Join(writeRuntime(ctx, &body), writeServiceCounts(ctx, &body, executor)); err != nil {
+			http.Error(w, "host runtime telemetry unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		observability.WriteEdgeListenerMetrics(&body)
+		observability.WriteNodeFeatureMetrics(&body)
+		observability.WriteEdgeResponseMetrics(&body)
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		_, _ = w.Write(body.Bytes())
+	})
 }

@@ -40,13 +40,27 @@ jobs:
       - run: bash scripts/ci/audit-dependencies.sh source
       - run: bash scripts/ci/audit-dependencies.sh release
 
-  e2e-m1:
+  e2e-lane:
     if: ${{ github.event_name != 'schedule' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {lane: core, entry: run.sh, timeout: 8}
+          - {lane: websocket, entry: websocket.sh, timeout: 8}
+          - {lane: regional, entry: regional.sh, timeout: 3, packages: "./test/e2e/m1/regional"}
+          - {lane: nodelist, entry: nodelist.sh, timeout: 8, packages: "./test/e2e/m1/nodelist"}
+          - {lane: restarts, entry: restarts.sh, timeout: 8}
+          - {lane: rollback, entry: rollback.sh, timeout: 8}
+          - {lane: monitoring, entry: monitoring.sh, timeout: 8, packages: "./test/e2e/m1/monitoring"}
+          - {lane: boot-order, entry: boot-order.sh, timeout: 8, packages: "./test/e2e/m1/boot-order"}
+          - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
+    name: e2e-m1 / ${{ matrix.lane }}
     concurrency:
-      group: e2e-m1-${{ github.ref }}
+      group: e2e-m1-${{ matrix.lane }}-${{ github.ref }}
       cancel-in-progress: true
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 15
+    timeout-minutes: ${{ matrix.timeout }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -56,29 +70,39 @@ jobs:
         uses: ./.github/actions/go
         with:
           cache: e2e-arm64
-      - name: Build ts-orch
+      - name: Build the agent and journey entry points from the warm cache
+        env:
+          M1_PACKAGES: ${{ matrix.packages }}
         run: |
-          start=$(date +%s)
-          go build -trimpath -o "$RUNNER_TEMP/terrascale-orchestrator" ./cmd/terrascale-orchestrator
-          echo "build: $(($(date +%s) - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
+          read -r -a packages <<< "$M1_PACKAGES"
+          test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" "${packages[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Pinned runtime packages
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ts-m1-runtime
           key: m1-runtime-${{ runner.arch }}-${{ hashFiles('deploy/m1/host-runtime.sh', 'internal/netbird/manager/server_cli.go', 'deploy/m1/install.sh') }}
-      - name: Verify operator fleet contracts
-        run: |
-          go run ./test/e2e/m1/operator-truth
-          bash test/e2e/m1/startup.sh "$RUNNER_TEMP/terrascale-orchestrator"
-      - name: Run the M1 flow
-        run: test/e2e/m1/run.sh "$RUNNER_TEMP/terrascale-orchestrator"
-      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Run the lane
+        run: bash "test/e2e/m1/${{ matrix.entry }}" "$RUNNER_TEMP/m1-bin/terrascale-orchestrator"
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.lane == 'core' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
           key: ${{ steps.go.outputs.cache-key }}
+
+  e2e-m1:
+    if: ${{ always() && github.event_name != 'schedule' }}
+    needs: e2e-lane
+    concurrency:
+      group: e2e-m1-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - env:
+          LANES: ${{ needs.e2e-lane.result }}
+        run: test "$LANES" = success
 
   caller-key-changes:
     runs-on: ubuntu-24.04
@@ -104,7 +128,7 @@ jobs:
               base=$(git rev-parse "$SOURCE_SHA^")
             fi
             files=$(git diff --name-only "$base" "$SOURCE_SHA")
-            if rg -q '^(internal/callerkey/|test/e2e/m1/callerkey/|docs/caller-keys[.]md$|cmd/terrascale-orchestrator/|go[.](mod|sum)$|[.]github/(workflows/ci[.]yml$|actions/go/))' <<< "$files"; then
+            if grep -Eq '^(internal/callerkey/|test/e2e/m1/callerkey/|docs/caller-keys[.]md$|cmd/terrascale-orchestrator/|go[.](mod|sum)$|[.]github/(workflows/ci[.]yml$|actions/go/))' <<< "$files"; then
               changed=true
             fi
           fi
