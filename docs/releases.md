@@ -90,25 +90,36 @@ The independent timer closes that gap. Recovery is installed by this updater
 before the replacements it accepts; an older installing updater cannot provide
 this protection for its first upgrade to this version.
 
-Each new trial stores `recover_after` before the binary rename. Its deadline is
-the installation time plus the loaded stop timeout, restart delay, the greater
-of the loaded start timeout and the ten-minute planning window, two minutes of
-probation, and 30 seconds of margin. The shipped bounds give 931 seconds. Older
-trials without that field use their installation time plus 20 minutes. Missing
-or damaged records remain visible errors rather than guesses at a rollback
-target.
+Each new trial stores a recovery window through its `installed` and
+`recover_after` fields before the binary rename. The window includes the
+loaded stop timeout, restart delay, the greater of the loaded start timeout and
+the ten-minute planning window, two minutes of probation, and 30 seconds of
+margin. The shipped bounds give 931 seconds. Trials without `recover_after`
+receive 20 minutes.
 
-After the deadline, recovery records a durable `nats/release-recovery` intent,
-stops the candidate service, and re-reads the binary identity and records. It
-settles committed staged records using the same promotion path as startup and
-restores only the trial named by its intent. A concurrent confirmation or a
-newer replacement is preserved. Rollback uses the existing previous-binary
-identity check, rollback record, rename and directory sync. Recovery clears the
-failed-start state, starts the restored service and durably removes its intent.
-An interrupted recovery resumes from that intent even if the binary rename has
-already consumed `.prev`. A missing or mismatched backup retains the trial and
-intent and fails the service visibly. An unconfirmed updater preserves the
-existing recovery executable and unit pair when accepting a repair.
+Recovery measures this window from the candidate unit's first execution in the
+current boot, using `ExecMainStartTimestampMonotonic` and `CLOCK_MONOTONIC`.
+It persists that start, boot identity, release identity and window in
+`nats/release-runtime` so repeated crashes do not reset the window. A new boot
+gives the candidate a full window; time powered off and wall-clock corrections
+do not consume it. Idle ticks read the trial records first and never open the
+agent binary when neither a trial nor a recovery intent exists.
+
+After the window, recovery records a durable `nats/release-recovery` intent.
+Before stopping the candidate, it settles committed staging and verifies that
+the previous binary matches the trial. Missing or mismatched backups retain
+the trial and intent, save a rollback failure and fail the recovery job while
+the agent keeps serving. Staging errors also leave the serving agent running.
+A later repair release remains installable.
+
+Recovery re-reads identity and records after stopping, preserving a concurrent
+confirmation or replacement. Every return after an attempted stop clears the
+failed-start state and starts the service again, including rollback failures.
+Rollback uses the existing identity check, rollback record, rename and directory
+sync. Recovery removes its intent only after a successful restart. Interrupted
+recovery resumes even if the rename already consumed `.prev`. An unconfirmed
+updater preserves an existing recovery executable when accepting a repair;
+when none exists, it installs the executable and unit pair with that repair.
 
 `StartLimitIntervalSec=0` remains intentional: starts reaching `Probe` use the
 durable startup counter, while the independent deadline bounds failures that

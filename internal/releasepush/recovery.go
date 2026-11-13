@@ -8,7 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
 	"time"
 )
 
@@ -79,10 +82,8 @@ func (h *Handler) prepareRecovery(ctx context.Context) (time.Time, error) {
 		}
 	}
 	status, _ := h.probation.status()
-	if status != "" {
-		if _, err := os.Stat(h.Binary + ".recovery"); err != nil {
-			return time.Time{}, fmt.Errorf("unconfirmed updater has no independent recovery executable: %w", err)
-		}
+	_, recoveryErr := os.Stat(h.Binary + ".recovery")
+	if status != "" && recoveryErr == nil {
 		if err := recoveryCommand(ctx, "systemctl", "is-enabled", "--quiet", recoveryTimer); err != nil {
 			return time.Time{}, err
 		}
@@ -139,7 +140,104 @@ func (h *Handler) prepareRecovery(ctx context.Context) (time.Time, error) {
 	return time.Now().Add(wait), nil
 }
 
-func Recovery(ctx context.Context, output io.Writer) error {
+type recoveryRuntime struct {
+	SHA     string        `json:"sha"`
+	SHA256  string        `json:"sha256"`
+	RunID   string        `json:"run_id"`
+	BootID  string        `json:"boot_id"`
+	Started int64         `json:"started"`
+	Window  time.Duration `json:"window"`
+}
+
+func recoveryExpired(ctx context.Context, pending trial) (bool, error) {
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return false, err
+	}
+	var now unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &now); err != nil {
+		return false, err
+	}
+	path := filepath.Join(recoveryState, "nats", "release-runtime")
+	var runtime recoveryRuntime
+	present, err := readRecord(path, &runtime)
+	if err != nil {
+		return false, err
+	}
+	if !present || runtime.SHA != pending.SHA || runtime.SHA256 != pending.SHA256 || runtime.RunID != pending.RunID || runtime.BootID != strings.TrimSpace(string(boot)) {
+		output, err := exec.CommandContext(ctx, "systemctl", "show", "ts-orch.service", "-p", "ExecMainStartTimestampMonotonic", "-p", "MainPID").Output()
+		if err != nil {
+			return false, fmt.Errorf("candidate start time unavailable: %w", err)
+		}
+		properties := map[string]string{}
+		for line := range strings.SplitSeq(string(output), "\\n") {
+			key, value, ok := strings.Cut(line, "=")
+			if ok {
+				properties[key] = value
+			}
+		}
+		started, err := strconv.ParseInt(properties["ExecMainStartTimestampMonotonic"], 10, 64)
+		if err != nil || started < 0 || started > now.Nano()/1000 {
+			return false, fmt.Errorf("invalid candidate monotonic start %q", output)
+		}
+		if started == 0 {
+			return false, nil
+		}
+		pid, err := strconv.ParseUint(properties["MainPID"], 10, 32)
+		if err != nil {
+			return false, fmt.Errorf("invalid candidate process %q", output)
+		}
+		if pid != 0 {
+			running, err := os.Stat(fmt.Sprintf("/proc/%d/exe", pid))
+			if err != nil {
+				return false, err
+			}
+			installed, err := os.Stat(recoveryBinary)
+			if err != nil {
+				return false, err
+			}
+			if !os.SameFile(running, installed) {
+				return false, nil
+			}
+		}
+		window := 20 * time.Minute
+		if !pending.RecoverAfter.IsZero() {
+			window = pending.RecoverAfter.Sub(pending.Installed)
+		}
+		if window <= 0 {
+			return false, errors.New("invalid recovery window")
+		}
+		runtime = recoveryRuntime{SHA: pending.SHA, SHA256: pending.SHA256, RunID: pending.RunID, BootID: strings.TrimSpace(string(boot)), Started: started * 1000, Window: window}
+		if err := writeJSON(path, runtime); err != nil {
+			return false, err
+		}
+	}
+	if runtime.Started <= 0 || runtime.Started > now.Nano() || runtime.Window <= 0 {
+		return false, errors.New("recovery runtime is damaged")
+	}
+	return time.Duration(now.Nano()-runtime.Started) >= runtime.Window, nil
+}
+
+func recoveryTrial(pending trial, output io.Writer) (*Probation, releaseID, error) {
+	self, err := binaryIdentity(recoveryBinary)
+	if err != nil {
+		return nil, self, err
+	}
+	if err := settleStaging(recoveryState, recoveryBinary, self); err != nil {
+		return nil, self, err
+	}
+	var current trial
+	present, err := readRecord(trialFile(recoveryState), &current)
+	if err != nil {
+		return nil, self, err
+	}
+	if !present || !current.names(self) || current.SHA != pending.SHA || current.SHA256 != pending.SHA256 || current.RunID != pending.RunID {
+		return nil, self, nil
+	}
+	return &Probation{state: recoveryState, binary: recoveryBinary, trial: current, output: output}, self, nil
+}
+
+func Recovery(ctx context.Context, output io.Writer) (result error) {
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Minute)
 	defer cancel()
 	marker := filepath.Join(recoveryState, "nats", "release-recovery")
@@ -149,32 +247,33 @@ func Recovery(ctx context.Context, output io.Writer) error {
 		return err
 	}
 	if !resuming {
+		var staged, current trial
+		stagedPresent, stagedErr := readRecord(stagedTrial(trialFile(recoveryState)), &staged)
+		currentPresent, currentErr := readRecord(trialFile(recoveryState), &current)
+		if !stagedPresent && !currentPresent {
+			return errors.Join(stagedErr, currentErr)
+		}
 		self, err := binaryIdentity(recoveryBinary)
 		if err != nil {
 			return err
 		}
-		var staged trial
-		present, err := readRecord(stagedTrial(trialFile(recoveryState)), &staged)
-		if present && err == nil && staged.names(self) {
+		if stagedPresent && stagedErr == nil && staged.names(self) {
 			pending = staged
 		} else {
-			present, err = readRecord(trialFile(recoveryState), &pending)
-			if err != nil {
-				return err
+			if currentErr != nil {
+				return currentErr
 			}
-			if !present || !pending.names(self) {
+			if !currentPresent || !current.names(self) {
 				return nil
 			}
+			pending = current
 		}
 		if !pending.valid() {
 			return errors.New("recovery trial is damaged")
 		}
-		deadline := pending.RecoverAfter
-		if deadline.IsZero() {
-			deadline = pending.Installed.Add(20 * time.Minute)
-		}
-		if time.Now().Before(deadline) {
-			return nil
+		expired, err := recoveryExpired(ctx, pending)
+		if err != nil || !expired {
+			return err
 		}
 		if err := writeJSON(marker, pending); err != nil {
 			return err
@@ -183,41 +282,52 @@ func Recovery(ctx context.Context, output io.Writer) error {
 	if !pending.valid() {
 		return errors.New("recovery intent is damaged")
 	}
+	defer func() {
+		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Minute)
+		defer cancel()
+		resetErr := recoveryCommand(restartCtx, "systemctl", "reset-failed", "ts-orch.service")
+		startErr := recoveryCommand(restartCtx, "systemctl", "start", "ts-orch.service")
+		result = errors.Join(result, resetErr, startErr)
+		if result == nil {
+			result = removeDurable(marker)
+		}
+	}()
+	probation, _, err := recoveryTrial(pending, output)
+	if err != nil {
+		return err
+	}
+	if probation != nil {
+		if err := probation.checkPrevious(recoveryBinary + ".prev"); err != nil {
+			probation.trial.Failure = "rollback unavailable: " + err.Error()
+			fmt.Fprintln(output, probation.trial.Failure)
+			return errors.Join(errors.New(probation.trial.Failure), writeJSON(trialFile(recoveryState), probation.trial))
+		}
+	}
+
+	if probation == nil {
+		return nil
+	}
 	if err := recoveryCommand(ctx, "systemctl", "stop", "ts-orch.service"); err != nil {
 		return err
 	}
-	self, err := binaryIdentity(recoveryBinary)
+	probation, self, err := recoveryTrial(pending, output)
 	if err != nil {
 		return err
 	}
-	if err := settleStaging(recoveryState, recoveryBinary, self); err != nil {
-		return err
+	if probation == nil {
+		return nil
 	}
-	var current trial
-	present, err := readRecord(trialFile(recoveryState), &current)
+	rollback := probation.rollBack("independent recovery deadline expired")
+	if rollback == nil {
+		return errors.New(probation.unconfirmed)
+	}
+	restored, err := binaryIdentity(recoveryBinary)
 	if err != nil {
 		return err
 	}
-	if present && current.names(self) && current.SHA == pending.SHA && current.SHA256 == pending.SHA256 && current.RunID == pending.RunID {
-		p := &Probation{state: recoveryState, binary: recoveryBinary, trial: current, output: output}
-		result := p.rollBack("independent recovery deadline expired")
-		if result == nil {
-			return errors.New(p.unconfirmed)
-		}
-		restored, err := binaryIdentity(recoveryBinary)
-		if err != nil {
-			return err
-		}
-		if restored == self {
-			return result
-		}
-		fmt.Fprintln(output, result)
+	if restored == self {
+		return rollback
 	}
-	if err := recoveryCommand(ctx, "systemctl", "reset-failed", "ts-orch.servic[e]"); err != nil {
-		return err
-	}
-	if err := recoveryCommand(ctx, "systemctl", "start", "ts-orch.service"); err != nil {
-		return err
-	}
-	return removeDurable(marker)
+	fmt.Fprintln(output, rollback)
+	return nil
 }
