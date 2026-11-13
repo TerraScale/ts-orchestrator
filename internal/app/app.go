@@ -5,16 +5,13 @@ import (
 	"cmp"
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,21 +27,15 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
-	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
-	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
-	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -325,26 +316,11 @@ func edgeLocalServices(ctx context.Context, client api.ControlClient, host strin
 	return services, nil
 }
 
-func Run(ctx context.Context, args []string, output io.Writer) error {
+func RunChild(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: terrascale-orchestrator <bootstrap-controller|run|host|check|operator|identity-new|netbird-enroll|netbird-agent> --config FILE")
+		return errors.New("usage: terrascale-orchestrator child command")
 	}
 	command := args[0]
-	if command == "runtime-worker-admission-source" {
-		return runRuntimeWorkerAdmissionSource(ctx, args[1:], os.Stdin, output)
-	}
-	if command == runtimeControllerHostSourceCommand {
-		return runRuntimeControllerHostAdmissionSource(ctx, args[1:], os.Stdin, output)
-	}
-	if command == "runtime-worker-membership-source" {
-		return runRuntimeWorkerMembershipSource(ctx, args[1:], os.Stdin, output)
-	}
-	if command == runtimeRegistrySourceCommand {
-		return runRuntimeRegistrySource(ctx, args[1:], os.Stdin, output)
-	}
-	if command == "netbird-agent" {
-		return runNetBirdAgent(ctx, args[1:])
-	}
 	if command == "bootstrap-credential-check" {
 		if len(args) != 1 {
 			return errors.New("bootstrap credential check accepts no arguments")
@@ -364,42 +340,6 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		}
 		return runControllerAdmissionChild(ctx, command, os.Stdin)
 	}
-	if command == "identity-new" {
-		return newIdentity(args[1:], output)
-	}
-	if command == "netbird-enroll" {
-		return runNetBirdEnroll(ctx, args[1:], output)
-	}
-	if command == "install-controller-config" {
-		return runInstallControllerConfig(ctx, args[1:])
-	}
-	if command == "identity-rekey" {
-		return runIdentityRekey(ctx, args[1:], output)
-	}
-	if command == "host-setup" {
-		return runHostSetup(ctx, args[1:], output)
-	}
-	if command == "restore-controller-material" {
-		return runRestoreControllerMaterial(ctx, args[1:], output)
-	}
-	if command == "host-volume-init" {
-		return runHostVolumeInit(ctx, args[1:])
-	}
-	if command == "operator" {
-		return runOperator(ctx, args[1:], output)
-	}
-	if command == "service" {
-		return runService(ctx, args[1:], output)
-	}
-	if command == "get" || command == "diff" || command == "apply" {
-		return runSpec(ctx, command, args[1:], output)
-	}
-	if command == "rollout" {
-		return runRollout(ctx, args[1:], output)
-	}
-	if command == "node" {
-		return runNode(ctx, args[1:], output)
-	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	configPath := flags.String("config", "", "JSON role configuration")
@@ -413,343 +353,13 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	switch command {
-	case "bootstrap-controller":
-		return controllerBootstrapCommand(ctx, cfg)
-	case "run":
-		return runController(ctx, cfg, output)
-	case "host":
-		return runHost(ctx, cfg, *configPath, output)
-	case "check":
-		return check(ctx, cfg, output)
-	case "identity-rekey-completion-check":
+	if command == "identity-rekey-completion-check" {
 		return checkControllerIdentityRekeyCompletion(ctx, cfg)
-	default:
-		return fmt.Errorf("unknown command %q", command)
 	}
+	return fmt.Errorf("unknown command %q", command)
 }
 
 var hostClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
-
-func runHost(ctx context.Context, cfg Config, configPath string, output io.Writer) error {
-	ctx, restart := context.WithCancelCause(ctx)
-	defer restart(nil)
-	memoryRuntime, layout, release := hostMemoryRuntime(cfg)
-	if !memoryRuntime && release != "" {
-		go restartWhenKnownGood(ctx, layout, release, restart)
-	}
-	notifier := sdnotify.Process()
-	if cfg.NATS.Embedded != nil {
-		return errors.New("host role cannot start the regional NATS server")
-	}
-	cfg.NATS.ClientRole = "host"
-	telemetry, err := startRuntimeObservability(ctx, cfg, "host", cfg.Host.Node)
-	if err != nil {
-		return fmt.Errorf("start host observability: %w", err)
-	}
-	defer telemetry.close()
-	key, err := readPrivateKey(cfg.Host.IdentityKeyFile)
-	if err != nil {
-		return err
-	}
-	controllerKey, err := decodePublicKey(cfg.Host.ControllerPublicKey)
-	if err != nil {
-		return fmt.Errorf("controller response public key: %w", err)
-	}
-	natsUserPublicKey, err := hostNATSUserPublicKey(cfg.NATS)
-	if err != nil {
-		return fmt.Errorf("host NATS user public key: %w", err)
-	}
-	if !filepath.IsAbs(cfg.Host.StateRoot) {
-		return errors.New("host state root must be absolute")
-	}
-	identity := host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID}
-	if err := host.ValidateWorkloadPaths(cfg.Host.InstallRoot, cfg.Host.StateRoot, identity); err != nil {
-		return fmt.Errorf("host workload paths: %w", err)
-	}
-	if err := host.ValidatePrivateHostState(cfg.Host.StateRoot, cfg.NATS.Cell, cfg.Host.Node); err != nil {
-		return fmt.Errorf("host private state: %w", err)
-	}
-	if err := host.ValidateManagedRuntimeRoot(cfg.Host.ManagedRuntimeRoot, cfg.Host.InstallRoot, cfg.Host.StateRoot, identity); err != nil {
-		return fmt.Errorf("host managed runtime root: %w", err)
-	}
-	var bakedSystemReserveBytes uint64
-	var managedS3Credentials host.ManagedS3CredentialResolver
-	var managedBackupDataKeys host.ManagedBackupDataKeyResolver
-	if cfg.Host.ManagedRuntimeRoot != "" {
-		resolver, resolverErr := host.NewOCIS3CredentialResolver(oci.Region(strings.ToUpper(cfg.NATS.Cell)))
-		err = resolverErr
-		if err != nil {
-			return fmt.Errorf("host managed S3 credentials: %w", err)
-		}
-		managedS3Credentials = resolver
-		managedBackupDataKeys = resolver
-		bakedSystemReserveBytes, err = readBakedRuntimePriorityProfile()
-		if err != nil {
-			return fmt.Errorf("host image runtime priority profile: %w", err)
-		}
-	}
-	clockCheck := controllerClockCheck(hostClockProbe())
-	if err := clockCheck(); err != nil {
-		return fmt.Errorf("host NTP clock health: %w", err)
-	}
-	probeCtx, stopProbe := context.WithTimeout(ctx, 15*time.Second)
-	err = host.ProbeNativeRuntime(probeCtx, filepath.Join(cfg.Host.StateRoot, cfg.NATS.Cell, cfg.Host.Node), identity)
-	stopProbe()
-	if err != nil {
-		return fmt.Errorf("host native runtime probe: %w", err)
-	}
-	if configPath != "" {
-		cfg.NATS.ReloadClientMaterial = hostCredentialReloader(configPath, cfg, key)
-	}
-	runtime, err := natscell.Start(ctx, cfg.NATS)
-	if err != nil {
-		return err
-	}
-	defer runtime.Close()
-	agent, err := host.NewAgent(host.AgentConfig{
-		Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Environment: cfg.Host.Environment,
-		Roles: cfg.Host.Roles, Conn: runtime.Conn(), Identity: key, NATSUserPublicKey: natsUserPublicKey, ControllerPublicKey: controllerKey,
-		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
-		ManagedRuntimeRoot:      cfg.Host.ManagedRuntimeRoot,
-		TerraBaseRoot:           cfg.Host.TerraBaseRoot,
-		TSAuthRoot:              cfg.Host.TSAuthRoot,
-		RoleMemoryMaxBytes:      cfg.Host.RoleMemoryMaxBytes,
-		SecretResolver:          vaultsecret.ReadRefs,
-		NATSURL:                 cfg.NATS.URL,
-		NATSCAFile:              cfg.NATS.TLS.CAFile,
-		TerraBaseDataVolume:     cfg.Host.TerraBaseDataVolume,
-		TerraBaseDataVolumeID:   cfg.Host.TerraBaseDataVolumeID,
-		ManagedS3Credentials:    managedS3Credentials,
-		ManagedBackupDataKeys:   managedBackupDataKeys,
-		BakedSystemReserveBytes: bakedSystemReserveBytes,
-		MemoryRuntime:           memoryRuntime,
-		WorkloadIdentity:        identity,
-		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond,
-		ClockCheck:              clockCheck,
-		FollowRollouts:          hostRollouts(cfg, key, controllerKey),
-		FollowNetBird:           hostNetBird(cfg, controllerKey),
-		VolumeInitSocket:        "/run/terrascale-orchestrator-volume-init.sock",
-		// The activation proof follows native recovery, so a release whose
-		// agent cannot recover its workloads is never confirmed.
-		Initialized: func() {
-			emitSelfUpdateProofWithKey(cfg.Host.SelfUpdateProofFile, cfg.Host.SelfUpdateRoot, key, hostUnit, output)
-		},
-	})
-	if err != nil {
-		return err
-	}
-	filesystems := []observability.FilesystemRole{{Role: "state", Path: cfg.Host.StateRoot},
-		{Role: "install", Path: cfg.Host.InstallRoot}}
-	if cfg.Host.ManagedRuntimeRoot != "" {
-		filesystems = append(filesystems, observability.FilesystemRole{Role: "managed_runtime", Path: cfg.Host.ManagedRuntimeRoot})
-	}
-	if cfg.Host.TerraBaseRoot != "" {
-		filesystems = append(filesystems, observability.FilesystemRole{Role: "terrabase_data", Path: terrabase.Layout(cfg.Host.TerraBaseRoot).Data()})
-	}
-	if err := telemetry.attachHost(runtime, filesystems); err != nil {
-		return fmt.Errorf("attach host observability: %w", err)
-	}
-	telemetry.markStarted()
-	fmt.Fprintf(output, "host %s ready in cell %s\n", cfg.Host.Node, cfg.NATS.Cell)
-	// The host connected to its regional cell. It sends no watchdog
-	// keepalives: a restart of this process stops every supervised member,
-	// so it must never follow from a transient controller outage.
-	if err := notifier.Ready("host " + cfg.Host.Node + " connected to cell " + cfg.NATS.Cell); err != nil {
-		slog.WarnContext(ctx, "systemd readiness notification failed", "error", err)
-	}
-	defer func() { _ = notifier.Stopping() }()
-	if err := hostRunResult(ctx, agent.Run(ctx)); err != nil {
-		return err
-	}
-	if cause := context.Cause(ctx); errors.Is(cause, errHostMemoryRestart) {
-		return cause
-	}
-	return nil
-}
-
-// errHostMemoryRestart ends the host runtime unsuccessfully so systemd starts
-// it again under its own release's prepare.
-var errHostMemoryRestart = errors.New("this release is known-good: restarting so its prepare mounts the runtime secrets in memory")
-
-// hostMemoryRuntime reports whether a managed host keeps its role files and
-// TerraBase member key in memory, which its selfupdate prepare mounts
-// (TS-745). It always does, except on the first start of a release that is
-// not yet known-good while those directories are still on disk: that start's
-// prepare ran the older known-good release, which predates the mounts, and
-// the version proof needs the workloads. The existing on-disk layout serves
-// that start; release names the running release, and the agent restarts once
-// it is known-good, so its own prepare mounts them. Only a missing
-// selfupdate.MemoryPrepareMarker shows that older prepare ran: a mount that
-// a newer prepare could not make still fails closed.
-func hostMemoryRuntime(cfg Config) (bool, selfupdate.Layout, string) {
-	layout := selfupdate.NewLayout(selfUpdateRoot(cfg.Host.SelfUpdateRoot))
-	if cfg.Host.ManagedRuntimeRoot == "" {
-		return false, layout, ""
-	}
-	dirs := []string{filepath.Join(cfg.Host.ManagedRuntimeRoot, "roles")}
-	if cfg.Host.TerraBaseRoot != "" {
-		dirs = append(dirs, filepath.Join(cfg.Host.TerraBaseRoot, "tls"))
-	}
-	onDisk := false
-	for _, dir := range dirs {
-		if vaultsecret.RequireMemoryFilesystem(dir) != nil {
-			onDisk = true
-		}
-	}
-	if _, err := os.Lstat(memoryPrepareMarker); !errors.Is(err, os.ErrNotExist) {
-		return true, layout, ""
-	}
-	current, currentErr := layout.Current()
-	knownGood, knownGoodErr := layout.KnownGood()
-	if !onDisk || currentErr != nil || knownGoodErr != nil || current == "" || knownGood == "" || knownGood == current {
-		return true, layout, ""
-	}
-	slog.Warn("the prepare before this start predates in-memory runtime secrets; the on-disk layout serves until this release is known-good",
-		"release", current, "known_good", knownGood)
-	return false, layout, current
-}
-
-// memoryPrepareMarker is selfupdate.MemoryPrepareMarker; tests replace it.
-var memoryPrepareMarker = selfupdate.MemoryPrepareMarker
-
-// restartWhenKnownGood ends the host runtime once release is known-good, so
-// systemd starts it again under release's prepare.
-func restartWhenKnownGood(ctx context.Context, layout selfupdate.Layout, release string, restart context.CancelCauseFunc) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-		if knownGood, err := layout.KnownGood(); err == nil && knownGood == release {
-			restart(errHostMemoryRestart)
-			return
-		}
-	}
-}
-
-func runHostVolumeInit(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet("host-volume-init", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	configPath := flags.String("config", "", "host role configuration")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if flags.NArg() != 0 {
-		return errors.New("host-volume-init accepts no positional arguments")
-	}
-	cfg, err := LoadConfig(*configPath)
-	if err != nil {
-		return err
-	}
-	key, err := decodePublicKey(cfg.Host.ControllerPublicKey)
-	if err != nil {
-		return err
-	}
-	var terraBaseData string
-	if cfg.Host.TerraBaseDataVolume {
-		if cfg.Host.TerraBaseRoot == "" {
-			return errors.New("host.terrabase_data_volume needs host.terrabase_root")
-		}
-		terraBaseData = terrabase.Layout(cfg.Host.TerraBaseRoot).Data()
-	}
-	return host.RunVolumeInitializer(ctx, host.VolumeInitConfig{
-		Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Environment: cfg.Host.Environment,
-		ControllerPublicKey: key, ManagedRuntimeRoot: cfg.Host.ManagedRuntimeRoot,
-		StateRoot:             "/var/lib/terrascale-orchestrator-volume-init",
-		WorkloadIdentity:      host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
-		TerraBaseDataDir:      terraBaseData,
-		TerraBaseDataVolumeID: cfg.Host.TerraBaseDataVolumeID,
-		ReadMetadata: func(ctx context.Context) (host.VolumeInitMetadata, error) {
-			metadata, err := hostenroll.ReadInstanceMetadata(ctx, hostenroll.NewIMDSClient())
-			if err != nil {
-				return host.VolumeInitMetadata{}, err
-			}
-			return host.VolumeInitMetadata{InstanceID: metadata.InstanceID, Descriptor: metadata.Descriptor}, nil
-		},
-	})
-}
-
-// A canceled parent is a normal shutdown. An agent that cancels its own work
-// while the parent is live must fail the process so its supervisor restarts it.
-func hostRunResult(ctx context.Context, err error) error {
-	if ctx.Err() != nil && errors.Is(err, context.Canceled) {
-		return nil
-	}
-	return err
-}
-
-func check(ctx context.Context, cfg Config, output io.Writer) error {
-	connection, err := externalNATS(cfg.NATS)
-	if err != nil {
-		return err
-	}
-	runtime, err := natscell.Start(ctx, connection)
-	if err != nil {
-		return err
-	}
-	defer runtime.Close()
-	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := runtime.WaitForCluster(probeCtx, cfg.NATS.Replicas); err != nil {
-		return err
-	}
-	fmt.Fprintf(output, "regional NATS and JetStream ready: %s\n", cfg.NATS.Cell)
-	return nil
-}
-
-func externalNATS(cfg natscell.Config) (natscell.Config, error) {
-	if cfg.Embedded == nil {
-		return cfg, nil
-	}
-	embedded := cfg.Embedded
-	if embedded.Port < 1 {
-		return cfg, errors.New("client command requires a fixed embedded NATS port")
-	}
-	hostname := embedded.Host
-	if hostname == "0.0.0.0" || hostname == "::" {
-		hostname = "127.0.0.1"
-	}
-	scheme := "nats"
-	if embedded.TLS.CAFile != "" {
-		scheme = "tls"
-	}
-	cfg.URL = scheme + "://" + net.JoinHostPort(hostname, fmt.Sprint(embedded.Port))
-	cfg.Embedded = nil
-	return cfg, nil
-}
-
-func newIdentity(args []string, output io.Writer) error {
-	flags := flag.NewFlagSet("identity-new", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	path := flags.String("key", "", "path for new private Ed25519 identity")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if *path == "" || flags.NArg() != 0 {
-		return errors.New("usage: identity-new --key PRIVATE_KEY_FILE")
-	}
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
-	}
-	file, err := os.OpenFile(*path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return fmt.Errorf("create private key: %w", err)
-	}
-	defer file.Close()
-	if _, err := io.WriteString(file, base64.StdEncoding.EncodeToString(private)+"\n"); err != nil {
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	fmt.Fprintln(output, base64.StdEncoding.EncodeToString(public))
-	return nil
-}
 
 func readPrivateKey(path string) (ed25519.PrivateKey, error) {
 	if path == "" {

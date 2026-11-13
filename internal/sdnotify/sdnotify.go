@@ -6,7 +6,6 @@
 package sdnotify
 
 import (
-	"context"
 	"errors"
 	"net"
 	"os"
@@ -52,14 +51,6 @@ func New(socket, watchdogUSec, watchdogPID string, pid int) *Notifier {
 // Enabled reports whether a notification socket is configured.
 func (n *Notifier) Enabled() bool { return n != nil && n.socket != "" }
 
-// WatchdogInterval is how often WATCHDOG=1 must be sent, or zero.
-func (n *Notifier) WatchdogInterval() time.Duration {
-	if n == nil || n.socket == "" {
-		return 0
-	}
-	return n.watchdog
-}
-
 // Notify sends one state message such as "READY=1".
 func (n *Notifier) Notify(state string) error {
 	if !n.Enabled() {
@@ -98,56 +89,4 @@ func (n *Notifier) Stopping() error { return n.Notify("STOPPING=1") }
 // (EXTEND_TIMEOUT_USEC), counted from now.
 func (n *Notifier) ExtendStart(extension time.Duration) error {
 	return n.Notify("EXTEND_TIMEOUT_USEC=" + strconv.FormatInt(extension.Microseconds(), 10))
-}
-
-// KeepStarting sends ExtendStart(extension) at once and then every interval
-// until the returned stop is called or ctx ends. It is for a deliberate,
-// unbounded pre-READY wait (such as offline restart admission riding out an
-// OCI outage) that must not be killed by TimeoutStartSec. stop waits for the
-// sender to exit.
-func (n *Notifier) KeepStarting(ctx context.Context, interval, extension time.Duration) (stop func()) {
-	if !n.Enabled() || interval <= 0 || extension <= interval {
-		return func() {}
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			_ = n.ExtendStart(extension)
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-		}
-	}()
-	return func() {
-		cancel()
-		<-done
-	}
-}
-
-// RunWatchdog sends WATCHDOG=1 every interval while healthy returns true
-// and stops when ctx ends. An unhealthy service stops sending, so systemd's
-// WatchdogSec= restarts it; it never reports a failure itself.
-func (n *Notifier) RunWatchdog(ctx context.Context, healthy func() bool) {
-	interval := n.WatchdogInterval()
-	if interval <= 0 {
-		return
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if healthy == nil || healthy() {
-			_ = n.Notify("WATCHDOG=1")
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
 }

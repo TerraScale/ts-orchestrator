@@ -16,8 +16,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
@@ -122,47 +120,6 @@ func validateFoundationNetBirdBackup(grant FoundationGrant) error {
 			if !found {
 				return ErrOriginalSourceProducerHold
 			}
-		}
-	}
-	return nil
-}
-
-// These envelopes are authenticated by the original bundle verifier; this only bounds its useful lifetime.
-func validateNetBirdBackupCoolingInterval(grant FoundationGrant, lockTime time.Time) error {
-	if lockTime.IsZero() {
-		return ErrOriginalSourceProducerHold
-	}
-	var wires [][]byte
-	for _, release := range grant.ReleaseAuthorities {
-		wires = append(wires, release.DelegationWire)
-	}
-	found := false
-	for _, regional := range grant.Regions {
-		manager := regional.NetBirdManager
-		if manager == nil {
-			continue
-		}
-		found = true
-		if manager.Components == nil {
-			return ErrOriginalSourceProducerHold
-		}
-		for _, component := range manager.Components {
-			wires = append(wires, component.Release.DelegationWire)
-		}
-		wires = append(wires, manager.ImageReceiptWire, manager.QualificationWire)
-		for _, optional := range [][]byte{manager.ImageDelegationWire, manager.QualificationDelegationWire} {
-			if len(optional) != 0 {
-				wires = append(wires, optional)
-			}
-		}
-	}
-	if !found {
-		return ErrOriginalSourceProducerHold
-	}
-	for _, wire := range wires {
-		envelope, err := trust.DecodeEnvelope(wire)
-		if err != nil || !envelope.ExpiresAt.After(lockTime) {
-			return errors.Join(ErrOriginalSourceProducerHold, err)
 		}
 	}
 	return nil
@@ -353,41 +310,6 @@ func readOriginalNetBirdBackupResource(ctx context.Context, client objectstorage
 	return !rule.TimeRuleLocked.Time.After(time.Now()), nil
 }
 
-func originalNetBirdBackupPrerequisites(ctx context.Context, authority *HomeIAMAuthority) (FoundationRecord, string, error) {
-	expected, err := originalCompartmentScope(ctx, authority)
-	if err != nil {
-		return FoundationRecord{}, "", err
-	}
-	grant, err := decodeOriginalMaterialGrant(authority.operator.bundle)
-	if err != nil || validateFoundationNetBirdBackup(grant) != nil {
-		return FoundationRecord{}, "", errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	record, etag, err := authority.resolver.Store.Load(ctx, "GRU")
-	if err != nil {
-		return record, etag, err
-	}
-	if record.OriginalFoundationCompartments == nil || !sameOriginalSourceValue(record.OriginalFoundationCompartments.scopeOnly(), expected) {
-		return record, etag, ErrOriginalSourceProducerHold
-	}
-	if _, err := originalNetBirdBackupScope(record); err != nil {
-		return record, etag, err
-	}
-	manager := record.OriginalFoundationCompartments.Regions[0].NetBirdManager
-	found := false
-	for _, regional := range grant.Regions {
-		if regional.Plan["cell"] == "GRU" && regional.NetBirdManager != nil && sameOriginalSourceValue(regional.NetBirdManager, manager.Intent) {
-			found = true
-		}
-	}
-	if !found {
-		return record, etag, ErrOriginalSourceProducerHold
-	}
-	if err := readOriginalNetBirdBackupVaults(ctx, authority.factory, record); err != nil {
-		return record, etag, err
-	}
-	return record, etag, nil
-}
-
 func readOriginalNetBirdBackupVaults(ctx context.Context, factory *ociclient.Factory, record FoundationRecord) error {
 	if factory == nil || factory.Provider() == nil || record.OriginalFoundationCompartments == nil {
 		return ErrOriginalSourceProducerHold
@@ -408,145 +330,6 @@ func readOriginalNetBirdBackupVaults(ctx context.Context, factory *ociclient.Fac
 		if err != nil || version != region.Vault.Key.CurrentKeyVersion {
 			return errors.Join(ErrOriginalSourceProducerHold, err)
 		}
-	}
-	return nil
-}
-
-func retainOriginalNetBirdBackup(ctx context.Context, authority *HomeIAMAuthority) error {
-	record, etag, err := originalNetBirdBackupPrerequisites(ctx, authority)
-	if err != nil {
-		return err
-	}
-	if originalNetBirdBackupJournal(record) == nil {
-		scope, err := originalNetBirdBackupScope(record)
-		if err != nil {
-			return err
-		}
-		record.OriginalFoundationCompartments.Regions[0].NetBirdManager.Backup = &scope
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	for index := range 2 {
-		for slot := range 2 {
-			if err := provisionOriginalNetBirdBackupResource(ctx, authority, index, slot); err != nil {
-				return err
-			}
-		}
-	}
-	record, etag, err = originalNetBirdBackupPrerequisites(ctx, authority)
-	if err != nil {
-		return err
-	}
-	j := originalNetBirdBackupJournal(record)
-	for _, d := range j.Destinations {
-		if d.Retention.VerifiedAt.IsZero() {
-			return ErrOriginalNetBirdBackupPending
-		}
-	}
-	if !j.Complete {
-		j.Complete = true
-		return checkpointOriginalCompartments(ctx, authority, &record, &etag)
-	}
-	return nil
-}
-
-func provisionOriginalNetBirdBackupResource(ctx context.Context, authority *HomeIAMAuthority, index, slot int) error {
-	record, etag, err := originalNetBirdBackupPrerequisites(ctx, authority)
-	if err != nil {
-		return err
-	}
-	j := originalNetBirdBackupJournal(record)
-	if j == nil {
-		return ErrOriginalSourceProducerHold
-	}
-	d := &j.Destinations[index]
-	entry := originalNetBirdBackupEntry(d, slot)
-	if entry.HoldReason != "" || slot == 1 && d.Bucket.VerifiedAt.IsZero() {
-		return ErrOriginalSourceProducerHold
-	}
-	regional, err := authority.factory.ForRegion(d.OCIRegion)
-	if err != nil {
-		return err
-	}
-	client, err := regional.ObjectStorage()
-	if err != nil {
-		return err
-	}
-	if entry.Provenance == nil {
-		// Neither POST supports OCI retry tokens; an uncertain dispatch is never repeated.
-		if entry.Pending != nil {
-			return ErrOriginalSourceProducerHold
-		}
-		started := time.Now().UTC()
-		lockTime := started.Add(originalNetBirdRetentionCooling)
-		grant, err := decodeOriginalMaterialGrant(authority.operator.bundle)
-		if err != nil || !authority.operator.deadline.After(lockTime) || validateNetBirdBackupCoolingInterval(grant, lockTime) != nil {
-			return errors.Join(ErrOriginalSourceProducerHold, err)
-		}
-		if slot == 1 {
-			d.Retention.Request.TimeRuleLocked = &common.SDKTime{Time: lockTime}
-		}
-		digest, err := originalNetBirdBackupRequestSHA(*j, index, slot)
-		if err != nil {
-			return err
-		}
-		entry.Pending = &PendingFoundationCreate{OperationID: j.OperationID, IntentDigest: j.IntentSHA256, FirstAttemptAt: started, Request: originalNetBirdBackupIdentity(*j, index, slot, digest)}
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-		guard := func(dispatchCtx context.Context) error {
-			saved, _, err := originalNetBirdBackupPrerequisites(ociclient.CheckpointContext(dispatchCtx), authority)
-			if err != nil || !sameOriginalSourceValue(originalNetBirdBackupJournal(saved), j) {
-				return errors.Join(ErrOriginalSourceProducerHold, err)
-			}
-			if slot == 1 {
-				if _, err := readOriginalNetBirdBackupResource(ociclient.CheckpointContext(dispatchCtx), client, saved, index, 0); err != nil {
-					return err
-				}
-			}
-			if !authority.operator.deadline.After(lockTime) || validateNetBirdBackupCoolingInterval(grant, lockTime) != nil {
-				return ErrOriginalSourceProducerHold
-			}
-			return ociclient.LimitAdmission(dispatchCtx, authority.operator.deadline)
-		}
-		if err := guard(ctx); err != nil {
-			return err
-		}
-		policy := common.NoRetryPolicy()
-		metadata := common.RequestMetadata{RetryPolicy: &policy}
-		createCtx := ociclient.RequestContext(ociclient.WithAuthority(ctx, guard))
-		var id string
-		if slot == 0 {
-			response, createErr := client.CreateBucket(createCtx, objectstorage.CreateBucketRequest{NamespaceName: new(j.Namespace), CreateBucketDetails: d.Bucket.Request, RequestMetadata: metadata})
-			id, err = deref(response.Id), createErr
-		} else {
-			response, createErr := client.CreateRetentionRule(createCtx, objectstorage.CreateRetentionRuleRequest{NamespaceName: new(j.Namespace), BucketName: new(d.BucketName), CreateRetentionRuleDetails: d.Retention.Request, RequestMetadata: metadata})
-			id, err = deref(response.Id), createErr
-		}
-		if err != nil || !originalNetBirdBackupID(*d, slot, id) {
-			entry.HoldReason = "create-unresolved"
-			if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() >= 400 && service.GetHTTPStatusCode() < 500 && service.GetHTTPStatusCode() != 408 && service.GetHTTPStatusCode() != 429 {
-				entry.HoldReason = "create-refused"
-			}
-			return errors.Join(ErrOriginalSourceProducerHold, err, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-		}
-		entry.Provenance = &FoundationResourceProvenance{Create: *entry.Pending, ResourceID: id, Generation: record.OriginalFoundationCompartments.Generation, GrantSHA256: j.GrantSHA256}
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	locked, err := readOriginalNetBirdBackupResource(ctx, client, record, index, slot)
-	if err != nil || !locked {
-		return err
-	}
-	digest, err := originalNetBirdBackupReadback(*j, index, slot)
-	if err != nil || entry.ReadbackSHA256 != "" && entry.ReadbackSHA256 != digest {
-		return errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	if entry.VerifiedAt.IsZero() {
-		entry.ReadbackSHA256, entry.VerifiedAt = digest, time.Now().UTC()
-		return checkpointOriginalCompartments(ctx, authority, &record, &etag)
 	}
 	return nil
 }

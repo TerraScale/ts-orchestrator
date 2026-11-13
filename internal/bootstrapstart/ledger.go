@@ -31,37 +31,6 @@ func (opener InstancePrincipalLedgerOpener) OpenCurrentLedger(ctx context.Contex
 	return openInstancePrincipalLedger(ctx, config, opener.provider)
 }
 
-// OpenSelectedFounderLedger gives the admitted seed the launch-capable ledger
-// for the currently selected anchor. A historical baked anchor cannot grant
-// writes after selection changes.
-func OpenSelectedFounderLedger(ctx context.Context, selected CurrentFounderAuthority,
-	roots trust.Keyring,
-) (*bootstrap.Ledger, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if selected.Derived != nil {
-		return selected.Derived.SeedAuthority().OpenLedger(ctx, roots)
-	}
-	config, err := currentLedgerConfig(selected.Anchor, roots)
-	if err != nil || selected.Plan == nil || !selected.Plan.IsVerified() ||
-		selected.Plan.Plan().AnchorSHA256 != selected.Anchor.Digest() {
-		return nil, ErrLedgerGrant
-	}
-	provider, err := newOCIAdmissionProvider(config)
-	if err != nil {
-		return nil, err
-	}
-	ledger, err := bootstrap.NewInstancePrincipalLedgerWithProvider(config.Cell, config, provider)
-	if err != nil {
-		return nil, fmt.Errorf("open selected founder ledger: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return ledger, nil
-}
-
 // currentLedgerConfig derives Object Storage scope only from a root-verified,
 // currently valid baked anchor and its single verified ledger grant.
 func currentLedgerConfig(verified bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring) (bootstrap.LedgerConfig, error) {
@@ -122,26 +91,6 @@ func NewCurrentOCIAdmissionClients(verified bootstrap.VerifiedBootstrapAnchor, r
 		return nil, nil, nil, err
 	}
 	return observer, InstancePrincipalLedgerOpener{provider: provider}, vault, nil
-}
-
-// NewHistoricalOCIAdmissionClients is only for exact accepted-install restart
-// comparison; its historical grant cannot authorize current effects or Vault.
-func NewHistoricalOCIAdmissionClients(verified bootstrap.HistoricalBootstrapAnchor, roots trust.Keyring) (
-	InstanceObserver, LedgerOpener, error,
-) {
-	config, err := historicalLedgerConfig(verified, roots)
-	if err != nil {
-		return nil, nil, err
-	}
-	provider, err := newOCIAdmissionProvider(config)
-	if err != nil {
-		return nil, nil, err
-	}
-	observer, err := NewOCIInstanceObserver(config.Cell, provider)
-	if err != nil {
-		return nil, nil, err
-	}
-	return observer, InstancePrincipalLedgerOpener{provider: provider}, nil
 }
 
 func newOCIAdmissionProvider(config bootstrap.LedgerConfig) (common.ConfigurationProvider, error) {
@@ -227,6 +176,3 @@ func (reader admissionLedger) PublishAcceptedInstall(ctx context.Context, scope 
 ) error {
 	return reader.ledger.PublishAcceptedInstall(ctx, scope, marker)
 }
-
-var _ LedgerOpener = InstancePrincipalLedgerOpener{}
-var _ AdmissionLedger = admissionLedger{}

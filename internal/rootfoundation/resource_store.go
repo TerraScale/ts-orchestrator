@@ -361,5 +361,3 @@ func (s *ResourceStore) GetStatus(ctx context.Context, key ociresource.Key) (oci
 	}
 	return s.observations.GetStatus(ctx, key)
 }
-
-var _ ociresource.Store = (*ResourceStore)(nil)

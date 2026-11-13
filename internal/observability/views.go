@@ -335,40 +335,6 @@ type FilesystemView struct {
 	Device uint64 `json:"device,omitempty"`
 }
 
-// DistinctFilesystems returns one entry per underlying filesystem, in order
-// of first appearance, with the roles that share it joined as "a, b".
-// Directory roles (state, install) often live on one filesystem, and adding
-// their sizes would count its capacity twice. Entries without a device are
-// matched by identical statistics, which a separate filesystem practically
-// never shares.
-func DistinctFilesystems(filesystems []FilesystemView) []FilesystemView {
-	type identity struct {
-		device                            uint64
-		size, avail, free, files, freeIno uint64
-	}
-	index := map[identity]int{}
-	out := make([]FilesystemView, 0, len(filesystems))
-	for _, filesystem := range filesystems {
-		key := identity{device: filesystem.Device}
-		if filesystem.Device == 0 {
-			key = identity{size: filesystem.SizeBytes, avail: filesystem.AvailBytes, free: filesystem.FreeBytes,
-				files: filesystem.Files, freeIno: filesystem.FilesFree}
-		}
-		if filesystem.SizeBytes == 0 {
-			// Unobserved (statfs failed): nothing to double count.
-			out = append(out, filesystem)
-			continue
-		}
-		if at, ok := index[key]; ok {
-			out[at].Role += ", " + filesystem.Role
-			continue
-		}
-		index[key] = len(out)
-		out = append(out, filesystem)
-	}
-	return out
-}
-
 // CredentialView is one expiring credential a member runs with: a TLS
 // certificate (kind tls) or a NATS JWT (kind nats-jwt). Credentials that
 // never expire are not listed.

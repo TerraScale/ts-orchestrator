@@ -67,16 +67,6 @@ func verifyManagedMountPair(left, right managedMount) error {
 	return verifyManagedDeviceWitness(right)
 }
 
-// ManagedMountPath is the deterministic host-owned mount target for a signed
-// member attempt. The agent creates its parent member directory before use.
-func ManagedMountPath(root string, member ManagedMemberBinding) (string, error) {
-	paths, err := runtimePaths(root, ManagedMemberLaunch{Member: member})
-	if err != nil {
-		return "", err
-	}
-	return paths.mount, nil
-}
-
 // ManagedMaterialPath is the exact host-owned directory for one signed member
 // attempt. Preparation uses this path so client configuration cannot redirect
 // a host to operator-chosen material.
@@ -86,24 +76,6 @@ func ManagedMaterialPath(root string, member ManagedMemberBinding) (string, erro
 		return "", err
 	}
 	return paths.material, nil
-}
-
-// ValidateManagedRuntimeRoot rejects an unsafe configured root before native
-// startup. An absent root is allowed only for a host that keeps managed launch
-// on its deliberate hold path.
-func ValidateManagedRuntimeRoot(root, installRoot, stateRoot string, identity WorkloadIdentity) error {
-	if root == "" {
-		return nil
-	}
-	if !filepath.IsAbs(root) || filepath.Clean(root) != root || root == "/" ||
-		root == installRoot || root == stateRoot ||
-		strings.HasPrefix(root, installRoot+string(filepath.Separator)) ||
-		strings.HasPrefix(root, stateRoot+string(filepath.Separator)) ||
-		strings.HasPrefix(installRoot, root+string(filepath.Separator)) ||
-		strings.HasPrefix(stateRoot, root+string(filepath.Separator)) {
-		return errors.New("managed runtime root must be clean, absolute and separate from host roots")
-	}
-	return verifyManagedDirectory(root, identity, 0750)
 }
 
 func runtimePaths(root string, launch ManagedMemberLaunch) (managedRuntimePaths, error) {

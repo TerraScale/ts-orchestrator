@@ -83,23 +83,6 @@ func HostUnits(partitions map[string][]string) []rollout.Unit {
 // complete (rolled back, aborted).
 type Program []rollout.Spec
 
-// SelfUpdateProgram returns the controller rollout followed by the host
-// rollout of one orchestrator release. Rollout IDs are derived from id.
-func SelfUpdateProgram(id, cell, from, to string, controllers []rollout.Unit, hosts []rollout.Unit,
-	policy rollout.Policy,
-) Program {
-	var program Program
-	if len(controllers) > 0 {
-		program = append(program, rollout.Spec{RolloutID: entityid.Derive(rollout.ControllerReleaseDomain, id), Kind: rollout.KindController, Cell: cell,
-			FromDigest: from, ToDigest: to, Units: controllers, Policy: policy})
-	}
-	if len(hosts) > 0 {
-		program = append(program, rollout.Spec{RolloutID: entityid.Derive(rollout.HostReleaseDomain, id), Kind: rollout.KindHost, Cell: cell,
-			FromDigest: from, ToDigest: to, Units: hosts, Policy: policy})
-	}
-	return program
-}
-
 // ReleaseProgram derives the executor's program from the cell's desired
 // release (rollout.Store.Desired): the controllers that do not run it yet
 // move to it from the release they all prove now, one per wave and the seed

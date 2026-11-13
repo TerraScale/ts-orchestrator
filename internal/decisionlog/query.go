@@ -1,7 +1,6 @@
 package decisionlog
 
 import (
-	"cmp"
 	"slices"
 	"strings"
 	"time"
@@ -92,17 +91,6 @@ func containsFold(value, lowerNeedle string) bool {
 	return value != "" && strings.Contains(strings.ToLower(value), lowerNeedle)
 }
 
-// SortNewestFirst orders decisions by time, newest first, breaking ties by
-// ID so merged regional results are stable.
-func SortNewestFirst(decisions []Decision) {
-	slices.SortStableFunc(decisions, func(left, right Decision) int {
-		if order := right.Time.Compare(left.Time); order != 0 {
-			return order
-		}
-		return cmp.Compare(right.ID, left.ID)
-	})
-}
-
 // Result is one page of decisions and how complete it is.
 type Result struct {
 	Decisions []Decision `json:"decisions"`
@@ -148,65 +136,4 @@ type Chain struct {
 	// Partial reports that part of the chain may be missing because the
 	// archive could not be read in full.
 	Partial bool `json:"partial,omitzero"`
-}
-
-// BuildChain assembles the chain containing id from a set of decisions. It
-// follows ParentID upward to the root and then collects every descendant of
-// the root. ok is false when id is not in the set.
-func BuildChain(decisions []Decision, id string) (Chain, bool) {
-	byID := make(map[string]Decision, len(decisions))
-	children := map[string][]string{}
-	for _, decision := range decisions {
-		byID[decision.ID] = decision
-		if decision.ParentID != "" {
-			children[decision.ParentID] = append(children[decision.ParentID], decision.ID)
-		}
-	}
-	current, ok := byID[id]
-	if !ok {
-		return Chain{}, false
-	}
-	seen := map[string]bool{current.ID: true}
-	for current.ParentID != "" {
-		parent, found := byID[current.ParentID]
-		if !found || seen[parent.ID] {
-			break
-		}
-		seen[parent.ID] = true
-		current = parent
-	}
-	chain := Chain{Root: current}
-	visited := map[string]bool{}
-	queue := []string{current.ID}
-	// The walk is bounded by the input; only the returned list is capped,
-	// after Latest is known.
-	for len(queue) > 0 {
-		next := queue[0]
-		queue = queue[1:]
-		if visited[next] {
-			continue
-		}
-		visited[next] = true
-		chain.Decisions = append(chain.Decisions, byID[next])
-		queue = append(queue, children[next]...)
-	}
-	slices.SortStableFunc(chain.Decisions, func(left, right Decision) int {
-		if order := left.Time.Compare(right.Time); order != 0 {
-			return order
-		}
-		return cmp.Compare(left.ID, right.ID)
-	})
-	chain.Latest = chain.Decisions[len(chain.Decisions)-1]
-	if len(chain.Decisions) > MaxQueryLimit {
-		chain.Truncated = true
-		kept := make([]Decision, 0, MaxQueryLimit)
-		newest := chain.Decisions[len(chain.Decisions)-(MaxQueryLimit-2):]
-		for _, decision := range chain.Decisions[:len(chain.Decisions)-len(newest)] {
-			if decision.ID == chain.Root.ID || decision.ID == id {
-				kept = append(kept, decision)
-			}
-		}
-		chain.Decisions = append(kept, newest...)
-	}
-	return chain, true
 }

@@ -12,13 +12,10 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/moby/swarmkit/v2/api"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // ServiceReleaseFloor describes retained admission evidence, not permission to retry.
@@ -26,23 +23,6 @@ type ServiceReleaseFloor struct {
 	OperationID                   string
 	Generation, ReleaseSequence   uint64
 	ReleaseIdentity, IntentSHA256 string
-}
-
-// HistoricalServiceIntentSHA256 compares an independently authenticated original
-// workload profile with retained evidence; it grants no current admission.
-func HistoricalServiceIntentSHA256(intent ServiceIntent, historical release.HistoricalContainer) (string, error) {
-	claim := historical.Claim()
-	region, known := catalog.CellForOCIRegion(intent.Region)
-	if !known || claim.Cell != region.Cell || claim.Role != intent.Role || claim.Environment != intent.Environment || claim.Architecture != intent.Architecture ||
-		intent.Container == nil || claim.Image != intent.Container.Image || intent.Generation == 0 || !entityid.Valid(intent.OperationID) || claim.ReleaseSequence == 0 || !releaseFloorDigest(historical.ReleaseIdentity()) {
-		return "", errors.New("historical intent fingerprint requires the original delivered workload and matching signed target")
-	}
-	intent.releaseSequence, intent.releaseFingerprint = claim.ReleaseSequence, historical.ReleaseIdentity()
-	spec, err := intent.serviceSpec()
-	if err != nil {
-		return "", err
-	}
-	return serviceIntentFingerprint(spec)
 }
 
 // ReadServiceReleaseFloor only locates the original delivered intent. The caller
@@ -254,40 +234,6 @@ func verifyGenesisReleaseWitness(witness, floor *api.Config, intent ServiceInten
 		return errors.New("original genesis witness pins a missing or replaced release floor")
 	}
 	return nil
-}
-
-// The immutable witness is written only after the ordinary CAS floor exists.
-// A crash in between admits no effect and can finish the compatible witness.
-func ensureGenesisReleaseWitness(ctx context.Context, client api.ControlClient, intent ServiceIntent, verified release.VerifiedContainer, floor *api.Config) error {
-	if !verified.Genesis().IsVerified() {
-		return nil
-	}
-	witness, err := readGenesisReleaseWitness(ctx, client, intent, verified)
-	if err != nil {
-		return err
-	}
-	if witness == nil {
-		name, err := genesisWitnessName(intent, verified)
-		if err != nil {
-			return err
-		}
-		data, err := genesisWitnessData(floor, intent, verified)
-		if err != nil {
-			return err
-		}
-		if !verified.Valid(time.Now().UTC()) {
-			return errors.New("genesis authority expired before witness creation")
-		}
-		_, err = client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: name}, Data: data}})
-		if err != nil && status.Code(err) != codes.AlreadyExists {
-			return err
-		}
-		witness, err = readGenesisReleaseWitness(ctx, client, intent, verified)
-		if err != nil {
-			return err
-		}
-	}
-	return verifyGenesisReleaseWitness(witness, floor, intent, verified)
 }
 
 // Every service, registry and material effect must authenticate both records.

@@ -100,14 +100,3 @@ func ReadBudget(ctx context.Context, reader *globalcontrol.Reader) (Budget, bool
 	}
 	return b, true, nil
 }
-
-// WriteBudget stores b as the next budget generation. Only the home region's
-// global leader calls it.
-func WriteBudget(ctx context.Context, writer *globalcontrol.Writer, epoch uint64, b Budget) error {
-	payload, err := b.Encode()
-	if err != nil {
-		return err
-	}
-	_, err = writer.PutDocument(ctx, epoch, globalcontrol.KindBudget, protocol.GlobalScope, payload, nil)
-	return err
-}

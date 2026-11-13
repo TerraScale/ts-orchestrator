@@ -239,14 +239,6 @@ func readStatefulEvidence(ctx context.Context, open func(context.Context, string
 	return wire, nil
 }
 
-func statefulDigest(value any) (string, error) {
-	wire, err := json.Marshal(value, json.Deterministic(true))
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x", sha256.Sum256(wire)), nil
-}
-
 // VerifyStatefulDeclared authenticates the release's declared qualification for
 // manager service construction. It does not observe a worker CPU or volume and
 // cannot replace Source's independent runtime admission.

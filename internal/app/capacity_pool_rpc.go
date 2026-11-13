@@ -35,63 +35,6 @@ type capacityPoolResponse struct {
 	Quarantine *rootoci.PoolQuarantineView `json:"quarantine,omitempty"`
 }
 
-func (r *capacityReservations) applyPool(ctx context.Context, source string, request capacityPoolRequest, epoch uint64) (*capacityPoolResponse, error) {
-	if epoch == 0 || request.Deadline.IsZero() || !time.Now().Before(request.Deadline) {
-		return nil, rootoci.ErrInvalid
-	}
-	ctx, cancel := context.WithDeadline(ctx, request.Deadline)
-	defer cancel()
-	if err := r.global.authority.Guard(ctx, epoch); err != nil {
-		return nil, err
-	}
-	// The regional epoch is a distinct scope. The home root independently
-	// checks this actual home leader and derives all signed provider authority.
-	client := rootoci.NewClient(rootoci.Expectations{Cell: strings.ToUpper(source), Epoch: epoch})
-	defer client.Close()
-	response := &capacityPoolResponse{Operation: request.Operation}
-	switch request.Operation {
-	case rootoci.OperationAdvancePoolChild:
-		if request.Child == nil || request.Retirement != nil || request.Quarantine != nil || !strings.EqualFold(request.Child.Cell, source) {
-			return nil, rootoci.ErrInvalid
-		}
-		child := *request.Child
-		child.Epoch = epoch
-		view, err := client.AdvancePoolChild(ctx, child)
-		if err != nil {
-			return nil, err
-		}
-		response.Child = &view
-	case rootoci.OperationRetirePoolChild:
-		if request.Retirement == nil || request.Child != nil || request.Quarantine != nil || !strings.EqualFold(request.Retirement.Child.Cell, source) {
-			return nil, rootoci.ErrInvalid
-		}
-		retirement := *request.Retirement
-		retirement.Child.Epoch = epoch
-		view, err := client.RetirePoolChild(ctx, retirement)
-		if err != nil {
-			return nil, err
-		}
-		response.Retirement = &view
-	case rootoci.OperationQuarantinePoolChild:
-		if request.Quarantine == nil || request.Child != nil || request.Retirement != nil || !strings.EqualFold(request.Quarantine.Cell, source) {
-			return nil, rootoci.ErrInvalid
-		}
-		quarantine := *request.Quarantine
-		quarantine.Epoch = epoch
-		view, err := client.QuarantinePoolChild(ctx, quarantine)
-		if err != nil {
-			return nil, err
-		}
-		response.Quarantine = &view
-	default:
-		return nil, rootoci.ErrInvalid
-	}
-	if err := r.global.authority.Guard(ctx, epoch); err != nil {
-		return nil, err
-	}
-	return response, nil
-}
-
 type rootPoolBackend struct {
 	cell  string
 	local *rootcapacity.Controller

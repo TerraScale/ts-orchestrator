@@ -33,11 +33,11 @@ const (
 )
 
 var (
-	ErrRecordMissing      = errors.New("bootstrap ledger record is missing")
-	ErrIntentMissing      = errors.New("bootstrap ledger intent is missing")
-	ErrImmutableConflict  = errors.New("bootstrap ledger key contains a different immutable record")
-	ErrOutcomeUnknown     = errors.New("bootstrap ledger write outcome is unknown")
-	ErrIntentDigest       = errors.New("bootstrap ledger result does not match its intent")
+	ErrRecordMissing = errors.New("bootstrap ledger record is missing")
+
+	ErrImmutableConflict = errors.New("bootstrap ledger key contains a different immutable record")
+	ErrOutcomeUnknown    = errors.New("bootstrap ledger write outcome is unknown")
+
 	ErrRetryWindowExpired = errors.New("bootstrap ledger intent retry window has expired")
 	ErrInvalidRetryClock  = errors.New("bootstrap ledger retry clock metadata is missing or inconsistent")
 

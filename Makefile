@@ -7,14 +7,13 @@ else
 GO ?= go
 GOFMT ?= gofmt
 endif
-CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 # Keep the symbol table so govulncheck can inspect the actual release bytes.
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-w"
 CHANGE_BASE ?= $(shell git merge-base origin/main HEAD)
 LINT_CHECKS := format-check generate-check vet shellcheck netbird-backup-check retired-host-check zero-config-check observability-check go-pin-check
 
-.PHONY: lint retired-host-check zero-config-check go-pin-check format-check generate generate-check vet netbird-backup-check shellcheck observability-check build build-linux release-linux release-check image run host check clean
+.PHONY: lint retired-host-check zero-config-check go-pin-check format-check generate generate-check vet netbird-backup-check shellcheck observability-check build build-linux release-linux release-check image clean
 
 lint:
 	$(MAKE) --jobs --keep-going $(LINT_CHECKS)
@@ -93,15 +92,6 @@ release-check: release-linux
 image:
 	@test -n "$(SOURCE)" || { echo 'usage: make image SOURCE=<full sha> [IMAGE_OUT=<directory>]' >&2; exit 2; }
 	bash scripts/ci/build-image-local.sh $(SOURCE) $(IMAGE_OUT)
-
-run:
-	$(GO) run $(APP) run --config $(CONFIG)
-
-host:
-	$(GO) run $(APP) host --config $(CONFIG)
-
-check:
-	$(GO) run $(APP) check --config $(CONFIG)
 
 clean:
 	rm -rf dist

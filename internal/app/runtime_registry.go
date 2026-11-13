@@ -3,22 +3,17 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	ociregistry "github.com/TerraScale/ts-orchestrator/internal/ociregion/registry"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -32,116 +27,13 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-const runtimeRegistrySourceCommand = "runtime-registry-admission-source"
 const runtimeRegistrySourceBytes = 128 << 10
-
-type runtimeRegistryQuery struct {
-	OperationID  string `json:"operation_id"`
-	Architecture string `json:"architecture"`
-}
 
 type runtimeRegistrySnapshot struct {
 	Intent       delivery.Intent            `json:"intent"`
 	Service      swarmruntime.ServiceIntent `json:"service"`
 	Chain        trust.RootChain            `json:"root_chain"`
 	SpecRevision uint64                     `json:"spec_revision"`
-}
-
-// The same-binary child reads controller-owned broker credentials at the
-// controller UID. Neither broker credentials nor registry values cross stdout.
-func runRuntimeRegistrySource(ctx context.Context, args []string, input io.Reader, output io.Writer) error {
-	uid, gid, err := controllerServiceIdentity()
-	if err != nil {
-		return err
-	}
-	if len(args) != 0 || os.Geteuid() != int(uid) || os.Getegid() != int(gid) {
-		return errors.New("registry source requires the fixed controller service account and no arguments")
-	}
-	wire, err := io.ReadAll(io.LimitReader(input, runtimeRegistrySourceBytes+1))
-	if err != nil || len(wire) == 0 || len(wire) > runtimeRegistrySourceBytes {
-		return errors.New("registry source query is missing or oversized")
-	}
-	var query runtimeRegistryQuery
-	if err := json.Unmarshal(wire, &query, json.RejectUnknownMembers(true)); err != nil {
-		return err
-	}
-	if !entityid.Valid(query.OperationID) || query.Architecture != "arm64" && query.Architecture != "amd64" {
-		return errors.New("registry source requires exact operation and architecture locators")
-	}
-	cfg, err := LoadConfig(controllerConfigDirectory + "/" + controllerConfigFilename)
-	if err != nil {
-		return err
-	}
-	gate, _, err := acceptedControllerAdmissionGate(cfg, bootstrapstart.NewMarkerStore(), controllerClockCheck(controllerBrokerClockProbe()))
-	if err != nil {
-		return err
-	}
-	if _, err := gate.AdmitRestartLocal(ctx); err != nil {
-		return err
-	}
-	broker := cfg.NATS
-	broker.Embedded = nil
-	broker.ClientRole = "controller"
-	runtime, err := natscell.Start(ctx, broker)
-	if err != nil {
-		return err
-	}
-	defer runtime.Close()
-	services, policy, err := runtimeRegistryPolicy(ctx, cfg, runtime.JetStream())
-	if err != nil {
-		return err
-	}
-	service, err := delivery.ConnectClient(ctx, delivery.Config{Conn: runtime.Conn(), JS: runtime.JetStream(), Cell: cfg.NATS.Cell,
-		Verifier: policy.codec, Authorize: policy.authorizeIntent})
-	if err != nil {
-		return err
-	}
-	intent, err := service.ContainerIntent(ctx, query.OperationID)
-	if err != nil {
-		return err
-	}
-	adopted, err := services.kv.Get(ctx, cellSpecKey)
-	if err != nil || adopted.Revision() != services.revision {
-		return errors.New("registry service profile is not the current adopted revision")
-	}
-	profileProof, err := containermaterial.VerifyProfile(adopted.Value(), services.roots.current(), services.identity, intent)
-	if err != nil {
-		return err
-	}
-	expected, err := containermaterial.ServiceIntent(profileProof, query.Architecture)
-	if err != nil {
-		return err
-	}
-	freshServices, freshPolicy, err := runtimeRegistryPolicy(ctx, cfg, runtime.JetStream())
-	if err != nil || freshServices.revision != services.revision || freshServices.roots.verified.Head != services.roots.verified.Head {
-		return errors.New("current service authority changed during registry source observation")
-	}
-	freshService, err := delivery.ConnectClient(ctx, delivery.Config{Conn: runtime.Conn(), JS: runtime.JetStream(), Cell: cfg.NATS.Cell,
-		Verifier: freshPolicy.codec, Authorize: freshPolicy.authorizeIntent})
-	if err != nil {
-		return err
-	}
-	confirmed, err := freshService.ContainerIntent(ctx, query.OperationID)
-	if err != nil {
-		return err
-	}
-	before, err := intent.Fingerprint()
-	after, afterErr := confirmed.Fingerprint()
-	if err != nil || afterErr != nil || before != after {
-		return errors.New("container operation changed during source observation")
-	}
-	currentSpec, specErr := services.kv.Get(ctx, cellSpecKey)
-	if specErr == nil && currentSpec.Revision() != services.revision ||
-		errors.Is(specErr, jetstream.ErrKeyNotFound) && services.revision != 0 ||
-		specErr != nil && !errors.Is(specErr, jetstream.ErrKeyNotFound) {
-		return errors.New("adopted service profile changed during registry source observation")
-	}
-	wire, err = protocol.EncodeJSON(runtimeRegistrySnapshot{Intent: intent.Clone(), Service: expected, Chain: freshServices.roots.reply("").Chain, SpecRevision: freshServices.revision})
-	if err != nil || len(wire) > runtimeRegistrySourceBytes {
-		return errors.New("registry source response is oversized")
-	}
-	_, err = output.Write(wire)
-	return err
 }
 
 func runtimeRegistryPolicy(ctx context.Context, cfg Config, js jetstream.JetStream) (*specRegistry, signerPolicy, error) {
@@ -196,43 +88,6 @@ func runtimeRegistryPolicy(ctx context.Context, cfg Config, js jetstream.JetStre
 		return nil, signerPolicy{}, err
 	}
 	return services, policy, nil
-}
-
-func readRuntimeRegistrySource(ctx context.Context, query runtimeRegistryQuery) (runtimeRegistrySnapshot, error) {
-	uid, gid, err := controllerServiceIdentity()
-	if err != nil {
-		return runtimeRegistrySnapshot{}, err
-	}
-	wire, err := protocol.EncodeJSON(query)
-	if err != nil {
-		return runtimeRegistrySnapshot{}, err
-	}
-	childCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	command := exec.CommandContext(childCtx, "/proc/self/exe", runtimeRegistrySourceCommand)
-	command.Env = []string{"PATH=/usr/bin:/bin"}
-	command.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uid, Gid: gid, Groups: []uint32{}}}
-	command.Stdin = bytes.NewReader(wire)
-	var output runtimeRegistryOutput
-	command.Stdout = &output
-	if err := command.Run(); err != nil {
-		return runtimeRegistrySnapshot{}, errors.New("current authenticated container admission source unavailable")
-	}
-	var snapshot runtimeRegistrySnapshot
-	if err := json.Unmarshal(output.data, &snapshot, json.RejectUnknownMembers(true)); err != nil {
-		return runtimeRegistrySnapshot{}, err
-	}
-	return snapshot, nil
-}
-
-type runtimeRegistryOutput struct{ data []byte }
-
-func (output *runtimeRegistryOutput) Write(wire []byte) (int, error) {
-	if len(output.data)+len(wire) > runtimeRegistrySourceBytes {
-		return 0, errors.New("registry source response is oversized")
-	}
-	output.data = append(output.data, wire...)
-	return len(wire), nil
 }
 
 func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity, node *swarmruntime.Node, agent *host.Agent, transport hostenroll.WorkerTransport) (swarmruntime.RegistryResolver, error) {
@@ -490,23 +345,6 @@ func runtimeRegistryPullAdmission(ctx context.Context, factory *ociclient.Factor
 		return ctx.Err()
 	}
 	return &swarmruntime.RegistryAdmission{ServiceID: task.ServiceID, Environment: expected.Environment, Region: expected.Region, Scope: scope, Secret: owned, Claim: claim, Deadline: deadline, VerifyCurrent: issuerGuard}, nil
-}
-
-func (controller *containerMaterialController) registryAdmission(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.RegistryAdmissionDocument, error) {
-	recipient, err := controller.registryRecipient(ctx, registration, binding)
-	if err != nil {
-		return host.RegistryAdmissionDocument{}, err
-	}
-	document, err := protocol.EncodeJSON(runtimeRegistrySnapshot{Intent: recipient.Intent.Clone(), Service: recipient.Expected,
-		Chain: controller.config.Specs.roots.reply("").Chain, SpecRevision: recipient.SpecRevision})
-	if err != nil || len(document) > runtimeRegistrySourceBytes {
-		return host.RegistryAdmissionDocument{}, errors.New("registry admission source document is oversized")
-	}
-	expires := time.Now().UTC().Truncate(time.Minute).Add(2 * time.Minute)
-	if recipient.Verified.ExpiresAt().Before(expires) {
-		expires = recipient.Verified.ExpiresAt()
-	}
-	return host.RegistryAdmissionDocument{Document: document, ExpiresAt: expires}, nil
 }
 
 // The same live Agent that owns worker execution supplies current controller

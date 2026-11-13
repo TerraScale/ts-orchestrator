@@ -64,20 +64,6 @@ type Store struct {
 	cell   string
 }
 
-// OpenStore provisions or binds the rollout bucket for one cell.
-func OpenStore(ctx context.Context, js jetstream.JetStream, cell string, replicas int, fencer authority.Fencer) (*Store, error) {
-	if js == nil || fencer == nil || !tokenRE.MatchString(cell) || replicas != 1 && replicas != 3 && replicas != 5 {
-		return nil, fmt.Errorf("%w: rollout store configuration", ErrInvalid)
-	}
-	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
-		Bucket: Bucket, Storage: jetstream.FileStorage, Replicas: replicas, History: 8, MaxValueSize: maxRecordBytes,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("rollout store: %w", err)
-	}
-	return &Store{kv: kv, fencer: fencer, cell: cell}, nil
-}
-
 func rolloutKey(id string) string { return id }
 
 // knownBadKey holds one durable known-bad record. The cell's KnownBad list is

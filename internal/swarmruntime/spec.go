@@ -186,11 +186,6 @@ func containerGenericResources(resources []*api.GenericResource) (disk int64, sl
 	return disk, slot, nil
 }
 
-func hasFunctionWorkerSlot(resources []*api.GenericResource) bool {
-	_, slot, err := containerGenericResources(resources)
-	return err == nil && slot
-}
-
 func pinnedImage(image string) error {
 	ref, err := reference.ParseNormalizedNamed(image)
 	if err != nil {

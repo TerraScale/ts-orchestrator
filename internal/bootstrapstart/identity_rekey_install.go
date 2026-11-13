@@ -124,22 +124,6 @@ func (store MaterialStore) verifyIdentityMaterialPredecessors(dir int, chainWire
 	return nil
 }
 
-// VerifyIdentityRekeyInstall verifies proposed authority from fixed baked
-// genesis and the installed chain, without interpreting the predecessor.
-func VerifyIdentityRekeyInstall(journal IdentityRekeyJournal, now time.Time) (VerifiedIdentityRekey, TrustInputs, error) {
-	return verifyIdentityRekeyInstall(NewMarkerStore(), bakedStore{
-		directory: BakedDirectory, chainFile: RootChainFile, ownerUID: 0, ownerGID: 0,
-	}, journal, now, false)
-}
-
-// VerifyStagedIdentityRekeyInstall refuses any operation not already durably
-// reviewed by root, including an otherwise valid proposal with no journal.
-func VerifyStagedIdentityRekeyInstall(journal IdentityRekeyJournal, now time.Time) (VerifiedIdentityRekey, TrustInputs, error) {
-	return verifyIdentityRekeyInstall(NewMarkerStore(), bakedStore{
-		directory: BakedDirectory, chainFile: RootChainFile, ownerUID: 0, ownerGID: 0,
-	}, journal, now, true)
-}
-
 func verifyIdentityRekeyInstall(markers MarkerStore, baked bakedStore, journal IdentityRekeyJournal, now time.Time, requireStaged bool) (VerifiedIdentityRekey, TrustInputs, error) {
 	fail := func(err error) (VerifiedIdentityRekey, TrustInputs, error) {
 		return VerifiedIdentityRekey{}, TrustInputs{}, err
@@ -233,30 +217,6 @@ func verifyCommittedIdentityRekeyInstall(ctx context.Context, markers MarkerStor
 	}
 	verified, err = verified.VerifyCurrent(inputs, now)
 	return verified, inputs, err
-}
-
-// VerifyIdentityRekeyLaunchMaterial checks the four exact public launch inputs
-// before installation. Their names never select a caller-owned destination.
-func VerifyIdentityRekeyLaunchMaterial(accepted AcceptedIdentity, regionWire []byte, files map[string][]byte, now time.Time) error {
-	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
-		return ErrOriginalStartup
-	}
-	return VerifyIdentityRekeyLaunchMaterialContext(context.Background(), accepted, regionWire, files, now)
-}
-
-func VerifyIdentityRekeyLaunchMaterialContext(ctx context.Context, accepted AcceptedIdentity, regionWire []byte, files map[string][]byte, now time.Time) error {
-	inputs, err := LoadTrustInputs(accepted)
-	if err != nil {
-		return err
-	}
-	return verifyIdentityRekeyLaunchMaterialContext(ctx, accepted, inputs, regionWire, files, now)
-}
-
-func verifyIdentityRekeyLaunchMaterial(accepted AcceptedIdentity, inputs TrustInputs, regionWire []byte, files map[string][]byte, now time.Time) error {
-	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
-		return ErrOriginalStartup
-	}
-	return verifyIdentityRekeyLaunchMaterialContext(context.Background(), accepted, inputs, regionWire, files, now)
 }
 
 func verifyIdentityRekeyLaunchMaterialContext(ctx context.Context, accepted AcceptedIdentity, inputs TrustInputs, regionWire []byte, files map[string][]byte, now time.Time) error {

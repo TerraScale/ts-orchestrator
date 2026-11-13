@@ -96,14 +96,6 @@ type MemberPinReader interface {
 	ReadMember(context.Context, string, string, string) (VersionedMemberState, error)
 }
 
-type Store interface {
-	MemberPinReader
-	ListIntents(context.Context) ([]Intent, error)
-	ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error)
-	ListMembers(context.Context, string, string) ([]VersionedMemberState, error)
-	CompareAndSwap(context.Context, uint64, MemberState) (uint64, error)
-}
-
 type jetStreamStore struct {
 	cell    string
 	state   jetstream.KeyValue
@@ -161,35 +153,6 @@ func (reader memberPinReader) ReadMember(ctx context.Context, databaseID, partit
 		return VersionedMemberState{}, fmt.Errorf("%w: corrupt or deleted ordered state at %s", ErrStoreCorrupt, key)
 	}
 	return decodeMemberState(databaseID, partitionID, seatID, entry.Data, entry.Sequence)
-}
-
-// NewJetStreamStore opens the durable member-state bucket for one regional
-// control plane and fails if its existing replica count is weaker than the
-// configured R3 quorum. Placement intents are supplied by an admitted reader.
-func NewJetStreamStore(ctx context.Context, js jetstream.JetStream, cell string, replicas int, intents AdmittedIntentReader) (Store, error) {
-	if !validToken(cell) || js == nil || intents == nil || replicas < 1 || replicas > 5 {
-		return nil, errors.New("placement store requires cell, JetStream, admitted intent reader and valid replica count")
-	}
-	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
-		Bucket:       stateBucketName,
-		Description:  "Durable regional TerraBase placement member state",
-		History:      2,
-		MaxValueSize: maxStateBytes,
-		MaxBytes:     128 << 20,
-		Storage:      jetstream.FileStorage,
-		Replicas:     replicas,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("open placement member state: %w", err)
-	}
-	status, err := kv.Status(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("read placement member state status: %w", err)
-	}
-	if status.Config().Replicas != replicas {
-		return nil, fmt.Errorf("placement state has %d replicas, requires %d", status.Config().Replicas, replicas)
-	}
-	return &jetStreamStore{cell: cell, state: kv, intents: intents}, nil
 }
 
 func (store *jetStreamStore) ListIntents(ctx context.Context) ([]Intent, error) {
@@ -317,5 +280,3 @@ func (store *jetStreamStore) CompareAndSwap(ctx context.Context, expected uint64
 func memberStateKey(databaseID, partitionID, memberID string) string {
 	return entityid.Derive("placement-member", databaseID, partitionID, memberID)
 }
-
-var _ Store = (*jetStreamStore)(nil)

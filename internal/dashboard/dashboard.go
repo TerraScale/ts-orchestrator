@@ -141,24 +141,6 @@ func (dashboard *Dashboard) Mount(mounter Mounter) {
 	mounter.Handle("POST /capacity/budget", dashboard.guard(http.HandlerFunc(dashboard.setBudget)))
 }
 
-// Handler returns the dashboard routes on their own mux without any
-// authentication. Tests use it; production mounts on the private listener.
-func (dashboard *Dashboard) Handler() http.Handler {
-	mux := http.NewServeMux()
-	dashboard.Mount(muxMounter{mux})
-	return mux
-}
-
-type muxMounter struct{ mux *http.ServeMux }
-
-func (mounter muxMounter) Handle(pattern string, handler http.Handler) {
-	mounter.mux.Handle(pattern, handler)
-}
-func (mounter muxMounter) HandleStatic(pattern string, handler http.Handler) {
-	mounter.mux.Handle(pattern, handler)
-}
-func (mounter muxMounter) HandleLogin(page http.Handler) { mounter.mux.Handle("GET /login", page) }
-
 // contentSecurityPolicy allows only this listener's own files. Datastar
 // evaluates its data-* expressions with Function, which needs unsafe-eval;
 // there are no inline scripts and no inline style elements. ECharts writes

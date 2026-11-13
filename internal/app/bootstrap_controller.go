@@ -25,43 +25,6 @@ import (
 const controllerServiceUser = "terrascale-orchestrator"
 const controllerAdmissionTimeout = 240 * time.Second
 
-var controllerBootstrapProduction = superviseControllerRestart
-var controllerBootstrapCommand = bootstrapController
-var controllerBakedInputsPresent = bootstrapstart.BakedInputsPresent
-
-func controllerProductionInputsPresent() (bool, error) {
-	if present, err := controllerMarkerPresent(); err != nil || present {
-		return present, err
-	}
-	if present, err := bootstrapstart.IdentityRekeyJournalPresent(); err != nil {
-		return false, err
-	} else if present {
-		return false, bootstrapstart.ErrIdentityRekeyLocalPending
-	}
-	present, err := controllerBakedInputsPresent()
-	if err != nil {
-		return false, fmt.Errorf("inspect baked controller bootstrap inputs: %w", err)
-	}
-	return present, nil
-}
-
-func admitControllerBootstrap(ctx context.Context, cfg Config, clockCheck func() error) error {
-	present, err := controllerProductionInputsPresent()
-	if err != nil {
-		return err
-	}
-	if !present {
-		return errors.New("production controller requires accepted identity or baked bootstrap inputs")
-	}
-	if clockCheck == nil {
-		return errors.New("production controller NTP clock check is unavailable")
-	}
-	if err := clockCheck(); err != nil {
-		return fmt.Errorf("production controller startup NTP clock health: %w", err)
-	}
-	return controllerBootstrapProduction(ctx, cfg)
-}
-
 func bootstrapController(ctx context.Context, cfg Config) error {
 	if os.Geteuid() != 0 {
 		return errors.New("bootstrap-controller requires root")
@@ -87,28 +50,6 @@ func bootstrapController(ctx context.Context, cfg Config) error {
 		return errors.New("initial production controller requires current bootstrap inputs")
 	}
 	return superviseControllerAdmission(ctx, cfg, "bootstrap-admit-initial", "/proc/self/exe")
-}
-
-func acceptedControllerInstallPresent(read func() (bootstrapstart.AcceptedIdentity, error)) (bool, error) {
-	if read == nil {
-		return false, errors.New("accepted controller install reader is unavailable")
-	}
-	if _, err := read(); err == nil {
-		return true, nil
-	} else if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	} else {
-		return false, fmt.Errorf("read accepted controller install: %w", err)
-	}
-}
-
-func superviseControllerRestart(ctx context.Context, cfg Config) error {
-	if os.Geteuid() != 0 {
-		ctx, cancel := context.WithTimeout(ctx, controllerAdmissionTimeout)
-		defer cancel()
-		return admitProductionControllerRestart(ctx, cfg)
-	}
-	return superviseControllerAdmission(ctx, cfg, "bootstrap-admit-restart", "/proc/self/exe")
 }
 
 // superviseControllerAdmission is a process boundary because the OCI SDK's

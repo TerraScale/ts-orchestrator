@@ -17,15 +17,6 @@ type LeafTopology struct {
 	Parents map[string]string `json:"parents"`
 }
 
-// HubAndSpoke links every spoke directly to the hub.
-func HubAndSpoke(hub string, spokes []string) LeafTopology {
-	parents := make(map[string]string, len(spokes))
-	for _, spoke := range spokes {
-		parents[spoke] = hub
-	}
-	return LeafTopology{Hub: hub, Parents: parents}
-}
-
 // WithSpokeParent returns a copy where spoke dials parent instead of the hub.
 func (t LeafTopology) WithSpokeParent(spoke, parent string) LeafTopology {
 	parents := make(map[string]string, len(t.Parents))

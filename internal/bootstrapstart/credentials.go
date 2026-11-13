@@ -209,11 +209,6 @@ func (check LiveCredentials) verifyPaths(expected MaterialPins, slot, seedSlot s
 	return nil
 }
 
-func (check LiveCredentials) verifyInitialPaths(expected MaterialPins, manifest bootstrap.Manifest) error {
-	expected.references = slotReferences(manifest, manifest.Slot)
-	return check.verifyPaths(expected, manifest.Slot, manifest.SeedSlot, manifest.Secrets)
-}
-
 func generationOwnFile(name string) bool {
 	return name == MaterialGenerationsFile ||
 		bootstrap.MaterialGenerationFiles()[name] == bootstrap.SecretControllerIssuer
@@ -305,5 +300,3 @@ func RunCredentialValidationChild(input io.Reader, validateControllerKeys func(C
 	}
 	return validateControllerKeys(request)
 }
-
-var _ LiveCredentialChecker = LiveCredentials{}

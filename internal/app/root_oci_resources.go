@@ -543,8 +543,6 @@ func rootPublicSeatBackends(ctx context.Context, api lb.API, public OciReconcile
 	return result, nil
 }
 
-var _ rootoci.Foundation = (*rootOCIResources)(nil)
-
 func minResourceDeadline(call, lease time.Time, caps ...time.Time) time.Time {
 	if call.IsZero() || lease.IsZero() {
 		return time.Time{}

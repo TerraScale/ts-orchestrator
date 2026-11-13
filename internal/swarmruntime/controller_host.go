@@ -51,24 +51,6 @@ func (binding *ControllerHostBinding) Identity() bootstrapstart.RuntimeIdentity 
 	return binding.identity
 }
 
-// VerifyRegistration repeats the signed authority, current completed grant,
-// ordered registration and OCI observations for each ownhost material request.
-func (binding *ControllerHostBinding) VerifyRegistration(ctx context.Context, registration host.Registration) error {
-	if binding == nil || binding.hostID == "" {
-		return errors.New("controller host binding is unavailable")
-	}
-	current, err := binding.currentRegistration(ctx)
-	if err != nil {
-		return err
-	}
-	wanted, err := json.Marshal(current, json.Deterministic(true))
-	actual, otherErr := json.Marshal(registration, json.Deterministic(true))
-	if err != nil || otherErr != nil || !bytes.Equal(wanted, actual) || current.ID != binding.hostID {
-		return errors.New("ownhost registration differs from the accepted controller host binding")
-	}
-	return nil
-}
-
 func (binding *ControllerHostBinding) currentRegistration(ctx context.Context) (host.Registration, error) {
 	fail := func(err error) (host.Registration, error) { return host.Registration{}, err }
 	if binding == nil || binding.reader == nil || binding.agent == nil {

@@ -21,8 +21,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
-var ErrOriginalFoundationActorPending = fmt.Errorf("%w: original seed launches and physical readbacks retained; local actor custody, source IAM and archive remain unavailable", ErrOriginalSourceProducerHold)
-
 // OriginalFoundationActorLaunch retains a finite physical prerequisite, never
 // local actor custody, source IAM, admitted startup or runtime authority.
 type OriginalFoundationActorLaunch struct {

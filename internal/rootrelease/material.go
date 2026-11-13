@@ -24,8 +24,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
-var _ rootoci.ContainerMaterial = (*Backend)(nil)
-
 type materialScope struct {
 	target        release.ContainerTarget
 	originalProof []byte

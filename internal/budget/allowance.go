@@ -2,13 +2,10 @@ package budget
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"math"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/globalcontrol"
@@ -24,10 +21,6 @@ const (
 	ClearRatio      = 0.75
 )
 
-// ReservationTTL bounds a granted node's reservation while its region's status lags. It outlasts nodescale's
-// 20-minute launch timeout, so a launch still running keeps its node reserved and a dead one frees it.
-const ReservationTTL = 25 * time.Minute
-
 // State is the budget's spend state at the time of an allocation.
 type State string
 
@@ -38,18 +31,6 @@ const (
 	StateWarn    State = "warn" // projected at least WarnRatio of the cap
 	StateOver    State = "over" // projected at least the cap
 )
-
-// Region is one region's capacity status as the allocator needs it.
-type Region struct {
-	Cell             string
-	Nodes            int
-	Want             int
-	Pressure         float64
-	NodeMonthlyCents uint64 // list price of one more node for a month; 0 = unknown
-	ProjectedCents   uint64 // max(month end, next month) of the region's own forecast
-	Currency         string
-	At               time.Time // when the region measured this status; zero = no status
-}
 
 // RegionAllowance is the most nodes one region may have until the next allocation.
 type RegionAllowance struct {
@@ -76,144 +57,6 @@ type Capacity struct {
 	Reservations           []Reservation           `json:"reservations,omitempty"`
 	BootstrapReservedCents uint64                  `json:"bootstrap_reserved_cents,omitzero"`
 	BootstrapSHA256        string                  `json:"bootstrap_sha256,omitempty"`
-}
-
-// Allocate projects the month from every region's own forecast and grants one
-// node per wanting region, highest pressure first, while the projection stays
-// within the cap. A granted node is reserved from its grant until its region
-// reaches the new size or ReservationTTL passes, because a region's status lags
-// its launch: a reserved node counts in the projection, and its region is not
-// granted again. A region with unknown spend holds growth everywhere, since a
-// partial sum cannot admit spending, and drops every reservation. A nil budget
-// holds every region at its size. prior is the capacity the last allocation wrote.
-func Allocate(budget *Budget, regions []Region, prior *Capacity, now time.Time) Capacity {
-	sorted := slices.Clone(regions)
-	slices.SortFunc(sorted, func(a, b Region) int { return strings.Compare(a.Cell, b.Cell) })
-	capacity := Capacity{Schema: Schema, At: now, Regions: make([]RegionAllowance, len(sorted))}
-	if prior != nil {
-		capacity.Spending = prior.Spending
-		capacity.Reservations = slices.Clone(prior.Reservations)
-		capacity.BootstrapReservedCents, capacity.BootstrapSHA256 = prior.BootstrapReservedCents, prior.BootstrapSHA256
-	}
-	for index, region := range sorted {
-		capacity.Regions[index] = RegionAllowance{
-			Cell: region.Cell, Nodes: region.Nodes, Want: region.Want, Allowance: region.Nodes, Pressure: region.Pressure,
-		}
-	}
-	if budget == nil {
-		capacity.State = StateNone
-		capacity.Reason = "no monthly budget is set"
-		return capacity
-	}
-	if err := budget.Validate(); err != nil {
-		// Only a valid budget can admit spending, and its cap is never zero.
-		capacity.State = StateNone
-		capacity.Reason = "the monthly budget is invalid: " + err.Error()
-		return capacity
-	}
-	capacity.CapCents = budget.MonthlyCapCents
-	capacity.Currency = budget.Currency
-
-	var projected uint64
-	unknown := ""
-	for _, region := range sorted {
-		// A status from further ahead than clock skew explains is as unknown as a stale one.
-		if !region.At.IsZero() && now.Sub(region.At) <= StatusMaxAge && region.At.Sub(now) <= AllowanceMaxAge &&
-			region.Currency == budget.Currency {
-			projected = saturatingAdd(projected, region.ProjectedCents)
-		} else if unknown == "" {
-			unknown = region.Cell
-		}
-	}
-	if unknown == "" {
-		for index, region := range sorted {
-			granted, ok := reservation(prior, region, now)
-			if !ok {
-				continue
-			}
-			capacity.Regions[index].Allowance = region.Nodes + 1
-			capacity.Regions[index].GrantedAt = granted
-			projected = saturatingAdd(projected, region.NodeMonthlyCents)
-		}
-	}
-	if capacity.Spending != nil {
-		projected = max(projected, capacity.Spending.ProjectedCents)
-	}
-	capacity.ProjectedCents = projected
-	capacity.Ratio = float64(projected) / float64(budget.MonthlyCapCents)
-	switch {
-	case unknown != "":
-		capacity.State = StateUnknown
-		capacity.Reason = fmt.Sprintf("%s has no fresh spend status, so growth is held in every region", unknown)
-		return capacity
-	case projected >= budget.MonthlyCapCents:
-		capacity.State = StateOver
-		capacity.Reason = "projected spend is at or over the cap, so growth is held"
-		return capacity
-	case capacity.Ratio >= WarnRatio:
-		capacity.State = StateWarn
-	default:
-		capacity.State = StateOK
-	}
-
-	var candidates []int
-	for index, region := range sorted {
-		if region.Want > region.Nodes && capacity.Regions[index].Allowance == region.Nodes {
-			candidates = append(candidates, index)
-		}
-	}
-	slices.SortFunc(candidates, func(a, b int) int {
-		if order := cmp.Compare(sorted[b].Pressure, sorted[a].Pressure); order != 0 {
-			return order
-		}
-		return strings.Compare(sorted[a].Cell, sorted[b].Cell)
-	})
-	var grants []string
-	for _, index := range candidates {
-		region := sorted[index]
-		next := saturatingAdd(projected, region.NodeMonthlyCents)
-		if region.NodeMonthlyCents == 0 || next > budget.MonthlyCapCents {
-			continue
-		}
-		projected = next
-		capacity.Regions[index].Allowance++
-		capacity.Regions[index].GrantedAt = now
-		grants = append(grants, region.Cell+" +1")
-	}
-	switch {
-	case len(grants) > 0:
-		capacity.Reason = "granted " + strings.Join(grants, ", ")
-	case len(candidates) == 0:
-		capacity.Reason = "no region wants more nodes"
-	default:
-		capacity.Reason = "no more nodes fit under the cap, or their price is unknown"
-	}
-	capacity.ProjectedCents = projected
-	capacity.Ratio = float64(projected) / float64(budget.MonthlyCapCents)
-	if projected >= budget.MonthlyCapCents {
-		capacity.State = StateOver
-	} else if capacity.Ratio >= WarnRatio {
-		capacity.State = StateWarn
-	}
-	return capacity
-}
-
-// reservation returns when prior's grant for region is still outstanding: prior
-// allowed one node above the region's size, the region has not reached it, and
-// the grant is younger than ReservationTTL.
-func reservation(prior *Capacity, region Region, now time.Time) (time.Time, bool) {
-	if prior == nil {
-		return time.Time{}, false
-	}
-	index := slices.IndexFunc(prior.Regions, func(granted RegionAllowance) bool { return granted.Cell == region.Cell })
-	if index < 0 {
-		return time.Time{}, false
-	}
-	granted := prior.Regions[index]
-	if granted.Allowance != region.Nodes+1 || now.Sub(granted.GrantedAt) >= ReservationTTL {
-		return time.Time{}, false
-	}
-	return granted.GrantedAt, true
 }
 
 // Validate requires the current schema, a reason, a budget-shaped cap and
@@ -299,58 +142,6 @@ func ReadCapacity(ctx context.Context, reader *globalcontrol.Reader) (Capacity, 
 	return c, true, nil
 }
 
-// WriteCapacity stores c as the next capacity generation. Only the home
-// region's global leader calls it.
-func WriteCapacity(ctx context.Context, writer *globalcontrol.Writer, epoch uint64, c Capacity) error {
-	if writer == nil {
-		return errors.New("capacity requires the home writer")
-	}
-	for range 8 {
-		prior, found, err := ReadCapacity(ctx, &writer.Reader)
-		if err != nil {
-			return err
-		}
-		if found {
-			c.Spending, c.Reservations = prior.Spending, prior.Reservations
-			c.BootstrapReservedCents = max(c.BootstrapReservedCents, prior.BootstrapReservedCents)
-			if prior.BootstrapSHA256 != "" {
-				c.BootstrapSHA256 = prior.BootstrapSHA256
-			}
-			if c.Spending != nil && c.State != StateNone {
-				c.ProjectedCents = max(c.ProjectedCents, c.Spending.ProjectedCents)
-				c.Ratio = float64(c.ProjectedCents) / float64(c.CapCents)
-				if c.ProjectedCents >= c.CapCents {
-					c.State = StateOver
-				} else if c.State == StateOK && c.Ratio >= WarnRatio {
-					c.State = StateWarn
-				}
-			}
-		}
-		payload, err := c.Encode()
-		if err != nil {
-			return err
-		}
-		var expected []byte
-		if found {
-			expected, err = prior.Encode()
-			if err != nil {
-				return err
-			}
-		}
-		_, err = writer.PutDocument(ctx, epoch, globalcontrol.KindCapacity, protocol.GlobalScope, payload, func(stored []byte) error {
-			if !sameCapacity(stored, expected) {
-				return globalcontrol.ErrConflict
-			}
-			return nil
-		})
-		if errors.Is(err, globalcontrol.ErrConflict) {
-			continue
-		}
-		return err
-	}
-	return globalcontrol.ErrConflict
-}
-
 func sameCapacity(stored, expected []byte) bool {
 	if len(stored) == 0 || len(expected) == 0 {
 		return bytes.Equal(stored, expected)
@@ -363,20 +154,6 @@ func sameCapacity(stored, expected []byte) bool {
 	return err == nil && bytes.Equal(canonical, expected)
 }
 
-// AllowanceFor is the most nodes cell may have per c, and false when c is not
-// fresh at now (older, or further ahead than clock skew explains) or does not
-// name cell.
-func AllowanceFor(c Capacity, cell string, now time.Time) (int, bool) {
-	if now.Sub(c.At) > AllowanceMaxAge || c.At.Sub(now) > AllowanceMaxAge {
-		return 0, false
-	}
-	index := slices.IndexFunc(c.Regions, func(region RegionAllowance) bool { return region.Cell == cell })
-	if index < 0 {
-		return 0, false
-	}
-	return c.Regions[index].Allowance, true
-}
-
 // Headroom is what the cap leaves after the projection while spend is known
 // and under the cap; otherwise nothing can be admitted.
 func (c Capacity) Headroom() uint64 {
@@ -384,20 +161,6 @@ func (c Capacity) Headroom() uint64 {
 		return 0
 	}
 	return c.CapCents - c.ProjectedCents
-}
-
-// Alerting reports whether the budget alert is open, with hysteresis: it opens
-// at WarnRatio and closes below ClearRatio. An unknown or unset budget keeps
-// the alert as it was.
-func Alerting(open bool, c Capacity) bool {
-	switch c.State {
-	case StateNone, StateUnknown:
-		return open
-	}
-	if open {
-		return c.Ratio >= ClearRatio
-	}
-	return c.Ratio >= WarnRatio
 }
 
 // saturatingAdd keeps overflow from wrapping a projection back under the cap.

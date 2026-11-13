@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"math"
 	"regexp"
 	"slices"
 	"strconv"
@@ -137,87 +136,6 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 	return spec, nil
 }
 
-// applyService creates or CAS-updates one stable upstream service. SwarmKit owns
-// task placement, rolling updates and lifecycle-failure rollback.
-func applyService(ctx context.Context, client api.ControlClient, intent ServiceIntent) (*api.Service, error) {
-	return applyServiceGuarded(ctx, client, intent, nil)
-}
-
-func applyServiceGuarded(ctx context.Context, client api.ControlClient, intent ServiceIntent, guard func(context.Context) error) (*api.Service, error) {
-	spec, err := intent.serviceSpec()
-	if err != nil {
-		return nil, err
-	}
-	listed, err := client.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{spec.Annotations.Name}}})
-	if err != nil {
-		return nil, err
-	}
-	if len(listed.Services) == 0 {
-		if guard != nil {
-			if err := guard(ctx); err != nil {
-				return nil, err
-			}
-		}
-		created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: spec})
-		if err != nil {
-			return nil, err
-		}
-		return created.Service, nil
-	}
-	if len(listed.Services) != 1 {
-		return nil, errors.New("ambiguous service identity")
-	}
-	current := listed.Services[0]
-	if err := checkIntentGeneration(current.Spec.Annotations.Labels, intent); err != nil {
-		return nil, err
-	}
-	if seq := current.Spec.Annotations.Labels[labelReleaseSequence]; seq != "" {
-		floor, err := strconv.ParseUint(seq, 10, 64)
-		if err != nil || floor > intent.releaseSequence || floor == intent.releaseSequence && current.Spec.Annotations.Labels[labelReleaseFingerprint] != intent.releaseFingerprint {
-			return nil, errors.New("service release order cannot move backward or equivocate")
-		}
-	}
-	for _, key := range []string{LabelIntentID, LabelRole, LabelRegion, LabelEnvironment} {
-		if current.Spec.Annotations.Labels[key] != spec.Annotations.Labels[key] {
-			return nil, errors.New("service ownership or scope mismatch")
-		}
-	}
-	if current.PendingDelete || current.Spec.GetReplicated() == nil {
-		return nil, errors.New("service is deleting or has unsupported mode")
-	}
-	spec.GetReplicated().Replicas = current.Spec.GetReplicated().Replicas
-	spec.Task.ForceUpdate = current.Spec.Task.ForceUpdate
-	if intent.Generation != 0 {
-		labels := current.Spec.Annotations.Labels
-		if labels[LabelIntentGeneration] == spec.Annotations.Labels[LabelIntentGeneration] && labels[labelIntentFingerprint] == intent.intentFingerprint {
-			// Existing tasks retain ServiceAnnotations when upstream sees no task change.
-			if operation, exists := labels[LabelOperationID]; exists {
-				spec.Annotations.Labels[LabelOperationID] = operation
-			} else {
-				delete(spec.Annotations.Labels, LabelOperationID)
-			}
-		} else {
-			if spec.Task.ForceUpdate == math.MaxUint64 {
-				return nil, errors.New("service rollout generation exhausted")
-			}
-			spec.Task.ForceUpdate++
-		}
-	}
-	if guard != nil {
-		if err := guard(ctx); err != nil {
-			return nil, err
-		}
-	}
-	if proto.Equal(&current.Spec, spec) {
-		return current, nil
-	}
-	updated, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: current.ID, ServiceVersion: &current.Meta.Version, Spec: spec})
-	if err != nil {
-		return nil, err
-	}
-	return updated.Service, nil
-}
-
 // ServiceObservation contains no container specification or environment values.
 type ServiceObservation struct {
 	ServiceID         string            `json:"service_id"`
@@ -284,57 +202,6 @@ func serviceReadiness(ctx context.Context, client api.ControlClient, service *ap
 		return false, false, nil
 	}
 	return ready == service.Spec.GetReplicated().Replicas && uint64(len(listed.Tasks)) == ready, failed, nil
-}
-
-// ObserveService reads actual upstream tasks. A lifecycle RUNNING status never
-// implies application readiness; callers supply their authenticated product probe.
-func ObserveService(ctx context.Context, client api.ControlClient, serviceID string, probe func(context.Context, *api.Task) error) (ServiceObservation, error) {
-	response, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
-	if err != nil {
-		return ServiceObservation{}, err
-	}
-	s := response.Service
-	if s.Spec.GetReplicated() == nil {
-		return ServiceObservation{}, errors.New("unsupported service mode")
-	}
-	view := ServiceObservation{ServiceID: s.ID, IntentID: s.Spec.Annotations.Labels[LabelIntentID], Role: s.Spec.Annotations.Labels[LabelRole], Region: s.Spec.Annotations.Labels[LabelRegion], Environment: s.Spec.Annotations.Labels[LabelEnvironment], RequestedReplicas: s.Spec.GetReplicated().Replicas, RequestedDigest: runtimeDigest(s.Spec), Readiness: "unknown", Tasks: []TaskObservation{}}
-	if probe != nil {
-		view.Readiness = "observed"
-	}
-	if s.UpdateStatus != nil {
-		view.UpdateState = s.UpdateStatus.State.String()
-	}
-	listed, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{s.ID}}})
-	if err != nil {
-		return ServiceObservation{}, err
-	}
-	for _, task := range listed.Tasks {
-		observation := TaskObservation{TaskID: task.ID, NodeID: task.NodeID, Digest: runtimeDigest(api.ServiceSpec{Task: task.Spec}), State: task.Status.State.String()}
-		if timestamp, err := types.TimestampFromProto(task.Status.Timestamp); err == nil {
-			observation.UpdatedAt = timestamp
-		}
-		if task.Status.Err != "" {
-			observation.Error = "task lifecycle failed"
-		}
-		if task.DesiredState == api.TaskStateRunning && task.Status.State == api.TaskStateRunning {
-			view.RunningReplicas++
-			if probe != nil {
-				probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-				err := probe(probeCtx, task)
-				cancel()
-				if err == nil {
-					observation.Ready = true
-					view.ReadyReplicas++
-				} else {
-					observation.Error = "application readiness probe failed"
-				}
-			}
-		}
-		view.Tasks = append(view.Tasks, observation)
-	}
-	slices.SortFunc(view.Tasks, func(a, b TaskObservation) int { return strings.Compare(a.TaskID, b.TaskID) })
-	view.ObservedAt = time.Now().UTC()
-	return view, nil
 }
 
 func runtimeDigest(spec api.ServiceSpec) string {

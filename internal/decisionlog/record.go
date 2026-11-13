@@ -20,18 +20,6 @@ type recorderHolder struct{ recorder Recorder }
 
 var defaultRecorder atomic.Pointer[recorderHolder]
 
-// SetDefault installs the process-wide recorder used by Record and returns a
-// function that restores the previous one. A nil recorder restores the
-// structured-log fallback.
-func SetDefault(recorder Recorder) (restore func()) {
-	var holder *recorderHolder
-	if recorder != nil {
-		holder = &recorderHolder{recorder: recorder}
-	}
-	previous := defaultRecorder.Swap(holder)
-	return func() { defaultRecorder.CompareAndSwap(holder, previous) }
-}
-
 // Default returns the installed recorder, or nil when records go to the log.
 func Default() Recorder {
 	if holder := defaultRecorder.Load(); holder != nil {
@@ -79,15 +67,4 @@ func (recorder LogRecorder) Record(ctx context.Context, decision Decision) strin
 	}
 	logger.LogAttrs(ctx, slog.LevelInfo, decision.Summary, attrs...)
 	return decision.ID
-}
-
-// Discard drops every decision. Tests use it to silence the fallback log.
-type Discard struct{}
-
-// Record returns a fresh ID and keeps nothing.
-func (Discard) Record(_ context.Context, decision Decision) string {
-	if decision.ID != "" {
-		return decision.ID
-	}
-	return NewID()
 }

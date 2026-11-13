@@ -100,80 +100,11 @@ func (material LaunchMaterial) wires() [len(launchMaterialNames)][]byte {
 		material.ManagedHostImageReceipt, material.ManagedHostImageDelegation}
 }
 
-// LoadLaunchMaterial reads the installed material this controller forwards.
-func LoadLaunchMaterial() (LaunchMaterial, error) {
-	return bakedStore{directory: BakedDirectory}.loadLaunchMaterial()
-}
-
-func LoadLaunchMaterialContext(ctx context.Context) (LaunchMaterial, error) {
-	return bakedStore{directory: BakedDirectory}.loadLaunchMaterialContext(ctx)
-}
-
 // InstallLaunchMaterial verifies launch metadata against the image's trust
 // roots and installs it beside them. Installed files are write-once: a retry
 // accepts only identical bytes, so a launch cannot be redirected later.
 func InstallLaunchMaterial(ctx context.Context, imds IMDSClient, now time.Time) error {
 	return bakedStore{directory: BakedDirectory}.installLaunchMaterial(ctx, imds.FetchLaunchMaterial, now)
-}
-
-func (store bakedStore) loadLaunchMaterial() (LaunchMaterial, error) {
-	if _, err := store.readOriginalOrigin(); err == nil {
-		return LaunchMaterial{}, ErrOriginalStartup
-	} else if !errors.Is(err, unix.ENOENT) {
-		return LaunchMaterial{}, err
-	}
-	return store.loadLaunchMaterialContext(context.Background())
-}
-
-func (store bakedStore) loadLaunchMaterialContext(ctx context.Context) (LaunchMaterial, error) {
-	dir, err := store.openDirectory(store.directory)
-	if err != nil {
-		return LaunchMaterial{}, fmt.Errorf("open baked bootstrap directory: %w", err)
-	}
-	defer unix.Close(dir)
-	origin, err := store.readFile(dir, OriginalStartupOriginFilename, maxOriginalStartupOriginBytes)
-	original := err == nil
-	if err != nil && !errors.Is(err, unix.ENOENT) {
-		return LaunchMaterial{}, err
-	}
-	material := LaunchMaterial{OriginalOrigin: origin}
-	names := material.fileNames()
-	wires := make(map[string][]byte, len(names))
-	for _, name := range names {
-		maximum := int64(trust.MaxEnvelopeBytes)
-		switch name {
-		case identityFilename:
-			maximum = maxIdentity
-		case anchorFilename:
-			maximum = bootstrap.MaxBootstrapAnchorBytes
-		case HostEnrollmentFilename:
-			maximum = hostenroll.MaxPublicBundleBytes
-		case operatorSSHKeyFilename:
-			maximum = maxOperatorSSHKey
-		case OriginalStartupOriginFilename:
-			maximum = maxOriginalStartupOriginBytes
-		}
-		wires[name], err = store.readFile(dir, name, maximum)
-		if err != nil {
-			return LaunchMaterial{}, err
-		}
-	}
-	material.Identity, material.Anchor, material.HostEnrollment = wires[identityFilename], wires[anchorFilename], wires[HostEnrollmentFilename]
-	material.OperatorSSHKey, material.ManagedHostImageReceipt, material.ManagedHostImageDelegation = wires[operatorSSHKeyFilename], wires[ManagedHostImageReceiptFilename], wires[ManagedHostImageDelegationFilename]
-	if original {
-		if err := rejectOriginalSSH(dir); err != nil {
-			return LaunchMaterial{}, err
-		}
-		// Public file presence alone does not authorize the no-SSH roster.
-		authority, err := LoadOriginalStartupAuthority(ctx, time.Now().UTC())
-		if err != nil {
-			return LaunchMaterial{}, err
-		}
-		if err := store.verifyOriginalLaunchMaterial(ctx, material, authority, time.Now().UTC()); err != nil {
-			return LaunchMaterial{}, err
-		}
-	}
-	return material, nil
 }
 
 func (store bakedStore) installLaunchMaterial(ctx context.Context,

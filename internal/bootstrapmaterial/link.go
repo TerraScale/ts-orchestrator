@@ -469,12 +469,6 @@ func RenderLink(record LinkRecord, slot, directory string) (natscell.Link, error
 	return link, nil
 }
 
-// ProvisionLink publishes host files using regional recovery and OCI retry tokens.
-// The home signing seed stays in the founder-only source escrow.
-func ProvisionLink(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient, now time.Time) (Publication, error) {
-	return provisionLink(ctx, directory, target, management, bundles, now, nil)
-}
-
 // ProvisionLinkDurable preserves the publication journal through source authority
 // checkpoints before issuing any Vault secret create.
 func ProvisionLinkDurable(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient, now time.Time, checkpoint func([]byte) error) (Publication, error) {

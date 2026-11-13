@@ -379,60 +379,6 @@ func workerDigest(value string) bool {
 	return err == nil && len(decoded) == sha256.Size && value == strings.ToLower(value)
 }
 
-// ValidateWorkerProfiles validates the explicit entire role/architecture policy
-// before signing. Missing qualified images leave runtime capacity pending.
-func ValidateWorkerProfiles(grant FoundationGrant, profiles []WorkerProfile, roots trust.Keyring, now time.Time) error {
-	if grant.InfrastructureSpend == nil || grant.InfrastructureSpend.MonthlyLimitMinor <= 0 || len(profiles) > 512 {
-		return errors.New("worker authority lacks explicit bounded fleet spending")
-	}
-	seen := map[string]bool{}
-	coverage := map[string]bool{}
-	for _, p := range profiles {
-		if err := ValidateWorkerProfile(grant, p); err != nil {
-			return err
-		}
-		id := p.Cell + "/" + p.Role + "/" + p.Architecture + "/" + p.Shape
-		if seen[id] {
-			return errors.New("duplicate signed worker geometry")
-		}
-		seen[id] = true
-		coverage[p.Cell+"/"+p.Role+"/"+p.Architecture] = true
-		if len(p.ImageReceipt) == 0 {
-			if p.RuntimeSHA256 != "" {
-				return errors.New("worker seed digest has no seed receipt")
-			}
-			continue
-		}
-		image, err := release.VerifyImageCurrent(p.ImageReceipt, p.ImageDelegation, roots, release.ImageExpectation{Environment: p.Environment, LogicalRegion: p.Cell, Architecture: p.Architecture}, now)
-		if err != nil {
-			return err
-		}
-		receipt := image.Receipt()
-		if p.RuntimeSHA256 != receipt.ImageSHA256 || receipt.Production == nil {
-			return errors.New("worker seed evidence differs from signed image")
-		}
-		proof, ok := receipt.HostProduction[p.Role]
-		if !ok {
-			return errors.New("worker seed lacks exact role qualification")
-		}
-		candidate := release.ProductionExpectation{SourceRevision: receipt.SourceRevision, ArtifactSHA256: receipt.ImageSHA256, QualificationSHA256: receipt.QualificationSHA256, Cell: p.Cell, Environment: p.Environment, Runtime: p.Runtime, Architecture: p.Architecture, Role: p.Role}
-		if _, err := release.VerifyProductionCurrent(proof.Qualification, proof.Delegation, roots, candidate, now); err != nil {
-			return err
-		}
-	}
-	for _, region := range grant.Regions {
-		cell, _ := region.Plan["cell"].(string)
-		for _, role := range []string{"container", "wasm"} {
-			for _, arch := range []string{"arm64", "amd64"} {
-				if !coverage[cell+"/"+role+"/"+arch] {
-					return errors.New("signed worker policy omits an approved role or architecture")
-				}
-			}
-		}
-	}
-	return nil
-}
-
 // AuthorizeWorkerRecipe is the concrete home-side consumer. Request metadata
 // contributes only public CA bytes whose hash the independent source pins.
 func (r FoundationResolver) AuthorizeWorkerRecipe(ctx context.Context, candidate WorkerRecipe) (VerifiedWorkerRecipe, error) {

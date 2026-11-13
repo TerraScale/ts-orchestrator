@@ -102,14 +102,6 @@ type journal struct {
 	Entries        []journalEntry `json:"entries"`
 }
 
-// Provision resumes one durable source and publishes each file once. The
-// journal is fsynced before an OCI create. A failed or uncertain create keeps
-// its original retry token; after 23 hours the command holds for inspection.
-// It never regenerates source material or silently rotates a Vault version.
-func Provision(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient, now time.Time) (Publication, error) {
-	return provision(ctx, directory, target, management, bundles, now, nil)
-}
-
 // ProvisionDurable checkpoints the exact publication journal to the source
 // authority before any secret create, preserving recovery across host loss.
 func ProvisionDurable(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient, now time.Time, checkpoint func([]byte) error) (Publication, error) {

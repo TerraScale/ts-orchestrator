@@ -3,14 +3,10 @@ package bootstrapmaterial
 import (
 	"bytes"
 	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"math/big"
 	"net"
 	"slices"
 	"strings"
@@ -64,16 +60,6 @@ type issuerIdentity struct {
 	expiresAt                                               time.Time
 }
 
-// LoadControllerIssuer parses the generation's controller-tls-issuer-cert.pem,
-// controller-tls-issuer-key.pem and controller-account-signer.seed, which
-// CheckGenerationFiles has already verified against the generation.
-func LoadControllerIssuer(generation bootstrap.MaterialGeneration, certPEM, keyPEM, signerSeed []byte,
-) (*ControllerIssuer, error) {
-	return loadControllerIssuer(issuerIdentity{Cell: string(generation.Cell), Environment: generation.Environment,
-		Operator: generation.Operator, CellAccount: generation.CellAccount, AccountSigner: generation.AccountSigner,
-		lifetime: time.Duration(generation.IssuedLifetimeHours) * time.Hour}, certPEM, keyPEM, signerSeed)
-}
-
 func loadControllerIssuer(identity issuerIdentity, certPEM, keyPEM, signerSeed []byte) (*ControllerIssuer, error) {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
@@ -108,90 +94,6 @@ func loadControllerIssuer(identity issuerIdentity, certPEM, keyPEM, signerSeed [
 
 // Wipe clears the account signer seed.
 func (issuer *ControllerIssuer) Wipe() { issuer.signer.Wipe() }
-
-func (issuer *ControllerIssuer) lifetime() time.Duration {
-	return issuer.identity.lifetime
-}
-
-// RenewTLS issues a leaf with identity and a fresh key, valid for the
-// generation's issued lifetime and never past the issuer. certPEM holds the
-// leaf followed by the issuer, so peers can build the chain to the bundle.
-func (issuer *ControllerIssuer) RenewTLS(identity LeafIdentity, now time.Time) (certPEM, keyPEM []byte, err error) {
-	if issuer == nil || issuer.cert == nil || issuer.key == nil || !now.Before(issuer.identity.expiresAt) {
-		return nil, nil, errors.New("controller TLS issuer has expired")
-	}
-	ip := net.ParseIP(identity.IP)
-	if identity.CommonName == "" || identity.DNSName == "" || ip == nil {
-		return nil, nil, errors.New("controller leaf identity is incomplete")
-	}
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, nil, err
-	}
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		return nil, nil, err
-	}
-	notAfter := now.Add(issuer.lifetime() - issuedBackdate)
-	if notAfter.After(issuer.identity.expiresAt) {
-		notAfter = issuer.identity.expiresAt
-	}
-	template := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: identity.CommonName},
-		NotBefore: now.Add(-issuedBackdate), NotAfter: notAfter, KeyUsage: x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		IPAddresses: []net.IP{ip}, DNSNames: []string{identity.DNSName}}
-	der, err := x509.CreateCertificate(rand.Reader, template, issuer.cert, &key.PublicKey, issuer.key)
-	if err != nil {
-		return nil, nil, err
-	}
-	keyDER, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		return nil, nil, err
-	}
-	leaf := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	return append(leaf, issuer.certPEM...), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), nil
-}
-
-// RenewCredentials re-signs the user JWT of current credentials, keeping its
-// user key and grants, under the account signer for the generation's issued
-// lifetime. A NATS JWT is always stamped with the wall clock, so the lifetime
-// starts now.
-func (issuer *ControllerIssuer) RenewCredentials(current []byte) ([]byte, error) {
-	if issuer == nil || issuer.cert == nil || issuer.signer == nil || !time.Now().Before(issuer.identity.expiresAt) {
-		return nil, errors.New("controller account issuer has expired")
-	}
-	raw, err := jwt.ParseDecoratedJWT(current)
-	if err != nil {
-		return nil, err
-	}
-	claims, err := jwt.DecodeUserClaims(raw)
-	if err != nil {
-		return nil, err
-	}
-	user, err := jwt.ParseDecoratedUserNKey(current)
-	if err != nil {
-		return nil, err
-	}
-	defer user.Wipe()
-	if public, err := user.PublicKey(); err != nil || public != claims.Subject {
-		return nil, errors.New("controller credential seed and user JWT differ")
-	}
-	seed, err := user.Seed()
-	if err != nil {
-		return nil, err
-	}
-	defer clear(seed)
-	claims.IssuerAccount = issuer.identity.CellAccount
-	// Encode stamps IssuedAt with the wall clock (nats-io/jwt claims.go), so
-	// Expires is set from the same clock just before.
-	claims.Expires = minTime(time.Now().Add(issuer.lifetime()-issuedBackdate), issuer.identity.expiresAt).Unix()
-	claims.NotBefore = 0
-	encoded, err := claims.Encode(issuer.signer)
-	if err != nil {
-		return nil, err
-	}
-	return jwt.FormatUserConfig(encoded, seed)
-}
 
 // CheckIssuedTLS checks a slot's TLS leaf issued under generation: the
 // certificate file holds the leaf and the generation's controller issuer;

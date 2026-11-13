@@ -79,13 +79,6 @@ func (c Cell) Server(role string, n int) (string, error) {
 	return valid(fmt.Sprintf("%s-%d-%s-%d", strings.ToLower(c.Region), c.Index, role, n))
 }
 
-// PoolServer returns the name of the n-th host of a node pool, e.g.
-// gru-1-pool-app-3. A pool name is 2 to 12 lower-case letters and digits,
-// starting with a letter.
-func (c Cell) PoolServer(pool string, n int) (string, error) {
-	return valid(fmt.Sprintf("%s-%d-pool-%s-%d", strings.ToLower(c.Region), c.Index, pool, n))
-}
-
 // ControllerSlot returns the server name of a signed controller slot:
 // controller-a, -b and -c are the region's nodes 1, 2 and 3 (ts-sjc-1). GRU
 // keeps ctl-1, -2 and -3 (gru-1-ctl-1) until its servers are renamed: a

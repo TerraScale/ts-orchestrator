@@ -77,17 +77,6 @@ func (v VerifiedInfrastructureSpend) Footprint() capacityinventory.Scope {
 	return scope
 }
 
-// FoundationInfrastructureScopeDigest hashes the original signed compartment
-// authority. Schemas 2 and 3 use canonical logical roles for resources not yet created;
-// their later physical inventory scope has a separate digest.
-func FoundationInfrastructureScopeDigest(grant FoundationGrant) (string, error) {
-	scope, err := infrastructureScope(grant)
-	if err != nil {
-		return "", err
-	}
-	return scope.SHA256, nil
-}
-
 func infrastructureScope(grant FoundationGrant) (capacityinventory.Scope, error) {
 	footprint := ApprovedFootprint{TenancyID: grant.TenancyID, ParentCompartmentID: grant.ParentCompartmentID, SharedCompartmentID: grant.SharedCompartmentID, Regions: grant.Regions}
 	if err := validateFootprint(footprint); err != nil {

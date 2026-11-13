@@ -45,29 +45,6 @@ type SessionStore struct {
 	stream jetstream.Stream
 }
 
-func OpenSessionStore(ctx context.Context, js jetstream.JetStream, replicas int, scope string) (*SessionStore, error) {
-	if js == nil || replicas < 1 || replicas > 5 || scope == "" {
-		return nil, errors.New("dashboard sessions require JetStream, replicas and a listener scope")
-	}
-	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
-		Bucket: SessionBucket, Description: "Hashed dashboard sessions and token generations",
-		History: 1, Storage: jetstream.FileStorage, Replicas: replicas,
-		MaxValueSize: 1024, MaxBytes: 16 << 20,
-	})
-	if err != nil {
-		return nil, err
-	}
-	leader, err := js.Conn().JetStream()
-	if err != nil {
-		return nil, err
-	}
-	stream, err := js.Stream(ctx, "KV_"+SessionBucket)
-	if err != nil {
-		return nil, err
-	}
-	return &SessionStore{kv: kv, leader: leader, scope: sessionHash(scope), stream: stream}, nil
-}
-
 func sessionHash(value string) string {
 	digest := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(digest[:])

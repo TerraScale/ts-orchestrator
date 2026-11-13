@@ -55,15 +55,6 @@ func (a *Agent) now() time.Time {
 	return time.Now().UTC()
 }
 
-// Handle verifies and applies one step and returns the reply.
-func (a *Agent) Handle(ctx context.Context, wire []byte) StepReply {
-	command, expires, err := VerifyStepCommand(wire, a.Cell, a.Unit, a.Leaders, a.now())
-	if err != nil {
-		return StepReply{Unit: a.Unit, Outcome: OutcomeRefused, Reason: "step command did not verify"}
-	}
-	return a.handle(ctx, command, expires)
-}
-
 // handle applies one verified command that expires at expires.
 func (a *Agent) handle(ctx context.Context, command StepCommand, expires time.Time) StepReply {
 	reply := StepReply{OperationID: command.OperationID, Unit: a.Unit, Epoch: command.Epoch}

@@ -27,7 +27,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
@@ -139,34 +138,6 @@ type Repository struct {
 	config RepositoryConfig
 	client ObjectClient
 	fencer authority.Fencer
-}
-
-func NewRepository(config RepositoryConfig, client ObjectClient, fencer authority.Fencer) (*Repository, error) {
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-	if client == nil || fencer == nil {
-		return nil, errors.New("managed material repository requires OCI client and authority fencer")
-	}
-	return &Repository{config: config, client: client, fencer: fencer}, nil
-}
-
-// NewOCIRepository uses instance principal identity in the pinned product
-// region. The namespace, bucket, and KMS key still come from signed config.
-func NewOCIRepository(config RepositoryConfig, fencer authority.Fencer) (*Repository, error) {
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-	region, _ := config.Region.OCIRegion()
-	factory, err := ociclient.InstancePrincipal(region)
-	if err != nil {
-		return nil, fmt.Errorf("managed material OCI instance principal: %w", err)
-	}
-	client, err := factory.ObjectStorage()
-	if err != nil {
-		return nil, fmt.Errorf("managed material OCI client: %w", err)
-	}
-	return NewRepository(config, &client, fencer)
 }
 
 func specDigest(spec InitialSpec) (string, error) {

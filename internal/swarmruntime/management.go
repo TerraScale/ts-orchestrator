@@ -110,16 +110,6 @@ func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapsta
 	return startManagementAt(ctx, managementSocket, uint32(uid), uint32(gid), controllerCgroup, binding, node, region, identity.Environment, client, refresh, stateful)
 }
 
-// DialManagement authenticates the root manager over the fixed local socket.
-// Its returned connection belongs to the caller; no privileged socket is shared.
-func DialManagement(ctx context.Context, accepted bootstrapstart.AcceptedIdentity) (api.ControlClient, string, io.Closer, error) {
-	binding, err := acceptedBinding(accepted)
-	if err != nil {
-		return nil, "", nil, err
-	}
-	return dialManagementAt(ctx, managementSocket, 0, binding)
-}
-
 func acceptedBinding(accepted bootstrapstart.AcceptedIdentity) (string, error) {
 	wire, err := bootstrapstart.EncodeAcceptedIdentity(accepted)
 	if err != nil {
@@ -288,31 +278,7 @@ func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup
 	go func() { _ = server.Serve(listener) }()
 	return serving, nil
 }
-func dialManagementAt(ctx context.Context, path string, serverUID uint32, binding string) (api.ControlClient, string, *grpc.ClientConn, error) {
-	conn, err := grpc.NewClient("passthrough:///swarm-management", grpc.WithTransportCredentials(unixCredentials{serverUID: serverUID}), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", path)
-	}), grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		return invoker(metadata.AppendToOutgoingContext(ctx, managementBinding, binding), method, req, reply, cc, opts...)
-	}), grpc.WithStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-		return streamer(metadata.AppendToOutgoingContext(ctx, managementBinding, binding), desc, cc, method, opts...)
-	}))
-	if err != nil {
-		return nil, "", nil, err
-	}
-	client := api.NewControlClient(conn)
-	var headers metadata.MD
-	_, err = client.ListNodes(ctx, &api.ListNodesRequest{}, grpc.Header(&headers))
-	if err != nil {
-		_ = conn.Close()
-		return nil, "", nil, err
-	}
-	ids := headers.Get(managementNodeID)
-	if len(ids) != 1 || ids[0] == "" {
-		_ = conn.Close()
-		return nil, "", nil, errors.New("management manager identity unavailable")
-	}
-	return client, ids[0], conn, nil
-}
+
 func (s *managementServer) scoped(a api.Annotations) bool {
 	return a.Labels[LabelRegion] == s.region && a.Labels[LabelEnvironment] == s.environment && entityid.Valid(a.Labels[LabelIntentID]) && intentName.MatchString(a.Labels[LabelRole])
 }

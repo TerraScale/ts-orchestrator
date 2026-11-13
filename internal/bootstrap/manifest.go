@@ -242,32 +242,6 @@ func ManifestTrustPolicy() trust.Policy {
 	return trust.Policy{MaxLifetime: MaxManifestLifetime, ClockSkew: ManifestClockSkew}
 }
 
-// SignManifest canonicalizes and signs a manifest under the offline root.
-func SignManifest(manifest Manifest, issuedAt, expiresAt time.Time, rootPrivateKey ed25519.PrivateKey) (trust.Envelope, error) {
-	if err := manifest.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	payload, err := trust.EncodePayload(manifest)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if len(payload) > MaxManifestBytes {
-		return trust.Envelope{}, fmt.Errorf("%w: manifest exceeds its size limit", ErrManifestInvalid)
-	}
-	scope := manifestScope(manifest.DeploymentID, string(manifest.Cell), manifest.Environment, manifest.ControllerRole, manifest.Slot)
-	envelope, err := trust.Sign(payload, scope, issuedAt, expiresAt, rootPrivateKey)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if envelope.ExpiresAt.Sub(envelope.IssuedAt) > MaxManifestLifetime {
-		return trust.Envelope{}, fmt.Errorf("%w: manifest validity exceeds %s", ErrManifestInvalid, MaxManifestLifetime)
-	}
-	if err := validateManifestEnvelopeSize(envelope); err != nil {
-		return trust.Envelope{}, err
-	}
-	return envelope, nil
-}
-
 // VerifyManifest verifies the root signature before decoding or using any
 // Vault reference, and checks the exact expected deployment and controller
 // slot. The signed scope itself is per-slot.
@@ -613,9 +587,6 @@ func isOCID(value, kind string) bool {
 func manifestScope(deployment, cell, environment, role, slot string) trust.Scope {
 	return trust.Scope{Domain: manifestDomain, DeploymentID: deployment, Cell: cell, Environment: environment, Role: role, Slot: slot}
 }
-
-// DigestManifest returns the digest of an already root-signed canonical envelope.
-func DigestManifest(envelope trust.Envelope) (string, error) { return trust.Fingerprint(envelope) }
 
 // ManifestPayload decodes a payload for tooling that already verified its
 // signature. Runtime code should use VerifyManifest instead.
