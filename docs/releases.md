@@ -4,7 +4,9 @@
 
 After verifying the candidate's digest, the host updater executes
 `<candidate> release preflight` as its own user in its existing sandbox.
-The hook currently exits successfully without checks. It has a 70-second
+Release A's hook exits successfully without checks. This candidate (B) checks
+the installed relay unit's privileged preparation command and reads each
+candidate regional service secret with the host identity. It has a 70-second
 execution bound. Any failure, timeout or inability to execute refuses that
 host's release before the trial marker or binary changes; the staged candidate
 is removed. The candidate's diagnostic appears in the release reply and run
@@ -46,16 +48,16 @@ Incomplete publication retains prepared state, which remains authoritative and
 is recovered by the candidate at startup. The first successful activation stamp
 wins; an unstamped trial receives its full budget at candidate startup.
 
-This updater release also introduces `ts-orch alert-delivery prepare`.
+Release A introduced `ts-orch alert-delivery prepare`.
 Run as root, it reads exactly the three approved alert references using the
 host identity and writes `/run/ts-alert-delivery/{cloudflare_account_id_file,
 cloudflare_email_token_file,ts_alerts_ntfy_topic_file}`. The directory must
 be root-owned mode 0750 on tmpfs with swap disabled; the directory and files
 use the `ts-alerts` group, and files are root-owned mode 0640. Unreadable
-secrets fail preparation visibly without printing values. This release keeps
-the relay's existing Vault reads. Once this updater is on a host, a relay unit
+secrets fail preparation visibly without printing values. A kept
+the relay's existing Vault reads; B reads the prepared files instead. Once this updater is on a host, a relay unit
 with the privileged preparation command can safely be installed and restarted:
-preparation works and the unchanged relay ignores the files.
+preparation works and A's unchanged relay ignores the files.
 
 The updater lane exercises refusals, timeout, inability to execute, corrupt
 records, 10 MiB of noisy output, worker refusal followed by another region's
@@ -72,24 +74,66 @@ forward. Automatic probation rollback restores the previous binary by renaming
 
 ## Service credential releases
 
-Before releasing a change to service secrets:
+For existing hosts, use this order. At any failed check, stop before the next
+step and repair that check; do not continue on the strength of an earlier
+successful attempt. The previous checked step is the safe resting state.
+Do not install or enable metadata restrictions until step 7: an old relay
+behind those restrictions cannot deliver alerts.
 
-1. Release the updater-preflight change by itself to every host. Run
-   `ts-orch status` and compare every registered host's reported revision
-   with the published updater-preflight release revision (or a later release
-   containing it). Resolve missing reports or older hosts before proceeding:
-   an updater without the hook cannot enforce candidate checks.
-2. Use the candidate operator binary to run `ts-orch region add` for each
-   affected region, reconciling the candidate manifests' exact-secret grants.
-3. On the host that runs the alert relay, install the candidate
+1. Release A, the updater-preflight release, alone. Gate: `ts-orch status`
+   reports A's published revision on every registered host and every host is
+   healthy. Stopping here is safe: the relay still reads Vault as before,
+   metadata is unrestricted, and A supplies the preparation command.
+2. With B's operator binary, run `ts-orch region add` for each affected region
+   to reconcile its exact-secret grants. Gate: on every affected host, use
+   that host's instance identity to read each candidate service secret,
+   including the relay's three approved references, without printing values
+   (use `vault deliver --once` with the candidate reference map into a private
+   mode-0700 tmpfs directory, then remove those check files). Stopping here is
+   safe: grants are additive prerequisites and the running binary and relay
+   are unchanged.
+3. On the host running the relay, install B's
    `deploy/observability/production/ts-alert-delivery.service` and run
-   `systemctl daemon-reload`. Verify
+   `systemctl daemon-reload`. Gate:
    `systemctl show ts-alert-delivery.service --property=ExecStartPreEx --value`
-   reports `/usr/local/bin/ts-orch alert-delivery prepare` with
-   `flags=full-privileges`. The unit contains
+   shows `/usr/local/bin/ts-orch alert-delivery prepare` with
+   `flags=full-privileges`, corresponding to
    `ExecStartPre=+/usr/local/bin/ts-orch alert-delivery prepare`.
-   Leave the running relay in place until the candidate binary is installed.
-4. Release this candidate through the normal release path.
+   This unit can be installed any time after step 1 because A already provides
+   its preparation command. Stopping here is safe: the running relay is
+   unchanged and the command exists for its next restart.
+4. Restart the relay once. Gate: the service remains active and a real test
+   delivery arrives (use `ts-orch alert-delivery subscribe` in an interactive
+   terminal and confirm receipt). Preparation now writes the protected files,
+   while A's relay ignores them and still reads Vault. Stopping here is safe:
+   delivery is proven, the preparation path works, and metadata remains
+   unrestricted.
+5. Release B through the normal release path. Gate: no registered host shows a
+   refusal for this release attempt in `ts-orch status`; resolve any `no answer`
+   before advancing rather than treating silence as proof. Stopping here after
+   the check is safe: the already running relay continues delivering, its new
+   binary and privileged preparation unit are installed, and metadata remains
+   unrestricted. A refused or partial attempt is not a completed step; leave
+   metadata unrestricted and repair it before retrying.
+6. Restart the relay. Gate:
+   `stat -c '%U:%G %a %n' /run/ts-alert-delivery /run/ts-alert-delivery/*`
+   shows directory `root:ts-alerts 750` and three files `root:ts-alerts 640`
+   (never print contents), `curl --fail http://127.0.0.1:9094/healthz` returns
+   200, and a real test delivery arrives. Stopping here is safe: B's relay now
+   reads only the validated files and its delivery works without metadata.
+7. Only now install or enable the metadata rules and their unit, one host at a
+   time. After each host, gate the next on tasks being unable to reach the
+   metadata address over IPv4 and IPv6, root and the agent still reaching it,
+   and alert delivery succeeding again. Stopping after each checked host is
+   safe, including a partially restricted fleet, because B's relay uses files.
+   A host with a failed reachability or delivery check is not a safe resting
+   state: stop, remove that host's newly applied rules, verify the step-6
+   state again, and repair before continuing.
+
+Every successfully checked step is a safe resting state. A failed relay restart
+in steps 4 or 6 is not safe until delivery is restored; keep metadata unrestricted,
+repair the preparation or file validation failure, restart, and recheck delivery.
+A failed step-7 host must return to the verified step-6 state as described above.
 
 Before switching the host binary, release push, self-update and the M1 installer
 execute the candidate's `release preflight`. It checks the installed relay
@@ -104,16 +148,6 @@ and running process; the staged candidate is removed. Release output and
 secret values. A later attempt replaces the refusal record; a successful attempt
 clears it. Hosts without an OCI platform identity have no regional Vault grants
 to check. Status inventory remains diagnostic, without a fleet-completion gate.
-
-After release, restart the relay and check
-`systemctl status ts-alert-delivery.service` and
-`curl --fail http://127.0.0.1:9094/healthz`. Inspect ownership and modes without
-contents using `stat -c '%U:%G %a %n' /run/ts-alert-delivery /run/ts-alert-delivery/*`:
-the directory must be `root:ts-alerts 750`, the three files `root:ts-alerts 640`.
-Send a delivery check with `ts-orch alert-delivery subscribe` in an interactive
-terminal and confirm receipt. Health rechecks all three files and returns 503
-when any credential becomes unavailable or malformed; startup fails in that
-state. A 200 checks credential availability, not external provider delivery.
 
 ## Apply a signed release bundle
 

@@ -2,13 +2,14 @@ package alertdelivery
 
 import (
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"io"
 	"os"
 	"os/user"
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 func readCredentialFiles(keys ...string) (map[string]string, error) {

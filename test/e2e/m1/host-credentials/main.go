@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -37,6 +39,14 @@ func must(err error) {
 func write(path, value string) {
 	must(os.MkdirAll(filepath.Dir(path), 0o750))
 	must(os.WriteFile(path, []byte(value), 0o640))
+	if strings.HasPrefix(path, "/run/ts-alert-delivery/") {
+		account, err := user.Lookup("ts-alerts")
+		must(err)
+		gid, err := strconv.Atoi(account.Gid)
+		must(err)
+		must(os.Chown(filepath.Dir(path), 0, gid))
+		must(os.Chown(path, 0, gid))
+	}
 }
 
 func stop(cmd *exec.Cmd) {
@@ -63,6 +73,12 @@ func ready(cmd *exec.Cmd, marker string) {
 
 func relay(ctx context.Context, binary string) {
 	keys := []string{"cloudflare_account_id_file", "cloudflare_email_token_file", "ts_alerts_ntfy_topic_file"}
+	must(os.MkdirAll("/run/ts-alert-delivery", 0o750))
+	account, err := user.Lookup("ts-alerts")
+	must(err)
+	gid, err := strconv.Atoi(account.Gid)
+	must(err)
+	must(os.Chown("/run/ts-alert-delivery", 0, gid))
 	command := exec.CommandContext(ctx, binary, "alert-delivery")
 	output, err := command.CombinedOutput()
 	require(err != nil && strings.Contains(string(output), "CLOUDFLARE_ACCOUNT_ID_FILE unavailable"), "relay must refuse startup without credential files")
@@ -99,8 +115,16 @@ func relay(ctx context.Context, binary string) {
 		require(err != nil && strings.Contains(string(output), strings.ToUpper(key)), "relay startup must name malformed credential file")
 		write(path, values[i])
 		check(http.StatusOK, "")
+		must(os.Chmod(path, 0o600))
+		check(http.StatusServiceUnavailable, strings.ToUpper(key))
+		must(os.Chmod(path, 0o640))
+		check(http.StatusOK, "")
+		must(os.Chown(path, 0, gid+1))
+		check(http.StatusServiceUnavailable, strings.ToUpper(key))
+		must(os.Chown(path, 0, gid))
+		check(http.StatusOK, "")
 	}
-	fmt.Println("ok relay: health is 503 after each missing or malformed file, recovers after repair")
+	fmt.Println("ok relay: health is 503 after each missing, malformed or misprotected file; recovers after repair")
 }
 
 func systemctl() {
@@ -136,6 +160,14 @@ func run(ctx context.Context) {
 	must(err)
 	must(os.Symlink(helper, filepath.Join(path, "systemctl")))
 	must(os.Setenv("PATH", path+":"+os.Getenv("PATH")))
+	if _, err := user.Lookup("ts-alerts"); err != nil {
+		passwd, err := os.ReadFile("/etc/passwd")
+		must(err)
+		passwd = append(passwd, []byte("\nts-alerts:x:32123:32123:Alert relay:/nonexistent:/usr/sbin/nologin\n")...)
+		passwdFile := filepath.Join(work, "credential-passwd")
+		must(os.WriteFile(passwdFile, passwd, 0o644))
+		must(syscall.Mount(passwdFile, "/etc/passwd", "", syscall.MS_BIND, ""))
+	}
 	relay(ctx, binary)
 	write(unit, "[Service]\nExecStart=/usr/local/bin/ts-orch alert-delivery\n")
 	err = secretpreflight.Check(ctx, binary)
