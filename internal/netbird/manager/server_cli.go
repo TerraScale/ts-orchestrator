@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -142,7 +143,7 @@ func runsServer(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("ts-orch service ls: %w", err)
 	}
 	for line := range strings.Lines(string(output)) {
-		if strings.HasPrefix(line, "netbird-server ") {
+		if strings.HasPrefix(line, netbird.ServerServiceName+" ") {
 			return true, nil
 		}
 	}

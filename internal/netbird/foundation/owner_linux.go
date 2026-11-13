@@ -191,7 +191,7 @@ func (o *owner) refresh(ctx context.Context, previous region.NetBirdComponents) 
 		return region.NetBirdComponents{}, err
 	}
 	oldSet, nextSet := previous.ReleaseSnapshot(), current.ReleaseSnapshot()
-	for i, role := range [3]string{"netbird-server", "netbird-dashboard", "netbird-ingress"} {
+	for i, role := range componentRoles() {
 		old, next := oldSet[i], nextSet[i]
 		if old.Role() != role || next.Role() != role {
 			return region.NetBirdComponents{}, errors.New("NetBird resume requires the complete previous release set")

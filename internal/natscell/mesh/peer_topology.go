@@ -52,7 +52,7 @@ func (n *Node) publishTopologyDesired() {
 }
 
 func (n *Node) awaitPeerAdmission(ctx context.Context, spec *swarmruntime.ServiceSpec) error {
-	if spec == nil || len(spec.Regions) > 0 && !slices.Contains(spec.Regions, n.cfg.region) {
+	if spec == nil || !spec.NeedsPeers() || len(spec.Regions) > 0 && !slices.Contains(spec.Regions, n.cfg.region) {
 		return nil
 	}
 	for {
@@ -174,7 +174,7 @@ func (n *Node) attestPeers() {
 	defer n.peers.mu.Unlock()
 	reports := map[string]PeerAttestation{}
 	for name, entry := range *n.topologyDesired.Load() {
-		if entry.Spec == nil || len(entry.Spec.Regions) > 0 && !slices.Contains(entry.Spec.Regions, n.cfg.region) {
+		if entry.Spec == nil || !entry.Spec.NeedsPeers() || len(entry.Spec.Regions) > 0 && !slices.Contains(entry.Spec.Regions, n.cfg.region) {
 			continue
 		}
 		regions := entry.Spec.Regions
@@ -215,7 +215,7 @@ func (n *Node) writePeerMetrics(w io.Writer) {
 	n.peerReportMu.Lock()
 	defer n.peerReportMu.Unlock()
 	for service, entry := range *n.topologyDesired.Load() {
-		if entry.Spec == nil {
+		if entry.Spec == nil || !entry.Spec.NeedsPeers() {
 			continue
 		}
 		regions := entry.Spec.Regions

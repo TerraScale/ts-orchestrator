@@ -385,8 +385,7 @@ func (n *Node) regions() []string {
 	return slices.Compact(names)
 }
 
-// run pulls peer state now and every cfg.every until ctx ends.
-func (n *Node) run(ctx context.Context) {
+func (n *Node) Run(ctx context.Context) {
 	tick := time.NewTicker(n.cfg.every)
 	defer tick.Stop()
 	var collected time.Time
@@ -464,9 +463,7 @@ func (n *Node) sync(ctx context.Context) {
 				"error", fmt.Errorf("invalid desired state for %s: %w", name, err))
 			continue
 		}
-		// The peers file follows desired state even while the rollout waits (a
-		// held canary or an earlier region's turn): a restart must re-render it.
-		if entry := n.desired[name].entry(); entry.Spec != nil && (len(entry.Spec.Regions) == 0 || slices.Contains(entry.Spec.Regions, n.cfg.region)) {
+		if entry := n.desired[name].entry(); entry.Spec != nil && entry.Spec.NeedsPeers() && (len(entry.Spec.Regions) == 0 || slices.Contains(entry.Spec.Regions, n.cfg.region)) {
 			if err := n.peers.track(name, entry.Spec.Regions, PerNode(entry.Spec)); err != nil {
 				slog.WarnContext(ctx, "mesh peers file track failed", "service", name, "error", err)
 			}
@@ -861,8 +858,10 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 			spec.WorkerAddresses[worker.Node] = worker.Address
 		}
 	}
-	if err := n.peers.track(name, spec.Regions, perNode); err != nil {
-		return applyResult{}, err
+	if spec.NeedsPeers() {
+		if err := n.peers.track(name, spec.Regions, perNode); err != nil {
+			return applyResult{}, err
+		}
 	}
 	changed, service, err := n.cfg.applier.Apply(ctx, spec)
 	if err != nil {
