@@ -20,7 +20,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard/accesscheck"
-	"github.com/TerraScale/ts-orchestrator/internal/disasterrecovery"
 	"github.com/TerraScale/ts-orchestrator/internal/edge/geodns"
 	"github.com/TerraScale/ts-orchestrator/internal/functions"
 	"github.com/TerraScale/ts-orchestrator/internal/image"
@@ -94,7 +93,6 @@ Operator tooling:
   vault                  Store secrets in OCI Vault once; render host files from them
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
   runtime-priority       Qualify runtime resources and run bounded pressure
-  disaster-recovery      Prepare cross-region Object Storage and Vault recovery copies
 
 Use ts-orch release --help to list its commands.
 ts-orch release push sends a main build one region at a time (sjc, fra, gru), waiting for JetStream and the region's services (CI only);
@@ -255,8 +253,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return commandStatus(ctx, sourcedigest.Run(ctx, args[1:], commandio.NewWriter(output), &diagnostics), &diagnostics)
 	case "qualification":
 		return runQualification(ctx, args[1:], commandio.NewWriter(output))
-	case "disaster-recovery":
-		return disasterrecovery.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "runtime-priority":
 		if len(args) == 1 || args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
 			_, err := io.WriteString(output, "Usage: ts-orch runtime-priority <qualify|pressure|probe-admission|adapter|remote> [flags]\n")

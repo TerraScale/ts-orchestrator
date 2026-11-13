@@ -1,0 +1,57 @@
+[Unit]
+Description=TerraScale Orchestrator controller bootstrap admission
+Wants=network-online.target
+After=network-online.target
+Requires=systemd-timesyncd.service systemd-time-wait-sync.service
+After=systemd-timesyncd.service systemd-time-wait-sync.service
+Requires=terrascale-orchestrator-controller-install.service
+After=terrascale-orchestrator-controller-install.service
+ConditionPathExists=/etc/terrascale-orchestrator/controller.json
+Before=terrascale-orchestrator-controller.service
+
+[Service]
+Type=oneshot
+# The controller Requires this oneshot: without RemainAfterExit each
+# controller start reruns admission in a loop.
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=10s
+# The credential directory is memory only: rebuild it from Vault first (TS-745).
+ExecStartPre=+/usr/local/bin/terrascale-orchestrator restore-controller-material
+ExecStart=/usr/local/bin/terrascale-orchestrator bootstrap-controller --config /etc/terrascale-orchestrator/controller.json
+# A boot's first admission can fail (the seed completion is not yet readable)
+# and fail the controller's start job with it; the retry that succeeds must
+# start the controller. OnSuccess= cannot: with RemainAfterExit the unit never
+# goes inactive. "+" runs systemctl outside this unit's sandbox.
+ExecStartPost=+/usr/bin/systemctl start --no-block terrascale-orchestrator-controller.service
+# Admission failures also reach the serial console, readable before any SSH path is up.
+StandardError=journal+console
+TimeoutStartSec=300s
+UMask=0077
+RuntimeDirectory=terrascale-orchestrator-bootstrap
+RuntimeDirectoryMode=0700
+StateDirectory=terrascale-orchestrator-bootstrap
+StateDirectoryMode=0755
+# Initial admission drops to the service account to preflight its
+# credentials in a child process, so the unit runs as root by default:
+# User=root with NoNewPrivileges=yes would make systemd drop CAP_SETUID.
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_CHOWN CAP_SETGID CAP_SETUID CAP_DAC_OVERRIDE CAP_KILL
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/terrascale-orchestrator-bootstrap /var/lib/terrascale-orchestrator-secrets /var/lib/terrascale-orchestrator-controller /run/terrascale-orchestrator-bootstrap
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+# The read-only kernel NTP health probe uses adjtimex(2); CAP_SYS_TIME is absent.
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ProtectProc=invisible
+ProcSubset=pid

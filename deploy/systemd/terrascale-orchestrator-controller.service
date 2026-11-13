@@ -1,0 +1,68 @@
+[Unit]
+Description=TerraScale Orchestrator regional controller
+Wants=network-online.target
+After=network-online.target
+Requires=terrascale-orchestrator-bootstrap.service
+After=terrascale-orchestrator-bootstrap.service
+ConditionPathExists=/etc/terrascale-orchestrator/controller.json
+# A controller that keeps failing enters the failed state (start-limit-hit),
+# visible to alerting and a rollout gate, instead of rejoining and leaving
+# the cluster forever.
+StartLimitIntervalSec=30min
+StartLimitBurst=10
+
+[Service]
+# READY=1 follows the host controller's readiness; WATCHDOG=1 keepalives stop
+# when the embedded broker or its in-process client is unusable.
+Type=notify
+NotifyAccess=main
+# First cluster formation waits for peers and JetStream quorum.
+TimeoutStartSec=20min
+WatchdogSec=60s
+User=terrascale-orchestrator
+Group=terrascale-orchestrator
+ExecStart=/usr/local/bin/terrascale-orchestrator run --config /etc/terrascale-orchestrator/controller.json
+# Keep the regional control plane schedulable under ordinary workload pressure.
+# Image profile supplies this service's memory floor; target qualification reads it back.
+CPUSchedulingPolicy=other
+Nice=-20
+CPUWeight=10000
+IOWeight=10000
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
+OOMScoreAdjust=-1000
+ManagedOOMPreference=omit
+Restart=on-failure
+RestartSec=5s
+RestartSteps=6
+RestartMaxDelaySec=5min
+TimeoutStopSec=60s
+KillSignal=SIGTERM
+KillMode=control-group
+LimitNOFILE=65536
+LimitCORE=0
+UMask=0077
+StateDirectory=terrascale-orchestrator-controller
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/terrascale-orchestrator-controller
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+# The read-only kernel NTP health probe uses adjtimex(2); CAP_SYS_TIME is absent.
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ProtectProc=invisible
+
+[Install]
+WantedBy=multi-user.target

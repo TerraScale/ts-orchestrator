@@ -1,0 +1,14 @@
+[Unit]
+Description=TerraScale Orchestrator managed volume initializer socket
+After=local-fs.target
+
+[Socket]
+ListenStream=/run/terrascale-orchestrator-volume-init.sock
+SocketUser=root
+SocketGroup=root
+SocketMode=0600
+Accept=no
+Service=terrascale-orchestrator-host-volume-init.service
+
+[Install]
+WantedBy=sockets.target

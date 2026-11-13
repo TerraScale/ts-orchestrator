@@ -21,8 +21,6 @@ type Access struct {
 	Token string `json:"-"`
 }
 
-func (a Access) String() string { return fmt.Sprintf("regional read access (%d origins)", len(a.URLs)) }
-
 // Resolve uses the operator's authenticated OCI identity and independent public
 // roots. An empty selector chooses the signed home region. No resources change.
 func Resolve(ctx context.Context, selector string) (Access, error) {

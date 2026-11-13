@@ -1,0 +1,70 @@
+[Unit]
+Description=TerraScale Orchestrator host runtime
+Wants=network-online.target
+Requires=terrascale-orchestrator-host-setup.service
+After=network-online.target terrascale-orchestrator-host-setup.service
+ConditionPathExists=/etc/terrascale-orchestrator/host.json
+# Availability first: the restart backoff below reaches its 5min cap after
+# seven starts (about 10 minutes), so at most about 17 starts fit in any hour
+# and a loop at the capped backoff never reaches this burst; the host keeps
+# retrying through a controller outage of any length. The limit only fails a
+# runtime that restarts faster than that backoff (for example after a manual
+# reset-failed), and the host-setup timer starts a failed runtime again.
+StartLimitIntervalSec=1h
+StartLimitBurst=20
+
+[Service]
+# READY=1 once the host is connected to its regional cell. No WatchdogSec=:
+# restarting this process stops every supervised TerraBase member.
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=3min
+# Runs as root by default: User=root with NoNewPrivileges=yes would make
+# systemd drop CAP_SETUID, which the native workload helper needs.
+SupplementaryGroups=
+ExecStart=/usr/local/bin/terrascale-orchestrator host --config /etc/terrascale-orchestrator/host.json
+# Protect the host manager without throttling the managed database when idle.
+# MemoryMin/MemoryLow come from the image profile; the native runner copies
+# those floors to the supervisor subgroup.
+CPUSchedulingPolicy=other
+Nice=-20
+CPUWeight=10000
+IOWeight=10000
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
+OOMScoreAdjust=-1000
+ManagedOOMPreference=omit
+Restart=on-failure
+RestartSec=5s
+RestartSteps=6
+RestartMaxDelaySec=5min
+TimeoutStopSec=90s
+KillSignal=SIGTERM
+KillMode=control-group
+LimitNOFILE=65536
+LimitCORE=0
+UMask=0077
+StateDirectory=terrascale-orchestrator-host
+StateDirectoryMode=0755
+Delegate=yes
+DelegateSubgroup=supervisor
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_CHOWN CAP_KILL CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+ProtectSystem=strict
+# A custom root needs a drop-in that resets this list before adding its exact path.
+ReadWritePaths=-/srv/ts-managed
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=no
+ProtectHostname=yes
+# The read-only kernel NTP health probe uses adjtimex(2); CAP_SYS_TIME is absent.
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
