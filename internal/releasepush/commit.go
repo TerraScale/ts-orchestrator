@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
+	"strings"
 )
 
 type releaseID struct {
@@ -182,12 +183,16 @@ func cleanupPrevious(h *Handler, id releaseID) {
 		return
 	}
 	keep := previousBinary(h.Binary, record.Previous)
-	paths, err := filepath.Glob(h.Binary + ".prev-*")
+	entries, err := os.ReadDir(filepath.Dir(h.Binary))
 	if err != nil {
 		slog.Warn("release installed; previous binary cleanup unavailable", "error", err)
 		return
 	}
-	for _, path := range paths {
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), filepath.Base(h.Binary)+".prev-") {
+			continue
+		}
+		path := filepath.Join(filepath.Dir(h.Binary), entry.Name())
 		if path != keep {
 			if err := os.Remove(path); err != nil {
 				slog.Warn("release installed; previous binary cleanup failed", "error", err)

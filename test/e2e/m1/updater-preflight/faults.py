@@ -247,8 +247,7 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                             and not pathlib.Path(work, "disarmed").exists()
                             and (
                                 relative == ""
-                                or relative.startswith("/nats/")
-                                or relative.startswith("/installed.prev-")
+                                or relative.startswith(("/nats/", "/installed.prev-"))
                             )
                             and (
                                 name in ("write", "fsync", "rename", "unlink")
