@@ -65,7 +65,10 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	}()
 	healthCtx, stopHealth := context.WithCancel(ctx)
 	defer stopHealth()
-	go hostmetrics.Run(healthCtx)
+	go hostmetrics.Run(healthCtx, plan.region, executor)
+	if plan.joiner() {
+		go syncHostTargets(healthCtx)
+	}
 	go executor.ReapExitedTasks(healthCtx)
 	failed := make(chan error, 2)
 	go func() {

@@ -11,6 +11,7 @@ The ARM journeys run as independent matrix jobs. Every lane runs for every pull 
 | restarts | Agent and task restart, private/public key preservation and persistent data | 8 minutes | All paths |
 | rollback | Never-ready update rolls back while the previous task serves | 8 minutes | All paths |
 | host-logs | Journal settings applied once from current host state, unsupported hosts left untouched, syslog handling | 12 minutes | All paths |
+| monitoring | Alert rule sets, relay delivery, and task metrics that keep the recorded service identity across restart and adoption | 8 minutes | All paths |
 | boot-order | Management and peer cold boots, old declarations, dependency gates and running tasks | 8 minutes | All paths |
 | operator | Fleet routing contracts and startup metadata recovery/outage/cancellation | 8 minutes | All paths |
 
