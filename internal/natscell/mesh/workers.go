@@ -192,7 +192,7 @@ func (n *Node) trackWorkerServices(ctx context.Context) {
 	}
 	want := map[string]*swarmruntime.ServiceSpec{}
 	for name, state := range reply.Desired {
-		if spec := state.entry().Spec; PerNode(spec) && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
+		if spec := state.entry().Spec; PerNode(spec) && spec.NeedsPeers() && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
 			want[name] = spec
 		}
 	}

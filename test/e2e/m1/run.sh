@@ -259,4 +259,8 @@ gone() { ! orch service ls | grep -q '^e2e-' && ! edge whoami.e2e.test /health &
 wait_for 60 gone
 end "rm -> services, routes and tasks gone"
 test "$(sudo head -1 "$data/boots")" = "$first"
+begin "host reboot with and without local mesh management"
+CGO_ENABLED=0 nice -n 19 go -C "$repo" build -trimpath -o "$work/boot-order" ./test/e2e/m1/boot-order
+nice -n 19 bash "$here/boot-order/run.sh" "$work/boot-order"
+end "reboot -> mesh management starts independently, peer services recover"
 echo "M1 e2e passed"

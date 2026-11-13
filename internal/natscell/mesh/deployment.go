@@ -86,7 +86,14 @@ func newestEntry(current, next *Entry) (*Entry, error) {
 	if next.supersedes(*current) {
 		return next, nil
 	}
-	// Equal timestamps still need a total order across independently written specs.
+	currentDependencies := current.Spec != nil && current.Spec.Dependencies != nil
+	nextDependencies := next.Spec != nil && next.Spec.Dependencies != nil
+	if current.Generation == next.Generation && currentDependencies != nextDependencies {
+		if nextDependencies {
+			return next, nil
+		}
+		return current, nil
+	}
 	a, err := protocol.EncodeJSON(current)
 	if err != nil {
 		return nil, err

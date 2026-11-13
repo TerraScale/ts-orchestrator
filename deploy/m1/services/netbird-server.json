@@ -1,4 +1,5 @@
 {
+  "dependencies": [],
   "name": "netbird-server",
   "image": "docker.io/netbirdio/netbird-server:0.81.3@sha256:9b2f606efefa8ea176e2afbb35c79622ca318e2e605ff1a0f6cb7e158ac08336",
   "args": ["--config", "/var/lib/netbird/config.yaml"],

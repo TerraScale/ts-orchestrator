@@ -1,4 +1,5 @@
 {
+  "dependencies": ["peers"],
   "name": "terrabase",
   "image": "ghcr.io/terrascale/terrabase@sha256:2d0e7fd670b27f4ad25b52794b35defd205d663ce3db90a4e38f1226e20ecfe8",
   "env": {

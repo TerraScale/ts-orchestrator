@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -50,7 +51,7 @@ var errComponentCustody = errors.New("NetBird runtime identity or retained physi
 var errComponentAdmission = errors.New("NetBird current component admission is unresolved")
 
 func componentRoles() [3]string {
-	return [3]string{"netbird-server", "netbird-dashboard", "netbird-ingress"}
+	return [3]string{netbird.ServerServiceName, "netbird-dashboard", "netbird-ingress"}
 }
 
 type componentRelease struct {
