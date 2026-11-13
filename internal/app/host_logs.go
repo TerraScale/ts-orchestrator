@@ -38,22 +38,22 @@ func ensureHostLogs(ctx context.Context) error {
 		return errors.New("systemd journal socket unavailable")
 	}
 	const directory = "/etc/systemd/journald.conf.d"
-	for parent := directory; ; parent = filepath.Dir(parent) {
-		err := unix.Faccessat(unix.AT_FDCWD, parent, unix.W_OK, unix.AT_EACCESS)
-		if errors.Is(err, unix.ENOENT) && parent != "/" {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("journal configuration directory is not writable: %w", err)
-		}
-		break
-	}
 	const path = directory + "/60-ts-orch.conf"
 	current, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	if !bytes.Equal(current, []byte(hostJournalConfig)) {
+		for parent := directory; ; parent = filepath.Dir(parent) {
+			err := unix.Faccessat(unix.AT_FDCWD, parent, unix.W_OK, unix.AT_EACCESS)
+			if errors.Is(err, unix.ENOENT) && parent != "/" {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("journal configuration directory is not writable: %w", err)
+			}
+			break
+		}
 		if err := os.MkdirAll(directory, 0755); err != nil {
 			return err
 		}
@@ -61,7 +61,11 @@ func ensureHostLogs(ctx context.Context) error {
 			return err
 		}
 	}
-	if active, _ := hostJournalActive(ctx, path); !active {
+	active, err := hostJournalActive(ctx, path)
+	if err != nil {
+		return fmt.Errorf("journal activation unknown: %w", err)
+	}
+	if !active {
 		output, restartErr := runHostLogCommand(ctx, "systemctl", "restart", "systemd-journald.service")
 		if active, err := hostJournalActive(ctx, path); !active {
 			return fmt.Errorf("restart journal not confirmed: %w: %s", errors.Join(restartErr, err, errors.New("journal start is not later than configuration")), output)

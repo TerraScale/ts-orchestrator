@@ -93,6 +93,22 @@ wait_for 30 activation_done
 test "$(sudo stat -c %i:%y:%z "$config")" = "$journal_file"
 test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
 syslog_masked
+printf '[Service]\nConfigurationDirectory=\nReadWritePaths=\nReadWritePaths=/usr/local/bin\n' | sudo tee "$dropin" >/dev/null
+sudo systemctl daemon-reload
+restart_serving
+wait_for 30 housekeeping_finished
+if warning_present; then
+	echo "matching settings were skipped on a read-only configuration directory" >&2
+	exit 1
+fi
+test "$(sudo stat -c %i:%y:%z "$config")" = "$journal_file"
+test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
+syslog_masked
+echo "matching settings on a read-only configuration directory -> checked, nothing changed"
+sudo rm "$dropin"
+sudo systemctl daemon-reload
+restart_serving
+wait_for 30 housekeeping_finished
 end "ts-orch restarts -> logs repaired, deliberate unsupported cases untouched, both served"
 
 begin "current host state drives one housekeeping attempt per start"
