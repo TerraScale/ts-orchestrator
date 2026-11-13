@@ -1,5 +1,89 @@
 # Build and release boundaries
 
+## ts-orch candidate preflight
+
+A host that receives a `ts.release.ts-orch` request downloads the candidate,
+checks its SHA-256 digest against the signed request and writes it to
+`<binary>.next`. Before anything else on the host is touched, it runs
+`<binary>.next release preflight` (`internal/releasepreflight`, which currently
+succeeds without checks) in its own process group, killed after 70 seconds.
+Output is drained; the first 4 KiB are kept, with control characters removed,
+as the diagnostic.
+
+A non-zero exit, the 70-second timeout or a candidate that cannot be executed
+refuses the release as `host_prerequisite` with `"preflight": true`. If the exec
+fails with `ETXTBSY` (another process, such as a child started while the file
+was being written, still holds it open for writing), it is retried every 20 ms
+for up to 5 seconds and then refused as `host_prerequisite` without
+`preflight`. No process-wide lock is taken, so commands the agent starts during
+a slow write are not delayed. A preflight refusal only removes `<binary>.next`:
+the installed binary, `<binary>.prev`, `nats/release-trial`,
+`nats/release-run-id` and `nats/release-rolled-back` stay as they were. When the
+candidate passes, the install continues exactly as before: trial marker,
+`.prev` link, rename, rollback record removal and run fence, then the restart
+and probation described in [m1-single-host.md](m1-single-host.md).
+
+A candidate built before `release preflight` existed fails its preflight on a
+host that runs this updater, so releases move forward. Probation rollback
+renames `.prev` back without running the preflight.
+
+## ts-orch refusal kinds
+
+A refused `ts.release.ts-orch` request answers `state: "rejected"` with a
+`refusal` object: `kind`, `sha`, `sha256`, `preflight`, `run_id`,
+`run_attempt` and the diagnostic `reason`.
+
+- `host_prerequisite`: the host could not finish verification or installation.
+  The signing key fetch failed (also for a request that waited for another
+  request's fetch that failed), the token's key is not in a key set fetched
+  less than 30 seconds earlier (not refreshed again), the download failed, a
+  file could not be written or renamed, the run fence could not be read, or the
+  candidate preflight refused (`preflight: true`) or stayed busy.
+- `release_integrity`: the release is proven wrong. The request does not decode,
+  the token is invalid or for another workflow or commit, the URL is not the
+  signed run's asset, the token's key is missing from a key set that this
+  request fetched or waited for successfully, or the fully received binary has
+  another digest.
+
+The two writes after the binary rename (removing `nats/release-rolled-back` and
+writing `nats/release-run-id`) still answer `rejected` without a `refusal`, as
+before, and the pusher fails that region and skips the later ones.
+
+## ts-orch release push
+
+`ts-orch release push` first asks every region's first host for its version
+and health and stops before sending anything if one does not answer or reports
+a health error. `--repair-unhealthy-fleet` skips only that initial health check
+for first hosts that answered their version request: before any release is
+sent it prints one `repair_skipped_health` line per skipped host with its health
+text, and the region's result carries the same text in `repair`. A first host
+that does not answer its version request still stops the push, and every later
+gate is unchanged. The flag is never a default and no other flag sets it.
+
+Regions are pushed in order. The region's first host relays the request to the
+workers in its region's inventory when it installed the release, already runs
+it, or refused it in its preflight, and returns one row per expected worker.
+Collecting worker answers is bounded by 90 seconds after the inventory lookup
+(up to 5 seconds). A worker that did not answer keeps a `no answer` row and is
+never counted as a refusal; an unavailable inventory gives a
+`worker inventory` row.
+
+- A `release_integrity` refusal, or a refusal of an unknown or absent kind, on
+  any host fails the region at once and skips every later region.
+- `host_prerequisite` refusals name the hosts in the region's state
+  (`refused on <hosts>`); later regions continue and the push fails at its end.
+  A first host that accepted the release still has to serve it and pass its
+  health check before the next region starts.
+- In the first region the rollout stops when the first host and every expected
+  worker answered with a preflight refusal of the same commit.
+
+A first host serves the release when its version answer names the release's
+revision and one of its binary digests. A rollback of that revision is checked
+first, so another build of the same commit that was rolled back is never
+reported as serving. A host running a build from before this change sends no
+digest: for that host serving is confirmed by revision only and the result
+says so in `revision_only`.
+
 ## Apply a signed release bundle
 
 ```sh

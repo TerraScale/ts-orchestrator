@@ -91,6 +91,7 @@ type Reply struct {
 
 	State   string `json:"state,omitempty"` // current, installed, stale, rolled_back, rejected; done, failed for mesh
 	Version string `json:"version,omitempty"`
+	SHA256  string `json:"sha256,omitempty"`
 	Health  string `json:"health,omitempty"`
 	Error   string `json:"error,omitempty"`
 	// RolledBack is the release this host restored <binary>.prev over; Error says why.
@@ -100,6 +101,9 @@ type Reply struct {
 	Deadline time.Time       `json:"deadline,omitzero"`
 	Events   []string        `json:"events,omitempty"`
 	NodeList nodelist.Status `json:"node_list,omitzero"`
+	Refusal  *Refusal        `json:"refusal,omitempty"`
+	Host     string          `json:"host,omitempty"`
+	Workers  []HostVersion   `json:"workers,omitempty"`
 }
 
 type HealthRequest struct {
@@ -127,6 +131,7 @@ type Handler struct {
 	Verifier *Verifier
 	// Revision is the running build's vcs.revision.
 	Revision string
+	Digest   string
 	// Binary is the installed executable that a release replaces.
 	Binary string
 	// RunIDFile records the installed release's GitHub run_id; an older run is refused.
@@ -143,13 +148,13 @@ type Handler struct {
 	Mesh func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
 	// Relay, when set, passes an accepted ts-orch release request on to the
 	// region's workers (the founder's mesh); each worker verifies it itself.
-	Relay func(request []byte)
+	Relay func(ctx context.Context, request []byte) []HostVersion
 	// Installed receives once after a new binary is in place; the caller exits
 	// so systemd restarts the new binary.
 	Installed chan struct{}
 
 	mu            sync.Mutex
-	pending       string // installed, waiting for the restart
+	pending       releaseID
 	rolledBack    atomic.Pointer[Rollback]
 	lastHealth    atomic.Pointer[string]
 	appOperations map[appOperationKey]*appOperation
@@ -161,7 +166,11 @@ func NewHandler(state string) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary,
+	digest, err := runningDigest()
+	if err != nil {
+		return nil, err
+	}
+	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Digest: digest, Binary: binary,
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
 		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
 	h.NodeList = nodelist.Open(state)
@@ -215,16 +224,27 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 
 // ServeWorker installs the ts-orch releases a region's founder relays on
 // subject: the same signed request CI sent, verified here again.
-func (h *Handler) ServeWorker(conn *nats.Conn, subject string) error {
-	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: h.orch})
+func (h *Handler) ServeWorker(conn *nats.Conn, subject, host string) error {
+	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: func(ctx context.Context, data []byte) Reply {
+		reply := h.orch(ctx, data)
+		reply.Host = host
+		return reply
+	}})
 }
 
 // relayed installs a release and, once this host runs or installed it,
 // passes the request on to the region's workers.
 func (h *Handler) relayed(ctx context.Context, data []byte) Reply {
 	reply := h.orch(ctx, data)
-	if h.Relay != nil && (reply.State == "installed" || reply.State == "current") {
-		h.Relay(data)
+	host, _ := os.Hostname()
+	reply.Host = scrub(host)
+	if h.Relay != nil && (reply.State == "installed" || reply.State == "current" || reply.Refusal != nil && reply.Refusal.Preflight) {
+		reply.Workers = h.Relay(ctx, data)
+		for _, worker := range reply.Workers {
+			if worker.Error != "" {
+				slog.Warn("release worker relay incomplete", "host", worker.Host, "error", worker.Error)
+			}
+		}
 	}
 	return reply
 }
@@ -263,7 +283,7 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }
 
 func (h *Handler) version() Reply {
-	reply := Reply{Version: h.Revision, NodeList: h.NodeList.Status()}
+	reply := Reply{Version: h.Revision, SHA256: h.Digest, NodeList: h.NodeList.Status()}
 	if rollback := h.rolledBack.Load(); rollback != nil {
 		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason
 	}
@@ -285,7 +305,7 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 	}
 	pending := h.pending
 	h.mu.Unlock()
-	if pending != "" {
+	if pending != (releaseID{}) {
 		return Reply{Version: h.Revision, Health: "release restart pending"}
 	}
 	if h.Health != nil {
@@ -310,16 +330,21 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	defer h.mu.Unlock()
 	var release OrchRelease
 	if err := protocol.DecodeStrict(data, &release, 64<<10); err != nil {
-		return rejected(err)
+		return refusalReply(RefusalIntegrity, release.SHA, "", Claims{}, err)
 	}
 	binary, claims, err := h.validateOrch(ctx, release)
 	if err != nil {
-		return rejected(err)
+		var host *hostError
+		if errors.As(err, &host) {
+			return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
+		}
+		return refusalReply(RefusalIntegrity, release.SHA, binary.SHA256, claims, err)
 	}
-	if release.SHA == h.Revision {
+	candidate := releaseID{release.SHA, binary.SHA256}
+	if candidate == (releaseID{h.Revision, h.Digest}) {
 		return Reply{State: "current", Version: h.Revision}
 	}
-	if release.SHA == h.pending {
+	if candidate == h.pending {
 		return Reply{State: "installed", Version: release.SHA}
 	}
 	// A retry of the run that never served is refused; a newer run may try again.
@@ -327,7 +352,7 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 		return Reply{State: "rolled_back", Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason}
 	}
 	if stale, err := h.olderRun(claims.RunID); err != nil {
-		return rejected(err)
+		return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
@@ -336,7 +361,18 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	if err := h.install(ctx, binary, func() error {
 		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now()})
 	}); err != nil {
-		return rejected(errors.Join(err, removeIfExists(h.TrialFile)))
+		var refused *preflightError
+		if errors.As(err, &refused) {
+			reply := refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
+			reply.Refusal.Preflight = refused.ran
+			return reply
+		}
+		kind := RefusalHost
+		var integrity *integrityError
+		if errors.As(err, &integrity) {
+			kind = RefusalIntegrity
+		}
+		return refusalReply(kind, release.SHA, binary.SHA256, claims, errors.Join(err, removeIfExists(h.TrialFile)))
 	}
 	h.rolledBack.Store(nil)
 	if err := removeIfExists(h.RollbackFile); err != nil {
@@ -345,7 +381,7 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	if err := os.WriteFile(h.RunIDFile, []byte(claims.RunID), 0o600); err != nil {
 		return rejected(err)
 	}
-	h.pending = release.SHA
+	h.pending = candidate
 	return Reply{State: "installed", Version: release.SHA}
 }
 
@@ -371,7 +407,7 @@ func (h *Handler) validateOrch(ctx context.Context, release OrchRelease) (Binary
 	}
 	claims, err := h.Verifier.Verify(ctx, release.Token)
 	if err != nil {
-		return Binary{}, Claims{}, err
+		return binary, Claims{}, err
 	}
 	if claims.JobWorkflowRef != orchWorkflow || claims.SHA != release.SHA {
 		return Binary{}, Claims{}, errors.New("token is not for this ts-orchestrator commit")
@@ -416,10 +452,13 @@ func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() 
 		}
 	}
 	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != binary.SHA256 {
-		return errors.New("downloaded binary sha256 differs")
+		return &integrityError{errors.New("downloaded binary sha256 differs")}
 	}
 	if err := writeSynced(next, data); err != nil {
 		return err
+	}
+	if err := preflight(ctx, next); err != nil {
+		return errors.Join(err, removeIfExists(next))
 	}
 	if err := beforeSwap(); err != nil {
 		return errors.Join(err, removeIfExists(next))
@@ -567,4 +606,19 @@ func (h *Handler) mesh(ctx context.Context, op string, data []byte) Reply {
 		return Reply{State: "failed", Error: err.Error(), Result: result}
 	}
 	return Reply{State: "done", Result: result}
+}
+
+type releaseID struct{ SHA, SHA256 string }
+
+func runningDigest() (string, error) {
+	file, err := os.Open("/proc/self/exe")
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }

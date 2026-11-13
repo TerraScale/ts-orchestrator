@@ -71,8 +71,8 @@ own in-process connection uses an in-memory token. Everything else is refused.
 
 | Subject | Request | Reply |
 |---|---|---|
-| `ts.release.version` | none | `{"version": "<vcs.revision>", "rolled_back": "<sha>", "error": "<why>"}` |
-| `ts.release.ts-orch` | `{"sha", "binaries": {"<goarch>": {"url", "sha256"}}, "token"}` | `{"state": "current" \| "installed" \| "stale" \| "rolled_back" \| "rejected"}` |
+| `ts.release.version` | none | `{"version": "<vcs.revision>", "sha256": "<running binary digest>", "rolled_back": "<sha>", "error": "<why>"}` |
+| `ts.release.ts-orch` | `{"sha", "binaries": {"<goarch>": {"url", "sha256"}}, "token"}` | `{"state": "current" \| "installed" \| "stale" \| "rolled_back" \| "rejected", "refusal": {...}, "host", "workers": [...]}` |
 | `ts.release.app` | `{"service", "image": "ghcr.io/terrascale/<service>@sha256:...", "token"}` | `{"state": "done" \| "failed" \| "rejected", "result": [<mesh rows>]}` |
 
 An app release needs a token from a workflow `appServices` allows to release
@@ -123,14 +123,17 @@ A ts-orch release needs a token from `TerraScale/ts-orchestrator` whose `sha`
 claim equals `sha`, and the URL must be exactly that run's release asset:
 `https://github.com/TerraScale/ts-orchestrator/releases/download/ci-<sha>-run-<run_id>/terrascale-orchestrator-linux-<goarch>`
 (`run_id` from the verified token). ts-orch downloads it (60 s, one immediate
-retry), checks `sha256`, keeps the old binary as `terrascale-orchestrator.prev`,
+retry), checks `sha256`, runs the candidate's preflight (see
+[releases.md](releases.md#ts-orch-candidate-preflight)), keeps the old binary as `terrascale-orchestrator.prev`,
 renames the new one over the real path of its executable, replies `installed`
 and exits non-zero; systemd restarts it after `RestartSec=1s`. Containers keep
 running: the executor's `Close` only disconnects from containerd, whose shims
 own the tasks, `Node.Stop` cancels before leaving so workloads survive, and
 `KillMode=mixed` only kills what is left in ts-orch's own cgroup (the shims live
 under `containerd.service`). A release from an older GitHub run (`run_id`) than
-the installed one is `stale`. An immutable binary (`chattr +i`) is `rejected`
+the installed one is `stale`. A request is `current` only when the running
+binary has the release's revision and this architecture's digest; another build
+of the same commit is installed like any other release. An immutable binary (`chattr +i`) is `rejected`
 with the `chattr -i` command to run; the swap leaves no `.next` behind.
 
 A pushed binary is on probation until it serves the release subjects: install
@@ -179,7 +182,8 @@ dist/terrascale-orchestrator-linux-amd64 release push --sha "${GITHUB_SHA}" --di
 
 Push mints the token, derives the release tag from its `run_id`, pushes to
 every region concurrently, polls `ts.release.version` every 250 ms until it
-equals `--sha` (3 min limit) and prints one JSON line per region, which the
+names `--sha` and one of the release's digests (3 min limit; a rollback of
+`--sha` is checked first) and prints one JSON line per region, which the
 job writes to its summary:
 
 ```json
