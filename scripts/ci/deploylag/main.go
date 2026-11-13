@@ -20,22 +20,51 @@ import (
 const forge = "https://api.github.com/repos/TerraScale/"
 const alertTitle = "TS-768: Deployment lag exceeds 30 minutes"
 const lagLimit = 30 * time.Minute
-const publishStep = "Run docker/build-push-action"
+const publishStep = "Build or reuse the target image and publish its main tag"
 const releaseStep = "Release to every region"
 
 type app struct {
-	service, repo, workflow string
-	jobs                    []string
+	service, repo, workflow, jobID, jobName string
 }
 
 var apps = []app{
-	{"terrabase", "terrascale", "ci.yml", []string{"main"}},
-	{"ts-auth", "terrascale", "ci.yml", []string{"main-auth", "main-auth-ordered"}},
-	{"ts-dashboard", "terrascale", "images-ghcr.yml", []string{"Publish and release"}},
+	{"ts-auth", "terrascale", "ci.yml", "main-auth", "main-auth"},
+	{"ts-dashboard", "terrascale", "images-ghcr.yml", "image", "Publish and release"},
 }
 
-var held = map[string]string{
-	"terrabase": "manual release-only job is not read by deploy lag",
+type workflowRun struct {
+	ID         int64     `json:"id"`
+	HeadSHA    string    `json:"head_sha"`
+	HTMLURL    string    `json:"html_url"`
+	Conclusion string    `json:"conclusion"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type step struct {
+	Name        string    `json:"name"`
+	Status      string    `json:"status"`
+	Conclusion  string    `json:"conclusion"`
+	StartedAt   time.Time `json:"started_at"`
+	CompletedAt time.Time `json:"completed_at"`
+}
+
+type job struct {
+	JobID      string `json:"job_id"`
+	Name       string `json:"name"`
+	Conclusion string `json:"conclusion"`
+	Steps      []step `json:"steps"`
+}
+
+func (a api) jobs(ctx context.Context, repo string, run workflowRun) ([]job, error) {
+	var result struct {
+		TotalCount int   `json:"total_count"`
+		Jobs       []job `json:"jobs"`
+	}
+	err := a.request(ctx, "GET", fmt.Sprintf("%s%s/actions/runs/%d/jobs?per_page=100", forge, repo, run.ID), a.readToken, nil, &result)
+	if err == nil && result.TotalCount > len(result.Jobs) {
+		err = fmt.Errorf("run %s is unreadable: it has %d jobs, %d read", run.HTMLURL, result.TotalCount, len(result.Jobs))
+	}
+	return result.Jobs, err
 }
 
 type api struct {
@@ -156,72 +185,48 @@ func (a api) orch(ctx context.Context, now time.Time) ([]string, error) {
 	return []string{oldest}, nil
 }
 
-// release reports an app whose oldest main image published since its last
-// release has waited lagLimit or longer: a newer build never resets the clock.
 func (a api) release(ctx context.Context, x app, now time.Time) ([]string, error) {
 	var runs struct {
-		WorkflowRuns []struct {
-			ID         int64  `json:"id"`
-			HeadSHA    string `json:"head_sha"`
-			HTMLURL    string `json:"html_url"`
-			Conclusion string `json:"conclusion"`
-		} `json:"workflow_runs"`
+		WorkflowRuns []workflowRun `json:"workflow_runs"`
 	}
-	url := fmt.Sprintf("%s%s/actions/workflows/%s/runs?branch=main&per_page=20", forge, x.repo, x.workflow)
+	url := fmt.Sprintf("%s%s/actions/workflows/%s/runs?branch=main&event=workflow_dispatch&per_page=20", forge, x.repo, x.workflow)
 	if err := a.request(ctx, "GET", url, a.readToken, nil, &runs); err != nil {
 		return nil, err
 	}
 	var finding, unread string
 walk:
 	for _, run := range runs.WorkflowRuns {
-		var jobs struct {
-			TotalCount int `json:"total_count"`
-			Jobs       []struct {
-				Name       string `json:"name"`
-				Conclusion string `json:"conclusion"`
-				Steps      []struct {
-					Name        string    `json:"name"`
-					Status      string    `json:"status"`
-					Conclusion  string    `json:"conclusion"`
-					CompletedAt time.Time `json:"completed_at"`
-				} `json:"steps"`
-			} `json:"jobs"`
-		}
-		if err := a.request(ctx, "GET", fmt.Sprintf("%s%s/actions/runs/%d/jobs?per_page=100", forge, x.repo, run.ID), a.readToken, nil, &jobs); err != nil {
+		jobs, err := a.jobs(ctx, x.repo, run)
+		if err != nil {
 			return nil, err
 		}
-		listed := make(map[string]bool, len(jobs.Jobs))
-		for _, job := range jobs.Jobs {
-			listed[job.Name] = true
-		}
-		absent := slices.IndexFunc(x.jobs, func(name string) bool { return !listed[name] })
-		switch {
-		case unread != "":
-		case jobs.TotalCount > len(jobs.Jobs):
-			unread = fmt.Sprintf("- %s: %s %s run %s is unreadable: it has %d jobs, %d read", x.service, x.repo, x.workflow, run.HTMLURL, jobs.TotalCount, len(jobs.Jobs))
-		case run.Conclusion == "success" && absent >= 0:
-			unread = fmt.Sprintf("- %s: %s %s run %s succeeded without a job `%s`", x.service, x.repo, x.workflow, run.HTMLURL, x.jobs[absent])
-		}
-		for _, job := range jobs.Jobs {
-			if !slices.Contains(x.jobs, job.Name) {
+		matched := false
+		for _, job := range jobs {
+			matches := job.JobID == x.jobID
+			if job.JobID == "" {
+				matches = job.Name == x.jobName || slices.ContainsFunc(job.Steps, func(s step) bool { return s.Name == publishStep })
+			}
+			if !matches {
 				continue
 			}
+			matched = true
 			var published time.Time
-			var buildOnly, publishes bool
+			var publishes bool
 			released := "missing"
 			for _, step := range job.Steps {
-				if strings.HasPrefix(step.Name, publishStep) {
+				if step.Name == publishStep {
 					publishes = true
 					if step.Conclusion == "success" {
 						published = step.CompletedAt
 					}
 				}
-				if step.Name == "Record the build-only digest (no release)" && step.Conclusion == "success" {
-					buildOnly = true
-				}
 				if step.Name == releaseStep {
 					released = cmp.Or(step.Conclusion, step.Status)
 				}
+			}
+			if released == "success" {
+				fmt.Printf("%s: successful release boundary (%s)\n", x.service, run.HTMLURL)
+				break walk
 			}
 			var missing string
 			switch {
@@ -234,27 +239,70 @@ walk:
 				unread = fmt.Sprintf("- %s: job `%s` of %s %s run %s succeeded without a `%s` step", x.service, job.Name, x.repo, x.workflow, run.HTMLURL, missing)
 			}
 			switch {
-			case published.IsZero() || buildOnly:
-			case released == "success":
-				break walk
+			case published.IsZero():
 			case now.Sub(published) >= lagLimit:
-				finding = fmt.Sprintf("- %s: image of %s main `%s` published %s ago, release: %s",
-					x.service, x.repo, run.HeadSHA, now.Sub(published).Round(time.Minute), released)
+				finding = fmt.Sprintf("- %s: image of %s main run %s published %s ago, release: %s",
+					x.service, x.repo, run.HTMLURL, now.Sub(published).Round(time.Minute), released)
 			}
 		}
+		if !matched && run.Conclusion == "success" && unread == "" {
+			unread = fmt.Sprintf("- %s: successful run %s has no current release job or publication step", x.service, run.HTMLURL)
+		}
 	}
-	return append(report(x, unread), report(x, finding)...), nil
+	return slices.DeleteFunc([]string{unread, finding}, func(s string) bool { return s == "" }), nil
 }
 
-func report(x app, finding string) []string {
-	if finding == "" {
-		return nil
+func (a api) terrabase(ctx context.Context) ([]string, error) {
+	for page := 1; ; page++ {
+		var runs struct {
+			WorkflowRuns []workflowRun `json:"workflow_runs"`
+		}
+		url := fmt.Sprintf("%sterrascale/actions/workflows/ci.yml/runs?branch=main&event=workflow_dispatch&per_page=100&page=%d", forge, page)
+		if err := a.request(ctx, "GET", url, a.readToken, nil, &runs); err != nil {
+			return nil, err
+		}
+		for _, run := range runs.WorkflowRuns {
+			jobs, err := a.jobs(ctx, "terrascale", run)
+			if err != nil {
+				return nil, err
+			}
+			for _, job := range jobs {
+				if job.Name != "release-only" || job.Conclusion == "skipped" {
+					continue
+				}
+				var findings []string
+				releasedAt := run.CreatedAt
+				for _, step := range job.Steps {
+					if step.Name != "Release the pinned arm64 digest to each region" {
+						continue
+					}
+					if !step.StartedAt.IsZero() {
+						releasedAt = step.StartedAt
+					}
+					if !step.CompletedAt.IsZero() {
+						releasedAt = step.CompletedAt
+					}
+					if !step.StartedAt.IsZero() && (step.Conclusion == "failure" || step.Conclusion == "cancelled") {
+						findings = []string{fmt.Sprintf("- terrabase: manual release `%s` %s after starting: %s", run.HeadSHA, step.Conclusion, run.HTMLURL)}
+					}
+				}
+				var comparison struct {
+					AheadBy int `json:"ahead_by"`
+				}
+				err := a.request(ctx, "GET", forge+"terrascale/compare/"+run.HeadSHA+"...main", a.readToken, nil, &comparison)
+				if err != nil {
+					fmt.Println("terrabase held: main comparison unavailable:", err)
+				} else {
+					fmt.Printf("terrabase held: last manual release %s at %s, main is %d commits ahead\n", run.HeadSHA, releasedAt.UTC().Format(time.RFC3339), comparison.AheadBy)
+				}
+				return findings, nil
+			}
+		}
+		if len(runs.WorkflowRuns) < 100 {
+			fmt.Println("terrabase held: no manual release-only run found")
+			return nil, nil
+		}
 	}
-	if reason, ok := held[x.service]; ok {
-		fmt.Println("held:", finding[2:], "-", reason)
-		return nil
-	}
-	return []string{finding}
 }
 
 func (a api) alert(ctx context.Context, findings []string) error {
@@ -302,6 +350,11 @@ func run(ctx context.Context, a api, now func() time.Time, notify bool) error {
 	if err != nil {
 		findings = append(findings, "- ts-orchestrator: main release history unavailable: "+err.Error())
 	}
+	held, err := a.terrabase(ctx)
+	if err != nil {
+		fmt.Println("terrabase held: manual release history unavailable:", err)
+	}
+	findings = append(findings, held...)
 	for _, x := range apps {
 		found, err := a.release(ctx, x, now())
 		if err != nil {
