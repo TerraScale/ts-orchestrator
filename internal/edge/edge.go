@@ -71,6 +71,7 @@ type Edge struct {
 	requestProofSecret atomic.Pointer[[]byte]
 	netbirdDashboard   *netbirddashboard.Handler
 	draining           atomic.Bool
+	lastHealthProbe    atomic.Int64
 }
 
 // New returns an edge that caches certificates under stateDir/edge-certs.
@@ -238,7 +239,15 @@ func (e *Edge) setRoutes(web, postgres map[string]int) {
 func (e *Edge) Drain() { e.draining.Store(true) }
 
 func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
-	if !e.draining.Load() || r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
+	if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
+		return false
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
+			e.lastHealthProbe.Store(time.Now().UnixNano())
+		}
+	}
+	if !e.draining.Load() {
 		return false
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -256,9 +265,11 @@ func (e *Edge) Run(ctx context.Context) error {
 	}
 	<-ctx.Done()
 	e.Drain()
-	timer := time.NewTimer(drainGrace)
-	defer timer.Stop()
-	<-timer.C
+	if time.Since(time.Unix(0, e.lastHealthProbe.Load())) < time.Minute {
+		timer := time.NewTimer(drainGrace)
+		defer timer.Stop()
+		<-timer.C
+	}
 	stop()
 	running.Wait()
 	return nil

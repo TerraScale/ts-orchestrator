@@ -5,7 +5,8 @@ The edge continues to obtain and renew certificates through its existing automat
 ## Graceful drain
 
 On SIGTERM the edge immediately answers 503 on `/healthz` and `/readyz` on ports 80 and 443.
-It keeps its listeners open and serves other requests for 20 seconds before shutting down.
+The edge waits 20 s before closing only when an external health checker probed it in the last minute.
+During that wait it keeps its listeners open and serves other requests.
 
 ## Readiness
 
