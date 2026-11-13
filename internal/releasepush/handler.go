@@ -339,6 +339,7 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
+	state := filepath.Dir(filepath.Dir(h.TrialFile))
 	if err := h.install(ctx, binary, func() error {
 		budget, err := startBudget(ctx, nil)
 		if err != nil {
