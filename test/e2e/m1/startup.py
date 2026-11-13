@@ -1,4 +1,5 @@
 import concurrent.futures
+import ctypes
 import http.server
 import itertools
 import json
@@ -65,6 +66,17 @@ def read_until(process, needle, timeout):
     )
 
 
+def record_watch(state):
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = libc.inotify_init1(os.O_CLOEXEC)
+    if fd < 0:
+        raise OSError(ctypes.get_errno(), "open metadata record watcher")
+    if libc.inotify_add_watch(fd, os.fsencode(state), 128) < 0:
+        os.close(fd)
+        raise OSError(ctypes.get_errno(), "watch metadata record moves")
+    return fd
+
+
 def run_case(binary, seed_binary, root, case):
     subprocess.run(["mount", "--make-rprivate", "/"], check=True)
     subprocess.run(["ip", "link", "set", "lo", "up"], check=True)
@@ -87,6 +99,7 @@ def run_case(binary, seed_binary, root, case):
     state = work / "state"
     state.mkdir()
     processes = []
+    record_events = None
     samples = []
     notify = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     notify.bind(str(work / "notify.sock"))
@@ -201,7 +214,14 @@ def run_case(binary, seed_binary, root, case):
                 ),
                 "local host did not serve on loopback",
             )
-            require(not samples, "local host queried metadata")
+            require(
+                not record.exists()
+                and all(
+                    path not in ("/opc/v2/instance/id", "/opc/v2/vnics/")
+                    for _, path in samples
+                ),
+                "local planning queried metadata",
+            )
             print(
                 "ok local: fresh local host serves; contradictory mesh state is refused",
                 flush=True,
@@ -209,6 +229,8 @@ def run_case(binary, seed_binary, root, case):
             return
         admission = state / "swarm/admission.json"
         previous_admission = admission.read_bytes() if admission.exists() else None
+        if case == "fresh-delay":
+            record_events = record_watch(state)
         began = time.monotonic()
         process = subprocess.Popen(
             [binary, "single-host", "--state", str(state)],
@@ -231,7 +253,15 @@ def run_case(binary, seed_binary, root, case):
             print("ok cancellation stops metadata lookup without founding", flush=True)
             return
         if case == "fresh-delay":
-            output = read_until(process, b"region join:", 45)
+            with selectors.DefaultSelector() as moves:
+                moves.register(record_events, selectors.EVENT_READ)
+                require(moves.select(10), "delayed metadata did not publish a record")
+                require(
+                    b"host-metadata.json\0" in os.read(record_events, 4096),
+                    "metadata record was not published atomically",
+                )
+            output = read_until(process, b"retrying within startup window", 5)
+            require(process.poll() is None, "fresh host did not proceed to admission")
         elif delayed or case in ("worker-outage", "manager-match"):
             output = read_until(process, b"ready; advertise", 340)
             role = "container" if case.startswith("worker-") else "manager"
@@ -299,7 +329,7 @@ def run_case(binary, seed_binary, root, case):
         if delayed:
             require(
                 json.loads(record.read_text())
-                == {"Region": "sfo", "ID": "instance", "PrivateIP": "127.0.0.2"},
+                == {"Region": "sjc", "ID": "instance", "PrivateIP": "127.0.0.2"},
                 "successful metadata did not refresh the record",
             )
             require(
@@ -329,9 +359,11 @@ def run_case(binary, seed_binary, root, case):
         server.server_close()
         thread.join()
         notify.close()
+        if record_events is not None:
+            os.close(record_events)
 
 
-def main():
+def main(cases=CASES):
     binary, seed, root = sys.argv[1:4]
     root = Path(root)
     if len(sys.argv) == 5:
@@ -382,8 +414,8 @@ def main():
     )
     try:
         read_until(runtime, b"containerd successfully booted", 10)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(CASES)) as executor:
-            list(executor.map(child, CASES))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(cases)) as executor:
+            list(executor.map(child, cases))
     finally:
         stop(runtime)
 
