@@ -12,6 +12,10 @@ set -euo pipefail
 work=$1
 mount --make-rprivate /
 ip link set lo up
+ip addr add 169.254.169.254/32 dev lo
+mkdir -p "$work/sys/class/dmi/id"
+printf 'OracleCloud.com\n' > "$work/sys/class/dmi/id/chassis_asset_tag"
+mount --bind "$work/sys" /sys
 mount --bind "$work/passwd" /etc/passwd
 mkdir "$work/run"
 mount -t tmpfs -o mode=0755 tmpfs "$work/run"

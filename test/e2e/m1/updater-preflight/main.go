@@ -229,8 +229,12 @@ func run(ctx context.Context, binary string) {
 	fmt.Println("ok records: empty and truncated records permit startup and next refusal")
 
 	must(h.ServeHostVersion(conn, "gru", "node-one"))
+	old, err := releasepush.NewHandler(filepath.Join(work, "old-status"))
+	must(err)
+	old.Revision = strings.Repeat("9", 40)
+	must(old.ServeHostVersion(conn, "gru", "node-old"))
 	must(regionhealth.Serve(conn, func() regionhealth.Report {
-		hosts := releasepush.ReadHostVersions(ctx, conn, "gru", []*api.Node{{ID: "node-one", Description: &api.NodeDescription{Hostname: "lane-host"}}})
+		hosts := releasepush.ReadHostVersions(ctx, conn, "gru", []*api.Node{{ID: "node-one", Description: &api.NodeDescription{Hostname: "lane-host"}}, {ID: "node-old", Description: &api.NodeDescription{Hostname: "old-host"}}, {ID: "node-absent", Description: &api.NodeDescription{Hostname: "absent-host"}}})
 		return regionhealth.Report{State: regionhealth.StateOK, Hosts: hosts}
 	}))
 	options, err := releasepush.Options(work, nil)
@@ -348,6 +352,7 @@ func run(ctx context.Context, binary string) {
 			probe.Close()
 			var output bytes.Buffer
 			_ = regionhealth.RunCLI(ctx, nil, work, &output)
+			require(strings.Contains(output.String(), "host old-host: revision "+old.Revision) && strings.Contains(output.String(), "host absent-host: revision ; host reports no running revision"), "status must expose an old revision without refusal and every missing registered reply")
 			require(strings.Contains(output.String(), "host lane-host: revision") && strings.Contains(output.String(), sha) && strings.Contains(output.String(), message), "status CLI must display host and refusal")
 			fmt.Printf("ok %s: release refused with message; binary, previous binary, trial, unit and pid unchanged; status names candidate and attempt\n", mode)
 		}

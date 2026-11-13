@@ -348,21 +348,34 @@ startup creates it once when absent through `loadSecret` in
 For existing hosts, use this order. At any failed check, stop before the next
 step and repair that check; do not continue on the strength of an earlier
 successful attempt. The previous checked step is the safe resting state.
-Do not install or enable metadata restrictions until step 7: an old relay
-behind those restrictions cannot deliver alerts.
+If metadata rules are not active yet, do not install or enable them until step 7:
+an old relay behind those restrictions cannot deliver alerts.
+
+If metadata rules are already active, preserve the existing alert-relay exception
+through step 6, including across restarts and reboots; step 7 removes that exception
+only after those checks pass, and a failed check restores the prior exception
+rather than removing the existing protections.
 
 1. Release A, the updater-preflight release, alone. Gate: `ts-orch status`
-   reports A's published revision on every registered host and every host is
-   healthy. Stopping here is safe: the relay still reads Vault as before,
-   metadata is unrestricted, and A supplies the preparation command.
-2. With B's operator binary, run `ts-orch region add` for each affected region
-   to reconcile its exact-secret grants. Gate: on every affected host, use
-   that host's instance identity to read each candidate service secret,
-   including the relay's three approved references, without printing values
-   (use `vault deliver --once` with the candidate reference map into a private
-   mode-0700 tmpfs directory, then remove those check files). Stopping here is
-   safe: grants are additive prerequisites and the running binary and relay
-   are unchanged.
+   reports A's exact published revision on every registered host, with no
+   unavailable host, missing reply or refusal, and every host is healthy.
+   Stopping here is safe: the relay retains its existing metadata access,
+   still reads Vault, and A supplies the preparation command.
+2. Grant reconciliation narrows the earlier broad policy; it is not only
+   additive. Before running B's `ts-orch region add`, preserve the earlier
+   broad grants in a separate temporary policy outside the reconciler's
+   managed policy name. Run `ts-orch region add` for each affected region
+   to add the exact grants. Gate: run the candidate B binary as host root on
+   every affected host: `sudo /path/to/candidate-B release preflight secrets`.
+   This runs the same regional secret reads as B's full release preflight,
+   using that host's instance identity, including approved shared references
+   and the relay's three references where required by the host's region.
+   It writes no secret files, prints no values, and exits non-zero naming a
+   reference that cannot be read. It leaves the later installed-unit check
+   for step 3 and full activation preflight. Only after this gate passes on
+   every host remove the retained broad policy; a failed gate leaves the
+   broad policy in place. Stopping here is safe: the running binary and relay
+   are unchanged and their required reads have passed.
 3. On the host running the relay, install B's
    `deploy/observability/production/ts-alert-delivery.service` and run
    `systemctl daemon-reload`. Gate:
@@ -377,33 +390,39 @@ behind those restrictions cannot deliver alerts.
    delivery arrives (use `ts-orch alert-delivery subscribe` in an interactive
    terminal and confirm receipt). Preparation now writes the protected files,
    while A's relay ignores them and still reads Vault. Stopping here is safe:
-   delivery is proven, the preparation path works, and metadata remains
-   unrestricted.
-5. Release B through the normal release path. Gate: no registered host shows a
-   refusal for this release attempt in `ts-orch status`; resolve any `no answer`
-   before advancing rather than treating silence as proof. Stopping here after
-   the check is safe: the already running relay continues delivering, its new
-   binary and privileged preparation unit are installed, and metadata remains
-   unrestricted. A refused or partial attempt is not a completed step; leave
-   metadata unrestricted and repair it before retrying.
+   delivery and preparation work, and the relay retains metadata access
+   through the preserved exception if metadata rules are already active.
+5. Release B through the normal release path. Gate: `ts-orch status` reports
+   exactly B's published revision for every registered host, with no
+   unavailable host, missing reply or refusal. Compare every host row against
+   the published revision: an old revision without a refusal fails this gate.
+   A regional inventory error, unreachable region, empty revision or
+   `no answer` also fails it. Stopping here after the check is safe: the
+   already running relay continues delivering, its new binary and privileged
+   preparation unit are installed, and the previous metadata boundary and
+   relay exception remain in place. A refused or partial attempt is not a
+   completed step; preserve that boundary and repair before retrying.
 6. Restart the relay. Gate:
    `stat -c '%U:%G %a %n' /run/ts-alert-delivery /run/ts-alert-delivery/*`
    shows directory `root:ts-alerts 750` and three files `root:ts-alerts 640`
    (never print contents), `curl --fail http://127.0.0.1:9094/healthz` returns
    200, and a real test delivery arrives. Stopping here is safe: B's relay now
    reads only the validated files and its delivery works without metadata.
-7. Only now install or enable the metadata rules and their unit, one host at a
-   time. After each host, gate the next on tasks being unable to reach the
-   metadata address over IPv4 and IPv6, root and the agent still reaching it,
-   and alert delivery succeeding again. Stopping after each checked host is
-   safe, including a partially restricted fleet, because B's relay uses files.
-   A host with a failed reachability or delivery check is not a safe resting
-   state: stop, remove that host's newly applied rules, verify the step-6
-   state again, and repair before continuing.
+7. Only after those checks pass, install or enable metadata rules where they
+   are absent, or remove the preserved alert-relay exception where rules are
+   already active, one host at a time. After each host, gate the next on tasks
+   being unable to reach metadata over IPv4 and IPv6, root and the agent still
+   reaching it, and alert delivery succeeding again. Stopping after each
+   checked host is safe because B's relay uses files. On a failed check, stop
+   and restore the prior alert-relay exception if rules were already active,
+   retaining the existing protections. For newly installed rules, undo only
+   that host's new rule change. Verify the step-6 state and repair before
+   continuing.
 
 Every successfully checked step is a safe resting state. A failed relay restart
-in steps 4 or 6 is not safe until delivery is restored; keep metadata unrestricted,
-repair the preparation or file validation failure, restart, and recheck delivery.
+in steps 4 or 6 is not safe until delivery is restored. Preserve existing metadata
+protections and the relay exception, or keep metadata unrestricted if rules are
+not yet active; repair preparation or file validation, restart and recheck delivery.
 A failed step-7 host must return to the verified step-6 state as described above.
 
 

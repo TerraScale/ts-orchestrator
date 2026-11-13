@@ -157,5 +157,6 @@ func main() {
 			require(!strings.Contains(err.Error(), value), "error must not expose a value")
 		}
 	}
+	secretGate(ctx, values, &seen, &denied)
 	fmt.Println("alert-prepare e2e: PASS; three protected files; each unavailable secret visibly refused")
 }

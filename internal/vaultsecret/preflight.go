@@ -24,6 +24,15 @@ func CheckServiceSecrets(ctx context.Context) error {
 	if err := checkRelayUnit(ctx); err != nil {
 		return err
 	}
+	return CheckRegionalSecrets(ctx)
+}
+
+func CheckRegionalSecrets(ctx context.Context) error {
+	if os.Geteuid() != 0 {
+		return errors.New("service secret preflight requires host root")
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
 	asset, err := os.ReadFile("/sys/class/dmi/id/chassis_asset_tag")
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("service secret preflight host identity: %w", err)
@@ -65,6 +74,13 @@ func CheckServiceSecrets(ctx context.Context) error {
 		for _, ref := range manifest.Secrets {
 			if err := checkSecretRead(ctx, manifest.Name, ref); err != nil {
 				return fmt.Errorf("release refused: service %s cannot read Vault secret %s; run region add before releasing changed secret references", manifest.Name, ref.Name)
+			}
+		}
+	}
+	if region.Name() == "gru" {
+		for _, ref := range AlertDeliveryRefs() {
+			if err := checkSecretRead(ctx, "ts-alerts", ref); err != nil {
+				return fmt.Errorf("release refused: service ts-alerts cannot read Vault secret %s; run region add before releasing changed secret references", ref.Name)
 			}
 		}
 	}

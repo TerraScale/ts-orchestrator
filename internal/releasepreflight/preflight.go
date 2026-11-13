@@ -9,3 +9,7 @@ import (
 func Run(ctx context.Context) error {
 	return vaultsecret.CheckServiceSecrets(ctx)
 }
+
+func Secrets(ctx context.Context) error {
+	return vaultsecret.CheckRegionalSecrets(ctx)
+}
