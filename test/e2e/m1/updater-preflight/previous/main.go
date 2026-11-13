@@ -34,7 +34,7 @@ func must(err error) {
 	}
 }
 
-func ask(ctx context.Context, h *releasepush.Handler, subject, payloadFile, jwks string) releasepush.Reply {
+func ask(ctx context.Context, h *releasepush.Handler, subject, payloadFile, jwks, declaration string) releasepush.Reply {
 	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, NoSigs: true, NoLog: true})
 	must(err)
 	go srv.Start()
@@ -53,7 +53,11 @@ func ask(ctx context.Context, h *releasepush.Handler, subject, payloadFile, jwks
 		h.Verifier = releasepush.NewVerifier()
 		h.Verifier.JWKSURL = jwks
 	}
-	message, err := conn.RequestWithContext(ctx, subject, payload)
+	request := &nats.Msg{Subject: subject, Data: payload}
+	if declaration != "" {
+		request.Header = nats.Header{"Ts-Orch-Preflight": []string{declaration}}
+	}
+	message, err := conn.RequestMsgWithContext(ctx, request)
 	must(err)
 	var reply releasepush.Reply
 	must(json.Unmarshal(message.Data, &reply))
@@ -119,7 +123,11 @@ func main() {
 		must(err)
 		h.Binary, h.Revision = filepath.Join(work, "installed"), os.Args[5]
 		h.Client = &http.Client{Transport: redirect{os.Args[4]}}
-		result["install"] = ask(ctx, h, releasepush.SubjectOrch, os.Args[3], os.Args[6]).State
+		declaration := ""
+		if len(os.Args) > 7 {
+			declaration = os.Args[7]
+		}
+		result["install"] = ask(ctx, h, releasepush.SubjectOrch, os.Args[3], os.Args[6], declaration).State
 	case "start":
 		probation, err := releasepush.Probe(work, os.Stdout)
 		if err != nil {
@@ -130,9 +138,9 @@ func main() {
 		must(err)
 		result["served"] = probation.Served()
 		result["revision"] = h.Revision
-		result["rolled_back"] = ask(ctx, h, releasepush.SubjectVersion, "", "").RolledBack
-		result["replay"] = ask(ctx, h, releasepush.SubjectOrch, os.Args[3], os.Args[4]).State
-		result["older"] = ask(ctx, h, releasepush.SubjectOrch, os.Args[5], os.Args[6]).State
+		result["rolled_back"] = ask(ctx, h, releasepush.SubjectVersion, "", "", "").RolledBack
+		result["replay"] = ask(ctx, h, releasepush.SubjectOrch, os.Args[3], os.Args[4], "").State
+		result["older"] = ask(ctx, h, releasepush.SubjectOrch, os.Args[5], os.Args[6], "").State
 	case "probe":
 		probation, err := releasepush.Probe(work, os.Stdout)
 		must(err)

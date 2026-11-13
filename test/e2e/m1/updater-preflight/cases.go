@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,6 +49,11 @@ func run(ctx context.Context, binary, previous string) {
 		timingCase(ctx, previous)
 	})
 	groups.Go(func() { mainPusherCase(ctx, previous) })
+	groups.Go(func() {
+		digestStartCase(ctx)
+		traceCase(ctx)
+		strippedCase(ctx)
+	})
 	rolloutCases(ctx)
 	relayCase(ctx)
 	rebuildCase(ctx)
@@ -58,7 +65,7 @@ func run(ctx context.Context, binary, previous string) {
 }
 
 func refusedUnchanged(reply releasepush.Reply, kind string, preflight bool, asset []byte) {
-	require(reply.State == "rejected" && reply.Refusal != nil && reply.Refusal.Kind == kind && reply.Refusal.Preflight == preflight, fmt.Sprintf("refusal must be %s preflight=%v: %+v", kind, preflight, reply))
+	require(reply.State == "rejected" && reply.Refusal != nil && reply.Refusal.Kind == kind && reply.Preflight != nil && reply.Preflight.Declared && reply.Preflight.Executed == preflight, fmt.Sprintf("refusal must be %s, declared, preflight executed=%v: %+v", kind, preflight, reply))
 	require(reply.Refusal.SHA == shaB && reply.Refusal.SHA256 == digest(asset) && reply.Refusal.RunAttempt == "1" && reply.Refusal.RunID != "", fmt.Sprintf("refusal must name the candidate: %+v", reply.Refusal))
 	require(len(reply.Refusal.Reason) <= 4<<10 && utf8.ValidString(reply.Refusal.Reason) && !strings.ContainsFunc(reply.Refusal.Reason, unicode.IsControl), "diagnostic must be bounded valid text")
 }
@@ -373,10 +380,12 @@ func previousRun(ctx context.Context, binary string, args ...string) map[string]
 func equivalenceCases(ctx context.Context, previous string) {
 	for _, probation := range []bool{false, true} {
 		mainWork, cleanupMain := temporary("main-updater-")
+		mainHeaderWork, cleanupMainHeader := temporary("main-updater-header-")
 		plainWork, cleanupPlain := temporary("this-updater-")
 		declaredWork, cleanupDeclared := temporary("this-declared-")
 		payloads, cleanupPayloads := temporary("payloads-")
 		newHost(mainWork, probation)
+		newHost(mainHeaderWork, probation)
 		plainHost, declaredHost := newHost(plainWork, probation), newHost(declaredWork, probation)
 		mark := filepath.Join(payloads, "preflight-ran")
 		asset := stamped(helperBytes(), shaB, "mark:"+mark)
@@ -384,6 +393,8 @@ func equivalenceCases(ctx context.Context, previous string) {
 		release := p.release(shaB, "2", "e2e")
 		installed := previousRun(ctx, previous, "install", mainWork, payloadFile(payloads, "run-2.json", release), p.server.URL+"/binary", shaA, p.server.URL+"/jwks")
 		require(installed["install"] == "installed", fmt.Sprintf("main's updater must install the candidate: %v", installed))
+		withHeader := previousRun(ctx, previous, "install", mainHeaderWork, payloadFile(payloads, "run-2-header.json", release), p.server.URL+"/binary", shaA, p.server.URL+"/jwks", p.declaration())
+		require(withHeader["install"] == "installed" && read(mark) == nil && sameFiles(snapshot(true, mainWork), snapshot(true, mainHeaderWork)) == "", fmt.Sprintf("main's updater receiving the declaration header installs exactly as without it, with no preflight: %v %s", withHeader, sameFiles(snapshot(true, mainWork), snapshot(true, mainHeaderWork))))
 		for i, h := range []host{plainHost, declaredHost} {
 			handler := h.handler()
 			handler.Verifier, handler.Client = p.verifier(), p.client()
@@ -394,23 +405,24 @@ func equivalenceCases(ctx context.Context, previous string) {
 			}
 			reply := send(ctx, conn, release, declaration)
 			closeListener()
-			require(reply.State == "installed", fmt.Sprintf("this updater must install the candidate: %+v", reply))
+			require(reply.State == "installed" && reply.Preflight != nil && reply.Preflight.Declared == (declaration != "") && reply.Preflight.Executed == (declaration != ""), fmt.Sprintf("this updater must install the candidate and say whether a preflight was declared and executed: %+v %+v", reply, reply.Preflight))
 			ran := len(marks(mark))
 			require(ran == map[bool]int{false: 0, true: 1}[declaration != ""], fmt.Sprintf("the preflight runs only for a declared release: declared %v, ran %d", declaration != "", ran))
 			require(sameFiles(snapshot(true, mainWork), snapshot(true, h.work)) == "", "the host must hold exactly what main's updater writes: "+sameFiles(snapshot(true, mainWork), snapshot(true, h.work)))
 			trial := h.trial()
 			require(bytes.Equal(read(h.binary), asset) && bytes.Equal(read(h.binary+".prev"), h.original) && trial["sha"] == shaB && trial["run_id"] == "2" && trial["starts"] == float64(0) && string(read(filepath.Join(h.work, "nats/release-run-id"))) == "2" && read(filepath.Join(h.work, "nats/release-rolled-back")) == nil, "main's install: candidate swapped, .prev, trial, fence, rollback record removed")
 		}
-		for _, work := range []string{mainWork, plainWork, declaredWork} {
+		for _, work := range []string{mainWork, mainHeaderWork, plainWork, declaredWork} {
 			first := startParsed(ctx, work, "hold")
 			require(first.Revision == shaB && first.Probation && first.Starts == 1 && first.Digest == digest(asset), fmt.Sprintf("the candidate's first start is on probation and reports its digest: %+v", first))
 		}
-		require(sameFiles(snapshot(true, mainWork), snapshot(true, plainWork)) == "" && sameFiles(snapshot(true, mainWork), snapshot(true, declaredWork)) == "", "after the first start the hosts must still be identical")
-		fmt.Printf("ok equivalence (incumbent on probation: %v): without a declaration no preflight runs, with one it runs once; both byte-identical to main's updater after install and after the first start\n", probation)
+		require(sameFiles(snapshot(true, mainWork), snapshot(true, plainWork)) == "" && sameFiles(snapshot(true, mainWork), snapshot(true, declaredWork)) == "" && sameFiles(snapshot(true, mainWork), snapshot(true, mainHeaderWork)) == "", "after the first start the hosts must still be identical")
+		fmt.Printf("ok equivalence (incumbent on probation: %v): main's updater with and without the declaration header installs identically and runs no preflight; this updater without a declaration replies declared: no, executed: no, with one declared: yes, executed: yes; all byte-identical to main's updater after install and after the first start\n", probation)
 		p.server.Close()
 		cleanupPayloads()
 		cleanupDeclared()
 		cleanupPlain()
+		cleanupMainHeader()
 		cleanupMain()
 	}
 }
@@ -556,4 +568,41 @@ func timingCase(ctx context.Context, previous string) {
 	mainMedian, thisMedian := median(mainSamples), median(thisSamples)
 	require((thisMedian-mainMedian).Abs() < 100*time.Millisecond, fmt.Sprintf("with a silent worker the founder must signal its restart as soon as main's does: main %v, this %v", mainSamples, thisSamples))
 	fmt.Println("ok founder timing: trial write to restart signal with a silent worker, median main", mainMedian.Round(time.Microsecond), "this", thisMedian.Round(time.Microsecond), "samples main", mainSamples, "this", thisSamples)
+}
+
+const digestPadding = 2 << 30
+
+func digestStartCase(ctx context.Context) {
+	work, cleanup := temporary("digest-start-")
+	defer cleanup()
+	h := newHost(work, false)
+	writeExecutable(h.binary, stamped(helperBytes(), shaB, "original"))
+	file, err := os.OpenFile(h.binary, os.O_RDWR, 0)
+	must(err)
+	info, err := file.Stat()
+	must(err)
+	must(errors.Join(file.Truncate(info.Size()+digestPadding), file.Close()))
+	write(filepath.Join(work, "nats/release-trial"), `{"sha":"`+shaB+`","run_id":"2","installed":"`+time.Now().UTC().Format(time.RFC3339Nano)+`","starts":0}`)
+	hashStart := time.Now()
+	want := fileDigest(h.binary)
+	hashTime := time.Since(hashStart)
+	output, err := exec.CommandContext(ctx, h.binary, "start-digest", work).CombinedOutput()
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var result digestStart
+	require(err == nil && json.Unmarshal([]byte(lines[len(lines)-1]), &result) == nil, fmt.Sprintf("an agent with a slow-to-read executable must start: %v: %s", err, output))
+	ready, digested := time.Duration(result.ReadyMS)*time.Millisecond, time.Duration(result.DigestMS)*time.Millisecond
+	require(result.Served && !result.TrialLeft, fmt.Sprintf("the start on probation confirms serving: %+v", result))
+	require(result.FirstSHA256 == "" && result.FirstUnavailable == pendingDigest, fmt.Sprintf("readiness and Served() do not wait for the hash: the first version answer says the digest is unavailable (hashing the file takes %s, ready after %s): %+v", hashTime, ready, result))
+	require(result.SHA256 == want && digested > ready, fmt.Sprintf("the version answer carries the running binary's digest once it is computed: %+v", result))
+	fmt.Println("ok slow-to-read executable: ready and served after", ready, "; first version answer:", result.FirstUnavailable, "; digest after", digested, "(the lane hashes the file in", hashTime, ")")
+}
+
+func fileDigest(path string) string {
+	file, err := os.Open(path)
+	must(err)
+	defer file.Close()
+	hash := sha256.New()
+	_, err = io.Copy(hash, file)
+	must(err)
+	return hex.EncodeToString(hash.Sum(nil))
 }

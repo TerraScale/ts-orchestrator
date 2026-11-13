@@ -44,9 +44,9 @@ func newHost(work string, probation bool) host {
 }
 
 func (h host) handler() *releasepush.Handler {
-	handler, err := releasepush.NewHandler(h.work)
+	handler, err := releasepush.NewHandler(context.Background(), h.work)
 	must(err)
-	handler.Binary, handler.Revision, handler.Digest = h.binary, shaA, digest(h.original)
+	handler.Binary, handler.Revision = h.binary, shaA
 	return handler
 }
 
@@ -69,11 +69,11 @@ func startState(ctx context.Context, work, mode string) {
 		fmt.Println("START rolled-back")
 		return
 	}
-	h, err := releasepush.NewHandler(work)
+	h, err := releasepush.NewHandler(ctx, work)
 	must(err)
 	conn, closeListener := listener(h)
 	defer closeListener()
-	version := request(ctx, conn, releasepush.SubjectVersion, nil, "")
+	version := settled(ctx, conn)
 	result := started{Revision: h.Revision, Digest: version.SHA256, RolledBack: version.RolledBack, Probation: probation != nil, Starts: -1}
 	if trial := record(filepath.Join(work, "nats/release-trial")); trial != nil {
 		result.Starts = int(trial["starts"].(float64))
@@ -122,8 +122,11 @@ func serveRegion(ctx context.Context, args []string) {
 	if mode == "slow" {
 		<-time.NewTimer(slowStep).C
 	}
-	h, err := releasepush.NewHandler(work)
+	h, err := releasepush.NewHandler(ctx, work)
 	must(err)
+	private, closePrivate := listener(h)
+	settled(ctx, private)
+	closePrivate()
 	h.Verifier.JWKSURL = jwks
 	h.Client = &http.Client{Transport: redirect{binaryURL}}
 	h.Health = func(context.Context) error { return nil }
@@ -141,7 +144,7 @@ func serveRegion(ctx context.Context, args []string) {
 		must(errors.Join(conn.PublishMsg(&nats.Msg{Subject: "lane.silent-workers", Data: request, Header: header}), conn.Flush()))
 	}
 	must(h.Serve(conn))
-	version, err := json.Marshal(request(ctx, conn, releasepush.SubjectVersion, nil, ""))
+	version, err := json.Marshal(settled(ctx, conn))
 	must(err)
 	fmt.Println("VERSION", string(version))
 	fmt.Println("SERVING", probation.Served())
@@ -218,4 +221,33 @@ func pushOne(ctx context.Context, work, name string, asset []byte, sha string, p
 	var result releasepush.Result
 	must(json.Unmarshal(bytes.TrimSpace(output.Bytes()), &result))
 	return result, err
+}
+
+type digestStart struct {
+	Served           bool   `json:"served"`
+	TrialLeft        bool   `json:"trial_left"`
+	ReadyMS          int64  `json:"ready_ms"`
+	FirstSHA256      string `json:"first_sha256"`
+	FirstUnavailable string `json:"first_unavailable"`
+	SHA256           string `json:"sha256"`
+	DigestMS         int64  `json:"digest_ms"`
+}
+
+func startDigest(ctx context.Context, work string) {
+	began := time.Now()
+	probation, err := releasepush.Probe(work, os.Stdout)
+	must(err)
+	h, err := releasepush.NewHandler(ctx, work)
+	must(err)
+	conn, closeListener := listener(h)
+	defer closeListener()
+	first := request(ctx, conn, releasepush.SubjectVersion, nil, "")
+	result := digestStart{Served: probation != nil && probation.Served(), FirstSHA256: first.SHA256, FirstUnavailable: first.SHA256Unavailable}
+	result.ReadyMS = time.Since(began).Milliseconds()
+	result.TrialLeft = read(filepath.Join(work, "nats/release-trial")) != nil
+	result.SHA256 = settled(ctx, conn).SHA256
+	result.DigestMS = time.Since(began).Milliseconds()
+	data, err := json.Marshal(result)
+	must(err)
+	fmt.Println(string(data))
 }

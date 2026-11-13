@@ -35,14 +35,12 @@ func rolloutCases(ctx context.Context) {
 	defer p.server.Close()
 	release := p.release(shaB, "100", "e2e")
 	verifier := p.verifier()
-	founder, err := releasepush.NewHandler(work)
+	founder, err := releasepush.NewHandler(ctx, work)
 	must(err)
-	later, err := releasepush.NewHandler(work)
+	later, err := releasepush.NewHandler(ctx, work)
 	must(err)
 	founder.Binary, founder.Revision, founder.Verifier = accepted, release.SHA, verifier
 	later.Binary, later.Revision, later.Verifier = accepted, release.SHA, verifier
-	founder.Digest = release.Binaries[runtime.GOARCH].SHA256
-	later.Digest = founder.Digest
 	var broken atomic.Bool
 	founder.Health = func(context.Context) error {
 		if broken.Load() {
@@ -123,10 +121,10 @@ func rolloutCases(ctx context.Context) {
 		switch mode {
 		case "first-integrity":
 			refusal := results[0].Refusal
-			require(results[0].State == "rejected" && refusal != nil && refusal.Kind == releasepush.RefusalIntegrity && !refusal.Preflight, "a digest mismatch is reported as release_integrity: "+printed)
+			require(results[0].State == "rejected" && refusal != nil && refusal.Kind == releasepush.RefusalIntegrity && results[0].Preflight == "preflight declared: yes, executed: no", "a digest mismatch is reported as release_integrity: "+printed)
 		case "host-refusal":
 			refusal := results[0].Refusal
-			require(results[0].State == "rejected" && refusal != nil && refusal.Kind == releasepush.RefusalHost && refusal.Preflight && strings.Contains(refusal.Reason, "candidate refuses"), "a preflight refusal is reported as host_prerequisite with its diagnostic: "+printed)
+			require(results[0].State == "rejected" && refusal != nil && refusal.Kind == releasepush.RefusalHost && results[0].Preflight == "preflight declared: yes, executed: yes" && strings.Contains(refusal.Reason, "candidate refuses"), "a preflight refusal is reported as host_prerequisite with its diagnostic: "+printed)
 		case "unhealthy-fleet":
 			require(results[0].State == "failed" && strings.Contains(results[0].Error, "candidate health broken") && results[0].ConnectMS == 0, "an ordinary push refuses a fleet whose first host reports a health error: "+printed)
 		case "repair-unhealthy-fleet":
@@ -232,8 +230,8 @@ func oldHostCase(ctx context.Context) {
 	}
 	must(conn.Flush())
 	result, err := pushOne(ctx, work, "assets", build, shaB, p, regionFile(work, "regions.json", srv.ClientURL()))
-	require(err == nil && result.State == "current" && result.Health == "ok" && strings.Contains(result.RevisionOnly, "no binary digest"), fmt.Sprintf("a host without a digest in its version answer is confirmed by revision and says so: %v %+v", err, result))
-	fmt.Println("ok old host: no digest in the version answer; serving confirmed by revision only and reported")
+	require(err == nil && result.State == "current" && result.Health == "ok" && strings.Contains(result.RevisionOnly, "no binary digest") && result.Preflight == "not reported: the host's updater runs no preflight", fmt.Sprintf("a host without a digest in its version answer is confirmed by revision and says so: %v %+v", err, result))
+	fmt.Println("ok old host: no digest in the version answer; serving confirmed by revision only and reported; pusher prints", result.Preflight)
 }
 
 func unreadableCase(ctx context.Context) {
@@ -268,9 +266,9 @@ func slowCase(ctx context.Context) {
 	defer stopRegion()
 	result, err := pushOne(ctx, work, "assets", build, shaB, p, regions)
 	accepted, serving := time.Duration(result.AcceptedMS)*time.Millisecond, time.Duration(result.ServingMS)*time.Millisecond
-	require(err == nil && result.State == "installed" && result.Health == "ok" && result.RevisionOnly == "" && len(marks(mark)) == 1 && bytes.Equal(read(installed), build), fmt.Sprintf("a declared candidate with a 40-second preflight that needs 40 seconds to start is installed and served, not rolled back: %v %+v", err, result))
+	require(err == nil && result.State == "installed" && result.Health == "ok" && result.RevisionOnly == "" && result.Preflight == "preflight declared: yes, executed: yes" && len(marks(mark)) == 1 && bytes.Equal(read(installed), build), fmt.Sprintf("a declared candidate with a 40-second preflight that needs 40 seconds to start is installed and served, not rolled back: %v %+v", err, result))
 	require(accepted >= slowStep && accepted < 2*time.Minute && serving-accepted >= slowStep, fmt.Sprintf("the reply follows the preflight inside the pusher's 2-minute request timeout, and serving follows the slow start: accepted %s, serving %s", accepted, serving))
-	fmt.Println("ok slow candidate, this pusher: preflight 40 s, start 40 s behind a silent worker; accepted after", accepted, "serving after", serving, "health ok, not rolled back")
+	fmt.Println("ok slow candidate, this pusher: preflight 40 s, start 40 s behind a silent worker; accepted after", accepted, "serving after", serving, "health ok, not rolled back; pusher prints", result.Preflight)
 }
 
 func mainPusherCase(ctx context.Context, previous string) {
@@ -297,4 +295,54 @@ func mainPusherCase(ctx context.Context, previous string) {
 	require(result.State == "installed" && result.Health == "ok" && read(mark) == nil && bytes.Equal(read(installed), build), fmt.Sprintf("main's pusher sends no declaration: no preflight runs and the candidate is installed and served: %s", output))
 	require(accepted < 10*time.Second && serving >= slowStep, fmt.Sprintf("main's pusher is answered without a preflight, well inside its 2-minute request timeout: accepted %s, serving %s", accepted, serving))
 	fmt.Println("ok main's pusher: no declaration, no preflight; accepted after", accepted, "serving after", serving, "behind a 40-second start")
+}
+
+func strippedCase(ctx context.Context) {
+	work, cleanup := temporary("stripped-")
+	defer cleanup()
+	mark := filepath.Join(work, "preflight-ran")
+	build := stamped(helperBytes(), shaB, "mark:"+mark)
+	installed, _, port := regionHost(work, stamped(helperBytes(), shaA, "original"))
+	p := newProvider(build)
+	defer p.server.Close()
+	p.release(shaB, "32", "e2e")
+	stopRegion, _ := serveFrom(ctx, work, installed, port, p)
+	defer stopRegion()
+	channel := filepath.Join(work, "channel")
+	must(os.MkdirAll(filepath.Join(channel, "nats"), 0o700))
+	options, err := releasepush.Options(channel, nil)
+	must(err)
+	options.Host, options.Port, options.CustomClientAuthentication = "127.0.0.1", -1, nil
+	srv, err := server.NewServer(options)
+	must(err)
+	go srv.Start()
+	require(srv.ReadyForConnections(5*time.Second), "the stripping channel must listen")
+	defer srv.Shutdown()
+	outer, err := nats.Connect(srv.ClientURL(), nats.Secure(&tls.Config{InsecureSkipVerify: true}))
+	must(err)
+	defer outer.Close()
+	inner, err := nats.Connect("nats://127.0.0.1:"+port, nats.Secure(&tls.Config{InsecureSkipVerify: true}), nats.MaxReconnects(-1), nats.ReconnectWait(100*time.Millisecond))
+	must(err)
+	defer inner.Close()
+	var stripped atomic.Bool
+	for _, subject := range []string{releasepush.SubjectVersion, releasepush.SubjectHealth, releasepush.SubjectOrch} {
+		_, err := outer.Subscribe(subject, func(m *nats.Msg) {
+			go func() {
+				if m.Header.Get(releasepush.PreflightHeader) != "" {
+					stripped.Store(true)
+				}
+				forwardCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+				defer cancel()
+				if answer, err := inner.RequestMsgWithContext(forwardCtx, &nats.Msg{Subject: m.Subject, Data: m.Data}); err == nil {
+					_ = m.Respond(answer.Data)
+				}
+			}()
+		})
+		must(err)
+	}
+	must(outer.Flush())
+	result, err := pushOne(ctx, work, "assets", build, shaB, p, regionFile(channel, "regions.json", srv.ClientURL()))
+	require(err == nil && stripped.Load() && result.State == "installed" && result.Health == "ok" && bytes.Equal(read(installed), build), fmt.Sprintf("a release whose declaration was stripped on the way installs as an undeclared one: %v %+v", err, result))
+	require(read(mark) == nil && result.Preflight == "preflight declared: no, executed: no; this pusher sent a declaration the host did not receive", fmt.Sprintf("no preflight runs and the pusher prints that its declaration did not arrive: %+v", result))
+	fmt.Println("ok stripped declaration: installed without a preflight; pusher prints", result.Preflight)
 }

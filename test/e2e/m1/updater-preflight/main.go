@@ -354,6 +354,15 @@ func ready(cmd *exec.Cmd, marker string) []string {
 	panic("process did not announce " + marker + ":\n" + strings.Join(seen[max(0, len(seen)-40):], "\n"))
 }
 
+func settled(ctx context.Context, conn *nats.Conn) releasepush.Reply {
+	for {
+		version := request(ctx, conn, releasepush.SubjectVersion, nil, "")
+		if version.SHA256 != "" || version.SHA256Unavailable != pendingDigest {
+			return version
+		}
+	}
+}
+
 func appendMark(path, value string) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	must(err)
@@ -377,6 +386,8 @@ func main() {
 		switch mode {
 		case "mark":
 			appendMark(mark, time.Now().Format(time.RFC3339Nano))
+		case "pid":
+			appendMark(mark, fmt.Sprint(os.Getpid()))
 		case "refuse":
 			fmt.Fprintln(os.Stderr, "candidate refuses this release")
 			os.Exit(17)
@@ -404,8 +415,21 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) == 2 {
+		switch os.Args[1] {
+		case "trace-preflight":
+			tracePreflight()
+			return
+		case "traced-preflight":
+			tracedPreflight(ctx)
+			return
+		}
+	}
 	if len(os.Args) >= 3 {
 		switch os.Args[1] {
+		case "start-digest":
+			startDigest(ctx, os.Args[2])
+			return
 		case "start-state":
 			startState(ctx, os.Args[2], os.Args[3])
 			return
@@ -417,4 +441,7 @@ func main() {
 	run(ctx, os.Args[1], os.Args[2])
 }
 
-const slowStep = 40 * time.Second
+const (
+	slowStep      = 40 * time.Second
+	pendingDigest = "running binary digest not computed yet"
+)
