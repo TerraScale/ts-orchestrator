@@ -17,7 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func secretGate(values map[string]string, seen *map[string]bool, denied *string) {
+func secretGate(values map[string]string, seen *map[string]bool, denied *string, onDenied *func()) {
 	ctx := context.Background()
 	if os.Getpid() == 1 {
 		socket, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
@@ -74,27 +74,12 @@ func secretGate(values map[string]string, seen *map[string]bool, denied *string)
 	*denied = "gru-1-ts-alerts-ntfy-topic"
 	gateCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	original := http.DefaultTransport
-	http.DefaultTransport = gateTransport{original, *denied, cancel}
-	defer func() { http.DefaultTransport = original }()
+	*onDenied = cancel
+	defer func() { *onDenied = nil }()
 	err = cli.Run(gateCtx, []string{"release", "preflight", "secrets"}, io.Discard)
 	require(err != nil && strings.Contains(err.Error(), *denied), fmt.Sprintf("manual gate must fail naming the unreadable reference: %v", err))
 	for _, value := range values {
 		require(!strings.Contains(err.Error(), value), "manual gate must not expose values")
 	}
 	fmt.Println("ok secret gate: shared auth and relay references; identical activation reads; regional scope; value-free named refusal")
-}
-
-type gateTransport struct {
-	transport http.RoundTripper
-	denied    string
-	cancel    context.CancelFunc
-}
-
-func (t gateTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	response, err := t.transport.RoundTrip(request)
-	if request.URL.Query().Get("secretName") == t.denied {
-		t.cancel()
-	}
-	return response, err
 }
