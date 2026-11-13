@@ -13,6 +13,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../../.." && pwd)
 work=$(mktemp -d)
 summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}
+source "$here/volume.sh" "$repo" "$work"
 state=/var/lib/ts-orch
 data=/var/lib/ts-data/e2e
 
@@ -62,7 +63,7 @@ trap dump ERR
 # platform clock. This is CI-only; production hosts use the real OCI server.
 ntp_pid=""
 stop_ntp() { [[ -n $ntp_pid ]] && sudo kill "$ntp_pid" 2>/dev/null || true; }
-trap 'stop_ntp; report' EXIT
+trap 'stop_ntp; stop_data_volume; report' EXIT
 begin "169.254.169.254 NTP stand-in for the clock gate"
 sudo systemctl stop chrony chronyd 2>/dev/null || true # free UDP :123 for the responder
 if ! ip -o -4 addr show | grep -q 'inet 169\.254\.169\.254/'; then
@@ -263,4 +264,18 @@ begin "host reboot with and without local mesh management"
 CGO_ENABLED=0 nice -n 19 go -C "$repo" build -trimpath -o "$work/boot-order" ./test/e2e/m1/boot-order
 nice -n 19 bash "$here/boot-order/run.sh" "$work/boot-order"
 end "reboot -> mesh management starts independently, peer services recover"
+
+begin "data mount loss stops the agent and mounting restores its state"
+sudo systemctl stop 'var-lib-ts\x2ddata.mount'
+if sudo systemctl is-active --quiet ts-orch; then
+	exit 1
+fi
+if sudo /usr/bin/mountpoint -q /var/lib/ts-data; then
+	exit 1
+fi
+sudo systemctl start ts-orch
+sudo /usr/bin/mountpoint -q /var/lib/ts-data
+sudo /usr/bin/mountpoint -q /var/lib/ts-orch
+test "$(sudo head -1 "$data/boots")" = "$first"
+end "mount dependency restores the retained filesystem before the agent"
 echo "M1 e2e passed"

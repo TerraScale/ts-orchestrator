@@ -9,11 +9,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
-// rm reverses add: it terminates --host NAME, or with confirmed the region
-// host, whose DNS record, IAM and pin then go too.
-// shortcut: the compartment and network stay (they cost nothing); delete them
-// by hand if the region never comes back.
-func (r *run) rm(host string, confirmed bool) error {
+func (r *run) rm(host string, confirmed, deleteVolume bool) error {
 	name := r.cell + "-control"
 	parent, err := r.oneCompartment(r.tenancy, "TerraScale")
 	if err != nil {
@@ -42,6 +38,24 @@ func (r *run) rm(host string, confirmed bool) error {
 	} else if target != nil && !confirmed {
 		return fmt.Errorf("terminating %s's region host %s needs --yes, typed interactively", r.code, deref(target.DisplayName))
 	}
+	volumeHost := cmp.Or(host, "ts-"+r.code+"-1")
+	if target != nil {
+		volumeHost = deref(target.DisplayName)
+	}
+	volume, err := r.dataVolume(volumeHost)
+	if err != nil {
+		return err
+	}
+	if deleteVolume && volume != nil {
+		if _, err := r.dataAttachment(target, volume); err != nil {
+			return err
+		}
+		if !r.dry {
+			if err := r.confirmVolumeDeletion(volumeHost); err != nil {
+				return err
+			}
+		}
+	}
 	var ip string
 	if target == nil {
 		err = r.report("unchanged", "instance", cmp.Or(host, "ts-"+r.code+"-1"), "-")
@@ -53,7 +67,7 @@ func (r *run) rm(host string, confirmed bool) error {
 		}
 		if !r.dry {
 			if _, err := r.compute.TerminateInstance(r.ctx, core.TerminateInstanceRequest{InstanceId: target.Id,
-				PreserveBootVolume: new(false)}); err != nil {
+				PreserveBootVolume: new(false), PreserveDataVolumesCreatedAtLaunch: new(true)}); err != nil {
 				return err
 			}
 			// The IAM below must no longer see it as live.
@@ -66,8 +80,20 @@ func (r *run) rm(host string, confirmed bool) error {
 		}
 		err = r.report("deleted", "instance", deref(target.DisplayName), *target.Id)
 	}
-	if err != nil || host != "" {
-		return err // an extra host leaves the region's IAM, DNS and pin alone
+	if err != nil {
+		return err
+	}
+	if volume != nil {
+		if deleteVolume {
+			if err := r.deleteDataVolume(volumeHost, volume); err != nil {
+				return err
+			}
+		} else if err := r.report("unchanged", "kept-data-volume", volumeHost+"-data", deref(volume.Id)); err != nil {
+			return err
+		}
+	}
+	if host != "" {
+		return nil
 	}
 	if err := r.ensureIAM(); err != nil {
 		return err

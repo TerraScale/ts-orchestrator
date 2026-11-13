@@ -196,3 +196,66 @@ Image GC runs every ten minutes and after successful bakes, retaining desired,
 rollback, floor and container images; shared pull/prepare locks and containerd
 leases protect in-flight work. Stateless services reserve 2 GiB of disk (their
 retained image and bounded logs); only services with mounts keep 10 GiB.
+
+## Host data volumes
+
+New hosts created by region add receive a 100 GB balanced (10 VPU/GB) block
+volume in the instance's availability domain. Its display name is the host
+name plus -data. Discovery uses these free-form tags:
+
+| Tag | Value |
+|---|---|
+| terrascale-managed-by | ts-orchestrator |
+| terrascale-resource | data-volume |
+| terrascale-host | host name |
+
+Cloud-init waits for the paravirtualized attachment at
+/dev/oracleoci/oraclevdb, mounts its ext4 filesystem by UUID at
+/var/lib/ts-data, and bind-mounts /var/lib/ts-data/ts-orch at
+/var/lib/ts-orch before installing and starting the agent. Service data
+stays at /var/lib/ts-data/terrabase. The agent's systemd drop-in requires
+both mounts, checks both before starting, and stops the agent when either
+mount is stopped. Binary upgrades preserve this drop-in.
+
+Formatting is allowed only for a volume created in the current invocation,
+with no filesystem or partition signature, no child block devices, no mount
+and every byte verified zero. An existing ext4 filesystem is mounted without
+formatting, even on a newly created volume. A retained volume without a
+filesystem is refused. A partial create that left an unformatted volume
+therefore requires operator inspection before proceeding; another add
+never grants permission to format it.
+
+Each host compartment has a managed daily incremental backup policy,
+scheduled at 02:00 UTC with seven days of retention. The policy and its
+assignment converge on subsequent adds. A second successful add reports
+the volume, policy, assignment and attachment as unchanged.
+
+    ts-orch region add CODE --host NAME --dry-run
+
+The read-only plan includes the volume, backup policy, assignment and
+attachment. Removing a host discards its boot disk and keeps the data
+volume and its backup policy assignment. A later add for the same name
+finds the tagged volume, launches in its availability domain and reattaches
+it. Conflicting or ambiguous volumes and attachments are refused. Once a
+new volume has been created, launch stays in that availability domain and
+tries the free fault domains there.
+
+    ts-orch region rm CODE --host NAME --delete-volume
+
+This also removes the data volume after typing the exact host name at an
+interactive prompt. Confirmation happens before termination. The command
+waits for detachment before deleting; existing backups expire under their
+retention policy. Dry-run only prints the deletion plan.
+
+An existing instance without a tagged data volume is adopted unchanged.
+This command does not migrate its boot-disk data or mount an empty volume
+over it. Moving existing hosts needs a separate operation that stops the
+services and copies their data first.
+
+The disposable M1 E2E flow exercises real loop-device formatting, rejects
+raw nonzero data and blank retained disks without changing their contents,
+keeps the filesystem UUID and sentinel service/identity files across
+reattachment, and runs the normal service journey from the mounted volume.
+It also stops the data mount and checks that the agent stops, then starts
+the agent and verifies that its mount dependencies restore the saved data.
+It does not create or delete OCI resources.

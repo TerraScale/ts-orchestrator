@@ -12,11 +12,7 @@ var (
 	plainURL  = regexp.MustCompile(`^https://[A-Za-z0-9./_:%-]+$`)
 )
 
-// userData is the cloud-init script that installs ts-orch on first boot, the
-// same steps deploy/m1/install.sh runs over ssh: host-runtime.sh, the NetBird
-// client, the release binary (sha256 verified), ts-orch.service and the
-// NetBird companion netbird-server.service.
-func userData(files fs.FS, binaryURL, sum string) (string, error) {
+func CloudInit(files fs.FS, binaryURL, sum string, fresh bool) (string, error) {
 	if !sha256Hex.MatchString(sum) || !plainURL.MatchString(binaryURL) {
 		return "", fmt.Errorf("release asset needs a plain https URL and a lowercase sha256")
 	}
@@ -28,16 +24,15 @@ func userData(files fs.FS, binaryURL, sum string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// The NetBird companion installs the pinned client and enrolls this host
-	// with the servers' setup key from gru-vault; it runs the NetBird server
-	// only where the mesh declares netbird-server (gru's founder).
 	companion, err := fs.ReadFile(files, "services/netbird-server.service")
 	if err != nil {
 		return "", err
 	}
 	return fmt.Sprintf(`#!/bin/bash
-# ts-orch region add: milestone 1 host install (mirrors deploy/m1/install.sh).
 set -euo pipefail
+install -d -m 0755 /usr/local/lib/ts-orch
+echo '%s' | base64 -d > /usr/local/lib/ts-orch/data-volume.sh
+bash /usr/local/lib/ts-orch/data-volume.sh %t
 echo '%s' | base64 -d | bash
 if ! command -v netbird >/dev/null; then
 	curl -fsSL https://pkgs.netbird.io/debian/public.key | gpg --dearmor --yes -o /usr/share/keyrings/netbird-archive-keyring.gpg
@@ -61,6 +56,50 @@ chmod 0644 /etc/systemd/system/ts-orch.service /etc/systemd/system/netbird-serve
 systemctl daemon-reload
 systemctl enable ts-orch.service netbird-server.service
 systemctl restart ts-orch.service netbird-server.service
-`, base64.StdEncoding.EncodeToString(runtime), binaryURL, sum, base64.StdEncoding.EncodeToString(unit),
+`, base64.StdEncoding.EncodeToString([]byte(dataVolumeSetup)), fresh, base64.StdEncoding.EncodeToString(runtime), binaryURL, sum, base64.StdEncoding.EncodeToString(unit),
 		base64.StdEncoding.EncodeToString(companion)), nil
 }
+
+const dataVolumeSetup = `#!/usr/bin/env bash
+set -euo pipefail
+
+fresh=$1
+device=/dev/oracleoci/oraclevdb
+udevadm wait --timeout=600 "$device"
+test -b "$device"
+test "$(lsblk -nr -o TYPE "$device" | wc -l)" -eq 1
+test -z "$(lsblk -dn -o PKNAME "$device")"
+test -z "$(lsblk -nr -o MOUNTPOINT "$device" | tr -d '[:space:]')"
+if ! blkid -p "$device" >/dev/null; then
+	test "$fresh" = true
+	test -z "$(wipefs --no-act --noheadings --output TYPE "$device")"
+	cmp -n "$(blockdev --getsize64 "$device")" "$device" /dev/zero
+	mkfs.ext4 -q "$device"
+fi
+test "$(blkid -p -s TYPE -o value "$device")" = ext4
+uuid=$(blkid -p -s UUID -o value "$device")
+[[ $uuid =~ ^[0-9a-f-]{36}$ ]]
+install -d -m 0755 /var/lib/ts-data
+test -z "$(ls -A /var/lib/ts-data)"
+entry="UUID=$uuid /var/lib/ts-data ext4 defaults 0 2"
+grep -Fxq "$entry" /etc/fstab || printf '%s\n' "$entry" >> /etc/fstab
+mount /var/lib/ts-data
+install -d -m 0755 /var/lib/ts-data/terrabase
+install -d -m 0700 /var/lib/ts-data/ts-orch /var/lib/ts-orch
+test -z "$(ls -A /var/lib/ts-orch)"
+entry='/var/lib/ts-data/ts-orch /var/lib/ts-orch none bind 0 0'
+grep -Fxq "$entry" /etc/fstab || printf '%s\n' "$entry" >> /etc/fstab
+mount /var/lib/ts-orch
+install -d -m 0755 /etc/systemd/system/ts-orch.service.d
+cat > /etc/systemd/system/ts-orch.service.d/data-volume.conf <<'UNIT'
+[Unit]
+RequiresMountsFor=/var/lib/ts-data /var/lib/ts-orch
+BindsTo=var-lib-ts\x2ddata.mount var-lib-ts\x2dorch.mount
+After=var-lib-ts\x2ddata.mount var-lib-ts\x2dorch.mount
+
+[Service]
+ExecStartPre=/usr/bin/mountpoint -q /var/lib/ts-data
+ExecStartPre=/usr/bin/mountpoint -q /var/lib/ts-orch
+UNIT
+systemctl daemon-reload
+`

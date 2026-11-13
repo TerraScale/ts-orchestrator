@@ -98,7 +98,24 @@ func (r *run) ensureInstance(host, shape string) (*core.Instance, error) {
 		return nil, err
 	}
 	if found != nil {
-		return found, r.report("unchanged", "instance", deref(found.DisplayName), deref(found.Id))
+		name := deref(found.DisplayName)
+		volume, err := r.dataVolume(name)
+		if err != nil {
+			return nil, err
+		}
+		if volume != nil {
+			if deref(volume.AvailabilityDomain) != deref(found.AvailabilityDomain) {
+				return nil, fmt.Errorf("host and data volume availability domains differ")
+			}
+			volume, _, err = r.ensureDataVolume(name, deref(found.AvailabilityDomain), volume)
+			if err != nil {
+				return nil, err
+			}
+			if err := r.attachDataVolume(name, found, volume); err != nil {
+				return nil, err
+			}
+		}
+		return found, r.report("unchanged", "instance", name, deref(found.Id))
 	}
 	if host == "" {
 		host = "ts-" + r.code + "-1"
@@ -186,20 +203,39 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 	if err != nil {
 		return nil, err
 	}
-	script, err := userData(m1.Files, url, sum)
-	if err != nil {
-		return nil, err
-	}
 	ads, err := r.ids.ListAvailabilityDomains(r.ctx, identity.ListAvailabilityDomainsRequest{CompartmentId: &r.tenancy})
 	if err != nil {
 		return nil, err
 	}
-	ad, free, err := spread(hosts, r.faultDomains)
-	if err != nil || r.dry { // a dry run checks every lookup, then launches nothing
+	var ad string
+	var free []string
+	volume, err := r.dataVolume(name)
+	if err != nil {
 		return nil, err
 	}
-	// Beside its region's hosts: their AD, each free fault domain in turn.
-	// Alone: OCI picks the fault domain in the first two ADs.
+	if volume == nil {
+		ad, free, err = spread(hosts, r.faultDomains)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		ad = deref(volume.AvailabilityDomain)
+		free, err = r.faultDomains(ad)
+		if err != nil {
+			return nil, err
+		}
+		free = slices.DeleteFunc(free, func(fd string) bool {
+			return slices.ContainsFunc(hosts, func(h core.Instance) bool {
+				return deref(h.AvailabilityDomain) == ad && deref(h.FaultDomain) == fd
+			})
+		})
+		if len(free) == 0 {
+			return nil, errors.New("no free fault domain in the retained data volume's availability domain")
+		}
+		if _, err := r.dataAttachment(nil, volume); err != nil {
+			return nil, err
+		}
+	}
 	type place struct{ ad, fd *string }
 	var places []place
 	for _, fd := range free {
@@ -210,7 +246,22 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 			places = append(places, place{a.Name, nil})
 		}
 	}
-	// Out of host capacity in one place: try the next.
+	if len(places) == 0 {
+		return nil, errors.New("no availability domain for host")
+	}
+	ad = deref(places[0].ad)
+	places = slices.DeleteFunc(places, func(p place) bool { return deref(p.ad) != ad })
+	volume, fresh, err := r.ensureDataVolume(name, ad, volume)
+	if err != nil {
+		return nil, err
+	}
+	script, err := CloudInit(m1.Files, url, sum, fresh)
+	if err != nil {
+		return nil, err
+	}
+	if r.dry {
+		return nil, r.attachDataVolume(name, nil, volume)
+	}
 	var launched core.LaunchInstanceResponse
 	for _, at := range places {
 		launched, err = r.compute.LaunchInstance(r.ctx, core.LaunchInstanceRequest{LaunchInstanceDetails: core.LaunchInstanceDetails{
@@ -229,11 +280,14 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 		return nil, fmt.Errorf("launch %s: %w", name, err)
 	}
 	inst := launched.Instance
-	return &inst, poll(r.ctx, 5*time.Second, 120, func() (bool, error) {
+	if err := poll(r.ctx, 5*time.Second, 120, func() (bool, error) {
 		g, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: inst.Id})
 		inst = g.Instance
 		return g.LifecycleState == core.InstanceLifecycleStateRunning, err
-	})
+	}); err != nil {
+		return nil, err
+	}
+	return &inst, r.attachDataVolume(name, &inst, volume)
 }
 
 // newestRelease is the newest CI release's ts-orch asset for arch and its
