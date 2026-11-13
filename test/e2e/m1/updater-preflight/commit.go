@@ -73,6 +73,7 @@ func preparedHost(work string) (*releasepush.Handler, []byte, []byte) {
 	binary := filepath.Join(work, "installed")
 	if _, err := os.Stat(binary); os.IsNotExist(err) {
 		must(os.WriteFile(binary, original, 0o755))
+		write(binary+".prev-obsolete", "superseded")
 		must(os.WriteFile(filepath.Join(work, "asset"), candidate, 0o755))
 		record, err := json.Marshal([]any{map[string]any{"sha": strings.Repeat("a", 40), "sha256": digest(original), "run_id": "1"}})
 		must(err)

@@ -220,6 +220,8 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                                 path = path_arg(
                                     pid, args[1] if number in (82, 86) else args[0]
                                 )
+                            elif number in path_calls and path_calls[number] == "exec":
+                                name, path = "exec", path_arg(pid, args[0])
                             elif number in path_calls:
                                 name = path_calls[number]
                                 destination = name in ("rename", "link")
@@ -243,7 +245,11 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                             syscall_name == "persistent"
                             and committed
                             and not pathlib.Path(work, "disarmed").exists()
-                            and (relative == "" or relative.startswith("/nats/"))
+                            and (
+                                relative == ""
+                                or relative.startswith("/nats/")
+                                or relative.startswith("/installed.prev-")
+                            )
                             and (
                                 name in ("write", "fsync", "rename", "unlink")
                                 or name == "open"
@@ -305,6 +311,7 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
         if outcome == "persistent" and not returncode:
             for warning in (
                 "binary rename durability",
+                "previous binary cleanup",
                 "diagnostic attempt",
                 "worker relay",
                 "reply delivery",
@@ -340,6 +347,7 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
 if os.uname().machine == "x86_64":
     fd_calls = {1: "write", 3: "close", 74: "fsync", 91: "chmod"}
     path_calls = {
+        59: "exec",
         257: "open",
         258: "mkdir",
         263: "unlink",
@@ -350,6 +358,7 @@ if os.uname().machine == "x86_64":
 elif os.uname().machine == "aarch64":
     fd_calls = {64: "write", 57: "close", 82: "fsync", 52: "chmod"}
     path_calls = {
+        221: "exec",
         56: "open",
         34: "mkdir",
         35: "unlink",
@@ -377,6 +386,7 @@ for index, record in enumerate(("run-id", "trial", "rolled-back", "attempt.json"
         (record + "-rename", "rename", "/nats/release-" + record, 1, "rejected")
     )
     cases.append((record + "-directory-sync", "fsync", r"/nats", index, "rejected"))
+cases.append(("preflight-exec", "exec", r"/installed.next", 1, "rejected"))
 cases.append(("binary-rename", "rename", r"/installed", 1, "rejected"))
 precommit = list(cases)
 cases.extend(
@@ -389,6 +399,7 @@ cases.extend(
         ("activation-write", "write", r"/nats/.release-.*", 6, "installed"),
         ("activation-sync", "fsync", r"/nats/.release-.*", 6, "installed"),
         ("activation-rename", "rename", r"/nats/release-trial", 2, "installed"),
+        ("previous-cleanup", "unlink", r"/installed.prev-obsolete", 1, "installed"),
         ("all-postcommit", "persistent", ".*", 1, "persistent"),
     ]
 )

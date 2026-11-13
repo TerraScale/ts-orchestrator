@@ -49,7 +49,7 @@ paths may be on different filesystems.
 | Copy previous binary beside the executable as `<binary>.prev-<revision>-<digest>`; sync the copy and its directory | Refuse; a later attempt may overwrite the unused copy. | Already complete. |
 | Write each final record, sync its file, rename it in its own directory and sync that directory | Refuse; candidate entries are inert, and installed entries remain authoritative. | Already complete. |
 | Rename the candidate over the executable | Refuse if the rename fails. | **Commit point: the answer is `installed`.** |
-| Sync the binary directory; update diagnostics; collect worker replies; stamp the restart request; deliver and flush the reply; request restart | Not reached. | Each is best effort with a WARN; none changes the installed answer. |
+| Sync the binary directory; remove superseded previous copies; update diagnostics; collect worker replies; stamp the restart request; deliver and flush the reply; request restart | Not reached. | Each is best effort with a WARN; none changes the installed answer. |
 
 There is no required filesystem step after commit. The old agent arms an
 independent exit deadline at commit: at most 100 seconds (90 seconds for worker

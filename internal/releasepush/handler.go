@@ -498,6 +498,7 @@ func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims
 	if err := syncDirectory(filepath.Dir(h.Binary)); err != nil {
 		slog.Warn("release installed; binary rename durability not confirmed", "error", err)
 	}
+	cleanupPrevious(h, candidate)
 	return nil
 }
 

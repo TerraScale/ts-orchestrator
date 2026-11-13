@@ -80,6 +80,7 @@ func run(ctx context.Context, binary string) {
 		require(err == nil && strings.Contains(string(output), "corrupt startup accepted"), fmt.Sprintf("damaged records must permit real startup: %v %s", err, output))
 	}
 	fmt.Println("ok records: empty and truncated records permit Probe -> NewHandler -> Served")
+	fenceCase(ctx, data)
 	networkCases(ctx, work, h, conn, data)
 	rolloutCases(ctx, data)
 	<-probationDone
@@ -336,6 +337,7 @@ func crossFilesystem(ctx context.Context) {
 func selfExitCase(ctx context.Context, data []byte) {
 	work, cleanup := temporary("self-exit-")
 	defer cleanup()
+	must(os.Mkdir(filepath.Join(work, "nats"), 0o700))
 	binary := filepath.Join(work, "installed")
 	must(os.WriteFile(binary, stamped(data, strings.Repeat("a", 40), "pass"), 0o755))
 	must(os.WriteFile(filepath.Join(work, "asset"), stamped(data, strings.Repeat("b", 40), "pass"), 0o755))
@@ -407,4 +409,26 @@ func unconfirmedPush(ctx context.Context, work string, h *releasepush.Handler, d
 	var result releasepush.Result
 	must(json.Unmarshal(bytes.TrimSpace(output.Bytes()), &result))
 	require(result.State == "unconfirmed", "rollout must report unconfirmed candidate")
+}
+
+func fenceCase(ctx context.Context, data []byte) {
+	work, cleanup := temporary("fence-preflight-")
+	defer cleanup()
+	h, original, candidate := preparedHost(work)
+	conn, closeListener := listener(h)
+	defer closeListener()
+	trialPath := h.TrialFile
+	h.TrialFile = filepath.Join(work, "blocked-trial")
+	must(os.Mkdir(h.TrialFile, 0o700))
+	reply := installRequest(ctx, h, conn, work, strings.Repeat("b", 40), "100")
+	require(reply.State == "rejected" && active(h.RunIDFile, original)["run_id"] == "1", "abandoned high run must not advance installed fence")
+	h.TrialFile = trialPath
+	reply = installRequest(ctx, h, conn, work, strings.Repeat("b", 40), "2")
+	require(reply.State == "installed" && active(h.RunIDFile, candidate)["run_id"] == "2", "lower run than abandoned attempt must install above installed fence")
+	must(os.WriteFile(filepath.Join(work, "asset"), stamped(data, strings.Repeat("c", 40), "pass"), 0o755))
+	reply = installRequest(ctx, h, conn, work, strings.Repeat("c", 40), "2")
+	require(reply.State == "stale", "replayed installed run must be refused")
+	reply = installRequest(ctx, h, conn, work, strings.Repeat("c", 40), "1")
+	require(reply.State == "stale", "older installed run must be refused")
+	fmt.Println("ok fence: abandoned run 100; run 2 installed; equal/older runs refused")
 }

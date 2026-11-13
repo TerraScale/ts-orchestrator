@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -172,4 +173,25 @@ func prepareRecords(h *Handler, candidate releaseID, run, attempt string) error 
 		return err
 	}
 	return storeRecord(h.RefusalFile, Refusal{Kind: RefusalHost, SHA: candidate.SHA, SHA256: candidate.SHA256, RunID: run, RunAttempt: attempt}, installed)
+}
+
+func cleanupPrevious(h *Handler, id releaseID) {
+	record, ok := selected[trial](h.TrialFile, id)
+	if !ok {
+		slog.Warn("release installed; previous binary cleanup unavailable")
+		return
+	}
+	keep := previousBinary(h.Binary, record.Previous)
+	paths, err := filepath.Glob(h.Binary + ".prev-*")
+	if err != nil {
+		slog.Warn("release installed; previous binary cleanup unavailable", "error", err)
+		return
+	}
+	for _, path := range paths {
+		if path != keep {
+			if err := os.Remove(path); err != nil {
+				slog.Warn("release installed; previous binary cleanup failed", "error", err)
+			}
+		}
+	}
 }
