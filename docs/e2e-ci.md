@@ -43,7 +43,7 @@ Substitute the selected entry script. Install-based lanes require passwordless s
 
 The host-credentials lane uses mount and network namespaces with an actual tmpfs and disables swap on its disposable runner. The updater-preflight lane runs the alert-preparation assertions with the same memory protection. Together they cover every assertion in the local credential-vm harness without requiring KVM or QEMU in CI. That harness remains available for local machines whose active swap must stay untouched; it adds no VM-only assertions. The monitoring lane also disables swap and prepares protected disposable credential files before starting the real relay. Its malformed journey-state assertions continue to exercise alert acceptance independently of journey observations.
 
-Release-contracts runs its short namespace/API journeys together. Metadata-upgrade sources setup.sh to exercise the real installed systemd unit. Core run.sh and operator startup.sh remain identical to the merged base.
+Release-contracts runs its short namespace/API journeys together. Metadata-upgrade seeds the generated metadata rules before sourcing setup.sh, modeling an existing host with a protected metadata boundary, then exercises the real installed systemd unit. Setup creates persistent state for certificates before installation, so it intentionally does not represent an installer-fresh host. Release-contracts covers fresh-host rule creation in its isolated installer journey. Core run.sh and operator startup.sh remain identical to the merged base.
 
 ## Publication on main
 

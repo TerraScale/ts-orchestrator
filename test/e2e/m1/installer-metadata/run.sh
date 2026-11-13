@@ -26,7 +26,8 @@ real_curl=$7
 mount --make-rprivate /
 ip link set lo up
 mount --bind "$work/etc" /etc
-mount --bind "$work/usr" /usr
+mkdir "$work/usr-work"
+mount -t overlay -o "lowerdir=/usr,upperdir=$work/usr,workdir=$work/usr-work" overlay /usr
 mount --bind "$work/varlib" /var/lib
 mount --bind "$work/sys" /sys
 current_system=$(readlink /run/current-system 2>/dev/null || true)
