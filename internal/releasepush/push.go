@@ -343,6 +343,9 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	result.Workers = reply.Workers
 	for _, row := range reply.Workers {
 		if row.Refusal != nil {
+			if row.Refusal.Kind != RefusalHost {
+				result.Error = "release integrity failure on " + row.Host + ": " + row.Refusal.Reason
+			}
 			result.Refusals = append(result.Refusals, row)
 		}
 	}
@@ -352,6 +355,12 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 			host = region.Region + " first host"
 		}
 		result.Refusals = append(result.Refusals, HostVersion{Host: host, Refusal: reply.Refusal})
+		if reply.Refusal.Kind != RefusalHost {
+			result.Error = "release integrity failure on " + host + ": " + reply.Refusal.Reason
+		}
+		return result
+	}
+	if result.Error != "" {
 		return result
 	}
 	if reply.State != "installed" && reply.State != "current" {

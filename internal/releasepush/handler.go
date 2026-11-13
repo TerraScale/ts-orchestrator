@@ -151,6 +151,7 @@ func NewHandler(state string) (*Handler, error) {
 	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary,
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
 		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
+	h.RunIDFile, h.TrialFile, h.RollbackFile, _ = releaseState(binary, h.RunIDFile, h.TrialFile, h.RollbackFile)
 	h.NodeList = nodelist.Open(state)
 	h.RefusalFile = filepath.Join(state, "nats", "release-attempt.json")
 	var attempt Refusal
@@ -300,13 +301,13 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	defer h.mu.Unlock()
 	var release OrchRelease
 	if err := protocol.DecodeStrict(data, &release, 64<<10); err != nil {
-		return rejected(err)
+		return integrityReply(release.SHA, Claims{}, err)
 	}
 	binary, claims, err := h.validateOrch(ctx, release)
 	if err != nil {
-		return rejected(err)
+		return integrityReply(release.SHA, claims, err)
 	}
-	attempt := &Refusal{SHA: release.SHA, RunID: claims.RunID, RunAttempt: claims.RunAttempt}
+	attempt := &Refusal{Kind: RefusalHost, SHA: release.SHA, RunID: claims.RunID, RunAttempt: claims.RunAttempt}
 	if err := h.recordAttempt(attempt); err != nil {
 		record := *attempt
 		record.Reason = err.Error()
@@ -318,6 +319,9 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	defer func() {
 		record := *attempt
 		record.Reason = reply.Error
+		if reply.Refusal != nil {
+			record.Kind = reply.Refusal.Kind
+		}
 		if err := h.recordAttempt(&record); err != nil {
 			if reply.State == "installed" {
 				slog.Warn("release installed; diagnostic attempt record not saved")
@@ -344,23 +348,14 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
-	trialWritten := false
-	if err := h.install(ctx, binary, func() error {
-		trialWritten = true
-		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID})
-	}); err != nil {
-		if trialWritten {
-			err = errors.Join(err, removeIfExists(h.TrialFile))
+	if err := h.install(ctx, binary, release.SHA, claims.RunID); err != nil {
+		var integrity *integrityError
+		if errors.As(err, &integrity) {
+			return integrityReply(release.SHA, claims, err)
 		}
 		return rejected(err)
 	}
 	h.rolledBack.Store(nil)
-	if err := removeIfExists(h.RollbackFile); err != nil {
-		return rejected(err)
-	}
-	if err := writeState(h.RunIDFile, []byte(claims.RunID)); err != nil {
-		return rejected(err)
-	}
 	h.pending = release.SHA
 	return Reply{State: "installed", Version: release.SHA}
 }
@@ -369,7 +364,7 @@ func (h *Handler) startProbation() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var record trial
-	if !readState(h.TrialFile, &record) || record.SHA != h.pending {
+	if !readState(h.TrialFile, &record) || record.SHA != h.pending || !record.Installed.IsZero() {
 		return
 	}
 	record.Installed = time.Now()
@@ -429,53 +424,35 @@ func (h *Handler) olderRun(runID string) (bool, error) {
 	return next < installed, nil
 }
 
-// link is os.Link; tests stand in an immutable binary.
-var link = os.Link
-
-// install downloads and verifies the binary, runs beforeSwap, then atomically
-// swaps it in, keeping the previous one as <binary>.prev. A failed swap leaves
-// no <binary>.next.
-func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() error) error {
+func (h *Handler) install(ctx context.Context, binary Binary, sha, run string) error {
 	next := h.Binary + ".next"
 	data, err := h.download(ctx, binary.URL)
 	if err != nil {
-		// One immediate retry: no sleeps on the release path.
-		if data, err = h.download(ctx, binary.URL); err != nil {
-			return err
-		}
+		return err
 	}
 	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != binary.SHA256 {
-		return errors.New("downloaded binary sha256 differs")
+		return &integrityError{errors.New("downloaded binary sha256 differs")}
 	}
+	defer os.Remove(next)
 	if err := writeSynced(next, data); err != nil {
 		return err
 	}
 	if err := secretpreflight.Check(ctx, next); err != nil {
-		return errors.Join(err, removeIfExists(next))
+		return err
 	}
-	if err := beforeSwap(); err != nil {
-		return errors.Join(err, removeIfExists(next))
-	}
-	prev := h.Binary + ".prev"
-	err = removeIfExists(prev)
-	if err == nil {
-		err = link(h.Binary, prev)
-	}
-	if err == nil {
-		err = os.Rename(next, h.Binary)
-	}
-	if err != nil {
-		if errors.Is(err, os.ErrPermission) {
-			err = fmt.Errorf("%w (an immutable binary refuses replacement: run `chattr -i %s %s` on the host)", err, h.Binary, prev)
-		}
-		return errors.Join(err, removeIfExists(next))
-	}
-	dir, err := os.Open(filepath.Dir(h.Binary))
+	prepared, err := prepareRelease(h, next, sha, run)
 	if err != nil {
 		return err
 	}
-	defer dir.Close()
-	return dir.Sync()
+	if err := os.Rename(next, h.Binary); err != nil {
+		cleanupRelease(prepared)
+		return err
+	}
+	if err := syncDirectory(filepath.Dir(h.Binary)); err != nil {
+		slog.Warn("release installed; binary rename durability not confirmed", "error", err)
+	}
+	h.RunIDFile, h.TrialFile, h.RollbackFile, _ = publishRelease(h.Binary, preparedRelease{h.RunIDFile, h.TrialFile, h.RollbackFile})
+	return nil
 }
 
 // downloadStall cancels a binary download that receives nothing for this

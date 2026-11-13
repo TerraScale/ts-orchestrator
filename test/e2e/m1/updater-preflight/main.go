@@ -77,6 +77,22 @@ func ready(cmd *exec.Cmd, marker string) {
 	panic("process did not announce " + marker + ": " + last)
 }
 
+type corruptTransport struct{ base http.RoundTripper }
+
+func (t corruptTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := t.base.RoundTrip(request)
+	if err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	response.Body = io.NopCloser(bytes.NewReader(append(data, 0)))
+	return response, nil
+}
+
 type providerTransport struct{ url string }
 
 func (p providerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -445,6 +461,40 @@ func relayLane(ctx context.Context, conn *nats.Conn) {
 			fmt.Println("ok worker silence: no answer after 90 seconds; later region released; run succeeds")
 		}
 	}
+	founder.RefusalFile = filepath.Join(workerState, "nats/release-attempt.json")
+	for _, mode := range []string{"worker-integrity", "first-integrity", "unknown-kind"} {
+		visited = false
+		worker.Client = &http.Client{Transport: corruptTransport{client.Transport}}
+		founder.Client = client
+		founder.Revision = sha
+		founder.Relay = func(ctx context.Context, payload []byte) []releasepush.HostVersion {
+			if mode == "unknown-kind" {
+				return []releasepush.HostVersion{{Host: "worker-one", Refusal: &releasepush.Refusal{Kind: "unrecognized", SHA: sha, Reason: "unknown refusal"}}}
+			}
+			return releasepush.RelayWorkers(ctx, conn, "lane.workers", payload, nodes)
+		}
+		if mode == "first-integrity" {
+			founder.Revision = strings.Repeat("a", 40)
+			founder.Binary = filepath.Join(workerState, "founder-installed")
+			must(os.WriteFile(founder.Binary, helperBytes, 0o755))
+			founder.Client = &http.Client{Transport: corruptTransport{client.Transport}}
+		}
+		var output bytes.Buffer
+		err := releasepush.Push(ctx, []string{"--sha", sha, "--dir", assets, "--regions", regionFile}, &output)
+		scanner := bufio.NewScanner(&output)
+		results := []releasepush.Result{}
+		for scanner.Scan() {
+			var result releasepush.Result
+			must(json.Unmarshal(scanner.Bytes(), &result))
+			results = append(results, result)
+		}
+		require(err != nil && len(results) == 2 && results[0].Error != "" && results[1].State == "skipped" && !visited, "release integrity and unknown refusals must stop later regions")
+		require(len(results[0].Refusals) == 1, "fatal integrity must identify refusing host")
+		if mode != "unknown-kind" {
+			require(results[0].Refusals[0].Refusal.Kind == releasepush.RefusalIntegrity, "download mismatch must carry structured integrity kind")
+		}
+		fmt.Println("ok", mode, ": fatal structured refusal; later region receives no release")
+	}
 	must(os.WriteFile(candidate, append(helperBytes, []byte("\nCANDIDATE:noise")...), 0o755))
 	var before, after runtime.MemStats
 	runtime.GC()
@@ -519,6 +569,19 @@ func probationLane(ctx context.Context, conn *nats.Conn) {
 }
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "recover-state" {
+		probation, err := releasepush.Probe(os.Args[2], os.Stderr)
+		must(err)
+		require(probation != nil && probation.Served(), "committed candidate must recover probation")
+		fmt.Println("recovered candidate")
+		return
+	}
+	if len(os.Args) == 4 && os.Args[1] == "commit-case" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		commitCase(ctx, os.Args[2], os.Args[3])
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "preflight" {
 		path, err := os.Executable()
 		must(err)
