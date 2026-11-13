@@ -709,10 +709,10 @@ func (j *journey) fences() {
 		j.store.listingHidden["sjc-1-ts-auth-terrabase-key"] = true
 		before := j.store.writes
 		out, err := j.run(j.targets, "retire", "--kid", "ts-auth.sjc.1")
-		require(err != nil && strings.Contains(out, "current") && j.store.writes == before+3, "retire used one absent listing: "+out)
+		require(err != nil && strings.Contains(out, "current") && j.store.writes == before, "retire used one absent listing: "+out)
 		j.ageIntent()
-		out, err = j.run(j.targets, "recover")
-		require(err != nil && strings.Contains(out, "current") && j.store.writes == before+3, "aged listing lag permitted retirement")
+		out, err = j.run(j.targets, "retire", "--kid", "ts-auth.sjc.1")
+		require(err != nil && strings.Contains(out, "current") && j.store.writes == before, "aged listing lag permitted retirement")
 		j.store.invariant()
 		j.store.listingHidden = map[string]bool{}
 		before = j.store.writes
@@ -785,7 +785,9 @@ func (j *journey) expiredRecovery() {
 					j.store.Unlock()
 				}
 				j.recover()
-				var key struct{ Kid string }
+				var key struct {
+					Kid string `json:"kid"`
+				}
 				private := j.store.values["sjc-1-ts-auth-terrabase-key"]
 				must(json.Unmarshal(private.Current.Content, &key))
 				require(key.Kid == "ts-auth.sjc.1", "recovery promoted expired or short-lived key")

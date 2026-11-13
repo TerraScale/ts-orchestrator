@@ -323,6 +323,14 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 			return err
 		}
 	}
+	if command == "retire" && kidRE.MatchString(*kid) && state.Current.Version == 0 {
+		probe, readErr := store.Private(ctx, selected, name)
+		if readErr == nil && probe.Current.Version > 0 {
+			state = probe
+		} else {
+			probe.Clear()
+		}
+	}
 	defer state.Clear()
 	currentKid, err := privateKid(state.Current)
 	if err != nil {
