@@ -160,6 +160,9 @@ func (n *Node) routes() []*server.RouteInfo {
 }
 
 func (n *Node) closeConns() {
+	if n.monitor != nil {
+		n.monitor.Close()
+	}
 	n.conn.Close()
 	if n.fabric != nil {
 		n.fabric.Close()

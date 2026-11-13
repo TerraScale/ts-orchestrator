@@ -19,6 +19,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func stopNode(node *Node) {
+	if err := node.Close(); err != nil {
+		node.ForceClose()
+	}
+}
+
 func RegionalPeersJourney(root string) error {
 	logrus.SetLevel(logrus.WarnLevel)
 	began := time.Now()
@@ -127,7 +133,7 @@ func RegionalPeersJourney(root string) error {
 	}
 	defer func() {
 		if founder != nil {
-			founder.Close()
+			stopNode(founder)
 		}
 	}()
 	workerName := "regional-worker"
@@ -141,7 +147,7 @@ func RegionalPeersJourney(root string) error {
 	}
 	defer func() {
 		if workerAgent != nil {
-			workerAgent.Close()
+			stopNode(workerAgent)
 		}
 	}()
 	if err := regionalAwait(ctx, func() bool { return len(founder.joinedWorkers()) == 1 && own.server.NumRoutes() > 0 }); err != nil {
@@ -217,8 +223,8 @@ func RegionalPeersJourney(root string) error {
 		}
 	}()
 	defer func() { stopSamples(); <-samplesDone }()
-	workerAgent.Close()
-	founder.Close()
+	stopNode(workerAgent)
+	stopNode(founder)
 	founder, err = start(peerCfg)
 	if err != nil {
 		return err
@@ -252,8 +258,8 @@ func RegionalPeersJourney(root string) error {
 	if err := round(2); err != nil {
 		return err
 	}
-	workerAgent.Close()
-	founder.Close()
+	stopNode(workerAgent)
+	stopNode(founder)
 	if err := round(1); err != nil {
 		return fmt.Errorf("first missed founder round: %w", err)
 	}
@@ -310,7 +316,7 @@ func RegionalPeersJourney(root string) error {
 		return err
 	}
 	fmt.Println("ok regional peers: missed founder retained its workers, incomplete generation rejected, explicit region removal applied immediately")
-	workerAgent.Close()
+	stopNode(workerAgent)
 	if err := worker.Stop(context.Background()); err != nil {
 		return err
 	}

@@ -37,6 +37,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
@@ -107,6 +108,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 		go func() {
 			mesh.Run(ctx, *state, meshCluster(plan), func(node *mesh.Node) {
 				meshNode.Store(node)
+				plannedstop.Register(ctx, node.PrepareStop)
 				handoff.SetTaskDrainer(node.DrainTask)
 				handoff.SetBootstrap(node.Bootstrap)
 				handoff.SetClearPeer(node.ClearPeer)
@@ -129,6 +131,18 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			result.Mesh = errors.New("mesh not started")
 		}
 		return result
+	}, func(ctx context.Context) error {
+		if node := meshNode.Load(); node != nil {
+			return node.PrepareStop(ctx)
+		}
+		if plan.region == "" || (plan.joiner() && plan.address == "") {
+			return nil
+		}
+		return errors.New("mesh not started; planned release refused")
+	}, func() {
+		if node := meshNode.Load(); node != nil {
+			node.AbortStop()
+		}
 	})
 	cancel()
 	<-meshDone
