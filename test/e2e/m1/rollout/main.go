@@ -561,7 +561,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 		baseline.Generation = baselineGeneration
 		command(ctx, names[i], roots[i], baseline)
 
-		if i == 0 {
+		{
 			lagging = baseline
 			lagging.Name, lagging.Port, lagging.Args, lagging.Regions = "e2e-lagging", 18086, []string{"--port", "18086"}, nil
 			lagging.Replicas, lagging.MilliCPU, lagging.MemoryMiB = 2, 4000, 24576
