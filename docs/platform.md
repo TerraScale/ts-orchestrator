@@ -89,6 +89,9 @@ The remote CLI authenticates by signing a challenge with the SSH agent (C4).
 A key stored on a shared server where agents run never gets `release` or
 `fleet`.
 
+Today: the CLI has no remote access; operators run it on the nodes.
+Roles and the SSH login come with C4.
+
 ## Cluster shape
 
 Every region has three manager nodes. Further nodes join as workers.
@@ -108,6 +111,11 @@ stopping node answers 503 on `/healthz` for 20 s first (C5c).
 
 Nodes live on private subnets with a NAT gateway. The only public address of
 a region is its network load balancer.
+
+Today: each region has one manager and one worker; only the manager serves
+the edge; certificates are per node; nodes have public addresses with no
+load balancer. C5a, C5b and C5c change the code; the new fleet (C7)
+changes the servers.
 
 ## OCI ownership
 
@@ -150,6 +158,9 @@ It builds on this existing code:
 | `internal/ociregion` | foundation, publicapi and peer |
 | `internal/edge/geodns` | GeoDNS |
 
+Today: OCI resources were created by operator commands with an API key;
+nothing in the cluster creates or changes them (C6).
+
 ## Routing
 
 `dash`, `mcp`, `platform` and `auth` under `terrascale.tech` use GeoDNS. GeoDNS
@@ -163,6 +174,9 @@ its record automatically.
 
 `api.terrascale.tech` uses GeoDNS too, for testing convenience only. SDKs do
 not use it except as the fallback when Atlas is unreachable.
+
+Today: every name points straight at node 1 of a region through
+Cloudflare DNS; there is no GeoDNS (C8).
 
 ## Atlas
 
@@ -188,6 +202,9 @@ and re-sends every 10 minutes. One placement per database:
 
 A region's `api` origin must be `https://<label>.api.terrascale.tech`.
 
+Today: atlas.terrascale.tech is not deployed (C9 rebuilds it, C10
+publishes placements).
+
 ## SDKs
 
 On first use for a database, an SDK asks Atlas once. It caches the answer in
@@ -201,6 +218,9 @@ When Atlas is unreachable and nothing is cached, the SDK uses
 `api.terrascale.tech`. An explicit base URL skips Atlas. An SDK accepts only
 hosts under `api.terrascale.tech`.
 
+Today: SDKs default to api.terrascale.tech and don't use Atlas or
+follow 421 (C11).
+
 ## ts-auth in every region
 
 Step 1. Replicas run in every region. All of them use one ts-auth database
@@ -208,6 +228,9 @@ homed in `gru`. That database stays the single writer. `auth.terrascale.tech`
 is geo-routed. There is one SMTP endpoint.
 
 Step 2. Each region has a readable copy, and the home can be promoted.
+
+Today: ts-auth runs only in gru with one replica (C12 removes the code
+limit; the new fleet deploys it).
 
 ## Scaling and self-healing
 
@@ -224,10 +247,14 @@ it is empty.
 
 A node that stays unhealthy for too long is replaced.
 
+Today: the node does not start the replica or node autoscaler (C13).
+
 ## What was removed
 
 C2 deletes the old controller, the host agent, the cell spec and signed
 channel generation. `single-host` is the node runtime. It will be renamed `ts-orch node`.
+
+Today: the deletion is in review (C2).
 
 ## Order of work
 
