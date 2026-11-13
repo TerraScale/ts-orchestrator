@@ -308,10 +308,11 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	}
 	attempt := &Refusal{SHA: release.SHA, RunID: claims.RunID, RunAttempt: claims.RunAttempt}
 	if err := h.recordAttempt(attempt); err != nil {
-		attempt.Reason = err.Error()
-		h.attempt.Store(attempt)
+		record := *attempt
+		record.Reason = err.Error()
+		h.attempt.Store(&record)
 		reply := rejected(err)
-		reply.Refusal = attempt
+		reply.Refusal = &record
 		return reply
 	}
 	defer func() {
