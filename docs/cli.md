@@ -102,15 +102,21 @@ naming scheme and who may read what.
 ## Cell spec
 
 `ts-orch get`, `diff` and `apply` read and amend a running cell's signed
-desired state; `ts-orch service` plans service changes to it. See
+desired state; `ts-orch service` applies and removes services in every
+region and inspects this host's. See
 [cell spec](cell-spec.md) for the model, trust chain and runbook.
 
 | Command | Purpose |
 | --- | --- |
 | `ts-orch get --config OPERATOR_JSON` | Print the cell's current spec |
 | `ts-orch diff --config F -f FILE` | Plan a candidate or signed spec on the leader: changes, `root_required`, `requires_binary` |
-| `ts-orch service add\|update --config F --role R --profile F [--spec F] [--out F]` | Plan the next generation; `--out` writes the unsigned candidate |
-| `ts-orch service remove --config F --role R [--out F]` | Plan removing a drained role |
+| `ts-orch service apply -f <spec.json> [--hold-after <region>]` | Apply a service spec in every ordered region over this host's mesh; without a mesh node it applies on this host only; `--hold-after` stops the rollout once that region is done |
+| `ts-orch service resume <name>` | Continue a rollout held with `--hold-after`; needs this host's mesh |
+| `ts-orch service ls` | List this host's services: name, running replicas, image |
+| `ts-orch service rm <name>` | Remove the service in every region over the mesh and on this host |
+| `ts-orch service ps <name>` | Print the service's tasks on this host |
+| `ts-orch service logs [-f \| --previous] <name>` | Print the service's task logs on this host; `-f` follows the current task, `--previous` prints the ended task's snapshot |
+| `ts-orch service inspect <name>` | Print the service's live spec and state as JSON |
 | `ts-orch release sign-spec-delegation ... --out F` | Offline: the root lets the release leaf sign ordinary amendments |
 | `ts-orch release sign-spec --candidate F (--delegation F \| --root) --root-key F --signing-key F --out F` | Offline: the leaf, or for a widening change the root, signs a candidate |
 | `ts-orch apply --config F -f SIGNED` | Apply a signed spec on the authority leader |
@@ -126,6 +132,11 @@ CI runs `ts-orch release deploy` for every `main` merge; see
 | `ts-orch release service-deploy --role R --binary F --repository URL --commit SHA --source-checkout DIR --environment ENV --actor A --signing-key-secret S --vault-id V --namespace NS --cell C...` | CI: release a native service (TerraBase, ts-auth) to every region, canary first, through its service release channel ([automatic service releases](continuous-delivery.md#automatic-service-releases-ts-610)) |
 | `ts-orch release fleet-status --namespace NS [--cell C...] [--role R...]` | Print every region's release channel and rollout status as JSON lines; with `--role`, each named service role's release status instead |
 | `ts-orch release observed-digests --namespace NS [--cell C...] [--role R...]` | Read-only: for each region and native service role (default `terrabase` and `ts-auth`), print the admitted digest and, per replica, the digest its host observes running, when it was observed and whether they match |
+| `ts-orch release push --dir D --sha SHA [--regions F]` | CI only: send a main build one region at a time, waiting for JetStream and the region's services |
+| `ts-orch release app --service NAME --image REF@SHA256 [--regions F]` | CI only (app image): release an app image to every region over the mesh |
+| `ts-orch release digests --out F [--regions F]` | CI only (app digests): record every mesh service's desired image to a file |
+| `ts-orch release mesh-check [--spec F] [--regions F]` | CI only: re-prove mesh ping, `service apply` and HTTPS in every region after a fleet push |
+| `ts-orch release pin [--state DIR]` | Print the SPKI pin of the single-host listener certificate in a state directory |
 
 ## Orchestrator rollouts
 
