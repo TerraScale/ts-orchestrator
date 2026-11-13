@@ -36,6 +36,16 @@ BASELINES = (
 )
 
 
+PACKAGE_BASELINES = (
+    (
+        "golang.org/x/crypto", "v0.58.0", "third_party/acme",
+        "8fdf07b3114278fb3b78c1cf1814e08bd851eb4c",
+        "third_party/acme/README.terrascale.md",
+        "025180f8f152a703435a2092891588809e513a40be1d8a2f1d7ffc86fcfdfeeb",
+    ),
+)
+
+
 def run(root, *args):
     if args[0] == "go":
         args = (GO, *args[1:])
@@ -83,7 +93,36 @@ def qualify(root, baseline):
                       "replacement": directory, "source_sha256": digest}), flush=True)
 
 
-def audit(module, version):
+def qualify_package(root, baseline):
+    module, version, directory, commit, record, digest = baseline
+    selected = json.loads(run(root, "go", "list", "-m", "-json", module))
+    if selected["Version"] != version or "Replace" in selected:
+        raise ValueError(f"upstream package baseline differs: {module}")
+    provenance = (root / record).read_text()
+    if not all(value in provenance for value in (module, version, commit)):
+        raise ValueError(f"upstream version/commit missing from provenance: {record}")
+    if source_digest(root, directory) != digest:
+        raise ValueError(f"vendored package sources changed; review and update provenance digest: {directory}")
+    print(json.dumps({"module": module, "version": version, "upstream_commit": commit,
+                      "package_copy": directory, "source_sha256": digest}), flush=True)
+
+
+def affects_package(finding, package):
+    affected = finding.get("affected")
+    if not isinstance(affected, list) or not affected:
+        return True
+    for entry in affected:
+        imports = entry.get("ecosystem_specific", {}).get("imports")
+        if not isinstance(imports, list) or not imports:
+            return True
+        for imported in imports:
+            path = imported.get("path")
+            if not isinstance(path, str) or path == package:
+                return True
+    return False
+
+
+def audit(module, version, package=None):
     query = {"package": {"ecosystem": "Go", "name": module}, "version": version}
     print(json.dumps({"osv_query": query}), flush=True)
     request = urllib.request.Request(
@@ -100,6 +139,12 @@ def audit(module, version):
     findings = result.get("vulns", [])
     if not isinstance(findings, list):
         raise TypeError("malformed OSV findings")
+    if package:
+        for finding in findings:
+            if not affects_package(finding, package):
+                print(json.dumps({"advisory": finding["id"], "copied_package": package,
+                                  "scope": "affected imports are outside the copied package"}), flush=True)
+        findings = [finding for finding in findings if affects_package(finding, package)]
     if findings:
         raise ValueError(f"upstream advisory findings: {module}@{version}; see complete response above")
 
@@ -113,10 +158,14 @@ def main():
     # Validate every binding before making any clean upstream-advisory claim.
     for baseline in BASELINES:
         qualify(root, baseline)
+    for baseline in PACKAGE_BASELINES:
+        qualify_package(root, baseline)
     failures = []
-    for module, version, *_ in BASELINES:
+    inventories = [(baseline, None) for baseline in BASELINES]
+    inventories += [(baseline, baseline[0] + "/acme") for baseline in PACKAGE_BASELINES]
+    for (module, version, *_), package in inventories:
         try:
-            audit(module, version)
+            audit(module, version, package)
         except (OSError, ValueError, TypeError, http.client.HTTPException) as error:
             failures.append(f"{module}: {error}")
     if failures:
