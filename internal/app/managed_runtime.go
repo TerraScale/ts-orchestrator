@@ -151,7 +151,7 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if err := setManagedRuntimeAvailability(ctx, node, admitted, api.NodeAvailabilityPause); err != nil {
 		return err
 	}
-	notifier := sdnotify.FromEnvironment()
+	notifier := sdnotify.Process()
 	if err := notifier.Ready("admitted regional runtime management is ready"); err != nil {
 		return err
 	}

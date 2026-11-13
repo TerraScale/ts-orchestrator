@@ -129,7 +129,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	if founder {
 		go publishJoin(ctx, state, plan)
 	}
-	notifier := sdnotify.FromEnvironment()
+	notifier := sdnotify.Process()
 	if err := notifier.Ready("single-host node ready"); err != nil {
 		return err
 	}
@@ -142,6 +142,18 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	}
 	waited := make(chan error, 1)
 	go func() { waited <- node.Wait(ctx) }()
+	go func() {
+		defer func() {
+			if value := recover(); value != nil {
+				slog.Warn("Host log settings skipped", "panic", fmt.Sprint(value))
+			}
+		}()
+		if err := ensureHostLogs(ctx); err != nil {
+			slog.Warn("Host log settings skipped", "error", err)
+		} else {
+			slog.Info("Host log settings applied")
+		}
+	}()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -207,7 +219,7 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 		fmt.Fprintln(output, "local host; using a loopback-only cluster")
 		return loopback, nil
 	}
-	notifier := sdnotify.New(os.Getenv("NOTIFY_SOCKET"), "", "", os.Getpid())
+	notifier := sdnotify.Process()
 	if err := notifier.ExtendStart(2 * hostMetadataWindow); err != nil {
 		return hostPlan{}, fmt.Errorf("extend host startup window: %w", err)
 	}

@@ -341,7 +341,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 	if !memoryRuntime && release != "" {
 		go restartWhenKnownGood(ctx, layout, release, restart)
 	}
-	notifier := sdnotify.FromEnvironment()
+	notifier := sdnotify.Process()
 	if cfg.NATS.Embedded != nil {
 		return errors.New("host role cannot start the regional NATS server")
 	}

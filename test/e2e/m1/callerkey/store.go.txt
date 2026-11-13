@@ -1,0 +1,109 @@
+package callerkey
+
+import (
+	"bytes"
+	"context"
+	"encoding/json/v2"
+	"errors"
+	"io"
+	"net/http"
+	"os"
+	"strconv"
+	"time"
+)
+
+type vaultStore struct{}
+
+type wireSnapshot struct {
+	Snapshot
+	Content []byte
+}
+
+type request struct {
+	Operation   string
+	Target      Target
+	Name        string
+	Before      Snapshot
+	State       PrivateState
+	Value       []byte
+	VersionName string
+	Version     int64
+}
+
+func call(ctx context.Context, input request, output any) error {
+	data, err := json.Marshal(input)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, os.Getenv("CALLER_KEY_STORE"), bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Caller-Key-Pid", strconv.Itoa(os.Getpid()))
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return errors.New("disposable store request interrupted")
+	}
+	defer response.Body.Close()
+	data, err = io.ReadAll(response.Body)
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusOK {
+		return errors.New(string(data))
+	}
+	return json.Unmarshal(data, output)
+}
+
+func (vaultStore) Regions(ctx context.Context) (value []string, err error) {
+	err = call(ctx, request{Operation: "regions"}, &value)
+	return
+}
+func (vaultStore) Read(ctx context.Context, t Target, name string) (value Snapshot, err error) {
+	var data wireSnapshot
+	err = call(ctx, request{Operation: "read", Target: t, Name: name}, &data)
+	value = data.Snapshot
+	value.Value = data.Content
+	return
+}
+func (vaultStore) Private(ctx context.Context, t Target, name string) (value PrivateState, err error) {
+	var data struct {
+		Current   wireSnapshot
+		Versions  []wireSnapshot
+		Pending   []bool
+		Etag      string
+		Scheduled map[int64]time.Time
+	}
+	err = call(ctx, request{Operation: "private", Target: t, Name: name}, &data)
+	if err != nil {
+		return
+	}
+	value.Etag = data.Etag
+	value.Scheduled = data.Scheduled
+	value.Current = data.Current.Snapshot
+	value.Current.Value = data.Current.Content
+	for i, v := range data.Versions {
+		snapshot := v.Snapshot
+		snapshot.Value = v.Content
+		value.Versions = append(value.Versions, KeyVersion{Snapshot: snapshot, Pending: data.Pending[i]})
+	}
+	return
+}
+func (vaultStore) Write(ctx context.Context, t Target, name string, before Snapshot, value []byte) error {
+	var output bool
+	return call(ctx, request{Operation: "write", Target: t, Name: name, Before: before, Value: value}, &output)
+}
+func (vaultStore) Stage(ctx context.Context, t Target, name string, state PrivateState, value []byte, versionName string) error {
+	var output bool
+	return call(ctx, request{Operation: "stage", Target: t, Name: name, State: state, Value: value, VersionName: versionName}, &output)
+}
+func (vaultStore) Activate(ctx context.Context, t Target, name string, state PrivateState, version int64) error {
+	var output bool
+	return call(ctx, request{Operation: "activate", Target: t, Name: name, State: state, Version: version}, &output)
+}
+
+func (vaultStore) Discard(ctx context.Context, t Target, name string, state PrivateState, version int64) (time.Time, error) {
+	var output time.Time
+	err := call(ctx, request{Operation: "discard", Target: t, Name: name, State: state, Version: version}, &output)
+	return output, err
+}
