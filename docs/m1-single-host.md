@@ -209,26 +209,59 @@ name plus -data. Discovery uses these free-form tags:
 | terrascale-resource | data-volume |
 | terrascale-host | host name |
 
-Cloud-init waits for the paravirtualized attachment at
-/dev/oracleoci/oraclevdb, mounts its ext4 filesystem by UUID at
-/var/lib/ts-data, and bind-mounts /var/lib/ts-data/ts-orch at
-/var/lib/ts-orch before installing and starting the agent. Service data
-stays at /var/lib/ts-data/terrabase. The agent's systemd drop-in requires
-both mounts, checks both before starting, and stops the agent when either
-mount is stopped. Binary upgrades preserve this drop-in.
+The instance launches first; its actual availability domain decides where a new
+volume is created and attached. With no neighbours and no retained volume,
+launch still tries the first two availability domains. A retained volume fixes
+placement to its availability domain and free fault domains there.
 
-Formatting is allowed only for a volume created in the current invocation,
-with no filesystem or partition signature, no child block devices, no mount
-and every byte verified zero. An existing ext4 filesystem is mounted without
-formatting, even on a newly created volume. A retained volume without a
-filesystem is refused. A partial create that left an unformatted volume
-therefore requires operator inspection before proceeding; another add
-never grants permission to format it.
+Cloud-init waits for the paravirtualized attachment at
+`/dev/oracleoci/oraclevdb`, mounts its ext4 filesystem by UUID at
+`/var/lib/ts-data`, and bind-mounts `/var/lib/ts-data/ts-orch` at
+`/var/lib/ts-orch` before installing and starting the agent. Service data
+stays at `/var/lib/ts-data/terrabase`. The same script writes identical
+systemd drop-ins for the agent and NetBird companion: both require both
+mounts, check them before starting, and stop when either mount stops.
+Binary upgrades preserve these drop-ins. Stopping the agent leaves running
+tasks running by design; on mount loss they keep running until they fail on
+I/O. The dependencies do not terminate database containers or quiesce them.
+A host whose volume is missing at boot stops in emergency mode and is
+reachable only through the cloud console.
+
+The durable `terrascale-data-formatted` volume tag records that the volume
+has mounted successfully before. Its presence is passed to the host at launch.
+The operator writes and reads back this tag after the release listener becomes
+reachable: the bootstrap installs and starts that listener only after both
+mounts succeed. This also waits for extra hosts, so an incomplete bootstrap
+cannot report a successful add. If the operator stops before recording the tag,
+the existing ext4 filesystem still mounts without formatting.
+
+Formatting requires an absent formatted tag, no filesystem or partition
+signature, no child block devices, no mount, and zero reads of the first 1 GiB,
+the last 1 GiB, and a 1 MiB sample every 1 GiB in between. A 100 GiB volume
+reads 2 GiB plus 98 MiB (about 2.10 GiB). At this balanced tier the expected
+read time is roughly 45–50 seconds, calculated from its nominal throughput;
+this is an estimate, not a measured cloud drill. The samples do not prove
+that bytes outside the sampled ranges are zero. Any failed probe refuses
+formatting. A tag present on a signature-free disk refuses formatting too.
+An existing ext4 filesystem is always mounted without formatting, including
+a restored filesystem. Preserve the formatted tag when restoring a backup.
+
+A failed launch creates no volume. A failed volume create can resume on the
+already running instance. A failed attach leaves cloud-init waiting on device
+arrival, without an expiring device-wait deadline; a later add can attach the
+same blank volume and complete bootstrap. The instance records its expected
+volume ID before attaching; a later add refuses to replace a missing recorded
+volume. A volume left blank by interrupted provisioning is eligible for the
+same first-format checks on the next add, regardless of which invocation
+created it.
 
 Each host compartment has a managed daily incremental backup policy,
-scheduled at 02:00 UTC with seven days of retention. The policy and its
-assignment converge on subsequent adds. A second successful add reports
-the volume, policy, assignment and attachment as unchanged.
+scheduled at 02:00 UTC with seven days of retention. A backup is one
+crash-consistent point in time of the whole volume; it does not quiesce the
+database. Database recovery after restore is part of the first real drill.
+The full applicable schedule and assignment are read back. A different
+assigned policy is refused, never replaced silently. A second successful add
+reports the volume, policy, assignment and attachment as unchanged.
 
     ts-orch region add CODE --host NAME --dry-run
 
@@ -236,26 +269,32 @@ The read-only plan includes the volume, backup policy, assignment and
 attachment. Removing a host discards its boot disk and keeps the data
 volume and its backup policy assignment. A later add for the same name
 finds the tagged volume, launches in its availability domain and reattaches
-it. Conflicting or ambiguous volumes and attachments are refused. Once a
-new volume has been created, launch stays in that availability domain and
-tries the free fault domains there.
+it. Conflicting or ambiguous volumes and attachments are refused. Data
+volume deletion is a manual operation outside this tool.
 
-    ts-orch region rm CODE --host NAME --delete-volume
-
-This also removes the data volume after typing the exact host name at an
-interactive prompt. Confirmation happens before termination. The command
-waits for detachment before deleting; existing backups expire under their
-retention policy. Dry-run only prints the deletion plan.
-
-An existing instance without a tagged data volume is adopted unchanged.
-This command does not migrate its boot-disk data or mount an empty volume
-over it. Moving existing hosts needs a separate operation that stops the
-services and copies their data first.
+An existing instance without a tagged data volume or the new bootstrap
+metadata is adopted unchanged. This command does not migrate its boot-disk
+data or mount an empty volume over it. Moving existing hosts needs a
+separate operation that stops the services and copies their data first.
 
 The disposable M1 E2E flow exercises real loop-device formatting, rejects
-raw nonzero data and blank retained disks without changing their contents,
-keeps the filesystem UUID and sentinel service/identity files across
-reattachment, and runs the normal service journey from the mounted volume.
-It also stops the data mount and checks that the agent stops, then starts
-the agent and verifies that its mount dependencies restore the saved data.
-It does not create or delete OCI resources.
+nonzero first, middle-sample and last ranges and blank disks marked formatted
+without changing their contents, keeps the filesystem UUID and sentinel
+service/identity files across reattachment with and without the formatted
+marker, and runs the normal service journey from the mounted volume. It
+checks identical mount dependencies for both units and stops the data mount
+to check both units stop, then restores the saved data through the agent's
+mount dependencies. It does not create or delete OCI resources.
+
+### First real drill
+
+- Check that the stable device path appears after attaching a volume once the
+  instance is running.
+- Record the bounded zero-read time at the 100 GB balanced tier.
+- Check that `region add` passes the release-listener pin step.
+- Remove a host, check its volume is kept, then add the same host name and
+  verify reattachment without formatting, with identity and data intact.
+- Reboot with the volume attached; verify data and identity. Reboot without
+  it; verify emergency mode and cloud-console-only access.
+- Restore a scheduled backup and verify that the database recovers from the
+  crash-consistent volume snapshot.

@@ -12,7 +12,7 @@ var (
 	plainURL  = regexp.MustCompile(`^https://[A-Za-z0-9./_:%-]+$`)
 )
 
-func CloudInit(files fs.FS, binaryURL, sum string, fresh bool) (string, error) {
+func CloudInit(files fs.FS, binaryURL, sum string, formatted bool) (string, error) {
 	if !sha256Hex.MatchString(sum) || !plainURL.MatchString(binaryURL) {
 		return "", fmt.Errorf("release asset needs a plain https URL and a lowercase sha256")
 	}
@@ -56,24 +56,39 @@ chmod 0644 /etc/systemd/system/ts-orch.service /etc/systemd/system/netbird-serve
 systemctl daemon-reload
 systemctl enable ts-orch.service netbird-server.service
 systemctl restart ts-orch.service netbird-server.service
-`, base64.StdEncoding.EncodeToString([]byte(dataVolumeSetup)), fresh, base64.StdEncoding.EncodeToString(runtime), binaryURL, sum, base64.StdEncoding.EncodeToString(unit),
+`, base64.StdEncoding.EncodeToString([]byte(dataVolumeSetup)), formatted, base64.StdEncoding.EncodeToString(runtime), binaryURL, sum, base64.StdEncoding.EncodeToString(unit),
 		base64.StdEncoding.EncodeToString(companion)), nil
 }
 
 const dataVolumeSetup = `#!/usr/bin/env bash
 set -euo pipefail
 
-fresh=$1
+formatted=$1
 device=/dev/oracleoci/oraclevdb
-udevadm wait --timeout=600 "$device"
+udevadm wait "$device"
 test -b "$device"
 test "$(lsblk -nr -o TYPE "$device" | wc -l)" -eq 1
 test -z "$(lsblk -dn -o PKNAME "$device")"
 test -z "$(lsblk -nr -o MOUNTPOINT "$device" | tr -d '[:space:]')"
-if ! blkid -p "$device" >/dev/null; then
-	test "$fresh" = true
+if blkid -p "$device" >/dev/null; then
+	:
+else
+	status=$?
+	test "$status" -eq 2
+	test "$formatted" = false
 	test -z "$(wipefs --no-act --noheadings --output TYPE "$device")"
-	cmp -n "$(blockdev --getsize64 "$device")" "$device" /dev/zero
+	size=$(blockdev --getsize64 "$device")
+	gib=$((1024 * 1024 * 1024))
+	mib=$((1024 * 1024))
+	test "$size" -ge "$((2 * gib))"
+	check_zero() {
+		dd if="$device" bs=1M skip="$1" count="$2" iflag=skip_bytes,count_bytes,fullblock status=none | cmp -n "$2" - /dev/zero
+	}
+	check_zero 0 "$gib"
+	check_zero "$((size - gib))" "$gib"
+	for ((offset=gib; offset<size-gib; offset+=gib)); do
+		check_zero "$offset" "$mib"
+	done
 	mkfs.ext4 -q "$device"
 fi
 test "$(blkid -p -s TYPE -o value "$device")" = ext4
@@ -90,8 +105,9 @@ test -z "$(ls -A /var/lib/ts-orch)"
 entry='/var/lib/ts-data/ts-orch /var/lib/ts-orch none bind 0 0'
 grep -Fxq "$entry" /etc/fstab || printf '%s\n' "$entry" >> /etc/fstab
 mount /var/lib/ts-orch
-install -d -m 0755 /etc/systemd/system/ts-orch.service.d
-cat > /etc/systemd/system/ts-orch.service.d/data-volume.conf <<'UNIT'
+for unit in ts-orch netbird-server; do
+install -d -m 0755 "/etc/systemd/system/$unit.service.d"
+cat > "/etc/systemd/system/$unit.service.d/data-volume.conf" <<'UNIT'
 [Unit]
 RequiresMountsFor=/var/lib/ts-data /var/lib/ts-orch
 BindsTo=var-lib-ts\x2ddata.mount var-lib-ts\x2dorch.mount
@@ -101,5 +117,6 @@ After=var-lib-ts\x2ddata.mount var-lib-ts\x2dorch.mount
 ExecStartPre=/usr/bin/mountpoint -q /var/lib/ts-data
 ExecStartPre=/usr/bin/mountpoint -q /var/lib/ts-orch
 UNIT
+done
 systemctl daemon-reload
 `

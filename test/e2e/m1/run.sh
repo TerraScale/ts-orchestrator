@@ -265,9 +265,14 @@ CGO_ENABLED=0 nice -n 19 go -C "$repo" build -trimpath -o "$work/boot-order" ./t
 nice -n 19 bash "$here/boot-order/run.sh" "$work/boot-order"
 end "reboot -> mesh management starts independently, peer services recover"
 
-begin "data mount loss stops the agent and mounting restores its state"
+begin "data mount loss stops both dependent units and mounting restores state"
+sudo systemd-run --unit=netbird-server.service --property=Type=simple /usr/bin/tail -f /dev/null
+sudo systemctl is-active --quiet netbird-server.service
 sudo systemctl stop 'var-lib-ts\x2ddata.mount'
 if sudo systemctl is-active --quiet ts-orch; then
+	exit 1
+fi
+if sudo systemctl is-active --quiet netbird-server.service; then
 	exit 1
 fi
 if sudo /usr/bin/mountpoint -q /var/lib/ts-data; then

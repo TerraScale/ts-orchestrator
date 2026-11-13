@@ -103,11 +103,15 @@ func (r *run) ensureInstance(host, shape string) (*core.Instance, error) {
 		if err != nil {
 			return nil, err
 		}
-		if volume != nil {
-			if deref(volume.AvailabilityDomain) != deref(found.AvailabilityDomain) {
+		expected := found.Metadata["terrascale-data-volume"]
+		if volume == nil && expected != "" && expected != "required" {
+			return nil, errors.New("the host data volume is missing; refusing to replace it")
+		}
+		if volume != nil || expected == "required" {
+			if volume != nil && deref(volume.AvailabilityDomain) != deref(found.AvailabilityDomain) {
 				return nil, fmt.Errorf("host and data volume availability domains differ")
 			}
-			volume, _, err = r.ensureDataVolume(name, deref(found.AvailabilityDomain), volume)
+			volume, err = r.ensureDataVolume(name, deref(found.AvailabilityDomain), volume)
 			if err != nil {
 				return nil, err
 			}
@@ -249,17 +253,16 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 	if len(places) == 0 {
 		return nil, errors.New("no availability domain for host")
 	}
-	ad = deref(places[0].ad)
-	places = slices.DeleteFunc(places, func(p place) bool { return deref(p.ad) != ad })
-	volume, fresh, err := r.ensureDataVolume(name, ad, volume)
-	if err != nil {
-		return nil, err
-	}
-	script, err := CloudInit(m1.Files, url, sum, fresh)
+	_, formatted := volumeTag(volume, dataFormattedTag)
+	script, err := CloudInit(m1.Files, url, sum, formatted)
 	if err != nil {
 		return nil, err
 	}
 	if r.dry {
+		volume, err = r.ensureDataVolume(name, deref(places[0].ad), volume)
+		if err != nil {
+			return nil, err
+		}
 		return nil, r.attachDataVolume(name, nil, volume)
 	}
 	var launched core.LaunchInstanceResponse
@@ -270,7 +273,7 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 			SourceDetails: core.InstanceSourceViaImageDetails{ImageId: images.Items[i].Id, BootVolumeSizeInGBs: new(int64(50))},
 			CreateVnicDetails: &core.CreateVnicDetails{SubnetId: &subnet, AssignPublicIp: new(true), NsgIds: nsgs,
 				HostnameLabel: &name},
-			Metadata: map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script))},
+			Metadata: map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script)), "terrascale-data-volume": "required"},
 		}})
 		if err == nil {
 			break
@@ -285,6 +288,10 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 		inst = g.Instance
 		return g.LifecycleState == core.InstanceLifecycleStateRunning, err
 	}); err != nil {
+		return nil, err
+	}
+	volume, err = r.ensureDataVolume(name, deref(inst.AvailabilityDomain), volume)
+	if err != nil {
 		return nil, err
 	}
 	return &inst, r.attachDataVolume(name, &inst, volume)

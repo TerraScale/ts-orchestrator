@@ -3,7 +3,7 @@ package regionhost
 import (
 	"errors"
 	"fmt"
-	"slices"
+	"maps"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -11,6 +11,7 @@ import (
 
 const dataDevice = "/dev/oracleoci/oraclevdb"
 const dataPolicy = "ts-host-data-daily-7d"
+const dataFormattedTag = "terrascale-data-formatted"
 
 func volumeTags(host string) map[string]string {
 	return map[string]string{"terrascale-managed-by": "ts-orchestrator", "terrascale-resource": "data-volume", "terrascale-host": host}
@@ -52,23 +53,30 @@ func sameTags(actual, want map[string]string) bool {
 	return true
 }
 
-func (r *run) ensureDataVolume(host, ad string, volume *core.Volume) (*core.Volume, bool, error) {
+func volumeTag(volume *core.Volume, key string) (string, bool) {
+	if volume == nil {
+		return "", false
+	}
+	value, present := volume.FreeformTags[key]
+	return value, present
+}
+
+func (r *run) ensureDataVolume(host, ad string, volume *core.Volume) (*core.Volume, error) {
 	policy, err := r.ensureDataPolicy()
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	fresh := volume == nil
 	verb := "unchanged"
-	if fresh {
+	if volume == nil {
 		verb = "created"
 		volume = &core.Volume{Id: new("-"), DisplayName: new(host + "-data"), AvailabilityDomain: &ad}
 		if !r.dry {
 			created, err := r.storage.CreateVolume(r.ctx, core.CreateVolumeRequest{CreateVolumeDetails: core.CreateVolumeDetails{
 				CompartmentId: &r.compartment, AvailabilityDomain: &ad, DisplayName: volume.DisplayName,
-				SizeInGBs: new(int64(100)), VpusPerGB: new(int64(10)), FreeformTags: volumeTags(host), BackupPolicyId: &policy,
+				SizeInGBs: new(int64(100)), VpusPerGB: new(int64(10)), FreeformTags: volumeTags(host),
 			}})
 			if err != nil {
-				return nil, false, err
+				return nil, err
 			}
 			volume = &created.Volume
 		}
@@ -76,32 +84,46 @@ func (r *run) ensureDataVolume(host, ad string, volume *core.Volume) (*core.Volu
 	if !r.dry {
 		if err := poll(r.ctx, 5*time.Second, 120, func() (bool, error) {
 			g, err := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
+			if err == nil {
+				volume = &g.Volume
+			}
 			return g.LifecycleState == core.VolumeLifecycleStateAvailable, err
 		}); err != nil {
-			return nil, false, err
+			return nil, err
 		}
 	}
 	if err := r.report(verb, "data-volume", host+"-data", deref(volume.Id)); err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	if fresh {
-		return volume, fresh, r.report("created", "backup-assignment", host+"-data", policy)
-	}
-	assignments, err := r.storage.GetVolumeBackupPolicyAssetAssignment(r.ctx, core.GetVolumeBackupPolicyAssetAssignmentRequest{AssetId: volume.Id})
-	if err != nil {
-		return nil, false, err
-	}
-	if slices.ContainsFunc(assignments.Items, func(a core.VolumeBackupPolicyAssignment) bool { return deref(a.PolicyId) == policy }) {
-		return volume, false, r.report("unchanged", "backup-assignment", host+"-data", policy)
-	}
-	if !r.dry {
-		_, err = r.storage.CreateVolumeBackupPolicyAssignment(r.ctx, core.CreateVolumeBackupPolicyAssignmentRequest{
-			CreateVolumeBackupPolicyAssignmentDetails: core.CreateVolumeBackupPolicyAssignmentDetails{AssetId: volume.Id, PolicyId: &policy}})
+	assigned := ""
+	if deref(volume.Id) != "-" {
+		assigned, err = r.bootBackupAssignment(deref(volume.Id))
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 	}
-	return volume, false, r.report("updated", "backup-assignment", host+"-data", policy)
+	if assigned != "" && assigned != policy {
+		return nil, errors.New("data volume already has a different backup policy; refusing to replace it")
+	}
+	verb = "unchanged"
+	if assigned == "" {
+		verb = "created"
+		if !r.dry {
+			_, err := r.storage.CreateVolumeBackupPolicyAssignment(r.ctx, core.CreateVolumeBackupPolicyAssignmentRequest{
+				CreateVolumeBackupPolicyAssignmentDetails: core.CreateVolumeBackupPolicyAssignmentDetails{AssetId: volume.Id, PolicyId: &policy}})
+			if err != nil {
+				return nil, err
+			}
+			assigned, err = r.bootBackupAssignment(deref(volume.Id))
+			if err != nil {
+				return nil, err
+			}
+			if assigned != policy {
+				return nil, errors.New("data volume backup policy did not match after assignment")
+			}
+		}
+	}
+	return volume, r.report(verb, "backup-assignment", host+"-data", policy)
 }
 
 func (r *run) ensureDataPolicy() (string, error) {
@@ -142,8 +164,7 @@ func (r *run) ensureDataPolicy() (string, error) {
 		}
 	} else {
 		verb, id = "unchanged", deref(found.Id)
-		if len(found.Schedules) != 1 || found.Schedules[0].Period != want[0].Period || found.Schedules[0].BackupType != want[0].BackupType ||
-			deref(found.Schedules[0].RetentionSeconds) != deref(want[0].RetentionSeconds) {
+		if !dataScheduleMatches(found.Schedules) {
 			verb = "updated"
 			if !r.dry {
 				_, err := r.storage.UpdateVolumeBackupPolicy(r.ctx, core.UpdateVolumeBackupPolicyRequest{PolicyId: found.Id,
@@ -154,12 +175,41 @@ func (r *run) ensureDataPolicy() (string, error) {
 			}
 		}
 	}
+	if !r.dry {
+		read, err := r.storage.GetVolumeBackupPolicy(r.ctx, core.GetVolumeBackupPolicyRequest{PolicyId: &id})
+		if err != nil {
+			return "", err
+		}
+		policy := read.VolumeBackupPolicy
+		if deref(policy.Id) != id || deref(policy.CompartmentId) != r.compartment || deref(policy.DisplayName) != dataPolicy ||
+			deref(policy.DestinationRegion) != "" || !dataScheduleMatches(policy.Schedules) {
+			return "", errors.New("data backup policy readback does not match its full daily schedule")
+		}
+	}
 	return id, r.report(verb, "backup-policy", dataPolicy, id)
 }
 
 func (r *run) attachDataVolume(host string, instance *core.Instance, volume *core.Volume) error {
 	if r.dry && deref(volume.Id) == "-" {
 		return r.report("created", "data-attachment", host, dataDevice)
+	}
+	if instance != nil {
+		expected := instance.Metadata["terrascale-data-volume"]
+		if expected != "" && expected != "required" && expected != deref(volume.Id) {
+			return errors.New("host data volume does not match its recorded volume")
+		}
+		if !r.dry && expected != deref(volume.Id) {
+			metadata := maps.Clone(instance.Metadata)
+			if metadata == nil {
+				metadata = make(map[string]string)
+			}
+			metadata["terrascale-data-volume"] = deref(volume.Id)
+			_, err := r.compute.UpdateInstance(r.ctx, core.UpdateInstanceRequest{InstanceId: instance.Id,
+				UpdateInstanceDetails: core.UpdateInstanceDetails{Metadata: metadata}})
+			if err != nil {
+				return err
+			}
+		}
 	}
 	attachment, err := r.dataAttachment(instance, volume)
 	if err != nil {
@@ -218,17 +268,52 @@ func (r *run) dataAttachment(instance *core.Instance, volume *core.Volume) (core
 	return attachment, nil
 }
 
-func (r *run) deleteDataVolume(host string, volume *core.Volume) error {
-	if !r.dry {
-		if err := poll(r.ctx, 5*time.Second, 120, func() (bool, error) {
-			a, err := r.dataAttachment(nil, volume)
-			return a == nil && err == nil, err
-		}); err != nil {
-			return err
-		}
-		if _, err := r.storage.DeleteVolume(r.ctx, core.DeleteVolumeRequest{VolumeId: volume.Id}); err != nil {
-			return err
-		}
+func dataScheduleMatches(schedules []core.VolumeBackupSchedule) bool {
+	if len(schedules) != 1 {
+		return false
 	}
-	return r.report("deleted", "data-volume", host+"-data", deref(volume.Id))
+	s := schedules[0]
+	return s.Period == core.VolumeBackupSchedulePeriodDay && s.BackupType == core.VolumeBackupScheduleBackupTypeIncremental &&
+		deref(s.RetentionSeconds) == 7*24*60*60 && s.OffsetType == core.VolumeBackupScheduleOffsetTypeStructured &&
+		deref(s.HourOfDay) == 2 && s.TimeZone == core.VolumeBackupScheduleTimeZoneUtc && s.DayOfWeek == "" &&
+		deref(s.DayOfMonth) == 0 && s.Month == "" && s.RetentionPeriod == nil &&
+		!deref(s.IsPreventDeletionEnabled) && !deref(s.IsRetentionLockEnabled)
+}
+
+func (r *run) confirmDataMounted(host string, instance *core.Instance, volume *core.Volume) error {
+	if r.dry {
+		return nil
+	}
+	ip, err := r.publicIP(instance)
+	if err != nil {
+		return err
+	}
+	if _, err := livePin(r.ctx, ip); err != nil {
+		return fmt.Errorf("data volume bootstrap did not reach its release listener: %w", err)
+	}
+	read, err := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
+	if err != nil {
+		return err
+	}
+	if _, present := volumeTag(&read.Volume, dataFormattedTag); !present {
+		tags := maps.Clone(read.FreeformTags)
+		if tags == nil {
+			tags = make(map[string]string)
+		}
+		tags[dataFormattedTag] = "yes"
+		_, err := r.storage.UpdateVolume(r.ctx, core.UpdateVolumeRequest{VolumeId: volume.Id, IfMatch: read.Etag,
+			UpdateVolumeDetails: core.UpdateVolumeDetails{FreeformTags: tags}})
+		if err != nil {
+			return err
+		}
+		verified, err := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
+		if err != nil {
+			return err
+		}
+		if verified.FreeformTags[dataFormattedTag] != "yes" {
+			return errors.New("data volume formatted tag did not read back")
+		}
+		return r.report("updated", "data-volume-formatted", host+"-data", deref(volume.Id))
+	}
+	return r.report("unchanged", "data-volume-formatted", host+"-data", deref(volume.Id))
 }

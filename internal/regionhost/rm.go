@@ -9,7 +9,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
-func (r *run) rm(host string, confirmed, deleteVolume bool) error {
+func (r *run) rm(host string, confirmed bool) error {
 	name := r.cell + "-control"
 	parent, err := r.oneCompartment(r.tenancy, "TerraScale")
 	if err != nil {
@@ -46,16 +46,6 @@ func (r *run) rm(host string, confirmed, deleteVolume bool) error {
 	if err != nil {
 		return err
 	}
-	if deleteVolume && volume != nil {
-		if _, err := r.dataAttachment(target, volume); err != nil {
-			return err
-		}
-		if !r.dry {
-			if err := r.confirmVolumeDeletion(volumeHost); err != nil {
-				return err
-			}
-		}
-	}
 	var ip string
 	if target == nil {
 		err = r.report("unchanged", "instance", cmp.Or(host, "ts-"+r.code+"-1"), "-")
@@ -84,11 +74,7 @@ func (r *run) rm(host string, confirmed, deleteVolume bool) error {
 		return err
 	}
 	if volume != nil {
-		if deleteVolume {
-			if err := r.deleteDataVolume(volumeHost, volume); err != nil {
-				return err
-			}
-		} else if err := r.report("unchanged", "kept-data-volume", volumeHost+"-data", deref(volume.Id)); err != nil {
+		if err := r.report("unchanged", "kept-data-volume", volumeHost+"-data", deref(volume.Id)); err != nil {
 			return err
 		}
 	}

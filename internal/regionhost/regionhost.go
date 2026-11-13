@@ -4,14 +4,12 @@
 package regionhost
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -32,12 +30,12 @@ the smallest SHAPE host (1 OCPU, 6 GB on Ampere, 8 GB on x86). Every new
 region needs the user's approval. Prints one line per resource:
 unchanged|created|updated KIND NAME ID (--dry-run: "plan" first, no change).
 
-       ts-orch region rm CODE [--host NAME] [--yes] [--delete-volume] [--dry-run]
+       ts-orch region rm CODE [--host NAME] [--yes] [--dry-run]
 
 Terminates --host NAME (never the region host), or with no --host and an
 interactive --yes the region host, then drops its DNS record, IAM and pin.
-Data volumes are kept. --delete-volume also deletes the volume after typing
-the host name interactively; scheduled backups keep their retention.
+Data volumes and their backup policy assignments are kept. Delete data
+volumes manually outside this tool.
 `
 
 // Run is `ts-orch region add|rm`; args start with add or rm.
@@ -49,7 +47,6 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	host := fs.String("host", "", "adopt or launch exactly this instance")
 	dry := fs.Bool("dry-run", false, "print the plan, change nothing")
 	yes := fs.Bool("yes", false, "rm: confirm terminating the region host")
-	deleteVolume := fs.Bool("delete-volume", false, "rm: delete data after typing the host name")
 	if err := fs.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -73,10 +70,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if args[0] == "rm" {
 		stdin, err := os.Stdin.Stat()
-		return r.rm(*host, *yes && err == nil && stdin.Mode()&os.ModeCharDevice != 0, *deleteVolume)
-	}
-	if *deleteVolume {
-		return errors.New("--delete-volume applies only to region rm")
+		return r.rm(*host, *yes && err == nil && stdin.Mode()&os.ModeCharDevice != 0)
 	}
 	return r.add(*host, *shape)
 }
@@ -152,8 +146,22 @@ func (r *run) add(host, shape string) error {
 	if err := r.ensureBootBackup(inst); err != nil {
 		return err
 	}
-	if err := r.ensureIAM(); err != nil || host != "" || inst == nil {
-		return err // DNS and the pin belong to the region host only
+	if err := r.ensureIAM(); err != nil {
+		return err
+	}
+	if inst != nil {
+		volume, err := r.dataVolume(deref(inst.DisplayName))
+		if err != nil {
+			return err
+		}
+		if volume != nil {
+			if err := r.confirmDataMounted(deref(inst.DisplayName), inst, volume); err != nil {
+				return err
+			}
+		}
+	}
+	if host != "" || inst == nil {
+		return nil
 	}
 	ip, err := r.publicIP(inst)
 	if err != nil {
@@ -276,17 +284,4 @@ func poll(ctx context.Context, interval time.Duration, tries int, done func() (b
 		err = errors.New("timed out waiting for OCI")
 	}
 	return err
-}
-
-func (r *run) confirmVolumeDeletion(name string) error {
-	info, err := os.Stdin.Stat()
-	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
-		return errors.New("--delete-volume requires typing the host name interactively")
-	}
-	fmt.Fprintf(r.out, "Type %s to permanently delete its data volume: ", name)
-	text, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil || strings.TrimSpace(text) != name {
-		return errors.New("data volume deletion was not confirmed")
-	}
-	return nil
 }
