@@ -59,6 +59,16 @@ func command(args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+func capture(args ...string) []byte {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, args[0], args[1:]...).Output()
+	if err != nil {
+		panic(fmt.Sprintf("%v: %v: %s", args, err, out))
+	}
+	return out
+}
+
 func require(ok bool, message string) {
 	if !ok {
 		panic(message)
@@ -127,10 +137,12 @@ func run() {
 	defer proxy.Close()
 
 	original := read(binary)
-	embeddedUnit := []byte(command(binary, "release", "unit") + "\n")
+	embeddedUnit := capture(binary, "release", "unit")
 	originalUnit := bytes.ReplaceAll(embeddedUnit, []byte("TimeoutStartSec=5min"), []byte("TimeoutStartSec=10s "))
 	originalUnit = bytes.ReplaceAll(originalUnit, []byte("TimeoutStopSec=180s"), []byte("TimeoutStopSec=1s  "))
+	require(bytes.Contains(originalUnit, []byte("TimeoutStartSec=10s ")) && bytes.Contains(originalUnit, []byte("TimeoutStopSec=1s  ")), "embedded unit lacks the start and stop bounds the lane replaces")
 	original = bytes.ReplaceAll(original, embeddedUnit, originalUnit)
+	require(bytes.Contains(original, originalUnit), "embedded unit not found in the binary")
 	check(os.WriteFile(binary, original, 0o755))
 	check(os.MkdirAll("/etc/systemd/system/ts-orch.service.d", 0o755))
 	check(os.WriteFile(dropin, []byte(fmt.Sprintf("[Service]\nEnvironment=HTTPS_PROXY=http://%s SSL_CERT_FILE=%s\n", listener.Addr(), ca)), 0o644))
@@ -192,8 +204,11 @@ func run() {
 	}
 	invalidUnit := bytes.Replace(originalUnit, []byte("Description=TerraScale Orchestrator single host (milestone 1)"), []byte("Description=Trial"), 1)
 	invalidUnit = bytes.Replace(invalidUnit, []byte("ExecStart="), []byte("ExecStart=relative/path "), 1)
+	require(bytes.Contains(invalidUnit, []byte("ExecStart=relative/path ")) && bytes.Contains(invalidUnit, []byte("Description=Trial")), "invalid unit surgery did not apply")
 	invalidUnit = append(invalidUnit, bytes.Repeat([]byte("\n"), len(originalUnit)-len(invalidUnit))...)
-	check(os.WriteFile(binary, bytes.ReplaceAll(original, originalUnit, invalidUnit), 0o755))
+	sabotaged := bytes.ReplaceAll(original, originalUnit, invalidUnit)
+	require(!bytes.Equal(sabotaged, original), "invalid unit not embedded in the binary")
+	check(os.WriteFile(binary, sabotaged, 0o755))
 
 	check(os.WriteFile(binary+".prev", original, 0o755))
 	check(os.WriteFile("/var/lib/ts-orch/nats/release-trial", []byte(fmt.Sprintf(`{"sha":%q,"run_id":"0","starts":0}`, current)), 0o600))
@@ -233,6 +248,7 @@ func run() {
 		sha := strings.Repeat(letter, 40)
 		data := bytes.ReplaceAll(original, []byte("vcs.revision="+revision), []byte("vcs.revision="+sha))
 		data = bytes.ReplaceAll(data, []byte("vcs.modified=true\n"), []byte("vcs.modified=fals\n"))
+		require(bytes.Contains(data, []byte("vcs.revision="+sha)), "release revision not stamped in the binary")
 
 		candidate := originalUnit
 		if mode == "verify" || mode == "start" || strings.HasPrefix(mode, "sandbox") || mode == "reboot" || mode == "crash:unit-staged" || mode == "crash:unit-installed" || mode == "guard-crash" {
@@ -248,6 +264,7 @@ func run() {
 			require(len(candidate) <= len(originalUnit), "candidate unit exceeds embedded asset size")
 			candidate = append(candidate, bytes.Repeat([]byte("\n"), len(originalUnit)-len(candidate))...)
 			data = bytes.ReplaceAll(data, originalUnit, candidate)
+			require(bytes.Contains(data, candidate), mode+" candidate unit not embedded in the release binary")
 		}
 		url := releasepush.ReleaseURL(sha, strconv.Itoa(run), runtime.GOARCH)
 		path := strings.TrimPrefix(url, "https://github.com")
