@@ -109,7 +109,9 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	releases.Mesh = mesh.Bridge(state)
 	releases.App = mesh.Release(state)
 	if founder {
-		releases.Relay = func(request []byte) { relayRelease(state, plan.region, request) }
+		releases.Relay = func(ctx context.Context, request []byte) []releasepush.HostVersion {
+			return relayRelease(ctx, state, plan.region, request)
+		}
 	}
 	natsServer, natsConn, err := releasepush.Start(state)
 	if err != nil {
@@ -308,19 +310,33 @@ func publishJoin(ctx context.Context, state string, plan hostPlan) {
 	}
 }
 
-// relayRelease publishes CI's accepted ts-orch release request to the
-// region's workers over the mesh. A worker that misses it catches up on the
-// next push, which CI repeats until every region is current.
-func relayRelease(state, region string, request []byte) {
+func relayRelease(ctx context.Context, state, region string, request []byte) []releasepush.HostVersion {
+	var nodes []*api.Node
+	control, closer, err := swarmruntime.DialSingleHost(state)
+	if err == nil {
+		defer closer.Close()
+		inventoryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		listed, err := control.ListNodes(inventoryCtx, &api.ListNodesRequest{})
+		if err == nil {
+			nodes = append([]*api.Node{}, listed.Nodes...)
+		}
+	}
 	conn, err := mesh.Connect(state)
 	if err != nil {
-		slog.Warn("release not relayed to the region's workers", "error", err)
-		return
+		rows := []releasepush.HostVersion{}
+		for _, node := range nodes {
+			if node.Role == api.NodeRoleWorker {
+				rows = append(rows, releasepush.HostVersion{ID: node.ID, Host: node.ID, Error: "no answer"})
+			}
+		}
+		if nodes == nil {
+			rows = append(rows, releasepush.HostVersion{Host: "worker inventory", Error: "no answer"})
+		}
+		return rows
 	}
 	defer conn.Close()
-	if err := errors.Join(conn.Publish(protocol.MeshWorkerReleasePrefix+region, request), conn.Flush()); err != nil {
-		slog.Warn("release not relayed to the region's workers", "error", err)
-	}
+	return releasepush.RelayWorkers(ctx, conn, protocol.MeshWorkerReleasePrefix+region, request, nodes)
 }
 
 func serveHostReleases(ctx context.Context, state, region, host string, worker bool, releases *releasepush.Handler) {
@@ -331,7 +347,7 @@ func serveHostReleases(ctx context.Context, state, region, host string, worker b
 			conn.SetClosedHandler(func(*nats.Conn) { close(closed) })
 			err = releases.ServeHostVersion(conn, region, host)
 			if err == nil && worker {
-				err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region)
+				err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region, host)
 			}
 			if err == nil {
 				select {

@@ -47,14 +47,14 @@ type Input struct {
 
 // Report is one region's health, the MeshHealthSubject reply.
 type Report struct {
-	Region string `json:"region"`
-	Server string `json:"server"`
-	State string `json:"state"`
-	Reasons []string `json:"reasons,omitempty"`
-	At time.Time `json:"at"`
-	NodeList nodelist.Status `json:"node_list"`
-	Hosts []releasepush.HostVersion `json:"hosts,omitempty"`
-	HostError string `json:"host_error,omitempty"`
+	Region    string                    `json:"region"`
+	Server    string                    `json:"server"`
+	State     string                    `json:"state"`
+	Reasons   []string                  `json:"reasons,omitempty"`
+	At        time.Time                 `json:"at"`
+	NodeList  nodelist.Status           `json:"node_list"`
+	Hosts     []releasepush.HostVersion `json:"hosts,omitempty"`
+	HostError string                    `json:"host_error,omitempty"`
 }
 
 // Classify maps one reading to ok, degraded or down with its reasons.

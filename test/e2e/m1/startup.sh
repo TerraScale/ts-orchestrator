@@ -5,7 +5,8 @@ work=$(mktemp -d)
 python=$(python3 -c 'import sys; print(sys.executable)')
 trap 'sudo rm -rf "$work"' EXIT
 nice -n 19 go build -o "$work/seed" "$here/startup"
-nice -n 19 go run "$here/updater-preflight" "$bin"
+nice -n 19 go run -p 1 "$here/updater-preflight" "$bin"
+bash "$here/alert-prepare/run.sh"
 version=$(sed -n 's/^containerd_version=//p' "$here/../../../deploy/m1/host-runtime.sh")
 arch=$(uname -m)
 case $arch in

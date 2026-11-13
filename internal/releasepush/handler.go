@@ -98,6 +98,8 @@ type Reply struct {
 	Refusal  *Refusal        `json:"refusal,omitempty"`
 	Events   []string        `json:"events,omitempty"`
 	NodeList nodelist.Status `json:"node_list,omitzero"`
+	Host     string          `json:"host,omitempty"`
+	Workers  []HostVersion   `json:"workers,omitempty"`
 }
 
 type Progress interface {
@@ -125,10 +127,8 @@ type Handler struct {
 	App func(ctx context.Context, service, image string, claims Claims, progress Progress) (json.RawMessage, error)
 	// Mesh runs a multi-region workflow request (op "ping" or "apply") on the
 	// cross-region mesh and returns its rows, also when it fails; nil refuses them.
-	Mesh func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
-	// Relay, when set, passes an accepted ts-orch release request on to the
-	// region's workers (the founder's mesh); each worker verifies it itself.
-	Relay func(request []byte)
+	Mesh  func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
+	Relay func(context.Context, []byte) []HostVersion
 	// Installed receives once after a new binary is in place; the caller exits
 	// so systemd restarts the new binary.
 	Installed chan struct{}
@@ -208,16 +208,22 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 
 // ServeWorker installs the ts-orch releases a region's founder relays on
 // subject: the same signed request CI sent, verified here again.
-func (h *Handler) ServeWorker(conn *nats.Conn, subject string) error {
-	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: h.orch})
+func (h *Handler) ServeWorker(conn *nats.Conn, subject, host string) error {
+	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: func(ctx context.Context, data []byte) Reply {
+		reply := h.orch(ctx, data)
+		reply.Host = host
+		return reply
+	}})
 }
 
 // relayed installs a release and, once this host runs or installed it,
 // passes the request on to the region's workers.
 func (h *Handler) relayed(ctx context.Context, data []byte) Reply {
 	reply := h.orch(ctx, data)
+	host, _ := os.Hostname()
+	reply.Host = secretpreflight.Scrub(host)
 	if h.Relay != nil && (reply.State == "installed" || reply.State == "current") {
-		h.Relay(data)
+		reply.Workers = h.Relay(ctx, data)
 	}
 	return reply
 }
@@ -340,7 +346,7 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	if err := removeIfExists(h.RollbackFile); err != nil {
 		return rejected(err)
 	}
-	if err := os.WriteFile(h.RunIDFile, []byte(claims.RunID), 0o600); err != nil {
+	if err := writeState(h.RunIDFile, []byte(claims.RunID)); err != nil {
 		return rejected(err)
 	}
 	h.pending = release.SHA

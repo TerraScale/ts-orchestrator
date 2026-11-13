@@ -3,6 +3,7 @@ package releasepush
 import (
 	"context"
 	"errors"
+	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
 	"slices"
 	"strings"
 	"sync"
@@ -69,12 +70,13 @@ func ReadHostVersions(ctx context.Context, conn *nats.Conn, region string, nodes
 }
 
 func (h *Handler) recordAttempt(attempt *Refusal) error {
+	attempt.Reason = secretpreflight.Scrub(attempt.Reason)
+	h.attempt.Store(attempt)
 	if h.RefusalFile != "" {
 		if err := writeJSON(h.RefusalFile, attempt); err != nil {
 			return errors.New("cannot persist release attempt")
 		}
 	}
-	h.attempt.Store(attempt)
 	return nil
 }
 
