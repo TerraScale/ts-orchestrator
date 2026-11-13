@@ -110,6 +110,7 @@ func preparedHost(work string) (*releasepush.Handler, []byte, []byte) {
 	if _, err := os.Stat(binary); os.IsNotExist(err) {
 		writeExecutable(binary, original)
 		write(binary+".prev", "superseded")
+		write(binary+".prev.staged", "leftover")
 		writeExecutable(filepath.Join(work, "asset"), candidate)
 		write(filepath.Join(work, "nats/release-run-id"), "1")
 	}
