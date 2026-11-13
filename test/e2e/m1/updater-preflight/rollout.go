@@ -141,43 +141,44 @@ func rolloutCases(ctx context.Context) {
 		}
 		err := releasepush.Push(pushCtx, args, &output)
 		cancelPush()
+		printed := output.String()
 		results, skipped := []releasepush.Result{}, []releasepush.Result{}
 		scanner := bufio.NewScanner(&output)
 		for scanner.Scan() {
 			var result releasepush.Result
 			must(json.Unmarshal(scanner.Bytes(), &result))
 			if result.State == "repair_skipped_health" {
-				require(len(results) == 0, "skipped hosts must be printed before any region is pushed: "+output.String())
+				require(len(results) == 0, "skipped hosts must be printed before any region is pushed: "+printed)
 				skipped = append(skipped, result)
 				continue
 			}
 			results = append(results, result)
 		}
-		require(len(results) == 2, fmt.Sprintf("both regional outcomes must be reported: %s", output.String()))
-		require((len(skipped) == 2) == (mode == "repair-unhealthy-fleet"), "only a repair push skips the initial health check: "+output.String())
+		require(len(results) == 2, fmt.Sprintf("both regional outcomes must be reported: %s", printed))
+		require((len(skipped) == 2) == (mode == "repair-unhealthy-fleet"), "only a repair push skips the initial health check: "+printed)
 		if mode == "unhealthy-fleet" {
-			require(results[0].State == "failed" && strings.Contains(results[0].Error, "candidate health broken") && results[0].ConnectMS == 0, "an ordinary push refuses a fleet whose first host reports a health error: "+output.String())
+			require(results[0].State == "failed" && strings.Contains(results[0].Error, "candidate health broken") && results[0].ConnectMS == 0, "an ordinary push refuses a fleet whose first host reports a health error: "+printed)
 		}
 		if mode == "repair-unhealthy-fleet" {
-			require(skipped[0].Region == "sjc" && skipped[0].Health == `"candidate health broken"` && skipped[1].Region == "gru" && skipped[1].Health == `"services unreadable"`, "each skipped host is printed with its health: "+output.String())
-			require(results[0].State == "current" && results[0].Repair == `"candidate health broken"` && strings.Contains(results[0].Error, "health of") && results[0].Health == "candidate health broken", "a repair push reaches the unhealthy first host and still waits for its health: "+output.String())
+			require(skipped[0].Region == "sjc" && skipped[0].Health == `"candidate health broken"` && skipped[1].Region == "gru" && skipped[1].Health == `"services unreadable"`, "each skipped host is printed with its health: "+printed)
+			require(results[0].State == "current" && results[0].Repair == `"candidate health broken"` && strings.Contains(results[0].Error, "health of") && results[0].Health == "candidate health broken", "a repair push reaches the unhealthy first host and still waits for its health: "+printed)
 		}
 		fatal := mode != "host-refusal" && mode != "refusal-silence"
 		if fatal {
-			require(err != nil && !visited.Load() && results[1].State == "skipped", "fatal refusal must stop later regions: "+mode+": "+output.String())
+			require(err != nil && !visited.Load() && results[1].State == "skipped", "fatal refusal must stop later regions: "+mode+": "+printed)
 			if mode == "all-preflight" {
 				require(strings.Contains(results[0].Error, "every host in the first region"), "uniform preflight must explain rollout stop")
 			}
 			if mode == "unhealthy-refusal" {
-				require(results[0].Health == "candidate health broken" && strings.Contains(results[0].Error, "health of") && strings.HasPrefix(results[0].State, "refused on"), "an accepted first host with broken health must stop the rollout despite a refusing worker: "+output.String())
+				require(results[0].Health == "candidate health broken" && strings.Contains(results[0].Error, "health of") && strings.HasPrefix(results[0].State, "refused on"), "an accepted first host with broken health must stop the rollout despite a refusing worker: "+printed)
 			}
 		} else {
-			require(visited.Load() && results[1].Error == "" && err != nil, "a host refusal fails at the end and allows the next region: "+mode+": "+output.String())
+			require(visited.Load() && results[1].Error == "" && err != nil, "a host refusal fails at the end and allows the next region: "+mode+": "+printed)
 			if mode == "host-refusal" {
 				require(results[0].Health == "ok" && results[0].HealthyMS > 0, "an accepted first host is health-checked even when a worker refuses")
 			}
 			if mode == "refusal-silence" {
-				require(!strings.Contains(results[0].Error, "every host") && len(results[0].Workers) == 1 && results[0].Workers[0].Error == "no answer" && results[0].Workers[0].Refusal == nil, "a silent worker is not a refusal: "+output.String())
+				require(!strings.Contains(results[0].Error, "every host") && len(results[0].Workers) == 1 && results[0].Workers[0].Error == "no answer" && results[0].Workers[0].Refusal == nil, "a silent worker is not a refusal: "+printed)
 			}
 		}
 		fmt.Println("ok rollout", mode, ": regional outcomes verified")
