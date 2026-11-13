@@ -266,7 +266,7 @@ jobs:
   # this job can mint the GitHub OIDC token that is the push credential.
   release-push:
     needs: [build, e2e-m1, caller-key-changes, caller-key]
-    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' && needs.caller-key-changes.result == 'success' && ((needs.caller-key-changes.outputs.changed == 'true' && needs.caller-key.result == 'success') || (needs.caller-key-changes.outputs.changed == 'false' && needs.caller-key.result == 'skipped')) }}
+    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' && needs.caller-key-changes.result == 'success' && (needs.caller-key-changes.outputs.changed == 'true' || needs.caller-key-changes.outputs.changed == 'false') && (needs.caller-key.result == 'success' || (needs.caller-key-changes.outputs.changed == 'false' && needs.caller-key.result == 'skipped')) }}
     name: deploy/release-push
     concurrency:
       group: production-ts-orch
@@ -325,4 +325,4 @@ jobs:
       - run: |
           set -euo pipefail
           test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false
-          test "${{ needs.caller-key-changes.result == 'success' && ((needs.caller-key-changes.outputs.changed == 'true' && needs.caller-key.result == 'success') || (needs.caller-key-changes.outputs.changed == 'false' && needs.caller-key.result == 'skipped')) }}" = true
+          test "${{ needs.caller-key-changes.result == 'success' && (needs.caller-key-changes.outputs.changed == 'true' || needs.caller-key-changes.outputs.changed == 'false') && (needs.caller-key.result == 'success' || (needs.caller-key-changes.outputs.changed == 'false' && needs.caller-key.result == 'skipped')) }}" = true
