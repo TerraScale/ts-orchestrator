@@ -299,18 +299,18 @@ func inspectWorkloadPath(path string, identity WorkloadIdentity, tenantTraverse,
 
 // Run recovers native ownership before remote admission, then maintains the
 // session while reconciling every admitted role. Session loss stops workloads.
-func (a *Agent) Run(ctx context.Context) error {
+func (a *Agent) Run(ctx context.Context) (runErr error) {
 	if err := a.runner.Recover(ctx); err != nil {
 		return fmt.Errorf("recover native workloads: %w", err)
 	}
 	work, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer func() {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		cancel()
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), max(terraBaseDrain, tsAuthDrain)+10*time.Second)
 		defer stopCancel()
-		_ = a.runner.Close(stopCtx)
+		runErr = errors.Join(runErr, a.runner.Shutdown(stopCtx), a.stopAllManagedNativeRoots())
 	}()
-	defer a.stopAllManagedNativeRoots()
 	if err := a.checkClock(); err != nil {
 		return err
 	}

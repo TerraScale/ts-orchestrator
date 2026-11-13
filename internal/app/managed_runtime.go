@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -135,7 +134,7 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 		ownhost.mu.Lock()
 		ownhost.node = nil
 		ownhost.mu.Unlock()
-		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		stopCtx, cancel := context.WithTimeout(context.Background(), swarmruntime.NodeStopTimeout)
 		defer cancel()
 		_ = node.Stop(stopCtx)
 	}()

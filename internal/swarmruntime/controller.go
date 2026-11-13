@@ -695,7 +695,7 @@ func failWithoutExit(ctx context.Context, err error, stop func(context.Context) 
 		return err
 	}
 	if stopErr := stop(context.WithoutCancel(ctx)); stopErr != nil {
-		return errors.Join(err, fmt.Errorf("stop the failed task's process: %w", stopErr))
+		return exec.MakeTemporary(errors.Join(err, fmt.Errorf("stop the failed task's process: %w", stopErr)))
 	}
 	return err
 }
@@ -717,11 +717,36 @@ func (c *controller) waitExit(ctx context.Context, following func()) (uint32, ti
 		return 0, time.Time{}, err
 	}
 	following()
-	select {
-	case <-ctx.Done():
-		return 0, time.Time{}, ctx.Err()
-	case status := <-wait:
-		return status.Result()
+	ticker := time.NewTicker(readinessInterval)
+	defer ticker.Stop()
+	var probe <-chan time.Time
+	if _, named := c.spec.Labels[LabelReadyPath]; named {
+		probe = ticker.C
+	}
+	failures := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return 0, time.Time{}, ctx.Err()
+		case status := <-wait:
+			return status.Result()
+		case <-probe:
+			port, err := hostPort(c.task)
+			if _, task, ok := c.taskPorts(ctx); ok {
+				port = task
+			}
+			if err == nil {
+				err = probeLocalPort(ctx, c.task, port)
+			}
+			if err == nil || c.regionalTerraBase() && readinessRecovering(err) {
+				failures = 0
+				continue
+			}
+			failures++
+			if failures == readinessFailures {
+				return 0, time.Time{}, fmt.Errorf("task failed %d consecutive readiness probes: %w", failures, err)
+			}
+		}
 	}
 }
 
@@ -897,11 +922,8 @@ func (c *controller) Remove(ctx context.Context) error {
 			return execution.ErrUnsafe
 		}
 	}
-	// Delete below kills a live process; give a data-owning one its grace first.
-	if len(c.spec.Mounts) != 0 {
-		if err := c.stopTask(ctx); err != nil && !errdefs.IsNotFound(err) {
-			return err
-		}
+	if err := c.stopTask(ctx); err != nil && !errdefs.IsNotFound(err) {
+		return err
 	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()

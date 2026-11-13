@@ -168,3 +168,13 @@ func ServiceBackends(ctx context.Context, client api.ControlClient, serviceID, n
 	}
 	return spec, view, nil
 }
+
+const (
+	readinessInterval = 10 * time.Second
+	readinessFailures = 3
+)
+
+func readinessRecovering(err error) bool {
+	var readiness *TaskReadinessError
+	return errors.As(err, &readiness) && readiness.Status == "HTTP 503"
+}

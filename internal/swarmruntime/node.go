@@ -228,7 +228,7 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 	if runtime, ok := executor.(*Executor); ok {
 		runtime.BindSLOAgent(upstream.Agent)
 	}
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	if err := upstream.Start(runCtx); err != nil {
 		cancel()
 		return nil, err
@@ -289,14 +289,15 @@ func (n *Node) ControlClient(ctx context.Context) (api.ControlClient, error) {
 	return nil, ctx.Err()
 }
 
-// Stop suspends the agent without leaving the swarm or clearing assignments.
 func (n *Node) Stop(ctx context.Context) error {
-	// Upstream Stop calls agent.Leave; cancel first so workloads survive restart.
-	n.cancel()
+	defer n.cancel()
+	err := n.upstream.Stop(ctx)
 	select {
 	case <-n.done:
-		return errors.Join(n.err, n.upstream.Stop(ctx))
+		return errors.Join(n.err, err)
 	case <-ctx.Done():
-		return ctx.Err()
+		return errors.Join(err, ctx.Err())
 	}
 }
+
+const NodeStopTimeout = dataStopGrace + 30*time.Second
