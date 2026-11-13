@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -18,7 +19,6 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
@@ -35,6 +35,9 @@ type Edge struct {
 	terrabase        func() (string, error)
 	certs            *certificateManager
 	certRoutes       chan struct{}
+	certWork         sync.Map
+	certSeen         sync.Map
+	readyStatus      atomic.Pointer[readinessVerdict]
 	listeners        atomic.Uint32
 	readyRoutes      atomic.Pointer[[]ReadinessRoute]
 	routes           atomic.Pointer[map[string]int]
@@ -61,9 +64,9 @@ type Edge struct {
 	netbirdDashboard   *netbirddashboard.Handler
 }
 
-func New(stateDir string) *Edge { return newEdge(stateDir, nil) }
+func New(stateDir string) *Edge { return newEdge(stateDir) }
 
-func newEdge(stateDir string, client *acme.Client) *Edge {
+func newEdge(stateDir string) *Edge {
 	e := &Edge{
 		pgRelays: make(chan struct{}, 32), pgControl: make(chan struct{}, 32),
 		listen:       net.Listen,
@@ -79,7 +82,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	e.routes.Store(&map[string]int{})
 	e.postgres.Store(&map[string]int{})
 	e.certRoutes = make(chan struct{}, 1)
-	e.certs = &certificateManager{policy: e.hostPolicy, client: client, cache: &certificateCache{local: autocert.DirCache(filepath.Join(stateDir, "edge-certs")), source: e.certificateStore}}
+	e.certs = &certificateManager{policy: e.hostPolicy, cache: &certificateCache{local: autocert.DirCache(filepath.Join(stateDir, "edge-certs")), source: e.certificateStore}}
 	e.readyRoutes.Store(&[]ReadinessRoute{})
 	e.challenges = e.certs.HTTPHandler(nil)
 	http1 := http.DefaultTransport.(*http.Transport).Clone()
@@ -171,12 +174,28 @@ func (e *Edge) SetRoutes(web, postgres map[string]int) {
 	lower := func(routes map[string]int) *map[string]int {
 		table := make(map[string]int, len(routes))
 		for host, port := range routes {
-			table[strings.ToLower(host)] = port
+			name := strings.ToLower(host)
+			table[name] = port
+			e.certSeen.LoadOrStore(name, time.Now())
 		}
 		return &table
 	}
-	e.routes.Store(lower(web))
-	e.postgres.Store(lower(postgres))
+	webTable, postgresTable := lower(web), lower(postgres)
+	changed := !maps.Equal(*e.routes.Load(), *webTable) || !maps.Equal(*e.postgres.Load(), *postgresTable)
+	e.routes.Store(webTable)
+	e.postgres.Store(postgresTable)
+	e.certSeen.Range(func(key, _ any) bool {
+		name := key.(string)
+		if _, web := (*e.routes.Load())[name]; !web {
+			if _, pg := (*e.postgres.Load())[name]; !pg {
+				e.certSeen.Delete(name)
+			}
+		}
+		return true
+	})
+	if !changed {
+		return
+	}
 	select {
 	case e.certRoutes <- struct{}{}:
 	default:
@@ -184,11 +203,12 @@ func (e *Edge) SetRoutes(web, postgres map[string]int) {
 }
 
 func (e *Edge) Run(ctx context.Context) error {
-	if err := e.certs.cache.protect(); err != nil {
+	if err := e.certs.cache.loadDisk(ctx); err != nil {
 		return err
 	}
 	var running sync.WaitGroup
 	running.Go(func() { e.reconcileCertificates(ctx) })
+	running.Go(func() { e.reconcileReadiness(ctx) })
 	running.Go(func() { e.reconcileNetBirdDashboard(ctx) })
 	for _, protocol := range []string{"http", "https", "postgres", "terrabase"} {
 		running.Go(func() { e.runListener(ctx, protocol) })

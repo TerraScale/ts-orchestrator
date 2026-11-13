@@ -3,6 +3,7 @@ package edge
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -30,9 +31,8 @@ func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
-	if err := e.ready(ctx); err != nil {
+	verdict := e.readyStatus.Load()
+	if verdict == nil || !verdict.ok || time.Since(verdict.at) > 10*time.Second {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
@@ -65,14 +65,12 @@ func (e *Edge) ready(ctx context.Context) error {
 	if len(web)+len(postgres) == 0 {
 		return fmt.Errorf("routes unavailable")
 	}
-	for name := range web {
-		if _, err := e.certs.load(ctx, name); err != nil {
-			return err
-		}
-	}
-	for name := range postgres {
-		if _, err := e.certs.load(ctx, name); err != nil {
-			return err
+	for _, names := range []map[string]int{web, postgres} {
+		for name := range names {
+			seen, _ := e.certSeen.Load(name)
+			if _, err := e.certs.load(name); err != nil && seen != nil && time.Since(seen.(time.Time)) >= issueTTL {
+				return err
+			}
 		}
 	}
 	routes := *e.readyRoutes.Load()
@@ -106,4 +104,28 @@ func (e *Edge) ready(ctx context.Context) error {
 		conn.Close()
 	}
 	return nil
+}
+
+type readinessVerdict struct {
+	ok bool
+	at time.Time
+}
+
+func (e *Edge) reconcileReadiness(ctx context.Context) {
+	tick := time.NewTicker(3 * time.Second)
+	defer tick.Stop()
+	for {
+		bounded, cancel := context.WithTimeout(ctx, 3*time.Second)
+		err := e.ready(bounded)
+		cancel()
+		previous := e.readyStatus.Swap(&readinessVerdict{err == nil, time.Now()})
+		if previous == nil || previous.ok != (err == nil) {
+			slog.InfoContext(ctx, "edge readiness changed", "ready", err == nil)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }

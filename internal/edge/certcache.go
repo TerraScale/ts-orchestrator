@@ -8,7 +8,9 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +24,7 @@ import (
 
 const issueBudget = 5 * time.Minute
 const issueTTL = 2 * issueBudget
+const storeBudget = 3 * time.Second
 
 var errIssueHeld = errors.New("edge: certificate issuance lease held")
 
@@ -30,30 +33,64 @@ type certificateStore interface {
 }
 
 type certificateCache struct {
-	local  autocert.DirCache
-	source func() (*nats.Conn, []byte, error)
-	mu     sync.Mutex
-	conn   *nats.Conn
-	certs  jetstream.KeyValue
-	leases jetstream.KeyValue
-	tokens jetstream.KeyValue
-	seal   cipher.AEAD
-	reader nats.JetStreamContext
+	local   autocert.DirCache
+	source  func() (*nats.Conn, []byte, error)
+	mu      sync.Mutex
+	conn    *nats.Conn
+	certs   jetstream.KeyValue
+	leases  jetstream.KeyValue
+	tokens  jetstream.KeyValue
+	seal    cipher.AEAD
+	reader  nats.JetStreamContext
+	opening bool
+	version string
+	memory  sync.Map
 }
 
 func cacheKey(name string) string { return hex.EncodeToString([]byte(name)) }
 
+type cachedCertificate struct {
+	cert *tls.Certificate
+	data []byte
+}
+
+type sealedCertificate struct {
+	Version string
+	Data    []byte
+}
+
+func storeCall[T any](ctx context.Context, call func(context.Context) (T, error)) (T, error) {
+	bounded, cancel := context.WithTimeout(ctx, storeBudget)
+	defer cancel()
+	return call(bounded)
+}
+
+func openBucket(ctx context.Context, js jetstream.JetStream, config jetstream.KeyValueConfig) (jetstream.KeyValue, error) {
+	bucket, err := storeCall(ctx, func(ctx context.Context) (jetstream.KeyValue, error) { return js.KeyValue(ctx, config.Bucket) })
+	if errors.Is(err, jetstream.ErrBucketNotFound) {
+		return storeCall(ctx, func(ctx context.Context) (jetstream.KeyValue, error) { return js.CreateKeyValue(ctx, config) })
+	}
+	return bucket, err
+}
+
 func (c *certificateCache) open(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	conn, secret, err := c.source()
 	if err != nil {
 		return err
 	}
 	defer clear(secret)
+	c.mu.Lock()
 	if conn == c.conn {
+		c.mu.Unlock()
 		return nil
 	}
+	if c.opening {
+		c.mu.Unlock()
+		return errors.New("edge: certificate store opening")
+	}
+	c.opening = true
+	c.mu.Unlock()
+	defer func() { c.mu.Lock(); c.opening = false; c.mu.Unlock() }()
 	key, err := hkdf.Key(sha256.New, secret, nil, "ts-orch edge certificates v1", 32)
 	if err != nil {
 		return err
@@ -71,15 +108,15 @@ func (c *certificateCache) open(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	certs, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "edge-certs", Replicas: 3, History: 1, MaxBytes: 16 << 20, MaxValueSize: 64 << 10})
+	certs, err := openBucket(ctx, js, jetstream.KeyValueConfig{Bucket: "edge-certs", Replicas: 3, History: 1, MaxBytes: 16 << 20, MaxValueSize: 64 << 10})
 	if err != nil {
 		return err
 	}
-	leases, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "edge-cert-leases", Replicas: 3, History: 1, TTL: issueTTL, MaxBytes: 1 << 20})
+	leases, err := openBucket(ctx, js, jetstream.KeyValueConfig{Bucket: "edge-cert-leases", Replicas: 3, History: 1, TTL: issueTTL, MaxBytes: 1 << 20})
 	if err != nil {
 		return err
 	}
-	tokens, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "edge-cert-tokens", Replicas: 3, History: 1, TTL: issueTTL, MaxBytes: 1 << 20})
+	tokens, err := openBucket(ctx, js, jetstream.KeyValueConfig{Bucket: "edge-cert-tokens", Replicas: 3, History: 1, TTL: issueTTL, MaxBytes: 1 << 20})
 	if err != nil {
 		return err
 	}
@@ -87,6 +124,10 @@ func (c *certificateCache) open(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	fingerprint := sha256.Sum256(key)
+	c.version = "v1:" + hex.EncodeToString(fingerprint[:8])
 	c.reader = reader
 	c.conn, c.certs, c.leases, c.tokens, c.seal = conn, certs, leases, tokens, seal
 	return nil
@@ -107,101 +148,128 @@ func validCertificate(data []byte, name string) (*tls.Certificate, error) {
 	return &cert, nil
 }
 
-func (c *certificateCache) shared(ctx context.Context, name string) ([]byte, error) {
+func (c *certificateCache) decode(data []byte, name string) ([]byte, error) {
+	var value sealedCertificate
+	c.mu.Lock()
+	version, seal := c.version, c.seal
+	c.mu.Unlock()
+	if json.Unmarshal(data, &value) != nil || value.Version != version {
+		return nil, autocert.ErrCacheMiss
+	}
+	plain, err := seal.Open(nil, nil, value.Data, []byte(name))
+	if err != nil {
+		return nil, autocert.ErrCacheMiss
+	}
+	return plain, nil
+}
+
+func (c *certificateCache) shared(ctx context.Context, name string) ([]byte, uint64, error) {
 	if err := c.open(ctx); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	c.mu.Lock()
-	reader, seal := c.reader, c.seal
+	reader := c.reader
 	c.mu.Unlock()
-	entry, err := reader.GetLastMsg("KV_edge-certs", "$KV.edge-certs."+cacheKey(name), nats.Context(ctx))
+	entry, err := storeCall(ctx, func(ctx context.Context) (*nats.RawStreamMsg, error) {
+		return reader.GetLastMsg("KV_edge-certs", "$KV.edge-certs."+cacheKey(name), nats.Context(ctx))
+	})
 	if errors.Is(err, nats.ErrMsgNotFound) {
-		return nil, autocert.ErrCacheMiss
+		return nil, 0, autocert.ErrCacheMiss
 	}
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if entry.Header.Get("KV-Operation") != "" {
-		return nil, autocert.ErrCacheMiss
+		return nil, entry.Sequence, autocert.ErrCacheMiss
 	}
-	return seal.Open(nil, nil, entry.Data, []byte(name))
+	data, err := c.decode(entry.Data, name)
+	return data, entry.Sequence, err
 }
 
-func (c *certificateCache) Get(ctx context.Context, name string) ([]byte, error) {
-	data, err := c.shared(ctx, name)
-	if err == nil {
-		if _, err = validCertificate(data, name); err == nil {
-			if err = c.local.Put(ctx, name, data); err != nil {
-				return nil, err
-			}
-			return data, nil
-		}
+func (c *certificateCache) save(ctx context.Context, name string, data []byte) error {
+	cert, err := validCertificate(data, name)
+	if err != nil {
+		return err
 	}
-	local, localErr := c.local.Get(ctx, name)
-	if localErr != nil {
-		return nil, err
+	if current, ok := c.memory.Load(name); ok && !cert.Leaf.NotAfter.After(current.(cachedCertificate).cert.Leaf.NotAfter) {
+		return nil
 	}
-	if _, localErr = validCertificate(local, name); localErr != nil {
-		return nil, localErr
+	err = c.local.Put(ctx, name, data)
+	c.memory.Store(name, cachedCertificate{cert, data})
+	if err != nil {
+		return err
 	}
-	if errors.Is(err, autocert.ErrCacheMiss) {
-		if err = c.adopt(ctx, name, local); err != nil {
-			return nil, err
-		}
-		return c.shared(ctx, name)
-	}
-	return local, nil
+	slog.Info("edge certificate installed", "name", name, "expires", cert.Leaf.NotAfter)
+	return nil
 }
 
-func (c *certificateCache) adopt(ctx context.Context, name string, data []byte) error {
+func (c *certificateCache) publish(ctx context.Context, name string, data []byte, revision uint64) error {
+	if err := c.local.Put(ctx, name, data); err != nil {
+		return err
+	}
 	if err := c.open(ctx); err != nil {
 		return err
 	}
 	c.mu.Lock()
-	certs, seal := c.certs, c.seal
+	version, seal, certs := c.version, c.seal, c.certs
 	c.mu.Unlock()
-	_, err := certs.Create(ctx, cacheKey(name), seal.Seal(nil, nil, data, []byte(name)))
-	if errors.Is(err, jetstream.ErrKeyExists) {
-		entry, readErr := certs.Get(ctx, cacheKey(name))
-		if readErr != nil {
-			return readErr
-		}
-		current, openErr := seal.Open(nil, nil, entry.Value(), []byte(name))
-		if openErr != nil {
-			return openErr
-		}
-		if _, validErr := validCertificate(current, name); validErr == nil {
-			return nil
-		}
-		_, err = certs.Update(ctx, cacheKey(name), seal.Seal(nil, nil, data, []byte(name)), entry.Revision())
+	value, err := json.Marshal(sealedCertificate{version, seal.Seal(nil, nil, data, []byte(name))})
+	if err != nil {
+		return err
 	}
+	_, err = storeCall(ctx, func(ctx context.Context) (uint64, error) {
+		if revision == 0 {
+			return certs.Create(ctx, cacheKey(name), value)
+		}
+		return certs.Update(ctx, cacheKey(name), value, revision)
+	})
 	return err
 }
 
-func (c *certificateCache) Put(ctx context.Context, name string, data []byte) error {
-	if _, err := validCertificate(data, name); err != nil {
+func (c *certificateCache) reconcile(ctx context.Context, name string) error {
+	data, revision, err := c.shared(ctx, name)
+	if err != nil && !errors.Is(err, autocert.ErrCacheMiss) {
 		return err
 	}
-	if err := c.open(ctx); err != nil {
-		return err
+	if err == nil {
+		if cert, validErr := validCertificate(data, name); validErr == nil {
+			if err := c.save(ctx, name, data); err != nil {
+				return err
+			}
+			local, _ := c.memory.Load(name)
+			if !local.(cachedCertificate).cert.Leaf.NotAfter.After(cert.Leaf.NotAfter) {
+				return nil
+			}
+		}
 	}
-	c.mu.Lock()
-	certs, seal := c.certs, c.seal
-	c.mu.Unlock()
-	if _, err := certs.Put(ctx, cacheKey(name), seal.Seal(nil, nil, data, []byte(name))); err != nil {
-		return err
+	if local, ok := c.memory.Load(name); ok {
+		return c.publish(ctx, name, local.(cachedCertificate).data, revision)
 	}
-	return c.local.Put(ctx, name, data)
+	return nil
 }
 
-func (c *certificateCache) Delete(ctx context.Context, name string) error {
-	if err := c.open(ctx); err != nil {
+func (c *certificateCache) loadDisk(ctx context.Context) error {
+	if err := c.protect(); err != nil {
 		return err
 	}
-	c.mu.Lock()
-	certs := c.certs
-	c.mu.Unlock()
-	return errors.Join(certs.Delete(ctx, cacheKey(name)), c.local.Delete(ctx, name))
+	entries, err := os.ReadDir(string(c.local))
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "acme_account+key" {
+			continue
+		}
+		data, err := c.local.Get(ctx, entry.Name())
+		if err != nil {
+			return err
+		}
+		if cert, err := validCertificate(data, entry.Name()); err == nil {
+			c.memory.Store(entry.Name(), cachedCertificate{cert, data})
+			slog.Info("edge certificate installed", "name", entry.Name(), "expires", cert.Leaf.NotAfter)
+		}
+	}
+	return nil
 }
 
 func (c *certificateCache) lease(ctx context.Context, name string) (context.Context, func(), error) {
@@ -212,7 +280,9 @@ func (c *certificateCache) lease(ctx context.Context, name string) (context.Cont
 	c.mu.Lock()
 	leases := c.leases
 	c.mu.Unlock()
-	revision, err := leases.Create(ctx, cacheKey(name), []byte("issuing"))
+	revision, err := storeCall(ctx, func(ctx context.Context) (uint64, error) {
+		return leases.Create(ctx, cacheKey(name), []byte("issuing"))
+	})
 	if errors.Is(err, jetstream.ErrKeyExists) {
 		return nil, nil, errIssueHeld
 	}

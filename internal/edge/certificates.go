@@ -8,11 +8,15 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -35,35 +39,34 @@ func (m *certificateManager) TLSConfig() *tls.Config {
 	return &tls.Config{MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"}, GetCertificate: m.GetCertificate}
 }
 
-func (m *certificateManager) load(ctx context.Context, name string) (*tls.Certificate, error) {
-	data, err := m.cache.Get(ctx, name)
-	if err == nil {
-		return validCertificate(data, name)
+func (m *certificateManager) load(name string) (*tls.Certificate, error) {
+	for _, key := range []string{name, name + "+rsa"} {
+		if value, ok := m.cache.memory.Load(key); ok {
+			cert := value.(cachedCertificate).cert
+			now := time.Now()
+			if !now.Before(cert.Leaf.NotBefore) && now.Before(cert.Leaf.NotAfter) {
+				return cert, nil
+			}
+		}
 	}
-	data, rsaErr := m.cache.Get(ctx, name+"+rsa")
-	if rsaErr == nil {
-		return validCertificate(data, name)
-	}
-	return nil, err
+	return nil, autocert.ErrCacheMiss
 }
 
 func (m *certificateManager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	name := strings.ToLower(strings.TrimSuffix(hello.ServerName, "."))
-	ctx, cancel := context.WithTimeout(hello.Context(), issueBudget)
-	defer cancel()
-	if err := m.policy(ctx, name); err != nil {
+	if err := m.policy(hello.Context(), name); err != nil {
 		return nil, err
 	}
-	if cert, err := m.load(ctx, name); err == nil {
-		return cert, nil
-	}
-	if err := m.ensure(ctx, name); err != nil {
-		if errors.Is(err, errIssueHeld) {
-			return m.wait(ctx, name)
+	for _, key := range []string{name, name + "+rsa"} {
+		if value, ok := m.cache.memory.Load(key); ok {
+			cert := value.(cachedCertificate).cert
+			now := time.Now()
+			if !now.Before(cert.Leaf.NotBefore) && now.Before(cert.Leaf.NotAfter) && hello.SupportsCertificate(cert) == nil {
+				return cert, nil
+			}
 		}
-		return nil, err
 	}
-	return m.load(ctx, name)
+	return nil, autocert.ErrCacheMiss
 }
 
 func renewCertificate(cert *tls.Certificate) bool {
@@ -105,7 +108,22 @@ func (m *certificateManager) account(ctx context.Context) (*acme.Client, error) 
 	} else {
 		return nil, err
 	}
-	client := &acme.Client{Key: key, DirectoryURL: acme.LetsEncryptURL}
+	directory := acme.LetsEncryptURL
+	config, readErr := os.ReadFile(filepath.Join(filepath.Dir(string(m.cache.local)), "edge-acme.json"))
+	if readErr == nil {
+		var settings struct{ DirectoryURL string }
+		if err := json.Unmarshal(config, &settings); err != nil {
+			return nil, err
+		}
+		parsed, err := url.Parse(settings.DirectoryURL)
+		if err != nil || parsed.Host == "" || parsed.Scheme != "https" && parsed.Scheme != "http" {
+			return nil, errors.New("edge: invalid authority directory URL")
+		}
+		directory = settings.DirectoryURL
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return nil, readErr
+	}
+	client := &acme.Client{Key: key, DirectoryURL: directory}
 	if _, err = client.Register(ctx, &acme.Account{}, acme.AcceptTOS); err != nil && !errors.Is(err, acme.ErrAccountAlreadyExists) {
 		return nil, err
 	}
@@ -118,7 +136,12 @@ func (m *certificateManager) ensure(ctx context.Context, name string) error {
 	lock := value.(*sync.Mutex)
 	lock.Lock()
 	defer lock.Unlock()
-	if cert, err := m.load(ctx, name); err == nil && !renewCertificate(cert) {
+	for _, key := range []string{name, name + "+rsa"} {
+		if err := m.cache.reconcile(ctx, key); err != nil {
+			return err
+		}
+	}
+	if cert, err := m.load(name); err == nil && !renewCertificate(cert) {
 		return nil
 	}
 	issue, release, err := m.cache.lease(ctx, name)
@@ -126,7 +149,12 @@ func (m *certificateManager) ensure(ctx context.Context, name string) error {
 		return err
 	}
 	defer release()
-	if cert, err := m.load(issue, name); err == nil && !renewCertificate(cert) {
+	for _, key := range []string{name, name + "+rsa"} {
+		if err := m.cache.reconcile(issue, key); err != nil {
+			return err
+		}
+	}
+	if cert, err := m.load(name); err == nil && !renewCertificate(cert) {
 		return nil
 	}
 	client, err := m.account(issue)
@@ -137,10 +165,10 @@ func (m *certificateManager) ensure(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := issue.Err(); err != nil {
+	if err := m.cache.save(context.Background(), name, data); err != nil {
 		return err
 	}
-	return m.cache.Put(issue, name, data)
+	return m.cache.reconcile(context.Background(), name)
 }
 
 func (m *certificateManager) issue(ctx context.Context, client *acme.Client, name string) ([]byte, error) {
@@ -173,7 +201,9 @@ func (m *certificateManager) issue(ctx context.Context, client *acme.Client, nam
 		m.cache.mu.Lock()
 		tokens := m.cache.tokens
 		m.cache.mu.Unlock()
-		revision, err := tokens.Put(ctx, cacheKey(challenge.Token), []byte(token))
+		revision, err := storeCall(ctx, func(ctx context.Context) (uint64, error) {
+			return tokens.Put(ctx, cacheKey(challenge.Token), []byte(token))
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -220,7 +250,9 @@ func (m *certificateManager) issue(ctx context.Context, client *acme.Client, nam
 }
 
 func (e *Edge) reconcileCertificates(ctx context.Context) {
-	tick := time.NewTicker(time.Hour)
+	var work sync.WaitGroup
+	defer work.Wait()
+	tick := time.NewTicker(10 * time.Second)
 	defer tick.Stop()
 	for {
 		names := map[string]bool{}
@@ -234,9 +266,15 @@ func (e *Edge) reconcileCertificates(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			if err := e.certs.ensure(ctx, name); err != nil && !errors.Is(err, errIssueHeld) {
-				slog.WarnContext(ctx, "edge certificate unavailable", "name", name, "error", err)
+			if _, busy := e.certWork.LoadOrStore(name, true); busy {
+				continue
 			}
+			work.Go(func() {
+				defer e.certWork.Delete(name)
+				if err := e.certs.ensure(ctx, name); err != nil && !errors.Is(err, errIssueHeld) {
+					slog.WarnContext(ctx, "edge certificate unavailable", "name", name, "error", err)
+				}
+			})
 		}
 		select {
 		case <-ctx.Done():
@@ -261,6 +299,13 @@ func (m *certificateManager) HTTPHandler(fallback http.Handler) http.Handler {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
+		token := strings.TrimPrefix(r.URL.Path, challengePath)
+		if len(token) < 22 || len(token) > 256 || strings.IndexFunc(token, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-')
+		}) >= 0 {
+			http.NotFound(w, r)
+			return
+		}
 		if err := m.cache.open(r.Context()); err != nil {
 			http.Error(w, "certificate store unavailable", http.StatusServiceUnavailable)
 			return
@@ -268,38 +313,15 @@ func (m *certificateManager) HTTPHandler(fallback http.Handler) http.Handler {
 		m.cache.mu.Lock()
 		reader := m.cache.reader
 		m.cache.mu.Unlock()
-		token, err := reader.GetLastMsg("KV_edge-cert-tokens", "$KV.edge-cert-tokens."+cacheKey(strings.TrimPrefix(r.URL.Path, challengePath)), nats.Context(r.Context()))
-		if err != nil || token.Header.Get("KV-Operation") != "" {
+		value, err := storeCall(r.Context(), func(ctx context.Context) (*nats.RawStreamMsg, error) {
+			return reader.GetLastMsg("KV_edge-cert-tokens", "$KV.edge-cert-tokens."+cacheKey(token), nats.Context(ctx))
+		})
+		if err != nil || value.Header.Get("KV-Operation") != "" {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write(token.Data)
-	})
-}
 
-func (m *certificateManager) wait(ctx context.Context, name string) (*tls.Certificate, error) {
-	m.cache.mu.Lock()
-	certs := m.cache.certs
-	m.cache.mu.Unlock()
-	watch, err := certs.Watch(ctx, cacheKey(name))
-	if err != nil {
-		return nil, err
-	}
-	defer watch.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case entry, ok := <-watch.Updates():
-			if !ok {
-				return nil, errors.New("edge: certificate watch closed")
-			}
-			if entry != nil && entry.Operation() == jetstream.KeyValuePut {
-				if cert, err := m.load(ctx, name); err == nil {
-					return cert, nil
-				}
-			}
-		}
-	}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write(value.Data)
+	})
 }
