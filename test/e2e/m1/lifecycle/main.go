@@ -33,8 +33,6 @@ func main() {
 	defer cancel()
 	var err error
 	switch os.Args[1] {
-	case "serve":
-		err = serve(ctx)
 	case "runtime":
 		err = until(ctx, func() error {
 			client, err := containerd.New(os.Args[2])
@@ -54,24 +52,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-}
-
-func serve(ctx context.Context) error {
-	server := &http.Server{Addr: ":18083", ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/ready":
-			fmt.Fprint(w, os.Getpid())
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	})}
-	stop := context.AfterFunc(ctx, func() { _ = server.Close() })
-	defer stop()
-	err := server.ListenAndServe()
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
-	return err
 }
 
 func until(ctx context.Context, check func() error) error {
@@ -148,12 +128,7 @@ func node(ctx context.Context, root, name string) error {
 		case "/metrics":
 			swarmruntime.ReadinessMetrics.WritePrometheus(w)
 		case "/binary":
-			binary, err := os.Executable()
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			http.ServeFile(w, r, binary)
+			http.ServeFile(w, r, os.Args[4])
 		case "/agent-stop":
 			if err := node.Stop(r.Context()); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
