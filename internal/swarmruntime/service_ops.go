@@ -128,6 +128,7 @@ func InspectService(service *api.Service) (ServiceInspection, error) {
 	labels := service.Spec.Annotations.Labels
 	spec := ServiceSpec{Name: service.Spec.Annotations.Name, Image: container.Image, Args: container.Args,
 		ReadyPath: labels[LabelReadyPath], Hostnames: splitLabel(labels[LabelHostnames])}
+	spec.Readiness.ReplaceWhenUnresponsive = labels[LabelReplaceWhenUnresponsive] == "true"
 	if spec.Name == netbird.ServerServiceName {
 		spec.Dependencies = new([]string{})
 	} else if dependencies, exists := labels[LabelDependencies]; exists {

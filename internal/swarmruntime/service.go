@@ -376,10 +376,11 @@ func serviceIntentFingerprint(spec *api.ServiceSpec) (string, error) {
 // Labels the single-host edge (hostnames) and secret injection (secrets) read
 // from a spec-owned service; the probe reads LabelReadyPath.
 const (
-	LabelServiceSpec  = "terrascale.service-spec"
-	LabelDependencies = "terrascale.dependencies"
-	LabelHostnames    = "terrascale.hostnames"
-	LabelSecrets      = "terrascale.secrets"
+	LabelServiceSpec             = "terrascale.service-spec"
+	LabelReplaceWhenUnresponsive = "terrascale.replace-when-unresponsive"
+	LabelDependencies            = "terrascale.dependencies"
+	LabelHostnames               = "terrascale.hostnames"
+	LabelSecrets                 = "terrascale.secrets"
 	// LabelSecretRefs maps each LabelSecrets key to its OCI Vault secret (JSON object of vaultsecret.Ref).
 	LabelSecretRefs = "terrascale.secret-refs"
 	// LabelGeneration is the mesh desired-state generation the service runs.
@@ -420,6 +421,7 @@ type ServiceSpec struct {
 	Secrets      map[string]vaultsecret.Ref `json:"secrets,omitempty"`
 	Mounts       []ServiceMount             `json:"mounts,omitempty"`
 	Port         uint32                     `json:"port"`
+	Readiness    ServiceReadiness           `json:"readiness,omitzero"`
 	ReadyPath    string                     `json:"readyPath,omitempty"`
 	Hostnames    []string                   `json:"hostnames,omitempty"`
 	Replicas     uint64                     `json:"replicas"`
@@ -453,6 +455,10 @@ type ServiceSpec struct {
 	// Both regional slots then receive their candidate at once, so the pinned
 	// drivers, not the updater's random slot order, serialize owner then follower.
 	BootstrapStage bool `json:"-"`
+}
+
+type ServiceReadiness struct {
+	ReplaceWhenUnresponsive bool `json:"replaceWhenUnresponsive,omitempty"`
 }
 
 type ServicePostgres struct {
@@ -491,6 +497,12 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	if s.Port < 1024 || s.Port > 65535 {
 		return nil, errors.New("service port must be in 1024..65535")
+	}
+	if s.Readiness.ReplaceWhenUnresponsive && (len(s.Mounts) != 0 || s.Postgres != nil || s.Name == "terrabase") {
+		return nil, errors.New("readiness.replaceWhenUnresponsive is refused: service owns data through mounts or storage binding")
+	}
+	if s.Readiness.ReplaceWhenUnresponsive && s.ReadyPath == "" {
+		return nil, errors.New("readiness.replaceWhenUnresponsive requires readyPath")
 	}
 	readyPath := s.ReadyPath
 	if readyPath == "" {
@@ -547,8 +559,10 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	container := &api.ContainerSpec{Image: s.Image, User: "65532:65532", Args: slices.Clone(s.Args), Env: env}
 	if s.ReadyPath != "" {
-		// Only a spec that names its ready path promises to answer it; the executor gates on it.
 		container.Labels = map[string]string{LabelReadyPath: s.ReadyPath}
+	}
+	if s.Readiness.ReplaceWhenUnresponsive {
+		container.Labels[LabelReplaceWhenUnresponsive] = "true"
 	}
 	for _, m := range s.Mounts {
 		container.Mounts = append(container.Mounts, api.Mount{Type: api.MountTypeBind, Source: m.Source, Target: m.Target})
@@ -558,6 +572,9 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		return nil, err
 	}
 	labels := map[string]string{LabelServiceSpec: s.Name, LabelReadyPath: readyPath}
+	if s.Readiness.ReplaceWhenUnresponsive {
+		labels[LabelReplaceWhenUnresponsive] = "true"
+	}
 	if s.Dependencies != nil {
 		dependencies, err := json.Marshal(s.Dependencies)
 		if err != nil {

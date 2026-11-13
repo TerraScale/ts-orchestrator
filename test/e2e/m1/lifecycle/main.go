@@ -72,7 +72,12 @@ func until(ctx context.Context, check func() error) error {
 
 func node(ctx context.Context, root, name string) error {
 	state := filepath.Join(root, name)
-	executor, err := swarmruntime.NewExecutor(filepath.Join(state, "containerd.sock"), state)
+	closeProxy, err := runtimeProxy(ctx, state)
+	if err != nil {
+		return err
+	}
+	defer closeProxy()
+	executor, err := swarmruntime.NewExecutor(filepath.Join(state, "containerd-proxy.sock"), state)
 	if err != nil {
 		return err
 	}
@@ -405,11 +410,19 @@ func (j *journey) create(image, name, host string, port int, owner bool, replica
 	}
 	declaration := swarmruntime.ServiceSpec{Name: name, Image: image, Env: map[string]string{"PORT": swarmruntime.TaskPortEnv},
 		Args: []string{"sh", "-c", "wget -q -O /tmp/lifecycle http://127.0.0.1:19090/binary && chmod +x /tmp/lifecycle && exec /tmp/lifecycle serve"},
-		Port: uint32(port), ReadyPath: "/ready", Replicas: replicas}
+		Port: uint32(port), ReadyPath: "/ready", Replicas: replicas, Readiness: swarmruntime.ServiceReadiness{ReplaceWhenUnresponsive: !owner}}
 	if owner {
 		declaration.Env = map[string]string{"PORT": strconv.Itoa(port)}
 		declaration.Mounts = []swarmruntime.ServiceMount{{Source: "/var/lib/ts-data/c18", Target: "/tmp"}}
 		declaration.Args = []string{"/tmp/lifecycle", "serve"}
+	}
+	if owner {
+		invalid := declaration
+		invalid.Readiness.ReplaceWhenUnresponsive = true
+		if _, err := invalid.SwarmSpec(); err == nil || !strings.Contains(err.Error(), "owns data") {
+			return nil, errors.New("mount accepted automatic replacement")
+		}
+		fmt.Println("apply refused readiness.replaceWhenUnresponsive on a service with a mount: owns data")
 	}
 	spec, err := declaration.SwarmSpec()
 	if err != nil {
@@ -458,6 +471,13 @@ func (j *journey) replacement(w *workload) (*workload, error) {
 		if err != nil {
 			return err
 		}
+		var slot []*workload
+		for _, task := range tasks {
+			if task.task.Slot == w.task.Slot {
+				slot = append(slot, task)
+			}
+		}
+		tasks = slot
 		if len(tasks) != 1 || tasks[0].task.ID == w.task.ID || tasks[0].process.Pid() == w.process.Pid() {
 			return errors.New("expected one distinct replacement process")
 		}
@@ -524,6 +544,10 @@ func run(ctx context.Context, root, image string) error {
 		return err
 	}
 	owner, first, second := ownerSet[0], firstSet[0], secondSet[0]
+	keys, err := j.keys()
+	if err != nil {
+		return err
+	}
 	for _, action := range []string{"/agent-stop", "/agent-start"} {
 		for _, address := range []string{"10.231.0.2:19090", "10.231.0.3:19090"} {
 			if err := agentAction(ctx, address, action); err != nil {
@@ -540,6 +564,30 @@ func run(ctx context.Context, root, image string) error {
 		}
 	}
 	fmt.Printf("agent stop/start retained PIDs %d %d %d %d %d; all served while stopped and after start\n", owner.process.Pid(), first.process.Pid(), second.process.Pid(), twins[0].process.Pid(), twins[1].process.Pid())
+	if len(os.Args) > 3 && os.Args[3] == "quick" {
+		return j.quickContinuity(owner, keys)
+	}
+	if err := j.slowLookup(first); err != nil {
+		return err
+	}
+	first, err = j.setReplacement(first, false)
+	if err != nil {
+		return err
+	}
+	if err := j.freeze(first); err != nil {
+		return err
+	}
+	if err := j.reported("not replaced: service has not requested replacement", map[*workload]int{}, first); err != nil {
+		return err
+	}
+	if err := j.recover(first); err != nil {
+		return err
+	}
+	fmt.Println("service without readiness.replaceWhenUnresponsive reported beyond five minutes with a witness; original PID retained")
+	first, err = j.setReplacement(first, true)
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://10.231.0.3:19090/shared-ready", nil)
 	if err != nil {
 		return err
@@ -658,6 +706,9 @@ func run(ctx context.Context, root, image string) error {
 	if err := j.freeze(first); err != nil {
 		return err
 	}
+	if err := request(ctx, second.address, "/fail-once", http.StatusOK); err != nil {
+		return err
+	}
 	replacement, err := j.replacement(first)
 	if err != nil {
 		return err
@@ -665,7 +716,11 @@ func run(ctx context.Context, root, image string) error {
 	if err := j.retained(owner, second, healthy, sibling); err != nil {
 		return err
 	}
-	fmt.Printf("one frozen task with witnesses replaced once: PID %d stopped, new PID %d; witness PIDs %d %d retained\n", first.process.Pid(), replacement.process.Pid(), owner.process.Pid(), second.process.Pid())
+	if err := j.oneFailure(second); err != nil {
+		return err
+	}
+	fmt.Println("sibling failed exactly one probe during the failing window; replacement was not vetoed")
+	fmt.Printf("same service with readiness.replaceWhenUnresponsive replaced once: PID %d stopped, new PID %d; witness PIDs %d %d retained\n", first.process.Pid(), replacement.process.Pid(), owner.process.Pid(), second.process.Pid())
 	budgetData, err := os.ReadFile(filepath.Join(root, "c18a", "readiness-replacement"))
 	if err != nil {
 		return err
@@ -684,6 +739,11 @@ func run(ctx context.Context, root, image string) error {
 		return err
 	}
 	fmt.Printf("second sequential failure held by real 15-minute host budget: PID %d survived past five minutes; first replacement PID %d survived\n", second.process.Pid(), replacement.process.Pid())
+	recoveredSibling, err := j.recoveryWitness(sibling, healthy)
+	if err != nil {
+		return err
+	}
+	sibling = recoveredSibling
 	next, err := j.replacement(second)
 	if err != nil {
 		return err
@@ -702,12 +762,8 @@ func run(ctx context.Context, root, image string) error {
 	if err := j.retained(owner, replacement, healthy, sibling); err != nil {
 		return err
 	}
-	all, err := control.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{first.task.ServiceID, second.task.ServiceID}}})
-	if err != nil {
+	if err := j.replacementCount(first.task.ServiceID, second.task.ServiceID); err != nil {
 		return err
-	}
-	if len(all.Tasks) != 4 {
-		return fmt.Errorf("expected exactly two original tasks and two replacements, got %d", len(all.Tasks))
 	}
 	fmt.Printf("budget released after %s: second PID %d stopped, new PID %d; first replacement PID %d and data owner PID %d survived\n", nextBudgetStart.Sub(budgetStart).Round(time.Second), second.process.Pid(), next.process.Pid(), replacement.process.Pid(), owner.process.Pid())
 	return nil

@@ -23,13 +23,15 @@ import (
 )
 
 const (
-	readinessInterval   = 10 * time.Second
-	readinessDeadline   = 15 * time.Second
-	readinessWindow     = 5 * time.Minute
-	readinessStartGrace = time.Minute
-	readinessBackoffMax = 15 * time.Minute
-	readinessResetAfter = 30 * time.Minute
-	readinessHostBudget = 15 * time.Minute
+	readinessLookupDeadline     = 5 * time.Second
+	readinessCorrelationOverlap = time.Minute
+	readinessInterval           = 10 * time.Second
+	readinessDeadline           = 15 * time.Second
+	readinessWindow             = 5 * time.Minute
+	readinessStartGrace         = time.Minute
+	readinessBackoffMax         = 15 * time.Minute
+	readinessResetAfter         = 30 * time.Minute
+	readinessHostBudget         = 15 * time.Minute
 )
 
 var errTaskUnresponsive = fmt.Errorf("task unresponsive throughout consecutive readiness probes for %s", readinessWindow)
@@ -70,11 +72,18 @@ type readinessWatch struct {
 	missingReported bool
 	hungUnix        atomic.Int64
 	metric          string
+	evidence        []readinessSpan
+	overlaps        map[string]time.Duration
 }
 
+type readinessSpan struct{ start, end time.Time }
+
 type readinessResult struct {
-	watch *readinessWatch
-	err   error
+	watch    *readinessWatch
+	lookup   time.Time
+	started  time.Time
+	finished time.Time
+	err      error
 }
 
 func (c *controller) ownsData() dataOwnership {
@@ -143,30 +152,37 @@ func (s *statefulController) observeReadiness(ctx context.Context) func() {
 	return watch.close
 }
 
-func (c *controller) readinessObservation(ctx context.Context) error {
+func (c *controller) readinessObservation(ctx context.Context) (time.Time, error) {
 	if c.stateful != nil {
-		return c.stateful.source.ObserveReadiness(ctx, c.task)
+		started := time.Now()
+		return started, c.stateful.source.ObserveReadiness(ctx, c.task)
 	}
+	lookupCtx, cancel := context.WithTimeout(ctx, readinessLookupDeadline)
+	defer cancel()
 	port, err := hostPort(c.task)
 	if err != nil {
-		return errors.Join(errReadinessUnobserved, err)
+		return time.Time{}, errors.Join(errReadinessUnobserved, err)
 	}
 	if usesTaskPort(c.spec.Env) {
-		ctr, err := c.container(ctx)
+		ctr, err := c.container(lookupCtx)
 		if err != nil {
-			return errors.Join(errReadinessUnobserved, err)
+			return time.Time{}, errors.Join(errReadinessUnobserved, err)
 		}
-		labels, err := ctr.Labels(runtimeContext(ctx))
+		labels, err := ctr.Labels(runtimeContext(lookupCtx))
 		if err != nil {
-			return errors.Join(errReadinessUnobserved, err)
+			return time.Time{}, errors.Join(errReadinessUnobserved, err)
 		}
 		ownPort, err := strconv.ParseUint(labels[portsLabel], 10, 16)
 		if err != nil || ownPort == 0 {
-			return errors.Join(errReadinessUnobserved, err)
+			return time.Time{}, errors.Join(errReadinessUnobserved, err)
 		}
 		port = uint16(ownPort)
 	}
-	return probeLiveness(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))), ReadyPath(c.spec))
+	if err := lookupCtx.Err(); err != nil {
+		return time.Time{}, errors.Join(errReadinessUnobserved, err)
+	}
+	started := time.Now()
+	return started, probeLiveness(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))), ReadyPath(c.spec))
 }
 
 func (e *Executor) observeReadiness(ctx context.Context) {
@@ -212,16 +228,17 @@ func (e *Executor) readinessRound(ctx context.Context, health string) {
 	if len(watches) == 0 {
 		return
 	}
-	started := time.Now()
 	results := make([]readinessResult, len(watches))
 	var probes sync.WaitGroup
 	for i, w := range watches {
 		probes.Go(func() {
-			probeCtx, cancel := context.WithTimeout(w.ctx, readinessDeadline)
+			probeCtx, cancel := context.WithCancel(w.ctx)
 			defer cancel()
 			stop := context.AfterFunc(ctx, cancel)
 			defer stop()
-			results[i] = readinessResult{watch: w, err: w.controller.readinessObservation(probeCtx)}
+			lookup := time.Now()
+			started, err := w.controller.readinessObservation(probeCtx)
+			results[i] = readinessResult{watch: w, lookup: lookup, started: started, finished: time.Now(), err: err}
 		})
 	}
 	localAnswered := false
@@ -255,12 +272,33 @@ func (e *Executor) readinessRound(ctx context.Context, health string) {
 		}
 		witness := others > 0 || watched == 1 && localAnswered
 		witnesses[w] = witness
-		w.observe(started, now, result.err, witness)
+		w.observe(result.lookup, result.started, result.finished, result.err, witness)
 	}
-	failing := 0
-	for w := range h.watches {
-		if w.ctx.Err() == nil && w.controller.ownsData() == notDataOwner && !w.hungSince.IsZero() {
-			failing++
+	for _, result := range results {
+		w := result.watch
+		if _, active := h.watches[w]; !active || w.ctx.Err() != nil || len(w.evidence) == 0 || !w.controller.replacementEligible() {
+			continue
+		}
+		if w.overlaps == nil {
+			w.overlaps = make(map[string]time.Duration)
+		}
+		for _, other := range results {
+			v := other.watch
+			if _, active := h.watches[v]; !active || v.ctx.Err() != nil || v == w || len(v.evidence) == 0 || !v.controller.replacementEligible() {
+				continue
+			}
+			for _, left := range w.evidence {
+				for _, right := range v.evidence {
+					from, to := left.start, left.end
+					if right.start.After(from) {
+						from = right.start
+					}
+					if right.end.Before(to) {
+						to = right.end
+					}
+					w.overlaps[v.controller.task.ID] += max(to.Sub(from), 0)
+				}
+			}
 		}
 	}
 	for _, result := range results {
@@ -268,7 +306,7 @@ func (e *Executor) readinessRound(ctx context.Context, health string) {
 		if _, active := h.watches[w]; !active || w.ctx.Err() != nil {
 			continue
 		}
-		w.decide(now, result.err, witnesses[w], failing)
+		w.decide(now, result.err, witnesses[w])
 	}
 }
 
@@ -276,8 +314,9 @@ func readinessAnswered(err error) bool {
 	return err == nil || errors.Is(err, memberstatus.ErrReadinessAnswered)
 }
 
-func (w *readinessWatch) observe(started, now time.Time, err error, witness bool) {
+func (w *readinessWatch) observe(lookup, started, now time.Time, err error, witness bool) {
 	w.next = now.Add(readinessInterval)
+	w.evidence = nil
 	if errors.Is(err, errReadinessUnobserved) {
 		w.readySince = time.Time{}
 		w.witnessed = false
@@ -288,6 +327,16 @@ func (w *readinessWatch) observe(started, now time.Time, err error, witness bool
 		}
 		return
 	}
+	if readinessAnswered(err) {
+		w.hungSince = time.Time{}
+		w.failedFor = 0
+		w.overlaps = nil
+		w.hungUnix.Store(0)
+		if w.reported != "" {
+			slog.InfoContext(w.ctx, "task readiness unresponsive window cleared", "task", w.controller.task.ID, "reason", w.reported)
+			w.reported = ""
+		}
+	}
 	if errors.Is(err, memberstatus.ErrUnresponsive) && w.hungSince.IsZero() {
 		w.hungSince = started
 	}
@@ -296,15 +345,20 @@ func (w *readinessWatch) observe(started, now time.Time, err error, witness bool
 		w.witnessed = false
 		return
 	}
-	if !errors.Is(err, memberstatus.ErrUnresponsive) {
-		w.hungSince = time.Time{}
-		w.failedFor = 0
-		w.witnessed = false
-		w.hungUnix.Store(0)
-		if w.reported != "" {
-			slog.InfoContext(w.ctx, "task readiness unresponsive window cleared", "task", w.controller.task.ID, "reason", w.reported)
-			w.reported = ""
+	if errors.Is(err, memberstatus.ErrUnresponsive) {
+		w.readySince = time.Time{}
+		w.evidence = []readinessSpan{{started, now}}
+		if w.witnessed && lookup.Sub(w.lastRound) <= 2*readinessInterval {
+			w.evidence = append(w.evidence, readinessSpan{w.lastRound, lookup})
 		}
+		for _, span := range w.evidence {
+			w.failedFor += max(span.end.Sub(span.start), 0)
+		}
+		w.witnessed = true
+	} else {
+		w.failedFor = 0
+		w.overlaps = nil
+		w.witnessed = false
 		if err == nil {
 			if w.readySince.IsZero() {
 				w.readySince = now
@@ -312,16 +366,12 @@ func (w *readinessWatch) observe(started, now time.Time, err error, witness bool
 		} else {
 			w.readySince = time.Time{}
 		}
-	} else {
-		w.readySince = time.Time{}
-		elapsed := min(now.Sub(started), readinessDeadline)
-		if w.witnessed && started.Sub(w.lastRound) <= 2*readinessInterval {
-			elapsed += max(started.Sub(w.lastRound), 0)
-		}
-		w.failedFor += elapsed
-		w.witnessed = true
 	}
 	w.lastRound = now
+}
+
+func (c *controller) replacementEligible() bool {
+	return c.ownsData() == notDataOwner && c.task.ServiceAnnotations.Labels[LabelReplaceWhenUnresponsive] == "true"
 }
 
 func (w *readinessWatch) report(reason string) {
@@ -332,7 +382,7 @@ func (w *readinessWatch) report(reason string) {
 	}
 }
 
-func (w *readinessWatch) decide(now time.Time, err error, witness bool, failing int) {
+func (w *readinessWatch) decide(now time.Time, err error, witness bool) {
 	c := w.controller
 	if w.hungSince.IsZero() {
 		if !w.readySince.IsZero() && now.Sub(w.readySince) >= readinessResetAfter {
@@ -353,12 +403,22 @@ func (w *readinessWatch) decide(now time.Time, err error, witness bool, failing 
 		w.report("not replaced: ownership unknown")
 		return
 	}
+	if !c.replacementEligible() {
+		w.report("not replaced: service has not requested replacement")
+		return
+	}
 	if !witness {
 		w.report("not replaced: no witness answered")
 		return
 	}
-	if failing > 1 {
-		w.report(fmt.Sprintf("not replaced: correlated with %d other tasks", failing-1))
+	failing := 0
+	for _, overlap := range w.overlaps {
+		if overlap >= readinessCorrelationOverlap {
+			failing++
+		}
+	}
+	if failing > 0 {
+		w.report(fmt.Sprintf("not replaced: correlated with %d other tasks", failing))
 		return
 	}
 	if errors.Is(err, errReadinessUnobserved) || w.failedFor < readinessWindow {

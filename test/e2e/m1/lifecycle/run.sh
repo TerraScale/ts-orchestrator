@@ -6,6 +6,8 @@ binary=$2
 image=$3
 archive=$4
 server=$5
+mode=timed
+if [[ $# -ge 6 ]]; then mode=$6; fi
 mount --make-rprivate /
 mkdir -p "$root/cgroup"
 mount --bind /sys/fs/cgroup "$root/cgroup"
@@ -71,7 +73,7 @@ echo "$$" >"$root/$name/agent.pid"
 exec "$binary" node "$root" "$name" "$server"
 SH
 done
-if ! "$binary" "$root" "$image"; then
+if ! "$binary" "$root" "$image" "$mode"; then
 	tail -n 80 "$root/c18a/output" "$root/c18b/output"
 	exit 1
 fi
