@@ -150,6 +150,9 @@ func (c *controller) recordReadinessFailure() {
 }
 
 func (c *controller) readinessFailed(ctx context.Context, w *readinessWatch, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	expired := w.observe(time.Now(), err)
 	if c.ownsData() {
 		if w.hungSince.IsZero() {
