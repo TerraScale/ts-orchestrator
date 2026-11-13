@@ -72,7 +72,7 @@ own in-process connection uses an in-memory token. Everything else is refused.
 | Subject | Request | Reply |
 |---|---|---|
 | `ts.release.version` | none | `{"version": "<vcs.revision>", "sha256": "<running binary digest>", "sha256_unavailable": "<why>", "rolled_back": "<sha>", "error": "<why>"}` |
-| `ts.release.ts-orch` | `{"sha", "binaries": {"<goarch>": {"url", "sha256"}}, "token"}`, optional header `Ts-Orch-Preflight` | `{"state": "current" \| "installed" \| "stale" \| "rolled_back" \| "rejected", "refusal": {...}}` |
+| `ts.release.ts-orch` | `{"sha", "binaries": {"<goarch>": {"url", "sha256"}}, "token"}`, optional header `Ts-Orch-Preflight` | `{"state": "current" \| "installed" \| "stale" \| "rolled_back" \| "rejected", "refusal": {...}, "preflight": {"declared", "executed"}}` |
 | `ts.release.app` | `{"service", "image": "ghcr.io/terrascale/<service>@sha256:...", "token"}` | `{"state": "done" \| "failed" \| "rejected", "result": [<mesh rows>]}` |
 
 An app release needs a token from a workflow `appServices` allows to release
@@ -182,7 +182,7 @@ dist/terrascale-orchestrator-linux-amd64 release push --sha "${GITHUB_SHA}" --di
 ```
 
 Push mints the token and the preflight declaration, derives the release tag
-from its `run_id`, pushes to every region concurrently, polls
+from its `run_id`, pushes to the regions one after another in file order, polls
 `ts.release.version` every 250 ms until it names `--sha` and, when the host
 reports a digest and did not answer `current`, one of the release's digests
 (3 min limit; a rollback of `--sha` is checked first) and prints one JSON line

@@ -58,6 +58,7 @@ type Result struct {
 	HealthyMS    int64    `json:"healthy_ms"`
 	Health       string   `json:"health,omitempty"`
 	Refusal      *Refusal `json:"refusal,omitempty"`
+	Preflight    string   `json:"preflight,omitempty"`
 	Repair       string   `json:"repair,omitempty"`
 	RevisionOnly string   `json:"revision_only,omitempty"`
 	Error        string   `json:"error,omitempty"`
@@ -364,6 +365,10 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease, declara
 	}
 	result.State, result.AcceptedMS = reply.State, since()
 	result.Refusal = reply.Refusal
+	result.Preflight = reply.Preflight.String()
+	if reply.Preflight != nil && !reply.Preflight.Declared {
+		result.Preflight += "; this pusher sent a declaration the host did not receive"
+	}
 	if reply.State != "installed" && reply.State != "current" {
 		return fail(fmt.Errorf("release %s: %s", reply.State, reply.Error))
 	}

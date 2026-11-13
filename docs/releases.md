@@ -17,16 +17,36 @@ before, with no preflight: a downgrade to a build without the command is
 installed without one. The host never infers the capability from what the
 candidate does when it runs.
 
+The header is not bound to the release token. Someone who can alter requests on
+the release channel can strip it, and the host then installs the still-valid
+release without the preflight, as for an undeclared release. Every
+`ts.release.ts-orch` reply therefore carries `preflight` with `declared` (the
+host received and verified a declaration) and `executed` (the candidate's
+preflight ran), and the pusher prints it per region as `preflight declared:
+yes|no, executed: yes|no`, adding that it sent a declaration the host did not
+receive when the host reports none. A host running an updater from before the
+preflight sends no `preflight`; the pusher prints `not reported`.
+
 For a declared release the host downloads the candidate, checks its SHA-256
 digest against the request and writes it to `<binary>.next`. Before anything
 else on the host is touched, it runs `<binary>.next release preflight`
 (`internal/releasepreflight`, which currently succeeds without checks) in its
 own process group. The preflight ends 70 seconds after it starts or 110 seconds
-after the request arrived, whichever is earlier, so the reply reaches the
-pusher inside its 2-minute request timeout. When the candidate exits, fails to
-start or runs out of time, the whole process group is killed, also after a
+after the request arrived, whichever is earlier. These limits bound only the
+preflight: the download before it and the rest of the install after it (trial
+marker, `.prev` link, rename, run fence) are not counted, nor is the reply's
+trip back to the pusher, so a reply is not guaranteed inside the pusher's
+2-minute request timeout. When the total exceeds it, the pusher (this build's
+or an earlier one) reports a request timeout for the region while the host
+completes the install and restarts. When the candidate exits, fails to start
+or runs out of time, the whole process group is killed, also after a
 successful exit, so a child it left in its group does not outlive the
-preflight; a process that deliberately leaves the group is not followed.
+preflight; a process that deliberately leaves the group is not followed. The
+host waits for the candidate to exit without collecting it, kills the group
+while the exited candidate still holds the group's id, and only then collects
+it; on the time limit it kills the group first, then waits and collects. No
+signal is sent after the candidate is collected, so a reused id is never
+signalled.
 Output is read for at most one more second; the first 4 KiB are kept, with
 control characters removed, as the diagnostic.
 
@@ -36,10 +56,10 @@ binary it is about to become: it is not sandboxed, and its memory and disk use
 are limited only by the host's own limits.
 
 A non-zero exit, the time limit or a candidate that cannot be executed refuses
-the release as `host_prerequisite` with `"preflight": true`. If the exec fails
+the release as `host_prerequisite` with `"executed": true` in `preflight`. If the exec fails
 with `ETXTBSY` (another process, such as a child started while the file was
 being written, still holds it open for writing), it is retried every 20 ms for
-up to 5 seconds and then refused as `host_prerequisite` without `preflight`. No
+up to 5 seconds and then refused as `host_prerequisite` with `"executed": false`. No
 process-wide lock is taken, so commands the agent starts during a slow write
 are not delayed. A preflight refusal only removes `<binary>.next`: the
 installed binary, `<binary>.prev`, `nats/release-trial`, `nats/release-run-id`
@@ -56,15 +76,15 @@ from the same declaration.
 ## ts-orch refusal kinds
 
 A refused `ts.release.ts-orch` request answers `state: "rejected"` with a
-`refusal` object: `kind`, `sha`, `sha256`, `preflight`, `run_id`,
-`run_attempt` and the diagnostic `reason`.
+`refusal` object: `kind`, `sha`, `sha256`, `run_id`, `run_attempt` and the
+diagnostic `reason`; the reply's `preflight` says whether the preflight ran.
 
 - `host_prerequisite`: the host could not finish verification or installation.
   The signing key fetch failed (also for a request that waited for another
   request's fetch that failed), the token's key is not in a key set fetched
   less than 30 seconds earlier (not refreshed again), the download failed, a
   file could not be written or renamed, the run fence could not be read, or the
-  candidate preflight refused (`preflight: true`) or stayed busy.
+  candidate preflight refused (`executed: true`) or stayed busy.
 - `release_integrity`: the release is proven wrong. The request does not decode,
   the token or the preflight declaration is invalid or for another workflow,
   commit or run, the URL is not the signed run's asset, the token's key is
@@ -97,7 +117,9 @@ revision and one of its binary digests. A rollback of that revision is checked
 first, so a release that was rolled back is never reported as serving. The
 digest is compared only when the host's answer carries one: a host running a
 build from before this change sends none, nor does a host that could not read
-its own executable (its answer says why in `sha256_unavailable`); for those,
+its own executable or has not finished reading it (its answer says why in
+`sha256_unavailable`). The agent hashes its executable in the background after
+it starts, so readiness and probation never wait for the hash; for those,
 and for a host that answered `current` while running another build of the same
 commit, serving is confirmed by revision only and the result says so in
 `revision_only`.
