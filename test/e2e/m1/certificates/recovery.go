@@ -87,7 +87,7 @@ func recoveryJourney(ctx context.Context, cfg configuration, conn *nats.Conn, cu
 	if err := current.wait(ctx, "edge certificate envelope unsupported name=repair.e2e.test ", 1); err != nil {
 		return err
 	}
-	metrics, err := getText("http://10.77.0.2/edge/certificates/metrics")
+	metrics, err := getText("http://10.77.0.2:9108/edge/certificates/metrics")
 	if err != nil || !strings.Contains(metrics, "ts_orch_edge_certificate_expiry_seconds{name=\"repair.e2e.test\",variant=\"ecdsa\"}") || !strings.Contains(metrics, "ts_orch_edge_certificate_blocked_names ") {
 		return errors.New("expiry or blocked-name metrics missing")
 	}

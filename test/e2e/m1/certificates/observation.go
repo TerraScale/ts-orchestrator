@@ -34,7 +34,7 @@ func observationGet(address, path string) (int, []byte, error) {
 }
 
 func observationMetric(address, name string) (float64, error) {
-	status, data, err := observationGet(address, "/edge/certificates/metrics")
+	status, data, err := observationGet(address+":9108", "/edge/certificates/metrics")
 	if err != nil || status != 200 {
 		return 0, fmt.Errorf("metrics %s: status=%d error=%v body=%q", address, status, err, data)
 	}
@@ -80,7 +80,7 @@ func observationJourney(cfg configuration) error {
 		if _, err = observationMetric(address, `ts_edge_autocert_orders_total{outcome="success"}`); err != nil {
 			return fmt.Errorf("order metric %s: %v", address, err)
 		}
-		status, data, err = observationGet(address, "/edge/ready")
+		status, data, err = observationGet(address+":9108", "/edge/ready")
 		if err != nil || status != 200 {
 			return fmt.Errorf("readiness %s: status=%d error=%v body=%q", address, status, err, data)
 		}

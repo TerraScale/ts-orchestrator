@@ -373,7 +373,7 @@ func fingerprint(cfg configuration, address, name string, postgres bool) (string
 }
 
 func ready(address string) error {
-	response, err := (&http.Client{Timeout: 2 * time.Second}).Get("http://" + address + "/edge/ready")
+	response, err := (&http.Client{Timeout: 2 * time.Second}).Get("http://" + address + ":9108/edge/ready")
 	if err != nil {
 		return err
 	}
@@ -384,8 +384,24 @@ func ready(address string) error {
 	return nil
 }
 
+func awaitReady(ctx context.Context, address string) error {
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		err := ready(address)
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w: %w", ctx.Err(), err)
+		case <-tick.C:
+		}
+	}
+}
+
 func pendingReadiness(address, name string) error {
-	response, err := (&http.Client{Timeout: 2 * time.Second}).Get("http://" + address + "/edge/ready")
+	response, err := (&http.Client{Timeout: 2 * time.Second}).Get("http://" + address + ":9108/edge/ready")
 	if err != nil {
 		return err
 	}
@@ -565,6 +581,9 @@ func journey(ctx context.Context, cfg configuration) error {
 	if err := current.wait(ctx, "edge readiness changed ready=true", 1); err != nil {
 		return err
 	}
+	if err := awaitReady(ctx, "10.77.0.3"); err != nil {
+		return fmt.Errorf("main binary routes: %w", err)
+	}
 	for _, address := range []string{"10.77.0.2", "10.77.0.3"} {
 		for _, name := range []string{"existing.e2e.test", "rsa.e2e.test"} {
 			if _, err := fingerprint(cfg, address, name, false); err != nil {
@@ -576,10 +595,7 @@ func journey(ctx context.Context, cfg configuration) error {
 		}
 	}
 	fmt.Println("PASS main and current binaries serve existing ECDSA, RSA and Postgres certificates together")
-	if err := route(ctx, cfg, "a", "rollout", []string{"asymmetric.e2e.test", "urgent.e2e.test"}); err != nil {
-		return err
-	}
-	if err := current.wait(ctx, "edge certificate installed name=urgent.e2e.test ", 2); err != nil {
+	if err := unacknowledgedLeaseRollout(ctx, cfg, current, store); err != nil {
 		return err
 	}
 	if err := waitUntil(ctx, time.Now().Add(11*time.Second)); err != nil {
@@ -741,7 +757,18 @@ func journey(ctx context.Context, cfg configuration) error {
 		if err := ready(address); err != nil {
 			return err
 		}
+		for _, path := range []string{"/edge/ready", "/edge/certificates/metrics"} {
+			response, err := (&http.Client{Timeout: 2 * time.Second}).Get("http://" + address + path)
+			if err != nil {
+				return err
+			}
+			response.Body.Close()
+			if response.StatusCode != http.StatusNotFound {
+				return fmt.Errorf("public %s%s: %s", address, path, response.Status)
+			}
+		}
 	}
+	fmt.Println("PASS readiness and certificate metrics answer on the mesh port and not on public port 80")
 	if err := store.cmd.Process.Signal(syscall.SIGSTOP); err != nil {
 		return err
 	}

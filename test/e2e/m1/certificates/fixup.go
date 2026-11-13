@@ -285,7 +285,7 @@ func fixupJourney(ctx context.Context, cfg configuration, conn *nats.Conn, autho
 			return errors.New("retry deadline not persisted on disk")
 		}
 	}
-	metrics, err := getText("http://10.77.0.3/edge/certificates/metrics")
+	metrics, err := getText("http://10.77.0.3:9108/edge/certificates/metrics")
 	if err != nil {
 		return err
 	}
@@ -436,7 +436,7 @@ func fixupJourney(ctx context.Context, cfg configuration, conn *nats.Conn, autho
 		return err
 	}
 	for _, address := range []string{"10.77.0.2", "10.77.0.3"} {
-		metrics, err := getText("http://" + address + "/edge/certificates/metrics")
+		metrics, err := getText("http://" + address + ":9108/edge/certificates/metrics")
 		if err != nil {
 			return err
 		}

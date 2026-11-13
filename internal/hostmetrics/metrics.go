@@ -127,7 +127,7 @@ func writeDisks(w io.Writer, data, sysBlock string) error {
 
 func Handler(region, address string, executor *swarmruntime.Executor) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/edge/certificates" || r.URL.Path == "/edge/ready" {
+		if r.URL.Path == "/edge/certificates" || r.URL.Path == "/edge/certificates/metrics" || r.URL.Path == "/edge/ready" {
 			edge.ServeLocal(w, r)
 			return
 		}

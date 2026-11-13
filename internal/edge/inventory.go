@@ -182,7 +182,7 @@ func (e *Edge) Inventory(ctx context.Context) Inventory {
 func ServeLocal(w http.ResponseWriter, r *http.Request) {
 	e := localEdge.Load()
 	if e == nil {
-		if r.URL.Path == "/edge/ready" {
+		if r.URL.Path == "/edge/ready" || r.URL.Path == "/edge/certificates/metrics" {
 			http.Error(w, "edge unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -197,6 +197,10 @@ func ServeLocal(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/edge/ready" {
 		e.serveReady(w, r)
+		return
+	}
+	if r.URL.Path == "/edge/certificates/metrics" {
+		e.serveCertificateMetrics(w, r)
 		return
 	}
 	if r.Method != http.MethodGet {
