@@ -98,11 +98,12 @@ type Reply struct {
 	// RolledBack is the release this host restored <binary>.prev over; Error says why.
 	RolledBack string `json:"rolled_back,omitempty"`
 	// Result is the mesh's per-region rows.
-	Result   json.RawMessage `json:"result,omitempty"`
-	Deadline time.Time       `json:"deadline,omitzero"`
-	Events   []string        `json:"events,omitempty"`
-	NodeList nodelist.Status `json:"node_list,omitzero"`
-	Refusal  *Refusal        `json:"refusal,omitempty"`
+	Result    json.RawMessage  `json:"result,omitempty"`
+	Deadline  time.Time        `json:"deadline,omitzero"`
+	Events    []string         `json:"events,omitempty"`
+	NodeList  nodelist.Status  `json:"node_list,omitzero"`
+	Refusal   *Refusal         `json:"refusal,omitempty"`
+	Preflight *PreflightReport `json:"preflight,omitempty"`
 }
 
 type HealthRequest struct {
@@ -129,9 +130,7 @@ type Handler struct {
 	Health   func(context.Context, string) HealthResult
 	Verifier *Verifier
 	// Revision is the running build's vcs.revision.
-	Revision          string
-	Digest            string
-	DigestUnavailable string
+	Revision string
 	// Binary is the installed executable that a release replaces.
 	Binary string
 	// RunIDFile records the installed release's GitHub run_id; an older run is refused.
@@ -156,12 +155,13 @@ type Handler struct {
 	mu            sync.Mutex
 	pending       string // installed, waiting for the restart
 	rolledBack    atomic.Pointer[Rollback]
+	running       atomic.Pointer[runningBuild]
 	lastHealth    atomic.Pointer[string]
 	appOperations map[appOperationKey]*appOperation
 }
 
 // NewHandler serves this process's release for the binary it runs from.
-func NewHandler(state string) (*Handler, error) {
+func NewHandler(ctx context.Context, state string) (*Handler, error) {
 	binary, err := executable()
 	if err != nil {
 		return nil, err
@@ -171,11 +171,24 @@ func NewHandler(state string) (*Handler, error) {
 		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
 	h.NodeList = nodelist.Open(state)
 	h.rolledBack.Store(readRollback(h.RollbackFile))
-	if h.Digest, err = runningDigest(); err != nil {
-		h.DigestUnavailable = scrub(err.Error())
-		slog.Warn("running binary digest unavailable; serving is confirmed by revision only", "error", err)
-	}
+	h.running.Store(&runningBuild{unavailable: "running binary digest not computed yet"})
+	go h.hashRunning(ctx)
 	return h, nil
+}
+
+type runningBuild struct{ sha256, unavailable string }
+
+func (h *Handler) hashRunning(ctx context.Context) {
+	sum, err := runningDigest(ctx)
+	if ctx.Err() != nil {
+		return
+	}
+	if err != nil {
+		h.running.Store(&runningBuild{unavailable: scrub(err.Error())})
+		slog.Warn("running binary digest unavailable; serving is confirmed by revision only", "error", err)
+		return
+	}
+	h.running.Store(&runningBuild{sha256: sum})
 }
 
 // executable is the real path of the running binary, which a release replaces.
@@ -274,7 +287,8 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }
 
 func (h *Handler) version() Reply {
-	reply := Reply{Version: h.Revision, SHA256: h.Digest, SHA256Unavailable: h.DigestUnavailable, NodeList: h.NodeList.Status()}
+	running := h.running.Load()
+	reply := Reply{Version: h.Revision, SHA256: running.sha256, SHA256Unavailable: running.unavailable, NodeList: h.NodeList.Status()}
 	if rollback := h.rolledBack.Load(); rollback != nil {
 		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason
 	}
@@ -317,6 +331,13 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 }
 
 func (h *Handler) orch(ctx context.Context, data []byte, declaration string) Reply {
+	report := &PreflightReport{}
+	reply := h.orchInstall(ctx, data, declaration, report)
+	reply.Preflight = report
+	return reply
+}
+
+func (h *Handler) orchInstall(ctx context.Context, data []byte, declaration string, report *PreflightReport) Reply {
 	arrived := time.Now()
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -349,18 +370,22 @@ func (h *Handler) orch(ctx context.Context, data []byte, declaration string) Rep
 	}
 	// The marker precedes the swap, so the new binary's first start is on
 	// probation; its clock starts after the download.
+	report.Declared = declared
 	var check func(context.Context, string) error
 	if declared {
-		check = func(ctx context.Context, next string) error { return preflight(ctx, next, arrived.Add(replyBudget)) }
+		check = func(ctx context.Context, next string) error {
+			err := preflight(ctx, next, arrived.Add(replyBudget))
+			var refused *preflightError
+			report.Executed = err == nil || errors.As(err, &refused) && refused.ran
+			return err
+		}
 	}
 	if err := h.install(ctx, binary, check, func() error {
 		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now()})
 	}); err != nil {
 		var refused *preflightError
 		if errors.As(err, &refused) {
-			reply := refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
-			reply.Refusal.Preflight = refused.ran
-			return reply
+			return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
 		}
 		kind := RefusalHost
 		var integrity *integrityError
@@ -615,15 +640,27 @@ func (h *Handler) mesh(ctx context.Context, op string, data []byte) Reply {
 	return Reply{State: "done", Result: result}
 }
 
-func runningDigest() (string, error) {
+func runningDigest(ctx context.Context) (string, error) {
 	file, err := os.Open("/proc/self/exe")
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
 	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
+	if _, err := io.Copy(hash, contextReader{ctx, file}); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(data []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(data)
 }

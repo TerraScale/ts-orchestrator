@@ -104,7 +104,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 			fmt.Fprintf(output, "netbird firewall: %v\n", err)
 		}
 	}
-	releases, err := releasepush.NewHandler(state)
+	releases, err := releasepush.NewHandler(ctx, state)
 	if err != nil {
 		return err
 	}
