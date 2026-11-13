@@ -374,10 +374,9 @@ func main() {
 	}
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "preflight" {
 		mode, mark, _ := strings.Cut(candidateMode(), ":")
-		if mark != "" {
-			appendMark(mark, time.Now().Format(time.RFC3339Nano))
-		}
 		switch mode {
+		case "mark":
+			appendMark(mark, time.Now().Format(time.RFC3339Nano))
 		case "refuse":
 			fmt.Fprintln(os.Stderr, "candidate refuses this release")
 			os.Exit(17)
@@ -390,6 +389,7 @@ func main() {
 		case "hang":
 			<-time.NewTimer(10 * time.Minute).C
 		case "slow":
+			appendMark(mark, time.Now().Format(time.RFC3339Nano))
 			<-time.NewTimer(slowStep).C
 		case "orphan-pass", "orphan-fail":
 			helper, err := os.Executable()
