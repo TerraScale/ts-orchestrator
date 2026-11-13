@@ -46,7 +46,10 @@ install -m 0755 "\$tmp" /usr/local/bin/terrascale-orchestrator
 ln -sfn terrascale-orchestrator /usr/local/bin/ts-orch
 install -d -m 0700 /var/lib/ts-orch
 install -d -m 0755 /var/lib/ts-data /var/lib/ts-data/terrabase
-names=()
+install -d -m 0755 /etc/terrascale-orchestrator
+/usr/local/bin/terrascale-orchestrator ts-auth metadata-rules > /etc/terrascale-orchestrator/ts-auth-metadata.nft
+/usr/local/bin/terrascale-orchestrator ts-auth metadata-unit > /etc/systemd/system/terrascale-ts-auth-metadata.service
+names=(terrascale-ts-auth-metadata.service)
 $units
 chmod 0644 "\${names[@]/#//etc/systemd/system/}"
 systemctl daemon-reload
