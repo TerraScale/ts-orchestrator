@@ -143,7 +143,7 @@ pinned() {
 }
 cache_pins() {
 	pinned "$containerd_file" "https://github.com/containerd/containerd/releases/download/v$containerd_version/$containerd_file" "$containerd_sha256"
-	pinned "$runc_file" "https://github.com/opencontainers/runc/releases/download/v$runc_version/runc.arm64" "$runc_sha256"
+	pinned "$runc_file" "https://github.com/opencontainers/runc/releases/download/v$runc_version/runc.$runtime_arch" "$runc_sha256"
 	pinned "$netbird_file" "$netbird" "$netbird_sha256"
 }
 cache_hit=false
