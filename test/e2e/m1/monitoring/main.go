@@ -155,6 +155,10 @@ func run() error {
 }
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "--runtime-logger" {
+		swarmruntime.RunRuntimeLogger(os.Args[2])
+		return
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
