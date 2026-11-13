@@ -40,6 +40,9 @@ func (e *Edge) runListener(ctx context.Context, protocol string) {
 
 func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listener) error {
 	defer observability.SetEdgeListenerReady(protocol, false)
+	bit := listenerBit(protocol)
+	e.listeners.Or(bit)
+	defer e.listeners.And(^bit)
 	observability.SetEdgeListenerReady(protocol, true)
 	served := make(chan error, 1)
 	go func() {

@@ -2,6 +2,9 @@ package edge
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -34,6 +37,15 @@ type Edge struct {
 	listen           func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
 	terrabase        func() (string, error)
 	certs            *autocert.Manager
+	certificateDir   string
+	held             sync.Map
+	listeners        atomic.Uint32
+	readyRoutes      atomic.Pointer[[]ReadinessRoute]
+	challengeGuard   challengeGuard
+	orderSuccess     atomic.Uint64
+	orderFailure     atomic.Uint64
+	unsupported      atomic.Uint64
+	challengeLookups atomic.Uint64
 	routes           atomic.Pointer[map[string]int]
 	postgres         atomic.Pointer[map[string]int]
 	pgKeys           postgresKeys
@@ -83,7 +95,23 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 		HostPolicy: e.hostPolicy,
 		Client:     client,
 	}
+	e.certs.Cache = certificateObservation{Cache: e.certs.Cache, edge: e}
+	e.certificateDir = filepath.Join(stateDir, "edge-certs")
+	if client == nil {
+		e.certs.Client = &acme.Client{DirectoryURL: autocert.DefaultACMEDirectory}
+	}
+	observed := *http.DefaultClient
+	if e.certs.Client.HTTPClient != nil {
+		observed = *e.certs.Client.HTTPClient
+	}
+	transport := observed.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	observed.Transport = orderTransport{edge: e, next: transport}
+	e.certs.Client.HTTPClient = &observed
 	e.challenges = e.certs.HTTPHandler(nil)
+	localEdge.Store(e)
 	http1 := http.DefaultTransport.(*http.Transport).Clone()
 	http1.Proxy = nil
 	http1.DialContext = dialHandoff
@@ -199,6 +227,10 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	plain := &http.Server{
 		Handler: countResponses("http", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			e.identify(w, r)
+			if r.URL.Path == "/edge/ready" {
+				e.ServeReady(w, r)
+				return
+			}
 			// A Postgres hostname needs :80 only for its certificate's challenge.
 			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
 				http.NotFound(w, r)
@@ -224,7 +256,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	}
 	// No read or write timeout on :443: gRPC, SSE and websocket streams stay
 	// open for hours.
-	tlsConfig := e.certs.TLSConfig()
+	tlsConfig := e.certificateTLSConfig()
 	tlsConfig.GetConfigForClient = e.meshTLS
 	public := &http.Server{
 		Handler:           countResponses("https", http.HandlerFunc(e.serveHTTPS)),
@@ -377,3 +409,37 @@ func dialHandoffWithin(ctx context.Context, network, address string, wait time.D
 }
 
 func (f roundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func (e *Edge) certificateTLSConfig() *tls.Config {
+	config := e.certs.TLSConfig()
+	config.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		cert, err := e.certs.GetCertificate(hello)
+		if len(hello.SupportedProtos) == 1 && hello.SupportedProtos[0] == acme.ALPNProto {
+			return cert, err
+		}
+		if err == nil && cert != nil {
+			e.rememberCertificate(hello.ServerName, cert)
+		}
+		if (err != nil || cert != nil && hello.SupportsCertificate(cert) != nil) && e.hostPolicy(hello.Context(), hello.ServerName) == nil {
+			inventory := e.Inventory(hello.Context())
+			valid := map[string]bool{}
+			for _, held := range inventory.Certificates {
+				if held.Valid && slicesContainsName(held.Names, hello.ServerName) {
+					valid[held.Fingerprint] = true
+				}
+			}
+			candidates, _ := e.heldCertificates(hello.Context())
+			for _, candidate := range candidates {
+				digest := sha256.Sum256(candidate.Certificate[0])
+				if valid[hex.EncodeToString(digest[:])] && hello.SupportsCertificate(candidate) == nil {
+					return cert, err
+				}
+			}
+			if len(valid) > 0 {
+				e.unsupported.Add(1)
+			}
+		}
+		return cert, err
+	}
+	return config
+}
