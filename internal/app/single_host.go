@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"slices"
+
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
 
@@ -47,8 +49,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		return err
 	}
 	founder := plan.region != "" && !plan.joiner()
-	if founder {
-		// The region's workers dial the manager; the host NSG admits only the VCN.
+	if founder || plan.region != "" && plan.admission.Role == "manager" {
 		if err := releasepush.OpenTCP(ctx, swarmruntime.SwarmPort); err != nil {
 			fmt.Fprintf(output, "swarm firewall: %v\n", err)
 		}
@@ -128,7 +129,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	if plan.region != "" {
 		go serveHostReleases(ctx, state, plan.region, node.ID(), plan.joiner(), releases)
 	}
-	if founder {
+	if founder || plan.region != "" && plan.admission.Role == "manager" {
 		go publishJoin(ctx, state, plan)
 	}
 	notifier := sdnotify.Process()
@@ -275,9 +276,17 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 		case material.Founder == hostname:
 			return founder, nil
 		case material.Manager != "" && material.WorkerToken != "":
-			fmt.Fprintf(output, "joining %s at %s\n", material.Founder, material.Manager)
-			return hostPlan{listen: loopback.listen, advertise: loopback.advertise, region: instance.Region, address: instance.PrivateIP,
-				admission: swarmruntime.JoinerAdmission(hostname, instance.ID, material.Manager, material.WorkerToken)}, nil
+			join := hostPlan{listen: loopback.listen, advertise: loopback.advertise, region: instance.Region, address: instance.PrivateIP}
+			if material.ManagerToken != "" && len(material.Managers) < 3 {
+				join.advertise = net.JoinHostPort(instance.PrivateIP, port)
+				join.listen = net.JoinHostPort("0.0.0.0", port)
+				join.admission = swarmruntime.JoinerAdmission(hostname, instance.ID, managerAddress(material), material.ManagerToken, "manager")
+				fmt.Fprintf(output, "joining %s at %s as a manager (%d managers listed)\n", material.Founder, join.admission.ManagerAddress, len(material.Managers))
+				return join, nil
+			}
+			fmt.Fprintf(output, "joining %s at %s as a worker\n", material.Founder, material.Manager)
+			join.admission = swarmruntime.JoinerAdmission(hostname, instance.ID, material.Manager, material.WorkerToken, "container")
+			return join, nil
 		default:
 			fmt.Fprintf(output, "waiting for founder %s to publish %s\n", material.Founder, regionjoin.SecretName(instance.Region))
 		}
@@ -289,15 +298,7 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 	}
 }
 
-// publishJoin keeps the region's join material current in Vault. A denial
-// (hosts not yet allowed to manage the secret) is logged and retried; the
-// founder keeps serving.
 func publishJoin(ctx context.Context, state string, plan hostPlan) {
-	hostname, err := os.Hostname()
-	if err != nil {
-		slog.WarnContext(ctx, "region join material not published", "error", err)
-		return
-	}
 	for {
 		err := func() error {
 			client, conn, err := swarmruntime.DialSingleHost(state)
@@ -305,12 +306,53 @@ func publishJoin(ctx context.Context, state string, plan hostPlan) {
 				return err
 			}
 			defer conn.Close()
+			hostname, err := os.Hostname()
+			if err != nil {
+				return err
+			}
+			listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+			if err != nil {
+				return err
+			}
+			leader := false
+			managers := []string{}
+			routes := []string{}
+			for _, node := range listed.Nodes {
+				if node.ManagerStatus == nil {
+					continue
+				}
+				if node.Description != nil && node.Description.Hostname == hostname && node.ManagerStatus.Leader {
+					leader = true
+				}
+				if node.Status.State != api.NodeStatus_READY {
+					continue
+				}
+				managers = append(managers, node.ManagerStatus.Addr)
+				routes = append(routes, meshRoute(hostOf(node.ManagerStatus.Addr)))
+			}
+			if !leader {
+				return nil
+			}
+			slices.Sort(managers)
+			slices.Sort(routes)
 			clusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
 			if err != nil || len(clusters.Clusters) != 1 {
-				return errors.Join(errors.New("read the cluster's worker join token"), err)
+				return errors.Join(errors.New("read the cluster's join tokens"), err)
 			}
-			return regionjoin.Publish(ctx, plan.region, regionjoin.Material{Founder: hostname, Manager: plan.advertise,
-				WorkerToken: clusters.Clusters[0].RootCA.JoinTokens.Worker, Route: meshRoute(plan.address)})
+			stored, err := regionjoin.Read(ctx, plan.region)
+			if err != nil {
+				return err
+			}
+			manager, route := stored.Manager, stored.Route
+			if manager == "" {
+				manager = plan.advertise
+			}
+			if route == "" {
+				route = meshRoute(plan.address)
+			}
+			return regionjoin.Publish(ctx, plan.region, regionjoin.Material{Founder: stored.Founder, Manager: manager,
+				WorkerToken: clusters.Clusters[0].RootCA.JoinTokens.Worker, Route: route,
+				ManagerToken: clusters.Clusters[0].RootCA.JoinTokens.Manager, Managers: managers, Routes: routes})
 		}()
 		wait := 10 * time.Minute
 		if err != nil {
@@ -323,6 +365,27 @@ func publishJoin(ctx context.Context, state string, plan hostPlan) {
 		case <-time.After(wait):
 		}
 	}
+}
+
+func managerAddress(material regionjoin.Material) string {
+	for _, manager := range material.Managers {
+		dial, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		conn, err := (&net.Dialer{}).DialContext(dial, "tcp", manager)
+		cancel()
+		if err == nil {
+			_ = conn.Close()
+			return manager
+		}
+	}
+	return material.Manager
+}
+
+func hostOf(address string) string {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return address
+	}
+	return host
 }
 
 func relayRelease(ctx context.Context, state, region string, request []byte) []releasepush.HostVersion {

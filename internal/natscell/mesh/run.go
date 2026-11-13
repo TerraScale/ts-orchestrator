@@ -104,8 +104,11 @@ func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseTok
 	}
 	seeds := map[string]string{}
 	for _, peer := range Regions() {
-		if peer != region {
-			seeds[peer] = fmt.Sprintf("nats://ts-%s-1.%s:%d", peer, netBirdDomain, ClusterPort)
+		if peer == region {
+			continue
+		}
+		for _, manager := range []string{"1", "2", "3"} {
+			seeds[peer+"-"+manager] = fmt.Sprintf("nats://ts-%s-%s.%s:%d", peer, manager, netBirdDomain, ClusterPort)
 		}
 	}
 	var advertise string

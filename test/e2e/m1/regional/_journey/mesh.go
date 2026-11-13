@@ -85,7 +85,7 @@ func RegionalPeersJourney(root string) error {
 	}
 	defer workerExecutor.Close()
 	worker, err := swarmruntime.StartSingleHost(ctx, workerState, workerExecutor, "127.0.0.1:0", "127.0.0.1:0",
-		swarmruntime.JoinerAdmission("regional-worker", "regional-worker", address, clusters.Clusters[0].RootCA.JoinTokens.Worker))
+		swarmruntime.JoinerAdmission("regional-worker", "regional-worker", address, clusters.Clusters[0].RootCA.JoinTokens.Worker, "container"))
 	if err != nil {
 		return err
 	}

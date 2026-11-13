@@ -40,10 +40,8 @@ func FounderAdmission() Admission {
 	return Admission{Region: "local", HostID: singleHostID, InstanceID: singleHostID, FounderID: singleHostID, Role: "manager"}
 }
 
-// JoinerAdmission is a container worker that joins the founder's cluster with
-// Vault-delivered join material.
-func JoinerAdmission(hostname, instanceID, manager, token string) Admission {
-	return Admission{Region: "local", HostID: hostname, InstanceID: instanceID, FounderID: singleHostID, Role: "container",
+func JoinerAdmission(hostname, instanceID, manager, token, role string) Admission {
+	return Admission{Region: "local", HostID: hostname, InstanceID: instanceID, FounderID: singleHostID, Role: role,
 		ManagerAddress: manager, JoinToken: token}
 }
 

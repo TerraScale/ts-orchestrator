@@ -41,7 +41,7 @@ func seed() error {
 			return err
 		}
 		worker, err := swarmruntime.StartSingleHost(ctx, filepath.Join(state, "worker"), executor,
-			"127.0.0.1:4243", "127.0.0.1:4243", swarmruntime.JoinerAdmission("worker", "instance", "127.0.0.1:4242", clusters.Clusters[0].RootCA.JoinTokens.Worker))
+			"127.0.0.1:4243", "127.0.0.1:4243", swarmruntime.JoinerAdmission("worker", "instance", "127.0.0.1:4242", clusters.Clusters[0].RootCA.JoinTokens.Worker, "container"))
 		if err != nil {
 			return err
 		}

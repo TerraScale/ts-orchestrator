@@ -31,7 +31,10 @@ type Material struct {
 	Manager     string `json:"manager,omitempty"`
 	WorkerToken string `json:"workerToken,omitempty"`
 	// Route is the founder's mesh NATS cluster route, nats://<private VCN IP>:6222.
-	Route string `json:"route,omitempty"`
+	Route        string   `json:"route,omitempty"`
+	ManagerToken string   `json:"managerToken,omitempty"`
+	Managers     []string `json:"managers,omitempty"`
+	Routes       []string `json:"routes,omitempty"`
 }
 
 // Read returns the region's current join material.

@@ -37,16 +37,43 @@ func ListMembers(ctx context.Context, client api.ControlClient) ([]Member, error
 	return members, nil
 }
 
-// LeaveMember drains the worker named hostname, waits until none of its tasks
-// runs, then removes it from the cluster. The removed host cannot rejoin with
-// its old identity; it is retired or rebuilt from empty state.
 func LeaveMember(ctx context.Context, client api.ControlClient, hostname string) error {
 	node, err := memberNode(ctx, client, hostname)
 	if err != nil {
 		return err
 	}
 	if node.Role == api.NodeRoleManager {
-		return fmt.Errorf("%s is the region's manager; only workers leave", hostname)
+		if readyManagers(ctx, client) < 2 {
+			return fmt.Errorf("%s is the region's last ready manager; it cannot leave", hostname)
+		}
+		if node.Spec.DesiredRole != api.NodeRoleWorker {
+			spec := node.Spec.Copy()
+			spec.DesiredRole = api.NodeRoleWorker
+			if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec}); err != nil {
+				return fmt.Errorf("demote %s: %w", hostname, err)
+			}
+		}
+		demoteCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		for demoted := false; !demoted; {
+			current, err := memberNode(demoteCtx, client, hostname)
+			if err != nil {
+				cancel()
+				return err
+			}
+			if demoted = current.Role == api.NodeRoleWorker; !demoted {
+				select {
+				case <-demoteCtx.Done():
+					cancel()
+					return fmt.Errorf("demote %s: %w", hostname, demoteCtx.Err())
+				case <-time.After(time.Second):
+				}
+			}
+		}
+		cancel()
+		node, err = memberNode(ctx, client, hostname)
+		if err != nil {
+			return err
+		}
 	}
 	if node.Spec.Availability != api.NodeAvailabilityDrain {
 		spec := node.Spec.Copy()
@@ -91,6 +118,20 @@ func SetMemberAvailability(ctx context.Context, client api.ControlClient, hostna
 	spec.Availability = availability
 	_, err = client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec})
 	return err
+}
+
+func readyManagers(ctx context.Context, client api.ControlClient) int {
+	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, node := range listed.Nodes {
+		if node.Role == api.NodeRoleManager && node.Status.State == api.NodeStatus_READY {
+			count++
+		}
+	}
+	return count
 }
 
 func memberNode(ctx context.Context, client api.ControlClient, hostname string) (*api.Node, error) {
