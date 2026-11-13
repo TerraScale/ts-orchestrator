@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -25,8 +26,8 @@ type NodesRelease struct {
 	Token    string `json:"token"`
 }
 
-func NodesURL(sha, run string) string {
-	return downloadPrefix + ReleaseTag(sha, run) + "/nodes.json"
+func NodesURL(sha string) string {
+	return "https://raw.githubusercontent.com/" + orchRepository + "/" + sha + "/deploy/m1/nodes.json"
 }
 
 func (h *Handler) nodes(ctx context.Context, data []byte) Reply {
@@ -44,13 +45,15 @@ func (h *Handler) nodes(ctx context.Context, data []byte) Reply {
 	if claims.Repository != orchRepository || claims.JobWorkflowRef != orchWorkflow || claims.SHA != release.SHA {
 		return rejected(errors.New("token is not for this ts-orchestrator node list"))
 	}
-	if release.Artifact.URL != NodesURL(release.SHA, claims.RunID) {
-		return rejected(errors.New("node list must be the signed run's nodes.json artifact"))
+	if release.Artifact.URL != NodesURL(claims.SHA) {
+		return rejected(errors.New("node list must be the signed commit's deploy/m1/nodes.json"))
 	}
 	if h.NodeList == nil {
 		return rejected(errors.New("node list store is unavailable"))
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, release.Artifact.URL, nil)
+	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, NodesURL(claims.SHA), nil)
 	if err != nil {
 		return rejected(err)
 	}
@@ -82,6 +85,9 @@ func (h *Handler) nodes(ctx context.Context, data []byte) Reply {
 		return rejected(err)
 	}
 	changed, err := h.NodeList.Apply(list, run)
+	if errors.Is(err, nodelist.ErrStale) {
+		return Reply{State: "stale", Version: strconv.FormatUint(h.NodeList.Snapshot().Sequence, 10)}
+	}
 	if err != nil {
 		return rejected(err)
 	}
@@ -110,12 +116,12 @@ func SignNodes(ctx context.Context, sha, path string) (NodesRelease, error) {
 	if err != nil {
 		return NodesRelease{}, err
 	}
-	run, err := tokenRunID(token)
+	_, err = tokenRunID(token)
 	if err != nil {
 		return NodesRelease{}, err
 	}
 	sum := sha256.Sum256(wire)
-	return NodesRelease{Kind: "nodes", SHA: sha, Artifact: Binary{URL: NodesURL(sha, run), SHA256: hex.EncodeToString(sum[:])}, Token: token}, nil
+	return NodesRelease{Kind: "nodes", SHA: sha, Artifact: Binary{URL: NodesURL(sha), SHA256: hex.EncodeToString(sum[:])}, Token: token}, nil
 }
 
 func NodesCLI(ctx context.Context, args []string, out io.Writer) error {

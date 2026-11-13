@@ -69,12 +69,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	if err != nil {
 		return err
 	}
-	if _, err := nodelist.Keys(*state); err != nil {
-		return err
-	}
-	if _, err := nodelist.Open(*state); err != nil {
-		return err
-	}
+	nodelist.InitIdentity(*state)
 	plan, err := planHost(ctx, *state, output)
 	if err != nil {
 		return err

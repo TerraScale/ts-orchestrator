@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -65,12 +66,16 @@ func Open(state string) (*Store, error) {
 }
 
 func OpenEmbedded(state string, embedded []byte) (*Store, error) {
+	local.Store(nil)
+	if err := secureDirectory(filepath.Join(state, "node")); err != nil {
+		return nil, err
+	}
 	list, err := Decode(embedded)
 	if err != nil {
 		return nil, fmt.Errorf("embedded node list: %w", err)
 	}
 	store := &Store{path: filepath.Join(state, "node", "nodes.json"), held: held{List: list}}
-	data, err := os.ReadFile(store.path)
+	data, err := readStored(store.path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -102,6 +107,22 @@ func OpenEmbedded(state string, embedded []byte) (*Store, error) {
 	}
 	local.Store(store)
 	return store, nil
+}
+
+func readStored(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		return nil, errors.New("stored node list must be a regular 0600 file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(io.LimitReader(file, MaxBytes+1))
 }
 
 func (s *Store) Snapshot() List {
@@ -156,13 +177,13 @@ func Decode(data []byte) (List, error) {
 }
 
 func MeshIP(name, region string) (string, error) {
-	regionIndex := slices.Index(catalog.Names(), region)
+	entry, known := catalog.LookupName(region)
 	suffix, ok := strings.CutPrefix(name, "ts-"+region+"-")
 	nodeIndex, err := strconv.Atoi(suffix)
-	if regionIndex < 0 || !ok || err != nil || nodeIndex < 1 || nodeIndex > 254 || strconv.Itoa(nodeIndex) != suffix {
+	if !known || entry.MeshIndex < 1 || entry.MeshIndex > 254 || !ok || err != nil || nodeIndex < 1 || nodeIndex > 254 || strconv.Itoa(nodeIndex) != suffix {
 		return "", errors.New("node name must be ts-<catalog region>-<index 1..254>")
 	}
-	return fmt.Sprintf("10.201.%d.%d", regionIndex+1, nodeIndex), nil
+	return fmt.Sprintf("10.201.%d.%d", entry.MeshIndex, nodeIndex), nil
 }
 
 func (l List) Validate() error {

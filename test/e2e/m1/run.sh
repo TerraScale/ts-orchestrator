@@ -13,7 +13,6 @@ here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../../.." && pwd)
 work=$(mktemp -d)
 summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}
-nice -n 19 go -C "$repo" run ./test/e2e/m1/nodelist "$bin"
 state=/var/lib/ts-orch
 data=/var/lib/ts-data/e2e
 
@@ -212,6 +211,8 @@ done
 go -C "$repo" build -trimpath -o "$work/regional-edge" ./test/e2e/m1/regional
 sudo unshare -n sh -c 'ip link set lo up && exec "$0" "$@"' "$work/regional-edge" "$work/regional" "$work/ca.pem" regional.e2e.test upgrade.e2e.test
 end "regional edge -> REST, two WebSockets, a drain with both open, REST after it, an upload after a backend's half-close"
+
+nice -n 19 go -C "$repo" run ./test/e2e/m1/nodelist "$bin"
 
 begin "restart ts-orch"
 sudo test -s "$state/node/tls.key"

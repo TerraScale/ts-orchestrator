@@ -12,7 +12,6 @@ import (
 
 func Run(args []string, out io.Writer) error {
 	if len(args) > 0 && args[0] == "keys" {
-
 		if len(args) > 2 {
 			return errors.New("usage: ts-orch node keys [STATE]")
 		}
@@ -20,8 +19,7 @@ func Run(args []string, out io.Writer) error {
 		if len(args) == 2 {
 			state = args[1]
 		}
-
-		keys, err := Keys(state)
+		keys, err := ReadKeys(state)
 		if err != nil {
 			return err
 		}

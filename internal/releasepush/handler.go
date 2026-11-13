@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 )
@@ -147,8 +148,9 @@ func NewHandler(state string) (*Handler, error) {
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
 		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
 	h.NodeList, err = nodelist.Open(state)
+	observability.SetNodeFeatureAvailable("list", err == nil)
 	if err != nil {
-		return nil, err
+		slog.Warn("node list unavailable")
 	}
 	h.rolledBack.Store(readRollback(h.RollbackFile))
 	return h, nil

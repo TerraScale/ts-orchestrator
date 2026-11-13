@@ -11,10 +11,14 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"syscall"
 
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/gofrs/flock"
 )
 
@@ -25,7 +29,7 @@ type PublicKeys struct {
 
 func Keys(state string) (PublicKeys, error) {
 	dir := filepath.Join(state, "node")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := secureDirectory(dir); err != nil {
 		return PublicKeys{}, err
 	}
 	lock := flock.New(filepath.Join(dir, "identity.lock"))
@@ -33,19 +37,50 @@ func Keys(state string) (PublicKeys, error) {
 		return PublicKeys{}, err
 	}
 	defer lock.Close()
-	tlsBytes, err := identityFile(filepath.Join(dir, "tls.key"), func() ([]byte, error) {
-		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	tlsPath, wgPath := filepath.Join(dir, "tls.key"), filepath.Join(dir, "wg.key")
+	_, tlsErr := os.Lstat(tlsPath)
+	_, wgErr := os.Lstat(wgPath)
+	if errors.Is(tlsErr, os.ErrNotExist) && errors.Is(wgErr, os.ErrNotExist) {
+		tlsKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
-			return nil, err
+			return PublicKeys{}, err
 		}
-		data, err := x509.MarshalPKCS8PrivateKey(key)
+		tlsDER, err := x509.MarshalPKCS8PrivateKey(tlsKey)
 		if err != nil {
-			return nil, err
+			return PublicKeys{}, err
 		}
-		return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: data}), nil
-	})
+		wgKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+		if err != nil {
+			return PublicKeys{}, err
+		}
+		wgRaw := wgKey.Bytes()
+		wgRaw[0] &= 248
+		wgRaw[31] = wgRaw[31]&127 | 64
+		if err := persist(tlsPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: tlsDER})); err != nil {
+			return PublicKeys{}, err
+		}
+		if err := persist(wgPath, []byte(base64.StdEncoding.EncodeToString(wgRaw))); err != nil {
+			return PublicKeys{}, err
+		}
+	} else if tlsErr != nil || wgErr != nil {
+		return PublicKeys{}, errors.New("node identity is incomplete or inaccessible; restore both enrolled key files")
+	}
+	return ReadKeys(state)
+}
+
+func InitIdentity(state string) {
+	_, err := Keys(state)
+	observability.SetNodeFeatureAvailable("identity", err == nil)
 	if err != nil {
-		return PublicKeys{}, err
+		slog.Warn("node identity unavailable")
+	}
+}
+
+func ReadKeys(state string) (PublicKeys, error) {
+	dir := filepath.Join(state, "node")
+	tlsBytes, err := identityFile(filepath.Join(dir, "tls.key"))
+	if err != nil {
+		return PublicKeys{}, fmt.Errorf("read node TLS identity: %w", err)
 	}
 	block, rest := pem.Decode(tlsBytes)
 	if block == nil || block.Type != "PRIVATE KEY" || len(rest) != 0 {
@@ -63,16 +98,7 @@ func Keys(state string) (PublicKeys, error) {
 	if err != nil {
 		return PublicKeys{}, err
 	}
-	wgBytes, err := identityFile(filepath.Join(dir, "wg.key"), func() ([]byte, error) {
-		key, err := ecdh.X25519().GenerateKey(rand.Reader)
-		if err != nil {
-			return nil, err
-		}
-		data := key.Bytes()
-		data[0] &= 248
-		data[31] = data[31]&127 | 64
-		return []byte(base64.StdEncoding.EncodeToString(data)), nil
-	})
+	wgBytes, err := identityFile(filepath.Join(dir, "wg.key"))
 	if err != nil {
 		return PublicKeys{}, err
 	}
@@ -88,34 +114,24 @@ func Keys(state string) (PublicKeys, error) {
 	return PublicKeys{WGPublicKey: base64.StdEncoding.EncodeToString(wg.PublicKey().Bytes()), TLSSPKISHA256: hex.EncodeToString(sum[:])}, nil
 }
 
-func identityFile(path string, generate func() ([]byte, error)) ([]byte, error) {
-	file, err := os.OpenFile(path, os.O_RDONLY, 0)
-	if err == nil {
-		defer file.Close()
-		info, err := file.Stat()
-		if err != nil {
-			return nil, err
-		}
-		if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
-			return nil, errors.New("node private key must be a regular 0600 file")
-		}
-		return io.ReadAll(io.LimitReader(file, 16<<10))
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	data, err := generate()
+func identityFile(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
 	}
-	if err := persist(path, data); err != nil {
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		return nil, errors.New("node private key must be a regular 0600 file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
 		return nil, err
 	}
-	return data, nil
+	defer file.Close()
+	return io.ReadAll(io.LimitReader(file, 16<<10))
 }
 
 func persist(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := secureDirectory(filepath.Dir(path)); err != nil {
 		return err
 	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".node-*")
@@ -140,4 +156,19 @@ func persist(path string, data []byte) error {
 	}
 	defer dir.Close()
 	return dir.Sync()
+}
+
+func secureDirectory(path string) error {
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !info.IsDir() || info.Mode().Perm() != 0o700 || !ok || owner.Uid != uint32(os.Geteuid()) {
+		return errors.New("node directory must be an owned 0700 directory")
+	}
+	return nil
 }
