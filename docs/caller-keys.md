@@ -7,7 +7,10 @@ private key material stays in memory and the secret store.
 
 Never remove a public entry because a secret or version is absent from a read or listing.
 Remove an entry only with positive evidence of a different named current key, its matching public entry everywhere, and cancellation of any pending version being removed.
-Orphans are harmless public keys with no visible private key and are labelled as such.
+An orphan entry cannot be used to sign unless someone holds its private key, and registry write access is the authority to publish keys.
+Whoever can write a registry secret can already publish any public key; this command does not defend against that party.
+It refuses internally inconsistent intents before private evidence reads or repairs: the caller, cell and any replacement must agree with the service and cell encoded in the kid, for every operation kind.
+The refusal identifies the field and registry region and makes no writes.
 
 Regions come from the authenticated, signed foundation footprint. Supply a JSON
 file to `--targets` containing exactly one entry per discovered region:
@@ -78,8 +81,8 @@ the service has a CURRENT key with a different id, `--replacement-kid` names tha
 same service and region's current key, its matching public key is listed in every
 region, and the removed id is not pending. These checks run again before each
 public removal write. Empty listings never authorize removal. Without a current
-secret, retirement refuses: the orphan is harmless and can be retired after
-another key becomes current. Operator and agent keys have no managed regional
+secret, retirement refuses until another key becomes current.
+Operator and agent keys have no managed regional
 private secret from which to establish this evidence, so this command refuses
 their retirement too.
 
@@ -99,9 +102,28 @@ only the identified unactivated version for deletion.
 
 Sequences must exceed the high-water mark and every listed and stored id for
 that caller and region. Interrupted adds consume their ids, including those
-whose private creation never becomes visible. Registry size depends on retained
-public keys and caller/cell high-water marks; unused orphan entries can remain
-indefinitely until a current replacement makes retirement safe.
+whose private creation never becomes visible.
+Registry size depends on retained public keys and caller/cell high-water marks.
+Admission first verifies that every readable CURRENT key already has matching public entries everywhere; repair an existing violation with recover before retrying a change.
+Before recording a new intent, the command serializes the initial, publication, completion and possible cancellation documents for every region.
+Add and activation admission require each document to fit within 14 KiB of the store's 16 KiB limit, reserving a fixed 2 KiB for recovery.
+Add payloads are stored once: after publication the intent references its entry by kid.
+Recovery accepts an older full-payload intent, publishes the entry with the compact intent, then records the high-water mark when clearing the intent.
+This lets an older add whose entry plus duplicated intent exceeded the store limit finish forward without dropping any public key.
+
+Capacity-releasing retirement or cancellation may consume the reserve up to the hard 16 KiB limit, after checking every intermediate document fits.
+This is a capacity-release exception: requiring cleanup intents to preserve the admission reserve would block retirement near that threshold.
+Retirement records its intent atomically with each public removal, after fresh positive replacement evidence, so the removed entry supplies space for the record even in a full legacy registry.
+Cancellation retains the public entry until deletion scheduling is confirmed.
+Recover any outstanding operation, retire retained entries or orphans with a published current replacement until there is room under the admission limit, then add, activate and retire normally.
+The command never deletes public entries automatically to make space.
+
+At most eight entries without visible private versions may be outstanding per caller and cell before a new add is refused.
+Retire these entries with a current replacement to reopen admission.
+Without CURRENT, there is no evidence for safe retirement: let an accepted creation land, or use the issuing secret-store workflow to establish a new CURRENT private key after publishing its public entry in every registry.
+This administrative bootstrap requires holding the new private key; it does not authorize deleting or replacing an orphan on absence or age.
+Run recover and list to verify the current key before retiring the orphan entries.
+A finite orphan bound deliberately stops further first-add attempts when all eight private creations remain invisible.
 
 ## Recover and inspect
 
@@ -120,10 +142,11 @@ ts-orch caller-key list --targets /secure/caller-targets.json
 Recovery outcomes:
 
 - An interrupted add always finishes forward: restore its public entry everywhere,
-  consume its sequence and clear the intent. If readable, report `current` or
-  `pending`. Otherwise report `public entry kept; private key not visible: run add
-  again for a new key, or wait: this entry is harmless and can be retired once
-  another key is current`. Recovery never recreates a lost private half.
+  consume its sequence and clear the intent. Whenever that kid's private version is readable, derive its public half in memory and require the entire public payload to equal the recorded entry before any repair or publication.
+  A difference refuses with no writes. Registry writers already have publication authority; no signing scheme is added.
+  If readable and matching, report `current` or `pending`. Otherwise report `public entry kept; private key not visible: run add
+  again for a new key, or wait: retire this entry only with a current replacement`.
+  Recovery never recreates a lost private half.
 - Activation finishes forward if already current or still eligible. An expired
   or short-lived pending key becomes cancellation, using the same positive
   evidence and deletion readback. An already-promoted expired key reports

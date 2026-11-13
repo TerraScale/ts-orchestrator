@@ -147,6 +147,9 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 	if flags.NArg() != 0 || *targetsPath == "" {
 		return errors.New("caller-key requires --targets and no positional arguments")
 	}
+	if command == "retire" && operatorRE.MatchString(*kid) {
+		return errors.New("this command does not manage that key's private half, so it cannot prove a replacement is current; manage operator and agent keys through their issuing identity workflow")
+	}
 	parts := kidRE.FindStringSubmatch(*kid)
 	noKid := command == "list" || command == "recover"
 	var notAfter time.Time
@@ -229,6 +232,16 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 			highWater[prefix] = max(highWater[prefix], sequence)
 		}
 		if registry.Intent != nil {
+			if err := validateIntent(registry.Intent, t.Cell); err != nil {
+				return err
+			}
+			if registry.Intent.Operation == "add" && registry.Intent.Entry == nil {
+				for _, entry := range registry.Callers {
+					if entry.Kid == registry.Intent.Kid {
+						registry.Intent.Entry = &entry
+					}
+				}
+			}
 			if intent != nil && !sameIntent(intent, registry.Intent) {
 				return errors.New("regional operation records disagree")
 			}
@@ -244,6 +257,9 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 	}
 	if command == "recover" {
 		if intent != nil {
+			if err := checkAddPayload(ctx, store, targets, intent); err != nil {
+				return operationError(intent, err)
+			}
 			if err := inspectCurrent(ctx, out, store, targets, snapshots, registries, callers, true, intent); err != nil {
 				return operationError(intent, err)
 			}
@@ -268,6 +284,9 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		if !sameJSON(registries[0], registries[i]) {
 			return errors.New("regional registries differ without an operation record")
 		}
+	}
+	if err := inspectCurrent(ctx, io.Discard, store, targets, snapshots, registries, callers, false, nil); err != nil {
+		return err
 	}
 	if command == "add" || command == "activate" {
 		for _, c := range callers {
@@ -328,6 +347,9 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 			return err
 		}
 		intent.PrivateVersion = pending
+		if err := operationCapacity(targets, registries, callers, highWater, intent, currentKid, state); err != nil {
+			return err
+		}
 		if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
 			return err
 		}
@@ -400,6 +422,20 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 				}
 			}
 		}
+		visible := map[string]bool{currentKid: true}
+		for _, version := range state.Versions {
+			id, _ := privateKid(version.Snapshot)
+			visible[id] = true
+		}
+		orphans := 0
+		for id := range callers {
+			if strings.HasPrefix(id, prefix) && !visible[id] {
+				orphans++
+			}
+		}
+		if orphans >= orphanLimit {
+			return fmt.Errorf("orphan limit %d reached for %s.%s: retire orphan entries with a current replacement before adding; without CURRENT, establish a published current replacement through the secret store first", orphanLimit, parts[1], parts[2])
+		}
 		c, value, err := generateCaller(*kid, parts[1], notAfter)
 		if err != nil {
 			return err
@@ -423,10 +459,16 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		entry := callers[*kid]
 		intent.Entry = &entry
 	}
+	if err := operationCapacity(targets, registries, callers, highWater, intent, currentKid, state); err != nil {
+		return err
+	}
+	if command == "retire" {
+		return recoverOperation(ctx, out, store, targets, snapshots, registries, callers, highWater, intent)
+	}
 	if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
 		return err
 	}
-	if command == "retire" || command == "cancel" {
+	if command == "cancel" {
 		return recoverOperation(ctx, out, store, targets, snapshots, registries, callers, highWater, intent)
 	}
 	advance(highWater, *kid)
@@ -499,9 +541,12 @@ func operationError(intent *Intent, err error) error {
 }
 
 func writeRegistry(ctx context.Context, store Store, target Target, snapshot *Snapshot, registry Registry) error {
-	value, err := json.Marshal(registry, json.Deterministic(true))
+	value, err := registryBytes(registry)
 	if err != nil {
 		return err
+	}
+	if len(value) > registryLimit {
+		return fmt.Errorf("registry in region %s exceeds %d bytes", target.Cell, registryLimit)
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, privateRequestTimeout)
 	defer cancel()

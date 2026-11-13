@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  schedule:
+    - cron: '23 4 * * *'
   pull_request:
   push:
     branches: [main]
@@ -39,6 +41,7 @@ jobs:
       - run: bash scripts/ci/audit-dependencies.sh release
 
   e2e-m1:
+    if: ${{ github.event_name != 'schedule' }}
     concurrency:
       group: e2e-m1-${{ github.ref }}
       cancel-in-progress: true
@@ -77,11 +80,68 @@ jobs:
             ~/go/pkg/mod
           key: ${{ steps.go.outputs.cache-key }}
 
+  caller-key-changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed=false
+          if [ "${{ github.event_name }}" = schedule ]; then
+            changed=true
+          else
+            base="$CHANGE_BASE"
+            if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ]; then
+              base=$(git rev-parse "$SOURCE_SHA^")
+            fi
+            files=$(git diff --name-only "$base" "$SOURCE_SHA")
+            if rg -q '^(internal/callerkey/|test/e2e/m1/callerkey/|docs/caller-keys[.]md$|cmd/terrascale-orchestrator/|go[.](mod|sum)$|[.]github/(workflows/ci[.]yml$|actions/go/))' <<< "$files"; then
+              changed=true
+            fi
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  caller-key:
+    needs: [caller-key-changes]
+    if: ${{ needs.caller-key-changes.outputs.changed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - id: go
+        uses: ./.github/actions/go
+        with:
+          cache: caller-key
+      - name: Run caller-key lifecycle and recovery lane
+        run: |
+          start=$(date +%s)
+          go run ./test/e2e/m1/callerkey
+          echo "caller-key lane: $(($(date +%s) - start)) s" >> "$GITHUB_STEP_SUMMARY"
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go.outputs.cache-key }}
+
   build:
     concurrency:
       group: fast-build-${{ github.ref }}
       cancel-in-progress: true
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
       actions: read
@@ -164,8 +224,8 @@ jobs:
   # (deploy/m1/regions.json); fails when any region does not serve it. Only
   # this job can mint the GitHub OIDC token that is the push credential.
   release-push:
-    needs: [build, e2e-m1]
-    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' }}
+    needs: [build, e2e-m1, caller-key]
+    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' && (needs.caller-key.result == 'success' || needs.caller-key.result == 'skipped') }}
     name: deploy/release-push
     concurrency:
       group: production-ts-orch
@@ -217,7 +277,7 @@ jobs:
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [lint, e2e-m1, build, release-push]
+    needs: [lint, e2e-m1, caller-key-changes, caller-key, build, release-push]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:

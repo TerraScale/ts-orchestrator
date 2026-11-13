@@ -63,10 +63,6 @@ trap dump ERR
 ntp_pid=""
 stop_ntp() { [[ -n $ntp_pid ]] && sudo kill "$ntp_pid" 2>/dev/null || true; }
 trap 'stop_ntp; report' EXIT
-begin "caller-key lifecycle with a local store"
-go -C "$repo" build -trimpath -o "$work/caller-key" ./test/e2e/m1/callerkey
-(cd "$repo" && "$work/caller-key")
-end "caller-key add, rotate, list, retire and interrupted publication"
 
 begin "169.254.169.254 NTP stand-in for the clock gate"
 sudo systemctl stop chrony chronyd 2>/dev/null || true # free UDP :123 for the responder

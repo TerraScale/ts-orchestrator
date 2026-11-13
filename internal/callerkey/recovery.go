@@ -86,7 +86,7 @@ func replacementReady(registries []Registry, intent *Intent, state PrivateState)
 		return err
 	}
 	if current == "" {
-		return errors.New("no current private secret: an orphan public entry is harmless; it can be retired after another key is current")
+		return errors.New("no current private secret: an orphan public entry cannot be retired until another key is current")
 	}
 	if current == intent.Kid {
 		return errors.New("cannot remove the current private key")
@@ -129,8 +129,11 @@ func retirementReady(registries []Registry, intent *Intent, state PrivateState) 
 }
 
 func recoverOperation(ctx context.Context, out io.Writer, store Store, targets []Target, snapshots []Snapshot, registries []Registry, callers map[string]Caller, highWater map[string]uint64, intent *Intent) error {
-	if !slices.Contains([]string{"add", "activate", "retire", "cancel"}, intent.Operation) || intent.ID == "" || !kidRE.MatchString(intent.Kid) {
-		return errors.New("invalid operation record")
+	if err := validateIntent(intent, intent.Cell); err != nil {
+		return err
+	}
+	if err := checkAddPayload(ctx, store, targets, intent); err != nil {
+		return operationError(intent, err)
 	}
 	var selected Target
 	for _, t := range targets {
@@ -172,7 +175,7 @@ func recoverOperation(ctx context.Context, out io.Writer, store Store, targets [
 		} else if pending > 0 {
 			outcome += "; pending"
 		} else {
-			outcome += "; public entry kept; private key not visible: run add again for a new key, or wait: this entry is harmless and can be retired once another key is current"
+			outcome += "; public entry kept; private key not visible: run add again for a new key, or wait: retire this entry only with a current replacement"
 		}
 	}
 	if intent.Operation == "activate" && current != intent.Kid {
@@ -200,8 +203,10 @@ func recoverOperation(ctx context.Context, out io.Writer, store Store, targets [
 			return operationError(intent, err)
 		}
 	}
-	if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
-		return err
+	if intent.Operation != "add" && intent.Operation != "retire" {
+		if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
+			return err
+		}
 	}
 	if intent.Operation == "activate" && current != intent.Kid {
 		if err := activationReady(registries, intent.Kid, state); err != nil {
@@ -236,10 +241,19 @@ func recoverOperation(ctx context.Context, out io.Writer, store Store, targets [
 		}
 		delete(callers, intent.Kid)
 	}
-	advance(highWater, intent.Kid)
+	if intent.Operation != "add" {
+		advance(highWater, intent.Kid)
+	}
 	if intent.Operation != "activate" {
 		r := mergedRegistry(callers, highWater, intent)
 		for i := range targets {
+			if intent.Operation == "add" {
+				r = mergedRegistry(callers, registries[i].HighWater, intent)
+				sequence, _ := keySequence(intent.Kid)
+				if registries[i].Intent == nil && registries[i].HighWater[intent.Caller+"."+intent.Cell] >= sequence {
+					r.Intent = nil
+				}
+			}
 			if intent.Operation == "retire" || intent.Operation == "cancel" {
 				fresh, err := store.Private(ctx, selected, name)
 				if err != nil {
@@ -256,6 +270,10 @@ func recoverOperation(ctx context.Context, out io.Writer, store Store, targets [
 			}
 			registries[i] = r
 		}
+	}
+	advance(highWater, intent.Kid)
+	for i := range registries {
+		registries[i].HighWater = highWater
 	}
 	if err := clearIntent(ctx, store, targets, snapshots, registries); err != nil {
 		return operationError(intent, err)

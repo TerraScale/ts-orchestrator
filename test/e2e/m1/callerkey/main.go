@@ -44,6 +44,7 @@ type store struct {
 	sync.Mutex
 	values         map[string]*secret
 	writes         int
+	privateReads   int
 	fail           int
 	mode           string
 	hidden         map[string]bool
@@ -116,6 +117,9 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch in.Operation {
 	case "read", "private":
+		if in.Operation == "private" {
+			s.privateReads++
+		}
 		if s.hidden[in.Name] {
 			http.Error(w, "accepted write not readable yet", 404)
 			return
@@ -148,7 +152,7 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writes++
 	if s.landAt > 0 && s.writes == s.landAt {
-		s.land()
+		require(s.land(), "injected delivery did not land before competing private write")
 		s.land, s.landAt = nil, 0
 	}
 	apply := func() bool {
@@ -468,7 +472,7 @@ func (j *journey) failures() {
 					if operation != "first" && operation != "add" {
 						require(err != nil && j.store.writes == start, "unreadable removal mutated state")
 					} else if err == nil {
-						require(strings.Contains(out, "public entry kept; private key not visible"), "unreadable add did not report harmless retained publication: "+out)
+						require(strings.Contains(out, "public entry kept; private key not visible"), "unreadable add did not report retained publication: "+out)
 					}
 					j.store.hidden = map[string]bool{}
 				}
@@ -476,7 +480,9 @@ func (j *journey) failures() {
 					_, _ = j.run(j.targets, "recover")
 					j.store.Lock()
 					require(j.store.land != nil, "missing in-flight request")
-					j.store.land()
+					landed := j.store.land()
+					expected := n == 1 || (operation == "first" || operation == "add") && n == 7
+					require(landed == expected, fmt.Sprintf("%s late original boundary %d delivery=%t expected=%t", operation, n, landed, expected))
 					j.store.land = nil
 					j.store.invariant()
 					j.store.Unlock()
@@ -516,7 +522,7 @@ func (j *journey) failures() {
 						j.recover()
 						j.store.Lock()
 						require(j.store.land != nil, "missing recovery request")
-						j.store.land()
+						require(!j.store.land(), "late recovery request overwrote a newer version")
 						j.store.land = nil
 						j.store.invariant()
 						j.store.Unlock()
@@ -561,7 +567,7 @@ func (j *journey) lateCreations() {
 				}
 				if ordering != "immediate" {
 					out := j.ok("recover")
-					require(strings.Contains(out, "public entry kept; private key not visible"), "add recovery did not describe harmless retained entry: "+out)
+					require(strings.Contains(out, "public entry kept; private key not visible"), "add recovery did not describe retained entry: "+out)
 					require(strings.Contains(j.ok("list"), "orphan (no private key visible)"), "orphan label missing")
 					_, err := j.run(j.targets, add(id)...)
 					require(err != nil, "interrupted add sequence reused")
@@ -583,7 +589,7 @@ func (j *journey) lateCreations() {
 						before := j.store.writes
 						out, err := j.run(j.targets, "retire", "--kid", id, "--replacement-kid", replacement)
 						if operation == "first" && ordering == "after retire attempt" {
-							require(err != nil && strings.Contains(out, "orphan public entry is harmless") && j.store.writes == before, "retire without current replacement mutated state: "+out)
+							require(err != nil && strings.Contains(out, "orphan public entry cannot be retired") && j.store.writes == before, "retire without current replacement mutated state: "+out)
 						} else {
 							require(err == nil, "positive replacement retirement failed: "+out)
 						}
@@ -596,7 +602,7 @@ func (j *journey) lateCreations() {
 					if ordering == "after another add" || ordering == "after replacement retirement" {
 						require(!landed, "create-once name or conditional version allowed a stale private write")
 					} else {
-						require(landed, "private creation was incorrectly bounded by time")
+						require(landed, "accepted private creation failed without a competing version")
 					}
 					if operation == "add" && ordering == "after retire attempt" {
 						_, err := j.run(j.targets, "activate", "--kid", id)
@@ -610,7 +616,7 @@ func (j *journey) lateCreations() {
 			}
 		}
 	}
-	fmt.Println("unbounded late first creation and pending rotation: immediately, after recover, after/during another add, after retire attempt, after replacement retirement -> invariant holds after every mutation")
+	fmt.Println("accepted first creation and pending rotation with simulated store-clock offsets (CLI wall clock unchanged): immediately, after recover, after/during another add, after retire attempt, after replacement retirement -> invariant holds after every mutation")
 }
 
 func (j *journey) overlappingCreations() {
@@ -628,7 +634,7 @@ func (j *journey) overlappingCreations() {
 			j.ok("recover")
 			before := j.store.writes
 			out, err := j.run(j.targets, "retire", "--kid", "ts-auth.sjc.1", "--replacement-kid", "ts-auth.sjc.2")
-			require(err != nil && strings.Contains(out, "orphan public entry is harmless") && j.store.writes == before, "two outstanding creations permitted retirement: "+out)
+			require(err != nil && strings.Contains(out, "orphan public entry cannot be retired") && j.store.writes == before, "two outstanding creations permitted retirement: "+out)
 			j.store.now = j.store.now.Add(delay)
 			loser := "ts-auth.sjc.2"
 			if winner == "ts-auth.sjc.2" {
@@ -649,7 +655,7 @@ func (j *journey) overlappingCreations() {
 			j.store.cases++
 		}
 	}
-	fmt.Println("two accepted first creations after both adds died, recover and retire refusal: either landing order -> one published CURRENT key, next add rotates")
+	fmt.Println("two accepted first creations with simulated store-clock offsets (CLI wall clock unchanged), after both adds died, recover and retire refusal: either landing order -> one published CURRENT key, next add rotates")
 }
 
 func (j *journey) safetyNet() {
@@ -657,7 +663,7 @@ func (j *journey) safetyNet() {
 	j.recover()
 	before := j.store.writes
 	out, err := j.run(j.targets, "retire", "--kid", "ts-auth.sjc.1")
-	require(err != nil && strings.Contains(out, "orphan public entry is harmless") && j.store.writes == before, "orphan retirement without secret was allowed: "+out)
+	require(err != nil && strings.Contains(out, "orphan public entry cannot be retired") && j.store.writes == before, "orphan retirement without secret was allowed: "+out)
 	j.store.cases++
 	j.failOriginal("first", "crash", 1)
 	require(strings.Count(j.ok("list"), "NO REGISTRY") == 2, "absent registries were concealed")
@@ -688,6 +694,10 @@ func (j *journey) safetyNet() {
 			before := j.store.writes
 			out, err := j.run(j.targets, "list")
 			require(err != nil && strings.Contains(out, "current key ts-auth.sjc.1 in region sjc has no public entry in regions fra") && j.store.writes == before, "list did not flag hand-made violation without writes: "+out)
+			if !intent {
+				out, err = j.run(j.targets, add("ts-auth.sjc.2")...)
+				require(err != nil && strings.Contains(out, "run caller-key recover") && j.store.writes == before, "new intent admitted while current-key repair was required: "+out)
+			}
 			out = j.ok("recover")
 			require(strings.Contains(out, "repaired current key ts-auth.sjc.1 in region fra"), "recover did not report repair: "+out)
 			j.converged()
@@ -771,7 +781,7 @@ func (j *journey) expiredRecovery() {
 				j.store.hidden = map[string]bool{}
 				if mode == "late" {
 					j.store.Lock()
-					j.store.land()
+					require(j.store.land(), "immediate expired-recovery delivery was rejected without an intervening mutation")
 					j.store.land = nil
 					j.store.invariant()
 					j.store.Unlock()
@@ -852,6 +862,7 @@ func main() {
 	must(os.WriteFile(j.targets, encoded(targets), 0600))
 	slices.Reverse(targets)
 	must(os.WriteFile(j.reverse, encoded(targets), 0600))
+	j.reviewedCases()
 	j.failures()
 	j.lateCreations()
 	j.overlappingCreations()
@@ -884,8 +895,9 @@ func main() {
 	require(strings.Contains(j.ok("list"), "expired"), "expired status absent")
 	require(strings.Contains(j.ok("list"), "expires within 30 days"), "expiry warning absent")
 	for _, id := range []string{"agent.deploy.1", "op.admin.1"} {
-		_, err := j.run(j.targets, "retire", "--kid", id)
-		require(err != nil, "unmanaged retirement accepted without positive evidence")
+		before := s.writes
+		out, err := j.run(j.targets, "retire", "--kid", id)
+		require(err != nil && strings.Contains(out, "does not manage that key's private half") && strings.Contains(out, "cannot prove a replacement is current") && s.writes == before, "unmanaged retirement did not explain its evidence boundary: "+out)
 	}
 	j.ok(add("edge.gru.2")...)
 	j.ok("activate", "--kid", "edge.gru.2")
