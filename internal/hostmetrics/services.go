@@ -3,6 +3,7 @@ package hostmetrics
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -19,7 +20,16 @@ var serviceClient = &http.Client{
 	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 }
 
+var serviceSlots = make(chan struct{}, 4)
+
 func serveServices(w http.ResponseWriter, r *http.Request, region, address string, executor *swarmruntime.Executor) {
+	select {
+	case serviceSlots <- struct{}{}:
+		defer func() { <-serviceSlots }()
+	default:
+		http.Error(w, "local task proxy busy", http.StatusServiceUnavailable)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 	defer cancel()
 	targets, err := executor.SLOTargets(ctx, region)
@@ -76,4 +86,15 @@ func proxyService(ctx context.Context, w http.ResponseWriter, address string) {
 	}
 	w.Header().Set("Content-Type", response.Header.Get("Content-Type"))
 	_, _ = w.Write(data)
+}
+
+func writeServiceCounts(ctx context.Context, w io.Writer, executor *swarmruntime.Executor) error {
+	counts, err := executor.SLOTaskCounts(ctx)
+	if err != nil {
+		return err
+	}
+	for _, service := range []string{"terrabase", "ts-auth", "ts-dashboard"} {
+		fmt.Fprintf(w, "ts_host_service_tasks_expected{service=%q} %d\n", service, counts[service])
+	}
+	return nil
 }

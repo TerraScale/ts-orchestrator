@@ -2,14 +2,12 @@ package swarmruntime
 
 import (
 	"context"
-	"maps"
 	"net"
 	"slices"
 	"strconv"
 
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"
-	"github.com/moby/swarmkit/v2/api"
 )
 
 type SLOTarget struct {
@@ -20,12 +18,30 @@ type SLOTarget struct {
 type sloContainer struct {
 	labels map[string]string
 	pid    uint32
+	name   string
 }
 
 func (e *Executor) SLOTargets(ctx context.Context, region string) ([]SLOTarget, error) {
-	e.mu.Lock()
-	names := maps.Clone(e.sloTasks)
-	e.mu.Unlock()
+	containers, err := e.runningSLOContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return sloTargets(ctx, containers, region)
+}
+
+func (e *Executor) SLOTaskCounts(ctx context.Context) (map[string]int, error) {
+	containers, err := e.runningSLOContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	counts := map[string]int{"terrabase": 0, "ts-auth": 0, "ts-dashboard": 0}
+	for _, container := range containers {
+		counts[container.name]++
+	}
+	return counts, nil
+}
+
+func (e *Executor) runningSLOContainers(ctx context.Context) ([]sloContainer, error) {
 	ctx = runtimeContext(ctx)
 	containers, err := e.client.Containers(ctx)
 	if err != nil {
@@ -33,12 +49,22 @@ func (e *Executor) SLOTargets(ctx context.Context, region string) ([]SLOTarget, 
 	}
 	var containersRunning []sloContainer
 	for _, container := range containers {
-		metadata, err := container.Labels(ctx)
+		info, err := container.Info(ctx)
 		if errdefs.IsNotFound(err) {
 			continue
 		}
 		if err != nil {
 			return nil, err
+		}
+		name := ""
+		for _, service := range []string{"terrabase", "ts-auth", "ts-dashboard"} {
+			if DeploymentImageBelongsToService(service, info.Image) {
+				name = service
+				break
+			}
+		}
+		if name == "" || info.Labels["terrascale.task"] == "" {
+			continue
 		}
 		task, err := container.Task(ctx, nil)
 		if errdefs.IsNotFound(err) {
@@ -55,17 +81,17 @@ func (e *Executor) SLOTargets(ctx context.Context, region string) ([]SLOTarget, 
 			return nil, err
 		}
 		if status.Status == containerd.Running {
-			containersRunning = append(containersRunning, sloContainer{metadata, task.Pid()})
+			containersRunning = append(containersRunning, sloContainer{info.Labels, task.Pid(), name})
 		}
 	}
-	return sloTargets(ctx, names, containersRunning, region)
+	return containersRunning, ctx.Err()
 }
 
-func sloTargets(ctx context.Context, names map[string]string, containers []sloContainer, region string) ([]SLOTarget, error) {
+func sloTargets(ctx context.Context, containers []sloContainer, region string) ([]SLOTarget, error) {
 	targets := make([]SLOTarget, 0)
 	for _, container := range containers {
 		labels := container.labels
-		name, task := names[labels["terrascale.task"]], labels["terrascale.task"]
+		name, task := container.name, labels["terrascale.task"]
 		port, err := strconv.ParseUint(labels[portsLabel], 10, 16)
 		if name == "terrabase" {
 			port, err = 9091, nil
@@ -92,15 +118,4 @@ func sloTargets(ctx context.Context, names map[string]string, containers []sloCo
 		return nil, err
 	}
 	return targets, nil
-}
-
-func (e *Executor) trackSLOTask(task *api.Task) {
-	name := task.ServiceAnnotations.Name
-	if name != "terrabase" && name != "ts-auth" && name != "ts-dashboard" {
-		return
-	}
-	if e.sloTasks == nil {
-		e.sloTasks = map[string]string{}
-	}
-	e.sloTasks[task.ID] = name
 }

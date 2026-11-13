@@ -88,7 +88,7 @@ func serve(ctx context.Context, region string, executor *swarmruntime.Executor) 
 			observability.WriteSystemMetrics(&body, view)
 			ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 			defer cancel()
-			if err := writeRuntime(ctx, &body); err != nil {
+			if err := errors.Join(writeRuntime(ctx, &body), writeServiceCounts(ctx, &body, executor)); err != nil {
 				http.Error(w, "host runtime telemetry unavailable", http.StatusServiceUnavailable)
 				return
 			}

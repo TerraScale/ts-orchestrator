@@ -145,20 +145,26 @@ groups:
           description: The mesh excluded this service from startup because its stored desired state fails validation. Its running task is left alone. Apply a corrected spec to restore management.
   - name: monitoring-coverage
     rules:
-      - alert: ServiceTaskDiscoveryFailed
-        expr: increase(prometheus_sd_http_failures_total[2m]) > 0
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: A node is not publishing its running service tasks
       - alert: ApplicationTaskMetricsDown
-        expr: up{job="application-slo"} == 0
+        expr: up{job="application-slo",service!="terrabase"} == 0
         for: 2m
         labels:
           severity: critical
         annotations:
           summary: A running service task cannot be scraped
+      - alert: ServiceTaskScrapeCoverageMissing
+        expr: ts_host_service_tasks_expected{job="host-storage"} > on (host, region, service) (count by (host, region, service) (up{job="application-slo"}) or on (host, region, service) (0 * ts_host_service_tasks_expected{job="host-storage"}))
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: A service has fewer scrape targets than running tasks on a node
+      - alert: HostOOMKill
+        expr: increase(ts_host_oom_kills_total{job="host-storage"}[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: 'The kernel killed a process on {{ $labels.host }} for lack of memory'
       - alert: CertificateExpirySoon
         expr: terrascale_certificate_expiry_timestamp_seconds - time() < 1814400
         for: 5m
@@ -195,14 +201,14 @@ groups:
         annotations:
           summary: The latest executed production journey failed
       - alert: ProductionJourneyTelemetryMissing
-        expr: terrascale_production_journey_observed == 0 or time() - terrascale_production_journey_completed_timestamp_seconds > 129600
+        expr: terrascale_production_journey_observation_age_seconds > 3900 or time() - terrascale_production_journey_completed_timestamp_seconds > 129600 or absent(terrascale_production_journey_observation_age_seconds)
         for: 10m
         labels:
           severity: warning
         annotations:
           summary: No recent executed production journey can be verified
       - alert: TerraBaseBackupAge
-        expr: time() - terrabase_backup_last_success_seconds{service="terrabase"} > 86400
+        expr: (time() - terrabase_backup_last_success_seconds{service="terrabase"} > 86400) and (terrabase_backup_last_success_seconds{service="terrabase"} > 0)
         for: 5m
         labels:
           severity: critical

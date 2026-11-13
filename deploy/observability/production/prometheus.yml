@@ -42,6 +42,7 @@ scrape_configs:
           region: gru
 
   - job_name: host-storage
+    honor_labels: true
     sample_limit: 4096
     file_sd_configs:
       - files: ['/run/ts-orch-observability/storage.json']

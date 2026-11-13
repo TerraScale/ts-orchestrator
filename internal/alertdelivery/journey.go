@@ -11,20 +11,40 @@ import (
 	"time"
 )
 
-var journeyCache struct {
-	sync.Mutex
+type journeyObservation struct {
+	sync.RWMutex
 	at     time.Time
 	result string
 }
 
-func writeJourney(ctx context.Context, client *http.Client, w io.Writer) {
-	journeyCache.Lock()
-	defer journeyCache.Unlock()
-	if time.Since(journeyCache.at) >= 5*time.Minute {
-		journeyCache.result = readJourney(ctx, client)
-		journeyCache.at = time.Now()
+func (j *journeyObservation) run(ctx context.Context, client *http.Client) {
+	tick := time.NewTicker(30 * time.Minute)
+	defer tick.Stop()
+	for {
+		refresh, cancel := context.WithTimeout(ctx, 35*time.Second)
+		result, err := readJourney(refresh, client)
+		cancel()
+		if err == nil {
+			j.Lock()
+			j.result, j.at = result, time.Now()
+			j.Unlock()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
 	}
-	fmt.Fprint(w, journeyCache.result)
+}
+
+func (j *journeyObservation) write(w io.Writer) {
+	j.RLock()
+	defer j.RUnlock()
+	age := time.Since(j.at).Seconds()
+	if j.at.IsZero() {
+		age = 1e12
+	}
+	fmt.Fprintf(w, "terrascale_production_journey_observation_age_seconds %g\n%s", age, j.result)
 }
 
 func githubJSON(ctx context.Context, client *http.Client, path string, out any) error {
@@ -48,17 +68,17 @@ func githubJSON(ctx context.Context, client *http.Client, path string, out any) 
 	return json.Unmarshal(data, out)
 }
 
-func readJourney(ctx context.Context, client *http.Client) string {
+func readJourney(ctx context.Context, client *http.Client) (string, error) {
 	var runs struct {
 		Runs []struct {
 			ID         int64  `json:"id"`
 			Conclusion string `json:"conclusion"`
 		} `json:"workflow_runs"`
 	}
-	if githubJSON(ctx, client, "workflows/production-journey.yml/runs?status=completed&branch=main&per_page=10", &runs) != nil {
-		return "terrascale_production_journey_observed 0\n"
+	if err := githubJSON(ctx, client, "workflows/production-journey.yml/runs?status=completed&branch=main&per_page=10", &runs); err != nil {
+		return "", err
 	}
-	for _, run := range runs.Runs {
+	for _, run := range runs.Runs[:min(len(runs.Runs), 10)] {
 		if run.Conclusion == "skipped" {
 			continue
 		}
@@ -69,8 +89,8 @@ func readJourney(ctx context.Context, client *http.Client) string {
 				Completed  time.Time `json:"completed_at"`
 			} `json:"jobs"`
 		}
-		if githubJSON(ctx, client, "runs/"+strconv.FormatInt(run.ID, 10)+"/jobs?per_page=100", &jobs) != nil {
-			break
+		if err := githubJSON(ctx, client, "runs/"+strconv.FormatInt(run.ID, 10)+"/jobs?per_page=100", &jobs); err != nil {
+			return "", err
 		}
 		for _, job := range jobs.Jobs {
 			if job.Name != "journey" || job.Conclusion == "skipped" || job.Completed.IsZero() {
@@ -80,8 +100,8 @@ func readJourney(ctx context.Context, client *http.Client) string {
 			if job.Conclusion == "success" {
 				success = 1
 			}
-			return fmt.Sprintf("terrascale_production_journey_observed 1\nterrascale_production_journey_success %d\nterrascale_production_journey_completed_timestamp_seconds %d\n", success, job.Completed.Unix())
+			return fmt.Sprintf("terrascale_production_journey_observed 1\nterrascale_production_journey_success %d\nterrascale_production_journey_completed_timestamp_seconds %d\n", success, job.Completed.Unix()), nil
 		}
 	}
-	return "terrascale_production_journey_observed 0\n"
+	return "", fmt.Errorf("no executed production journey observed")
 }

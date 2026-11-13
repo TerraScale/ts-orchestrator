@@ -55,7 +55,9 @@ func Run(ctx context.Context, args []string) error {
 		return r.subscribe(ctx)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /metrics", readinessMetrics(newReadinessClient()))
+	client := newReadinessClient()
+	journey := &journeyObservation{}
+	mux.HandleFunc("GET /metrics", readinessMetrics(client, journey))
 	mux.HandleFunc("POST /alerts", r.deliver)
 	mux.HandleFunc("POST /alerts/digest", r.digest)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
@@ -63,6 +65,16 @@ func Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	refreshCtx, cancelRefresh := context.WithCancel(ctx)
+	refreshed := make(chan struct{})
+	go func() {
+		defer close(refreshed)
+		journey.run(refreshCtx, client)
+	}()
+	defer func() {
+		cancelRefresh()
+		<-refreshed
+	}()
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 55 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
 	stop := context.AfterFunc(ctx, func() { _ = server.Close() })
 	defer stop()
