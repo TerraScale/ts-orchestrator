@@ -62,6 +62,7 @@ jobs:
           - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
           - {lane: data-volume, entry: data-volume.sh, timeout: 8, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
+          - {lane: release, entry: release.sh, timeout: 25, packages: "./test/e2e/m1/release"}
     name: e2e-m1 / ${{ matrix.lane }}
     concurrency:
       group: e2e-m1-${{ matrix.lane }}-${{ github.ref }}
