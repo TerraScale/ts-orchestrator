@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -18,6 +19,11 @@ func checkServiceSecrets(ctx context.Context) error {
 	if os.Geteuid() != 0 {
 		return errors.New("service secret preflight requires host root")
 	}
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if err := checkRelayUnit(ctx); err != nil {
+		return err
+	}
 	asset, err := os.ReadFile("/sys/class/dmi/id/chassis_asset_tag")
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("service secret preflight host identity: %w", err)
@@ -25,8 +31,6 @@ func checkServiceSecrets(ctx context.Context) error {
 	if strings.TrimSpace(string(asset)) != "OracleCloud.com" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
 	metadata, err := instanceMetadata(ctx)
 	if err != nil {
 		return err
@@ -59,12 +63,51 @@ func checkServiceSecrets(ctx context.Context) error {
 			continue
 		}
 		for _, ref := range manifest.Secrets {
-			values, err := ReadInstanceSecrets(ctx, manifest.Name, map[string]Ref{"PREFLIGHT_FILE": ref})
-			clear(values)
-			if err != nil {
+			if err := checkSecretRead(ctx, manifest.Name, ref); err != nil {
 				return fmt.Errorf("release refused: service %s cannot read Vault secret %s; run region add before releasing changed secret references", manifest.Name, ref.Name)
 			}
 		}
 	}
 	return nil
+}
+
+func checkRelayUnit(ctx context.Context) error {
+	if _, err := os.Stat("/run/systemd/system"); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return errors.New("release refused: cannot inspect installed ts-alert-delivery.service")
+	}
+	output, err := exec.CommandContext(ctx, "systemctl", "show", "ts-alert-delivery.service", "--property=LoadState", "--value").Output()
+	if err != nil {
+		return errors.New("release refused: cannot inspect installed ts-alert-delivery.service")
+	}
+	if strings.TrimSpace(string(output)) == "not-found" {
+		return nil
+	}
+	output, err = exec.CommandContext(ctx, "systemctl", "show", "ts-alert-delivery.service", "--property=ExecStartPreEx", "--value").Output()
+	if err == nil {
+		for _, command := range strings.Split(string(output), "} {") {
+			if strings.Contains(command, "argv[]=/usr/local/bin/ts-orch alert-delivery prepare ;") && strings.Contains(command, "flags=full-privileges ;") {
+				return nil
+			}
+		}
+	}
+	return errors.New("release refused: install ts-alert-delivery.service with ExecStartPre=+/usr/local/bin/ts-orch alert-delivery prepare before releasing")
+}
+
+func checkSecretRead(ctx context.Context, service string, ref Ref) error {
+	for {
+		values, err := ReadInstanceSecrets(ctx, service, map[string]Ref{"PREFLIGHT_FILE": ref})
+		clear(values)
+		if err == nil {
+			return nil
+		}
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }

@@ -14,6 +14,9 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
 )
 
@@ -41,6 +44,11 @@ func Run(ctx context.Context, state string) {
 	for {
 		report := check(ctx, state)
 		report.Server = server
+		hosts, err := HostVersions(ctx, state, "")
+		report.Hosts = hosts
+		if err != nil {
+			report.HostError = "host revision inventory unavailable"
+		}
 		latest.Store(&report)
 		if report.State != previous {
 			slog.WarnContext(ctx, "region health changed", "from", previous, "to", report.State, "reasons", strings.Join(report.Reasons, "; "))
@@ -133,6 +141,18 @@ func write(output io.Writer, regions []string, reports map[string]Report) error 
 		if !ok || report.State != StateOK {
 			bad = append(bad, region)
 		}
+		if report.HostError != "" {
+			line += "\n  " + report.HostError
+		}
+		for _, host := range report.Hosts {
+			line += fmt.Sprintf("\n  host %s: revision %s", host.Host, host.Version)
+			if host.Refusal != nil {
+				line += fmt.Sprintf("; refused %s: %s", host.Refusal.SHA, host.Refusal.Reason)
+			}
+			if host.Error != "" {
+				line += "; " + host.Error
+			}
+		}
 		if _, err := fmt.Fprintln(output, line); err != nil {
 			return err
 		}
@@ -167,4 +187,27 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 		return err
 	}
 	return write(output, regions, reports)
+}
+
+func HostVersions(ctx context.Context, state, region string) ([]releasepush.HostVersion, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	control, close, err := swarmruntime.DialSingleHost(state)
+	if err != nil {
+		return nil, err
+	}
+	defer close.Close()
+	listed, err := control.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	conn, err := mesh.Connect(state)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	if region == "" {
+		region, _, _ = strings.Cut(conn.ConnectedServerName(), ".")
+	}
+	return releasepush.ReadHostVersions(ctx, conn, region, listed.Nodes), nil
 }

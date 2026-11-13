@@ -5,6 +5,7 @@ work=$(mktemp -d)
 python=$(python3 -c 'import sys; print(sys.executable)')
 trap 'sudo rm -rf "$work"' EXIT
 nice -n 19 go build -o "$work/seed" "$here/startup"
+nice -n 19 go build -o "$work/host-credentials" "$here/host-credentials"
 version=$(sed -n 's/^containerd_version=//p' "$here/../../../deploy/m1/host-runtime.sh")
 arch=$(uname -m)
 case $arch in
@@ -13,6 +14,14 @@ case $arch in
 esac
 curl -fsSL "https://github.com/containerd/containerd/releases/download/v$version/containerd-$version-linux-$arch.tar.gz" -o "$work/containerd.tar.gz"
 tar -C "$work" -xzf "$work/containerd.tar.gz" bin/containerd
+sudo unshare --mount --net bash -s -- "$bin" "$work" <<'SH_CREDENTIALS'
+set -euo pipefail
+bin=$1
+work=$2
+mount --make-rprivate /
+ip link set lo up
+"$work/host-credentials" "$bin" "$work"
+SH_CREDENTIALS
 mkdir -p "$work/preflight-sys/class/dmi/id"
 printf 'OracleCloud.com\n' > "$work/preflight-sys/class/dmi/id/chassis_asset_tag"
 sudo unshare --mount --net bash -s -- "$bin" "$work" <<'SH_PREFLIGHT'

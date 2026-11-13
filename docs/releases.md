@@ -12,13 +12,50 @@ secret. The publisher prepares the root-delegated release proofs; application
 verifies them against the trusted root before publishing to each region's
 existing OCI channel. OCI access authorization is still required.
 
-Before releasing a change to a service manifest’s secrets, run `ts-orch region add`
-for the affected regions to reconcile their grants. Before switching the host
-binary, self-update, release push and the M1 installer execute the candidate’s
-`vault check-services` as host root. On OCI hosts it reads every named secret
-in the embedded manifests for that region with the host’s own instance identity.
-A denied read refuses the switch and names the service and secret. Local hosts
-without an OCI platform identity have no regional Vault grants to preflight.
+Before releasing a change to service secrets:
+
+1. Use the candidate operator binary to run `ts-orch region add` for the affected
+   regions, reconciling the candidate manifests’ grants.
+2. On hosts with the alert relay, install the candidate
+   `deploy/observability/production/ts-alert-delivery.service` and run
+   `systemctl daemon-reload`. Its root-run command must be exactly
+   `ExecStartPre=+/usr/local/bin/ts-orch alert-delivery prepare`.
+3. Release the candidate binary through the normal release path.
+
+Before switching the host binary, self-update, release push and the M1 installer
+execute the candidate’s `vault check-services` as host root. Every attempt checks
+the installed relay unit’s effective preparation command; an old unit refuses
+the release and names `ts-alert-delivery.service` as the prerequisite. On OCI
+hosts it reads every named secret in the embedded manifests for that region
+with the host’s own instance identity. Failed secret reads retry after 250 ms
+within one shared 60-second budget. Exhaustion refuses the switch and names the
+service and secret, without values. Local hosts without an OCI platform identity
+have no regional Vault grants to preflight.
+
+After release, restart the relay and check `systemctl status ts-alert-delivery.service`
+and `curl --fail http://127.0.0.1:9094/healthz`. Inspect ownership and modes without
+contents with `stat -c '%U:%G %a %n' /run/ts-alert-delivery /run/ts-alert-delivery/*`:
+the directory must be `root:ts-alerts 750`, the three files `root:ts-alerts 640`.
+Send one real test with `ts-orch alert-delivery subscribe` in an interactive
+terminal and confirm receipt. `/healthz` rechecks all three files and returns
+503 when any credential becomes unavailable or malformed; startup fails in
+that state. A 200 checks credential availability, not external provider delivery.
+
+Release push verifies every host registered in the region’s SwarmKit `ListNodes`
+inventory, the same inventory used by `ts-orch status`. Status and release push
+read each host’s running revision and last release refusal over the existing
+NATS mesh. After the first host accepts, all registered hosts must report the
+candidate revision within three minutes. Missing reports, old revisions and
+refusals fail the region and name affected hosts; a recorded refusal includes
+its reason. Verification runs again before the region is reported healthy.
+The check includes drained, down and disconnected hosts, not just workers
+currently announcing themselves. A registered second host that does not take
+releases therefore fails every release until repaired or removed. On the region’s
+manager, `ts-orch member ls` shows the inventory and
+`ts-orch member leave HOSTNAME` drains a worker, waits for its tasks to stop and
+removes it. Terminate the removed host or clear its state before restarting it.
+Draining alone does not remove it from release verification. There is no host
+skip option.
 
 ```text
 BUNDLE/

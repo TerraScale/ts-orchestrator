@@ -130,6 +130,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 				result.Error = err.Error()
 			}
 			if result.Error != "" {
+				result.State = "failed"
 				blocked = region.Region
 				failed = errors.Join(failed, fmt.Errorf("region %s: %s", region.Region, result.Error))
 			}
@@ -226,6 +227,9 @@ func awaitHealthy(ctx context.Context, region Region, release OrchRelease) (ms i
 				steady = time.Now()
 			}
 			if time.Since(steady) >= healthSteady {
+				if err := AwaitHostVersions(ctx, conn, release.SHA); err != nil {
+					return time.Since(start).Milliseconds(), last, err
+				}
 				return time.Since(start).Milliseconds(), last, nil
 			}
 		} else {
@@ -337,26 +341,13 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	if reply.State != "installed" && reply.State != "current" {
 		return fail(fmt.Errorf("release %s: %s", reply.State, reply.Error))
 	}
-	deadline := time.Now().Add(3 * time.Minute)
-	for {
-		version, err := request(ctx, conn, SubjectVersion, nil, time.Second)
-		if err == nil && version.Version == release.SHA {
-			result.ServingMS = since()
-			result.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
-			return result
-		}
-		if err == nil && version.RolledBack == release.SHA {
-			result.State = "rolled_back"
-			return fail(fmt.Errorf("the region rolled back to %s: %s", version.Version, version.Error))
-		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
-			return fail(errors.New("timed out waiting for the region to serve " + release.SHA))
-		}
-		select {
-		case <-ctx.Done():
-		case <-time.After(250 * time.Millisecond):
-		}
+	if err := AwaitHostVersions(ctx, conn, release.SHA); err != nil {
+		result.State = "failed"
+		return fail(err)
 	}
+	result.ServingMS = since()
+	result.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	return result
 }
 
 // pinnedTLS trusts exactly the listener key the region pins. The listener

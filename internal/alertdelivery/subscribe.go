@@ -23,8 +23,11 @@ func validPushTopic(topic string) bool { return pushTopicRE.MatchString(topic) }
 func readPushTopic(ctx context.Context) (string, error) {
 	values, err := readCredentialFiles("TS_ALERTS_NTFY_TOPIC_FILE")
 	topic := values["TS_ALERTS_NTFY_TOPIC_FILE"]
-	if err != nil || !validPushTopic(topic) {
-		return "", errors.New("push Vault topic unavailable or invalid")
+	if err != nil {
+		return "", err
+	}
+	if !validPushTopic(topic) {
+		return "", errors.New("alert credential file TS_ALERTS_NTFY_TOPIC_FILE invalid")
 	}
 	return topic, nil
 }

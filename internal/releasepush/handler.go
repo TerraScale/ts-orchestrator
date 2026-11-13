@@ -95,6 +95,8 @@ type Reply struct {
 	Result   json.RawMessage `json:"result,omitempty"`
 	Deadline time.Time       `json:"deadline,omitzero"`
 	Events   []string        `json:"events,omitempty"`
+	Hosts    []HostVersion   `json:"hosts,omitempty"`
+	Refusal  *Refusal        `json:"refusal,omitempty"`
 }
 
 type Progress interface {
@@ -129,6 +131,9 @@ type Handler struct {
 	// so systemd restarts the new binary.
 	Installed chan struct{}
 
+	HostVersions  func(context.Context) ([]HostVersion, error)
+	RefusalFile   string
+	refusal       atomic.Pointer[Refusal]
 	mu            sync.Mutex
 	pending       string // installed, waiting for the restart
 	rolledBack    atomic.Pointer[Rollback]
@@ -145,6 +150,16 @@ func NewHandler(state string) (*Handler, error) {
 	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary,
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
 		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
+	h.RefusalFile = filepath.Join(state, "nats", "release-refusal.json")
+	var refusal Refusal
+	if data, err := os.ReadFile(h.RefusalFile); err == nil {
+		if json.Unmarshal(data, &refusal) != nil {
+			return nil, errors.New("invalid release refusal record")
+		}
+		h.refusal.Store(&refusal)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, errors.New("cannot read release refusal record")
+	}
 	h.rolledBack.Store(readRollback(h.RollbackFile))
 	return h, nil
 }
@@ -182,7 +197,7 @@ func Revision() string {
 // Serve subscribes the release subjects until the connection closes.
 func (h *Handler) Serve(conn *nats.Conn) error {
 	return h.serve(conn, map[string]func(context.Context, []byte) Reply{
-		SubjectVersion: func(context.Context, []byte) Reply { return h.version() },
+		SubjectVersion: h.reportVersion,
 		SubjectHealth:  h.health,
 		SubjectOrch:    h.relayed,
 		SubjectApp:     h.app,
@@ -244,9 +259,9 @@ func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Erro
 
 func (h *Handler) version() Reply {
 	if rollback := h.rolledBack.Load(); rollback != nil {
-		return Reply{Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason}
+		return Reply{Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason, Refusal: h.refusal.Load()}
 	}
-	return Reply{Version: h.Revision}
+	return Reply{Version: h.Revision, Refusal: h.refusal.Load()}
 }
 
 func (h *Handler) health(ctx context.Context, _ []byte) Reply {
@@ -273,13 +288,25 @@ func (h *Handler) health(ctx context.Context, _ []byte) Reply {
 	return Reply{Version: h.Revision, Health: text}
 }
 
-func (h *Handler) orch(ctx context.Context, data []byte) Reply {
+func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var release OrchRelease
 	if err := protocol.DecodeStrict(data, &release, 64<<10); err != nil {
 		return rejected(err)
 	}
+	defer func() {
+		if reply.Error == "" || !hex40.MatchString(release.SHA) {
+			return
+		}
+		refusal := &Refusal{SHA: release.SHA, Reason: reply.Error}
+		h.refusal.Store(refusal)
+		if h.RefusalFile != "" {
+			if err := writeJSON(h.RefusalFile, refusal); err != nil {
+				slog.Warn("release refusal persistence failed")
+			}
+		}
+	}()
 	binary, claims, err := h.validateOrch(ctx, release)
 	if err != nil {
 		return rejected(err)

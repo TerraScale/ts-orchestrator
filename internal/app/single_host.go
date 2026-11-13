@@ -106,6 +106,11 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		return err
 	}
 	releases.Health = health
+	if !plan.joiner() {
+		releases.HostVersions = func(ctx context.Context) ([]releasepush.HostVersion, error) {
+			return regionhealth.HostVersions(ctx, state, plan.region)
+		}
+	}
 	releases.Mesh = mesh.Bridge(state)
 	releases.App = mesh.Release(state)
 	if founder {
@@ -120,8 +125,8 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	if err := releases.Serve(natsConn); err != nil {
 		return err
 	}
-	if plan.joiner() && plan.address != "" {
-		go serveWorkerReleases(ctx, state, plan.region, releases)
+	if plan.region != "" {
+		go serveHostReleases(ctx, state, plan.region, plan.joiner(), releases)
 	}
 	if founder {
 		go publishJoin(ctx, state, plan)
@@ -321,15 +326,22 @@ func relayRelease(state, region string, request []byte) {
 	}
 }
 
-// serveWorkerReleases installs the releases this worker's founder relays,
-// reconnecting to the local mesh node until ctx ends.
-func serveWorkerReleases(ctx context.Context, state, region string, releases *releasepush.Handler) {
+func serveHostReleases(ctx context.Context, state, region string, worker bool, releases *releasepush.Handler) {
+	host, err := os.Hostname()
+	if err != nil {
+		slog.ErrorContext(ctx, "host release identity unavailable")
+		return
+	}
 	for ctx.Err() == nil {
 		conn, err := mesh.Connect(state)
 		if err == nil {
 			closed := make(chan struct{})
 			conn.SetClosedHandler(func(*nats.Conn) { close(closed) })
-			if err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region); err == nil {
+			err = releases.ServeHostVersion(conn, region, host)
+			if err == nil && worker {
+				err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region)
+			}
+			if err == nil {
 				select {
 				case <-ctx.Done():
 				case <-closed:

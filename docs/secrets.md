@@ -327,6 +327,24 @@ The alert relay’s root-run `alert-delivery prepare` step reads exactly
 The `ts-alerts` process reads these files and never obtains instance identity.
 Restart only the relay to refresh these credentials after rotation.
 
+For this credential-file transition, reconcile grants using the candidate
+operator binary (`ts-orch region add`), install the candidate relay unit and run
+`systemctl daemon-reload`, then release the binary. Every release checks that
+the installed `ts-alert-delivery.service` has the exact root-run
+`ExecStartPre=+/usr/local/bin/ts-orch alert-delivery prepare` command. Install
+that unit first when preflight refuses it; the next attempt checks again.
+
+The relay validates all three files before listening and exits with the missing
+or malformed file’s name if validation fails. Each `/healthz` request rereads
+and validates the small files, returning 200 only while they are usable and
+503 otherwise. Verify `systemctl status ts-alert-delivery.service`, then run
+`stat -c '%U:%G %a %n' /run/ts-alert-delivery /run/ts-alert-delivery/*` without
+printing contents: expect `root:ts-alerts 750` for the directory and
+`root:ts-alerts 640` for each file. Check `/healthz` and send one real test using
+`ts-orch alert-delivery subscribe` in an interactive terminal, confirming receipt
+in the subscribed client. Credential health does not prove provider delivery.
+
+
 The shared messaging token retains `manage secret-family` because host mesh
 startup creates it once when absent through `loadSecret` in
 `internal/natscell/mesh/run.go`; hosts do not rotate an existing token.
