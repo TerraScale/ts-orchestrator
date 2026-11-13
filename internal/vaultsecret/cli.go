@@ -34,6 +34,8 @@ const usage = `Usage: ts-orch vault <command> [flags]
       Read a JSON map of keys to {vault, name} using the instance principal.
       Publish owner-only files named by lowercasing each key. Poll CURRENT versions;
       changed versions atomically replace files without redeploying the consumer.
+  check-services
+      Before release activation, read every regional embedded service reference with host identity.
   check   NAME...
       On a host, as root: read each secret NAME from the Vault <cell>-vault of the
       instance's compartment, as a task start does, and print its name and length,
@@ -55,6 +57,12 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		_, err := io.WriteString(output, usage)
 		return err
+	}
+	if args[0] == "check-services" {
+		if len(args) != 1 {
+			return errors.New("usage: ts-orch vault check-services")
+		}
+		return checkServiceSecrets(ctx)
 	}
 	if args[0] == "check" {
 		return checkInstance(ctx, args[1:], output)

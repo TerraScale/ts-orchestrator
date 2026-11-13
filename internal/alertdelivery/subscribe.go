@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/mattn/go-isatty"
 )
 
@@ -22,9 +21,7 @@ var pushTopicRE = regexp.MustCompile(`^[A-Za-z0-9_-]{43,64}$`)
 func validPushTopic(topic string) bool { return pushTopicRE.MatchString(topic) }
 
 func readPushTopic(ctx context.Context) (string, error) {
-	values, err := vaultsecret.ReadInstanceSecrets(ctx, "ts-alerts", map[string]vaultsecret.Ref{
-		"TS_ALERTS_NTFY_TOPIC_FILE": {Vault: vaultsecret.SharedVault, Name: "gru-1-ts-alerts-ntfy-topic"},
-	})
+	values, err := readCredentialFiles("TS_ALERTS_NTFY_TOPIC_FILE")
 	topic := values["TS_ALERTS_NTFY_TOPIC_FILE"]
 	if err != nil || !validPushTopic(topic) {
 		return "", errors.New("push Vault topic unavailable or invalid")

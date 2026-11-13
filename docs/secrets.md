@@ -312,3 +312,21 @@ move and stay unchanged:
 - `secret/homelab/external/ts-forgejo-oci/static/{backup-local,backup-s3,harbor,object-storage}`:
   Forgejo host configuration from the HomeLab ts-ops runbook, not used by
   this repository.
+
+## Host metadata and alert credentials
+
+The metadata rules reserve instance identity for host root over IPv4 and IPv6.
+Workloads use the host resolver and time service. The provider’s host agent is
+also denied metadata access; its features are not used by this deployment.
+Installing the metadata unit starts it without restarting its runtime dependents.
+
+The alert relay’s root-run `alert-delivery prepare` step reads exactly
+`gru-1-cloudflare-account-id`, `gru-1-cloudflare-email-token` and
+`gru-1-ts-alerts-ntfy-topic`. It writes root-owned, group-readable files in
+`/run/ts-alert-delivery`, a root-owned tmpfs directory with swap disabled.
+The `ts-alerts` process reads these files and never obtains instance identity.
+Restart only the relay to refresh these credentials after rotation.
+
+The shared messaging token retains `manage secret-family` because host mesh
+startup creates it once when absent through `loadSecret` in
+`internal/natscell/mesh/run.go`; hosts do not rotate an existing token.

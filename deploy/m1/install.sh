@@ -42,6 +42,8 @@ tmp=\$(mktemp)
 trap 'rm -f "\$tmp"' EXIT
 curl -fsSL --retry 3 -o "\$tmp" '$url'
 echo '$sum  '"\$tmp" | sha256sum -c --quiet
+chmod 0700 "\$tmp"
+"\$tmp" vault check-services
 install -m 0755 "\$tmp" /usr/local/bin/terrascale-orchestrator
 ln -sfn terrascale-orchestrator /usr/local/bin/ts-orch
 install -d -m 0700 /var/lib/ts-orch
@@ -49,11 +51,12 @@ install -d -m 0755 /var/lib/ts-data /var/lib/ts-data/terrabase
 install -d -m 0755 /etc/terrascale-orchestrator
 /usr/local/bin/terrascale-orchestrator ts-auth metadata-rules > /etc/terrascale-orchestrator/ts-auth-metadata.nft
 /usr/local/bin/terrascale-orchestrator ts-auth metadata-unit > /etc/systemd/system/terrascale-ts-auth-metadata.service
-names=(terrascale-ts-auth-metadata.service)
+names=()
 $units
-chmod 0644 "\${names[@]/#//etc/systemd/system/}"
+chmod 0644 /etc/systemd/system/terrascale-ts-auth-metadata.service "\${names[@]/#//etc/systemd/system/}"
 systemctl daemon-reload
-systemctl enable "\${names[@]}"
+systemctl enable terrascale-ts-auth-metadata.service "\${names[@]}"
+systemctl start terrascale-ts-auth-metadata.service
 systemctl restart "\${names[@]}"
 systemctl is-active "\${names[@]}"
 REMOTE

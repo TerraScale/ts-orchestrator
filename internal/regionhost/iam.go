@@ -2,7 +2,6 @@ package regionhost
 
 import (
 	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"maps"
 	"regexp"
@@ -80,6 +79,9 @@ func statements(hosts map[string]string) ([]string, error) {
 			grants[secret] = "read secret-bundles"
 		}
 		if region == "gru" {
+			for _, secret := range []string{"gru-1-cloudflare-account-id", "gru-1-cloudflare-email-token", "gru-1-ts-alerts-ntfy-topic"} {
+				grants[secret] = "read secret-bundles"
+			}
 			for _, secret := range []string{"gru-1-netbird-admin-pat", "gru-1-netbird-owner-password", "gru-1-netbird-operators-setup-key", "gru-1-netbird-relay-auth-secret", "gru-1-netbird-session-cookie-key", "gru-1-netbird-datastore-encryption-key", "gru-1-netbird-setup-key"} {
 				grants[secret] = "manage secret-family"
 			}
@@ -239,9 +241,9 @@ func (r *run) ensureIAM() error {
 			}
 			id = *p.Id
 		}
-		return r.finishIAM("created", id, hosts)
+		return r.report("created", "policy", vaultPolicy, id)
 	case slices.Equal(slices.Sorted(slices.Values(policies.Items[0].Statements)), slices.Sorted(slices.Values(want))):
-		return r.finishIAM("unchanged", *policies.Items[0].Id, hosts)
+		return r.report("unchanged", "policy", vaultPolicy, *policies.Items[0].Id)
 	}
 	if !r.dry {
 		if _, err := r.home.UpdatePolicy(r.ctx, identity.UpdatePolicyRequest{PolicyId: policies.Items[0].Id,
@@ -249,47 +251,5 @@ func (r *run) ensureIAM() error {
 			return err
 		}
 	}
-	return r.finishIAM("updated", *policies.Items[0].Id, hosts)
-}
-
-func (r *run) finishIAM(verb, id string, hosts map[string]string) error {
-	if err := r.report(verb, "policy", vaultPolicy, id); err != nil {
-		return err
-	}
-	for _, name := range []string{"terrascale-gru-read-secrets", "terrascale-gru-netbird-secrets"} {
-		policies, err := r.home.ListPolicies(r.ctx, identity.ListPoliciesRequest{CompartmentId: new(gruCompartment), Name: &name})
-		if err != nil {
-			return err
-		}
-		for _, policy := range policies.Items {
-			groups, err := r.home.ListDynamicGroups(r.ctx, identity.ListDynamicGroupsRequest{CompartmentId: &r.tenancy, Name: new("terrascale-gru-instances")})
-			if err != nil {
-				return err
-			}
-			if len(groups.Items) != 1 || hosts["gru"] == "" {
-				return errors.New("superseded credential policy has no matching host group")
-			}
-			group, err := r.home.GetDynamicGroup(r.ctx, identity.GetDynamicGroupRequest{DynamicGroupId: groups.Items[0].Id})
-			if err != nil {
-				return err
-			}
-			if !sameRule(strings.Replace(deref(group.MatchingRule), "ALL {", "ANY {", 1), []string{hosts["gru"]}) {
-				return errors.New("superseded credential group differs from the scoped hosts")
-			}
-			for _, statement := range policy.Statements {
-				if !strings.HasPrefix(statement, "Allow dynamic-group terrascale-gru-instances to ") {
-					return fmt.Errorf("superseded policy %s contains another principal", name)
-				}
-			}
-			if !r.dry {
-				if _, err := r.home.DeletePolicy(r.ctx, identity.DeletePolicyRequest{PolicyId: policy.Id}); err != nil {
-					return err
-				}
-			}
-			if err := r.report("removed", "policy", name, *policy.Id); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return r.report("updated", "policy", vaultPolicy, *policies.Items[0].Id)
 }

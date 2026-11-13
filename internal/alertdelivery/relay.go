@@ -1,5 +1,3 @@
-// Package alertdelivery delivers loopback Alertmanager notifications through
-// Cloudflare Email Sending and generic push. Credentials remain in Vault and process memory.
 package alertdelivery
 
 import (
@@ -17,8 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 type notification struct {
@@ -45,8 +41,10 @@ type relay struct {
 
 const recipient = "mariogk@terrascale.tech"
 
-// Run serves only loopback; the relay independently bounds email quota usage.
 func Run(ctx context.Context, args []string) error {
+	if len(args) == 1 && args[0] == "prepare" {
+		return prepareCredentials(ctx)
+	}
 	if len(args) != 0 && (len(args) != 1 || args[0] != "subscribe") {
 		return errors.New("usage: ts-orch alert-delivery")
 	}
@@ -74,14 +72,9 @@ func Run(ctx context.Context, args []string) error {
 }
 
 func readCredentials(ctx context.Context) (credentials, error) {
-	refs := map[string]vaultsecret.Ref{
-		"CLOUDFLARE_ACCOUNT_ID_FILE":  {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-account-id"},
-		"CLOUDFLARE_EMAIL_TOKEN_FILE": {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-email-token"},
-	}
-	// Only the two refs approved for alert delivery are shared with this service.
-	values, err := vaultsecret.ReadInstanceSecrets(ctx, "ts-alerts", refs)
+	values, err := readCredentialFiles("CLOUDFLARE_ACCOUNT_ID_FILE", "CLOUDFLARE_EMAIL_TOKEN_FILE")
 	if err != nil {
-		return credentials{}, errors.New("alert delivery Vault credentials unavailable")
+		return credentials{}, err
 	}
 	account, token := strings.TrimSpace(values["CLOUDFLARE_ACCOUNT_ID_FILE"]), strings.TrimSpace(values["CLOUDFLARE_EMAIL_TOKEN_FILE"])
 	if !regexp.MustCompile(`^[a-fA-F0-9]{32}$`).MatchString(account) || token == "" || strings.ContainsAny(token, "\r\n") {

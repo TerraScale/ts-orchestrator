@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
 	"github.com/nats-io/nats.go"
 )
 
@@ -387,6 +388,9 @@ func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() 
 	}
 	if err := writeSynced(next, data); err != nil {
 		return err
+	}
+	if err := secretpreflight.Check(ctx, next); err != nil {
+		return errors.Join(err, removeIfExists(next))
 	}
 	if err := beforeSwap(); err != nil {
 		return errors.Join(err, removeIfExists(next))

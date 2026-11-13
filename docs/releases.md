@@ -12,6 +12,14 @@ secret. The publisher prepares the root-delegated release proofs; application
 verifies them against the trusted root before publishing to each region's
 existing OCI channel. OCI access authorization is still required.
 
+Before releasing a change to a service manifest’s secrets, run `ts-orch region add`
+for the affected regions to reconcile their grants. Before switching the host
+binary, self-update, release push and the M1 installer execute the candidate’s
+`vault check-services` as host root. On OCI hosts it reads every named secret
+in the embedded manifests for that region with the host’s own instance identity.
+A denied read refuses the switch and names the service and secret. Local hosts
+without an OCI platform identity have no regional Vault grants to preflight.
+
 ```text
 BUNDLE/
   GRU/channel.json
