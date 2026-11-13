@@ -11,8 +11,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
 )
 
-// requireVaultKey binds the configured Vault to the bucket encryption key.
-// Otherwise a typo can replicate an unrelated Vault while copying its bucket.
 func requireVaultKey(ctx context.Context, factory *ociclient.Factory, config Region) error {
 	client, err := keymanagement.NewKmsVaultClientWithConfigurationProvider(factory.Provider())
 	if err != nil {
@@ -42,8 +40,6 @@ func requireVaultKey(ctx context.Context, factory *ociclient.Factory, config Reg
 	return validateVaultKey(key.Key, config)
 }
 
-// OCI Vault endpoints use both oraclecloud.com and oci.oraclecloud.com.
-// Validate the region and service before passing the endpoint to the signer.
 func kmsEndpoint(endpoint *string, region, operation string) (string, error) {
 	if endpoint != nil {
 		u, err := url.Parse(*endpoint)

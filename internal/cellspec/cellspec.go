@@ -21,7 +21,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"maps"
 	"net"
 	"net/netip"
 	"net/url"
@@ -46,7 +45,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
@@ -905,110 +903,6 @@ func verifyDelegated(delegationWire []byte, specEnvelope trust.Envelope, roots t
 	return trust.VerifyDelegatedHistorical(specEnvelope, id.Scope(), delegation, specPolicy)
 }
 
-// AuthorityChanges lists what next widens relative to current; a non-empty
-// list needs a root's signature. signed holds the signed controller config's
-// profiles, which a role without a service entry keeps. Widening is:
-//
-//   - a releaser a service did not have, since releasers may release the
-//     role and register its hosts;
-//   - a new or changed Vault secret ref, since the host reads that secret
-//     for the role with an identity that may read more;
-//   - a new or changed host grant, since the host receives credentials;
-//   - a new or changed host image, since a release image receipt says the
-//     image was built and qualified, not that this cell should run it, and
-//     a new launch image, which every new host boots (returning to the
-//     fleet's signed pin is ordinary);
-//   - any change to TerraBase's profile (resources, arguments or a setting),
-//     which binds membership, listeners, member certificates and the
-//     credentials and token issuers TerraBase trusts;
-//   - in oci_desired, a new or changed enforce entry, turning on prune,
-//     shortening the prune delay, and dropping an entry while prune is on,
-//     since each changes the cell's OCI resources;
-//   - any change to the trusted signers, which decide who may send
-//     operator requests and releases at all.
-//
-// Everything else is an ordinary change.
-func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
-	var changes []string
-	for _, service := range next.Services {
-		before, _ := current.Find(service.Role)
-		for _, actor := range service.Releasers {
-			if !slices.Contains(before.Releasers, actor) {
-				changes = append(changes, fmt.Sprintf("service %s releaser %s", service.Role, actor))
-			}
-		}
-		for key, ref := range service.Profile.Secrets {
-			if before.Profile.Secrets[key] != ref {
-				changes = append(changes, fmt.Sprintf("service %s Vault secrets", service.Role))
-				break
-			}
-		}
-	}
-	for _, grant := range next.HostGrants {
-		if before, ok := current.Grant(grant.Node); !ok || !reflect.DeepEqual(before, grant) {
-			changes = append(changes, "host grant "+grant.Node)
-		}
-	}
-	for _, image := range next.HostImages {
-		if before, ok := current.HostImage(image.ImageID); !ok || !reflect.DeepEqual(before, image) {
-			changes = append(changes, "host image "+image.ImageID)
-		}
-	}
-	if next.LaunchImage != "" && next.LaunchImage != current.LaunchImage {
-		changes = append(changes, "launch image "+next.LaunchImage)
-	}
-	// A fence takes load balancer backends out of rotation with the
-	// controllers' instance principal.
-	if next.ReleaseFence != nil && !reflect.DeepEqual(current.ReleaseFence, next.ReleaseFence) {
-		changes = append(changes, "release fence")
-	}
-	// The API's issuer, clients and members decide who reads the cell.
-	if next.MachinesAPI != nil && !reflect.DeepEqual(current.MachinesAPI, next.MachinesAPI) {
-		changes = append(changes, "machines api")
-	}
-	// The token decides who reads the cell's dashboard.
-	if next.Dashboard != nil && !reflect.DeepEqual(current.Dashboard, next.Dashboard) {
-		changes = append(changes, "dashboard")
-	}
-	// Enrollment widens the node's Vault and manager authority. Once it is
-	// authorized, changing only verified client artifacts is an ordinary bump.
-	if next.NetBird != nil && (current.NetBird == nil || !reflect.DeepEqual(current.NetBird.Enrollment, next.NetBird.Enrollment)) {
-		changes = append(changes, "netbird enrollment")
-	}
-	changes = append(changes, ociDesiredChanges(current.OCIDesired, next.OCIDesired)...)
-	for _, actor := range signerChanges(current.Signers, next.Signers) {
-		changes = append(changes, "signer "+actor)
-	}
-	effective := func(spec Spec) Profile {
-		if service, ok := spec.Find(terrabase.Role); ok {
-			return service.Profile
-		}
-		return signed[terrabase.Role]
-	}
-	before, after := effective(current), effective(next)
-	if before.Resources != after.Resources {
-		changes = append(changes, "terrabase resources")
-	}
-	if !slices.Equal(before.Args, after.Args) {
-		changes = append(changes, "terrabase args")
-	}
-	keys := slices.Sorted(maps.Keys(before.Env))
-	for key := range after.Env {
-		if _, found := before.Env[key]; !found {
-			keys = append(keys, key)
-		}
-	}
-	slices.Sort(keys)
-	for _, key := range keys {
-		old, hadOld := before.Env[key]
-		value, hasValue := after.Env[key]
-		if hadOld != hasValue || old != value {
-			changes = append(changes, "terrabase setting "+key)
-		}
-	}
-	return changes
-}
-
 // Plan is the change from one spec to the next, for review before signing.
 type Plan struct {
 	Identity
@@ -1075,86 +969,4 @@ func validDesired[S interface{ Validate() error }](entries map[string]OCIDesired
 		}
 	}
 	return nil
-}
-
-// ociDesiredChanges lists what after widens relative to before: a new or
-// changed resource entry, turning on prune, a shorter prune delay while
-// prune is on, and an entry dropped while prune is on, since prune then
-// releases its resource. Nil means no desired resources.
-func ociDesiredChanges(before, after *OCIDesired) []string {
-	if before == nil {
-		before = &OCIDesired{}
-	}
-	if after == nil {
-		after = &OCIDesired{}
-	}
-	var changes []string
-	if after.Prune && !before.Prune {
-		changes = append(changes, "oci_desired prune")
-	}
-	if after.Prune && before.Prune && pruneDelay(after) < pruneDelay(before) {
-		changes = append(changes, "oci_desired prune delay")
-	}
-	changes = append(changes, desiredChanges("nsg_rules", before.NSGRules, after.NSGRules, after.Prune)...)
-	changes = append(changes, desiredChanges("security_lists", before.SecurityLists, after.SecurityLists, after.Prune)...)
-	changes = append(changes, desiredChanges("route_tables", before.RouteTables, after.RouteTables, after.Prune)...)
-	return append(changes, desiredChanges("buckets", before.Buckets, after.Buckets, after.Prune)...)
-}
-
-func pruneDelay(d *OCIDesired) int {
-	if d.PruneDelaySeconds == 0 {
-		return 60 * 60
-	}
-	return d.PruneDelaySeconds
-}
-
-func desiredChanges[S any](kind string, before, after map[string]OCIDesiredEntry[S], prune bool) []string {
-	var changes []string
-	for _, name := range slices.Sorted(maps.Keys(after)) {
-		entry := after[name]
-		if previous, ok := before[name]; !ok || !reflect.DeepEqual(previous, entry) {
-			changes = append(changes, "oci_desired "+kind+" "+name)
-		}
-	}
-	for _, name := range slices.Sorted(maps.Keys(before)) {
-		if _, kept := after[name]; !kept && prune {
-			changes = append(changes, "oci_desired "+kind+" "+name+" pruned")
-		}
-	}
-	return changes
-}
-
-// signerChanges lists, sorted, each actor whose grant after adds, changes or
-// removes relative to before.
-func signerChanges(before, after []TrustedSigner) []string {
-	grants := func(signers []TrustedSigner) map[string]TrustedSigner {
-		byActor := make(map[string]TrustedSigner, len(signers))
-		for _, signer := range signers {
-			byActor[signer.Actor] = signer
-		}
-		return byActor
-	}
-	old, next := grants(before), grants(after)
-	var changed []string
-	for actor := range old {
-		if _, kept := next[actor]; !kept {
-			changed = append(changed, actor)
-		}
-	}
-	for actor, grant := range next {
-		if previous, ok := old[actor]; !ok || !reflect.DeepEqual(canonicalSigner(previous), canonicalSigner(grant)) {
-			changed = append(changed, actor)
-		}
-	}
-	slices.Sort(changed)
-	return changed
-}
-
-// canonicalSigner sorts the grant's lists, which are sets: their order
-// grants nothing.
-func canonicalSigner(signer TrustedSigner) TrustedSigner {
-	for _, list := range []*[]string{&signer.Roles, &signer.Environments, &signer.ClientKeyScopes, &signer.Repositories} {
-		*list = slices.Sorted(slices.Values(*list))
-	}
-	return signer
 }

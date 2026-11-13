@@ -87,8 +87,6 @@ func NewQueueWorker(ctx context.Context, nc *nats.Conn, worker Invoker) (*QueueW
 	return &QueueWorker{worker: worker, manifest: manifest, subject: scope.Subject, consumer: consumer, receipts: receipts}, nil
 }
 
-func (q *QueueWorker) Subject() string { return q.subject }
-
 // Run acknowledges only durable successes, retries transient failures and
 // terminates invalid or trapped invocations. MaxAckPending=1 serializes normal
 // deliveries across workers. A crash after effects but before recording a receipt

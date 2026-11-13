@@ -1,5 +1,3 @@
-// Package disasterrecovery prepares the cross-region bootstrap copies. It
-// never re-founds a controller or changes a running cell's desired state.
 package disasterrecovery
 
 import (
@@ -11,9 +9,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
-// Config pins the two existing control compartments and their regional keys.
-// Bucket names are derived, so an operator cannot select a serving bucket as
-// a read-only replication destination.
 type Config struct {
 	Version   int    `json:"version"`
 	Namespace string `json:"namespace"`
@@ -25,8 +20,8 @@ type Region struct {
 	CompartmentID string            `json:"compartment_id"`
 	VaultID       string            `json:"vault_id"`
 	KeyID         string            `json:"key_id"`
-	BucketIDs     map[string]string `json:"bucket_ids,omitempty"` // Reviewed destination bucket name -> OCID.
-	PolicyIDs     map[string]string `json:"policy_ids,omitempty"` // Reviewed source policy name -> opaque ID.
+	BucketIDs     map[string]string `json:"bucket_ids,omitempty"`
+	PolicyIDs     map[string]string `json:"policy_ids,omitempty"`
 }
 
 var namespacePattern = regexp.MustCompile(`^[a-z0-9]{1,64}$`)
@@ -61,7 +56,7 @@ func (config Config) Validate() error {
 		}
 		prefix = "TS-641-" + strings.ToLower(cell) + "-1-"
 		for name, id := range region.PolicyIDs {
-			// The SDK treats replication policy IDs as opaque strings, not OCIDs.
+
 			if (name != prefix+"backup" && name != prefix+"head") || !policyIDPattern.MatchString(id) {
 				return fmt.Errorf("%s has an unexpected replication policy name or ID: %s", cell, name)
 			}

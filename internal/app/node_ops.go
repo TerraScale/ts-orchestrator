@@ -39,38 +39,6 @@ import (
 // (holder operation) while they run, and after they fail until undrain.
 const ()
 
-// nodeOp is one operation and its progress.
-type nodeOp struct {
-	ID       string  `json:"id"`
-	Node     string  `json:"node"`
-	Op       string  `json:"op"`
-	OCPUs    float32 `json:"ocpus,omitzero"`
-	MemoryGB float32 `json:"memory_gb,omitzero"`
-	Actor    string  `json:"actor"`
-	State    string  `json:"state"`
-	// Step is the running operation's step: fence, act, check or return.
-	Step        string    `json:"step,omitempty"`
-	Reason      string    `json:"reason,omitempty"`
-	RequestedAt time.Time `json:"requested_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	// ActedAt is when the node's instance was changed; the check waits for
-	// reports newer than it.
-	ActedAt time.Time `json:"acted_at,omitzero"`
-	// Session is the node's host agent session before the change. A report
-	// from another session proves the node restarted; empty when nothing
-	// restarts it.
-	Session string `json:"session,omitempty"`
-	// Backup is a retired node's boot volume backup.
-	Backup string `json:"backup,omitempty"`
-	// From is a renamed node's old name and Instance its instance, which
-	// keeps its ID across the rename.
-	From     string `json:"from,omitempty"`
-	Instance string `json:"instance,omitempty"`
-	// The immutable journal entry retains the original signed authority.
-	RequestSHA256   string `json:"request_sha256,omitempty"`
-	RequestRevision uint64 `json:"request_revision,omitzero"`
-}
-
 // nodeInstance is a node's OCI instance as observed.
 type nodeInstance struct {
 	ID       string

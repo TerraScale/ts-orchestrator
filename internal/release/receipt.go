@@ -399,10 +399,6 @@ func (verified VerifiedBinary) ExpiresAt() time.Time   { return verified.proof.e
 func (historical HistoricalBinary) IsVerified() bool       { return historical.proof.verified }
 func (historical HistoricalBinary) Receipt() BinaryReceipt { return historical.receipt }
 
-func (historical HistoricalBinary) KeyID() string        { return historical.proof.keyID }
-func (historical HistoricalBinary) IssuedAt() time.Time  { return historical.proof.issuedAt }
-func (historical HistoricalBinary) ExpiresAt() time.Time { return historical.proof.expiresAt }
-
 func (verified VerifiedImage) IsVerified() bool       { return verified.proof.verified }
 func (verified VerifiedImage) Receipt() ImageReceipt  { return cloneImageReceipt(verified.receipt) }
 func (verified VerifiedImage) EnvelopeSHA256() string { return verified.proof.envelopeSHA256 }
@@ -410,14 +406,9 @@ func (verified VerifiedImage) KeyID() string          { return verified.proof.ke
 func (verified VerifiedImage) IssuedAt() time.Time    { return verified.proof.issuedAt }
 func (verified VerifiedImage) ExpiresAt() time.Time   { return verified.proof.expiresAt }
 
-func (historical HistoricalImage) IsVerified() bool { return historical.proof.verified }
 func (historical HistoricalImage) Receipt() ImageReceipt {
 	return cloneImageReceipt(historical.receipt)
 }
-
-func (historical HistoricalImage) KeyID() string        { return historical.proof.keyID }
-func (historical HistoricalImage) IssuedAt() time.Time  { return historical.proof.issuedAt }
-func (historical HistoricalImage) ExpiresAt() time.Time { return historical.proof.expiresAt }
 
 // ValidEnvironment reports whether value names a supported release environment.
 func ValidEnvironment(value string) bool { return value == "production" || value == "canary" }

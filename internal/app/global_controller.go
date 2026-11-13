@@ -2,11 +2,9 @@ package app
 
 import (
 	"context"
-	"errors"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/globalcontrol"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 // GlobalControlConfig optionally pins the home derived from the signed topology.
@@ -22,26 +20,4 @@ type globalControl struct {
 	stop      context.CancelFunc
 	writer    *globalcontrol.Writer
 	reader    *globalcontrol.Reader
-}
-
-func globalControlHome(global *GlobalControlConfig, nats natscell.Config) (string, error) {
-	home := natscell.LinkHome
-	if nats.Embedded == nil || nats.Embedded.Link == nil {
-		var err error
-		if home, err = interRegionLink(nats).GlobalControlHome(nats.Cell); err != nil {
-			return "", err
-		}
-	}
-	if global != nil && global.Home != "" && global.Home != home {
-		return "", errors.New("global control home must agree with the interregion topology")
-	}
-	return home, nil
-}
-
-// interRegionLink returns the region's leaf topology material, or nil.
-func interRegionLink(nats natscell.Config) *natscell.InterRegion {
-	if nats.Embedded == nil {
-		return nil
-	}
-	return nats.Embedded.InterRegion
 }

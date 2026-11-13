@@ -17,12 +17,10 @@ const vaultReplicaTimeout = 10 * time.Minute
 
 var vaultReplicaOCID = regexp.MustCompile(`^ocid1\.vault\.oc1\.([a-z0-9-]+)\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
 
-// VaultReplicaReport contains public metadata only. VaultID identifies the
-// source: OCI's replica summary exposes no separate replica vault OCID.
 type VaultReplicaReport struct {
 	VaultID        string `json:"vaultId"`
 	TargetRegion   string `json:"targetRegion"`
-	Status         string `json:"status"` // MISSING, CREATING, or CREATED.
+	Status         string `json:"status"`
 	CryptoEndpoint string `json:"cryptoEndpoint,omitempty"`
 }
 
@@ -32,9 +30,6 @@ type vaultReplicaClient interface {
 	CreateVaultReplica(context.Context, keymanagement.CreateVaultReplicaRequest) (keymanagement.CreateVaultReplicaResponse, error)
 }
 
-// EnsureVaultReplica plans, reuses, or creates the one supported cross-region
-// replica. It never deletes or replaces a vault. Calls, including polling, are
-// bounded to ten minutes or the caller's earlier deadline.
 func EnsureVaultReplica(ctx context.Context, factory *ociclient.Factory, vaultID, targetRegion string, apply bool) (VaultReplicaReport, error) {
 	if factory == nil {
 		return VaultReplicaReport{}, errors.New("vault replication requires an OCI client factory")
@@ -100,7 +95,7 @@ func ensureVaultReplica(ctx context.Context, client vaultReplicaClient, vaultID,
 		switch replica.Status {
 		case keymanagement.VaultReplicaSummaryStatusCreated:
 		case keymanagement.VaultReplicaSummaryStatusCreating, "":
-			// An interrupted run can leave the replica mid-creation.
+
 			report.Status = "CREATING"
 			return report, fmt.Errorf("existing vault replica is still being created (%q); re-run once it reaches CREATED", replica.Status)
 		default:
@@ -158,7 +153,7 @@ func ensureVaultReplica(ctx context.Context, client vaultReplicaClient, vaultID,
 					report.Status = "CREATED"
 				}
 				return report, err
-			// OCI first lists a new replica with no status (seen 2026-10-08).
+
 			case keymanagement.VaultReplicaSummaryStatusCreating, "":
 			default:
 				return report, fmt.Errorf("vault replica entered unexpected state %q", replica.Status)

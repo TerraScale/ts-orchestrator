@@ -75,16 +75,14 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// Bind both Vaults and keys before any create, even when only the first
-	// direction would otherwise have passed its source bucket checks.
+
 	if err := requireVaultKey(ctx, gru, config.GRU); err != nil {
 		return err
 	}
 	if err := requireVaultKey(ctx, sjc, config.SJC); err != nil {
 		return err
 	}
-	// Print the complete scope before any mutation, including the fact that
-	// the mirrors and seeds are different buckets from the serving buckets.
+
 	if err := writeJSON(out, struct {
 		Apply  bool   `json:"apply"`
 		Config Config `json:"config"`

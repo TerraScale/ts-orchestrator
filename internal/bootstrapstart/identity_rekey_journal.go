@@ -339,23 +339,6 @@ func (store MarkerStore) readIdentityRekeyJournalFile(name string) (IdentityReke
 	return journal, nil
 }
 
-// ReadIdentityRekeyJournal reports absence only for initial acceptance; a rekey
-// requires its immutable journal even after shared completion.
-func ReadIdentityRekeyJournal(accepted AcceptedIdentity) (VerifiedIdentityRekey, error) {
-	if err := accepted.Validate(); err != nil {
-		return VerifiedIdentityRekey{}, err
-	}
-	store := NewMarkerStore()
-	if _, err := store.readAcceptedIdentityRekeyJournal(accepted); err != nil {
-		return VerifiedIdentityRekey{}, err
-	}
-	inputs, err := LoadTrustInputs(accepted)
-	if err != nil {
-		return VerifiedIdentityRekey{}, fmt.Errorf("%w: load rekey trust inputs: %v", ErrIdentityRekeyJournal, err)
-	}
-	return store.verifiedIdentityRekey(accepted, inputs)
-}
-
 func (store MarkerStore) verifiedIdentityRekey(accepted AcceptedIdentity, inputs TrustInputs) (VerifiedIdentityRekey, error) {
 	if err := accepted.Validate(); err != nil {
 		return VerifiedIdentityRekey{}, err

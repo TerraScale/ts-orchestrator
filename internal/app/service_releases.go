@@ -93,23 +93,6 @@ type serviceReleaseState struct {
 	Reason   string               `json:"reason,omitempty"`
 }
 
-// verify authenticates role's claim for this cell and returns its record,
-// signer and issuance instant.
-func (r *serviceReleases) verify(ctx context.Context, kv jetstream.KeyValue, role string, claim []byte) (delivery.ArtifactRecord, string, time.Time, error) {
-	issued, err := releasechannel.ClaimIssuedAt(claim)
-	if err != nil {
-		return delivery.ArtifactRecord{}, "", time.Time{}, fmt.Errorf("%w: %w", delivery.ErrInvalid, err)
-	}
-	if err := r.trustReleaseDelegation(ctx, kv); err != nil {
-		return delivery.ArtifactRecord{}, "", time.Time{}, err
-	}
-	record, actor, err := r.deliveries.VerifyClaim(ctx, claim)
-	if err == nil && record.Role != role {
-		err = fmt.Errorf("%w: the claim is for role %s", delivery.ErrInvalid, record.Role)
-	}
-	return record, actor, issued, err
-}
-
 // trustReleaseDelegation makes the cell's root-delegated release key the
 // current release signer. An absent or unverifiable delegation clears it, so
 // the claim verifies through the cell signers alone; a failed read is returned

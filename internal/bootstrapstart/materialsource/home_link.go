@@ -114,11 +114,6 @@ type VerifiedRegionalLink struct {
 func (link VerifiedRegionalLink) IsVerified() bool {
 	return link.regional.IsVerified() && link.proof.IsVerified() && link.directory != ""
 }
-func (link VerifiedRegionalLink) Record() bootstrapmaterial.LinkRecord {
-	record := link.record
-	record.Record = cloneRecord(record.Record)
-	return record
-}
 
 func (link VerifiedRegionalLink) Proof() bootstrap.VerifiedStartupLink { return link.proof }
 func (link VerifiedRegionalLink) VerifyCurrent(ctx context.Context) error {

@@ -21,10 +21,6 @@ const (
 	ClearRatio      = 0.75
 )
 
-// ReservationTTL bounds a granted node's reservation while its region's status lags. It outlasts nodescale's
-// 20-minute launch timeout, so a launch still running keeps its node reserved and a dead one frees it.
-const ReservationTTL = 25 * time.Minute
-
 // State is the budget's spend state at the time of an allocation.
 type State string
 

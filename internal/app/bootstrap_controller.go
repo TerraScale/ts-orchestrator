@@ -52,28 +52,6 @@ func bootstrapController(ctx context.Context, cfg Config) error {
 	return superviseControllerAdmission(ctx, cfg, "bootstrap-admit-initial", "/proc/self/exe")
 }
 
-func acceptedControllerInstallPresent(read func() (bootstrapstart.AcceptedIdentity, error)) (bool, error) {
-	if read == nil {
-		return false, errors.New("accepted controller install reader is unavailable")
-	}
-	if _, err := read(); err == nil {
-		return true, nil
-	} else if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	} else {
-		return false, fmt.Errorf("read accepted controller install: %w", err)
-	}
-}
-
-func superviseControllerRestart(ctx context.Context, cfg Config) error {
-	if os.Geteuid() != 0 {
-		ctx, cancel := context.WithTimeout(ctx, controllerAdmissionTimeout)
-		defer cancel()
-		return admitProductionControllerRestart(ctx, cfg)
-	}
-	return superviseControllerAdmission(ctx, cfg, "bootstrap-admit-restart", "/proc/self/exe")
-}
-
 // superviseControllerAdmission is a process boundary because the OCI SDK's
 // synchronous instance-principal retry sleeps do not observe a Go context.
 // Killing the child's process group also stops its service-account credential

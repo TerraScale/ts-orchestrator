@@ -30,11 +30,6 @@ import (
 
 var cellName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
-// ErrEmbeddedServerStopped reports that the in-process broker has exited while
-// its owning process is still alive. Callers must treat it as terminal so the
-// service manager restarts the whole controller instead of waiting forever.
-var ErrEmbeddedServerStopped = errors.New("embedded regional NATS server has stopped")
-
 // ErrUnavailable matches a Start failure to reach the regional brokers or
 // their JetStream API, which a retry can resolve. Configuration, credential
 // and TLS material errors never match it: retrying cannot fix them.
@@ -174,99 +169,6 @@ func (r *Runtime) Conn() *nats.Conn { return r.conn }
 
 func (r *Runtime) JetStream() jetstream.JetStream { return r.js }
 
-func (r *Runtime) Bridge() *Bridge { return r.bridge }
-
-// BrokerTLS is the production broker's reloading server certificate, nil
-// without one. Other listeners on the broker's address serve it too.
-func (r *Runtime) BrokerTLS() *ReloadingTLS { return r.brokerTLS }
-
-// SignedByPinnedOperator checks the operator claim installed at broker startup.
-func (r *Runtime) SignedByPinnedOperator(claim *jwt.AccountClaims) bool {
-	return r != nil && r.operator != nil && claim != nil && r.operator.DidSign(claim)
-}
-
-func (r *Runtime) CellAccount() string {
-	if r == nil || r.resolver == nil {
-		return ""
-	}
-	return r.resolver.cell
-}
-
-func (r *Runtime) InitialCellJWT() string {
-	if r == nil || r.resolver == nil {
-		return ""
-	}
-	raw, _ := r.resolver.Fetch(r.resolver.cell)
-	return raw
-}
-
-// ApplyCellClaim fences the external listener before installing a durable
-// account replacement. A routed CLAIMS.UPDATE reply is never accepted as local
-// proof; Accountz must report the exact raw JWT on this embedded server.
-func (r *Runtime) ApplyCellClaim(ctx context.Context, sequence uint64, raw string) error {
-	if r == nil || r.server == nil || r.resolver == nil || r.systemConn == nil ||
-		sequence == 0 || raw == "" {
-		return errors.New("production cell claim application is unavailable")
-	}
-	r.claimMu.Lock()
-	defer r.claimMu.Unlock()
-	if sequence < r.appliedSequence {
-		return errors.New("cell claim sequence is stale")
-	}
-	if r.bridge != nil {
-		r.bridge.FenceClaim(sequence)
-	}
-	if claim, err := jwt.DecodeAccountClaims(raw); err != nil || !r.SignedByPinnedOperator(claim) {
-		return errors.New("cell claim is not signed by the pinned operator")
-	}
-	// Store runs the contract and issued-at checks; only then is the claim
-	// installed, locally and directly. The server ignores CLAIMS.UPDATE
-	// requests (see accountResolver.IsTrackingUpdate), so no routed or
-	// client-sent claim can skip these checks.
-	if err := r.resolver.Store(r.resolver.cell, raw); err != nil {
-		return err
-	}
-	account, err := r.server.LookupAccount(r.resolver.cell)
-	if err != nil {
-		return err
-	}
-	current, err := r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
-	if err != nil {
-		return err
-	}
-	if current.Account == nil {
-		return errors.New("cell account is not loaded")
-	}
-	if current.Account.Jwt != raw {
-		if err := r.server.UpdateAccountClaimJWT(account, raw); err != nil {
-			return fmt.Errorf("install cell account claim: %w", err)
-		}
-		current, err = r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
-		if err != nil || current.Account == nil || current.Account.Jwt != raw {
-			return errors.New("cell JWT update lacks local exact readback")
-		}
-	}
-	r.appliedSequence = sequence
-	return nil
-}
-
-func (r *Runtime) Ready() bool {
-	return r != nil && r.conn != nil && r.conn.IsConnected() &&
-		(r.server == nil || r.server.Running())
-}
-
-// URL returns the effective client URL, including the selected ephemeral port
-// when a lab server was configured with port -1.
-func (r *Runtime) URL() string {
-	if r.bridge != nil {
-		return "nats://" + r.bridge.Addr().String()
-	}
-	if r.server != nil {
-		return r.server.ClientURL()
-	}
-	return r.conn.ConnectedUrl()
-}
-
 // logHostConnection records only the endpoint host and a fixed error class.
 // URL userinfo, NKey material, request bodies, and inboxes stay out of logs.
 func (r *Runtime) logHostConnection(state string, conn *nats.Conn, cause error) {
@@ -348,16 +250,6 @@ func serverReady(ctx context.Context, embedded *server.Server) bool {
 // client connection. Multi-node callers must call WaitForCluster before mutations.
 func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 	return start(ctx, cfg, false)
-}
-
-// StartIdentityRekey joins only the existing regional quorum. The caller must
-// verify its root checkpoint before opening it and close it after shared reset
-// completion before starting normal external transports on the same store.
-func StartIdentityRekey(ctx context.Context, cfg Config) (*Runtime, error) {
-	if cfg.Embedded == nil {
-		return nil, errors.New("identity rekey requires an installed production broker")
-	}
-	return start(ctx, cfg, true)
 }
 
 func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err error) {
@@ -505,82 +397,6 @@ func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err
 		}
 	}
 	return r, nil
-}
-
-// WaitForCluster waits for a NATS and JetStream metadata quorum and a
-// JetStream API response. Routes alone can form before JetStream metadata can
-// elect a leader; an existing R3 stream may recover with one broker absent.
-// A caller must do this before provisioning replicated durable resources.
-// It returns ErrEmbeddedServerStopped as soon as the embedded broker exits.
-func (r *Runtime) WaitForCluster(ctx context.Context, replicas int) error {
-	if replicas < 1 || replicas > 5 || replicas%2 == 0 {
-		return errors.New("regional replicas must be 1, 3, or 5")
-	}
-	quorum := replicas/2 + 1
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if r.server != nil && !r.server.Running() {
-			return ErrEmbeddedServerStopped
-		}
-		if r.Ready() && (r.server == nil || r.peerCount() >= quorum && r.metadataReady(quorum)) {
-			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			_, err := r.js.AccountInfo(probeCtx)
-			cancel()
-			if err == nil {
-				return nil
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for %d regional NATS peers: %w", quorum, ctx.Err())
-		case <-ticker.C:
-		}
-	}
-}
-
-// FullClusterReady distinguishes a missing peer from a permanent inability to
-// place a new R3/R5 stream. It does not claim every peer is caught up.
-func (r *Runtime) FullClusterReady(replicas int) bool {
-	return r != nil && r.Ready() && (r.server == nil ||
-		r.peerCount() >= replicas && r.metadataReady(replicas))
-}
-
-func (r *Runtime) metadataReady(required int) bool {
-	if required == 1 {
-		return true
-	}
-	info, err := r.server.Jsz(nil)
-	if err != nil || info.Meta == nil || info.Meta.Leader == "" || info.Meta.Size < required {
-		return false
-	}
-	// Follower-local metadata can report an online peer as Current=false even
-	// while the leader reports it caught up. Requiring Current on every local
-	// view can therefore prevent a healthy follower from ever becoming ready.
-	online := 1 // This embedded server is running.
-	for _, peer := range info.Meta.Replicas {
-		if peer != nil && !peer.Offline && !peer.Pending {
-			online++
-		}
-	}
-	return online >= required
-}
-
-func (r *Runtime) peerCount() int {
-	if r.server == nil {
-		return 1
-	}
-	routes, err := r.server.Routez(nil)
-	if err != nil {
-		return 0
-	}
-	ids := map[string]struct{}{routes.ID: {}}
-	for _, route := range routes.Routes {
-		if route.RemoteID != "" {
-			ids[route.RemoteID] = struct{}{}
-		}
-	}
-	return len(ids)
 }
 
 func (cfg Config) validate() error {
@@ -988,23 +804,4 @@ func readPrivateFile(path string, limit int64) ([]byte, error) {
 		return nil, errors.New("secret file is too large")
 	}
 	return data, nil
-}
-
-// ClientAddress returns the bound listener address for an embedded runtime.
-func (r *Runtime) ClientAddress() net.Addr {
-	if r.bridge != nil {
-		return r.bridge.Addr()
-	}
-	if r.server == nil {
-		return nil
-	}
-	return r.server.Addr()
-}
-
-// RouteAddress returns the bound route listener address for an embedded runtime.
-func (r *Runtime) RouteAddress() net.Addr {
-	if r.server == nil {
-		return nil
-	}
-	return r.server.ClusterAddr()
 }

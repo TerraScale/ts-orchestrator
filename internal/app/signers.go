@@ -178,28 +178,6 @@ func newSignerSet(signers []TrustedSignerConfig) (signerSet, error) {
 	return signerSet{trusted: trusted, grants: grants}, nil
 }
 
-func (p signerPolicy) withOperator(cfg OperatorConfig) (delivery.Ed25519Codec, error) {
-	grant, exists := p.grant(cfg.Actor)
-	if !exists {
-		return delivery.Ed25519Codec{}, errors.New("operator actor is not trusted")
-	}
-	private, err := readPrivateKey(cfg.SigningKeyFile)
-	if err != nil {
-		return delivery.Ed25519Codec{}, err
-	}
-	public, err := decodePublicKey(grant.PublicKey)
-	if err != nil {
-		return delivery.Ed25519Codec{}, err
-	}
-	if !ed25519.PublicKey(private.Public().(ed25519.PublicKey)).Equal(public) {
-		return delivery.Ed25519Codec{}, errors.New("operator signing key does not match trusted actor")
-	}
-	codec := p.codec
-	codec.Actor = cfg.Actor
-	codec.PrivateKey = private
-	return codec, nil
-}
-
 func (p signerPolicy) authorizeIntent(_ context.Context, actor string, intent delivery.Intent) error {
 	if intent.Cell != p.cell || !p.mayRelease(actor, intent.Role, intent.Environment, intent.Source.Repository) {
 		return delivery.ErrUnauthorized

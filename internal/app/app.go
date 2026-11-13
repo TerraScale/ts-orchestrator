@@ -316,9 +316,6 @@ func edgeLocalServices(ctx context.Context, client api.ControlClient, host strin
 	return services, nil
 }
 
-// RunChild dispatches the same-binary child protocols that live code still
-// spawns over /proc/self/exe: controller admission, the bootstrap credential
-// check and the identity rekey completion probe.
 func RunChild(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("usage: terrascale-orchestrator child command")

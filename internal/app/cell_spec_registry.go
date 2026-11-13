@@ -7,17 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
-	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
@@ -103,13 +99,6 @@ var specAcceptedInputs = func() (bootstrapstart.AcceptedIdentity, bootstrapstart
 	}
 	inputs, err := bootstrapstart.LoadTrustInputs(accepted)
 	return accepted, inputs, err
-}
-
-type specReply struct {
-	Spec   cellspec.Spec  `json:"spec"`
-	Plan   *cellspec.Plan `json:"plan,omitempty"`
-	Status string         `json:"status,omitempty"`
-	Error  string         `json:"error,omitempty"`
 }
 
 func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
@@ -581,150 +570,9 @@ func (r *specRegistry) controllerNode(cell, slot string) string {
 	return naming.NATSServer(cell, slot)
 }
 
-// withSigned fills the sections generation 0 holds in the signed config, so
-// plans and the root rule compare what is in force: restating the signed
-// setting changes nothing, and dropping a section returns to it.
-func (r *specRegistry) withSigned(spec cellspec.Spec) cellspec.Spec {
-	if spec.OCIDesired == nil {
-		spec.OCIDesired = r.signedDesired
-	}
-	spec.Signers = r.effectiveSigners(spec)
-	if spec.ArtifactStore == nil {
-		spec.ArtifactStore = &cellspec.ArtifactStore{MaxBytes: r.signedArtifactStore}
-	}
-	return spec
-}
-
 func (r *specRegistry) profiles() map[string]WorkloadProfile {
 	profiles, _ := r.effective()
 	return profiles
-}
-
-// amended returns the spec an amendment must follow: the newer of the
-// adopted spec and the stored record, so a lost, older or corrupt record
-// neither blocks changes nor rolls them back. A record that needs a newer
-// binary is refused with a NewerBinaryError and its revision instead:
-// amending the older spec would drop its sections.
-func (r *specRegistry) amended(ctx context.Context) (current cellspec.Spec, revision uint64, stored bool, err error) {
-	r.mu.Lock()
-	current = r.current
-	r.mu.Unlock()
-	entry, err := r.kv.Get(ctx, cellSpecKey)
-	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		return current, 0, false, nil
-	}
-	if err != nil {
-		return cellspec.Spec{}, 0, false, fmt.Errorf("read cell spec: %w", err)
-	}
-	verified, err := r.verify(entry.Value(), nil)
-	if newer := (*cellspec.NewerBinaryError)(nil); errors.As(err, &newer) {
-		return current, entry.Revision(), false, fmt.Errorf("the stored %w; update this controller's binary first", newer)
-	}
-	if err != nil {
-		slog.ErrorContext(ctx, "stored cell spec is invalid; amending the adopted spec", observability.ComponentKey, "cellspec",
-			"revision", entry.Revision(), "error", err)
-		return current, entry.Revision(), false, nil
-	}
-	if verified.Generation > current.Generation || sameSpec(verified.Spec, current) {
-		return verified.Spec, entry.Revision(), true, nil
-	}
-	return current, entry.Revision(), false, nil
-}
-
-// apply admits a signed spec on the authority leader. A spec equal to the
-// stored one is a no-op; otherwise its generation must follow the stored
-// one, which refuses replays, rollbacks and specs built on a stale view, and
-// an amendment that widens authority must be signed by a root.
-func (r *specRegistry) apply(ctx context.Context, wire []byte, keyID string, epoch uint64, fencer authority.Fencer,
-	hosts *host.Controller,
-) (specReply, error) {
-	now := time.Now()
-	verified, err := r.verify(wire, &now)
-	if err != nil {
-		return specReply{}, err
-	}
-	spec := verified.Spec
-	current, revision, stored, err := r.amended(ctx)
-	// After a binary rollback no controller may read the stored record. The
-	// root may replace it with the generation that follows it.
-	newer := (*cellspec.NewerBinaryError)(nil)
-	replacing := errors.As(err, &newer) && verified.RootSigned && spec.Generation == newer.Generation+1
-	if err != nil && !replacing {
-		return specReply{}, err
-	}
-	if stored && sameSpec(current, spec) {
-		r.adopt(current, revision)
-		return specReply{Spec: current, Status: "unchanged"}, nil
-	}
-	if !replacing && spec.Generation != current.Generation+1 {
-		return specReply{}, fmt.Errorf("cell spec generation %d does not follow the current generation %d",
-			spec.Generation, current.Generation)
-	}
-	// An accepted image stays allowed after its receipt expires; one the
-	// amendment adds or changes must be qualified now, by a current root.
-	if err := cellspec.VerifyHostImages(current, spec, r.roots.current(), &now); err != nil {
-		return specReply{}, err
-	}
-	if changes := cellspec.AuthorityChanges(r.withSigned(current), r.withSigned(spec), r.fixed); len(changes) > 0 && !verified.RootSigned {
-		return specReply{}, fmt.Errorf("cell spec generation %d widens authority (%s); a root must sign it",
-			spec.Generation, strings.Join(changes, ", "))
-	}
-	// A spec that stops trusting the key that applies it could leave no
-	// operator able to apply the next one: add the new signer first.
-	if !reflect.DeepEqual(r.withSigned(current).Signers, r.withSigned(spec).Signers) {
-		set, err := newSignerSet(r.effectiveSigners(spec))
-		if err != nil {
-			return specReply{}, fmt.Errorf("cell spec signers: %w", err)
-		}
-		if _, kept := set.trusted[keyID]; !kept {
-			return specReply{}, errors.New("cell spec would no longer trust the key that applies it; " +
-				"apply a spec that adds the new signer first, then remove this one")
-		}
-	}
-	// Removing a role stops managing it, so its replicas must be gone first.
-	// A role of the signed config keeps its signed profile instead.
-	for _, service := range current.Services {
-		_, kept := spec.Find(service.Role)
-		if _, signed := r.fixed[service.Role]; kept || signed {
-			continue
-		}
-		if r.removalReady != nil {
-			if err := r.removalReady(ctx, service.Role); err != nil {
-				return specReply{}, err
-			}
-		}
-		desired, err := hosts.ListDesired(ctx, service.Role)
-		if err != nil {
-			return specReply{}, err
-		}
-		for _, allocation := range desired {
-			if !allocation.Withdrawn {
-				return specReply{}, fmt.Errorf("service %q still has a replica on %s; scale it to zero before removing it",
-					service.Role, allocation.Node)
-			}
-		}
-	}
-	if err := fencer.Guard(ctx, epoch); err != nil {
-		return specReply{}, err
-	}
-	if revision == 0 {
-		revision, err = r.kv.Create(ctx, cellSpecKey, wire)
-	} else {
-		revision, err = r.kv.Update(ctx, cellSpecKey, wire, revision)
-	}
-	if err != nil {
-		return specReply{}, fmt.Errorf("store cell spec: %w", err)
-	}
-	r.adopt(spec, revision)
-	signer := map[bool]string{true: "root", false: "release leaf"}[verified.RootSigned]
-	decisionlog.Record(ctx, decisionlog.Decision{Region: r.cell, Actor: decisionlog.Actor{Slice: "cellspec"},
-		Kind: "cell_spec_applied", Subject: decisionlog.Subject{Kind: "region", ID: r.cell, Name: "cell spec"},
-		Summary: fmt.Sprintf("Applied cell spec generation %d", spec.Generation),
-		Reason:  fmt.Sprintf("Signed by the %s; it follows generation %d.", signer, current.Generation),
-		Rule:    "cellspec.apply", Status: decisionlog.StatusSucceeded, Epoch: epoch,
-		Attrs: map[string]string{"generation": strconv.FormatUint(spec.Generation, 10),
-			"requires_binary": strconv.FormatUint(spec.RequiresBinary, 10), "signer": signer}})
-	return specReply{Spec: spec, Status: "applied"}, nil
 }
 
 func sameSpec(a, b cellspec.Spec) bool {

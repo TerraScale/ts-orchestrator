@@ -20,7 +20,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard/accesscheck"
- "github.com/TerraScale/ts-orchestrator/internal/disasterrecovery"
+	"github.com/TerraScale/ts-orchestrator/internal/disasterrecovery"
 	"github.com/TerraScale/ts-orchestrator/internal/edge/geodns"
 	"github.com/TerraScale/ts-orchestrator/internal/functions"
 	"github.com/TerraScale/ts-orchestrator/internal/image"

@@ -117,6 +117,3 @@ type HistoricalReceipt struct {
 
 // Receipt returns a value copy of the historically verified receipt.
 func (verified HistoricalReceipt) Receipt() Receipt { return verified.receipt }
-
-// Slot returns the exact controller slot bound by the receipt.
-func (verified HistoricalReceipt) Slot() string { return verified.receipt.Slot }

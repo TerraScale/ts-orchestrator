@@ -14,7 +14,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -280,93 +279,4 @@ func (r *rootRegistry) reply(status string) rootChainReply {
 	defer r.mu.Unlock()
 	return rootChainReply{Version: 1, Sequence: r.verified.Sequence, Head: r.verified.Head,
 		Roots: slices.Sorted(maps.Keys(r.verified.Current)), Chain: r.chain, Status: status}
-}
-
-// apply appends a signed rotation on the authority leader. A statement
-// already on the chain is a no-op; otherwise it must extend the newer of
-// the adopted chain and the stored record and still be current.
-func (r *rootRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fencer authority.Fencer) (rootChainReply, error) {
-	r.adopting.Lock()
-	defer r.adopting.Unlock()
-	var signed trust.SignedRotation
-	if err := protocol.DecodeStrict(wire, &signed, maxRegistrationBytes); err != nil {
-		return rootChainReply{}, fmt.Errorf("decode root rotation: %w", err)
-	}
-	rotation, err := signed.Payload()
-	if err != nil {
-		return rootChainReply{}, err
-	}
-	r.mu.Lock()
-	base := r.chain
-	r.mu.Unlock()
-	revision, stored := uint64(0), false
-	entry, err := r.kv.Get(ctx, rootChainKey)
-	switch {
-	case err == nil:
-		revision = entry.Revision()
-		chain, err := trust.DecodeRootChain(entry.Value())
-		if err == nil && chain.Extends(base) {
-			if _, err = trust.VerifyRootChain(r.genesis, r.identity, chain); err == nil {
-				base, stored = chain, true
-			}
-		}
-		if err != nil {
-			slog.ErrorContext(ctx, "stored root chain is invalid; extending the adopted chain", observability.ComponentKey, "trust",
-				"revision", revision, "error", err)
-		}
-	case !errors.Is(err, jetstream.ErrKeyNotFound):
-		return rootChainReply{}, fmt.Errorf("read root chain: %w", err)
-	}
-	next, status, onChain := base, "unchanged", false
-	if rotation.Sequence >= 1 && rotation.Sequence <= uint64(len(base.Rotations)) {
-		// A statement already on the chain must still carry valid signatures.
-		prefix := trust.RootChain{Version: 1, Rotations: append(slices.Clone(base.Rotations[:rotation.Sequence-1]), signed)}
-		if base.Extends(prefix) {
-			if _, err := trust.VerifyRootChain(r.genesis, r.identity, prefix); err != nil {
-				return rootChainReply{}, err
-			}
-			onChain = true
-		}
-	}
-	if !onChain {
-		if err := trust.RotationCurrent(signed, time.Now()); err != nil {
-			return rootChainReply{}, fmt.Errorf("root rotation is not current: %w", err)
-		}
-		next, status = trust.RootChain{Version: 1, Rotations: append(slices.Clone(base.Rotations), signed)}, "applied"
-		verified, err := trust.VerifyRootChain(r.genesis, r.identity, next)
-		if err != nil {
-			return rootChainReply{}, err
-		}
-		if r.keeps != nil {
-			if err := r.keeps(ctx, verified.Current); err != nil {
-				return rootChainReply{}, err
-			}
-		}
-	}
-	// A statement already on the chain only rewrites a lost, invalid or
-	// older record.
-	if !onChain || !stored {
-		encoded, err := trust.EncodeRootChain(next)
-		if err != nil {
-			return rootChainReply{}, err
-		}
-		if err := fencer.Guard(ctx, epoch); err != nil {
-			return rootChainReply{}, err
-		}
-		if revision == 0 {
-			_, err = r.kv.Create(ctx, rootChainKey, encoded)
-		} else {
-			_, err = r.kv.Update(ctx, rootChainKey, encoded, revision)
-		}
-		if err != nil {
-			return rootChainReply{}, fmt.Errorf("store root chain: %w", err)
-		}
-	}
-	if err := r.adoptLocked(next); err != nil {
-		return rootChainReply{}, err
-	}
-	if !onChain {
-		slog.InfoContext(ctx, "root rotation applied", observability.ComponentKey, "trust", "sequence", rotation.Sequence, "epoch", epoch)
-	}
-	return r.reply(status), nil
 }

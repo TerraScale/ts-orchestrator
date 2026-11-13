@@ -5,9 +5,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -15,12 +13,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/budget"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
-	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 )
 
 type capacitySpendAuthority interface {
@@ -55,170 +49,6 @@ type capacityReservations struct {
 	specs                   *specRegistry
 	responseKey             ed25519.PrivateKey
 	homeKey                 func(context.Context) (ed25519.PublicKey, error)
-}
-
-func (r *capacityReservations) facts(ctx context.Context) (*capacityinventory.Reader, region.VerifiedInfrastructureSpend, capacityinventory.Snapshot, error) {
-	if r == nil || r.spending == nil {
-		return nil, region.VerifiedInfrastructureSpend{}, capacityinventory.Snapshot{}, fmt.Errorf("%w: signed infrastructure spending authority is unavailable", nodescale.ErrCapacityPending)
-	}
-	proof, err := r.spending.InfrastructureSpend(ctx)
-	if err != nil {
-		return nil, proof, capacityinventory.Snapshot{}, err
-	}
-	ociRegion, err := oci.Region(strings.ToUpper(r.cell)).OCIRegion()
-	if err != nil {
-		return nil, proof, capacityinventory.Snapshot{}, err
-	}
-	factory, err := instancePrincipal(ctx, ociRegion)
-	if err != nil {
-		return nil, proof, capacityinventory.Snapshot{}, err
-	}
-	reader, err := capacityinventory.New(factory)
-	if err != nil {
-		return nil, proof, capacityinventory.Snapshot{}, err
-	}
-	snapshot, err := reader.Read(ctx, proof.Footprint())
-	if err == nil {
-		err = snapshot.Validate(proof.Footprint(), time.Now())
-	}
-	return reader, proof, snapshot, err
-}
-
-func (r *capacityReservations) apply(ctx context.Context, source, action string, request capacityReservationRequest, epoch uint64) (budget.Reservation, error) {
-	reader, proof, snapshot, err := r.facts(ctx)
-	if err != nil {
-		return budget.Reservation{}, err
-	}
-	if !strings.EqualFold(request.Request.Cell, source) || !strings.EqualFold(request.Recipe.Cell, source) || !entityid.Valid(request.Request.OperationID) ||
-		request.Request.RecipeSHA256 != request.Recipe.SHA256() || request.Recipe.Validate() != nil {
-		return budget.Reservation{}, errors.New("capacity request differs from its authenticated source or exact recipe")
-	}
-	if err := r.global.authority.Guard(ctx, epoch); err != nil {
-		return budget.Reservation{}, err
-	}
-	if action == "observe" {
-		capacity, _, err := budget.ReadCapacity(ctx, r.global.reader)
-		if err != nil {
-			return budget.Reservation{}, err
-		}
-		if !slices.ContainsFunc(capacity.Reservations, func(receipt budget.Reservation) bool {
-			return receipt.OperationID == request.Request.OperationID && receipt.Cell == request.Request.Cell &&
-				receipt.CompartmentID == request.Request.CompartmentID && receipt.RecipeSHA256 == request.Recipe.SHA256()
-		}) {
-			return budget.Reservation{}, errors.New("capacity observation differs from the source's exact durable commitment")
-		}
-		return budget.Observe(ctx, r.global.reader, r.global.writer, epoch, request.Request.OperationID, request.ResourceIDs, proof, snapshot, time.Now())
-	}
-	quote, err := r.verifyCandidate(ctx, reader, proof, snapshot, request)
-	if err != nil {
-		return budget.Reservation{}, err
-	}
-	if err := r.global.authority.Guard(ctx, epoch); err != nil {
-		return budget.Reservation{}, err
-	}
-	switch action {
-	case "reserve":
-		return budget.Reserve(ctx, r.global.reader, r.global.writer, epoch, request.Request, proof, quote, snapshot, time.Now())
-	case "revalidate":
-		if request.Receipt == nil || request.Receipt.OperationID != request.Request.OperationID || request.Receipt.RecipeSHA256 != request.Recipe.SHA256() {
-			return budget.Reservation{}, errors.New("capacity revalidation needs its exact durable receipt")
-		}
-		err := budget.Revalidate(ctx, r.global.reader, *request.Receipt, proof, quote, snapshot, time.Now())
-		return *request.Receipt, err
-	default:
-		return budget.Reservation{}, errors.New("unknown capacity reservation action")
-	}
-}
-
-func (r *capacityReservations) verifyCandidate(ctx context.Context, reader *capacityinventory.Reader, proof region.VerifiedInfrastructureSpend,
-	snapshot capacityinventory.Snapshot, request capacityReservationRequest,
-) (capacityinventory.Quote, error) {
-	var quote capacityinventory.Quote
-	recipe := request.Recipe
-	if r.specs == nil {
-		return quote, fmt.Errorf("%w: current image trust or retained host evidence reader is unavailable", nodescale.ErrCapacityPending)
-	}
-	var regional capacityinventory.RegionScope
-	for _, candidate := range proof.Footprint().Regions {
-		if candidate.Cell == request.Request.Cell && strings.EqualFold(candidate.Cell, recipe.Cell) && slices.Contains(candidate.CompartmentIDs, request.Request.CompartmentID) {
-			regional = candidate
-		}
-	}
-	if regional.OCIRegion == "" {
-		return quote, errors.New("capacity source compartment is outside the signed footprint")
-	}
-	worker, err := r.authorizeWorker(ctx, recipe, request.Request.CompartmentID)
-	if err != nil {
-		return quote, err
-	}
-	if err := sameWorkerSpendingGrant(worker, proof); err != nil {
-		return quote, err
-	}
-	location, err := instancePrincipalChannel(regional.OCIRegion, strings.ToUpper(recipe.Cell)).get(ctx)
-	if err != nil {
-		return quote, err
-	}
-	openEvidence := func(ctx context.Context, digest string) (io.ReadCloser, error) {
-		return releasechannel.OpenImageProductionEvidence(ctx, location, digest)
-	}
-	qualification := request.Image
-	qualification.Role = recipe.Capacity.Role
-	qualification.Expected = release.ImageExpectation{Environment: r.environment, LogicalRegion: strings.ToUpper(recipe.Cell),
-		OCIImageOCID: recipe.ImageID, Architecture: recipe.Capacity.Architecture}
-	image, expires, err := nodescale.QualifyImage(ctx, qualification, r.specs.hostImageSnapshot().roots, openEvidence, time.Now())
-	if err != nil {
-		return quote, err
-	}
-	if deadline := worker.Profile().ExpiresAt(); deadline.Before(expires) {
-		expires = deadline
-	}
-	quote, err = reader.Quote(ctx, proof.Footprint(), request.Request.Cell, request.Request.CompartmentID, recipe.Capacity.Shape,
-		float64(recipe.OCPUs), float64(recipe.MemoryGB), nodescale.BootVolumeGB)
-	if err != nil {
-		return quote, err
-	}
-	if request.Request.MonthlyCents != quote.MonthlyCents() || request.Request.Shape != recipe.Capacity.Shape ||
-		request.Request.OCPUs != float64(recipe.OCPUs) || request.Request.MemoryGB != float64(recipe.MemoryGB) || request.Request.BootGB != nodescale.BootVolumeGB {
-		return quote, errors.New("capacity request differs from the home's independent exact-geometry quote")
-	}
-	headroom, err := budget.InfrastructureHeadroom(ctx, r.global.reader, proof, snapshot, request.Request.OperationID, time.Now())
-	if err != nil {
-		return quote, err
-	}
-	factory, err := instancePrincipal(ctx, regional.OCIRegion)
-	if err != nil {
-		return quote, err
-	}
-	compute, err := factory.Compute()
-	if err != nil {
-		return quote, err
-	}
-	quotas, err := factory.Limits()
-	if err != nil {
-		return quote, err
-	}
-	if quote.ExpiresAt().Before(expires) {
-		expires = quote.ExpiresAt()
-	}
-	if request.Request.FactsExpireAt.After(expires) {
-		return quote, errors.New("capacity request outlives independently verified image or price facts")
-	}
-	selection, err := nodescale.DiscoverCapacity(ctx, compute, quotas, nodescale.CapacityRequest{
-		TenancyID: proof.Footprint().TenancyID, CompartmentID: request.Request.CompartmentID, AvailabilityDomains: recipe.AvailabilityDomains,
-		Role: recipe.Capacity.Role, Architectures: []string{recipe.Capacity.Architecture}, OCPUs: recipe.OCPUs, MemoryGB: recipe.MemoryGB,
-		BootGB: nodescale.BootVolumeGB, Images: []nodescale.QualifiedImage{image}, Prices: quote.Prices(), MonthlyHeadroomCents: new(headroom), FactsExpireAt: expires})
-	if err != nil {
-		return quote, err
-	}
-	for _, domain := range recipe.AvailabilityDomains {
-		if !slices.ContainsFunc(selection.Candidates, func(candidate nodescale.CapacityCandidate) bool {
-			return candidate.Capacity == recipe.Capacity && candidate.ImageID == recipe.ImageID && candidate.AvailabilityDomain == domain &&
-				candidate.MonthlyCents == quote.MonthlyCents()
-		}) {
-			return quote, fmt.Errorf("%w: exact candidate lacks current compatibility, quota, host capacity or spending headroom: %s", nodescale.ErrCapacityPending, strings.Join(selection.Pending, "; "))
-		}
-	}
-	return quote, nil
 }
 
 func (r *capacityReservations) exchange(ctx context.Context, action string, request capacityReservationRequest) (capacityReservationResponse, error) {
