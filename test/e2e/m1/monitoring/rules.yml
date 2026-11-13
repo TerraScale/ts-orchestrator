@@ -323,3 +323,43 @@ tests:
         severity: critical
       exp_annotations:
         summary: A running service task cannot be scraped
+- interval: 15s
+  input_series:
+  - series: ts_orch_task_unresponsive_seconds{service="terrabase",task="frozen-task"}
+    values: 0+15x20 0+0x4
+  alert_rule_test:
+  - eval_time: 3m45s
+    alertname: TerraBaseTaskUnresponsive
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: TerraBaseTaskUnresponsive
+    exp_alerts:
+    - exp_labels:
+        service: terrabase
+        task: frozen-task
+        severity: critical
+      exp_annotations:
+        summary: A TerraBase task has stopped answering its readiness endpoint
+  - eval_time: 5m15s
+    alertname: TerraBaseTaskUnresponsive
+    exp_alerts: []
+- interval: 15s
+  input_series:
+  - series: ts_orch_task_unresponsive_seconds{service="ts-auth",task="frozen-task"}
+    values: 0+15x20 0+0x4
+  alert_rule_test:
+  - eval_time: 3m45s
+    alertname: ServiceTaskUnresponsive
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ServiceTaskUnresponsive
+    exp_alerts:
+    - exp_labels:
+        service: ts-auth
+        task: frozen-task
+        severity: warning
+      exp_annotations:
+        summary: A service task has stopped answering its readiness endpoint
+  - eval_time: 5m15s
+    alertname: ServiceTaskUnresponsive
+    exp_alerts: []

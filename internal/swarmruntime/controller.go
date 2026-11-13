@@ -647,11 +647,7 @@ func (c *controller) Wait(ctx context.Context) (operationErr error) {
 		if c.stateful != nil {
 			stop = nil // stopping needs the pins only Shutdown carries
 		}
-		result := failWithoutExit(ctx, err, stop)
-		if errors.Is(err, errTaskUnresponsive) && !exec.IsTemporary(result) && ctx.Err() == nil {
-			c.recordReadinessFailure()
-		}
-		return result
+		return failWithoutExit(ctx, err, stop)
 	}
 	c.executor.mu.Lock()
 	c.executor.recordExitLocked(c.task, c.fingerprint, exited.Sub(started), time.Now())
@@ -699,7 +695,7 @@ func failWithoutExit(ctx context.Context, err error, stop func(context.Context) 
 		return err
 	}
 	if stopErr := stop(context.WithoutCancel(ctx)); stopErr != nil {
-		return exec.MakeTemporary(errors.Join(err, fmt.Errorf("stop the failed task's process: %w", stopErr)))
+		return errors.Join(err, fmt.Errorf("stop the failed task's process: %w", stopErr))
 	}
 	return err
 }
@@ -721,26 +717,15 @@ func (c *controller) waitExit(ctx context.Context, following func()) (uint32, ti
 		return 0, time.Time{}, err
 	}
 	following()
-	var failed <-chan error
 	if _, named := c.spec.Labels[LabelReadyPath]; named {
 		watch := c.readinessWatch(ctx)
 		defer watch.close()
-		failed = watch.failed
 	}
-	for {
-		select {
-		case <-ctx.Done():
-			return 0, time.Time{}, ctx.Err()
-		case status := <-wait:
-			return status.Result()
-		case err := <-failed:
-			select {
-			case status := <-wait:
-				return status.Result()
-			default:
-			}
-			return 0, time.Time{}, err
-		}
+	select {
+	case <-ctx.Done():
+		return 0, time.Time{}, ctx.Err()
+	case status := <-wait:
+		return status.Result()
 	}
 }
 

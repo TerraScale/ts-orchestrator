@@ -1,39 +1,25 @@
-# Continuous task readiness
+# Task readiness reporting
 
-After a one-minute start grace, each host resolves a watched task's exact endpoint under its own five-second bound, then starts a fresh fifteen-second HTTP probe. Rounds collect all concurrent probes before evaluating witnesses, windows, correlation, and at most one replacement authorization, with ten seconds between the end of one host round and the start of the next, keeping due tasks in the same round. Failed or timed-out lookups are not observations and contribute no failure evidence. A task using a dynamic PORT needs a readable, valid, nonzero task port label; the shared service port is never substituted.
+The agent probes every running task whose container specification names a readiness path. It resolves that exact task's endpoint rather than a shared service port. Tasks without a readiness path are not observed. Qualified storage members use their bound Unix member-status endpoint and verified runtime identity.
 
-A failing observation means the request reached that exact task, was fully written, and received no first response byte before its deadline. It advances the five-minute replacement window only when another watched task on this host answers in that round; owners and services without replacement permission also count as witnesses. For the host's only watched task, the prober instead uses the agent's loopback health endpoint as witness. Suspect rounds and unavailable endpoints pause evidence; a witnessed observed non-failure clears the replacement window. Any answering probe, including HTTP 503, independently clears the reporting clock and replacement window even without a witness.
+Each host completes one round across its tasks, then waits ten seconds. Each task is probed once per round, with at most one probe goroutine per task. Endpoint and runtime identity resolution have a five-second bound, separate from a fresh fifteen-second HTTP deadline. Qualified members also verify identity after the exchange with a separate five-second bound. Requests do not follow redirects, use an environment proxy, or reuse connections.
 
-A task is failing with evidence in a round only when its probe goes unanswered and that round has a witness. Replacement of task A is vetoed if any other eligible task accumulates at least sixty seconds of overlapping failing rounds during A's current failing window; a single failed probe, an unwitnessed failure, or absence from the round contributes no overlap.
+An unanswered observation means the endpoint accepted the request but sent no response before the HTTP deadline. An unavailable endpoint, connection, or runtime identity is unobserved, never a failure. An unobserved round breaks the measured consecutive period. Any answer, including HTTP 503, clears that period on the first answering round: a task answering “not ready” is alive; readiness failure is a separate condition already exposed by readiness monitoring.
 
-Automatic replacement requires the boolean readiness.replaceWhenUnresponsive to be true in the service declaration, an explicit readyPath, positively established absence of data ownership, five minutes of witnessed unanswered probes, no qualifying correlation, and an available host budget. The field defaults to false when absent. An operator can add the following section to a stateless service declaration:
+## Signals and alerting
 
-~~~json
-"readiness": {
-  "replaceWhenUnresponsive": true
-}
-~~~
+- `ts_orch_task_unresponsive_seconds{task,service}` rises from the start of the first unanswered request, as soon as that observation completes. It does not wait for the warning threshold. It is zero after an answer or an unobserved round.
+- `ts_orch_task_readiness_others_answered{task,service}` is one when another watched task on the host answered in the same round, zero otherwise. For an unresponsive task, one indicates an isolated failure; zero means no other watched task answered, which can also mean peers were unobserved or absent. This is information for operators only.
+- `ts_orch_task_readiness_unobserved_total{task,service}` counts rounds without a usable observation.
 
-The field is intended for stateless services with more than one way to be served or that are quick to restart. The authentication service and dashboard are the intended first users. This change adds the field to no deployed service declaration: rolling out the agent alone replaces nothing. Apply refuses a true value on a service with any mount or storage binding, with an error explaining that the service owns data; a declared readiness path is also required. Inspection preserves the field, and configuration rolls carry it in the task template and service labels. An older node rewriting the declaration without this field makes the service ineligible, the safe direction.
+The service label is the declared service name. Each watch removes all its series when it closes. A new watch, including after an agent restart, starts with empty evidence. Agent restarts retain task processes and serving continuity.
 
-Every watched task is observed and reported regardless of this field. Databases, qualified or stateful members, TerraBase tasks, and every task with a mount are retained. Unknown ownership, including an error determining it, is retained. An authorized replacement stops the original process before reporting the normal failure to the scheduler. Readiness observer errors and deadlines never enter a qualified member's execution scope or lifecycle error path.
+After four minutes of consecutive unanswered observations, the agent writes one warning per episode with the task ID and whether other tasks answered. The first answer clears the episode. Unknown intervals reset the gauge but do not produce repeated episode warnings before an answer. There is no attachment grace; with host round and HTTP bounds, a newly hung task is normally reported within about five minutes. The gauge is available earlier so alerts can choose their own threshold.
 
-Each watched task has a ts_orch_task_unresponsive_seconds{task,service} gauge. Once the five-minute reporting threshold is crossed, it reports wall time since the first unanswered observation, including suspect rounds, independently of witnessed replacement evidence. It returns to zero on the first answering probe, witnessed or not, and disappears when observation ends. Each retained episode logs one warning and one "task readiness unresponsive window cleared" line when it answers again.
+The installed operational rules page critically for `service="terrabase"` and warn for other services when the gauge reaches 240 seconds. They add no further pending period. Scrape and rule evaluation intervals add their own delivery delay.
 
-| Situation | Operator sees | Action |
-| --- | --- | --- |
-| Data owner | not replaced: data owner, duration gauge | Retained |
-| Unknown ownership | not replaced: ownership unknown, duration gauge | Retained |
-| Service has not requested replacement | not replaced: service has not requested replacement, duration gauge | Retained |
-| No task or local witness answered | not replaced: no witness answered, duration gauge | Retained; no new evidence |
-| Eligible sibling overlaps for at least sixty seconds of witnessed failure | not replaced: correlated with N other tasks, duration gauge | Retained for this failing window |
-| Host budget used or cannot be safely established | not replaced: host replacement budget unavailable, duration gauge | Retained and reconsidered |
-| Exact endpoint unavailable within five seconds | ts_orch_task_readiness_unobserved_total{task,service} increments per skipped round; one "task readiness not observed: exact task endpoint unavailable" warning per watch | No observation |
+The prober only reports. It never stops, restarts, or replaces a task, and never changes ingress eligibility. It cannot detect a task that answers its readiness endpoint while failing real work, or a task without a readiness path.
 
-Each host authorizes at most one replacement across all services in any fifteen minutes. The budget is serialized and synced to persistent agent state before authorization, survives agent and host restarts, and denies replacement for unreadable or invalid records. Denied tasks keep their evidence and are reconsidered. After authorization, slot preparation waits one, two, four, eight, then fifteen minutes after repeated readiness failures. Thirty minutes of successful witnessed observations clears this per-slot history.
+## Journey
 
-Decisions are per host. A fault affecting several hosts can lead each host to replace one eligible task. A readiness handler that hangs on a dependency while its task still serves traffic can cause replacement when that task alone fails and witnesses answer. Services should bound their own readiness checks.
-
-Metrics are exported on the orchestrator and host metrics listeners; alert rules belong to monitoring configuration.
-
-The main M1 restart lane keeps the quick process and service continuity, keys, and data retention checks across agent restart. Main now splits M1 into parallel quick lanes with eight-minute limits (three for regional) and a one-minute e2e-m1 aggregate; these existing limits stay below the former fifteen-minute main job cap. A separate timed lifecycle job runs on changes to liveness, controller, backoff, endpoint, ownership, service readiness configuration, member-readiness client, lifecycle lane, or CI workflow paths, and nightly. The required all-green check waits for the timed job when it runs, accepts its intentional skip otherwise, and retains the existing failure and cancellation semantics for every other job. The lifecycle uses the real product constants, including the fifteen-minute budget, with no product test switches.
+The readiness lane freezes tasks with SIGSTOP on two isolated hosts. It checks reporting within 4m50s, a rising gauge before the threshold, exactly one warning, unchanged process IDs for over 6m15s, both peer-answer cases, and clearing on thaw. It also checks slow endpoint resolution, slow qualified-member identity resolution with a healthy four-second response, non-success answers, and series cleanup. The restart lane retains the quick continuity check. The readiness lane has a ten-minute job limit; its measured runtime is printed in the job log.

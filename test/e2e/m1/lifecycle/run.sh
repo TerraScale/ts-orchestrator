@@ -6,7 +6,7 @@ binary=$2
 image=$3
 archive=$4
 server=$5
-mode=timed
+mode=reporting
 if [[ $# -ge 6 ]]; then mode=$6; fi
 mount --make-rprivate /
 mkdir -p "$root/cgroup"

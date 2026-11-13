@@ -40,9 +40,11 @@ const HostContainerdSocket = "/run/containerd/containerd.sock"
 
 // Executor translates upstream SwarmKit tasks directly into containerd objects.
 type Executor struct {
-	slo               sloCache
-	bootstrap         *rolloutmaintenance.Store
-	bootstrapTasks    map[string]*controller
+	liveness       readinessHost
+	slo            sloCache
+	bootstrap      *rolloutmaintenance.Store
+	bootstrapTasks map[string]*controller
+	// bootstrapLive reports whether a task has a runtime process; nil uses containerd.
 	bootstrapLive     func(context.Context, *controller) (bool, error)
 	client            *containerd.Client
 	socket            string
@@ -61,10 +63,8 @@ type Executor struct {
 	loadMu            sync.Mutex
 	loadTasks         map[string]*controller
 	loadSampler       *hostload.Sampler
-	pulls             sync.Map
-	restarts          map[string]slotRestart
-	readiness         map[string]readinessHistory
-	liveness          readinessHost
+	pulls             sync.Map               // image reference -> *sync.Mutex
+	restarts          map[string]slotRestart // guarded by mu
 }
 
 var _ exec.Executor = (*Executor)(nil)

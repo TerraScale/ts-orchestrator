@@ -18,7 +18,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
-	"github.com/containerd/errdefs"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -29,10 +28,14 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	ctx, cancel := context.WithTimeout(ctx, 45*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 9*time.Minute)
 	defer cancel()
 	var err error
 	switch os.Args[1] {
+	case "member-server":
+		err = memberServer(ctx, os.Args[2])
+	case "identity":
+		err = qualifiedIdentity(ctx)
 	case "runtime":
 		err = until(ctx, func() error {
 			client, err := containerd.New(os.Args[2])
@@ -356,7 +359,7 @@ func (j *journey) reported(reason string, counts map[*workload]int, workloads ..
 			if err != nil {
 				return err
 			}
-			if value < (5 * time.Minute).Seconds() {
+			if value < (4 * time.Minute).Seconds() {
 				return fmt.Errorf("task %s gauge %g", w.task.ID, value)
 			}
 		}
@@ -410,19 +413,11 @@ func (j *journey) create(image, name, host string, port int, owner bool, replica
 	}
 	declaration := swarmruntime.ServiceSpec{Name: name, Image: image, Env: map[string]string{"PORT": swarmruntime.TaskPortEnv},
 		Args: []string{"sh", "-c", "wget -q -O /tmp/lifecycle http://127.0.0.1:19090/binary && chmod +x /tmp/lifecycle && exec /tmp/lifecycle serve"},
-		Port: uint32(port), ReadyPath: "/ready", Replicas: replicas, Readiness: swarmruntime.ServiceReadiness{ReplaceWhenUnresponsive: !owner}}
+		Port: uint32(port), ReadyPath: "/ready", Replicas: replicas}
 	if owner {
 		declaration.Env = map[string]string{"PORT": strconv.Itoa(port)}
 		declaration.Mounts = []swarmruntime.ServiceMount{{Source: "/var/lib/ts-data/c18", Target: "/tmp"}}
 		declaration.Args = []string{"/tmp/lifecycle", "serve"}
-	}
-	if owner {
-		invalid := declaration
-		invalid.Readiness.ReplaceWhenUnresponsive = true
-		if _, err := invalid.SwarmSpec(); err == nil || !strings.Contains(err.Error(), "owns data") {
-			return nil, errors.New("mount accepted automatic replacement")
-		}
-		fmt.Println("apply refused readiness.replaceWhenUnresponsive on a service with a mount: owns data")
 	}
 	spec, err := declaration.SwarmSpec()
 	if err != nil {
@@ -455,47 +450,6 @@ func (j *journey) create(image, name, host string, port int, owner bool, replica
 	}
 	j.workloads = append(j.workloads, result...)
 	return result, nil
-}
-
-func (j *journey) replacement(w *workload) (*workload, error) {
-	var replacement *workload
-	err := until(j.ctx, func() error {
-		original, err := j.control.GetTask(j.ctx, &api.GetTaskRequest{TaskID: w.task.ID})
-		if err != nil {
-			return err
-		}
-		if original.Task.Status.State != api.TaskStateFailed || !strings.Contains(original.Task.Status.Err, "consecutive readiness probes") {
-			return errors.New("waiting for readiness replacement")
-		}
-		tasks, err := j.running(w.task.ServiceID, w.host, 0, w.runtime)
-		if err != nil {
-			return err
-		}
-		var slot []*workload
-		for _, task := range tasks {
-			if task.task.Slot == w.task.Slot {
-				slot = append(slot, task)
-			}
-		}
-		tasks = slot
-		if len(tasks) != 1 || tasks[0].task.ID == w.task.ID || tasks[0].process.Pid() == w.process.Pid() {
-			return errors.New("expected one distinct replacement process")
-		}
-		status, err := w.process.Status(namespaces.WithNamespace(j.ctx, "terrascale"))
-		if err != nil && !errdefs.IsNotFound(err) {
-			return err
-		}
-		if err == nil && status.Status != containerd.Stopped {
-			return errors.New("replaced original process survives")
-		}
-		replacement = tasks[0]
-		return nil
-	})
-	if err == nil {
-		delete(j.frozen, w)
-		j.workloads = append(j.workloads, replacement)
-	}
-	return replacement, err
 }
 
 func run(ctx context.Context, root, image string) error {
@@ -567,215 +521,5 @@ func run(ctx context.Context, root, image string) error {
 	if len(os.Args) > 3 && os.Args[3] == "quick" {
 		return j.quickContinuity(owner, keys)
 	}
-	if err := j.slowLookup(first); err != nil {
-		return err
-	}
-	first, err = j.setReplacement(first, false)
-	if err != nil {
-		return err
-	}
-	if err := j.freeze(first); err != nil {
-		return err
-	}
-	if err := j.reported("not replaced: service has not requested replacement", map[*workload]int{}, first); err != nil {
-		return err
-	}
-	if err := j.recover(first); err != nil {
-		return err
-	}
-	fmt.Println("service without readiness.replaceWhenUnresponsive reported beyond five minutes with a witness; original PID retained")
-	first, err = j.setReplacement(first, true)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://10.231.0.3:19090/shared-ready", nil)
-	if err != nil {
-		return err
-	}
-	response, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
-	if err != nil {
-		return err
-	}
-	if response.StatusCode != http.StatusOK {
-		response.Body.Close()
-		return fmt.Errorf("node-local shared service returned HTTP %d", response.StatusCode)
-	}
-	body, err := io.ReadAll(response.Body)
-	response.Body.Close()
-	if err != nil {
-		return err
-	}
-	var sibling, healthy *workload
-	for _, w := range twins {
-		if string(body) == strings.Split(w.address, ":")[1] {
-			sibling = w
-		} else {
-			healthy = w
-		}
-	}
-	if sibling == nil || healthy == nil {
-		return fmt.Errorf("shared port answered unknown PID %s", body)
-	}
-	container, err := healthy.runtime.LoadContainer(namespaces.WithNamespace(ctx, "terrascale"), "ts-"+healthy.task.ID)
-	if err != nil {
-		return err
-	}
-	labels, err := container.Labels(namespaces.WithNamespace(ctx, "terrascale"))
-	if err != nil {
-		return err
-	}
-	ownPort := labels["terrascale.ports"]
-	if _, err := container.SetLabels(namespaces.WithNamespace(ctx, "terrascale"), map[string]string{"terrascale.ports": "unreadable"}); err != nil {
-		return err
-	}
-	if err := j.freeze(sibling); err != nil {
-		return err
-	}
-	if err := j.freeze(first, second); err != nil {
-		return err
-	}
-	if err := j.reported("not replaced: correlated with 1 other tasks", map[*workload]int{}, first, second); err != nil {
-		return err
-	}
-	if err := j.retained(owner); err != nil {
-		return err
-	}
-	fmt.Printf("two correlated frozen tasks reported once; PIDs %d %d survived; witness PID %d survived\n", first.process.Pid(), second.process.Pid(), owner.process.Pid())
-	if err := j.recover(first, second); err != nil {
-		return err
-	}
-	for _, w := range []*workload{first, second} {
-		count, err := j.logCount(w, "task readiness unresponsive window cleared")
-		if err != nil || count != 1 {
-			return fmt.Errorf("correlation clear count %d: %w", count, err)
-		}
-	}
-	fmt.Printf("correlated tasks recovered and cleared once; same PIDs %d %d\n", first.process.Pid(), second.process.Pid())
-	if err := j.freeze(owner, first, second); err != nil {
-		return err
-	}
-	if err := j.reported("not replaced: no witness answered", map[*workload]int{}, first, second, sibling); err != nil {
-		return err
-	}
-	if err := j.reported("not replaced: data owner", map[*workload]int{}, owner); err != nil {
-		return err
-	}
-	lastGauge := 0.0
-	if err := until(ctx, func() error {
-		if err := j.retained(owner, first, second, healthy, sibling); err != nil {
-			return err
-		}
-		value, err := j.metric(owner, "task_unresponsive_seconds")
-		if err != nil {
-			return err
-		}
-		if value < lastGauge {
-			return fmt.Errorf("data-owner gauge regressed from %g to %g", lastGauge, value)
-		}
-		lastGauge = value
-		if value < (6 * time.Minute).Seconds() {
-			return errors.New("waiting for six minutes of retained data-owner telemetry")
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	missing, err := j.metric(healthy, "task_readiness_unobserved_total")
-	if err != nil || missing < 2 {
-		return fmt.Errorf("unobserved counter %g: %w", missing, err)
-	}
-	count, err := j.logCount(healthy, "task readiness not observed: exact task endpoint unavailable")
-	if err != nil || count != 1 {
-		return fmt.Errorf("unobserved log count %d: %w", count, err)
-	}
-	if err := request(ctx, healthy.address, "/ready", http.StatusOK); err != nil {
-		return err
-	}
-	fmt.Printf("no witness: all frozen tasks reported, PIDs %d %d %d retained; data owner reported, PID %d retained, rising gauge %.0f seconds\n", first.process.Pid(), second.process.Pid(), sibling.process.Pid(), owner.process.Pid(), lastGauge)
-	fmt.Printf("unreadable task port: healthy PID %d survived beside frozen shared-port sibling PID %d; %.0f unobserved rounds, one log\n", healthy.process.Pid(), sibling.process.Pid(), missing)
-	if _, err := container.SetLabels(namespaces.WithNamespace(ctx, "terrascale"), map[string]string{"terrascale.ports": ownPort}); err != nil {
-		return err
-	}
-	if err := j.recover(owner, first, second, sibling); err != nil {
-		return err
-	}
-	if err := j.retained(healthy); err != nil {
-		return err
-	}
-	fmt.Printf("all recovered and gauges cleared; same PIDs %d %d %d %d %d\n", owner.process.Pid(), first.process.Pid(), second.process.Pid(), sibling.process.Pid(), healthy.process.Pid())
-	if err := j.freeze(first); err != nil {
-		return err
-	}
-	if err := request(ctx, second.address, "/fail-once", http.StatusOK); err != nil {
-		return err
-	}
-	replacement, err := j.replacement(first)
-	if err != nil {
-		return err
-	}
-	if err := j.retained(owner, second, healthy, sibling); err != nil {
-		return err
-	}
-	if err := j.oneFailure(second); err != nil {
-		return err
-	}
-	fmt.Println("sibling failed exactly one probe during the failing window; replacement was not vetoed")
-	fmt.Printf("same service with readiness.replaceWhenUnresponsive replaced once: PID %d stopped, new PID %d; witness PIDs %d %d retained\n", first.process.Pid(), replacement.process.Pid(), owner.process.Pid(), second.process.Pid())
-	budgetData, err := os.ReadFile(filepath.Join(root, "c18a", "readiness-replacement"))
-	if err != nil {
-		return err
-	}
-	budgetStart, err := time.Parse(time.RFC3339Nano, string(budgetData))
-	if err != nil {
-		return err
-	}
-	reportsBefore, err := j.logCount(healthy, "not replaced: no witness answered")
-	if err != nil {
-		return err
-	}
-	clearsBefore, err := j.logCount(healthy, "task readiness unresponsive window cleared")
-	if err != nil {
-		return err
-	}
-	if err := j.freeze(sibling, healthy); err != nil {
-		return err
-	}
-	if err := j.freeze(second); err != nil {
-		return err
-	}
-	if err := j.reported("not replaced: host replacement budget unavailable", map[*workload]int{}, second); err != nil {
-		return err
-	}
-	if err := j.retained(owner, replacement, healthy, sibling); err != nil {
-		return err
-	}
-	fmt.Printf("second sequential failure held by real 15-minute host budget: PID %d survived past five minutes; first replacement PID %d survived\n", second.process.Pid(), replacement.process.Pid())
-	recoveredSibling, err := j.recoveryWitness(sibling, healthy, reportsBefore, clearsBefore)
-	if err != nil {
-		return err
-	}
-	sibling = recoveredSibling
-	next, err := j.replacement(second)
-	if err != nil {
-		return err
-	}
-	nextBudgetData, err := os.ReadFile(filepath.Join(root, "c18a", "readiness-replacement"))
-	if err != nil {
-		return err
-	}
-	nextBudgetStart, err := time.Parse(time.RFC3339Nano, string(nextBudgetData))
-	if err != nil {
-		return err
-	}
-	if nextBudgetStart.Sub(budgetStart) < 15*time.Minute {
-		return errors.New("host replaced twice inside real 15-minute budget")
-	}
-	if err := j.retained(owner, replacement, healthy, sibling); err != nil {
-		return err
-	}
-	if err := j.replacementCount(first.task.ServiceID, second.task.ServiceID); err != nil {
-		return err
-	}
-	fmt.Printf("budget released after %s: second PID %d stopped, new PID %d; first replacement PID %d and data owner PID %d survived\n", nextBudgetStart.Sub(budgetStart).Round(time.Second), second.process.Pid(), next.process.Pid(), replacement.process.Pid(), owner.process.Pid())
-	return nil
+	return j.reporting(first, second, owner, twins)
 }

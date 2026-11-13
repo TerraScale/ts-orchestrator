@@ -30,8 +30,7 @@ func main() {
 		panic(err)
 	}
 	var slowReady atomic.Bool
-	var failed atomic.Int64
-	var failOnce atomic.Bool
+	var notReady atomic.Bool
 	server := &http.Server{Addr: ":" + port, ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/slow-ready" {
 			slowReady.Store(true)
@@ -45,21 +44,12 @@ func main() {
 			fmt.Fprint(w, port)
 			return
 		}
-		if r.URL.Path == "/failures" {
-			fmt.Fprint(w, failed.Load())
-			return
-		}
-		if r.URL.Path == "/fail-once" {
-			failOnce.Store(true)
+		if r.URL.Path == "/not-ready" {
+			notReady.Store(true)
 			return
 		}
 		if r.URL.Path != "/ready" {
 			http.NotFound(w, r)
-			return
-		}
-		if failOnce.CompareAndSwap(true, false) {
-			<-r.Context().Done()
-			failed.Add(1)
 			return
 		}
 		if slowReady.Load() {
@@ -70,6 +60,9 @@ func main() {
 			case <-r.Context().Done():
 				return
 			}
+		}
+		if notReady.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 		fmt.Fprint(w, port)
 	})}

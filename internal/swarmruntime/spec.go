@@ -15,7 +15,6 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/api"
-	"google.golang.org/protobuf/encoding/protowire"
 )
 
 const ContainerKind = "terrascale.container.v1"
@@ -35,33 +34,13 @@ func ContainerRuntime(spec *api.ContainerSpec) (*api.TaskSpec_Generic, error) {
 	if err := validateContainer(spec); err != nil {
 		return nil, err
 	}
-	b, err := marshalContainer(spec)
+	b, err := spec.Marshal()
 	if err != nil {
 		return nil, err
 	}
 	return &api.TaskSpec_Generic{Generic: &api.GenericRuntimeSpec{
 		Kind: ContainerKind, Payload: &types.Any{TypeUrl: containerTypeURL, Value: b},
 	}}, nil
-}
-
-func marshalContainer(spec *api.ContainerSpec) ([]byte, error) {
-	plain := spec.Copy()
-	plain.Labels = nil
-	data, err := plain.Marshal()
-	if err != nil {
-		return nil, err
-	}
-	offset := 0
-	if number, kind, tag := protowire.ConsumeTag(data); number == 1 && tag > 0 {
-		offset = tag + protowire.ConsumeFieldValue(number, kind, data[tag:])
-	}
-	wire := append([]byte(nil), data[:offset]...)
-	for _, key := range slices.Sorted(maps.Keys(spec.Labels)) {
-		entry := protowire.AppendString(protowire.AppendTag(nil, 1, protowire.BytesType), key)
-		entry = protowire.AppendString(protowire.AppendTag(entry, 2, protowire.BytesType), spec.Labels[key])
-		wire = protowire.AppendBytes(protowire.AppendTag(wire, 2, protowire.BytesType), entry)
-	}
-	return append(wire, data[offset:]...), nil
 }
 
 // DecodeContainer refuses unsupported runtime fields rather than silently ignoring them.
@@ -92,7 +71,7 @@ func decodeContainer(task *api.Task) (*api.ContainerSpec, error) {
 	if err := spec.Unmarshal(g.Payload.Value); err != nil {
 		return nil, fmt.Errorf("decode container: %w", err)
 	}
-	encoded, err := marshalContainer(spec)
+	encoded, err := spec.Marshal()
 	if err != nil || !bytes.Equal(encoded, g.Payload.Value) {
 		return nil, fmt.Errorf("container payload contains unknown or noncanonical fields")
 	}
@@ -259,10 +238,8 @@ func validateContainer(s *api.ContainerSpec) error {
 	if err := validateMounts(s.Mounts); err != nil {
 		return err
 	}
-	for key, value := range s.Labels {
-		if key != LabelReadyPath && (key != LabelReplaceWhenUnresponsive || value != "true") {
-			return fmt.Errorf("container labels accept only %s and %s=true", LabelReadyPath, LabelReplaceWhenUnresponsive)
-		}
+	if _, ok := s.Labels[LabelReadyPath]; len(s.Labels) > 1 || len(s.Labels) == 1 && !ok {
+		return fmt.Errorf("container labels accept only %s", LabelReadyPath)
 	}
 	if !validReadyPath(ReadyPath(s)) {
 		return fmt.Errorf("container readiness path must be a clean absolute URL path")

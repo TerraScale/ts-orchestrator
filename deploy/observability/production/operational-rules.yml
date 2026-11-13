@@ -143,6 +143,20 @@ groups:
         annotations:
           summary: Stored service spec rejected; service not managed
           description: The mesh excluded this service from startup because its stored desired state fails validation. Its running task is left alone. Apply a corrected spec to restore management.
+  - name: task-responsiveness
+    rules:
+      - alert: TerraBaseTaskUnresponsive
+        expr: ts_orch_task_unresponsive_seconds{service="terrabase"} >= 240
+        labels:
+          severity: critical
+        annotations:
+          summary: A TerraBase task has stopped answering its readiness endpoint
+      - alert: ServiceTaskUnresponsive
+        expr: ts_orch_task_unresponsive_seconds{service!="terrabase"} >= 240
+        labels:
+          severity: warning
+        annotations:
+          summary: A service task has stopped answering its readiness endpoint
   - name: monitoring-coverage
     rules:
       - alert: ApplicationTaskMetricsDown
