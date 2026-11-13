@@ -1,17 +1,25 @@
 package regionhost
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/nats-io/nats.go"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 const dataDevice = "/dev/oracleoci/oraclevdb"
 const dataPolicy = "ts-host-data-daily-7d"
 const dataFormattedTag = "terrascale-data-formatted"
+const dataUUIDTag = "terrascale-data-uuid"
+const dataVolumeTag = "terrascale-data-volume"
+const dataFormatTag = "terrascale-data-may-format"
+const dataInstanceTag = "terrascale-data-instance"
 
 func volumeTags(host string) map[string]string {
 	return map[string]string{"terrascale-managed-by": "ts-orchestrator", "terrascale-resource": "data-volume", "terrascale-host": host}
@@ -53,14 +61,6 @@ func sameTags(actual, want map[string]string) bool {
 	return true
 }
 
-func volumeTag(volume *core.Volume, key string) (string, bool) {
-	if volume == nil {
-		return "", false
-	}
-	value, present := volume.FreeformTags[key]
-	return value, present
-}
-
 func (r *run) ensureDataVolume(host, ad string, volume *core.Volume) (*core.Volume, error) {
 	policy, err := r.ensureDataPolicy()
 	if err != nil {
@@ -79,6 +79,10 @@ func (r *run) ensureDataVolume(host, ad string, volume *core.Volume) (*core.Volu
 				return nil, err
 			}
 			volume = &created.Volume
+			if r.createdVolumes == nil {
+				r.createdVolumes = make(map[string]bool)
+			}
+			r.createdVolumes[deref(volume.Id)] = true
 		}
 	}
 	if !r.dry {
@@ -193,22 +197,21 @@ func (r *run) attachDataVolume(host string, instance *core.Instance, volume *cor
 	if r.dry && deref(volume.Id) == "-" {
 		return r.report("created", "data-attachment", host, dataDevice)
 	}
-	if instance != nil {
-		expected := instance.Metadata["terrascale-data-volume"]
-		if expected != "" && expected != "required" && expected != deref(volume.Id) {
-			return errors.New("host data volume does not match its recorded volume")
+	if !r.dry {
+		current, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: instance.Id})
+		if err != nil {
+			return err
 		}
-		if !r.dry && expected != deref(volume.Id) {
-			metadata := maps.Clone(instance.Metadata)
-			if metadata == nil {
-				metadata = make(map[string]string)
-			}
-			metadata["terrascale-data-volume"] = deref(volume.Id)
-			_, err := r.compute.UpdateInstance(r.ctx, core.UpdateInstanceRequest{InstanceId: instance.Id,
-				UpdateInstanceDetails: core.UpdateInstanceDetails{Metadata: metadata}})
-			if err != nil {
-				return err
-			}
+		read, err := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
+		if err != nil {
+			return err
+		}
+		instance, volume = &current.Instance, &read.Volume
+		if instance.FreeformTags[dataVolumeTag] != deref(volume.Id) || volume.FreeformTags[dataInstanceTag] != deref(instance.Id) {
+			return fmt.Errorf("refusing attachment: instance %s launched for volume %s; requested volume %s bound to instance %s", deref(instance.Id), instance.FreeformTags[dataVolumeTag], deref(volume.Id), volume.FreeformTags[dataInstanceTag])
+		}
+		if instance.LifecycleState != core.InstanceLifecycleStateRunning {
+			return fmt.Errorf("instance %s is %s; finish or abandon the removal before add", deref(instance.Id), instance.LifecycleState)
 		}
 	}
 	attachment, err := r.dataAttachment(instance, volume)
@@ -285,45 +288,96 @@ func (r *run) confirmDataMounted(host string, instance *core.Instance, volume *c
 		return nil
 	}
 	ip, err := r.publicIP(instance)
-	if err == nil {
-		_, err = livePin(r.ctx, ip)
-	}
 	if err != nil {
-		hostState, hostErr := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: instance.Id})
-		volumeState, volumeErr := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
-		hostStatus, volumeStatus := instance.LifecycleState, volume.LifecycleState
-		if hostErr == nil {
-			hostStatus = hostState.LifecycleState
-		}
-		if volumeErr == nil {
-			volumeStatus = volumeState.LifecycleState
-		}
-		return fmt.Errorf("data volume bootstrap did not reach its release listener; host %s state=%s, volume %s state=%s (last observed): %w",
-			host, hostStatus, deref(volume.Id), volumeStatus, errors.Join(err, hostErr, volumeErr))
+		return err
+	}
+	pin, err := livePin(r.ctx, ip)
+	if err != nil {
+		return fmt.Errorf("host %s mount report unavailable: %w", host, err)
+	}
+	token, err := releasepush.MintToken(r.ctx)
+	if err != nil {
+		return fmt.Errorf("authenticate host %s mount report: %w", host, err)
+	}
+	conn, err := releasepush.Dial(releasepush.Region{Region: r.code, NATS: "tls://" + ip + ":4222", SPKISHA256: pin}, token, nats.NoReconnect())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
+	defer cancel()
+	message, err := conn.RequestWithContext(ctx, releasepush.SubjectHealth, nil)
+	if err != nil {
+		return fmt.Errorf("host %s mount report: %w", host, err)
+	}
+	var reply releasepush.Reply
+	if err := json.Unmarshal(message.Data, &reply); err != nil {
+		return err
+	}
+	mount := reply.DataMount
+	if mount == nil {
+		return fmt.Errorf("host %s has no data mount report: %s", host, reply.DataMountError)
 	}
 	read, err := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
 	if err != nil {
 		return err
 	}
-	if _, present := volumeTag(&read.Volume, dataFormattedTag); !present {
-		tags := maps.Clone(read.FreeformTags)
-		if tags == nil {
-			tags = make(map[string]string)
-		}
-		tags[dataFormattedTag] = "yes"
-		_, err := r.storage.UpdateVolume(r.ctx, core.UpdateVolumeRequest{VolumeId: volume.Id, IfMatch: read.Etag,
-			UpdateVolumeDetails: core.UpdateVolumeDetails{FreeformTags: tags}})
-		if err != nil {
-			return err
-		}
-		verified, err := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
-		if err != nil {
-			return err
-		}
-		if verified.FreeformTags[dataFormattedTag] != "yes" {
-			return errors.New("data volume formatted tag did not read back")
-		}
-		return r.report("updated", "data-volume-formatted", host+"-data", deref(volume.Id))
+	if mount.MountPoint != "/var/lib/ts-data" || mount.Device != dataDevice || mount.FilesystemType != "ext4" || !filesystemUUID.MatchString(mount.UUID) {
+		return fmt.Errorf("host %s data mount identity mismatch: got %+v; want /var/lib/ts-data on %s, ext4 and a filesystem UUID", host, mount, dataDevice)
 	}
-	return r.report("unchanged", "data-volume-formatted", host+"-data", deref(volume.Id))
+	expectedSize := deref(read.SizeInGBs) * 1024 * 1024 * 1024
+	if expectedSize <= 0 || mount.SizeBytes != expectedSize {
+		return fmt.Errorf("volume %s size mismatch: host %d bytes, API %d bytes", deref(volume.Id), mount.SizeBytes, expectedSize)
+	}
+	expectedUUID := read.FreeformTags[dataUUIDTag]
+	if expectedUUID != "" && mount.UUID != expectedUUID {
+		return fmt.Errorf("volume %s UUID mismatch: host %s, volume tag %s", deref(volume.Id), mount.UUID, expectedUUID)
+	}
+	if !r.createdVolumes[deref(volume.Id)] && (read.FreeformTags[dataFormattedTag] != "yes" || expectedUUID == "") {
+		return fmt.Errorf("adopted volume %s requires initialised tag and UUID", deref(volume.Id))
+	}
+	if read.FreeformTags[dataFormattedTag] == "yes" && expectedUUID == mount.UUID {
+		return r.report("unchanged", "data-volume-formatted", host+"-data", deref(volume.Id))
+	}
+	tags := maps.Clone(read.FreeformTags)
+	tags[dataFormattedTag], tags[dataUUIDTag] = "yes", mount.UUID
+	_, err = r.storage.UpdateVolume(r.ctx, core.UpdateVolumeRequest{VolumeId: volume.Id, IfMatch: read.Etag, UpdateVolumeDetails: core.UpdateVolumeDetails{FreeformTags: tags}})
+	if err != nil {
+		return err
+	}
+	verified, err := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
+	if err != nil {
+		return err
+	}
+	if verified.FreeformTags[dataFormattedTag] != "yes" || verified.FreeformTags[dataUUIDTag] != mount.UUID {
+		return errors.New("data volume initialised tag and UUID did not read back")
+	}
+	return r.report("updated", "data-volume-formatted", host+"-data", deref(volume.Id))
+}
+
+func (r *run) bindDataVolume(instance *core.Instance, volume *core.Volume) error {
+	if r.dry {
+		return nil
+	}
+	if instance.FreeformTags[dataVolumeTag] != deref(volume.Id) {
+		return fmt.Errorf("instance %s launched for volume %s, refusing volume %s", deref(instance.Id), instance.FreeformTags[dataVolumeTag], deref(volume.Id))
+	}
+	read, err := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
+	if err != nil {
+		return err
+	}
+	previous := read.FreeformTags[dataInstanceTag]
+	if previous != "" && previous != deref(instance.Id) {
+		old, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: &previous})
+		if err != nil {
+			return err
+		}
+		if old.LifecycleState != core.InstanceLifecycleStateTerminated {
+			return fmt.Errorf("volume %s is bound to instance %s, refusing instance %s", deref(volume.Id), previous, deref(instance.Id))
+		}
+	}
+	tags := maps.Clone(read.FreeformTags)
+	tags[dataInstanceTag] = deref(instance.Id)
+	_, err = r.storage.UpdateVolume(r.ctx, core.UpdateVolumeRequest{VolumeId: volume.Id, IfMatch: read.Etag, UpdateVolumeDetails: core.UpdateVolumeDetails{FreeformTags: tags}})
+	return err
 }

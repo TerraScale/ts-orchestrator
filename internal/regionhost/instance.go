@@ -102,31 +102,53 @@ func (r *run) ensureInstance(host, shape string) (*core.Instance, *core.Volume, 
 		return nil, nil, err
 	}
 	if found != nil {
+		if found.LifecycleState == core.InstanceLifecycleStateStopped || found.LifecycleState == core.InstanceLifecycleStateStopping {
+			return nil, nil, fmt.Errorf("host %s is %s; finish or abandon the removal before add", deref(found.Id), found.LifecycleState)
+		}
 		name := deref(found.DisplayName)
 		volume, err := r.dataVolume(name)
 		if err != nil {
 			return nil, nil, err
 		}
-		if volume != nil {
-			if _, present := volumeTag(volume, dataFormattedTag); !present {
-				return nil, nil, errors.New("existing data volume requires the terrascale-data-formatted tag before attachment; verify restored or interrupted provisioning data first")
+		if found.FreeformTags[dataFormatTag] == "yes" && (volume == nil || found.FreeformTags[dataVolumeTag] != deref(volume.Id) || volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag])) {
+			if r.dry {
+				return nil, nil, fmt.Errorf("unfinished formatting instance %s must be terminated and replaced", deref(found.Id))
 			}
-		}
-		expected := found.Metadata["terrascale-data-volume"]
-		if volume == nil && expected != "" && expected != "required" {
-			return nil, nil, errors.New("the host data volume is missing; refusing to replace it")
-		}
-		if volume != nil || expected == "required" {
-			if volume != nil && deref(volume.AvailabilityDomain) != deref(found.AvailabilityDomain) {
-				return nil, nil, fmt.Errorf("host and data volume availability domains differ")
-			}
-			volume, err = r.ensureDataVolume(name, deref(found.AvailabilityDomain), volume)
-			if err != nil {
+			if err := r.stopInstance(found); err != nil {
 				return nil, nil, err
 			}
-			if err := r.attachDataVolume(name, found, volume); err != nil {
+			bound := &core.Volume{Id: new(found.FreeformTags[dataVolumeTag])}
+			if deref(bound.Id) != "" {
+				attachment, err := r.dataAttachment(found, bound)
+				if err != nil {
+					return nil, nil, err
+				}
+				if attachment != nil {
+					if err := r.detachDataVolume(found, bound); err != nil {
+						return nil, nil, err
+					}
+				}
+			}
+			if err := r.terminateInstance(found); err != nil {
 				return nil, nil, err
 			}
+			return nil, nil, fmt.Errorf("terminated unfinished formatting instance %s; inspect volume %s (discovered %s) and set initialised tag and UUID before a new add", deref(found.Id), found.FreeformTags[dataVolumeTag], volumeID(volume))
+		}
+		if volume == nil || found.FreeformTags[dataVolumeTag] != deref(volume.Id) {
+			return nil, nil, fmt.Errorf("instance %s launched for volume %s; refusing discovered volume %s", deref(found.Id), found.FreeformTags[dataVolumeTag], volumeID(volume))
+		}
+		if volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag]) {
+			return nil, nil, fmt.Errorf("existing volume %s requires the terrascale-data-formatted tag and terrascale-data-uuid after inspection", deref(volume.Id))
+		}
+		if deref(volume.AvailabilityDomain) != deref(found.AvailabilityDomain) {
+			return nil, nil, errors.New("host and data volume availability domains differ")
+		}
+		volume, err = r.ensureDataVolume(name, deref(found.AvailabilityDomain), volume)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := r.attachDataVolume(name, found, volume); err != nil {
+			return nil, nil, err
 		}
 		return found, volume, r.report("unchanged", "instance", name, deref(found.Id))
 	}
@@ -137,7 +159,7 @@ func (r *run) ensureInstance(host, shape string) (*core.Instance, *core.Volume, 
 	if err != nil {
 		return nil, nil, err
 	}
-	if launched == nil { // dry run
+	if launched == nil {
 		return nil, nil, r.report("created", "instance", host, "-")
 	}
 	return launched, volume, r.report("created", "instance", host, deref(launched.Id))
@@ -232,8 +254,8 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 			return nil, nil, err
 		}
 	} else {
-		if _, present := volumeTag(volume, dataFormattedTag); !present {
-			return nil, nil, errors.New("existing data volume requires the terrascale-data-formatted tag before attachment; verify restored or interrupted provisioning data first")
+		if volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag]) {
+			return nil, nil, errors.New("existing data volume requires the terrascale-data-formatted tag and terrascale-data-uuid before attachment; verify restored or interrupted provisioning data first")
 		}
 		ad = deref(volume.AvailabilityDomain)
 		free, err = r.faultDomains(ad)
@@ -265,11 +287,6 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 	if len(places) == 0 {
 		return nil, nil, errors.New("no availability domain for host")
 	}
-	_, formatted := volumeTag(volume, dataFormattedTag)
-	script, err := CloudInit(m1.Files, url, sum, formatted)
-	if err != nil {
-		return nil, nil, err
-	}
 	if r.dry {
 		volume, err = r.ensureDataVolume(name, deref(places[0].ad), volume)
 		if err != nil {
@@ -277,15 +294,31 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 		}
 		return nil, nil, r.attachDataVolume(name, nil, volume)
 	}
+	volume, err = r.ensureDataVolume(name, deref(places[0].ad), volume)
+	if err != nil {
+		return nil, nil, err
+	}
 	var launched core.LaunchInstanceResponse
 	for _, at := range places {
+		if deref(volume.AvailabilityDomain) != deref(at.ad) {
+			continue
+		}
+		mayFormat := r.createdVolumes[deref(volume.Id)]
+		script, scriptErr := CloudInit(m1.Files, url, sum, deref(volume.Id), volume.FreeformTags[dataUUIDTag], mayFormat)
+		if scriptErr != nil {
+			return nil, nil, scriptErr
+		}
+		permission := "no"
+		if mayFormat {
+			permission = "yes"
+		}
 		launched, err = r.compute.LaunchInstance(r.ctx, core.LaunchInstanceRequest{LaunchInstanceDetails: core.LaunchInstanceDetails{
 			AvailabilityDomain: at.ad, FaultDomain: at.fd, CompartmentId: &r.compartment, DisplayName: &name, Shape: &m.shape,
-			ShapeConfig:   &core.LaunchInstanceShapeConfigDetails{Ocpus: &m.ocpus, MemoryInGBs: &m.gb},
-			SourceDetails: core.InstanceSourceViaImageDetails{ImageId: images.Items[i].Id, BootVolumeSizeInGBs: new(int64(50))},
-			CreateVnicDetails: &core.CreateVnicDetails{SubnetId: &subnet, AssignPublicIp: new(true), NsgIds: nsgs,
-				HostnameLabel: &name},
-			Metadata: map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script)), "terrascale-data-volume": "required"},
+			ShapeConfig:       &core.LaunchInstanceShapeConfigDetails{Ocpus: &m.ocpus, MemoryInGBs: &m.gb},
+			SourceDetails:     core.InstanceSourceViaImageDetails{ImageId: images.Items[i].Id, BootVolumeSizeInGBs: new(int64(50))},
+			CreateVnicDetails: &core.CreateVnicDetails{SubnetId: &subnet, AssignPublicIp: new(true), NsgIds: nsgs, HostnameLabel: &name},
+			Metadata:          map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script))},
+			FreeformTags:      map[string]string{dataVolumeTag: deref(volume.Id), dataFormatTag: permission},
 		}})
 		if err == nil {
 			break
@@ -302,8 +335,7 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 	}); err != nil {
 		return nil, nil, err
 	}
-	volume, err = r.ensureDataVolume(name, deref(inst.AvailabilityDomain), volume)
-	if err != nil {
+	if err := r.bindDataVolume(&inst, volume); err != nil {
 		return nil, nil, err
 	}
 	return &inst, volume, r.attachDataVolume(name, &inst, volume)
@@ -341,4 +373,11 @@ func deref[T any](p *T) T {
 		return zero
 	}
 	return *p
+}
+
+func volumeID(volume *core.Volume) string {
+	if volume == nil {
+		return "<missing>"
+	}
+	return deref(volume.Id)
 }

@@ -5,12 +5,17 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/datamount"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/nats-io/nats.go"
 	"io"
 	"math/big"
 	"net"
@@ -27,9 +32,12 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 )
 
+const uuid = "11111111-1111-4111-8111-111111111111"
+
 type object = map[string]any
 
 type cloud struct {
+	rules       map[string][]object
 	reads       map[string]int
 	mu          sync.Mutex
 	resources   map[string][]object
@@ -38,17 +46,18 @@ type cloud struct {
 	volumeLists int
 	noListener  bool
 	termination bool
+	failAfter   string
 	detachment  bool
 }
 
 func newCloud() *cloud {
-	c := &cloud{resources: map[string][]object{}, reads: map[string]int{}}
+	c := &cloud{resources: map[string][]object{}, reads: map[string]int{}, rules: map[string][]object{}}
 	c.resources["instances"] = []object{
 		{"id": "keeper", "displayName": "keeper", "lifecycleState": "RUNNING", "timeCreated": "2020-01-01T00:00:00Z", "availabilityDomain": "AD", "faultDomain": "FD-1", "compartmentId": "cell"},
-		{"id": "extra", "displayName": "extra", "lifecycleState": "RUNNING", "timeCreated": "2021-01-01T00:00:00Z", "availabilityDomain": "AD", "faultDomain": "FD-2", "compartmentId": "cell", "metadata": object{"terrascale-data-volume": "data"}},
+		{"id": "extra", "displayName": "extra", "lifecycleState": "RUNNING", "timeCreated": "2021-01-01T00:00:00Z", "availabilityDomain": "AD", "faultDomain": "FD-2", "compartmentId": "cell", "freeformTags": object{"terrascale-data-volume": "data", "terrascale-data-may-format": "no"}},
 	}
-	c.resources["volumes"] = []object{{"id": "data", "displayName": "extra-data", "availabilityDomain": "AD", "lifecycleState": "AVAILABLE", "freeformTags": object{
-		"terrascale-managed-by": "ts-orchestrator", "terrascale-resource": "data-volume", "terrascale-host": "extra", "terrascale-data-formatted": "yes",
+	c.resources["volumes"] = []object{{"id": "data", "displayName": "extra-data", "availabilityDomain": "AD", "lifecycleState": "AVAILABLE", "sizeInGBs": 3, "freeformTags": object{
+		"terrascale-managed-by": "ts-orchestrator", "terrascale-resource": "data-volume", "terrascale-host": "extra", "terrascale-data-formatted": "yes", "terrascale-data-uuid": uuid, "terrascale-data-instance": "extra",
 	}}}
 	c.resources["volumeAttachments"] = []object{{"id": "attachment", "instanceId": "extra", "volumeId": "data", "attachmentType": "paravirtualized", "device": "/dev/oracleoci/oraclevdb", "lifecycleState": "ATTACHED"}}
 	c.resources["subnets"] = []object{{"id": "subnet", "displayName": "gru-1-host-subnet", "lifecycleState": "AVAILABLE", "cidrBlock": "10.251.0.0/25"}}
@@ -76,6 +85,29 @@ func (c *cloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 		w.Write(b)
+	}
+
+	if kind == "networkSecurityGroups" && len(parts) > 3 {
+		if r.Method == http.MethodGet && parts[3] == "securityRules" {
+			rules := c.rules[id]
+			if rules == nil {
+				rules = []object{}
+			}
+			reply(rules)
+			return
+		}
+		if r.Method == http.MethodPost && len(parts) > 4 && parts[4] == "addSecurityRules" {
+			var body struct{ SecurityRules []object }
+			if err := json.UnmarshalRead(r.Body, &body); err != nil {
+				panic(err)
+			}
+			for _, rule := range body.SecurityRules {
+				rule["id"] = fmt.Sprintf("%s-rule-%d", id, len(c.rules[id]))
+				c.rules[id] = append(c.rules[id], rule)
+			}
+			reply(object{"securityRules": c.rules[id]})
+			return
+		}
 	}
 	if r.Method == http.MethodGet {
 		switch kind {
@@ -130,6 +162,10 @@ func (c *cloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if id != "" {
 			for _, item := range c.resources[kind] {
 				if item["id"] == id {
+					if kind == "instances" && item["lifecycleState"] == "STOPPING" {
+						c.events = append(c.events, "stop-complete")
+						item["lifecycleState"] = "STOPPED"
+					}
 					if kind == "instances" && item["lifecycleState"] == "TERMINATING" {
 						if c.reads[id] == 0 {
 							c.reads[id]++
@@ -162,6 +198,12 @@ func (c *cloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if name := r.URL.Query().Get("displayName"); name != "" && item["displayName"] != name {
 				continue
 			}
+			if volume := r.URL.Query().Get("volumeId"); volume != "" && item["volumeId"] != volume {
+				continue
+			}
+			if instance := r.URL.Query().Get("instanceId"); instance != "" && item["instanceId"] != instance {
+				continue
+			}
 			if asset := r.URL.Query().Get("assetId"); asset != "" && item["assetId"] != asset {
 				continue
 			}
@@ -171,6 +213,21 @@ func (c *cloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.events = append(c.events, r.Method+" "+kind)
+	if c.failAfter != "" && slices.Contains(c.events[:len(c.events)-1], c.failAfter) {
+		http.Error(w, "interrupted", 400)
+		return
+	}
+	if kind == "instances" && r.Method == http.MethodPost && r.URL.Query().Get("action") != "" {
+		must(r.URL.Query().Get("action") == "SOFTSTOP", "removal did not use graceful stop")
+		for _, item := range c.resources[kind] {
+			if item["id"] == id {
+				item["lifecycleState"] = "STOPPING"
+				reply(item)
+				return
+			}
+		}
+		panic("missing stop instance")
+	}
 	if r.Method == http.MethodDelete {
 		for _, item := range c.resources[kind] {
 			if item["id"] != id {
@@ -184,6 +241,12 @@ func (c *cloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 				item["lifecycleState"] = "TERMINATING"
 			} else {
+				for _, instance := range c.resources["instances"] {
+					if instance["id"] == item["instanceId"] && instance["lifecycleState"] != "STOPPED" {
+						http.Error(w, "detach while writing", 400)
+						return
+					}
+				}
 				item["lifecycleState"] = "DETACHING"
 			}
 		}
@@ -223,6 +286,11 @@ func (c *cloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		item["timeCreated"] = "2022-01-01T00:00:00Z"
 	}
 	if kind == "volumeAttachments" {
+		for _, instance := range c.resources["instances"] {
+			if instance["id"] == item["instanceId"] {
+				must(instance["freeformTags"].(object)["terrascale-data-volume"] == item["volumeId"], "attachment not launch-bound")
+			}
+		}
 		item["attachmentType"] = "paravirtualized"
 		item["lifecycleState"] = "ATTACHED"
 	}
@@ -248,7 +316,7 @@ func invoke(c *cloud, args ...string) (string, error) {
 		http.DefaultTransport = old
 		transport.CloseIdleConnections()
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	var out bytes.Buffer
 	err := regionhost.Run(ctx, args, &out)
@@ -294,66 +362,171 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	listener, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: 4222, NoLog: true, NoSigs: true, TLSConfig: &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}})
+	token := "e30." + base64.RawURLEncoding.EncodeToString([]byte(`{"run_id":"123"}`)) + ".signature"
+	oidc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		must(r.Header.Get("Authorization") == "bearer local", "missing OIDC authentication")
+		fmt.Fprintf(w, `{"value":%q}`, token)
+	}))
+	defer oidc.Close()
+	os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", oidc.URL+"?local=1")
+	os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "local")
+	listener, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: 4222, NoLog: true, NoSigs: true, Authorization: token, TLSConfig: &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}})
 	if err != nil {
 		return err
 	}
 	go listener.Start()
 	defer func() { listener.Shutdown(); listener.WaitForShutdown() }()
 	must(listener.ReadyForConnections(5*time.Second), "release listener did not start")
+	conn, err := nats.Connect("tls://127.0.0.1:4222", nats.Token(token), nats.Secure(&tls.Config{InsecureSkipVerify: true}))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	report := &datamount.Report{MountPoint: datamount.MountPoint, Device: datamount.Device, UUID: uuid, FilesystemType: "ext4", SizeBytes: 3 * 1024 * 1024 * 1024}
+	var reportMu sync.Mutex
+	_, err = conn.Subscribe(releasepush.SubjectHealth, func(m *nats.Msg) {
+		reportMu.Lock()
+		data, marshalErr := json.Marshal(releasepush.Reply{Health: "ok", DataMount: report})
+		reportMu.Unlock()
+		must(marshalErr == nil, fmt.Sprint(marshalErr))
+		m.Respond(data)
+	})
+	if err != nil {
+		return err
+	}
+	if err := conn.Flush(); err != nil {
+		return err
+	}
+	digest := func(c *cloud) [32]byte {
+		b, err := json.Marshal(c.resources["volumes"], json.Deterministic(true))
+		must(err == nil, fmt.Sprint(err))
+		return sha256.Sum256(b)
+	}
 	c := newCloud()
 	out, err := invoke(c, "rm", "gru", "--host", "extra", "--dry-run")
-	must(err == nil, fmt.Sprint(err))
-	must(strings.Contains(out, "plan deleted data-attachment") && strings.Index(out, "plan deleted data-attachment") < strings.Index(out, "plan deleted instance"), out)
-	must(len(c.events) == 0, "dry removal wrote cloud state")
-	_, err = invoke(c, "rm", "gru", "--host", "extra")
-	must(err == nil && !c.detachment, fmt.Sprint("remove before detach: ", err, c.events))
-	must(slices.Equal(c.events, []string{"DELETE volumeAttachments", "detach-pending", "detach-complete", "DELETE instances", "termination-pending", "termination-complete"}), fmt.Sprint(c.events))
-	out, err = invoke(c, "add", "gru", "--host", "extra", "--dry-run")
-	must(err == nil && strings.Contains(out, "plan created data-attachment"), fmt.Sprint(out, err))
-	_, err = invoke(c, "add", "gru", "--host", "extra")
-	must(err == nil, fmt.Sprint("recreate: ", err))
-	fmt.Println("region volume: dry detach precedes termination; immediate create reattaches kept volume")
-	for _, state := range []string{"DETACHED", "DETACHING"} {
+	must(err == nil && strings.Index(out, "instance-stop") < strings.Index(out, "data-attachment") && strings.Index(out, "data-attachment") < strings.Index(out, "plan deleted instance"), fmt.Sprint(out, err))
+	must(len(c.events) == 0, "dry removal changed cloud")
+	for _, state := range []string{"RUNNING", "STOPPING", "STOPPED", "DETACHING", "DETACHED", "TERMINATING"} {
 		c = newCloud()
-		c.resources["volumeAttachments"][0]["lifecycleState"] = state
+		if state == "DETACHING" || state == "DETACHED" {
+			c.resources["instances"][1]["lifecycleState"] = "STOPPED"
+			c.resources["volumeAttachments"][0]["lifecycleState"] = state
+		} else {
+			c.resources["instances"][1]["lifecycleState"] = state
+		}
+		if state == "TERMINATING" {
+			c.resources["volumeAttachments"][0]["lifecycleState"] = "DETACHED"
+		}
+		before := digest(c)
 		_, err = invoke(c, "rm", "gru", "--host", "extra")
-		must(err == nil && !c.detachment, fmt.Sprint("interrupted detach: ", err, c.events))
+		must(err == nil && !c.detachment, fmt.Sprint(state, err, c.events))
+		must(digest(c) == before, "removal changed volume or backup data")
+		must(c.resources["instances"][1]["lifecycleState"] == "TERMINATED", fmt.Sprint(c.events))
 	}
-	for _, action := range []string{"rm", "add"} {
+	fmt.Println("region volume: RUNNING -> SOFTSTOP -> STOPPING -> STOPPED -> DETACHING -> DETACHED -> TERMINATING -> TERMINATED; interrupted states resume, volumes unchanged")
+	for _, state := range []string{"STOPPING", "STOPPED"} {
 		c = newCloud()
-		c.resources["instances"][1]["lifecycleState"] = "TERMINATING"
-		c.resources["volumeAttachments"][0]["lifecycleState"] = "DETACHED"
-		_, err = invoke(c, action, "gru", "--host", "extra")
-		must(err == nil && !c.termination, fmt.Sprint("interrupted termination: ", err, c.events))
+		c.resources["instances"][1]["lifecycleState"] = state
+		before := digest(c)
+		_, err = invoke(c, "add", "gru", "--host", "extra")
+		must(err != nil && strings.Contains(err.Error(), "finish or abandon"), fmt.Sprint(err))
+		must(digest(c) == before && !slices.Contains(c.events, "POST volumeAttachments") && !slices.Contains(c.events, "POST instances"), "add restarted removal")
+	}
+	for _, difference := range []string{"missing", "uuid", "size", "device", "mountpoint", "filesystem"} {
+		reportMu.Lock()
+		saved := *report
+		switch difference {
+		case "missing":
+			report = nil
+		case "uuid":
+			report.UUID = "22222222-2222-4222-8222-222222222222"
+		case "size":
+			report.SizeBytes++
+		case "device":
+			report.Device = "/dev/boot"
+		case "mountpoint":
+			report.MountPoint = "/"
+		case "filesystem":
+			report.FilesystemType = "xfs"
+		}
+		reportMu.Unlock()
+		c = newCloud()
+		before := digest(c)
+		_, err = invoke(c, "add", "gru", "--host", "extra")
+		must(err != nil, "accepted mount mismatch "+difference)
+		must(digest(c) == before, "mount mismatch changed volume")
+		reportMu.Lock()
+		report = &saved
+		reportMu.Unlock()
+	}
+	fmt.Println("region volume: answering host without mount, UUID/size/device/mountpoint/filesystem mismatches refuse unchanged")
+	c = newCloud()
+	before := digest(c)
+	_, err = invoke(c, "add", "gru", "--host", "extra")
+	must(err == nil, fmt.Sprint("matching report: ", err))
+	must(digest(c) == before, "matching adopted mount rewrote volume")
+	c = newCloud()
+	c.resources["instances"][1]["freeformTags"] = object{"terrascale-data-volume": "created-before-interruption", "terrascale-data-may-format": "yes"}
+	c.resources["volumeAttachments"][0]["lifecycleState"] = "DETACHED"
+	_, err = invoke(c, "add", "gru", "--host", "extra")
+	must(err != nil && !slices.Contains(c.events, "POST volumeAttachments"), fmt.Sprint("stale formatting instance adopted another volume: ", err, c.events))
+	fmt.Println("region volume: interrupted formatting instance cannot attach adopted replacement volume")
+	for _, tag := range []string{"terrascale-data-formatted", "terrascale-data-uuid"} {
+		c = newCloud()
+		delete(c.resources["volumes"][0]["freeformTags"].(object), tag)
+		before := digest(c)
+		_, err = invoke(c, "add", "gru", "--host", "extra")
+		must(err != nil && !slices.Contains(c.events, "POST volumeAttachments") && digest(c) == before, fmt.Sprint(err))
 	}
 	c = newCloud()
 	c.resources["volumeAttachments"][0]["lifecycleState"] = "DETACHED"
+	c.resources["instances"][1]["lifecycleState"] = "TERMINATED"
 	_, err = invoke(c, "add", "gru", "--host", "extra")
-	must(err == nil && slices.Contains(c.events, "POST volumeAttachments"), fmt.Sprint("resume detached host: ", err))
+	must(err == nil, fmt.Sprint("adopted replacement: ", err))
+	launched := c.resources["instances"][2]
+	must(launched["freeformTags"].(object)["terrascale-data-may-format"] == "no", "adopted launch granted format")
+	must(c.resources["volumes"][0]["freeformTags"].(object)["terrascale-data-instance"] == launched["id"], "missing instance binding")
+	fmt.Println("region volume: adoption needs initialised UUID tags; replacement launch denies format and binds before attachment")
+
 	c = newCloud()
-	c.hideVolumes = true
-	_, err = invoke(c, "add", "gru", "--host", "extra")
-	must(err == nil && c.volumeLists == 1, fmt.Sprint("second tag lookup: ", err, c.volumeLists))
-	c = newCloud()
+	c.resources["instances"][1]["lifecycleState"] = "TERMINATED"
 	c.resources["volumes"] = nil
 	c.resources["volumeAttachments"] = nil
-	c.resources["instances"][1]["metadata"] = object{"terrascale-data-volume": "required"}
-	c.hideVolumes = true
+	reportMu.Lock()
+	report.SizeBytes = 100 * 1024 * 1024 * 1024
+	reportMu.Unlock()
 	_, err = invoke(c, "add", "gru", "--host", "extra")
-	must(err == nil && c.volumeLists == 1, fmt.Sprint("created volume lost: ", err, c.volumeLists))
-	must(c.resources["volumes"][0]["freeformTags"].(map[string]any)["terrascale-data-formatted"] == "yes", "created volume was not confirmed and tagged")
+	must(err == nil, fmt.Sprint("new volume: ", err))
+	fresh := c.resources["volumes"][0]
+	tags := fresh["freeformTags"].(object)
+	must(tags["terrascale-data-formatted"] == "yes" && tags["terrascale-data-uuid"] == uuid, "fresh format report not recorded")
+	must(c.resources["instances"][2]["freeformTags"].(object)["terrascale-data-may-format"] == "yes", "new-volume launch lacks permission")
+	fmt.Println("region volume: only API creation in this invocation grants launch permission; full mount match records initialised UUID")
 	c = newCloud()
-	c.noListener = true
-	c.hideVolumes = true
+	c.resources["instances"][1]["lifecycleState"] = "TERMINATED"
+	c.resources["volumes"] = nil
+	c.resources["volumeAttachments"] = nil
+	c.failAfter = "POST instances"
 	_, err = invoke(c, "add", "gru", "--host", "extra")
-	must(err != nil && strings.Contains(err.Error(), "host extra state=RUNNING, volume data state=AVAILABLE"), fmt.Sprint("bootstrap falsely succeeded: ", err))
-	c = newCloud()
-	delete(c.resources["volumes"][0]["freeformTags"].(object), "terrascale-data-formatted")
+	must(err != nil && len(c.resources["instances"]) == 3 && !slices.Contains(c.events, "POST volumeAttachments"), "interruption did not leave launch-bound waiting instance")
+	c.failAfter = ""
+	c.events = nil
+	c.resources["volumes"][0]["freeformTags"].(object)["terrascale-host"] = "retained-original"
+	adopted := newCloud().resources["volumes"][0]
+	adopted["id"] = "adopted"
+	adopted["freeformTags"].(object)["terrascale-data-instance"] = ""
+	c.resources["volumes"] = append(c.resources["volumes"], adopted)
+	before = digest(c)
 	_, err = invoke(c, "add", "gru", "--host", "extra")
-	must(err != nil && strings.Contains(err.Error(), "requires the terrascale-data-formatted tag"), fmt.Sprint(err))
-	must(!slices.Contains(c.events, "POST volumeAttachments"), "untagged volume attached")
-	fmt.Println("region volume: interrupted removal resumes; one lookup carries volume to listener; failed boot and untagged adoption refuse success")
+	must(err != nil && strings.Contains(err.Error(), "discovered adopted") && !slices.Contains(c.events, "POST volumeAttachments"), fmt.Sprint("interrupted then adopted: ", err, c.events))
+	must(c.resources["instances"][2]["lifecycleState"] == "TERMINATED" && digest(c) == before, "stale format instance reused or volumes changed")
+	reportMu.Lock()
+	report.SizeBytes = 3 * 1024 * 1024 * 1024
+	reportMu.Unlock()
+	_, err = invoke(c, "add", "gru", "--host", "extra")
+	must(err == nil, fmt.Sprint("replace stale format instance: ", err))
+	must(c.resources["instances"][3]["freeformTags"].(object)["terrascale-data-may-format"] == "no", "replacement granted stale permission")
+	fmt.Println("region volume: exact interrupted launch then adopted disk refuses attachment, terminates stale instance, replaces without format permission")
 	return nil
 }
 

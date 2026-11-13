@@ -51,8 +51,8 @@ func (r *run) rm(host string, confirmed bool) error {
 		return err
 	}
 	if target != nil && volume == nil {
-		expected := target.Metadata["terrascale-data-volume"]
-		if expected != "" && expected != "required" {
+		expected := target.FreeformTags[dataVolumeTag]
+		if expected != "" {
 			return errors.New("the host data volume is missing; refusing to terminate before detachment")
 		}
 	}
@@ -65,24 +65,16 @@ func (r *run) rm(host string, confirmed bool) error {
 				return err
 			}
 		}
+		if err := r.stopInstance(target); err != nil {
+			return err
+		}
 		if volume != nil {
 			if err := r.detachDataVolume(target, volume); err != nil {
 				return err
 			}
 		}
-		if !r.dry {
-			if target.LifecycleState != core.InstanceLifecycleStateTerminating {
-				if _, err := r.compute.TerminateInstance(r.ctx, core.TerminateInstanceRequest{InstanceId: target.Id,
-					PreserveBootVolume: new(false), PreserveDataVolumesCreatedAtLaunch: new(true)}); err != nil {
-					return err
-				}
-			}
-			if err := poll(r.ctx, 5*time.Second, 60, func() (bool, error) {
-				g, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: target.Id})
-				return g.LifecycleState == core.InstanceLifecycleStateTerminated, err
-			}); err != nil {
-				return err
-			}
+		if err := r.terminateInstance(target); err != nil {
+			return err
 		}
 		err = r.report("deleted", "instance", deref(target.DisplayName), *target.Id)
 	}
@@ -112,6 +104,13 @@ func (r *run) detachDataVolume(instance *core.Instance, volume *core.Volume) err
 		return err
 	}
 	if !r.dry {
+		current, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: instance.Id})
+		if err != nil {
+			return err
+		}
+		if current.LifecycleState != core.InstanceLifecycleStateStopped {
+			return fmt.Errorf("refusing detach of volume %s: instance %s is %s, expected STOPPED", deref(volume.Id), deref(instance.Id), current.LifecycleState)
+		}
 		if attachment.GetLifecycleState() != core.VolumeAttachmentLifecycleStateDetaching {
 			if _, err := r.compute.DetachVolume(r.ctx, core.DetachVolumeRequest{VolumeAttachmentId: attachment.GetId()}); err != nil {
 				return err
@@ -143,4 +142,51 @@ func (r *run) finishTerminating(items []core.Instance, host string) error {
 		}
 	}
 	return nil
+}
+
+func (r *run) stopInstance(instance *core.Instance) error {
+	if r.dry {
+		return r.report("updated", "instance-stop", deref(instance.DisplayName), deref(instance.Id))
+	}
+	current, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: instance.Id})
+	if err != nil {
+		return err
+	}
+	switch current.LifecycleState {
+	case core.InstanceLifecycleStateStopped, core.InstanceLifecycleStateTerminating, core.InstanceLifecycleStateTerminated:
+		return nil
+	case core.InstanceLifecycleStateRunning:
+		if _, err := r.compute.InstanceAction(r.ctx, core.InstanceActionRequest{InstanceId: instance.Id, Action: core.InstanceActionActionSoftstop}); err != nil {
+			return err
+		}
+	case core.InstanceLifecycleStateStopping:
+	default:
+		return fmt.Errorf("cannot stop instance %s in state %s", deref(instance.Id), current.LifecycleState)
+	}
+	return poll(r.ctx, 5*time.Second, 240, func() (bool, error) {
+		state, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: instance.Id})
+		return err == nil && state.LifecycleState == core.InstanceLifecycleStateStopped, err
+	})
+}
+
+func (r *run) terminateInstance(instance *core.Instance) error {
+	if r.dry {
+		return nil
+	}
+	current, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: instance.Id})
+	if err != nil {
+		return err
+	}
+	if current.LifecycleState != core.InstanceLifecycleStateTerminating && current.LifecycleState != core.InstanceLifecycleStateTerminated {
+		if current.LifecycleState != core.InstanceLifecycleStateStopped {
+			return fmt.Errorf("refusing termination of instance %s in state %s", deref(instance.Id), current.LifecycleState)
+		}
+		if _, err := r.compute.TerminateInstance(r.ctx, core.TerminateInstanceRequest{InstanceId: instance.Id, PreserveBootVolume: new(false), PreserveDataVolumesCreatedAtLaunch: new(true)}); err != nil {
+			return err
+		}
+	}
+	return poll(r.ctx, 5*time.Second, 60, func() (bool, error) {
+		state, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: instance.Id})
+		return err == nil && state.LifecycleState == core.InstanceLifecycleStateTerminated, err
+	})
 }

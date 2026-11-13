@@ -7,6 +7,10 @@
 # Needs passwordless sudo. No OCI or Vault credentials: the services declare no
 # secrets, and the edge certificates come from a throwaway local CA.
 set -euo pipefail
+if ((EUID != 0)); then
+ exec sudo --preserve-env=PATH,GITHUB_STEP_SUMMARY bash "$0" "$@"
+fi
+
 
 bin=$(realpath "$1")
 here=$(cd "$(dirname "$0")" && pwd)

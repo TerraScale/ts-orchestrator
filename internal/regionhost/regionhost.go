@@ -85,6 +85,7 @@ type run struct {
 	parent               string                  // the TerraScale compartment
 	home, ids            identity.IdentityClient // home region (writes) and this region (ADs)
 	compute              core.ComputeClient
+	createdVolumes       map[string]bool
 	storage              core.BlockstorageClient
 	net                  core.VirtualNetworkClient
 }

@@ -199,9 +199,8 @@ retained image and bounded logs); only services with mounts keep 10 GiB.
 
 ## Host data volumes
 
-New hosts created by region add receive a 100 GB balanced (10 VPU/GB) block
-volume in the instance's availability domain. Its display name is the host
-name plus -data. Discovery uses these free-form tags:
+Each new host receives a 100 GB balanced block volume (10 VPU/GB), named
+HOST-data, in its availability domain. Discovery requires all three tags:
 
 | Tag | Value |
 |---|---|
@@ -209,128 +208,139 @@ name plus -data. Discovery uses these free-form tags:
 | terrascale-resource | data-volume |
 | terrascale-host | host name |
 
-The instance launches first; its actual availability domain decides where a new
-volume is created and attached. With no neighbours and no retained volume,
-launch still tries the first two availability domains. A retained volume fixes
-placement to its availability domain and free fault domains there.
+The volume is created before launch, fixing placement to its availability
+domain. Retained volumes also fix placement there. The launch call atomically
+sets the instance tags `terrascale-data-volume` to that exact volume ID and
+`terrascale-data-may-format` to `yes` only when this invocation created it;
+otherwise it sets `no`. The volume records `terrascale-data-instance` before
+attachment. Every attachment reads both resources back and requires both IDs
+to agree. Changing the instance to another volume is refused, with both IDs
+in the error. A volume bound to another instance can only be rebound after
+that instance is terminated. An unfinished instance with format permission is
+stopped, detached and terminated; it cannot be reused to adopt another disk.
+Its retained volume must be inspected and initialised before a new add.
 
-Cloud-init waits for the paravirtualized attachment at
-`/dev/oracleoci/oraclevdb`, mounts its ext4 filesystem by UUID at
-`/var/lib/ts-data`, and bind-mounts `/var/lib/ts-data/ts-orch` at
-`/var/lib/ts-orch` before installing and starting the agent. Service data
-stays at `/var/lib/ts-data/terrabase`. The same script writes identical
-systemd drop-ins for the agent and NetBird companion: both require both
-mounts, check them before starting, and stop when either mount stops.
-Binary upgrades preserve these drop-ins. Stopping the agent leaves running
-tasks running by design; on mount loss they keep running until they fail on
-I/O. The dependencies do not terminate database containers or quiesce them.
-A host whose volume is missing at boot stops in emergency mode and is
-reachable only through the cloud console.
+Only the invocation that created the exact volume may launch a host allowed
+to format it, only for that instance, and only once. On the boot disk,
+`/var/lib/ts-orch-bootstrap/format-consumed` is created exclusively and synced,
+including its parent directory, before formatting; it records the volume ID,
+device size and UTC time. An existing record always prevents formatting,
+even with stale launch arguments. A rerun after successful formatting refuses
+without changing the disk. A reboot mounts through fstab and the unit checks.
+An adopted volume always needs an inspected UUID and never receives format
+permission.
 
-The durable `terrascale-data-formatted` volume tag records that the volume
-has mounted successfully before. Its presence is passed to the host at launch.
-The operator writes and reads back this tag after the release listener becomes
-reachable: the bootstrap installs and starts that listener only after both
-mounts succeed. This also waits for extra hosts, so an incomplete bootstrap
-cannot report a successful add. If the operator stops before recording the tag,
-first boot can still mount an existing ext4 filesystem without formatting;
-a later add requires the inspected filesystem to be tagged first.
+Before using permission, first boot verifies its instance and attachment
+identity through instance metadata. Missing identity fields, another volume,
+or another data slot refuse. It then requires one whole disk without a parent,
+children or mounts, a valid size of at least 2 GiB, complete zero reads of the
+first and last GiB, and a zero 1 MiB sample at each intermediate GiB. Under
+pipefail, a short read or read error refuses. Only after those reads may
+`blkid -p` return status 2 with no output, `wipefs --no-act` return status 0
+with no signatures, and `lsblk` report no filesystem type. Every device wait
+and probe has an explicit timeout; disagreement, error, unexpected output or
+timeout refuses without formatting. These probes are not proof of emptiness;
+the proof is the operator API creation and instance-volume binding in the
+same invocation. At 100 GiB the reads cover 2 GiB plus 98 MiB; their elapsed
+time remains to be measured on a disposable cloud host.
 
-Formatting requires an absent formatted tag, no filesystem or partition
-signature, no child block devices, no mount, and zero reads of the first 1 GiB,
-the last 1 GiB, and a 1 MiB sample every 1 GiB in between. A 100 GiB volume
-reads 2 GiB plus 98 MiB (about 2.10 GiB). At this balanced tier the expected
-read time is roughly 45–50 seconds, calculated from its nominal throughput;
-this is an estimate, not a measured cloud drill. The samples do not prove
-that bytes outside the sampled ranges are zero. Any failed probe refuses
-formatting. A tag present on a signature-free disk refuses formatting too.
-An existing ext4 filesystem is always mounted without formatting, including
-a restored filesystem. Before attaching any restored or cloned volume, preserve
-or set the formatted tag after verifying its filesystem and intended identity.
-An absent tag on a volume brought in from outside this invocation is refused
-before attachment, even if it contains a filesystem. Sampling cannot establish
-that an untagged restore or clone has no data between the sampled ranges.
+The ext4 filesystem mounts by UUID at `/var/lib/ts-data`, with service data
+under `/var/lib/ts-data/terrabase` and a bind mount from its `ts-orch` directory
+to `/var/lib/ts-orch`. Identical systemd drop-ins for ts-orch and NetBird require
+both mounts, stop with either mount, and check the mounted filesystem UUID
+against `/etc/ts-orch/data-volume-uuid` and the device against
+`/dev/oracleoci/oraclevdb` before starting. Upgrades preserve these drop-ins.
+A host missing its data volume at boot requires console recovery. Agent unit
+dependencies do not themselves quiesce existing database containers.
 
-A failed launch creates no volume. A failed volume create can resume on the
-already running instance. A failed attach leaves cloud-init waiting on device
-arrival, without an expiring device-wait deadline; a later add can attach the
-same volume and complete bootstrap once the operator has verified it and set
-the formatted tag. A signature-free volume marked formatted deliberately fails
-first boot; recovery requires preparing the intended filesystem outside add.
-The instance records its expected volume ID before attaching; a later add refuses to replace a missing recorded
-volume. A volume created in this invocation may pass the first-format checks.
-A later invocation refuses an untagged volume left by interrupted provisioning or an
-interrupted formatted-tag write. The operator must inspect it, recover or
-prepare its filesystem, and set the tag before rerunning add. Listener-based
-recovery of an untagged volume is not implemented. Existing signatures always
-prevent formatting regardless of tag state.
+Add confirms the mount through the release listener's authenticated health
+reply, using the existing GitHub OIDC token channel and the listener pin.
+The operator needs an OIDC-capable environment; a listener handshake alone
+cannot confirm the mount. The report contains the exact mount point, the
+consistent data-slot device path after resolving and comparing its source,
+filesystem UUID, filesystem type and device size in bytes. Add requires
+`/var/lib/ts-data`, `/dev/oracleoci/oraclevdb`, ext4, API size in GiB converted
+to bytes, and the UUID already recorded on an adopted volume. A missing or
+mismatched report fails without updating the volume. For a volume created
+in this invocation, a full match writes and reads back
+`terrascale-data-formatted=yes` and `terrascale-data-uuid=UUID`. Those tags
+make it an adopted volume on every subsequent invocation.
 
-Each host compartment has a managed daily incremental backup policy,
-scheduled at 02:00 UTC with seven days of retention. A backup is one
-crash-consistent point in time of the whole volume; it does not quiesce the
-database. Database recovery after restore is part of the first real drill.
-The full applicable schedule and assignment are read back. A different
-assigned policy is refused, never replaced silently. A second successful add
-reports the volume, policy, assignment and attachment as unchanged.
+Each host compartment has a daily incremental backup policy at 02:00 UTC
+with seven-day retention. Schedule and assignment are read back; another
+assigned policy is refused. Backups are crash consistent and do not quiesce
+the database. Database recovery after restore remains part of the cloud drill.
 
-    ts-orch region add CODE --host NAME --dry-run
+Removal always asks the provider for SOFTSTOP, waits for STOPPED, detaches and
+waits for DETACHED, then terminates and waits for TERMINATED. The vendored
+SDK documents that SOFTSTOP forces power-off after the provider's 15-minute
+grace period; this can require crash recovery if shutdown did not finish.
+No detach is allowed before STOPPED, whether or not the host answers. The
+termination request explicitly preserves data volumes. Volumes, backups and
+backup assignments are never deleted by remove.
 
-The read-only plan includes the volume, backup policy, assignment and
-attachment. Removing a host discards its boot disk and keeps the data
-volume and its backup policy assignment. Remove detaches and waits for the
-attachment to reach DETACHED before requesting termination, then waits for
-TERMINATED before reporting success. Its dry-run prints detachment before
-instance deletion. A later add for the same name
-finds the tagged volume, launches in its availability domain and reattaches
-it. Conflicting or ambiguous volumes and attachments are refused. Data
-volume deletion is a manual operation outside this tool.
+| Observed instance / attachment | Removal action |
+|---|---|
+| RUNNING / attached | SOFTSTOP, then wait for STOPPED |
+| STOPPING / attached | Wait for STOPPED |
+| STOPPED / attached | Detach, then wait for DETACHED |
+| STOPPED / DETACHING | Wait for DETACHED |
+| STOPPED / DETACHED | Terminate, preserving data volumes |
+| TERMINATING / detached | Wait for TERMINATED |
+| No live instance | Report the retained volume |
 
-If remove stops after detaching, the next remove observes no attachment and
-terminates the remaining instance; add can instead reattach the retained
-tagged volume and confirm the existing host's listener. If removal stops while
-terminating, the next remove waits for termination without requesting it again;
-add waits for termination before launching a replacement. A dry-run add reports
-a terminating host and requires termination to finish before planning a
-replacement. A completed remove leaves no live attachment, so add can
-immediately reuse the volume.
+Each interrupted removal resumes from API state. Add refuses STOPPING or
+STOPPED hosts and asks the operator to finish or abandon the removal; it
+never restarts them. After termination, add can launch a replacement for the
+retained, initialised volume. An instance missing the launch binding is
+refused; adopting boot-disk state requires a separate migration.
 
-An existing instance without a tagged data volume or the new bootstrap
-metadata is adopted unchanged. This command does not migrate its boot-disk
-data or mount an empty volume over it. Moving existing hosts needs a
-separate operation that stops the services and copies their data first.
+### Adopting a restored or cloned volume
 
-The disposable M1 E2E flow exercises real loop-device formatting, rejects
-nonzero first, middle-sample and last ranges and blank disks marked formatted
-without changing their contents, keeps the filesystem UUID and sentinel
-service/identity files across reattachment with and without the formatted
-marker, and runs the normal service journey from the mounted volume. It
-injects failures into each block-device probe and sampled read and verifies
-no format occurs and the disk is unchanged. It checks identical mount
-dependencies for both units and stops the data mount
-to check both units stop, then restores the saved data through the agent's
-mount dependencies. It does not create or delete OCI resources.
+Inspect the filesystem and its data outside add, confirm the intended host
+and availability domain, and record its actual ext4 filesystem UUID. Set the
+three discovery tags above, `terrascale-data-formatted=yes`, and
+`terrascale-data-uuid` to that inspected UUID by hand. If a binding tag was
+copied, verify the old bound instance is terminated before reusing it; do not
+assign the clone to a running instance. Then run add for the intended name.
+Missing tags or UUIDs refuse attachment. This path never grants format
+permission, even if signatures are absent. Never mark a blank volume as
+initialised in an attempt to make add format it.
 
-### First real drill
+### Local lane and disposable cloud drill
 
-- Check that the stable device path appears after attaching a volume once the
-  instance is running.
-- Record the bounded zero-read time at the 100 GB balanced tier.
-- Check that `region add` passes the release-listener pin step.
-- Remove a host, check its volume is kept, then add the same host name and
-  verify reattachment without formatting, with identity and data intact.
-- Reboot with the volume attached; verify data and identity. Reboot without
-  it; verify emergency mode and cloud-console-only access.
-- Interrupt provisioning after launch, volume creation and attachment; inspect
-  the host, volume, metadata and listener, then verify the documented recovery.
-- Interrupt the formatted-tag write and readback. Verify add refuses the
-  untagged volume until its filesystem is inspected and the tag is set.
-- Interrupt remove after detachment and during termination. Repeat remove or
-  create immediately and verify no remaining attachment blocks reuse.
-- Present duplicate tagged volumes, a conflicting attachment and an unexpected
-  backup assignment; verify refusal without replacing or deleting resources.
-- Read back the complete daily backup schedule, assignment and seven-day
-  retention. Check actual scheduled backups and expiry.
-- Restore a scheduled backup and clone a volume; check whether freeform tags,
-  especially the formatted tag, survive each operation. Restore the formatted
-  tag before attachment when absent, then verify the database recovers from the
-  crash-consistent snapshot and the filesystem UUID and sentinel data survive.
+The local cloud model checks launch tags, binding readbacks, authenticated
+mount reports, initialisation tags and interrupted removal lifecycle states.
+It rejects detachment from an instance that is still running. The loop-device
+exercise checks zero device writes for every refusal and compares all bytes
+at batch boundaries, covering stale format permission, a second first-boot run, read errors, short reads, probe failures,
+timeouts and disagreements, and checks real mount reporting and UUID service
+preconditions. Local loop exercises run inside a private mount namespace and
+clean up their loop devices. The full service journey runs on a disposable
+systemd runner. No cloud resources are used by the lane.
+
+Real device mapping and metadata attachment identity fields, graceful-stop
+timing and forced-stop behaviour, and API tag propagation stay modelled and
+unproven against a real cloud. Drill them on a disposable host:
+
+- Verify the metadata attachment identity and consistent data-slot path before
+  enabling any first format; missing fields must refuse safely.
+- Measure the bounded reads on a 100 GB balanced volume.
+- Interrupt after creation, launch, binding, attachment, format and tag writes;
+  verify no subsequent invocation can format a retained disk.
+- Hand an adopted volume to a waiting stale script; verify binding or the
+  consumed boot-disk record prevents formatting and preserves all bytes.
+- Repeat first boot and reboot with the disk present, missing and exchanged;
+  verify UUID requirements prevent services using another filesystem.
+- Confirm authenticated reports reject an answering but unmounted host, wrong
+  UUID, wrong size, wrong filesystem and wrong device without tag changes.
+- Interrupt removal at RUNNING, STOPPING, STOPPED, DETACHING, DETACHED and
+  TERMINATING; verify graceful shutdown, provider forced-stop fallback,
+  detachment order, retained backups, and refusal to restart a stopped host.
+- Read back launch and binding tags immediately and after interruptions to
+  measure propagation and verify fail-closed handling of stale reads.
+- Check scheduled daily backups, seven-day expiry, duplicate volume refusal,
+  conflicting attachments and unexpected backup assignments.
+- Restore a scheduled backup and clone a volume, inspect and tag the UUID,
+  adopt without format, and verify filesystem and database recovery with
+  sentinel data and host identity intact.
