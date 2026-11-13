@@ -42,7 +42,7 @@ func publicFromPrivate(snapshot Snapshot) (Caller, error) {
 	return key.Metadata, nil
 }
 
-func inspectCurrent(ctx context.Context, out io.Writer, store Store, targets []Target, snapshots []Snapshot, registries []Registry, callers map[string]Caller, repair bool) error {
+func inspectCurrent(ctx context.Context, out io.Writer, store Store, targets []Target, snapshots []Snapshot, registries []Registry, callers map[string]Caller, repair bool, intent *Intent) error {
 	stages := map[string]string{}
 	var violations []error
 	for _, target := range targets {
@@ -51,6 +51,9 @@ func inspectCurrent(ctx context.Context, out io.Writer, store Store, targets []T
 			state, err := store.Private(ctx, target, name)
 			if err != nil {
 				if repair {
+					if intent != nil && intent.Operation == "add" && name == secretName(intent.Caller, intent.Cell) {
+						continue
+					}
 					violations = append(violations, fmt.Errorf("%s private key not visible; inspection unavailable", name))
 					continue
 				}

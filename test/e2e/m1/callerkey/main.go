@@ -464,10 +464,11 @@ func (j *journey) failures() {
 				j.failOriginal(operation, mode, n)
 				if mode == "hidden" {
 					start := j.store.writes
-					_, err := j.run(j.targets, "recover")
-					require(err != nil, "unreadable state was reported complete")
+					out, err := j.run(j.targets, "recover")
 					if operation != "first" && operation != "add" {
-						require(j.store.writes == start, "unreadable removal mutated state")
+						require(err != nil && j.store.writes == start, "unreadable removal mutated state")
+					} else if err == nil {
+						require(strings.Contains(out, "public entry kept; private key not visible"), "unreadable add did not report harmless retained publication: "+out)
 					}
 					j.store.hidden = map[string]bool{}
 				}

@@ -240,14 +240,12 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		registries[i] = registry
 	}
 	if command == "list" {
-		return inspectCurrent(ctx, out, store, targets, snapshots, registries, callers, false)
+		return inspectCurrent(ctx, out, store, targets, snapshots, registries, callers, false, nil)
 	}
 	if command == "recover" {
 		if intent != nil {
-			if intent.Operation != "add" {
-				if err := inspectCurrent(ctx, out, store, targets, snapshots, registries, callers, true); err != nil {
-					return operationError(intent, err)
-				}
+			if err := inspectCurrent(ctx, out, store, targets, snapshots, registries, callers, true, intent); err != nil {
+				return operationError(intent, err)
 			}
 			if err := recoverOperation(ctx, out, store, targets, snapshots, registries, callers, highWater, intent); err != nil {
 				return err
@@ -255,7 +253,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		} else {
 			fmt.Fprintln(out, "no operation in progress")
 		}
-		if err := inspectCurrent(ctx, out, store, targets, snapshots, registries, callers, true); err != nil {
+		if err := inspectCurrent(ctx, out, store, targets, snapshots, registries, callers, true, intent); err != nil {
 			return fmt.Errorf("recover interrupted: run recover: %w", err)
 		}
 		return nil
