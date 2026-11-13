@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
@@ -32,7 +33,7 @@ type deliveryProbeState struct {
 func probeTopic(secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte("terrascale-alert-delivery-probe-v1"))
-	return "ts-probe-" + hex.EncodeToString(mac.Sum(nil))
+	return "ts-probe-" + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func (p *deliveryProbe) start(ctx context.Context, r relay) {
