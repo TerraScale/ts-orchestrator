@@ -2,7 +2,8 @@
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
 work=$(mktemp -d)
-cleanup() { sudo python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1])' "$work"; }
+lane_python=$(python3 -c 'import sys; print(sys.executable)')
+cleanup() { sudo "$lane_python" -c 'import shutil,sys; shutil.rmtree(sys.argv[1])' "$work"; }
 trap cleanup EXIT
 CGO_ENABLED=0 nice -n 19 go -C "$repo" build -trimpath -o "$work/lifecycle" ./test/e2e/m1/lifecycle
 CGO_ENABLED=0 nice -n 19 go -C "$repo" build -trimpath -o "$work/readiness-server" ./test/e2e/m1/lifecycle/server
