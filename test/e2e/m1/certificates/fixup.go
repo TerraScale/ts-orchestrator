@@ -477,5 +477,31 @@ func fixupJourney(ctx context.Context, cfg configuration, conn *nats.Conn, autho
 		return errors.New("another node bypassed shared cooldown or unsupported envelope")
 	}
 	fmt.Println("PASS equal-expiry convergence to lower fingerprint; both nodes preserve unsupported envelopes and honor shared cooldown")
+	for node, process := range map[string]*process{"a": current, "b": second} {
+		process.mu.Lock()
+		verdicts := 0
+		for _, line := range process.lines {
+			if strings.Contains(line, "edge readiness changed ready=true") {
+				verdicts++
+			}
+		}
+		process.mu.Unlock()
+		address := map[string]string{"a": "10.77.0.2", "b": "10.77.0.3"}[node]
+		recovering := ready(address) != nil
+		if err := removeRoute(ctx, cfg, node, "fixup"); err != nil {
+			return err
+		}
+		if node == "b" {
+			if err := removeRoute(ctx, cfg, node, "unsupported-missing"); err != nil {
+				return err
+			}
+		}
+		if recovering {
+			if err := process.wait(ctx, "edge readiness changed ready=true", verdicts+1); err != nil {
+				return err
+			}
+		}
+	}
+	fmt.Println("PASS completed failure scenarios removed; readiness recovers before independent store outage")
 	return nil
 }

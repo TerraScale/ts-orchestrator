@@ -283,5 +283,5 @@ func recoveryJourney(ctx context.Context, cfg configuration, conn *nats.Conn, cu
 		return errors.New("peer bypassed recovered authority deadline")
 	}
 	fmt.Println("PASS CA 48h deadline survives failed publication in durable journal; reconciliation advances expired reservation monotonically, preserves another holder fence, peer makes no order")
-	return nil
+	return removeRoute(ctx, cfg, "b", "retry-upload")
 }
