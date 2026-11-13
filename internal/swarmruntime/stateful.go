@@ -166,6 +166,14 @@ func (s *statefulController) Wait(ctx context.Context) error {
 			probeCtx, cancel := context.WithTimeout(ctx, readinessDeadline)
 			defer cancel()
 			_, probeErr = binding.Member.Readiness(probeCtx)
+			status, err = task.Status(runtimeContext(ctx))
+			if err != nil {
+				return err
+			}
+			if status.Status == containerd.Stopped {
+				exited = true
+				result = exitError(status.ExitStatus)
+			}
 			probed = true
 			return nil
 		})
