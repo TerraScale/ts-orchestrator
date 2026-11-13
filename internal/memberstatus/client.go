@@ -197,6 +197,8 @@ func nonce() (string, error) {
 
 var ErrUnresponsive = errors.New("member accepted a request without answering before its deadline")
 
+var ErrReadinessAnswered = errors.New("member readiness answered")
+
 func (c *Client) Readiness(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -212,6 +214,9 @@ func (c *Client) Readiness(ctx context.Context) error {
 	_, _, _, err = c.exchangeBounded(ctx, http.MethodGet, "/v1/member/status?nonce="+challenge, nil, maxEvidenceBytes, 15*time.Second)
 	if err != nil && sent.Load() && !answered.Load() && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return ErrUnresponsive
+	}
+	if err != nil && answered.Load() {
+		return errors.Join(ErrReadinessAnswered, err)
 	}
 	return err
 }

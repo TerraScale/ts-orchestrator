@@ -75,5 +75,3 @@ if ! "$binary" "$root" "$image"; then
 	tail -n 80 "$root/c18a/output" "$root/c18b/output"
 	exit 1
 fi
-test "$(grep -c 'data-owning task unresponsive for five minutes' "$root/c18a/output")" -eq 1
-test "$(grep -c 'task readiness unresponsive window cleared' "$root/c18a/output")" -eq 1

@@ -14,12 +14,16 @@ import (
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	server := &http.Server{Addr: ":18083", ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "18083"
+	}
+	server := &http.Server{Addr: ":" + port, ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/ready" {
 			http.NotFound(w, r)
 			return
 		}
-		fmt.Fprint(w, os.Getpid())
+		fmt.Fprint(w, port)
 	})}
 	stop := context.AfterFunc(ctx, func() { _ = server.Close() })
 	defer stop()

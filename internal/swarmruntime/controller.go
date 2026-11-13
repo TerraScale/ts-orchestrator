@@ -721,39 +721,25 @@ func (c *controller) waitExit(ctx context.Context, following func()) (uint32, ti
 		return 0, time.Time{}, err
 	}
 	following()
-	ticker := time.NewTicker(readinessInterval)
-	defer ticker.Stop()
-	var probe <-chan time.Time
+	var failed <-chan error
 	if _, named := c.spec.Labels[LabelReadyPath]; named {
-		probe = ticker.C
+		watch := c.readinessWatch(ctx)
+		defer watch.close()
+		failed = watch.failed
 	}
-	watch := c.readinessWatch()
-	defer watch.close()
 	for {
 		select {
 		case <-ctx.Done():
 			return 0, time.Time{}, ctx.Err()
 		case status := <-wait:
 			return status.Result()
-		case <-probe:
-			if time.Now().Before(watch.next) {
-				continue
-			}
-			port, err := hostPort(c.task)
-			if _, task, ok := c.taskPorts(ctx); ok {
-				port = task
-			}
-			if err == nil {
-				err = probeLiveness(ctx, c, port)
-			}
+		case err := <-failed:
 			select {
 			case status := <-wait:
 				return status.Result()
 			default:
 			}
-			if c.readinessFailed(ctx, watch, err) {
-				return 0, time.Time{}, errors.Join(errTaskUnresponsive, err)
-			}
+			return 0, time.Time{}, err
 		}
 	}
 }

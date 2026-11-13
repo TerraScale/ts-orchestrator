@@ -65,6 +65,7 @@ type Executor struct {
 	pulls             sync.Map // image reference -> *sync.Mutex
 	restarts          map[string]slotRestart
 	readiness         map[string]readinessHistory
+	liveness          readinessHost
 }
 
 var _ exec.Executor = (*Executor)(nil)

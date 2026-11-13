@@ -8,7 +8,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
-	"net/netip"
+	"os"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 	"github.com/VictoriaMetrics/metrics"
+	"github.com/gofrs/flock"
 )
 
 const (
@@ -25,11 +28,20 @@ const (
 	readinessStartGrace = time.Minute
 	readinessBackoffMax = 15 * time.Minute
 	readinessResetAfter = 30 * time.Minute
+	readinessHostBudget = 15 * time.Minute
 )
 
 var errTaskUnresponsive = fmt.Errorf("task unresponsive throughout consecutive readiness probes for %s", readinessWindow)
-
+var errReadinessUnobserved = errors.New("exact task readiness endpoint unavailable")
 var ReadinessMetrics = metrics.NewSet()
+
+type dataOwnership uint8
+
+const (
+	ownershipUnknown dataOwnership = iota
+	dataOwner
+	notDataOwner
+)
 
 type readinessHistory struct {
 	failures int
@@ -37,93 +49,358 @@ type readinessHistory struct {
 	failed   time.Time
 }
 
-type readinessWatch struct {
-	next       time.Time
-	lastProbe  time.Time
-	hungSince  time.Time
-	readySince time.Time
-	reported   bool
-	hungUnix   atomic.Int64
-	metric     string
+type readinessHost struct {
+	mu      sync.Mutex
+	watches map[*readinessWatch]struct{}
+	cancel  context.CancelFunc
 }
 
-func (c *controller) ownsData() bool {
-	return c.stateful != nil || execution.Stateful(c.task) || len(c.spec.Mounts) != 0 ||
+type readinessWatch struct {
+	controller      *controller
+	ctx             context.Context
+	failed          chan error
+	next            time.Time
+	lastRound       time.Time
+	hungSince       time.Time
+	failedFor       time.Duration
+	witnessed       bool
+	readySince      time.Time
+	reported        string
+	missingReported bool
+	hungUnix        atomic.Int64
+	metric          string
+}
+
+type readinessResult struct {
+	watch *readinessWatch
+	err   error
+}
+
+func (c *controller) ownsData() dataOwnership {
+	if c == nil || c.task == nil || c.spec == nil {
+		return ownershipUnknown
+	}
+	if c.stateful != nil || execution.Stateful(c.task) || len(c.spec.Mounts) != 0 ||
 		c.task.ServiceAnnotations.Labels[LabelServiceSpec] == "terrabase" ||
 		c.task.ServiceAnnotations.Labels[LabelRole] == "terrabase" ||
-		c.task.Annotations.Labels[LabelRole] == "terrabase"
+		c.task.Annotations.Labels[LabelRole] == "terrabase" {
+		return dataOwner
+	}
+	for _, labels := range []map[string]string{c.task.Annotations.Labels, c.task.ServiceAnnotations.Labels} {
+		if value, present := labels["terrascale.stateful"]; present && value != "false" {
+			return ownershipUnknown
+		}
+	}
+	spec, err := DecodeContainer(c.task)
+	if err != nil {
+		return ownershipUnknown
+	}
+	if _, err := execution.TaskSHA256(c.task); err != nil {
+		return ownershipUnknown
+	}
+	if len(spec.Mounts) != 0 {
+		return dataOwner
+	}
+	return notDataOwner
 }
 
-func (c *controller) readinessWatch() *readinessWatch {
-	w := &readinessWatch{next: time.Now().Add(readinessStartGrace)}
-	if c.ownsData() {
-		w.metric = observability.Series(observability.MetricPrefix+"task_unresponsive_seconds", "task", c.task.ID, "service", c.task.ServiceID)
-		ReadinessMetrics.NewGauge(w.metric, func() float64 {
-			if since := w.hungUnix.Load(); since != 0 {
-				return max(time.Since(time.Unix(0, since)).Seconds(), 0)
-			}
-			return 0
-		})
+func (c *controller) readinessWatch(ctx context.Context) *readinessWatch {
+	w := &readinessWatch{controller: c, ctx: ctx, failed: make(chan error, 1), next: time.Now().Add(readinessStartGrace)}
+	w.metric = observability.Series(observability.MetricPrefix+"task_unresponsive_seconds", "task", c.task.ID, "service", c.task.ServiceID)
+	ReadinessMetrics.NewGauge(w.metric, func() float64 {
+		if since := w.hungUnix.Load(); since != 0 {
+			return max(time.Since(time.Unix(0, since)).Seconds(), 0)
+		}
+		return 0
+	})
+	h := &c.executor.liveness
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.watches) == 0 {
+		h.watches = make(map[*readinessWatch]struct{})
+		observerCtx, cancel := context.WithCancel(context.Background())
+		h.cancel = cancel
+		go c.executor.observeReadiness(observerCtx)
 	}
+	h.watches[w] = struct{}{}
 	return w
 }
 
 func (w *readinessWatch) close() {
-	if w.metric != "" {
-		ReadinessMetrics.UnregisterMetric(w.metric)
+	h := &w.controller.executor.liveness
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.watches, w)
+	if len(h.watches) == 0 {
+		h.cancel()
 	}
+	ReadinessMetrics.UnregisterMetric(w.metric)
 }
 
 func (s *statefulController) observeReadiness(ctx context.Context) func() {
-	ctx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		watch := s.readinessWatch()
-		defer watch.close()
-		ticker := time.NewTicker(readinessInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if time.Now().Before(watch.next) {
-					continue
-				}
-				probeCtx, stop := context.WithTimeout(ctx, readinessDeadline)
-				err := s.source.ObserveReadiness(probeCtx, s.task)
-				stop()
-				s.readinessFailed(ctx, watch, err)
-			}
-		}
-	}()
-	return func() { cancel(); <-done }
+	watch := s.readinessWatch(ctx)
+	return watch.close
 }
 
-func (w *readinessWatch) observe(now time.Time, err error) bool {
-	if !w.lastProbe.IsZero() && now.Sub(w.lastProbe) > readinessDeadline+2*readinessInterval {
-		w.hungSince = time.Time{}
-		w.readySince = time.Time{}
+func (c *controller) readinessObservation(ctx context.Context) error {
+	if c.stateful != nil {
+		return c.stateful.source.ObserveReadiness(ctx, c.task)
 	}
-	w.lastProbe = now
-	w.next = now.Add(readinessInterval)
-	if err == nil {
-		w.hungSince = time.Time{}
-		if w.readySince.IsZero() {
-			w.readySince = now
+	port, err := hostPort(c.task)
+	if err != nil {
+		return errors.Join(errReadinessUnobserved, err)
+	}
+	if usesTaskPort(c.spec.Env) {
+		ctr, err := c.container(ctx)
+		if err != nil {
+			return errors.Join(errReadinessUnobserved, err)
 		}
-		return false
+		labels, err := ctr.Labels(runtimeContext(ctx))
+		if err != nil {
+			return errors.Join(errReadinessUnobserved, err)
+		}
+		ownPort, err := strconv.ParseUint(labels[portsLabel], 10, 16)
+		if err != nil || ownPort == 0 {
+			return errors.Join(errReadinessUnobserved, err)
+		}
+		port = uint16(ownPort)
 	}
-	w.readySince = time.Time{}
+	return probeLiveness(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))), ReadyPath(c.spec))
+}
+
+func (e *Executor) observeReadiness(ctx context.Context) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	health := ""
+	if err == nil {
+		health = listener.Addr().String()
+		server := &http.Server{ReadHeaderTimeout: readinessDeadline, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/healthz" {
+				http.NotFound(w, r)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		})}
+		defer server.Close()
+		go func() { _ = server.Serve(listener) }()
+	} else {
+		slog.WarnContext(ctx, "local readiness witness unavailable", "error", err)
+	}
+	ticker := time.NewTicker(readinessInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			e.readinessRound(ctx, health)
+		}
+	}
+}
+
+func (e *Executor) readinessRound(ctx context.Context, health string) {
+	h := &e.liveness
+	h.mu.Lock()
+	var watches []*readinessWatch
+	for w := range h.watches {
+		if w.ctx.Err() == nil && !time.Now().Before(w.next) {
+			watches = append(watches, w)
+		}
+	}
+	watched := len(h.watches)
+	h.mu.Unlock()
+	if len(watches) == 0 {
+		return
+	}
+	started := time.Now()
+	results := make([]readinessResult, len(watches))
+	var probes sync.WaitGroup
+	for i, w := range watches {
+		probes.Go(func() {
+			probeCtx, cancel := context.WithTimeout(w.ctx, readinessDeadline)
+			defer cancel()
+			stop := context.AfterFunc(ctx, cancel)
+			defer stop()
+			results[i] = readinessResult{watch: w, err: w.controller.readinessObservation(probeCtx)}
+		})
+	}
+	localAnswered := false
+	if watched == 1 && health != "" {
+		probes.Go(func() {
+			localAnswered = probeLiveness(ctx, health, "/healthz") == nil
+		})
+	}
+	probes.Wait()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ctx.Err() != nil {
+		return
+	}
+	now := time.Now()
+	answered := 0
+	for _, result := range results {
+		if _, active := h.watches[result.watch]; active && result.watch.ctx.Err() == nil && readinessAnswered(result.err) {
+			answered++
+		}
+	}
+	witnesses := make(map[*readinessWatch]bool, len(results))
+	for _, result := range results {
+		w := result.watch
+		if _, active := h.watches[w]; !active || w.ctx.Err() != nil {
+			continue
+		}
+		others := answered
+		if readinessAnswered(result.err) {
+			others--
+		}
+		witness := others > 0 || watched == 1 && localAnswered
+		witnesses[w] = witness
+		w.observe(started, now, result.err, witness)
+	}
+	failing := 0
+	for w := range h.watches {
+		if w.ctx.Err() == nil && w.controller.ownsData() == notDataOwner && !w.hungSince.IsZero() {
+			failing++
+		}
+	}
+	for _, result := range results {
+		w := result.watch
+		if _, active := h.watches[w]; !active || w.ctx.Err() != nil {
+			continue
+		}
+		w.decide(now, result.err, witnesses[w], failing)
+	}
+}
+
+func readinessAnswered(err error) bool {
+	return err == nil || errors.Is(err, memberstatus.ErrReadinessAnswered)
+}
+
+func (w *readinessWatch) observe(started, now time.Time, err error, witness bool) {
+	w.next = now.Add(readinessInterval)
+	if errors.Is(err, errReadinessUnobserved) {
+		w.readySince = time.Time{}
+		w.witnessed = false
+		ReadinessMetrics.GetOrCreateCounter(observability.Series(observability.MetricPrefix+"task_readiness_unobserved_total", "task", w.controller.task.ID, "service", w.controller.task.ServiceID)).Inc()
+		if !w.missingReported {
+			slog.WarnContext(w.ctx, "task readiness not observed: exact task endpoint unavailable", "task", w.controller.task.ID, "error", err)
+			w.missingReported = true
+		}
+		return
+	}
+	if errors.Is(err, memberstatus.ErrUnresponsive) && w.hungSince.IsZero() {
+		w.hungSince = started
+	}
+	if !witness {
+		w.readySince = time.Time{}
+		w.witnessed = false
+		return
+	}
 	if !errors.Is(err, memberstatus.ErrUnresponsive) {
 		w.hungSince = time.Time{}
-		return false
+		w.failedFor = 0
+		w.witnessed = false
+		w.hungUnix.Store(0)
+		if w.reported != "" {
+			slog.InfoContext(w.ctx, "task readiness unresponsive window cleared", "task", w.controller.task.ID, "reason", w.reported)
+			w.reported = ""
+		}
+		if err == nil {
+			if w.readySince.IsZero() {
+				w.readySince = now
+			}
+		} else {
+			w.readySince = time.Time{}
+		}
+	} else {
+		w.readySince = time.Time{}
+		elapsed := min(now.Sub(started), readinessDeadline)
+		if w.witnessed && started.Sub(w.lastRound) <= 2*readinessInterval {
+			elapsed += max(started.Sub(w.lastRound), 0)
+		}
+		w.failedFor += elapsed
+		w.witnessed = true
 	}
+	w.lastRound = now
+}
+
+func (w *readinessWatch) report(reason string) {
+	w.hungUnix.Store(w.hungSince.UnixNano())
+	if w.reported == "" {
+		slog.WarnContext(w.ctx, "task unresponsive; "+reason, "task", w.controller.task.ID)
+		w.reported = reason
+	}
+}
+
+func (w *readinessWatch) decide(now time.Time, err error, witness bool, failing int) {
+	c := w.controller
 	if w.hungSince.IsZero() {
-		w.hungSince = now.Add(-readinessDeadline)
+		if !w.readySince.IsZero() && now.Sub(w.readySince) >= readinessResetAfter {
+			c.executor.mu.Lock()
+			delete(c.executor.readiness, restartKey(c.task))
+			c.executor.mu.Unlock()
+		}
+		return
 	}
-	return now.Sub(w.hungSince) >= readinessWindow
+	if now.Sub(w.hungSince) < readinessWindow {
+		return
+	}
+	switch c.ownsData() {
+	case dataOwner:
+		w.report("not replaced: data owner")
+		return
+	case ownershipUnknown:
+		w.report("not replaced: ownership unknown")
+		return
+	}
+	if !witness {
+		w.report("not replaced: no witness answered")
+		return
+	}
+	if failing > 1 {
+		w.report(fmt.Sprintf("not replaced: correlated with %d other tasks", failing-1))
+		return
+	}
+	if errors.Is(err, errReadinessUnobserved) || w.failedFor < readinessWindow {
+		return
+	}
+	if err := c.executor.reserveReadinessReplacement(now); err != nil {
+		w.report("not replaced: host replacement budget unavailable")
+		return
+	}
+	select {
+	case w.failed <- errors.Join(errTaskUnresponsive, err):
+		w.next = now.Add(readinessHostBudget)
+	default:
+	}
+}
+
+func (e *Executor) reserveReadinessReplacement(now time.Time) error {
+	lock := flock.New(e.socket + ".readiness.lock")
+	locked, err := lock.TryLock()
+	if err != nil || !locked {
+		return errors.New("host replacement budget locked")
+	}
+	defer lock.Unlock()
+	path := e.socket + ".readiness-replacement"
+	data, err := os.ReadFile(path)
+	if err == nil {
+		last, err := time.Parse(time.RFC3339Nano, string(data))
+		if err != nil {
+			return err
+		}
+		if now.Sub(last) < readinessHostBudget {
+			return errors.New("host replacement budget used")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.WriteString(now.UTC().Format(time.RFC3339Nano))
+	syncErr := file.Sync()
+	return errors.Join(writeErr, syncErr, file.Close())
 }
 
 func readinessBackoff(n int) time.Duration {
@@ -131,7 +408,7 @@ func readinessBackoff(n int) time.Duration {
 }
 
 func (c *controller) recordReadinessFailure() {
-	if c.ownsData() {
+	if c.ownsData() != notDataOwner {
 		return
 	}
 	e := c.executor
@@ -149,39 +426,7 @@ func (c *controller) recordReadinessFailure() {
 	e.readiness[restartKey(c.task)] = h
 }
 
-func (c *controller) readinessFailed(ctx context.Context, w *readinessWatch, err error) bool {
-	if ctx.Err() != nil {
-		return false
-	}
-	expired := w.observe(time.Now(), err)
-	if c.ownsData() {
-		if w.hungSince.IsZero() {
-			w.hungUnix.Store(0)
-			if w.reported {
-				slog.InfoContext(ctx, "task readiness unresponsive window cleared", "task", c.task.ID, "error", err)
-				w.reported = false
-			}
-		} else {
-			w.hungUnix.Store(w.hungSince.UnixNano())
-			if expired && !w.reported {
-				slog.WarnContext(ctx, "data-owning task unresponsive for five minutes; operator action required", "task", c.task.ID)
-				w.reported = true
-			}
-		}
-		return false
-	}
-	if !expired {
-		if !w.readySince.IsZero() && time.Since(w.readySince) >= readinessResetAfter {
-			c.executor.mu.Lock()
-			delete(c.executor.readiness, restartKey(c.task))
-			c.executor.mu.Unlock()
-		}
-		return false
-	}
-	return ctx.Err() == nil
-}
-
-func probeLiveness(ctx context.Context, task *controller, port uint16) error {
+func probeLiveness(ctx context.Context, endpoint, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, readinessDeadline)
 	defer cancel()
 	var sent, answered atomic.Bool
@@ -191,8 +436,7 @@ func probeLiveness(ctx context.Context, task *controller, port uint16) error {
 	}
 	transport := &http.Transport{DialContext: (&net.Dialer{Timeout: time.Second}).DialContext, DisableKeepAlives: true, MaxResponseHeaderBytes: 8 << 10}
 	defer transport.CloseIdleConnections()
-	endpoint := netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), port)
-	request, err := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), http.MethodGet, "http://"+endpoint.String()+ReadyPath(task.spec), nil)
+	request, err := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), http.MethodGet, "http://"+endpoint+path, nil)
 	if err != nil {
 		return err
 	}
@@ -201,11 +445,14 @@ func probeLiveness(ctx context.Context, task *controller, port uint16) error {
 		if sent.Load() && !answered.Load() && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return memberstatus.ErrUnresponsive
 		}
+		if answered.Load() {
+			return errors.Join(memberstatus.ErrReadinessAnswered, err)
+		}
 		return err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("task readiness HTTP %d", response.StatusCode)
+		return fmt.Errorf("%w: HTTP %d", memberstatus.ErrReadinessAnswered, response.StatusCode)
 	}
 	return nil
 }
