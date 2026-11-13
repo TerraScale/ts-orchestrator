@@ -128,10 +128,9 @@ before the machine starts. No file may equal or contain another, or cover
 option. The encoded `MachineSpec` is at most 32 KiB, because every machine
 record carries its config and a record is at most 64 KiB.
 
-`mounts` are [managed volumes](managed-volumes.md)' (TS-567): a volume ID
-and a path, refusing the same system paths. When `mounts` joins the machine
-config, its `Validate` also refuses a mount path that equals or contains a
-file's.
+`mounts` (TS-567) name a volume ID and a path, refusing the same system
+paths. When `mounts` joins the machine config, its `Validate` also refuses a
+mount path that equals or contains a file's.
 
 ### Lifecycle
 
