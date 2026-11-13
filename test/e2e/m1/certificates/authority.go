@@ -44,7 +44,14 @@ func authorityToken(name string) string {
 
 func (a *fakeAuthority) challenge(name string) (string, error) {
 	var answer string
-	for _, node := range []string{"10.77.0.2", "10.77.0.3"} {
+	nodes := []string{"10.77.0.2", "10.77.0.3"}
+	if strings.HasPrefix(name, "gru.") {
+		nodes = nodes[:1]
+	}
+	if strings.HasPrefix(name, "sjc.") {
+		nodes = nodes[1:]
+	}
+	for _, node := range nodes {
 		request, err := http.NewRequest(http.MethodGet, "http://"+node+"/.well-known/acme-challenge/"+authorityToken(name), nil)
 		if err != nil {
 			return "", err
@@ -118,6 +125,14 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 		{Handler: http.HandlerFunc(a.serve)},
 		{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
+			case strings.HasSuffix(r.URL.Path, "/instance/id"):
+				_, _ = io.WriteString(w, "ocid1.instance.oc1..journey")
+			case strings.HasSuffix(r.URL.Path, "/vnics/"):
+				address := "10.77.0.2"
+				if strings.HasPrefix(r.RemoteAddr, "10.77.0.3:") {
+					address = "10.77.0.3"
+				}
+				_ = json.NewEncoder(w).Encode([]map[string]string{{"privateIp": address}})
 			case strings.HasSuffix(r.URL.Path, "/canonicalRegionName"):
 				region := "sa-saopaulo-1"
 				if strings.HasPrefix(r.RemoteAddr, "10.77.0.3:") {

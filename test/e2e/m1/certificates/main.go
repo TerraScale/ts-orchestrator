@@ -64,6 +64,11 @@ func run() error {
 		return err
 	}
 	switch os.Args[1] {
+	case "node":
+		if err := syscall.Mount(cfg.Work+"/sys-"+os.Args[5], "/sys", "", syscall.MS_BIND, ""); err != nil {
+			return err
+		}
+		return syscall.Exec(os.Args[3], []string{os.Args[3], "single-host", "--state", cfg.Work + "/" + os.Args[4]}, os.Environ())
 	case "authority":
 		return authorityMain(ctx, cfg)
 	case "store":
@@ -105,6 +110,15 @@ func fixtureCertificate(name string, key crypto.Signer, root *x509.Certificate, 
 }
 
 func fixtures(cfg configuration) error {
+	for kind, value := range map[string]string{"local": "Journey", "oracle": "OracleCloud.com"} {
+		dir := cfg.Work + "/sys-" + kind + "/class/dmi/id"
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(dir+"/chassis_asset_tag", []byte(value), 0644); err != nil {
+			return err
+		}
+	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return err
@@ -143,6 +157,7 @@ func fixtures(cfg configuration) error {
 		return err
 	}
 	for _, node := range []string{"a", "b"} {
+		region := map[string]string{"a": "gru", "b": "sjc"}[node]
 		directory := cfg.Work + "/" + node + "/edge-certs"
 		if err := os.MkdirAll(directory, 0700); err != nil {
 			return err
@@ -150,10 +165,10 @@ func fixtures(cfg configuration) error {
 		if err := os.WriteFile(cfg.Work+"/"+node+"/edge-acme.json", []byte("{\"DirectoryURL\":\"http://10.77.0.1:8088/directory\"}"), 0600); err != nil {
 			return err
 		}
-		for _, name := range []string{"existing.e2e.test", "rsa.e2e.test", "postgres.e2e.test", node + ".regional.e2e.test"} {
+		for _, name := range []string{"existing.e2e.test", "rsa.e2e.test", "postgres.e2e.test", region + ".regional.e2e.test", region + ".existing.e2e.test", region + ".rsa.e2e.test", region + ".postgres.e2e.test"} {
 			var leafKey crypto.Signer
 			filename := name
-			if name == "rsa.e2e.test" {
+			if strings.HasSuffix(name, "rsa.e2e.test") {
 				leafKey, err = rsa.GenerateKey(rand.Reader, 2048)
 				filename += "+rsa"
 			} else {
@@ -264,7 +279,7 @@ func fingerprint(cfg configuration, address, name string, postgres bool) (string
 		}
 	}
 	settings := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: name}
-	if name == "rsa.e2e.test" {
+	if strings.HasSuffix(name, "rsa.e2e.test") {
 		settings.MaxVersion = tls.VersionTLS12
 		settings.CipherSuites = []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}
 	}
@@ -407,8 +422,8 @@ func journey(ctx context.Context, cfg configuration) error {
 		}
 	}
 	env := []string{"JOURNAL_STREAM=", "HTTPS_PROXY=http://10.77.0.1:8089", "NO_PROXY=169.254.169.254,127.0.0.1,10.77.0.1", "SSL_CERT_FILE=" + cfg.Work + "/ca.pem"}
-	startNode := func(node, binary, log string) (*process, error) {
-		p, err := launch(ctx, cfg.Work+"/"+log, env, "ip", "netns", "exec", "cert-"+node, binary, "single-host", "--state", cfg.Work+"/"+node)
+	startNode := func(node, binary, log, platform string) (*process, error) {
+		p, err := launch(ctx, cfg.Work+"/"+log, env, "ip", "netns", "exec", "cert-"+node, self, "node", os.Args[2], binary, node, platform)
 		if err != nil {
 			return nil, err
 		}
@@ -418,7 +433,14 @@ func journey(ctx context.Context, cfg configuration) error {
 		}
 		return p, nil
 	}
-	old, err := startNode("b", cfg.MainBinary, "old")
+	for _, node := range []string{"a", "b"} {
+		bootstrap, err := startNode(node, cfg.MainBinary, "bootstrap-"+node, "local")
+		if err != nil {
+			return err
+		}
+		bootstrap.stop()
+	}
+	old, err := startNode("b", cfg.MainBinary, "old", "oracle")
 	if err != nil {
 		return err
 	}
@@ -428,13 +450,13 @@ func journey(ctx context.Context, cfg configuration) error {
 			old.stop()
 		}
 	}()
-	current, err := startNode("a", cfg.Binary, "a-process")
+	current, err := startNode("a", cfg.Binary, "a-process", "oracle")
 	if err != nil {
 		return err
 	}
 	defer func() { current.stop() }()
 	for _, node := range []string{"a", "b"} {
-		if err := route(ctx, cfg, node, "existing", []string{"existing.e2e.test", "rsa.e2e.test", node + ".regional.e2e.test"}); err != nil {
+		if err := route(ctx, cfg, node, "existing", []string{"existing.e2e.test", "rsa.e2e.test", map[string]string{"a": "gru", "b": "sjc"}[node] + ".regional.e2e.test"}); err != nil {
 			return err
 		}
 	}
@@ -458,7 +480,7 @@ func journey(ctx context.Context, cfg configuration) error {
 	}
 	old.stop()
 	oldRunning = false
-	second, err := startNode("b", cfg.Binary, "b-process")
+	second, err := startNode("b", cfg.Binary, "b-process", "oracle")
 	if err != nil {
 		return err
 	}
@@ -518,6 +540,17 @@ func journey(ctx context.Context, cfg configuration) error {
 			return err
 		}
 	}
+	for i, regional := range []struct {
+		process *process
+		region  string
+	}{{current, "gru"}, {second, "sjc"}} {
+		if err := regional.process.wait(ctx, "edge certificate installed name="+regional.region+".shared.e2e.test", 1); err != nil {
+			return err
+		}
+		if _, err := fingerprint(cfg, fmt.Sprintf("10.77.0.%d", i+2), regional.region+".shared.e2e.test", false); err != nil {
+			return err
+		}
+	}
 	firstFingerprint, err := fingerprint(cfg, "10.77.0.2", "shared.e2e.test", false)
 	if err != nil {
 		return err
@@ -539,7 +572,7 @@ func journey(ctx context.Context, cfg configuration) error {
 	if err != nil {
 		return err
 	}
-	if len(counts) != 1 || counts["shared.e2e.test"] != 1 {
+	if len(counts) != 3 || counts["shared.e2e.test"] != 1 || counts["gru.shared.e2e.test"] != 1 || counts["sjc.shared.e2e.test"] != 1 {
 		return fmt.Errorf("authority orders: %v", counts)
 	}
 	sharedAPI, err := conn.JetStream(nats.MaxWait(3 * time.Second))
@@ -560,7 +593,7 @@ func journey(ctx context.Context, cfg configuration) error {
 	if !strings.HasPrefix(envelope.Version, "v1:") || len(envelope.Data) < 32 || bytes.Contains(envelope.Data, []byte("PRIVATE KEY")) {
 		return errors.New("certificate envelope is not encrypted and versioned")
 	}
-	fmt.Println("PASS two production processes use the host seed and account path; two lease contenders, one order, HTTP-01 on both nodes; TLS fingerprint", firstFingerprint)
+	fmt.Println("PASS two production processes use the host seed and account path; two lease contenders, one order per name, HTTP-01 on every eligible node; TLS fingerprint", firstFingerprint)
 	for _, address := range []string{"10.77.0.2", "10.77.0.3"} {
 		if err := ready(address); err != nil {
 			return err
