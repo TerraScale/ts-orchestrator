@@ -44,6 +44,7 @@ generate:
 
 generate-check:
 	python3 scripts/ci/node-list.py check
+	$(GO) run ./cmd/terrascale-orchestrator node list check deploy/m1/nodes.json
 	GO="$(GO)" bash scripts/ci/check-templ.sh
 
 vet:

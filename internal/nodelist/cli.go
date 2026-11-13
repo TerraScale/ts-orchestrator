@@ -30,8 +30,20 @@ func Run(args []string, out io.Writer) error {
 		_, err = fmt.Fprintf(out, "%s\n", data)
 		return err
 	}
+	if len(args) == 3 && args[0] == "list" && args[1] == "check" {
+		data, err := os.ReadFile(args[2])
+		if err != nil {
+			return err
+		}
+		list, err := Decode(data)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(out, "sequence %d, %d nodes\n", list.Sequence, len(list.Nodes))
+		return err
+	}
 	if len(args) != 5 || args[0] != "list" || args[1] != "build" {
-		return errors.New("usage: ts-orch node list build SEQUENCE INVENTORY OUTPUT")
+		return errors.New("usage: ts-orch node list build SEQUENCE INVENTORY OUTPUT, or ts-orch node list check FILE")
 	}
 	sequence, err := strconv.ParseUint(args[2], 10, 64)
 	if err != nil || sequence == 0 {

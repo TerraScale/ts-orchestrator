@@ -25,6 +25,11 @@ an inventory array, then build the repository list:
 
     ts-orch node list build "$sequence" inventory.json deploy/m1/nodes.json
     make generate
+    ts-orch node list check deploy/m1/nodes.json
+
+The last command runs the validation every host applies before adopting a list.
+`make generate-check` runs it in CI, so a list that hosts would refuse fails
+the pull request.
 
 Names use exactly ts-<lowercase catalog region>-<index>, with indices 1 through
 254 and no leading zeroes. mesh_ip is derived as
