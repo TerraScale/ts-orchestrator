@@ -119,13 +119,16 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
         run: |
-          if [ "$EVENT" = schedule ]; then
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed=$(git diff --name-only "${CHANGE_BASE:-HEAD^}" HEAD)
-          if rg -q '^(internal/edge/|internal/natscell/mesh/|internal/cli/|test/e2e/m1/certificates/|docs/edge-certificates.md|go.mod|go.sum|.github/)' <<< "$changed"; then
+          if grep -Eq '^(internal/edge/|internal/natscell/mesh/|internal/cli/|test/e2e/m1/certificates/|docs/edge-certificates\.md$|go\.mod$|go\.sum$|\.github/)' <<< "$changed"; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
           fi
 
   e2e-certificates:
@@ -237,8 +240,8 @@ jobs:
   # (deploy/m1/regions.json); fails when any region does not serve it. Only
   # this job can mint the GitHub OIDC token that is the push credential.
   release-push:
-    needs: [build, e2e-m1, e2e-certificates]
-    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' && (needs.e2e-certificates.result == 'success' || needs.e2e-certificates.result == 'skipped') }}
+    needs: [build, e2e-m1, certificate-paths, e2e-certificates]
+    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' && needs.certificate-paths.result == 'success' && (needs.e2e-certificates.result == 'success' || (needs.e2e-certificates.result == 'skipped' && needs.certificate-paths.outputs.changed == 'false')) }}
     name: deploy/release-push
     concurrency:
       group: production-ts-orch
@@ -295,3 +298,4 @@ jobs:
     timeout-minutes: 1
     steps:
       - run: test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false
+      - run: test "${{ needs.certificate-paths.result == 'success' && (needs.e2e-certificates.result == 'success' || needs.certificate-paths.outputs.changed == 'false') }}" = true

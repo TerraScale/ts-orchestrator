@@ -18,6 +18,8 @@ Each lane restores the shared ARM Go cache and builds the static agent and its s
 
 Fail-fast is disabled so the other lanes finish after a failure. Per-lane concurrency cancels obsolete work on the same ref. The aggregate check retains the name e2e-m1 and requires the complete matrix, including each lane's build, to succeed. A failed, cancelled or unexpectedly skipped matrix cannot pass the aggregate. No skips are currently intended; a future filtered matrix must represent intentional exclusions as successful jobs while still rejecting unexpected skips. Both all-green and the existing release gate continue to depend on the aggregate. Release concurrency and publication logic are unchanged.
 
+The shared edge certificate journey waits through a real ten-minute lease, so it runs as its own job with a thirty-minute limit, outside the matrix. On a pull request it runs when the edge, the mesh, the command wiring, its own journey, its documentation, the module files or the workflows change. On every push to main and once a day on a schedule it always runs, so a release is never published without it. A pull request that does not touch those paths skips it, and that skip counts as success; a failure, a cancellation, or a skip when the paths did change fails all-green and blocks the release.
+
 To add a lane, create its entry script under test/e2e/m1/, source setup.sh if it needs the installed services, then add exactly one matrix entry in .github/workflows/ci.yml:
 
 ~~~yaml
