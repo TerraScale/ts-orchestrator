@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -485,7 +486,9 @@ func atFilePermission(phase string, crash func(string, string, int) bool) <-chan
 				hit := err == nil && json.Unmarshal(data, &t) == nil && crash(t.Phase, path, int(event.Pid))
 				response := unix.FanotifyResponse{Fd: event.Fd, Response: unix.FAN_ALLOW}
 				_, err = unix.Write(fd, unsafe.Slice((*byte)(unsafe.Pointer(&response)), int(unsafe.Sizeof(response))))
-				check(err)
+				if err != nil && !(hit && errors.Is(err, unix.ENOENT)) {
+					check(err)
+				}
 				check(unix.Close(int(event.Fd)))
 				if hit {
 					done <- phase
