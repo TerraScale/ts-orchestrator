@@ -124,23 +124,13 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 		return nil, fmt.Errorf("%s runs %s; a release may change only its digest", service, repository(next.Image))
 	}
 	next.Image = image
-	// A new signed release adopts the all-region declaration's placement and
-	// budgets, without replacing runtime credentials, routes or other fields.
-	// Holds retain their placement/order and budgets until explicitly resumed.
-	if deployment != nil && before.HoldAfter == "" {
+	if deployment != nil {
 		if err := declaredReleasePlacement(&next, deployment); err != nil {
 			return nil, err
 		}
 	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
-	// A signed release does not inherit a canary hold: every region already
-	// waits for the earlier regions' successful bakes, and a hold left behind
-	// kept TerraBase's fix out of sjc and fra. Its placement stays as held.
-	// An unsigned apply of a held service stays held until `service resume`.
-	hold := before.HoldAfter
-	if deployment != nil {
-		hold = ""
-	}
+	hold := releaseHold(service, &next, deployment, before.HoldAfter)
 	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: hold}}
 	// A reconnect or process restart resumes the signed deployment's existing
 	// bake instead of publishing a fresh generation and restarting its window.
@@ -271,4 +261,13 @@ func declaredReleasePlacement(next *swarmruntime.ServiceSpec, deployment *Deploy
 		next.Env = maps.Clone(declared.Env)
 	}
 	return nil
+}
+
+func releaseHold(service string, spec *swarmruntime.ServiceSpec, deployment *Deployment, hold string) string {
+	if deployment != nil && service == "terrabase" {
+		if order := rolloutOrder(spec); len(order) != 0 {
+			return order[0]
+		}
+	}
+	return hold
 }

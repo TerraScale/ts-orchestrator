@@ -607,11 +607,6 @@ func (n *Node) statesOf(ctx context.Context, want []string, wait time.Duration) 
 	return states
 }
 
-// rolloutOrder is the order a rollout replaces regions in, one at a time, so
-// the edge always has a serving region to hand off to (TerraBase is replaced
-// stop-first: one writer per data dir). A spec's regions roll in the order it
-// lists them; a spec for every region rolls the founded regions with the first
-// (gru: ts-auth and the dashboard) last.
 func rolloutOrder(spec *swarmruntime.ServiceSpec) []string {
 	if len(spec.Regions) != 0 {
 		return spec.Regions
@@ -661,7 +656,7 @@ func (n *Node) applyWindow(spec *swarmruntime.ServiceSpec) time.Duration {
 
 // held reports a region that comes after entry's canary hold.
 func (n *Node) held(entry Entry) bool {
-	return entry.HoldAfter != "" && slices.Contains(n.earlier(entry.Spec), entry.HoldAfter)
+	return entry.Deployment == nil && entry.HoldAfter != "" && slices.Contains(n.earlier(entry.Spec), entry.HoldAfter)
 }
 
 // errEarlierFailed stops a region from waiting for a generation an earlier
@@ -680,9 +675,7 @@ func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int6
 			return fmt.Errorf("%w: %s", errEarlierFailed, region)
 		}
 		if reply.Excused[name] >= generation {
-			// Its bake failed only on a recovering dependency (sjc 2026-10-28
-			// 16:53Z): the candidate did not regress, so this region still rolls.
-			continue
+			return fmt.Errorf("%w: %s dependency bake failed", errEarlierFailed, region)
 		}
 		if reply.Ready[name] < generation {
 			return fmt.Errorf("%s does not run %s generation %d ready yet", region, name, generation)

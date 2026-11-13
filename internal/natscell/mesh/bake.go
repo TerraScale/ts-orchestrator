@@ -167,13 +167,11 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	ctx, cancel := context.WithTimeout(ctx, regionWindow(&spec))
 	defer cancel()
 	record = bakeRecord{Generation: spec.Generation, Image: spec.Image, Identity: identity}
-	// Persist a fail-closed latch before observing the candidate. A crash or
-	// failed verdict write must never erase a detected regression on restart.
-	record.Bake = rollout.BakeVerdict{Started: time.Now().UTC(), Reason: "bake interrupted before durable verdict; publish a new generation"}
+	record.Bake = rollout.BakeVerdict{Started: time.Now().UTC()}
 	if err := writeBake(key, record); err != nil {
 		return record, err
 	}
-	record.Bake = rollout.BakeVerdict{} // The bake starts only after readiness succeeds.
+	record.Bake = rollout.BakeVerdict{}
 	ready, err := n.cfg.applier.Wait(ctx, spec, original)
 	record.Rollout = bakeRuntime{int64(ready.Running), int64(ready.Ready), ready.Tasks, ready.Revision, ready.StopFirst}
 	if err == nil && spec.Deployment != nil && spec.Image == spec.Deployment.Image && record.Rollout.Revision != spec.Deployment.Revision {
@@ -183,7 +181,7 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 		record.Bake, err = n.cfg.applier.Bake(ctx, spec, ready)
 	}
 	if n.ctx.Err() != nil && (err == nil || errors.Is(err, context.Canceled)) {
-		record.Bake = rollout.BakeVerdict{} // A clean shutdown can restart its window.
+		record.Bake = rollout.BakeVerdict{}
 		return record, errors.Join(n.ctx.Err(), writeBake(key, record))
 	}
 	n.mu.Lock()

@@ -255,7 +255,7 @@ func (a swarmApplier) Ready(ctx context.Context) (map[string]int64, error) {
 	}
 	ready := map[string]int64{}
 	for _, row := range rows {
-		if row.Replicas > 0 && row.Running == row.Replicas {
+		if row.Replicas > 0 && row.Running == row.Replicas && swarmruntime.ServingService(ctx, client, row.Name) == nil {
 			ready[row.Name] = row.Generation
 		}
 	}

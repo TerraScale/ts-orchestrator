@@ -120,12 +120,12 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			close(meshDone)
 		}()
 	}
-	err = runSingleHost(ctx, *state, output, plan, probation, swarmReady, func(ctx context.Context) error {
+	err = runSingleHost(ctx, *state, output, plan, probation, swarmReady, func(ctx context.Context, service string) releasepush.HealthResult {
 		node := meshNode.Load()
 		if node == nil {
-			return errors.New("mesh not started")
+			return releasepush.HealthResult{Mesh: errors.New("mesh not started")}
 		}
-		return errors.Join(node.ReleaseHealth(ctx), regionhealth.Serving(ctx, *state))
+		return releasepush.HealthResult{Mesh: node.ReleaseHealth(ctx), Service: regionhealth.Serving(ctx, *state, service)}
 	})
 	cancel()
 	<-meshDone

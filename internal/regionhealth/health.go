@@ -6,9 +6,7 @@ package regionhealth
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -85,19 +83,16 @@ func Classify(in Input) (string, []string) {
 	return StateOK, nil
 }
 
-func Serving(ctx context.Context, state string) error {
-	in := read(ctx, state)
-	var err error
-	if in.Node != "" {
-		err = errors.New(in.Node)
+func Serving(ctx context.Context, state, service string) error {
+	if service == "" {
+		return nil
 	}
-	if slices.Contains(in.Failures, "services unreadable") {
-		err = errors.Join(err, errors.New("services unreadable"))
+	client, conn, err := swarmruntime.DialSingleHost(state)
+	if err != nil {
+		return err
 	}
-	if len(in.Lagging) != 0 {
-		err = errors.Join(err, fmt.Errorf("services below desired replicas: %s", strings.Join(in.Lagging, ", ")))
-	}
-	return err
+	defer conn.Close()
+	return swarmruntime.ServingService(ctx, client, service)
 }
 
 func gib(bytes uint64) string { return fmt.Sprintf("%.1f GiB", float64(bytes)/(1<<30)) }

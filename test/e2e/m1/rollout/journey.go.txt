@@ -1,0 +1,238 @@
+package mesh
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/fsnotify/fsnotify"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+)
+
+func TestRolloutJourney(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	client, conn, err := swarmruntime.DialSingleHost("/var/lib/ts-orch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	service, err := swarmruntime.ServiceByName(ctx, client, "e2e-whoami")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := swarmruntime.InspectService(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := os.Getenv("C21_BAKE_DIRECTORY")
+	child := dir != ""
+	spec := inspection.Spec
+	if child {
+		spec.Generation, err = strconv.ParseInt(service.Spec.Annotations.Labels[swarmruntime.LabelGeneration], 10, 64)
+	} else {
+		dir = t.TempDir()
+		spec.Generation = time.Now().UnixNano()
+		service, err = swarmruntime.ApplyServiceSpec(ctx, client, spec)
+		if err == nil {
+			err = swarmruntime.CompleteServiceSpec(ctx, client, spec, service)
+		}
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	applier := swarmApplier{state: "/var/lib/ts-orch"}
+	desired := stateFor(Entry{Generation: spec.Generation, Spec: &spec})
+	node := &Node{cfg: config{dir: dir, applier: applier}, ctx: ctx, desired: map[string]desiredState{spec.Name: desired}}
+	applied := applyResult{spec: spec, service: service, state: desired}
+	if child {
+		_, err := node.evaluate(ctx, applied)
+		t.Fatalf("bake process exited before interruption: %v", err)
+	}
+	setHealth := func(status string) {
+		t.Helper()
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://127.0.0.1:18081/health", bytes.NewBufferString(status))
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("health update: %s", response.Status)
+		}
+	}
+	defer setHealth("200")
+	lagging := spec
+	lagging.Name, lagging.Port, lagging.Args = "e2e-lagging", 18084, []string{"--port", "18084"}
+	lagging.Hostnames = nil
+	lagging.MemoryMiB = 1 << 20
+	if _, err := swarmruntime.ApplyServiceSpec(ctx, client, lagging); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := swarmruntime.RemoveServiceSpec(context.Background(), client, lagging.Name); err != nil {
+			t.Error(err)
+		}
+	}()
+	if err := swarmruntime.ServingService(ctx, client, lagging.Name); err == nil {
+		t.Fatal("unplaced service unexpectedly serves")
+	}
+	embedded, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, NoSigs: true, NoLog: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go embedded.Start()
+	defer func() { embedded.Shutdown(); embedded.WaitForShutdown() }()
+	if !embedded.ReadyForConnections(10 * time.Second) {
+		t.Fatal("release transport did not start")
+	}
+	releases, err := nats.Connect(embedded.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releases.Close()
+	handler := &releasepush.Handler{Health: func(ctx context.Context, name string) releasepush.HealthResult {
+		return releasepush.HealthResult{Service: swarmruntime.ServingService(ctx, client, name)}
+	}}
+	if err := handler.Serve(releases); err != nil {
+		t.Fatal(err)
+	}
+	if err := releases.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	health := func(name string) string {
+		t.Helper()
+		payload, err := json.Marshal(releasepush.HealthRequest{Service: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		message, err := releases.RequestWithContext(ctx, releasepush.SubjectHealth, payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var reply releasepush.Reply
+		if err := json.Unmarshal(message.Data, &reply); err != nil {
+			t.Fatal(err)
+		}
+		return reply.Health
+	}
+	if result := health(spec.Name); result != "ok" {
+		t.Fatalf("unrelated replica shortage blocked the release: %s", result)
+	}
+	setHealth("503")
+	if health(spec.Name) == "ok" {
+		t.Fatal("unready candidate passed release health")
+	}
+	setHealth("200")
+	t.Log("named release health passes with B short a replica and stops on A HTTP 503")
+	order := spec
+	order.Regions = []string{"first", "second"}
+	hold := releaseHold("terrabase", &order, &Deployment{}, "")
+	if hold != order.Regions[0] {
+		t.Fatalf("hold %q did not follow rollout order", hold)
+	}
+	later := &Node{cfg: config{region: order.Regions[1]}}
+	if later.held(Entry{Spec: &order, HoldAfter: hold, Deployment: &Deployment{}}) {
+		t.Fatal("signed health hold became a permanent operator hold")
+	}
+	if !later.held(Entry{Spec: &order, HoldAfter: hold}) {
+		t.Fatal("operator hold was cleared")
+	}
+	state := func() stateReply {
+		t.Helper()
+		ready, err := applier.Ready(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reply := stateReply{Ready: ready}
+		node.bakeState(&reply)
+		return reply
+	}
+	turn := func() error {
+		return later.turn(spec.Name, &order, spec.Generation, map[string]stateReply{order.Regions[0]: state()})
+	}
+	if turn() == nil {
+		t.Fatal("next region advanced without the first region's bake")
+	}
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	if err := watcher.Add(dir); err != nil {
+		t.Fatal(err)
+	}
+	process := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRolloutJourney$", "-test.v")
+	process.Env = append(os.Environ(), "C21_BAKE_DIRECTORY="+dir)
+	process.Stdout, process.Stderr = os.Stdout, os.Stderr
+	if err := process.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = process.Process.Kill(); _ = process.Wait() }()
+	for {
+		select {
+		case event := <-watcher.Events:
+			if filepath.Clean(event.Name) != node.bakePath(spec.Name, spec.Generation) {
+				continue
+			}
+		case err := <-watcher.Errors:
+			t.Fatal(err)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		break
+	}
+	if err := process.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	var exited *exec.ExitError
+	if err := process.Wait(); !errors.As(err, &exited) {
+		t.Fatalf("interrupted bake process: %v", err)
+	}
+	record, err := node.readBake(spec.Name, spec.Generation)
+	if err != nil || record.Bake.Started.IsZero() || !record.Bake.Finished.IsZero() || record.Bake.Reason != "" {
+		t.Fatalf("interrupted bake was terminal: %+v, %v", record.Bake, err)
+	}
+	if turn() == nil {
+		t.Fatal("interrupted bake admitted the next region")
+	}
+	record, err = node.evaluate(ctx, applied)
+	if err != nil || record.Bake.Finished.IsZero() || record.Bake.Reason != "" {
+		t.Fatalf("restarted host did not finish its bake: %+v, %v", record.Bake, err)
+	}
+	if err := turn(); err != nil {
+		t.Fatalf("healthy first region did not admit the next: %v", err)
+	}
+	setHealth("503")
+	if turn() == nil {
+		t.Fatal("successful old bake admitted a region after serving failed")
+	}
+	failed, err := applier.Bake(ctx, spec, swarmruntime.ServiceRollout{Tasks: record.Rollout.Tasks})
+	if err == nil || failed.Reason == "" {
+		t.Fatal("candidate HTTP 503 did not produce a real bake failure")
+	}
+	record.Bake = failed
+	if err := node.saveBake(node.bakePath(spec.Name, spec.Generation), record); err != nil {
+		t.Fatal(err)
+	}
+	setHealth("200")
+	if _, err := node.evaluate(ctx, applied); err == nil {
+		t.Fatal("restart erased a completed candidate failure")
+	}
+	t.Log("completed candidate failures remain terminal after serving recovers")
+	t.Log("abruptly interrupted bake resumed its full window; first-region gate requires completed bake and current serving")
+}
