@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -72,7 +73,7 @@ func startState(ctx context.Context, work, mode string) {
 	must(err)
 	conn, closeListener := listener(h)
 	defer closeListener()
-	version := request(ctx, conn, releasepush.SubjectVersion, nil)
+	version := request(ctx, conn, releasepush.SubjectVersion, nil, "")
 	result := started{Revision: h.Revision, Digest: version.SHA256, RolledBack: version.RolledBack, Probation: probation != nil, Starts: -1}
 	if trial := record(filepath.Join(work, "nats/release-trial")); trial != nil {
 		result.Starts = int(trial["starts"].(float64))
@@ -109,7 +110,7 @@ func freePort() int {
 
 func serveRegion(ctx context.Context, args []string) {
 	work, port, jwks, binaryURL := args[0], args[1], args[2], args[3]
-	mode := candidateMode()
+	mode, _, _ := strings.Cut(candidateMode(), ":")
 	probation, err := releasepush.Probe(work, os.Stdout)
 	if err != nil {
 		fmt.Println("START", err)
@@ -117,6 +118,9 @@ func serveRegion(ctx context.Context, args []string) {
 	}
 	if mode == "crash" {
 		os.Exit(3)
+	}
+	if mode == "slow" {
+		<-time.NewTimer(slowStep).C
 	}
 	h, err := releasepush.NewHandler(work)
 	must(err)
@@ -133,7 +137,13 @@ func serveRegion(ctx context.Context, args []string) {
 	require(srv.ReadyForConnections(5*time.Second), "region listener must listen")
 	conn, err := nats.Connect(srv.ClientURL(), nats.Secure(&tls.Config{InsecureSkipVerify: true}))
 	must(err)
+	h.Relay = func(request []byte, header nats.Header) {
+		must(errors.Join(conn.PublishMsg(&nats.Msg{Subject: "lane.silent-workers", Data: request, Header: header}), conn.Flush()))
+	}
 	must(h.Serve(conn))
+	version, err := json.Marshal(request(ctx, conn, releasepush.SubjectVersion, nil, ""))
+	must(err)
+	fmt.Println("VERSION", string(version))
 	fmt.Println("SERVING", probation.Served())
 	select {
 	case <-h.Installed:
@@ -144,11 +154,12 @@ func serveRegion(ctx context.Context, args []string) {
 	}
 }
 
-func keepServing(ctx context.Context, start func() *exec.Cmd) func() {
+func keepServing(ctx context.Context, start func() *exec.Cmd) (func(), string) {
 	var mu sync.Mutex
 	var current *exec.Cmd
 	stopped := false
 	up, done := make(chan struct{}), make(chan struct{})
+	var version string
 	go func() {
 		defer close(done)
 		for first := true; ctx.Err() == nil; first = false {
@@ -159,7 +170,11 @@ func keepServing(ctx context.Context, start func() *exec.Cmd) func() {
 			}
 			current = start()
 			if first {
-				ready(current, "SERVING true")
+				for _, line := range ready(current, "SERVING true") {
+					if after, ok := strings.CutPrefix(line, "VERSION "); ok {
+						version = after
+					}
+				}
 				close(up)
 			} else {
 				must(current.Start())
@@ -176,7 +191,7 @@ func keepServing(ctx context.Context, start func() *exec.Cmd) func() {
 		_ = current.Process.Kill()
 		mu.Unlock()
 		<-done
-	}
+	}, version
 }
 
 func regionFile(work, name, address string) string {

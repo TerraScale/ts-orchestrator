@@ -48,20 +48,19 @@ type Region struct {
 
 // Result is the one JSON line push prints per region.
 type Result struct {
-	Region       string        `json:"region"`
-	State        string        `json:"state,omitempty"`
-	ConnectMS    int64         `json:"connect_ms"`
-	AcceptedMS   int64         `json:"accepted_ms"`
-	ServingMS    int64         `json:"serving_ms"`
-	ObservedAt   string        `json:"observed_at,omitempty"`
-	StartedAt    string        `json:"started_at,omitempty"`
-	HealthyMS    int64         `json:"healthy_ms"`
-	Health       string        `json:"health,omitempty"`
-	Workers      []HostVersion `json:"workers,omitempty"`
-	Refusals     []HostVersion `json:"refusals,omitempty"`
-	Repair       string        `json:"repair,omitempty"`
-	RevisionOnly string        `json:"revision_only,omitempty"`
-	Error        string        `json:"error,omitempty"`
+	Region       string   `json:"region"`
+	State        string   `json:"state,omitempty"`
+	ConnectMS    int64    `json:"connect_ms"`
+	AcceptedMS   int64    `json:"accepted_ms"`
+	ServingMS    int64    `json:"serving_ms"`
+	ObservedAt   string   `json:"observed_at,omitempty"`
+	StartedAt    string   `json:"started_at,omitempty"`
+	HealthyMS    int64    `json:"healthy_ms"`
+	Health       string   `json:"health,omitempty"`
+	Refusal      *Refusal `json:"refusal,omitempty"`
+	Repair       string   `json:"repair,omitempty"`
+	RevisionOnly string   `json:"revision_only,omitempty"`
+	Error        string   `json:"error,omitempty"`
 }
 
 type unhealthyError struct{ health string }
@@ -132,7 +131,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 		}
 	}
 	preflight := failed
-	for index, region := range regions {
+	for _, region := range regions {
 		result := Result{Region: region.Region}
 		if blocked != "" {
 			result.State, result.Error = "skipped", "not pushed: "+blocked+" failed"
@@ -140,18 +139,19 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 				result.State, result.Error = "failed", preflight.Error()
 			}
 		} else {
+			var declaration string
 			release.Token, err = MintToken(ctx)
 			if err == nil {
-				result = pushRegion(ctx, region, release)
-				if result.Error == "" && (result.State == "installed" || result.State == "current") {
+				declaration, err = mintToken(ctx, PreflightAudience)
+			}
+			if err == nil {
+				result = pushRegion(ctx, region, release, declaration)
+				if result.Error == "" {
 					result.HealthyMS, result.Health, err = awaitHealthy(ctx, region, release)
 				}
 			}
 			if err != nil {
 				result.Error = err.Error()
-			}
-			if index == 0 && allPreflightRefused(result) {
-				result.Error = "every host in the first region refused the same candidate preflight; rollout stopped"
 			}
 			if result.Error != "" {
 				blocked = region.Region
@@ -159,10 +159,6 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 			}
 		}
 		result.Repair = repaired[region.Region]
-		if refusal := RefusedOn(result.Refusals); refusal != "" {
-			result.State = refusal
-			failed = errors.Join(failed, fmt.Errorf("region %s: %s", region.Region, refusal))
-		}
 		line, _ := json.Marshal(result)
 		if _, err := fmt.Fprintf(output, "%s\n", line); err != nil {
 			return errors.Join(failed, err)
@@ -315,11 +311,15 @@ func fileSHA256(path string) (string, error) {
 
 // MintToken requests a GitHub Actions OIDC token for the ts-orch audience.
 func MintToken(ctx context.Context) (string, error) {
+	return mintToken(ctx, Audience)
+}
+
+func mintToken(ctx context.Context, audience string) (string, error) {
 	endpoint, bearer := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL"), os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
 	if endpoint == "" || bearer == "" {
 		return "", errors.New("GitHub OIDC is unavailable; the job needs permissions: id-token: write")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"&audience="+url.QueryEscape(Audience), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"&audience="+url.QueryEscape(audience), nil)
 	if err != nil {
 		return "", err
 	}
@@ -341,7 +341,7 @@ func MintToken(ctx context.Context) (string, error) {
 	return body.Value, nil
 }
 
-func pushRegion(ctx context.Context, region Region, release OrchRelease) Result {
+func pushRegion(ctx context.Context, region Region, release OrchRelease, declaration string) Result {
 	start := time.Now()
 	result := Result{Region: region.Region, StartedAt: start.UTC().Format(time.RFC3339Nano)}
 	since := func() int64 { return time.Since(start).Milliseconds() }
@@ -358,34 +358,12 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	if err != nil {
 		return fail(err)
 	}
-	reply, err := request(ctx, conn, SubjectOrch, payload, 2*time.Minute+WorkerReplyWait)
+	reply, err := requestMsg(ctx, conn, &nats.Msg{Subject: SubjectOrch, Data: payload, Header: nats.Header{PreflightHeader: []string{declaration}}}, 2*time.Minute)
 	if err != nil {
 		return fail(fmt.Errorf("release: %w", err))
 	}
 	result.State, result.AcceptedMS = reply.State, since()
-	result.Workers = reply.Workers
-	for _, row := range reply.Workers {
-		if row.Refusal != nil {
-			if !hostSide(row.Refusal.Kind) {
-				result.Error = "release integrity failure on " + row.Host + ": " + row.Refusal.Reason
-			}
-			result.Refusals = append(result.Refusals, row)
-		}
-	}
-	if reply.Refusal != nil && reply.Refusal.SHA == release.SHA {
-		host := reply.Host
-		if host == "" {
-			host = region.Region + " first host"
-		}
-		result.Refusals = append(result.Refusals, HostVersion{Host: host, Refusal: reply.Refusal})
-		if !hostSide(reply.Refusal.Kind) {
-			result.Error = "release integrity failure on " + host + ": " + reply.Refusal.Reason
-		}
-		return result
-	}
-	if result.Error != "" {
-		return result
-	}
+	result.Refusal = reply.Refusal
 	if reply.State != "installed" && reply.State != "current" {
 		return fail(fmt.Errorf("release %s: %s", reply.State, reply.Error))
 	}
@@ -396,10 +374,12 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 			result.State = "rolled_back"
 			return fail(fmt.Errorf("the region rolled back to %s: %s", version.Version, version.Error))
 		}
-		candidate := err == nil && version.Version == release.SHA && (version.SHA256 == "" || releaseDigest(release, version.SHA256))
-		if candidate {
-			if version.SHA256 == "" {
+		if err == nil && version.Version == release.SHA && (version.SHA256 == "" || reply.State == "current" || releaseDigest(release, version.SHA256)) {
+			switch {
+			case version.SHA256 == "":
 				result.RevisionOnly = "the host reports no binary digest; serving confirmed by revision only"
+			case !releaseDigest(release, version.SHA256):
+				result.RevisionOnly = "the host already runs another build of this commit; serving confirmed by revision only"
 			}
 			result.ServingMS = since()
 			result.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
@@ -458,17 +438,19 @@ func tokenRunID(token string) (string, error) {
 }
 
 func request(ctx context.Context, conn *nats.Conn, subject string, payload []byte, timeout time.Duration) (Reply, error) {
+	return requestMsg(ctx, conn, &nats.Msg{Subject: subject, Data: payload}, timeout)
+}
+
+func requestMsg(ctx context.Context, conn *nats.Conn, message *nats.Msg, timeout time.Duration) (Reply, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	message, err := conn.RequestWithContext(ctx, subject, payload)
+	message, err := conn.RequestMsgWithContext(ctx, message)
 	if err != nil {
 		return Reply{}, err
 	}
 	var reply Reply
 	return reply, json.Unmarshal(message.Data, &reply)
 }
-
-func hostSide(kind string) bool { return kind == RefusalHost }
 
 func releaseDigest(release OrchRelease, digest string) bool {
 	for _, binary := range release.Binaries {
@@ -477,23 +459,4 @@ func releaseDigest(release OrchRelease, digest string) bool {
 		}
 	}
 	return false
-}
-
-func allPreflightRefused(result Result) bool {
-	if len(result.Refusals) == 0 || len(result.Refusals) != len(result.Workers)+1 {
-		return false
-	}
-	revision := ""
-	for _, host := range result.Refusals {
-		record := host.Refusal
-		if record == nil || record.Kind != RefusalHost || !record.Preflight || record.Reason == "" || record.SHA == "" {
-			return false
-		}
-		if revision == "" {
-			revision = record.SHA
-		} else if record.SHA != revision {
-			return false
-		}
-	}
-	return true
 }

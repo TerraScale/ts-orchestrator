@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -95,6 +96,13 @@ func helperBytes() []byte {
 	return read(helper)
 }
 
+func helperReadable() bool {
+	helper, err := os.Executable()
+	must(err)
+	_, err = os.ReadFile(helper)
+	return err == nil
+}
+
 func stamped(data []byte, sha, mode string) []byte {
 	before := []byte("vcs.revision=" + releasepush.Revision())
 	require(bytes.Contains(data, before), "journey helper must have a clean build revision")
@@ -102,12 +110,19 @@ func stamped(data []byte, sha, mode string) []byte {
 }
 
 func candidateMode() string {
+	if !helperReadable() {
+		return "unreadable"
+	}
 	data := helperBytes()
 	marker := bytes.LastIndex(data, []byte("\nCANDIDATE:"))
 	if marker < 0 {
 		return ""
 	}
-	return string(data[marker+len("\nCANDIDATE:"):])
+	mode := data[marker+len("\nCANDIDATE:"):]
+	if len(mode) > 4096 || bytes.ContainsAny(mode, "\x00\n") {
+		return ""
+	}
+	return string(mode)
 }
 
 func revisionOf(path string) string {
@@ -122,11 +137,12 @@ func revisionOf(path string) string {
 }
 
 type entry struct {
-	Mode    fs.FileMode
-	Content string
+	Mode     fs.FileMode
+	Content  string
+	Modified int64
 }
 
-func snapshot(dirs ...string) map[string]entry {
+func snapshot(normalize bool, dirs ...string) map[string]entry {
 	files := map[string]entry{}
 	for index, dir := range dirs {
 		must(filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -143,7 +159,10 @@ func snapshot(dirs ...string) map[string]entry {
 				value.Content = "-> " + target
 			case info.Mode().IsRegular():
 				value.Content = digest(read(path))
-				if filepath.Base(path) == "release-trial" {
+				if !normalize {
+					value.Modified = info.ModTime().UnixNano()
+				}
+				if normalize && filepath.Base(path) == "release-trial" {
 					trial := record(path)
 					trial["installed"] = "normalized"
 					data, err := json.Marshal(trial)
@@ -180,10 +199,12 @@ type provider struct {
 	server *httptest.Server
 	key    *rsa.PrivateKey
 	asset  atomic.Pointer[[]byte]
-	token  atomic.Pointer[string]
+	claims atomic.Pointer[tokenClaims]
 	jwks   atomic.Pointer[func(http.ResponseWriter)]
 	hits   atomic.Int32
 }
+
+type tokenClaims struct{ sha, run, kid string }
 
 func newProvider(asset []byte) *provider {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -193,7 +214,8 @@ func newProvider(asset []byte) *provider {
 	p.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/token":
-			must(json.NewEncoder(w).Encode(map[string]string{"value": *p.token.Load()}))
+			claims := p.claims.Load()
+			must(json.NewEncoder(w).Encode(map[string]string{"value": p.mint(*claims, r.URL.Query().Get("audience"))}))
 		case "/jwks":
 			p.hits.Add(1)
 			if serve := p.jwks.Load(); serve != nil {
@@ -216,20 +238,28 @@ func (p *provider) keys(w http.ResponseWriter) {
 	}}}))
 }
 
-func (p *provider) release(sha, run, kid string) releasepush.OrchRelease {
+func (p *provider) mint(c tokenClaims, audience string) string {
 	claims, err := json.Marshal(map[string]any{
-		"iss": "https://token.actions.githubusercontent.com", "aud": "ts-orch", "exp": time.Now().Add(time.Hour).Unix(),
+		"iss": "https://token.actions.githubusercontent.com", "aud": audience, "exp": time.Now().Add(time.Hour).Unix(),
 		"repository": "TerraScale/ts-orchestrator", "repository_owner": "TerraScale", "ref": "refs/heads/main",
-		"sha": sha, "run_id": run, "run_attempt": "1", "event_name": "push", "workflow_ref": "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main",
+		"sha": c.sha, "run_id": c.run, "run_attempt": "1", "event_name": "push", "workflow_ref": "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main",
 	})
 	must(err)
-	unsigned := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","kid":"`+kid+`"}`)) + "." + base64.RawURLEncoding.EncodeToString(claims)
+	unsigned := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","kid":"`+c.kid+`"}`)) + "." + base64.RawURLEncoding.EncodeToString(claims)
 	sum := sha256.Sum256([]byte(unsigned))
 	signature, err := rsa.SignPKCS1v15(rand.Reader, p.key, crypto.SHA256, sum[:])
 	must(err)
-	token := unsigned + "." + base64.RawURLEncoding.EncodeToString(signature)
-	p.token.Store(&token)
-	return releasepush.OrchRelease{SHA: sha, Token: token, Binaries: map[string]releasepush.Binary{
+	return unsigned + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func (p *provider) declaration() string {
+	return p.mint(*p.claims.Load(), releasepush.PreflightAudience)
+}
+
+func (p *provider) release(sha, run, kid string) releasepush.OrchRelease {
+	claims := tokenClaims{sha, run, kid}
+	p.claims.Store(&claims)
+	return releasepush.OrchRelease{SHA: sha, Token: p.mint(claims, releasepush.Audience), Binaries: map[string]releasepush.Binary{
 		runtime.GOARCH: {URL: releasepush.ReleaseURL(sha, run, runtime.GOARCH), SHA256: digest(*p.asset.Load())},
 	}}
 }
@@ -289,21 +319,25 @@ func listener(h *releasepush.Handler) (*nats.Conn, func()) {
 	return conn, func() { conn.Close(); srv.Shutdown() }
 }
 
-func request(ctx context.Context, conn *nats.Conn, subject string, payload []byte) releasepush.Reply {
-	message, err := conn.RequestWithContext(ctx, subject, payload)
+func request(ctx context.Context, conn *nats.Conn, subject string, payload []byte, declaration string) releasepush.Reply {
+	message := &nats.Msg{Subject: subject, Data: payload}
+	if declaration != "" {
+		message.Header = nats.Header{releasepush.PreflightHeader: []string{declaration}}
+	}
+	message, err := conn.RequestMsgWithContext(ctx, message)
 	must(err)
 	var reply releasepush.Reply
 	must(json.Unmarshal(message.Data, &reply))
 	return reply
 }
 
-func send(ctx context.Context, conn *nats.Conn, release releasepush.OrchRelease) releasepush.Reply {
+func send(ctx context.Context, conn *nats.Conn, release releasepush.OrchRelease, declaration string) releasepush.Reply {
 	payload, err := json.Marshal(release)
 	must(err)
-	return request(ctx, conn, releasepush.SubjectOrch, payload)
+	return request(ctx, conn, releasepush.SubjectOrch, payload, declaration)
 }
 
-func ready(cmd *exec.Cmd, marker string) {
+func ready(cmd *exec.Cmd, marker string) []string {
 	pipe, err := cmd.StdoutPipe()
 	must(err)
 	cmd.Stderr = cmd.Stdout
@@ -314,17 +348,36 @@ func ready(cmd *exec.Cmd, marker string) {
 		seen = append(seen, scanner.Text())
 		if strings.Contains(scanner.Text(), marker) {
 			go io.Copy(io.Discard, pipe)
-			return
+			return seen
 		}
 	}
 	panic("process did not announce " + marker + ":\n" + strings.Join(seen[max(0, len(seen)-40):], "\n"))
 }
 
+func appendMark(path, value string) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	must(err)
+	_, err = fmt.Fprintln(file, value)
+	must(errors.Join(err, file.Close()))
+}
+
+func marks(path string) []string {
+	return strings.Fields(string(read(path)))
+}
+
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
+	if len(os.Args) == 2 && os.Args[1] == "linger" {
+		<-time.NewTimer(10 * time.Minute).C
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "preflight" {
-		switch candidateMode() {
+		mode, mark, _ := strings.Cut(candidateMode(), ":")
+		if mark != "" {
+			appendMark(mark, time.Now().Format(time.RFC3339Nano))
+		}
+		switch mode {
 		case "refuse":
 			fmt.Fprintln(os.Stderr, "candidate refuses this release")
 			os.Exit(17)
@@ -336,8 +389,18 @@ func main() {
 			os.Exit(17)
 		case "hang":
 			<-time.NewTimer(10 * time.Minute).C
-		case "mark":
-			must(os.WriteFile(os.Getenv("UPDATER_PREFLIGHT_MARK"), []byte(time.Now().Format(time.RFC3339Nano)), 0o600))
+		case "slow":
+			<-time.NewTimer(slowStep).C
+		case "orphan-pass", "orphan-fail":
+			helper, err := os.Executable()
+			must(err)
+			child := exec.Command(helper, "linger")
+			child.Stdout, child.Stderr = os.Stdout, os.Stderr
+			must(child.Start())
+			appendMark(mark, fmt.Sprint(child.Process.Pid))
+			if mode == "orphan-fail" {
+				os.Exit(17)
+			}
 		}
 		return
 	}
@@ -353,3 +416,5 @@ func main() {
 	}
 	run(ctx, os.Args[1], os.Args[2])
 }
+
+const slowStep = 40 * time.Second

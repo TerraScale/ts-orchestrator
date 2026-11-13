@@ -10,5 +10,8 @@ git -C "$repo" cat-file -e "$previous^{commit}" 2>/dev/null || git -C "$repo" fe
 mkdir "$work/previous-src"
 git -C "$repo" archive "$previous" | tar -x -C "$work/previous-src"
 cp -r "$here/previous" "$work/previous-src/updater-previous"
+git -C "$work/previous-src" init -q
+git -C "$work/previous-src" add -A
+git -C "$work/previous-src" -c user.name=lane -c user.email=lane@localhost commit -qm "main's build"
 (cd "$work/previous-src" && nice -n 19 go build -trimpath -ldflags="-s -w" -o "$work/previous-updater" ./updater-previous)
 "$work/updater-preflight" "$bin" "$work/previous-updater"

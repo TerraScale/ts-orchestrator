@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -15,6 +16,8 @@ import (
 
 const (
 	preflightTimeout = 70 * time.Second
+	replyBudget      = 110 * time.Second
+	outputWait       = time.Second
 	textBusyWait     = 5 * time.Second
 	textBusyStep     = 20 * time.Millisecond
 	maxOutputBytes   = 4 << 10
@@ -26,9 +29,14 @@ type preflightError struct {
 	ran bool
 }
 
-func preflight(ctx context.Context, candidate string) error {
+func preflight(ctx context.Context, candidate string, deadline time.Time) error {
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	busySince := time.Now()
 	for {
+		if ctx.Err() != nil {
+			return &preflightError{fmt.Errorf("no time left for the candidate preflight: %w", ctx.Err()), false}
+		}
 		err := runPreflight(ctx, candidate)
 		if !errors.Is(err, syscall.ETXTBSY) {
 			if err != nil {
@@ -50,6 +58,11 @@ func preflight(ctx context.Context, candidate string) error {
 func runPreflight(ctx context.Context, binary string) error {
 	ctx, cancel := context.WithTimeout(ctx, preflightTimeout)
 	defer cancel()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("release preflight: %w", err)
+	}
+	defer reader.Close()
 	command := exec.CommandContext(ctx, binary, "release", "preflight")
 	command.WaitDelay = time.Second
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -60,13 +73,36 @@ func runPreflight(ctx context.Context, binary string) error {
 		}
 		return err
 	}
-	output := &boundedOutput{}
-	command.Stdout, command.Stderr = output, output
-	if err := command.Start(); err != nil {
+	command.Stdout, command.Stderr = writer, writer
+	err = command.Start()
+	writer.Close()
+	if err != nil {
 		return fmt.Errorf("release preflight: %w", err)
 	}
-	if err := command.Wait(); err != nil {
-		return errors.New(scrub(fmt.Sprintf("release preflight: %v: %s", errors.Join(ctx.Err(), err), output.text())))
+	output := &boundedOutput{}
+	copied := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(output, reader)
+		close(copied)
+	}()
+	waitErr := command.Wait()
+	killErr := syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+	if errors.Is(killErr, syscall.ESRCH) {
+		killErr = nil
+	}
+	drained := time.NewTimer(outputWait)
+	defer drained.Stop()
+	select {
+	case <-copied:
+	case <-drained.C:
+		reader.Close()
+		<-copied
+	}
+	if waitErr != nil {
+		return errors.New(scrub(fmt.Sprintf("release preflight: %v: %s", errors.Join(ctx.Err(), waitErr, killErr), output.text())))
+	}
+	if killErr != nil {
+		return fmt.Errorf("release preflight: stop its process group: %w", killErr)
 	}
 	return nil
 }

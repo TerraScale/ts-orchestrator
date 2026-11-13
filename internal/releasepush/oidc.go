@@ -37,6 +37,8 @@ const (
 	fetchTimeout = 10 * time.Second
 )
 
+const PreflightAudience = "ts-orch-preflight"
+
 // orchWorkflow is the only workflow whose tokens may push ts-orch releases.
 const orchWorkflow = orchRepository + "/.github/workflows/ci.yml@" + mainRef
 
@@ -121,7 +123,15 @@ func NewVerifier() *Verifier {
 // to main or dispatch on main (or the canary after successful main CI),
 // audience ts-orch. A dispatch re-releases main as a newer signed run.
 func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
-	claims, err := v.verify(ctx, token)
+	return v.release(ctx, token, Audience)
+}
+
+func (v *Verifier) VerifyPreflight(ctx context.Context, token string) (Claims, error) {
+	return v.release(ctx, token, PreflightAudience)
+}
+
+func (v *Verifier) release(ctx context.Context, token, audience string) (Claims, error) {
+	claims, err := v.verify(ctx, token, audience)
 	switch {
 	case err != nil:
 		return Claims{}, err
@@ -138,7 +148,7 @@ func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 // VerifyMesh returns the claims of a valid token from ts-orchestrator's
 // multi-region workflow on main, audience ts-orch.
 func (v *Verifier) VerifyMesh(ctx context.Context, token string) (Claims, error) {
-	claims, err := v.verify(ctx, token)
+	claims, err := v.verify(ctx, token, Audience)
 	if err == nil && (claims.Repository != orchRepository || claims.JobWorkflowRef != meshWorkflow && claims.JobWorkflowRef != digestsWorkflow) {
 		err = errors.New("token is not from the multi-region or app-digests workflow")
 	}
@@ -149,7 +159,7 @@ func (v *Verifier) VerifyMesh(ctx context.Context, token string) (Claims, error)
 }
 
 // verify checks the signature and every claim except the event and workflow.
-func (v *Verifier) verify(ctx context.Context, token string) (Claims, error) {
+func (v *Verifier) verify(ctx context.Context, token, audience string) (Claims, error) {
 	if len(token) > maxTokenSize {
 		return Claims{}, errors.New("token too large")
 	}
@@ -190,8 +200,8 @@ func (v *Verifier) verify(ctx context.Context, token string) (Claims, error) {
 	switch {
 	case claims.Issuer != githubIssuer:
 		return Claims{}, errors.New("token issuer is not GitHub Actions")
-	case len(claims.Audience) != 1 || claims.Audience[0] != Audience:
-		return Claims{}, errors.New("token audience is not " + Audience)
+	case len(claims.Audience) != 1 || claims.Audience[0] != audience:
+		return Claims{}, errors.New("token audience is not " + audience)
 	case claims.Expires == 0 || !now.Before(time.Unix(claims.Expires, 0).Add(clockSkew)):
 		return Claims{}, errors.New("token expired")
 	case claims.NotBefore != 0 && now.Add(clockSkew).Before(time.Unix(claims.NotBefore, 0)):
