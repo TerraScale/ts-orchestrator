@@ -1,6 +1,7 @@
 package edge
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ecdsa"
@@ -329,6 +330,18 @@ func TestSharedCertificateJourney(t *testing.T) {
 		must(t, err)
 		if !bytes.Equal(conn.ConnectionState().PeerCertificates[0].Raw, left.Certificate[0]) {
 			t.Fatal("TLS served a different certificate")
+		}
+		request, err := http.NewRequest(http.MethodGet, "https://unserved.e2e.test/", nil)
+		must(t, err)
+		request.Close = true
+		must(t, request.Write(conn))
+		response, err := http.ReadResponse(bufio.NewReader(conn), request)
+		must(t, err)
+		_, err = io.Copy(io.Discard, response.Body)
+		must(t, err)
+		must(t, response.Body.Close())
+		if response.StatusCode != http.StatusNotFound {
+			t.Fatalf("unknown route HTTP %d", response.StatusCode)
 		}
 		conn.Close()
 		endpoint.Close()
