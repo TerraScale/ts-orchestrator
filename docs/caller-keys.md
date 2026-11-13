@@ -151,6 +151,7 @@ public entry stays present, so becoming CURRENT is safe. A subsequent add uses
 a new id: if the first creation already landed it stages a rotation; otherwise
 it attempts a create-once name. If competing creations overlap, that name admits
 only one CURRENT secret and both possible keys already have public entries.
+Rehearse both delivery orders when two accepted first creations outlive both adds.
 A late rotation remains PENDING; retirement of its public entry requires a
 published current replacement. Without its public entry activation refuses,
 and cancellation can clean up that pending version.

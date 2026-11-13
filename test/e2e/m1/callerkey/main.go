@@ -612,6 +612,45 @@ func (j *journey) lateCreations() {
 	fmt.Println("unbounded late first creation and pending rotation: immediately, after recover, after/during another add, after retire attempt, after replacement retirement -> invariant holds after every mutation")
 }
 
+func (j *journey) overlappingCreations() {
+	for _, delay := range []time.Duration{0, 11 * time.Minute, 100 * 365 * 24 * time.Hour} {
+		for _, winner := range []string{"ts-auth.sjc.1", "ts-auth.sjc.2"} {
+			j.failOriginal("first", "late", 7)
+			first := j.store.land
+			j.ok("recover")
+			j.store.fail, j.store.mode = j.store.writes+7, "late"
+			_, err := j.run(j.targets, add("ts-auth.sjc.2")...)
+			require(err != nil, "second first creation did not interrupt")
+			j.store.fail = 0
+			second := j.store.land
+			j.store.land = nil
+			j.ok("recover")
+			before := j.store.writes
+			out, err := j.run(j.targets, "retire", "--kid", "ts-auth.sjc.1", "--replacement-kid", "ts-auth.sjc.2")
+			require(err != nil && strings.Contains(out, "orphan public entry is harmless") && j.store.writes == before, "two outstanding creations permitted retirement: "+out)
+			j.store.now = j.store.now.Add(delay)
+			loser := "ts-auth.sjc.2"
+			if winner == "ts-auth.sjc.2" {
+				first, second = second, first
+				loser = "ts-auth.sjc.1"
+			}
+			j.store.Lock()
+			require(first(), "first accepted creation to land was rejected")
+			j.store.invariant()
+			require(!second(), "another accepted creation overwrote the create-once name")
+			j.store.invariant()
+			j.store.Unlock()
+			j.recover()
+			j.ok("retire", "--kid", loser, "--replacement-kid", winner)
+			require(strings.Contains(j.ok(add("ts-auth.sjc.3")...), "pending"), "add after late first creation did not rotate")
+			j.converged()
+			j.store.invariant()
+			j.store.cases++
+		}
+	}
+	fmt.Println("two accepted first creations after both adds died, recover and retire refusal: either landing order -> one published CURRENT key, next add rotates")
+}
+
 func (j *journey) safetyNet() {
 	j.failOriginal("first", "before", 7)
 	j.recover()
@@ -814,6 +853,7 @@ func main() {
 	must(os.WriteFile(j.reverse, encoded(targets), 0600))
 	j.failures()
 	j.lateCreations()
+	j.overlappingCreations()
 	j.safetyNet()
 	j.expiredRecovery()
 	j.concurrent(false)
