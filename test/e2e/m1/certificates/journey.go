@@ -226,7 +226,7 @@ func journey(ctx context.Context, cfg configuration) error {
 		if err != nil {
 			return err
 		}
-		for _, token := range []string{"bad", "../bad", strings.Repeat("!", 43), strings.Repeat("a", 44)} {
+		for _, token := range []string{"bad", "../bad", strings.Repeat("!", 43), strings.Repeat("a", 21), strings.Repeat("a", 129)} {
 			status, _, err := request(ctx, client, address, "/.well-known/acme-challenge/"+token)
 			if err != nil || status != 404 {
 				return fmt.Errorf("malformed challenge status=%d error=%v", status, err)

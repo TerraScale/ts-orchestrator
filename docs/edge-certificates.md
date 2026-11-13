@@ -41,7 +41,7 @@ The production operational rules emit EdgeCertificateExpiryWarning within 14 day
 
 ## HTTP-01 limits
 
-Challenge tokens must contain exactly 43 ASCII base64url characters. Malformed tokens receive 404 before any lookup.
+Challenge tokens must contain 22 to 128 ASCII base64url characters, the range that carries the 128 bits the ACME standard requires without fixing one authority's length. Malformed tokens receive 404 before any lookup.
 
 Concurrent requests for the same hostname, token and peer/public lookup scope share a flight. These scopes preserve hostname authorization and prevent a peer request from joining a public lookup that is waiting on that peer. Missing tokens are cached for five seconds, with at most 4096 negative entries; expired entries are removed on lookup completion.
 

@@ -38,7 +38,7 @@ type challengeGuard struct {
 }
 
 func validChallengeToken(token string) bool {
-	if len(token) != 43 {
+	if len(token) < 22 || len(token) > 128 {
 		return false
 	}
 	for _, char := range token {
