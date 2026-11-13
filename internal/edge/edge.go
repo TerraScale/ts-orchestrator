@@ -41,11 +41,9 @@ type Edge struct {
 	held             sync.Map
 	listeners        atomic.Uint32
 	readyRoutes      atomic.Pointer[[]ReadinessRoute]
-	challengeGuard   challengeGuard
 	orderSuccess     atomic.Uint64
 	orderFailure     atomic.Uint64
 	unsupported      atomic.Uint64
-	challengeLookups atomic.Uint64
 	routes           atomic.Pointer[map[string]int]
 	postgres         atomic.Pointer[map[string]int]
 	pgKeys           postgresKeys

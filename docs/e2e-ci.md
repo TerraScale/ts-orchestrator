@@ -6,7 +6,7 @@ The ARM journeys run as independent matrix jobs. Every lane runs for every pull 
 |---|---|---|---|
 | core | Install, serving, DNS, service status, removal and persistent data | 8 minutes | All paths |
 | websocket | HTTP/1.1 upgrade and echo through the installed edge | 8 minutes | All paths |
-| certificates | Automatic issuance, mesh HTTP-01 under probes, readiness, inventory fingerprints and missing-certificate signals | 5 minutes | All paths |
+| certificates | Automatic issuance, mesh HTTP-01 compatibility, warm-cache upgrade and rollback, readiness, inventory fingerprints and missing-certificate signals | 5 minutes | All paths |
 | regional | Second edge, REST, both WebSocket protocols, drain, half-close upload and request counters | 3 minutes | All paths |
 | nodelist | Signed inventory, real-daemon release admission and identity preservation/refusals | 8 minutes | All paths |
 | restarts | Agent and task restart, private/public key preservation and persistent data | 8 minutes | All paths |

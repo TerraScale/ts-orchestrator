@@ -32,19 +32,13 @@ The existing host telemetry /metrics scrape includes these series whenever an ed
 | ts_edge_certificate_names_missing | Number of routed names without a valid certificate |
 | ts_edge_ecdsa_unsupported_handshakes_total | Failed automatic certificate selections where locally held certificates cover the routed name but none supports the client's key requirements |
 | ts_edge_autocert_orders_total{outcome} | Automatic new-order requests accepted (success) or rejected/unreachable (error), including renewal orders |
-| ts_edge_http01_lookups_total | Local-plus-peer challenge lookup flights started |
-| ts_edge_http01_source_max_active | Highest observed active lookup count for one source subnet since startup |
 
 Name labels come only from the route tables. Key types and outcomes have bounded sets. Counters reset with the process. A successful order metric means the authority accepted the order; it does not mean issuance completed.
 
 The production operational rules emit EdgeCertificateExpiryWarning within 14 days of expiry, EdgeCertificateExpiryCritical within 5 days, and EdgeCertificateMissing after a served name has lacked a valid certificate for 10 minutes. The expiry alerts can both fire within five days. The rules operate on each scraped node independently.
 
-## HTTP-01 limits
+## HTTP-01 challenges
 
-Challenge tokens must contain 22 to 128 ASCII base64url characters, the range that carries the 128 bits the ACME standard requires without fixing one authority's length. Malformed tokens receive 404 before any lookup.
+Challenge tokens must contain 22 to 128 ASCII base64url characters. Malformed tokens receive 404 before any lookup.
 
-Concurrent requests for the same hostname, token and peer/public lookup scope share a flight. These scopes preserve hostname authorization and prevent a peer request from joining a public lookup that is waiting on that peer. Missing tokens are cached for five seconds, with at most 4096 negative entries; expired entries are removed on lookup completion.
-
-There are at most 16 active lookup flights overall and two per source IPv4 /24 or IPv6 /48. Source identity comes from the connection address, not forwarded headers. Requests wait up to two seconds to acquire lookup capacity, then receive 503 if capacity is still unavailable. Requests joining an active flight share its result, subject to their own request cancellation. The lookup itself retains the existing per-peer five-second timeout. The short queue absorbs transient bursts, while subnet isolation reserves most capacity for other networks. The negative cache and single flight avoid repeating work for the same miss.
-
-The lookup still checks the existing local handler and, for public requests missing locally, the same regional peers over mesh mutual TLS in the same order. Peer requests remain local-only. These limits do not change which node orders a certificate.
+The challenge path has no rate limit in this build because a refused validation costs a certificate. Each request checks the existing local handler and, for public requests missing locally, the same regional peers over mesh mutual TLS in the same order. Peer requests remain local-only.

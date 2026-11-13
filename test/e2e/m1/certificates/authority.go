@@ -153,7 +153,7 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		id = payload.Identifiers[0].Value
 		a.count[id]++
-		if a.count[id] > 3 {
+		if a.count[id] > 4 {
 			w.Header().Set("Content-Type", "application/problem+json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{"type": "urn:ietf:params:acme:error:rejectedIdentifier", "detail": "journey order budget exhausted"})

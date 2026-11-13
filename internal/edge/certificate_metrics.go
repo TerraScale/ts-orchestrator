@@ -33,11 +33,6 @@ func WriteLocalCertificateMetrics(ctx context.Context, w io.Writer) {
 }
 
 func (e *Edge) WriteCertificateMetrics(ctx context.Context, w io.Writer) {
-	observability.WriteCounter(w, "ts_edge_http01_lookups_total", float64(e.challengeLookups.Load()))
-	e.challengeGuard.mu.Lock()
-	maxSource := e.challengeGuard.maxSource
-	e.challengeGuard.mu.Unlock()
-	observability.WriteGauge(w, "ts_edge_http01_source_max_active", float64(maxSource))
 	inventory := e.Inventory(ctx)
 	expiry := map[string]map[string]int64{}
 	for _, cert := range inventory.Certificates {

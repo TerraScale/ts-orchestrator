@@ -23,8 +23,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
@@ -166,11 +164,6 @@ func journey(ctx context.Context, cfg configuration) error {
 			return err
 		}
 	}
-	for i := 1; i <= 50; i++ {
-		if err := command("ip", "addr", "add", fmt.Sprintf("10.88.0.%d/32", i), "dev", "cert-br"); err != nil {
-			return err
-		}
-	}
 	self := cfg.Work + "/certificates"
 	env := []string{"SSL_CERT_FILE=" + cfg.Work + "/ca.pem", "HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=", "GOMAXPROCS=2"}
 	authority, err := launch(ctx, cfg.Work+"/authority", env, self, "authority", cfg.Work+"/lane.json")
@@ -222,67 +215,18 @@ func journey(ctx context.Context, cfg configuration) error {
 		if err = checkReady(ctx, client, address, 503); err != nil {
 			return err
 		}
-		before, err := metric(ctx, client, address, "ts_edge_http01_lookups_total")
-		if err != nil {
-			return err
-		}
-		for _, token := range []string{"bad", "../bad", strings.Repeat("!", 43), strings.Repeat("a", 21), strings.Repeat("a", 129)} {
-			status, _, err := request(ctx, client, address, "/.well-known/acme-challenge/"+token)
-			if err != nil || status != 404 {
-				return fmt.Errorf("malformed challenge status=%d error=%v", status, err)
-			}
-		}
-		after, err := metric(ctx, client, address, "ts_edge_http01_lookups_total")
-		if err != nil || before != after {
-			return fmt.Errorf("malformed token caused lookup: %g -> %g, %v", before, after, err)
-		}
+	}
+	if err = challengeSyntax(ctx, cfg, client); err != nil {
+		return err
 	}
 	orders, err := metric(ctx, client, "10.77.0.3", `ts_edge_autocert_orders_total{outcome="success"}`)
 	if err != nil || orders != 0 {
 		return fmt.Errorf("observation placed orders=%g error=%v", orders, err)
 	}
-	fmt.Println("PASS malformed tokens: 404 and zero lookups; observation placed zero orders")
+	fmt.Println("PASS observation placed zero orders")
 	if err = cli(cfg, "b", false); err != nil {
 		return err
 	}
-	attackCtx, stopAttack := context.WithCancel(ctx)
-	var attacks sync.WaitGroup
-	var probes atomic.Uint64
-	var failures atomic.Uint64
-	transports := []*http.Transport{}
-	for i := 1; i <= 50; i++ {
-		tr := transport.Clone()
-		tr.DialContext = (&net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP(fmt.Sprintf("10.88.0.%d", i))}}).DialContext
-		transports = append(transports, tr)
-	}
-	attacks.Go(func() {
-		ticker := time.NewTicker(5 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-attackCtx.Done():
-				return
-			case <-ticker.C:
-				index := probes.Add(1)
-				attacks.Go(func() {
-					digest := sha256.Sum256([]byte(fmt.Sprint(index)))
-					token := base64.RawURLEncoding.EncodeToString(digest[:])
-					attacker := &http.Client{Transport: transports[int(index)%len(transports)], Timeout: 12 * time.Second}
-					status, _, err := request(attackCtx, attacker, "10.77.0.3", "/.well-known/acme-challenge/"+token)
-					if attackCtx.Err() == nil && (err != nil || (status != 404 && status != 503)) {
-						failures.Add(1)
-					}
-				})
-			}
-		}
-	})
-	defer func() {
-		stopAttack()
-		attacks.Wait()
-		for _, tr := range transports {
-			tr.CloseIdleConnections()
-		}
-	}()
 	for index, node := range []string{"previous", "b", "c"} {
 		address := fmt.Sprintf("10.77.0.%d", index+2)
 		fingerprint, err := handshake(address)
@@ -290,7 +234,10 @@ func journey(ctx context.Context, cfg configuration) error {
 			return fmt.Errorf("%s automatic issuance: %w", node, err)
 		}
 		if node == "previous" {
-			fmt.Println("PASS previous binary order validated through both new edges from three source networks under probes")
+			if err = warmCache(ctx, cfg, client, nodes, env, fingerprint); err != nil {
+				return err
+			}
+			fmt.Println("PASS previous binary order validated through both new edges")
 			continue
 		}
 		if err = checkReady(ctx, client, address, 200); err != nil {
@@ -348,41 +295,6 @@ func journey(ctx context.Context, cfg configuration) error {
 		return fmt.Errorf("ECDSA serving after RSA refusal: %w", err)
 	}
 	fmt.Println("PASS RSA-only client refusal increments missing-key and rejected-order counters; ECDSA still serves")
-	stopAttack()
-	attacks.Wait()
-	if probes.Load() == 0 || failures.Load() != 0 {
-		return fmt.Errorf("probe requests=%d failures=%d", probes.Load(), failures.Load())
-	}
-	maxSource, err := metric(ctx, client, "10.77.0.3", "ts_edge_http01_source_max_active")
-	if err != nil || maxSource > 2 || maxSource < 1 {
-		return fmt.Errorf("per-source concurrency=%g error=%v", maxSource, err)
-	}
-	fmt.Printf("PASS hostile probes: %d requests at 200/s from 50 addresses, max active per source=%g\n", probes.Load(), maxSource)
-	token := authorityToken("missing-token")
-	before, err := metric(ctx, client, "10.77.0.4", "ts_edge_http01_lookups_total")
-	if err != nil {
-		return err
-	}
-	var together sync.WaitGroup
-	probeErrors := make(chan error, 32)
-	for range 32 {
-		together.Go(func() {
-			status, _, err := request(ctx, client, "10.77.0.4", "/.well-known/acme-challenge/"+token)
-			if err != nil || status != 404 {
-				probeErrors <- fmt.Errorf("coalesced request status=%d err=%v", status, err)
-			}
-		})
-	}
-	together.Wait()
-	close(probeErrors)
-	for err := range probeErrors {
-		return err
-	}
-	after, err := metric(ctx, client, "10.77.0.4", "ts_edge_http01_lookups_total")
-	if err != nil || after-before != 1 {
-		return fmt.Errorf("singleflight and negative cache lookup delta=%g error=%v", after-before, err)
-	}
-	fmt.Println("PASS concurrent missing token: one lookup and cached 404")
 	if err = os.Remove(cfg.Work + "/b/edge-certs/shared.e2e.test"); err != nil {
 		return err
 	}
@@ -540,7 +452,10 @@ func journey(ctx context.Context, cfg configuration) error {
 	if err != nil || missing != 0 {
 		return fmt.Errorf("valid RSA inventory missing metric=%g error=%v", missing, err)
 	}
-	fmt.Println("PASS RSA-only certificate validates in inventory while readiness requires ECDSA coverage")
+	if err = rsaServing("10.77.0.3", rsaCert); err != nil {
+		return err
+	}
+	fmt.Println("PASS RSA-only certificate serves TLS while readiness reports not ready")
 
 	return nil
 }
