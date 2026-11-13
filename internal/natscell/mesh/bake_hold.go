@@ -43,7 +43,13 @@ func (n *Node) checkBakeAdmission(name string, entry Entry) error {
 	}
 	missingRelease := record.Release == nil
 	if missingRelease {
-		record.Release = n.heldRelease(name, held)
+		state := n.desired[name]
+		for _, entry := range []*Entry{state.Signed, state.Operator} {
+			if entry != nil && entry.Generation == held && entry.Deployment != nil {
+				record.Release = entry.Deployment
+				break
+			}
+		}
 	}
 	previous, next := record.Release, entry.Deployment
 	newer := previous == nil && next != nil

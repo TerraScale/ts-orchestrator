@@ -1,116 +1,121 @@
 # Regional rollout bake
 
-Only generations carrying an authenticated service release declaration can need a
-bake. Plain service applies wait for readiness and cannot create a bake hold.
-The agent's binary release is outside service baking.
+Every service generation bakes in every target region before that region reports
+it ready for admission elsewhere. This includes first installations, recreated
+services, newly added regions and regions with no local history or bake records.
+No history journal or first-install classification participates in admission.
+Plain service applies also bake; the agent binary release is outside this path.
+A healthy first installation costs one 30-second observation window per target
+region, in order, in addition to startup, readiness and evidence delivery time.
 
-Each region derives whether a released generation needs a bake from its durable
-local service history. An earlier generation in its local declaration journal or
-receipts, or an earlier retained signed release, requires a bake. The journal is
-local, records declarations targeted to this region before reconciliation, and
-survives removal and recreation. Local history journals and bake verdicts are never imported from peers. There is no stored or synchronised first-install classification.
+The bake protects the other regions. In the first region the new generation has
+already replaced the old one when observation starts: the runtime update policy
+stops the old task. A failed bake holds the generation from spreading and does
+not bring the old generation back. This is also main's behavior. Keeping the old
+generation serving until the candidate passes is a separate change.
 
-With no earlier local history, a region waits for readiness without baking or
-creating a receipt. Its fresh reply reports the generation serving and no bake
-required, allowing later regions to advance. A region newly added to an existing
-service does not bake its first local generation; regions with earlier local
-history still bake that same generation. The next release bakes in every region
-that now has that history.
+## Observation and interruption budgets
 
-## Observation budget
+After exact task readiness and local release identity validation, observations
+run every two seconds. A bake passes after 30 seconds of consecutive healthy
+observations. Failed samples reset that window and retain checks and counts.
+The same probe failing for at least 15 seconds and at least three consecutive
+observations saves a finished failure. Validation failure is also saved as a
+failure and cannot advertise admission readiness.
 
-After exact task readiness, observations run every two seconds. A bake passes
-after 30 seconds of consecutive healthy observations. Failed samples reset that
-healthy window and record checks, counts and the last failure. The same probe
-failing for at least 15 seconds and at least three consecutive observations
-produces a finished failure. Two bad samples alone cannot fail a bake.
+Healthy windows, failure streaks and the ten-minute observation-loop bound use
+monotonic elapsed time within one process. Receipt timestamps are diagnostic;
+they do not measure elapsed time across processes. A probe blocked in a
+filesystem call is not interrupted by this bound. Runtime RPCs and readiness
+HTTP calls use request contexts; dependency HTTP additionally has a three-second
+client timeout. Log open, stat and section reads, control-socket CA reads in the
+bake path, receipt reads/writes and directory scans are synchronous and are not
+interrupted by context cancellation. The ten-minute bound is consequently not
+an unconditional duration bound on a rollout or even a blocked probe.
 
-Healthy windows, failure streaks and the ten-minute cap on each window use
-monotonic elapsed time in one process. Wall-clock steps in either direction do
-not change those decisions. Receipt timestamps are diagnostic values, not a
-deadline or a measure of elapsed time across restarts.
+A generation has three observation attempts. Before each window the region saves
+its start and the count of earlier interrupted windows. An unfinished start on
+restart counts as an interruption and logs that a failure may not have been
+saved. The third interruption saves a finished hold; no fourth window starts.
+Metadata changes do not reset the count. An interrupted attempt starts a full
+new healthy window. If the budget write fails, observation does not start and
+the region reports failed and unsaved. Downtime, readiness and persistence are
+outside the observation budget.
 
-A generation has a budget of three observation windows. Before starting each
-window, the region durably saves its start and the number of previously
-interrupted windows. A restart, exit or ending context leaves the started window
-unfinished. Before another window can start, that interruption is counted and
-saved. The third interruption saves a finished failure saying the bake could
-not complete; a fourth window cannot start. The counter never resets for that
-generation, including after declaration metadata changes.
+A rollback to the previous build followed by a forward update loses the
+interruption count if the previous build rewrites the receipt: that build drops
+the new fields. The generation then receives a fresh budget.
 
-Thus observation consumes at most three ten-minute windows of running time
-before passing or being held. This bound excludes downtime, readiness waits and
-time spent persisting evidence. A lifetime's ten-minute cap itself saves a
-failure. An interruption starts a complete new healthy window; prior samples
-cannot provide an early pass. If advancing the budget cannot be saved, no
-observation window starts: the region reports failed and unsaved.
+## Local holds and admission evidence
 
-## Local holds and serving evidence
+A hold belongs to the observing region in its local
+mesh/bake-SERVICE-GENERATION.json receipt. A saved failure survives readiness
+recovery and restart. A failure that cannot be written stays failed and unsaved
+in memory while persistence is retried. After a crash only durable information
+survives. An unfinished receipt consumes another interruption and logs the
+possibility of an unsaved failure before a fresh window; it does not prove
+whether the lost in-memory verdict was a failure. The interruption count records
+that uncertainty. Losing the receipts themselves requires baking again.
 
-A hold belongs only to the region that observed it, in its durable
-`mesh/bake-SERVICE-GENERATION.json` receipt. The receipt retains the signed release
-identity, interruption count, readiness timings, tasks, running revision,
-observations and terminal verdict. A saved failure survives readiness recovery
-and restarts. Failure writes that cannot complete stay failed and unsaved in
-memory and are retried locally; that observer never changes them to a pass.
-A restart before saving must reserve another window from the durable budget.
+Later regions require every earlier target to report the exact generation
+serving and a saved passing bake. Missing or failing evidence blocks admission.
+The requester sends a random nonce and accepts an echoed nonce only within five
+seconds measured from sending on its own monotonic clock. It never compares
+clocks between regions. Each observer expires its own local serving samples
+using its local monotonic clock. For rolling updates, a nonce-free reply is
+accepted only in main's existing shape, without serving, bakeRequired, admission
+or unsaved fields; its ready map is used as main uses it. A reply containing the
+new fields must echo the nonce. Wrong nonces are always rejected.
 
-Later regions require every earlier target to provide fresh serving evidence
-for exactly the requested generation and, where locally required, a finished
-saved passing bake. Missing, stale or failing serving evidence blocks admission
-even after a pass. Replies expose the most recent admission decision, its
-generation, earlier region and missing evidence. Those decisions are diagnostic
-and local; they do not provide admission authority.
+Admission evidence is trusted on mesh membership: any authenticated mesh
+participant can answer. It is not signed by the originating region. This is also
+true on main; origin authentication is a separate change. Admission decisions
+are local diagnostics, not independent authority.
 
-Serving evidence checks the service's required running replicas and configured
-readiness endpoint. It does not prove external routing, customer authentication
-or a customer database query. An absent earlier region blocks later ones until
-it returns or placement changes. Waiting regions retain their serving tasks.
+Serving checks cover required replicas and configured readiness endpoints, not
+external routing, customer authentication or a customer database query. Samples
+check exact running tasks, relevant local application dependencies and readable
+TerraBase task logs for catalog-anchor and writer-wait regressions. Raw logs,
+credentials and readiness response bodies are not retained.
 
-Bake samples check the same running tasks and readiness, relevant local
-application dependencies, and readable database task log coverage for
-catalog-anchor and writer-wait regressions. Raw logs, credentials, environments
-and readiness response bodies are not retained.
+If the first region in the placement order is unavailable, later regions cannot
+admit the release. Existing tasks in waiting regions remain in place. Recover
+the first region, or publish a placement change excluding/reordering the
+unavailable region; the resulting generation still bakes in its target order.
+There is no automatic bypass.
 
 ## Clearing a hold
 
-A hold admits replacement only by a signed release with a higher generation and
-a strictly newer run, then attempt. Replays, older releases, plain applies and
-resume are refused before desired-state changes. The failed receipt durably
-journals the replacement generation and release before desired state changes.
+A held generation admits replacement only with a higher generation and a
+strictly newer signed run, then attempt. Replays, plain applies and resume are
+refused before desired-state changes. The failed receipt saves its replacement
+identity first. A receipt from main without a release identity can recover it
+only from that generation's retained local desired declaration. If none remains,
+a higher signed generation follows the older hold's admission rule. No history
+journal or retained floor is used to derive a first-install exemption.
 
-For a receipt without a release identity, the region recovers and saves the
-identity from the held generation's local desired declaration or journal. If
-neither retains it, a signed release with a higher generation may replace the
-hold, following the rule under which that older hold was created.
+## Release health and known limits
 
-The release handler verifies the signature. Founders trust declarations relayed
-by mesh members; a deployment record is not independent signature proof. This
-prevents routine operator applies from bypassing a hold, without defending
-against a compromised member. Holds stay local and no automatic database
-downgrade occurs. Receipts of older failures remain history after replacement.
+Host memory, filesystem observations and the SwarmKit CA-file read share a
+five-second bounded sampler. At most two abandoned samples may remain running;
+requests fail at the cap until one completes. Late results cannot replace fresh
+observations. Health uses the sampled CA for both SwarmKit reads and the named
+service check, so blocked CA-file reads cannot accumulate per request. Runtime
+RPCs use the health context; named-service checking follows host/runtime checks.
+Checks are not a concurrent aggregate with an unconditional duration guarantee.
+Node-list status reads in the general health report are synchronous too.
 
-## Release health
+State replies still read receipts inside the subscription callback. Bake
+filesystem probes remain synchronous, and reconciliation still holds locks
+across disk and network calls. These limitations are not addressed here.
 
-Named-service and binary-release health check the mesh, container runtime API,
-SwarmKit node readiness and required readable host observations concurrently
-within the health deadline. Named checks also verify only the requested service's
-replicas and readiness; unrelated service shortages do not fail them.
+## Journey lanes
 
-Host observations expire after five seconds. An expired in-flight read is
-abandoned so a fresh read may start. At most two abandoned reads may remain
-running; requests fail fast at that bound until a read completes. Late results
-cannot overwrite fresh observations. An unreadable required filesystem or
-missing fresh host observation fails health. A successful fresh read restores
-health without restarting the agent.
-
-## Standalone observation lane
-
-Run `bash test/e2e/m1/rollout/run.sh /path/to/ts-orch` with Go, containerd, runc
-and network namespace tools available. The independent lane builds its journey,
-prepares images, state and namespaces, and reports elapsed seconds. The rollout
-entry in the CI matrix runs this lane.
-
-Clock controls inject wall readings through a journey-only Go build overlay
-while preserving monotonic readings. They do not change the runner's clock or
-add a product configuration switch.
+rollout.sh covers observation, holds and signed replacement;
+rollout-install.sh covers installation, nonce admission, interruption budgets
+and health sampling. Each has its own ten-minute CI matrix entry. Their runner
+prints measured lane seconds. Clock changes use a journey-only build overlay
+that preserves monotonic readings; product code has no clock switch or test hook.
+The older-receipt journey uses main's receipt types and writer at commit
+dc098b1fca6faf0b3ab683f76f45c16e541e5f00, rather than deleting a field from a
+current receipt.

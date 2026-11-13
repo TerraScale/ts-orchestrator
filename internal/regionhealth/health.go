@@ -8,7 +8,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/moby/swarmkit/v2/ca"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -38,6 +41,7 @@ const (
 
 // Input is one health reading of this host.
 type Input struct {
+	rootCA []byte
 	System observability.SystemView
 	// Node is why the SwarmKit node is not ready ("" when it is).
 	Node string
@@ -100,7 +104,7 @@ func Serving(ctx context.Context, state, service string) error {
 	if health != nil || service == "" {
 		return health
 	}
-	client, conn, err := swarmruntime.DialSingleHost(state)
+	client, conn, err := swarmruntime.DialSingleHostWithCA(state, in.rootCA)
 	if err != nil {
 		return err
 	}
@@ -126,10 +130,9 @@ func read(ctx context.Context, state string) Input {
 		check string
 		input Input
 	}
+	host := sampleHost(ctx, state)
 	results := make(chan reading, 4)
-	go func() {
-		results <- reading{check: "memory unreadable", input: sampleHost(ctx, state)}
-	}()
+	results <- reading{check: "memory unreadable", input: host}
 	go func() {
 		runtime, err := containerd.New(swarmruntime.HostContainerdSocket)
 		if err == nil {
@@ -144,7 +147,7 @@ func read(ctx context.Context, state string) Input {
 	}()
 	go func() {
 		part := Input{}
-		client, conn, err := swarmruntime.DialSingleHost(state)
+		client, conn, err := swarmruntime.DialSingleHostWithCA(state, host.rootCA)
 		if err != nil {
 			part.Node = "swarm node unreachable"
 			results <- reading{check: "swarm node unreachable", input: part}
@@ -166,7 +169,7 @@ func read(ctx context.Context, state string) Input {
 	}()
 	go func() {
 		part := Input{}
-		client, conn, err := swarmruntime.DialSingleHost(state)
+		client, conn, err := swarmruntime.DialSingleHostWithCA(state, host.rootCA)
 		if err != nil {
 			part.Failures = []string{"services unreadable"}
 			results <- reading{check: "services unreadable", input: part}
@@ -184,7 +187,7 @@ func read(ctx context.Context, state string) Input {
 		}
 		results <- reading{check: "services unreadable", input: part}
 	}()
-	var in Input
+	in := Input{rootCA: host.rootCA}
 	pending := map[string]bool{"memory unreadable": true, "container runtime unreachable": true, "swarm node unreachable": true, "services unreadable": true}
 	merge := func(result reading) {
 		delete(pending, result.check)
@@ -250,10 +253,18 @@ func sampleHost(ctx context.Context, state string) Input {
 		observation := &hostObservation{started: time.Now(), done: make(chan struct{})}
 		hostSampler.current = observation
 		go func() {
-			system, err := observability.ReadSystem([]observability.FilesystemRole{{Role: "containerd", Path: containerdRoot}, {Role: "state", Path: state}})
+			system, sampleErr := observability.ReadSystem([]observability.FilesystemRole{{Role: "containerd", Path: containerdRoot}, {Role: "state", Path: state}})
 			part := Input{System: system}
+			root, err := os.ReadFile(ca.NewConfigPaths(filepath.Join(swarmruntime.SingleHostSwarmDir(state), "certificates")).RootCA.Cert)
+			part.rootCA = root
 			if err != nil {
-				part.Failures = []string{"memory unreadable"}
+				part.Failures = append(part.Failures, "swarm root CA unreadable")
+			}
+			if sampleErr != nil {
+				part.Failures = append(part.Failures, "memory unreadable")
+			}
+			if system.MemTotalBytes == 0 {
+				part.Failures = append(part.Failures, "memory unreadable")
 			}
 			for _, filesystem := range system.Filesystems {
 				if filesystem.SizeBytes == 0 {

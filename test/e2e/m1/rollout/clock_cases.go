@@ -82,7 +82,7 @@ func clockCase(ctx context.Context, root, scenario string) {
 	elapsed := time.Since(started)
 	require(!saved.Finished.IsZero() && saved.Finished.Equal(verdict.Finished), "terminal verdict was not finished and saved")
 	if strings.HasPrefix(scenario, "failure-") {
-		require(err != nil && strings.Contains(verdict.Reason, "15 seconds") && elapsed >= rollout.BakeFailureDuration, "wall step shortened the real failure streak")
+		require(err != nil && strings.Contains(verdict.Reason, "15 seconds") && elapsed >= rollout.BakeFailureDuration && elapsed < rollout.BakeFailureDuration+4*time.Second, "wall step shortened the real failure streak")
 	} else {
 		require(err == nil && verdict.Reason == "" && elapsed >= rollout.BakeWindow && elapsed < rollout.BakeWindow+4*time.Second, "wall step changed the healthy bake window")
 	}
@@ -97,7 +97,7 @@ func assertWaiting(ctx context.Context, conn *nats.Conn, region, service string,
 			return false
 		}
 		require(decision.Earlier == earlier && decision.Evidence == missing, fmt.Sprintf("wrong admission decision: %+v", decision))
-		require(s[region].Ready[service] < generation, "downstream region admitted without required evidence")
+		require(s[region].Ready[service] != generation, "downstream region admitted without required evidence")
 		return true
 	})
 }

@@ -114,8 +114,10 @@ type Reply struct {
 }
 
 type stateReply struct {
-	Region  string                  `json:"region"`
-	Desired map[string]desiredState `json:"desired"`
+	Nonce    string `json:"nonce,omitempty"`
+	received time.Time
+	Region   string                  `json:"region"`
+	Desired  map[string]desiredState `json:"desired"`
 	// Ready is the generation each local service runs with every replica ready.
 	Ready        map[string]int64             `json:"ready,omitempty"`
 	Serving      map[string]ServingResult     `json:"serving,omitempty"`
@@ -280,10 +282,16 @@ func start(cfg config) (_ *Node, err error) {
 				Workers: node.joinedWorkers(), StartedAt: node.listening})
 		},
 		StateSubject: func(m *nats.Msg) {
-			state := stateReply{Region: cfg.region, Desired: maps.Clone(*node.stateDesired.Load()), Ready: map[string]int64{}, Serving: node.servingSnapshot()}
+			var request struct {
+				Nonce string `json:"nonce"`
+			}
+			_ = protocol.DecodeTolerant(m.Data, &request, maxWire)
+			state := stateReply{Nonce: request.Nonce, Region: cfg.region, Desired: maps.Clone(*node.stateDesired.Load()), Ready: map[string]int64{}, Serving: node.servingSnapshot()}
 			for name, result := range state.Serving {
 				if result.fresh() {
 					state.Ready[name] = result.Generation
+				} else {
+					delete(state.Serving, name)
 				}
 			}
 			node.bakeState(&state)
@@ -452,10 +460,6 @@ func (n *Node) sync(ctx context.Context) {
 						slog.WarnContext(ctx, "mesh held service refused", "service", name, "error", err)
 						continue
 					}
-					if err := n.journalLocal(name, current); err != nil {
-						slog.WarnContext(ctx, "local service history not saved", "service", name, "error", err)
-						continue
-					}
 					n.desired[name] = merged
 					changed = true
 				}
@@ -606,9 +610,23 @@ func (n *Node) statesOf(ctx context.Context, want []string, wait time.Duration) 
 	if want != nil {
 		count = math.MaxInt
 	}
-	_ = collect(ctx, n.conn, StateSubject, nil, count, wait, func(data []byte) bool {
+	nonce := make([]byte, 32)
+	if _, err := rand.Read(nonce); err != nil {
+		slog.ErrorContext(ctx, "mesh state nonce unavailable", "error", err)
+		return states
+	}
+	challenge := hex.EncodeToString(nonce)
+	payload, err := protocol.EncodeJSON(struct {
+		Nonce string `json:"nonce"`
+	}{challenge})
+	if err != nil {
+		return states
+	}
+	sent := time.Now()
+	_ = collect(ctx, n.conn, StateSubject, payload, count, wait, func(data []byte) bool {
 		var reply stateReply
-		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
+		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && time.Since(sent) <= servingMaxAge && (reply.Nonce == challenge || reply.Nonce == "" && reply.Serving == nil && reply.BakeRequired == nil && reply.Admission == nil && reply.Unsaved == nil) {
+			reply.received = sent
 			states[reply.Region] = reply
 		}
 		return want == nil || slices.ContainsFunc(want, func(region string) bool { _, ok := states[region]; return !ok })
@@ -698,7 +716,7 @@ func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int6
 			decision.Evidence = "bake failed"
 			return fmt.Errorf("%w: %s", errEarlierFailed, region)
 		}
-		if !reply.Serving[name].fresh() || reply.Serving[name].Generation != generation {
+		if time.Since(reply.received) > servingMaxAge || reply.Serving != nil && (!reply.Serving[name].Serving || reply.Serving[name].Generation != generation) {
 			decision.Evidence = "fresh serving evidence missing"
 			return fmt.Errorf("%s lacks fresh serving evidence for %s generation %d", region, name, generation)
 		}
@@ -820,9 +838,6 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 	if err := n.acceptBakeReplacement(request.Name, request.Entry); err != nil {
 		return applyResult{}, err
 	}
-	if err := n.journalLocal(request.Name, before); err != nil {
-		return applyResult{}, err
-	}
 	n.desired[request.Name] = merged
 	// Persist before reconciliation, including retries of a persisted generation.
 	if err := saveDesired(n.cfg.dir, n.desired); err != nil {
@@ -861,9 +876,6 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 			return applyResult{result: "removed"}, nil
 		}
 		return applyResult{result: "skipped-not-targeted"}, nil
-	}
-	if err := n.journalLocal(name, state); err != nil {
-		return applyResult{}, err
 	}
 	spec := *entry.Spec
 	spec.Generation, spec.Region, spec.Node = entry.Generation, n.cfg.region, n.cfg.server

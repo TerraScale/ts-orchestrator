@@ -106,7 +106,7 @@ func (n *Node) bakeState(state *stateReply) {
 		if retained, exists := pending[key]; exists {
 			record, err = retained, nil
 		}
-		state.BakeRequired[name] = n.needsBake(name, entry) || entry.Spec != nil && record.Bake.Reason != ""
+		state.BakeRequired[name] = entry.Spec != nil
 		if !state.BakeRequired[name] {
 			delete(state.Failed, name)
 			continue
@@ -166,7 +166,6 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	if record.Release == nil {
 		record.Release = applied.state.entry().Deployment
 	}
-	needsBake := n.needsBake(spec.Name, applied.state.entry())
 	if n.baking == nil {
 		n.baking = map[string]chan struct{}{}
 	}
@@ -179,6 +178,10 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 		return record, errors.Join(errors.New(record.Bake.Reason), err)
 	}
 
+	if !record.Bake.Finished.IsZero() && spec.Deployment != nil && record.Rollout.Revision != spec.Deployment.Revision {
+		record.Bake.Reason = "running image revision does not match the signed release commit"
+		return record, errors.Join(errors.New(record.Bake.Reason), n.retainBakeFailure(n.ctx, spec.Name, key, record))
+	}
 	if !record.Bake.Finished.IsZero() {
 		if metadataChanged {
 			n.mu.Lock()
@@ -195,13 +198,11 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	if err == nil && spec.Deployment != nil && spec.Image == spec.Deployment.Image && record.Rollout.Revision != spec.Deployment.Revision {
 		err = errors.New("running image revision does not match the signed release commit")
 	}
-	if !needsBake {
-		return record, err
-	}
 	if err == nil {
 		n.mu.Lock()
 		if !record.Bake.Started.IsZero() {
 			record.Interruptions++
+			slog.WarnContext(ctx, "interrupted regional bake may have an unsaved failure", "service", spec.Name, "generation", spec.Generation, "interruptions", record.Interruptions)
 		}
 		if record.Interruptions >= maxBakeInterruptions {
 			record.Bake.Reason, record.Bake.Finished = "bake could not complete within three attempts", time.Now()

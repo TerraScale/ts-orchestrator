@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 bin=$(realpath "$1")
+mode=${2:-journey}
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 echo "rollout lane work: $work"
@@ -16,11 +17,12 @@ spec["image"] = json.load(open(sys.argv[2]))["e2e-whoami"][arch]
 with open(sys.argv[3], "w") as output:
     json.dump(spec, output)
 PY
-"$work/rollout-journey" clocks "$work/clocks"
+if [[ $mode == journey ]]; then
+ "$work/rollout-journey" clocks "$work/clocks"
+fi
 privilege=()
 if ((EUID != 0)); then
  privilege=(sudo --preserve-env=PATH)
 fi
-"${privilege[@]}" bash "$here/fleet.sh" "$work/rollout-journey" "$work/history" "$work/spec.json" "$bin" history
-"${privilege[@]}" bash "$here/fleet.sh" "$work/rollout-journey" "$work/fleet" "$work/spec.json" "$bin"
+"${privilege[@]}" bash "$here/fleet.sh" "$work/rollout-journey" "$work/fleet" "$work/spec.json" "$bin" "$mode"
 echo "rollout lane measured: $((SECONDS - started)) seconds"

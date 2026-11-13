@@ -99,13 +99,23 @@ func prepareImage(ctx context.Context, root, specFile string) {
 	spec.Image = "ghcr.io/terrascale/terrabase@" + target.Digest.String()
 	_, err = client.ImageService().Create(ctx, images.Image{Name: spec.Image, Target: target})
 	must(err)
-	for _, name := range []string{"app-canary", "history-canary"} {
+	for _, name := range []string{"app-canary", "install-canary", "invalid-canary", "nonce-canary"} {
 		_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(spec.Image, "/terrabase@", "/"+name+"@", 1), Target: target})
 		must(err)
 	}
 	data, err = json.Marshal(spec)
 	must(err)
 	must(os.WriteFile(filepath.Join(root, "spec.json"), data, 0600))
+	metadata.Config.Labels["journey.image"] = "replacement"
+	manifest.Config = write(metadata, manifest.Config.MediaType)
+	replacement := write(manifest, imagespec.MediaTypeImageManifest)
+	labels["containerd.io/gc.ref.content.config"] = manifest.Config.Digest.String()
+	_, err = store.Update(ctx, content.Info{Digest: replacement.Digest, Labels: labels}, "labels")
+	must(err)
+	replacementName := "ghcr.io/terrascale/terrabase@" + replacement.Digest.String()
+	_, err = client.ImageService().Create(ctx, images.Image{Name: replacementName, Target: replacement})
+	must(err)
+	must(os.WriteFile(filepath.Join(root, "replacement-image"), []byte(replacementName), 0600))
 }
 
 func signedToken(key *rsa.PrivateKey, run, service string) string {
@@ -201,10 +211,17 @@ func main() {
 		runSwarm(ctx, os.Args[2])
 	case "region":
 		runRegion(ctx, os.Args[2:])
+	case "inventory":
+		client, conn, err := swarmruntime.DialSingleHost(os.Args[2])
+		must(err)
+		defer conn.Close()
+		rows, err := swarmruntime.ListServiceSpecs(ctx, client)
+		must(err)
+		must(json.NewEncoder(os.Stdout).Encode(rows))
 	case "control":
 		control(ctx, os.Args[2:])
-	case "journey", "history":
-		journey(ctx, os.Args[2], os.Args[3], os.Args[4], os.Args[1] == "history")
+	case "journey", "install":
+		journey(ctx, os.Args[2], os.Args[3], os.Args[4], os.Args[1] == "install")
 	default:
 		panic("unknown rollout journey command")
 	}
@@ -457,6 +474,9 @@ func observe(ctx context.Context, conn *nats.Conn, condition func(map[string]sta
 }
 
 type receipt struct {
+	Runtime struct {
+		Tasks []swarmruntime.ServiceTaskEvidence
+	} `json:"runtime"`
 	Generation    int64               `json:"generation"`
 	Interruptions int                 `json:"interruptions"`
 	Bake          rollout.BakeVerdict `json:"bake"`
@@ -504,7 +524,7 @@ func setHealth(ctx context.Context, address string, port int, code string) {
 	require(response.StatusCode == http.StatusOK, "health control failed")
 }
 
-func journey(ctx context.Context, root, launcher, specFile string, historyOnly bool) {
+func journey(ctx context.Context, root, launcher, specFile string, installOnly bool) {
 	seed := make([]byte, 32)
 	_, err := rand.Read(seed)
 	must(err)
@@ -589,11 +609,12 @@ func journey(ctx context.Context, root, launcher, specFile string, historyOnly b
 		must(conn.Flush())
 	}
 	topologyReady(ctx, roots)
-	if historyOnly {
-		historyCases(ctx, conn, roots, order, spec, releases, key)
+	if installOnly {
+		nonceCases(ctx, conn, roots, order, names, launcher, spec)
+		installCases(ctx, conn, nodes, boot, roots, order, names, launcher, spec)
 		unsavedCase(ctx, conn, releases, key, nodes, boot, roots, order, addresses, spec)
 		budgetCases(ctx, conn, releases, nodes, swarms, boot, roots, order, names, addresses, launcher, spec)
-		fmt.Println("history journey passed")
+		fmt.Println("install and budget journey passed")
 		return
 	}
 	management, err := os.ReadFile(filepath.Join(root, "management.json"))
@@ -613,79 +634,18 @@ func journey(ctx context.Context, root, launcher, specFile string, historyOnly b
 	}
 	entries, err := os.ReadDir(filepath.Join(roots[0], "mesh"))
 	must(err)
-	for _, entry := range entries {
-		require(!strings.HasPrefix(entry.Name(), "bake-netbird-server-"), "plain apply created a bake receipt")
-	}
-	logStep("management service declaration applied twice through service apply has no bake or hold")
-	canaryImage := strings.Replace(spec.Image, "/terrabase@", "/app-canary@", 1)
-	require(releaseReply(ctx, releases, key, "app-canary", canaryImage, "50").State == "accepted", "signed first install was refused")
-	observe(ctx, conn, func(s map[string]state) bool {
-		reply := releaseReply(ctx, releases, key, "app-canary", canaryImage, "50")
-		for _, directory := range roots {
-			files, err := filepath.Glob(filepath.Join(directory, "mesh", "bake-app-canary-*.json"))
-			must(err)
-			require(len(files) == 0, "authenticated first install was baked")
-		}
-		require(reply.State != "failed", "signed first install failed: "+reply.Error)
-		return reply.State == "done"
-	})
-	var firstGeneration int64
-	for i, region := range order {
-		var desired struct {
-			Signed *struct {
-				Generation int64
-			}
-		}
-		must(json.Unmarshal(states(ctx, conn)[region].Desired["app-canary"], &desired))
-		require(desired.Signed != nil, "first-install declaration did not reach every region")
-		require(!states(ctx, conn)[region].BakeRequired["app-canary"], "first release incorrectly required a bake")
-		firstGeneration = desired.Signed.Generation
-		files, err := filepath.Glob(filepath.Join(roots[i], "mesh", "bake-app-canary-*.json"))
-		must(err)
-		require(len(files) == 0, "signed first install created a bake receipt")
-	}
-	require(firstGeneration > 0, "signed first install did not reach a region")
-	installMeshConnected := conn.StatusChanged(nats.CONNECTED)
-	installReleaseConnected := releases.StatusChanged(nats.CONNECTED)
-	nodes[0].kill()
-	nodes[0] = boot(0)
-	for _, connected := range []chan nats.Status{installMeshConnected, installReleaseConnected} {
-		select {
-		case <-connected:
-		case <-ctx.Done():
-			panic(ctx.Err())
-		}
-	}
-	observe(ctx, conn, func(s map[string]state) bool {
-		return s[order[0]].Ready["app-canary"] == firstGeneration
-	})
-	files, err := filepath.Glob(filepath.Join(roots[0], "mesh", "bake-app-canary-*.json"))
-	must(err)
-	require(len(files) == 0, "restarted first install required a bake receipt")
-	require(releaseReply(ctx, releases, key, "app-canary", canaryImage, "51").State == "accepted", "next signed canary release refused")
-	observe(ctx, conn, func(s map[string]state) bool {
-		for i := range order {
-			files, err := filepath.Glob(filepath.Join(roots[i], "mesh", "bake-app-canary-*.json"))
-			must(err)
-			for _, file := range files {
-				data, err := os.ReadFile(file)
-				must(err)
-				var record receipt
-				must(json.Unmarshal(data, &record))
-				if !record.Bake.Started.IsZero() {
-					return true
-				}
-			}
-		}
-		return false
-	})
-	logStep("authenticated first install is derived locally, reaches every target without baking, and the next release bakes")
+	require(len(entries) > 0, "management apply lost local state")
+	logStep("management service declaration applied twice through service apply completes its bake")
 
+	replacementImage, err := os.ReadFile(filepath.Join(roots[0], "replacement-image"))
+	must(err)
+	spec.Image = string(replacementImage)
 	generation := time.Now().UnixNano()
 	apply(generation, order[1])
 	initial := evidence(ctx, roots[0], generation, func(r receipt) bool { return !r.Bake.Started.IsZero() })
 	require(initial.Bake.Finished.IsZero(), "interruption did not happen during the bake")
-	require(states(ctx, conn)[order[1]].Ready[spec.Name] < generation, "later region advanced before the first bake")
+	assertWaiting(ctx, conn, order[1], spec.Name, generation, order[0], "passed bake missing")
+	assertRuntimeBefore(ctx, names[1], launcher, roots[1], spec.Name, generation)
 	initialReconnected := conn.StatusChanged(nats.CONNECTED)
 	nodes[0].kill()
 	nodes[0] = nil
@@ -716,6 +676,7 @@ func journey(ctx context.Context, root, launcher, specFile string, historyOnly b
 	next := evidence(ctx, roots[1], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() })
 	require(next.Bake.Reason == "", "later region bake failed: "+next.Bake.Reason)
 	observe(ctx, conn, func(s map[string]state) bool { return s[order[1]].Ready[spec.Name] == generation })
+	require(len(initial.Runtime.Tasks) > 0 && initial.Runtime.Tasks[0].Image == spec.Image && initial.Runtime.Tasks[0].Generation == generation, "image change did not replace the task")
 	logStep("abrupt agent exit restarts a full bake; the next region advances automatically")
 
 	shortage := states(ctx, conn)[order[0]].Serving[lagging.Name]
@@ -804,7 +765,8 @@ func journey(ctx context.Context, root, launcher, specFile string, historyOnly b
 	})
 	retained := evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Reason != "" })
 	require(retained.Bake.Started.Equal(failed.Bake.Started), "restart erased a recorded regression")
-	require(states(ctx, conn)[order[1]].Ready[spec.Name] < generation, "failed first bake admitted the next region")
+	assertWaiting(ctx, conn, order[1], spec.Name, generation, order[0], "bake failed")
+	assertRuntimeBefore(ctx, names[1], launcher, roots[1], spec.Name, generation)
 	logStep("an observed regression remains failed across restart after readiness recovers")
 	unsignedRefused(ctx, names[0], launcher, roots[0], spec, generation)
 	logStep("service resume refuses a failed bake even with a canary hold")

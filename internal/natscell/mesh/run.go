@@ -253,7 +253,7 @@ func (a swarmApplier) Ready(ctx context.Context) (map[string]ServingResult, erro
 			defer stop()
 			result := ServingResult{Generation: row.Generation}
 			result.Serving = row.Replicas > 0 && row.Running == row.Replicas && swarmruntime.ServingService(probe, client, row.Name) == nil && probe.Err() == nil
-			result.At = time.Now().UTC()
+			result.At = time.Now()
 			results <- observation{row.Name, result}
 		}()
 	}

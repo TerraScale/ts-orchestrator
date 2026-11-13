@@ -126,7 +126,7 @@ func unsavedCase(ctx context.Context, conn, releases *nats.Conn, key *rsa.Privat
 	observe(ctx, conn, func(s map[string]state) bool {
 		return s[order[0]].Failed[spec.Name] == generation && s[order[0]].Unsaved[spec.Name] == generation
 	})
-	require(states(ctx, conn)[order[1]].Ready[spec.Name] < generation, "unsaved failure admitted a later region")
+	assertWaiting(ctx, conn, order[1], spec.Name, generation, order[0], "bake failed")
 	disk := evidence(ctx, roots[0], generation, func(r receipt) bool { return true })
 	require(disk.Bake.Reason == "" && disk.Bake.FailedSamples >= 8, "read-only disk unexpectedly saved the terminal failure")
 	meshReconnected := conn.StatusChanged(nats.CONNECTED)
@@ -143,6 +143,10 @@ func unsavedCase(ctx context.Context, conn, releases *nats.Conn, key *rsa.Privat
 		}
 	}
 	restartedUnsaved := evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Started.After(disk.Bake.Started) })
+	require(restartedUnsaved.Interruptions == disk.Interruptions+1, "possible unsaved failure was not counted as an interruption")
+	log, err := os.ReadFile(filepath.Join(roots[0], "region.log"))
+	must(err)
+	require(strings.Contains(string(log), "may have an unsaved failure"), "possible unsaved failure restart was not logged")
 	require(restartedUnsaved.Bake.Finished.IsZero(), "unsaved failure restart skipped the new window")
 	unsavedPassed := evidence(ctx, roots[0], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() })
 	require(unsavedPassed.Bake.Reason == "" && unsavedPassed.Bake.Finished.Sub(restartedUnsaved.Bake.Started) >= rollout.BakeWindow, "unsaved failure restart did not run a full healthy window")
