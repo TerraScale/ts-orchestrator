@@ -125,8 +125,7 @@ type Handler struct {
 	Health    func(context.Context, string) HealthResult
 	Verifier  *Verifier
 	// Revision is the running build's vcs.revision.
-	Revision string
-	// Digest is the running build's vcs sha256.
+	Revision      string
 	Digest        string
 	Binary        string
 	runningBinary string

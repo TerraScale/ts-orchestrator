@@ -217,17 +217,17 @@ func rolloutCases(ctx context.Context, data []byte) {
 	founder.Digest = release.Binaries[runtime.GOARCH].SHA256
 	later.Digest = founder.Digest
 	var broken, laterBroken atomic.Bool
-	founder.Health = func(context.Context) error {
+	founder.Health = func(_ context.Context, _ string) releasepush.HealthResult {
 		if broken.Load() {
-			return errors.New("candidate health broken")
+			return releasepush.HealthResult{Service: errors.New("candidate health broken")}
 		}
-		return nil
+		return releasepush.HealthResult{}
 	}
-	later.Health = func(context.Context) error {
+	later.Health = func(_ context.Context, _ string) releasepush.HealthResult {
 		if laterBroken.Load() {
-			return errors.New("services unreadable")
+			return releasepush.HealthResult{Service: errors.New("services unreadable")}
 		}
-		return nil
+		return releasepush.HealthResult{}
 	}
 	var visited atomic.Bool
 	later.Relay = func(context.Context, []byte) []releasepush.HostVersion { visited.Store(true); return nil }
@@ -401,7 +401,7 @@ func serveRegion(ctx context.Context, args []string) {
 	must(err)
 	h.Verifier.JWKSURL = jwks
 	h.Client = &http.Client{Transport: providerTransport{binaryURL}}
-	h.Health = func(context.Context) error { return nil }
+	h.Health = func(context.Context, string) releasepush.HealthResult { return releasepush.HealthResult{} }
 	options, err := releasepush.Options(work, nil)
 	must(err)
 	options.Host, options.CustomClientAuthentication = "127.0.0.1", nil
