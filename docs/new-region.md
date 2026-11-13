@@ -69,6 +69,7 @@ region's evidence PR.
 | Check | Passes when |
 | --- | --- |
 | api | `https://<label>.api.terrascale.tech/healthz` answers 200, `status` `ok`, `region` the cell (`fra-1`) |
+| api ping | the same `/healthz` with `Origin: https://dashboard.terrascale.tech` answers 200 with `Access-Control-Allow-Origin: *`, `Timing-Allow-Origin: *` and `Cache-Control: no-store`, so the dashboard can ping the region from the browser |
 | auth | `https://<label>.auth.terrascale.tech/terrascale/.well-known/openid-configuration` answers 200 with that issuer |
 | load balancer | every backend set (`terrabase`, `ts-auth`, `ts-orch` with orch) has backends, all healthy |
 
