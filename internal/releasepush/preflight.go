@@ -12,6 +12,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -63,16 +65,8 @@ func runPreflight(ctx context.Context, binary string) error {
 		return fmt.Errorf("release preflight: %w", err)
 	}
 	defer reader.Close()
-	command := exec.CommandContext(ctx, binary, "release", "preflight")
-	command.WaitDelay = time.Second
+	command := exec.Command(binary, "release", "preflight")
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	command.Cancel = func() error {
-		err := syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
-		if errors.Is(err, syscall.ESRCH) {
-			return os.ErrProcessDone
-		}
-		return err
-	}
 	command.Stdout, command.Stderr = writer, writer
 	err = command.Start()
 	writer.Close()
@@ -85,11 +79,20 @@ func runPreflight(ctx context.Context, binary string) error {
 		_, _ = io.Copy(output, reader)
 		close(copied)
 	}()
-	waitErr := command.Wait()
-	killErr := syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
-	if errors.Is(killErr, syscall.ESRCH) {
-		killErr = nil
+	group := command.Process.Pid
+	exited := make(chan error, 1)
+	go func() { exited <- exitedUnreaped(group) }()
+	var exitErr, killErr error
+	select {
+	case exitErr = <-exited:
+	case <-ctx.Done():
+		killErr = killGroup(group)
+		exitErr = <-exited
 	}
+	if exitErr == nil {
+		killErr = errors.Join(killErr, killGroup(group))
+	}
+	waitErr := command.Wait()
 	drained := time.NewTimer(outputWait)
 	defer drained.Stop()
 	select {
@@ -98,13 +101,31 @@ func runPreflight(ctx context.Context, binary string) error {
 		reader.Close()
 		<-copied
 	}
-	if waitErr != nil {
-		return errors.New(scrub(fmt.Sprintf("release preflight: %v: %s", errors.Join(ctx.Err(), waitErr, killErr), output.text())))
+	if waitErr != nil || exitErr != nil {
+		return errors.New(scrub(fmt.Sprintf("release preflight: %v: %s", errors.Join(ctx.Err(), exitErr, waitErr, killErr), output.text())))
 	}
 	if killErr != nil {
 		return fmt.Errorf("release preflight: stop its process group: %w", killErr)
 	}
 	return nil
+}
+
+func exitedUnreaped(pid int) error {
+	for {
+		var info unix.Siginfo
+		err := unix.Waitid(unix.P_PID, pid, &info, unix.WEXITED|unix.WNOWAIT, nil)
+		if !errors.Is(err, unix.EINTR) {
+			return err
+		}
+	}
+}
+
+func killGroup(group int) error {
+	err := unix.Kill(-group, unix.SIGKILL)
+	if errors.Is(err, unix.ESRCH) {
+		return nil
+	}
+	return err
 }
 
 type boundedOutput struct {
