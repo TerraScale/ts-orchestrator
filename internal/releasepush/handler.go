@@ -177,19 +177,19 @@ func NewHandler(state string) (*Handler, error) {
 
 type runningBuild struct{ sha256, unavailable string }
 
-// HashRunning hashes the running executable in the background so no start-up
-// step waits for it; the version answer carries the digest once it is ready.
 func (h *Handler) HashRunning(ctx context.Context) {
-	sum, err := runningDigest(ctx)
-	if ctx.Err() != nil {
-		return
-	}
-	if err != nil {
-		h.running.Store(&runningBuild{unavailable: scrub(err.Error())})
-		slog.Warn("running binary digest unavailable; serving is confirmed by revision only", "error", err)
-		return
-	}
-	h.running.Store(&runningBuild{sha256: sum})
+	go func() {
+		sum, err := runningDigest(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			h.running.Store(&runningBuild{unavailable: scrub(err.Error())})
+			slog.Warn("running binary digest unavailable; serving is confirmed by revision only", "error", err)
+			return
+		}
+		h.running.Store(&runningBuild{sha256: sum})
+	}()
 }
 
 // executable is the real path of the running binary, which a release replaces.
