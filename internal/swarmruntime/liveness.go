@@ -12,8 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
+	"github.com/VictoriaMetrics/metrics"
 )
 
 const (
@@ -27,6 +29,8 @@ const (
 
 var errTaskUnresponsive = fmt.Errorf("task unresponsive throughout consecutive readiness probes for %s", readinessWindow)
 
+var ReadinessMetrics = metrics.NewSet()
+
 type readinessHistory struct {
 	failures int
 	task     string
@@ -38,11 +42,63 @@ type readinessWatch struct {
 	lastProbe  time.Time
 	hungSince  time.Time
 	readySince time.Time
-	suppressed uint64
+	reported   bool
+	hungUnix   atomic.Int64
+	metric     string
 }
 
-func (c *controller) readinessWatch() readinessWatch {
-	return readinessWatch{next: time.Now().Add(readinessStartGrace)}
+func (c *controller) ownsData() bool {
+	return c.stateful != nil || execution.Stateful(c.task) || len(c.spec.Mounts) != 0 ||
+		c.task.ServiceAnnotations.Labels[LabelServiceSpec] == "terrabase" ||
+		c.task.ServiceAnnotations.Labels[LabelRole] == "terrabase" ||
+		c.task.Annotations.Labels[LabelRole] == "terrabase"
+}
+
+func (c *controller) readinessWatch() *readinessWatch {
+	w := &readinessWatch{next: time.Now().Add(readinessStartGrace)}
+	if c.ownsData() {
+		w.metric = observability.Series(observability.MetricPrefix+"task_unresponsive_seconds", "task", c.task.ID, "service", c.task.ServiceID)
+		ReadinessMetrics.NewGauge(w.metric, func() float64 {
+			if since := w.hungUnix.Load(); since != 0 {
+				return max(time.Since(time.Unix(0, since)).Seconds(), 0)
+			}
+			return 0
+		})
+	}
+	return w
+}
+
+func (w *readinessWatch) close() {
+	if w.metric != "" {
+		ReadinessMetrics.UnregisterMetric(w.metric)
+	}
+}
+
+func (s *statefulController) observeReadiness(ctx context.Context) func() {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		watch := s.readinessWatch()
+		defer watch.close()
+		ticker := time.NewTicker(readinessInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if time.Now().Before(watch.next) {
+					continue
+				}
+				probeCtx, stop := context.WithTimeout(ctx, readinessDeadline)
+				err := s.source.ObserveReadiness(probeCtx, s.task)
+				stop()
+				s.readinessFailed(ctx, watch, err)
+			}
+		}
+	}()
+	return func() { cancel(); <-done }
 }
 
 func (w *readinessWatch) observe(now time.Time, err error) bool {
@@ -75,6 +131,9 @@ func readinessBackoff(n int) time.Duration {
 }
 
 func (c *controller) recordReadinessFailure() {
+	if c.ownsData() {
+		return
+	}
 	e := c.executor
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -91,23 +150,30 @@ func (c *controller) recordReadinessFailure() {
 }
 
 func (c *controller) readinessFailed(ctx context.Context, w *readinessWatch, err error) bool {
-	if !w.observe(time.Now(), err) {
+	expired := w.observe(time.Now(), err)
+	if c.ownsData() {
+		if w.hungSince.IsZero() {
+			w.hungUnix.Store(0)
+			if w.reported {
+				slog.InfoContext(ctx, "task readiness unresponsive window cleared", "task", c.task.ID, "error", err)
+				w.reported = false
+			}
+		} else {
+			w.hungUnix.Store(w.hungSince.UnixNano())
+			if expired && !w.reported {
+				slog.WarnContext(ctx, "data-owning task unresponsive for five minutes; operator action required", "task", c.task.ID)
+				w.reported = true
+			}
+		}
+		return false
+	}
+	if !expired {
 		if !w.readySince.IsZero() && time.Since(w.readySince) >= readinessResetAfter {
 			c.executor.mu.Lock()
 			delete(c.executor.readiness, restartKey(c.task))
 			c.executor.mu.Unlock()
 		}
 		return false
-	}
-	if c.stateful != nil || c.regionalTerraBase() || len(c.spec.Mounts) != 0 {
-		peerCtx, cancel := context.WithTimeout(ctx, readinessDeadline)
-		err := handoff.TaskPeerReady(peerCtx, c.task.ID)
-		cancel()
-		if err != nil {
-			w.suppressed++
-			slog.WarnContext(ctx, "hung task retained without a ready regional peer", "task", c.task.ID, "suppressed", w.suppressed, "error", err)
-			return false
-		}
 	}
 	return ctx.Err() == nil
 }

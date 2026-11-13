@@ -3,12 +3,10 @@ package mesh
 import (
 	"context"
 	"errors"
-	"net/netip"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
-	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats.go"
 )
 
@@ -76,16 +74,6 @@ func (n *Node) handleDrain(m *nats.Msg) {
 		n.respond(m, drainReply{Error: "node not admitted"})
 		return
 	}
-	if request.Action == "ready-peer" && request.Bootstrap == nil {
-		ctx, cancel := context.WithTimeout(n.ctx, 15*time.Second)
-		defer cancel()
-		reply := drainReply{}
-		if err := n.readyTaskPeer(ctx, request); err != nil {
-			reply.Error = err.Error()
-		}
-		n.respond(m, reply)
-		return
-	}
 	if request.Bootstrap != nil {
 		if request.Action == "stage" || request.Action == "staged" {
 			err := n.stageBootstrap(request.Action, *request.Bootstrap)
@@ -147,43 +135,4 @@ func (n *Node) Bootstrap(ctx context.Context, action string, j rolloutmaintenanc
 		return errors.New(reply.Error)
 	}
 	return nil
-}
-
-func (n *Node) TaskPeerReady(ctx context.Context, task string) error {
-	data, err := protocol.EncodeJSON(drainRequest{Node: n.cfg.server, Task: task, Action: "ready-peer"})
-	if err != nil {
-		return err
-	}
-	response, err := n.conn.RequestWithContext(ctx, protocol.MeshDrainPrefix+n.cfg.region, data)
-	if err != nil {
-		return err
-	}
-	var reply drainReply
-	if err := protocol.DecodeStrict(response.Data, &reply, maxWire); err != nil {
-		return err
-	}
-	if reply.Error != "" {
-		return errors.New(reply.Error)
-	}
-	return nil
-}
-
-func (n *Node) readyTaskPeer(ctx context.Context, request drainRequest) error {
-	applier, ok := n.cfg.applier.(swarmApplier)
-	if !ok {
-		return errors.New("regional service inventory is unavailable")
-	}
-	client, close, err := applier.control()
-	if err != nil {
-		return err
-	}
-	defer close()
-	addresses := make(map[string]netip.Addr)
-	for _, peer := range n.RegionalNodes() {
-		address, err := netip.ParseAddr(peer.Address)
-		if err == nil && address.Is4() && address.IsPrivate() {
-			addresses[peer.Node] = address
-		}
-	}
-	return swarmruntime.ProbeRegionalTaskPeer(ctx, client, request.Task, request.Node, n.cfg.server, addresses)
 }

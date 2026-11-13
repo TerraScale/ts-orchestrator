@@ -197,20 +197,31 @@ func nonce() (string, error) {
 
 var ErrUnresponsive = errors.New("member accepted a request without answering before its deadline")
 
+func (c *Client) Readiness(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	var sent, answered atomic.Bool
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest:         func(info httptrace.WroteRequestInfo) { sent.Store(info.Err == nil) },
+		GotFirstResponseByte: func() { answered.Store(true) },
+	})
+	challenge, err := nonce()
+	if err != nil {
+		return err
+	}
+	_, _, _, err = c.exchangeBounded(ctx, http.MethodGet, "/v1/member/status?nonce="+challenge, nil, maxEvidenceBytes, 15*time.Second)
+	if err != nil && sent.Load() && !answered.Load() && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return ErrUnresponsive
+	}
+	return err
+}
+
 func (c *Client) Status(ctx context.Context) (Status, error) {
-	return c.status(ctx, 3*time.Second)
-}
-
-func (c *Client) Readiness(ctx context.Context) (Status, error) {
-	return c.status(ctx, 15*time.Second)
-}
-
-func (c *Client) status(ctx context.Context, deadline time.Duration) (Status, error) {
 	challenge, err := nonce()
 	if err != nil {
 		return Status{}, err
 	}
-	code, body, process, err := c.exchangeBounded(ctx, http.MethodGet, "/v1/member/status?nonce="+challenge, nil, maxEvidenceBytes, deadline)
+	code, body, process, err := c.exchange(ctx, http.MethodGet, "/v1/member/status?nonce="+challenge, nil)
 	if err != nil {
 		return Status{}, err
 	}
@@ -394,18 +405,10 @@ func (c *Client) exchangeBounded(ctx context.Context, method, path string, reque
 	if method == http.MethodPost {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	var sent, answered atomic.Bool
-	request = request.WithContext(httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-		WroteRequest:         func(info httptrace.WroteRequestInfo) { sent.Store(info.Err == nil) },
-		GotFirstResponseByte: func() { answered.Store(true) },
-	}))
 	response, err := (&http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}).Do(request)
 	if err != nil {
-		if sent.Load() && !answered.Load() && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return 0, nil, ProcessObservation{}, ErrUnresponsive
-		}
 		return 0, nil, ProcessObservation{}, fmt.Errorf("member control request: %w", err)
 	}
 	defer response.Body.Close()

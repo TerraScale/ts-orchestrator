@@ -728,6 +728,7 @@ func (c *controller) waitExit(ctx context.Context, following func()) (uint32, ti
 		probe = ticker.C
 	}
 	watch := c.readinessWatch()
+	defer watch.close()
 	for {
 		select {
 		case <-ctx.Done():
@@ -750,7 +751,7 @@ func (c *controller) waitExit(ctx context.Context, following func()) (uint32, ti
 				return status.Result()
 			default:
 			}
-			if c.readinessFailed(ctx, &watch, err) {
+			if c.readinessFailed(ctx, watch, err) {
 				return 0, time.Time{}, errors.Join(errTaskUnresponsive, err)
 			}
 		}
@@ -929,6 +930,7 @@ func (c *controller) Remove(ctx context.Context) error {
 			return execution.ErrUnsafe
 		}
 	}
+	// Delete below kills a live process; give a data-owning one its grace first.
 	if len(c.spec.Mounts) != 0 {
 		if err := c.stopTask(ctx); err != nil && !errdefs.IsNotFound(err) {
 			return err

@@ -289,7 +289,9 @@ func (n *Node) ControlClient(ctx context.Context) (api.ControlClient, error) {
 	return nil, ctx.Err()
 }
 
+// Stop suspends the agent without leaving the swarm or clearing assignments.
 func (n *Node) Stop(ctx context.Context) error {
+	// Upstream Stop calls agent.Leave; cancel first so workloads survive restart.
 	n.cancel()
 	select {
 	case <-n.done:

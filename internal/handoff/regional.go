@@ -25,18 +25,3 @@ func DrainTask(ctx context.Context, task string) error {
 	}
 	return (*drain)(ctx, task)
 }
-
-var regionalPeerProbe atomic.Pointer[taskDrainer]
-
-func SetTaskPeerProbe(probe func(context.Context, string) error) {
-	fn := taskDrainer(probe)
-	regionalPeerProbe.Store(&fn)
-}
-
-func TaskPeerReady(ctx context.Context, task string) error {
-	probe := regionalPeerProbe.Load()
-	if probe == nil {
-		return errors.New("regional task peer readiness is unavailable")
-	}
-	return (*probe)(ctx, task)
-}

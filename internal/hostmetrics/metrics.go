@@ -157,6 +157,7 @@ func Handler(region, address string, executor *swarmruntime.Executor) http.Handl
 			http.Error(w, "host runtime telemetry unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		swarmruntime.ReadinessMetrics.WritePrometheus(&body)
 		observability.WriteEdgeListenerMetrics(&body)
 		observability.WriteNodeFeatureMetrics(&body)
 		observability.WriteEdgeResponseMetrics(&body)
