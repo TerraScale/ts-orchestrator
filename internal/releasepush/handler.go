@@ -461,9 +461,6 @@ func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() 
 	if err := beforeSwap(); err != nil {
 		return err
 	}
-	if err := ensureGuard(ctx, h.Binary, state); err != nil {
-		return err
-	}
 	defer os.Remove(next)
 	if err := writeSynced(next, data); err != nil {
 		return err
