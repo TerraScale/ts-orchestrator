@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 )
 
 // The value is computed from the rendered file, never configured by an
@@ -26,7 +28,7 @@ func reconcileServerConfig(ctx context.Context, config []byte) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	wire, err := exec.CommandContext(ctx, self, "service", "inspect", "netbird-server").Output()
+	wire, err := exec.CommandContext(ctx, self, "service", "inspect", netbird.ServerServiceName).Output()
 	if err != nil {
 		return fmt.Errorf("inspect NetBird server config generation: %w", err)
 	}
@@ -51,9 +53,10 @@ func ServerConfigSpec(inspection, config []byte) ([]byte, bool, error) {
 		return nil, false, errors.New("invalid NetBird server inspection")
 	}
 	var name string
-	if json.Unmarshal(service.Spec["name"], &name) != nil || name != "netbird-server" {
+	if json.Unmarshal(service.Spec["name"], &name) != nil || name != netbird.ServerServiceName {
 		return nil, false, errors.New("NetBird config rollout requires the existing server service")
 	}
+	service.Spec["dependencies"] = jsontext.Value(`[]`)
 	env := map[string]string{}
 	if raw := service.Spec["env"]; len(raw) != 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &env); err != nil {

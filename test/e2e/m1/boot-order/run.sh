@@ -34,9 +34,11 @@ exec "$binary" lane "$work" "$mode"
 SH
 }
 run management &
-pids+=("$!")
+pids=("$!")
+wait "${pids[0]}"
+pids=()
 run peer &
-pids+=("$!")
-for pid in "${pids[@]}"; do wait "$pid"; done
+pids=("$!")
+wait "${pids[0]}"
 pids=()
 echo "boot-order: management host and other host recovered; peers remained gated; running tasks survived agent restart"

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/api"
 )
@@ -127,7 +128,9 @@ func InspectService(service *api.Service) (ServiceInspection, error) {
 	labels := service.Spec.Annotations.Labels
 	spec := ServiceSpec{Name: service.Spec.Annotations.Name, Image: container.Image, Args: container.Args,
 		ReadyPath: labels[LabelReadyPath], Hostnames: splitLabel(labels[LabelHostnames])}
-	if dependencies, exists := labels[LabelDependencies]; exists {
+	if spec.Name == netbird.ServerServiceName {
+		spec.Dependencies = new([]string{})
+	} else if dependencies, exists := labels[LabelDependencies]; exists {
 		if err := jsonv1.Unmarshal([]byte(dependencies), &spec.Dependencies); err != nil {
 			return ServiceInspection{}, fmt.Errorf("decode %s: %w", LabelDependencies, err)
 		}

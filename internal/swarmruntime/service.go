@@ -18,6 +18,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
@@ -467,6 +468,9 @@ type ServiceMount struct {
 // SwarmSpec maps the declaration to an upstream service; the executor
 // re-validates the container on every task.
 func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
+	if s.Name == netbird.ServerServiceName {
+		s.Dependencies = new([]string{})
+	}
 	if s.DeploymentFloor != nil && s.Generation <= 0 {
 		return nil, errors.New("deployment authority requires a positive generation")
 	}

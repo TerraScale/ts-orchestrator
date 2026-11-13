@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 )
@@ -31,12 +32,19 @@ var peersEnv = []string{"TS_NODE", "TS_PEERS_FILE", "TS_REGION"}
 var NodeName = regexp.MustCompile(`^[a-z0-9-]{1,63}$`)
 
 func (s ServiceSpec) NeedsPeers() bool {
-	return s.Dependencies == nil || slices.Contains(*s.Dependencies, "peers")
+	return s.Name != netbird.ServerServiceName && (s.Dependencies == nil || slices.Contains(*s.Dependencies, "peers"))
 }
 
 func (s ServiceSpec) taskEnv() ([]string, error) {
-	if s.Dependencies != nil && (len(*s.Dependencies) > 1 || len(*s.Dependencies) == 1 && !s.NeedsPeers()) {
+	if s.Dependencies != nil && (len(*s.Dependencies) > 1 || len(*s.Dependencies) == 1 && (*s.Dependencies)[0] != "peers") {
 		return nil, errors.New("dependencies must contain only peers, without duplicates")
+	}
+	if s.Name != netbird.ServerServiceName && !s.NeedsPeers() {
+		for _, mount := range s.Mounts {
+			if peersPath(mount.Source) || peersPath(mount.Target) {
+				return nil, errors.New("a peers file mount requires the peers dependency")
+			}
+		}
 	}
 	for _, key := range peersEnv {
 		if _, set := s.Env[key]; set {
@@ -80,9 +88,18 @@ func withLocalNode(env []string, hostname func() (string, error)) ([]string, err
 	return env, nil
 }
 
-// peersMount binds the service's peers directory into a task that reads
-// TS_PEERS_FILE; the mesh writes the file before it applies the service.
+func peersPath(path string) bool {
+	path = filepath.Clean(path)
+	return path == PeersDirectory || strings.HasPrefix(path, PeersDirectory+"/")
+}
+
 func (c *controller) peersMount() ([]runtimespec.Mount, error) {
+	if c.task.ServiceAnnotations.Name == netbird.ServerServiceName {
+		c.spec.Env = slices.DeleteFunc(slices.Clone(c.spec.Env), func(env string) bool {
+			return strings.HasPrefix(env, "TS_PEERS_FILE=")
+		})
+		return nil, nil
+	}
 	if !slices.Contains(c.spec.Env, "TS_PEERS_FILE="+PeersFile) {
 		return nil, nil
 	}

@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -61,6 +63,14 @@ func main() {
 
 func workload(ctx context.Context) error {
 	view := "management"
+	if os.Getenv("ROLE") != "peer" {
+		if os.Getenv("TS_PEERS_FILE") != "" {
+			return errors.New("independent task received a peers environment variable")
+		}
+		if _, err := os.Stat(swarmruntime.PeersFile); !errors.Is(err, os.ErrNotExist) {
+			return errors.New("independent task received a peers file")
+		}
+	}
 	if os.Getenv("ROLE") == "peer" {
 		data, err := os.ReadFile(os.Getenv("TS_PEERS_FILE"))
 		if err != nil {
@@ -340,7 +350,7 @@ func (p *process) until(check func(*api.Task) (bool, error)) error {
 }
 
 func running(ctx context.Context, p *process, management bool) error {
-	want := map[string]bool{"boot-peer": false, "boot-default": false}
+	want := map[string]bool{"boot-peer": false, "boot-default": false, "boot-empty": false}
 	if management {
 		want["netbird-server"] = false
 	}
@@ -363,16 +373,16 @@ func running(ctx context.Context, p *process, management bool) error {
 
 func desired(state, image string, management bool) error {
 	entries := map[string]any{}
-	for _, role := range []string{"management", "peer", "default"} {
-		if role == "management" && !management {
-			continue
-		}
+	for _, role := range []string{"management", "peer", "default", "empty"} {
 		port := 18085
 		if role != "management" {
 			port = 18086
 		}
 		if role == "default" {
 			port = 18087
+		}
+		if role == "empty" {
+			port = 18088
 		}
 		workloadRole := role
 		if role == "default" {
@@ -383,9 +393,15 @@ func desired(state, image string, management bool) error {
 		if role == "peer" {
 			spec["dependencies"] = []string{"peers"}
 		}
+		if role == "empty" {
+			spec["dependencies"] = []string{}
+		}
 		name := "boot-" + role
 		if role == "management" {
 			name = "netbird-server"
+			if !management {
+				spec["regions"] = []string{"sjc"}
+			}
 			spec["name"] = name
 			spec["env"].(map[string]string)["TS_ORCH_NETBIRD_CONFIG_SHA256"] = "existing-config"
 		}
@@ -449,11 +465,7 @@ func lane(ctx context.Context, root string, management bool) error {
 
 func scenario(ctx context.Context, root, executable, ref string, client *containerd.Client, management bool) error {
 	state := filepath.Join(root, fmt.Sprint(management))
-	if err := address("100.100.0.1"); err != nil {
-		return err
-	}
 	defer command("ip", "link", "del", "wt0")
-	warm := "boot-host gru 100.100.0.1\n"
 	if err := desired(state, ref, management); err != nil {
 		return err
 	}
@@ -466,15 +478,42 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 			p.stop()
 		}
 	}()
-	conn, err := p.mesh(state, false)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if err := running(ctx, p, management); err != nil {
-		return err
-	}
 	if management {
+		entry, err := stored(state, "netbird-server")
+		if err != nil {
+			return err
+		}
+		old := *entry.Spec
+		old.Name, old.Region, old.Node = "old-manager", "gru", "boot-host"
+		spec, err := old.SwarmSpec()
+		if err != nil {
+			return err
+		}
+		spec.Annotations.Name = "netbird-server"
+		spec.Annotations.Labels[swarmruntime.LabelServiceSpec] = "netbird-server"
+		if _, err := p.control.CreateService(ctx, &api.CreateServiceRequest{Spec: spec}); err != nil {
+			return err
+		}
+		if err := independent(p, true); err != nil {
+			return err
+		}
+		tasks, err := p.control.ListTasks(ctx, &api.ListTasksRequest{})
+		if err != nil {
+			return err
+		}
+		oldTask := false
+		for _, task := range tasks.Tasks {
+			container, err := swarmruntime.DecodeContainer(task)
+			if err != nil {
+				return err
+			}
+			if slices.Contains(container.Env, "TS_PEERS_FILE="+swarmruntime.PeersFile) && task.ServiceAnnotations.Labels[swarmruntime.LabelDependencies] == "" {
+				oldTask = true
+			}
+		}
+		if !oldTask {
+			return errors.New("seed did not retain an old task with the peers environment")
+		}
 		p.stop()
 		p = nil
 		if err := stopTasks(ctx, client); err != nil {
@@ -483,50 +522,42 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 		if err := os.RemoveAll("/run/ts-orch"); err != nil {
 			return err
 		}
-		if err := command("ip", "link", "del", "wt0"); err != nil {
-			return err
-		}
 		p, err = startAgent(ctx, state, executable)
 		if err != nil {
 			return err
 		}
-		conn.Close()
-		conn, err = p.mesh(state, true)
-		if err != nil {
+		if err := independent(p, true); err != nil {
 			return err
 		}
-		defer conn.Close()
-		if err := p.until(func(task *api.Task) (bool, error) {
-			if task.ServiceAnnotations.Labels[swarmruntime.LabelServiceSpec] != "netbird-server" {
-				return false, nil
-			}
-			if task.Status.State == api.TaskStateRunning {
-				return false, errors.New("old management declaration bypassed peers")
-			}
-			return task.Status.State == api.TaskStateRejected, nil
-		}); err != nil {
-			return err
-		}
-		old, err := inspection(ctx, p, "netbird-server")
-		if err != nil || old.Spec.Dependencies != nil {
-			return fmt.Errorf("old declaration lost its omitted dependencies: %w", err)
-		}
-		fmt.Println("boot-order: old stored declaration retained peers requirement after reboot")
-		if err := address("100.100.0.1"); err != nil {
-			return err
-		}
-		if err := running(ctx, p, true); err != nil {
-			return err
-		}
+		fmt.Println("boot-order: old stored declaration and old task recovered management without a peers file or operator action")
+	}
+	conn, err := p.mesh(state, true)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := independent(p, management); err != nil {
+		return err
+	}
+	if err := address("100.100.0.1"); err != nil {
+		return err
+	}
+	if err := running(ctx, p, management); err != nil {
+		return err
+	}
+	if management {
 		if err := upgrade(ctx, p, conn, state); err != nil {
 			return err
 		}
+	}
+	if err := stripNewer(ctx, p, conn, state); err != nil {
+		return err
 	}
 	before, err := taskPIDs(ctx, client)
 	if err != nil {
 		return err
 	}
-	expectedTasks := 2
+	expectedTasks := 3
 	if management {
 		expectedTasks++
 	}
@@ -538,13 +569,26 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 	if err != nil {
 		return err
 	}
-	after, err := taskPIDs(ctx, client)
+	if err := samePIDs(ctx, client, before); err != nil {
+		return err
+	}
+	conn.Close()
+	conn, err = p.mesh(state, false)
 	if err != nil {
 		return err
 	}
-	if fmt.Sprint(before) != fmt.Sprint(after) {
-		return fmt.Errorf("agent restart replaced running tasks: %v -> %v", before, after)
+	defer conn.Close()
+	entry, err := stored(state, "boot-default")
+	if err != nil {
+		return err
 	}
+	if err := reconcileDeclaration(ctx, conn, entry); err != nil {
+		return err
+	}
+	if err := samePIDs(ctx, client, before); err != nil {
+		return err
+	}
+	fmt.Printf("boot-order: management=%t agent restart kept task PIDs before and after mesh reconciliation\n", management)
 	p.stop()
 	p = nil
 	if err := stopTasks(ctx, client); err != nil {
@@ -556,30 +600,16 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 	if err := command("ip", "link", "del", "wt0"); err != nil {
 		return err
 	}
-	cold := "boot-host gru 100.100.0.2\n"
 	p, err = startAgent(ctx, state, executable)
 	if err != nil {
 		return err
 	}
-	if err := p.until(func(task *api.Task) (bool, error) {
-		name := task.ServiceAnnotations.Labels[swarmruntime.LabelServiceSpec]
-		if (name == "boot-peer" || name == "boot-default") && task.Status.State == api.TaskStateRunning {
-			return false, errors.New("peer started before the mesh interface")
-		}
-		if management {
-			if name != "netbird-server" {
-				return false, nil
-			}
-			if task.Status.State == api.TaskStateRejected {
-				return false, fmt.Errorf("management rejected without mesh: %s", task.Status.Err)
-			}
-			return task.Status.State == api.TaskStateRunning, nil
-		}
-		return name == "boot-peer" && task.Status.State == api.TaskStateRejected, nil
-	}); err != nil {
+	if err := independent(p, management); err != nil {
 		return err
 	}
-	fmt.Printf("boot-order: management=%t, runtime removed, no interface; management independent and peer blocked\n", management)
+	if management {
+		fmt.Println("boot-order: second cold boot recovered management after an older node stripped the field at a higher generation")
+	}
 	if err := address("100.100.0.2"); err != nil {
 		return err
 	}
@@ -587,26 +617,25 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	for _, bad := range []string{"", warm} {
-		if err := os.WriteFile(filepath.Join(dir, "peers"), []byte(bad), 0644); err != nil {
+	for _, bad := range []struct{ data, failure string }{
+		{"", "peers generation is empty"},
+		{"malformed\n", "peers generation has an invalid identity"},
+		{"boot-host gru 100.100.0.1\n", "peers generation has a stale local address"},
+		{"boot-host sjc 100.100.0.2\n", "peers generation has a stale local address or region"},
+	} {
+		if err := os.WriteFile(filepath.Join(dir, "peers"), []byte(bad.data), 0644); err != nil {
 			return err
 		}
 		if err := p.until(func(task *api.Task) (bool, error) {
-			if task.ServiceAnnotations.Labels[swarmruntime.LabelServiceSpec] != "boot-peer" {
-				return false, nil
+			name := task.ServiceAnnotations.Labels[swarmruntime.LabelServiceSpec]
+			if (name == "boot-peer" || name == "boot-default") && task.Status.State == api.TaskStateRunning {
+				return false, fmt.Errorf("dependent task started with invalid generation %q", bad.data)
 			}
-			if task.Status.State == api.TaskStateRunning {
-				return false, fmt.Errorf("peer started with invalid generation %q", bad)
-			}
-			failure := "peers generation is empty"
-			if bad != "" {
-				failure = "peers generation has a stale local address"
-			}
-			return task.Status.State == api.TaskStateRejected && strings.Contains(task.Status.Err, failure), nil
+			return name == "boot-peer" && task.Status.State == api.TaskStateRejected && strings.Contains(task.Status.Err, bad.failure), nil
 		}); err != nil {
 			return err
 		}
-		fmt.Printf("boot-order: refused peers generation %q\n", bad)
+		fmt.Printf("boot-order: refused peers generation %q\n", bad.data)
 	}
 	if err := command("ip", "link", "del", "wt0"); err != nil {
 		return err
@@ -619,9 +648,10 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 	if err := address("100.100.0.2"); err != nil {
 		return err
 	}
-	if err := running(ctx, p, false); err != nil {
+	if err := running(ctx, p, management); err != nil {
 		return err
 	}
+	cold := "boot-host gru 100.100.0.2\n"
 	for _, port := range []string{"18086", "18087"} {
 		response, err := http.Get("http://127.0.0.1:" + port + "/")
 		if err != nil {
@@ -634,17 +664,37 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 		}
 	}
 	fmt.Printf("boot-order: management=%t recovered with %q; explicit and default peers dependencies held\n", management, cold)
-	for _, name := range []string{"netbird-server", "boot-peer", "boot-default"} {
-		if name == "netbird-server" && !management {
-			continue
-		}
-		if err := swarmruntime.RemoveServiceSpec(ctx, p.control, name); err != nil {
-			return err
-		}
-	}
 	p.stop()
 	p = nil
 	return stopTasks(ctx, client)
+}
+
+func independent(p *process, management bool) error {
+	return p.until(func(task *api.Task) (bool, error) {
+		name := task.ServiceAnnotations.Labels[swarmruntime.LabelServiceSpec]
+		if (name == "boot-peer" || name == "boot-default") && task.Status.State == api.TaskStateRunning {
+			return false, errors.New("dependent task started before the mesh interface")
+		}
+		want := "boot-empty"
+		if management {
+			want = "netbird-server"
+		}
+		if name == want && task.Status.State == api.TaskStateRejected {
+			return false, fmt.Errorf("independent task rejected: %s", task.Status.Err)
+		}
+		return name == want && task.Status.State == api.TaskStateRunning, nil
+	})
+}
+
+func samePIDs(ctx context.Context, client *containerd.Client, before map[string]uint32) error {
+	after, err := taskPIDs(ctx, client)
+	if err != nil {
+		return err
+	}
+	if !maps.Equal(before, after) {
+		return fmt.Errorf("agent restart replaced running tasks: %v -> %v", before, after)
+	}
+	return nil
 }
 
 func taskPIDs(ctx context.Context, client *containerd.Client) (map[string]uint32, error) {
