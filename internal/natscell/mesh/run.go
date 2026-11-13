@@ -50,10 +50,13 @@ func Run(ctx context.Context, state string, cluster Cluster, started func(*Node)
 		if err == nil {
 			slog.InfoContext(ctx, "mesh started", "region", node.cfg.region, "server", node.cfg.server)
 			started(node)
-			go node.servePeerMetrics(ctx)
+			go node.servePeerMetrics(node.ctx)
 			node.run(ctx)
 			node.Close()
-			return
+			if ctx.Err() != nil {
+				return
+			}
+			err = errors.New("mesh node stopped")
 		}
 		slog.WarnContext(ctx, "mesh start failed; retrying", "error", err)
 		select {

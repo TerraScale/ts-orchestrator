@@ -44,11 +44,10 @@ type sources struct {
 // unreadable token or a port it cannot bind is logged and retried; it never
 // stops the host. While Vault is unavailable the token read last keeps
 // serving.
-func Run(ctx context.Context, state, region string) {
+func Run(ctx context.Context, state, region string) error {
 	host, err := os.Hostname()
 	if err != nil {
-		slog.WarnContext(ctx, "dashboard is not serving: no hostname", observability.ComponentKey, "dashboard", "error", err)
-		return
+		return err
 	}
 	registry := observability.NewRegistry(true)
 	health := new(observability.Health)
@@ -64,8 +63,7 @@ func Run(ctx context.Context, state, region string) {
 		Registry: registry, Health: health,
 		Filesystems: []observability.FilesystemRole{{Role: "root", Path: "/"}, {Role: "state", Path: state}}})
 	if err != nil {
-		slog.WarnContext(ctx, "dashboard is not serving", observability.ComponentKey, "dashboard", "error", err)
-		return
+		return err
 	}
 	reports := &meshReports{state: state}
 	defer reports.close()
@@ -75,6 +73,7 @@ func Run(ctx context.Context, state, region string) {
 	serve(ctx, deps, sources{port: Port, address: mesh.NetBirdAddress, token: func(ctx context.Context) (string, error) {
 		return readToken(ctx, region)
 	}})
+	return ctx.Err()
 }
 
 // listener is what one running listener serves.

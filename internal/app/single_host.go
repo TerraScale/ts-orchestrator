@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/moby/swarmkit/v2/api"
@@ -64,9 +65,10 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	defer stopHealth()
 	go hostmetrics.Run(healthCtx)
 	go executor.ReapExitedTasks(healthCtx)
+	failed := make(chan error, 2)
 	go func() {
-		if err := executor.ServeBootstrap(healthCtx, state); err != nil {
-			slog.ErrorContext(healthCtx, "bootstrap executor endpoint unavailable", "error", err)
+		if err := executor.ServeBootstrap(healthCtx, state); healthCtx.Err() == nil {
+			failed <- errors.Join(errors.New("bootstrap executor endpoint stopped"), err)
 		}
 	}()
 	// shortcut: a worker has no control socket and would answer for its region a second time; give workers their own health row when they serve.
@@ -75,7 +77,11 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		go syncSLOTargets(healthCtx, state, plan.region, executor)
 		if plan.region != "" {
 			// The operator dashboard on the NetBird address; its token lives in gru-vault.
-			go hostdashboard.Run(healthCtx, state, plan.region)
+			go func() {
+				if err := hostdashboard.Run(healthCtx, state, plan.region); healthCtx.Err() == nil {
+					failed <- errors.Join(errors.New("host dashboard stopped"), err)
+				}
+			}()
 		}
 	}
 	if err := releasepush.EnsureFirewall(ctx); err != nil {
@@ -130,6 +136,11 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	waited := make(chan error, 1)
 	go func() { waited <- node.Wait(ctx) }()
 	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-failed:
+		slog.ErrorContext(ctx, "single-host background service failed", "error", err)
+		return err
 	case err := <-waited:
 		if err != nil && ctx.Err() == nil {
 			return err
@@ -162,30 +173,37 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 	if err != nil {
 		return hostPlan{}, err
 	}
-	var instance regionjoin.Instance
-	for attempt := range 3 {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt) * time.Second)
+	asset, err := os.ReadFile("/sys/class/dmi/id/chassis_asset_tag")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return hostPlan{}, fmt.Errorf("read host platform: %w", err)
+	}
+	oracle := strings.TrimSpace(string(asset)) == "OracleCloud.com"
+	if !oracle && (!restarted || stored.HostID == stored.FounderID) {
+		if !restarted {
+			if _, err := os.Stat(swarmruntime.SingleHostSwarmDir(state)); err == nil {
+				return hostPlan{}, errors.New("cluster state exists without stored admission")
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return hostPlan{}, err
+			}
+		} else {
+			loopback.admission = stored
 		}
-		if instance, err = regionjoin.Local(ctx); err == nil || ctx.Err() != nil {
-			break
-		}
+		fmt.Fprintln(output, "local host; using a loopback-only cluster")
+		return loopback, nil
+	}
+	instance, err := regionjoin.Local(ctx)
+	if err != nil {
+		return hostPlan{}, fmt.Errorf("read host metadata: %w", err)
 	}
 	if restarted && stored.HostID != stored.FounderID {
-		// A worker binds no remote API and reconnects from its persisted manager
-		// list; without IMDS it only runs its tasks, outside the mesh.
 		return hostPlan{listen: loopback.listen, advertise: loopback.advertise, admission: stored,
 			region: instance.Region, address: instance.PrivateIP}, nil
-	}
-	if err != nil {
-		// shortcut: an IMDS outage at an OCI host's first start founds a loopback cluster no host joins; fence it if one is ever seen.
-		fmt.Fprintf(output, "not an OCI host (%v); founding a loopback-only cluster\n", err)
-		return loopback, nil
 	}
 	port := strconv.Itoa(swarmruntime.SwarmPort)
 	founder := hostPlan{listen: net.JoinHostPort("0.0.0.0", port), advertise: net.JoinHostPort(instance.PrivateIP, port),
 		admission: loopback.admission, region: instance.Region, address: instance.PrivateIP}
 	if restarted {
+		founder.admission = stored
 		return founder, nil
 	}
 	hostname, err := os.Hostname()

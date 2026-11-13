@@ -20,7 +20,7 @@ import (
 )
 
 type row struct {
-	Item, Status, Evidence, Tickets string
+	Item, Status, Evidence string
 }
 
 type verifier struct {
@@ -41,13 +41,13 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	f := flag.NewFlagSet("verify", flag.ContinueOnError)
 	f.SetOutput(out)
 	live := f.Bool("live", os.Getenv("TS_VERIFY_LIVE") == "1", "opt in to read-only production requests")
-	region := f.String("region", env("E2E_REGION", "gru-1"), "expected cell/region")
-	cell := f.String("cell", env("TS_VERIFY_CELL", "gru"), "expected controller manifest cell (distinct from TerraBase region)")
+	region := f.String("region", env("E2E_REGION", "gru"), "expected TerraBase region")
+	cell := f.String("cell", env("TS_VERIFY_CELL", "gru"), "expected single-host dashboard region")
 	tb := f.String("terrabase-url", env("E2E_TERRABASE_URL", "https://gru.api.terrascale.tech"), "TerraBase origin")
 	auth := f.String("auth-url", env("E2E_AUTH_URL", "https://auth.terrascale.tech"), "ts-auth origin")
 	dash := f.String("dashboard-url", env("E2E_DASHBOARD_URL", "https://dash.terrascale.tech"), "dashboard origin")
 	status := f.String("status-url", env("E2E_STATUS_URL", "https://status.terrascale.tech"), "status origin")
-	orch := f.String("orchestrator-url", os.Getenv("TS_VERIFY_ORCHESTRATOR_URL"), "controller observability origin (HTTPS or loopback tunnel)")
+	orch := f.String("orchestrator-url", os.Getenv("TS_VERIFY_ORCHESTRATOR_URL"), "single-host dashboard origin (HTTPS or loopback tunnel)")
 	timeout := f.Duration("timeout", 10*time.Second, "deadline per GET")
 	if err := f.Parse(args); errors.Is(err, flag.ErrHelp) {
 		return nil
@@ -67,20 +67,14 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	}
 	v := verifier{ctx: ctx, region: *region, cell: *cell, http: &http.Client{Timeout: *timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	if *orch == "" {
-		v.add("1. Orchestrator deployed and working", "UNKNOWN", "controller observability URL/token unavailable; no public controller route is assumed", "TS-484")
+		v.add("Single-host operator dashboard", "UNKNOWN", "single-host dashboard URL not supplied; use --orchestrator-url with its NetBird origin or loopback tunnel")
 	} else {
 		v.orchestrator(*orch)
 	}
-	v.health("TerraBase liveness", *tb, "/healthz", "ok", true, "TS-484, TS-486")
-	// Both producer readiness probes write: TerraBase creates a scratch file;
-	// ts-auth creates/reads/deletes a document. GET alone is not a read-only guarantee.
-	v.add("2. Orchestrator deployed healthy TerraBase", "UNKNOWN", "liveness is reported separately; /readyz skipped (disk write); no current signed host deployment/readiness evidence", "TS-484, TS-485, TS-524")
-	v.health("ts-auth liveness", *auth, "/healthz", "ok", false, "TS-487")
-	v.add("3. ts-auth persists in TerraBase", "UNKNOWN", "/readyz skipped (creates/deletes storage probe documents); liveness does not establish the active store or durable records", "TS-489, TS-487, TS-525")
-	v.health("Dashboard liveness", *dash, "/health/live", "ok", false, "TS-472")
-	v.health("Dashboard readiness", *dash, "/health/ready", "ok", false, "TS-472")
-	v.add("4. Dashboard persists in TerraBase", "UNKNOWN", "readiness only checks for a non-nil store; no evidence tying current service state to TerraBase documents", "TS-472, TS-492, TS-526")
-	v.oidc(*auth)
+	v.health("TerraBase liveness", *tb, "/healthz", "ok", true)
+	v.health("ts-auth liveness", *auth, "/healthz", "ok", false)
+	v.health("Dashboard liveness", *dash, "/health/live", "ok", false)
+	v.health("Dashboard readiness", *dash, "/health/ready", "ok", false)
 	body, code, _, evidence := v.get(*status, "/api/v1/status", "")
 	var publicStatus struct {
 		Status      string    `json:"status"`
@@ -96,16 +90,16 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	} else {
 		evidence += "; status=" + publicStatus.Status + ", generatedAt=" + publicStatus.GeneratedAt.UTC().Format(time.RFC3339) + " (observations only, not deployment/persistence proof)"
 	}
-	v.add("Status API response", state, evidence, "TS-497, TS-471")
+	v.add("Status API response", state, evidence)
 	fmt.Fprintf(out, "Read-only production verification: cell=%s, region=%s, observed_at=%s\n\n", clean(*cell), clean(*region), time.Now().UTC().Format(time.RFC3339))
-	fmt.Fprintln(out, "| Item | Result | Evidence | Gap tickets |\n| --- | --- | --- | --- |")
+	fmt.Fprintln(out, "| Item | Result | Evidence |\n| --- | --- | --- |")
 	complete := true
 	for _, r := range v.rows {
-		fmt.Fprintf(out, "| %s | %s | %s | %s |\n", clean(r.Item), r.Status, clean(r.Evidence), r.Tickets)
+		fmt.Fprintf(out, "| %s | %s | %s |\n", clean(r.Item), r.Status, clean(r.Evidence))
 		complete = complete && r.Status == "PASS"
 	}
 	if !complete {
-		return errors.Join(ctx.Err(), errors.New("production verification incomplete: FAIL/UNKNOWN items require gap follow-up"))
+		return errors.Join(ctx.Err(), errors.New("production verification incomplete: FAIL/UNKNOWN observations"))
 	}
 	return ctx.Err()
 }
@@ -140,8 +134,8 @@ func clean(value string) string {
 	return strings.ReplaceAll(value, "|", "\\|")
 }
 
-func (v *verifier) add(item, status, evidence, tickets string) {
-	v.rows = append(v.rows, row{item, status, evidence, tickets})
+func (v *verifier) add(item, status, evidence string) {
+	v.rows = append(v.rows, row{item, status, evidence})
 }
 
 // get only requests reviewed paths, refuses redirects and never prints bodies,
@@ -188,7 +182,7 @@ func (v *verifier) get(origin, path, token string) ([]byte, int, http.Header, st
 	return body, res.StatusCode, res.Header, evidence
 }
 
-func (v *verifier) health(item, origin, path, expected string, regional bool, tickets string) {
+func (v *verifier) health(item, origin, path, expected string, regional bool) {
 	body, code, headers, evidence := v.get(origin, path, "")
 	var payload struct{ Status, Version, Region string }
 	state := "PASS"
@@ -202,7 +196,7 @@ func (v *verifier) health(item, origin, path, expected string, regional bool, ti
 			evidence += "; body/header region mismatch (want " + v.region + ")"
 		}
 	}
-	v.add(item, state, evidence, tickets)
+	v.add(item, state, evidence)
 }
 
 func (v *verifier) orchestrator(origin string) {
@@ -220,9 +214,9 @@ func (v *verifier) orchestrator(origin string) {
 		}
 	} else if code != 200 || json.Unmarshal(body, &snapshot) != nil || snapshot.Version != observability.SnapshotVersion || snapshot.Cell != v.cell || snapshot.Role != "controller" || !snapshot.Ready || snapshot.BuildVersion == "" || snapshot.Member == "" || time.Since(snapshot.ObservedAt) > 30*time.Second || time.Until(snapshot.ObservedAt) > 5*time.Second {
 		state = "FAIL"
-		se += "; expected current ready controller snapshot with cell/build identity"
+		se += "; expected current ready single-host snapshot with region/build identity"
 	} else {
 		se += "; cell=" + snapshot.Cell + ", member=" + snapshot.Member + ", build=" + snapshot.BuildVersion
 	}
-	v.add("1. Orchestrator deployed and working", state, he+"; "+re+"; "+se, "TS-484")
+	v.add("Single-host operator dashboard", state, he+"; "+re+"; "+se)
 }

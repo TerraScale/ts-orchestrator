@@ -210,7 +210,8 @@ func (e *Executor) ServeBootstrap(ctx context.Context, state string) error {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-	go func() { <-ctx.Done(); _ = server.Close() }()
+	stop := context.AfterFunc(ctx, func() { _ = server.Close() })
+	defer stop()
 	defer listener.Close()
 	if err = server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("bootstrap executor control: %w", err)
