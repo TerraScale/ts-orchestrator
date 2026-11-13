@@ -25,6 +25,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/datamount"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
 	"github.com/nats-io/nats.go"
 )
 
@@ -98,6 +99,7 @@ type Reply struct {
 	// Result is the mesh's per-region rows.
 	Result   json.RawMessage `json:"result,omitempty"`
 	Deadline time.Time       `json:"deadline,omitzero"`
+	Refusal  *Refusal        `json:"refusal,omitempty"`
 	Events   []string        `json:"events,omitempty"`
 	NodeList nodelist.Status `json:"node_list,omitzero"`
 }
@@ -146,6 +148,8 @@ type Handler struct {
 	// so systemd restarts the new binary.
 	Installed chan struct{}
 
+	RefusalFile   string
+	attempt       atomic.Pointer[Refusal]
 	mu            sync.Mutex
 	pending       string // installed, waiting for the restart
 	rolledBack    atomic.Pointer[Rollback]
@@ -163,6 +167,12 @@ func NewHandler(state string) (*Handler, error) {
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
 		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
 	h.NodeList = nodelist.Open(state)
+	h.RefusalFile = filepath.Join(state, "nats", "release-attempt.json")
+	var attempt Refusal
+	if readState(h.RefusalFile, &attempt) {
+		attempt.Reason = secretpreflight.Scrub(attempt.Reason)
+		h.attempt.Store(&attempt)
+	}
 	h.rolledBack.Store(readRollback(h.RollbackFile))
 	return h, nil
 }
@@ -265,6 +275,7 @@ func (h *Handler) version() Reply {
 	if rollback := h.rolledBack.Load(); rollback != nil {
 		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason
 	}
+	reply.Refusal = h.refusal()
 	return reply
 }
 
@@ -303,7 +314,7 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 	return Reply{Version: h.Revision, Health: text, DataMount: mount, DataMountError: mountError}
 }
 
-func (h *Handler) orch(ctx context.Context, data []byte) Reply {
+func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var release OrchRelease
@@ -314,6 +325,18 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	if err != nil {
 		return rejected(err)
 	}
+	attempt := &Refusal{SHA: release.SHA, RunID: claims.RunID, RunAttempt: claims.RunAttempt}
+	if err := h.recordAttempt(attempt); err != nil {
+		return rejected(err)
+	}
+	defer func() {
+		record := *attempt
+		record.Reason = reply.Error
+		if err := h.recordAttempt(&record); err != nil {
+			reply = rejected(errors.Join(errors.New(reply.Error), err))
+		}
+		reply.Refusal = h.refusal()
+	}()
 	if release.SHA == h.Revision {
 		return Reply{State: "current", Version: h.Revision}
 	}
@@ -322,17 +345,22 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	}
 	// A retry of the run that never served is refused; a newer run may try again.
 	if rollback := h.rolledBack.Load(); rollback != nil && rollback.SHA == release.SHA && rollback.RunID == claims.RunID {
-		return Reply{State: "rolled_back", Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason}
+		return Reply{State: "rolled_back", Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason, Refusal: h.refusal()}
 	}
 	if stale, err := h.olderRun(claims.RunID); err != nil {
 		return rejected(err)
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
+	trialWritten := false
 	if err := h.install(ctx, binary, func() error {
+		trialWritten = true
 		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now()})
 	}); err != nil {
-		return rejected(errors.Join(err, removeIfExists(h.TrialFile)))
+		if trialWritten {
+			err = errors.Join(err, removeIfExists(h.TrialFile))
+		}
+		return rejected(err)
 	}
 	h.rolledBack.Store(nil)
 	if err := removeIfExists(h.RollbackFile); err != nil {
@@ -411,6 +439,9 @@ func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() 
 	}
 	if err := writeSynced(next, data); err != nil {
 		return err
+	}
+	if err := secretpreflight.Check(ctx, next); err != nil {
+		return errors.Join(err, removeIfExists(next))
 	}
 	if err := beforeSwap(); err != nil {
 		return errors.Join(err, removeIfExists(next))

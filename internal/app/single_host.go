@@ -123,8 +123,8 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	if err := releases.Serve(natsConn); err != nil {
 		return err
 	}
-	if plan.joiner() && plan.address != "" {
-		go serveWorkerReleases(ctx, state, plan.region, releases)
+	if plan.region != "" {
+		go serveHostReleases(ctx, state, plan.region, node.ID(), plan.joiner(), releases)
 	}
 	if founder {
 		go publishJoin(ctx, state, plan)
@@ -335,13 +335,17 @@ func relayRelease(state, region string, request []byte) {
 	}
 }
 
-func serveWorkerReleases(ctx context.Context, state, region string, releases *releasepush.Handler) {
+func serveHostReleases(ctx context.Context, state, region, host string, worker bool, releases *releasepush.Handler) {
 	for ctx.Err() == nil {
 		conn, err := mesh.Connect(state)
 		if err == nil {
 			closed := make(chan struct{})
 			conn.SetClosedHandler(func(*nats.Conn) { close(closed) })
-			if err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region); err == nil {
+			err = releases.ServeHostVersion(conn, region, host)
+			if err == nil && worker {
+				err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region)
+			}
+			if err == nil {
 				select {
 				case <-ctx.Done():
 				case <-closed:

@@ -1,5 +1,23 @@
 # Build and release boundaries
 
+## Candidate preflight
+
+After verifying the candidate's digest, the host updater executes
+`<candidate> release preflight` as its own user in its existing sandbox.
+The hook currently exits successfully without checks. It has a 70-second
+execution bound. Any failure, timeout or inability to execute refuses that
+host's release before the trial marker or binary changes; the staged candidate
+is removed. The candidate's diagnostic appears in the release reply and run
+output. `ts-orch status` shows each registered host's revision and refusal,
+including candidate revision, run id and run attempt. A later authenticated
+attempt replaces the previous record; a successful attempt clears the refusal.
+Status inventory is diagnostic and does not gate release completion.
+
+Once hosts run this updater, candidates older than the change introducing
+`release preflight` cannot be released through this pipeline. Releases move
+forward. Automatic probation rollback restores the previous binary by renaming
+`<binary>.prev` directly, without executing this hook.
+
 ## Apply a signed release bundle
 
 ```sh
