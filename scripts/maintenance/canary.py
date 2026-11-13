@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """Regional canary: write one unique row through each region, read all through each.
 Usage: canary.py KEYFILE STATEFILE [setup|probe]. Credentials never printed."""
-import base64, http.client, json, secrets, sys, time, urllib.parse
+import base64
+import http.client
+import json
+import secrets
+import sys
+import time
+import urllib.parse
 
-KEY = open(sys.argv[1]).read().strip()
+with open(sys.argv[1]) as key_file:
+    KEY = key_file.read().strip()
 STATE = sys.argv[2]
 MODE = sys.argv[3] if len(sys.argv) > 3 else 'probe'
 REGIONS = ('gru', 'sjc', 'fra')
@@ -12,7 +19,7 @@ REGIONS = ('gru', 'sjc', 'fra')
 def token():
     c = http.client.HTTPSConnection('auth.terrascale.tech', timeout=15)
     c.request('POST', '/terrascale/oauth/token', urllib.parse.urlencode({'grant_type': 'client_credentials'}),
-              {'Authorization': 'Basic ' + base64.b64encode((KEY[:26] + ':' + KEY).encode()).decode(),
+              {'Authorization': 'Basic ' + base64.b64encode((KEY.removeprefix('sk_')[:26] + ':' + KEY).encode()).decode(),
                'Content-Type': 'application/x-www-form-urlencoded'})
     r = c.getresponse(); d = json.loads(r.read())
     if r.status != 200:
@@ -44,9 +51,11 @@ if MODE == 'setup':
     s, b = req(tok, 'gru', 'POST', f'{base}/{database}/sql/execute', {'statements': [{'sql': 'CREATE TABLE canary (id TEXT PRIMARY KEY, region TEXT, at TEXT)'}]})
     if s != 200:
         raise SystemExit(f'schema HTTP {s} {json.dumps(b)[:200]}')
-    json.dump({'project': project, 'database': database}, open(STATE, 'w'))
+    with open(STATE, 'w') as state_file:
+        json.dump({'project': project, 'database': database}, state_file)
     out.update(project=project, database=database)
-st = json.load(open(STATE))
+with open(STATE) as state_file:
+    st = json.load(state_file)
 base = f"/v1/projects/{st['project']}/databases/{st['database']}/sql/execute"
 ids = {}
 for region in REGIONS:

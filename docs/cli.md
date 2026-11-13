@@ -135,6 +135,21 @@ CI runs `ts-orch release deploy` for every `main` merge; see
 | `ts-orch release digests --out F [--regions F]` | CI only (app digests): record every mesh service's desired image to a file |
 | `ts-orch release mesh-check [--spec F] [--regions F]` | CI only: re-prove mesh ping, `service apply` and HTTPS in every region after a fleet push |
 | `ts-orch release pin [--state DIR]` | Print the SPKI pin of the single-host listener certificate in a state directory |
+| `ts-orch release manifest --sha SHA --sequence N --out FILE` | Operator: build a production release manifest from a CI release's Linux binaries, hashing each download |
+| `ts-orch release sign --manifest FILE --key KEYFILE` | Operator: sign a manifest with `ssh-keygen -Y sign` (namespace `ts-orch-release`, works with ssh-agent and hardware keys); writes `FILE.sig` |
+| `ts-orch release verify --manifest FILE [--sig FILE.sig] [--allowed FILE]` | Verify a manifest's signature against the embedded allowed SSH keys (or a test list with `--allowed`) |
+
+## Signed release manifests
+
+Create a manifest from the newest matching CI release, then sign its exact bytes
+with an SSH key. Each Linux binary is downloaded and hashed with SHA-256.
+Set GITHUB_TOKEN to authenticate release-list requests if needed.
+The sign command attaches the terminal to ssh-keygen, including hardware-key prompts.
+Verification checks the ts-orch-release namespace, manifest fields and signer's
+release role, printing ok sequence=<n> sha=<sha> signer=<name> on success.
+The embedded deploy/m1/allowed-keys.json is initially empty; supply --allowed FILE
+until release keys are enrolled. The file has the shape
+{"keys":[{"name":"operator","key":"<authorized_keys line>","roles":["release"]}]}.
 
 ## Orchestrator rollouts
 
@@ -168,12 +183,6 @@ without a rebuild; see [root rotation](root-rotation.md).
 runs isolated load-generator jobs and attaches that usage window. See
 [capacity benchmarking](capacity-benchmarking.md) for setup, current SDK
 blockers, bounds and cleanup guarantees.
-
-`ts-orch disaster-recovery replicate --config FILE [--apply]` prepares
-dedicated cross-region Object Storage mirrors, historical backfills and Vault
-key replicas. It does not execute a full-cell recovery drill. See
-[disaster recovery](disaster-recovery.md) for the exact copy layout and the
-remaining cold-restore requirements.
 
 Prefer `ts-orch` for new operational features. Implement them as Go commands
 in their feature packages instead of adding Python scripts or separate

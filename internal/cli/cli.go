@@ -22,7 +22,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard/accesscheck"
-	"github.com/TerraScale/ts-orchestrator/internal/disasterrecovery"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/edge/geodns"
 	"github.com/TerraScale/ts-orchestrator/internal/functions"
@@ -50,6 +49,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
 	selfupdatecli "github.com/TerraScale/ts-orchestrator/internal/selfupdate/cli"
+	"github.com/TerraScale/ts-orchestrator/internal/signedrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -112,7 +112,6 @@ Operator tooling:
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
   runtime-priority       Qualify runtime resources and run bounded pressure
   cluster                Break-glass controller quorum-loss recovery
-  disaster-recovery      Prepare cross-region Object Storage and Vault recovery copies
 
 Use ts-orch bootstrap --help or ts-orch release --help to list their commands.
 ts-orch release push sends a main build one region at a time (sjc, fra, gru), waiting for JetStream and the region's services (CI only);
@@ -120,6 +119,9 @@ ts-orch release pin --state /var/lib/ts-orch prints a host's listener pin for th
 ts-orch release app --service <name> --image <ref@sha256> releases an app image to every region (app image CI only);
 ts-orch release digests --out <file> records every mesh service's desired image (app-digests CI only);
 ts-orch release mesh-check re-proves mesh ping, service apply and HTTPS in every region (CI only).
+ts-orch release manifest --sha <sha> --sequence <n> --out <file> builds a signed-release manifest from a CI release's binaries;
+ts-orch release sign --manifest <file> --key <keyfile> signs a manifest with an SSH key (namespace ts-orch-release);
+ts-orch release verify --manifest <file> [--sig <file>] [--allowed <file>] verifies a manifest against the allowed SSH keys.
 `
 
 // Run dispatches CLI commands before runtime configuration or NATS startup.
@@ -213,6 +215,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		if len(args) > 1 && args[1] == "mesh-check" {
 			return mesh.Check(ctx, args[2:], output)
 		}
+		if len(args) > 1 && (args[1] == "manifest" || args[1] == "sign" || args[1] == "verify") {
+			return signedrelease.Run(ctx, args[1:], output)
+		}
 		if len(args) > 1 && args[1] == "pin" {
 			return releasepush.Pin(args[2:], output)
 		}
@@ -274,8 +279,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return runQualification(ctx, args[1:], commandio.NewWriter(output))
 	case "cluster":
 		return runCluster(ctx, args[1:], commandio.NewWriter(output))
-	case "disaster-recovery":
-		return disasterrecovery.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "runtime-priority":
 		if len(args) == 1 || args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
 			_, err := io.WriteString(output, "Usage: ts-orch runtime-priority <qualify|pressure|probe-admission|adapter|remote> [flags]\n")

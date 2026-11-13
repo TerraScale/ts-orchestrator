@@ -1,234 +1,112 @@
-# Full-cell disaster recovery (TS-641)
+# Disaster recovery
 
-**Where backups go today (M1, checked 2026-10-27).** TerraBase backs up
-continuously to the Tigris bucket named by `BUCKET_NAME` in
-[`deploy/m1/services/terrabase.json`](../deploy/m1/services/terrabase.json)
-(`terrascale-gru-terrabase-backups-b12`). It writes WAL segments within seconds
-and `_system` snapshots, and uses the bucket-scoped key from OCI Vault
-(`gru-1-terrabase-backup-*`). ts-auth's data lives in TerraBase, so these
-backups cover it too. Use `GET /v1/backup` on a TerraBase node to see
-each file's last shipped time and lag. The OCI Object Storage buckets in
-the table below (`gru-1-backup`, `gru-1-head`, `sjc-1-*` and their DR mirrors)
-belong to the legacy `ts-orch oci-region` cell model. They were never created
-for M1 and do not exist; `ts-orch disaster-recovery replicate` does not apply
-to M1. M1 also takes no OCI block-volume backups.
+What TerraScale can actually recover today, what it cannot, and what each
+failure costs. Facts checked 2026-11-13. Anything missing is marked **Gap:**.
 
-Prepare cross-region recovery copies with the existing Go binary:
+## What is backed up today
 
-```sh
-ts-orch disaster-recovery replicate --config deploy/oci-region/disaster-recovery.json
-ts-orch disaster-recovery replicate --config deploy/oci-region/disaster-recovery.json --apply
-```
+**TerraBase data** — every customer database, `_system`, and ts-auth's data
+(ts-auth stores everything in TerraBase) from all 3 regions / 6 nodes ships to
+one Tigris bucket, `terrascale-gru-terrabase-backups-b12`, named by
+`BUCKET_NAME` in [`deploy/m1/services/terrabase.json`](../deploy/m1/services/terrabase.json).
+WAL segments ship every 1 s; a snapshot lands daily; the bucket keeps 7 days
+(`TERRABASE_BACKUP_RETENTION_DAYS`). Tigris snapshots the bucket daily and
+keeps those snapshots 14 days. Each node runs a daily snapshot restore drill
+(no WAL replay): it rebuilds a file from the bucket and compares it with the
+live file at the same frame position. Customer databases restore to any
+second in that window; `_system` restores only to snapshot times, so up to
+24 h of catalog changes can be lost.
 
-The first command reads OCI and prints the plan. The second creates missing
-Object Storage buckets, replication policies and Vault key replicas, and
-backfills existing objects with checksum readback. Both pin the actual control
-compartments, Vaults and regional bucket keys. All IDs in the config were read
-from OCI on 2026-10-07; it contains no credentials. An existing resource with
-different ownership or encryption is refused. There is no deletion path.
+**Boot volumes** — the policy `ts-boot-weekly-4` (Sunday 00:00 UTC,
+incremental, 28 days retention, no cross-region copy) is assigned on all six
+hosts since 2026-11-13, plus one manual backup per host
+(`ts-boot-initial-20261113`). Check coverage with
+`ts-orch region backups <code> --check`; see
+[boot volume backup policies](boot-volume-backups.md).
 
-Capture the JSON output of apply. Before another run, review its
-`mirror_bucket_id` and `seed_bucket_id` and pin them in the destination
-region's `bucket_ids` map by bucket name. Pin `policy_id` in the source
-region's `policy_ids` map by policy name (`TS-641-<source-bucket>`). Existing
-resources require these IDs as well as matching settings; names and tags
-alone do not authorize adoption. Successful create IDs are included even
-when a later step fails. Missing pinned resources and same-name replacements
-are refused. A lost create response leaves the resource unowned: inspect it
-manually and explicitly record its reviewed ID before resuming. Apply is
-incremental; failures do not delete earlier successful resources or policies.
-OCI's copy and policy APIs address destination buckets by name. Identity
-checks run before policy creation, before each seed copy and before success,
-but they cannot make an OCI request atomic with its preceding read. Serialize
-preparation against administrative bucket replacement and policy changes.
+**Secrets** — the TerraBase master key, the backup and files keys, the
+terrabase peer secret and the NATS token exist only in the São Paulo OCI
+Vault, delivered to hosts by instance principal.
+**Gap:** no copy of the Vault exists elsewhere; losing it makes every backup
+unreadable.
 
-**Recovery is not implemented yet.** This command prepares copies; it does not
-rebuild a cell, restore TerraBase or ts-auth, or measure RTO/RPO. TS-641 stays
-open until the cold-restore service contract (TerraBase: TS-743) and the sjc
-drill below pass.
-Never use quorum recovery or a regional founding attempt to run this drill
-against serving gru-1.
+**Not backed up** — each one a **Gap:**:
 
-## Copy layout and encryption
+- ts-orch state (`/var/lib/ts-orch`) and NetBird server state live on boot
+  disks beyond what the weekly boot backup captures.
+- Customer files in R2 (`terrascale-{gru,sjc,fra}-files`).
+- A second-provider copy of the TerraBase backups.
 
-OCI makes a replication destination read-only. Each active regional bucket
-therefore gets a dedicated mirror in the other region:
+JetStream is not backed up, by design: it is a transient work queue, not a
+system of record. Desired state is in git (`deploy/m1`), which is its backup.
 
-| Source | Continuous mirror | Historical seed |
-| --- | --- | --- |
-| gru-1-backup | sjc-1-dr-gru-1-backup | sjc-1-dr-gru-1-backup-seed |
-| gru-1-head | sjc-1-dr-gru-1-head | sjc-1-dr-gru-1-head-seed |
-| sjc-1-backup | gru-1-dr-sjc-1-backup | gru-1-dr-sjc-1-backup-seed |
-| sjc-1-head | gru-1-dr-sjc-1-head | gru-1-dr-sjc-1-head-seed |
+## Recovery targets
 
-OCI only replicates objects uploaded **after** policy creation. The command
-activates the policy first, then enumerates all current source objects and
-copies each one the mirror lacks into a separate writable, versioned seed
-bucket. An object whose mirror copy already matches its size and checksum
-is counted in `mirrored` instead of copied again; a differing mirror version
-still gets the source version seeded. Each inventory page is copied by 16
-workers. The policy and read-only mirror identity are checked again before
-success. Source ETag and destination CAS
-conditions prevent a changed source or concurrent backfill from silently
-winning; every completed copy must match its size and checksum (ordinary MD5,
-or streamed SHA-256 for missing/multipart checksums). Object names
-stay identical because TerraBase's envelope encryption binds them to the key
-name. Interrupted runs resume by comparing checksums. A source change during
-copy fails the command; retry reads its new version. Newly added objects go
-to the mirror even if pagination misses them. This is a current-object copy,
-not a copy of old versions or previously deleted objects.
+Targets, not measured; the drill below measures them.
 
-A recovery reader must inspect both inventories and choose generations at
-the common PITR point, using validated snapshot timestamps, journal coverage
-and checksums. Bucket location and destination modification time do not
-establish which generation is newer: asynchronous replication can leave V1
-in the mirror while a seed pass has already copied V2. The future recovery
-reader must test that case and fail when a complete, consistent recovery
-point cannot be established. No such reader is implemented by this command.
+| Failure | RPO (Target) | RTO (Target) | How |
+| --- | --- | --- | --- |
+| Node or disk lost | 0 when a peer has the data, else ≤60 s | ≤60 min | Rebuild host, peer resync or restore |
+| Region lost | 0 for multi-region databases, ≤60 s single-region | capacity in 4 h | Remaining regions serve; rebuild region |
+| Bad data written | any second in 7 days | 30 min per database | Point-in-time restore |
+| Backup provider lost | Gap: no second copy | Gap | — |
+| Master key lost | Gap: no escrow | Gap | — |
 
-A mirror alone can lack wrapped data keys and snapshots that predate its
-policy. Seeds preserve only versions actually copied by a seed pass. An
-object created later and overwritten or deleted before another pass has no
-historical seed copy; the unversioned mirror can lose it too. Source deletes
-and overwrites replicate to the mirror, and objects the mirror already held
-are not seeded: the source bucket's retention rule (35 days on
-`gru-1-backup`) is their only delete protection. Archival
-capture of subsequent generations is required before claiming a durable
-recovery baseline. Seed retention and garbage collection must be bound to
-that validated baseline before monthly drills are enabled; this command
-does not prune seeds. Do not configure a service to read only the mirror
-and claim a full backup.
+## Runbooks
 
-Mirrors have neither versioning nor retention rules, both unsupported for
-OCI replication destinations. Seeds have versioning enabled. All copies
-use the **destination region's bucket encryption key**, so Object Storage
-readback does not depend on the lost region's bucket key endpoint.
-Backfill inherits that admitted bucket key instead of passing it to the
-source endpoint in a per-object KMS header; OCI rejected the cross-region
-header with `KmsHostNotFound`. See [Object Storage encryption](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/encryption.htm).
+### Node or disk lost
 
-TerraBase additionally wraps per-project and `_system` data keys with its
-backup master key. Both regional Vaults support replication (`GetVault`
-reported `isVaultReplicable=true`). The command creates/reuses their Vault
-replicas and reports the remote cryptographic endpoint. Recovery must use
-the original key ID at that endpoint and prove it unwraps an existing copied
-data key with the source endpoint unreachable. A newly generated key cannot
-decrypt existing backups. That proof passed for GRU on 2026-10-08 (see the
-evidence below). OCI lists each replica endpoint in the source region's
-domain, but each region resolves only its own: us-sanjose-1 under
-`oci.oraclecloud.com`, sa-saopaulo-1 under `oraclecloud.com`. Use the
-destination region's form of the listed host, e.g.
-`ffvmfu2naagt6-crypto.kms.us-sanjose-1.oci.oraclecloud.com`. Key replication does **not** replicate Vault
-secrets: bootstrap credentials, role secret refs, ts-auth signing/master
-keys, S3 credentials and the KMS API signing credential need separate secret
-replication and a destination-only read test.
+1. `ts-orch member ls` — see the region's hosts; `ts-orch member drain <hostname>`
+   stops task placement on a sick worker before it fails.
+2. `ts-orch status` — confirm the cell reports `ok` or `degraded`, not `down`.
+3. Replace the host: `ts-orch node retire --node N` (drains, backs up the
+   boot volume, terminates), then provision a replacement and enroll it.
+4. If data was lost with the disk, TerraBase restores it: peers resync a
+   replica; otherwise restore the member's data volume from backup
+   (`ts-orch terrabase restore-volume`) or point-in-time restore the
+   databases (below).
+5. **Gap:** no single command rebuilds a host end to end yet; the steps are
+   manual.
 
-See OCI's [replication rules](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingreplication.htm),
-[versioning interactions](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingversioning.htm),
-[retention interactions](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingretentionrules.htm)
-and [Vault replication](https://docs.oracle.com/en-us/iaas/Content/KeyManagement/Tasks/replicatingvaults.htm).
+### Region lost
 
-## IAM before apply
+1. `ts-orch mesh` — confirm the surviving regions still answer on the
+   cross-region mesh; multi-region databases keep serving.
+2. `ts-orch status` — confirm degradation is limited to the lost region.
+3. Rebuild: `ts-orch region plan <region>` derives the region's plan,
+   `ts-orch region create BUNDLE` provisions the footprint,
+   `ts-orch region verify LABEL --plan BOUND_PLAN` proves it serves.
+4. Single-region databases in the lost region lose at most 60 s of writes
+   (WAL shipping interval); restore them to any second with
+   point-in-time restore (below).
+5. **Gap:** region rebuild is not exercised end to end on a schedule; the
+   4 h capacity target is untested.
 
-The reviewed [IAM apply plan](../deploy/oci-region/disaster-recovery-iam.json)
-names `gru-1-disaster-recovery` and `sjc-1-disaster-recovery`, their pinned
-control compartments and their exact statements. These are separate IAM
-policies; `policy_ids` in the command config identifies Object Storage
-replication policies. Inspect for existing names before creating either IAM
-policy, capture its successful create OCID, and verify that OCID, compartment,
-name and statements on readback. Record changed IAM IDs with apply evidence.
+### Bad data written
 
-OCI validates all eight documented replication permissions for the
-source-region Object Storage service principal on both the source buckets
-and the destination mirror/seed buckets: bucket read/update and object
-read/inspect/create/overwrite/restore/delete. A source grant restricted to
-read permissions returned `InsufficientServicePermissions` during live
-policy creation. These service grants support native replication; the
-preparation command reads source objects and writes only destination copies.
-Grant those exact bucket names in their respective control compartments,
-not `manage object-family in tenancy`. Both regional Object Storage
-principals need use of the respective bucket keys. The operator
-needs bucket create/read, replication-policy create/read, object list/read,
-copy work-request read, and Vault replica create/read. OCI's Vault service
-needs the replica-management grant described in its documentation, scoped
-to the two control compartments rather than the tenancy.
+1. `ts-orch observe backups --database ID --partition ID` — read the backup
+   state of the database (requires canonical ULIDs).
+2. Point-in-time restore to any second within the 7-day window, 30 min per
+   database. **Gap:** no `ts-orch` command drives a point-in-time restore
+   yet; the API exists on TerraBase but only the owner can call it today.
+3. Verify the restored data through the application before releasing it.
 
-The command does not edit IAM. An authorization failure must fail the
-operation; a 404 other than `BucketNotFound`/`ObjectNotFound` never means
-there is no bucket/object. Controller/host grants for future recovery must
-allow only their destination copies and destination secret bundles.
+### Backup provider lost
 
-## Required cold-restore contract
+**Gap:** the Tigris bucket is the only copy of the TerraBase backups. There
+is no second provider and no command to create or sync one. If Tigris loses
+the bucket, recovery ends at whatever the surviving nodes and R2 files hold.
 
-Existing configuration snapshots carry the original cell identity and signed
-values. `kvsnapshot.Restore` accepts only its own cell and runs before stores
-open on a fresh JetStream lineage. Copying GRU's signed spec and OCI resource
-IDs into SJC's running KV would target GRU resources or fail signature/cell
-checks. Do not strip signatures or rewrite OCIDs to make it pass.
+### Master key lost
 
-The complete path needs these reviewed contracts:
+**Gap:** the master key exists only in the São Paulo OCI Vault with no
+escrow. No command backs it up or rotates it; losing it makes every backup
+unreadable. Recovery is limited to the Vault's own durability.
 
-1. Destination recovery admission binds the sjc-1 cell and its pinned
-   instances, refuses gru-1 as a drill target, fences sjc placement and edge,
-   and retains a tested rollback of sjc's pre-drill state. Source operations
-   are read-only. No new nodes, scratch cell or serving gru-1 re-found.
-2. A bounded Object Storage recovery bundle includes the bootstrap
-   configuration, original KV snapshots, signed cell spec, trust chain and
-   secret **references**. A root-authorized import maps the recovered logical
-   control state to SJC without adopting GRU instances, volumes or authority
-   leases. KV snapshot copies alone are not a bootstrap bundle.
-3. TerraBase owns a cold restore of `_system` plus **every** database at a
-   common PITR second from seed + mirror, with the original identities. It
-   needs copied keys and the remote KMS endpoint; it must work without the
-   source catalog, API, NATS or Vault. Expose that operation through ts-go.
-   The currently pinned ts-go v1 SDK has no PITR/backup methods. TerraBase's
-   existing `point-in-time/restore` API requires a live source database's
-   catalog registration and creates a new database; it cannot rebuild a lost
-   catalog. Legacy `Backups.RestoreBackup` methods target a retired contract
-   and must not be used to bypass the current SDK boundary.
-4. Restore ts-auth's TerraBase data and replicated secrets after database
-   restore, then verify native ts-auth SDK login/token issuance and regional
-   serving. No service may copy or edit another service's application records
-   directly.
+## Drill
 
-The existing scratch-host volume restore/check commands test another
-failure mode. Their guard intentionally refuses orchestrator hosts; do not
-remove it to run this drill on sjc's serving hosts.
-
-## Drill acceptance and monthly execution
-
-Keep the monthly **destructive drill disabled** until the contracts above and
-sjc rollback are qualified. A placeholder command, a source-dependent PITR
-restore, or a health check is not a full-cell drill.
-
-1. Bind and verify source gru-1 and target sjc-1. Inventory every source
-   database through ts-go; retain its identity, chosen PITR point and source
-   data checksums. Use a common point available in both regional copies,
-   including `_system` and ts-auth. Record backup and KV snapshot ages.
-2. Start a monotonic timer at drill admission. Make source-region API, NATS,
-   Object Storage and KMS unavailable to the destination recovery process.
-   Execute control-state recovery, every database restore, then ts-auth in
-   that order using existing sjc resources. Never alter serving gru-1.
-3. Compare restored data at the selected point through SDKs against the
-   retained source checksums. Verify all expected identities, ts-auth token
-   issuance and sjc's serving endpoints. Stop the RTO timer only then.
-4. Persist the report in TerraBase and retain its record ID and measured
-   numbers in the repository's recovery evidence. RTO is
-   admission-to-verified-serving duration. RPO is the gap between the last
-   acknowledged source write at the simulated
-   loss boundary and the last recovered write; report actual missing
-   writes separately. Never label OCI policy lag as measured data RPO.
-5. Restore sjc's prior state and verify serving. Once this passes, schedule
-   the same destination-bound command monthly with exclusive admission,
-   a finite deadline and alert delivery through the existing monitoring
-   path on failure, missing result, checksum mismatch or missed schedule.
-
-No live full-cell drill has run, and no measured full-cell RTO/RPO exists.
-Record the first result here with its retained report before claiming this outcome.
-
-The [2026-10-07 live preparation record](evidence/ts-641-replication-20261007.md)
-tracks the scoped IAM changes, retained backup mirror/seed and policy IDs,
-GRU Vault replica, copy-request corrections and bounded backfill result.
-The [2026-10-08 record](evidence/ts-641-replication-20261008.md) completes
-all four copy directions and both Vault replicas, and proves a copied GRU
-data key unwraps in SJC. Copies alone do not establish a recovery point.
+The throwaway drill (provision a scratch cell, break it in a controlled way,
+measure the targets above) is planned. **Gap:** not built; no command drives
+it. Production drills need owner-approved dates: they take real capacity and
+risk real data, so nobody schedules one autonomously. Evidence from a drill
+or a real recovery goes to `docs/evidence/dr-<region>-<date>.md`.
