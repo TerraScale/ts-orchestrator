@@ -75,6 +75,9 @@ func probe(state, binary, revision string, now time.Time, output io.Writer, exit
 	if !readState(trialFile(state), &p.trial) || p.trial.SHA != revision {
 		return nil, nil
 	}
+	if p.trial.Installed.IsZero() {
+		p.trial.Installed = now
+	}
 	p.trial.Starts++
 	if p.trial.Starts > trialStarts {
 		return nil, p.rollBack(fmt.Sprintf("exited %d times before serving", trialStarts))
@@ -85,7 +88,7 @@ func probe(state, binary, revision string, now time.Time, output io.Writer, exit
 		return nil, p.rollBack(late)
 	}
 	if err := writeJSON(trialFile(state), p.trial); err != nil {
-		stateWarning(trialFile(state))
+		stateWarning(trialFile(state), "crash counter not saved")
 	}
 	p.timer = time.AfterFunc(left, func() {
 		p.mu.Lock()

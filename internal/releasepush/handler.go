@@ -263,6 +263,7 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 				_ = m.Respond(data)
 				if reply.State == "installed" {
 					_ = conn.Flush()
+					h.startProbation()
 					select {
 					case h.Installed <- struct{}{}:
 					default:
@@ -335,13 +336,23 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	}
 	attempt := &Refusal{SHA: release.SHA, RunID: claims.RunID, RunAttempt: claims.RunAttempt}
 	if err := h.recordAttempt(attempt); err != nil {
-		return rejected(err)
+		attempt.Reason = err.Error()
+		h.attempt.Store(attempt)
+		reply := rejected(err)
+		reply.Refusal = attempt
+		return reply
 	}
 	defer func() {
 		record := *attempt
 		record.Reason = reply.Error
 		if err := h.recordAttempt(&record); err != nil {
-			reply = rejected(errors.Join(errors.New(reply.Error), err))
+			if reply.State == "installed" {
+				slog.Warn("release installed; diagnostic attempt record not saved")
+			} else {
+				reply = rejected(errors.Join(errors.New(reply.Error), err))
+				record.Reason = reply.Error
+				h.attempt.Store(&record)
+			}
 		}
 		reply.Refusal = h.refusal()
 	}()
@@ -363,7 +374,7 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	trialWritten := false
 	if err := h.install(ctx, binary, func() error {
 		trialWritten = true
-		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now()})
+		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID})
 	}); err != nil {
 		if trialWritten {
 			err = errors.Join(err, removeIfExists(h.TrialFile))
@@ -379,6 +390,19 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	}
 	h.pending = release.SHA
 	return Reply{State: "installed", Version: release.SHA}
+}
+
+func (h *Handler) startProbation() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var record trial
+	if !readState(h.TrialFile, &record) || record.SHA != h.pending {
+		return
+	}
+	record.Installed = time.Now()
+	if err := writeJSON(h.TrialFile, record); err != nil {
+		stateWarning(h.TrialFile, "probation activation timestamp not saved; probation begins at candidate startup")
+	}
 }
 
 // ReleaseTag is the GitHub release CI run runID publishes for sha.

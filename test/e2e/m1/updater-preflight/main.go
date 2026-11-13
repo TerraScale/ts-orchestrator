@@ -172,6 +172,11 @@ func run(ctx context.Context, binary string) {
 	conn, err := nats.Connect(meshServer.ClientURL())
 	must(err)
 	defer conn.Close()
+	probationDone := make(chan struct{})
+	go func() {
+		probationLane(ctx, conn)
+		close(probationDone)
+	}()
 	must(os.MkdirAll(filepath.Join(work, "mesh"), 0o700))
 	write(filepath.Join(work, "mesh/client.token"), "lane")
 	write(filepath.Join(work, "nats/release-attempt.json"), "{")
@@ -339,6 +344,7 @@ func run(ctx context.Context, binary string) {
 	require(lastRelease.SHA != "", "release sequence completed")
 	relayLane(ctx, conn)
 
+	<-probationDone
 	fmt.Println("updater-preflight e2e: PASS")
 }
 
@@ -403,9 +409,13 @@ func relayLane(ctx context.Context, conn *nats.Conn) {
 	endpoint := strings.TrimSuffix(client.Transport.(providerTransport).url, "/binary") + "/token?"
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", endpoint))
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "lane"))
-	for _, subject := range []string{"lane.workers", "lane.no-worker"} {
+	for _, subject := range []string{"lane.workers", "lane.no-worker", "lane.attempt-failure"} {
 		founder.Relay = func(ctx context.Context, payload []byte) []releasepush.HostVersion {
 			return releasepush.RelayWorkers(ctx, conn, subject, payload, nodes)
+		}
+		if subject == "lane.attempt-failure" {
+			founder.RefusalFile = filepath.Join(workerState, "unwritable-attempt")
+			must(os.Mkdir(founder.RefusalFile, 0o700))
 		}
 		visited = false
 		var output bytes.Buffer
@@ -418,6 +428,13 @@ func relayLane(ctx context.Context, conn *nats.Conn) {
 			results = append(results, result)
 		}
 		require(len(results) == 2 && visited && results[1].Error == "", "other region must release before run ends")
+		if subject == "lane.attempt-failure" {
+			require(err != nil && len(results[0].Refusals) == 1, "initial record failure must fail run after later region")
+			refusal := results[0].Refusals[0].Refusal
+			require(refusal != nil && refusal.SHA == sha && refusal.RunID == "100" && refusal.RunAttempt == "1" && strings.Contains(refusal.Reason, "cannot persist"), "initial record failure must identify candidate and run")
+			fmt.Println("ok initial attempt failure: structured refusal; later region released; run fails at end")
+			continue
+		}
 		require(len(results[0].Workers) == 1, "run must report worker reply")
 		if subject == "lane.workers" {
 			row := results[0].Workers[0]
@@ -439,6 +456,68 @@ func relayLane(ctx context.Context, conn *nats.Conn) {
 	fmt.Println("ok output: 10 MiB drained with less than 1 MiB allocated; clean capped diagnostic")
 }
 
+func probationLane(ctx context.Context, conn *nats.Conn) {
+	work, err := os.MkdirTemp("", "probation-preflight-")
+	must(err)
+	defer os.RemoveAll(work)
+	must(os.Mkdir(filepath.Join(work, "nats"), 0o700))
+	helper, err := os.Executable()
+	must(err)
+	data, err := os.ReadFile(helper)
+	must(err)
+	candidate := filepath.Join(work, "candidate")
+	must(os.WriteFile(candidate, append(data, []byte("\nCANDIDATE:attempt-write-failure")...), 0o755))
+	sha := releasepush.Revision()
+	release, verifier, client, closeProvider := signedRelease(ctx, candidate, sha, "200", "1")
+	defer closeProvider()
+	h, err := releasepush.NewHandler(work)
+	must(err)
+	h.Binary, h.Revision, h.Verifier, h.Client = filepath.Join(work, "installed"), strings.Repeat("a", 40), verifier, client
+	must(os.WriteFile(h.Binary, data, 0o755))
+	_, err = conn.Subscribe("lane.probation.silent", func(*nats.Msg) {})
+	must(err)
+	h.Relay = func(ctx context.Context, payload []byte) []releasepush.HostVersion {
+		var trial map[string]any
+		data, err := os.ReadFile(h.TrialFile)
+		must(err)
+		must(json.Unmarshal(data, &trial))
+		require(trial["sha"] == sha, "recoverable trial must exist before worker collection")
+		return releasepush.RelayWorkers(ctx, conn, "lane.probation.silent", payload, []*api.Node{{ID: "silent", Role: api.NodeRoleWorker}})
+	}
+	options := &server.Options{Host: "127.0.0.1", Port: -1, NoSigs: true, NoLog: true}
+	listener, err := server.NewServer(options)
+	must(err)
+	go listener.Start()
+	require(listener.ReadyForConnections(5*time.Second), "probation listener must listen")
+	defer listener.Shutdown()
+	laneConn, err := nats.Connect(listener.ClientURL())
+	must(err)
+	defer laneConn.Close()
+	must(h.Serve(laneConn))
+	payload, err := json.Marshal(release)
+	must(err)
+	started := time.Now()
+	reply := request(ctx, laneConn, releasepush.SubjectOrch, payload)
+	require(reply.State == "installed" && reply.Refusal == nil && len(reply.Workers) == 1 && reply.Workers[0].Error == "no answer", "committed install must survive diagnostic failure and relay to silent worker")
+	select {
+	case <-h.Installed:
+	case <-ctx.Done():
+		panic("committed install must request restart")
+	}
+	require(time.Since(started) >= releasepush.WorkerReplyWait, "silent worker must consume collection budget")
+	cmd := exec.CommandContext(ctx, h.Binary, "probation", work)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		panic(fmt.Sprintf("candidate probation failed: %v: %s", err, output))
+	}
+	require(strings.Contains(string(output), "candidate confirmed"), "slow candidate must confirm")
+	_, err = os.Stat(h.TrialFile)
+	require(errors.Is(err, os.ErrNotExist), "confirmed candidate clears trial")
+	_, err = os.Stat(h.RollbackFile)
+	require(errors.Is(err, os.ErrNotExist), "slow candidate must not roll back")
+	fmt.Println("ok activation: 90-second silent worker; final diagnostic write refused; installed reply, relay and restart preserved; candidate confirmed after 100 seconds")
+}
+
 func main() {
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "preflight" {
 		path, err := os.Executable()
@@ -447,6 +526,10 @@ func main() {
 		must(err)
 		mode := string(data[bytes.LastIndex(data, []byte("\nCANDIDATE:"))+len("\nCANDIDATE:"):])
 		switch mode {
+		case "attempt-write-failure":
+			attempt := filepath.Join(filepath.Dir(path), "nats/release-attempt.json")
+			must(os.Remove(attempt))
+			must(os.Mkdir(attempt, 0o700))
 		case "refuse":
 			fmt.Fprintln(os.Stderr, "candidate refuses this release")
 			os.Exit(17)
@@ -459,6 +542,15 @@ func main() {
 		case "hang":
 			<-time.NewTimer(10 * time.Minute).C
 		}
+		return
+	}
+	if len(os.Args) == 3 && os.Args[1] == "probation" {
+		probation, err := releasepush.Probe(os.Args[2], os.Stderr)
+		must(err)
+		require(probation != nil, "candidate must enter probation")
+		<-time.NewTimer(100 * time.Second).C
+		require(probation.Served(), "candidate must confirm within full probation")
+		fmt.Println("candidate confirmed")
 		return
 	}
 	if len(os.Args) == 2 && os.Args[1] == "hold" {
