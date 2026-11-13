@@ -14,10 +14,11 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 )
 
 const hostMetadataFile = "host-metadata.json"
-const hostMetadataWindow = 5 * time.Minute
+const hostMetadataWindow = releasepush.PlanningWindow / 2
 
 func readHostMetadata(ctx context.Context, output io.Writer) (regionjoin.Instance, error) {
 	window, cancel := context.WithTimeout(ctx, hostMetadataWindow)

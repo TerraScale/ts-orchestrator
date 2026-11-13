@@ -267,6 +267,9 @@ func (h *Handler) version() Reply {
 	if rollback := h.rolledBack.Load(); rollback != nil {
 		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason
 	}
+	if t, err := readTrial(filepath.Dir(filepath.Dir(h.TrialFile))); err == nil && t != nil {
+		reply.Deadline = t.GuardAfter
+	}
 	return reply
 }
 
@@ -320,7 +323,14 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 		return Reply{State: "current", Version: h.Revision}
 	}
 	if release.SHA == h.pending {
-		return Reply{State: "installed", Version: release.SHA}
+		t, err := readTrial(filepath.Dir(filepath.Dir(h.TrialFile)))
+		if err != nil {
+			return rejected(err)
+		}
+		if t == nil {
+			return rejected(errors.New("pending release has no durable trial"))
+		}
+		return Reply{State: "installed", Version: release.SHA, Deadline: t.GuardAfter}
 	}
 	// A retry of the run that never served is refused; a newer run may try again.
 	if rollback := h.rolledBack.Load(); rollback != nil && rollback.SHA == release.SHA && rollback.RunID == claims.RunID {
@@ -331,10 +341,43 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
+	state := filepath.Dir(filepath.Dir(h.TrialFile))
+	if existing, err := readTrial(state); err != nil {
+		return rejected(err)
+	} else if existing != nil {
+		return rejected(errors.New("another release is still in probation"))
+	}
 	if err := h.install(ctx, binary, func() error {
-		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now()})
+		budget, err := startBudget(ctx, nil)
+		if err != nil {
+			return err
+		}
+		t := trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now(), Phase: "intent", Binary: h.Binary, BinaryBackup: h.Binary + ".prev", UnitBackup: h.Binary + ".prev.unit", StartTimeout: budget}
+		transition, err := transitionBudget(ctx)
+		if err != nil {
+			return err
+		}
+		t.extend(t.Installed.Add(transition), budget)
+		return withTrialLock(state, func() error {
+			if current, err := readTrial(state); err != nil {
+				return err
+			} else if current != nil {
+				return errors.New("another release is still in probation")
+			}
+			return writeJSON(h.TrialFile, t)
+		})
 	}); err != nil {
-		return rejected(errors.Join(err, removeIfExists(h.TrialFile)))
+		readErr := withTrialLock(state, func() error {
+			t, err := readTrial(state)
+			if err != nil {
+				return err
+			}
+			if t != nil && t.Phase == "intent" {
+				return removeIfExists(h.TrialFile)
+			}
+			return nil
+		})
+		return rejected(errors.Join(err, readErr))
 	}
 	h.rolledBack.Store(nil)
 	if err := removeIfExists(h.RollbackFile); err != nil {
@@ -344,7 +387,14 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 		return rejected(err)
 	}
 	h.pending = release.SHA
-	return Reply{State: "installed", Version: release.SHA}
+	t, err := readTrial(state)
+	if err != nil {
+		return rejected(err)
+	}
+	if t == nil {
+		return rejected(errors.New("release trial ended before acceptance"))
+	}
+	return Reply{State: "installed", Version: release.SHA, Deadline: t.GuardAfter}
 }
 
 // ReleaseTag is the GitHub release CI run runID publishes for sha.
@@ -398,54 +448,49 @@ func (h *Handler) olderRun(runID string) (bool, error) {
 	return next < installed, nil
 }
 
-// link is os.Link; tests stand in an immutable binary.
-var link = os.Link
-
-// install downloads and verifies the binary, runs beforeSwap, then atomically
-// swaps it in, keeping the previous one as <binary>.prev. A failed swap leaves
-// no <binary>.next.
 func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() error) error {
 	next := h.Binary + ".next"
 	data, err := h.download(ctx, binary.URL)
 	if err != nil {
-		// One immediate retry: no sleeps on the release path.
-		if data, err = h.download(ctx, binary.URL); err != nil {
-			return err
-		}
+		return err
 	}
 	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != binary.SHA256 {
 		return errors.New("downloaded binary sha256 differs")
 	}
+	state := filepath.Dir(filepath.Dir(h.TrialFile))
+	if err := beforeSwap(); err != nil {
+		return err
+	}
+	if err := ensureGuard(ctx, h.Binary, state); err != nil {
+		return err
+	}
+	defer os.Remove(next)
 	if err := writeSynced(next, data); err != nil {
 		return err
 	}
-	prev := h.Binary + ".prev"
-	err = removeIfExists(prev)
-	if err == nil {
-		err = link(h.Binary, prev)
-	}
-	if err != nil {
-		return errors.Join(err, removeIfExists(next))
-	}
-	if err := removeIfExists(h.Binary + ".prev.unit"); err != nil {
-		return errors.Join(err, removeIfExists(next))
-	}
-	if _, err := prepareUnit(ctx, next, h.Binary); err != nil {
-		return errors.Join(err, removeIfExists(next))
-	}
-	if err = beforeSwap(); err == nil {
-		err = os.Rename(next, h.Binary)
-	}
-	if err != nil {
-		err = errors.Join(err, restoreUnit(context.WithoutCancel(ctx), next, h.Binary))
-		return errors.Join(err, removeIfExists(next))
-	}
-	dir, err := os.Open(filepath.Dir(h.Binary))
-	if err != nil {
+	if _, err := prepareUnit(ctx, next, h.Binary, state); err != nil {
 		return err
 	}
-	defer dir.Close()
-	return dir.Sync()
+	return withTrialLock(state, func() error {
+		t, err := readTrial(state)
+		if err != nil {
+			return err
+		}
+		if t == nil || t.Phase != "unit-installed" {
+			return errors.New("release trial no longer authorizes the binary swap")
+		}
+		if time.Now().After(t.GuardAfter) {
+			return errors.New("release deadline passed before binary swap")
+		}
+		if err := os.Rename(next, h.Binary); err != nil {
+			return err
+		}
+		if err := syncDir(filepath.Dir(h.Binary)); err != nil {
+			return err
+		}
+		t.Phase = "binary-swapped"
+		return writeJSON(h.TrialFile, t)
+	})
 }
 
 // downloadStall cancels a binary download that receives nothing for this

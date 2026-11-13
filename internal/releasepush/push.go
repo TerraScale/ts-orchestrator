@@ -121,7 +121,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 		} else {
 			release.Token, err = MintToken(ctx)
 			if err == nil {
-				result = pushRegion(ctx, region, release)
+				result = PushRegion(ctx, region, release, output)
 				if result.Error == "" {
 					result.HealthyMS, result.Health, err = awaitHealthy(ctx, region, release)
 				}
@@ -312,7 +312,7 @@ func MintToken(ctx context.Context) (string, error) {
 	return body.Value, nil
 }
 
-func pushRegion(ctx context.Context, region Region, release OrchRelease) Result {
+func PushRegion(ctx context.Context, region Region, release OrchRelease, output io.Writer) Result {
 	start := time.Now()
 	result := Result{Region: region.Region, StartedAt: start.UTC().Format(time.RFC3339Nano)}
 	since := func() int64 { return time.Since(start).Milliseconds() }
@@ -337,7 +337,12 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	if reply.State != "installed" && reply.State != "current" {
 		return fail(fmt.Errorf("release %s: %s", reply.State, reply.Error))
 	}
-	deadline := time.Now().Add(3 * time.Minute)
+	deadline := reply.Deadline
+	if deadline.IsZero() && reply.State == "installed" {
+		return fail(errors.New("accepted release did not report its probation deadline"))
+	}
+	notice := time.NewTimer(probationWait)
+	defer notice.Stop()
 	for {
 		version, err := request(ctx, conn, SubjectVersion, nil, time.Second)
 		if err == nil && version.Version == release.SHA {
@@ -349,11 +354,24 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 			result.State = "rolled_back"
 			return fail(fmt.Errorf("the region rolled back to %s: %s", version.Version, version.Error))
 		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
-			return fail(errors.New("timed out waiting for the region to serve " + release.SHA))
+		if !version.Deadline.IsZero() {
+			deadline = maxDeadline(deadline, version.Deadline)
+		}
+		if !deadline.IsZero() && time.Now().After(deadline.Add(guardEvery+PlanningWindow)) {
+			return fail(fmt.Errorf("release has not confirmed after recovery deadline %s", deadline.UTC().Format(time.RFC3339)))
+		}
+		if ctx.Err() != nil {
+			return fail(fmt.Errorf("accepted, still in probation until %s: %w", deadline.UTC().Format(time.RFC3339), ctx.Err()))
 		}
 		select {
 		case <-ctx.Done():
+		case <-notice.C:
+			progress := result
+			progress.State = "probation"
+			progress.Health = "accepted, still in probation until " + deadline.UTC().Format(time.RFC3339)
+			if err := json.NewEncoder(output).Encode(progress); err != nil {
+				return fail(err)
+			}
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
@@ -410,4 +428,11 @@ func request(ctx context.Context, conn *nats.Conn, subject string, payload []byt
 	}
 	var reply Reply
 	return reply, json.Unmarshal(message.Data, &reply)
+}
+
+func maxDeadline(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }

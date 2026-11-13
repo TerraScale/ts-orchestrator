@@ -220,7 +220,10 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 		return loopback, nil
 	}
 	notifier := sdnotify.Process()
-	if err := notifier.ExtendStart(2 * hostMetadataWindow); err != nil {
+	if err := releasepush.ExtendStart(state, releasepush.PlanningWindow); err != nil {
+		return hostPlan{}, err
+	}
+	if err := notifier.ExtendStart(releasepush.PlanningWindow); err != nil {
 		return hostPlan{}, fmt.Errorf("extend host startup window: %w", err)
 	}
 	instance, metadataErr := readHostMetadata(ctx, output)

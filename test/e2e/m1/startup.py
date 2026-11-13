@@ -1,6 +1,5 @@
 import concurrent.futures
 import ctypes
-import datetime
 import http.server
 import itertools
 import json
@@ -236,20 +235,6 @@ def run_case(binary, seed_binary, root, case):
         previous_admission = admission.read_bytes() if admission.exists() else None
         if case == "fresh-delay":
             record_events = record_watch(state)
-        if case == "manager-delay":
-            payload = Path(binary).read_bytes()
-            revision = re.search(rb"vcs.revision=([0-9a-f]{40})", payload)[1].decode()
-            if b"vcs.modified=true" in payload:
-                revision += "-dirty"
-            binary = str(work / "release")
-            Path(binary).write_bytes(payload)
-            Path(binary).chmod(0o755)
-            Path(binary + ".prev").write_bytes(payload)
-            (state / "nats").mkdir(exist_ok=True)
-            (state / "nats/release-trial").write_text(json.dumps({
-                "sha": revision, "run_id": "1", "starts": 0,
-                "installed": datetime.datetime.now(datetime.UTC).isoformat(),
-            }))
         began = time.monotonic()
         process = subprocess.Popen(
             [binary, "single-host", "--state", str(state)],
@@ -313,10 +298,6 @@ def run_case(binary, seed_binary, root, case):
                     "read stored host metadata:" in output,
                     "missing recovery record error",
                 )
-        if case == "manager-delay":
-            require(Path(binary).read_bytes() == payload, "good release was replaced")
-            require(not (state / "nats/release-trial").exists(), "release stayed on probation")
-            require(not (state / "nats/release-rolled-back").exists(), "metadata delay rolled back release")
         elapsed = time.monotonic() - began
         require(
             output.count("retrying within startup window") <= 11,

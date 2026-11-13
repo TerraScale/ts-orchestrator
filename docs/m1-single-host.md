@@ -122,24 +122,81 @@ carry a service's first image only and are never updated by releases.
 A ts-orch release needs a token from `TerraScale/ts-orchestrator` whose `sha`
 claim equals `sha`, and the URL must be exactly that run's release asset:
 `https://github.com/TerraScale/ts-orchestrator/releases/download/ci-<sha>-run-<run_id>/terrascale-orchestrator-linux-<goarch>`
-(`run_id` from the verified token). ts-orch downloads it (60 s, one immediate
-retry), checks `sha256`, keeps the old binary as `terrascale-orchestrator.prev`,
-renames the new one over the real path of its executable, replies `installed`
-and exits non-zero; systemd restarts it after `RestartSec=1s`. Containers keep
-running: the executor's `Close` only disconnects from containerd, whose shims
-own the tasks, `Node.Stop` cancels before leaving so workloads survive, and
-`KillMode=mixed` only kills what is left in ts-orch's own cgroup (the shims live
-under `containerd.service`). A release from an older GitHub run (`run_id`) than
-the installed one is `stale`. An immutable binary (`chattr +i`) is `rejected`
-with the `chattr -i` command to run; the swap leaves no `.next` behind.
+(run_id from the verified token). The host checks the asset SHA-256 before
+executing it. A release delivers the agent binary, the agent's
+ts-orch.service, and ts-orch-release-guard.service with its timer. It does
+not deliver the container runtime's unit, time, private-network, alert,
+firewall, monitoring or log units. Drop-in directories remain untouched.
+**A new agent unit must also start the previous release's binary**: recovery
+can run that binary while a unit installation or reload is interrupted.
 
-A pushed binary is on probation until it serves the release subjects: install
-writes `nats/release-trial` in the state directory, each start counts itself
-there first, and serving removes it. A third start, or no serving 2 min after
-install, renames `.prev` back over the binary, records `nats/release-rolled-back`
-and exits, so systemd starts the previous binary. That binary reports
-`rolled_back` on `ts.release.version` and push fails with state `rolled_back`
-instead of timing out; a retry of the same run is refused, a newer run installs.
+Before staging the executable or changing the installed unit, installation
+syncs nats/release-trial and its containing directory. The record names the
+revision, run, previous binary and unit backups, phase and guardAfter.
+Phases advance from intent to unit-staged, unit-installed (including
+manager reload), and binary-swapped. The root step runs systemd-analyze
+verify on staged copies named exactly like the installed units, with the
+host's unit search paths, before replacing any unit. Invalid units are
+rejected with the verifier's output; the installed binary and unit stay
+unchanged. The previous binary is retained as terrascale-orchestrator.prev
+and its unit as terrascale-orchestrator.prev.unit. Atomic writes sync both
+files and parent directories. Immutable-binary failures are reported as
+filesystem errors; there is no automatic immutable-bit change.
+
+The host replies installed with its probation deadline and exits; systemd
+starts the new binary. Probation lasts through startup planning and a
+120-second serving window after planning. Its deadline uses the service's
+finite startup timeout (five minutes in the shipped unit), the ten-minute
+startup extension on Oracle hosts, and a 30-second recovery margin. The
+installer also includes the loaded unit's stop timeout and restart delay;
+the margin covers the root step's bounded 30-second execution. Any startup
+extension durably extends guardAfter before notifying systemd. A restart
+needed only to apply the first delivered unit does not count as a probation
+start. Two unsuccessful starts, or failure to serve within the serving
+window, trigger the fast in-process restoration path. Serving release
+subjects confirms the release and durably removes the trial.
+
+The independent guard timer is enabled at boot, first fires after 15 seconds,
+and checks every minute. Its unsandboxed root oneshot runs the currently
+installed binary's release guard, independently of the agent unit. No trial
+or an unexpired deadline is a successful no-op. After the deadline it copies
+both retained backups back into place, reloads systemd, resets the agent's
+failed-start limit, queues its restart, writes nats/release-rolled-back,
+and removes the trial. Backups survive restoration: interrupted recovery
+finishes on the next timer activation, including after reboot. The guard
+pair is verified before installation and is never replaced while a trial
+exists. Existing guard units stay active throughout probation; a changed
+pair is applied by a root step after confirmation. Missing guard units are
+installed during the first binary-only
+rollout before installing the agent unit. A hand-made unit encountered on
+that rollout is also saved once as
+/usr/local/bin/terrascale-orchestrator.original.unit; later releases never
+overwrite or delete that copy.
+
+A failed fast restoration leaves the trial for the guard, logs its failure
+once, and exits nonzero. The shipped unit spaces restarts by one second and
+permits only three starts per ten minutes; subsequent starts with a recorded
+restore failure immediately defer to the guard. After that limit, systemd stops trying until the guard resets it. Recovery resets the start limit before starting the old agent.
+The guard survives an agent unit with a bad executable, failing start
+command, hung startup or a sandbox that prevents restoration. If the
+installed executable cannot run release guard at all, the guard service
+fails visibly in systemd and its journal: **this case needs a person to
+restore the retained executable and unit**. Unreadable or missing backups
+and exhausted storage are also visible guard failures; recovery preserves
+the trial and resumes once the underlying filesystem problem is repaired.
+
+Push waits from the deadline the host reports, using the same bound as the
+guard rather than a fixed three minutes. While startup is still underway it
+prints "accepted, still in probation until <time>" and continues observing;
+it reports success only after observing the requested revision serving.
+Restoration is reported as rolled_back only after the previous agent
+reports that rollback record; an unresolved recovery reports its deadline
+rather than claiming a rollback. A repeat of the same failed run is refused;
+a newer run may install. Older GitHub runs are stale.
+
+Containers keep running: the executor's close disconnects from containerd,
+whose shims own the tasks, and KillMode=mixed confines termination to the
+agent's cgroup.
 
 ### Regions and pins
 
