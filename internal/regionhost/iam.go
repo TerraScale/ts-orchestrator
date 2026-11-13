@@ -189,12 +189,46 @@ func (r *run) ensureIAM() error {
 		return err
 	}
 	rule := matchingRule(ids)
-	if len(groups.Items) == 1 { // the list leaves the matching rule out
+	var groupETag *string
+	if len(groups.Items) == 1 {
 		g, err := r.home.GetDynamicGroup(r.ctx, identity.GetDynamicGroupRequest{DynamicGroupId: groups.Items[0].Id})
 		if err != nil {
 			return err
 		}
 		groups.Items[0] = g.DynamicGroup
+		groupETag = g.Etag
+	}
+	if len(groups.Items) > 1 {
+		return fmt.Errorf("host dynamic group inventory is ambiguous")
+	}
+	if len(groups.Items) == 1 && !sameRule(deref(groups.Items[0].MatchingRule), ids) {
+		existing := ruleCompartment.FindAllStringSubmatch(deref(groups.Items[0].MatchingRule), -1)
+		var oldIDs []string
+		for _, match := range existing {
+			oldIDs = append(oldIDs, match[1])
+		}
+		if len(existing) == 0 || deref(groups.Items[0].MatchingRule) != matchingRule(oldIDs) {
+			return fmt.Errorf("cannot safely expand an unrecognized host dynamic group rule")
+		}
+		for _, id := range oldIDs {
+			if !slices.Contains(ids, id) {
+				return fmt.Errorf("refuse to remove an existing host compartment during Vault grant reconciliation")
+			}
+		}
+	}
+	if len(groups.Items) == 1 && !sameRule(deref(groups.Items[0].MatchingRule), ids) && (groupETag == nil || *groupETag == "") {
+		return fmt.Errorf("host dynamic group has no concurrency token")
+	}
+	want, err := statements(hosts)
+	if err != nil {
+		return err
+	}
+	policyID, action := "-", "planned"
+	if !r.dry {
+		policyID, action, err = ReconcileVaultPolicy(r.ctx, &r.home, gruCompartment, vaultPolicy, want)
+		if err != nil {
+			return err
+		}
 	}
 	switch {
 	case len(groups.Items) == 0:
@@ -212,7 +246,7 @@ func (r *run) ensureIAM() error {
 		err = r.report("unchanged", "dynamic-group", dynamicGroup, *groups.Items[0].Id)
 	default:
 		if !r.dry {
-			if _, err := r.home.UpdateDynamicGroup(r.ctx, identity.UpdateDynamicGroupRequest{DynamicGroupId: groups.Items[0].Id,
+			if _, err := r.home.UpdateDynamicGroup(r.ctx, identity.UpdateDynamicGroupRequest{DynamicGroupId: groups.Items[0].Id, IfMatch: groupETag,
 				UpdateDynamicGroupDetails: identity.UpdateDynamicGroupDetails{MatchingRule: &rule}}); err != nil {
 				return err
 			}
@@ -222,34 +256,5 @@ func (r *run) ensureIAM() error {
 	if err != nil {
 		return err
 	}
-	policies, err := r.home.ListPolicies(r.ctx, identity.ListPoliciesRequest{CompartmentId: new(gruCompartment), Name: new(vaultPolicy)})
-	if err != nil {
-		return err
-	}
-	want, err := statements(hosts)
-	if err != nil {
-		return err
-	}
-	switch {
-	case len(policies.Items) == 0:
-		id := "-"
-		if !r.dry {
-			p, err := r.home.CreatePolicy(r.ctx, identity.CreatePolicyRequest{CreatePolicyDetails: identity.CreatePolicyDetails{
-				CompartmentId: new(gruCompartment), Name: new(vaultPolicy), Description: new("ts-orch hosts read gru-vault"), Statements: want}})
-			if err != nil {
-				return err
-			}
-			id = *p.Id
-		}
-		return r.report("created", "policy", vaultPolicy, id)
-	case slices.Equal(slices.Sorted(slices.Values(policies.Items[0].Statements)), slices.Sorted(slices.Values(want))):
-		return r.report("unchanged", "policy", vaultPolicy, *policies.Items[0].Id)
-	}
-	if !r.dry {
-		if _, err := r.home.UpdatePolicy(r.ctx, identity.UpdatePolicyRequest{PolicyId: policies.Items[0].Id,
-			UpdatePolicyDetails: identity.UpdatePolicyDetails{Statements: want}}); err != nil {
-			return err
-		}
-	}
-	return r.report("updated", "policy", vaultPolicy, *policies.Items[0].Id)
+	return r.report(action, "policy", vaultPolicy, policyID)
 }

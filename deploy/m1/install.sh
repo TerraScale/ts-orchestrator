@@ -44,19 +44,28 @@ curl -fsSL --retry 3 -o "\$tmp" '$url'
 echo '$sum  '"\$tmp" | sha256sum -c --quiet
 chmod 0700 "\$tmp"
 "\$tmp" release preflight
+if [[ ! -e /usr/local/bin/terrascale-orchestrator && ! -L /usr/local/bin/terrascale-orchestrator && ! -e /var/lib/ts-orch && ! -e /etc/terrascale-orchestrator/ts-auth-metadata.nft && ! -L /etc/terrascale-orchestrator/ts-auth-metadata.nft ]]; then
+ install -d -m 0755 /etc/terrascale-orchestrator
+ "\$tmp" ts-auth metadata-rules > /etc/terrascale-orchestrator/ts-auth-metadata.nft
+fi
 install -m 0755 "\$tmp" /usr/local/bin/terrascale-orchestrator
 ln -sfn terrascale-orchestrator /usr/local/bin/ts-orch
 install -d -m 0700 /var/lib/ts-orch
 install -d -m 0755 /var/lib/ts-data /var/lib/ts-data/terrabase
 install -d -m 0755 /etc/terrascale-orchestrator
-/usr/local/bin/terrascale-orchestrator ts-auth metadata-rules > /etc/terrascale-orchestrator/ts-auth-metadata.nft
-/usr/local/bin/terrascale-orchestrator ts-auth metadata-unit > /etc/systemd/system/terrascale-ts-auth-metadata.service
+if [[ -e /etc/terrascale-orchestrator/ts-auth-metadata.nft && ! -e /etc/systemd/system/terrascale-ts-auth-metadata.service ]]; then
+ /usr/local/bin/terrascale-orchestrator ts-auth metadata-unit > /etc/systemd/system/terrascale-ts-auth-metadata.service
+fi
 names=()
 $units
-chmod 0644 /etc/systemd/system/terrascale-ts-auth-metadata.service "\${names[@]/#//etc/systemd/system/}"
+chmod 0644 "\${names[@]/#//etc/systemd/system/}"
 systemctl daemon-reload
-systemctl enable terrascale-ts-auth-metadata.service "\${names[@]}"
-systemctl start terrascale-ts-auth-metadata.service
+systemctl enable "\${names[@]}"
+if [[ -e /etc/terrascale-orchestrator/ts-auth-metadata.nft ]]; then
+ chmod 0644 /etc/systemd/system/terrascale-ts-auth-metadata.service
+ systemctl enable terrascale-ts-auth-metadata.service
+ systemctl start terrascale-ts-auth-metadata.service
+fi
 systemctl restart "\${names[@]}"
 systemctl is-active "\${names[@]}"
 REMOTE

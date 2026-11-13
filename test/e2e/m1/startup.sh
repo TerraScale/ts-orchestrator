@@ -7,15 +7,10 @@ trap 'sudo rm -rf "$work"' EXIT
 nice -n 19 go build -p 1 -o "$work/seed" "$here/startup"
 bash "$here/updater-preflight/run.sh" "$bin"
 bash "$here/alert-prepare/run.sh"
-nice -n 19 go build -p 1 -o "$work/host-credentials" "$here/host-credentials"
-sudo unshare --mount --net bash -s -- "$bin" "$work" <<'SH_CREDENTIALS'
-set -euo pipefail
-bin=$1
-work=$2
-mount --make-rprivate /
-ip link set lo up
-"$work/host-credentials" "$bin" "$work"
-SH_CREDENTIALS
+bash "$here/host-credentials/run.sh" "$bin"
+bash "$here/revision-gate/run.sh" "$bin"
+bash "$here/vault-policy/run.sh" "$bin"
+bash "$here/installer-metadata/run.sh" "$bin"
 mkdir -p "$work/preflight-sys/class/dmi/id"
 printf 'OracleCloud.com\n' > "$work/preflight-sys/class/dmi/id/chassis_asset_tag"
 sudo unshare --mount --net bash -s -- "$bin" "$work" <<'SH_PREFLIGHT'

@@ -356,15 +356,93 @@ through step 6, including across restarts and reboots; step 7 removes that excep
 only after those checks pass, and a failed check restores the prior exception
 rather than removing the existing protections.
 
-1. Release A, the updater-preflight release, alone. Gate: `ts-orch status`
-   reports A's exact published revision on every registered host, with no
-   unavailable host, missing reply or refusal, and every host is healthy.
-   Stopping here is safe: the relay retains its existing metadata access,
-   still reads Vault, and A supplies the preparation command.
+
+"Registered" means present in the region's node inventory. The revision gate
+checks every host row in every region, fails on an unreachable region, inventory
+error, empty inventory, missing reply or refusal, and prints each failing host.
+A machine that never registered, or was removed from that inventory, is not
+visible to this gate. Use the exact published 40-character revisions as
+`A_REVISION` and `B_REVISION`; the gate is read-only and does not change release
+push behavior. Step 1 uses the staged B binary because A does not yet have
+this command; it reads A's existing mesh without installing B.
+
+On a host that already has metadata protections, persist the relay exception in
+a metadata-unit drop-in before advancing. These commands run as root and derive
+the relay's service user; the post-start command inserts one IPv4 accept rule
+after the unit has reloaded the persistent rules:
+
+```sh
+relay_user=$(systemctl show ts-alert-delivery.service --property=User --value)
+relay_uid=$(id -u "$relay_user")
+test "$relay_uid" -ne 0
+metadata_unit=terrascale-ts-auth-metadata.service
+dropin=/etc/systemd/system/$metadata_unit.d/relay.conf
+install -d -m 0755 "/etc/systemd/system/$metadata_unit.d"
+printf '[Service]\nExecStartPost=/usr/sbin/nft insert rule inet terrascale_metadata output ip daddr 169.254.169.254 meta skuid %s accept\n' "$relay_uid" > "$dropin"
+chmod 0644 "$dropin"
+systemctl daemon-reload
+systemctl enable "$metadata_unit"
+systemctl restart "$metadata_unit"
+nft -n list chain inet terrascale_metadata output | grep "ip daddr 169.254.169.254 meta skuid $relay_uid accept"
+sudo -u "$relay_user" curl --fail --max-time 5 -H 'Authorization: Bearer Oracle' -o /dev/null http://169.254.169.254/opc/v2/instance/
+if sudo -u nobody curl --fail --max-time 5 -H 'Authorization: Bearer Oracle' -o /dev/null http://169.254.169.254/opc/v2/instance/; then
+ exit 1
+fi
+```
+
+The enabled unit and its drop-in restore the exception after every restart and
+reboot. Repeat the rule and user-access checks after a restart and after a reboot.
+Preserve existing persistent rules and their local additions through step 6.
+The installer recognizes existing state from the installed binary, state
+directory or existing rules (including symlinks); it creates rules only when
+all are absent. An existing host without rules remains unrestricted until the
+checked step-7 transition.
+
+At step 7, after the step-6 checks, save the active rules and this drop-in before
+replacing the rules and removing the exception:
+
+```sh
+transition_dir=$(mktemp -d /root/metadata-transition.XXXXXX)
+rules=/etc/terrascale-orchestrator/ts-auth-metadata.nft
+cp "$rules" "$transition_dir/rules.nft"
+cp "$dropin" "$transition_dir/relay.conf"
+ts-orch ts-auth metadata-rules > "$transition_dir/next.nft"
+rm "$dropin"
+install -m 0644 "$transition_dir/next.nft" "$rules"
+systemctl daemon-reload
+systemctl restart "$metadata_unit"
+```
+
+Review local additions before this deliberate replacement. Recheck root/agent
+metadata access, blocked task access over IPv4 and IPv6, and real relay delivery.
+If a check fails, restore that host's saved rules and drop-in, keeping the
+previous protections and relay access across subsequent restarts and reboots:
+
+```sh
+install -m 0644 "$transition_dir/rules.nft" "$rules"
+install -m 0644 "$transition_dir/relay.conf" "$dropin"
+systemctl daemon-reload
+systemctl restart "$metadata_unit"
+```
+
+Repeat the rule, relay-user and other-user checks above and restore delivery
+before continuing. For a host without prior rules, step 7 installs the generated
+rules and unit for the first time; undo only that new installation if its checks
+fail.
+
+1. Release A, the updater-preflight release, alone. Run the staged B binary
+   on a host with mesh access for the read-only gate:
+   `sudo /path/to/candidate-B status revision "$A_REVISION"` exits zero. Check regional health
+   with `ts-orch status` as well. Stopping here is safe: the relay retains
+   its existing metadata access, still reads Vault, and A supplies preparation.
 2. Grant reconciliation narrows the earlier broad policy; it is not only
    additive. Before running B's `ts-orch region add`, preserve the earlier
-   broad grants in a separate temporary policy outside the reconciler's
-   managed policy name. Run `ts-orch region add` for each affected region
+   broad grants in the separate active policy `ts-orch-hosts-vault-transition`
+   in the same compartment. The reconciler reads it and refuses to narrow
+   unless it contains every current managed-policy statement. It uses the
+   managed policy's ETag for the update; it never changes the retained policy.
+   Read or update failures preserve the earlier effective grants. Removing
+   existing host compartments from the dynamic group is refused as well. Run `ts-orch region add` for each affected region
    to add the exact grants. Gate: run the candidate B binary as host root on
    every affected host: `sudo /path/to/candidate-B release preflight secrets`.
    This runs the same regional secret reads as B's full release preflight,
@@ -392,16 +470,12 @@ rather than removing the existing protections.
    while A's relay ignores them and still reads Vault. Stopping here is safe:
    delivery and preparation work, and the relay retains metadata access
    through the preserved exception if metadata rules are already active.
-5. Release B through the normal release path. Gate: `ts-orch status` reports
-   exactly B's published revision for every registered host, with no
-   unavailable host, missing reply or refusal. Compare every host row against
-   the published revision: an old revision without a refusal fails this gate.
-   A regional inventory error, unreachable region, empty revision or
-   `no answer` also fails it. Stopping here after the check is safe: the
-   already running relay continues delivering, its new binary and privileged
-   preparation unit are installed, and the previous metadata boundary and
-   relay exception remain in place. A refused or partial attempt is not a
-   completed step; preserve that boundary and repair before retrying.
+5. Release B through the normal release path. Gate:
+   `ts-orch status revision "$B_REVISION"` exits zero. Stopping here after
+   the check is safe: the running relay continues delivering, its new binary
+   and privileged preparation unit are installed, and the prior metadata
+   boundary and relay exception remain in place. A refused or partial attempt
+   is not a completed step; preserve that boundary and repair before retrying.
 6. Restart the relay. Gate:
    `stat -c '%U:%G %a %n' /run/ts-alert-delivery /run/ts-alert-delivery/*`
    shows directory `root:ts-alerts 750` and three files `root:ts-alerts 640`

@@ -1,7 +1,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'sudo rm -rf "$work"' EXIT
 nice -n 19 go build -p 1 -o "$work/lane" "$here"
 cp /etc/passwd "$work/passwd"
 if ! getent passwd ts-alerts >/dev/null; then
