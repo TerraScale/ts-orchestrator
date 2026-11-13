@@ -178,10 +178,6 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 		return record, errors.Join(errors.New(record.Bake.Reason), err)
 	}
 
-	if !record.Bake.Finished.IsZero() && spec.Deployment != nil && record.Rollout.Revision != spec.Deployment.Revision {
-		record.Bake.Reason = "running image revision does not match the signed release commit"
-		return record, errors.Join(errors.New(record.Bake.Reason), n.retainBakeFailure(n.ctx, spec.Name, key, record))
-	}
 	if !record.Bake.Finished.IsZero() {
 		if metadataChanged {
 			n.mu.Lock()
