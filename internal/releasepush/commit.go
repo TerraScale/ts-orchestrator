@@ -80,6 +80,8 @@ func selected[T releaseRecord](path string, id releaseID) (T, bool) {
 	rows, err := records[T](path)
 	if err != nil {
 		stateWarning(path, "release record unavailable")
+		var zero T
+		return zero, false
 	}
 	for _, row := range rows {
 		if row.identity() == id {
@@ -94,6 +96,7 @@ func storeRecord[T releaseRecord](path string, row T, installed releaseID) error
 	rows, err := records[T](path)
 	if err != nil {
 		stateWarning(path, "damaged release record replaced")
+		rows = nil
 	}
 	next := []T{}
 	for _, previous := range rows {

@@ -117,13 +117,14 @@ type Progress interface {
 }
 
 type Handler struct {
-	NodeList *nodelist.Store
-	Health   func(context.Context, string) HealthResult
-	Verifier *Verifier
+	probation *Probation
+	NodeList  *nodelist.Store
+	Health    func(context.Context, string) HealthResult
+	Verifier  *Verifier
 	// Revision is the running build's vcs.revision.
 	Revision string
 	// Binary is the installed executable that a release replaces.
-	Binary    string
+	Binary        string
 	runningBinary string
 	// RunIDFile records the installed release's GitHub run_id; an older run is refused.
 	RunIDFile string
@@ -152,9 +153,11 @@ func NewHandler(state string) (*Handler, error) {
 	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary, runningBinary: binary,
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
 		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
-	if _, err := Probe(state, os.Stderr); err != nil {
+	probation, err := Probe(state, os.Stderr)
+	if err != nil {
 		return nil, err
 	}
+	h.probation = probation
 	h.NodeList = nodelist.Open(state)
 	h.RefusalFile = filepath.Join(state, "nats", "release-attempt.json")
 	return h, nil
@@ -370,6 +373,13 @@ func (h *Handler) activeTrial() (trial, bool) {
 	id, err := binaryIdentity(h.Binary)
 	if err != nil || id.SHA != h.Revision {
 		return trial{}, false
+	}
+	if h.probation != nil {
+		h.probation.mu.Lock()
+		defer h.probation.mu.Unlock()
+		if !h.probation.served && h.probation.trial.identity() == id {
+			return h.probation.trial, true
+		}
 	}
 	return selected[trial](h.TrialFile, id)
 }
