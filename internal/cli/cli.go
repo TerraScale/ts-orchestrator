@@ -168,7 +168,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "edge":
 		if len(args) > 1 && args[1] == "certificates" {
 			if len(args) > 2 && args[2] == "repair" {
-				return edge.RunCertificateCLI(ctx, args[3:], output)
+				return edge.RunCertificateCLI(ctx, args[2:], output)
 			}
 			return app.RunCertificateCLI(ctx, args[2:], output)
 		}

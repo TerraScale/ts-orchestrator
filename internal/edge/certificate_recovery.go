@@ -156,19 +156,29 @@ func (c *certificateCache) persist(ctx context.Context, key string, data []byte)
 	if filepath.Base(key) != key || key == "." || key == ".." {
 		return errors.New("edge: invalid local certificate key")
 	}
-	if err := c.local.Put(ctx, key, data); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(filepath.Join(string(c.local), key), os.O_RDWR, 0600)
+	directory := string(c.local)
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(directory, ".tmp-"+key+"-*")
 	if err != nil {
 		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		return errors.Join(err, file.Close(), os.Remove(file.Name()))
 	}
 	if err := errors.Join(file.Sync(), file.Close()); err != nil {
-		return err
+		return errors.Join(err, os.Remove(file.Name()))
 	}
-	directory, err := os.Open(string(c.local))
+	if err := os.Rename(file.Name(), filepath.Join(directory, key)); err != nil {
+		return errors.Join(err, os.Remove(file.Name()))
+	}
+	dir, err := os.Open(directory)
 	if err != nil {
 		return err
 	}
-	return errors.Join(directory.Sync(), directory.Close())
+	return errors.Join(dir.Sync(), dir.Close())
 }
