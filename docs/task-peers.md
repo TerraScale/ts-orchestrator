@@ -100,6 +100,15 @@ from an older node may still omit the field and is accepted. Management recovery
 does not depend on that field: a host running this release recovers from both
 today's old stored declaration and task and a later stripped declaration.
 
+For any other service that declares an empty dependency list, a stripped
+higher-generation declaration restores the default peers dependency. That
+service then waits for a valid peers file it does not need and its task can be
+replaced once. It cannot recreate the management cycle, because management
+starts first. Applying the declaration again from an upgraded node restores the
+empty list. The upgrade to this release replaces the running management task
+once, when reconciliation first compares it with the effective declaration;
+connections relayed through that host are interrupted for that moment.
+
 Before an intentional reboot:
 
 1. Verify the running agent's version on that host includes this release; a
