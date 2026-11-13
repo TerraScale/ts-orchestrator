@@ -449,6 +449,12 @@ func (h *Handler) olderRun(runID string) (bool, error) {
 	}
 	rows, err := records[runFence](h.RunIDFile)
 	if err != nil {
+		var syntax *json.SyntaxError
+		var shape *json.UnmarshalTypeError
+		if errors.As(err, &syntax) || errors.As(err, &shape) {
+			stateWarning(h.RunIDFile, "malformed run fence ignored; no installed release identity")
+			return false, nil
+		}
 		return true, err
 	}
 	for _, row := range rows {

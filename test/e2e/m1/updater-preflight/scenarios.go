@@ -430,5 +430,15 @@ func fenceCase(ctx context.Context, data []byte) {
 	require(reply.State == "stale", "replayed installed run must be refused")
 	reply = installRequest(ctx, h, conn, work, strings.Repeat("c", 40), "1")
 	require(reply.State == "stale", "older installed run must be refused")
-	fmt.Println("ok fence: abandoned run 100; run 2 installed; equal/older runs refused")
+	for _, content := range []string{"{", "123"} {
+		damaged, clean := temporary("inert-fence-")
+		host, _, binary := preparedHost(damaged)
+		write(host.RunIDFile, content)
+		peer, closePeer := listener(host)
+		result := installRequest(ctx, host, peer, damaged, strings.Repeat("b", 40), "2")
+		require(result.State == "installed" && active(host.RunIDFile, binary)["run_id"] == "2", "a malformed record that names no installed binary must be inert and replaceable")
+		closePeer()
+		clean()
+	}
+	fmt.Println("ok fence: abandoned run 100; run 2 installed; equal/older runs refused; unnamed malformed records inert")
 }

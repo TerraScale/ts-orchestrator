@@ -68,7 +68,8 @@ long before, and crash starts share that budget. A third start before serving
 attempts rollback. Worker collection and reply delivery happen in the old
 process and consume none of the candidate budget. Readiness clears only the
 matching trial. Empty, malformed or unreadable diagnostic/trial records warn
-and permit startup; release requests refuse an unreadable run fence.
+and permit startup. A malformed run fence names no installed binary and is
+inert; release requests refuse disk errors reading the fence.
 
 Rollback validates the kept binary against the trial previous revision and
 digest before renaming it over the candidate. If that binary is missing,
