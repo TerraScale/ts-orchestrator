@@ -147,7 +147,8 @@ func (m *certificateManager) ensureVariant(ctx context.Context, key string) erro
 		return err
 	}
 	if value, exists := m.cache.memory.Load(key); exists {
-		if !renewCertificate(value.(cachedCertificate).cert) {
+		if cert := value.(cachedCertificate).cert; !renewCertificate(cert) {
+			_ = m.cache.deferRenewal(key, "not due", "due", stamp(renewalDue(cert.Leaf.NotAfter, cert.Leaf.NotBefore)), "expires", stamp(cert.Leaf.NotAfter))
 			return nil
 		}
 	} else if _, variant := certificateVariant(key); variant == "rsa" {
@@ -322,7 +323,8 @@ func (e *Edge) reconcileCertificates(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			if _, busy := e.certWork.LoadOrStore(name, true); busy {
+			if started, busy := e.certWork.LoadOrStore(name, time.Now()); busy {
+				_ = e.certs.cache.deferRenewal(name, "certificate work still running", "since", stamp(started.(time.Time)))
 				continue
 			}
 			work.Go(func() {

@@ -5,7 +5,18 @@ cd "$repo"
 work=$(mktemp -d)
 cleanup() {
  local result=$?
- if ((result != 0)); then sudo tail -n 25 "$work"/*.log || true; fi
+ if ((result != 0)); then
+  kept=$(mktemp -d "${RUNNER_TEMP:-/tmp}/certificate-lane-logs.XXXXXX")
+  for log in "$work"/*.log; do
+   name=$(basename "$log")
+   sudo grep -av -e '\[core\]' -e 'grpc: addrConn' "$log" >"$kept/$name" || true
+   case "$name" in
+   containerd.log | backend-*.log) echo "==> $name (last 40 lines)"; tail -n 40 "$kept/$name" ;;
+   *) echo "==> $name"; cat "$kept/$name" ;;
+   esac
+  done
+  echo "lane logs without gRPC core noise kept in $kept"
+ fi
  sudo rm -rf "$work"
  exit "$result"
 }

@@ -116,19 +116,19 @@ func (c *certificateCache) orderEvidence(ctx context.Context, key string) error 
 			return reader.GetLastMsg("KV_edge-certs", "$KV.edge-certs.holdings."+cacheKey(node), nats.Context(ctx))
 		})
 		if err != nil {
-			return errIssueHeld
+			return c.deferRenewal(key, "peer inventory unavailable", "peer", node, "error", err)
 		}
 		var holdings certificateHoldings
 		if entry.Header.Get("KV-Operation") != "" || json.Unmarshal(entry.Data, &holdings) != nil || holdings.Version != "v1" {
-			return errIssueHeld
+			return c.deferRenewal(key, "peer inventory unsupported", "peer", node)
 		}
 		if cert, ok := holdings.Certificates[key]; ok && time.Now().Before(cert.HealthyUntil) {
-			return errIssueHeld
+			return c.deferRenewal(key, "peer holds a healthy certificate", "peer", node, "healthy_until", stamp(cert.HealthyUntil))
 		}
 		registered = append(registered, holdings.Registered...)
 	}
 	if len(seen) == 0 {
-		return errIssueHeld
+		return c.deferRenewal(key, "certificate roster empty")
 	}
 	return nil
 }

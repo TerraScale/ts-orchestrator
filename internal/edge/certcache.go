@@ -13,9 +13,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -64,6 +66,8 @@ type certificateCache struct {
 	unsupported           sync.Map
 	warned                sync.Map
 	failures              sync.Map
+	decisions             sync.Map
+	claims                sync.Map
 	unsupportedHandshakes atomic.Uint64
 	challengeReads        atomic.Int32
 }
@@ -97,6 +101,7 @@ type certificateLocalState struct {
 type certificateLease struct {
 	Generation string
 	Until      time.Time
+	Holder     string `json:",omitempty"`
 }
 
 type sealedCertificate struct {
@@ -527,36 +532,58 @@ func retryDeadline(attempt int, now time.Time) time.Time {
 }
 
 func (c *certificateCache) lease(ctx context.Context, key string) (*issuanceLease, error) {
-	if time.Now().Before(c.state(key).Retry.Next) {
-		return nil, errIssueHeld
+	var unacknowledged []string
+	if claims, ok := c.claims.Load(key); ok {
+		unacknowledged = claims.([]string)
+	}
+	if retry := c.state(key).Retry; len(unacknowledged) == 0 && time.Now().Before(retry.Next) {
+		return nil, c.deferRenewal(key, "local retry deadline", "next_attempt", stamp(retry.Next), "attempt", retry.Attempt)
 	}
 	value, revision, err := c.shared(ctx, key)
 	if err != nil {
 		return nil, err
 	}
+	orphaned := value.Lease.Generation != "" && slices.Contains(unacknowledged, value.Lease.Generation)
+	if retry := c.state(key).Retry; len(unacknowledged) != 0 && !orphaned && time.Now().Before(retry.Next) {
+		return nil, c.deferRenewal(key, "local retry deadline", "next_attempt", stamp(retry.Next), "attempt", retry.Attempt)
+	}
 	if data, decodeErr := c.decode(value, key); decodeErr == nil {
 		cert, _ := validCertificate(data, key)
 		if !renewCertificate(cert) {
-			return nil, errIssueHeld
+			return nil, c.deferRenewal(key, "shared certificate not due", "due", stamp(renewalDue(cert.Leaf.NotAfter, cert.Leaf.NotBefore)), "expires", stamp(cert.Leaf.NotAfter))
 		}
 	} else if !errors.Is(decodeErr, autocert.ErrCacheMiss) {
 		return nil, decodeErr
 	}
 	now := time.Now()
-	if now.Before(value.Lease.Until) || now.Before(value.Retry.Next) {
-		return nil, errIssueHeld
+	if orphaned {
+		name, variant := certificateVariant(key)
+		slog.Info("edge certificate adopting unacknowledged issuance lease", "name", name, "variant", variant, "generation", value.Lease.Generation, "until", stamp(value.Lease.Until), "reserved_retry", stamp(value.Retry.Next))
+	} else if now.Before(value.Lease.Until) {
+		return nil, c.deferRenewal(key, "issuance lease held", "holder", value.Lease.Holder, "generation", value.Lease.Generation, "until", stamp(value.Lease.Until))
+	} else if now.Before(value.Retry.Next) {
+		return nil, c.deferRenewal(key, "shared retry deadline", "next_attempt", stamp(value.Retry.Next), "attempt", value.Retry.Attempt, "updated", stamp(value.Retry.Updated))
 	}
 	state := c.state(key)
 	attempt := max(state.Retry.Attempt, value.Retry.Attempt) + 1
-	value.Lease = certificateLease{rand.Text(), now.Add(issueTTL)}
+	if orphaned {
+		attempt = value.Retry.Attempt
+	}
+	holder, _, _ := c.roster()
+	value.Lease = certificateLease{rand.Text(), now.Add(issueTTL), holder}
 	value.Retry = certificateRetry{attempt, retryDeadline(attempt, now.Add(issueBudget)), now}
 	revision, err = c.write(ctx, key, value, revision)
 	if errors.Is(err, jetstream.ErrKeyExists) {
-		return nil, errIssueHeld
+		return nil, c.deferRenewal(key, "issuance lease taken concurrently", "revision", revision)
 	}
 	if err != nil {
-		return nil, err
+		c.claims.Store(key, append(slices.Clone(unacknowledged), value.Lease.Generation))
+		return nil, fmt.Errorf("edge: issuance lease write unacknowledged generation=%s: %w", value.Lease.Generation, err)
 	}
+	c.claims.Delete(key)
+	c.decisions.Delete(key)
+	name, variant := certificateVariant(key)
+	slog.Info("edge certificate order started", "name", name, "variant", variant, "attempt", attempt, "generation", value.Lease.Generation, "lease_until", stamp(value.Lease.Until))
 	state.Retry = value.Retry
 	if err := c.saveState(ctx, key, state); err != nil {
 		return nil, err
