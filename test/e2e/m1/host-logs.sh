@@ -15,6 +15,7 @@ require_host_logs() {
 	host_logs_supported || { echo "controlled runner cannot apply host log settings" >&2; return 1; }
 }
 restart_serving() {
+	sudo systemctl reset-failed ts-orch
 	sudo systemctl restart ts-orch
 	wait_for 120 edge whoami.e2e.test /health
 	wait_for 60 edge data.e2e.test /boots
