@@ -40,7 +40,8 @@ func recoveryCase(ctx context.Context, binary string) {
 	run := func(args ...string) error {
 		output, err := exec.CommandContext(ctx, "systemctl", args...).CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("systemctl %s: %w %s", strings.Join(args, " "), err, output)
+			journal, _ := exec.CommandContext(ctx, "journalctl", "-u", args[len(args)-1], "-n", "16", "--no-pager", "-o", "cat").CombinedOutput()
+			return fmt.Errorf("systemctl %s: %w %s %s", strings.Join(args, " "), err, output, journal)
 		}
 		return nil
 	}
