@@ -159,6 +159,19 @@ groups:
           severity: critical
         annotations:
           summary: A service has fewer scrape targets than running tasks on a node
+      - alert: HostServiceTaskInventoryMissing
+        expr: |
+          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc"}) or
+          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-2",region="sjc"}) or
+          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-fra-1",region="fra"}) or
+          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-fra-2",region="fra"}) or
+          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-gru-1",region="gru"}) or
+          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-gru-2",region="gru"})
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Service task inventory is absent on {{ $labels.host }}'
       - alert: HostOOMKill
         expr: increase(ts_host_oom_kills_total{job="host-storage"}[15m]) > 0
         labels:

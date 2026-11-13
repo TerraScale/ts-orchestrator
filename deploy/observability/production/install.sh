@@ -34,6 +34,21 @@ if [[ $mode == --local ]]; then
       exit 2
     fi
   done < <(awk '$1 == "-" && $2 == "url:" {print $3}' "$source_dir/prometheus.yml")
+  checked=0
+  while read -r discovery; do
+    if ! metrics=$(curl --fail --silent --show-error --max-time 5 "${discovery%/services}/metrics"); then
+      echo "Host task inventory unavailable: $discovery; no monitoring changes made" >&2
+      exit 2
+    fi
+    for service in terrabase ts-auth ts-dashboard; do
+      if ! grep -Eq "^ts_host_service_tasks_expected\{service=\"$service\"\} [0-9]+$" <<<"$metrics"; then
+        echo "Upgrade host task inventory: $discovery ($service); no monitoring changes made" >&2
+        exit 2
+      fi
+    done
+    checked=$((checked + 1))
+  done < <(awk '$1 == "-" && $2 == "url:" {print $3}' "$source_dir/prometheus.yml")
+  [[ $checked == 6 ]] || { echo 'Expected six host inventory endpoints' >&2; exit 2; }
   status=0
   relay_help=$(timeout --kill-after=1s 5s /usr/local/bin/ts-orch alert-delivery --help 2>&1) || status=$?
   if [[ $status != 1 || $relay_help != 'usage: ts-orch alert-delivery' ]]; then

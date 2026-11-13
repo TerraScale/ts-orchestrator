@@ -14,6 +14,12 @@ repo=$(cd "$here/../../.." && pwd)
 work=$(mktemp -d)
 summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}
 state=/var/lib/ts-orch
+machine=$(uname -m)
+case "$machine" in
+  aarch64) runtime_arch=arm64; archive_field=Arm64 ;;
+  x86_64) runtime_arch=amd64; archive_field=AMD64 ;;
+  *) exit 1 ;;
+esac
 data=/var/lib/ts-data/e2e
 
 timings=()
@@ -105,7 +111,7 @@ for host in whoami.e2e.test data.e2e.test; do
 	leaf "$host" "DNS:$host"
 	cat "$host.key" "$host.pem" | sudo install -m 0600 /dev/stdin "$state/edge-certs/$host"
 done
-install -m 0755 "$bin" terrascale-orchestrator-linux-arm64
+install -m 0755 "$bin" terrascale-orchestrator-linux-$runtime_arch
 openssl s_server -quiet -WWW -accept 8443 -cert localhost.pem -key localhost.key >/dev/null 2>&1 &
 mkdir -p ~/.ssh
 ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/ts-e2e
@@ -114,7 +120,7 @@ chmod 0600 ~/.ssh/authorized_keys
 printf 'Host ts-e2e\n  HostName 127.0.0.1\n  IdentityFile ~/.ssh/ts-e2e\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n' >>~/.ssh/config
 command -v sshd >/dev/null || sudo apt-get install -y -qq openssh-server
 sudo systemctl start ssh
-wait_for 10 curl -fsSo /dev/null https://localhost:8443/terrascale-orchestrator-linux-arm64
+wait_for 10 curl -fsSo /dev/null https://localhost:8443/terrascale-orchestrator-linux-$runtime_arch
 end "setup (CA, ssh, binary server)"
 
 begin "pinned containerd, runc and NetBird client from the Actions cache"
@@ -123,13 +129,13 @@ mkdir -p "$packages"
 runtime_pins=$repo/deploy/m1/host-runtime.sh
 containerd_version=$(sed -n 's/^containerd_version=//p' "$runtime_pins")
 runc_version=$(sed -n 's/^runc_version=//p' "$runtime_pins")
-containerd_sha256=$(sed -n '/^aarch64)/,/;;/s/^\tcontainerd_sha256=//p' "$runtime_pins")
-runc_sha256=$(sed -n '/^aarch64)/,/;;/s/^\trunc_sha256=//p' "$runtime_pins")
+containerd_sha256=$(sed -n "/^$machine)/,/;;/s/^\tcontainerd_sha256=//p" "$runtime_pins")
+runc_sha256=$(sed -n "/^$machine)/,/;;/s/^\trunc_sha256=//p" "$runtime_pins")
 netbird_pin=$repo/internal/netbird/manager/server_cli.go
-netbird=$(sed -n 's/.*Arm64 = client.Archive{URL: "\([^"]*\)".*/\1/p' "$netbird_pin")
-netbird_sha256=$(sed -n '/Arm64 = client.Archive/{n;s/.*SHA256: "\([0-9a-f]*\)".*/\1/p}' "$netbird_pin")
-containerd_file=containerd-$containerd_version-linux-arm64.tar.gz
-runc_file=runc-$runc_version.arm64
+netbird=$(sed -n 's/.*'"$archive_field"' = client.Archive{URL: "\([^"]*\)".*/\1/p' "$netbird_pin")
+netbird_sha256=$(sed -n '/'"$archive_field"' = client.Archive/{n;s/.*SHA256: "\([0-9a-f]*\)".*/\1/p}' "$netbird_pin")
+containerd_file=containerd-$containerd_version-linux-$runtime_arch.tar.gz
+runc_file=runc-$runc_version.$runtime_arch
 netbird_file=${netbird##*/}
 pinned() {
 	[[ -e $packages/$1 ]] || { curl -fsSL -o "$work/$1" "$2" && mv "$work/$1" "$packages/$1"; }
@@ -153,7 +159,7 @@ end "pinned packages: cache hit $cache_hit (a miss leaves the downloads to insta
 
 begin "install.sh (containerd 2.4.2, runc, NetBird client, ts-orch)"
 sudo install -d -o 65532 -g 65532 -m 0755 /var/lib/ts-data "$data"
-"$repo/deploy/m1/install.sh" ts-e2e https://localhost:8443/terrascale-orchestrator-linux-arm64 \
+"$repo/deploy/m1/install.sh" ts-e2e https://localhost:8443/terrascale-orchestrator-linux-$runtime_arch \
 	"$(sha256sum "$bin" | cut -d' ' -f1)"
 /usr/local/bin/containerd --version | grep -q ' v2.4.2 '
 end "install -> ts-orch active (cache hit $cache_hit)"
@@ -179,6 +185,11 @@ first=$(edge data.e2e.test /boots | head -1)
 orch service ls | tee ls.txt
 grep -Eq '^e2e-whoami +1/1 running' ls.txt
 grep -Eq '^e2e-data +1/1 running' ls.txt
+
+begin "task monitoring preserves service identity"
+CGO_ENABLED=0 go -C "$repo" build -trimpath -o "$work/monitoring" ./test/e2e/m1/monitoring
+sudo "$work/monitoring" "$here/whoami.json"
+end "same image -> only the recorded dashboard service is published, including after restart and adoption"
 
 begin "websocket upgrade through the edge"
 python3 - "$work/ca.pem" whoami.e2e.test <<'EOF'

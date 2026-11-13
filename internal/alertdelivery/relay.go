@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -56,7 +57,10 @@ func Run(ctx context.Context, args []string) error {
 	}
 	mux := http.NewServeMux()
 	client := newReadinessClient()
-	journey := &journeyObservation{}
+	journey, err := openJourney(filepath.Join(filepath.Dir(r.ledgerPath), "journey.json"))
+	if err != nil {
+		return err
+	}
 	mux.HandleFunc("GET /metrics", readinessMetrics(client, journey))
 	mux.HandleFunc("POST /alerts", r.deliver)
 	mux.HandleFunc("POST /alerts/digest", r.digest)

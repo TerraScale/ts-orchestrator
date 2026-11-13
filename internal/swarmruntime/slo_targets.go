@@ -2,9 +2,12 @@ package swarmruntime
 
 import (
 	"context"
+	"maps"
 	"net"
 	"slices"
 	"strconv"
+	"sync"
+	"time"
 
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"
@@ -21,16 +24,39 @@ type sloContainer struct {
 	name   string
 }
 
+type sloCache struct {
+	sync.Mutex
+	at         time.Time
+	containers []sloContainer
+	err        error
+	targetsAt  time.Time
+	targets    []SLOTarget
+	targetsErr error
+	region     string
+}
+
 func (e *Executor) SLOTargets(ctx context.Context, region string) ([]SLOTarget, error) {
-	containers, err := e.runningSLOContainers(ctx)
+	e.slo.Lock()
+	defer e.slo.Unlock()
+	containers, err := e.cachedSLOContainers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return sloTargets(ctx, containers, region)
+	if e.slo.targetsAt != e.slo.at || e.slo.region != region {
+		e.slo.targets, e.slo.targetsErr = sloTargets(ctx, containers, region)
+		e.slo.targetsAt, e.slo.region = e.slo.at, region
+	}
+	targets := make([]SLOTarget, len(e.slo.targets))
+	for i, target := range e.slo.targets {
+		targets[i] = SLOTarget{Targets: slices.Clone(target.Targets), Labels: maps.Clone(target.Labels)}
+	}
+	return targets, e.slo.targetsErr
 }
 
 func (e *Executor) SLOTaskCounts(ctx context.Context) (map[string]int, error) {
-	containers, err := e.runningSLOContainers(ctx)
+	e.slo.Lock()
+	defer e.slo.Unlock()
+	containers, err := e.cachedSLOContainers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -39,6 +65,14 @@ func (e *Executor) SLOTaskCounts(ctx context.Context) (map[string]int, error) {
 		counts[container.name]++
 	}
 	return counts, nil
+}
+
+func (e *Executor) cachedSLOContainers(ctx context.Context) ([]sloContainer, error) {
+	if time.Since(e.slo.at) >= 5*time.Second {
+		e.slo.at = time.Now()
+		e.slo.containers, e.slo.err = e.runningSLOContainers(ctx)
+	}
+	return e.slo.containers, e.slo.err
 }
 
 func (e *Executor) runningSLOContainers(ctx context.Context) ([]sloContainer, error) {
@@ -56,14 +90,10 @@ func (e *Executor) runningSLOContainers(ctx context.Context) ([]sloContainer, er
 		if err != nil {
 			return nil, err
 		}
-		name := ""
-		for _, service := range []string{"terrabase", "ts-auth", "ts-dashboard"} {
-			if DeploymentImageBelongsToService(service, info.Image) {
-				name = service
-				break
-			}
-		}
-		if name == "" || info.Labels["terrascale.task"] == "" {
+		name := info.Labels[LabelServiceSpec]
+		if !slices.Contains([]string{"terrabase", "ts-auth", "ts-dashboard"}, name) ||
+			info.Labels["terrascale.service"] == "" || info.Labels["terrascale.task"] == "" ||
+			container.ID() != "ts-"+info.Labels["terrascale.task"] || !DeploymentImageBelongsToService(name, info.Image) {
 			continue
 		}
 		task, err := container.Task(ctx, nil)
