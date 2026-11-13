@@ -244,9 +244,13 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 					slog.Warn("release request failed", "subject", subject, "state", reply.State, "error", reply.Error)
 				}
 				data, _ := json.Marshal(reply)
-				_ = m.Respond(data)
+				if err := m.Respond(data); err != nil {
+					slog.Warn("release reply delivery failed", "error", err)
+				}
 				if reply.State == "installed" {
-					_ = conn.Flush()
+					if err := conn.Flush(); err != nil {
+						slog.Warn("release installed; reply flush failed", "error", err)
+					}
 					h.startProbation()
 					select {
 					case h.Installed <- struct{}{}:

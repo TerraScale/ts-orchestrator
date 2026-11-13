@@ -50,11 +50,11 @@ func readRollback(path string) *Rollback {
 
 // Probation guards one start of a pushed binary; a nil Probation is no trial.
 type Probation struct {
-	state, binary                     string
-	trialPath, rollbackPath, previous string
-	output                            io.Writer
-	trial                             trial
-	exit                              func()
+	state, binary       string
+	trialPath, previous string
+	output              io.Writer
+	trial               trial
+	exit                func()
 
 	mu     sync.Mutex
 	served bool
@@ -72,8 +72,8 @@ func Probe(state string, output io.Writer) (*Probation, error) {
 }
 
 func probe(state, binary, revision string, now time.Time, output io.Writer, exit func()) (*Probation, error) {
-	_, trialPath, rollbackPath, previous := releaseState(binary, filepath.Join(state, "nats", "release-run-id"), trialFile(state), rollbackFile(state))
-	p := &Probation{state: state, binary: binary, trialPath: trialPath, rollbackPath: rollbackPath, previous: previous, output: output, exit: exit}
+	_, trialPath, _, previous := releaseState(binary, filepath.Join(state, "nats", "release-run-id"), trialFile(state), rollbackFile(state))
+	p := &Probation{state: state, binary: binary, trialPath: trialPath, previous: previous, output: output, exit: exit}
 	if !readState(p.trialPath, &p.trial) || p.trial.SHA != revision {
 		return nil, nil
 	}
