@@ -109,3 +109,5 @@ The node wrapper deliberately refuses partial founder initialization or missing
 Raft/certificate state. Recovery from that crash window and total disk loss
 requires durable external founder authority; deleting the local admission marker
 is not a recovery procedure.
+
+The agent additionally exposes a read-only AssignedTasks snapshot from its existing assignment database. It includes only manager-assigned records and preserves desired state independently of process state, allowing host monitoring on both manager and worker nodes. It changes neither assignment reconciliation nor execution.

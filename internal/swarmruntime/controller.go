@@ -76,6 +76,12 @@ func (c *controller) container(ctx context.Context) (containerd.Container, error
 	if c.stateful != nil && labels["terrascale.task-binding"] != c.fingerprint {
 		return nil, execution.ErrUnsafe
 	}
+	name := c.task.ServiceAnnotations.Labels[LabelServiceSpec]
+	if labels[LabelServiceSpec] != name {
+		if _, err := ctr.SetLabels(runtimeContext(ctx), map[string]string{LabelServiceSpec: name}); err != nil {
+			return nil, err
+		}
+	}
 	return ctr, nil
 }
 
@@ -253,7 +259,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 		if len(dataMounts) != 0 {
 			opts = append(opts, oci.WithMounts(dataMounts))
 		}
-		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: cmp.Or(ports, releasedPorts), credentialExpiryLabel: c.credentialExpiryLabel()}
+		labels := map[string]string{LabelServiceSpec: c.task.ServiceAnnotations.Labels[LabelServiceSpec], "terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: cmp.Or(ports, releasedPorts), credentialExpiryLabel: c.credentialExpiryLabel()}
 		if c.diskAccounted() {
 			witness, err := c.prepareDisk(ctx, image)
 			if err != nil {
