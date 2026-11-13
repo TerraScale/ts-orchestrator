@@ -133,7 +133,7 @@ func previousBinary(binary string, id releaseID) string {
 	return binary + ".prev-" + id.SHA + "-" + id.SHA256
 }
 
-func prepareRecords(h *Handler, candidate releaseID, run string) error {
+func prepareRecords(h *Handler, candidate releaseID, run, attempt string) error {
 	installed, err := binaryIdentity(h.Binary)
 	if err != nil {
 		return err
@@ -168,5 +168,5 @@ func prepareRecords(h *Handler, candidate releaseID, run string) error {
 	if err := storeRecord(h.RollbackFile, rollback, installed); err != nil {
 		return err
 	}
-	return storeRecord(h.RefusalFile, Refusal{Kind: RefusalHost, SHA: candidate.SHA, SHA256: candidate.SHA256, RunID: run}, installed)
+	return storeRecord(h.RefusalFile, Refusal{Kind: RefusalHost, SHA: candidate.SHA, SHA256: candidate.SHA256, RunID: run, RunAttempt: attempt}, installed)
 }

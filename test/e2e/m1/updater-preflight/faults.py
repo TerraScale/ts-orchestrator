@@ -105,6 +105,28 @@ def path_arg(pid, address, directory=-100):
     return os.path.normpath(root + "/" + value)
 
 
+class SockFilter(ctypes.Structure):
+    _fields_ = [("code", ctypes.c_ushort), ("jt", ctypes.c_ubyte), ("jf", ctypes.c_ubyte), ("k", ctypes.c_uint)]
+
+
+class SockProgram(ctypes.Structure):
+    _fields_ = [("length", ctypes.c_ushort), ("filter", ctypes.POINTER(SockFilter))]
+
+
+def filter_syscalls(name):
+    numbers = [number for number, call in (fd_calls | path_calls).items() if call == name or name == "persistent"]
+    if os.uname().machine == "x86_64":
+        numbers += [number for number, call in {82: "rename", 87: "unlink", 86: "link", 83: "mkdir"}.items() if call == name or name == "persistent"]
+    instructions = [SockFilter(0x20, 0, 0, 0)]
+    for number in numbers:
+        instructions += [SockFilter(0x15, 0, 1, number), SockFilter(0x06, 0, 0, 0x7FF00000)]
+    instructions.append(SockFilter(0x06, 0, 0, 0x7FFF0000))
+    compiled = (SockFilter * len(instructions))(*instructions)
+    program = SockProgram(len(instructions), compiled)
+    if libc.prctl(38, 1, 0, 0, 0) or libc.prctl(22, 2, ctypes.byref(program), 0, 0):
+        raise OSError(ctypes.get_errno(), "install syscall filter")
+
+
 def run(helper, step, syscall_name, pattern, occurrence, outcome):
     with (
         tempfile.TemporaryDirectory(prefix="release-commit-") as work,
@@ -115,10 +137,11 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
             os.dup2(log.fileno(), 1)
             os.dup2(log.fileno(), 2)
             ptrace(0, 0)
+            filter_syscalls(syscall_name)
             os.execv(helper, [helper, "commit-case", work, outcome])
         _, status = os.waitpid(root_pid, 0)
-        ptrace(0x4200, root_pid, 0, 1 | 2 | 4 | 8 | 16 | 0x100000)
-        ptrace(24, root_pid)
+        ptrace(0x4200, root_pid, 0, 1 | 2 | 4 | 8 | 16 | 0x80 | 0x100000)
+        ptrace(7, root_pid)
         live = {root_pid}
         injected = set()
         hits = 0
@@ -140,7 +163,7 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                     ptrace(0x4201, pid, 0, ctypes.byref(new))
                     live.add(new.value)
                 if (
-                    stop == (signal.SIGTRAP | 0x80)
+                    (stop == (signal.SIGTRAP | 0x80) or event == 7)
                     and pathlib.Path(f"/proc/{pid}").exists()
                 ):
                     info = ctypes.create_string_buffer(88)
@@ -149,7 +172,7 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                     except ProcessLookupError:
                         continue
                     op = info.raw[0]
-                    if op == 1 and pathlib.Path(work, "armed").exists():
+                    if op == 3 and pathlib.Path(work, "armed").exists():
                         number, *args = struct.unpack_from("7Q", info.raw, 24)
                         name, path = "", ""
                         try:
@@ -184,7 +207,7 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                         except (OSError, ValueError):
                             pass
                         relative = path.removeprefix(work)
-                        if name == "rename" and relative == "/installed":
+                        if syscall_name == "persistent" and name == "rename" and relative == "/installed":
                             committing.add(pid)
                         persistent = (
                             syscall_name == "persistent" and committed
@@ -216,7 +239,7 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                     if stop in (signal.SIGSTOP, signal.SIGTRAP, signal.SIGTRAP | 0x80)
                     else stop
                 )
-                ptrace(24, pid, 0, deliver)
+                ptrace(24 if pid in injected or pid in committing else 7, pid, 0, deliver)
             except ProcessLookupError:
                 continue
         returncode = os.waitstatus_to_exitcode(root_status)

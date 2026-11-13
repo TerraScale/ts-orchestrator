@@ -343,7 +343,7 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	} else if stale {
 		return Reply{State: "stale", Error: "an equal or newer run is installed"}
 	}
-	if err := h.install(ctx, binary, release.SHA, claims.RunID); err != nil {
+	if err := h.install(ctx, binary, release.SHA, claims); err != nil {
 		kind := RefusalHost
 		var integrity *integrityError
 		if errors.As(err, &integrity) {
@@ -445,7 +445,7 @@ func (h *Handler) olderRun(runID string) (bool, error) {
 	return false, nil
 }
 
-func (h *Handler) install(ctx context.Context, binary Binary, sha, run string) error {
+func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims Claims) error {
 	next := h.Binary + ".next"
 	data, err := h.download(ctx, binary.URL)
 	if err != nil {
@@ -468,7 +468,7 @@ func (h *Handler) install(ctx context.Context, binary Binary, sha, run string) e
 	if candidate.SHA != sha {
 		return &integrityError{errors.New("candidate revision differs from signed release")}
 	}
-	if err := prepareRecords(h, candidate, run); err != nil {
+	if err := prepareRecords(h, candidate, claims.RunID, claims.RunAttempt); err != nil {
 		return err
 	}
 	if err := os.Rename(next, h.Binary); err != nil {
