@@ -350,7 +350,7 @@ func (c *certificateCache) save(ctx context.Context, key string, data []byte) er
 	if current, ok := c.memory.Load(key); ok && !preferredCertificate(cert, current.(cachedCertificate).cert) {
 		return nil
 	}
-	err = c.local.Put(ctx, key, data)
+	err = c.persist(ctx, key, data)
 	c.memory.Store(key, cachedCertificate{cert, data})
 	if err != nil {
 		return err

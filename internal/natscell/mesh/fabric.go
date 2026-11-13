@@ -89,7 +89,7 @@ var (
 )
 
 var accountsConfig = fmt.Sprintf(`accounts {
-  %s { jetstream: { max_memory: 1M, max_file: 64M, max_streams: 3, max_consumers: 64 } }
+  %s {}
   %s { jetstream: { max_memory: 1G, max_file: 36G, max_streams: 64, max_consumers: 4096 } }
 }
 `, orchAccount, FabricAccount)
@@ -161,8 +161,8 @@ func (n *Node) routes() []*server.RouteInfo {
 
 func (n *Node) closeConns() {
 	n.conn.Close()
-	if n.fabric != nil {
-		n.fabric.Close()
+	if n.certificateConn != nil {
+		n.certificateConn.Close()
 	}
 }
 

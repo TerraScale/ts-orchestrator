@@ -52,7 +52,7 @@ func storeMain(ctx context.Context, cfg configuration) error {
 	}()
 	for i, address := range addresses {
 		options := &server.Options{}
-		if err := options.ProcessConfigString("accounts {\n $SYS { users: [{user:sys, password:journey}] }\n ORCH { jetstream: {max_memory:1M, max_file:64M, max_streams:3, max_consumers:64}, users: [{user:orch,password:journey}] }\n TERRABASE { jetstream: {max_memory:1M,max_file:1M,max_streams:1} }\n }\nsystem_account:'$SYS'"); err != nil {
+		if err := options.ProcessConfigString("accounts {\n $SYS { users: [{user:sys, password:journey}] }\n ORCH {}\n TERRABASE { jetstream: {max_memory:1G,max_file:36G,max_streams:64,max_consumers:4096}, users: [{user:orch,password:journey}] }\n }\nsystem_account:'$SYS'"); err != nil {
 			return err
 		}
 		options.Host, options.Port, options.NoSigs = address, mesh.LocalPort, true

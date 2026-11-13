@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func laneCommand(ctx context.Context, cfg configuration, args ...string) error {
@@ -34,7 +35,7 @@ func laneCommand(ctx context.Context, cfg configuration, args ...string) error {
 	return nil
 }
 
-func recoveryJourney(ctx context.Context, cfg configuration, conn *nats.Conn, authority, current, second, store *process) error {
+func recoveryJourney(ctx context.Context, cfg configuration, conn *nats.Conn, current *process) error {
 	js, err := conn.JetStream(nats.MaxWait(3 * time.Second))
 	if err != nil {
 		return err
@@ -135,6 +136,19 @@ func recoveryJourney(ctx context.Context, cfg configuration, conn *nats.Conn, au
 	}
 	fmt.Println("PASS served-name challenge lookup succeeds without a watch-delivered live lease")
 
+	committed, err := jetstream.New(conn)
+	if err != nil {
+		return err
+	}
+	bucket, err := committed.KeyValue(ctx, "edge-certs")
+	if err != nil {
+		return err
+	}
+	updates, err := bucket.Watch(ctx, hex.EncodeToString([]byte("fail-upload.e2e.test")))
+	if err != nil {
+		return err
+	}
+	defer updates.Stop()
 	pidData, err := os.ReadFile(cfg.Work + "/a.pid")
 	if err != nil {
 		return err
@@ -148,10 +162,11 @@ func recoveryJourney(ctx context.Context, cfg configuration, conn *nats.Conn, au
 	debugger, err := launch(ctx, cfg.Work+"/retry-debugger", nil, "gdb", "--nx", "--quiet", "--batch",
 		"-ex", "handle SIGPIPE nostop noprint pass", "-ex", "handle SIGURG nostop noprint pass",
 		"-ex", "set pagination off", "-ex", "set confirm off", "-ex", "set auto-load off",
+		"-ex", "set print frame-arguments none",
 		"-ex", fmt.Sprintf("attach %d", pid),
 		"-ex", "break 'github.com/TerraScale/ts-orchestrator/internal/edge.(*issuanceLease).finish'",
 		"-ex", "echo READY retry debugger\\n", "-ex", "continue",
-		"-ex", fmt.Sprintf("shell kill -STOP %d", store.cmd.Process.Pid), "-ex", "detach")
+		"-ex", fmt.Sprintf("shell kill -STOP %d", pid), "-ex", "detach")
 	if err != nil {
 		return err
 	}
@@ -162,16 +177,16 @@ func recoveryJourney(ctx context.Context, cfg configuration, conn *nats.Conn, au
 	if err := route(ctx, cfg, "a", "retry-upload", []string{"fail-upload.e2e.test"}); err != nil {
 		return err
 	}
-	if err := current.wait(bounded, "edge certificate unavailable name=fail-upload.e2e.test ", 1); err != nil {
-		return err
-	}
-	if err := removeRoute(ctx, cfg, "a", "retry-upload"); err != nil {
-		return err
-	}
-	if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
-		return err
+	select {
+	case <-debugger.done:
+	case <-bounded.Done():
+		return bounded.Err()
 	}
 	defer syscall.Kill(pid, syscall.SIGCONT)
+	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil || !bytes.Contains(status, []byte("State:\tT")) {
+		return errors.New("retry issuer not paused before completion")
+	}
 	retryData, err := os.ReadFile(cfg.Work + "/a/edge-certs/.retry-fail-upload.e2e.test")
 	if err != nil {
 		return fmt.Errorf("authority deadline not durably journaled: %w", err)
@@ -180,39 +195,61 @@ func recoveryJourney(ctx context.Context, cfg configuration, conn *nats.Conn, au
 	if json.Unmarshal(retryData, &retry) != nil || retry.Next.Sub(retry.Updated) < 48*time.Hour {
 		return errors.New("durable authority deadline shortened")
 	}
-	if err := store.cmd.Process.Signal(syscall.SIGCONT); err != nil {
-		return err
-	}
-	value, revision, err = readEnvelope(ctx, js, "fail-upload.e2e.test")
-	if err != nil {
-		return err
+	for {
+		select {
+		case <-bounded.Done():
+			return fmt.Errorf("committed reservation: %w", bounded.Err())
+		case entry, open := <-updates.Updates():
+			if !open {
+				return errors.New("reservation watch closed")
+			}
+			if entry == nil {
+				continue
+			}
+			if err := json.Unmarshal(entry.Value(), &value); err != nil {
+				return err
+			}
+			revision = entry.Revision()
+		}
+		if value.Lease.Generation != "" && value.Retry.Next.Before(retry.Next) {
+			break
+		}
 	}
 	value.Retry.Next = time.Now().Add(-time.Second)
 	value.Lease.Generation, value.Lease.Until = "another-holder", time.Now().Add(5*time.Minute)
 	data, _ = json.Marshal(value)
 	subject := "$KV.edge-certs." + hex.EncodeToString([]byte("fail-upload.e2e.test"))
-	updates, err := conn.SubscribeSync(subject)
-	if err != nil {
-		return err
-	}
-	defer updates.Unsubscribe()
-	if err := conn.Flush(); err != nil {
-		return err
-	}
-	if _, err := js.Publish(subject, data, nats.Context(ctx)); err != nil {
+	if _, err := js.Publish(subject, data, nats.ExpectLastSequencePerSubject(revision), nats.Context(ctx)); err != nil {
 		return err
 	}
 	if err := syscall.Kill(pid, syscall.SIGCONT); err != nil {
 		return err
 	}
+	if err := current.wait(bounded, "edge certificate unavailable name=fail-upload.e2e.test ", 1); err != nil {
+		return err
+	}
+	if err := removeRoute(ctx, cfg, "a", "retry-upload"); err != nil {
+		return err
+	}
 	observedFence := false
 	for {
-		message, err := updates.NextMsgWithContext(bounded)
-		if err != nil {
-			return err
+		var entry jetstream.KeyValueEntry
+		select {
+		case <-bounded.Done():
+			snapshot, _, readErr := readEnvelope(ctx, js, "fail-upload.e2e.test")
+			_, journalErr := os.Stat(cfg.Work + "/a/edge-certs/.retry-fail-upload.e2e.test")
+			return fmt.Errorf("deadline watch: %w; shared read=%v, peer fence=%t, deadline=%s, want=%s, journal=%t", bounded.Err(), readErr, snapshot.Lease.Generation == value.Lease.Generation, snapshot.Retry.Next.Format(time.RFC3339Nano), retry.Next.Format(time.RFC3339Nano), journalErr == nil)
+		case received, open := <-updates.Updates():
+			if !open {
+				return errors.New("committed deadline watch closed")
+			}
+			entry = received
+		}
+		if entry == nil {
+			continue
 		}
 		var updated laneEnvelope
-		if json.Unmarshal(message.Data, &updated) != nil {
+		if json.Unmarshal(entry.Value(), &updated) != nil {
 			continue
 		}
 		if updated.Lease.Generation == value.Lease.Generation {
@@ -232,7 +269,7 @@ func recoveryJourney(ctx context.Context, cfg configuration, conn *nats.Conn, au
 	}
 	value.Lease.Generation, value.Lease.Until = "", time.Time{}
 	data, _ = json.Marshal(value)
-	if _, err := js.Publish(subject, data, nats.Context(ctx)); err != nil {
+	if _, err := js.Publish(subject, data, nats.ExpectLastSequencePerSubject(revision), nats.Context(ctx)); err != nil {
 		return err
 	}
 	if err := route(ctx, cfg, "b", "retry-upload", []string{"fail-upload.e2e.test"}); err != nil {

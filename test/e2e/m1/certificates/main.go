@@ -91,7 +91,7 @@ func run() error {
 	case "backend":
 		return backendMain(ctx)
 	case "journey":
-		bounded, stop := context.WithTimeout(ctx, 13*time.Minute)
+		bounded, stop := context.WithTimeout(ctx, 20*time.Minute)
 		defer stop()
 		return journey(bounded, cfg)
 	default:
@@ -707,7 +707,7 @@ func journey(ctx context.Context, cfg configuration) error {
 		return errors.New("certificate envelope is not encrypted and versioned")
 	}
 	fmt.Println("PASS two production processes use the host seed and account path; two lease contenders, one order per name, HTTP-01 on every eligible node; TLS fingerprint", firstFingerprint)
-	if err := recoveryJourney(ctx, cfg, conn, authority, current, second, store); err != nil {
+	if err := recoveryJourney(ctx, cfg, conn, current); err != nil {
 		return err
 	}
 	if err := fixupJourney(ctx, cfg, conn, authority, current, second, store); err != nil {

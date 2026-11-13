@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,7 +51,7 @@ func issuedState(data []byte) (certificateLocalState, bool) {
 }
 
 func (c *certificateCache) completeLocal(ctx context.Context, key string, data []byte, state certificateLocalState) error {
-	if err := c.local.Put(ctx, key, stripIssuedState(data)); err != nil {
+	if err := c.persist(ctx, key, stripIssuedState(data)); err != nil {
 		return err
 	}
 	if value, ok := c.memory.Load(key); ok {
@@ -66,7 +68,7 @@ func (c *certificateCache) saveRetry(ctx context.Context, key string, retry cert
 	if err != nil {
 		return err
 	}
-	return c.local.Put(ctx, ".retry-"+key, data)
+	return c.persist(ctx, ".retry-"+key, data)
 }
 
 func (c *certificateCache) publishRetry(ctx context.Context, key string) error {
@@ -116,16 +118,18 @@ func (c *certificateCache) repair(ctx context.Context, key string) error {
 	if revision == 0 {
 		return errors.New("edge: repair requires an existing record")
 	}
-	if value.Version != "v1" {
-		return errors.New("edge: repair refuses an unsupported envelope version")
+	c.mu.Lock()
+	keyID := c.keyID
+	c.mu.Unlock()
+	if value.Version != "v1" || value.KeyID != keyID {
+		return errors.New("edge: repair refuses an unsupported envelope version or key identifier")
 	}
 	if _, err := c.decode(value, key); err == nil || errors.Is(err, autocert.ErrCacheMiss) {
 		return errors.New("edge: record does not require repair")
 	}
 	c.mu.Lock()
-	seal, keyID := c.seal, c.keyID
+	seal := c.seal
 	c.mu.Unlock()
-	value.KeyID = keyID
 	value.Data = seal.Seal(nil, nil, stripIssuedState(local), []byte(key))
 	if _, err := c.write(ctx, key, value, revision); err != nil {
 		return err
@@ -146,4 +150,25 @@ func (e *Edge) certificateRoster() (string, []string, error) {
 
 func certificateName(key string) string {
 	return strings.TrimSuffix(key, "+rsa")
+}
+
+func (c *certificateCache) persist(ctx context.Context, key string, data []byte) error {
+	if filepath.Base(key) != key || key == "." || key == ".." {
+		return errors.New("edge: invalid local certificate key")
+	}
+	if err := c.local.Put(ctx, key, data); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(filepath.Join(string(c.local), key), os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	if err := errors.Join(file.Sync(), file.Close()); err != nil {
+		return err
+	}
+	directory, err := os.Open(string(c.local))
+	if err != nil {
+		return err
+	}
+	return errors.Join(directory.Sync(), directory.Close())
 }

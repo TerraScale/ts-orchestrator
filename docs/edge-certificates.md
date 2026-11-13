@@ -156,8 +156,14 @@ Shared tokens are bound to the host and expire after ten minutes.
 
 Certificates and their persistent lease/cooldown metadata share one 16 MiB,
 three-replica bucket. HTTP-01 tokens use a separate 1 MiB, three-replica bucket.
-An older unused lease bucket can remain within the existing three-stream,
-64 MiB account limit; this build neither depends on nor writes it.
+The buckets use the existing fabric account and its existing storage budget,
+so older metadata leaders can serve certificate operations during rollout;
+introducing JetStream in an account unsupported by an older metadata leader
+would prevent urgent orders. Fabric clients can access the encrypted records;
+decrypting the private keys still requires the mesh-derived key. The local
+root operator uses the host's owner-only fabric credential for repair.
+An older unused lease bucket can remain; this build neither depends on nor
+writes it.
 
 ## Holdings evidence and rollout
 
@@ -205,10 +211,10 @@ ts-orch edge certificates repair --state /var/lib/ts-orch example.com ecdsa
 
 The command reads the local key pair, validates its name, variant and validity,
 then reads the shared record and conditionally replaces only its encrypted
-certificate and key identifier at that revision. It preserves all lease and
+certificate at that revision. It preserves all lease and
 cooldown fields. A concurrent update makes the command fail; inspect the new
 record before explicitly running it again. It refuses absent records, readable
-records and any format version other than v1, including a newer version. A
+records, unknown key identifiers and any format version other than v1, including a newer version. A
 newer reader must handle those records; repair never overwrites them.
 
 Verify that the blocked count clears after reconciliation and that both HTTPS

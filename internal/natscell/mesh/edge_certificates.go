@@ -2,12 +2,15 @@ package mesh
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/nats-io/nats.go"
 )
 
 func (n *Node) EdgeCertificateStore() (*nats.Conn, []byte, error) {
-	return n.conn, n.cfg.ca.key.Seed(), nil
+	return n.certificateConn, n.cfg.ca.key.Seed(), nil
 }
 
 func (n *Node) EdgeCertificateNodes() (string, []string, error) {
@@ -47,7 +50,11 @@ func EdgeCertificateClient(ctx context.Context, state string) (*nats.Conn, []byt
 	if err != nil {
 		return nil, nil, err
 	}
-	conn, err := Connect(state)
+	token, err := os.ReadFile(filepath.Join(state, "mesh", "fabric.token"))
+	if err != nil {
+		return nil, nil, err
+	}
+	conn, err := dialLocal(LocalPort, fabricUser, strings.TrimSpace(string(token)))
 	if err != nil {
 		return nil, nil, err
 	}
