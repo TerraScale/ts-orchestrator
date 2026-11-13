@@ -129,7 +129,7 @@ func serveRegion(ctx context.Context, args []string) {
 	closePrivate()
 	h.Verifier.JWKSURL = jwks
 	h.Client = &http.Client{Transport: redirect{binaryURL}}
-	h.Health = func(context.Context) error { return nil }
+	h.Health = func(context.Context, string) releasepush.HealthResult { return releasepush.HealthResult{} }
 	options, err := releasepush.Options(work, nil)
 	must(err)
 	options.Host, options.CustomClientAuthentication = "127.0.0.1", nil

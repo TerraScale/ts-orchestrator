@@ -42,17 +42,17 @@ func rolloutCases(ctx context.Context) {
 	founder.Binary, founder.Revision, founder.Verifier = accepted, release.SHA, verifier
 	later.Binary, later.Revision, later.Verifier = accepted, release.SHA, verifier
 	var broken atomic.Bool
-	founder.Health = func(context.Context) error {
+	founder.Health = func(context.Context, string) releasepush.HealthResult {
 		if broken.Load() {
-			return errors.New("candidate health broken")
+			return releasepush.HealthResult{Service: errors.New("candidate health broken")}
 		}
-		return nil
+		return releasepush.HealthResult{}
 	}
-	later.Health = func(context.Context) error {
+	later.Health = func(context.Context, string) releasepush.HealthResult {
 		if broken.Load() {
-			return errors.New("services unreadable")
+			return releasepush.HealthResult{Service: errors.New("services unreadable")}
 		}
-		return nil
+		return releasepush.HealthResult{}
 	}
 	var visited atomic.Bool
 	later.Relay = func([]byte, nats.Header) { visited.Store(true) }
