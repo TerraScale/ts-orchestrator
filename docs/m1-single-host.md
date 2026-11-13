@@ -189,7 +189,11 @@ the trial and resumes once the underlying filesystem problem is repaired.
 Push waits from the deadline the host reports, using the same bound as the
 guard rather than a fixed three minutes. While startup is still underway it
 prints "accepted, still in probation until <time>" and continues observing;
-it reports success only after observing the requested revision serving.
+it reports success only after observing the requested revision serving. A
+binary-only predecessor cannot report a probation deadline: the pusher keeps
+observing the accepted release, reporting "accepted, waiting for host probation
+deadline" until it observes the new host deadline or requested revision. The
+command context bounds that handoff instead of rejecting an accepted install.
 Restoration is reported as rolled_back only after the previous agent
 reports that rollback record; an unresolved recovery reports its deadline
 rather than claiming a rollback. A repeat of the same failed run is refused;

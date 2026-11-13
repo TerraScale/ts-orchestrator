@@ -338,9 +338,6 @@ func PushRegion(ctx context.Context, region Region, release OrchRelease, output 
 		return fail(fmt.Errorf("release %s: %s", reply.State, reply.Error))
 	}
 	deadline := reply.Deadline
-	if deadline.IsZero() && reply.State == "installed" {
-		return fail(errors.New("accepted release did not report its probation deadline"))
-	}
 	notice := time.NewTimer(probationWait)
 	defer notice.Stop()
 	for {
@@ -360,15 +357,19 @@ func PushRegion(ctx context.Context, region Region, release OrchRelease, output 
 		if !deadline.IsZero() && time.Now().After(deadline.Add(guardEvery+PlanningWindow)) {
 			return fail(fmt.Errorf("release has not confirmed after recovery deadline %s", deadline.UTC().Format(time.RFC3339)))
 		}
+		probation := "accepted, waiting for host probation deadline"
+		if !deadline.IsZero() {
+			probation = "accepted, still in probation until " + deadline.UTC().Format(time.RFC3339)
+		}
 		if ctx.Err() != nil {
-			return fail(fmt.Errorf("accepted, still in probation until %s: %w", deadline.UTC().Format(time.RFC3339), ctx.Err()))
+			return fail(fmt.Errorf("%s: %w", probation, ctx.Err()))
 		}
 		select {
 		case <-ctx.Done():
 		case <-notice.C:
 			progress := result
 			progress.State = "probation"
-			progress.Health = "accepted, still in probation until " + deadline.UTC().Format(time.RFC3339)
+			progress.Health = probation
 			if err := json.NewEncoder(output).Encode(progress); err != nil {
 				return fail(err)
 			}
