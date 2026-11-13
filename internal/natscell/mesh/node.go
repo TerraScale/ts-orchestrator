@@ -149,7 +149,7 @@ type config struct {
 	clusterHost            string
 	clusterAdvertise       string
 	clusterPort, localPort int
-	seeds                  map[string]string
+	seeds                  map[string][]string
 	routes                 []string
 	ca                     *CA
 	terrabaseToken         string  // TerraBase's client token, from Vault

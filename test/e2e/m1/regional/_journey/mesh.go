@@ -85,7 +85,7 @@ func RegionalPeersJourney(root string) error {
 	}
 	defer workerExecutor.Close()
 	worker, err := swarmruntime.StartSingleHost(ctx, workerState, workerExecutor, "127.0.0.1:0", "127.0.0.1:0",
-		swarmruntime.JoinerAdmission("regional-worker", "regional-worker", address, clusters.Clusters[0].RootCA.JoinTokens.Worker, "container"))
+		swarmruntime.JoinerAdmission("regional-worker", "regional-worker", address, clusters.Clusters[0].RootCA.JoinTokens.Worker))
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func RegionalPeersJourney(root string) error {
 		}
 		return config{region: region, server: name, dir: filepath.Join(root, name), ca: ca, terrabaseToken: strings.Repeat("t", 32),
 			clusterHost: "127.0.0.1", clusterPort: cluster, clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", cluster), localPort: local,
-			seeds:   map[string]string{other: fmt.Sprintf("nats://127.0.0.1:%d", remote)},
+			seeds:   map[string][]string{other: {fmt.Sprintf("nats://127.0.0.1:%d", remote)}},
 			applier: swarmApplier{state: managerState, region: region}, every: time.Second, peersEvery: 250 * time.Millisecond,
 			peersDir: filepath.Join(root, name+"-files"), address: func() (string, error) { return ip, nil }}
 	}

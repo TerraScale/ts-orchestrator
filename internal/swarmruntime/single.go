@@ -40,8 +40,10 @@ func FounderAdmission() Admission {
 	return Admission{Region: "local", HostID: singleHostID, InstanceID: singleHostID, FounderID: singleHostID, Role: "manager"}
 }
 
-func JoinerAdmission(hostname, instanceID, manager, token, role string) Admission {
-	return Admission{Region: "local", HostID: hostname, InstanceID: instanceID, FounderID: singleHostID, Role: role,
+// JoinerAdmission is a container worker that joins the founder's cluster with
+// Vault-delivered join material.
+func JoinerAdmission(hostname, instanceID, manager, token string) Admission {
+	return Admission{Region: "local", HostID: hostname, InstanceID: instanceID, FounderID: singleHostID, Role: "container",
 		ManagerAddress: manager, JoinToken: token}
 }
 
@@ -58,6 +60,9 @@ func StoredAdmission(stateDir string) (Admission, bool, error) {
 	var stored admittedIdentity
 	if err := json.Unmarshal(data, &stored); err != nil {
 		return Admission{}, false, fmt.Errorf("read swarm admission: %w", err)
+	}
+	if err := reconcileAdmissionRole(context.Background(), SingleHostSwarmDir(stateDir), &stored); err != nil {
+		return Admission{}, false, err
 	}
 	return Admission{Region: stored.Region, HostID: stored.HostID, InstanceID: stored.InstanceID, FounderID: stored.FounderID, Role: stored.Role}, true, nil
 }
@@ -83,15 +88,15 @@ func StartSingleHost(ctx context.Context, stateDir string, executor exec.Executo
 	if err != nil {
 		return nil, err
 	}
-	if admission.Role != "manager" {
-		return node, nil // a worker has no control socket
-	}
 	link := SingleHostSocket(stateDir)
 	if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, errors.Join(err, node.Stop(context.WithoutCancel(ctx)))
 	}
 	if err := os.Symlink(filepath.Join("swarm", "control.sock"), link); err != nil {
 		return nil, errors.Join(err, node.Stop(context.WithoutCancel(ctx)))
+	}
+	if !node.IsManager() {
+		return node, nil
 	}
 	if err := removeIngressNetwork(ctx, stateDir); err != nil {
 		return nil, errors.Join(err, node.Stop(context.WithoutCancel(ctx)))

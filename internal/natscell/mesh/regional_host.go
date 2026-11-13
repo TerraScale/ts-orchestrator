@@ -11,7 +11,7 @@ type RegionalHost struct {
 	State, Region, Server string
 	CA                    *CA
 	TerraBaseToken        string
-	Seeds                 map[string]string
+	Seeds                 map[string][]string
 	Routes                []string
 	ClusterAddress        string
 	Address               func() (string, error)

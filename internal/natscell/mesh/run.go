@@ -44,23 +44,59 @@ const (
 // local serving: Run logs and retries, and gateways reconnect on their own.
 func Run(ctx context.Context, state string, cluster Cluster, started func(*Node)) {
 	for {
-		node, err := startHost(ctx, state, cluster)
+		admission, stored, err := swarmruntime.StoredAdmission(state)
+		if err == nil && stored {
+			cluster.Worker = admission.Role != "manager"
+		}
+		runCtx, cancel := context.WithCancel(ctx)
+		var node *Node
+		if err == nil {
+			node, err = startHost(runCtx, state, cluster)
+		}
 		if err == nil {
 			slog.InfoContext(ctx, "mesh started", "region", node.cfg.region, "server", node.cfg.server)
 			started(node)
 			go node.servePeerMetrics(node.ctx)
-			node.Run(ctx)
+			go watchHostRole(runCtx, state, cluster.Worker, cancel)
+			node.Run(runCtx)
+			roleChanged := runCtx.Err() != nil
+			cancel()
 			node.Close()
 			if ctx.Err() != nil {
 				return
 			}
+			if roleChanged {
+				continue
+			}
 			err = errors.New("mesh node stopped")
 		}
+		cancel()
 		slog.WarnContext(ctx, "mesh start failed; retrying", "error", err)
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(retryEvery):
+		}
+	}
+}
+
+func watchHostRole(ctx context.Context, state string, worker bool, cancel context.CancelFunc) {
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			admission, stored, err := swarmruntime.StoredAdmission(state)
+			if err != nil {
+				slog.WarnContext(ctx, "mesh host role unavailable", "error", err)
+				continue
+			}
+			if stored && (admission.Role != "manager") != worker {
+				cancel()
+				return
+			}
 		}
 	}
 }
@@ -102,13 +138,13 @@ func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseTok
 			return nil, err
 		}
 	}
-	seeds := map[string]string{}
+	seeds := map[string][]string{}
 	for _, peer := range Regions() {
 		if peer == region {
 			continue
 		}
 		for _, manager := range []string{"1", "2", "3"} {
-			seeds[peer+"-"+manager] = fmt.Sprintf("nats://ts-%s-%s.%s:%d", peer, manager, netBirdDomain, ClusterPort)
+			seeds[peer] = append(seeds[peer], fmt.Sprintf("nats://ts-%s-%s.%s:%d", peer, manager, netBirdDomain, ClusterPort))
 		}
 	}
 	var advertise string

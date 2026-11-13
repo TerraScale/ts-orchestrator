@@ -30,6 +30,9 @@ func seed() error {
 		defer cancel()
 		_ = manager.Stop(stop)
 	}()
+	if os.Args[2] == "promotion" {
+		return promotionJourney(ctx, state, manager)
+	}
 	if os.Args[2] == "worker" {
 		client, conn, err := swarmruntime.DialSingleHost(filepath.Join(state, "manager"))
 		if err != nil {
@@ -41,7 +44,7 @@ func seed() error {
 			return err
 		}
 		worker, err := swarmruntime.StartSingleHost(ctx, filepath.Join(state, "worker"), executor,
-			"127.0.0.1:4243", "127.0.0.1:4243", swarmruntime.JoinerAdmission("worker", "instance", "127.0.0.1:4242", clusters.Clusters[0].RootCA.JoinTokens.Worker, "container"))
+			"127.0.0.1:4243", "127.0.0.1:4243", swarmruntime.JoinerAdmission("worker", "instance", "127.0.0.1:4242", clusters.Clusters[0].RootCA.JoinTokens.Worker))
 		if err != nil {
 			return err
 		}

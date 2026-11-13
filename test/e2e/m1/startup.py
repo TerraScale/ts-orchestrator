@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 CASES = (
+    "promotion",
     "fresh-outage",
     "worker-outage",
     "manager-match",
@@ -83,6 +84,17 @@ def run_case(binary, seed_binary, root, case):
     subprocess.run(["ip", "addr", "add", "169.254.169.254/32", "dev", "lo"], check=True)
     work = root / case
     work.mkdir()
+    if case == "promotion":
+        result = subprocess.run(
+            [seed_binary, str(work), "promotion"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        require(result.returncode == 0, result.stdout[-1000:] + result.stderr[-6000:])
+        print(result.stdout.strip(), flush=True)
+        return
     firmware = work / "sys/class/dmi/id"
     firmware.mkdir(parents=True)
     for field in ("board_asset_tag", "product_serial", "product_uuid"):
@@ -267,7 +279,7 @@ def run_case(binary, seed_binary, root, case):
             role = "container" if case.startswith("worker-") else "manager"
             address = (
                 "127.0.0.1:4242"
-                if case.startswith("worker-") or case == "manager-match"
+                if case in ("worker-outage", "manager-match")
                 else "127.0.0.2:4242"
             )
             require(

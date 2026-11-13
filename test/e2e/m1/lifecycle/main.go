@@ -97,7 +97,7 @@ func node(ctx context.Context, root, name string) error {
 		}); err != nil {
 			return err
 		}
-		admission = swarmruntime.JoinerAdmission(name, name, "10.231.0.2:4242", string(token), "container")
+		admission = swarmruntime.JoinerAdmission(name, name, "10.231.0.2:4242", string(token))
 	}
 	node, err := swarmruntime.StartSingleHost(ctx, state, executor, address, address, admission)
 	if err != nil {

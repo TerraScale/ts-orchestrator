@@ -37,6 +37,9 @@ func ListMembers(ctx context.Context, client api.ControlClient) ([]Member, error
 	return members, nil
 }
 
+// LeaveMember drains the worker named hostname, waits until none of its tasks
+// runs, then removes it from the cluster. The removed host cannot rejoin with
+// its old identity; it is retired or rebuilt from empty state.
 func LeaveMember(ctx context.Context, client api.ControlClient, hostname string) error {
 	node, err := memberNode(ctx, client, hostname)
 	if err != nil {
@@ -46,9 +49,10 @@ func LeaveMember(ctx context.Context, client api.ControlClient, hostname string)
 		if readyManagers(ctx, client) < 2 {
 			return fmt.Errorf("%s is the region's last ready manager; it cannot leave", hostname)
 		}
-		if node.Spec.DesiredRole != api.NodeRoleWorker {
+		if node.Spec.DesiredRole != api.NodeRoleWorker || node.Spec.Availability != api.NodeAvailabilityDrain {
 			spec := node.Spec.Copy()
 			spec.DesiredRole = api.NodeRoleWorker
+			spec.Availability = api.NodeAvailabilityDrain
 			if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec}); err != nil {
 				return fmt.Errorf("demote %s: %w", hostname, err)
 			}

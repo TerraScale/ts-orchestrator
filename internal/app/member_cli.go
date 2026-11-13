@@ -15,8 +15,8 @@ import (
 )
 
 const memberCLIUsage = `usage:
-  ts-orch member ls                List the hosts of this region's cluster
-  ts-orch member leave <hostname>     Drain a worker, wait for its tasks to stop, remove it
+  ts-orch member ls                List the managers and workers of this region's cluster
+  ts-orch member leave <hostname>     Demote a manager (unless last READY), drain and remove a host
   ts-orch member drain <hostname>     Run no task on a worker; it stays joined
   ts-orch member activate <hostname>  Let a worker run its region's per-node services again
 `
