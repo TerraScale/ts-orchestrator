@@ -13,8 +13,7 @@ healthy bake before another region can advance. A continuous dependency failure
 at thirty seconds holds the generation. A flapping dependency may keep the bake
 waiting for its healthy window for up to two more minutes (150 seconds in all).
 A bake that fails only on dependency recovery is reported `excused`
-(`dependencyOnly` in its verdict): its region holds the generation, and later
-regions still roll it, because the candidate did not regress. Candidate, catalog-anchor,
+(`dependencyOnly` in its verdict). It holds advancement just as a candidate failure does. Candidate, catalog-anchor,
 writer-wait and log-coverage failures always hold immediately, including during
 dependency recovery.
 
@@ -54,19 +53,30 @@ readiness needs at most 12 minutes in three regions. A healthy
 region with a 10-second startup and short pull now finishes in under 60 seconds;
 dependency recovery and readiness failures may take longer.
 
-An unfinished or failed bake cannot admit another region; an excused one can. A missing earlier
-region also holds advancement. Failed bakes survive restart and reconciliation;
-a clean orchestrator shutdown during an unfinished bake restarts its full window.
-A crash with no durable verdict holds for a fresh generation.
+An unfinished, failed or dependency-only bake cannot admit another region. A missing earlier
+region also holds advancement. A completed bake admits the next region only while
+the candidate still serves its desired replicas and readiness endpoint. Failed bakes survive restart and reconciliation;
+an orchestrator restart during an unfinished bake restarts its full window,
+including after an abrupt process exit. A persisted completed failure stays terminal.
 Evidence-write failures retry persistence without reevaluating the candidate.
 
 Fix forward by publishing a corrected image through the existing authorized
 release path. After repairing a dependency, a new apply of the same image also
-creates a fresh generation and evaluates a new bake. Existing canary holds remain
-until `service resume`; resume still evaluates the bake. Later regions retain
+creates a fresh generation and evaluates a new bake. Unsigned operator canary holds remain
+until `service resume`; resume still evaluates the bake. Signed TerraBase releases
+retain a first-region hold derived from the rollout order. They advance automatically
+after that region completes its bake and is serving; no region name is fixed in
+the gate. Signed releases use the declared all-region placement. Each subsequent
+region requires the same evidence from every earlier region. Later regions retain
 their serving tasks during a failure. TerraBase updates pause on failure, and
 neither mesh apply nor signed release automatically restores an older storage
 binary. Signed release, runtime identity and peer admission checks still apply.
 
 The retired `operator terrabase update` placement path is outside the active
 SwarmKit mesh deployment path; this gate is implemented in the latter.
+
+Release health requests may name one service. The response combines mesh health
+with that service's current replicas and readiness; an unnamed orchestrator health
+request checks the mesh. An unrelated service's replica shortage does not block
+the named service's release. The deployment-lag monitor reports TerraBase lag
+under the same publication and release-history rules as other services.

@@ -34,11 +34,6 @@ var apps = []app{
 	{"ts-dashboard", "terrascale", "images-ghcr.yml", []string{"Publish and release"}},
 }
 
-// held services are released by hand for now: reported, never a failure.
-var held = map[string]string{
-	"terrabase": "released by hand until the TerraBase batch-2 wipe (terrascale #408, #398)",
-}
-
 type api struct {
 	client                *http.Client
 	readToken, writeToken string
@@ -244,16 +239,11 @@ walk:
 			}
 		}
 	}
-	return append(report(x, unread), report(x, finding)...), nil
+	return append(report(unread), report(finding)...), nil
 }
 
-// report turns a held service's finding into a log line.
-func report(x app, finding string) []string {
+func report(finding string) []string {
 	if finding == "" {
-		return nil
-	}
-	if reason, ok := held[x.service]; ok {
-		fmt.Println("held:", finding[2:], "-", reason)
 		return nil
 	}
 	return []string{finding}
