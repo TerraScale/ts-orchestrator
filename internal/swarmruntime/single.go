@@ -201,3 +201,11 @@ func DialSingleHostWithCA(stateDir string, root []byte) (api.ControlClient, *grp
 	}
 	return singleHostControl{ControlClient: api.NewControlClient(conn), state: stateDir}, conn, nil
 }
+
+func SingleHostNodeID(ctx context.Context, stateDir string) (string, error) {
+	certificate, err := nodeCertificate(ctx, SingleHostSwarmDir(stateDir))
+	if err != nil {
+		return "", err
+	}
+	return certificate.Subject.CommonName, nil
+}

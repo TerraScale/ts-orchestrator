@@ -47,7 +47,6 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(vaultsecret.ReadGHCRPullToken)); err != nil {
 		return err
 	}
-	manager := plan.admission.Role == "manager"
 	if plan.region != "" && plan.address != "" {
 		if err := swarmruntime.OpenFirewall(ctx, plan.address, plan.vcnCIDR); err != nil {
 			fmt.Fprintf(output, "swarm firewall: %v\n", err)
@@ -66,9 +65,6 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	healthCtx, stopHealth := context.WithCancel(ctx)
 	defer stopHealth()
 	go hostmetrics.Run(healthCtx, plan.region, executor)
-	if !manager {
-		go syncHostTargets(healthCtx)
-	}
 	go executor.ReapExitedTasks(healthCtx)
 	failed := make(chan error, 2)
 	go func() {
@@ -117,7 +113,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		return err
 	}
 	if plan.region != "" {
-		go serveHostReleases(ctx, state, plan.region, node.ID(), plan.joiner(), releases)
+		go serveHostReleases(ctx, state, plan.region, node, releases)
 	}
 	notifier := sdnotify.Process()
 	if err := notifier.Ready("single-host node ready"); err != nil {
@@ -164,15 +160,26 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 func runManagerServices(ctx context.Context, state string, plan hostPlan, node *swarmruntime.Node, executor *swarmruntime.Executor, failed chan<- error) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
-	for {
-		if node.IsManager() {
-			serveManagerRole(ctx, state, plan, node, executor, failed)
+	for ctx.Err() == nil {
+		manager := node.IsManager()
+		serving, stop := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			if manager {
+				serveManagerRole(serving, state, plan, node, executor, failed)
+			} else {
+				syncHostTargets(serving)
+			}
+		}()
+		for ctx.Err() == nil && node.IsManager() == manager {
+			select {
+			case <-ctx.Done():
+			case <-tick.C:
+			}
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
+		stop()
+		<-done
 	}
 }
 
@@ -180,7 +187,15 @@ func serveManagerRole(ctx context.Context, state string, plan hostPlan, node *sw
 	serving, stop := context.WithCancel(ctx)
 	defer stop()
 	go regionhealth.Run(serving, state)
-	go syncSLOTargets(serving, state, plan.region, executor)
+	targetsDone := make(chan struct{})
+	go func() {
+		defer close(targetsDone)
+		syncSLOTargets(serving, state, plan.region, executor)
+	}()
+	defer func() {
+		stop()
+		<-targetsDone
+	}()
 	if plan.region != "" {
 		go publishJoin(serving, state, plan, node.ID())
 		go func() {
@@ -444,23 +459,40 @@ func relayRelease(ctx context.Context, state, region string, request []byte) []r
 	return releasepush.RelayWorkers(ctx, conn, protocol.MeshWorkerReleasePrefix+region, request, nodes)
 }
 
-func serveHostReleases(ctx context.Context, state, region, host string, worker bool, releases *releasepush.Handler) {
+func serveHostReleases(ctx context.Context, state, region string, node *swarmruntime.Node, releases *releasepush.Handler) {
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
 	for ctx.Err() == nil {
+		worker := !node.IsManager()
+		roleChanged := false
 		conn, err := mesh.Connect(state)
 		if err == nil {
 			closed := make(chan struct{})
 			conn.SetClosedHandler(func(*nats.Conn) { close(closed) })
-			err = releases.ServeHostVersion(conn, region, host)
+			err = releases.ServeHostVersion(conn, region, node.ID())
 			if err == nil && worker {
-				err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region, host)
+				err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region, node.ID())
 			}
 			if err == nil {
-				select {
-				case <-ctx.Done():
-				case <-closed:
+			wait:
+				for {
+					select {
+					case <-ctx.Done():
+						break wait
+					case <-closed:
+						break wait
+					case <-tick.C:
+						if worker == node.IsManager() {
+							roleChanged = true
+							break wait
+						}
+					}
 				}
 			}
 			conn.Close()
+		}
+		if roleChanged {
+			continue
 		}
 		if err != nil {
 			slog.WarnContext(ctx, "worker release subscription failed; retrying", "error", err)

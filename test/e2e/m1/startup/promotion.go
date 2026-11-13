@@ -47,6 +47,11 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 		if err := awaitPromotionReady(ctx, client, watcher, len(workers)+1, 1); err != nil {
 			return err
 		}
+		admission := swarmruntime.JoinerAdmission(fmt.Sprintf("worker-%d", i), fmt.Sprintf("instance-%d", i), "", "")
+		admission.Region = "sa-saopaulo-1"
+		if _, err := swarmruntime.AdmitNode(ctx, client, worker.ID(), admission); err != nil {
+			return err
+		}
 		if err := swarmruntime.PromoteManagers(ctx, client, watcher, manager.ID()); err != nil {
 			return err
 		}
@@ -66,6 +71,9 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 		}
 	}
 	if err := awaitPromotionReady(ctx, client, watcher, 3, 3); err != nil {
+		return err
+	}
+	if err := meshPromotionJourney(ctx, state, append([]*swarmruntime.Node{manager}, workers...)); err != nil {
 		return err
 	}
 	workerState := filepath.Join(state, "worker-0")
@@ -138,7 +146,7 @@ func awaitPromotionReady(ctx context.Context, client api.ControlClient, watcher 
 		for _, node := range listed.Nodes {
 			if node.Status.State == api.NodeStatus_READY {
 				ready++
-				if node.Role == api.NodeRoleManager && node.ManagerStatus != nil {
+				if node.Role == api.NodeRoleManager && node.ManagerStatus != nil && node.ManagerStatus.Reachability == api.RaftMemberStatus_REACHABLE {
 					readyManagers++
 				}
 			}

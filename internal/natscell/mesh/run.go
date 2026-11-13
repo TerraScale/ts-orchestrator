@@ -143,8 +143,17 @@ func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseTok
 		if peer == region {
 			continue
 		}
+		seeds[peer] = nil
 		for _, manager := range []string{"1", "2", "3"} {
-			seeds[peer] = append(seeds[peer], fmt.Sprintf("nats://ts-%s-%s.%s:%d", peer, manager, netBirdDomain, ClusterPort))
+			name := fmt.Sprintf("ts-%s-%s.%s", peer, manager, netBirdDomain)
+			lookup, cancel := context.WithTimeout(ctx, 2*time.Second)
+			addresses, err := net.DefaultResolver.LookupHost(lookup, name)
+			cancel()
+			if err != nil || len(addresses) == 0 {
+				slog.InfoContext(ctx, "mesh seed skipped; name does not resolve", "host", name)
+				continue
+			}
+			seeds[peer] = append(seeds[peer], fmt.Sprintf("nats://%s:%d", name, ClusterPort))
 		}
 	}
 	var advertise string

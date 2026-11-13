@@ -7,7 +7,10 @@ import (
 	"net/netip"
 	"os/exec"
 	"strconv"
+	"sync"
 )
+
+var firewallCIDRLog sync.Once
 
 func OpenFirewall(ctx context.Context, privateIP, vcnCIDR string) error {
 	vcn, err := netip.ParsePrefix(vcnCIDR)
@@ -17,7 +20,9 @@ func OpenFirewall(ctx context.Context, privateIP, vcnCIDR string) error {
 	}
 	if err != nil || !vcn.Contains(ip) || vcn.Bits() == 0 {
 		vcn = netip.PrefixFrom(ip, 16).Masked()
-		slog.WarnContext(ctx, "IMDS VCN CIDR unavailable; restricting SwarmKit to private address /16", "source", vcn.String())
+		firewallCIDRLog.Do(func() {
+			slog.InfoContext(ctx, "IMDS VCN CIDR unavailable; restricting SwarmKit to private address /16", "source", vcn.String())
+		})
 	}
 	rule := []string{"INPUT", "-s", vcn.Masked().String(), "-p", "tcp", "--dport", strconv.Itoa(SwarmPort), "-j", "ACCEPT"}
 	if exec.CommandContext(ctx, "iptables", append([]string{"-C"}, rule...)...).Run() != nil {

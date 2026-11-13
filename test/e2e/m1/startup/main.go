@@ -12,6 +12,9 @@ import (
 )
 
 func seed() error {
+	if os.Args[2] == "promotion-mesh" {
+		return servePromotionMesh()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := os.Args[1]

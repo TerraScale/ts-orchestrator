@@ -2,13 +2,13 @@ package swarmruntime
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
 
 	"github.com/moby/swarmkit/v2/ca"
-	"github.com/moby/swarmkit/v2/manager"
 )
 
 func reconcileAdmissionRole(ctx context.Context, state string, identity *admittedIdentity) error {
@@ -21,18 +21,11 @@ func reconcileAdmissionRole(ctx context.Context, state string, identity *admitte
 	} else if err != nil {
 		return err
 	}
-	root, err := ca.GetLocalRootCA(paths.RootCA)
+	certificate, err := nodeCertificate(ctx, state)
 	if err != nil {
 		return err
 	}
-	security, cleanup, err := ca.LoadSecurityConfig(ctx, root, ca.NewKeyReadWriter(paths.Node, nil, &manager.RaftDEKData{}), false)
-	if err != nil {
-		return err
-	}
-	role := security.ClientTLSCreds.Role()
-	if err := cleanup(); err != nil {
-		return err
-	}
+	role := certificate.Subject.OrganizationalUnit[0]
 	updated := *identity
 	switch {
 	case role == ca.ManagerRole && identity.Role == "container":
@@ -62,4 +55,30 @@ func reconcileAdmissionRole(ctx context.Context, state string, identity *admitte
 	}
 	*identity = updated
 	return nil
+}
+
+func nodeCertificate(ctx context.Context, state string) (*x509.Certificate, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	paths := ca.NewConfigPaths(filepath.Join(state, "certificates"))
+	root, err := ca.GetLocalRootCA(paths.RootCA)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(paths.Node.Cert)
+	if err != nil {
+		return nil, err
+	}
+	certificates, _, err := ca.ValidateCertChain(root.Pool, data, false)
+	if err != nil {
+		return nil, err
+	}
+	certificate := certificates[0]
+	identity := certificate.Subject
+	if identity.CommonName == "" || len(identity.Organization) != 1 || len(identity.OrganizationalUnit) != 1 ||
+		identity.OrganizationalUnit[0] != ca.ManagerRole && identity.OrganizationalUnit[0] != ca.WorkerRole {
+		return nil, errors.New("invalid SwarmKit node certificate identity")
+	}
+	return certificate, nil
 }
