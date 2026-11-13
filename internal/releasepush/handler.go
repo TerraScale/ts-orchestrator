@@ -102,6 +102,19 @@ type Reply struct {
 	NodeList nodelist.Status `json:"node_list,omitzero"`
 }
 
+type HealthRequest struct {
+	Service string `json:"service"`
+}
+
+type HealthResult struct {
+	Mesh    error
+	Service error
+}
+
+func (result HealthResult) Err() error {
+	return errors.Join(result.Mesh, result.Service)
+}
+
 type Progress interface {
 	Deadline(time.Time)
 	Event(string)
@@ -110,7 +123,7 @@ type Progress interface {
 // Handler serves the release subjects on any connection with full permissions.
 type Handler struct {
 	NodeList *nodelist.Store
-	Health   func(context.Context) error
+	Health   func(context.Context, string) HealthResult
 	Verifier *Verifier
 	// Revision is the running build's vcs.revision.
 	Revision string
@@ -257,7 +270,13 @@ func (h *Handler) version() Reply {
 	return reply
 }
 
-func (h *Handler) health(ctx context.Context, _ []byte) Reply {
+func (h *Handler) health(ctx context.Context, data []byte) Reply {
+	var request HealthRequest
+	if len(data) != 0 {
+		if err := protocol.DecodeStrict(data, &request, 64<<10); err != nil {
+			return Reply{Version: h.Revision, Health: err.Error()}
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, healthHandlerBudget)
 	defer cancel()
 	text := "no health check"
@@ -271,7 +290,7 @@ func (h *Handler) health(ctx context.Context, _ []byte) Reply {
 	}
 	if h.Health != nil {
 		text = "ok"
-		if err := h.Health(ctx); err != nil {
+		if err := h.Health(ctx, request.Service).Err(); err != nil {
 			text = err.Error()
 		}
 	}

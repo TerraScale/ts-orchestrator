@@ -114,15 +114,17 @@ type Reply struct {
 }
 
 type stateReply struct {
-	Region  string                  `json:"region"`
-	Desired map[string]desiredState `json:"desired"`
+	Nonce    string `json:"nonce,omitempty"`
+	received time.Time
+	Region   string                  `json:"region"`
+	Desired  map[string]desiredState `json:"desired"`
 	// Ready is the generation each local service runs with every replica ready.
-	Ready map[string]int64 `json:"ready,omitempty"`
-	// Failed is the generation of each service whose rollout here failed.
-	Failed map[string]int64 `json:"failed,omitempty"`
-	// Excused is the generation of each service whose bake here failed only
-	// because a dependency kept recovering: later regions still roll it.
-	Excused map[string]int64 `json:"excused,omitempty"`
+	Ready        map[string]int64             `json:"ready,omitempty"`
+	Serving      map[string]ServingResult     `json:"serving,omitempty"`
+	BakeRequired map[string]bool              `json:"bakeRequired"`
+	Admission    map[string]AdmissionDecision `json:"admission,omitempty"`
+	Failed       map[string]int64             `json:"failed,omitempty"`
+	Unsaved      map[string]int64             `json:"unsaved,omitempty"`
 }
 
 // Applier changes this host's services.
@@ -137,9 +139,8 @@ type Applier interface {
 	// Wait returns once every replica of spec runs it (and answers its ready
 	// path when the spec names one), using the snapshot returned by Apply.
 	Wait(ctx context.Context, spec swarmruntime.ServiceSpec, original *api.Service) (swarmruntime.ServiceRollout, error)
-	Bake(context.Context, swarmruntime.ServiceSpec, swarmruntime.ServiceRollout) (rollout.BakeVerdict, error)
-	// Ready returns the generation of each service whose up-to-date replicas all run.
-	Ready(ctx context.Context) (map[string]int64, error)
+	Bake(context.Context, swarmruntime.ServiceSpec, swarmruntime.ServiceRollout, rollout.BakeVerdict, func(rollout.BakeVerdict) error) (rollout.BakeVerdict, error)
+	Ready(ctx context.Context) (map[string]ServingResult, error)
 }
 
 type config struct {
@@ -161,6 +162,9 @@ type config struct {
 
 // Node is one region's running mesh server.
 type Node struct {
+	serving       atomic.Pointer[map[string]ServingResult]
+	stateDesired  atomic.Pointer[map[string]desiredState]
+	stateUnsaved  atomic.Pointer[map[string]bakeRecord]
 	bootstrapHook atomic.Pointer[bootstrapHook]
 	cfg           config
 	tls           *tls.Config
@@ -177,13 +181,14 @@ type Node struct {
 
 	mu          sync.Mutex
 	desired     map[string]desiredState
-	failed      map[string]int64 // generation whose local rollout failed, per service
 	specInvalid map[string]error
 	baking      map[string]chan struct{}
 	// starting is a ts-auth or ts-dashboard update reconcile submitted whose
 	// evaluate has not yet registered its bake in baking.
 	starting             map[string]bool
 	bakeUnsaved          map[string]bakeRecord
+	admissionMu          sync.Mutex
+	admission            map[string]AdmissionDecision
 	peers                *peers
 	peerReports          map[string]map[string]PeerAttestation
 	peerReportMu         sync.Mutex
@@ -277,14 +282,23 @@ func start(cfg config) (_ *Node, err error) {
 				Workers: node.joinedWorkers(), StartedAt: node.listening})
 		},
 		StateSubject: func(m *nats.Msg) {
-			ready, err := cfg.applier.Ready(node.ctx)
-			if err != nil {
-				slog.Warn("mesh ready state unavailable", "error", err)
+			var request struct {
+				Nonce string `json:"nonce"`
 			}
-			node.mu.Lock()
-			state := stateReply{Region: cfg.region, Desired: maps.Clone(node.desired), Ready: ready, Failed: maps.Clone(node.failed)}
+			_ = protocol.DecodeTolerant(m.Data, &request, maxWire)
+			state := stateReply{Nonce: request.Nonce, Region: cfg.region, Desired: maps.Clone(*node.stateDesired.Load()), Ready: map[string]int64{}, Serving: node.servingSnapshot()}
+			for name, result := range state.Serving {
+				if result.fresh() {
+					state.Ready[name] = result.Generation
+				} else {
+					result.Serving = false
+					state.Serving[name] = result
+				}
+			}
 			node.bakeState(&state)
-			node.mu.Unlock()
+			node.admissionMu.Lock()
+			state.Admission = maps.Clone(node.admission)
+			node.admissionMu.Unlock()
 			node.respond(m, state)
 		},
 		// An apply waits for its tasks to run, so it must not hold up the next message.
@@ -386,6 +400,9 @@ func (n *Node) regions() []string {
 }
 
 func (n *Node) Run(ctx context.Context) {
+	if n.cfg.applier != nil {
+		n.goWork(func() { n.observeServing(n.ctx) })
+	}
 	tick := time.NewTicker(n.cfg.every)
 	defer tick.Stop()
 	var collected time.Time
@@ -440,6 +457,10 @@ func (n *Node) sync(ctx context.Context) {
 					continue
 				}
 				if !reflect.DeepEqual(merged, current) {
+					if err := n.acceptBakeReplacement(name, merged.entry()); err != nil {
+						slog.WarnContext(ctx, "mesh held service refused", "service", name, "error", err)
+						continue
+					}
 					n.desired[name] = merged
 					changed = true
 				}
@@ -501,6 +522,11 @@ func (n *Node) handleApply(m *nats.Msg) {
 	defer cancel()
 	reply := Reply{Region: n.cfg.region, Server: n.cfg.server, Regions: n.regions()}
 	var applied applyResult
+	if err == nil {
+		n.mu.Lock()
+		err = n.checkBakeAdmission(request.Name, request.Entry)
+		n.mu.Unlock()
+	}
 	var pulled time.Duration
 	var pullErr error
 	if spec := request.Entry.Spec; err == nil && spec != nil && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
@@ -568,19 +594,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 	if err != nil {
 		reply.Error = err.Error()
 	}
-	if applied.result == "applied" || applied.result == "unchanged" {
-		// Later regions stop waiting for a generation that failed here.
-		n.mu.Lock()
-		if n.failed == nil {
-			n.failed = map[string]int64{}
-		}
-		if err != nil && (reply.Bake == nil || !reply.Bake.DependencyOnly) {
-			n.failed[request.Name] = request.Entry.Generation
-		} else {
-			delete(n.failed, request.Name)
-		}
-		n.mu.Unlock()
-	}
+
 	n.respond(m, reply)
 }
 
@@ -597,9 +611,23 @@ func (n *Node) statesOf(ctx context.Context, want []string, wait time.Duration) 
 	if want != nil {
 		count = math.MaxInt
 	}
-	_ = collect(ctx, n.conn, StateSubject, nil, count, wait, func(data []byte) bool {
+	nonce := make([]byte, 32)
+	if _, err := rand.Read(nonce); err != nil {
+		slog.ErrorContext(ctx, "mesh state nonce unavailable", "error", err)
+		return states
+	}
+	challenge := hex.EncodeToString(nonce)
+	payload, err := protocol.EncodeJSON(struct {
+		Nonce string `json:"nonce"`
+	}{challenge})
+	if err != nil {
+		return states
+	}
+	sent := time.Now()
+	_ = collect(ctx, n.conn, StateSubject, payload, count, wait, func(data []byte) bool {
 		var reply stateReply
-		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
+		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && time.Since(sent) <= servingMaxAge && (reply.Nonce == challenge || reply.Nonce == "" && reply.Serving == nil && reply.BakeRequired == nil && reply.Admission == nil && reply.Unsaved == nil) {
+			reply.received = sent
 			states[reply.Region] = reply
 		}
 		return want == nil || slices.ContainsFunc(want, func(region string) bool { _, ok := states[region]; return !ok })
@@ -607,11 +635,6 @@ func (n *Node) statesOf(ctx context.Context, want []string, wait time.Duration) 
 	return states
 }
 
-// rolloutOrder is the order a rollout replaces regions in, one at a time, so
-// the edge always has a serving region to hand off to (TerraBase is replaced
-// stop-first: one writer per data dir). A spec's regions roll in the order it
-// lists them; a spec for every region rolls the founded regions with the first
-// (gru: ts-auth and the dashboard) last.
 func rolloutOrder(spec *swarmruntime.ServiceSpec) []string {
 	if len(spec.Regions) != 0 {
 		return spec.Regions
@@ -635,8 +658,6 @@ func (n *Node) earlier(spec *swarmruntime.ServiceSpec) []string {
 	return nil // first, untargeted or outside the order: waits for nobody
 }
 
-// regionWindow is one region's share of a rollout: its readiness timeout
-// plus pull/submit, bounded dependency recovery and a full healthy bake.
 func regionWindow(spec *swarmruntime.ServiceSpec) time.Duration {
 	ready := swarmruntime.DefaultReadyTimeout
 	if spec != nil && spec.ReadyTimeoutSeconds != 0 {
@@ -668,26 +689,44 @@ func (n *Node) held(entry Entry) bool {
 // region failed to roll out.
 var errEarlierFailed = errors.New("an earlier region failed this rollout")
 
-// turn allows this region to apply only after every earlier region reports
-// the generation ready with a successful bake. Missing verdicts fail closed.
-func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int64, states map[string]stateReply) error {
+type AdmissionDecision struct {
+	Generation int64     `json:"generation"`
+	At         time.Time `json:"at"`
+	Earlier    string    `json:"earlier,omitempty"`
+	Evidence   string    `json:"evidence"`
+}
+
+func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int64, states map[string]stateReply) (err error) {
+	decision := AdmissionDecision{Generation: generation, At: time.Now(), Evidence: "admitted"}
+	defer func() {
+		n.admissionMu.Lock()
+		defer n.admissionMu.Unlock()
+		if n.admission == nil {
+			n.admission = map[string]AdmissionDecision{}
+		}
+		n.admission[name] = decision
+	}()
 	for _, region := range n.earlier(spec) {
+		decision.Earlier = region
 		reply, answered := states[region]
 		if !answered {
+			decision.Evidence = "region reply missing"
 			return fmt.Errorf("%s has no bake verdict yet", region)
 		}
-		if reply.Failed[name] >= generation {
+		if reply.Failed[name] == generation {
+			decision.Evidence = "bake failed"
 			return fmt.Errorf("%w: %s", errEarlierFailed, region)
 		}
-		if reply.Excused[name] >= generation {
-			// Its bake failed only on a recovering dependency (sjc 2026-10-28
-			// 16:53Z): the candidate did not regress, so this region still rolls.
-			continue
+		if time.Since(reply.received) > servingMaxAge || reply.Nonce != "" && (!reply.Serving[name].Serving || reply.Serving[name].Generation != generation) {
+			decision.Evidence = "fresh serving evidence missing"
+			return fmt.Errorf("%s lacks fresh serving evidence for %s generation %d", region, name, generation)
 		}
-		if reply.Ready[name] < generation {
+		if reply.Ready[name] != generation {
+			decision.Evidence = "passed bake missing"
 			return fmt.Errorf("%s does not run %s generation %d ready yet", region, name, generation)
 		}
 	}
+	decision.Earlier = ""
 	return nil
 }
 
@@ -796,6 +835,9 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 	}
 	if !reflect.DeepEqual(merged.entry(), request.Entry) {
 		return applyResult{}, fmt.Errorf("superseded by generation %d", current.Generation)
+	}
+	if err := n.acceptBakeReplacement(request.Name, request.Entry); err != nil {
+		return applyResult{}, err
 	}
 	n.desired[request.Name] = merged
 	// Persist before reconciliation, including retries of a persisted generation.

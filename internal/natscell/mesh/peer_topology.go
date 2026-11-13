@@ -37,6 +37,8 @@ type PeerAttestation struct {
 
 // Publish while holding n.mu; monitoring never waits for reconciliation RPCs.
 func (n *Node) publishTopologyDesired() {
+	desired := maps.Clone(n.desired)
+	n.stateDesired.Store(&desired)
 	entries := make(map[string]Entry, len(n.desired))
 	invalid := make(map[string]error, len(n.specInvalid))
 	for name, state := range n.desired {

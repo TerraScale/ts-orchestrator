@@ -14,6 +14,8 @@ The ARM journeys run as independent matrix jobs. Every lane runs for every pull 
 | host-logs | Journal settings applied once from current host state, unsupported hosts left untouched, syslog handling | 12 minutes | All paths |
 | monitoring | Alert rule sets, relay delivery, and task metrics that keep the recorded service identity across restart and adoption | 8 minutes | All paths |
 | boot-order | Management and peer cold boots, old declarations, dependency gates and running tasks | 8 minutes | All paths |
+| rollout | Regional bake windows, local holds, signed replacement and nonce admission across three isolated regions | 10 minutes | All paths |
+| rollout-install | First installs, lost receipts, new regions, release identity validation, interruption budgets and host sampling | 10 minutes | All paths |
 | operator | Fleet routing contracts and startup metadata recovery/outage/cancellation | 8 minutes | All paths |
 | data-volume | Volume lifecycle and zero-write refusals, format once, adoption, mount reporting and dependent-unit stop/recovery | 8 minutes | All paths |
 
