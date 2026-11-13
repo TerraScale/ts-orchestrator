@@ -23,6 +23,7 @@ import (
 )
 
 const minimumLifetime = 30 * 24 * time.Hour
+const settleWindow = 10 * time.Minute
 
 const usage = `Usage: ts-orch caller-key <add|activate|retire|recover|list> --targets FILE
   add --service ts-auth|dashboard|edge --region CELL --kid SERVICE.CELL.N --not-after RFC3339
@@ -71,8 +72,10 @@ func (s PrivateState) Clear() {
 
 type Store interface {
 	Regions(context.Context) ([]string, error)
+	Metadata(context.Context, Target, string, int64, string) (PrivateMetadata, error)
 	Private(context.Context, Target, string) (PrivateState, error)
-	Stage(context.Context, Target, string, PrivateState, []byte) error
+	Stage(context.Context, Target, string, PrivateState, []byte, string) error
+	Discard(context.Context, Target, string, PrivateState, int64) error
 	Activate(context.Context, Target, string, PrivateState, int64) error
 	Read(context.Context, Target, string) (Snapshot, error)
 	Write(context.Context, Target, string, Snapshot, []byte) error
@@ -102,12 +105,14 @@ type Registry struct {
 }
 
 type Intent struct {
-	Operation string    `json:"operation"`
-	Kid       string    `json:"kid"`
-	Caller    string    `json:"caller"`
-	Cell      string    `json:"cell"`
-	ID        string    `json:"id"`
-	Started   time.Time `json:"started"`
+	Operation      string    `json:"operation"`
+	Kid            string    `json:"kid"`
+	Caller         string    `json:"caller"`
+	Cell           string    `json:"cell"`
+	ID             string    `json:"id"`
+	Started        time.Time `json:"started"`
+	PrivateVersion int64     `json:"privateVersion,omitempty"`
+	VersionName    string    `json:"versionName,omitempty"`
 }
 
 func Run(ctx context.Context, args []string, out io.Writer) error {
@@ -249,11 +254,11 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 			}
 			for _, service := range []string{"ts-auth", "dashboard", "edge"} {
 				name := secretName(service, t.Cell)
-				state, err := store.Private(ctx, t, name)
+				state, _, err := privateHalf(ctx, store, t, name, nil)
 				if err != nil {
 					return err
 				}
-				err = printPrivate(out, name, state)
+				err = printPrivate(out, name, state, callers)
 				state.Clear()
 				if err != nil {
 					return err
@@ -288,7 +293,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 	name := secretName(parts[1], parts[2])
 	state := PrivateState{}
 	if kidRE.MatchString(*kid) {
-		state, err = store.Private(ctx, selected, name)
+		state, _, err = privateHalf(ctx, store, selected, name, nil)
 		if err != nil {
 			return err
 		}
@@ -308,6 +313,9 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		if _, ok := callers[*kid]; !ok {
 			return errors.New("activation requires the kid listed in every region")
 		}
+		if currentKid != *kid && !callers[*kid].NotAfter.After(time.Now()) {
+			return errors.New("expired pending key can only be cancelled")
+		}
 		if currentKid == *kid {
 			_, err := fmt.Fprintln(out, name, *kid, "already current")
 			return err
@@ -316,6 +324,9 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		for _, v := range state.Versions {
 			if v.Pending {
 				id, _ := privateKid(v.Snapshot)
+				if id == currentKid {
+					continue
+				}
 				if id != *kid || pending != 0 {
 					return errors.New("pending private key does not match activation kid")
 				}
@@ -330,6 +341,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		if err != nil {
 			return err
 		}
+		intent.PrivateVersion = pending
 		if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
 			return err
 		}
@@ -342,6 +354,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		_, err = fmt.Fprintln(out, name, *kid, "current")
 		return err
 	}
+	var privateVersion int64
 	if command == "retire" {
 		if _, ok := callers[*kid]; !ok {
 			return errors.New("kid is not registered")
@@ -353,10 +366,12 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		for _, v := range state.Versions {
 			id, _ := privateKid(v.Snapshot)
 			if id == *kid {
+				privateVersion = v.Version
 				if v.Pending {
-					return errors.New("cannot retire a pending private key")
+					command = "cancel"
+				} else {
+					used = true
 				}
-				used = true
 			}
 		}
 		if used || *replacement != "" {
@@ -393,8 +408,8 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		for _, v := range state.Versions {
 			id, _ := privateKid(v.Snapshot)
 			ids = append(ids, id)
-			if v.Pending {
-				return errors.New("activate the existing pending key before adding another")
+			if v.Pending && id != currentKid {
+				return errors.New("activate or cancel the existing pending key before adding another")
 			}
 		}
 		for _, id := range ids {
@@ -419,11 +434,20 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 	if err != nil {
 		return err
 	}
+	intent.PrivateVersion = privateVersion
+	if privateVersion == 0 && (command != "add" || state.Current.Version != 0) {
+		intent.VersionName = *kid
+	}
 	if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
 		return err
 	}
+	if command == "cancel" {
+		if err := cancelPending(ctx, store, selected, name, state, intent); err != nil {
+			return operationError(intent, err)
+		}
+	}
 	advance(highWater, *kid)
-	if command == "retire" {
+	if command == "retire" || command == "cancel" {
 		delete(callers, *kid)
 	}
 	registry := mergedRegistry(callers, highWater, intent)
@@ -439,7 +463,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 			stage = "current"
 			err = store.Write(ctx, selected, name, state.Current, private)
 		} else {
-			err = store.Stage(ctx, selected, name, state, private)
+			err = store.Stage(ctx, selected, name, state, private, *kid)
 		}
 		if err != nil {
 			return operationError(intent, err)
@@ -483,7 +507,7 @@ func newIntent(operation, kid, caller, cell string) (*Intent, error) {
 	if _, err := rand.Read(id[:]); err != nil {
 		return nil, err
 	}
-	return &Intent{operation, kid, caller, cell, fmt.Sprintf("%x", id), time.Now().UTC()}, nil
+	return &Intent{Operation: operation, Kid: kid, Caller: caller, Cell: cell, ID: fmt.Sprintf("%x", id), Started: time.Now().UTC()}, nil
 }
 
 func operationError(intent *Intent, err error) error {
@@ -529,92 +553,6 @@ func clearIntent(ctx context.Context, store Store, targets []Target, snapshots [
 	return nil
 }
 
-func recoverOperation(ctx context.Context, out io.Writer, store Store, targets []Target, snapshots []Snapshot, registries []Registry, callers map[string]Caller, highWater map[string]uint64, intent *Intent) error {
-	if !slices.Contains([]string{"add", "activate", "retire"}, intent.Operation) || intent.ID == "" || intent.Started.IsZero() || !kidRE.MatchString(intent.Kid) && !operatorRE.MatchString(intent.Kid) {
-		return errors.New("invalid operation record")
-	}
-	var selected Target
-	for _, t := range targets {
-		if t.Cell == intent.Cell {
-			selected = t
-		}
-	}
-	state := PrivateState{}
-	name := secretName(intent.Caller, intent.Cell)
-	if kidRE.MatchString(intent.Kid) {
-		if selected.Cell == "" {
-			return errors.New("operation region is not deployed")
-		}
-		var err error
-		state, err = store.Private(ctx, selected, name)
-		if err != nil {
-			return err
-		}
-	}
-	defer state.Clear()
-	current, err := privateKid(state.Current)
-	if err != nil {
-		return err
-	}
-	var pending int64
-	for _, v := range state.Versions {
-		id, err := privateKid(v.Snapshot)
-		if err != nil {
-			return err
-		}
-		if id == intent.Kid && v.Pending {
-			pending = v.Version
-		}
-	}
-	if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
-		return err
-	}
-	switch intent.Operation {
-	case "add":
-		advance(highWater, intent.Kid)
-		if current != intent.Kid && pending == 0 {
-			delete(callers, intent.Kid)
-		} else if _, ok := callers[intent.Kid]; !ok {
-			return operationError(intent, errors.New("stored key has no public entry"))
-		}
-	case "activate":
-		complete := true
-		for _, r := range registries {
-			complete = complete && slices.ContainsFunc(r.Callers, func(c Caller) bool { return c.Kid == intent.Kid })
-		}
-		if !complete {
-			fmt.Fprintln(out, "activation not applied: public key is not listed in every region")
-		} else if current != intent.Kid {
-			if pending == 0 {
-				return operationError(intent, errors.New("matching pending private key unavailable"))
-			}
-			if err := store.Activate(ctx, selected, name, state, pending); err != nil {
-				return operationError(intent, err)
-			}
-		}
-	case "retire":
-		if current == intent.Kid || pending != 0 {
-			return operationError(intent, errors.New("cannot retire a current or pending private key"))
-		}
-		advance(highWater, intent.Kid)
-		delete(callers, intent.Kid)
-	}
-	if intent.Operation != "activate" {
-		r := mergedRegistry(callers, highWater, intent)
-		for i := range targets {
-			if err := writeRegistry(ctx, store, targets[i], &snapshots[i], r); err != nil {
-				return operationError(intent, err)
-			}
-			registries[i] = r
-		}
-	}
-	if err := clearIntent(ctx, store, targets, snapshots, registries); err != nil {
-		return operationError(intent, err)
-	}
-	_, err = fmt.Fprintln(out, "recovered", intent.Operation, intent.Kid, intent.ID)
-	return err
-}
-
 func sameJSON(a, b any) bool {
 	x, _ := json.Marshal(a, json.Deterministic(true))
 	y, _ := json.Marshal(b, json.Deterministic(true))
@@ -646,7 +584,7 @@ func privateKid(s Snapshot) (string, error) {
 	return key.Kid, nil
 }
 
-func printPrivate(out io.Writer, name string, state PrivateState) error {
+func printPrivate(out io.Writer, name string, state PrivateState, callers map[string]Caller) error {
 	id, err := privateKid(state.Current)
 	if err != nil {
 		return err
@@ -664,7 +602,19 @@ func printPrivate(out io.Writer, name string, state PrivateState) error {
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(out, name, id, "pending"); err != nil {
+		current, _ := privateKid(state.Current)
+		if id == current {
+			continue
+		}
+		c, ok := callers[id]
+		if !ok {
+			return errors.New("pending private key has no public entry")
+		}
+		status := expiryStatus(c)
+		if status == "expired" {
+			status = "expired; can only be cancelled"
+		}
+		if _, err := fmt.Fprintln(out, name, id, "pending notAfter", c.NotAfter.UTC().Format(time.RFC3339), status); err != nil {
 			return err
 		}
 	}

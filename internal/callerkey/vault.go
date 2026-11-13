@@ -19,18 +19,21 @@ import (
 type vaultStore struct{}
 
 func (vaultStore) Read(ctx context.Context, t Target, name string) (Snapshot, error) {
-	factory, err := ociclient.OperatorConfig(strings.Split(t.Vault, ".")[3])
+	client, bundles, err := vaultClients(t)
 	if err != nil {
-		return Snapshot{}, errors.New("caller-key operator credentials unavailable")
+		return Snapshot{}, err
 	}
-	bundles, err := vaultsecret.SecretsClient(factory)
+	id, err := managementID(ctx, client, t, name)
 	if err != nil {
-		return Snapshot{}, errors.New("caller-key Vault client unavailable")
+		return Snapshot{}, err
 	}
-	current, err := vaultsecret.ReadCurrent(ctx, bundles, vaultsecret.Ref{Vault: t.Vault, Name: name})
-	if vaultsecret.Absent(err) {
+	if id == "" {
 		return Snapshot{}, nil
 	}
+	if _, err := vaultsecret.ReadBack(ctx, bundles, t.Vault, name, true); err != nil {
+		return Snapshot{}, err
+	}
+	current, err := vaultsecret.ReadCurrent(ctx, bundles, vaultsecret.Ref{Vault: t.Vault, Name: name})
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -105,10 +108,10 @@ func (vaultStore) Private(ctx context.Context, t Target, name string) (PrivateSt
 		return PrivateState{}, err
 	}
 	ctx = ociclient.RequestContext(ctx)
-	current, err := vaultsecret.ReadCurrent(ctx, bundles, vaultsecret.Ref{Vault: t.Vault, Name: name})
-	if vaultsecret.Absent(err) {
-		return PrivateState{}, nil
+	if _, err := vaultsecret.ReadBack(ctx, bundles, t.Vault, name, true); err != nil {
+		return PrivateState{}, err
 	}
+	current, err := vaultsecret.ReadCurrent(ctx, bundles, vaultsecret.Ref{Vault: t.Vault, Name: name})
 	if err != nil {
 		return PrivateState{}, err
 	}
@@ -135,18 +138,17 @@ func (vaultStore) Private(ctx context.Context, t Target, name string) (PrivateSt
 			if v.SecretId == nil || *v.SecretId != current.ID || v.VersionNumber == nil || *v.VersionNumber < 1 {
 				return PrivateState{}, errors.New("caller-key private version inventory invalid")
 			}
-			bundle, err := bundles.GetSecretBundle(ctx, ocisecrets.GetSecretBundleRequest{SecretId: new(current.ID), VersionNumber: v.VersionNumber})
-			if err != nil || bundle.SecretId == nil || *bundle.SecretId != current.ID || bundle.VersionNumber == nil || *bundle.VersionNumber != *v.VersionNumber {
+			if v.TimeOfDeletion != nil {
+				continue
+			}
+			value, err := vaultsecret.ReadBack(ctx, versionBundles{bundles, current.ID, *v.VersionNumber}, t.Vault, name, true)
+			if err != nil {
 				return PrivateState{}, errors.New("caller-key private version content unavailable")
 			}
-			value, err := privateBundle(bundle.SecretBundle)
-			if err != nil {
-				return PrivateState{}, err
-			}
 			pending := slices.Contains(v.Stages, ocivault.SecretVersionSummaryStagesPending)
-			state.Versions = append(state.Versions, KeyVersion{Snapshot: Snapshot{ID: current.ID, Version: *v.VersionNumber, Value: value}, Pending: pending})
+			state.Versions = append(state.Versions, KeyVersion{Snapshot: Snapshot{ID: current.ID, Version: *v.VersionNumber, Value: []byte(value)}, Pending: pending})
 			if *v.VersionNumber == current.Version {
-				if !bytes.Equal(value, state.Current.Value) || !slices.Contains(v.Stages, ocivault.SecretVersionSummaryStagesCurrent) {
+				if !bytes.Equal([]byte(value), state.Current.Value) || !slices.Contains(v.Stages, ocivault.SecretVersionSummaryStagesCurrent) {
 					return PrivateState{}, errors.New("caller-key current version changed during inventory")
 				}
 				foundCurrent = true
@@ -165,27 +167,7 @@ func (vaultStore) Private(ctx context.Context, t Target, name string) (PrivateSt
 	return state, nil
 }
 
-func privateBundle(bundle ocisecrets.SecretBundle) ([]byte, error) {
-	var content *string
-	switch value := bundle.SecretBundleContent.(type) {
-	case ocisecrets.Base64SecretBundleContentDetails:
-		content = value.Content
-	case *ocisecrets.Base64SecretBundleContentDetails:
-		if value != nil {
-			content = value.Content
-		}
-	}
-	if content == nil || len(*content) > base64.StdEncoding.EncodedLen(16384) {
-		return nil, errors.New("caller-key private bundle content invalid")
-	}
-	value, err := base64.StdEncoding.Strict().DecodeString(*content)
-	if err != nil {
-		return nil, errors.New("caller-key private bundle encoding invalid")
-	}
-	return value, nil
-}
-
-func (s vaultStore) Stage(ctx context.Context, t Target, name string, before PrivateState, value []byte) error {
+func (s vaultStore) Stage(ctx context.Context, t Target, name string, before PrivateState, value []byte, versionName string) error {
 	client, _, err := vaultClients(t)
 	if err != nil {
 		return err
@@ -196,7 +178,7 @@ func (s vaultStore) Stage(ctx context.Context, t Target, name string, before Pri
 	content := base64.StdEncoding.EncodeToString(value)
 	_, err = client.UpdateSecret(ociclient.RequestContext(ctx), ocivault.UpdateSecretRequest{
 		SecretId: new(before.Current.ID), IfMatch: new(before.Etag),
-		UpdateSecretDetails: ocivault.UpdateSecretDetails{SecretContent: ocivault.Base64SecretContentDetails{Content: new(content), Stage: ocivault.SecretContentDetailsStagePending}},
+		UpdateSecretDetails: ocivault.UpdateSecretDetails{SecretContent: ocivault.Base64SecretContentDetails{Content: new(content), Name: new(versionName), Stage: ocivault.SecretContentDetailsStagePending}},
 	})
 	if err != nil {
 		return errors.New("caller-key pending publication failed; reread before writing")
@@ -246,6 +228,116 @@ func (s vaultStore) Activate(ctx context.Context, t Target, name string, before 
 	defer after.Clear()
 	if after.Current.Version != version || !bytes.Equal(after.Current.Value, expected) {
 		return errors.New("caller-key activation readback differs; reread before writing")
+	}
+	return nil
+}
+
+func managementID(ctx context.Context, client ocivault.VaultsClient, t Target, name string) (string, error) {
+	request := ocivault.ListSecretsRequest{CompartmentId: new(t.Compartment), VaultId: new(t.Vault), Name: new(name)}
+	id := ""
+	for {
+		response, err := client.ListSecrets(ociclient.RequestContext(ctx), request)
+		if err != nil {
+			return "", errors.New("caller-key management metadata unavailable")
+		}
+		for _, item := range response.Items {
+			if item.SecretName == nil || *item.SecretName != name || item.VaultId == nil || *item.VaultId != t.Vault || item.Id == nil || *item.Id == "" || id != "" {
+				return "", errors.New("caller-key management metadata invalid or ambiguous")
+			}
+			id = *item.Id
+		}
+		request.Page = response.OpcNextPage
+		if request.Page == nil || *request.Page == "" {
+			return id, nil
+		}
+	}
+}
+
+func (vaultStore) Metadata(ctx context.Context, t Target, name string, version int64, versionName string) (PrivateMetadata, error) {
+	client, _, err := vaultClients(t)
+	if err != nil {
+		return PrivateMetadata{}, err
+	}
+	id, err := managementID(ctx, client, t, name)
+	if err != nil || id == "" {
+		return PrivateMetadata{}, err
+	}
+	result := PrivateMetadata{Secret: true, Version: version == 0 && versionName == ""}
+	if result.Version {
+		return result, nil
+	}
+	var page *string
+	for {
+		response, err := client.ListSecretVersions(ociclient.RequestContext(ctx), ocivault.ListSecretVersionsRequest{SecretId: new(id), Page: page})
+		if err != nil {
+			return PrivateMetadata{}, errors.New("caller-key version management metadata unavailable")
+		}
+		for _, v := range response.Items {
+			if v.VersionNumber == nil || v.SecretId == nil || *v.SecretId != id {
+				return PrivateMetadata{}, errors.New("caller-key version management metadata invalid")
+			}
+			if version > 0 && *v.VersionNumber == version || versionName != "" && v.Name != nil && *v.Name == versionName {
+				result.Version = true
+			}
+		}
+		page = response.OpcNextPage
+		if page == nil || *page == "" {
+			return result, nil
+		}
+	}
+}
+
+type versionBundles struct {
+	client  ocisecrets.SecretsClient
+	id      string
+	version int64
+}
+
+func (v versionBundles) GetSecretBundleByName(ctx context.Context, _ ocisecrets.GetSecretBundleByNameRequest) (ocisecrets.GetSecretBundleByNameResponse, error) {
+	response, err := v.client.GetSecretBundle(ctx, ocisecrets.GetSecretBundleRequest{SecretId: new(v.id), VersionNumber: new(v.version)})
+	if err != nil {
+		return ocisecrets.GetSecretBundleByNameResponse{}, &privateReadError{err}
+	}
+	if response.SecretId == nil || *response.SecretId != v.id || response.VersionNumber == nil || *response.VersionNumber != v.version {
+		return ocisecrets.GetSecretBundleByNameResponse{}, errors.New("caller-key private version readback differs")
+	}
+	return ocisecrets.GetSecretBundleByNameResponse{SecretBundle: response.SecretBundle}, nil
+}
+
+type privateReadError struct{ cause error }
+
+func (e *privateReadError) Error() string { return "private version unreadable" }
+func (e *privateReadError) Unwrap() error { return e.cause }
+
+func (s vaultStore) Discard(ctx context.Context, t Target, name string, before PrivateState, version int64) error {
+	client, _, err := vaultClients(t)
+	if err != nil {
+		return err
+	}
+	metadata, err := client.GetSecret(ociclient.RequestContext(ctx), ocivault.GetSecretRequest{SecretId: new(before.Current.ID)})
+	if err != nil || metadata.Etag == nil || *metadata.Etag != before.Etag {
+		return errors.New("caller-key cancellation metadata changed; reread before writing")
+	}
+	v, err := client.GetSecretVersion(ociclient.RequestContext(ctx), ocivault.GetSecretVersionRequest{SecretId: new(before.Current.ID), SecretVersionNumber: new(version)})
+	if err != nil || v.SecretId == nil || *v.SecretId != before.Current.ID || v.Etag == nil || *v.Etag == "" || v.VersionNumber == nil || *v.VersionNumber != version || !slices.Contains(v.Stages, ocivault.SecretVersionStagesDeprecated) || slices.Contains(v.Stages, ocivault.SecretVersionStagesCurrent) || slices.Contains(v.Stages, ocivault.SecretVersionStagesPending) {
+		return errors.New("caller-key cancellation requires a deprecated version and conditional metadata")
+	}
+	if v.TimeOfDeletion == nil {
+		_, err = client.ScheduleSecretVersionDeletion(ociclient.RequestContext(ctx), ocivault.ScheduleSecretVersionDeletionRequest{
+			SecretId: new(before.Current.ID), SecretVersionNumber: new(version), IfMatch: v.Etag,
+			ScheduleSecretVersionDeletionDetails: ocivault.ScheduleSecretVersionDeletionDetails{},
+		})
+		if err != nil {
+			return errors.New("caller-key cancellation deletion failed; reread before writing")
+		}
+	}
+	after, err := s.Private(ctx, t, name)
+	if err != nil {
+		return err
+	}
+	defer after.Clear()
+	if after.Current.Version != before.Current.Version || !bytes.Equal(after.Current.Value, before.Current.Value) || slices.ContainsFunc(after.Versions, func(v KeyVersion) bool { return v.Version == version }) {
+		return errors.New("caller-key cancellation readback differs; recover before removing the public key")
 	}
 	return nil
 }

@@ -35,8 +35,8 @@ Public registry entries contain `kid`, `caller`, `kind`, `jwk` (without `d`),
 `{ "version": 1, "callers": [...], "highWater": {...}, "intent": {...} }`.
 The optional high-water map retains only the highest sequence used for each
 caller and originating cell; the optional intent records the operation, key id,
-caller, cell, operation id and start time. The database verifier ignores these
-extra fields. Operator entries retain `op:<name>` and agent entries retain
+caller, cell, operation id, start time and private version identity. The database
+verifier ignores these extra fields. Operator entries retain `op:<name>` and agent entries retain
 `agent:<name>` as their caller names.
 
 For a service's first key in a region:
@@ -75,10 +75,21 @@ database rollout before activation; the command checks registry publication,
 not which registry each running database has loaded.
 
 New keys require more than 30 days of lifetime. Both `add` and `activate`
-warn about expired entries and entries expiring within 30 days, and continue.
+warn about expired entries and entries expiring within 30 days; activation refuses
+an expired pending key.
 `list` shows each public entry's `notAfter` and expiry status.
 
-`retire` refuses a service's current or pending private key. Retiring any
+`retire` refuses a service's current private key. For a pending key that has
+never been activated, it cancels the rotation, including an expired pending key.
+`list` shows its pending stage, expiry and when it can only be cancelled.
+Cancellation conditionally supersedes the pending version with a copy of the
+current key, verifies that the cancelled version is deprecated, and schedules
+its deletion before removing its public entry. The current signing key stays
+current. Activation requires the public entry in every region and a matching
+usable pending version, so a cancelled key cannot be activated. Cancellation
+consumes its sequence and permits a new `add` with a higher sequence.
+
+Retiring any
 stored historical private key requires `--replacement-kid` naming the same
 service and region's current key, listed in every region. After all use of an
 operator or agent key has ceased, retire it with `--kid op.NAME.N` or
@@ -106,14 +117,24 @@ ts-orch caller-key recover --targets /secure/caller-targets.json
 ts-orch caller-key list --targets /secure/caller-targets.json
 ```
 
-Recovery resumes the recorded operation id:
-- For `add`, a matching current or pending private version retains the public
-  entry in every region; otherwise recovery removes that entry everywhere and
-  advances the sequence high-water mark.
-- For `activate`, recovery promotes the matching pending version if its public
-  entry is in every region. Otherwise it reports that activation was not applied
-  and leaves the public and private entries unchanged.
-- For `retire`, recovery finishes removing the entry everywhere.
+Recovery has three outcomes for the recorded operation id:
+
+- **Finished forward:** management metadata confirms the secret or rotation
+  version exists, even while it is being created. Recovery waits for readable
+  contents using the store readback path, then keeps the added public entry,
+  finishes activation, retirement or pending cancellation as recorded.
+- **Finished backward:** an add's private half is authoritatively absent.
+  Recovery removes its public entry, consumes its sequence and clears the intent
+  only after the intent is at least 10 minutes old and two management metadata
+  reads after that settle window agree that the secret or version is absent.
+- **Waiting:** metadata is unavailable, absence is not settled, or an existing
+  private version is not readable yet. Recovery changes nothing, retains the
+  intent and exits non-zero, naming what it is waiting for and the time from
+  which a new recovery can decide absence. Re-running recovery is safe.
+
+All operations use the same metadata-based private-half decision. A contents
+read returning not-found never authorizes removal of a public key. Recovery
+never promotes a key without its public entry in every region.
 
 Recovery clears the intent last. It can itself be interrupted and run again;
 running it with no intent reports that no operation is in progress. Complete
@@ -124,3 +145,5 @@ also covers a final public write whose response was interrupted after the store
 accepted it: when no private version was stored, recovery removes the public
 entry and consumes its sequence. If recovery finds the private version, complete
 its first-key or rotation procedure before adding another key.
+
+The e2e lane substitutes the store adapter at build time, and the real adapter's behaviour for creation visibility, version states and conditional writes is verified on first real use.
