@@ -3,10 +3,13 @@ package edge
 import (
 	"context"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 )
 
@@ -128,4 +131,20 @@ func (e *Edge) reconcileReadiness(ctx context.Context) {
 		case <-tick.C:
 		}
 	}
+}
+
+func (e *Edge) serveCertificateMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	e.certs.cache.failures.Range(func(key, value any) bool {
+		name, variant := certificateVariant(key.(string))
+		observability.WriteCounter(w, observability.Series("ts_orch_edge_certificate_order_failures_total", "name", name, "variant", variant), float64(value.(*atomic.Uint64).Load()))
+		return true
+	})
+	count := 0
+	e.certs.cache.unsupported.Range(func(_, _ any) bool { count++; return true })
+	_, _ = io.WriteString(w, fmt.Sprintf("ts_orch_edge_certificate_unsupported %d\n", count))
 }

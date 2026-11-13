@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"strconv"
@@ -36,6 +37,10 @@ func storeMain(ctx context.Context, cfg configuration) error {
 		routes = append(routes, route)
 	}
 	var nodes []*server.Server
+	reads := &storeReads{}
+	control := &http.Server{Addr: "10.77.0.1:8090", Handler: reads}
+	go func() { _ = control.ListenAndServe() }()
+	defer control.Close()
 	defer func() {
 		for _, node := range nodes {
 			node.Shutdown()
@@ -53,14 +58,15 @@ func storeMain(ctx context.Context, cfg configuration) error {
 		options.ServerName = fmt.Sprintf("store-%d", i)
 		options.JetStream, options.StoreDir = true, filepath.Join(cfg.Work, options.ServerName)
 		options.SyncAlways = true
+		options.JetStreamUniqueTag = "region:"
 		options.Tags.Add(fmt.Sprintf("region:store-%d", i))
 		options.Routes = routes
-		options.Cluster = server.ClusterOpts{Name: mesh.ClusterName, Host: address, Port: mesh.ClusterPort, TLSConfig: ca.TLS(options.ServerName), TLSTimeout: 5}
+		options.Cluster = server.ClusterOpts{Name: mesh.ClusterName, Host: address, Port: mesh.ClusterPort, TLSConfig: ca.TLS(options.ServerName), TLSTimeout: 5, PinnedAccounts: []string{mesh.FabricAccount}}
 		node, err := server.NewServer(options)
 		if err != nil {
 			return err
 		}
-		node.ConfigureLogger()
+		node.SetLogger(reads, false, true)
 		nodes = append(nodes, node)
 		go node.Start()
 		if !node.ReadyForConnections(5 * time.Second) {
@@ -104,7 +110,6 @@ ready:
 	}
 	for _, config := range []jetstream.KeyValueConfig{
 		{Bucket: "edge-certs", Replicas: 3, History: 1, MaxBytes: 16 << 20, MaxValueSize: 64 << 10},
-		{Bucket: "edge-cert-leases", Replicas: 3, History: 1, TTL: 10 * time.Minute, MaxBytes: 1 << 20},
 		{Bucket: "edge-cert-tokens", Replicas: 3, History: 1, TTL: 10 * time.Minute, MaxBytes: 1 << 20},
 	} {
 		if _, err := js.CreateKeyValue(bounded, config); err != nil {

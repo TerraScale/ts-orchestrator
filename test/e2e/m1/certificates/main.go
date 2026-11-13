@@ -65,6 +65,9 @@ func run() error {
 	}
 	switch os.Args[1] {
 	case "node":
+		if err := os.WriteFile(cfg.Work+"/"+os.Args[4]+".pid", []byte(fmt.Sprint(os.Getpid())), 0600); err != nil {
+			return err
+		}
 		if err := syscall.Mount(cfg.Work+"/sys-"+os.Args[5], "/sys", "", syscall.MS_BIND, ""); err != nil {
 			return err
 		}
@@ -76,7 +79,7 @@ func run() error {
 	case "backend":
 		return backendMain(ctx)
 	case "journey":
-		bounded, stop := context.WithTimeout(ctx, 90*time.Second)
+		bounded, stop := context.WithTimeout(ctx, 13*time.Minute)
 		defer stop()
 		return journey(bounded, cfg)
 	default:
@@ -89,14 +92,18 @@ func fixtureCertificate(name string, key crypto.Signer, root *x509.Certificate, 
 	if err != nil {
 		return nil, nil, err
 	}
-	leaf := &x509.Certificate{SerialNumber: serial, DNSNames: []string{name}, Subject: pkix.Name{CommonName: name}, NotBefore: time.Now().Add(-time.Hour), NotAfter: until, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	leaf := &x509.Certificate{SerialNumber: serial, DNSNames: []string{name}, Subject: pkix.Name{CommonName: name}, NotBefore: until.Add(-90 * 24 * time.Hour), NotAfter: until, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	if leaf.NotBefore.After(time.Now().Add(-time.Hour)) {
+		leaf.NotBefore = time.Now().Add(-time.Hour)
+	}
 	if name == "journey CA" {
 		leaf.IsCA, leaf.BasicConstraintsValid, leaf.KeyUsage = true, true, x509.KeyUsageCertSign
+		leaf.NotBefore = time.Now().Add(-time.Hour)
 		root, signer = leaf, key
 	}
 	if name == "identity" {
 		leaf.Subject.OrganizationalUnit = []string{"opc-tenant:ocid1.tenancy.oc1..journey"}
-		leaf.DNSNames = []string{"auth.sa-saopaulo-1.oraclecloud.com", "secrets.vaults.sa-saopaulo-1.oci.oraclecloud.com"}
+		leaf.DNSNames = []string{"auth.sa-saopaulo-1.oraclecloud.com", "secrets.vaults.sa-saopaulo-1.oci.oraclecloud.com", "acme-v02.api.letsencrypt.org"}
 	}
 	der, err := x509.CreateCertificate(rand.Reader, leaf, root, key.Public(), signer)
 	if err != nil {
@@ -162,10 +169,13 @@ func fixtures(cfg configuration) error {
 		if err := os.MkdirAll(directory, 0700); err != nil {
 			return err
 		}
-		if err := os.WriteFile(cfg.Work+"/"+node+"/edge-acme.json", []byte("{\"DirectoryURL\":\"http://10.77.0.1:8088/directory\"}"), 0600); err != nil {
-			return err
+
+		names := []string{"existing.e2e.test", "rsa.e2e.test", "postgres.e2e.test", "unknown.e2e.test", "unknown-local.e2e.test", "ecdsa-renew.e2e.test", "rsa-renew-rsa.e2e.test", "equal.e2e.test", "barrier.e2e.test", "fenced.e2e.test", "fail-first.e2e.test", "fail-second.e2e.test", "fail-long.e2e.test", region + ".regional.e2e.test"}
+		base := append([]string(nil), names...)
+		for _, name := range base {
+			names = append(names, region+"."+name)
 		}
-		for _, name := range []string{"existing.e2e.test", "rsa.e2e.test", "postgres.e2e.test", region + ".regional.e2e.test", region + ".existing.e2e.test", region + ".rsa.e2e.test", region + ".postgres.e2e.test"} {
+		for _, name := range names {
 			var leafKey crypto.Signer
 			filename := name
 			if strings.HasSuffix(name, "rsa.e2e.test") {
@@ -177,10 +187,26 @@ func fixtures(cfg configuration) error {
 			if err != nil {
 				return err
 			}
-			until := time.Now().Add(90 * 24 * time.Hour)
-			if node == "b" {
+			until := time.Now().UTC().Truncate(time.Second).Add(90 * 24 * time.Hour)
+			if node == "b" && name != "equal.e2e.test" {
 				until = until.Add(24 * time.Hour)
 			}
+			if name == "equal.e2e.test" {
+				until = time.Now().UTC().Truncate(24 * time.Hour).Add(90 * 24 * time.Hour)
+			}
+			if strings.HasPrefix(name, "fail-") {
+				until = time.Now().Add(10 * 24 * time.Hour)
+			}
+			if name == "unknown.e2e.test" || name == "fenced.e2e.test" {
+				continue
+			}
+			if name == "ecdsa-renew.e2e.test" {
+				until = time.Now().Add(10 * 24 * time.Hour)
+			}
+			if name == "rsa-renew-rsa.e2e.test" {
+				until = time.Now().Add(10 * 24 * time.Hour)
+			}
+
 			cert, private, err := fixtureCertificate(name, leafKey, root, key, until)
 			if err != nil {
 				return err
@@ -188,6 +214,28 @@ func fixtures(cfg configuration) error {
 			if err := os.WriteFile(directory+"/"+filename, append(private, cert...), 0600); err != nil {
 				return err
 			}
+			if strings.HasSuffix(name, "rsa.e2e.test") || name == "ecdsa-renew.e2e.test" {
+				var extra crypto.Signer
+				extraName := name
+				extraUntil := time.Now().Add(90 * 24 * time.Hour)
+				if strings.HasSuffix(name, "rsa.e2e.test") {
+					extra, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+				} else {
+					extra, err = rsa.GenerateKey(rand.Reader, 2048)
+					extraName += "+rsa"
+				}
+				if err != nil {
+					return err
+				}
+				cert, private, err := fixtureCertificate(name, extra, root, key, extraUntil)
+				if err != nil {
+					return err
+				}
+				if err := os.WriteFile(directory+"/"+extraName, append(private, cert...), 0600); err != nil {
+					return err
+				}
+			}
+
 		}
 	}
 	return nil
@@ -223,7 +271,7 @@ func namespace(cfg configuration, node, address string) error {
 	if err := os.MkdirAll("/etc/netns/"+ns, 0755); err != nil {
 		return err
 	}
-	hosts := "127.0.0.1 localhost\n10.77.0.1 ts-gru-1.nb.ts.internal\n10.77.0.4 ts-sjc-1.nb.ts.internal\n10.77.0.5 ts-fra-1.nb.ts.internal\n"
+	hosts := "127.0.0.1 localhost\n10.77.0.1 ts-gru-1.nb.ts.internal\n10.77.0.4 ts-sjc-1.nb.ts.internal\n10.77.0.5 ts-fra-1.nb.ts.internal\n10.77.0.1 acme-v02.api.letsencrypt.org\n"
 	if err := os.WriteFile("/etc/netns/"+ns+"/hosts", []byte(hosts), 0644); err != nil {
 		return err
 	}
@@ -406,11 +454,13 @@ func journey(ctx context.Context, cfg configuration) error {
 		Version string
 		Data    []byte
 	}{"v999", []byte{0}})
-	_, err = seedAPI.Publish("$KV.edge-certs."+hex.EncodeToString([]byte("existing.e2e.test")), unknown)
-	seedStore.Close()
-	if err != nil {
-		return err
+	for _, name := range []string{"unknown.e2e.test", "unknown-local.e2e.test"} {
+		if _, err := seedAPI.Publish("$KV.edge-certs."+hex.EncodeToString([]byte(name)), unknown); err != nil {
+			return err
+		}
 	}
+	seedStore.Close()
+
 	for _, node := range []string{"a", "b"} {
 		backend, err := launch(ctx, cfg.Work+"/backend-"+node, nil, "ip", "netns", "exec", "cert-"+node, self, "backend", os.Args[2])
 		if err != nil {
@@ -421,7 +471,7 @@ func journey(ctx context.Context, cfg configuration) error {
 			return err
 		}
 	}
-	env := []string{"JOURNAL_STREAM=", "HTTPS_PROXY=http://10.77.0.1:8089", "NO_PROXY=169.254.169.254,127.0.0.1,10.77.0.1", "SSL_CERT_FILE=" + cfg.Work + "/ca.pem"}
+	env := []string{"JOURNAL_STREAM=", "HTTPS_PROXY=http://10.77.0.1:8089", "GOMAXPROCS=2", "NO_PROXY=169.254.169.254,127.0.0.1,10.77.0.0/24,acme-v02.api.letsencrypt.org", "SSL_CERT_FILE=" + cfg.Work + "/ca.pem"}
 	startNode := func(node, binary, log, platform string) (*process, error) {
 		p, err := launch(ctx, cfg.Work+"/"+log, env, "ip", "netns", "exec", "cert-"+node, self, "node", os.Args[2], binary, node, platform)
 		if err != nil {
@@ -511,7 +561,7 @@ func journey(ctx context.Context, cfg configuration) error {
 		return err
 	}
 	defer conn.Close()
-	leaseSubject := "$KV.edge-cert-leases." + hex.EncodeToString([]byte("shared.e2e.test"))
+	leaseSubject := "$KV.edge-certs." + hex.EncodeToString([]byte("shared.e2e.test"))
 	leases, err := conn.SubscribeSync(leaseSubject)
 	if err != nil {
 		return err
@@ -525,8 +575,17 @@ func journey(ctx context.Context, cfg configuration) error {
 			return err
 		}
 	}
-	for range 2 {
-		if _, err := leases.NextMsgWithContext(ctx); err != nil {
+	if _, err := leases.NextMsgWithContext(ctx); err != nil {
+		return err
+	}
+	for i, regional := range []struct {
+		process *process
+		region  string
+	}{{current, "gru"}, {second, "sjc"}} {
+		if err := regional.process.wait(ctx, "edge certificate installed name="+regional.region+".shared.e2e.test", 1); err != nil {
+			return err
+		}
+		if _, err := fingerprint(cfg, fmt.Sprintf("10.77.0.%d", i+2), regional.region+".shared.e2e.test", false); err != nil {
 			return err
 		}
 	}
@@ -540,17 +599,7 @@ func journey(ctx context.Context, cfg configuration) error {
 			return err
 		}
 	}
-	for i, regional := range []struct {
-		process *process
-		region  string
-	}{{current, "gru"}, {second, "sjc"}} {
-		if err := regional.process.wait(ctx, "edge certificate installed name="+regional.region+".shared.e2e.test", 1); err != nil {
-			return err
-		}
-		if _, err := fingerprint(cfg, fmt.Sprintf("10.77.0.%d", i+2), regional.region+".shared.e2e.test", false); err != nil {
-			return err
-		}
-	}
+
 	firstFingerprint, err := fingerprint(cfg, "10.77.0.2", "shared.e2e.test", false)
 	if err != nil {
 		return err
@@ -590,10 +639,13 @@ func journey(ctx context.Context, cfg configuration) error {
 	if err := json.Unmarshal(encrypted.Data, &envelope); err != nil {
 		return err
 	}
-	if !strings.HasPrefix(envelope.Version, "v1:") || len(envelope.Data) < 32 || bytes.Contains(envelope.Data, []byte("PRIVATE KEY")) {
+	if envelope.Version != "v1" || len(envelope.Data) < 32 || bytes.Contains(envelope.Data, []byte("PRIVATE KEY")) {
 		return errors.New("certificate envelope is not encrypted and versioned")
 	}
 	fmt.Println("PASS two production processes use the host seed and account path; two lease contenders, one order per name, HTTP-01 on every eligible node; TLS fingerprint", firstFingerprint)
+	if err := fixupJourney(ctx, cfg, conn, authority, current, second, store); err != nil {
+		return err
+	}
 	for _, address := range []string{"10.77.0.2", "10.77.0.3"} {
 		if err := ready(address); err != nil {
 			return err

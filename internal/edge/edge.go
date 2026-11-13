@@ -229,6 +229,10 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 				e.serveReady(w, r)
 				return
 			}
+			if r.URL.Path == "/edge/certificates/metrics" {
+				e.serveCertificateMetrics(w, r)
+				return
+			}
 			// A Postgres hostname needs :80 only for its certificate's challenge.
 			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
 				http.NotFound(w, r)

@@ -5,16 +5,16 @@ cd "$repo"
 work=$(mktemp -d)
 cleanup() {
  local result=$?
- if ((result != 0)); then sudo tail -25 "$work"/*.log || true; fi
+ if ((result != 0)); then sudo tail -n 25 "$work"/*.log || true; fi
  sudo rm -rf "$work"
  exit "$result"
 }
 trap cleanup EXIT
-git fetch --depth=1 origin "${CHANGE_BASE:-main}"
+git fetch origin "${CHANGE_BASE:-main}"
 mkdir "$work/main"
 git archive FETCH_HEAD | tar -x -C "$work/main"
-nice -n 19 go build -trimpath -o "$work/certificates" ./test/e2e/m1/certificates
-nice -n 19 go -C "$work/main" build -trimpath -o "$work/main-orchestrator" ./cmd/terrascale-orchestrator
+nice -n 19 go build -p 2 -trimpath -o "$work/certificates" ./test/e2e/m1/certificates
+nice -n 19 go -C "$work/main" build -p 2 -trimpath -o "$work/main-orchestrator" ./cmd/terrascale-orchestrator
 python3 - "$work" "$binary" <<'PY'
 import json
 import secrets
@@ -25,7 +25,7 @@ with open(work + "/lane.json", "w") as output:
     json.dump({"Work": work, "Binary": binary, "MainBinary": work + "/main-orchestrator", "MeshSeed": secrets.token_hex(32), "DatabaseToken": secrets.token_hex(32)}, output)
 os.chmod(work + "/lane.json", 0o600)
 PY
-sudo unshare --mount --net --pid --fork --mount-proc bash -s -- "$work" <<'NS'
+sudo env PATH="$PATH" unshare --mount --net --pid --fork --mount-proc bash -s -- "$work" <<'NS'
 set -euo pipefail
 mount --make-rprivate /
 mount -t tmpfs tmpfs /var/lib

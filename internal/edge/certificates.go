@@ -6,19 +6,19 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -108,22 +108,7 @@ func (m *certificateManager) account(ctx context.Context) (*acme.Client, error) 
 	} else {
 		return nil, err
 	}
-	directory := acme.LetsEncryptURL
-	config, readErr := os.ReadFile(filepath.Join(filepath.Dir(string(m.cache.local)), "edge-acme.json"))
-	if readErr == nil {
-		var settings struct{ DirectoryURL string }
-		if err := json.Unmarshal(config, &settings); err != nil {
-			return nil, err
-		}
-		parsed, err := url.Parse(settings.DirectoryURL)
-		if err != nil || parsed.Host == "" || parsed.Scheme != "https" && parsed.Scheme != "http" {
-			return nil, errors.New("edge: invalid authority directory URL")
-		}
-		directory = settings.DirectoryURL
-	} else if !errors.Is(readErr, os.ErrNotExist) {
-		return nil, readErr
-	}
-	client := &acme.Client{Key: key, DirectoryURL: directory}
+	client := &acme.Client{Key: key, DirectoryURL: acme.LetsEncryptURL, RetryBackoff: func(int, *http.Request, *http.Response) time.Duration { return 0 }}
 	if _, err = client.Register(ctx, &acme.Account{}, acme.AcceptTOS); err != nil && !errors.Is(err, acme.ErrAccountAlreadyExists) {
 		return nil, err
 	}
@@ -136,42 +121,86 @@ func (m *certificateManager) ensure(ctx context.Context, name string) error {
 	lock := value.(*sync.Mutex)
 	lock.Lock()
 	defer lock.Unlock()
+	var result error
 	for _, key := range []string{name, name + "+rsa"} {
-		if err := m.cache.reconcile(ctx, key); err != nil {
-			return err
+		if err := m.ensureVariant(ctx, key); err != nil && !errors.Is(err, errIssueHeld) && !errors.Is(err, errUnsupportedCertificate) {
+			result = errors.Join(result, err)
 		}
 	}
-	if cert, err := m.load(name); err == nil && !renewCertificate(cert) {
-		return nil
-	}
-	issue, release, err := m.cache.lease(ctx, name)
-	if err != nil {
-		return err
-	}
-	defer release()
-	for _, key := range []string{name, name + "+rsa"} {
-		if err := m.cache.reconcile(issue, key); err != nil {
-			return err
-		}
-	}
-	if cert, err := m.load(name); err == nil && !renewCertificate(cert) {
-		return nil
-	}
-	client, err := m.account(issue)
-	if err != nil {
-		return err
-	}
-	data, err := m.issue(issue, client, name)
-	if err != nil {
-		return err
-	}
-	if err := m.cache.save(context.Background(), name, data); err != nil {
-		return err
-	}
-	return m.cache.reconcile(context.Background(), name)
+	return result
 }
 
-func (m *certificateManager) issue(ctx context.Context, client *acme.Client, name string) ([]byte, error) {
+func (m *certificateManager) ensureVariant(ctx context.Context, key string) error {
+	if err := m.cache.reconcile(ctx, key); err != nil {
+		return err
+	}
+	if value, exists := m.cache.memory.Load(key); exists {
+		if !renewCertificate(value.(cachedCertificate).cert) {
+			return nil
+		}
+	} else if _, variant := certificateVariant(key); variant == "rsa" {
+		if _, required := m.cache.required.Load(key); !required {
+			return nil
+		}
+	}
+	lease, err := m.cache.lease(ctx, key)
+	if err != nil {
+		return err
+	}
+	client, err := m.account(lease.ctx)
+	var data []byte
+	if err == nil {
+		data, err = m.issue(lease.ctx, client, key)
+	}
+	if err != nil {
+		now := time.Now()
+		retry := certificateRetry{lease.reserved.Attempt, retryDeadline(lease.reserved.Attempt, now), now}
+		var authority *acme.Error
+		if errors.As(err, &authority) {
+			header := authority.Header.Get("Retry-After")
+			if seconds, parseErr := strconv.ParseInt(header, 10, 64); parseErr == nil && seconds > 0 {
+				if seconds > int64(time.Until(retry.Next)/time.Second) {
+					retry.Next = now.Add(time.Duration(min(seconds, int64((1<<63-1)/int64(time.Second)))) * time.Second)
+				}
+			} else if deadline, parseErr := http.ParseTime(header); parseErr == nil && deadline.After(retry.Next) {
+				retry.Next = deadline
+			}
+		}
+		name, variant := certificateVariant(key)
+		slog.Warn("edge certificate order failed", "name", name, "variant", variant, "attempt", retry.Attempt, "next_attempt", retry.Next.UTC().Format(time.RFC3339Nano), "failed_at", now.UTC().Format(time.RFC3339Nano), "error", err)
+		counter, _ := m.cache.failures.LoadOrStore(key, new(atomic.Uint64))
+		counter.(*atomic.Uint64).Add(1)
+		state := m.cache.state(key)
+		state.Retry = retry
+		diskErr := m.cache.saveState(context.Background(), key, state)
+		finishErr := lease.finish(nil, retry)
+		return errors.Join(diskErr, finishErr)
+	}
+	cert, err := validCertificate(data, key)
+	if err != nil {
+		_ = lease.finish(nil, lease.reserved)
+		return err
+	}
+	state := m.cache.state(key)
+	state.Withheld, state.Generation = certificateFingerprint(cert), lease.generation
+	if err := m.cache.saveState(context.Background(), key, state); err != nil {
+		_ = lease.finish(nil, lease.reserved)
+		return err
+	}
+	if err := m.cache.save(context.Background(), key, data); err != nil {
+		_ = lease.finish(nil, lease.reserved)
+		return err
+	}
+	retry := certificateRetry{Updated: time.Now()}
+	if err := lease.finish(data, retry); err != nil {
+		return err
+	}
+	state.Retry, state.Withheld, state.Generation = retry, "", ""
+	return m.cache.saveState(context.Background(), key, state)
+}
+
+func (m *certificateManager) issue(ctx context.Context, client *acme.Client, keyName string) ([]byte, error) {
+	name, variant := certificateVariant(keyName)
 	order, err := client.AuthorizeOrder(ctx, acme.DomainIDs(name))
 	if err != nil {
 		return nil, err
@@ -202,7 +231,7 @@ func (m *certificateManager) issue(ctx context.Context, client *acme.Client, nam
 		tokens := m.cache.tokens
 		m.cache.mu.Unlock()
 		revision, err := storeCall(ctx, func(ctx context.Context) (uint64, error) {
-			return tokens.Put(ctx, cacheKey(challenge.Token), []byte(token))
+			return tokens.Put(ctx, cacheKey(name+":"+challenge.Token), []byte(token))
 		})
 		if err != nil {
 			return nil, err
@@ -210,7 +239,7 @@ func (m *certificateManager) issue(ctx context.Context, client *acme.Client, nam
 		defer func() {
 			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = tokens.Delete(cleanup, cacheKey(challenge.Token), jetstream.LastRevision(revision))
+			_ = tokens.Delete(cleanup, cacheKey(name+":"+challenge.Token), jetstream.LastRevision(revision))
 		}()
 		if _, err = client.Accept(ctx, challenge); err != nil {
 			return nil, err
@@ -223,7 +252,12 @@ func (m *certificateManager) issue(ctx context.Context, client *acme.Client, nam
 	if err != nil {
 		return nil, err
 	}
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	var key crypto.Signer
+	if variant == "rsa" {
+		key, err = rsa.GenerateKey(rand.Reader, 2048)
+	} else {
+		key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -235,15 +269,15 @@ func (m *certificateManager) issue(ctx context.Context, client *acme.Client, nam
 	if err != nil {
 		return nil, err
 	}
-	private, err := x509.MarshalECPrivateKey(key)
+	private, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		return nil, err
 	}
-	data := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: private})
+	data := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: private})
 	for _, cert := range chain {
 		data = append(data, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert})...)
 	}
-	if _, err := validCertificate(data, name); err != nil {
+	if _, err := validCertificate(data, keyName); err != nil {
 		return nil, fmt.Errorf("edge: issued certificate invalid: %w", err)
 	}
 	return data, nil
@@ -251,7 +285,7 @@ func (m *certificateManager) issue(ctx context.Context, client *acme.Client, nam
 
 func (e *Edge) reconcileCertificates(ctx context.Context) {
 	var work sync.WaitGroup
-	defer work.Wait()
+	defer func() { work.Wait(); e.certs.cache.stopWatch() }()
 	tick := time.NewTicker(10 * time.Second)
 	defer tick.Stop()
 	for {
@@ -285,6 +319,10 @@ func (e *Edge) reconcileCertificates(ctx context.Context) {
 	}
 }
 
+func mCacheStop(cache *certificateCache, work *sync.WaitGroup) { work.Wait(); cache.stopWatch() }
+
+const challengeReadLimit = 16
+
 func (m *certificateManager) HTTPHandler(fallback http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isChallenge(r) {
@@ -306,15 +344,32 @@ func (m *certificateManager) HTTPHandler(fallback http.Handler) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		if err := m.cache.open(r.Context()); err != nil {
-			http.Error(w, "certificate store unavailable", http.StatusServiceUnavailable)
+		host := strings.ToLower(strings.TrimSuffix(r.Host, "."))
+		if name, _, err := net.SplitHostPort(host); err == nil {
+			host = name
+		}
+		live := false
+		for _, key := range []string{host, host + "+rsa"} {
+			if until, exists := m.cache.live.Load(key); exists && time.Now().Before(until.(time.Time)) {
+				live = true
+			}
+		}
+		if !live {
+			http.NotFound(w, r)
 			return
 		}
+		if m.cache.challengeReads.Add(1) > challengeReadLimit {
+			m.cache.challengeReads.Add(-1)
+			http.Error(w, "challenge capacity reached", http.StatusServiceUnavailable)
+			return
+		}
+		defer m.cache.challengeReads.Add(-1)
+
 		m.cache.mu.Lock()
 		reader := m.cache.reader
 		m.cache.mu.Unlock()
 		value, err := storeCall(r.Context(), func(ctx context.Context) (*nats.RawStreamMsg, error) {
-			return reader.GetLastMsg("KV_edge-cert-tokens", "$KV.edge-cert-tokens."+cacheKey(token), nats.Context(ctx))
+			return reader.GetLastMsg("KV_edge-cert-tokens", "$KV.edge-cert-tokens."+cacheKey(host+":"+token), nats.Context(ctx))
 		})
 		if err != nil || value.Header.Get("KV-Operation") != "" {
 			http.NotFound(w, r)

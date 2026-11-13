@@ -31,6 +31,7 @@ type fakeAuthority struct {
 	key     *ecdsa.PrivateKey
 	root    *x509.Certificate
 	orders  map[string]string
+	issuers map[string]string
 	count   map[string]int
 	chain   map[string][]byte
 	proceed chan struct{}
@@ -44,12 +45,18 @@ func authorityToken(name string) string {
 
 func (a *fakeAuthority) challenge(name string) (string, error) {
 	var answer string
-	nodes := []string{"10.77.0.2", "10.77.0.3"}
+	a.mu.Lock()
+	nodes := []string{a.issuers[name]}
+	a.mu.Unlock()
+	if name == "shared.e2e.test" {
+		nodes = []string{"10.77.0.2", "10.77.0.3"}
+	}
+
 	if strings.HasPrefix(name, "gru.") {
-		nodes = nodes[:1]
+		nodes = []string{"10.77.0.2"}
 	}
 	if strings.HasPrefix(name, "sjc.") {
-		nodes = nodes[1:]
+		nodes = []string{"10.77.0.3"}
 	}
 	for _, node := range nodes {
 		request, err := http.NewRequest(http.MethodGet, "http://"+node+"/.well-known/acme-challenge/"+authorityToken(name), nil)
@@ -93,8 +100,13 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 	if err != nil {
 		return err
 	}
-	a := &fakeAuthority{base: "http://10.77.0.1:8088", key: key, root: root, orders: map[string]string{}, count: map[string]int{}, chain: map[string][]byte{}, proceed: make(chan struct{})}
-	public, err := net.Listen("tcp", "10.77.0.1:8088")
+	a := &fakeAuthority{base: "https://acme-v02.api.letsencrypt.org", key: key, root: root, orders: map[string]string{}, issuers: map[string]string{}, count: map[string]int{}, chain: map[string][]byte{}, proceed: make(chan struct{})}
+	control, err := net.Listen("tcp", "10.77.0.1:8088")
+	if err != nil {
+		return err
+	}
+	defer control.Close()
+	public, err := net.Listen("tcp", "10.77.0.1:443")
 	if err != nil {
 		return err
 	}
@@ -199,7 +211,9 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 			<-done
 		})},
 	}
-	listeners := []net.Listener{public, metadata, tlsAPI, proxy}
+	publicTLS := tls.NewListener(public, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}})
+	servers = append(servers, &http.Server{Handler: http.HandlerFunc(a.serve)})
+	listeners := []net.Listener{publicTLS, metadata, tlsAPI, proxy, control}
 	var running sync.WaitGroup
 	for i, server := range servers {
 		running.Go(func() { _ = server.Serve(listeners[i]) })
@@ -268,6 +282,18 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		id = payload.Identifiers[0].Value
 		a.count[id]++
+		a.issuers[id], _, _ = net.SplitHostPort(r.RemoteAddr)
+		if strings.HasPrefix(id, "fail-") {
+			w.Header().Set("Content-Type", "application/problem+json")
+			if id == "fail-long.e2e.test" {
+				w.Header().Set("Retry-After", "172800")
+			}
+			w.WriteHeader(429)
+			_ = json.NewEncoder(w).Encode(map[string]string{"type": "urn:ietf:params:acme:error:rateLimited", "detail": "lane rejection"})
+			fmt.Println("rejected", id)
+			return
+		}
+
 		a.orders[id] = "pending"
 		a.mu.Unlock()
 		fmt.Println("order", id)
@@ -293,6 +319,7 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 		value, err := a.challenge(id)
 		a.mu.Lock()
 		if err != nil || value == "" {
+			fmt.Println("challenge failed", id, err)
 			http.Error(w, "challenge unavailable", 400)
 			return
 		}
@@ -315,6 +342,8 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "sign", 500)
 			return
 		}
+		fmt.Printf("issued %s %T\n", id, csr.PublicKey)
+
 		a.chain[id] = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 		a.orders[id] = "valid"
 		a.writeOrder(w, id)
