@@ -167,10 +167,6 @@ const (
 	MaxRecordBytes = 16 << 10
 )
 
-// NewID returns a new time-ordered decision ID. Callers that need to link
-// children before the parent is recorded set Decision.ID to it.
-func NewID() string { return newIDAt(time.Now()) }
-
 func newIDAt(at time.Time) string { return entityid.NewAt(at) }
 
 // Normalize fills defaults and enforces bounds. It never fails: a record that
@@ -293,6 +289,3 @@ func utf8Start(b byte) bool { return b&0xC0 != 0x80 }
 
 // Threshold returns a pointer for Signal.Threshold.
 func Threshold(value float64) *float64 { return &value }
-
-// Passed returns a pointer for Signal.Passed.
-func Passed(value bool) *bool { return &value }

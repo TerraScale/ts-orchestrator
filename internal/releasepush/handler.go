@@ -20,11 +20,13 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/datamount"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
 	"github.com/nats-io/nats.go"
 )
 
@@ -46,60 +48,57 @@ const (
 
 const (
 	HandlerWait          = 25 * time.Minute
+	shutdownWatchdog     = 45 * time.Second
+	textBusyWait         = 5 * time.Second
 	healthHandlerBudget  = 5 * time.Second
 	healthRequestTimeout = 8 * time.Second
 )
 
 var (
-	hex40 = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	// appImage is a TerraScale GHCR image pinned by digest; group 1 is its name.
+	hex40    = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	hex64    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	appImage = regexp.MustCompile(`^ghcr\.io/terrascale/([a-z0-9][a-z0-9._-]{0,127})@sha256:[0-9a-f]{64}$`)
 )
 
-// Binary is one architecture's release asset.
 type Binary struct {
 	URL    string `json:"url"`
 	SHA256 string `json:"sha256"`
 }
 
-// OrchRelease is the ts.release.ts-orch request; Binaries is keyed by GOARCH.
 type OrchRelease struct {
 	SHA      string            `json:"sha"`
 	Binaries map[string]Binary `json:"binaries"`
 	Token    string            `json:"token"`
 }
 
-// AppRelease is the ts.release.app request: one service's new image.
 type AppRelease struct {
 	Service string `json:"service"`
 	Image   string `json:"image"`
 	Token   string `json:"token"`
 }
 
-// MeshRequest is the ts.release.mesh.ping, .apply and .rm request;
-// Spec is the service to apply.
 type MeshRequest struct {
 	Token string          `json:"token"`
 	Spec  json.RawMessage `json:"spec,omitempty"`
 }
 
-// Reply answers every release request.
 type Reply struct {
 	DataMount      *datamount.Report `json:"data_mount,omitempty"`
 	DataMountError string            `json:"data_mount_error,omitempty"`
 
-	State   string `json:"state,omitempty"` // current, installed, stale, rolled_back, rejected; done, failed for mesh
-	Version string `json:"version,omitempty"`
-	Health  string `json:"health,omitempty"`
-	Error   string `json:"error,omitempty"`
-	// RolledBack is the release this host restored <binary>.prev over; Error says why.
-	RolledBack string `json:"rolled_back,omitempty"`
-	// Result is the mesh's per-region rows.
-	Result   json.RawMessage `json:"result,omitempty"`
-	Deadline time.Time       `json:"deadline,omitzero"`
-	Events   []string        `json:"events,omitempty"`
-	NodeList nodelist.Status `json:"node_list,omitzero"`
+	State      string          `json:"state,omitempty"`
+	Version    string          `json:"version,omitempty"`
+	SHA256     string          `json:"sha256,omitempty"`
+	Health     string          `json:"health,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	RolledBack string          `json:"rolled_back,omitempty"`
+	Result     json.RawMessage `json:"result,omitempty"`
+	Deadline   time.Time       `json:"deadline,omitzero"`
+	Refusal    *Refusal        `json:"refusal,omitempty"`
+	Events     []string        `json:"events,omitempty"`
+	NodeList   nodelist.Status `json:"node_list,omitzero"`
+	Host       string          `json:"host,omitempty"`
+	Workers    []HostVersion   `json:"workers,omitempty"`
 }
 
 type HealthRequest struct {
@@ -120,54 +119,67 @@ type Progress interface {
 	Event(string)
 }
 
-// Handler serves the release subjects on any connection with full permissions.
 type Handler struct {
-	NodeList *nodelist.Store
-	Health   func(context.Context, string) HealthResult
-	Verifier *Verifier
+	probation   *Probation
+	NodeList    *nodelist.Store
+	Health      func(context.Context, string) HealthResult
+	Verifier    *Verifier
+	PrepareStop func(context.Context) error
+	AbortStop   func()
 	// Revision is the running build's vcs.revision.
-	Revision string
-	// Binary is the installed executable that a release replaces.
-	Binary string
+	Revision      string
+	Digest        string
+	Binary        string
+	runningBinary string
 	// RunIDFile records the installed release's GitHub run_id; an older run is refused.
 	RunIDFile string
 	// TrialFile is the probation marker install writes (Probe); RollbackFile
 	// records the last release that never served.
 	TrialFile, RollbackFile string
 	Client                  *http.Client
-	// App swaps service's image in every region (rolling back on failure) and
-	// returns the per-region rows, also when it fails; nil refuses app releases.
-	App func(ctx context.Context, service, image string, claims Claims, progress Progress) (json.RawMessage, error)
-	// Mesh runs a multi-region workflow request (op "ping" or "apply") on the
-	// cross-region mesh and returns its rows, also when it fails; nil refuses them.
-	Mesh  func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
-	Relay func(request []byte)
-	// Installed receives once after a new binary is in place; the caller exits
-	// so systemd restarts the new binary.
-	Installed chan struct{}
+	App                     func(ctx context.Context, service, image string, claims Claims, progress Progress) (json.RawMessage, error)
+	Mesh                    func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
+	Relay                   func(context.Context, []byte) []HostVersion
+	Installed               chan struct{}
 
+	RefusalFile   string
 	mu            sync.Mutex
-	pending       string // installed, waiting for the restart
+	pending       releaseID
+	recoverAfter  time.Time
 	rolledBack    atomic.Pointer[Rollback]
+	exitOnce      sync.Once
 	lastHealth    atomic.Pointer[string]
 	appOperations map[appOperationKey]*appOperation
 }
 
-// NewHandler serves this process's release for the binary it runs from.
 func NewHandler(state string) (*Handler, error) {
 	binary, err := executable()
 	if err != nil {
 		return nil, err
 	}
-	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary,
+	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary, runningBinary: binary,
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
 		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
+	probation, err := Probe(state, os.Stderr)
+	if err != nil {
+		return nil, err
+	}
+	h.probation = probation
+	if running, err := binaryIdentity(binary); err == nil {
+		h.Digest = running.SHA256
+	} else {
+		slog.Warn("running binary digest unavailable", "error", err)
+	}
+	rolledBack, err := readRollback(h.RollbackFile)
+	if err != nil {
+		slog.Warn("release rollback record unreadable", "error", err)
+	}
+	h.rolledBack.Store(rolledBack)
 	h.NodeList = nodelist.Open(state)
-	h.rolledBack.Store(readRollback(h.RollbackFile))
+	h.RefusalFile = filepath.Join(state, "nats", "release-attempt.json")
 	return h, nil
 }
 
-// executable is the real path of the running binary, which a release replaces.
 func executable() (string, error) {
 	path, err := os.Executable()
 	if err != nil {
@@ -176,28 +188,14 @@ func executable() (string, error) {
 	return filepath.EvalSymlinks(path)
 }
 
-// Revision is the running binary's full vcs.revision ("-dirty" when modified).
 func Revision() string {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
 		return "unknown"
 	}
-	revision, modified := "unknown", false
-	for _, s := range info.Settings {
-		switch s.Key {
-		case "vcs.revision":
-			revision = s.Value
-		case "vcs.modified":
-			modified = s.Value == "true"
-		}
-	}
-	if modified {
-		revision += "-dirty"
-	}
-	return revision
+	return buildRevision(info)
 }
 
-// Serve subscribes the release subjects until the connection closes.
 func (h *Handler) Serve(conn *nats.Conn) error {
 	return h.serve(conn, map[string]func(context.Context, []byte) Reply{
 		SubjectVersion: func(context.Context, []byte) Reply { return h.version() },
@@ -211,18 +209,25 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 	})
 }
 
-// ServeWorker installs the ts-orch releases a region's founder relays on
-// subject: the same signed request CI sent, verified here again.
-func (h *Handler) ServeWorker(conn *nats.Conn, subject string) error {
-	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: h.orch})
+func (h *Handler) ServeWorker(conn *nats.Conn, subject, host string) error {
+	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: func(ctx context.Context, data []byte) Reply {
+		reply := h.orch(ctx, data)
+		reply.Host = host
+		return reply
+	}})
 }
 
-// relayed installs a release and, once this host runs or installed it,
-// passes the request on to the region's workers.
 func (h *Handler) relayed(ctx context.Context, data []byte) Reply {
 	reply := h.orch(ctx, data)
-	if h.Relay != nil && (reply.State == "installed" || reply.State == "current") {
-		h.Relay(data)
+	host, _ := os.Hostname()
+	reply.Host = secretpreflight.Scrub(host)
+	if h.Relay != nil && (reply.State == "installed" || reply.State == "current" || reply.Refusal != nil && reply.Refusal.Preflight) {
+		reply.Workers = h.Relay(ctx, data)
+		for _, worker := range reply.Workers {
+			if worker.Error != "" {
+				slog.Warn("release worker relay incomplete", "host", worker.Host, "error", worker.Error)
+			}
+		}
 	}
 	return reply
 }
@@ -230,21 +235,22 @@ func (h *Handler) relayed(ctx context.Context, data []byte) Reply {
 func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Context, []byte) Reply) error {
 	for subject, handle := range subjects {
 		if _, err := conn.Subscribe(subject, func(m *nats.Msg) {
-			// Each request runs on its own goroutine so a download never blocks version polls.
 			go func() {
-				// A region-by-region rollout takes each region's readiness timeout in turn.
 				ctx, cancel := context.WithTimeout(context.Background(), HandlerWait)
 				defer cancel()
 				reply := handle(ctx, m.Data)
 				if reply.Error != "" {
-					// The pusher may have stopped waiting (fra 2026-10-28 20:13Z):
-					// the host keeps the reason.
 					slog.Warn("release request failed", "subject", subject, "state", reply.State, "error", reply.Error)
 				}
 				data, _ := json.Marshal(reply)
-				_ = m.Respond(data)
+				if err := m.Respond(data); err != nil {
+					slog.Warn("release reply delivery failed", "error", err)
+				}
 				if reply.State == "installed" {
-					_ = conn.Flush()
+					if err := conn.FlushTimeout(5 * time.Second); err != nil {
+						slog.Warn("release installed; reply flush failed", "error", err)
+					}
+					h.exitOnce.Do(func() { h.exitAfter(shutdownWatchdog) })
 					select {
 					case h.Installed <- struct{}{}:
 					default:
@@ -261,10 +267,12 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }
 
 func (h *Handler) version() Reply {
-	reply := Reply{Version: h.Revision, NodeList: h.NodeList.Status()}
+	reply := Reply{Version: h.Revision, SHA256: h.Digest, NodeList: h.NodeList.Status()}
+	reply.State, reply.Error = h.probation.status()
 	if rollback := h.rolledBack.Load(); rollback != nil {
 		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason
 	}
+	reply.Refusal = h.refusal()
 	return reply
 }
 
@@ -283,7 +291,7 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 	}
 	pending := h.pending
 	h.mu.Unlock()
-	if pending != "" {
+	if pending != (releaseID{}) {
 		return Reply{Version: h.Revision, Health: "release restart pending"}
 	}
 	if h.Health != nil {
@@ -300,60 +308,95 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 	if err != nil {
 		mountError = err.Error()
 	}
-	return Reply{Version: h.Revision, Health: text, DataMount: mount, DataMountError: mountError}
+	reply := Reply{Version: h.Revision, Health: text, DataMount: mount, DataMountError: mountError}
+	if state, reason := h.probation.status(); state == "unconfirmed" {
+		reply.State, reply.Error = state, reason
+	}
+	return reply
 }
 
-func (h *Handler) orch(ctx context.Context, data []byte) Reply {
+func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var release OrchRelease
 	if err := protocol.DecodeStrict(data, &release, 64<<10); err != nil {
-		return rejected(err)
+		return integrityReply(release.SHA, Claims{}, err)
 	}
 	binary, claims, err := h.validateOrch(ctx, release)
 	if err != nil {
-		return rejected(err)
+		var host *hostError
+		if errors.As(err, &host) {
+			return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
+		}
+		return integrityReply(release.SHA, claims, err)
 	}
-	if release.SHA == h.Revision {
-		return Reply{State: "current", Version: h.Revision}
-	}
-	if release.SHA == h.pending {
+	candidate := releaseID{release.SHA, binary.SHA256}
+	if candidate == h.pending {
 		return Reply{State: "installed", Version: release.SHA}
 	}
-	// A retry of the run that never served is refused; a newer run may try again.
+	if release.SHA == h.Revision {
+		if installed, err := binaryIdentity(h.Binary); err == nil && installed == candidate {
+			return Reply{State: "current", Version: h.Revision}
+		}
+	}
 	if rollback := h.rolledBack.Load(); rollback != nil && rollback.SHA == release.SHA && rollback.RunID == claims.RunID {
 		return Reply{State: "rolled_back", Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason}
 	}
 	if stale, err := h.olderRun(claims.RunID); err != nil {
-		return rejected(err)
+		kind := RefusalHost
+		var damaged *fenceError
+		if errors.As(err, &damaged) {
+			kind = RefusalFence
+		}
+		reply = refusalReply(kind, release.SHA, binary.SHA256, claims, err)
+		attempt := *reply.Refusal
+		if err := h.recordAttempt(&attempt); err != nil {
+			slog.Warn("release refusal diagnostic not saved", "error", err)
+		}
+		return reply
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
-	if err := h.install(ctx, binary, func() error {
-		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now()})
+	prepared := false
+	defer func() {
+		if prepared && h.pending != candidate && h.AbortStop != nil {
+			h.AbortStop()
+		}
+	}()
+	if err := h.install(ctx, binary, release.SHA, claims, func() error {
+		if h.PrepareStop != nil {
+			if err := h.PrepareStop(ctx); err != nil {
+				return fmt.Errorf("host refused release restart: %w", err)
+			}
+			prepared = true
+		}
+		return nil
 	}); err != nil {
-		return rejected(errors.Join(err, removeIfExists(h.TrialFile)))
+		kind := RefusalHost
+		var integrity *integrityError
+		if errors.As(err, &integrity) {
+			kind = RefusalIntegrity
+		}
+		reply = refusalReply(kind, release.SHA, binary.SHA256, claims, err)
+		var preflight *preflightError
+		reply.Refusal.Preflight = errors.As(err, &preflight)
+		attempt := *reply.Refusal
+		if err := h.recordAttempt(&attempt); err != nil {
+			slog.Warn("release refusal diagnostic not saved", "error", err)
+		}
+		return reply
 	}
+	h.pending = candidate
 	h.rolledBack.Store(nil)
-	if err := removeIfExists(h.RollbackFile); err != nil {
-		return rejected(err)
-	}
-	if err := os.WriteFile(h.RunIDFile, []byte(claims.RunID), 0o600); err != nil {
-		return rejected(err)
-	}
-	h.pending = release.SHA
 	return Reply{State: "installed", Version: release.SHA}
 }
 
-// ReleaseTag is the GitHub release CI run runID publishes for sha.
 func ReleaseTag(sha, runID string) string { return "ci-" + sha + "-run-" + runID }
 
-// ReleaseURL is that release's binary for arch.
 func ReleaseURL(sha, runID, arch string) string {
 	return downloadPrefix + ReleaseTag(sha, runID) + "/" + assetPrefix + arch
 }
 
-// validateOrch checks the request and its signature; it returns this host's asset.
 func (h *Handler) validateOrch(ctx context.Context, release OrchRelease) (Binary, Claims, error) {
 	if !hex40.MatchString(release.SHA) {
 		return Binary{}, Claims{}, errors.New("sha must be 40 lowercase hex")
@@ -367,13 +410,11 @@ func (h *Handler) validateOrch(ctx context.Context, release OrchRelease) (Binary
 	}
 	claims, err := h.Verifier.Verify(ctx, release.Token)
 	if err != nil {
-		return Binary{}, Claims{}, err
+		return binary, Claims{}, err
 	}
 	if claims.JobWorkflowRef != orchWorkflow || claims.SHA != release.SHA {
 		return Binary{}, Claims{}, errors.New("token is not for this ts-orchestrator commit")
 	}
-	// The URL is unsigned: only the signed run's own release asset is accepted,
-	// so a captured token cannot install another build under its sha.
 	if want := ReleaseURL(release.SHA, claims.RunID, runtime.GOARCH); binary.URL != want {
 		return Binary{}, Claims{}, errors.New("url must be " + want)
 	}
@@ -386,60 +427,88 @@ func (h *Handler) olderRun(runID string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return true, err
+		return true, fmt.Errorf("run fence unreadable: %w", err)
 	}
 	installed, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
 	if err != nil {
-		return true, err
+		return true, &fenceError{fmt.Errorf("run fence damaged; every run is refused until it is repaired: %w", err)}
 	}
 	next, _ := strconv.ParseUint(runID, 10, 64)
 	return next < installed, nil
 }
 
-var link = os.Link
-
-func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() error) error {
+func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims Claims, beforeSwap func() error) error {
 	next := h.Binary + ".next"
 	data, err := h.download(ctx, binary.URL)
 	if err != nil {
-		if data, err = h.download(ctx, binary.URL); err != nil {
-			return err
-		}
+		return err
 	}
 	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != binary.SHA256 {
-		return errors.New("downloaded binary sha256 differs")
+		return &integrityError{errors.New("downloaded binary sha256 differs")}
 	}
+	defer os.Remove(next)
 	if err := writeSynced(next, data); err != nil {
 		return err
 	}
-	if err := beforeSwap(); err != nil {
-		return errors.Join(err, removeIfExists(next))
+	if err := preflight(ctx, next); err != nil {
+		return err
 	}
-	prev := h.Binary + ".prev"
-	err = removeIfExists(prev)
-	if err == nil {
-		err = link(h.Binary, prev)
-	}
-	if err == nil {
-		err = os.Rename(next, h.Binary)
-	}
-	if err != nil {
-		if errors.Is(err, os.ErrPermission) {
-			err = fmt.Errorf("%w (an immutable binary refuses replacement: run `chattr -i %s %s` on the host)", err, h.Binary, prev)
-		}
-		return errors.Join(err, removeIfExists(next))
-	}
-	dir, err := os.Open(filepath.Dir(h.Binary))
+	candidate, err := binaryIdentity(next)
 	if err != nil {
 		return err
 	}
-	defer dir.Close()
-	return dir.Sync()
+	if candidate.SHA != sha || candidate.SHA256 != binary.SHA256 {
+		return &integrityError{errors.New("candidate revision or digest differs from signed release")}
+	}
+	unlock := h.probation.lockInstall()
+	defer unlock()
+	recoverAfter, err := h.prepareRecovery(ctx)
+	if err != nil {
+		return err
+	}
+	h.recoverAfter = recoverAfter
+	if err := h.stage(candidate, claims.RunID); err != nil {
+		return errors.Join(err, h.unstage())
+	}
+	if beforeSwap != nil {
+		if err := beforeSwap(); err != nil {
+			return errors.Join(err, h.unstage())
+		}
+	}
+	if err := os.Rename(next, h.Binary); err != nil {
+		return errors.Join(err, h.unstage())
+	}
+	if err := syncDirectory(filepath.Dir(h.Binary)); err != nil {
+		slog.Warn("release installed; binary rename durability not confirmed; the candidate moves its staged trial at start", "error", err)
+		return nil
+	}
+	if err := promote(h.TrialFile, h.RollbackFile, h.Binary); err != nil {
+		slog.Warn("release installed; staged trial not moved into place; the candidate moves it at start", "error", err)
+	}
+	return nil
 }
 
-// downloadStall cancels a binary download that receives nothing for this
-// long. A whole-download timeout (60 s) failed fra's 110 MB download on
-// 2026-10-28 20:11Z while its CPU was saturated; a slow one now finishes.
+func preflight(ctx context.Context, candidate string) error {
+	busySince := time.Now()
+	for {
+		err := secretpreflight.Check(ctx, candidate)
+		if !errors.Is(err, syscall.ETXTBSY) {
+			if err != nil {
+				return &preflightError{err}
+			}
+			return nil
+		}
+		if time.Since(busySince) >= textBusyWait {
+			return fmt.Errorf("candidate still open for writing by another process after %s: %w", textBusyWait, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
 var downloadStall = 30 * time.Second
 
 func (h *Handler) download(ctx context.Context, url string) ([]byte, error) {
@@ -466,7 +535,6 @@ func (h *Handler) download(ctx context.Context, url string) ([]byte, error) {
 	return data, err
 }
 
-// progress calls advanced after every read that returns data.
 type progress struct {
 	io.Reader
 	advanced func()
@@ -508,8 +576,6 @@ func (h *Handler) app(ctx context.Context, data []byte) Reply {
 	return h.appOperation(release, claims)
 }
 
-// validateApp binds each service to its GHCR package and requires a token
-// from a workflow appServices allows to release that service.
 func (h *Handler) validateApp(ctx context.Context, release AppRelease) (Claims, error) {
 	match := appImage.FindStringSubmatch(release.Image)
 	packageName := release.Service
@@ -532,8 +598,6 @@ func (h *Handler) validateApp(ctx context.Context, release AppRelease) (Claims, 
 	return claims, nil
 }
 
-// mesh admits ts-orchestrator's multi-region workflow tokens, and
-// app-digests tokens for state only.
 func (h *Handler) mesh(ctx context.Context, op string, data []byte) Reply {
 	var request MeshRequest
 	if err := protocol.DecodeStrict(data, &request, 64<<10); err != nil {
@@ -558,4 +622,11 @@ func (h *Handler) mesh(ctx context.Context, op string, data []byte) Reply {
 		return Reply{State: "failed", Error: err.Error(), Result: result}
 	}
 	return Reply{State: "done", Result: result}
+}
+
+func (h *Handler) exitAfter(delay time.Duration) {
+	if h.runningBinary != h.Binary {
+		return
+	}
+	time.AfterFunc(delay, func() { os.Exit(0) })
 }

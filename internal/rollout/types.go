@@ -34,8 +34,8 @@ const (
 )
 
 var (
-	ErrInvalid           = errors.New("rollout input is invalid")
-	ErrInvalidTransition = errors.New("rollout event is not valid in the current phase")
+	ErrInvalid = errors.New("rollout input is invalid")
+
 	ErrTerminal          = errors.New("rollout is in a terminal phase")
 	ErrKnownBad          = errors.New("rollout target digest is known bad")
 	ErrAttemptsExhausted = errors.New("rollout target digest has no attempts left")
@@ -43,8 +43,8 @@ var (
 	ErrFenced            = errors.New("rollout record belongs to a different authority epoch")
 	ErrConflict          = errors.New("rollout record changed concurrently")
 
-	tokenRE  = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,127}$`)
-	nonceRE  = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	tokenRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,127}$`)
+
 	digestRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -104,13 +104,6 @@ const (
 	UnitHeld        UnitState = "held"
 )
 
-// touched reports whether the unit may run the target digest and therefore
-// needs an explicit rollback.
-func (state UnitState) touched() bool {
-	return state == UnitPreparing || state == UnitSoaking || state == UnitPromoted ||
-		state == UnitRollingBack || state == UnitHeld
-}
-
 // Unit is one independently replaceable target. Units sharing a Group are
 // replicas of one quorum (the controllers, or the seats of a TerraBase
 // partition); a wave never takes more than one unit of a group. Seed marks
@@ -168,22 +161,6 @@ const (
 	ObservationBudget   = 20 * time.Minute
 )
 
-// DefaultPolicy is as fast as a binary-only update allows (user decision
-// 2026-10-06): one canary soaks five minutes, then every later wave takes as
-// many units as PlanWaves lets it (never two of one group, the seed last and
-// alone, so three controllers still move one at a time) and soaks two
-// minutes. A unit that restarts on another release, or does not prove the
-// target within ten minutes, rolls the rollout back.
-func DefaultPolicy() Policy {
-	return Policy{
-		CanaryUnits: 1, BatchSize: MaxUnits,
-		CanarySoakSeconds: int64((5 * time.Minute).Seconds()), BatchSoakSeconds: int64((2 * time.Minute).Seconds()),
-		MinHealthyReports: 3, ProofDeadlineSeconds: int64((10 * time.Minute).Seconds()),
-		RollbackDeadlineSeconds: int64((10 * time.Minute).Seconds()), PreflightSeconds: int64((10 * time.Minute).Seconds()),
-		MaxAttempts: 1, MaxRollbackRetries: 3,
-	}
-}
-
 // Validate rejects policies that could skip the canary, soak or deadlines.
 func (policy Policy) Validate() error {
 	if policy.CanaryUnits < 1 || policy.CanaryUnits > MaxUnits || policy.BatchSize < 1 || policy.BatchSize > MaxUnits ||
@@ -204,8 +181,6 @@ func (policy Policy) Digest() (string, error) {
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:]), nil
 }
-
-func seconds(value int64) time.Duration { return time.Duration(value) * time.Second }
 
 // Record is the durable rollout state. It is written by CAS on its KV
 // revision and fenced by AuthorityEpoch.
@@ -345,10 +320,4 @@ func (record Record) InFlight() []string {
 	}
 	slices.Sort(units)
 	return units
-}
-
-// OperationID derives the idempotent executor operation identity for one
-// unit step, so a retried transition never creates a second operation.
-func OperationID(rolloutID, unit string, phase Phase, attempt int) string {
-	return entityid.Derive("rollout", rolloutID, unit, string(phase), fmt.Sprint(attempt))
 }

@@ -20,7 +20,7 @@ func installCases(ctx context.Context, conn *nats.Conn, nodes []*process, boot f
 	spec.Name, spec.Port, spec.Args = "install-canary", 18092, []string{"--port", "18092"}
 	spec.Regions = order[:2]
 	spec.Image = strings.Replace(baseline.Image, "/terrabase@", "/install-canary@", 1)
-	release := &mesh.Deployment{Repository: "TerraScale/ts-orchestrator", RunID: "1", RunAttempt: 1, Revision: revision, Image: spec.Image}
+	release := &mesh.Deployment{Repository: "TerraScale/ts-orchestrator", RunID: "1", RunAttempt: 1, Revision: revision, Image: spec.Image, Workflow: "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main"}
 	generation := declaration(ctx, conn, &spec, spec.Name, release)
 	for i := range roots[:2] {
 		installEvidence(ctx, roots[i], spec.Name, generation, false)

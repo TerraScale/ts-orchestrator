@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,12 +30,13 @@ import (
 
 const (
 	healthWait   = 3 * time.Minute
+	servingWait  = 4 * time.Minute
 	healthSteady = 15 * time.Second
 	healthEvery  = 2 * time.Second
 	versionProbe = 10 * time.Second
 )
 
-const pushUsage = "usage: ts-orch release push --sha <40 hex> --dir <dir with " + assetPrefix + "<arch>> [--regions deploy/m1/regions.json]"
+const pushUsage = "usage: ts-orch release push --sha <40 hex> --dir <dir with " + assetPrefix + "<arch>> [--regions deploy/m1/regions.json] [--repair-unhealthy-fleet]"
 
 // Region is one deploy/m1/regions.json entry; a new region is one more line.
 type Region struct {
@@ -47,17 +49,26 @@ type Region struct {
 
 // Result is the one JSON line push prints per region.
 type Result struct {
-	Region     string `json:"region"`
-	State      string `json:"state,omitempty"`
-	ConnectMS  int64  `json:"connect_ms"`
-	AcceptedMS int64  `json:"accepted_ms"`
-	ServingMS  int64  `json:"serving_ms"`
-	ObservedAt string `json:"observed_at,omitempty"`
-	StartedAt  string `json:"started_at,omitempty"`
-	HealthyMS  int64  `json:"healthy_ms"`
-	Health     string `json:"health,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Region       string        `json:"region"`
+	State        string        `json:"state,omitempty"`
+	ConnectMS    int64         `json:"connect_ms"`
+	AcceptedMS   int64         `json:"accepted_ms"`
+	ServingMS    int64         `json:"serving_ms"`
+	ObservedAt   string        `json:"observed_at,omitempty"`
+	StartedAt    string        `json:"started_at,omitempty"`
+	HealthyMS    int64         `json:"healthy_ms"`
+	Health       string        `json:"health,omitempty"`
+	Workers      []HostVersion `json:"workers,omitempty"`
+	Refusals     []HostVersion `json:"refusals,omitempty"`
+	Unconfirmed  string        `json:"unconfirmed,omitempty"`
+	Repair       string        `json:"repair,omitempty"`
+	RevisionOnly string        `json:"revision_only,omitempty"`
+	Error        string        `json:"error,omitempty"`
 }
+
+type unhealthyError struct{ health string }
+
+func (e *unhealthyError) Error() string { return "health: " + e.health }
 
 func Push(ctx context.Context, args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("release push", flag.ContinueOnError)
@@ -65,6 +76,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	sha := flags.String("sha", "", "commit the release was built from")
 	dir := flags.String("dir", "", "directory with the release binaries")
 	regionsFile := flags.String("regions", "deploy/m1/regions.json", "region list")
+	repair := flags.Bool("repair-unhealthy-fleet", false, "skip only the initial health check of first hosts that answer their version request but report a health error")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -103,15 +115,28 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	}
 	var failed error
 	blocked := ""
+	unconfirmed := map[string]string{}
+	repaired := map[string]string{}
 	for _, region := range regions {
-		if err := dialPreflight(ctx, region); err != nil {
+		note, err := dialPreflight(ctx, region)
+		unconfirmed[region.Region] = note
+		var unhealthy *unhealthyError
+		if *repair && errors.As(err, &unhealthy) {
+			repaired[region.Region] = unhealthy.health
+			line, _ := json.Marshal(Result{Region: region.Region, State: "repair_skipped_health", Health: unhealthy.health, Repair: unhealthy.health})
+			if _, err := fmt.Fprintf(output, "%s\n", line); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
 			failed = fmt.Errorf("region %s preflight: %w", region.Region, err)
 			blocked = region.Region
 			break
 		}
 	}
 	preflight := failed
-	for _, region := range regions {
+	for index, region := range regions {
 		result := Result{Region: region.Region}
 		if blocked != "" {
 			result.State, result.Error = "skipped", "not pushed: "+blocked+" failed"
@@ -122,17 +147,26 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 			release.Token, err = MintToken(ctx)
 			if err == nil {
 				result = pushRegion(ctx, region, release)
-				if result.Error == "" {
+				if result.Error == "" && (result.State == "installed" || result.State == "current") {
 					result.HealthyMS, result.Health, err = awaitHealthy(ctx, region, release)
 				}
 			}
 			if err != nil {
 				result.Error = err.Error()
 			}
+			if index == 0 && allPreflightRefused(result) {
+				result.Error = "every host in the first region refused the same candidate preflight; rollout stopped"
+			}
 			if result.Error != "" {
 				blocked = region.Region
 				failed = errors.Join(failed, fmt.Errorf("region %s: %s", region.Region, result.Error))
 			}
+		}
+		result.Unconfirmed = unconfirmed[region.Region]
+		result.Repair = repaired[region.Region]
+		if refusal := RefusedOn(result.Refusals); refusal != "" {
+			result.State = refusal
+			failed = errors.Join(failed, fmt.Errorf("region %s: %s", region.Region, refusal))
 		}
 		line, _ := json.Marshal(result)
 		if _, err := fmt.Fprintf(output, "%s\n", line); err != nil {
@@ -159,20 +193,20 @@ func pushOrder(regions []Region) ([]Region, error) {
 	return ordered, nil
 }
 
-func dialPreflight(ctx context.Context, region Region) error {
+func dialPreflight(ctx context.Context, region Region) (string, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, versionProbe)
 	defer cancel()
 	token, err := MintToken(probeCtx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	deadline, _ := probeCtx.Deadline()
 	if err := probeCtx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	conn, err := Dial(region, token, nats.Timeout(time.Until(deadline)))
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer conn.Close()
 	version, err := request(probeCtx, conn, SubjectVersion, nil, versionProbe)
@@ -180,19 +214,23 @@ func dialPreflight(ctx context.Context, region Region) error {
 		err = errors.New("empty version reply")
 	}
 	if err != nil {
-		return err
+		return "", err
+	}
+	note := ""
+	if version.State == "unconfirmed" {
+		note = version.Version + ": " + version.Error
 	}
 	health, err := request(ctx, conn, SubjectHealth, nil, healthRequestTimeout)
 	if errors.Is(err, nats.ErrNoResponders) || (err == nil && health.Health == "no health check") {
-		return nil
+		return note, nil
 	}
 	if err != nil {
-		return fmt.Errorf("health: %w", err)
+		return note, &unhealthyError{err.Error()}
 	}
 	if health.Health != "ok" {
-		return fmt.Errorf("health: %q", health.Health)
+		return note, &unhealthyError{strconv.Quote(health.Health)}
 	}
-	return nil
+	return note, nil
 }
 
 func awaitHealthy(ctx context.Context, region Region, release OrchRelease) (ms int64, last string, err error) {
@@ -329,25 +367,56 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	if err != nil {
 		return fail(err)
 	}
-	reply, err := request(ctx, conn, SubjectOrch, payload, 2*time.Minute)
+	reply, err := request(ctx, conn, SubjectOrch, payload, 2*time.Minute+WorkerReplyWait)
 	if err != nil {
 		return fail(fmt.Errorf("release: %w", err))
 	}
 	result.State, result.AcceptedMS = reply.State, since()
+	result.Workers = reply.Workers
+	for _, row := range reply.Workers {
+		if row.Refusal != nil {
+			if !hostSide(row.Refusal.Kind) {
+				result.Error = "release integrity failure on " + row.Host + ": " + row.Refusal.Reason
+			}
+			result.Refusals = append(result.Refusals, row)
+		}
+	}
+	if reply.Refusal != nil && reply.Refusal.SHA == release.SHA {
+		host := reply.Host
+		if host == "" {
+			host = region.Region + " first host"
+		}
+		result.Refusals = append(result.Refusals, HostVersion{Host: host, Refusal: reply.Refusal})
+		if !hostSide(reply.Refusal.Kind) {
+			result.Error = "release integrity failure on " + host + ": " + reply.Refusal.Reason
+		}
+		return result
+	}
+	if result.Error != "" {
+		return result
+	}
 	if reply.State != "installed" && reply.State != "current" {
 		return fail(fmt.Errorf("release %s: %s", reply.State, reply.Error))
 	}
-	deadline := time.Now().Add(3 * time.Minute)
+	deadline := time.Now().Add(servingWait)
 	for {
 		version, err := request(ctx, conn, SubjectVersion, nil, time.Second)
-		if err == nil && version.Version == release.SHA {
-			result.ServingMS = since()
-			result.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
-			return result
-		}
 		if err == nil && version.RolledBack == release.SHA {
 			result.State = "rolled_back"
 			return fail(fmt.Errorf("the region rolled back to %s: %s", version.Version, version.Error))
+		}
+		candidate := err == nil && version.Version == release.SHA && (version.SHA256 == "" || releaseDigest(release, version.SHA256))
+		if candidate && version.State == "unconfirmed" {
+			result.State = "unconfirmed"
+			return fail(errors.New("release remains unconfirmed: " + version.Error))
+		}
+		if candidate && version.State != "probation" {
+			if version.SHA256 == "" {
+				result.RevisionOnly = "the host reports no binary digest; serving confirmed by revision only"
+			}
+			result.ServingMS = since()
+			result.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
+			return result
 		}
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			return fail(errors.New("timed out waiting for the region to serve " + release.SHA))
@@ -410,4 +479,34 @@ func request(ctx context.Context, conn *nats.Conn, subject string, payload []byt
 	}
 	var reply Reply
 	return reply, json.Unmarshal(message.Data, &reply)
+}
+
+func hostSide(kind string) bool { return kind == RefusalHost || kind == RefusalFence }
+
+func releaseDigest(release OrchRelease, digest string) bool {
+	for _, binary := range release.Binaries {
+		if binary.SHA256 == digest {
+			return true
+		}
+	}
+	return false
+}
+
+func allPreflightRefused(result Result) bool {
+	if len(result.Refusals) == 0 || len(result.Refusals) != len(result.Workers)+1 {
+		return false
+	}
+	revision := ""
+	for _, host := range result.Refusals {
+		record := host.Refusal
+		if record == nil || record.Kind != RefusalHost || !record.Preflight || record.Reason == "" || record.SHA == "" {
+			return false
+		}
+		if revision == "" {
+			revision = record.SHA
+		} else if record.SHA != revision {
+			return false
+		}
+	}
+	return true
 }

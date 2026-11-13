@@ -92,18 +92,6 @@ func (backup InitialBackupSpec) Validate(live LiveS3Target, members [2]InitialMe
 	return nil
 }
 
-func validBackupToken(value string, maximum int) bool {
-	if value == "" || len(value) > maximum || strings.TrimSpace(value) != value {
-		return false
-	}
-	for _, c := range []byte(value) {
-		if c < '!' || c > '~' {
-			return false
-		}
-	}
-	return true
-}
-
 func validBackupPolicyID(value string) bool {
 	if value == "" || len(value) > 64 {
 		return false

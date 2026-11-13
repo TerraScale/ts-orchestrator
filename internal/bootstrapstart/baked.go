@@ -41,7 +41,6 @@ const (
 var (
 	ErrBakedInputs = errors.New("baked bootstrap inputs are invalid")
 	rootFilenameRE = regexp.MustCompile(`^[0-9]{3}\.pem$`)
-	identityNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 )
 
 // BakedIdentity is root-owned image content. It is an independent local

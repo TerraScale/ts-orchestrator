@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
-	"errors"
 	"strconv"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -39,20 +38,6 @@ func (state CredentialState) signingMaterial() []byte {
 	material = append(material, state.InitialReceiptSHA256...)
 	material = append(material, 0)
 	return append(material, state.Registry...)
-}
-
-func SignCredentialState(generation uint64, initialReceiptSHA string, registry []byte,
-	authorityKey ed25519.PrivateKey,
-) (CredentialState, error) {
-	if generation == 0 || !lowerHexDigest(initialReceiptSHA) || len(registry) == 0 ||
-		len(registry) > maxCredentialRegistryBytes || len(authorityKey) != ed25519.PrivateKeySize {
-		return CredentialState{}, ErrMaterialConflict
-	}
-	sum := sha256.Sum256(registry)
-	state := CredentialState{Version: 1, Generation: generation, InitialReceiptSHA256: initialReceiptSHA,
-		RegistrySHA256: hex.EncodeToString(sum[:]), Registry: bytes.Clone(registry)}
-	state.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(authorityKey, state.signingMaterial()))
-	return state, nil
 }
 
 func VerifyCredentialState(state CredentialState, initialReceiptSHA string, authorityKey ed25519.PublicKey) error {
@@ -101,28 +86,6 @@ func validSQLTableGrantIDs(ids []string) bool {
 	return true
 }
 
-func CredentialStateDigest(state CredentialState) (string, error) {
-	wire, err := protocol.EncodeJSON(state)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(wire)
-	return hex.EncodeToString(sum[:]), nil
-}
-
-func InitialCredentialState(receipt PreparationReceipt, bundle InitialBundle) (CredentialState, error) {
-	initialSHA, err := preparationReceiptDigest(receipt)
-	if err != nil {
-		return CredentialState{}, err
-	}
-	left := bundle.Members[0].Files["client-api-keys.json"].Contents
-	right := bundle.Members[1].Files["client-api-keys.json"].Contents
-	if !bytes.Equal(left, right) || verifyStoredRegistry(receipt.Spec, bundle.Members[0], bundle.Customer) != nil {
-		return CredentialState{}, ErrMaterialConflict
-	}
-	return SignCredentialState(1, initialSHA, left, bundle.Retained.AuthoritySigner)
-}
-
 func preparationReceiptDigest(receipt PreparationReceipt) (string, error) {
 	wire, err := protocol.EncodeJSON(receipt)
 	if err != nil {
@@ -130,26 +93,6 @@ func preparationReceiptDigest(receipt PreparationReceipt) (string, error) {
 	}
 	sum := sha256.Sum256(wire)
 	return hex.EncodeToString(sum[:]), nil
-}
-
-type CredentialAction string
-
-const (
-	CredentialRotate CredentialAction = "rotate"
-	CredentialRevoke CredentialAction = "revoke"
-)
-
-// CredentialRequest is the payload inside an operator-signed NATS envelope.
-// ExpectedGeneration and operation ID make retries and contention explicit.
-type CredentialRequest struct {
-	DatabaseID         string           `json:"database_id"`
-	PartitionID        string           `json:"partition_id"`
-	InitialReceiptSHA  string           `json:"initial_receipt_sha256"`
-	ExpectedGeneration uint64           `json:"expected_generation"`
-	OperationID        string           `json:"operation_id"`
-	Action             CredentialAction `json:"action"`
-	KeyID              string           `json:"key_id,omitempty"`
-	Recipient          RecipientGrant   `json:"recipient,omitzero"`
 }
 
 type CredentialReceipt struct {
@@ -162,48 +105,6 @@ type CredentialReceipt struct {
 	Customer        *CustomerEnvelope `json:"customer,omitempty"`
 	ControllerKeyID string            `json:"controller_key_id"`
 	Signature       string            `json:"signature"`
-}
-
-// CredentialReply keeps a signed initial receipt and its authority key beside
-// the new receipt so an offline operator can authenticate the customer token.
-type CredentialReply struct {
-	Initial      PreparationReceipt `json:"initial"`
-	AuthorityKey []byte             `json:"authority_key"`
-	Receipt      CredentialReceipt  `json:"receipt"`
-}
-
-func VerifyCredentialReply(reply CredentialReply, request CredentialRequest,
-	controllerKey ed25519.PublicKey, cell string,
-) error {
-	if reply.Initial.Spec.PlacementDatabaseID != request.DatabaseID ||
-		reply.Initial.PartitionID != request.PartitionID ||
-		verifyPreparationSignature(reply.Initial, controllerKey, cell, request.PartitionID) != nil {
-		return ErrMaterialConflict
-	}
-	initialSHA, err := preparationReceiptDigest(reply.Initial)
-	if err != nil || initialSHA != request.InitialReceiptSHA ||
-		len(reply.AuthorityKey) != ed25519.PublicKeySize {
-		return ErrMaterialConflict
-	}
-	keySHA := sha256.Sum256(reply.AuthorityKey)
-	if hex.EncodeToString(keySHA[:]) != reply.Initial.TrustedKeySHA256 ||
-		reply.Receipt.DatabaseID != request.DatabaseID ||
-		reply.Receipt.PartitionID != request.PartitionID ||
-		reply.Receipt.State.Generation != request.ExpectedGeneration+1 ||
-		reply.Receipt.Verify(controllerKey, initialSHA, reply.AuthorityKey) != nil {
-		return ErrMaterialConflict
-	}
-	wire, err := protocol.EncodeJSON(request)
-	if err != nil {
-		return err
-	}
-	requestSHA := sha256.Sum256(wire)
-	if hex.EncodeToString(requestSHA[:]) != reply.Receipt.RequestSHA256 ||
-		request.Action == CredentialRotate && reply.Receipt.Customer == nil ||
-		request.Action == CredentialRevoke && reply.Receipt.Customer != nil {
-		return ErrMaterialConflict
-	}
-	return nil
 }
 
 func (receipt CredentialReceipt) signingMaterial() ([]byte, error) {
@@ -271,21 +172,4 @@ func canonicalCredentialCiphertext(value string) bool {
 	decoded, err := base64.RawURLEncoding.DecodeString(value)
 	return err == nil && len(decoded) >= 16 && len(decoded) <= maxCustomerPlaintextBytes+16 &&
 		base64.RawURLEncoding.EncodeToString(decoded) == value
-}
-
-func (receipt *CredentialReceipt) sign(controllerKey ed25519.PrivateKey) error {
-	if receipt == nil || len(controllerKey) != ed25519.PrivateKeySize {
-		return errors.New("credential receipt signer is invalid")
-	}
-	keyID, err := protocol.KeyID(controllerKey.Public().(ed25519.PublicKey))
-	if err != nil {
-		return err
-	}
-	receipt.ControllerKeyID = keyID
-	material, err := receipt.signingMaterial()
-	if err != nil {
-		return err
-	}
-	receipt.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(controllerKey, material))
-	return nil
 }

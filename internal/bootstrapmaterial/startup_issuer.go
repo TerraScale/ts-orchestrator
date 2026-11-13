@@ -2,9 +2,7 @@ package bootstrapmaterial
 
 import (
 	"bytes"
-	"context"
 	"crypto/x509"
-	"encoding/json/v2"
 	"strings"
 	"time"
 
@@ -12,38 +10,6 @@ import (
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
-
-// LoadStartupControllerIssuer loads online keys only through the sealed source
-// inventory; a derived startup is never represented as a material generation.
-func LoadStartupControllerIssuer(ctx context.Context, authority bootstrap.DerivedStartupAuthority, read func(string) ([]byte, error), now time.Time) (*ControllerIssuer, error) {
-	if !authority.IsVerified() || read == nil || now.IsZero() {
-		return nil, ErrMaterial
-	}
-	if err := authority.VerifyCurrent(ctx, now); err != nil {
-		return nil, err
-	}
-	wire := authority.MaterialRecord()
-	var record Record
-	manifest := authority.Manifest()
-	if digest(wire) != authority.MaterialSHA256() || json.Unmarshal(wire, &record, json.RejectUnknownMembers(true)) != nil ||
-		record.Config.Environment != manifest.Environment || strings.ToUpper(record.Config.Cell) != string(manifest.Cell) ||
-		record.Config.DeploymentID != manifest.DeploymentID || record.Config.ClusterID != manifest.ClusterID {
-		return nil, ErrMaterial
-	}
-	issuer, err := loadRecordedControllerIssuer(record, read, now)
-	if err != nil {
-		return nil, err
-	}
-	issuer.identity.expiresAt = minTime(issuer.identity.expiresAt, authority.ExpiresAt())
-	if current := time.Now(); current.After(now) {
-		now = current
-	}
-	if err := authority.VerifyCurrent(ctx, now); err != nil {
-		issuer.Wipe()
-		return nil, err
-	}
-	return issuer, nil
-}
 
 func loadRecordedControllerIssuer(record Record, read func(string) ([]byte, error), now time.Time) (*ControllerIssuer, error) {
 	if record.SchemaVersion != 1 || record.Config.validate() != nil || now.Before(record.IssuedAt) || !now.Before(record.ExpiresAt) ||

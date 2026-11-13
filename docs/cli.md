@@ -95,7 +95,7 @@ naming scheme and who may read what.
 | `ts-orch vault version --vault-id OCID --name NAME --secret-id OCID --expect-current N --file /dev/stdin [--instance-principal]` | Publish owner-provided bytes with an ETag and verify CURRENT readback; never generate or blindly retry a value |
 | `ts-orch region plan LABEL OCI_REGION --out FILE [--from PLAN]` | Derive a non-home region's plan from another region's reviewed plan; reads OCI, creates nothing ([new region](new-region.md)) |
 | `ts-orch region create LABEL OCI_REGION --state DIR --attempt-base FILE --home-plan FILE` | Bring the region up: foundation, private peering with gru-1, NetBird, founding attempt, edge, DNS, verify; resumable, prints each step's wall time |
-| `ts-orch region verify LABEL --plan BOUND_PLAN [--wait D]` | Fail unless api and auth answer and every load balancer backend is healthy |
+| `ts-orch region verify LABEL --plan BOUND_PLAN [--wait D]` | Fail unless api and auth answer, the api answers the dashboard's browser ping (`Access-Control-Allow-Origin`, `Timing-Allow-Origin`, `Cache-Control: no-store` on `/healthz`) and every load balancer backend is healthy |
 
 ## Cell spec
 
@@ -134,6 +134,7 @@ CI runs `ts-orch release deploy` for every `main` merge; see
 | `ts-orch release app --service NAME --image REF@SHA256 [--regions F]` | CI only (app image): release an app image to every region over the mesh |
 | `ts-orch release digests --out F [--regions F]` | CI only (app digests): record every mesh service's desired image to a file |
 | `ts-orch release mesh-check [--spec F] [--regions F]` | CI only: re-prove mesh ping, `service apply` and HTTPS in every region after a fleet push |
+| `ts-orch release verify-provenance --image REF@SHA256 --workflow OWNER/REPO/.github/workflows/W.yml@refs/heads/main --revision SHA` | Operators: verify the image's Sigstore provenance attestation is signed by that workflow for that commit (prints `ok`) |
 | `ts-orch release pin [--state DIR]` | Print the SPKI pin of the single-host listener certificate in a state directory |
 | `ts-orch release manifest --sha SHA --sequence N --out FILE` | Operator: build a production release manifest from a CI release's Linux binaries, hashing each download |
 | `ts-orch release sign --manifest FILE --key KEYFILE` | Operator: sign a manifest with `ssh-keygen -Y sign` (namespace `ts-orch-release`, works with ssh-agent and hardware keys); writes `FILE.sig` |

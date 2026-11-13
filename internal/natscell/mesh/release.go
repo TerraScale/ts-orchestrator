@@ -39,7 +39,7 @@ func Release(state string) func(ctx context.Context, service, image string, clai
 				return nil, err
 			}
 			attempt, _ := strconv.ParseUint(claims.RunAttempt, 10, 64)
-			if err = fence.RetainCandidate(ctx, rolloutmaintenance.Candidate{Image: image, Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA}); err != nil {
+			if err = fence.RetainCandidate(ctx, rolloutmaintenance.Candidate{Image: image, Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA, Workflow: claims.JobWorkflowRef}); err != nil {
 				return nil, err
 			}
 			return protocol.EncodeJSON(struct {
@@ -53,7 +53,7 @@ func Release(state string) func(ctx context.Context, service, image string, clai
 		}
 		defer conn.Close()
 		attempt, _ := strconv.ParseUint(claims.RunAttempt, 10, 64)
-		rows, failed := releaseDeployment(ctx, conn, service, image, &Deployment{Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA, Image: image}, releaseWait, rollbackWait, progress)
+		rows, failed := releaseDeployment(ctx, conn, service, image, &Deployment{Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA, Image: image, Workflow: claims.JobWorkflowRef}, releaseWait, rollbackWait, progress)
 		if rows == nil {
 			return nil, failed
 		}
@@ -61,19 +61,6 @@ func Release(state string) func(ctx context.Context, service, image string, clai
 		return data, errors.Join(failed, err)
 	}
 }
-
-// release applies the desired spec with only its image changed. When a
-// targeted region fails or does not get ready within wait, it re-applies the
-// previous spec everywhere, unless a newer release replaced this one meanwhile;
-// the rollback's rows follow the release's.
-func release(ctx context.Context, conn *nats.Conn, service, image string, wait, rollbackWait time.Duration) ([]Reply, error) {
-	return releaseDeployment(ctx, conn, service, image, nil, wait, rollbackWait, unreported{})
-}
-
-type unreported struct{}
-
-func (unreported) Deadline(time.Time) {}
-func (unreported) Event(string)       {}
 
 func regionEvent(prefix string, reply Reply) string {
 	elapsed := time.Duration(reply.ElapsedMS) * time.Millisecond

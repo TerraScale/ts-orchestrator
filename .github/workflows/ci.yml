@@ -49,6 +49,7 @@ jobs:
           - {lane: core, entry: run.sh, timeout: 8}
           - {lane: websocket, entry: websocket.sh, timeout: 8}
           - {lane: acme-ari, entry: acme-ari.sh, timeout: 3, packages: "./test/e2e/m1/certificates/ari"}
+          - {lane: fabric, entry: fabric/run.sh, timeout: 3, packages: "./test/e2e/m1/fabric"}
           - {lane: regional, entry: regional.sh, timeout: 3, packages: "./test/e2e/m1/regional"}
           - {lane: nodelist, entry: nodelist.sh, timeout: 8, packages: "./test/e2e/m1/nodelist"}
           - {lane: restarts, entry: restarts.sh, timeout: 8, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
@@ -59,6 +60,8 @@ jobs:
           - {lane: boot-order, entry: boot-order.sh, timeout: 8, packages: "./test/e2e/m1/boot-order"}
           - {lane: rollout, entry: rollout.sh, timeout: 10}
           - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
+          - {lane: recovery, entry: recovery.sh, timeout: 5}
+          - {lane: updater-preflight, entry: updater-preflight.sh, timeout: 12}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
           - {lane: data-volume, entry: data-volume.sh, timeout: 8, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
     name: e2e-m1 / ${{ matrix.lane }}

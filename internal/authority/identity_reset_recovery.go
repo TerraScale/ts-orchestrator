@@ -3,7 +3,6 @@ package authority
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"time"
@@ -88,34 +87,6 @@ func resetRecoveryScope(reset IdentityReset) trust.Scope {
 	return scope
 }
 
-// SignIdentityResetRecovery reauthorizes only the independently observed exact
-// hold. It does not change the original reset, target records, CAS or epochs.
-func SignIdentityResetRecovery(ctx context.Context, js jetstream.JetStream, envelope trust.Envelope, roots trust.Keyring, target IdentityResetTarget, key ed25519.PrivateKey, now time.Time) (trust.Envelope, error) {
-	bounded, cancel := context.WithTimeout(ctx, authorityAPITimeout)
-	defer cancel()
-	reset, _, messages, err := observeIdentityResetCommitment(bounded, js, envelope, roots, target)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if len(key) != ed25519.PrivateKeySize {
-		return trust.Envelope{}, trust.ErrUntrustedKey
-	}
-	public := key.Public().(ed25519.PublicKey)
-	id, err := trust.KeyID(public)
-	if err != nil || !bytes.Equal(roots[id], public) {
-		return trust.Envelope{}, trust.ErrUntrustedKey
-	}
-	pins, err := resetRecoveryPins(envelope, messages)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	payload, err := trust.EncodePayload(pins)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	return trust.Sign(payload, resetRecoveryScope(reset), now, now.Add(identityResetPolicy.MaxLifetime), key)
-}
-
 func verifyResetRecovery(envelope trust.Envelope, roots trust.Keyring, reset IdentityReset, expected identityResetRecovery, at time.Time) error {
 	payload, err := trust.VerifyCurrent(envelope, resetRecoveryScope(reset), roots, at, identityResetPolicy)
 	if err != nil {
@@ -130,41 +101,6 @@ func verifyResetRecovery(envelope trust.Envelope, roots trust.Keyring, reset Ide
 
 func resetRecoverySubject(reset IdentityReset) string {
 	return controlSubjectRoot + "." + reset.Scope + ".identity-reset-recovery." + reset.OperationID
-}
-
-// CommitIdentityResetRecovery appends fresh current-root authorization. A late
-// publish may be retried with fresh authority without replacing the held lease.
-func CommitIdentityResetRecovery(ctx context.Context, js jetstream.JetStream, original, recovery trust.Envelope, roots trust.Keyring, target IdentityResetTarget, now time.Time) error {
-	bounded, cancel := context.WithTimeout(ctx, authorityAPITimeout)
-	defer cancel()
-	reset, stream, messages, err := observeIdentityResetCommitment(bounded, js, original, roots, target)
-	if err != nil {
-		return err
-	}
-	pins, err := resetRecoveryPins(original, messages)
-	if err != nil {
-		return err
-	}
-	if err := verifyResetRecovery(recovery, roots, reset, pins, now); err != nil {
-		return err
-	}
-	wire, err := trust.EncodeEnvelope(recovery)
-	if err != nil {
-		return err
-	}
-	fingerprint, err := trust.Fingerprint(recovery)
-	if err != nil {
-		return err
-	}
-	subject := resetRecoverySubject(reset)
-	_, publishErr := js.PublishMsg(bounded, controlMessage(subject, "identity-reset-recovery", fingerprint, wire))
-	probe, stop := context.WithTimeout(context.WithoutCancel(ctx), authorityAPITimeout)
-	defer stop()
-	msg, err := stream.GetLastMsgForSubject(probe, subject)
-	if err != nil || !bytes.Equal(msg.Data, wire) {
-		return errors.Join(ErrOutcomeUnknown, publishErr, err)
-	}
-	return verifyResetRecovery(recovery, roots, reset, pins, msg.Time)
 }
 
 // VerifyCommittedIdentityReset proves both exact holds and their original

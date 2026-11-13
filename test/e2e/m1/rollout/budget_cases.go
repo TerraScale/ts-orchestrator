@@ -19,7 +19,7 @@ import (
 )
 
 func budgetCases(ctx context.Context, conn, releases *nats.Conn, nodes, swarms []*process, boot func(int) *process, roots, order, names, addresses []string, launcher string, spec swarmruntime.ServiceSpec) {
-	generation := declaration(ctx, conn, &spec, spec.Name, &mesh.Deployment{Repository: "TerraScale/terrascale", RunID: "100", RunAttempt: 1, Revision: revision, Image: spec.Image})
+	generation := declaration(ctx, conn, &spec, spec.Name, &mesh.Deployment{Repository: "TerraScale/terrascale", RunID: "100", RunAttempt: 1, Revision: revision, Image: spec.Image, Workflow: "TerraScale/terrascale/.github/workflows/ci.yml@refs/heads/main"})
 	evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Samples >= 1 })
 	evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Samples >= 1 })
 	budgetReconnected := conn.StatusChanged(nats.CONNECTED)

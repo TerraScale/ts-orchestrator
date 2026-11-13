@@ -10,13 +10,9 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/rootfoundation"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
-	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
-	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
 
 // RunAutomaticBootstrap discovers a signed controller role before configuration
@@ -135,18 +131,4 @@ func automaticSeedAuthority(ctx context.Context, local *automaticFoundation, gra
 		return bootstrap.DerivedStartupAuthority{}, err
 	}
 	return authority, nil
-}
-
-func automaticVaultClients(factory *ociclient.Factory) (*ocivault.VaultsClient, *ocisecrets.SecretsClient, error) {
-	management, err := ocivault.NewVaultsClientWithConfigurationProvider(factory.Provider())
-	if err != nil {
-		return nil, nil, err
-	}
-	management.SetRegion(factory.Region())
-	factory.Configure(&management.BaseClient, ociclient.ServiceVault)
-	bundles, err := vaultsecret.SecretsClient(factory)
-	if err != nil {
-		return nil, nil, err
-	}
-	return &management, &bundles, nil
 }

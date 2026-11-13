@@ -3,11 +3,8 @@ package region
 import (
 	"cmp"
 	"context"
-	"encoding/json/v2"
 	"errors"
-	"net/http"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -37,31 +34,6 @@ type FoundationCheckpoint struct {
 	OperationID    string    `json:"operationId,omitempty"`
 	Generation     uint64    `json:"generation,omitzero"`
 	FirstAttemptAt time.Time `json:"firstAttemptAt,omitzero"`
-}
-
-// FoundationObservationHandler must be mounted behind runtime authentication.
-func FoundationObservationHandler(foundations FoundationResolver) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancel()
-		view, err := foundations.ObserveFoundation(ctx, strings.ToUpper(r.PathValue("region")))
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		if err != nil {
-			reason := "foundation-observation-unavailable"
-			if errors.Is(err, ErrFoundationMissing) {
-				reason = "foundation-record-missing"
-			}
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.MarshalWrite(w, struct {
-				SchemaVersion int    `json:"schemaVersion"`
-				State         string `json:"state"`
-				Reason        string `json:"reason"`
-			}{1, "unavailable", reason})
-			return
-		}
-		_ = json.MarshalWrite(w, view)
-	})
 }
 
 func (r FoundationResolver) ObserveFoundation(ctx context.Context, cell string) (FoundationObservation, error) {

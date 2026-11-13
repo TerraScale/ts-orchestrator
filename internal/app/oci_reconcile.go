@@ -5,17 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math/rand/v2"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
-	"github.com/TerraScale/ts-orchestrator/internal/insights"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/bucket"
@@ -23,8 +19,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/nsg"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/routetable"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/seclist"
-	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
-	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
@@ -80,12 +74,6 @@ func (c OciReconcileLBConfig) key(cell string) (ociresource.Key, error) {
 		}
 	}
 	return key, nil
-}
-
-// publicLBKey validates the signed public backend identity. Ownership always
-// uses the freeform tags stamped by public-api apply.
-func (c OciReconcileConfig) publicLBKey(cell string) (ociresource.Key, error) {
-	return c.PublicLB.key(cell)
 }
 
 // spec derives the backend set from the current terrabase profile, with the
@@ -237,136 +225,4 @@ func desiredPass(cell string, store ociresource.Store, fencer authority.Fencer, 
 		}
 		return errors.Join(failures...)
 	}}
-}
-
-// ociReconcileRuntime is the leader-only runner and the read side the
-// insights engine uses on every controller.
-type ociReconcileRuntime struct {
-	runner *ociresource.Runner
-	store  ociresource.StatusLister
-	cell   string
-	// wake starts the next pass at once; seatBackends reads the public
-	// load balancer's TerraBase backends, nil without public_lb.
-	wake         chan struct{}
-	seatBackends func(context.Context) (map[string]seatrollout.Backend, error)
-}
-
-// wakeRunner asks for the next pass now without blocking.
-func (r *ociReconcileRuntime) wakeRunner() {
-	select {
-	case r.wake <- struct{}{}:
-	default:
-	}
-}
-
-// resources returns the insights provider once regional state is open.
-func (r *ociReconcileRuntime) resources() insights.OCIResourceProvider {
-	if r == nil || r.store == nil {
-		return nil
-	}
-	return ociResourceStatuses{store: r.store, cell: r.cell}
-}
-
-// ociResourceStatuses adapts TS_OCI_OBSERVED to the insights provider.
-type ociResourceStatuses struct {
-	store ociresource.StatusLister
-	cell  string
-}
-
-func (s ociResourceStatuses) OCIResources(ctx context.Context) ([]insights.OCIResource, error) {
-	statuses, err := s.store.ListStatus(ctx, s.cell)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]insights.OCIResource, 0, len(statuses))
-	for _, status := range statuses {
-		if status.Deleted {
-			continue
-		}
-		resource := insights.OCIResource{Key: status.Key.String(), Kind: status.Key.Kind, Policy: string(status.Policy),
-			Found: status.Found, InSync: status.InSync, Foreign: status.Foreign, Applied: status.Applied, Error: status.Error,
-			ObservedAt: status.ObservedAt}
-		for _, change := range status.Drift {
-			resource.Drift = append(resource.Drift, change.Op+" "+change.Detail)
-		}
-		out = append(out, resource)
-	}
-	return out, nil
-}
-
-// newOCIReconcileRunner retains only the typed root operation in the ordinary
-// controller. It never constructs a provider or an amendment ownership engine.
-func newOCIReconcileRunner(ctx context.Context, config *OciReconcileConfig, region oci.RegionConfig,
-	js jetstream.JetStream, replicas int, fencer authority.Fencer,
-) (*ociReconcileRuntime, error) {
-	if fencer == nil {
-		return nil, errors.New("regional OCI reconciliation requires authority")
-	}
-	cell := string(region.Region)
-	store, err := ociresource.OpenObservationStore(ctx, js, replicas)
-	if err != nil {
-		return nil, err
-	}
-	runtime := &ociReconcileRuntime{store: store, cell: cell, wake: make(chan struct{}, 1)}
-	client := rootoci.NewClient(rootoci.Expectations{Cell: cell})
-	runtime.runner = &ociresource.Runner{Authority: fencer,
-		Passes:   []ociresource.Pass{regionalReconcilePass(cell, fencer, client)},
-		Interval: ociReconcileInterval, Jitter: rand.Float64, Wake: runtime.wake}
-	if config != nil && config.PublicLB != nil {
-		if _, err := config.publicLBKey(cell); err != nil {
-			return nil, err
-		}
-		runtime.seatBackends = func(ctx context.Context) (map[string]seatrollout.Backend, error) {
-			receipt, err := client.ReconcileFoundation(ctx, rootoci.ReconcileFoundationRequest{Cell: cell})
-			if err != nil {
-				return nil, err
-			}
-			if err := regionalReceipt(cell, receipt); err != nil {
-				return nil, err
-			}
-			if len(receipt.SeatBackends) == 0 || len(receipt.SeatBackends) > 64 {
-				return nil, errors.New("root public backend observation is absent or exceeds its bound")
-			}
-			backends := make(map[string]seatrollout.Backend, len(receipt.SeatBackends))
-			for key, backend := range receipt.SeatBackends {
-				backends[key] = seatrollout.Backend{Drained: backend.Drained, Healthy: backend.Healthy}
-			}
-			return backends, nil
-		}
-	}
-	return runtime, nil
-}
-
-// The root backend derives the current signed intent and original creation
-// journal itself; foundation resources never enter the amendment ownership engine.
-func regionalReconcilePass(cell string, fencer authority.Fencer, client *rootoci.Client) ociresource.Pass {
-	return ociresource.Pass{Name: "regional-foundation", Run: func(ctx context.Context, epoch uint64) error {
-		guard := func() error {
-			if err := fencer.Guard(ctx, epoch); err != nil {
-				return fmt.Errorf("%w: %w", ociresource.ErrFenced, err)
-			}
-			return nil
-		}
-		if err := guard(); err != nil {
-			return err
-		}
-		receipt, err := client.ReconcileFoundation(ctx, rootoci.ReconcileFoundationRequest{Cell: cell})
-		if err != nil {
-			return fmt.Errorf("reconcile signed regional foundation: %w", err)
-		}
-		if err := guard(); err != nil {
-			return err
-		}
-		if err := regionalReceipt(cell, receipt); err != nil {
-			return err
-		}
-		return nil
-	}}
-}
-
-func regionalReceipt(cell string, receipt rootoci.FoundationReceipt) error {
-	if receipt.Cell != cell || receipt.GrantDigest == "" || receipt.OperationID == "" || receipt.Generation == 0 || receipt.Epoch == 0 || receipt.Stage != "reconciled" {
-		return errors.New("root foundation receipt is incomplete or outside the regional scope")
-	}
-	return nil
 }

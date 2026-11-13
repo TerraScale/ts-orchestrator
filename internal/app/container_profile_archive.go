@@ -63,19 +63,3 @@ func (h *nativeHistory) ReadContainerProfile(ctx context.Context, reference stri
 	}
 	return provenance.Spec, nil
 }
-
-func (h *nativeHistory) originalContainerProfile(ctx context.Context, intent delivery.Intent) ([]byte, error) {
-	if h == nil || h.deliveries == nil {
-		return nil, delivery.ErrPending
-	}
-	original, reference, err := h.deliveries.ContainerProvenance(ctx, intent.OperationID)
-	if err != nil {
-		return nil, err
-	}
-	fingerprint, err := original.Fingerprint()
-	expected, expectedErr := intent.Fingerprint()
-	if err != nil || expectedErr != nil || fingerprint != expected {
-		return nil, delivery.ErrPending
-	}
-	return h.ReadContainerProfile(ctx, reference)
-}

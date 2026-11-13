@@ -39,10 +39,6 @@ type FounderSelectionFloorStore struct {
 	allowUnsafeAncestors bool
 }
 
-func NewFounderSelectionFloorStore() *FounderSelectionFloorStore {
-	return &FounderSelectionFloorStore{directory: FounderSelectionFloorDirectory, ownerUID: uint32(os.Geteuid())}
-}
-
 // Initialize is an explicit provisioning operation. The caller must verify
 // that the starting selection generation and digest are the intended handoff.
 // Existing state is never replaced. Runtime reads only Check and Observe.

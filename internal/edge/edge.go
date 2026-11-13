@@ -51,6 +51,10 @@ type Edge struct {
 	pgSessions       chan struct{}
 	pgRelays         chan struct{}
 	pgControl        chan struct{}
+	serviceRoutes    atomic.Pointer[serviceRoutes]
+	peerEdges        atomic.Pointer[func() []mesh.WorkerPeer]
+	edgeTransports   sync.Map
+	edgeNext         sync.Map
 	proxy            *httputil.ReverseProxy
 	// challenges answers HTTP-01 for the tokens this edge holds.
 	challenges http.Handler
@@ -64,6 +68,8 @@ type Edge struct {
 	spoolDir           string
 	requestProofSecret atomic.Pointer[[]byte]
 	netbirdDashboard   *netbirddashboard.Handler
+	draining           atomic.Bool
+	lastHealthProbe    atomic.Int64
 }
 
 func New(stateDir string) *Edge { return newEdge(stateDir) }
@@ -97,7 +103,16 @@ func newEdge(stateDir string) *Edge {
 	// gRPC streams may hold response headers back, so only HTTP/1.1 gets this.
 	http1.ResponseHeaderTimeout = 30 * time.Second
 	e.local = roundTripper(func(r *http.Request) (*http.Response, error) {
+		if target, ok := r.Context().Value(edgeTargetKey{}).(edgeTarget); ok {
+			return e.peerEdgeRoundTrip(r, target)
+		}
 		r = traceBackend(r)
+		if r.Context().Value(edgeHopKey{}) != nil {
+			if isGRPC(r) {
+				return h2c.RoundTrip(r)
+			}
+			return http1.RoundTrip(r)
+		}
 		if r.URL.Port() == "8080" {
 			if response, err := e.regionalRoundTrip(r, false); response != nil || err != nil {
 				return response, err
@@ -116,6 +131,8 @@ func newEdge(stateDir string) *Edge {
 			port, _ := e.port(pr.In.Host)
 			pr.SetURL(&url.URL{Scheme: "http", Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port))})
 			pr.Out.Host = pr.In.Host
+			pr.Out.Header.Del(edgeHopHeader)
+			pr.Out.Header.Del(peerCredentialHeader)
 			if websocketHandshake(pr.Out) {
 				pr.Out.Header.Set("Upgrade", "websocket")
 			}
@@ -124,7 +141,7 @@ func newEdge(stateDir string) *Edge {
 			if proof := e.requestProof(pr.In.Header.Get(requestIDHeader)); proof != "" {
 				pr.Out.Header.Set(requestProofHeader, proof)
 			}
-			if fromPeer(pr.In) {
+			if fromPeer(pr.In) || pr.In.Context().Value(edgeHopKey{}) != nil {
 				// The source edge already set them from the client's connection.
 				for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
 					pr.Out.Header[h] = pr.In.Header[h]
@@ -139,8 +156,10 @@ func newEdge(stateDir string) *Edge {
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
-			if err := e.replay(resp); err != nil {
-				return err
+			if resp.Request.Context().Value(edgeHopKey{}) == nil {
+				if err := e.replay(resp); err != nil {
+					return err
+				}
 			}
 			locateDatabaseHome(resp)
 			// The ingress response already carries the authoritative identity.
@@ -174,6 +193,16 @@ func newEdge(stateDir string) *Edge {
 // SetRoutes replaces the hostname -> 127.0.0.1 port tables for HTTPS (web)
 // and Postgres. Certificates are issued only for hostnames in the tables.
 func (e *Edge) SetRoutes(web, postgres map[string]int) {
+	services := make(map[string]string, len(web))
+	ready := make([]string, 0, len(web))
+	for host := range web {
+		services[host] = host
+		ready = append(ready, host)
+	}
+	e.SetServiceRoutes(web, postgres, services, ready)
+}
+
+func (e *Edge) setRoutes(web, postgres map[string]int) {
 	lower := func(routes map[string]int) *map[string]int {
 		table := make(map[string]int, len(routes))
 		for host, port := range routes {
@@ -205,20 +234,51 @@ func (e *Edge) SetRoutes(web, postgres map[string]int) {
 	}
 }
 
+func (e *Edge) Drain() { e.draining.Store(true) }
+
+func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
+		return false
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
+			e.lastHealthProbe.Store(time.Now().UnixNano())
+		}
+	}
+	if !e.draining.Load() {
+		return false
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	return true
+}
+
 func (e *Edge) Run(ctx context.Context) error {
 	if err := e.certs.cache.loadDisk(ctx); err != nil {
 		return err
 	}
+	listeners, stop := context.WithCancel(context.WithoutCancel(ctx))
+	defer stop()
 	var running sync.WaitGroup
 	running.Go(func() { e.reconcileCertificates(ctx) })
 	running.Go(func() { e.reconcileReadiness(ctx) })
 	running.Go(func() { e.reconcileNetBirdDashboard(ctx) })
 	for _, protocol := range []string{"http", "https", "postgres", "terrabase"} {
-		running.Go(func() { e.runListener(ctx, protocol) })
+		running.Go(func() { e.runListener(listeners, protocol) })
 	}
+	<-ctx.Done()
+	e.Drain()
+	if time.Since(time.Unix(0, e.lastHealthProbe.Load())) < time.Minute {
+		timer := time.NewTimer(drainGrace)
+		defer timer.Stop()
+		<-timer.C
+	}
+	stop()
 	running.Wait()
 	return nil
 }
+
+const drainGrace = 20 * time.Second
 
 const clientIdleTimeout = 120 * time.Second
 
@@ -227,6 +287,9 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
 	plain := &http.Server{
 		Handler: countResponses("http", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !e.authorizeEdgeHop(w, r) {
+				return
+			}
 			e.identify(w, r)
 			if r.URL.Path == "/edge/ready" {
 				e.serveReady(w, r)
@@ -248,6 +311,9 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 			// GeoDNS health checks probe region IPs, where SNI cannot pick a
 			// certificate; liveness and readiness carry no secrets, so :80 answers them.
 			if (r.URL.Path == "/readyz" || r.URL.Path == "/healthz") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+				if e.drainingHealth(w, r) {
+					return
+				}
 				e.proxy.ServeHTTP(w, withBackendTrace(r))
 				return
 			}
@@ -283,8 +349,14 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	case r.Header.Get("Upgrade") != "":
 		w = hijackWriter{w, !websocketHandshake(r)}
 	}
+	if !e.authorizeEdgeHop(w, r) {
+		return
+	}
 	e.identify(w, r)
-	peer := fromPeer(r)
+	if e.drainingHealth(w, r) {
+		return
+	}
+	peer := fromPeer(r) || r.Context().Value(edgeHopKey{}) != nil
 	if strings.HasPrefix(r.URL.Path, postgresCancelPath) {
 		e.servePostgresCancel(w, r)
 		return
@@ -313,7 +385,8 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if strings.EqualFold(host, netbirdHost) && !netbirdBackend(r) {
+	r = e.routePeerEdge(r)
+	if strings.EqualFold(host, netbirdHost) && !netbirdBackend(r) && r.Context().Value(edgeTargetKey{}) == nil {
 		secureHeaders(w.Header())
 		e.netbirdDashboard.ServeHTTP(w, r)
 		return

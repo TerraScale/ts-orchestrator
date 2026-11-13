@@ -7,12 +7,9 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"slices"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/ociresource/nlb"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -117,54 +114,4 @@ func hostPort(task *api.Task) (uint16, error) {
 		return 0, errors.New("task readiness requires a non-privileged host TCP port")
 	}
 	return uint16(port.PublishedPort), nil
-}
-
-// ServiceBackends derives ingress from current upstream tasks and real readiness.
-// nodeAddresses is a snapshot of admitted host inventory, never request-supplied addresses.
-// An observed unhealthy service produces an empty desired set to remove stale traffic;
-// an unavailable SwarmKit API returns an error without inventing observations.
-func ServiceBackends(ctx context.Context, client api.ControlClient, serviceID, nlbID, backendSet string, nodeAddresses map[string]netip.Addr) (nlb.Spec, ServiceObservation, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	backends := map[string]nlb.Backend{}
-	var hostObservationErr error
-	view, err := ObserveService(ctx, client, serviceID, func(ctx context.Context, task *api.Task) error {
-		address, ok := nodeAddresses[task.NodeID]
-		if !ok {
-			return errors.New("task host is absent from admitted inventory")
-		}
-		response, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
-		if err != nil {
-			hostObservationErr = errors.New("task host state is unavailable")
-			return hostObservationErr
-		}
-		node := response.Node
-		if node == nil || node.ID != task.NodeID || node.Status.State != api.NodeStatus_READY || (node.Spec.Availability != api.NodeAvailabilityActive && node.Spec.Availability != api.NodeAvailabilityPause) || node.Spec.Annotations.Labels[LabelExecutionScope] != "platform" || task.ServiceAnnotations.Labels[LabelRegion] == "" || node.Spec.Annotations.Labels[LabelRegion] != task.ServiceAnnotations.Labels[LabelRegion] {
-			return errors.New("task host is not an active admitted regional container host")
-		}
-		if err := ProbeTask(ctx, task, address); err != nil {
-			return err
-		}
-		endpoint, _ := taskEndpoint(task, address)
-		backends[endpoint.String()] = nlb.Backend{IP: address.String(), Port: int(endpoint.Port())}
-		return nil
-	})
-	if err != nil {
-		return nlb.Spec{}, ServiceObservation{}, err
-	}
-	if hostObservationErr != nil {
-		return nlb.Spec{}, view, hostObservationErr
-	}
-	if err := ctx.Err(); err != nil {
-		return nlb.Spec{}, view, err
-	}
-	spec := nlb.Spec{NLBID: nlbID, BackendSet: backendSet, AllowEmpty: true}
-	for _, backend := range backends {
-		spec.Backends = append(spec.Backends, backend)
-	}
-	slices.SortFunc(spec.Backends, func(a, b nlb.Backend) int { return strings.Compare(a.Name(), b.Name()) })
-	if err := spec.Validate(); err != nil {
-		return nlb.Spec{}, view, err
-	}
-	return spec, view, nil
 }

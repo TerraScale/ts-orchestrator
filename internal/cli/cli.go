@@ -13,9 +13,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/alertdelivery"
 	"github.com/TerraScale/ts-orchestrator/internal/app"
-	"github.com/TerraScale/ts-orchestrator/internal/attempt"
 	"github.com/TerraScale/ts-orchestrator/internal/benchmark"
-	bootstrapcli "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli"
 	"github.com/TerraScale/ts-orchestrator/internal/callerkey"
 	"github.com/TerraScale/ts-orchestrator/internal/capacity"
 	"github.com/TerraScale/ts-orchestrator/internal/ci/realcaller"
@@ -26,6 +24,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/edge/geodns"
 	"github.com/TerraScale/ts-orchestrator/internal/functions"
 	"github.com/TerraScale/ts-orchestrator/internal/image"
+	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
 	"github.com/TerraScale/ts-orchestrator/internal/liveverify"
 	"github.com/TerraScale/ts-orchestrator/internal/logscan"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
@@ -46,6 +45,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
 	releasecli "github.com/TerraScale/ts-orchestrator/internal/release/cli"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepreflight"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
 	selfupdatecli "github.com/TerraScale/ts-orchestrator/internal/selfupdate/cli"
@@ -63,17 +63,6 @@ Runtime:
   single-host            Run one SwarmKit manager+worker with containerd and the HTTPS edge
   managed-runtime-start  Run the admitted root Swarm runtime
   function-worker        Run one admitted function revision
-  run                    Run the regional controller and embedded NATS
-  host                   Run the host agent
-  check                  Validate role configuration and connectivity
-  bootstrap-controller   Install and start a signed controller
-  host-setup             Install signed host enrollment
-  host-volume-init       Initialize an admitted host volume
-  install-controller-config  Install signed controller configuration
-  restore-controller-material  Rebuild the controller credentials in memory from Vault
-  identity-rekey         Stage, install and clean up a root-signed in-place identity transaction
-  netbird-enroll         Enroll the local NetBird client
-  identity-new           Generate a host identity
   selfupdate             Stage, activate and watch binary-only A/B updates
 
 Operator tooling:
@@ -86,18 +75,12 @@ Operator tooling:
   verify                 Observe production health, persistence gaps and OIDC (read-only)
   log-scan               Count recent WARN and ERROR records per service and node (read-only)
   events                 Print recent single-host task and service state changes; -f streams them (read-only)
-  operator               Manage workloads through the regional controller
-  get                    Print the running cell's spec (its signed desired state)
-  diff                   Plan a cell spec file against the running cell's spec
-  apply                  Apply a signed cell spec to the running cell
   service                Apply and remove services in every region, list this host's (apply -f FILE | ls | rm NAME)
   member                 List this region's cluster hosts; drain and remove a worker (ls | leave HOSTNAME)
   mesh                   Show which regions answer on the cross-region mesh (ping)
   status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
   edge                   Inspect certificates (edge certificates inventory, repair) or apply GeoDNS (edge geodns)
-  rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
-  node                   Inspect local public keys, build node lists, and manage cell nodes
-  bootstrap              Prepare, sign, verify, and publish bootstrap material
+  node                   Inspect local public keys and build node lists
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources
   region                 Bring a new region up in one command; verify it serves
@@ -111,9 +94,8 @@ Operator tooling:
   vault                  Store secrets in OCI Vault once; render host files from them
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
   runtime-priority       Qualify runtime resources and run bounded pressure
-  cluster                Break-glass controller quorum-loss recovery
 
-Use ts-orch bootstrap --help or ts-orch release --help to list their commands.
+Use ts-orch release --help to list its commands.
 ts-orch release push sends a main build one region at a time (sjc, fra, gru), waiting for JetStream and the region's services (CI only);
 ts-orch release pin --state /var/lib/ts-orch prints a host's listener pin for that file.
 ts-orch release app --service <name> --image <ref@sha256> releases an app image to every region (app image CI only);
@@ -195,14 +177,21 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return liveverify.Run(ctx, args[1:], output)
 	case "log-scan":
 		return logscan.Run(ctx, args[1:], output)
-	case "bootstrap":
-		return bootstrapcli.Run(ctx, args[1:], output)
 	case "node":
-		if len(args) > 1 && (args[1] == "keys" || args[1] == "list") {
-			return nodelist.Run(args[1:], output)
-		}
-		return app.Run(ctx, args, output)
+		return nodelist.Run(args[1:], output)
 	case "release":
+		if len(args) > 1 && args[1] == "recover" {
+			if len(args) != 2 {
+				return errors.New("usage: ts-orch release recover")
+			}
+			return releasepush.Recovery(ctx, output)
+		}
+		if len(args) > 1 && args[1] == "preflight" {
+			if len(args) != 2 {
+				return errors.New("usage: ts-orch release preflight")
+			}
+			return releasepreflight.Run(ctx)
+		}
 		if len(args) > 1 && args[1] == "push" {
 			return releasepush.Push(ctx, args[2:], output)
 		}
@@ -218,6 +207,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		if len(args) > 1 && (args[1] == "manifest" || args[1] == "sign" || args[1] == "verify") {
 			return signedrelease.Run(ctx, args[1:], output)
 		}
+		if len(args) > 1 && args[1] == "verify-provenance" {
+			return imagetrust.VerifyImage(ctx, args[2:], output)
+		}
 		if len(args) > 1 && args[1] == "pin" {
 			return releasepush.Pin(args[2:], output)
 		}
@@ -227,9 +219,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "oci-region":
 		return runOCIRegion(ctx, args[1:], commandio.NewWriter(output))
 	case "region":
-		if len(args) > 1 && args[1] == "create" {
-			return provisionOriginalFoundationFromFile(ctx, args[2:], commandio.NewWriter(output))
-		}
 		if len(args) > 1 && (args[1] == "add" || args[1] == "rm" || args[1] == "backups") {
 			return regionhost.Run(ctx, args[1:], output)
 		}
@@ -240,9 +229,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		}
 		if args[0] == "netbird" && len(args) > 1 && args[1] == "path-audit" {
 			return pathaudit.Run(ctx, args[2:], commandio.NewWriter(output))
-		}
-		if args[0] == "netbird" && len(args) > 1 && args[1] == "agent" {
-			return app.Run(ctx, append([]string{"netbird-agent"}, args[2:]...), output)
 		}
 		if args[0] == "netbird" && len(args) > 1 && slices.Contains(netbirdmanager.Commands, args[1]) {
 			return netbirdmanager.Run(ctx, args[1:], commandio.NewWriter(output))
@@ -277,18 +263,14 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return commandStatus(ctx, sourcedigest.Run(ctx, args[1:], commandio.NewWriter(output), &diagnostics), &diagnostics)
 	case "qualification":
 		return runQualification(ctx, args[1:], commandio.NewWriter(output))
-	case "cluster":
-		return runCluster(ctx, args[1:], commandio.NewWriter(output))
 	case "runtime-priority":
 		if len(args) == 1 || args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
 			_, err := io.WriteString(output, "Usage: ts-orch runtime-priority <qualify|pressure|probe-admission|adapter|remote> [flags]\n")
 			return err
 		}
 		return runtimepriority.Run(ctx, args[1:], commandio.NewWriter(output))
-	case "run", "host", "check", "operator", "get", "diff", "apply", "rollout", "identity-new", "netbird-enroll",
-		"bootstrap-controller", "bootstrap-credential-check", "bootstrap-admit-initial",
-		"bootstrap-admit-restart", "identity-rekey-completion-check", "identity-rekey", "install-controller-config", "host-setup", "host-volume-init", "restore-controller-material":
-		return app.Run(ctx, args, output)
+	case "bootstrap-credential-check", "bootstrap-admit-initial", "bootstrap-admit-restart", "identity-rekey-completion-check":
+		return app.RunChild(ctx, args, output)
 	default:
 		return fmt.Errorf("unknown command %q; use ts-orch --help", args[0])
 	}
@@ -296,18 +278,13 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 
 func runOCIRegion(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
-		_, err := io.WriteString(output, "Usage: ts-orch oci-region <command> [flags]\n\n  preview       Inventory, estimate, admit, and inspect regional resources\n  foundation    Create the plan's missing compartments, network, Vault, IAM and buckets (dry run unless --apply)\n  network       Converge a static-host cell's VCN, subnets, gateways and role NSGs (dry run unless --apply)\n  peer          Create the private DRG/RPC peering of two cells that inspect-private-peer checks (dry run unless --apply)\n  attempt       Resume an admitted regional bootstrap attempt\n  public-api    Preview, certify and apply the cell's Cloudflare-fronted load balancer\n  dns           Set Full (strict), origin pulls and proxied A records in Cloudflare (dry run unless --apply)\n  teardown      Delete a reviewed cell teardown plan's OCI resources in dependency order\n")
+		_, err := io.WriteString(output, "Usage: ts-orch oci-region <command> [flags]\n\n  preview       Inventory, estimate, admit, and inspect regional resources\n  foundation    Create the plan's missing compartments, network, Vault, IAM and buckets (dry run unless --apply)\n  network       Converge a static-host cell's VCN, subnets, gateways and role NSGs (dry run unless --apply)\n  peer          Create the private DRG/RPC peering of two cells that inspect-private-peer checks (dry run unless --apply)\n  public-api    Preview, certify and apply the cell's Cloudflare-fronted load balancer\n  dns           Set Full (strict), origin pulls and proxied A records in Cloudflare (dry run unless --apply)\n  teardown      Delete a reviewed cell teardown plan's OCI resources in dependency order\n")
 		return err
 	}
 	switch args[0] {
-	case "preview", "attempt":
+	case "preview":
 		var diagnostics bytes.Buffer
-		var code int
-		if args[0] == "preview" {
-			code = ociregion.PreviewRun(ctx, args[1:], output, &diagnostics)
-		} else {
-			code = attempt.Run(ctx, args[1:], output, &diagnostics)
-		}
+		code := ociregion.PreviewRun(ctx, args[1:], output, &diagnostics)
 		return commandStatus(ctx, code, &diagnostics)
 	case "foundation":
 		return foundation.Run(ctx, args[1:], output)

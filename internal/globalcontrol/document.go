@@ -40,23 +40,6 @@ func validDocument(kind Kind, cell string) bool {
 	return false
 }
 
-// PutDocument relays payload for cell as kind's next generation. A payload
-// equal to the stored one is an idempotent retry. admit, when set, sees the
-// stored payload (nil when there is none) and may refuse the write; the
-// append is conditional on that exact record, so no other write can land
-// between the check and the append.
-func (w *Writer) PutDocument(ctx context.Context, epoch uint64, kind Kind, cell string, payload []byte,
-	admit func(prior []byte) error,
-) (uint64, error) {
-	if !validDocument(kind, cell) {
-		return 0, errDocumentKey
-	}
-	if len(payload) == 0 || len(payload) > maxRecordBytes {
-		return 0, errors.New("global document must hold 1 byte to 64 KiB")
-	}
-	return w.put(ctx, epoch, kind, cell, 0, payload, admit)
-}
-
 // Document returns kind's current document for cell.
 func (r *Reader) Document(ctx context.Context, kind Kind, cell string) (Document, error) {
 	if !validDocument(kind, cell) {

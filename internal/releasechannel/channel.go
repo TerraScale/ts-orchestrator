@@ -21,13 +21,14 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"io"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
@@ -69,7 +70,6 @@ const (
 // ChannelKey and StatusKey are a cell's keys in Bucket; cell is the logical
 // cell, e.g. GRU.
 func ChannelKey(cell string) string { return "orchestrator.channel." + cell }
-func StatusKey(cell string) string  { return "orchestrator.status." + cell }
 
 var (
 	ErrInvalid = errors.New("invalid release channel")
@@ -286,51 +286,6 @@ func ReadStatus(ctx context.Context, location Location) (Status, bool, error) {
 	var status Status
 	found, err := location.read(ctx, StatusObject, maxStatusBytes, &status)
 	return status, found, err
-}
-
-// WriteStatus replaces the region's status. Only the region's authority
-// leader writes it, and a report is telemetry, so it is not conditional.
-func WriteStatus(ctx context.Context, location Location, status Status) error {
-	status.Schema, status.Reason = StatusSchema, Clip(status.Reason)
-	wire, err := json.Marshal(status, json.Deterministic(true))
-	if err != nil {
-		return err
-	}
-	return location.write(ctx, StatusObject, wire)
-}
-
-// write replaces name unconditionally.
-func (location Location) write(ctx context.Context, name string, wire []byte) error {
-	if len(wire) > maxStatusBytes {
-		return fmt.Errorf("%w: %s exceeds %d bytes", ErrInvalid, name, maxStatusBytes)
-	}
-	_, err := location.Client.PutObject(ctx, objectstorage.PutObjectRequest{
-		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
-		ContentLength: new(int64(len(wire))), PutObjectBody: io.NopCloser(bytes.NewReader(wire)),
-		ContentType: new("application/json"),
-	})
-	if err != nil {
-		return fmt.Errorf("write %s/%s: %w", location.Bucket, name, err)
-	}
-	return nil
-}
-
-// ReadBinary copies the region's binary with digest to dst. The caller
-// checks the bytes against the digest; a node stages them only after its
-// receipt verifies.
-func ReadBinary(ctx context.Context, location Location, digest string, dst io.Writer) error {
-	name := BinaryObject(digest)
-	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{
-		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
-	})
-	if err != nil {
-		return fmt.Errorf("read %s/%s: %w", location.Bucket, name, err)
-	}
-	defer response.Content.Close()
-	if _, err := io.Copy(dst, response.Content); err != nil {
-		return fmt.Errorf("read %s/%s: %w", location.Bucket, name, err)
-	}
-	return nil
 }
 
 // Await polls the region's status every poll until it reports channel's

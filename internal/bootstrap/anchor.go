@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"slices"
@@ -332,45 +331,6 @@ func BootstrapAnchorTrustPolicy() trust.Policy {
 func BootstrapLedgerCapabilityDomains() []string {
 	return []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult,
 		domainBootstrapCandidate, domainBootstrapProgress}
-}
-
-// SignBootstrapAnchor canonicalizes and signs a valid immutable anchor with
-// the offline root key.
-func SignBootstrapAnchor(anchor BootstrapAnchor, issuedAt, expiresAt time.Time, rootPrivateKey ed25519.PrivateKey) (trust.Envelope, error) {
-	if anchor.SchemaVersion != BootstrapAnchorSchemaVersion {
-		return trust.Envelope{}, fmt.Errorf("%w: new anchors must use schema version %d", ErrBootstrapAnchorInvalid, BootstrapAnchorSchemaVersion)
-	}
-	if err := anchor.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	if len(anchor.LedgerDelegationWire) > 0 {
-		grantEnvelope, err := trust.DecodeEnvelope(anchor.LedgerDelegationWire)
-		if err != nil {
-			return trust.Envelope{}, fmt.Errorf("decode bootstrap ledger delegation: %w", err)
-		}
-		if err := validateBootstrapAnchorGrantInterval(issuedAt, expiresAt, grantEnvelope); err != nil {
-			return trust.Envelope{}, err
-		}
-	}
-	payload, err := trust.EncodePayload(anchor)
-	if err != nil {
-		return trust.Envelope{}, fmt.Errorf("encode bootstrap anchor: %w", err)
-	}
-	if len(payload) > MaxBootstrapAnchorBytes {
-		return trust.Envelope{}, fmt.Errorf("%w: anchor exceeds %d bytes", ErrBootstrapAnchorInvalid, MaxBootstrapAnchorBytes)
-	}
-	envelope, err := trust.Sign(payload, bootstrapAnchorScope(anchor.DeploymentID, string(anchor.Cell), anchor.Environment),
-		issuedAt, expiresAt, rootPrivateKey)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if envelope.ExpiresAt.Sub(envelope.IssuedAt) > MaxBootstrapAnchorLifetime {
-		return trust.Envelope{}, fmt.Errorf("%w: anchor validity exceeds %s", ErrBootstrapAnchorInvalid, MaxBootstrapAnchorLifetime)
-	}
-	if err := validateBootstrapAnchorEnvelopeSize(envelope); err != nil {
-		return trust.Envelope{}, err
-	}
-	return envelope, nil
 }
 
 // VerifyBootstrapAnchor verifies the root signature before exposing any

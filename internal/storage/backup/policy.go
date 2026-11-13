@@ -19,6 +19,3 @@ const (
 	retain    = 7
 	fullEvery = 7
 )
-
-// Retention must preserve a complete FULL backup cadence.
-var _ [retain - fullEvery]struct{}

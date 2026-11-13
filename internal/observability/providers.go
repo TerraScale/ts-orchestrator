@@ -28,10 +28,3 @@ type EventSource interface {
 type ReadinessSource interface {
 	Evaluate(ctx context.Context) (bool, []CheckResult)
 }
-
-var (
-	_ SnapshotSource  = (*Collector)(nil)
-	_ ClusterSource   = (*Aggregator)(nil)
-	_ EventSource     = (*EventBus)(nil)
-	_ ReadinessSource = (*Health)(nil)
-)

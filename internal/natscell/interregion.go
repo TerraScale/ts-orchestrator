@@ -625,13 +625,6 @@ func (ir *InterRegion) Files() []string {
 	return files
 }
 
-// ValidateLeafCredentials is the remote-side check of a leaf credentials
-// file: a leaf-only user of peerAccount, issued by one of its scoped child
-// signing keys, without permissions or limits of its own.
-func ValidateLeafCredentials(path, peerAccount string) error {
-	return validateLeafCredentials(path, peerAccount)
-}
-
 func denyAll(permissions jwt.Permissions) bool {
 	return len(permissions.Pub.Allow) == 0 && len(permissions.Sub.Allow) == 0 &&
 		slices.Equal(permissions.Pub.Deny, jwt.StringList{">"}) && slices.Equal(permissions.Sub.Deny, jwt.StringList{">"}) &&

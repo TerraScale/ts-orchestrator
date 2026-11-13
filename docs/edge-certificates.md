@@ -226,6 +226,12 @@ of repair. Keep local files throughout any planned encryption-key rotation.
 
 Observation requests never obtain a certificate.
 
+## Graceful drain
+
+On SIGTERM the edge immediately answers 503 on `/healthz` and `/readyz` on ports 80 and 443.
+The edge waits 20 s before closing only when an external health checker probed it in the last minute.
+During that wait it keeps its listeners open and serves other requests.
+
 ## Readiness
 
 GET or HEAD /edge/ready is available on HTTP port 80 and on the node's mesh-facing HTTP port 9108. It returns 200 when all four edge listeners are bound, routes have loaded, ingress and local application backends are ready, and every routed HTTPS or PostgreSQL name has an unexpired certificate loaded in memory, ECDSA or RSA. Otherwise it returns 503. The certificate check runs on every request, so readiness turns true as soon as a certificate is installed and never before. The JSON body includes ready, missing infrastructure conditions, and missing_names. A name without a certificate within the issuance grace window (ten minutes from assignment) is listed under missing as `certificate <name> pending`; after that window it moves to missing_names, matching the reconciliation grace above. Readiness fails in both cases.

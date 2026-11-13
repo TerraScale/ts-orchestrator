@@ -14,15 +14,12 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"github.com/oracle/oci-go-sdk/v65/vault"
 )
-
-var ErrOriginalFoundationSourceIAMPending = fmt.Errorf("%w: original seed source IAM retained; local custody, source archive and runtime admission remain unavailable", ErrOriginalSourceProducerHold)
 
 // OriginalFoundationSourceIAM is an original-operator effect, never a local
 // SourceFounder, selected inventory or generic foundation IAM capability.
@@ -49,44 +46,6 @@ type OriginalFoundationSourceIAM struct {
 	ReadbackSHA256    string                        `json:"readbackSha256,omitempty"`
 	VerifiedAt        time.Time                     `json:"verifiedAt,omitzero"`
 	HoldReason        string                        `json:"holdReason,omitempty"`
-}
-
-func ProvisionOriginalFoundationSourceIAM(ctx context.Context, factory *ociclient.Factory, roots trust.Keyring, bundle RetainedFoundation) error {
-	if err := VerifyFoundationProvisionBundle(ctx, roots, bundle); err != nil {
-		return err
-	}
-	authority, _, err := newOperatorHomeIAMAuthority(ctx, factory, roots, bundle)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithDeadline(ctx, authority.operator.deadline)
-	defer cancel()
-	record, _, err := authority.resolver.Store.Load(ctx, "GRU")
-	if err != nil || completeOriginalSourceIAMActors(record) != nil {
-		return errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	expected, err := originalCompartmentScope(ctx, authority)
-	if err != nil || !sameOriginalSourceValue(record.OriginalFoundationCompartments.scopeOnly(), expected) {
-		return errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	ctx, release, err := authority.HomeWrite(ctx, 0)
-	if err != nil {
-		return err
-	}
-	defer release()
-	for index := range 3 {
-		if err := retainOriginalSourceIAM(ctx, authority, index); err != nil {
-			return err
-		}
-	}
-	grant, err := decodeOriginalMaterialGrant(bundle)
-	if err != nil {
-		return err
-	}
-	if grant.OriginalActorAdmissionReads == nil {
-		return ErrOriginalFoundationSourceIAMPending
-	}
-	return provisionOriginalFoundationAdmissionReads(ctx, authority)
 }
 
 func completeOriginalSourceIAMActors(record FoundationRecord) error {
@@ -377,22 +336,6 @@ func originalSourceIAMReadback(entry OriginalFoundationSourceIAM) (string, error
 	}
 	wire, err := json.Marshal([]string{entry.Provenance.ResourceID, entry.Pending.Request.RequestDigest, "ACTIVE"}, json.Deterministic(true))
 	return digestSource(wire), err
-}
-
-func (record FoundationRecord) validateOriginalFoundationSourceIAM() error {
-	root := record.OriginalFoundationCompartments
-	if root == nil {
-		return nil
-	}
-	for _, region := range root.Regions {
-		if region.SourceIAM != nil {
-			if err := completeOriginalSourceIAMActors(record); err != nil {
-				return errors.Join(ErrOriginalSourceProducerHold, err)
-			}
-			break
-		}
-	}
-	return record.validateOriginalFoundationSourceIAMFromValidatedActors()
 }
 
 func (record FoundationRecord) validateOriginalFoundationSourceIAMFromValidatedActors() error {

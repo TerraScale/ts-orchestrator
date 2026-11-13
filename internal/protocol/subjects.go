@@ -65,26 +65,6 @@ func RegionalRoot(region string) (string, error) {
 	return SubjectRoot + "." + token, nil
 }
 
-func QuerySubject(region, query string) (string, error) {
-	return regionalSubject(region, "query", query)
-}
-
-func CommandSubject(region, command string) (string, error) {
-	return regionalSubject(region, "command", command)
-}
-
-// ObservabilitySubject is a read-only member telemetry route inside one
-// regional cell, for example ts.orch.v1.gru.obs.snapshot. Every controller
-// answers it; it carries no signed state and never drives a mutation.
-// ObservabilityGrant (families.go) is the subscribe grant covering every leaf.
-func ObservabilitySubject(region, leaf string) (string, error) {
-	return regionalSubject(region, "obs", leaf)
-}
-
-func AgentCommandSubject(region, nodeID, command string) (string, error) {
-	return agentSubject(region, nodeID, "command", command)
-}
-
 // AgentObservationSubject binds the host RPC route to the authenticated NATS
 // user key. A scoped account signer grants publish on this exact key's route.
 func AgentObservationSubject(region, userPublicKey, observation string) (string, error) {
@@ -99,13 +79,6 @@ func AgentObservationSubject(region, userPublicKey, observation string) (string,
 		return "", err
 	}
 	return root + ".agent." + userPublicKey + ".observation." + observation, nil
-}
-
-func AgentReplySubject(region, nodeID, operationID string) (string, error) {
-	if !validIdentity(operationID, 128) {
-		return "", fmt.Errorf("%w: invalid operation ID", ErrInvalidSubjectToken)
-	}
-	return agentSubject(region, nodeID, "reply", HashToken(operationID)[:32])
 }
 
 func GlobalControlSubject(action string) (string, error) {
@@ -126,31 +99,6 @@ func ValidateSubjectToken(token string) error {
 		return ErrInvalidSubjectToken
 	}
 	return nil
-}
-
-func regionalSubject(region, family, leaf string) (string, error) {
-	if err := ValidateSubjectToken(leaf); err != nil {
-		return "", err
-	}
-	root, err := RegionalRoot(region)
-	if err != nil {
-		return "", err
-	}
-	return root + "." + family + "." + leaf, nil
-}
-
-func agentSubject(region, nodeID, family, leaf string) (string, error) {
-	if !validIdentity(nodeID, 512) {
-		return "", fmt.Errorf("%w: invalid node identity", ErrInvalidSubjectToken)
-	}
-	root, err := RegionalRoot(region)
-	if err != nil {
-		return "", err
-	}
-	if err := ValidateSubjectToken(leaf); err != nil {
-		return "", err
-	}
-	return root + ".agent." + HashToken(nodeID) + "." + family + "." + leaf, nil
 }
 
 func validToken(token string) bool {

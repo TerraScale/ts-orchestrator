@@ -154,12 +154,6 @@ type FoundationStore interface {
 	CompareAndSwap(context.Context, FoundationRecord, string) (string, error)
 }
 
-type FoundationResult struct {
-	Cell   string           `json:"cell"`
-	Record FoundationRecord `json:"record"`
-	Err    error            `json:"-"`
-}
-
 // FoundationController reconciles approved foundations independently, including
 type FoundationController struct {
 	Footprint   Footprint
@@ -192,47 +186,6 @@ func (c *FoundationController) ReconcileCell(ctx context.Context, cell string, e
 		}
 	}
 	return FoundationRecord{}, errors.New("region is outside authenticated foundation footprint")
-}
-
-func (c *FoundationController) Reconcile(ctx context.Context, epoch uint64) ([]FoundationResult, error) {
-	if c.Footprint == nil || c.Authority == nil || c.Store == nil || c.Foundations == nil || epoch == 0 {
-		return nil, errors.New("regional foundations require authenticated footprint, authority, durable store and OCI provider")
-	}
-	if err := c.Authority.Guard(ctx, epoch); err != nil {
-		return nil, err
-	}
-	footprint, err := c.Footprint.AuthorizedRegions(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("read authorized regional footprint: %w", err)
-	}
-	if err := validateFootprint(footprint); err != nil {
-		return nil, err
-	}
-	results := make([]FoundationResult, len(footprint.Regions))
-	jobs := make(chan int)
-	var workers sync.WaitGroup
-	for range min(3, len(results)) {
-		workers.Go(func() {
-			for i := range jobs {
-				intent := footprint.Regions[i]
-				cell := intent.Plan["cell"].(string)
-				record, err := c.reconcile(ctx, epoch, footprint, intent)
-				results[i] = FoundationResult{Cell: cell, Record: record, Err: err}
-			}
-		})
-	}
-	for i := range results {
-		jobs <- i
-	}
-	close(jobs)
-	workers.Wait()
-	var failures []error
-	for _, result := range results {
-		if result.Err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", result.Cell, result.Err))
-		}
-	}
-	return results, errors.Join(failures...)
 }
 
 func validateFootprint(f ApprovedFootprint) error {

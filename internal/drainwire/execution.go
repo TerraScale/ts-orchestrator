@@ -2,10 +2,8 @@
 package drainwire
 
 import (
-	"crypto/sha256"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -115,11 +113,6 @@ func HoldSigningBytes(h ExecutionHold) ([]byte, error) {
 func StopSigningBytes(p StopPayload) ([]byte, error) {
 	wire, err := json.Marshal(p, json.Deterministic(true))
 	return append([]byte("TS-POOL-DRAIN-STOP-V1\x00"), wire...), err
-}
-
-func HoldSHA256(h ExecutionHold) (string, error) {
-	wire, err := HoldSigningBytes(h)
-	return fmt.Sprintf("%x", sha256.Sum256(wire)), err
 }
 
 func digest(value string) bool {

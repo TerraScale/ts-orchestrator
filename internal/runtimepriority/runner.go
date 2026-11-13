@@ -47,11 +47,7 @@ func pretty(v any) []byte {
 	}
 	return append(b, '\n')
 }
-func (r *Runner) ValidateQualifier(evidence, request Object, observed, phase string) (err error) {
-	defer recoverError(&err)
-	r.validateQualifier(evidence, request, observed, phase)
-	return
-}
+
 func (r *Runner) validateQualifier(evidence, request Object, observed, phase string) {
 	summary, probe := sub(evidence, "summary"), sub(evidence, "probe_evidence")
 	if str(summary, "status") != "PASS" || probe["fresh_for_request_id"] != request["request_id"] {
@@ -139,11 +135,7 @@ func (r *Runner) validateQualifier(evidence, request Object, observed, phase str
 	fingerprints[role] = fingerprint
 	r.appendState("memory_usage_samples", Object{"phase": phase, "guest_role": role, "request_id": request["request_id"], "sample_sha256": sample["sample_sha256"]})
 }
-func (r *Runner) FailureTarget() (target Object, err error) {
-	defer recoverError(&err)
-	target = r.failureTarget()
-	return
-}
+
 func (r *Runner) terrabaseTarget() Object {
 	snapshot := r.snapshot()
 	row := sub(sub(snapshot, "members"), "source")
@@ -423,27 +415,6 @@ func EvaluateRunStatus(failures []string, started, completed bool, scenario stri
 		return "UNQUALIFIED", []string{"role-bound guest memory usage samples are missing phases: " + strings.Join(missing, ", ")}
 	}
 	return "PASS", []string{}
-}
-
-func (r *Runner) CompareServices(current Object, phase string) (err error) {
-	defer recoverError(&err)
-	for unit, value := range current {
-		now := obj(value, "service snapshot")
-		old := sub(r.stateObject("previous_services"), unit)
-		if old["control_group"] != now["control_group"] {
-			fail("%s systemd cgroup changed during D15 scenario", unit)
-		}
-		restart := unit == HostUnit && str(r.pressure(), "scenario") == "host_manager_sigkill" && slices.Contains([]string{"post_recovery", "after", "after_write"}, phase) && r.State["failure_observed"] == true
-		if restart {
-			baseline := sub(r.stateObject("baseline_services"), unit)
-			if n(now, "n_restarts") <= n(baseline, "n_restarts") || (same(now["main_pid"], baseline["main_pid"]) && now["process_start"] == baseline["process_start"]) {
-				fail("host manager systemd restart count/process identity did not advance")
-			}
-		} else if !same(now["main_pid"], old["main_pid"]) || now["process_start"] != old["process_start"] || !same(now["n_restarts"], old["n_restarts"]) {
-			fail("%s process identity/restart counter changed outside its target scenario", unit)
-		}
-	}
-	return
 }
 
 func (r *Runner) ValidateActiveObservation(role, phase, observed string) (err error) {

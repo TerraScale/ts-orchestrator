@@ -103,5 +103,3 @@ func InsightRollout(record Record) insights.Rollout {
 	return insights.Rollout{ID: record.RolloutID, Release: record.ToDigest, Phase: string(record.Phase),
 		PhaseStarted: record.PhaseStartedAt, PhaseDeadline: record.PhaseDeadline, Done: record.Phase.Terminal()}
 }
-
-var _ insights.RolloutProvider = (*Store)(nil)

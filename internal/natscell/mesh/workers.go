@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -20,8 +21,9 @@ import (
 // it in ping replies: the node name TerraBase sees as TS_NODE and its NetBird
 // IPv4.
 type WorkerPeer struct {
-	Node    string `json:"node"`
-	Address string `json:"address"`
+	Node          string   `json:"node"`
+	Address       string   `json:"address"`
+	ReadyServices []string `json:"ready_services,omitempty"`
 }
 
 // announcement is a worker's last word to its founder.
@@ -246,4 +248,74 @@ func (a swarmApplier) Replicas(ctx context.Context, service string) (replicas ui
 		return nil
 	})
 	return replicas, err
+}
+
+func (n *Node) EdgePeers(ready func() []string) func() []WorkerPeer {
+	type observed struct {
+		peer WorkerPeer
+		at   time.Time
+	}
+	var mu sync.Mutex
+	peers := map[string]observed{}
+	subject := protocol.MeshWorkerPrefix + n.cfg.region + ".edge"
+	n.goWork(func() {
+		var subscription *nats.Subscription
+		backoff := time.Second
+		for {
+			var err error
+			subscription, err = n.conn.Subscribe(subject, func(message *nats.Msg) {
+				var at WorkerPeer
+				if protocol.DecodeTolerant(message.Data, &at, maxWire) != nil || at.Node == n.cfg.server || !validPeer(n.cfg.region, peer{at.Node, at.Address}) {
+					return
+				}
+				mu.Lock()
+				peers[at.Node] = observed{peer: at, at: time.Now()}
+				mu.Unlock()
+			})
+			if err == nil {
+				break
+			}
+			slog.WarnContext(n.ctx, "edge announcements unavailable; retrying", "error", err)
+			select {
+			case <-n.ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff = min(2*backoff, 30*time.Second)
+		}
+		defer func() { _ = subscription.Unsubscribe() }()
+		ticker := time.NewTicker(n.cfg.peersEvery)
+		defer ticker.Stop()
+		for {
+			if address, err := n.cfg.address(); err == nil {
+				data, err := protocol.EncodeJSON(WorkerPeer{Node: n.cfg.server, Address: address, ReadyServices: ready()})
+				if err == nil {
+					err = n.conn.Publish(subject, data)
+				}
+				if err != nil {
+					slog.WarnContext(n.ctx, "mesh edge announcement failed", "error", err)
+				}
+			}
+			select {
+			case <-n.ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	})
+	return func() []WorkerPeer {
+		mu.Lock()
+		defer mu.Unlock()
+		fresh := max(workerFresh, 3*n.cfg.peersEvery)
+		result := []WorkerPeer{}
+		for node, item := range peers {
+			if time.Since(item.at) > fresh {
+				delete(peers, node)
+				continue
+			}
+			result = append(result, item.peer)
+		}
+		slices.SortFunc(result, func(a, b WorkerPeer) int { return strings.Compare(a.Node, b.Node) })
+		return result
+	}
 }

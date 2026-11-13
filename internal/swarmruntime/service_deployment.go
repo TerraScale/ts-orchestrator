@@ -15,6 +15,7 @@ type Deployment struct {
 	RunAttempt uint64 `json:"runAttempt,omitzero"`
 	Revision   string `json:"revision"`
 	Image      string `json:"image"`
+	Workflow   string `json:"workflow,omitempty"`
 }
 
 var deploymentRevision = regexp.MustCompile(`^[0-9a-f]{40}$`)

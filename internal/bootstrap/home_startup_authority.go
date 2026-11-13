@@ -127,32 +127,6 @@ func verifyRegionalStartupTemplateBindings(wire []byte, roots trust.Keyring, anc
 	return verifyStartupTemplateForIdentityBindings(wire, roots, anchor, identity, bindings, now)
 }
 
-// VerifyHomeStartupTemplate additionally binds GRU to the baked home identity
-// and storage domain in FoundationScope, without fabricating a home anchor.
-func VerifyHomeStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, now time.Time) (VerifiedStartupTemplate, error) {
-	return VerifyRegionalStartupTemplate(wire, roots, anchor, oci.RegionGRU, now)
-}
-
-// LoadRegionalStartupAuthority reads one exact registered recipient's public
-// startup proof. Source escrow and caller-selected object locators are absent.
-func LoadRegionalStartupAuthority(ctx context.Context, grantWire []byte, anchor VerifiedBootstrapAnchor, roots trust.Keyring, client ObjectStorageClient, cell oci.Region, slot string, now time.Time) (DerivedStartupAuthority, error) {
-	template, err := VerifyRegionalStartupTemplate(grantWire, roots, anchor, cell, now)
-	if err != nil {
-		return DerivedStartupAuthority{}, err
-	}
-	return LoadDerivedStartupAuthority(ctx, template, client, slot, now)
-}
-
-// LoadHomeStartupAuthority reads only the authenticated home's public source
-// object. It neither recovers founder escrow nor needs a Vault client.
-func LoadHomeStartupAuthority(ctx context.Context, grantWire []byte, anchor VerifiedBootstrapAnchor, roots trust.Keyring, client ObjectStorageClient, now time.Time) (DerivedStartupAuthority, error) {
-	template, err := VerifyHomeStartupTemplate(grantWire, roots, anchor, now)
-	if err != nil {
-		return DerivedStartupAuthority{}, err
-	}
-	return LoadDerivedStartupAuthority(ctx, template, client, template.Template().SeedSlot, now)
-}
-
 // ControllerResponsePublicKey returns the public key from verified source
 // inventory, never a response payload or a source-local NATS mirror. Callers
 // recheck VerifyCurrent before spending and retain their reservation floors.

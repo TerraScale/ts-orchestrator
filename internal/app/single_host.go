@@ -34,7 +34,7 @@ import (
 // executor and the release NATS listener (:4222) CI pushes releases to.
 // Outside OCI it needs no Vault, NetBird or admission. Serving the release
 // subjects ends a pushed binary's probation.
-func runSingleHost(ctx context.Context, state string, output io.Writer, plan hostPlan, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context, string) releasepush.HealthResult) error {
+func runSingleHost(ctx context.Context, state string, output io.Writer, plan hostPlan, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -109,10 +109,14 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		return err
 	}
 	releases.Health = health
+	releases.PrepareStop = prepareStop
+	releases.AbortStop = abortStop
 	releases.Mesh = mesh.Bridge(state)
 	releases.App = mesh.Release(state)
 	if founder {
-		releases.Relay = func(request []byte) { relayRelease(state, plan.region, request) }
+		releases.Relay = func(ctx context.Context, request []byte) []releasepush.HostVersion {
+			return relayRelease(ctx, state, plan.region, request)
+		}
 	}
 	natsServer, natsConn, err := releasepush.Start(state)
 	if err != nil {
@@ -123,8 +127,8 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	if err := releases.Serve(natsConn); err != nil {
 		return err
 	}
-	if plan.joiner() && plan.address != "" {
-		go serveWorkerReleases(ctx, state, plan.region, releases)
+	if plan.region != "" {
+		go serveHostReleases(ctx, state, plan.region, node.ID(), plan.joiner(), releases)
 	}
 	if founder {
 		go publishJoin(ctx, state, plan)
@@ -323,25 +327,46 @@ func publishJoin(ctx context.Context, state string, plan hostPlan) {
 	}
 }
 
-func relayRelease(state, region string, request []byte) {
+func relayRelease(ctx context.Context, state, region string, request []byte) []releasepush.HostVersion {
+	var nodes []*api.Node
+	control, closer, err := swarmruntime.DialSingleHost(state)
+	if err == nil {
+		defer closer.Close()
+		inventoryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		listed, err := control.ListNodes(inventoryCtx, &api.ListNodesRequest{})
+		if err == nil {
+			nodes = append([]*api.Node{}, listed.Nodes...)
+		}
+	}
 	conn, err := mesh.Connect(state)
 	if err != nil {
-		slog.Warn("release not relayed to the region's workers", "error", err)
-		return
+		rows := []releasepush.HostVersion{}
+		for _, node := range nodes {
+			if node.Role == api.NodeRoleWorker {
+				rows = append(rows, releasepush.HostVersion{ID: node.ID, Host: node.ID, Error: "no answer"})
+			}
+		}
+		if nodes == nil {
+			rows = append(rows, releasepush.HostVersion{Host: "worker inventory", Error: "no answer"})
+		}
+		return rows
 	}
 	defer conn.Close()
-	if err := errors.Join(conn.Publish(protocol.MeshWorkerReleasePrefix+region, request), conn.Flush()); err != nil {
-		slog.Warn("release not relayed to the region's workers", "error", err)
-	}
+	return releasepush.RelayWorkers(ctx, conn, protocol.MeshWorkerReleasePrefix+region, request, nodes)
 }
 
-func serveWorkerReleases(ctx context.Context, state, region string, releases *releasepush.Handler) {
+func serveHostReleases(ctx context.Context, state, region, host string, worker bool, releases *releasepush.Handler) {
 	for ctx.Err() == nil {
 		conn, err := mesh.Connect(state)
 		if err == nil {
 			closed := make(chan struct{})
 			conn.SetClosedHandler(func(*nats.Conn) { close(closed) })
-			if err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region); err == nil {
+			err = releases.ServeHostVersion(conn, region, host)
+			if err == nil && worker {
+				err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region, host)
+			}
+			if err == nil {
 				select {
 				case <-ctx.Done():
 				case <-closed:

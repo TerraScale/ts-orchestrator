@@ -330,40 +330,6 @@ func ValidateBrokerControllerCredentialBytes(data []byte, cell, broker string) e
 	return nil
 }
 
-// ValidateBrokerOperatorCredentials requires exact publishes for claim apply,
-// backup operations and terminal requests, JetStream INFO and control-stream
-// INFO/MSG.GET read grants, and the caller's private inbox. These are the
-// production issuer grants needed by the CLI's
-// readiness and authority observation before publishing its signed request.
-func ValidateBrokerOperatorCredentials(path, cell string) error {
-	if !cellName.MatchString(cell) {
-		return errors.New("broker operator credential cell is invalid")
-	}
-	claim, public, err := credentialUser(path)
-	if err != nil {
-		return fmt.Errorf("broker operator credentials: %w", err)
-	}
-	allowedPublishes := BrokerOperatorPublishPermissions(cell)
-	for _, grant := range claim.Pub.Allow {
-		if !slices.Contains(allowedPublishes, grant) {
-			return fmt.Errorf("broker operator credentials have unscoped publish %q", grant)
-		}
-	}
-	if !slices.Contains(claim.Pub.Allow, protocol.BrokerClaimApplySubject(cell)) ||
-		!slices.Contains(claim.Pub.Allow, protocol.BackupOperationSubject(cell)) ||
-		!slices.Contains(claim.Pub.Allow, protocol.TerminalSubject(cell, "plan")) ||
-		!slices.Contains(claim.Pub.Allow, protocol.TerminalSubject(cell, "apply")) ||
-		!slices.Contains(claim.Pub.Allow, protocol.TerminalSubject(cell, "status")) ||
-		!slices.Contains(claim.Pub.Allow, "$JS.API.INFO") ||
-		!slices.Contains(claim.Pub.Allow, "$JS.API.STREAM.INFO.TS_CONTROL_LOG") ||
-		!slices.Contains(claim.Pub.Allow, "$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG") ||
-		len(claim.Sub.Allow) != 1 || claim.Sub.Allow[0] != inboxPrefix(cell, public)+".>" ||
-		len(claim.Pub.Deny) != 0 || len(claim.Sub.Deny) != 0 {
-		return errors.New("broker operator credentials need claim-apply publish and private reply grants")
-	}
-	return nil
-}
-
 func validateSystemCredentials(path, cell, cellAccount, systemAccount string) error {
 	data, err := readPrivateFile(path, 64<<10)
 	if err != nil {

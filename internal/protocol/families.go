@@ -186,17 +186,6 @@ func CapacityReservationReplySubject(cell, userKey, nonce string) string {
 	return Regional(cell, "capacity-reply", userKey, nonce)
 }
 
-// CapacityReservationReplyGrant permits only this controller's reply inboxes.
-func CapacityReservationReplyGrant(cell, userKey string) string {
-	if !nkeys.IsValidPublicUserKey(userKey) && userKey != TemplateSubject {
-		return ""
-	}
-	if token, err := RegionToken(cell); err != nil || token == GlobalScope {
-		return ""
-	}
-	return Regional(cell, "capacity-reply", userKey, ">")
-}
-
 // HostRegisterSubject is the controller host registration request subject.
 func HostRegisterSubject(cell string) string { return Regional(cell, VerbHostRegister) }
 
@@ -236,10 +225,6 @@ func DeliveryArtifactAdmitSubject(cell string) string {
 // RegionHealthSubject is the signed regional heartbeat exported to peers.
 func RegionHealthSubject(cell string) string { return Regional(cell, VerbRegionHealth) }
 
-// RegionRollupSubject is a region leader's dashboard rollup broadcast
-// (TS-805). Like the heartbeat, a region publishes only its own.
-func RegionRollupSubject(cell string) string { return Regional(cell, "region", "rollup") }
-
 // RegionRollupGrant subscribes to every region's dashboard rollup.
 const RegionRollupGrant = SubjectRoot + ".*.region.rollup"
 
@@ -265,17 +250,9 @@ func RolloutProofSubject(cell, unit string) string {
 	return Regional(cell, rolloutFamily, "proof", HashToken(unit)[:32])
 }
 
-// ReleaseStatusSubject carries a region leader's report on its release
-// channel (releasechannel.Status), for fan-in across regions (TS-562).
-func ReleaseStatusSubject(cell string) string { return Regional(cell, "release", "status") }
-
 // ObservabilityGrant is the subscribe grant covering every read-only member
 // telemetry leaf (ObservabilitySubject) of one regional cell.
 func ObservabilityGrant(cell string) string { return Regional(cell, "obs", ">") }
-
-// TerraBaseObservabilitySubject is the regional rollup of TerraBase database
-// stats (TS-806). It sits under ObservabilityGrant, so controllers subscribe to it.
-func TerraBaseObservabilitySubject(cell string) string { return Regional(cell, "obs", "terrabase") }
 
 // Observability leaves a region answers for other regions. They are the only
 // telemetry the interregion contract carries, as exact request/reply

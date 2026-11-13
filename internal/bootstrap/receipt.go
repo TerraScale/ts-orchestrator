@@ -98,32 +98,6 @@ func SignSeedReceipt(manifest VerifiedManifest, facts InstanceFacts, issuedAt, e
 	return signReceipt(receipt, seedReceiptDomain, issuedAt, expiresAt, rootPrivateKey)
 }
 
-// SignPeerReceipt creates a founder-key-signed receipt only for a peer slot
-// delegated by the root-signed manifest.
-func SignPeerReceipt(manifest VerifiedManifest, facts InstanceFacts, issuedAt, expiresAt time.Time, founderPrivateKey ed25519.PrivateKey) (trust.Envelope, error) {
-	receipt, err := NewReceipt(manifest, facts)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if !manifest.hasDelegation || receipt.Slot == manifest.manifest.SeedSlot {
-		return trust.Envelope{}, fmt.Errorf("%w: peer receipt is not authorized for this manifest slot", ErrReceiptInvalid)
-	}
-	if !receiptIntervalWithinManifest(manifest, issuedAt, expiresAt) {
-		return trust.Envelope{}, fmt.Errorf("%w: receipt validity exceeds its signed manifest", ErrReceiptInvalid)
-	}
-	if len(founderPrivateKey) != ed25519.PrivateKeySize {
-		return trust.Envelope{}, fmt.Errorf("%w: invalid peer signer key", ErrReceiptInvalid)
-	}
-	keyID, err := trust.KeyID(founderPrivateKey.Public().(ed25519.PublicKey))
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if keyID != manifest.delegation.SubjectKeyID() {
-		return trust.Envelope{}, fmt.Errorf("%w: peer signer key differs from root delegation", ErrReceiptInvalid)
-	}
-	return signReceipt(receipt, peerReceiptDomain, issuedAt, expiresAt, founderPrivateKey)
-}
-
 // VerifySeedReceipt verifies root authorization and exact seed instance facts.
 func VerifySeedReceipt(envelope trust.Envelope, manifest StartupAuthority, roots trust.Keyring, facts InstanceFacts, now time.Time, policy trust.Policy) (VerifiedReceipt, error) {
 	if derived, ok := manifest.(DerivedStartupAuthority); ok {

@@ -801,10 +801,6 @@ func elfArchitecture(machine elf.Machine) (string, string, error) {
 	}
 }
 
-func binaryScope(receipt binaryReceipt, environment string) trust.Scope {
-	return release.BinaryScope(receipt, environment)
-}
-
 func (c command) signReceiptWithFiles(payload any, environment, delegationPath, rootPath, privatePath string,
 	validFor time.Duration,
 ) (trust.Envelope, error) {

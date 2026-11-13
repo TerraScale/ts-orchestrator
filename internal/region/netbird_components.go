@@ -38,7 +38,6 @@ type NetBirdComponent struct {
 
 func (v NetBirdComponent) Role() string                       { return v.role }
 func (v NetBirdComponent) Release() release.VerifiedContainer { return v.release }
-func (v NetBirdComponent) PullClaim() pullauth.PullClaim      { return v.pull }
 
 // NetBirdComponents is a finite complete snapshot, never a retained release
 // floor. A future native owner must separately enforce ordering and OS custody.

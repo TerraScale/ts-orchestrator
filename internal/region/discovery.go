@@ -30,21 +30,6 @@ type foundationDiscoveryObjects interface {
 	GetNamespace(context.Context, objectstorage.GetNamespaceRequest) (objectstorage.GetNamespaceResponse, error)
 }
 
-// DiscoverFoundation locates the production home anchor without a local anchor
-// or host installation. The fixed OCI location is only an untrusted locator;
-// independent roots and the authenticated tenancy remain mandatory.
-func DiscoverFoundation(ctx context.Context, factory *ociclient.Factory, roots trust.Keyring) (FoundationResolver, error) {
-	client, tenancy, err := foundationHomeClient(factory)
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	resolver, err := discoverFoundation(ctx, client, tenancy, roots)
-	if err == nil {
-		resolver.Footprint.(*SignedFootprint).factory = factory
-	}
-	return resolver, err
-}
-
 func foundationHomeClient(factory *ociclient.Factory) (*objectstorage.ObjectStorageClient, string, error) {
 	if factory == nil {
 		return nil, "", fmt.Errorf("%w: authenticated OCI caller is absent", ErrFoundationDiscoveryPending)
@@ -69,36 +54,6 @@ func discoveryNamespace(ctx context.Context, client foundationDiscoveryObjects, 
 		return "", errors.Join(fmt.Errorf("%w: caller's home storage namespace is unavailable", ErrFoundationDiscoveryPending), err, ctx.Err())
 	}
 	return *response.Value, nil
-}
-
-func discoverFoundation(ctx context.Context, client foundationDiscoveryObjects, tenancy string, roots trust.Keyring) (FoundationResolver, error) {
-	if len(roots) == 0 {
-		return FoundationResolver{}, fmt.Errorf("%w: independent trusted roots are absent", ErrFoundationDiscoveryPending)
-	}
-	namespace, err := discoveryNamespace(ctx, client, tenancy)
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	wire, err := readDiscoveryObject(ctx, client, namespace, foundationDiscoveryObject, bootstrap.MaxBootstrapAnchorBytes)
-	if err != nil {
-		return FoundationResolver{}, errors.Join(fmt.Errorf("%w: current signed home anchor is unavailable", ErrFoundationDiscoveryPending), err, ctx.Err())
-	}
-	anchor, err := verifyDiscoveryAnchor(wire, roots, tenancy, namespace)
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	reader, err := NewSignedFootprint(client, anchor, roots, tenancy)
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	if _, err := reader.AuthorizedRegions(ctx); err != nil {
-		return FoundationResolver{}, err
-	}
-	store, err := NewObjectFoundationStore(client, namespace, foundationDiscoveryBucket)
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	return FoundationResolver{Footprint: reader, Store: store}, nil
 }
 
 func verifyDiscoveryAnchor(wire []byte, roots trust.Keyring, tenancy, namespace string) (bootstrap.VerifiedBootstrapAnchor, error) {
@@ -140,18 +95,6 @@ func readDiscoveryObject(ctx context.Context, client FoundationObjects, namespac
 	return wire, nil
 }
 
-// PublishFoundationDiscovery conditionally publishes already root-signed public
-// grant bytes, then their anchor. It creates no bucket, IAM, root, or secret.
-// Existing different objects are immutable; uncertain outcomes recover only
-// through an exact read of the same bytes.
-func PublishFoundationDiscovery(ctx context.Context, factory *ociclient.Factory, roots trust.Keyring, anchorWire, grantWire []byte) error {
-	client, tenancy, err := foundationHomeClient(factory)
-	if err != nil {
-		return err
-	}
-	return publishFoundationDiscovery(ctx, client, tenancy, roots, anchorWire, grantWire)
-}
-
 // PublishFoundationBundle preserves the explicit canonical root lineage from
 // the offline ceremony. It never substitutes an empty chain after a rotation.
 func PublishFoundationBundle(ctx context.Context, factory *ociclient.Factory, genesis trust.Keyring, bundle RetainedFoundation) error {
@@ -188,14 +131,6 @@ func publishFoundationBundle(ctx context.Context, client foundationDiscoveryObje
 		return err
 	}
 	return publishFoundationDiscoveryChain(ctx, client, tenancy, verified.Current, bundle.AnchorWire, bundle.GrantWire, bundle.RootChainWire)
-}
-
-func publishFoundationDiscovery(ctx context.Context, client foundationDiscoveryObjects, tenancy string, roots trust.Keyring, anchorWire, grantWire []byte) error {
-	chainWire, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
-	if err != nil {
-		return err
-	}
-	return publishFoundationDiscoveryChain(ctx, client, tenancy, roots, anchorWire, grantWire, chainWire)
 }
 
 func publishFoundationDiscoveryChain(ctx context.Context, client foundationDiscoveryObjects, tenancy string, roots trust.Keyring, anchorWire, grantWire, chainWire []byte) error {

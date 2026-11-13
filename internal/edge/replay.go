@@ -68,7 +68,9 @@ func (e *Edge) meshNode() Mesh {
 // meshTLS hands the mesh mTLS config to handshakes that ask for replaySNI.
 func (e *Edge) meshTLS(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 	if m := e.meshNode(); m != nil && hello.ServerName == replaySNI {
-		return m.TLS(), nil
+		config := m.TLS().Clone()
+		config.NextProtos = []string{"h2", "http/1.1"}
+		return config, nil
 	}
 	return nil, nil
 }
@@ -79,21 +81,24 @@ func fromPeer(r *http.Request) bool {
 }
 
 func newPeerTransport(e *Edge) *http.Transport {
-	return &http.Transport{
-		Proxy: nil,
-		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			m := e.meshNode()
-			if m == nil {
-				return nil, errors.New("edge: mesh not started")
-			}
-			config := m.TLS().Clone()
-			config.ServerName = replaySNI
-			// A region that does not answer in 2s counts as down.
-			return (&tls.Dialer{NetDialer: &net.Dialer{Timeout: 2 * time.Second}, Config: config}).DialContext(ctx, network, addr)
-		},
+	transport := &http.Transport{
+		Proxy:                 nil,
 		ResponseHeaderTimeout: 30 * time.Second,
 		IdleConnTimeout:       90 * time.Second,
 	}
+	transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		m := e.meshNode()
+		if m == nil {
+			return nil, errors.New("edge: mesh not started")
+		}
+		config := m.TLS().Clone()
+		config.ServerName = replaySNI
+		if transport.Protocols != nil && transport.Protocols.HTTP2() {
+			config.NextProtos = []string{"h2", "http/1.1"}
+		}
+		return (&tls.Dialer{NetDialer: &net.Dialer{Timeout: 2 * time.Second}, Config: config}).DialContext(ctx, network, addr)
+	}
+	return transport
 }
 
 // wroteKey marks a peer request whose backend received it whole.

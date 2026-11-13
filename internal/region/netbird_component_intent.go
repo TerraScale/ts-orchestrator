@@ -3,7 +3,6 @@ package region
 import (
 	"errors"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -36,35 +35,6 @@ func validatePreparedNetBirdComponents(authorities [3]ContainerReleaseAuthorityI
 		seen[authority.ImageRepository] = true
 	}
 	return nil
-}
-
-func prepareNetBirdComponentIntents(input FoundationPreparationInput, material NetBirdMaterialAuthority) (*[3]NetBirdComponentAuthorityIntent, error) {
-	if err := validatePreparedNetBirdComponents(input.NetBirdComponents, input.HomeStorageDomain); err != nil {
-		return nil, err
-	}
-	var components [3]NetBirdComponentAuthorityIntent
-	for index, authority := range input.NetBirdComponents {
-		authority.Cells = slices.Clone(authority.Cells)
-		authority.Architectures = slices.Clone(authority.Architectures)
-		authority.DelegationWire = slices.Clone(authority.DelegationWire)
-		authority.SequenceMigrationWire = slices.Clone(authority.SequenceMigrationWire)
-		principal, email, secret, err := OCIRServiceIdentity(material.Context.InstallationID, authority.ImageRepository)
-		if err != nil {
-			return nil, err
-		}
-		region, namespace, repository, err := parseOCIRRepository(authority.ImageRepository)
-		if err != nil {
-			return nil, err
-		}
-		host, _, _ := strings.Cut(authority.ImageRepository, "/")
-		target := material.Context.Target
-		components[index] = NetBirdComponentAuthorityIntent{Release: authority, Issuer: OCIRIssuerIntent{
-			OCIRegion: region, RegistryHost: host, RepositoryCompartmentID: target.CompartmentOCID, RepositoryName: repository, RegistryNamespace: namespace,
-			PrincipalName: principal, PrincipalEmail: email, SecretName: secret,
-			VaultTarget: vaultsecret.Target{CompartmentID: target.CompartmentOCID, VaultID: target.VaultOCID, KeyID: target.KMSKeyOCID},
-		}}
-	}
-	return &components, nil
 }
 
 func netBirdComponentIntent(grant FoundationGrant) (*NetBirdManagerIntent, error) {

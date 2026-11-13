@@ -1,0 +1,127 @@
+package releasepush
+
+import (
+	"context"
+	"errors"
+	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/moby/swarmkit/v2/api"
+	"github.com/nats-io/nats.go"
+)
+
+const (
+	RefusalHost      = "host_prerequisite"
+	RefusalIntegrity = "release_integrity"
+	RefusalFence     = "run_fence_damaged"
+)
+
+type integrityError struct{ error }
+type fenceError struct{ error }
+type hostError struct{ error }
+type preflightError struct{ error }
+
+func refusalReply(kind, sha, digest string, claims Claims, err error) Reply {
+	reply := rejected(err)
+	reply.Refusal = &Refusal{Kind: kind, SHA: sha, SHA256: digest, RunID: claims.RunID, RunAttempt: claims.RunAttempt, Reason: secretpreflight.Scrub(err.Error())}
+	return reply
+}
+
+func integrityReply(sha string, claims Claims, err error) Reply {
+	reply := rejected(err)
+	reply.Refusal = &Refusal{Kind: RefusalIntegrity, SHA: sha, RunID: claims.RunID, RunAttempt: claims.RunAttempt, Reason: secretpreflight.Scrub(err.Error())}
+	return reply
+}
+
+type Refusal struct {
+	Kind       string `json:"kind"`
+	SHA        string `json:"sha"`
+	SHA256     string `json:"sha256"`
+	Preflight  bool   `json:"preflight,omitempty"`
+	RunID      string `json:"run_id"`
+	RunAttempt string `json:"run_attempt"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type HostVersion struct {
+	ID      string   `json:"id"`
+	Host    string   `json:"host"`
+	Version string   `json:"version,omitempty"`
+	Refusal *Refusal `json:"refusal,omitempty"`
+	Error   string   `json:"error,omitempty"`
+}
+
+func (h *Handler) ServeHostVersion(conn *nats.Conn, region, host string) error {
+	return h.serve(conn, map[string]func(context.Context, []byte) Reply{
+		hostVersionSubject(region, host): func(context.Context, []byte) Reply { return h.version() },
+	})
+}
+
+func hostVersionSubject(region, host string) string {
+	return protocol.ReleaseVersion + "." + region + "." + host
+}
+
+func ReadHostVersions(ctx context.Context, conn *nats.Conn, region string, nodes []*api.Node) []HostVersion {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	rows := make([]HostVersion, len(nodes))
+	var pending sync.WaitGroup
+	for i, node := range nodes {
+		name := node.ID
+		if node.Description != nil && node.Description.Hostname != "" {
+			name = node.Description.Hostname
+		}
+		rows[i].Host = name
+		rows[i].ID = node.ID
+		pending.Go(func() {
+			if node.ID == "" || strings.ContainsAny(node.ID, " *>\t\r\n") {
+				rows[i].Error = "registered host has no valid node id"
+				return
+			}
+			reply, err := request(ctx, conn, hostVersionSubject(region, node.ID), nil, 2*time.Second)
+			if err != nil {
+				rows[i].Error = "host reports no running revision"
+				return
+			}
+			rows[i].Version, rows[i].Refusal = reply.Version, reply.Refusal
+		})
+	}
+	pending.Wait()
+	slices.SortFunc(rows, func(a, b HostVersion) int { return strings.Compare(a.Host, b.Host) })
+	return rows
+}
+
+type attemptRecord struct {
+	Refusal
+	Installed releaseID `json:"installed"`
+}
+
+func (h *Handler) recordAttempt(attempt *Refusal) error {
+	attempt.Reason = secretpreflight.Scrub(attempt.Reason)
+	if h.RefusalFile == "" {
+		return nil
+	}
+	installed, err := binaryIdentity(h.Binary)
+	if err != nil {
+		return err
+	}
+	if err := writeJSON(h.RefusalFile, attemptRecord{*attempt, installed}); err != nil {
+		return errors.New("cannot persist release attempt")
+	}
+	return nil
+}
+
+func (h *Handler) refusal() *Refusal {
+	var record attemptRecord
+	if present, err := readRecord(h.RefusalFile, &record); !present || err != nil || record.Reason == "" {
+		return nil
+	}
+	if installed, err := binaryIdentity(h.Binary); err != nil || installed != record.Installed {
+		return nil
+	}
+	return &record.Refusal
+}

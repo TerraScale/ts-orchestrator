@@ -13,13 +13,6 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-// ConnectMemory authenticates without opening credential files. The caller
-// retains authority over the connection through ctx, including reconnects.
-func ConnectMemory(ctx context.Context, cell, endpoint string, credentials []byte, config *tls.Config) (*nats.Conn, error) {
-	conn, _, err := ConnectMemoryLease(ctx, cell, endpoint, credentials, config)
-	return conn, err
-}
-
 // ConnectMemoryLease also returns the original authenticated connection lifetime.
 // Its deadline includes the verified certificate chain and JWT expiry.
 func ConnectMemoryLease(ctx context.Context, cell, endpoint string, credentials []byte, config *tls.Config) (*nats.Conn, context.Context, error) {

@@ -168,16 +168,6 @@ func ReadManagedRuntimeOwner(ctx context.Context, store authority.HostMutationSt
 	return owner, entry, nil
 }
 
-// GuardManagedContainerOwner fails closed for every currently representable
-// native lineage. There is no production publication-settlement producer yet.
-// DATA close is intentionally not routed through new acquire/renew admission.
-func GuardManagedContainerOwner(ctx context.Context, store authority.HostMutationStore, cell, volumeID string) error {
-	if _, _, err := ReadManagedRuntimeOwner(ctx, store, cell, volumeID); err != nil {
-		return err
-	}
-	return ErrNativePublicationUnsettled
-}
-
 func (c *Controller) currentManagedNative(ctx context.Context, node, role string) (ManagedNativeProvenance, error) {
 	r, registrationSequence, found, err := c.readRegistration(ctx, node)
 	if err != nil || !found || r.ManagedMember == nil || r.ManagedPlacement == nil || r.ManagedOCI == nil ||

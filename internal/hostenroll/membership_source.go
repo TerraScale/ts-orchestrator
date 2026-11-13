@@ -47,19 +47,6 @@ type WorkerMembershipSource struct {
 	public    ed25519.PublicKey
 }
 
-func NewWorkerMembershipSource(ctx context.Context, mutations *authority.Reader, hosts *host.Reader, grants *GrantStore,
-	js jetstream.JetStream, cell string, public ed25519.PublicKey,
-) (*WorkerMembershipSource, error) {
-	if mutations == nil || hosts == nil || grants == nil || grants.kv == nil || js == nil || cell == "" || len(public) != ed25519.PublicKeySize {
-		return nil, errors.New("worker membership requires concrete current readers and pinned response authority")
-	}
-	stream, err := grantLeaderReader(js)
-	if err != nil {
-		return nil, err
-	}
-	return &WorkerMembershipSource{mutations: mutations, hosts: hosts, grants: grants, stream: stream, cell: cell, public: bytes.Clone(public)}, nil
-}
-
 func (source *WorkerMembershipSource) Read(ctx context.Context, query WorkerMembershipQuery) (WorkerMembershipSnapshot, error) {
 	fail := func(err error) (WorkerMembershipSnapshot, error) { return WorkerMembershipSnapshot{}, err }
 	if source == nil || query.NodeID == "" || !entityid.Valid(query.RegistrationID) || query.InstanceID == "" {

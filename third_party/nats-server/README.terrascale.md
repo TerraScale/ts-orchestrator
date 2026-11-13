@@ -60,11 +60,21 @@ assignment, so a matching consumer replica count is not rejected against that
 stale serving set. The function publication and R1-to-R3 consumer migration
 integration passed five race-instrumented repeats after this change (76ae267d2).
 
+`server/raft.go` exports `RaftNodes` (a copied slice of the existing public
+`RaftNode` handles) and `TransferRaftLeaders` (the lame-duck handoff step).
+The shared handoff selects a current, recently heard-from follower before
+calling the existing preferred-peer `StepDown` and puts local groups in
+observer mode. Embedders can check quorum and confirm successor leadership
+before closing listeners. Raft messages, membership, persistence, and election
+timeouts are unchanged; transfers work with unmodified v2.15.0 members in
+either direction. Current-replica observations use the existing RAFTZ system
+request, which is also available on unmodified members.
+
 Compare this directory with the upstream `v2.15.0` Go module archive before
 upgrading. Apart from this README,
 `server/server.go`, `server/accounts.go`, `server/leafnode.go`,
-`server/route.go`, `server/events.go`, `server/client.go`, `server/auth.go`, `server/stream.go`
-and `server/jetstream_cluster.go`
+`server/route.go`, `server/events.go`, `server/client.go`, `server/auth.go`, `server/stream.go`,
+`server/raft.go` and `server/jetstream_cluster.go`
 are the changed upstream files. An upgrade re-applies each change above and
 updates the source digest that `scripts/ci/audit-replacements.py` pins for this
 directory.

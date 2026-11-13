@@ -9,21 +9,17 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -118,17 +114,7 @@ type VerifiedRegionalLink struct {
 func (link VerifiedRegionalLink) IsVerified() bool {
 	return link.regional.IsVerified() && link.proof.IsVerified() && link.directory != ""
 }
-func (link VerifiedRegionalLink) Record() bootstrapmaterial.LinkRecord {
-	record := link.record
-	record.Record = cloneRecord(record.Record)
-	return record
-}
-func (link VerifiedRegionalLink) Publication() bootstrapmaterial.Publication {
-	return clonePublication(link.publication)
-}
-func (link VerifiedRegionalLink) Grant() region.VerifiedBootstrapMaterial {
-	return link.regional.Grant()
-}
+
 func (link VerifiedRegionalLink) Proof() bootstrap.VerifiedStartupLink { return link.proof }
 func (link VerifiedRegionalLink) VerifyCurrent(ctx context.Context) error {
 	if !link.IsVerified() || link.regional.VerifyCurrent(ctx) != nil || link.proof.VerifyCurrent(ctx, time.Now()) != nil {
@@ -315,89 +301,6 @@ func restoreRegionalLink(ctx context.Context, proof bootstrap.VerifiedStartupLin
 		return err
 	}
 	return guard()
-}
-
-// ReconcileHomeLinks retries each independently admitted region. Pending source
-// registration never changes the home's own ready Link or another delivery.
-func ReconcileHomeLinks(ctx context.Context, home *ColdStartMaterial, homeLink *LinkSource, homeProof bootstrap.VerifiedRegionalSource, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, factory *ociclient.Factory, directory string, now time.Time) (map[string]bootstrapmaterial.Publication, error) {
-	result := make(map[string]bootstrapmaterial.Publication)
-	if home == nil || homeLink == nil || homeLink.source == nil || factory == nil || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory || homeProof.VerifyCurrent(ctx, now) != nil || !bytes.Equal(homeProof.MaterialRecord(), home.archive.Files["material.json"]) || home.grant.Config().Cell != "gru" || anchor.Anchor().Cell != oci.RegionGRU {
-		return result, ErrMaterialSource
-	}
-	if overlappingSourceDirectories(directory, home.directory) || overlappingSourceDirectories(directory, homeLink.source.directory) {
-		return result, ErrMaterialSource
-	}
-	scope, err := anchor.FoundationScope()
-	if err != nil {
-		return result, err
-	}
-	footprint, err := region.NewSignedFootprint(home.objects, anchor, roots, scope.TenancyID)
-	if err != nil {
-		return result, err
-	}
-	approved, err := footprint.AuthorizedRegions(ctx)
-	if err != nil {
-		return result, err
-	}
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return result, err
-	}
-	homeFactory, err := factory.ForRegion("sa-saopaulo-1")
-	if err != nil {
-		return result, err
-	}
-	escrowManagement, escrowBundles, err := linkVaultClients(homeFactory)
-	if err != nil {
-		return result, err
-	}
-	var pending []error
-	for _, intent := range approved.Regions {
-		cell, ok := intent.Plan["cell"].(string)
-		if !ok || cell == "GRU" {
-			continue
-		}
-		issue := func() error {
-			template, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, factory, home.grant.FoundationGrantWire(), roots, anchor, oci.Region(cell), now)
-			if err != nil {
-				return err
-			}
-			regional, err := bootstrap.LoadRegionalSource(ctx, template, home.objects, now)
-			if err != nil {
-				return fmt.Errorf("%w: %s public inventory unavailable", ErrLinkDeliveryPending, cell)
-			}
-			recipient, err := bootstrap.VerifyLinkRecipient(ctx, regional, homeProof, now)
-			if err != nil {
-				return err
-			}
-			grant, err := footprint.AuthorizedBootstrapMaterial(ctx, cell)
-			if err != nil {
-				return err
-			}
-			link, err := IssueRegionalLink(ctx, home, homeLink, recipient, grant, home.objects, escrowManagement, escrowBundles, filepath.Join(directory, strings.ToLower(cell)), now)
-			if err != nil {
-				return err
-			}
-			regionalFactory, err := factory.ForRegion(grant.Config().Region)
-			if err != nil {
-				return err
-			}
-			management, bundles, err := linkVaultClients(regionalFactory)
-			if err != nil {
-				return err
-			}
-			target := recipient.VaultTarget()
-			publication, err := link.PublishRegionalLink(ctx, bootstrapmaterial.VaultTarget{CompartmentOCID: target.CompartmentOCID, VaultOCID: target.VaultOCID, KMSKeyOCID: target.KMSKeyOCID}, management, bundles, now)
-			if err != nil {
-				return err
-			}
-			result[strings.ToLower(cell)] = publication
-			return nil
-		}
-		if err := issue(); err != nil {
-			pending = append(pending, fmt.Errorf("regional Link %s: %w", cell, err))
-		}
-	}
-	return result, errors.Join(pending...)
 }
 
 func linkVaultClients(factory *ociclient.Factory) (*ocivault.VaultsClient, *ocisecrets.SecretsClient, error) {

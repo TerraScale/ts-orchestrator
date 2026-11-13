@@ -30,11 +30,7 @@ func cgroupFilePath(path string) string {
 	}
 	return filepath.Join(CgroupRoot, path)
 }
-func QualifiedRoleCgroups(nativeReport, databaseReport string) (native, database, role string, err error) {
-	defer recoverError(&err)
-	native, database, role = qualifiedRoleCgroups(nativeReport, databaseReport)
-	return
-}
+
 func qualifiedRoleCgroups(nativeReport, databaseReport string) (string, string, string) {
 	if !safePath(nativeReport) || !inside(nativeReport, CgroupRoot) {
 		fail("qualifier native runner cgroup is not safely below the cgroup root")

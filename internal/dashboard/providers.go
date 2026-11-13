@@ -62,8 +62,6 @@ type SummarySource interface {
 	Summary(ctx context.Context, window time.Duration) (insights.Summary, error)
 }
 
-var _ SummarySource = insights.Summarizer{}
-
 // VersionSource lists the build every unit runs, in every region. Without
 // one the version matrix is derived from this region's summary and the
 // other regions' rollups, which only know orchestrator members.

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +18,6 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -67,47 +65,6 @@ type Relay struct {
 	Now      func() time.Time
 
 	relayed []byte
-}
-
-// Run relays until ctx ends.
-func (r *Relay) Run(ctx context.Context) error {
-	if r.KV == nil || len(r.Leaders) == 0 || r.Dir == "" || !unitRE.MatchString(r.Unit) {
-		return fmt.Errorf("%w: rollout step relay configuration", ErrInvalid)
-	}
-	if err := os.MkdirAll(r.Dir, 0o700); err != nil {
-		return err
-	}
-	interval := r.Interval
-	if interval <= 0 {
-		interval = defaultRelayInterval
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		ctx := observability.StartTrace(ctx)
-		if err := r.Pass(ctx); err != nil && ctx.Err() == nil {
-			slog.WarnContext(ctx, "rollout step relay", "component", "rollout", "unit", r.Unit, "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
-}
-
-// Pass spools the unit's current step and relays the agent's reply once.
-func (r *Relay) Pass(ctx context.Context) error {
-	entry, err := r.KV.Get(ctx, StepKey(r.Unit))
-	switch {
-	case errors.Is(err, jetstream.ErrKeyNotFound):
-		err = nil // no step for this unit: the usual state between rollouts
-	case err != nil:
-		return err
-	default:
-		err = r.Spool(ctx, entry.Value())
-	}
-	return errors.Join(err, r.relayReply(ctx))
 }
 
 // Spool hands a current step to the agent, after the binary it names, so
@@ -173,19 +130,6 @@ func (r *Relay) Reply() ([]byte, error) {
 		return nil, fmt.Errorf("%w: rollout step reply", ErrInvalid)
 	}
 	return data, nil
-}
-
-// relayReply posts the agent's newest reply to the unit's reply key.
-func (r *Relay) relayReply(ctx context.Context) error {
-	data, err := r.Reply()
-	if err != nil || data == nil || bytes.Equal(data, r.relayed) {
-		return err
-	}
-	if _, err := r.KV.Put(ctx, ReplyKey(r.Unit), data); err != nil {
-		return err
-	}
-	r.relayed = data
-	return nil
 }
 
 func (r *Relay) now() time.Time {

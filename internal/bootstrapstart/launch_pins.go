@@ -91,13 +91,6 @@ func (store bakedStore) loadAcceptedManagedImageMaterialContext(ctx context.Cont
 	return wires[ManagedHostImageReceiptFilename], wires[ManagedHostImageDelegationFilename], nil
 }
 
-func (store bakedStore) loadAcceptedLaunchFiles(accepted AcceptedIdentity, markers MarkerStore, names []string) (map[string][]byte, error) {
-	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
-		return nil, ErrOriginalStartup
-	}
-	return store.loadAcceptedLaunchFilesContext(context.Background(), accepted, markers, names)
-}
-
 func (store bakedStore) loadAcceptedLaunchFilesContext(ctx context.Context, accepted AcceptedIdentity, markers MarkerStore, names []string) (map[string][]byte, error) {
 	if err := accepted.Validate(); err != nil {
 		return nil, err
@@ -206,15 +199,6 @@ func validateHostEnrollment(enrollment []byte, cell, environment string) error {
 		return ErrLaunchMaterial
 	}
 	return nil
-}
-
-func (store bakedStore) measureInitialLaunchMaterial(manifest bootstrap.StartupAuthority, roots trust.Keyring, now time.Time) (map[string]string, error) {
-	if derived, ok := manifest.(bootstrap.DerivedStartupAuthority); ok {
-		if _, err := derived.Template().OriginalLaunch(); err == nil {
-			return nil, ErrOriginalStartup
-		}
-	}
-	return store.measureInitialLaunchMaterialContext(context.Background(), manifest, roots, now)
 }
 
 func (store bakedStore) measureInitialLaunchMaterialContext(ctx context.Context, manifest bootstrap.StartupAuthority, roots trust.Keyring, now time.Time) (map[string]string, error) {
