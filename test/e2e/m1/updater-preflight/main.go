@@ -160,8 +160,29 @@ func candidateMode() string {
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Minute)
 	defer cancel()
+	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "recover" {
+		command := exec.CommandContext(ctx, "/opt/agent", "release", "recover")
+		command.Stdout, command.Stderr = os.Stdout, os.Stderr
+		must(command.Run())
+		return
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "single-host" {
+		if candidateMode() == "early-exit" {
+			os.Exit(17)
+		}
+		probation, err := releasepush.Probe("/var/lib/ts-orch", os.Stdout)
+		must(err)
+		require(probation.Served(), "restored updater must confirm")
+		return
+	}
 	if len(os.Args) >= 3 {
 		switch os.Args[1] {
+		case "recovery-install":
+			recoveryInstall(ctx)
+			return
+		case "recovery-case":
+			recoveryCase(ctx, os.Args[2])
+			return
 		case "commit-case":
 			commitCase(ctx, os.Args[2], os.Args[3])
 			return
