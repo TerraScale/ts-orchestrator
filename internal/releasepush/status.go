@@ -14,7 +14,21 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+const (
+	RefusalHost      = "host_prerequisite"
+	RefusalIntegrity = "release_integrity"
+)
+
+type integrityError struct{ error }
+
+func integrityReply(sha string, claims Claims, err error) Reply {
+	reply := rejected(err)
+	reply.Refusal = &Refusal{Kind: RefusalIntegrity, SHA: sha, RunID: claims.RunID, RunAttempt: claims.RunAttempt, Reason: secretpreflight.Scrub(err.Error())}
+	return reply
+}
+
 type Refusal struct {
+	Kind       string `json:"kind"`
 	SHA        string `json:"sha"`
 	RunID      string `json:"run_id"`
 	RunAttempt string `json:"run_attempt"`
