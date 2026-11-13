@@ -53,7 +53,7 @@ func Release(state string) func(ctx context.Context, service, image string, clai
 		}
 		defer conn.Close()
 		attempt, _ := strconv.ParseUint(claims.RunAttempt, 10, 64)
-		rows, failed := releaseDeployment(ctx, conn, service, image, &Deployment{Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA, Image: image}, releaseWait, rollbackWait, progress)
+		rows, failed := releaseDeployment(ctx, conn, service, image, &Deployment{Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA, Image: image, Workflow: claims.JobWorkflowRef}, releaseWait, rollbackWait, progress)
 		if rows == nil {
 			return nil, failed
 		}

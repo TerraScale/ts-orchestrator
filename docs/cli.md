@@ -134,6 +134,7 @@ CI runs `ts-orch release deploy` for every `main` merge; see
 | `ts-orch release app --service NAME --image REF@SHA256 [--regions F]` | CI only (app image): release an app image to every region over the mesh |
 | `ts-orch release digests --out F [--regions F]` | CI only (app digests): record every mesh service's desired image to a file |
 | `ts-orch release mesh-check [--spec F] [--regions F]` | CI only: re-prove mesh ping, `service apply` and HTTPS in every region after a fleet push |
+| `ts-orch release verify-provenance --image REF@SHA256 --workflow OWNER/REPO/.github/workflows/W.yml@refs/heads/main --revision SHA` | Operators: verify the image's Sigstore provenance attestation is signed by that workflow for that commit (prints `ok`) |
 | `ts-orch release pin [--state DIR]` | Print the SPKI pin of the single-host listener certificate in a state directory |
 | `ts-orch release manifest --sha SHA --sequence N --out FILE` | Operator: build a production release manifest from a CI release's Linux binaries, hashing each download |
 | `ts-orch release sign --manifest FILE --key KEYFILE` | Operator: sign a manifest with `ssh-keygen -Y sign` (namespace `ts-orch-release`, works with ssh-agent and hardware keys); writes `FILE.sig` |
