@@ -194,10 +194,18 @@ for uncertain in future unreadable-time; do
 	journal_file=$(sudo stat -c %i:%y:%z "$config")
 	restart_serving
 	log_skip_once
-	count_is restarts 1
+	if [[ $uncertain == future ]]; then
+		count_is restarts 1
+	else
+		count_is restarts 0
+	fi
 	count_is rotations 0
 	unchanged_config
-	echo "$uncertain timestamp -> one restart, one warning, no loop or rewrite"
+	if [[ $uncertain == future ]]; then
+		echo "future timestamp -> one restart, one warning, no loop or rewrite"
+	else
+		echo "unreadable-time timestamp -> no restart, one warning, no rewrite"
+	fi
 done
 set_mode success
 for failure in interrupted-publish interrupted-rotate; do
