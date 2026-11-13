@@ -43,6 +43,9 @@ import (
 )
 
 const state = "/var/lib/ts-orch"
+const installedUnit = "/etc/systemd/system/ts-orch.service"
+const installedBinary = "/usr/local/bin/terrascale-orchestrator"
+const laneDropin = "/etc/systemd/system/ts-orch.service.d/90-node-list-lane.conf"
 
 func must(err error) {
 	if err != nil {
@@ -255,11 +258,10 @@ func signed(key *rsa.PrivateKey, kid, commit, run string, overrides map[string]a
 func lane(work string) {
 	run("mount", "--make-rprivate", "/")
 	run("ip", "link", "set", "lo", "up")
-	for _, name := range []string{"varlib", "run", "firmware"} {
+	for _, name := range []string{"run", "firmware"} {
 		must(os.Mkdir(filepath.Join(work, name), 0700))
 	}
 	write(filepath.Join(work, "firmware/chassis_asset_tag"), []byte("Local"))
-	run("mount", "--bind", filepath.Join(work, "varlib"), "/var/lib")
 	must(os.MkdirAll("/var/lib/containerd", 0700))
 	for _, path := range []string{"/run/containerd", "/run/ts-orch", "/run/ts-orch-observability"} {
 		isolated := filepath.Join(work, "run", filepath.Base(path))
@@ -338,6 +340,28 @@ func lane(work string) {
 	must(err)
 	write(executable, data)
 	must(os.Chmod(executable, 0700))
+	must(os.RemoveAll(state))
+	must(os.MkdirAll(state, 0700))
+	must(os.MkdirAll(filepath.Dir(installedUnit), 0755))
+	unit, err := exec.Command(executable, "release", "unit").Output()
+	must(err)
+	must(os.WriteFile(installedUnit, unit, 0644))
+	must(os.MkdirAll("/usr/local/bin", 0755))
+	must(os.WriteFile(installedBinary, data, 0755))
+	must(os.MkdirAll(filepath.Dir(laneDropin), 0755))
+	must(os.WriteFile(laneDropin, []byte("[Service]\nExecStart=\nExecStart=/usr/local/bin/terrascale-orchestrator release guard\nRestart=no\n"), 0644))
+	defer func() {
+		_ = exec.Command("systemctl", "disable", "--now", "ts-orch-release-guard.timer").Run()
+		_ = exec.Command("systemctl", "stop", "ts-orch.service").Run()
+		_ = os.RemoveAll(filepath.Dir(laneDropin))
+		_ = os.Remove("/etc/systemd/system/ts-orch-release-guard.service")
+		_ = os.Remove("/etc/systemd/system/ts-orch-release-guard.timer")
+		_ = os.Remove(installedUnit)
+		_ = os.Remove(installedBinary)
+		_ = exec.Command("systemctl", "daemon-reload").Run()
+		_ = os.RemoveAll(state)
+	}()
+	run("systemctl", "daemon-reload")
 	launch := func(broken bool) *process {
 		env := append([]string{}, environment...)
 		if broken {
