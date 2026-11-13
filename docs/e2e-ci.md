@@ -13,9 +13,9 @@ The ARM journeys run as independent matrix jobs. Every lane runs for every pull 
 | boot-order | Management and peer cold boots, old declarations, dependency gates and running tasks | 8 minutes | All paths |
 | operator | Fleet routing contracts and startup metadata recovery/outage/cancellation | 8 minutes | All paths |
 
-The shared build publishes the static agent and all Go journey entry points in one artifact. Lanes download the same binaries. The node-list journey retains Go and the warm build cache because it compiles distinct embedded-inventory variants as part of its assertions. Startup deliberately observes a five-minute metadata window; it runs alongside the other lanes. Boot-order installs the pinned runtime without running the agent installer. Regional and node-list create their own isolated environments. Core, WebSocket, restarts and rollback source the same installer/serving setup.
+Each lane restores the shared ARM Go cache and builds the static agent and its selected Go journey entry points with the same build.sh. Independent warm-cache builds avoid the artifact producer/upload/download dependency on the longest lane. The node-list journey additionally compiles distinct embedded-inventory variants as part of its assertions. Startup deliberately observes a five-minute metadata window; it runs alongside the other lanes. Boot-order installs the pinned runtime without running the agent installer. Regional and node-list create their own isolated environments. Core, WebSocket, restarts and rollback source the same installer/serving setup. Only core saves the Go cache on main, avoiding concurrent uploads of the same cache key.
 
-Fail-fast is disabled so the other lanes finish after a failure. Per-lane concurrency cancels obsolete work on the same ref. The aggregate check retains the name e2e-m1 and requires both the shared build and the complete matrix to succeed. A failed, cancelled or unexpectedly skipped matrix cannot pass the aggregate. No skips are currently intended; a future filtered matrix must represent intentional exclusions as successful jobs while still rejecting unexpected skips. Both all-green and the existing release gate continue to depend on the aggregate. Release concurrency and publication logic are unchanged.
+Fail-fast is disabled so the other lanes finish after a failure. Per-lane concurrency cancels obsolete work on the same ref. The aggregate check retains the name e2e-m1 and requires the complete matrix, including each lane's build, to succeed. A failed, cancelled or unexpectedly skipped matrix cannot pass the aggregate. No skips are currently intended; a future filtered matrix must represent intentional exclusions as successful jobs while still rejecting unexpected skips. Both all-green and the existing release gate continue to depend on the aggregate. Release concurrency and publication logic are unchanged.
 
 To add a lane, create its entry script under test/e2e/m1/, source setup.sh if it needs the installed services, then add exactly one matrix entry in .github/workflows/ci.yml:
 
@@ -23,7 +23,7 @@ To add a lane, create its entry script under test/e2e/m1/, source setup.sh if it
           - {lane: example, entry: example.sh, timeout: 10}
 ~~~
 
-Its binary argument is the shared agent; sibling helper binaries are in the same directory. A new Go entry point under test/e2e/m1/ is discovered by the shared build automatically and must have a unique directory basename. Record its proof, timeout and path condition in the table. Do not append it to run.sh.
+Its binary argument is the lane's agent; sibling helper binaries are in the same directory. A lane with Go helpers lists their package paths in the same matrix entry, for example packages: "./test/e2e/m1/example". Helper directory basenames must be unique. Record its proof, timeout and path condition in the table. Do not append it to run.sh.
 
 For a disposable local host, build with:
 
