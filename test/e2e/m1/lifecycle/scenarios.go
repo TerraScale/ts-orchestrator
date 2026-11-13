@@ -99,18 +99,7 @@ func (j *journey) setReplacement(w *workload, replace bool) (*workload, error) {
 	return next, nil
 }
 
-func (j *journey) recoveryWitness(a, b *workload) (*workload, error) {
-	before, err := j.logCount(b, "not replaced: no witness answered")
-	if err != nil {
-		return nil, err
-	}
-	clearBefore, err := j.logCount(b, "task readiness unresponsive window cleared")
-	if err != nil {
-		return nil, err
-	}
-	if err := j.freeze(a, b); err != nil {
-		return nil, err
-	}
+func (j *journey) recoveryWitness(a, b *workload, before, clearBefore int) (*workload, error) {
 	if err := j.reported("not replaced: no witness answered", map[*workload]int{b: before}, b); err != nil {
 		return nil, err
 	}

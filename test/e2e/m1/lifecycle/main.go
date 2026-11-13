@@ -729,6 +729,17 @@ func run(ctx context.Context, root, image string) error {
 	if err != nil {
 		return err
 	}
+	reportsBefore, err := j.logCount(healthy, "not replaced: no witness answered")
+	if err != nil {
+		return err
+	}
+	clearsBefore, err := j.logCount(healthy, "task readiness unresponsive window cleared")
+	if err != nil {
+		return err
+	}
+	if err := j.freeze(sibling, healthy); err != nil {
+		return err
+	}
 	if err := j.freeze(second); err != nil {
 		return err
 	}
@@ -739,7 +750,7 @@ func run(ctx context.Context, root, image string) error {
 		return err
 	}
 	fmt.Printf("second sequential failure held by real 15-minute host budget: PID %d survived past five minutes; first replacement PID %d survived\n", second.process.Pid(), replacement.process.Pid())
-	recoveredSibling, err := j.recoveryWitness(sibling, healthy)
+	recoveredSibling, err := j.recoveryWitness(sibling, healthy, reportsBefore, clearsBefore)
 	if err != nil {
 		return err
 	}
