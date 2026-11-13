@@ -259,6 +259,10 @@ func run() {
 			Binaries: map[string]releasepush.Binary{runtime.GOARCH: {URL: url, SHA256: hex.EncodeToString(sum[:])}}})
 		check(err)
 
+		var failedRestore <-chan struct{}
+		if mode == "sandbox-reboot-guard-crash" {
+			failedRestore = observeFailedRestore()
+		}
 		var interrupted <-chan string
 		if strings.HasPrefix(mode, "crash:") {
 			interrupted = crashAt(strings.TrimPrefix(mode, "crash:"))
@@ -325,6 +329,15 @@ func run() {
 			}
 
 			if mode == "reboot" || mode == "sandbox-reboot-guard-crash" {
+				if failedRestore != nil {
+					expiry := time.NewTimer(time.Until(reply.Deadline))
+					defer expiry.Stop()
+					select {
+					case <-failedRestore:
+					case <-expiry.C:
+						panic("sandbox did not attempt fast restoration before its guard deadline")
+					}
+				}
 				command("systemctl", "stop", "ts-orch", "ts-orch-release-guard.timer", "ts-orch-release-guard.service", "containerd")
 				command("systemctl", "start", "ts-orch-release-guard.timer")
 			}
@@ -424,6 +437,37 @@ func stopReleaseProcesses(agent int) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	}
+}
+
+func observeFailedRestore() <-chan struct{} {
+	done := make(chan struct{})
+	fd, err := syscall.InotifyInit1(syscall.IN_CLOEXEC)
+	check(err)
+	_, err = syscall.InotifyAddWatch(fd, "/var/lib/ts-orch/nats", syscall.IN_MOVED_TO)
+	check(err)
+	go func() {
+		defer syscall.Close(fd)
+		buffer := make([]byte, 4096)
+		for {
+			_, err := syscall.Read(fd, buffer)
+			check(err)
+			data, err := os.ReadFile("/var/lib/ts-orch/nats/release-trial")
+			if os.IsNotExist(err) {
+				continue
+			}
+			check(err)
+			var t struct {
+				RestoreFailed bool
+				Starts        int
+			}
+			check(json.Unmarshal(data, &t))
+			if t.RestoreFailed && t.Starts == 3 {
+				close(done)
+				return
+			}
+		}
+	}()
+	return done
 }
 
 func crashAt(phase string) <-chan string {
