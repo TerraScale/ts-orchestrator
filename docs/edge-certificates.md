@@ -46,23 +46,34 @@ certificate write; no multi-key transaction or reader generation heuristic is
 needed. The five-minute order deadline is shorter than the ten-minute lease.
 The lease is renewed every minute during an order.
 
-The result is installed locally before publication. Its fingerprint is first
-persisted as withheld from reconciliation. If the lease is lost, the host keeps
-and serves that valid certificate but does not publish it, including after a
-restart. Publication can be retried without another order only while the same lease generation remains live, using its current record revision. Successful fenced publication clears the withheld marker. A later
-shared certificate can still replace it by the normal preference rule.
+The issued certificate and key are atomically saved together with a local
+issuance receipt, then installed in memory, before separate metadata is saved.
+A metadata failure is reported and reconciled later; it never discards an issued
+certificate. The receipt records the fingerprint and lease generation in the
+same atomic file as the key, so a restart cannot publish an unfenced result.
+If the lease is lost, the host keeps and serves that valid certificate but does
+not publish it. Publication can be retried without another order only while the
+same lease generation remains live, using its current record revision.
+Successful fenced publication clears the receipt. A later shared certificate
+can still replace it by the normal preference rule.
 
 After each failed order, the next attempt is delayed by 30 minutes, 1 hour,
 2 hours, 4 hours, 8 hours, 16 hours, then 24 hours for every subsequent failure.
-Any later authority `Retry-After` deadline wins. A success clears the failure
+Any later authority `Retry-After` deadline wins. The authority response is
+journaled immediately in an atomic owner-only local file before completion is
+attempted. Reconciliation conditionally publishes the maximum of the journaled
+and shared deadlines, preserving the current holder's lease generation and
+expiry. A failed completion therefore cannot leave a longer authority deadline
+local forever. The journal is removed only after publication is confirmed. A success clears the failure
 sequence. The retry state is stored with the lease and mirrored in local memory
 and owner-only local state files, so store outages and host restarts retain it.
 No holder may order before either its local or the shared deadline. The ACME
 client does not retry failed HTTP requests inside an order; the fleet cooldown
 owns retries. Before an order begins, its lease also reserves the corresponding
 retry delay plus the five-minute order budget. This conservative reservation
-covers an issuer that disappears before recording its failure; a reported
-failure replaces it with the exact failure-relative deadline.
+covers an issuer that disappears before recording its failure; a fenced completion
+replaces it with the exact failure-relative deadline. A later journal publication
+can only move the shared deadline forward.
 
 Under persistent failure, one variant makes at most six orders in any first or
 rolling 24-hour interval, starting with no failures: at offsets 0, 0.5, 1.5,
@@ -77,13 +88,32 @@ most two series per known routed name. These counters and the current
 `ts_orch_edge_certificate_unsupported` count are exposed at
 `/edge/certificates/metrics`; serving and scraping them require no store reads.
 
+The [published Let’s Encrypt limits](https://letsencrypt.org/docs/rate-limits/)
+also apply independently:
+
+| Authority limit | Published bound | Scope |
+| --- | --- | --- |
+| New orders | 300 per 3 hours | Per account |
+| Authorization failures | 5 per hour | Per identifier per account |
+| Certificates for the exact same identifier set | 5 per 7 days | Global across accounts |
+| Certificates per registered domain | 50 per 7 days | Global across accounts |
+
+The fleet's six attempts per variant per 24 hours (twelve per name with both
+variants) bound failed attempts; they do not guarantee staying below every
+authority limit. RSA and ECDSA share the per-name identifier and exact-set
+limits, and share the registered-domain limit with all other names in that
+domain. Per-host accounts do not avoid the global issuance limits. Publishing
+existing certificates and waiting for complete holdings evidence prevents
+unnecessary orders; authority deadlines remain mandatory even during urgent
+renewal.
+
 ## Stored envelopes and encryption
 
 A shared read has three outcomes:
 
 - **Usable:** decrypt, validate and adopt the preferable valid certificate.
 - **Absent:** retain any local certificate, publish an eligible local copy, or
-  acquire a lease for a missing required variant. An expired supported copy
+  acquire a lease only after the holdings evidence gate permits it. An expired supported copy
   remains evidence that its variant is required and follows renewal rules.
 - **Present but unsupported:** preserve the stored bytes and revision, never
   overwrite or delete the entry, and place no order for this name and variant.
@@ -116,33 +146,71 @@ authority hostname to its stand-in inside each node’s network namespace and
 trusts its root through the lane’s own trust store. It has no route to the real
 authority.
 
-Hosts watch the certificate records to maintain a small local view of live
-issuance leases. A challenge-shaped request with no live lease for its host
-returns 404 without a store call. Token syntax is checked before I/O. Active
-orders allow at most `challengeReadLimit` (16) concurrent token reads per node;
-excess requests receive 503 immediately. Shared tokens are bound to the host
-and expire after ten minutes. Replacing active-order token reads with a
-watch-fed token cache is a later change.
+Hosts watch certificate records to maintain a local view of live issuance
+leases. Token syntax and the routed-name policy are checked before I/O.
+A served name whose lease watch has not delivered yet gets one bounded token
+lookup. Both this lookup and normal active-order token reads share the same
+16-request concurrency cap; excess requests receive 503 immediately.
+Unserved names without a live lease return 404 without store I/O.
+Shared tokens are bound to the host and expire after ten minutes.
 
 Certificates and their persistent lease/cooldown metadata share one 16 MiB,
 three-replica bucket. HTTP-01 tokens use a separate 1 MiB, three-replica bucket.
 An older unused lease bucket can remain within the existing three-stream,
 64 MiB account limit; this build neither depends on nor writes it.
 
-## First rollout across all six hosts
+## Holdings evidence and rollout
 
-Roll through all six edge hosts, one host at a time. Before upgrading each host, retain its existing ECDSA, RSA and account-key
-files. Each upgraded host loads those files before listeners start, publishes
-eligible local certificates, and adopts preferable shared copies. Later local
-expiry wins; equal expiry converges by fingerprint. A healthy existing variant
-never causes an authority order. Hosts awaiting their upgrade continue serving
-their existing local files.
+Every upgraded host publishes all of its valid local certificates, including
+names it is not currently routing, to the shared records. It also publishes an
+inventory containing names, variants, expiry, healthy-until time and SHA-256
+fingerprints, without certificate keys. Inventories share the certificate bucket.
 
-For shared web and PostgreSQL names, the first upgraded host seeds the shared
-record; the next five hosts each reconcile their own copies independently.
-Regional names are reconciled only where the local route tables contain them.
-Repeat local-file preservation, adoption and publication on each remaining host
-so every regional web and PostgreSQL alias is published and every existing RSA
-variant is retained. Verify HTTPS, RSA-only HTTPS,
-PostgreSQL TLS and readiness on all six hosts before completing the rollout.
-Expiry metrics and the expiry alert rule remain a separate change.
+Registered edges are the configured region founders, durably admitted mesh
+founders and joined serving workers reported by the mesh. Inventories retain
+previously registered identities and the ordering gate follows the union of
+their rosters. A temporary disconnect does not establish absence. An unresolved
+configured founder still requires an inventory. Retiring a host requires an
+explicit membership change; a stale roster conservatively delays additions.
+
+A missing shared record never proves that no certificate exists elsewhere.
+An ordinary order requires inventories from every registered edge and no
+healthy certificate for that name and variant in any inventory. A peer that
+has not upgraded delays an addition until it publishes its existing certificate.
+A host that is already serving a certificate for that name expiring within
+14 days may order despite missing inventories. This urgent margin leaves many
+daily attempts after the 30m, 1h, 2h, 4h, 8h, 16h, then 24h cooldown sequence;
+it never bypasses an unreadable record, a lease, a store outage or Retry-After.
+
+Retain local ECDSA, RSA and account-key files while rolling hosts individually.
+Each host loads them before opening listeners, publishes eligible copies and
+adopts preferable shared copies. Verify HTTPS, RSA-only HTTPS, PostgreSQL TLS,
+readiness and inventories as the rollout proceeds. An asymmetric rollout with
+RSA only on the first host and healthy ECDSA only on an older peer makes zero
+orders; the first host adopts ECDSA when that peer upgrades.
+
+## Repairing an unreadable record
+
+Alert on `ts_orch_edge_certificate_expiry_seconds{name,variant}` approaching
+expiry and on `ts_orch_edge_certificate_blocked_names` being nonzero. The latter
+counts distinct names with at least one unreadable variant; the existing
+`ts_orch_edge_certificate_unsupported` counts variants. Metrics use memory only.
+
+On a host with a validated, unexpired local certificate and matching private key,
+run as root, selecting exactly one name and variant:
+
+```sh
+ts-orch edge certificates repair --state /var/lib/ts-orch example.com ecdsa
+```
+
+The command reads the local key pair, validates its name, variant and validity,
+then reads the shared record and conditionally replaces only its encrypted
+certificate and key identifier at that revision. It preserves all lease and
+cooldown fields. A concurrent update makes the command fail; inspect the new
+record before explicitly running it again. It refuses absent records, readable
+records and any format version other than v1, including a newer version. A
+newer reader must handle those records; repair never overwrites them.
+
+Verify that the blocked count clears after reconciliation and that both HTTPS
+and PostgreSQL continue serving. A local certificate is never deleted as part
+of repair. Keep local files throughout any planned encryption-key rotation.

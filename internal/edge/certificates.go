@@ -131,7 +131,10 @@ func (m *certificateManager) ensure(ctx context.Context, name string) error {
 }
 
 func (m *certificateManager) ensureVariant(ctx context.Context, key string) error {
-	if err := m.cache.reconcile(ctx, key); err != nil {
+	lock := m.cache.variantLock(key)
+	lock.Lock()
+	defer lock.Unlock()
+	if err := m.cache.reconcileLocked(ctx, key); err != nil {
 		return err
 	}
 	if value, exists := m.cache.memory.Load(key); exists {
@@ -142,6 +145,9 @@ func (m *certificateManager) ensureVariant(ctx context.Context, key string) erro
 		if _, required := m.cache.required.Load(key); !required {
 			return nil
 		}
+	}
+	if err := m.cache.orderEvidence(ctx, key); err != nil {
+		return err
 	}
 	lease, err := m.cache.lease(ctx, key)
 	if err != nil {
@@ -172,9 +178,10 @@ func (m *certificateManager) ensureVariant(ctx context.Context, key string) erro
 		counter.(*atomic.Uint64).Add(1)
 		state := m.cache.state(key)
 		state.Retry = retry
-		diskErr := m.cache.saveState(context.Background(), key, state)
+		diskErr := m.cache.saveRetry(context.Background(), key, retry)
+		diskErr = errors.Join(diskErr, m.cache.saveState(context.Background(), key, state))
 		finishErr := lease.finish(nil, retry)
-		return errors.Join(diskErr, finishErr)
+		return errors.Join(err, diskErr, finishErr)
 	}
 	cert, err := validCertificate(data, key)
 	if err != nil {
@@ -183,20 +190,17 @@ func (m *certificateManager) ensureVariant(ctx context.Context, key string) erro
 	}
 	state := m.cache.state(key)
 	state.Withheld, state.Generation = certificateFingerprint(cert), lease.generation
-	if err := m.cache.saveState(context.Background(), key, state); err != nil {
-		_ = lease.finish(nil, lease.reserved)
-		return err
-	}
-	if err := m.cache.save(context.Background(), key, data); err != nil {
-		_ = lease.finish(nil, lease.reserved)
-		return err
-	}
+	m.cache.states.Store(key, state)
+	data = issuedData(data, state)
+	saveErr := m.cache.save(context.Background(), key, data)
+	metadataErr := m.cache.saveState(context.Background(), key, state)
 	retry := certificateRetry{Updated: time.Now()}
-	if err := lease.finish(data, retry); err != nil {
-		return err
+	finishErr := lease.finish(data, retry)
+	if finishErr != nil {
+		return errors.Join(saveErr, metadataErr, finishErr)
 	}
 	state.Retry, state.Withheld, state.Generation = retry, "", ""
-	return m.cache.saveState(context.Background(), key, state)
+	return errors.Join(saveErr, metadataErr, m.cache.completeLocal(context.Background(), key, data, state))
 }
 
 func (m *certificateManager) issue(ctx context.Context, client *acme.Client, keyName string) ([]byte, error) {
@@ -296,6 +300,9 @@ func (e *Edge) reconcileCertificates(ctx context.Context) {
 		for host := range *e.postgres.Load() {
 			names[host] = true
 		}
+		if err := e.certs.cache.publishHoldings(ctx); err != nil {
+			slog.WarnContext(ctx, "edge certificate inventory unavailable", "error", err)
+		}
 		for name := range names {
 			if ctx.Err() != nil {
 				return
@@ -354,10 +361,6 @@ func (m *certificateManager) HTTPHandler(fallback http.Handler) http.Handler {
 				live = true
 			}
 		}
-		if !live {
-			http.NotFound(w, r)
-			return
-		}
 		if m.cache.challengeReads.Add(1) > challengeReadLimit {
 			m.cache.challengeReads.Add(-1)
 			http.Error(w, "challenge capacity reached", http.StatusServiceUnavailable)
@@ -365,6 +368,16 @@ func (m *certificateManager) HTTPHandler(fallback http.Handler) http.Handler {
 		}
 		defer m.cache.challengeReads.Add(-1)
 
+		if !live {
+			if err := m.policy(r.Context(), host); err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			if err := m.cache.open(r.Context()); err != nil {
+				http.Error(w, "challenge store unavailable", http.StatusServiceUnavailable)
+				return
+			}
+		}
 		m.cache.mu.Lock()
 		reader := m.cache.reader
 		m.cache.mu.Unlock()

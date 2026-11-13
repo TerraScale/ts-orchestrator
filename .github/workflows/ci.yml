@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  schedule:
+    - cron: "23 4 * * *"
   pull_request:
   push:
     branches: [main]
@@ -39,6 +41,7 @@ jobs:
       - run: bash scripts/ci/audit-dependencies.sh release
 
   e2e-lane:
+    if: ${{ github.event_name != 'schedule' }}
     strategy:
       fail-fast: false
       matrix:
@@ -89,7 +92,7 @@ jobs:
           key: ${{ steps.go.outputs.cache-key }}
 
   e2e-m1:
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name != 'schedule' }}
     needs: e2e-lane
     concurrency:
       group: e2e-m1-${{ github.ref }}
@@ -101,11 +104,52 @@ jobs:
           LANES: ${{ needs.e2e-lane.result }}
         run: test "$LANES" = success
 
+  certificate-paths:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = schedule ] || git diff --name-only "${CHANGE_BASE:-HEAD^}" HEAD | rg -q '^(internal/edge/|internal/natscell/mesh/|internal/cli/|test/e2e/m1/certificates/|docs/edge-certificates.md|go.mod|go.sum|.github/)'; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  e2e-certificates:
+    needs: certificate-paths
+    if: ${{ needs.certificate-paths.outputs.changed == 'true' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - uses: ./.github/actions/go
+        with:
+          cache: e2e-arm64
+      - name: Install certificate lane tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gdb containerd iproute2 ca-certificates
+      - name: Build ts-orch
+        run: go build -trimpath -o "$RUNNER_TEMP/terrascale-orchestrator" ./cmd/terrascale-orchestrator
+      - name: Run real lease, rollout and recovery proofs
+        run: bash test/e2e/m1/certificates/run.sh "$RUNNER_TEMP/terrascale-orchestrator"
+
   build:
     concurrency:
       group: fast-build-${{ github.ref }}
       cancel-in-progress: true
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
       actions: read
@@ -241,7 +285,7 @@ jobs:
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [lint, e2e-m1, build, release-push]
+    needs: [lint, e2e-m1, certificate-paths, e2e-certificates, build, release-push]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:

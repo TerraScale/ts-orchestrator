@@ -82,7 +82,7 @@ func newEdge(stateDir string) *Edge {
 	e.routes.Store(&map[string]int{})
 	e.postgres.Store(&map[string]int{})
 	e.certRoutes = make(chan struct{}, 1)
-	e.certs = &certificateManager{policy: e.hostPolicy, cache: &certificateCache{local: autocert.DirCache(filepath.Join(stateDir, "edge-certs")), source: e.certificateStore}}
+	e.certs = &certificateManager{policy: e.hostPolicy, cache: &certificateCache{local: autocert.DirCache(filepath.Join(stateDir, "edge-certs")), source: e.certificateStore, roster: e.certificateRoster}}
 	e.readyRoutes.Store(&[]ReadinessRoute{})
 	e.challenges = e.certs.HTTPHandler(nil)
 	http1 := http.DefaultTransport.(*http.Transport).Clone()

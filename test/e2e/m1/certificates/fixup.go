@@ -289,7 +289,7 @@ func fixupJourney(ctx context.Context, cfg configuration, conn *nats.Conn, autho
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(metrics, `ts_orch_edge_certificate_order_failures_total{name="fail-first.e2e.test",variant="ecdsa"} 1`) || !strings.Contains(metrics, "ts_orch_edge_certificate_unsupported 1") {
+	if !strings.Contains(metrics, `ts_orch_edge_certificate_order_failures_total{name="fail-first.e2e.test",variant="ecdsa"} 1`) || !strings.Contains(metrics, "ts_orch_edge_certificate_blocked_names ") {
 		return errors.New("failure or unsupported metric missing")
 	}
 	readsBefore, err := getText("http://10.77.0.1:8090")
@@ -298,7 +298,7 @@ func fixupJourney(ctx context.Context, cfg configuration, conn *nats.Conn, autho
 	}
 	for range 32 {
 		request, _ := http.NewRequest(http.MethodGet, "http://10.77.0.3/.well-known/acme-challenge/"+authorityToken("idle"), nil)
-		request.Host = "existing.e2e.test"
+		request.Host = "unserved.e2e.test"
 		response, err := (&http.Client{Timeout: 2 * time.Second}).Do(request)
 		if err != nil {
 			return err
@@ -318,7 +318,7 @@ func fixupJourney(ctx context.Context, cfg configuration, conn *nats.Conn, autho
 	if readsAfter == "0" {
 		return errors.New("store read instrumentation never saw live challenges")
 	}
-	fmt.Println("PASS challenge-shaped requests without live issuance: 32 HTTP 404 responses, zero store reads")
+	fmt.Println("PASS challenge-shaped requests for unserved names: 32 HTTP 404 responses, zero store reads")
 	if err := waitUntil(ctx, time.Now().Add(11*time.Second)); err != nil {
 		return err
 	}

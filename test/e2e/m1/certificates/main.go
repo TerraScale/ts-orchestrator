@@ -64,7 +64,19 @@ func run() error {
 		return err
 	}
 	switch os.Args[1] {
+	case "operator":
+		if err := syscall.Sethostname([]byte("ts-gru-1")); err != nil {
+			return err
+		}
+		if err := syscall.Mount(cfg.Work+"/sys-oracle", "/sys", "", syscall.MS_BIND, ""); err != nil {
+			return err
+		}
+		return syscall.Exec(os.Args[3], append([]string{os.Args[3]}, os.Args[4:]...), os.Environ())
 	case "node":
+		nodeName := map[string]string{"a": "ts-gru-1", "b": "ts-sjc-1"}[os.Args[4]]
+		if err := syscall.Sethostname([]byte(nodeName)); err != nil {
+			return err
+		}
 		if err := os.WriteFile(cfg.Work+"/"+os.Args[4]+".pid", []byte(fmt.Sprint(os.Getpid())), 0600); err != nil {
 			return err
 		}
@@ -170,7 +182,7 @@ func fixtures(cfg configuration) error {
 			return err
 		}
 
-		names := []string{"existing.e2e.test", "rsa.e2e.test", "postgres.e2e.test", "unknown.e2e.test", "unknown-local.e2e.test", "ecdsa-renew.e2e.test", "rsa-renew-rsa.e2e.test", "equal.e2e.test", "barrier.e2e.test", "fenced.e2e.test", "fail-first.e2e.test", "fail-second.e2e.test", "fail-long.e2e.test", region + ".regional.e2e.test"}
+		names := []string{"asymmetric.e2e.test", "urgent.e2e.test", "metadata.e2e.test", "repair.e2e.test", "fail-upload.e2e.test", "existing.e2e.test", "rsa.e2e.test", "postgres.e2e.test", "unknown.e2e.test", "unknown-local.e2e.test", "ecdsa-renew.e2e.test", "rsa-renew-rsa.e2e.test", "equal.e2e.test", "barrier.e2e.test", "fenced.e2e.test", "fail-first.e2e.test", "fail-second.e2e.test", "fail-long.e2e.test", region + ".regional.e2e.test"}
 		base := append([]string(nil), names...)
 		for _, name := range base {
 			names = append(names, region+"."+name)
@@ -178,7 +190,7 @@ func fixtures(cfg configuration) error {
 		for _, name := range names {
 			var leafKey crypto.Signer
 			filename := name
-			if strings.HasSuffix(name, "rsa.e2e.test") {
+			if strings.HasSuffix(name, "rsa.e2e.test") || (name == "asymmetric.e2e.test" && node == "a") {
 				leafKey, err = rsa.GenerateKey(rand.Reader, 2048)
 				filename += "+rsa"
 			} else {
@@ -197,10 +209,10 @@ func fixtures(cfg configuration) error {
 			if strings.HasPrefix(name, "fail-") {
 				until = time.Now().Add(10 * 24 * time.Hour)
 			}
-			if name == "unknown.e2e.test" || name == "fenced.e2e.test" {
+			if name == "unknown.e2e.test" || name == "fenced.e2e.test" || name == "metadata.e2e.test" || name == "fail-upload.e2e.test" {
 				continue
 			}
-			if name == "ecdsa-renew.e2e.test" {
+			if name == "ecdsa-renew.e2e.test" || name == "urgent.e2e.test" {
 				until = time.Now().Add(10 * 24 * time.Hour)
 			}
 			if name == "rsa-renew-rsa.e2e.test" {
@@ -296,6 +308,25 @@ func route(ctx context.Context, cfg configuration, node, service string, names [
 	}
 	_, err = client.CreateService(ctx, &api.CreateServiceRequest{Spec: spec})
 	return err
+}
+
+func removeRoute(ctx context.Context, cfg configuration, node, name string) error {
+	client, conn, err := swarmruntime.DialSingleHost(cfg.Work + "/" + node)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	services, err := client.ListServices(ctx, &api.ListServicesRequest{})
+	if err != nil {
+		return err
+	}
+	for _, service := range services.Services {
+		if service.Spec.Annotations.Name == name {
+			_, err := client.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: service.ID})
+			return err
+		}
+	}
+	return errors.New("lane route not found")
 }
 
 func fingerprint(cfg configuration, address, name string, postgres bool) (string, error) {
@@ -473,7 +504,7 @@ func journey(ctx context.Context, cfg configuration) error {
 	}
 	env := []string{"JOURNAL_STREAM=", "HTTPS_PROXY=http://10.77.0.1:8089", "GOMAXPROCS=2", "NO_PROXY=169.254.169.254,127.0.0.1,10.77.0.0/24,acme-v02.api.letsencrypt.org", "SSL_CERT_FILE=" + cfg.Work + "/ca.pem"}
 	startNode := func(node, binary, log, platform string) (*process, error) {
-		p, err := launch(ctx, cfg.Work+"/"+log, env, "ip", "netns", "exec", "cert-"+node, self, "node", os.Args[2], binary, node, platform)
+		p, err := launch(ctx, cfg.Work+"/"+log, env, "ip", "netns", "exec", "cert-"+node, "unshare", "--uts", self, "node", os.Args[2], binary, node, platform)
 		if err != nil {
 			return nil, err
 		}
@@ -524,6 +555,23 @@ func journey(ctx context.Context, cfg configuration) error {
 		}
 	}
 	fmt.Println("PASS main and current binaries serve existing ECDSA, RSA and Postgres certificates together")
+	if err := route(ctx, cfg, "a", "rollout", []string{"asymmetric.e2e.test", "urgent.e2e.test"}); err != nil {
+		return err
+	}
+	if err := current.wait(ctx, "edge certificate installed name=urgent.e2e.test ", 2); err != nil {
+		return err
+	}
+	if err := waitUntil(ctx, time.Now().Add(11*time.Second)); err != nil {
+		return err
+	}
+	rolloutCounts, err := fetchCounts()
+	if err != nil {
+		return err
+	}
+	if rolloutCounts["asymmetric.e2e.test"] != 0 || rolloutCounts["urgent.e2e.test"] != 1 {
+		return fmt.Errorf("rollout orders: %v", rolloutCounts)
+	}
+	fmt.Println("PASS asymmetric missing ECDSA waits for unupgraded peer; 10d urgent certificate renews with missing inventory")
 	localB, err := fingerprint(cfg, "10.77.0.3", "existing.e2e.test", false)
 	if err != nil {
 		return err
@@ -556,6 +604,22 @@ func journey(ctx context.Context, cfg configuration) error {
 		return errors.New("later expiry certificate was not adopted")
 	}
 	fmt.Println("PASS later-expiring local certificate preserved and adopted on the other node")
+	if err := current.wait(ctx, "edge certificate installed name=asymmetric.e2e.test ", 1); err != nil {
+		return err
+	}
+	asymmetric, err := fingerprint(cfg, "10.77.0.2", "asymmetric.e2e.test", false)
+	if err != nil {
+		return err
+	}
+	sharedAsymmetric, err := fileFingerprint(cfg.Work + "/b/edge-certs/asymmetric.e2e.test")
+	if err != nil || asymmetric != sharedAsymmetric {
+		return errors.New("asymmetric peer ECDSA not adopted")
+	}
+	rolloutCounts, err = fetchCounts()
+	if err != nil || rolloutCounts["asymmetric.e2e.test"] != 0 {
+		return errors.New("asymmetric rollout spent an order")
+	}
+	fmt.Println("PASS asymmetric rollout: A adopts B ECDSA after upgrade, zero authority orders")
 	conn, err := nats.Connect("nats://10.77.0.1:4223", nats.UserInfo("orch", "journey"))
 	if err != nil {
 		return err
@@ -621,7 +685,7 @@ func journey(ctx context.Context, cfg configuration) error {
 	if err != nil {
 		return err
 	}
-	if len(counts) != 3 || counts["shared.e2e.test"] != 1 || counts["gru.shared.e2e.test"] != 1 || counts["sjc.shared.e2e.test"] != 1 {
+	if len(counts) != 4 || counts["urgent.e2e.test"] != 1 || counts["shared.e2e.test"] != 1 || counts["gru.shared.e2e.test"] != 1 || counts["sjc.shared.e2e.test"] != 1 {
 		return fmt.Errorf("authority orders: %v", counts)
 	}
 	sharedAPI, err := conn.JetStream(nats.MaxWait(3 * time.Second))
@@ -643,6 +707,9 @@ func journey(ctx context.Context, cfg configuration) error {
 		return errors.New("certificate envelope is not encrypted and versioned")
 	}
 	fmt.Println("PASS two production processes use the host seed and account path; two lease contenders, one order per name, HTTP-01 on every eligible node; TLS fingerprint", firstFingerprint)
+	if err := recoveryJourney(ctx, cfg, conn, authority, current, second, store); err != nil {
+		return err
+	}
 	if err := fixupJourney(ctx, cfg, conn, authority, current, second, store); err != nil {
 		return err
 	}

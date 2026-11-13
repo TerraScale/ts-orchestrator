@@ -23,6 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard/accesscheck"
 	"github.com/TerraScale/ts-orchestrator/internal/disasterrecovery"
+	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/edge/geodns"
 	"github.com/TerraScale/ts-orchestrator/internal/functions"
 	"github.com/TerraScale/ts-orchestrator/internal/image"
@@ -163,6 +164,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "member":
 		return app.RunMemberCLI(ctx, args[1:], output)
 	case "edge":
+		if len(args) > 1 && args[1] == "certificates" {
+			return edge.RunCertificateCLI(ctx, args[2:], output)
+		}
 		return geodns.Run(ctx, args[1:], output)
 	case "mesh":
 		return mesh.RunCLI(ctx, args[1:], "/var/lib/ts-orch", output)

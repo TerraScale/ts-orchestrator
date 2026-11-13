@@ -26,6 +26,7 @@ import (
 )
 
 type fakeAuthority struct {
+	work    string
 	mu      sync.Mutex
 	base    string
 	key     *ecdsa.PrivateKey
@@ -100,7 +101,7 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 	if err != nil {
 		return err
 	}
-	a := &fakeAuthority{base: "https://acme-v02.api.letsencrypt.org", key: key, root: root, orders: map[string]string{}, issuers: map[string]string{}, count: map[string]int{}, chain: map[string][]byte{}, proceed: make(chan struct{})}
+	a := &fakeAuthority{work: cfg.Work, base: "https://acme-v02.api.letsencrypt.org", key: key, root: root, orders: map[string]string{}, issuers: map[string]string{}, count: map[string]int{}, chain: map[string][]byte{}, proceed: make(chan struct{})}
 	control, err := net.Listen("tcp", "10.77.0.1:8088")
 	if err != nil {
 		return err
@@ -285,7 +286,7 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 		a.issuers[id], _, _ = net.SplitHostPort(r.RemoteAddr)
 		if strings.HasPrefix(id, "fail-") {
 			w.Header().Set("Content-Type", "application/problem+json")
-			if id == "fail-long.e2e.test" {
+			if id == "fail-long.e2e.test" || id == "fail-upload.e2e.test" {
 				w.Header().Set("Retry-After", "172800")
 			}
 			w.WriteHeader(429)
@@ -348,6 +349,17 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 		a.orders[id] = "valid"
 		a.writeOrder(w, id)
 	case "/certificate":
+		if id == "metadata.e2e.test" {
+			name := a.work + "/a/edge-certs/.state-" + id
+			if err := os.Remove(name); err != nil {
+				http.Error(w, "remove metadata", 500)
+				return
+			}
+			if err := os.Mkdir(name, 0700); err != nil {
+				http.Error(w, "block metadata", 500)
+				return
+			}
+		}
 		w.Header().Set("Content-Type", "application/pem-certificate-chain")
 		_, _ = w.Write(a.chain[id])
 	default:

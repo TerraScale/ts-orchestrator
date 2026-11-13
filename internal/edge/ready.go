@@ -144,6 +144,15 @@ func (e *Edge) serveCertificateMetrics(w http.ResponseWriter, r *http.Request) {
 		observability.WriteCounter(w, observability.Series("ts_orch_edge_certificate_order_failures_total", "name", name, "variant", variant), float64(value.(*atomic.Uint64).Load()))
 		return true
 	})
+	e.certs.cache.memory.Range(func(key, value any) bool {
+		name, variant := certificateVariant(key.(string))
+		remaining := time.Until(value.(cachedCertificate).cert.Leaf.NotAfter).Seconds()
+		_, _ = fmt.Fprintf(w, "%s %g\n", observability.Series("ts_orch_edge_certificate_expiry_seconds", "name", name, "variant", variant), remaining)
+		return true
+	})
+	names := map[string]bool{}
+	e.certs.cache.unsupported.Range(func(key, _ any) bool { names[certificateName(key.(string))] = true; return true })
+	_, _ = fmt.Fprintf(w, "ts_orch_edge_certificate_blocked_names %d\n", len(names))
 	count := 0
 	e.certs.cache.unsupported.Range(func(_, _ any) bool { count++; return true })
 	_, _ = io.WriteString(w, fmt.Sprintf("ts_orch_edge_certificate_unsupported %d\n", count))

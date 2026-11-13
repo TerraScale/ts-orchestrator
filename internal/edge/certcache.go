@@ -39,8 +39,13 @@ type certificateStore interface {
 }
 
 type certificateCache struct {
+	dirty          sync.Map
 	local          autocert.DirCache
 	source         func() (*nats.Conn, []byte, error)
+	roster         func() (string, []string, error)
+	inventoryMu    sync.Mutex
+	pending        sync.Map
+	variantLocks   sync.Map
 	mu             sync.Mutex
 	conn           *nats.Conn
 	certs          jetstream.KeyValue
@@ -328,7 +333,13 @@ func (c *certificateCache) saveState(ctx context.Context, key string, state cert
 	if err != nil {
 		return err
 	}
-	return c.local.Put(ctx, ".state-"+key, data)
+	err = c.local.Put(ctx, ".state-"+key, data)
+	if err != nil {
+		c.dirty.Store(key, true)
+	} else {
+		c.dirty.Delete(key)
+	}
+	return err
 }
 
 func (c *certificateCache) save(ctx context.Context, key string, data []byte) error {
@@ -348,13 +359,33 @@ func (c *certificateCache) save(ctx context.Context, key string, data []byte) er
 	return nil
 }
 
+func (c *certificateCache) variantLock(key string) *sync.Mutex {
+	value, _ := c.variantLocks.LoadOrStore(key, new(sync.Mutex))
+	return value.(*sync.Mutex)
+}
+
 func (c *certificateCache) reconcile(ctx context.Context, key string) error {
+	lock := c.variantLock(key)
+	lock.Lock()
+	defer lock.Unlock()
+	return c.reconcileLocked(ctx, key)
+}
+
+func (c *certificateCache) reconcileLocked(ctx context.Context, key string) error {
+	if err := c.publishRetry(ctx, key); err != nil {
+		return err
+	}
+	if _, dirty := c.dirty.Load(key); dirty {
+		if err := c.saveState(ctx, key, c.state(key)); err != nil {
+			return err
+		}
+	}
 	value, revision, err := c.shared(ctx, key)
 	if err != nil {
 		return err
 	}
 	state := c.state(key)
-	if value.Retry.Updated.After(state.Retry.Updated) {
+	if value.Retry.Next.After(state.Retry.Next) || value.Retry.Updated.After(state.Retry.Updated) {
 		state.Retry = value.Retry
 		if err := c.saveState(ctx, key, state); err != nil {
 			return err
@@ -382,7 +413,7 @@ func (c *certificateCache) reconcile(ctx context.Context, key string) error {
 			shared, _ := validCertificate(data, key)
 			if certificateFingerprint(shared) == state.Withheld {
 				state.Withheld, state.Generation = "", ""
-				return c.saveState(ctx, key, state)
+				return c.completeLocal(ctx, key, candidate.data, state)
 			}
 		}
 		if state.Generation == "" || value.Lease.Generation != state.Generation || !time.Now().Before(value.Lease.Until) {
@@ -391,14 +422,14 @@ func (c *certificateCache) reconcile(ctx context.Context, key string) error {
 		c.mu.Lock()
 		seal := c.seal
 		c.mu.Unlock()
-		value.Data = seal.Seal(nil, nil, candidate.data, []byte(key))
+		value.Data = seal.Seal(nil, nil, stripIssuedState(candidate.data), []byte(key))
 		value.Lease = certificateLease{}
 		value.Retry = certificateRetry{Updated: time.Now()}
 		if _, err := c.write(ctx, key, value, revision); err != nil {
 			return err
 		}
 		state.Withheld, state.Generation, state.Retry = "", "", value.Retry
-		return c.saveState(ctx, key, state)
+		return c.completeLocal(ctx, key, candidate.data, state)
 	}
 	if err == nil {
 		shared, _ := validCertificate(data, key)
@@ -412,7 +443,7 @@ func (c *certificateCache) reconcile(ctx context.Context, key string) error {
 	c.mu.Lock()
 	seal := c.seal
 	c.mu.Unlock()
-	value.Data = seal.Seal(nil, nil, candidate.data, []byte(key))
+	value.Data = seal.Seal(nil, nil, stripIssuedState(candidate.data), []byte(key))
 	_, err = c.write(ctx, key, value, revision)
 	return err
 }
@@ -427,6 +458,18 @@ func (c *certificateCache) loadDisk(ctx context.Context) error {
 	}
 	for _, entry := range entries {
 		if !entry.Type().IsRegular() || entry.Name() == "acme_account+key" {
+			continue
+		}
+		if strings.HasPrefix(entry.Name(), ".retry-") {
+			data, err := c.local.Get(ctx, entry.Name())
+			if err != nil {
+				return err
+			}
+			var retry certificateRetry
+			if err := json.Unmarshal(data, &retry); err != nil {
+				return err
+			}
+			c.pending.Store(strings.TrimPrefix(entry.Name(), ".retry-"), retry)
 			continue
 		}
 		if strings.HasPrefix(entry.Name(), ".state-") {
@@ -456,6 +499,12 @@ func (c *certificateCache) loadDisk(ctx context.Context) error {
 			slog.Info("edge certificate installed", "name", entry.Name(), "expires", cert.Leaf.NotAfter)
 		}
 	}
+	c.memory.Range(func(key, value any) bool {
+		if state, ok := issuedState(value.(cachedCertificate).data); ok {
+			c.states.Store(key, state)
+		}
+		return true
+	})
 	return nil
 }
 
@@ -560,7 +609,7 @@ func (l *issuanceLease) finish(data []byte, retry certificateRetry) error {
 		l.cache.mu.Lock()
 		seal := l.cache.seal
 		l.cache.mu.Unlock()
-		value.Data = seal.Seal(nil, nil, data, []byte(l.key))
+		value.Data = seal.Seal(nil, nil, stripIssuedState(data), []byte(l.key))
 	}
 	value.Lease = certificateLease{}
 	value.Retry = retry

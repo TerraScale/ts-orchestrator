@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -113,6 +114,19 @@ ready:
 		{Bucket: "edge-cert-tokens", Replicas: 3, History: 1, TTL: 10 * time.Minute, MaxBytes: 1 << 20},
 	} {
 		if _, err := js.CreateKeyValue(bounded, config); err != nil {
+			return err
+		}
+	}
+	for _, region := range mesh.Regions() {
+		if region == "gru" || region == "sjc" {
+			continue
+		}
+		data, _ := json.Marshal(map[string]any{"Version": "v1", "Registered": []string{"ts-gru-1", "ts-sjc-1"}, "Certificates": map[string]any{}})
+		bucket, err := js.KeyValue(bounded, "edge-certs")
+		if err != nil {
+			return err
+		}
+		if _, err := bucket.Put(bounded, "holdings."+hex.EncodeToString([]byte("ts-"+region+"-1")), data); err != nil {
 			return err
 		}
 	}
