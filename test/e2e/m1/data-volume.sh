@@ -11,7 +11,9 @@ stop_data_volume() {
 }
 trap 'stop_data_volume; report' EXIT
 begin "data volume safety, format-once and adoption drills"
-sudo --preserve-env=PATH bash "$here/volume.sh" "$repo" "$work" "$(dirname "$bin")"
+sudo --preserve-env=PATH unshare --mount --net --fork bash -c 'ip link set lo up; exec bash "$@"' bash \
+	"$here/volume.sh" "$repo" "$work" "$(dirname "$bin")"
+sudo --preserve-env=PATH bash "$here/volume-install.sh" "$work"
 end "volume refusals preserve bytes; format once and adoption preserve identity"
 (
 	source "$here/setup.sh"

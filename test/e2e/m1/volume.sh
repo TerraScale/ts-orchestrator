@@ -274,5 +274,7 @@ sed -i "s|serial=\$(lsblk |serial=\$($work/probe-bin/lsblk |" /usr/local/lib/ts-
 export PATH="$original_path"
 kill "$metadata_pid"
 wait "$metadata_pid" 2>/dev/null || true
+umount /var/lib/ts-orch /var/lib/ts-data
+printf '%s\n' "$uuid" > "$work/data-uuid"
 printf '%s\n' "$data_loop" > "$work/data-loop"
 trap - EXIT
