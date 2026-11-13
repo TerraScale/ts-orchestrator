@@ -109,7 +109,8 @@ type Reply struct {
 	Regions      []string                   `json:"regions,omitempty"`
 	Attestations map[string]PeerAttestation `json:"attestations,omitempty"`
 	// Workers is the replying founder's fully joined workers (ping only).
-	Workers []WorkerPeer `json:"workers,omitempty"`
+	Workers   []WorkerPeer `json:"workers,omitempty"`
+	StartedAt time.Time    `json:"startedAt,omitzero"`
 }
 
 type stateReply struct {
@@ -259,7 +260,7 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, fabric: fabric, ctx: ctx, cancel: cancel, desired: desired,
-		specInvalid: specInvalid, peers: peerFiles, settled: make(chan struct{})}
+		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{})}
 	if err := node.serveClockReports(); err != nil {
 		node.closeConns()
 		cancel()
@@ -273,7 +274,7 @@ func start(cfg config) (_ *Node, err error) {
 				address, _ = cfg.address()
 			}
 			node.respond(m, Reply{Region: cfg.region, Server: cfg.server, Regions: node.regions(), Address: address, Attestations: node.localAttestations(),
-				Workers: node.joinedWorkers()})
+				Workers: node.joinedWorkers(), StartedAt: node.listening})
 		},
 		StateSubject: func(m *nats.Msg) {
 			ready, err := cfg.applier.Ready(node.ctx)
@@ -308,7 +309,6 @@ func start(cfg config) (_ *Node, err error) {
 		cancel()
 		return nil, err
 	}
-	node.listening = time.Now()
 	node.goWork(func() { node.watchPeers(ctx) })
 	if cfg.applier == nil {
 		node.goWork(func() { node.announce(ctx) })
