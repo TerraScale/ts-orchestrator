@@ -4,6 +4,8 @@ sudo install -d -m 0755 /etc/terrascale-orchestrator
 "$1" ts-auth metadata-rules | sudo tee /etc/terrascale-orchestrator/ts-auth-metadata.nft >/dev/null
 source "$(dirname "$0")/setup.sh"
 
+source "$here/metadata-clock.sh"
+
 begin "metadata rules survive an installer upgrade and unit restart"
 metadata_rules=/etc/terrascale-orchestrator/ts-auth-metadata.nft
 sudo test -s "$metadata_rules"
