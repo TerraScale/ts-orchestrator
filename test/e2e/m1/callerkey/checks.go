@@ -238,23 +238,3 @@ func (j *journey) orphanCapacity(current bool) {
 	}
 	j.store.cases++
 }
-
-func (j *journey) reviewedCases() {
-	for _, operation := range []string{"first", "activate", "retire", "cancel"} {
-		for _, field := range []string{"caller", "cell", "replacement caller", "replacement cell"} {
-			j.intentMismatch(operation, field)
-		}
-	}
-	for _, stage := range []string{"current", "pending", "absent", "unreadable"} {
-		j.addPayload(stage, true)
-		if stage == "current" || stage == "pending" {
-			j.addPayload(stage, false)
-		}
-	}
-	j.capacityAdmission()
-	j.capacityRecovery(false)
-	j.capacityRecovery(true)
-	j.orphanCapacity(false)
-	j.orphanCapacity(true)
-	fmt.Println("intent caller/cell/replacement binding before repair; readable payload equality and invisible forward publication; 2 KiB admission reserve; edge interruption and legacy oversized intent drain; eight-orphan bound and replacement cleanup -> passed")
-}

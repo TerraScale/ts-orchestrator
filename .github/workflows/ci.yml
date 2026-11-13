@@ -115,51 +115,68 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
+      - uses: ./.github/actions/go
+        with:
+          cache: lint
       - id: paths
-        shell: bash
-        run: |
-          set -euo pipefail
-          changed=false
-          if [ "${{ github.event_name }}" = schedule ]; then
-            changed=true
-          else
-            base="$CHANGE_BASE"
-            if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ]; then
-              base=$(git rev-parse "$SOURCE_SHA^")
-            fi
-            files=$(git diff --name-only "$base" "$SOURCE_SHA")
-            if grep -Eq '^(internal/callerkey/|test/e2e/m1/callerkey/|docs/caller-keys[.]md$|cmd/terrascale-orchestrator/|go[.](mod|sum)$|[.]github/(workflows/ci[.]yml$|actions/go/))' <<< "$files"; then
-              changed=true
-            fi
-          fi
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+        run: python3 test/e2e/m1/callerkey/inputs.py
 
-  caller-key:
+  caller-key-build:
     needs: [caller-key-changes]
     if: ${{ needs.caller-key-changes.outputs.changed == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ env.SOURCE_SHA }}
           persist-credentials: false
       - id: go
         uses: ./.github/actions/go
         with:
-          cache: caller-key
-      - name: Run caller-key lifecycle and recovery lane
+          cache: lint
+      - name: Build the overlay command and journey once
+        run: bash test/e2e/m1/callerkey/build.sh "$RUNNER_TEMP/caller-key-bin"
+      - name: Prove the shard partition
         run: |
-          start=$(date +%s)
-          go run ./test/e2e/m1/callerkey
-          echo "caller-key lane: $(($(date +%s) - start)) s" >> "$GITHUB_STEP_SUMMARY"
-      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+          set -euo pipefail
+          binary="$RUNNER_TEMP/caller-key-bin/callerkey"
+          for shard in {0..7}; do
+            "$binary" list "$shard" 8
+          done | sort > "$RUNNER_TEMP/sharded.txt"
+          "$binary" list | sort > "$RUNNER_TEMP/unsharded.txt"
+          diff -u "$RUNNER_TEMP/unsharded.txt" "$RUNNER_TEMP/sharded.txt"
+          test -z "$(uniq -d "$RUNNER_TEMP/sharded.txt")"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
+          name: caller-key-bin
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ steps.go.outputs.cache-key }}
+            ${{ runner.temp }}/caller-key-bin/callerkey
+            ${{ runner.temp }}/caller-key-bin/terrascale-orchestrator
+          retention-days: 1
+
+  caller-key:
+    needs: [caller-key-changes, caller-key-build]
+    if: ${{ needs.caller-key-changes.outputs.changed == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    name: caller-key / ${{ matrix.shard }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: caller-key-bin
+          path: ${{ runner.temp }}/caller-key-bin
+      - name: Run caller-key lifecycle and recovery shard
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          chmod +x "$RUNNER_TEMP/caller-key-bin/"*
+          "$RUNNER_TEMP/caller-key-bin/callerkey" run "$RUNNER_TEMP/caller-key-bin/terrascale-orchestrator" "${{ matrix.shard }}" 8
+          echo "caller-key shard ${{ matrix.shard }}/8: $(($(date +%s) - start)) s" >> "$GITHUB_STEP_SUMMARY"
 
   build:
     concurrency:
@@ -248,8 +265,8 @@ jobs:
   # (deploy/m1/regions.json); fails when any region does not serve it. Only
   # this job can mint the GitHub OIDC token that is the push credential.
   release-push:
-    needs: [build, e2e-m1, caller-key]
-    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' && (needs.caller-key.result == 'success' || needs.caller-key.result == 'skipped') }}
+    needs: [build, e2e-m1, caller-key-changes, caller-key]
+    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' && needs.caller-key-changes.result == 'success' && ((needs.caller-key-changes.outputs.changed == 'true' && needs.caller-key.result == 'success') || (needs.caller-key-changes.outputs.changed == 'false' && needs.caller-key.result == 'skipped')) }}
     name: deploy/release-push
     concurrency:
       group: production-ts-orch
@@ -301,8 +318,11 @@ jobs:
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [lint, e2e-m1, caller-key-changes, caller-key, build, release-push]
+    needs: [lint, e2e-m1, caller-key-changes, caller-key-build, caller-key, build, release-push]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
-      - run: test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false
+      - run: |
+          set -euo pipefail
+          test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false
+          test "${{ needs.caller-key-changes.result == 'success' && ((needs.caller-key-changes.outputs.changed == 'true' && needs.caller-key.result == 'success') || (needs.caller-key-changes.outputs.changed == 'false' && needs.caller-key.result == 'skipped')) }}" = true

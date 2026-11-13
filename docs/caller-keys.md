@@ -109,7 +109,7 @@ Before recording a new intent, the command serializes the initial, publication, 
 Add and activation admission require each document to fit within 14 KiB of the store's 16 KiB limit, reserving a fixed 2 KiB for recovery.
 Add payloads are stored once: after publication the intent references its entry by kid.
 Recovery accepts an older full-payload intent, publishes the entry with the compact intent, then records the high-water mark when clearing the intent.
-This lets an older add whose entry plus duplicated intent exceeded the store limit finish forward without dropping any public key.
+This lets an older add whose entry plus duplicated intent exceeded the store limit finish forward without dropping any public key, provided the compact publication and completion documents fit in every region.
 
 Capacity-releasing retirement or cancellation may consume the reserve up to the hard 16 KiB limit, after checking every intermediate document fits.
 This is a capacity-release exception: requiring cleanup intents to preserve the admission reserve would block retirement near that threshold.
@@ -118,11 +118,14 @@ Cancellation retains the public entry until deletion scheduling is confirmed.
 Recover any outstanding operation, retire retained entries or orphans with a published current replacement until there is room under the admission limit, then add, activate and retire normally.
 The command never deletes public entries automatically to make space.
 
+Ordinary acknowledgement timeouts, as well as process interruptions, can leave orphan public entries: an accepted private creation may still land later.
 At most eight entries without visible private versions may be outstanding per caller and cell before a new add is refused.
 Retire these entries with a current replacement to reopen admission.
 Without CURRENT, there is no evidence for safe retirement: let an accepted creation land, or use the issuing secret-store workflow to establish a new CURRENT private key after publishing its public entry in every registry.
 This administrative bootstrap requires holding the new private key; it does not authorize deleting or replacing an orphan on absence or age.
-Run recover and list to verify the current key before retiring the orphan entries.
+A completely full registry with no CURRENT has no command-only way out. Administrative bootstrap needs secret-store read and conditional-write authority, the ability to create the named private secret without overwriting an accepted creation, custody of the new private key, and enough registry capacity to publish its public entry everywhere. Stop other operators and retain secure versioned copies of all registry documents and coherent private-version inventories first. If there is insufficient room even for that publication, stop: this procedure cannot safely obtain room by deleting an orphan. Establish positive evidence of a different published CURRENT through the issuing secret-store workflow before removing entries; absence, age and expired public entries alone never authorize removal. A full registry with no way to publish that replacement requires an administrative capacity or storage repair outside this command and this bootstrap procedure. Do not replace a full registry or discard high-water marks or an outstanding intent to make space.
+When publication fits, conditionally publish the new key's complete public entry in every regional registry before the create-once private write. Verify exact public payload equality everywhere, preserve all existing entries and bookkeeping, then create the private key as CURRENT. If an earlier accepted creation wins the name, read its actual CURRENT contents and verify its own matching public entry everywhere instead of overwriting it.
+Run recover and list to verify the actual current key before retiring orphan entries with that published current replacement. Verify the CURRENT private contents, public payload equality in every region, coherent pending-version and deletion evidence, and retained high-water marks again after cleanup; then retry admission. With CURRENT already present, use recover and list, then retire each orphan with --replacement-kid naming that CURRENT. Cancel any pending version first and confirm its deletion schedule as described above.
 A finite orphan bound deliberately stops further first-add attempts when all eight private creations remain invisible.
 
 ## Recover and inspect
@@ -139,9 +142,12 @@ ts-orch caller-key recover --targets /secure/caller-targets.json
 ts-orch caller-key list --targets /secure/caller-targets.json
 ```
 
+Recovery and current-key repair do not preflight every region's future documents before the first write. They write in sorted cell order, and each store write enforces the hard 16 KiB limit. A later region's overflow can therefore leave earlier regions repaired or with the recovered entry published or intent cleared, while later regions retain their previous entry or intent. The command reports an error; it does not roll back earlier writes. The remaining intent and high-water records let recovery resume, preserving regions that already completed.
+Before retrying, inspect every regional document and the actual CURRENT and pending private versions through the secret store. Restore enough room in the affected region using conditional administrative edits only for entries whose removal has the same positive replacement and cancellation evidence required by retirement; preserve CURRENT publication, high-water marks and the outstanding intent. Do not run another caller-key operation alongside that repair. Then rerun recover until it reports no operation, and run list to verify matching CURRENT publication everywhere. If no such safe removal exists, the administrative capacity or storage repair described above is required; repeated recover alone cannot fix an oversized document.
+
 Recovery outcomes:
 
-- An interrupted add always finishes forward: restore its public entry everywhere,
+- An interrupted add finishes forward when every resulting regional document fits the hard store limit: restore its public entry everywhere,
   consume its sequence and clear the intent. Whenever that kid's private version is readable, derive its public half in memory and require the entire public payload to equal the recorded entry before any repair or publication.
   A difference refuses with no writes. Registry writers already have publication authority; no signing scheme is added.
   If readable and matching, report `current` or `pending`. Otherwise report `public entry kept; private key not visible: run add
