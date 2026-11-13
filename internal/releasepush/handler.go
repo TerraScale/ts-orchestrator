@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/datamount"
@@ -481,6 +482,8 @@ func (p progress) Read(b []byte) (int, error) {
 }
 
 func writeSynced(path string, data []byte) error {
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
 		return err

@@ -74,7 +74,7 @@ func preflightCases(ctx context.Context, work string, h *releasepush.Handler, co
 		if mode == "cannot-execute" {
 			candidate = []byte("invalid executable")
 		}
-		must(os.WriteFile(filepath.Join(work, "asset"), candidate, 0o755))
+		writeExecutable(filepath.Join(work, "asset"), candidate)
 		start := time.Now()
 		reply := installRequest(ctx, h, conn, work, shaB, fmt.Sprint(i+2))
 		require(reply.State == "rejected" && reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalHost && reply.Refusal.Preflight, "candidate preflight failure must be a structured host refusal")
@@ -134,7 +134,7 @@ type failedRead struct{}
 func (failedRead) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
 
 func networkCases(ctx context.Context, work string, h *releasepush.Handler, conn *nats.Conn, data []byte) {
-	must(os.WriteFile(filepath.Join(work, "asset"), stamped(data, strings.Repeat("b", 40), "pass"), 0o755))
+	writeExecutable(filepath.Join(work, "asset"), stamped(data, strings.Repeat("b", 40), "pass"))
 	release, verifier, client, closeProvider := signedRelease(ctx, filepath.Join(work, "asset"), strings.Repeat("b", 40), "20", "1")
 	defer closeProvider()
 	payload, err := json.Marshal(release)
@@ -161,7 +161,7 @@ func networkCases(ctx context.Context, work string, h *releasepush.Handler, conn
 	}
 	fmt.Println("ok classification: unavailable JWKS -> host_prerequisite")
 	candidate := filepath.Join(work, "noisy")
-	must(os.WriteFile(candidate, stamped(data, strings.Repeat("b", 40), "noise"), 0o755))
+	writeExecutable(candidate, stamped(data, strings.Repeat("b", 40), "noise"))
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
@@ -175,9 +175,9 @@ func rolloutCases(ctx context.Context, data []byte) {
 	work, cleanup := temporary("rollout-preflight-")
 	defer cleanup()
 	worker, _, _ := preparedHost(work)
-	must(os.WriteFile(filepath.Join(work, "asset"), stamped(data, shaB, "refuse"), 0o755))
+	writeExecutable(filepath.Join(work, "asset"), stamped(data, shaB, "refuse"))
 	accepted := filepath.Join(work, "accepted")
-	must(os.WriteFile(accepted, stamped(data, shaB, "refuse"), 0o755))
+	writeExecutable(accepted, stamped(data, shaB, "refuse"))
 	release, verifier, client, closeProvider := signedRelease(ctx, filepath.Join(work, "asset"), strings.Repeat("b", 40), "100", "1")
 	defer closeProvider()
 	worker.Verifier, worker.Client = verifier, client
@@ -227,7 +227,7 @@ func rolloutCases(ctx context.Context, data []byte) {
 	write(filepath.Join(work, "regions.json"), string(regionBytes))
 	assets := filepath.Join(work, "assets")
 	must(os.Mkdir(assets, 0o700))
-	must(os.WriteFile(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), stamped(data, release.SHA, "refuse"), 0o755))
+	writeExecutable(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), stamped(data, release.SHA, "refuse"))
 	endpoint := strings.TrimSuffix(client.Transport.(providerTransport).url, "/binary") + "/token?"
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", endpoint))
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "lane"))
@@ -320,7 +320,7 @@ func rollbackCases(ctx context.Context) {
 	work, cleanup, _, candidate := stagedCandidate(ctx, "wrong-previous-")
 	helper, err := os.Executable()
 	must(err)
-	must(os.WriteFile(filepath.Join(work, "installed.prev"), stamped(read(helper), strings.Repeat("d", 40), "pass"), 0o755))
+	writeExecutable(filepath.Join(work, "installed.prev"), stamped(read(helper), strings.Repeat("d", 40), "pass"))
 	setStarts(work, 2)
 	state := startInstalled(ctx, work, "serve")
 	require(state.Revision == shaB && state.State == "unconfirmed" && strings.Contains(state.Error, "not the recorded build") && !state.Served && bytes.Equal(read(filepath.Join(work, "installed")), candidate), fmt.Sprintf("a previous binary of another build must not be restored: %+v", state))
@@ -405,7 +405,7 @@ func replacementCase(ctx context.Context) {
 	write(filepath.Join(work, "replacement-regions.json"), string(regions))
 	assets := filepath.Join(work, "replacement-assets")
 	must(os.Mkdir(assets, 0o700))
-	must(os.WriteFile(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), read(asset), 0o755))
+	writeExecutable(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), read(asset))
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", provider+"/token?"))
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "lane"))
 	var output bytes.Buffer
@@ -441,10 +441,10 @@ func upgradeCases(ctx context.Context, data []byte, previous string) {
 	defer cleanup()
 	must(os.Mkdir(filepath.Join(work, "nats"), 0o700))
 	previousBytes := read(previous)
-	must(os.WriteFile(filepath.Join(work, "installed"), previousBytes, 0o755))
+	writeExecutable(filepath.Join(work, "installed"), previousBytes)
 	candidate := stamped(data, shaB, "pass")
 	asset := filepath.Join(work, "asset")
-	must(os.WriteFile(asset, candidate, 0o755))
+	writeExecutable(asset, candidate)
 	release, verifier, client, closeProvider := signedRelease(ctx, asset, shaB, "2", "1")
 	defer closeProvider()
 	binaryURL := client.Transport.(providerTransport).url
@@ -498,8 +498,8 @@ func selfExitCase(ctx context.Context, data []byte) {
 	defer cleanup()
 	must(os.Mkdir(filepath.Join(work, "nats"), 0o700))
 	binary := filepath.Join(work, "installed")
-	must(os.WriteFile(binary, stamped(data, strings.Repeat("a", 40), "pass"), 0o755))
-	must(os.WriteFile(filepath.Join(work, "asset"), stamped(data, strings.Repeat("b", 40), "pass"), 0o755))
+	writeExecutable(binary, stamped(data, strings.Repeat("a", 40), "pass"))
+	writeExecutable(filepath.Join(work, "asset"), stamped(data, strings.Repeat("b", 40), "pass"))
 	command := exec.CommandContext(ctx, binary, "self-update", work, "lost-notification")
 	output, err := command.CombinedOutput()
 	require(err == nil && strings.Contains(string(output), "installed reply collected"), fmt.Sprintf("old process must exit after reply without a restart receiver: %v %s", err, output))

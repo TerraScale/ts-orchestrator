@@ -32,6 +32,12 @@ func stamped(data []byte, sha, mode string) []byte {
 	return append(bytes.ReplaceAll(data, before, []byte("vcs.revision="+sha)), []byte("\nCANDIDATE:"+mode)...)
 }
 
+func writeExecutable(path string, data []byte) {
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	must(os.WriteFile(path, data, 0o755))
+}
+
 func digest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
@@ -100,9 +106,9 @@ func preparedHost(work string) (*releasepush.Handler, []byte, []byte) {
 	original, candidate := hostBytes()
 	binary := filepath.Join(work, "installed")
 	if _, err := os.Stat(binary); os.IsNotExist(err) {
-		must(os.WriteFile(binary, original, 0o755))
+		writeExecutable(binary, original)
 		write(binary+".prev", "superseded")
-		must(os.WriteFile(filepath.Join(work, "asset"), candidate, 0o755))
+		writeExecutable(filepath.Join(work, "asset"), candidate)
 		write(filepath.Join(work, "nats/release-run-id"), "1")
 	}
 	h, err := releasepush.NewHandler(work)
@@ -129,7 +135,7 @@ func otherAsset(work, sha string) string {
 	must(err)
 	path := filepath.Join(work, "asset-"+sha[:1])
 	if read(path) == nil {
-		must(os.WriteFile(path, stamped(read(helper), sha, "pass"), 0o755))
+		writeExecutable(path, stamped(read(helper), sha, "pass"))
 	}
 	return path
 }
