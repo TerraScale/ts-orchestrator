@@ -194,6 +194,7 @@ func (a api) release(ctx context.Context, x app, now time.Time) ([]string, error
 		return nil, err
 	}
 	var finding, unread string
+	seen := false
 walk:
 	for _, run := range runs.WorkflowRuns {
 		jobs, err := a.jobs(ctx, x.repo, run)
@@ -208,6 +209,7 @@ walk:
 			if !matches {
 				continue
 			}
+			seen = true
 			var published time.Time
 			var publishes bool
 			released := "missing"
@@ -243,6 +245,10 @@ walk:
 					x.service, x.repo, run.HTMLURL, now.Sub(published).Round(time.Minute), released)
 			}
 		}
+	}
+
+	if !seen {
+		return []string{fmt.Sprintf("- %s: no run in the last %d runs has job `%s`; the guard's job contract is stale", x.service, len(runs.WorkflowRuns), x.jobID)}, nil
 	}
 	return slices.DeleteFunc([]string{unread, finding}, func(s string) bool { return s == "" }), nil
 }
