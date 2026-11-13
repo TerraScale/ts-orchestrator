@@ -40,6 +40,7 @@ const HostContainerdSocket = "/run/containerd/containerd.sock"
 
 // Executor translates upstream SwarmKit tasks directly into containerd objects.
 type Executor struct {
+	liveness       readinessHost
 	slo            sloCache
 	bootstrap      *rolloutmaintenance.Store
 	bootstrapTasks map[string]*controller

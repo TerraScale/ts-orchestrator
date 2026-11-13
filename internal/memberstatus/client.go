@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -194,6 +195,35 @@ func nonce() (string, error) {
 	return hex.EncodeToString(value[:]), nil
 }
 
+var ErrUnresponsive = errors.New("member accepted a request without answering before its deadline")
+
+var ErrReadinessUnobserved = errors.New("member readiness identity or endpoint unavailable")
+
+var ErrReadinessAnswered = errors.New("member readiness answered")
+
+func (c *Client) Readiness(ctx context.Context) error {
+	var sent, answered atomic.Bool
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest:         func(info httptrace.WroteRequestInfo) { sent.Store(info.Err == nil) },
+		GotFirstResponseByte: func() { answered.Store(true) },
+	})
+	challenge, err := nonce()
+	if err != nil {
+		return err
+	}
+	_, _, _, err = c.exchangeBounded(ctx, http.MethodGet, "/v1/member/status?nonce="+challenge, nil, maxEvidenceBytes, 15*time.Second)
+	if errors.Is(err, ErrReadinessUnobserved) {
+		return err
+	}
+	if err != nil && sent.Load() && !answered.Load() && errors.Is(err, context.DeadlineExceeded) {
+		return ErrUnresponsive
+	}
+	if err != nil && answered.Load() {
+		return errors.Join(ErrReadinessAnswered, err)
+	}
+	return err
+}
+
 func (c *Client) Status(ctx context.Context) (Status, error) {
 	challenge, err := nonce()
 	if err != nil {
@@ -329,25 +359,29 @@ func (c *Client) exchangeBounded(ctx context.Context, method, path string, reque
 	if maxResponse <= 0 || maxResponse > 64<<10 || len(requestBody) > 64<<10 {
 		return 0, nil, ProcessObservation{}, errors.New("member control request or response bound is invalid")
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	before, err := c.observe(ctx)
+	observationCtx, finishObservation := context.WithTimeout(ctx, 5*time.Second)
+	before, err := c.observe(observationCtx)
+	err = errors.Join(err, observationCtx.Err())
+	finishObservation()
 	if err != nil {
-		return 0, nil, ProcessObservation{}, fmt.Errorf("unverified native member process: %w", err)
+		return 0, nil, ProcessObservation{}, errors.Join(ErrReadinessUnobserved, err)
 	}
 	if before.PID < 2 || before.UID == 0 || before.GID == 0 || before.KernelStart == "" || before.Cgroup == "" {
-		return 0, nil, ProcessObservation{}, errors.New("unverified native member process")
+		return 0, nil, ProcessObservation{}, ErrReadinessUnobserved
 	}
 	if before.namespace.wirePID != 0 {
 		bound, err := BindPIDNamespace(before, before.namespace.initPID)
 		if err != nil || bound != before {
-			return 0, nil, ProcessObservation{}, ErrStaleBinding
+			return 0, nil, ProcessObservation{}, errors.Join(ErrReadinessUnobserved, ErrStaleBinding)
 		}
 	}
 	pathBefore, err := inspectSocket(c.socket, before)
 	if err != nil {
-		return 0, nil, ProcessObservation{}, err
+		return 0, nil, ProcessObservation{}, errors.Join(ErrReadinessUnobserved, err)
 	}
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	var peerPID atomic.Int64
 	transport := &http.Transport{
 		DisableKeepAlives: true, DisableCompression: true, MaxResponseHeaderBytes: 4096,
@@ -405,9 +439,12 @@ func (c *Client) exchangeBounded(ctx context.Context, method, path string, reque
 	if err != nil || !pathBefore.same(pathAfter) {
 		return 0, nil, ProcessObservation{}, ErrStaleBinding
 	}
-	after, err := c.observe(ctx)
+	afterCtx, finishAfter := context.WithTimeout(parent, 5*time.Second)
+	after, err := c.observe(afterCtx)
+	err = errors.Join(err, afterCtx.Err())
+	finishAfter()
 	if err != nil || after != before {
-		return 0, nil, ProcessObservation{}, ErrStaleBinding
+		return 0, nil, ProcessObservation{}, errors.Join(ErrReadinessUnobserved, ErrStaleBinding, err)
 	}
 	return response.StatusCode, body, before, nil
 }

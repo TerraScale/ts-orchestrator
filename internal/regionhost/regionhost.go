@@ -34,6 +34,8 @@ unchanged|created|updated KIND NAME ID (--dry-run: "plan" first, no change).
 
 Terminates --host NAME (never the region host), or with no --host and an
 interactive --yes the region host, then drops its DNS record, IAM and pin.
+Data volumes and their backup policy assignments are kept. Delete data
+volumes manually outside this tool.
 `
 
 // Run is `ts-orch region add|rm`; args start with add or rm.
@@ -83,6 +85,7 @@ type run struct {
 	parent               string                  // the TerraScale compartment
 	home, ids            identity.IdentityClient // home region (writes) and this region (ADs)
 	compute              core.ComputeClient
+	createdVolumes       map[string]bool
 	storage              core.BlockstorageClient
 	net                  core.VirtualNetworkClient
 }
@@ -137,15 +140,23 @@ func (r *run) add(host, shape string) error {
 	if err := r.ensureNetwork(created); err != nil {
 		return err
 	}
-	inst, err := r.ensureInstance(host, shape)
+	inst, volume, err := r.ensureInstance(host, shape)
 	if err != nil {
 		return err
 	}
 	if err := r.ensureBootBackup(inst); err != nil {
 		return err
 	}
-	if err := r.ensureIAM(); err != nil || host != "" || inst == nil {
-		return err // DNS and the pin belong to the region host only
+	if err := r.ensureIAM(); err != nil {
+		return err
+	}
+	if inst != nil && volume != nil {
+		if err := r.confirmDataMounted(deref(inst.DisplayName), inst, volume); err != nil {
+			return err
+		}
+	}
+	if host != "" || inst == nil {
+		return nil
 	}
 	ip, err := r.publicIP(inst)
 	if err != nil {
