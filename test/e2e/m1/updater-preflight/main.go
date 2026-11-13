@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,6 +24,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/nats-io/nats.go"
 )
 
@@ -182,11 +182,7 @@ func main() {
 			require(probation.Served(), "restored updater must confirm")
 		}
 		if candidateMode() != "starting" {
-			socket, err := net.Dial("unixgram", os.Getenv("NOTIFY_SOCKET"))
-			must(err)
-			_, err = socket.Write([]byte("READY=1"))
-			must(err)
-			must(socket.Close())
+			must(sdnotify.Process().Ready(""))
 		}
 		<-ctx.Done()
 		return
