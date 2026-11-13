@@ -202,14 +202,15 @@ func (e *Executor) observeReadiness(ctx context.Context) {
 	} else {
 		slog.WarnContext(ctx, "local readiness witness unavailable", "error", err)
 	}
-	ticker := time.NewTicker(readinessInterval)
-	defer ticker.Stop()
+	timer := time.NewTimer(readinessInterval)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			e.readinessRound(ctx, health)
+			timer.Reset(readinessInterval)
 		}
 	}
 }
