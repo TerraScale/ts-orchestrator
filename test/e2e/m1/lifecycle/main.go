@@ -232,7 +232,7 @@ func run(ctx context.Context, root, image string) error {
 	if err != nil {
 		return err
 	}
-	emptySpec, err := (swarmruntime.ServiceSpec{Name: "c18-empty", Image: image, Args: []string{"sh", "-c", "mkdir -p /www; echo ready > /www/ready; exec httpd -f -p 18084 -h /www"}, Port: 18084, ReadyPath: "/ready", Replicas: 1}).SwarmSpec()
+	emptySpec, err := (swarmruntime.ServiceSpec{Name: "c18-empty", Image: image, Args: []string{"sh", "-c", "mkdir -p /tmp/www; echo ready > /tmp/www/ready; exec httpd -f -p 18084 -h /tmp/www"}, Port: 18084, ReadyPath: "/ready", Replicas: 1}).SwarmSpec()
 	if err != nil {
 		return err
 	}
