@@ -121,7 +121,11 @@ func publishRelease(binary string, record preparedRelease) (string, string, stri
 		return filepath.Join(path, "run"), filepath.Join(path, "trial"), filepath.Join(path, "rollback"), filepath.Join(path, "previous")
 	}
 	done := path + ".done"
-	if err := errors.Join(os.RemoveAll(done), os.Rename(path, done)); err != nil {
+	err = os.RemoveAll(done)
+	if err == nil {
+		err = os.Rename(path, done)
+	}
+	if err != nil {
 		slog.Warn("release installed; state cleanup deferred", "error", err)
 		return filepath.Join(path, "run"), filepath.Join(path, "trial"), filepath.Join(path, "rollback"), filepath.Join(path, "previous")
 	}

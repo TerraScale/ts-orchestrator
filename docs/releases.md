@@ -16,8 +16,10 @@ for at most 90 seconds (the 70-second hook bound plus a margin). It stops early
 when all registered workers reply; it never waits for their running revisions.
 Each regional JSON line includes worker host names and candidate revisions:
 an explicit refusal sets `state` to `refused on <hosts>` and includes each
-scrubbed reason in `refusals`. Other regions still release; the run returns
-failure at its end. A missing reply appears as `error: "no answer"` in
+scrubbed reason and structured `kind` in `refusals`. A `host_prerequisite`
+refusal lets other regions release and fails the run at its end. A
+`release_integrity` refusal (including an artifact digest mismatch) stops
+later regions immediately; unknown or absent kinds also stop the rollout. A missing reply appears as `error: "no answer"` in
 `workers` and does not fail the run. With accepted replies, the normal
 `installed` or `current` regional result succeeds. Status inventory is
 diagnostic and does not gate release completion.
@@ -33,6 +35,16 @@ handler construction or agent startup. The next write replaces a damaged
 record. A failure to update a valid trial's start count is diagnostic and
 does not prevent the agent from starting. The release run-id is also written
 atomically; its validation happens on release requests, not on startup.
+
+The binary rename is the single commit point. Before it, `<binary>.release`
+prepares and syncs an inode-bound candidate identity, rollback binary, run ID,
+unactivated trial and publication manifest. Preparation failures reject without
+changing active binary or release records. After it, directory durability,
+record publication, old rollback removal and cleanup failures only warn: the
+release remains installed, workers are relayed, and restart is requested.
+Incomplete publication retains prepared state, which remains authoritative and
+is recovered by the candidate at startup. The first successful activation stamp
+wins; an unstamped trial receives its full budget at candidate startup.
 
 This updater release also introduces `ts-orch alert-delivery prepare`.
 Run as root, it reads exactly the three approved alert references using the
