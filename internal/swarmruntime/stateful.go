@@ -133,9 +133,12 @@ func (s *statefulController) observe(ctx context.Context) error {
 func (s *statefulController) Wait(ctx context.Context) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	watch := s.readinessWatch()
 	for {
 		var exited bool
 		var result error
+		var probeErr error
+		probed := false
 		err := s.effect(ctx, s.hooks.BeforeStart, func(ctx context.Context) error {
 			task, err := s.controller.runtimeTask(ctx)
 			if err != nil {
@@ -150,13 +153,34 @@ func (s *statefulController) Wait(ctx context.Context) error {
 				result = exitError(status.ExitStatus)
 				return nil
 			}
-			return s.observe(ctx)
+			if err := s.observe(ctx); err != nil {
+				return err
+			}
+			if time.Now().Before(watch.next) {
+				return nil
+			}
+			binding, err := s.source.VerifyTaskBinding(ctx, s.task)
+			if err != nil {
+				return err
+			}
+			probeCtx, cancel := context.WithTimeout(ctx, readinessDeadline)
+			defer cancel()
+			_, probeErr = binding.Member.Readiness(probeCtx)
+			probed = true
+			return nil
 		})
 		if err != nil {
 			return fmt.Errorf("observe qualified stateful process: %w", err)
 		}
 		if exited {
 			return result
+		}
+		if probed && s.readinessFailed(ctx, &watch, probeErr) {
+			if err := s.Shutdown(ctx); err != nil {
+				return swarmexec.MakeTemporary(err)
+			}
+			s.recordReadinessFailure()
+			return fmt.Errorf("stateful task unresponsive throughout consecutive readiness probes for %s", readinessWindow)
 		}
 		select {
 		case <-ctx.Done():

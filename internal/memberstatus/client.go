@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -194,12 +195,22 @@ func nonce() (string, error) {
 	return hex.EncodeToString(value[:]), nil
 }
 
+var ErrUnresponsive = errors.New("member accepted a request without answering before its deadline")
+
 func (c *Client) Status(ctx context.Context) (Status, error) {
+	return c.status(ctx, 3*time.Second)
+}
+
+func (c *Client) Readiness(ctx context.Context) (Status, error) {
+	return c.status(ctx, 15*time.Second)
+}
+
+func (c *Client) status(ctx context.Context, deadline time.Duration) (Status, error) {
 	challenge, err := nonce()
 	if err != nil {
 		return Status{}, err
 	}
-	code, body, process, err := c.exchange(ctx, http.MethodGet, "/v1/member/status?nonce="+challenge, nil)
+	code, body, process, err := c.exchangeBounded(ctx, http.MethodGet, "/v1/member/status?nonce="+challenge, nil, maxEvidenceBytes, deadline)
 	if err != nil {
 		return Status{}, err
 	}
@@ -383,10 +394,18 @@ func (c *Client) exchangeBounded(ctx context.Context, method, path string, reque
 	if method == http.MethodPost {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	var sent, answered atomic.Bool
+	request = request.WithContext(httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest:         func(info httptrace.WroteRequestInfo) { sent.Store(info.Err == nil) },
+		GotFirstResponseByte: func() { answered.Store(true) },
+	}))
 	response, err := (&http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}).Do(request)
 	if err != nil {
+		if sent.Load() && !answered.Load() && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return 0, nil, ProcessObservation{}, ErrUnresponsive
+		}
 		return 0, nil, ProcessObservation{}, fmt.Errorf("member control request: %w", err)
 	}
 	defer response.Body.Close()

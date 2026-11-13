@@ -228,7 +228,7 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 	if runtime, ok := executor.(*Executor); ok {
 		runtime.BindSLOAgent(upstream.Agent)
 	}
-	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	runCtx, cancel := context.WithCancel(ctx)
 	if err := upstream.Start(runCtx); err != nil {
 		cancel()
 		return nil, err
@@ -290,14 +290,11 @@ func (n *Node) ControlClient(ctx context.Context) (api.ControlClient, error) {
 }
 
 func (n *Node) Stop(ctx context.Context) error {
-	defer n.cancel()
-	err := n.upstream.Stop(ctx)
+	n.cancel()
 	select {
 	case <-n.done:
-		return errors.Join(n.err, err)
+		return errors.Join(n.err, n.upstream.Stop(ctx))
 	case <-ctx.Done():
-		return errors.Join(err, ctx.Err())
+		return ctx.Err()
 	}
 }
-
-const NodeStopTimeout = dataStopGrace + 30*time.Second

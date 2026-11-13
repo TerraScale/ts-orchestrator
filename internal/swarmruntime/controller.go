@@ -647,7 +647,11 @@ func (c *controller) Wait(ctx context.Context) (operationErr error) {
 		if c.stateful != nil {
 			stop = nil // stopping needs the pins only Shutdown carries
 		}
-		return failWithoutExit(ctx, err, stop)
+		result := failWithoutExit(ctx, err, stop)
+		if errors.Is(err, errTaskUnresponsive) && !exec.IsTemporary(result) && ctx.Err() == nil {
+			c.recordReadinessFailure()
+		}
+		return result
 	}
 	c.executor.mu.Lock()
 	c.executor.recordExitLocked(c.task, c.fingerprint, exited.Sub(started), time.Now())
@@ -723,7 +727,7 @@ func (c *controller) waitExit(ctx context.Context, following func()) (uint32, ti
 	if _, named := c.spec.Labels[LabelReadyPath]; named {
 		probe = ticker.C
 	}
-	failures := 0
+	watch := c.readinessWatch()
 	for {
 		select {
 		case <-ctx.Done():
@@ -731,20 +735,23 @@ func (c *controller) waitExit(ctx context.Context, following func()) (uint32, ti
 		case status := <-wait:
 			return status.Result()
 		case <-probe:
+			if time.Now().Before(watch.next) {
+				continue
+			}
 			port, err := hostPort(c.task)
 			if _, task, ok := c.taskPorts(ctx); ok {
 				port = task
 			}
 			if err == nil {
-				err = probeLocalPort(ctx, c.task, port)
+				err = probeLiveness(ctx, c, port)
 			}
-			if err == nil || c.regionalTerraBase() && readinessRecovering(err) {
-				failures = 0
-				continue
+			select {
+			case status := <-wait:
+				return status.Result()
+			default:
 			}
-			failures++
-			if failures == readinessFailures {
-				return 0, time.Time{}, fmt.Errorf("task failed %d consecutive readiness probes: %w", failures, err)
+			if c.readinessFailed(ctx, &watch, err) {
+				return 0, time.Time{}, errors.Join(errTaskUnresponsive, err)
 			}
 		}
 	}
@@ -922,8 +929,10 @@ func (c *controller) Remove(ctx context.Context) error {
 			return execution.ErrUnsafe
 		}
 	}
-	if err := c.stopTask(ctx); err != nil && !errdefs.IsNotFound(err) {
-		return err
+	if len(c.spec.Mounts) != 0 {
+		if err := c.stopTask(ctx); err != nil && !errdefs.IsNotFound(err) {
+			return err
+		}
 	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()

@@ -60,7 +60,6 @@ type Runner interface {
 	Apply(context.Context, Workload) error
 	Stop(context.Context, string) error
 	Observe(context.Context, string) (Observation, error)
-	Shutdown(context.Context) error
 	Close(context.Context) error
 }
 
@@ -533,26 +532,6 @@ func (p *processRunner) Observe(ctx context.Context, role string) (Observation, 
 		}
 	}
 	return observation, nil
-}
-
-func (p *processRunner) Shutdown(ctx context.Context) error {
-	p.closeOnce.Do(func() { close(p.closing) })
-	if err := lockRunnerUntil(ctx, &p.mu); err != nil {
-		return errors.Join(err, p.Close(ctx))
-	}
-	records := make([]processRecord, 0, len(p.records))
-	for _, record := range p.records {
-		records = append(records, record)
-	}
-	p.mu.Unlock()
-	var drained sync.WaitGroup
-	for _, record := range records {
-		if record.DrainMillis > 0 {
-			drained.Go(func() { p.drain(ctx, record) })
-		}
-	}
-	drained.Wait()
-	return p.Close(ctx)
 }
 
 func (p *processRunner) Close(ctx context.Context) error {

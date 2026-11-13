@@ -241,7 +241,7 @@ func runRuntimeWorker(ctx context.Context, output io.Writer) error {
 		return err
 	}
 	defer func() {
-		stop, done := context.WithTimeout(context.Background(), swarmruntime.NodeStopTimeout)
+		stop, done := context.WithTimeout(context.Background(), 30*time.Second)
 		defer done()
 		_ = joined.Stop(stop)
 	}()

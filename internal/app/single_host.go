@@ -59,7 +59,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	}
 	close(swarmReady)
 	defer func() {
-		stop, done := context.WithTimeout(context.Background(), swarmruntime.NodeStopTimeout)
+		stop, done := context.WithTimeout(context.Background(), 30*time.Second)
 		defer done()
 		_ = node.Stop(stop)
 	}()

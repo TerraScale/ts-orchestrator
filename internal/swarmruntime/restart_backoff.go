@@ -53,11 +53,16 @@ func (e *Executor) recordExitLocked(t *api.Task, spec string, ran time.Duration,
 
 // restartDelayLocked is how long the slot's replacement still waits before it prepares; e.mu is held.
 func (e *Executor) restartDelayLocked(t *api.Task, spec string, now time.Time) time.Duration {
+	h := e.readiness[restartKey(t)]
+	readinessDelay := time.Duration(0)
+	if h.failures > 0 && h.task != t.ID {
+		readinessDelay = max(h.failed.Add(readinessBackoff(h.failures)).Sub(now), 0)
+	}
 	r, ok := e.restarts[restartKey(t)]
 	if !ok || r.spec != spec {
-		return 0
+		return readinessDelay
 	}
-	return max(r.exited.Add(restartBackoff(r.failures)).Sub(now), 0)
+	return max(r.exited.Add(restartBackoff(r.failures)).Sub(now), readinessDelay)
 }
 
 func sleepContext(ctx context.Context, d time.Duration) error {

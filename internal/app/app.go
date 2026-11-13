@@ -108,6 +108,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			mesh.Run(ctx, *state, meshCluster(plan), func(node *mesh.Node) {
 				meshNode.Store(node)
 				handoff.SetTaskDrainer(node.DrainTask)
+				handoff.SetTaskPeerProbe(node.TaskPeerReady)
 				handoff.SetBootstrap(node.Bootstrap)
 				handoff.SetClearPeer(node.ClearPeer)
 				if public != nil {

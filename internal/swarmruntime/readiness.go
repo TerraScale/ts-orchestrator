@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/nlb"
+	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -37,7 +38,7 @@ func ProbeLocalTask(ctx context.Context, task *api.Task) error {
 }
 
 func probeReady(ctx context.Context, task *api.Task, endpoint netip.AddrPort) error {
-	spec, err := DecodeContainer(task)
+	spec, err := readinessContainer(task)
 	if err != nil {
 		return err
 	}
@@ -89,7 +90,7 @@ func taskEndpoint(task *api.Task, nodeAddress netip.Addr) (netip.AddrPort, error
 }
 
 func taskPort(task *api.Task) (uint16, error) {
-	if _, err := DecodeContainer(task); err != nil {
+	if _, err := readinessContainer(task); err != nil {
 		return 0, err
 	}
 	if task.DesiredState != api.TaskStateRunning || task.Status.State != api.TaskStateRunning {
@@ -169,12 +170,54 @@ func ServiceBackends(ctx context.Context, client api.ControlClient, serviceID, n
 	return spec, view, nil
 }
 
-const (
-	readinessInterval = 10 * time.Second
-	readinessFailures = 3
-)
+func readinessContainer(task *api.Task) (*api.ContainerSpec, error) {
+	if execution.Stateful(task) {
+		return decodeStateful(task)
+	}
+	return DecodeContainer(task)
+}
 
-func readinessRecovering(err error) bool {
-	var readiness *TaskReadinessError
-	return errors.As(err, &readiness) && readiness.Status == "HTTP 503"
+func ProbeRegionalTaskPeer(ctx context.Context, client api.ControlClient, taskID, source, founder string, addresses map[string]netip.Addr) error {
+	response, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: taskID})
+	if err != nil {
+		return err
+	}
+	task := response.Task
+	if task == nil || task.DesiredState != api.TaskStateRunning || task.Status.State != api.TaskStateRunning || task.ServiceID == "" {
+		return errors.New("source task is not running")
+	}
+	nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return err
+	}
+	names := make(map[string]string)
+	for _, node := range nodes.Nodes {
+		if node.Description == nil || node.Status.State != api.NodeStatus_READY || node.Spec.Availability != api.NodeAvailabilityActive {
+			continue
+		}
+		name := node.Description.Hostname
+		if node.Spec.DesiredRole == api.NodeRoleManager {
+			name = founder
+		}
+		if _, ok := addresses[name]; ok {
+			names[node.ID] = name
+		}
+	}
+	if names[task.NodeID] != source {
+		return errors.New("source task is not owned by the admitted regional node")
+	}
+	peers, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{task.ServiceID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+	if err != nil {
+		return err
+	}
+	for _, peer := range peers.Tasks {
+		name, admitted := names[peer.NodeID]
+		if !admitted || peer.NodeID == task.NodeID || peer.Status.State != api.TaskStateRunning {
+			continue
+		}
+		if err := ProbeTask(ctx, peer, addresses[name]); err == nil {
+			return nil
+		}
+	}
+	return errors.New("no other admitted node of this regional service is ready")
 }
