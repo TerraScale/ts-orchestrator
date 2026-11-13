@@ -108,7 +108,7 @@ func observationJourney(cfg configuration) error {
 	if _, err := os.Stat(cfg.Work + "/a/edge-certs/shared.e2e.test"); err != nil {
 		return err
 	}
-	fmt.Println("PASS fleet observation: inventory, readiness JSON, metrics and CLI report the shared certificate on both nodes")
+	fmt.Println("PASS fleet observation: inventory, readiness JSON, order metrics and the inventory CLI report the shared certificate on both nodes")
 	return nil
 }
 
