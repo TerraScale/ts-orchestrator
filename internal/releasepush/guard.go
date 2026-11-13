@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -41,6 +42,11 @@ func Guard(ctx context.Context, args []string) error {
 		}
 		if time.Now().Before(t.GuardAfter) {
 			return nil
+		}
+		if t.Phase != "intent" {
+			if err := quiesceAgent(ctx); err != nil {
+				return err
+			}
 		}
 		return restoreTrial(ctx, state, "release guard deadline passed without confirmation")
 	})
@@ -108,4 +114,20 @@ func restoreTrial(ctx context.Context, state, reason string) error {
 		return err
 	}
 	return removeIfExists(trialFile(state))
+}
+
+func quiesceAgent(ctx context.Context) error {
+	if err := systemctl(ctx, "stop", "--no-block", "ts-orch.service"); err != nil {
+		return err
+	}
+	err := systemctl(ctx, "kill", "--signal=SIGKILL", "ts-orch.service")
+	if err == nil {
+		return nil
+	}
+	output, stateErr := exec.CommandContext(ctx, "systemctl", "show", "ts-orch.service", "-p", "ActiveState", "--value").Output()
+	state := strings.TrimSpace(string(output))
+	if stateErr == nil && (state == "inactive" || state == "failed") {
+		return nil
+	}
+	return errors.Join(err, stateErr)
 }

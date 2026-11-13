@@ -159,7 +159,8 @@ subjects confirms the release and durably removes the trial.
 The independent guard timer is enabled at boot, first fires after 15 seconds,
 and checks every minute. Its unsandboxed root oneshot runs the currently
 installed binary's release guard, independently of the agent unit. No trial
-or an unexpired deadline is a successful no-op. After the deadline it copies
+or an unexpired deadline is a successful no-op. After the deadline it stops
+and kills the unconfirmed agent independently of its stop timeout, then copies
 both retained backups back into place, reloads systemd, resets the agent's
 failed-start limit, queues its restart, writes nats/release-rolled-back,
 and removes the trial. Backups survive restoration: interrupted recovery
