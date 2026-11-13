@@ -69,6 +69,7 @@ func main() {
 	values := map[string]string{"gru-1-cloudflare-account-id": rand.Text(), "gru-1-cloudflare-email-token": rand.Text(), "gru-1-ts-alerts-ntfy-topic": rand.Text()}
 	seen := map[string]bool{}
 	denied := ""
+	var onDenied func()
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/opc/v2/instance/region":
@@ -85,6 +86,9 @@ func main() {
 			value, ok := values[name]
 			if !ok || name == denied {
 				http.Error(w, "unavailable", http.StatusNotFound)
+				if onDenied != nil {
+					onDenied()
+				}
 				return
 			}
 			seen[name] = true
@@ -157,5 +161,6 @@ func main() {
 			require(!strings.Contains(err.Error(), value), "error must not expose a value")
 		}
 	}
+	secretGate(values, &seen, &denied, &onDenied)
 	fmt.Println("alert-prepare e2e: PASS; three protected files; each unavailable secret visibly refused")
 }

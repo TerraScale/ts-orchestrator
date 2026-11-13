@@ -17,11 +17,7 @@ import (
 
 const credentialDirectory = "/run/ts-alert-delivery"
 
-var credentialRefs = map[string]vaultsecret.Ref{
-	"CLOUDFLARE_ACCOUNT_ID_FILE":  {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-account-id"},
-	"CLOUDFLARE_EMAIL_TOKEN_FILE": {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-email-token"},
-	"TS_ALERTS_NTFY_TOPIC_FILE":   {Vault: vaultsecret.SharedVault, Name: "gru-1-ts-alerts-ntfy-topic"},
-}
+var credentialRefs = vaultsecret.AlertDeliveryRefs()
 
 func prepareCredentials(ctx context.Context) error {
 	if os.Geteuid() != 0 {

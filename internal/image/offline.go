@@ -233,9 +233,17 @@ func installMetadataFence(ctx context.Context, g *Guest, repo, architecture, wor
 	if err := os.WriteFile(rulesPath, rules.Bytes(), 0644); err != nil {
 		return err
 	}
+	var unit bytes.Buffer
+	if err := tsauth.Run(ctx, []string{"metadata-unit"}, &unit, nil); err != nil {
+		return err
+	}
+	unitPath := filepath.Join(work, MetadataUnit)
+	if err := os.WriteFile(unitPath, unit.Bytes(), 0644); err != nil {
+		return err
+	}
 	for _, artifact := range []upload{
 		{rulesPath, MetadataRules, 0644},
-		{filepath.Join(repo, "deploy/systemd", MetadataUnit), "/etc/systemd/system/" + MetadataUnit, 0644},
+		{unitPath, "/etc/systemd/system/" + MetadataUnit, 0644},
 	} {
 		if err := g.Directory(path.Dir(artifact.destination), 0, 0, 0755); err != nil {
 			return err
@@ -644,7 +652,7 @@ func (services Services) offlineBuild(ctx context.Context, repo string, o Offlin
 		expected = append(expected, "/usr/local/bin/"+name+"="+digest)
 	}
 	for _, artifact := range [][2]string{
-		{MetadataUnit, filepath.Join(repo, "deploy/systemd", MetadataUnit)},
+		{MetadataUnit, filepath.Join(work, MetadataUnit)},
 		{"containerd.service", filepath.Join(work, "containerd.service")},
 		{"terrascale-orchestrator-controller.service.d/70-containerd.conf", filepath.Join(work, "70-containerd.conf")},
 		{"terrascale-orchestrator-host.service.d/70-containerd.conf", filepath.Join(work, "70-containerd.conf")},
