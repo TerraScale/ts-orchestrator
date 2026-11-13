@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -21,7 +22,8 @@ import (
 const (
 	assetAMD64 = "terrascale-orchestrator-linux-amd64"
 	assetARM64 = "terrascale-orchestrator-linux-arm64"
-	apiBase    = "https://api.github.com/repos/TerraScale/ts-orchestrator/releases"
+	githubAPI  = "https://api.github.com/repos/TerraScale/ts-orchestrator"
+	apiBase    = githubAPI + "/releases"
 )
 
 func usageError() error {
@@ -59,7 +61,11 @@ func (c command) run(args []string) error {
 }
 
 type ghRelease struct {
-	TagName     string    `json:"tag_name"`
+	TagName string `json:"tag_name"`
+	Draft   bool   `json:"draft"`
+	Author  struct {
+		Login string `json:"login"`
+	} `json:"author"`
 	PublishedAt time.Time `json:"published_at"`
 	Assets      []struct {
 		Name               string `json:"name"`
@@ -86,12 +92,19 @@ func (c command) manifest(args []string) error {
 	prefix := "ci-" + *sha + "-run-"
 	newest := -1
 	for i, r := range releases {
-		if strings.HasPrefix(r.TagName, prefix) && (newest < 0 || r.PublishedAt.After(releases[newest].PublishedAt)) {
+		if !r.Draft && r.Author.Login == "github-actions[bot]" && strings.HasPrefix(r.TagName, prefix) && (newest < 0 || r.PublishedAt.After(releases[newest].PublishedAt)) {
 			newest = i
 		}
 	}
 	if newest < 0 {
 		return fmt.Errorf("no CI release for %s", *sha)
+	}
+	commit, err := c.releaseCommit(releases[newest].TagName)
+	if err != nil {
+		return err
+	}
+	if commit != *sha {
+		return fmt.Errorf("signedrelease: release tag resolves to %s, expected %s", commit, *sha)
 	}
 	binaries := map[string]Binary{}
 	for _, osArch := range manifestArchs {
@@ -170,6 +183,56 @@ func (c command) listReleases() ([]ghRelease, error) {
 	}
 }
 
+type ghObject struct {
+	Type string `json:"type"`
+	SHA  string `json:"sha"`
+}
+
+func (c command) releaseCommit(tag string) (string, error) {
+	var ref struct {
+		Object ghObject `json:"object"`
+	}
+	if err := c.githubJSON("/git/ref/tags/"+url.PathEscape(tag), &ref); err != nil {
+		return "", err
+	}
+	object := ref.Object
+	seen := map[string]bool{}
+	for object.Type == "tag" {
+		if !shaPattern.MatchString(object.SHA) || seen[object.SHA] {
+			return "", errors.New("signedrelease: invalid or cyclic annotated release tag")
+		}
+		seen[object.SHA] = true
+		if err := c.githubJSON("/git/tags/"+object.SHA, &ref); err != nil {
+			return "", err
+		}
+		object = ref.Object
+	}
+	if object.Type != "commit" || !shaPattern.MatchString(object.SHA) {
+		return "", errors.New("signedrelease: release tag does not resolve to a commit")
+	}
+	return object.SHA, nil
+}
+
+func (c command) githubJSON(path string, value any) error {
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, githubAPI+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("signedrelease: resolving release tag: %s", resp.Status)
+	}
+	return json.NewDecoder(resp.Body).Decode(value)
+}
+
 func (c command) downloadSHA256(url string) (string, error) {
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -201,10 +264,14 @@ func (c command) sign(args []string) error {
 	if *manifest == "" || *key == "" || flags.NArg() != 0 {
 		return errors.New("usage: ts-orch release sign --manifest FILE --key KEYFILE")
 	}
-	if _, err := os.Stat(*manifest); err != nil {
+	body, err := os.ReadFile(*manifest)
+	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(c.ctx, "ssh-keygen", "-Y", "sign", "-n", Namespace, "-f", *key, *manifest)
+	if _, err := Decode(body); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(c.ctx, "ssh-keygen", "-Y", "sign", "-n", Namespace, "-f", *key, "--", *manifest)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return err
@@ -213,7 +280,7 @@ func (c command) sign(args []string) error {
 	if _, err := os.Stat(sig); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintln(c.output, sig)
+	_, err = fmt.Fprintln(c.output, sig)
 	return err
 }
 

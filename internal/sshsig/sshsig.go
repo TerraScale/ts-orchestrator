@@ -52,7 +52,12 @@ func decode(armored []byte) ([]byte, error) {
 	if !strings.HasPrefix(text, armorStart) || !strings.HasSuffix(text, armorEnd) {
 		return nil, errors.New("sshsig: signature is not armored")
 	}
-	body := text[len(armorStart) : len(text)-len(armorEnd)]
+	remainder := text[len(armorStart):]
+	end := strings.Index(remainder, armorEnd)
+	if end < 0 || end+len(armorEnd) != len(remainder) {
+		return nil, errors.New("sshsig: invalid armor end marker")
+	}
+	body := remainder[:end]
 	return base64.StdEncoding.DecodeString(strings.Join(strings.Fields(body), ""))
 }
 
@@ -95,6 +100,19 @@ func Verify(message, armored []byte, namespace string, allowed []ssh.PublicKey) 
 	var wire wireSignature
 	if err := ssh.Unmarshal(parsed.Signature, &wire); err != nil {
 		return nil, fmt.Errorf("sshsig: malformed signature: %w", err)
+	}
+	allowedAlgorithm := false
+	switch pub.Type() {
+	case ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521, ssh.KeyAlgoSKED25519, ssh.KeyAlgoSKECDSA256:
+		allowedAlgorithm = wire.Format == pub.Type()
+	case ssh.KeyAlgoRSA:
+		allowedAlgorithm = wire.Format == ssh.KeyAlgoRSASHA256 || wire.Format == ssh.KeyAlgoRSASHA512
+	}
+	if !allowedAlgorithm {
+		return nil, fmt.Errorf("sshsig: signature algorithm %s is not allowed for %s", wire.Format, pub.Type())
+	}
+	if len(wire.Rest) != 0 && wire.Format != ssh.KeyAlgoSKED25519 && wire.Format != ssh.KeyAlgoSKECDSA256 {
+		return nil, errors.New("sshsig: unexpected trailing signature data")
 	}
 	sig := &ssh.Signature{Format: wire.Format, Blob: wire.Blob, Rest: wire.Rest}
 	h.Write(message)

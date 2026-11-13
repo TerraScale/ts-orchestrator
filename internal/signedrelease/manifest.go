@@ -43,6 +43,9 @@ func Decode(data []byte) (Manifest, error) {
 	if err := decodeStrict(data, &m); err != nil {
 		return Manifest{}, fmt.Errorf("signedrelease: manifest: %w", err)
 	}
+	if err := validateManifestKeys(json.NewDecoder(bytes.NewReader(data)), 0); err != nil {
+		return Manifest{}, fmt.Errorf("signedrelease: manifest: %w", err)
+	}
 	if m.V != 1 {
 		return Manifest{}, fmt.Errorf("signedrelease: manifest v%d is not 1", m.V)
 	}
@@ -74,6 +77,51 @@ func Decode(data []byte) (Manifest, error) {
 		}
 	}
 	return m, nil
+}
+
+func validateManifestKeys(dec *json.Decoder, level int) error {
+	fields := []string{"v", "channel", "sequence", "sha", "created", "binaries"}
+	if level == 1 {
+		fields = manifestArchs
+	} else if level == 2 {
+		fields = []string{"url", "sha256"}
+	}
+	start, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if start != json.Delim('{') {
+		return errors.New("expected a manifest object")
+	}
+	seen := make(map[string]bool, len(fields))
+	for dec.More() {
+		token, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := token.(string)
+		if !ok || !slices.Contains(fields, key) {
+			return fmt.Errorf("unexpected manifest key %q", token)
+		}
+		if seen[key] {
+			return fmt.Errorf("duplicate manifest key %q", key)
+		}
+		seen[key] = true
+		if level == 1 || level == 0 && key == "binaries" {
+			if err := validateManifestKeys(dec, level+1); err != nil {
+				return err
+			}
+		} else if _, err := dec.Token(); err != nil {
+			return err
+		}
+	}
+	if _, err := dec.Token(); err != nil {
+		return err
+	}
+	if len(seen) != len(fields) {
+		return errors.New("missing manifest object key")
+	}
+	return nil
 }
 
 type AllowedKey struct {
