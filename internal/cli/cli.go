@@ -264,9 +264,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 			return err
 		}
 		return runtimepriority.Run(ctx, args[1:], commandio.NewWriter(output))
-	case "run", "host", "check", "operator", "get", "diff", "apply", "rollout", "identity-new", "netbird-enroll",
-		"bootstrap-controller", "bootstrap-credential-check", "bootstrap-admit-initial",
-		"bootstrap-admit-restart", "identity-rekey-completion-check", "identity-rekey", "install-controller-config", "host-setup", "host-volume-init", "restore-controller-material":
+	case "bootstrap-credential-check", "bootstrap-admit-initial", "bootstrap-admit-restart", "identity-rekey-completion-check":
 		return app.RunChild(ctx, args, output)
 	default:
 		return fmt.Errorf("unknown command %q; use ts-orch --help", args[0])
