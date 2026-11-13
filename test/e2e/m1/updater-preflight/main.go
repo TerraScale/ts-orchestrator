@@ -189,6 +189,10 @@ func main() {
 	}
 	if len(os.Args) >= 3 {
 		switch os.Args[1] {
+		case "recovery-break-previous":
+			must(os.Remove("/usr/local/bin/terrascale-orchestrator.prev"))
+			must(os.Mkdir("/usr/local/bin/terrascale-orchestrator.prev", 0755))
+			return
 		case "recovery-install":
 			recoveryInstall(ctx)
 			return

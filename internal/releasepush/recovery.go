@@ -170,7 +170,7 @@ func recoveryExpired(ctx context.Context, pending trial) (bool, error) {
 			return false, fmt.Errorf("candidate start time unavailable: %w", err)
 		}
 		properties := map[string]string{}
-		for line := range strings.SplitSeq(string(output), "\\n") {
+		for line := range strings.SplitSeq(string(output), "\n") {
 			key, value, ok := strings.Cut(line, "=")
 			if ok {
 				properties[key] = value
@@ -285,7 +285,7 @@ func Recovery(ctx context.Context, output io.Writer) (result error) {
 	defer func() {
 		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Minute)
 		defer cancel()
-		resetErr := recoveryCommand(restartCtx, "systemctl", "reset-failed", "ts-orch.service")
+		resetErr := recoveryCommand(restartCtx, "systemctl", "reset-failed", "ts-orch.servic[e]")
 		startErr := recoveryCommand(restartCtx, "systemctl", "start", "ts-orch.service")
 		result = errors.Join(result, resetErr, startErr)
 		if result == nil {

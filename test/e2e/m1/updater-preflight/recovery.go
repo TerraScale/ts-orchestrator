@@ -219,7 +219,7 @@ func recoveryCase(ctx context.Context, binary string) {
 		}},
 		{"R11 post-stop failure restarts NATS listener", func() {
 			seed(candidate, time.Nanosecond)
-			write("/etc/systemd/system/ts-orch.service.d/lane.conf", "[Service]\nExecStopPost=/bin/sh -c 'rm -f /usr/local/bin/terrascale-orchestrator.prev; mkdir -p /usr/local/bin/terrascale-orchestrator.prev'\n")
+			write("/etc/systemd/system/ts-orch.service.d/lane.conf", "[Service]\nExecStopPost=/opt/recovery-e2e recovery-break-previous /var/lib/ts-orch\n")
 			must(run("daemon-reload"))
 			must(run("start", unit))
 			require(run("start", recoverUnit) != nil, "post-stop rollback failure must be reported")
