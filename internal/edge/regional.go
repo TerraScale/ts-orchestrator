@@ -636,6 +636,7 @@ func (e *Edge) serveRegionalInternal(ln net.Listener) error {
 		pr.Out.Host = pr.In.Host
 	}, Transport: relay, FlushInterval: -1}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Del(edgeHopHeader)
 		if isExtendedConnect(r) {
 			relayTunnel(w, r, relay)
 			return
