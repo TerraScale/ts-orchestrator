@@ -51,7 +51,8 @@ jobs:
           - {lane: acme-ari, entry: acme-ari.sh, timeout: 3, packages: "./test/e2e/m1/certificates/ari"}
           - {lane: regional, entry: regional.sh, timeout: 3, packages: "./test/e2e/m1/regional"}
           - {lane: nodelist, entry: nodelist.sh, timeout: 8, packages: "./test/e2e/m1/nodelist"}
-          - {lane: restarts, entry: restarts.sh, timeout: 8}
+          - {lane: restarts, entry: restarts.sh, timeout: 8, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+          - {lane: readiness, entry: readiness.sh, timeout: 10, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
           - {lane: rollback, entry: rollback.sh, timeout: 8}
           - {lane: host-logs, entry: host-logs.sh, timeout: 12}
           - {lane: monitoring, entry: monitoring.sh, timeout: 8, packages: "./test/e2e/m1/monitoring"}
