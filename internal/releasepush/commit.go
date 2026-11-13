@@ -1,17 +1,19 @@
 package releasepush
 
 import (
+	"crypto/sha256"
 	"debug/buildinfo"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"strconv"
-	"strings"
+	"sync"
+	"syscall"
+	"time"
 )
 
 type releaseID struct {
@@ -19,18 +21,18 @@ type releaseID struct {
 	SHA256 string `json:"sha256"`
 }
 
-type releaseRecord interface{ identity() releaseID }
-
-type runFence struct {
-	SHA    string `json:"sha"`
-	SHA256 string `json:"sha256"`
-	RunID  string `json:"run_id"`
+type fileStamp struct {
+	size  int64
+	mtime time.Time
+	inode uint64
 }
 
-func (r runFence) identity() releaseID { return releaseID{r.SHA, r.SHA256} }
-func (r trial) identity() releaseID    { return releaseID{r.SHA, r.SHA256} }
-func (r Rollback) identity() releaseID { return releaseID{r.SHA, r.SHA256} }
-func (r Refusal) identity() releaseID  { return releaseID{r.SHA, r.SHA256} }
+type cachedIdentity struct {
+	stamp fileStamp
+	id    releaseID
+}
+
+var identities sync.Map
 
 func buildRevision(info *debug.BuildInfo) string {
 	revision, modified := "unknown", false
@@ -49,81 +51,83 @@ func buildRevision(info *debug.BuildInfo) string {
 }
 
 func binaryIdentity(path string) (releaseID, error) {
-	info, err := buildinfo.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return releaseID{}, err
 	}
-	digest, err := fileSHA256(path)
-	return releaseID{buildRevision(info), digest}, err
-}
-
-func records[T releaseRecord](path string) ([]T, error) {
-	file, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, 64<<10+1))
+	info, err := file.Stat()
 	if err != nil {
-		return nil, err
+		return releaseID{}, err
 	}
-	if len(data) > 64<<10 {
-		return nil, errors.New("release record too large")
+	stamp := fileStamp{size: info.Size(), mtime: info.ModTime()}
+	if sys, ok := info.Sys().(*syscall.Stat_t); ok {
+		stamp.inode = sys.Ino
 	}
-	var rows []T
-	err = json.Unmarshal(data, &rows)
-	return rows, err
+	if cached, ok := identities.Load(path); ok && cached.(cachedIdentity).stamp == stamp {
+		return cached.(cachedIdentity).id, nil
+	}
+	build, err := buildinfo.Read(file)
+	if err != nil {
+		return releaseID{}, err
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(hash, io.NewSectionReader(file, 0, info.Size())); err != nil {
+		return releaseID{}, err
+	}
+	id := releaseID{buildRevision(build), hex.EncodeToString(hash.Sum(nil))}
+	identities.Store(path, cachedIdentity{stamp, id})
+	return id, nil
 }
 
-func selected[T releaseRecord](path string, id releaseID) (T, bool) {
-	rows, err := records[T](path)
+func readRecord(path string, into any) (bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
 	if err != nil {
-		stateWarning(path, "release record unavailable")
-		var zero T
-		return zero, false
+		return true, err
 	}
-	for _, row := range rows {
-		if row.identity() == id {
-			return row, true
-		}
-	}
-	var zero T
-	return zero, false
+	return true, json.Unmarshal(data, into)
 }
 
-func storeRecord[T releaseRecord](path string, row T, installed releaseID) error {
-	rows, err := records[T](path)
-	if err != nil {
-		stateWarning(path, "damaged release record replaced")
-		rows = nil
-	}
-	next := []T{}
-	for _, previous := range rows {
-		if previous.identity() == installed && previous.identity() != row.identity() {
-			next = append(next, previous)
-		}
-	}
-	return writeJSON(path, append(next, row))
-}
-
-func dropRecord[T releaseRecord](path string, id releaseID) error {
-	rows, err := records[T](path)
+func writeJSON(path string, value any) error {
+	data, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	next := []T{}
-	for _, row := range rows {
-		if row.identity() != id {
-			next = append(next, row)
-		}
+	return writeState(path, data)
+}
+
+func writeState(path string, data []byte) error {
+	file, err := os.CreateTemp(filepath.Dir(path), ".release-*")
+	if err != nil {
+		return err
 	}
-	if len(next) == 0 {
-		return removeIfExists(path)
+	defer os.Remove(file.Name())
+	_, err = file.Write(data)
+	err = errors.Join(err, file.Sync(), file.Close())
+	if err != nil {
+		return err
 	}
-	return writeJSON(path, next)
+	if err := os.Rename(file.Name(), path); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(path))
+}
+
+func removeIfExists(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func removeDurable(path string) error {
+	if err := removeIfExists(path); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(path))
 }
 
 func syncDirectory(path string) error {
@@ -134,69 +138,37 @@ func syncDirectory(path string) error {
 	return errors.Join(dir.Sync(), dir.Close())
 }
 
-func previousBinary(binary string, id releaseID) string {
-	return binary + ".prev-" + id.SHA + "-" + id.SHA256
-}
-
-func prepareRecords(h *Handler, candidate releaseID, run, attempt string) error {
+func (h *Handler) stage(candidate releaseID, run string) error {
 	installed, err := binaryIdentity(h.Binary)
 	if err != nil {
 		return err
 	}
-	data, err := os.ReadFile(h.Binary)
-	if err != nil {
-		return err
-	}
-	previous := previousBinary(h.Binary, installed)
-	if err := writeSynced(previous, data); err != nil {
-		return err
-	}
-	if err := syncDirectory(filepath.Dir(h.Binary)); err != nil {
-		return err
-	}
-	fence := runFence{candidate.SHA, candidate.SHA256, run}
-	if existing, ok := selected[runFence](h.RunIDFile, installed); ok && installed == candidate {
-		old, _ := strconv.ParseUint(existing.RunID, 10, 64)
-		next, _ := strconv.ParseUint(run, 10, 64)
-		if next <= old {
-			return fmt.Errorf("run %s already installed", run)
+	var existing trial
+	if present, err := readRecord(h.TrialFile, &existing); present && (err != nil || !existing.valid()) {
+		if err := os.Rename(h.TrialFile, h.TrialFile+".damaged"); err != nil {
+			return err
 		}
 	}
-	if err := storeRecord(h.RunIDFile, fence, installed); err != nil {
+	record := trial{SHA: candidate.SHA, SHA256: candidate.SHA256, RunID: run, Installed: time.Now(), Previous: &installed}
+	if err := writeJSON(h.TrialFile, record); err != nil {
 		return err
 	}
-	record := trial{SHA: candidate.SHA, SHA256: candidate.SHA256, RunID: run, Previous: installed}
-	if err := storeRecord(h.TrialFile, record, installed); err != nil {
+	if err := writeState(h.RunIDFile, []byte(run)); err != nil {
 		return err
 	}
-	rollback := Rollback{SHA: candidate.SHA, SHA256: candidate.SHA256, RunID: run, Previous: installed}
-	if err := storeRecord(h.RollbackFile, rollback, installed); err != nil {
+	if err := removeIfExists(h.RollbackFile); err != nil {
 		return err
 	}
-	return storeRecord(h.RefusalFile, Refusal{Kind: RefusalHost, SHA: candidate.SHA, SHA256: candidate.SHA256, RunID: run, RunAttempt: attempt}, installed)
-}
-
-func cleanupPrevious(h *Handler, id releaseID) {
-	record, ok := selected[trial](h.TrialFile, id)
-	if !ok {
-		slog.Warn("release installed; previous binary cleanup unavailable")
-		return
+	previous := h.Binary + ".prev"
+	err = removeIfExists(previous)
+	if err == nil {
+		err = os.Link(h.Binary, previous)
 	}
-	keep := previousBinary(h.Binary, record.Previous)
-	entries, err := os.ReadDir(filepath.Dir(h.Binary))
-	if err != nil {
-		slog.Warn("release installed; previous binary cleanup unavailable", "error", err)
-		return
+	if err == nil {
+		err = syncDirectory(filepath.Dir(h.Binary))
 	}
-	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), filepath.Base(h.Binary)+".prev-") {
-			continue
-		}
-		path := filepath.Join(filepath.Dir(h.Binary), entry.Name())
-		if path != keep {
-			if err := os.Remove(path); err != nil {
-				slog.Warn("release installed; previous binary cleanup failed", "error", err)
-			}
-		}
+	if errors.Is(err, os.ErrPermission) {
+		err = fmt.Errorf("%w (an immutable binary refuses replacement: run `chattr -i %s %s` on the host)", err, h.Binary, previous)
 	}
+	return err
 }

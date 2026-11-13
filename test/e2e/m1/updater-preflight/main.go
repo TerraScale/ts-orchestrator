@@ -150,19 +150,23 @@ func main() {
 	defer cancel()
 	if len(os.Args) >= 3 {
 		switch os.Args[1] {
-		case "commit-case", "resume-case":
+		case "commit-case":
 			commitCase(ctx, os.Args[2], os.Args[3])
 			return
-		case "recover-state":
-			recoverCase(ctx, os.Args[2], os.Args[3])
+		case "rollback-case":
+			stageCase(ctx, os.Args[2], 2, "hold")
 			return
-		case "corrupt-start":
-			probation, err := releasepush.Probe(os.Args[2], os.Stderr)
-			must(err)
-			_, err = releasepush.NewHandler(os.Args[2])
-			must(err)
-			require(probation == nil && probation.Served(), "corrupt records must permit startup")
-			fmt.Println("corrupt startup accepted")
+		case "confirm-case":
+			stageCase(ctx, os.Args[2], 0, "serve")
+			return
+		case "resume-case":
+			resumeCase(ctx, os.Args[2], os.Args[3])
+			return
+		case "start-state":
+			startState(ctx, os.Args[2], os.Args[3])
+			return
+		case "serve-region":
+			serveRegion(ctx, os.Args[2:])
 			return
 		case "self-update":
 			selfUpdate(ctx, os.Args[2], os.Args[3])
@@ -190,5 +194,5 @@ func main() {
 		}
 		return
 	}
-	run(ctx, os.Args[1])
+	run(ctx, os.Args[1], os.Args[2])
 }

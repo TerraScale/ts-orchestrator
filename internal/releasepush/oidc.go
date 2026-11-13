@@ -217,6 +217,7 @@ func decodeSegment(segment string, into any) error {
 // key returns the kid's key. One caller fetches the JWKS without holding
 // the lock; concurrent callers wait for that fetch instead of starting theirs.
 func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
+	refreshed := false
 	for {
 		v.mu.Lock()
 		if key := v.keys[kid]; key != nil {
@@ -227,14 +228,19 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 			v.mu.Unlock()
 			select {
 			case <-wait:
+				refreshed = true
 				continue
 			case <-ctx.Done():
 				return nil, &hostError{ctx.Err()}
 			}
 		}
+		if refreshed {
+			v.mu.Unlock()
+			return nil, &integrityError{fmt.Errorf("unknown token key %q", kid)}
+		}
 		if !v.fetched.IsZero() && v.Now().Sub(v.fetched) < refetchEvery {
 			v.mu.Unlock()
-			return nil, fmt.Errorf("unknown token key %q", kid)
+			return nil, &hostError{fmt.Errorf("token key %q is not in signing keys fetched under %s ago", kid, refetchEvery)}
 		}
 		done := make(chan struct{})
 		v.inflight = done
@@ -253,6 +259,7 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 		if err != nil {
 			return nil, &hostError{fmt.Errorf("fetch GitHub JWKS: %w", err)}
 		}
+		refreshed = true
 	}
 }
 

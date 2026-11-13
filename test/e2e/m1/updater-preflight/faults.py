@@ -149,7 +149,7 @@ def filter_syscalls(name):
         raise OSError(ctypes.get_errno(), "install syscall filter")
 
 
-def run(helper, step, syscall_name, pattern, occurrence, outcome):
+def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, expect):
     with (
         tempfile.TemporaryDirectory(prefix="release-commit-") as work,
         tempfile.TemporaryFile() as log,
@@ -161,7 +161,10 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
             ptrace(0, 0)
             os.kill(os.getpid(), signal.SIGSTOP)
             filter_syscalls(syscall_name)
-            os.execv(helper, [helper, "commit-case", work, outcome])
+            os.execv(
+                helper,
+                [helper, flow, work] + ([outcome] if flow == "commit-case" else []),
+            )
         _, status = os.waitpid(root_pid, 0)
         if not os.WIFSTOPPED(status):
             log.seek(0)
@@ -176,6 +179,7 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
         root_status = None
         committed = False
         committing = set()
+        kill_after = set()
         while live:
             try:
                 pid, status = os.waitpid(-1, 0x40000000)
@@ -253,7 +257,7 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                             and not pathlib.Path(work, "disarmed").exists()
                             and (
                                 relative == ""
-                                or relative.startswith(("/nats/", "/installed.prev-"))
+                                or relative.startswith(("/nats/", "/installed.prev"))
                             )
                             and (
                                 name in ("write", "fsync", "rename", "unlink")
@@ -267,7 +271,9 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                             and re.fullmatch(pattern, relative)
                         ):
                             hits += 1
-                            if hits == occurrence and outcome == "crash":
+                            if hits == occurrence and outcome == "crash-after":
+                                kill_after.add(pid)
+                            elif hits == occurrence and outcome == "crash":
                                 for traced in live:
                                     try:
                                         os.kill(traced, signal.SIGKILL)
@@ -277,6 +283,12 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                                 result_register(pid, (1 << 64) - 1, skip=True)
                                 injected.add(pid)
                     elif op == 2:
+                        if pid in kill_after:
+                            for traced in live:
+                                try:
+                                    os.kill(traced, signal.SIGKILL)
+                                except ProcessLookupError:
+                                    pass
                         if pid in committing:
                             committed = struct.unpack_from("q", info.raw, 24)[0] == 0
                             committing.remove(pid)
@@ -289,64 +301,49 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                     else stop
                 )
                 ptrace(
-                    24 if pid in injected or pid in committing else 7, pid, 0, deliver
+                    24
+                    if pid in injected or pid in committing or pid in kill_after
+                    else 7,
+                    pid,
+                    0,
+                    deliver,
                 )
             except ProcessLookupError:
                 continue
         returncode = os.waitstatus_to_exitcode(root_status)
         log.seek(0)
         output = log.read().decode(errors="replace")
-        if outcome == "crash" and hits >= occurrence and returncode == -signal.SIGKILL:
-            continued = subprocess.run(
-                [helper, "resume-case", work, "installed"],
-                capture_output=True,
-                text=True,
-                timeout=40,
-                check=False,
+        killed = outcome in ("crash", "crash-after")
+        if hits < occurrence or returncode != (-signal.SIGKILL if killed else 0):
+            raise RuntimeError(
+                f"{step}: exit {returncode}, hits {hits}/{occurrence}\n{output[-5000:]}"
             )
-            if continued.returncode:
-                raise RuntimeError(
-                    f"{step}: subsequent release failed\n{continued.stdout[-2000:]}{continued.stderr[-3000:]}"
-                )
-            print(
-                f"ok crash {step}: installed binary retained; same run succeeds; restart and second release verified",
-                flush=True,
-            )
-            return
-        if outcome == "persistent" and not returncode:
+        if expect not in output:
+            raise RuntimeError(f"{step}: missing {expect!r}\n{output[-5000:]}")
+        if outcome == "persistent":
             for warning in (
                 "binary rename durability",
-                "previous binary cleanup",
-                "diagnostic attempt",
                 "worker relay",
                 "reply delivery",
                 "reply flush",
-                "activation request",
                 "restart notification",
             ):
                 if warning not in output:
                     raise RuntimeError(
                         f"{step}: missing WARN for {warning}\n{output[-5000:]}"
                     )
-            continued = subprocess.run(
-                [helper, "resume-case", work, "committed"],
-                capture_output=True,
-                text=True,
-                timeout=40,
-                check=False,
-            )
-            if continued.returncode:
-                raise RuntimeError(
-                    f"{step}: restart and second release failed\n{continued.stdout[-2000:]}{continued.stderr[-3000:]}"
-                )
-        if returncode or hits < occurrence:
-            raise RuntimeError(
-                f"{step}: exit {returncode}, hits {hits}/{occurrence}\n{output[-5000:]}"
-            )
-        print(
-            f"ok fault {step}: {outcome}; binary, records, relay, restart; tagged records; real startup",
-            flush=True,
+        continued = subprocess.run(
+            [helper, "resume-case", work, resume],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
+        if continued.returncode:
+            raise RuntimeError(
+                f"{step}: start after {outcome} failed\n{continued.stdout[-2000:]}{continued.stderr[-3000:]}"
+            )
+        print(f"ok {outcome} {step}: {continued.stdout.strip()}", flush=True)
 
 
 if os.uname().machine == "x86_64":
@@ -374,44 +371,58 @@ elif os.uname().machine == "aarch64":
 else:
     raise RuntimeError("syscall fault lane needs Linux amd64 or arm64")
 helper = sys.argv[1]
-cases = []
-for target, pattern in (
-    ("candidate", r"/installed.next"),
-    ("previous", r"/installed.prev-.*"),
-):
-    for call in ("open", "write", "chmod", "fsync", "close"):
-        cases.append((target + "-" + call, call, pattern, 1, "rejected"))
-cases.append(("previous-directory-sync", "fsync", "", 1, "rejected"))
-for index, record in enumerate(("run-id", "trial", "rolled-back", "attempt.json"), 1):
+precommit = []
+for call in ("open", "write", "chmod", "fsync", "close"):
+    precommit.append(("candidate-" + call, call, r"/installed.next", 1))
+precommit.append(("preflight-exec", "exec", r"/installed.next", 1))
+for index, record in enumerate(("trial", "run-id"), 1):
     for call in ("open", "write", "fsync", "close"):
-        cases.append(
-            (record + "-" + call, call, r"/nats/.release-.*", index, "rejected")
-        )
-    cases.append(
-        (record + "-rename", "rename", "/nats/release-" + record, 1, "rejected")
+        precommit.append((record + "-" + call, call, r"/nats/.release-.*", index))
+    precommit.append((record + "-rename", "rename", "/nats/release-" + record, 1))
+    precommit.append((record + "-directory-sync", "fsync", r"/nats", index))
+precommit += [
+    ("previous-unlink", "unlink", r"/installed.prev", 1),
+    ("previous-link", "link", r"/installed.prev", 1),
+    ("previous-directory-sync", "fsync", "", 1),
+    ("binary-rename", "rename", r"/installed", 1),
+]
+cases = [
+    (name, "commit-case", call, pattern, n, "rejected", "commit", "traced install: rejected")
+    for name, call, pattern, n in precommit
+]
+cases += [
+    ("binary-directory-open", "commit-case", "open", "", 2, "installed", "commit", "traced install: installed"),
+    ("binary-directory-sync", "commit-case", "fsync", "", 2, "installed", "commit", "binary rename durability"),
+    ("all-postcommit", "commit-case", "persistent", ".*", 1, "persistent", "commit", ""),
+]
+cases += [
+    ("crash-" + name, "commit-case", call, pattern, n, "crash", "commit", "")
+    for name, call, pattern, n in precommit
+    + [("binary-directory-sync", "fsync", "", 2)]
+]
+cases += [
+    ("crash-after-" + name, "commit-case", call, pattern, n, "crash-after", "commit", "")
+    for name, call, pattern, n in (
+        ("trial-rename", "rename", "/nats/release-trial", 1),
+        ("run-id-rename", "rename", "/nats/release-run-id", 1),
+        ("previous-link", "link", r"/installed.prev", 1),
+        ("binary-rename", "rename", r"/installed", 1),
+        ("binary-directory-sync", "fsync", "", 2),
     )
-    cases.append((record + "-directory-sync", "fsync", r"/nats", index, "rejected"))
-cases.append(("preflight-exec", "exec", r"/installed.next", 1, "rejected"))
-cases.append(("binary-rename", "rename", r"/installed", 1, "rejected"))
-precommit = list(cases)
-cases.extend(
-    [
-        ("binary-directory-open", "open", "", 2, "installed"),
-        ("binary-directory-sync", "fsync", "", 2, "installed"),
-        ("diagnostic-write", "write", r"/nats/.release-.*", 5, "installed"),
-        ("diagnostic-sync", "fsync", r"/nats/.release-.*", 5, "installed"),
-        ("diagnostic-rename", "rename", r"/nats/release-attempt.json", 2, "installed"),
-        ("activation-write", "write", r"/nats/.release-.*", 6, "installed"),
-        ("activation-sync", "fsync", r"/nats/.release-.*", 6, "installed"),
-        ("activation-rename", "rename", r"/nats/release-trial", 2, "installed"),
-        ("previous-cleanup", "unlink", r"/installed.prev-obsolete", 1, "installed"),
-        ("all-postcommit", "persistent", ".*", 1, "persistent"),
-    ]
-)
-cases.extend(
-    ("crash-" + name, call, pattern, occurrence, "crash")
-    for name, call, pattern, occurrence, _ in precommit
-)
+]
+for outcome in ("crash", "crash-after"):
+    for name, call, pattern, n in (
+        ("rollback-record-rename", "rename", "/nats/release-rolled-back", 1),
+        ("rollback-rename", "rename", r"/installed", 1),
+        ("rollback-directory-sync", "fsync", "", 1),
+    ):
+        cases.append((outcome + "-" + name, "rollback-case", call, pattern, n, outcome, "rollback", ""))
+cases += [
+    ("crash-confirm-unlink", "confirm-case", "unlink", "/nats/release-trial", 1, "crash", "confirm", ""),
+    ("crash-after-confirm-unlink", "confirm-case", "unlink", "/nats/release-trial", 1, "crash-after", "confirm", ""),
+    ("confirm-sync", "confirm-case", "fsync", r"/nats", 2, "eio", "confirm", '"served":false'),
+    ("start-counter-write", "confirm-case", "rename", "/nats/release-trial", 1, "eio", "rollback", "START rolled-back"),
+]
 
 
 def isolated(case):

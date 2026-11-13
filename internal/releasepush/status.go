@@ -93,24 +93,33 @@ func ReadHostVersions(ctx context.Context, conn *nats.Conn, region string, nodes
 	return rows
 }
 
+type attemptRecord struct {
+	Refusal
+	Installed releaseID `json:"installed"`
+}
+
 func (h *Handler) recordAttempt(attempt *Refusal) error {
 	attempt.Reason = secretpreflight.Scrub(attempt.Reason)
-	if h.RefusalFile != "" {
-		id, err := binaryIdentity(h.Binary)
-		if err != nil {
-			return err
-		}
-		if err := storeRecord(h.RefusalFile, *attempt, id); err != nil {
-			return errors.New("cannot persist release attempt")
-		}
+	if h.RefusalFile == "" {
+		return nil
+	}
+	installed, err := binaryIdentity(h.Binary)
+	if err != nil {
+		return err
+	}
+	if err := writeJSON(h.RefusalFile, attemptRecord{*attempt, installed}); err != nil {
+		return errors.New("cannot persist release attempt")
 	}
 	return nil
 }
 
-func (h *Handler) refusal(id releaseID) *Refusal {
-	record, ok := selected[Refusal](h.RefusalFile, id)
-	if !ok || record.Reason == "" {
+func (h *Handler) refusal() *Refusal {
+	var record attemptRecord
+	if present, err := readRecord(h.RefusalFile, &record); !present || err != nil || record.Reason == "" {
 		return nil
 	}
-	return &record
+	if installed, err := binaryIdentity(h.Binary); err != nil || installed != record.Installed {
+		return nil
+	}
+	return &record.Refusal
 }

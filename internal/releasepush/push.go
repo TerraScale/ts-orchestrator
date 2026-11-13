@@ -47,18 +47,19 @@ type Region struct {
 
 // Result is the one JSON line push prints per region.
 type Result struct {
-	Region     string        `json:"region"`
-	State      string        `json:"state,omitempty"`
-	ConnectMS  int64         `json:"connect_ms"`
-	AcceptedMS int64         `json:"accepted_ms"`
-	ServingMS  int64         `json:"serving_ms"`
-	ObservedAt string        `json:"observed_at,omitempty"`
-	StartedAt  string        `json:"started_at,omitempty"`
-	HealthyMS  int64         `json:"healthy_ms"`
-	Health     string        `json:"health,omitempty"`
-	Workers    []HostVersion `json:"workers,omitempty"`
-	Refusals   []HostVersion `json:"refusals,omitempty"`
-	Error      string        `json:"error,omitempty"`
+	Region      string        `json:"region"`
+	State       string        `json:"state,omitempty"`
+	ConnectMS   int64         `json:"connect_ms"`
+	AcceptedMS  int64         `json:"accepted_ms"`
+	ServingMS   int64         `json:"serving_ms"`
+	ObservedAt  string        `json:"observed_at,omitempty"`
+	StartedAt   string        `json:"started_at,omitempty"`
+	HealthyMS   int64         `json:"healthy_ms"`
+	Health      string        `json:"health,omitempty"`
+	Workers     []HostVersion `json:"workers,omitempty"`
+	Refusals    []HostVersion `json:"refusals,omitempty"`
+	Unconfirmed string        `json:"unconfirmed,omitempty"`
+	Error       string        `json:"error,omitempty"`
 }
 
 func Push(ctx context.Context, args []string, output io.Writer) error {
@@ -105,8 +106,11 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	}
 	var failed error
 	blocked := ""
+	unconfirmed := map[string]string{}
 	for _, region := range regions {
-		if err := dialPreflight(ctx, region); err != nil {
+		note, err := dialPreflight(ctx, region)
+		unconfirmed[region.Region] = note
+		if err != nil {
 			failed = fmt.Errorf("region %s preflight: %w", region.Region, err)
 			blocked = region.Region
 			break
@@ -124,7 +128,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 			release.Token, err = MintToken(ctx)
 			if err == nil {
 				result = pushRegion(ctx, region, release)
-				if result.Error == "" && len(result.Refusals) == 0 {
+				if result.Error == "" && (result.State == "installed" || result.State == "current") {
 					result.HealthyMS, result.Health, err = awaitHealthy(ctx, region, release)
 				}
 			}
@@ -139,6 +143,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 				failed = errors.Join(failed, fmt.Errorf("region %s: %s", region.Region, result.Error))
 			}
 		}
+		result.Unconfirmed = unconfirmed[region.Region]
 		if refusal := RefusedOn(result.Refusals); refusal != "" {
 			result.State = refusal
 			failed = errors.Join(failed, fmt.Errorf("region %s: %s", region.Region, refusal))
@@ -168,20 +173,20 @@ func pushOrder(regions []Region) ([]Region, error) {
 	return ordered, nil
 }
 
-func dialPreflight(ctx context.Context, region Region) error {
+func dialPreflight(ctx context.Context, region Region) (string, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, versionProbe)
 	defer cancel()
 	token, err := MintToken(probeCtx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	deadline, _ := probeCtx.Deadline()
 	if err := probeCtx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	conn, err := Dial(region, token, nats.Timeout(time.Until(deadline)))
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer conn.Close()
 	version, err := request(probeCtx, conn, SubjectVersion, nil, versionProbe)
@@ -189,19 +194,23 @@ func dialPreflight(ctx context.Context, region Region) error {
 		err = errors.New("empty version reply")
 	}
 	if err != nil {
-		return err
+		return "", err
+	}
+	note := ""
+	if version.State == "unconfirmed" {
+		note = version.Version + ": " + version.Error
 	}
 	health, err := request(ctx, conn, SubjectHealth, nil, healthRequestTimeout)
 	if errors.Is(err, nats.ErrNoResponders) || (err == nil && health.Health == "no health check") {
-		return nil
+		return note, nil
 	}
 	if err != nil {
-		return fmt.Errorf("health: %w", err)
+		return note, fmt.Errorf("health: %w", err)
 	}
 	if health.Health != "ok" {
-		return fmt.Errorf("health: %q", health.Health)
+		return note, fmt.Errorf("health: %q", health.Health)
 	}
-	return nil
+	return note, nil
 }
 
 func awaitHealthy(ctx context.Context, region Region, release OrchRelease) (ms int64, last string, err error) {
