@@ -607,7 +607,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	must(json.Unmarshal(data, &spec))
 	spec.Name, spec.Args, spec.Port, spec.Regions, spec.Hostnames = "terrabase", []string{"--port", "18085"}, 18085, order, nil
 	apply := func(generation int64, hold string) {
-		request := mesh.ApplyRequest{Name: spec.Name, Entry: mesh.Entry{Generation: generation, Spec: &spec, HoldAfter: hold, Deployment: &mesh.Deployment{Repository: "TerraScale/terrascale", RunID: "100", RunAttempt: 1, Revision: revision, Image: spec.Image}}}
+		request := mesh.ApplyRequest{Name: spec.Name, Entry: mesh.Entry{Generation: generation, Spec: &spec, HoldAfter: hold, Deployment: &mesh.Deployment{Repository: "TerraScale/terrascale", RunID: "100", RunAttempt: 1, Revision: revision, Image: spec.Image, Workflow: "TerraScale/terrascale/.github/workflows/ci.yml@refs/heads/main"}}}
 		data, err := json.Marshal(request)
 		must(err)
 		must(conn.PublishRequest(mesh.ApplySubject, nats.NewInbox(), data))

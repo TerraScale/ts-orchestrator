@@ -122,7 +122,7 @@ func (n *Node) stageBootstrap(action string, j rolloutmaintenance.Job) error {
 	if candidate.Image != j.Target.Image {
 		return rolloutmaintenance.ErrFenced
 	}
-	deployment := &Deployment{Repository: candidate.Repository, RunID: candidate.RunID, RunAttempt: candidate.RunAttempt, Revision: candidate.Revision, Image: candidate.Image}
+	deployment := &Deployment{Repository: candidate.Repository, RunID: candidate.RunID, RunAttempt: candidate.RunAttempt, Revision: candidate.Revision, Image: candidate.Image, Workflow: candidate.Workflow}
 	if err = deployment.Validate(); err != nil {
 		return err
 	}

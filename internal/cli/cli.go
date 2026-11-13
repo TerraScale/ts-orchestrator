@@ -25,6 +25,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/edge/geodns"
 	"github.com/TerraScale/ts-orchestrator/internal/functions"
 	"github.com/TerraScale/ts-orchestrator/internal/image"
+	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
 	"github.com/TerraScale/ts-orchestrator/internal/liveverify"
 	"github.com/TerraScale/ts-orchestrator/internal/logscan"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
@@ -220,6 +221,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		}
 		if len(args) > 1 && (args[1] == "manifest" || args[1] == "sign" || args[1] == "verify") {
 			return signedrelease.Run(ctx, args[1:], output)
+		}
+		if len(args) > 1 && args[1] == "verify-provenance" {
+			return imagetrust.VerifyImage(ctx, args[2:], output)
 		}
 		if len(args) > 1 && args[1] == "pin" {
 			return releasepush.Pin(args[2:], output)
