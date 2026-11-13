@@ -99,8 +99,10 @@ func prepareImage(ctx context.Context, root, specFile string) {
 	spec.Image = "ghcr.io/terrascale/terrabase@" + target.Digest.String()
 	_, err = client.ImageService().Create(ctx, images.Image{Name: spec.Image, Target: target})
 	must(err)
-	_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(spec.Image, "/terrabase@", "/app-canary@", 1), Target: target})
-	must(err)
+	for _, name := range []string{"app-canary", "history-canary"} {
+		_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(spec.Image, "/terrabase@", "/"+name+"@", 1), Target: target})
+		must(err)
+	}
 	data, err = json.Marshal(spec)
 	must(err)
 	must(os.WriteFile(filepath.Join(root, "spec.json"), data, 0600))
@@ -201,8 +203,8 @@ func main() {
 		runRegion(ctx, os.Args[2:])
 	case "control":
 		control(ctx, os.Args[2:])
-	case "journey":
-		journey(ctx, os.Args[2], os.Args[3], os.Args[4])
+	case "journey", "history":
+		journey(ctx, os.Args[2], os.Args[3], os.Args[4], os.Args[1] == "history")
 	default:
 		panic("unknown rollout journey command")
 	}
@@ -283,6 +285,9 @@ func runRegion(ctx context.Context, args []string) {
 		ClusterAddress: address + ":6222", Address: func() (string, error) { return address, nil }})
 	must(err)
 	defer node.Close()
+	if _, err := os.Stat(filepath.Join(root, "budget-full")); err == nil {
+		fillMesh(root)
+	}
 	go node.Run(ctx)
 	releases, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: 4224, NoSigs: true, NoLog: true})
 	must(err)
@@ -330,7 +335,8 @@ func control(ctx context.Context, args []string) {
 
 type process struct {
 	command *exec.Cmd
-	done    chan error
+	done    chan struct{}
+	result  error
 }
 
 func start(ctx context.Context, namespace, launcher, root, mode string, args ...string) *process {
@@ -342,7 +348,7 @@ func start(ctx context.Context, namespace, launcher, root, mode string, args ...
 	command.Stderr = logfile
 	must(command.Start())
 	ready := make(chan struct{})
-	p := &process{command: command, done: make(chan error, 1)}
+	p := &process{command: command, done: make(chan struct{})}
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
@@ -352,16 +358,17 @@ func start(ctx context.Context, namespace, launcher, root, mode string, args ...
 				close(ready)
 			}
 		}
-		p.done <- command.Wait()
+		p.result = command.Wait()
 		logfile.Close()
+		close(p.done)
 	}()
 	select {
 	case <-ready:
 		return p
-	case err := <-p.done:
+	case <-p.done:
 		detail, readErr := os.ReadFile(filepath.Join(root, mode+".log"))
 		must(readErr)
-		panic(fmt.Errorf("%s startup: %v: %s", mode, err, detail[max(0, len(detail)-4096):]))
+		panic(fmt.Errorf("%s startup: %v: %s", mode, p.result, detail[max(0, len(detail)-4096):]))
 	case <-ctx.Done():
 		panic(ctx.Err())
 	}
@@ -389,13 +396,22 @@ func health(ctx context.Context, conn *nats.Conn, name string) string {
 	return reply.Health
 }
 
+type admissionDecision struct {
+	Generation int64
+	At         time.Time
+	Earlier    string
+	Evidence   string
+}
+
 type state struct {
-	Region  string                        `json:"region"`
-	Ready   map[string]int64              `json:"ready"`
-	Serving map[string]mesh.ServingResult `json:"serving"`
-	Failed  map[string]int64              `json:"failed"`
-	Desired map[string]json.RawMessage    `json:"desired"`
-	Unsaved map[string]int64              `json:"unsaved"`
+	Region       string                        `json:"region"`
+	Ready        map[string]int64              `json:"ready"`
+	Serving      map[string]mesh.ServingResult `json:"serving"`
+	Failed       map[string]int64              `json:"failed"`
+	Desired      map[string]json.RawMessage    `json:"desired"`
+	Unsaved      map[string]int64              `json:"unsaved"`
+	Admission    map[string]admissionDecision  `json:"admission"`
+	BakeRequired map[string]bool               `json:"bakeRequired"`
 }
 
 func states(ctx context.Context, conn *nats.Conn) map[string]state {
@@ -416,7 +432,8 @@ func states(ctx context.Context, conn *nats.Conn) map[string]state {
 			must(json.Unmarshal(message.Data, &reply))
 			result[reply.Region] = reply
 		case <-deadline.C:
-			panic("state replies exceeded the one-second rollout collection window")
+			_ = exec.Command("pkill", "-QUIT", "-f", "^"+os.Args[0]+" region ").Run()
+			panic(fmt.Sprintf("state replies exceeded the one-second rollout collection window: got %d regions", len(result)))
 		case <-ctx.Done():
 			panic(ctx.Err())
 		}
@@ -440,10 +457,11 @@ func observe(ctx context.Context, conn *nats.Conn, condition func(map[string]sta
 }
 
 type receipt struct {
-	Generation int64               `json:"generation"`
-	Bake       rollout.BakeVerdict `json:"bake"`
-	Release    *mesh.Deployment    `json:"release"`
-	ReplacedBy *struct {
+	Generation    int64               `json:"generation"`
+	Interruptions int                 `json:"interruptions"`
+	Bake          rollout.BakeVerdict `json:"bake"`
+	Release       *mesh.Deployment    `json:"release"`
+	ReplacedBy    *struct {
 		Generation int64
 		Release    mesh.Deployment
 	} `json:"replacedBy"`
@@ -486,7 +504,7 @@ func setHealth(ctx context.Context, address string, port int, code string) {
 	require(response.StatusCode == http.StatusOK, "health control failed")
 }
 
-func journey(ctx context.Context, root, launcher, specFile string) {
+func journey(ctx context.Context, root, launcher, specFile string, historyOnly bool) {
 	seed := make([]byte, 32)
 	_, err := rand.Read(seed)
 	must(err)
@@ -508,6 +526,7 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 	must(err)
 	must(os.WriteFile(filepath.Join(root, "keys.json"), public, 0600))
 
+	baselineGeneration := time.Now().UnixNano()
 	for i := range roots {
 		socketReady(ctx, filepath.Join(roots[i], "run", "containerd.sock"))
 		output, err := exec.CommandContext(ctx, os.Args[0], "prepare", roots[i], specFile).CombinedOutput()
@@ -518,7 +537,12 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 		var baseline swarmruntime.ServiceSpec
 		must(json.Unmarshal(data, &baseline))
 		baseline.Name, baseline.Args, baseline.Port, baseline.Regions, baseline.Hostnames = "terrabase", []string{"--port", "18085"}, 18085, order, nil
+		baseline.Generation = baselineGeneration
 		command(ctx, names[i], roots[i], baseline)
+		must(os.MkdirAll(filepath.Join(roots[i], "mesh"), 0700))
+		local, err := json.Marshal(map[string]mesh.Entry{"terrabase": {Generation: baselineGeneration, Spec: &baseline}})
+		must(err)
+		must(os.WriteFile(filepath.Join(roots[i], "mesh", "desired.json"), local, 0600))
 
 	}
 	defer func() {
@@ -557,12 +581,20 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 	lagging.Replicas = 2
 	lagging.MilliCPU, lagging.MemoryMiB = 4000, 24576
 	command(ctx, names[0], roots[0], lagging)
-	apply := func(generation int64) {
-		request := mesh.ApplyRequest{Name: spec.Name, Entry: mesh.Entry{Generation: generation, Spec: &spec, HoldAfter: order[len(order)-1], Deployment: &mesh.Deployment{Repository: "TerraScale/terrascale", RunID: "100", RunAttempt: 1, Revision: revision, Image: spec.Image}}}
+	apply := func(generation int64, hold string) {
+		request := mesh.ApplyRequest{Name: spec.Name, Entry: mesh.Entry{Generation: generation, Spec: &spec, HoldAfter: hold, Deployment: &mesh.Deployment{Repository: "TerraScale/terrascale", RunID: "100", RunAttempt: 1, Revision: revision, Image: spec.Image}}}
 		data, err := json.Marshal(request)
 		must(err)
 		must(conn.PublishRequest(mesh.ApplySubject, nats.NewInbox(), data))
 		must(conn.Flush())
+	}
+	topologyReady(ctx, roots)
+	if historyOnly {
+		historyCases(ctx, conn, roots, order, spec, releases, key)
+		unsavedCase(ctx, conn, releases, key, nodes, boot, roots, order, addresses, spec)
+		budgetCases(ctx, conn, releases, nodes, swarms, boot, roots, order, names, addresses, launcher, spec)
+		fmt.Println("history journey passed")
+		return
 	}
 	management, err := os.ReadFile(filepath.Join(root, "management.json"))
 	must(err)
@@ -601,13 +633,12 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 	for i, region := range order {
 		var desired struct {
 			Signed *struct {
-				Generation   int64
-				FirstInstall bool
+				Generation int64
 			}
 		}
 		must(json.Unmarshal(states(ctx, conn)[region].Desired["app-canary"], &desired))
 		require(desired.Signed != nil, "first-install declaration did not reach every region")
-		require(desired.Signed.FirstInstall, "signed first install classification was not persisted")
+		require(!states(ctx, conn)[region].BakeRequired["app-canary"], "first release incorrectly required a bake")
 		firstGeneration = desired.Signed.Generation
 		files, err := filepath.Glob(filepath.Join(roots[i], "mesh", "bake-app-canary-*.json"))
 		must(err)
@@ -648,10 +679,10 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 		}
 		return false
 	})
-	logStep("authenticated first install persists its classification, reaches every target without baking, and the next release bakes")
+	logStep("authenticated first install is derived locally, reaches every target without baking, and the next release bakes")
 
 	generation := time.Now().UnixNano()
-	apply(generation)
+	apply(generation, order[1])
 	initial := evidence(ctx, roots[0], generation, func(r receipt) bool { return !r.Bake.Started.IsZero() })
 	require(initial.Bake.Finished.IsZero(), "interruption did not happen during the bake")
 	require(states(ctx, conn)[order[1]].Ready[spec.Name] < generation, "later region advanced before the first bake")
@@ -666,15 +697,20 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 	}
 	restarted := evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Started.After(initial.Bake.Started) })
 	require(restarted.Bake.Finished.IsZero(), "restart did not start a fresh observation window")
-	assertWaiting(ctx, conn, order[1], spec.Name, generation)
+	observe(ctx, conn, func(s map[string]state) bool {
+		result := s[order[0]].Serving[spec.Name]
+		return result.Serving && result.Generation == generation
+	})
+	assertWaiting(ctx, conn, order[1], spec.Name, generation, order[0], "passed bake missing")
 	complete := evidence(ctx, roots[0], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() })
 	require(complete.Bake.Reason == "", "restarted bake failed: "+complete.Bake.Reason)
 	require(complete.Bake.Finished.Sub(complete.Bake.Started) >= rollout.BakeWindow, "restart shortened the bake window")
-	evidence(ctx, roots[1], generation, func(r receipt) bool { return r.Bake.Samples >= 1 })
+	evidence(ctx, roots[1], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() && r.Bake.Reason == "" })
 	setHealth(ctx, addresses[0], 18085, "503")
 	require(health(ctx, releases, spec.Name) != "ok", "unready A passed named release health")
 	observe(ctx, conn, func(s map[string]state) bool { return s[order[0]].Ready[spec.Name] < generation })
-	assertWaiting(ctx, conn, order[len(order)-1], spec.Name, generation)
+	apply(generation, "")
+	assertWaiting(ctx, conn, order[len(order)-1], spec.Name, generation, order[0], "fresh serving evidence missing")
 	logStep("a previously successful bake stops admitting regions when A stops serving")
 	setHealth(ctx, addresses[0], 18085, "200")
 	next := evidence(ctx, roots[1], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() })
@@ -697,7 +733,7 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 	})
 	logStep("a blackholed unrelated readiness endpoint leaves both state replies inside one second")
 	generation++
-	apply(generation)
+	apply(generation, order[len(order)-1])
 	evidence(ctx, roots[0], generation, func(r receipt) bool { return !r.Bake.Started.IsZero() })
 	observe(ctx, conn, func(s map[string]state) bool {
 		return s[order[0]].Serving[spec.Name].Generation == generation && s[order[0]].Serving[spec.Name].Serving
@@ -713,7 +749,7 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 	evidence(ctx, roots[1], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() })
 	logStep("one bad sample records count and reason, restarts the full window, and passes")
 	generation++
-	apply(generation)
+	apply(generation, order[len(order)-1])
 	evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Samples >= 1 })
 	setHealth(ctx, addresses[0], 18085, "503")
 	two := evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.FailedSamples >= 2 })
@@ -786,6 +822,9 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 	})
 	logStep("handler restart refuses replay of the same signed run and attempt and retains its hold")
 	held := generation
+	nodes[0].kill()
+	olderHoldReceipt(roots[0], held)
+	nodes[0] = boot(0)
 	signedRelease(ctx, releases, key, spec.Image, "101")
 	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > held })
 	generation = newGeneration(states(ctx, conn), order[0])
@@ -798,107 +837,11 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 	}
 	observe(ctx, conn, func(s map[string]state) bool { return s[order[len(order)-1]].Ready[spec.Name] == generation })
 	replaced := evidence(ctx, roots[0], held, func(r receipt) bool { return r.ReplacedBy != nil })
+	require(replaced.Release != nil && replaced.Release.RunID == "100", "older receipt release identity was not recovered and saved")
+	logStep("older hold receipt recovers its own signed release identity before replacement")
 	replacement := replaced.ReplacedBy
 	require(replacement.Generation == generation && replacement.Release.Repository == "TerraScale/terrascale" && replacement.Release.RunID == "101" && replacement.Release.RunAttempt == 1 && replacement.Release.Revision == revision && replacement.Release.Image == spec.Image, "replacement journal omitted release identity")
 	logStep("release journals the local held generation and deployment; restart retains it and every region completes")
-	signedRelease(ctx, releases, key, spec.Image, "102")
-	previous := generation
-	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > previous })
-	generation = newGeneration(states(ctx, conn), order[0])
-	evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Samples >= 1 })
-	setHealth(ctx, addresses[0], 18085, "503")
-	evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.FailedSamples >= 8 })
-	readonly(nodes[0], filepath.Join(roots[0], "mesh"))
-	observe(ctx, conn, func(s map[string]state) bool {
-		return s[order[0]].Failed[spec.Name] == generation && s[order[0]].Unsaved[spec.Name] == generation
-	})
-	require(states(ctx, conn)[order[1]].Ready[spec.Name] < generation, "unsaved failure admitted a later region")
-	disk := evidence(ctx, roots[0], generation, func(r receipt) bool { return true })
-	require(disk.Bake.Reason == "" && disk.Bake.FailedSamples >= 8, "read-only disk unexpectedly saved the terminal failure")
-	meshReconnected := conn.StatusChanged(nats.CONNECTED)
-	healthReconnected := releases.StatusChanged(nats.CONNECTED)
-	nodes[0].kill()
-	nodes[0] = nil
-	setHealth(ctx, addresses[0], 18085, "200")
-	nodes[0] = boot(0)
-	for _, connected := range []chan nats.Status{meshReconnected, healthReconnected} {
-		select {
-		case <-connected:
-		case <-ctx.Done():
-			panic(ctx.Err())
-		}
-	}
-	restartedUnsaved := evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Started.After(disk.Bake.Started) })
-	require(restartedUnsaved.Bake.Finished.IsZero(), "unsaved failure restart skipped the new window")
-	unsavedPassed := evidence(ctx, roots[0], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() })
-	require(unsavedPassed.Bake.Reason == "" && unsavedPassed.Bake.Finished.Sub(restartedUnsaved.Bake.Started) >= rollout.BakeWindow, "unsaved failure restart did not run a full healthy window")
-	evidence(ctx, roots[1], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() && r.Bake.Reason == "" })
-	logStep("failure write refused reports failed unsaved; restart runs a full new window whose pass admits the next region")
-	signedRelease(ctx, releases, key, spec.Image, "103")
-	previous = generation
-	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > previous })
-	generation = newGeneration(states(ctx, conn), order[0])
-	evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Samples >= 1 })
-	nodes[0].kill()
-	nodes[0] = nil
-	path := filepath.Join(roots[0], "mesh", fmt.Sprintf("bake-terrabase-%d.json", generation))
-	data, err = os.ReadFile(path)
-	must(err)
-	var aged map[string]json.RawMessage
-	must(json.Unmarshal(data, &aged))
-	var agedBake rollout.BakeVerdict
-	must(json.Unmarshal(aged["bake"], &agedBake))
-	agedBake.FirstSample = time.Now().Add(-rollout.MaxBakeWindow - time.Second).UTC()
-	aged["bake"], err = json.Marshal(agedBake)
-	must(err)
-	data, err = json.Marshal(aged)
-	must(err)
-	must(os.WriteFile(path, data, 0600))
-	reconnect := conn.StatusChanged(nats.CONNECTED)
-	nodes[0] = boot(0)
-	select {
-	case <-reconnect:
-	case <-ctx.Done():
-		panic(ctx.Err())
-	}
-	bounded := evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Reason != "" })
-	require(strings.Contains(bounded.Bake.Reason, "total observation bound"), "restart extended the persisted total bound")
-	require(states(ctx, conn)[order[1]].Ready[spec.Name] < generation, "total-bound failure admitted the next region")
-	logStep("ten-minute total bound uses the persisted first sample and survives restart")
-	pid, err := os.ReadFile(filepath.Join(roots[0], "containerd.pid"))
-	must(err)
-	runtimePID := strings.TrimSpace(string(pid))
-	must(exec.Command("kill", "-STOP", runtimePID).Run())
-	defer func() { _ = exec.Command("kill", "-CONT", runtimePID).Run() }()
-	require(len(states(ctx, conn)) == 3, "mesh stopped with containerd")
-	response, err := http.Get("http://" + addresses[0] + ":18085/health")
-	must(err)
-	response.Body.Close()
-	require(response.StatusCode == http.StatusOK, "shim task stopped with containerd")
-	namedHealth, unnamedHealth := health(ctx, releases, spec.Name), health(ctx, releases, "")
-	require(strings.Contains(namedHealth, "container runtime unreachable"), "stopped runtime health omitted the runtime failure: "+namedHealth)
-	require(strings.Contains(unnamedHealth, "container runtime unreachable"), "stopped runtime health omitted the runtime failure: "+unnamedHealth)
-	logStep("stopped runtime fails health while mesh, swarm agent and shim-owned service remain alive")
-	must(exec.Command("kill", "-CONT", runtimePID).Run())
-	require(health(ctx, releases, "") == "ok", "runtime did not recover before swarm-only case")
-	swarms[0].stop()
-	swarms[0] = nil
-	require(len(states(ctx, conn)) == 3, "mesh stopped with the swarm node")
-	require(health(ctx, releases, "") != "ok", "unnamed binary health ignored the unavailable swarm node")
-	logStep("unnamed orchestrator health fails while mesh is up and the swarm node is unavailable")
-	sampler := start(ctx, names[0], launcher, roots[0], "sampler")
-	fifo := filepath.Join(roots[0], "blocked-stat")
-	must(syscall.Mkfifo(fifo, 0600))
-	output, err := exec.CommandContext(ctx, "nsenter", "-t", fmt.Sprint(sampler.command.Process.Pid), "-m", "mount", "--bind", fifo, "/proc/stat").CombinedOutput()
-	require(err == nil, fmt.Sprintf("isolated host sampler FIFO mount: %v %s", err, output))
-	must(os.WriteFile(filepath.Join(roots[0], "sample"), nil, 0600))
-	select {
-	case err := <-sampler.done:
-		require(err == nil, fmt.Sprintf("host sampler journey: %v", err))
-	case <-ctx.Done():
-		panic(ctx.Err())
-	}
-	logStep("twenty health requests share one blocked host sampler and fail health")
 
 	fmt.Println("rollout journey passed")
 }

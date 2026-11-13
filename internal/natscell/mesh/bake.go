@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,13 +21,14 @@ import (
 )
 
 type bakeRecord struct {
-	Generation int64               `json:"generation"`
-	Image      string              `json:"image"`
-	Release    *Deployment         `json:"release,omitempty"`
-	Identity   [32]byte            `json:"identity"`
-	Rollout    bakeRuntime         `json:"runtime"`
-	Bake       rollout.BakeVerdict `json:"bake"`
-	ReplacedBy *bakeReplacement    `json:"replacedBy,omitempty"`
+	Generation    int64               `json:"generation"`
+	Interruptions int                 `json:"interruptions"`
+	Image         string              `json:"image"`
+	Release       *Deployment         `json:"release,omitempty"`
+	Identity      [32]byte            `json:"identity"`
+	Rollout       bakeRuntime         `json:"runtime"`
+	Bake          rollout.BakeVerdict `json:"bake"`
+	ReplacedBy    *bakeReplacement    `json:"replacedBy,omitempty"`
 }
 
 type bakeRuntime struct {
@@ -61,7 +63,13 @@ func (n *Node) saveBake(key string, record bakeRecord) error {
 	} else {
 		delete(n.bakeUnsaved, key)
 	}
+	n.publishUnsaved()
 	return err
+}
+
+func (n *Node) publishUnsaved() {
+	pending := maps.Clone(n.bakeUnsaved)
+	n.stateUnsaved.Store(&pending)
 }
 
 func writeBake(key string, record bakeRecord) error {
@@ -85,17 +93,23 @@ func (n *Node) bakeState(state *stateReply) {
 	if state.Failed == nil {
 		state.Failed = map[string]int64{}
 	}
-	for name, desired := range n.desired {
+	state.BakeRequired = map[string]bool{}
+	pending := map[string]bakeRecord{}
+	if snapshot := n.stateUnsaved.Load(); snapshot != nil {
+		pending = *snapshot
+	}
+	for name, desired := range state.Desired {
 		entry := desired.entry()
-		if !entry.needsBake() {
-			delete(state.Failed, name)
-			continue
-		}
 		key := n.bakePath(name, entry.Generation)
 		record, err := n.readBake(name, entry.Generation)
-		_, unsaved := n.bakeUnsaved[key]
-		if pending, exists := n.bakeUnsaved[key]; exists {
-			record, err = pending, nil
+		_, unsaved := pending[key]
+		if retained, exists := pending[key]; exists {
+			record, err = retained, nil
+		}
+		state.BakeRequired[name] = n.needsBake(name, entry) || entry.Spec != nil && record.Bake.Reason != ""
+		if !state.BakeRequired[name] {
+			delete(state.Failed, name)
+			continue
 		}
 		identity, identityErr := bakeIdentity(desired)
 		if err != nil || identityErr != nil || record.Identity != identity || record.Bake.Finished.IsZero() || record.Bake.Reason != "" || unsaved {
@@ -147,9 +161,12 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 		n.mu.Unlock()
 		return record, err
 	}
-	if record.Identity != identity {
-		record = bakeRecord{Generation: spec.Generation, Image: spec.Image, Identity: identity, Release: applied.state.entry().Deployment}
+	metadataChanged := record.Identity != identity
+	record.Generation, record.Image, record.Identity = spec.Generation, spec.Image, identity
+	if record.Release == nil {
+		record.Release = applied.state.entry().Deployment
 	}
+	needsBake := n.needsBake(spec.Name, applied.state.entry())
 	if n.baking == nil {
 		n.baking = map[string]chan struct{}{}
 	}
@@ -163,6 +180,12 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	}
 
 	if !record.Bake.Finished.IsZero() {
+		if metadataChanged {
+			n.mu.Lock()
+			err := n.saveBake(key, record)
+			n.mu.Unlock()
+			return record, err
+		}
 		return record, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, regionWindow(&spec))
@@ -172,10 +195,32 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	if err == nil && spec.Deployment != nil && spec.Image == spec.Deployment.Image && record.Rollout.Revision != spec.Deployment.Revision {
 		err = errors.New("running image revision does not match the signed release commit")
 	}
-	if !applied.state.entry().needsBake() {
+	if !needsBake {
 		return record, err
 	}
 	if err == nil {
+		n.mu.Lock()
+		if !record.Bake.Started.IsZero() {
+			record.Interruptions++
+		}
+		if record.Interruptions >= maxBakeInterruptions {
+			record.Bake.Reason, record.Bake.Finished = "bake could not complete within three attempts", time.Now()
+		} else {
+			record.Bake.Started = time.Now()
+		}
+		advanceErr := n.saveBake(key, record)
+		if advanceErr != nil {
+			record.Bake.Reason, record.Bake.Finished, record.Bake.Unsaved = "bake attempt budget could not be saved", time.Now(), true
+			n.bakeUnsaved[key] = record
+			n.publishUnsaved()
+		}
+		n.mu.Unlock()
+		if advanceErr != nil {
+			return record, advanceErr
+		}
+		if record.Bake.Reason != "" {
+			return record, errors.New(record.Bake.Reason)
+		}
 		record.Bake, err = n.cfg.applier.Bake(ctx, spec, ready, record.Bake, func(verdict rollout.BakeVerdict) error {
 			record.Bake = verdict
 			if verdict.Reason != "" {
@@ -281,6 +326,4 @@ func parseBakeFile(file string) (string, int64, bool) {
 	return rest[:i], generation, true
 }
 
-func (entry Entry) needsBake() bool {
-	return entry.Spec != nil && entry.Deployment != nil && !entry.FirstInstall
-}
+const maxBakeInterruptions = 3

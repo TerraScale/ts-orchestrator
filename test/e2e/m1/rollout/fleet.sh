@@ -4,6 +4,7 @@ bin=$(realpath "$1")
 work=$(realpath "$2")
 spec=$(realpath "$3")
 orch=$(realpath "$4")
+mode=${5:-journey}
 here=$(cd "$(dirname "$0")" && pwd)
 forward=$(sysctl -n net.ipv4.ip_forward)
 daemons=()
@@ -58,4 +59,4 @@ for seat in first second third; do
  daemons+=("$!")
  printf '%s\n' "$!" >"$work/$seat/containerd.pid"
  done
-"$bin" journey "$work" "$here/launch.sh" "$spec"
+"$bin" "$mode" "$work" "$here/launch.sh" "$spec"

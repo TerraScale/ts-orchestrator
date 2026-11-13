@@ -219,12 +219,20 @@ func read(ctx context.Context, state string) Input {
 
 const hostSampleBound = 5 * time.Second
 
+const maxAbandonedHostSamples = 2
+
+type hostObservation struct {
+	started time.Time
+	done    chan struct{}
+}
+
 var hostSampler struct {
 	sync.Mutex
-	state string
-	at    time.Time
-	input Input
-	done  chan struct{}
+	state     string
+	at        time.Time
+	input     Input
+	current   *hostObservation
+	abandoned int
 }
 
 func sampleHost(ctx context.Context, state string) Input {
@@ -234,32 +242,52 @@ func sampleHost(ctx context.Context, state string) Input {
 		hostSampler.Unlock()
 		return part
 	}
-	if hostSampler.done == nil {
-		done := make(chan struct{})
-		hostSampler.done = done
+	if current := hostSampler.current; current != nil && time.Since(current.started) >= hostSampleBound {
+		hostSampler.current = nil
+		hostSampler.abandoned++
+	}
+	if hostSampler.current == nil && hostSampler.abandoned < maxAbandonedHostSamples {
+		observation := &hostObservation{started: time.Now(), done: make(chan struct{})}
+		hostSampler.current = observation
 		go func() {
-			started := time.Now()
 			system, err := observability.ReadSystem([]observability.FilesystemRole{{Role: "containerd", Path: containerdRoot}, {Role: "state", Path: state}})
 			part := Input{System: system}
 			if err != nil {
 				part.Failures = []string{"memory unreadable"}
 			}
+			for _, filesystem := range system.Filesystems {
+				if filesystem.SizeBytes == 0 {
+					part.Failures = append(part.Failures, "disk "+filesystem.Path+" unreadable")
+				}
+			}
 			hostSampler.Lock()
-			hostSampler.state, hostSampler.at, hostSampler.input = state, started, part
-			hostSampler.done = nil
-			close(done)
+			if hostSampler.current == observation {
+				hostSampler.current = nil
+				if time.Since(observation.started) <= hostSampleBound {
+					hostSampler.state, hostSampler.at, hostSampler.input = state, observation.started, part
+				}
+			} else {
+				hostSampler.abandoned--
+			}
+			close(observation.done)
 			hostSampler.Unlock()
 		}()
 	}
-	done := hostSampler.done
+	current := hostSampler.current
 	hostSampler.Unlock()
+	if current == nil {
+		return Input{Node: "host observation abandoned-read limit reached"}
+	}
+	bound := time.NewTimer(max(hostSampleBound-time.Since(current.started), 0))
+	defer bound.Stop()
 	select {
-	case <-done:
+	case <-current.done:
 		hostSampler.Lock()
 		defer hostSampler.Unlock()
 		if hostSampler.state == state && time.Since(hostSampler.at) <= hostSampleBound {
 			return hostSampler.input
 		}
+	case <-bound.C:
 	case <-ctx.Done():
 	}
 	return Input{Node: "host observation unavailable or stale"}

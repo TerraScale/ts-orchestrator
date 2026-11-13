@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,9 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
@@ -23,7 +22,7 @@ import (
 func clockCases(ctx context.Context, root string) {
 	var group sync.WaitGroup
 	failures := make(chan error, 5)
-	for _, scenario := range []string{"healthy-forward", "failure-forward", "backward-bound", "future-first", "process-discontinuity"} {
+	for _, scenario := range []string{"healthy-forward", "failure-forward", "healthy-backward", "failure-backward", "process-discontinuity"} {
 		directory := filepath.Join(root, scenario)
 		must(os.MkdirAll(directory, 0700))
 		group.Go(func() {
@@ -47,13 +46,7 @@ func clockCases(ctx context.Context, root string) {
 func clockCase(ctx context.Context, root, scenario string) {
 	started := time.Now()
 	first := rollout.BakeVerdict{}
-	switch scenario {
-	case "backward-bound":
-		first.FirstSample = started.Add(-rollout.MaxBakeWindow + 6*time.Second).UTC()
-	case "future-first":
-		first.FirstSample = started.Add(time.Hour).UTC()
-	case "process-discontinuity":
-		first.FirstSample = started.Add(-time.Minute).UTC()
+	if scenario == "process-discontinuity" {
 		must(os.WriteFile(filepath.Join(root, "clock-offset"), []byte(fmt.Sprint(int64(-31*time.Second))), 0600))
 	}
 	samples := 0
@@ -64,15 +57,18 @@ func clockCase(ctx context.Context, root, scenario string) {
 		switch {
 		case scenario == "healthy-forward" && samples == 2:
 			offset = 31 * time.Second
-		case scenario == "failure-forward" && samples == 4:
+		case (scenario == "failure-forward" || scenario == "failure-backward") && samples == 4:
 			offset = 31 * time.Second
-		case scenario == "backward-bound" && samples == 2:
+			if scenario == "failure-backward" {
+				offset = -offset
+			}
+		case scenario == "healthy-backward" && samples == 2:
 			offset = -31 * time.Second
 		}
 		if offset != 0 {
 			must(os.WriteFile(filepath.Join(root, "clock-offset"), []byte(fmt.Sprint(int64(offset))), 0600))
 		}
-		if scenario == "failure-forward" {
+		if strings.HasPrefix(scenario, "failure-") {
 			return map[string]string{"candidate": "unready"}, errors.New("candidate unready")
 		}
 		return map[string]string{"candidate": "ok"}, nil
@@ -85,31 +81,23 @@ func clockCase(ctx context.Context, root, scenario string) {
 	})
 	elapsed := time.Since(started)
 	require(!saved.Finished.IsZero() && saved.Finished.Equal(verdict.Finished), "terminal verdict was not finished and saved")
-	switch scenario {
-	case "healthy-forward":
-		require(err == nil && verdict.Reason == "" && elapsed >= rollout.BakeWindow, "forward wall step passed a healthy bake early")
-	case "failure-forward":
-		require(err != nil && strings.Contains(verdict.Reason, "15 seconds") && elapsed >= rollout.BakeFailureDuration, "forward wall step shortened the real failure streak")
-	case "backward-bound":
-		require(err != nil && strings.Contains(verdict.Reason, "total observation bound") && elapsed < 10*time.Second, "backward wall step extended or lost the total-bound failure")
-	case "future-first", "process-discontinuity":
-		data, failure := json.Marshal(verdict)
-		must(failure)
-		var fields map[string]any
-		must(json.Unmarshal(data, &fields))
-		require(err == nil && elapsed >= rollout.BakeWindow && !verdict.FirstSample.After(verdict.Started) && fields["interruption"] != nil, "future first sample was trusted instead of restarting the window")
+	if strings.HasPrefix(scenario, "failure-") {
+		require(err != nil && strings.Contains(verdict.Reason, "15 seconds") && elapsed >= rollout.BakeFailureDuration, "wall step shortened the real failure streak")
+	} else {
+		require(err == nil && verdict.Reason == "" && elapsed >= rollout.BakeWindow && elapsed < rollout.BakeWindow+4*time.Second, "wall step changed the healthy bake window")
 	}
 	logStep(fmt.Sprintf("clock %s finished and saved after %s", scenario, elapsed.Round(time.Millisecond)))
 }
 
-func assertWaiting(ctx context.Context, conn *nats.Conn, region, service string, generation int64) {
+func assertWaiting(ctx context.Context, conn *nats.Conn, region, service string, generation int64, earlier, missing string) {
 	since := time.Now()
 	observe(ctx, conn, func(s map[string]state) bool {
-		observation, present := s[region].Serving[service]
-		if !present || !observation.At.After(since) {
+		decision := s[region].Admission[service]
+		if decision.Generation != generation || !decision.At.After(since) {
 			return false
 		}
-		require(observation.Generation < generation && s[region].Ready[service] < generation, "downstream region admitted while an earlier region lacked current passing evidence")
+		require(decision.Earlier == earlier && decision.Evidence == missing, fmt.Sprintf("wrong admission decision: %+v", decision))
+		require(s[region].Ready[service] < generation, "downstream region admitted without required evidence")
 		return true
 	})
 }
@@ -130,14 +118,31 @@ func hostSamplerCase(ctx context.Context, root string) {
 			panic(ctx.Err())
 		}
 	}
-	for range 20 {
-		check, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-		report := regionhealth.Check(check, root)
-		cancel()
-		require(report.State != regionhealth.StateOK, "blocked host observation passed health")
+	check, cancel := context.WithTimeout(ctx, 6*time.Second)
+	report := regionhealth.Check(check, root)
+	cancel()
+	require(report.State != regionhealth.StateOK, "blocked host observation passed health")
+	must(os.WriteFile(filepath.Join(root, "blocked"), nil, 0600))
+	for {
+		if _, err := os.Stat(filepath.Join(root, "unblocked")); err == nil {
+			break
+		}
+		select {
+		case <-watcher.Events:
+		case <-ctx.Done():
+			panic(ctx.Err())
+		}
 	}
-	stacks := make([]byte, 1<<20)
-	stacks = stacks[:runtime.Stack(stacks, true)]
-	require(bytes.Count(stacks, []byte("observability.ReadSystem(")) == 1, "blocked host reads accumulated per health request")
-	logStep("twenty health requests share one blocked host sampler and fail health")
+	check, cancel = context.WithTimeout(ctx, 5*time.Second)
+	err = regionhealth.Serving(check, root, "")
+	cancel()
+	require(err == nil, fmt.Sprintf("host observation did not recover: %v", err))
+	logStep("blocked host observation expires; a fresh read recovers without process restart")
+	must(syscall.Mount("tmpfs", "/var/lib", "tmpfs", 0, "size=1m"))
+	check, cancel = context.WithTimeout(ctx, 5*time.Second)
+	err = regionhealth.Serving(check, root+"/.", "")
+	cancel()
+	require(err != nil && strings.Contains(err.Error(), "disk /var/lib/containerd unreadable"), fmt.Sprintf("unreadable required filesystem passed health: %v", err))
+	logStep("an unreadable required filesystem fails serving health")
+
 }

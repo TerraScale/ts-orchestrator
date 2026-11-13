@@ -138,7 +138,7 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	if deployment != nil {
 		hold = ""
 	}
-	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: hold, FirstInstall: previous == nil}}
+	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: hold}}
 	if resume {
 		generation = before.Generation
 		request.Entry = before

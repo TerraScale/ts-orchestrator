@@ -21,5 +21,6 @@ privilege=()
 if ((EUID != 0)); then
  privilege=(sudo --preserve-env=PATH)
 fi
+"${privilege[@]}" bash "$here/fleet.sh" "$work/rollout-journey" "$work/history" "$work/spec.json" "$bin" history
 "${privilege[@]}" bash "$here/fleet.sh" "$work/rollout-journey" "$work/fleet" "$work/spec.json" "$bin"
 echo "rollout lane measured: $((SECONDS - started)) seconds"

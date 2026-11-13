@@ -13,8 +13,6 @@ const MaxBakeWindow = 10 * time.Minute
 const BakeFailureDuration = 15 * time.Second
 const sampleBudget = 5 * time.Second
 
-var bakeClockOrigin = time.Now()
-
 type DependencyFailure struct{ Service, Status string }
 
 func (f *DependencyFailure) Error() string {
@@ -23,12 +21,10 @@ func (f *DependencyFailure) Error() string {
 
 type BakeVerdict struct {
 	Started             time.Time            `json:"started"`
-	FirstSample         time.Time            `json:"firstSample"`
 	Finished            time.Time            `json:"finished"`
 	Samples             int                  `json:"samples"`
 	Checks              map[string]string    `json:"checks"`
 	Reason              string               `json:"reason,omitempty"`
-	Interruption        string               `json:"interruption,omitempty"`
 	HealthySince        time.Time            `json:"healthySince"`
 	FailedSamples       int                  `json:"failedSamples"`
 	LastFailure         string               `json:"lastFailure,omitempty"`
@@ -41,16 +37,6 @@ func RunBake(ctx context.Context, v BakeVerdict, probe func(context.Context) (ma
 	started := time.Now()
 	v.Started = started
 	v.Finished, v.HealthySince = time.Time{}, time.Time{}
-	wall := started.Round(0)
-	if v.FirstSample.After(wall) || absDuration(wall.Sub(bakeClockOrigin.Round(0))-started.Sub(bakeClockOrigin)) > time.Second {
-		v.FirstSample = wall
-		v.Interruption = "interrupted bake: first sample is in the future or wall clock contradicts process elapsed time"
-	}
-	if v.FirstSample.IsZero() {
-		v.FirstSample = wall
-	}
-	remaining := MaxBakeWindow - wall.Sub(v.FirstSample)
-	clockOrigin := started
 	v.ConsecutiveFailures = map[string]int{}
 	v.FailureSince = map[string]time.Time{}
 	persist := func() error {
@@ -71,20 +57,14 @@ func RunBake(ctx context.Context, v BakeVerdict, probe func(context.Context) (ma
 	if err := persist(); err != nil {
 		return v, err
 	}
-	deadline := started.Add(remaining)
+	deadline := started.Add(MaxBakeWindow)
 	total, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {
-		now := time.Now()
-		if absDuration(now.Round(0).Sub(clockOrigin.Round(0))-now.Sub(clockOrigin)) > time.Second {
-			v.FirstSample, v.HealthySince = now, time.Time{}
-			v.Interruption = "interrupted bake: wall clock changed relative to process elapsed time"
-			clockOrigin = now
-		}
 		if !time.Now().Before(deadline) {
-			return fail("bake total observation bound exceeded")
+			return fail("bake attempt observation bound exceeded")
 		}
 		if err := ctx.Err(); err != nil {
 			return v, err
@@ -102,7 +82,7 @@ func RunBake(ctx context.Context, v BakeVerdict, probe func(context.Context) (ma
 		}
 		stop()
 		if !time.Now().Before(deadline) {
-			return fail("bake total observation bound exceeded")
+			return fail("bake attempt observation bound exceeded")
 		}
 		if err := ctx.Err(); err != nil {
 			return v, err
@@ -145,7 +125,7 @@ func RunBake(ctx context.Context, v BakeVerdict, probe func(context.Context) (ma
 			return v, err
 		}
 		if !time.Now().Before(deadline) {
-			return fail("bake total observation bound exceeded")
+			return fail("bake attempt observation bound exceeded")
 		}
 		if failure == nil && time.Now().Sub(v.HealthySince) >= BakeWindow {
 			v.Finished = time.Now()
@@ -156,15 +136,8 @@ func RunBake(ctx context.Context, v BakeVerdict, probe func(context.Context) (ma
 			if err := ctx.Err(); err != nil && time.Now().Before(deadline) {
 				return v, err
 			}
-			return fail("bake total observation bound exceeded")
+			return fail("bake attempt observation bound exceeded")
 		case <-tick.C:
 		}
 	}
-}
-
-func absDuration(value time.Duration) time.Duration {
-	if value < 0 {
-		return -value
-	}
-	return value
 }

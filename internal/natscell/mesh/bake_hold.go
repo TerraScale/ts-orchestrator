@@ -16,7 +16,7 @@ type bakeReplacement struct {
 
 func (n *Node) heldBakeGeneration(name string) int64 {
 	current := n.desired[name].entry()
-	if !current.needsBake() {
+	if current.Spec == nil {
 		return 0
 	}
 	record, _ := n.readBake(name, current.Generation)
@@ -41,15 +41,22 @@ func (n *Node) checkBakeAdmission(name string, entry Entry) error {
 	if err != nil {
 		return err
 	}
+	missingRelease := record.Release == nil
+	if missingRelease {
+		record.Release = n.heldRelease(name, held)
+	}
 	previous, next := record.Release, entry.Deployment
-	newer := false
+	newer := previous == nil && next != nil
 	if previous != nil && next != nil && previous.Accepts(next) == nil {
 		oldRun, _ := strconv.ParseUint(previous.RunID, 10, 64)
 		newRun, _ := strconv.ParseUint(next.RunID, 10, 64)
 		newer = newRun > oldRun || newRun == oldRun && next.RunAttempt > previous.RunAttempt
 	}
-	if entry.Generation <= held || entry.FirstInstall || !newer {
+	if entry.Generation <= held || !newer {
 		return fmt.Errorf("%s held at failed generation %d by release %+v; refused release %+v; repair the cause and release again from a strictly newer signed run or attempt", name, held, previous, next)
+	}
+	if missingRelease && record.Release != nil {
+		return n.saveBake(n.bakePath(name, held), record)
 	}
 	return nil
 }
