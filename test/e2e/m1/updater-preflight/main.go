@@ -395,7 +395,8 @@ func relayLane(ctx context.Context, conn *nats.Conn) {
 	must(err)
 	later.Revision, later.Verifier = sha, verifier
 	visited := false
-	later.Health = func(context.Context) error { visited = true; return nil }
+	later.Health = func(context.Context) error { return nil }
+	later.Relay = func(context.Context, []byte) []releasepush.HostVersion { visited = true; return nil }
 	regions := []releasepush.Region{}
 	for i, handler := range []*releasepush.Handler{founder, later} {
 		options, err := releasepush.Options(workerState, nil)
@@ -425,6 +426,41 @@ func relayLane(ctx context.Context, conn *nats.Conn) {
 	endpoint := strings.TrimSuffix(client.Transport.(providerTransport).url, "/binary") + "/token?"
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", endpoint))
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "lane"))
+	founder.RefusalFile = filepath.Join(workerState, "nats/release-attempt.json")
+	for _, mode := range []string{"worker-integrity", "first-integrity", "unknown-kind"} {
+		visited = false
+		worker.Client = &http.Client{Transport: corruptTransport{client.Transport}}
+		founder.Client = client
+		founder.Revision = sha
+		founder.Relay = func(ctx context.Context, payload []byte) []releasepush.HostVersion {
+			if mode == "unknown-kind" {
+				return []releasepush.HostVersion{{Host: "worker-one", Refusal: &releasepush.Refusal{Kind: "unrecognized", SHA: sha, Reason: "unknown refusal"}}}
+			}
+			return releasepush.RelayWorkers(ctx, conn, "lane.workers", payload, nodes)
+		}
+		if mode == "first-integrity" {
+			founder.Revision = strings.Repeat("a", 40)
+			founder.Binary = filepath.Join(workerState, "founder-installed")
+			must(os.WriteFile(founder.Binary, helperBytes, 0o755))
+			founder.Client = &http.Client{Transport: corruptTransport{client.Transport}}
+		}
+		var output bytes.Buffer
+		err := releasepush.Push(ctx, []string{"--sha", sha, "--dir", assets, "--regions", regionFile}, &output)
+		scanner := bufio.NewScanner(&output)
+		results := []releasepush.Result{}
+		for scanner.Scan() {
+			var result releasepush.Result
+			must(json.Unmarshal(scanner.Bytes(), &result))
+			results = append(results, result)
+		}
+		require(err != nil && len(results) == 2 && results[0].Error != "" && results[1].State == "skipped" && !visited, fmt.Sprintf("release integrity and unknown refusals must stop later regions: err=%v visited=%v results=%+v", err, visited, results))
+		require(len(results[0].Refusals) == 1, "fatal integrity must identify refusing host")
+		if mode != "unknown-kind" {
+			require(results[0].Refusals[0].Refusal.Kind == releasepush.RefusalIntegrity, "download mismatch must carry structured integrity kind")
+		}
+		fmt.Println("ok", mode, ": fatal structured refusal; later region receives no release")
+	}
+	worker.Client = client
 	for _, subject := range []string{"lane.workers", "lane.no-worker", "lane.attempt-failure"} {
 		founder.Relay = func(ctx context.Context, payload []byte) []releasepush.HostVersion {
 			return releasepush.RelayWorkers(ctx, conn, subject, payload, nodes)
@@ -460,40 +496,6 @@ func relayLane(ctx context.Context, conn *nats.Conn) {
 			require(err == nil && results[0].Workers[0].Error == "no answer" && len(results[0].Refusals) == 0, "silence must be informational")
 			fmt.Println("ok worker silence: no answer after 90 seconds; later region released; run succeeds")
 		}
-	}
-	founder.RefusalFile = filepath.Join(workerState, "nats/release-attempt.json")
-	for _, mode := range []string{"worker-integrity", "first-integrity", "unknown-kind"} {
-		visited = false
-		worker.Client = &http.Client{Transport: corruptTransport{client.Transport}}
-		founder.Client = client
-		founder.Revision = sha
-		founder.Relay = func(ctx context.Context, payload []byte) []releasepush.HostVersion {
-			if mode == "unknown-kind" {
-				return []releasepush.HostVersion{{Host: "worker-one", Refusal: &releasepush.Refusal{Kind: "unrecognized", SHA: sha, Reason: "unknown refusal"}}}
-			}
-			return releasepush.RelayWorkers(ctx, conn, "lane.workers", payload, nodes)
-		}
-		if mode == "first-integrity" {
-			founder.Revision = strings.Repeat("a", 40)
-			founder.Binary = filepath.Join(workerState, "founder-installed")
-			must(os.WriteFile(founder.Binary, helperBytes, 0o755))
-			founder.Client = &http.Client{Transport: corruptTransport{client.Transport}}
-		}
-		var output bytes.Buffer
-		err := releasepush.Push(ctx, []string{"--sha", sha, "--dir", assets, "--regions", regionFile}, &output)
-		scanner := bufio.NewScanner(&output)
-		results := []releasepush.Result{}
-		for scanner.Scan() {
-			var result releasepush.Result
-			must(json.Unmarshal(scanner.Bytes(), &result))
-			results = append(results, result)
-		}
-		require(err != nil && len(results) == 2 && results[0].Error != "" && results[1].State == "skipped" && !visited, "release integrity and unknown refusals must stop later regions")
-		require(len(results[0].Refusals) == 1, "fatal integrity must identify refusing host")
-		if mode != "unknown-kind" {
-			require(results[0].Refusals[0].Refusal.Kind == releasepush.RefusalIntegrity, "download mismatch must carry structured integrity kind")
-		}
-		fmt.Println("ok", mode, ": fatal structured refusal; later region receives no release")
 	}
 	must(os.WriteFile(candidate, append(helperBytes, []byte("\nCANDIDATE:noise")...), 0o755))
 	var before, after runtime.MemStats
@@ -569,6 +571,20 @@ func probationLane(ctx context.Context, conn *nats.Conn) {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "relay-lane" {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		listener, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, NoSigs: true, NoLog: true})
+		must(err)
+		go listener.Start()
+		require(listener.ReadyForConnections(5*time.Second), "relay listener")
+		defer listener.Shutdown()
+		conn, err := nats.Connect(listener.ClientURL())
+		must(err)
+		defer conn.Close()
+		relayLane(ctx, conn)
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "recover-state" {
 		probation, err := releasepush.Probe(os.Args[2], os.Stderr)
 		must(err)
