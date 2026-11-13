@@ -1,5 +1,8 @@
 # TerraScale Orchestrator
 
+The [platform design](docs/platform.md) is the source for the target design
+of the platform. Where today's code differs, that document says so.
+
 Read the [required zero-configuration operating contract](docs/zero-configuration.md).
 Current configuration paths described below are implementation limitations, not
 production activation instructions.
