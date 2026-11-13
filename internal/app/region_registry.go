@@ -10,10 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/atlas"
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/globalcontrol"
-	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -248,40 +246,6 @@ func (peers *rosterPeers) follow(fn func([]string)) {
 	defer peers.mu.Unlock()
 	peers.subscribers = append(peers.subscribers, fn)
 	fn(peers.list)
-}
-
-// atlasRoster is the Atlas loop's config: the spec's section with its regions
-// replaced by local and the roster peers, as Atlas region IDs (gru-1). Until
-// the first roster is read, and when the roster cannot be listed, it keeps the
-// spec's regions, so deploy targets never shrink at startup; each distinct
-// error is logged once.
-func atlasRoster(spec func() *atlas.Config, local string, peers *rosterPeers) func() *atlas.Config {
-	var logged string
-	return func() *atlas.Config {
-		config := spec()
-		peerCells, known := peers.read()
-		if config == nil || !known {
-			return config
-		}
-		var ids []string
-		for _, cell := range append([]string{local}, peerCells...) {
-			id, err := naming.RegionCell(cell).Name()
-			if err != nil {
-				return config
-			}
-			ids = append(ids, id)
-		}
-		next, err := config.WithRegions(ids)
-		if err != nil {
-			if message := err.Error(); message != logged {
-				slog.Warn("Atlas keeps the spec's regions: the roster cannot be listed", observability.ComponentKey, "atlas", "error", err)
-				logged = message
-			}
-			return config
-		}
-		logged = ""
-		return &next
-	}
 }
 
 // linkRoster keeps links connected to exactly the roster peers, over conn.

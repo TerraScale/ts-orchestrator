@@ -94,10 +94,8 @@ naming scheme and who may read what.
 | `ts-orch vault deliver --cell REGION --service SERVICE --refs FILE --dir DIR [--refresh 1m] [--once] [--file-names]` | Fetch CURRENT at startup and atomically refresh private tmpfs files on newer versions; output metadata only |
 | `ts-orch vault version --vault-id OCID --name NAME --secret-id OCID --expect-current N --file /dev/stdin [--instance-principal]` | Publish owner-provided bytes with an ETag and verify CURRENT readback; never generate or blindly retry a value |
 | `ts-orch region plan LABEL OCI_REGION --out FILE [--from PLAN]` | Derive a non-home region's plan from another region's reviewed plan; reads OCI, creates nothing ([new region](new-region.md)) |
-| `ts-orch region create LABEL OCI_REGION --state DIR --attempt-base FILE --home-plan FILE` | Bring the region up: foundation, private peering with gru-1, NetBird, founding attempt, edge, DNS, Atlas, verify; resumable, prints each step's wall time |
-| `ts-orch region verify LABEL --plan BOUND_PLAN [--wait D]` | Fail unless api and auth answer, every load balancer backend is healthy and Atlas lists the region |
-| `ts-orch atlas add-region --config OPERATOR_JSON --cell CELL [--out FILE]` | Plan listing a catalog region in the global home's `atlas` section; `--out` writes the unsigned candidate for `release sign-spec --root` (see [Atlas](atlas.md#automatic-discovery-and-vault-delivery)) |
-| `ts-orch atlas publish --plan FILE --section FILE` | Publish a cell spec `atlas` section to Atlas once, as the leader does every 10 s |
+| `ts-orch region create LABEL OCI_REGION --state DIR --attempt-base FILE --home-plan FILE` | Bring the region up: foundation, private peering with gru-1, NetBird, founding attempt, edge, DNS, verify; resumable, prints each step's wall time |
+| `ts-orch region verify LABEL --plan BOUND_PLAN [--wait D]` | Fail unless api and auth answer and every load balancer backend is healthy |
 
 ## Cell spec
 

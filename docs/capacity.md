@@ -257,7 +257,7 @@ ts-orch region remove <region>
 
 `create` is the region tool that exists today (`internal/region`): plan,
 foundation, peer, NetBird, ts-auth secrets, found, edge certificate, edge,
-DNS, Atlas and verify. To make it one call with no manual step, it:
+DNS and verify. To make it one call with no manual step, it:
 
 - subscribes the tenancy to the region first (moved from `regionops`);
 - reads every secret it needs from OCI Vault (Cloudflare token, NetBird admin

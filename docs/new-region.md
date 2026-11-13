@@ -33,7 +33,7 @@ region's evidence PR.
    - `~/.oci/config` with a `DEFAULT` profile (any region; `create` writes
      the region's own copy);
    - the home region's operator material in `/var/lib/terrascale-operator`
-     (`--home-operator`), since Atlas lives in gru-1's cell spec;
+     (`--home-operator`), the home's root-signing material;
    - gru-1's bound plan (`--home-plan`, required), the region's private
      peer;
    - an attempt base: the [attempt](region-bootstrap.md#bootstrap-sequence)
@@ -62,7 +62,6 @@ region's evidence PR.
 | edge | The L7 load balancer, its listeners and backend sets; records its IDs in `bound-plan.json` | `oci-region public-api apply` |
 | peer | The private DRG/RPC peering with gru-1 ([inter-region private networking](region-bootstrap.md#create-a-pairs-peering-with-ts-orch-oci-region-peer)): TCP 7422 (NATS leafnodes) and 9443 (TerraBase) between the private subnets; after `edge`, so it pins the final bound plan; writes `peer-intent.json` once, pinning both plans, and `peer-bound-intent.json` | `oci-region peer --apply` |
 | dns | Full (strict), zone AOP and proxied `<label>.api`, `<label>.auth` and `<label>.orch` | `oci-region dns --apply` |
-| atlas | The region in gru-1's `atlas` section, root-signed | `atlas add-region`, `release sign-spec --root`, `apply` |
 | verify | `region verify`, retried for `--wait` (30 minutes) | in process |
 
 ## What verify checks
@@ -72,7 +71,6 @@ region's evidence PR.
 | api | `https://<label>.api.terrascale.tech/healthz` answers 200, `status` `ok`, `region` the cell (`fra-1`) |
 | auth | `https://<label>.auth.terrascale.tech/terrascale/.well-known/openid-configuration` answers 200 with that issuer |
 | load balancer | every backend set (`terrabase`, `ts-auth`, `ts-orch` with orch) has backends, all healthy |
-| atlas | `https://atlas.terrascale.tech/v1/discovery` lists the cell with health `ok` |
 
 Every GET has a 10-second deadline and follows no redirect. TerraBase's and
 ts-auth's `/readyz` are never called: both write
@@ -108,7 +106,7 @@ sjc-1 by hand, 2026-10-07, from the retained TS-640 and TS-662 timestamps:
 | Foundation by hand with `oci`, and removing GRU hard-codes (#270) | 10:53Z | 11:46Z | 53 min |
 | Founding attempt, 5 bugs found (#279) | 11:46Z | 13:16Z | 1 h 30 min |
 | Host agents, specs by hand; TS-640 closed without an edge | 13:16Z | 14:02Z | 46 min |
-| Edge, TerraBase, ts-auth, Atlas (TS-662) | 14:45Z | 17:14Z | 2 h 29 min |
+| Edge, TerraBase, ts-auth (TS-662) | 14:45Z | 17:14Z | 2 h 29 min |
 
 That is 6 h 32 min from the decision to `region verify sjc` passing. The next region's
 `create` journal gives its numbers; record them here.

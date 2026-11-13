@@ -36,7 +36,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
-	"github.com/TerraScale/ts-orchestrator/internal/atlas"
 	"github.com/TerraScale/ts-orchestrator/internal/machinesapi"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
@@ -63,8 +62,6 @@ const (
 	// Level 2 adds profile secrets, level 3 reserved, level 4 host images,
 	// levels 5 and 6 reserved, level 7
 	// the desired OCI resources, level 8 the trusted signers, level 9 the
-	// launch image, level 10 the artifact store quota, level 11 the Atlas
-	// publisher, level 12 the release fence, level 13 a fenced set's
 	// min_serving, level 14 a fenced set's role, level 15 the release
 	// fence's canary, level 16 the Machines API, level 17 a host grant's
 	// controller, level 18 the dashboard, level 19 a signer's
@@ -187,9 +184,6 @@ type Spec struct {
 	// ArtifactStore replaces the signed config's delivery artifact store
 	// quota.
 	ArtifactStore *ArtifactStore `json:"artifact_store,omitempty"`
-	// Atlas makes the authority leader publish the cell's topology to
-	// ts-atlas (internal/atlas); nil publishes nothing.
-	Atlas *atlas.Config `json:"atlas,omitempty"`
 	// ReleaseFence makes the leader's service releases (TS-610) restart one
 	// node at a time, each fenced on the load balancer first; nil restarts
 	// every replica at once. Adding or changing it needs a root.
@@ -576,11 +570,6 @@ func (s Spec) Validate() error {
 	if s.ArtifactStore != nil && s.ArtifactStore.MaxBytes <= 0 {
 		return fmt.Errorf("%w: artifact_store max_bytes must be positive", ErrInvalid)
 	}
-	if s.Atlas != nil {
-		if err := s.Atlas.Validate(s.Identity.Cell); err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalid, err)
-		}
-	}
 	if s.ReleaseFence != nil {
 		if err := s.ReleaseFence.validate(s.Identity.Cell); err != nil {
 			return err
@@ -657,7 +646,6 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 // profile names Vault secrets, 4 once it allows host
 // images, 5 and 6 reserved, 7 with
 // desired OCI resources, 8 with signers, 9 once it names a launch image and
-// 10 with an artifact store quota, 11 with an Atlas publisher, 12 with
 // a release fence (13, 14 and 15 with its min_serving, role and canary) and
 // 16 with the Machines API, 17 once a host grant names its controller and
 // 18 with the dashboard, 19 with material-install authority, 20 with NetBird,
@@ -683,9 +671,6 @@ func (s Spec) Level() uint64 {
 	}
 	if s.ArtifactStore != nil {
 		level = 10
-	}
-	if s.Atlas != nil {
-		level = 11
 	}
 	if s.ReleaseFence != nil {
 		level = 12
@@ -987,10 +972,6 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 	if next.LaunchImage != "" && next.LaunchImage != current.LaunchImage {
 		changes = append(changes, "launch image "+next.LaunchImage)
 	}
-	// The publish key writes what every SDK trusts for region discovery.
-	if next.Atlas != nil && !reflect.DeepEqual(current.Atlas, next.Atlas) {
-		changes = append(changes, "atlas")
-	}
 	// A fence takes load balancer backends out of rotation with the
 	// controllers' instance principal.
 	if next.ReleaseFence != nil && !reflect.DeepEqual(current.ReleaseFence, next.ReleaseFence) {
@@ -1069,9 +1050,6 @@ type Plan struct {
 	// ArtifactStore is "added", "updated" or "removed" when the artifact
 	// store quota changes.
 	ArtifactStore string `json:"artifact_store,omitempty"`
-	// Atlas is "added", "updated" or "removed" when the Atlas publisher
-	// changes.
-	Atlas string `json:"atlas,omitempty"`
 	// ReleaseFence is "added", "updated" or "removed" when the release
 	// fence changes.
 	ReleaseFence string `json:"release_fence,omitempty"`
@@ -1161,14 +1139,6 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 	case before != nil && *before != *after:
 		plan.ArtifactStore = "updated"
 	}
-	switch before, after := current.Atlas, next.Atlas; {
-	case before == nil && after != nil:
-		plan.Atlas = "added"
-	case before != nil && after == nil:
-		plan.Atlas = "removed"
-	case before != nil && !reflect.DeepEqual(*before, *after):
-		plan.Atlas = "updated"
-	}
 	switch before, after := current.ReleaseFence, next.ReleaseFence; {
 	case before == nil && after != nil:
 		plan.ReleaseFence = "added"
@@ -1208,7 +1178,7 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 &&
 		p.OCIDesired == "" && len(p.Signers) == 0 &&
-		p.LaunchImage == "" && p.ArtifactStore == "" && p.Atlas == "" && p.ReleaseFence == "" && p.MachinesAPI == "" &&
+		p.LaunchImage == "" && p.ArtifactStore == "" && p.ReleaseFence == "" && p.MachinesAPI == "" &&
 		p.Dashboard == "" && p.NetBird == ""
 }
 

@@ -16,15 +16,12 @@ import (
 // Verifier checks that a region serves: what TS-640 lacked when it was
 // marked done.
 type Verifier struct {
-	HTTP *http.Client
-	// Cell is the region's cell, e.g. sjc-1: TerraBase's region and
-	// Atlas' region ID.
-	Cell string
-	// API, Auth and Atlas are origins without a path.
-	API, Auth, Atlas string
-	LB               lb.API
-	LoadBalancerID   string
-	BackendSets      []string
+	HTTP           *http.Client
+	Cell           string
+	API, Auth      string
+	LB             lb.API
+	LoadBalancerID string
+	BackendSets    []string
 }
 
 // Check is one verification result.
@@ -52,23 +49,6 @@ func (v Verifier) Checks(ctx context.Context) []Check {
 		err == nil && code == http.StatusOK && discovery.Issuer == issuer})
 
 	checks = append(checks, v.balancer(ctx))
-
-	var topology struct {
-		Regions []struct {
-			ID     string `json:"id"`
-			Health string `json:"health"`
-		} `json:"regions"`
-	}
-	code, err = v.get(ctx, v.Atlas+"/v1/discovery", &topology)
-	// ts-atlas docs/discovery-v1.md: health is ok, unknown or down.
-	health := "not listed"
-	for _, r := range topology.Regions {
-		if r.ID == v.Cell {
-			health = r.Health
-		}
-	}
-	checks = append(checks, Check{"atlas", fmt.Sprintf("GET %s/v1/discovery: %s; %s %s", v.Atlas, outcome(code, err), v.Cell, health),
-		err == nil && code == http.StatusOK && health == "ok"})
 	return checks
 }
 

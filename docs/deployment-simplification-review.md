@@ -46,18 +46,15 @@ an otherwise valid release.
 
 **What this is:** [discovery.go](../internal/release/cli/discovery.go#L14) now
 reads each founded cell's head-bucket `releases/orchestrator/status.json`; stale
-or unreadable membership fails the whole command.
+or unreadable membership fails the whole command (resolved Nov 2026).
 
-**Problem:** (historical) the fixed Atlas endpoint's unavailability stopped
-discovery for all regions.
+**Problem:** (historical) the retired Atlas origin stopped discovery for all
+regions when it went away.
 
-**Fix:** Use authenticated durable foundation/admitted membership for lifecycle
-authority, with explicit partition and freshness rules. Separate provisioning
-intent from serving observations; retain Atlas for routing and health. Do not
-trust arbitrary cached data or treat the OCI region catalog as spend authority.
-
-**If skipped:** Automatic deployment depends on a public service and records
-that bootstrap itself has yet to produce.
+**Fix (done):** membership comes from the orchestrator's own controller
+documents, read with the same per-cell operator credentials the deploy path
+uses. Do not trust arbitrary cached data or treat the OCI region catalog as
+spend authority.
 
 ### 3. A local completed-step journal is not continuous regional repair
 
