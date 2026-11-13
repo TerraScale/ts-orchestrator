@@ -83,6 +83,7 @@ type run struct {
 	parent               string                  // the TerraScale compartment
 	home, ids            identity.IdentityClient // home region (writes) and this region (ADs)
 	compute              core.ComputeClient
+	storage              core.BlockstorageClient
 	net                  core.VirtualNetworkClient
 }
 
@@ -112,6 +113,9 @@ func connect(ctx context.Context, entry catalog.Entry, dry bool, out io.Writer) 
 	if r.compute, err = f.Compute(); err != nil {
 		return nil, err
 	}
+	if r.storage, err = f.Blockstorage(); err != nil {
+		return nil, err
+	}
 	r.net, err = f.Network()
 	return r, err
 }
@@ -135,6 +139,9 @@ func (r *run) add(host, shape string) error {
 	}
 	inst, err := r.ensureInstance(host, shape)
 	if err != nil {
+		return err
+	}
+	if err := r.ensureBootBackup(inst); err != nil {
 		return err
 	}
 	if err := r.ensureIAM(); err != nil || host != "" || inst == nil {
