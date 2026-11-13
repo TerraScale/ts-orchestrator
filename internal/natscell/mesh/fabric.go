@@ -89,7 +89,7 @@ var (
 )
 
 var accountsConfig = fmt.Sprintf(`accounts {
-  %s {}
+  %s { jetstream: { max_memory: 1M, max_file: 32M, max_streams: 3, max_consumers: 64 } }
   %s { jetstream: { max_memory: 1G, max_file: 36G, max_streams: 64, max_consumers: 4096 } }
 }
 `, orchAccount, FabricAccount)

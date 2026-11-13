@@ -33,7 +33,10 @@ type Edge struct {
 	bootstrapBarrier bootstrapBarrier
 	listen           func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
 	terrabase        func() (string, error)
-	certs            *autocert.Manager
+	certs            *certificateManager
+	certRoutes       chan struct{}
+	listeners        atomic.Uint32
+	readyRoutes      atomic.Pointer[[]ReadinessRoute]
 	routes           atomic.Pointer[map[string]int]
 	postgres         atomic.Pointer[map[string]int]
 	pgKeys           postgresKeys
@@ -58,10 +61,8 @@ type Edge struct {
 	netbirdDashboard   *netbirddashboard.Handler
 }
 
-// New returns an edge that caches certificates under stateDir/edge-certs.
 func New(stateDir string) *Edge { return newEdge(stateDir, nil) }
 
-// newEdge uses client as the ACME client; nil means Let's Encrypt.
 func newEdge(stateDir string, client *acme.Client) *Edge {
 	e := &Edge{
 		pgRelays: make(chan struct{}, 32), pgControl: make(chan struct{}, 32),
@@ -77,12 +78,9 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	e.peers = newPeerTransport(e)
 	e.routes.Store(&map[string]int{})
 	e.postgres.Store(&map[string]int{})
-	e.certs = &autocert.Manager{
-		Prompt:     autocert.AcceptTOS,
-		Cache:      autocert.DirCache(filepath.Join(stateDir, "edge-certs")),
-		HostPolicy: e.hostPolicy,
-		Client:     client,
-	}
+	e.certRoutes = make(chan struct{}, 1)
+	e.certs = &certificateManager{policy: e.hostPolicy, client: client, cache: &certificateCache{local: autocert.DirCache(filepath.Join(stateDir, "edge-certs")), source: e.certificateStore}}
+	e.readyRoutes.Store(&[]ReadinessRoute{})
 	e.challenges = e.certs.HTTPHandler(nil)
 	http1 := http.DefaultTransport.(*http.Transport).Clone()
 	http1.Proxy = nil
@@ -179,10 +177,18 @@ func (e *Edge) SetRoutes(web, postgres map[string]int) {
 	}
 	e.routes.Store(lower(web))
 	e.postgres.Store(lower(postgres))
+	select {
+	case e.certRoutes <- struct{}{}:
+	default:
+	}
 }
 
 func (e *Edge) Run(ctx context.Context) error {
+	if err := e.certs.cache.protect(); err != nil {
+		return err
+	}
 	var running sync.WaitGroup
+	running.Go(func() { e.reconcileCertificates(ctx) })
 	running.Go(func() { e.reconcileNetBirdDashboard(ctx) })
 	for _, protocol := range []string{"http", "https", "postgres", "terrabase"} {
 		running.Go(func() { e.runListener(ctx, protocol) })
@@ -199,6 +205,10 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	plain := &http.Server{
 		Handler: countResponses("http", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			e.identify(w, r)
+			if r.URL.Path == "/edge/ready" {
+				e.serveReady(w, r)
+				return
+			}
 			// A Postgres hostname needs :80 only for its certificate's challenge.
 			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
 				http.NotFound(w, r)

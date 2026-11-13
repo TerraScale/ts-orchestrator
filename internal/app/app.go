@@ -149,6 +149,7 @@ func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region
 					nextProofRefresh = time.Now().Add(time.Minute)
 				}
 				public.SetRoutes(edgeRoutes(list.Services, region))
+				public.SetReadinessRoutes(edgeReadinessRoutes(list.Services, region))
 			} else {
 				slog.WarnContext(ctx, "edge route sync failed", "error", err)
 			}
