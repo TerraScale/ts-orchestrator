@@ -51,7 +51,7 @@ func Run(ctx context.Context, state string, cluster Cluster, started func(*Node)
 			slog.InfoContext(ctx, "mesh started", "region", node.cfg.region, "server", node.cfg.server)
 			started(node)
 			go node.servePeerMetrics(node.ctx)
-			node.run(ctx)
+			node.Run(ctx)
 			node.Close()
 			if ctx.Err() != nil {
 				return
@@ -71,12 +71,6 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 	region, err := ownRegion(ctx)
 	if err != nil {
 		return nil, err
-	}
-	var routes []string
-	if cluster.Routes != nil {
-		if routes, err = cluster.Routes(ctx, region); err != nil {
-			return nil, err
-		}
 	}
 	if err := releasepush.OpenTCP(ctx, ClusterPort); err != nil {
 		slog.WarnContext(ctx, "mesh cluster firewall", "error", err)
@@ -98,6 +92,17 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 	name, err := os.Hostname()
 	if err != nil {
 		return nil, err
+	}
+	return Start(ctx, state, region, name, ca, hex.EncodeToString(terrabaseToken), cluster)
+}
+
+func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseToken string, cluster Cluster) (*Node, error) {
+	var routes []string
+	var err error
+	if cluster.Routes != nil {
+		if routes, err = cluster.Routes(ctx, region); err != nil {
+			return nil, err
+		}
 	}
 	seeds := map[string]string{}
 	for _, peer := range Regions() {
@@ -122,7 +127,7 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 	return start(config{maintenance: fence,
 		region: region, server: name, dir: filepath.Join(state, "mesh"),
 		clusterHost: "0.0.0.0", clusterAdvertise: advertise, clusterPort: ClusterPort, localPort: LocalPort,
-		seeds: seeds, routes: routes, ca: ca, terrabaseToken: hex.EncodeToString(terrabaseToken), applier: applier, every: antiEntropyEvery,
+		seeds: seeds, routes: routes, ca: ca, terrabaseToken: terrabaseToken, applier: applier, every: antiEntropyEvery,
 		peersDir: swarmruntime.PeersDirectory, peersEvery: peersEvery, address: NetBirdAddress,
 	})
 }

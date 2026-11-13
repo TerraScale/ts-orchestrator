@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-work=$1
-here=$2
-runtime_pins=$3
-repo=$(cd "$here/../../.." && pwd)
+source "$(dirname "$0")/setup.sh"
 config=/etc/systemd/journald.conf.d/60-ts-orch.conf
 
 begin "restart ts-orch repairs host log settings on the controlled runner"

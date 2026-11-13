@@ -1,4 +1,5 @@
 {
+  "dependencies": ["peers"],
   "name": "app-canary",
   "image": "ghcr.io/terrascale/app-canary@sha256:2733561b8190982f1ea9b25657ce3f176c94fda0fd9ab26c984ce4e142c1f993",
   "env": {"WHOAMI_PORT_NUMBER": "8097"},

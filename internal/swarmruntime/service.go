@@ -18,6 +18,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
@@ -375,9 +376,10 @@ func serviceIntentFingerprint(spec *api.ServiceSpec) (string, error) {
 // Labels the single-host edge (hostnames) and secret injection (secrets) read
 // from a spec-owned service; the probe reads LabelReadyPath.
 const (
-	LabelServiceSpec = "terrascale.service-spec"
-	LabelHostnames   = "terrascale.hostnames"
-	LabelSecrets     = "terrascale.secrets"
+	LabelServiceSpec  = "terrascale.service-spec"
+	LabelDependencies = "terrascale.dependencies"
+	LabelHostnames    = "terrascale.hostnames"
+	LabelSecrets      = "terrascale.secrets"
 	// LabelSecretRefs maps each LabelSecrets key to its OCI Vault secret (JSON object of vaultsecret.Ref).
 	LabelSecretRefs = "terrascale.secret-refs"
 	// LabelGeneration is the mesh desired-state generation the service runs.
@@ -411,16 +413,17 @@ var (
 
 // ServiceSpec is one operator-declared single-host service, `deploy/m1/services/*.json`.
 type ServiceSpec struct {
-	Name      string                     `json:"name"`
-	Image     string                     `json:"image"`
-	Args      []string                   `json:"args,omitempty"`
-	Env       map[string]string          `json:"env,omitempty"`
-	Secrets   map[string]vaultsecret.Ref `json:"secrets,omitempty"`
-	Mounts    []ServiceMount             `json:"mounts,omitempty"`
-	Port      uint32                     `json:"port"`
-	ReadyPath string                     `json:"readyPath,omitempty"`
-	Hostnames []string                   `json:"hostnames,omitempty"`
-	Replicas  uint64                     `json:"replicas"`
+	Name         string                     `json:"name"`
+	Image        string                     `json:"image"`
+	Args         []string                   `json:"args,omitempty"`
+	Env          map[string]string          `json:"env,omitempty"`
+	Secrets      map[string]vaultsecret.Ref `json:"secrets,omitempty"`
+	Mounts       []ServiceMount             `json:"mounts,omitempty"`
+	Port         uint32                     `json:"port"`
+	ReadyPath    string                     `json:"readyPath,omitempty"`
+	Hostnames    []string                   `json:"hostnames,omitempty"`
+	Replicas     uint64                     `json:"replicas"`
+	Dependencies *[]string                  `json:"dependencies,omitzero"`
 	// ReadyTimeoutSeconds bounds how long a new task may take to answer
 	// readyPath before the update rolls back; zero keeps DefaultReadyTimeout.
 	ReadyTimeoutSeconds uint32 `json:"readyTimeoutSeconds,omitempty"`
@@ -441,10 +444,8 @@ type ServiceSpec struct {
 	// Deployment is actual signed authority; DeploymentFloor also accompanies operator entries.
 	Deployment      *Deployment `json:"-"`
 	DeploymentFloor *Deployment `json:"-"`
-	// Region and Node are the mesh host's region and node name; when set,
-	// the task gets TS_REGION, TS_NODE and TS_PEERS_FILE.
-	Region string `json:"-"`
-	Node   string `json:"-"`
+	Region          string      `json:"-"`
+	Node            string      `json:"-"`
 	// WorkerAddresses is the founder's fresh, READY/ACTIVE mesh membership,
 	// derived at reconciliation; declarations cannot supply this inventory.
 	WorkerAddresses map[string]string `json:"-"`
@@ -467,6 +468,9 @@ type ServiceMount struct {
 // SwarmSpec maps the declaration to an upstream service; the executor
 // re-validates the container on every task.
 func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
+	if s.Name == netbird.ServerServiceName {
+		s.Dependencies = new([]string{})
+	}
 	if s.DeploymentFloor != nil && s.Generation <= 0 {
 		return nil, errors.New("deployment authority requires a positive generation")
 	}
@@ -554,6 +558,13 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		return nil, err
 	}
 	labels := map[string]string{LabelServiceSpec: s.Name, LabelReadyPath: readyPath}
+	if s.Dependencies != nil {
+		dependencies, err := json.Marshal(s.Dependencies)
+		if err != nil {
+			return nil, err
+		}
+		labels[LabelDependencies] = string(dependencies)
+	}
 	for key, deployment := range map[string]*Deployment{LabelDeployment: s.Deployment, LabelDeploymentFloor: s.DeploymentFloor} {
 		if deployment != nil {
 			data, err := json.Marshal(deployment)
@@ -860,6 +871,9 @@ func CompleteServiceSpec(ctx context.Context, client api.ControlClient, s Servic
 }
 
 func applyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec, previous *api.Service, resolve SecretResolver) (*api.Service, error) {
+	if s.Dependencies != nil && s.NeedsPeers() && (s.Region == "" || s.Node == "") {
+		return nil, errors.New("peers dependency requires the mesh region and node")
+	}
 	spec, err := s.SwarmSpec()
 	if err != nil {
 		return nil, err
