@@ -50,10 +50,12 @@ func live(items []core.Instance) []core.Instance {
 	})
 }
 
-// pick is the instance named name, or with name "" the region host: the
-// oldest live instance, so gru-1-ctl-1 is adopted and no duplicate launched.
 func pick(items []core.Instance, name string) (*core.Instance, error) {
-	items = live(items)
+	return pickFrom(live(items), name)
+}
+
+func pickFrom(items []core.Instance, name string) (*core.Instance, error) {
+	items = slices.Clone(items)
 	if name == "" {
 		if len(items) == 0 {
 			return nil, nil
@@ -87,30 +89,80 @@ func (r *run) instances() ([]core.Instance, error) {
 	}
 }
 
-// ensureInstance adopts or launches the host and returns it.
-func (r *run) ensureInstance(host, shape string) (*core.Instance, error) {
+func (r *run) ensureInstance(host, shape string) (*core.Instance, *core.Volume, error) {
 	items, err := r.instances()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if err := r.finishTerminating(items, host); err != nil {
+		return nil, nil, err
 	}
 	found, err := pick(items, host)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if found != nil {
-		return found, r.report("unchanged", "instance", deref(found.DisplayName), deref(found.Id))
+		if found.LifecycleState == core.InstanceLifecycleStateStopped || found.LifecycleState == core.InstanceLifecycleStateStopping {
+			return nil, nil, fmt.Errorf("host %s is %s; finish or abandon the removal before add", deref(found.Id), found.LifecycleState)
+		}
+		name := deref(found.DisplayName)
+		volume, err := r.dataVolume(name)
+		if err != nil {
+			return nil, nil, err
+		}
+		if found.Metadata[dataFormatTag] == "true" && (volume == nil || found.Metadata[dataVolumeTag] != deref(volume.Id) || volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag])) {
+			if r.dry {
+				return nil, nil, fmt.Errorf("unfinished formatting instance %s must be terminated and replaced", deref(found.Id))
+			}
+			if err := r.stopInstance(found); err != nil {
+				return nil, nil, err
+			}
+			bound := &core.Volume{Id: new(found.Metadata[dataVolumeTag])}
+			if deref(bound.Id) != "" {
+				attachment, err := r.dataAttachment(found, bound)
+				if err != nil {
+					return nil, nil, err
+				}
+				if attachment != nil {
+					if err := r.detachDataVolume(found, bound); err != nil {
+						return nil, nil, err
+					}
+				}
+			}
+			if err := r.terminateInstance(found); err != nil {
+				return nil, nil, err
+			}
+			return nil, nil, fmt.Errorf("terminated unfinished formatting instance %s; inspect volume %s (discovered %s) and set initialised tag and UUID before a new add", deref(found.Id), found.Metadata[dataVolumeTag], volumeID(volume))
+		}
+		if volume == nil || found.Metadata[dataVolumeTag] != deref(volume.Id) {
+			return nil, nil, fmt.Errorf("instance %s launched for volume %s; refusing discovered volume %s", deref(found.Id), found.Metadata[dataVolumeTag], volumeID(volume))
+		}
+		if volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag]) {
+			return nil, nil, fmt.Errorf("existing volume %s requires the terrascale-data-formatted tag and terrascale-data-uuid after inspection", deref(volume.Id))
+		}
+		if deref(volume.AvailabilityDomain) != deref(found.AvailabilityDomain) {
+			return nil, nil, errors.New("host and data volume availability domains differ")
+		}
+		volume, err = r.ensureDataVolume(name, deref(found.AvailabilityDomain), volume)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := r.attachDataVolume(name, found, volume); err != nil {
+			return nil, nil, err
+		}
+		return found, volume, r.report("unchanged", "instance", name, deref(found.Id))
 	}
 	if host == "" {
 		host = "ts-" + r.code + "-1"
 	}
-	launched, err := r.launch(host, sized(shape), live(items))
+	launched, volume, err := r.launch(host, sized(shape), live(items))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if launched == nil { // dry run
-		return nil, r.report("created", "instance", host, "-")
+	if launched == nil {
+		return nil, nil, r.report("created", "instance", host, "-")
 	}
-	return launched, r.report("created", "instance", host, deref(launched.Id))
+	return launched, volume, r.report("created", "instance", host, deref(launched.Id))
 }
 
 // spread is where a new host may go beside the region's live hosts: their
@@ -154,27 +206,27 @@ func (r *run) faultDomains(ad string) ([]string, error) {
 	return names, nil
 }
 
-func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Instance, error) {
+func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Instance, *core.Volume, error) {
 	images, err := r.compute.ListImages(r.ctx, core.ListImagesRequest{CompartmentId: &r.compartment, OperatingSystem: new("Canonical Ubuntu"),
 		OperatingSystemVersion: new("24.04"), Shape: &m.shape, SortBy: core.ListImagesSortByTimecreated, SortOrder: core.ListImagesSortOrderDesc})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	i := slices.IndexFunc(images.Items, func(i core.Image) bool {
 		n := deref(i.DisplayName)
 		return strings.Contains(n, "aarch64") == (m.arch == "arm64") && !strings.Contains(n, "Minimal")
 	})
 	if i < 0 {
-		return nil, fmt.Errorf("no Ubuntu 24.04 %s image for %s", m.arch, m.shape)
+		return nil, nil, fmt.Errorf("no Ubuntu 24.04 %s image for %s", m.arch, m.shape)
 	}
 	subnet, err := r.subnet()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	groups, err := r.net.ListNetworkSecurityGroups(r.ctx, core.ListNetworkSecurityGroupsRequest{CompartmentId: &r.compartment,
 		LifecycleState: core.NetworkSecurityGroupLifecycleStateAvailable})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var nsgs []string
 	for _, g := range groups.Items {
@@ -184,22 +236,44 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 	}
 	url, sum, err := newestRelease(r.ctx, m.arch)
 	if err != nil {
-		return nil, err
-	}
-	script, err := userData(m1.Files, url, sum)
-	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ads, err := r.ids.ListAvailabilityDomains(r.ctx, identity.ListAvailabilityDomainsRequest{CompartmentId: &r.tenancy})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	ad, free, err := spread(hosts, r.faultDomains)
-	if err != nil || r.dry { // a dry run checks every lookup, then launches nothing
-		return nil, err
+	var ad string
+	var free []string
+	volume, err := r.dataVolume(name)
+	if err != nil {
+		return nil, nil, err
 	}
-	// Beside its region's hosts: their AD, each free fault domain in turn.
-	// Alone: OCI picks the fault domain in the first two ADs.
+	if volume == nil {
+		ad, free, err = spread(hosts, r.faultDomains)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		if volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag]) {
+			return nil, nil, errors.New("existing data volume requires the terrascale-data-formatted tag and terrascale-data-uuid before attachment; verify restored or interrupted provisioning data first")
+		}
+		ad = deref(volume.AvailabilityDomain)
+		free, err = r.faultDomains(ad)
+		if err != nil {
+			return nil, nil, err
+		}
+		free = slices.DeleteFunc(free, func(fd string) bool {
+			return slices.ContainsFunc(hosts, func(h core.Instance) bool {
+				return deref(h.AvailabilityDomain) == ad && deref(h.FaultDomain) == fd
+			})
+		})
+		if len(free) == 0 {
+			return nil, nil, errors.New("no free fault domain in the retained data volume's availability domain")
+		}
+		if _, err := r.dataAttachment(nil, volume); err != nil {
+			return nil, nil, err
+		}
+	}
 	type place struct{ ad, fd *string }
 	var places []place
 	for _, fd := range free {
@@ -210,30 +284,60 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 			places = append(places, place{a.Name, nil})
 		}
 	}
-	// Out of host capacity in one place: try the next.
+	if len(places) == 0 {
+		return nil, nil, errors.New("no availability domain for host")
+	}
+	if r.dry {
+		volume, err = r.ensureDataVolume(name, deref(places[0].ad), volume)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, r.attachDataVolume(name, nil, volume)
+	}
+	volume, err = r.ensureDataVolume(name, deref(places[0].ad), volume)
+	if err != nil {
+		return nil, nil, err
+	}
 	var launched core.LaunchInstanceResponse
 	for _, at := range places {
+		if deref(volume.AvailabilityDomain) != deref(at.ad) {
+			continue
+		}
+		mayFormat := r.createdVolumes[deref(volume.Id)]
+		script, scriptErr := CloudInit(m1.Files, url, sum, deref(volume.Id), volume.FreeformTags[dataUUIDTag], volume.FreeformTags[dataSerialTag], mayFormat)
+		if scriptErr != nil {
+			return nil, nil, scriptErr
+		}
+		permission := "false"
+		if mayFormat {
+			permission = "true"
+		}
 		launched, err = r.compute.LaunchInstance(r.ctx, core.LaunchInstanceRequest{LaunchInstanceDetails: core.LaunchInstanceDetails{
 			AvailabilityDomain: at.ad, FaultDomain: at.fd, CompartmentId: &r.compartment, DisplayName: &name, Shape: &m.shape,
-			ShapeConfig:   &core.LaunchInstanceShapeConfigDetails{Ocpus: &m.ocpus, MemoryInGBs: &m.gb},
-			SourceDetails: core.InstanceSourceViaImageDetails{ImageId: images.Items[i].Id, BootVolumeSizeInGBs: new(int64(50))},
-			CreateVnicDetails: &core.CreateVnicDetails{SubnetId: &subnet, AssignPublicIp: new(true), NsgIds: nsgs,
-				HostnameLabel: &name},
-			Metadata: map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script))},
+			ShapeConfig:       &core.LaunchInstanceShapeConfigDetails{Ocpus: &m.ocpus, MemoryInGBs: &m.gb},
+			SourceDetails:     core.InstanceSourceViaImageDetails{ImageId: images.Items[i].Id, BootVolumeSizeInGBs: new(int64(50))},
+			CreateVnicDetails: &core.CreateVnicDetails{SubnetId: &subnet, AssignPublicIp: new(true), NsgIds: nsgs, HostnameLabel: &name},
+			Metadata:          map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script)), dataVolumeTag: deref(volume.Id), dataFormatTag: permission},
 		}})
 		if err == nil {
 			break
 		}
 	}
 	if err != nil {
-		return nil, fmt.Errorf("launch %s: %w", name, err)
+		return nil, nil, fmt.Errorf("launch %s: %w", name, err)
 	}
 	inst := launched.Instance
-	return &inst, poll(r.ctx, 5*time.Second, 120, func() (bool, error) {
+	if err := poll(r.ctx, 5*time.Second, 120, func() (bool, error) {
 		g, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: inst.Id})
 		inst = g.Instance
 		return g.LifecycleState == core.InstanceLifecycleStateRunning, err
-	})
+	}); err != nil {
+		return nil, nil, err
+	}
+	if err := r.bindDataVolume(&inst, volume); err != nil {
+		return nil, nil, err
+	}
+	return &inst, volume, r.attachDataVolume(name, &inst, volume)
 }
 
 // newestRelease is the newest CI release's ts-orch asset for arch and its
@@ -268,4 +372,11 @@ func deref[T any](p *T) T {
 		return zero
 	}
 	return *p
+}
+
+func volumeID(volume *core.Volume) string {
+	if volume == nil {
+		return "<missing>"
+	}
+	return deref(volume.Id)
 }
