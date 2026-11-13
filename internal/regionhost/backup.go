@@ -6,7 +6,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
-const bootBackupPolicy = "silver"
+const bootBackupPolicy = "ts-boot-weekly-4"
 
 func (r *run) ensureBootBackup(inst *core.Instance) error {
 	if inst == nil {
@@ -16,7 +16,7 @@ func (r *run) ensureBootBackup(inst *core.Instance) error {
 	if err != nil {
 		return err
 	}
-	policy, err := r.oracleBootBackupPolicy()
+	policy, err := r.weeklyBootBackupPolicy()
 	if err != nil {
 		return err
 	}
@@ -24,7 +24,7 @@ func (r *run) ensureBootBackup(inst *core.Instance) error {
 	if err != nil {
 		return err
 	}
-	if assigned == policy {
+	if policy != "" && assigned == policy {
 		return r.report("unchanged", "boot-volume-backup-policy", bootBackupPolicy, volume)
 	}
 	if assigned != "" {
@@ -76,8 +76,8 @@ func (r *run) bootVolume(inst *core.Instance) (string, error) {
 	return volumes[0], nil
 }
 
-func (r *run) oracleBootBackupPolicy() (string, error) {
-	req := core.ListVolumeBackupPoliciesRequest{}
+func (r *run) weeklyBootBackupPolicy() (string, error) {
+	req := core.ListVolumeBackupPoliciesRequest{CompartmentId: &r.compartment}
 	var policies []core.VolumeBackupPolicy
 	for {
 		page, err := r.storage.ListVolumeBackupPolicies(r.ctx, req)
@@ -85,7 +85,7 @@ func (r *run) oracleBootBackupPolicy() (string, error) {
 			return "", err
 		}
 		for _, policy := range page.Items {
-			if deref(policy.DisplayName) == bootBackupPolicy && deref(policy.CompartmentId) == "" {
+			if deref(policy.DisplayName) == bootBackupPolicy {
 				policies = append(policies, policy)
 			}
 		}
@@ -94,15 +94,47 @@ func (r *run) oracleBootBackupPolicy() (string, error) {
 		}
 		req.Page = page.OpcNextPage
 	}
-	if len(policies) != 1 || deref(policies[0].Id) == "" {
-		return "", fmt.Errorf("want one Oracle-defined %s backup policy, found %d", bootBackupPolicy, len(policies))
+	if len(policies) > 1 {
+		return "", fmt.Errorf("want one %s backup policy in the region compartment, found %d", bootBackupPolicy, len(policies))
 	}
-	for _, schedule := range policies[0].Schedules {
-		if schedule.Period == core.VolumeBackupSchedulePeriodWeek && deref(schedule.RetentionSeconds) >= 28*24*60*60 {
-			return *policies[0].Id, nil
+	if len(policies) == 0 {
+		if r.dry {
+			return "", r.report("created", "volume-backup-policy", bootBackupPolicy, "-")
 		}
+		created, err := r.storage.CreateVolumeBackupPolicy(r.ctx, core.CreateVolumeBackupPolicyRequest{
+			CreateVolumeBackupPolicyDetails: core.CreateVolumeBackupPolicyDetails{
+				CompartmentId: &r.compartment, DisplayName: new(bootBackupPolicy),
+				Schedules: []core.VolumeBackupSchedule{{
+					BackupType: core.VolumeBackupScheduleBackupTypeIncremental,
+					Period:     core.VolumeBackupSchedulePeriodWeek, RetentionSeconds: new(28 * 24 * 60 * 60),
+					OffsetType: core.VolumeBackupScheduleOffsetTypeStructured,
+					DayOfWeek:  core.VolumeBackupScheduleDayOfWeekSunday, HourOfDay: new(0),
+					TimeZone: core.VolumeBackupScheduleTimeZoneUtc,
+				}},
+			},
+		})
+		if err != nil {
+			return "", err
+		}
+		policies = append(policies, created.VolumeBackupPolicy)
 	}
-	return "", fmt.Errorf("Oracle-defined %s backup policy lacks weekly backups retained four weeks", bootBackupPolicy)
+	policy := policies[0]
+	if deref(policy.Id) == "" {
+		return "", fmt.Errorf("%s backup policy has no ID", bootBackupPolicy)
+	}
+	read, err := r.storage.GetVolumeBackupPolicy(r.ctx, core.GetVolumeBackupPolicyRequest{PolicyId: policy.Id})
+	if err != nil {
+		return "", err
+	}
+	policy = read.VolumeBackupPolicy
+	if deref(policy.Id) == "" || deref(policy.DisplayName) != bootBackupPolicy || deref(policy.CompartmentId) != r.compartment || deref(policy.DestinationRegion) != "" || len(policy.Schedules) != 1 {
+		return "", fmt.Errorf("%s backup policy must have one schedule in the region compartment without regional copies", bootBackupPolicy)
+	}
+	schedule := policy.Schedules[0]
+	if schedule.Period != core.VolumeBackupSchedulePeriodWeek || schedule.BackupType != core.VolumeBackupScheduleBackupTypeIncremental || deref(schedule.RetentionSeconds) != 28*24*60*60 {
+		return "", fmt.Errorf("%s backup policy must retain only weekly incremental backups for exactly four weeks", bootBackupPolicy)
+	}
+	return *policy.Id, nil
 }
 
 func (r *run) bootBackupAssignment(volume string) (string, error) {
