@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 libc = ctypes.CDLL(None, use_errno=True)
 libc.ptrace.restype = ctypes.c_long
@@ -395,13 +396,33 @@ cases.extend(
     ("crash-" + name, call, pattern, occurrence, "crash")
     for name, call, pattern, occurrence, _ in precommit
 )
+
+
+def isolated(case):
+    result = subprocess.run(
+        [sys.executable, __file__, helper, case[0]],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stdout[-2000:] + result.stderr[-5000:])
+    return result.stdout
+
+
 if __name__ == "__main__":
     start = time.monotonic()
-    completed = 0
-    for case in cases:
-        if len(sys.argv) == 2 or case[0] in sys.argv[2:]:
-            run(helper, *case)
-            completed += 1
+    if len(sys.argv) == 2:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for output in pool.map(isolated, cases):
+                print(output.rstrip(), flush=True)
+        completed = len(cases)
+    else:
+        completed = 0
+        for case in cases:
+            if case[0] in sys.argv[2:]:
+                run(helper, *case)
+                completed += 1
     print(
         f"fault journey: {completed} cases PASS in {time.monotonic() - start:.2f}s",
         flush=True,

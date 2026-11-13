@@ -189,7 +189,8 @@ func recoverCase(ctx context.Context, work, mode string) {
 		health := request(ctx, conn, releasepush.SubjectHealth, nil)
 		require(version.State == "unconfirmed" && strings.Contains(version.Error, "rollback unavailable") && strings.Contains(health.Health, "unconfirmed"), "agent and release must see unconfirmed rollback failure")
 		require(active(h.TrialFile, current) != nil && active(h.RollbackFile, current) != nil, "impossible rollback must retain both markers")
-		fmt.Println("candidate unconfirmed; version=unconfirmed; health=release probation unconfirmed")
+		unconfirmedPush(ctx, work, h, current)
+		fmt.Println("candidate unconfirmed; version=unconfirmed; health=release probation unconfirmed; rollout=unconfirmed")
 		return
 	}
 	if mode == "inspect" {

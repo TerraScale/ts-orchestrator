@@ -107,11 +107,7 @@ func (h *Handler) recordAttempt(attempt *Refusal) error {
 	return nil
 }
 
-func (h *Handler) refusal() *Refusal {
-	id, err := binaryIdentity(h.Binary)
-	if err != nil {
-		return nil
-	}
+func (h *Handler) refusal(id releaseID) *Refusal {
 	record, ok := selected[Refusal](h.RefusalFile, id)
 	if !ok || record.Reason == "" {
 		return nil

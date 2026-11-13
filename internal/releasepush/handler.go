@@ -262,18 +262,21 @@ func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Erro
 
 func (h *Handler) version() Reply {
 	reply := Reply{Version: h.Revision, NodeList: h.NodeList.Status()}
-	if record, ok := h.activeTrial(); ok {
+	id, err := binaryIdentity(h.Binary)
+	if err != nil {
+		reply.State, reply.Error = "unconfirmed", "installed binary identity unavailable"
+		return reply
+	}
+	if record, ok := h.activeTrialID(id); ok {
 		reply.State = "probation"
 		if record.Failure != "" {
 			reply.State, reply.Error = "unconfirmed", record.Failure
 		}
 	}
-	if id, err := binaryIdentity(h.Binary); err == nil {
-		if record, ok := selected[Rollback](h.RollbackFile, id); ok && record.Rejected.SHA != "" {
-			reply.RolledBack, reply.Error = record.Rejected.SHA, record.Reason
-		}
+	if record, ok := selected[Rollback](h.RollbackFile, id); ok && record.Rejected.SHA != "" {
+		reply.RolledBack, reply.Error = record.Rejected.SHA, record.Reason
 	}
-	reply.Refusal = h.refusal()
+	reply.Refusal = h.refusal(id)
 	return reply
 }
 
@@ -371,7 +374,14 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 
 func (h *Handler) activeTrial() (trial, bool) {
 	id, err := binaryIdentity(h.Binary)
-	if err != nil || id.SHA != h.Revision {
+	if err != nil {
+		return trial{}, false
+	}
+	return h.activeTrialID(id)
+}
+
+func (h *Handler) activeTrialID(id releaseID) (trial, bool) {
+	if id.SHA != h.Revision {
 		return trial{}, false
 	}
 	if h.probation != nil {
@@ -475,8 +485,8 @@ func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims
 	if err != nil {
 		return err
 	}
-	if candidate.SHA != sha {
-		return &integrityError{errors.New("candidate revision differs from signed release")}
+	if candidate.SHA != sha || candidate.SHA256 != binary.SHA256 {
+		return &integrityError{errors.New("candidate revision or digest differs from signed release")}
 	}
 	if err := prepareRecords(h, candidate, claims.RunID, claims.RunAttempt); err != nil {
 		return err

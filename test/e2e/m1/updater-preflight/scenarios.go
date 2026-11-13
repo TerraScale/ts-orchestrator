@@ -251,7 +251,7 @@ func rolloutCases(ctx context.Context, data []byte) {
 }
 
 func rollbackCases(ctx context.Context, data []byte) {
-	for _, mode := range []string{"missing-previous", "rolled-back", "slow"} {
+	for _, mode := range []string{"missing-previous", "wrong-previous", "rolled-back", "slow"} {
 		work, cleanup := temporary("probation-preflight-")
 		h, _, candidate := preparedHost(work)
 		conn, closeListener := listener(h)
@@ -284,15 +284,24 @@ func rollbackCases(ctx context.Context, data []byte) {
 			if mode != "slow" {
 				record["starts"] = 2
 			}
-			if mode == "missing-previous" {
+			if mode == "missing-previous" || mode == "wrong-previous" {
 				previous := record["previous"].(map[string]any)
-				must(os.Remove(h.Binary + ".prev-" + previous["sha"].(string) + "-" + previous["sha256"].(string)))
+				path := h.Binary + ".prev-" + previous["sha"].(string) + "-" + previous["sha256"].(string)
+				if mode == "missing-previous" {
+					must(os.Remove(path))
+				} else {
+					must(os.WriteFile(path, stamped(data, strings.Repeat("d", 40), "pass"), 0o755))
+				}
 			}
 		}
 		encoded, err := json.Marshal(records)
 		must(err)
 		must(os.WriteFile(h.TrialFile, encoded, 0o600))
-		command := exec.CommandContext(ctx, h.Binary, "recover-state", work, mode)
+		recovery := mode
+		if recovery == "wrong-previous" {
+			recovery = "missing-previous"
+		}
+		command := exec.CommandContext(ctx, h.Binary, "recover-state", work, recovery)
 		output, err := command.CombinedOutput()
 		require(err == nil, fmt.Sprintf("probation %s: %v: %s", mode, err, output))
 		if mode == "missing-previous" {
@@ -362,4 +371,40 @@ func selfUpdate(ctx context.Context, work, mode string) {
 	fmt.Println("installed reply collected")
 	<-ctx.Done()
 	panic("old process did not exit")
+}
+
+func unconfirmedPush(ctx context.Context, work string, h *releasepush.Handler, data []byte) {
+	release, verifier, client, closeProvider := signedRelease(ctx, h.Binary, h.Revision, "2", "1")
+	defer closeProvider()
+	h.Verifier = verifier
+	options, err := releasepush.Options(work, nil)
+	must(err)
+	options.Host, options.Port, options.CustomClientAuthentication = "127.0.0.1", -1, nil
+	srv, err := server.NewServer(options)
+	must(err)
+	go srv.Start()
+	require(srv.ReadyForConnections(5*time.Second), "unconfirmed listener must listen")
+	defer srv.Shutdown()
+	conn, err := nats.Connect(srv.ClientURL(), nats.Secure(&tls.Config{InsecureSkipVerify: true}))
+	must(err)
+	defer conn.Close()
+	must(h.Serve(conn))
+	certificate, err := x509.ParseCertificate(options.TLSConfig.Certificates[0].Certificate[0])
+	must(err)
+	pin := sha256.Sum256(certificate.RawSubjectPublicKeyInfo)
+	regions, err := json.Marshal([]releasepush.Region{{Region: "sjc", NATS: srv.ClientURL(), SPKISHA256: hex.EncodeToString(pin[:])}})
+	must(err)
+	write(filepath.Join(work, "unconfirmed-regions.json"), string(regions))
+	assets := filepath.Join(work, "unconfirmed-assets")
+	must(os.Mkdir(assets, 0o700))
+	must(os.WriteFile(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), data, 0o755))
+	endpoint := strings.TrimSuffix(client.Transport.(providerTransport).url, "/binary") + "/token?"
+	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", endpoint))
+	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "lane"))
+	var output bytes.Buffer
+	err = releasepush.Push(ctx, []string{"--sha", release.SHA, "--dir", assets, "--regions", filepath.Join(work, "unconfirmed-regions.json")}, &output)
+	require(err != nil && strings.Contains(err.Error(), "unconfirmed"), "release must fail when rollback is unavailable: "+output.String())
+	var result releasepush.Result
+	must(json.Unmarshal(bytes.TrimSpace(output.Bytes()), &result))
+	require(result.State == "unconfirmed", "rollout must report unconfirmed candidate")
 }
