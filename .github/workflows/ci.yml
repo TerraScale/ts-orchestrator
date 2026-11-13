@@ -63,6 +63,10 @@ jobs:
         with:
           path: ~/.cache/ts-m1-runtime
           key: m1-runtime-${{ runner.arch }}-${{ hashFiles('deploy/m1/host-runtime.sh', 'internal/netbird/manager/server_cli.go', 'deploy/m1/install.sh') }}
+      - name: Verify operator fleet contracts
+        run: |
+          go run ./test/e2e/m1/operator-truth
+          bash test/e2e/m1/startup.sh "$RUNNER_TEMP/terrascale-orchestrator"
       - name: Run the M1 flow
         run: test/e2e/m1/run.sh "$RUNNER_TEMP/terrascale-orchestrator"
       - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}

@@ -49,8 +49,7 @@ func Run(ctx context.Context, state string) {
 		if conn == nil || conn.IsClosed() {
 			// The mesh writes its token once it starts; until then this retries every tick.
 			if conn, _ = mesh.Connect(state); conn != nil {
-				// A gateway server's cluster name is its region.
-				if err := serve(conn, conn.ConnectedClusterName(), func() Report { return *latest.Load() }); err != nil {
+				if err := Serve(conn, func() Report { return *latest.Load() }); err != nil {
 					slog.WarnContext(ctx, "region health responder failed", "error", err)
 					conn.Close()
 					conn = nil
@@ -65,8 +64,11 @@ func Run(ctx context.Context, state string) {
 	}
 }
 
-// serve answers MeshHealthSubject as region with the latest report.
-func serve(conn *nats.Conn, region string, latest func() Report) error {
+func Serve(conn *nats.Conn, latest func() Report) error {
+	region, _, _ := strings.Cut(conn.ConnectedServerName(), ".")
+	if region == "" {
+		return errors.New("mesh server has no region identity")
+	}
 	_, err := conn.Subscribe(protocol.MeshHealthSubject, func(m *nats.Msg) {
 		report := latest()
 		report.Region = region

@@ -238,17 +238,32 @@ func (n *Node) writePeerMetrics(w io.Writer) {
 }
 
 func (n *Node) servePeerMetrics(ctx context.Context) {
-	server := &http.Server{Addr: "127.0.0.1:9097", ReadHeaderTimeout: 2 * time.Second, WriteTimeout: 3 * time.Second,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/metrics" {
-				http.NotFound(w, r)
-				return
-			}
-			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-			n.writePeerMetrics(w)
-		})}
-	go func() { <-ctx.Done(); _ = server.Close() }()
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		slog.ErrorContext(ctx, "peer topology metrics listener failed", "address", server.Addr, "error", err)
+	newServer := func() *http.Server {
+		return &http.Server{Addr: "127.0.0.1:9097", ReadHeaderTimeout: 2 * time.Second, WriteTimeout: 3 * time.Second,
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/metrics" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+				n.writePeerMetrics(w)
+			})}
+	}
+	tick := time.NewTicker(5 * time.Second)
+	defer tick.Stop()
+	for ctx.Err() == nil {
+		server := newServer()
+		stop := context.AfterFunc(ctx, func() { _ = server.Close() })
+		err := server.ListenAndServe()
+		stop()
+		if ctx.Err() != nil {
+			return
+		}
+		slog.ErrorContext(ctx, "peer topology metrics listener failed; restarting", "address", server.Addr, "error", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
 	}
 }

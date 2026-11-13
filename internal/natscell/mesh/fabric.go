@@ -71,6 +71,7 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret s
 	}
 	if cfg.applier != nil && len(options.Routes) > 0 {
 		options.JetStream = true
+		options.SyncAlways = true
 		options.StoreDir = cfg.dir
 		options.JetStreamMaxMemory, options.JetStreamMaxStore = jetStreamMaxMemory, jetStreamMaxStore
 		options.JetStreamUniqueTag = regionTag
