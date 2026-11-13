@@ -266,7 +266,10 @@ nice -n 19 bash "$here/boot-order/run.sh" "$work/boot-order"
 end "reboot -> mesh management starts independently, peer services recover"
 
 begin "data mount loss stops both dependent units and mounting restores state"
-sudo systemd-run --unit=netbird-server.service --property=Type=simple /usr/bin/tail -f /dev/null
+sudo systemctl stop netbird-server.service
+printf '[Service]\nExecStart=\nExecStart=/usr/bin/tail -f /dev/null\n' | sudo tee /etc/systemd/system/netbird-server.service.d/e2e.conf >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl start netbird-server.service
 sudo systemctl is-active --quiet netbird-server.service
 sudo systemctl stop 'var-lib-ts\x2ddata.mount'
 if sudo systemctl is-active --quiet ts-orch; then
@@ -282,5 +285,8 @@ sudo systemctl start ts-orch
 sudo /usr/bin/mountpoint -q /var/lib/ts-data
 sudo /usr/bin/mountpoint -q /var/lib/ts-orch
 test "$(sudo head -1 "$data/boots")" = "$first"
+sudo systemctl stop netbird-server.service
+sudo rm /etc/systemd/system/netbird-server.service.d/e2e.conf
+sudo systemctl daemon-reload
 end "mount dependency restores the retained filesystem before the agent"
 echo "M1 e2e passed"

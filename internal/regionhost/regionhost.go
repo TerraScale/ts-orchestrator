@@ -139,7 +139,7 @@ func (r *run) add(host, shape string) error {
 	if err := r.ensureNetwork(created); err != nil {
 		return err
 	}
-	inst, err := r.ensureInstance(host, shape)
+	inst, volume, err := r.ensureInstance(host, shape)
 	if err != nil {
 		return err
 	}
@@ -149,15 +149,9 @@ func (r *run) add(host, shape string) error {
 	if err := r.ensureIAM(); err != nil {
 		return err
 	}
-	if inst != nil {
-		volume, err := r.dataVolume(deref(inst.DisplayName))
-		if err != nil {
+	if inst != nil && volume != nil {
+		if err := r.confirmDataMounted(deref(inst.DisplayName), inst, volume); err != nil {
 			return err
-		}
-		if volume != nil {
-			if err := r.confirmDataMounted(deref(inst.DisplayName), inst, volume); err != nil {
-				return err
-			}
 		}
 	}
 	if host != "" || inst == nil {

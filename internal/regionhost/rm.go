@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -23,13 +24,16 @@ func (r *run) rm(host string, confirmed bool) error {
 	if err != nil {
 		return err
 	}
-	regionHost, err := pick(items, "")
+	items = slices.DeleteFunc(items, func(i core.Instance) bool {
+		return i.LifecycleState == core.InstanceLifecycleStateTerminated
+	})
+	regionHost, err := pickFrom(items, "")
 	if err != nil {
 		return err
 	}
 	target := regionHost
 	if host != "" {
-		if target, err = pick(items, host); err != nil {
+		if target, err = pickFrom(items, host); err != nil {
 			return err
 		}
 		if target != nil && *target.Id == *regionHost.Id {
@@ -46,24 +50,36 @@ func (r *run) rm(host string, confirmed bool) error {
 	if err != nil {
 		return err
 	}
+	if target != nil && volume == nil {
+		expected := target.Metadata["terrascale-data-volume"]
+		if expected != "" && expected != "required" {
+			return errors.New("the host data volume is missing; refusing to terminate before detachment")
+		}
+	}
 	var ip string
 	if target == nil {
 		err = r.report("unchanged", "instance", cmp.Or(host, "ts-"+r.code+"-1"), "-")
 	} else {
-		if host == "" {
+		if host == "" && target.LifecycleState != core.InstanceLifecycleStateTerminating {
 			if ip, err = r.publicIP(target); err != nil {
 				return err
 			}
 		}
-		if !r.dry {
-			if _, err := r.compute.TerminateInstance(r.ctx, core.TerminateInstanceRequest{InstanceId: target.Id,
-				PreserveBootVolume: new(false), PreserveDataVolumesCreatedAtLaunch: new(true)}); err != nil {
+		if volume != nil {
+			if err := r.detachDataVolume(target, volume); err != nil {
 				return err
 			}
-			// The IAM below must no longer see it as live.
+		}
+		if !r.dry {
+			if target.LifecycleState != core.InstanceLifecycleStateTerminating {
+				if _, err := r.compute.TerminateInstance(r.ctx, core.TerminateInstanceRequest{InstanceId: target.Id,
+					PreserveBootVolume: new(false), PreserveDataVolumesCreatedAtLaunch: new(true)}); err != nil {
+					return err
+				}
+			}
 			if err := poll(r.ctx, 5*time.Second, 60, func() (bool, error) {
 				g, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: target.Id})
-				return len(live([]core.Instance{g.Instance})) == 0, err
+				return g.LifecycleState == core.InstanceLifecycleStateTerminated, err
 			}); err != nil {
 				return err
 			}
@@ -88,4 +104,43 @@ func (r *run) rm(host string, confirmed bool) error {
 		return err
 	}
 	return r.ensurePin(ip, true)
+}
+
+func (r *run) detachDataVolume(instance *core.Instance, volume *core.Volume) error {
+	attachment, err := r.dataAttachment(instance, volume)
+	if err != nil || attachment == nil {
+		return err
+	}
+	if !r.dry {
+		if attachment.GetLifecycleState() != core.VolumeAttachmentLifecycleStateDetaching {
+			if _, err := r.compute.DetachVolume(r.ctx, core.DetachVolumeRequest{VolumeAttachmentId: attachment.GetId()}); err != nil {
+				return err
+			}
+		}
+		if err := poll(r.ctx, 5*time.Second, 120, func() (bool, error) {
+			g, err := r.compute.GetVolumeAttachment(r.ctx, core.GetVolumeAttachmentRequest{VolumeAttachmentId: attachment.GetId()})
+			return err == nil && g.VolumeAttachment.GetLifecycleState() == core.VolumeAttachmentLifecycleStateDetached, err
+		}); err != nil {
+			return err
+		}
+	}
+	return r.report("deleted", "data-attachment", deref(instance.DisplayName), deref(volume.Id))
+}
+
+func (r *run) finishTerminating(items []core.Instance, host string) error {
+	for _, instance := range items {
+		if instance.LifecycleState != core.InstanceLifecycleStateTerminating || (host != "" && deref(instance.DisplayName) != host) {
+			continue
+		}
+		if r.dry {
+			return fmt.Errorf("host %s is terminating; wait for termination before planning its replacement", deref(instance.DisplayName))
+		}
+		if err := poll(r.ctx, 5*time.Second, 60, func() (bool, error) {
+			g, err := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: instance.Id})
+			return g.LifecycleState == core.InstanceLifecycleStateTerminated, err
+		}); err != nil {
+			return fmt.Errorf("waiting for terminating host %s: %w", deref(instance.DisplayName), err)
+		}
+	}
+	return nil
 }

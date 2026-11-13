@@ -233,7 +233,8 @@ The operator writes and reads back this tag after the release listener becomes
 reachable: the bootstrap installs and starts that listener only after both
 mounts succeed. This also waits for extra hosts, so an incomplete bootstrap
 cannot report a successful add. If the operator stops before recording the tag,
-the existing ext4 filesystem still mounts without formatting.
+first boot can still mount an existing ext4 filesystem without formatting;
+a later add requires the inspected filesystem to be tagged first.
 
 Formatting requires an absent formatted tag, no filesystem or partition
 signature, no child block devices, no mount, and zero reads of the first 1 GiB,
@@ -244,16 +245,25 @@ this is an estimate, not a measured cloud drill. The samples do not prove
 that bytes outside the sampled ranges are zero. Any failed probe refuses
 formatting. A tag present on a signature-free disk refuses formatting too.
 An existing ext4 filesystem is always mounted without formatting, including
-a restored filesystem. Preserve the formatted tag when restoring a backup.
+a restored filesystem. Before attaching any restored or cloned volume, preserve
+or set the formatted tag after verifying its filesystem and intended identity.
+An absent tag on a volume brought in from outside this invocation is refused
+before attachment, even if it contains a filesystem. Sampling cannot establish
+that an untagged restore or clone has no data between the sampled ranges.
 
 A failed launch creates no volume. A failed volume create can resume on the
 already running instance. A failed attach leaves cloud-init waiting on device
 arrival, without an expiring device-wait deadline; a later add can attach the
-same blank volume and complete bootstrap. The instance records its expected
-volume ID before attaching; a later add refuses to replace a missing recorded
-volume. A volume left blank by interrupted provisioning is eligible for the
-same first-format checks on the next add, regardless of which invocation
-created it.
+same volume and complete bootstrap once the operator has verified it and set
+the formatted tag. A signature-free volume marked formatted deliberately fails
+first boot; recovery requires preparing the intended filesystem outside add.
+The instance records its expected volume ID before attaching; a later add refuses to replace a missing recorded
+volume. A volume created in this invocation may pass the first-format checks.
+A later invocation refuses an untagged volume left by interrupted provisioning or an
+interrupted formatted-tag write. The operator must inspect it, recover or
+prepare its filesystem, and set the tag before rerunning add. Listener-based
+recovery of an untagged volume is not implemented. Existing signatures always
+prevent formatting regardless of tag state.
 
 Each host compartment has a managed daily incremental backup policy,
 scheduled at 02:00 UTC with seven days of retention. A backup is one
@@ -267,10 +277,22 @@ reports the volume, policy, assignment and attachment as unchanged.
 
 The read-only plan includes the volume, backup policy, assignment and
 attachment. Removing a host discards its boot disk and keeps the data
-volume and its backup policy assignment. A later add for the same name
+volume and its backup policy assignment. Remove detaches and waits for the
+attachment to reach DETACHED before requesting termination, then waits for
+TERMINATED before reporting success. Its dry-run prints detachment before
+instance deletion. A later add for the same name
 finds the tagged volume, launches in its availability domain and reattaches
 it. Conflicting or ambiguous volumes and attachments are refused. Data
 volume deletion is a manual operation outside this tool.
+
+If remove stops after detaching, the next remove observes no attachment and
+terminates the remaining instance; add can instead reattach the retained
+tagged volume and confirm the existing host's listener. If removal stops while
+terminating, the next remove waits for termination without requesting it again;
+add waits for termination before launching a replacement. A dry-run add reports
+a terminating host and requires termination to finish before planning a
+replacement. A completed remove leaves no live attachment, so add can
+immediately reuse the volume.
 
 An existing instance without a tagged data volume or the new bootstrap
 metadata is adopted unchanged. This command does not migrate its boot-disk
@@ -282,7 +304,9 @@ nonzero first, middle-sample and last ranges and blank disks marked formatted
 without changing their contents, keeps the filesystem UUID and sentinel
 service/identity files across reattachment with and without the formatted
 marker, and runs the normal service journey from the mounted volume. It
-checks identical mount dependencies for both units and stops the data mount
+injects failures into each block-device probe and sampled read and verifies
+no format occurs and the disk is unchanged. It checks identical mount
+dependencies for both units and stops the data mount
 to check both units stop, then restores the saved data through the agent's
 mount dependencies. It does not create or delete OCI resources.
 
@@ -296,5 +320,17 @@ mount dependencies. It does not create or delete OCI resources.
   verify reattachment without formatting, with identity and data intact.
 - Reboot with the volume attached; verify data and identity. Reboot without
   it; verify emergency mode and cloud-console-only access.
-- Restore a scheduled backup and verify that the database recovers from the
-  crash-consistent volume snapshot.
+- Interrupt provisioning after launch, volume creation and attachment; inspect
+  the host, volume, metadata and listener, then verify the documented recovery.
+- Interrupt the formatted-tag write and readback. Verify add refuses the
+  untagged volume until its filesystem is inspected and the tag is set.
+- Interrupt remove after detachment and during termination. Repeat remove or
+  create immediately and verify no remaining attachment blocks reuse.
+- Present duplicate tagged volumes, a conflicting attachment and an unexpected
+  backup assignment; verify refusal without replacing or deleting resources.
+- Read back the complete daily backup schedule, assignment and seven-day
+  retention. Check actual scheduled backups and expiry.
+- Restore a scheduled backup and clone a volume; check whether freeform tags,
+  especially the formatted tag, survive each operation. Restore the formatted
+  tag before attachment when absent, then verify the database recovers from the
+  crash-consistent snapshot and the filesystem UUID and sentinel data survive.

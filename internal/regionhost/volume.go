@@ -285,11 +285,21 @@ func (r *run) confirmDataMounted(host string, instance *core.Instance, volume *c
 		return nil
 	}
 	ip, err := r.publicIP(instance)
-	if err != nil {
-		return err
+	if err == nil {
+		_, err = livePin(r.ctx, ip)
 	}
-	if _, err := livePin(r.ctx, ip); err != nil {
-		return fmt.Errorf("data volume bootstrap did not reach its release listener: %w", err)
+	if err != nil {
+		hostState, hostErr := r.compute.GetInstance(r.ctx, core.GetInstanceRequest{InstanceId: instance.Id})
+		volumeState, volumeErr := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
+		hostStatus, volumeStatus := instance.LifecycleState, volume.LifecycleState
+		if hostErr == nil {
+			hostStatus = hostState.LifecycleState
+		}
+		if volumeErr == nil {
+			volumeStatus = volumeState.LifecycleState
+		}
+		return fmt.Errorf("data volume bootstrap did not reach its release listener; host %s state=%s, volume %s state=%s (last observed): %w",
+			host, hostStatus, deref(volume.Id), volumeStatus, errors.Join(err, hostErr, volumeErr))
 	}
 	read, err := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
 	if err != nil {

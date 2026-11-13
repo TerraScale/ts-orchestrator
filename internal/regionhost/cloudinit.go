@@ -67,22 +67,34 @@ formatted=$1
 device=/dev/oracleoci/oraclevdb
 udevadm wait "$device"
 test -b "$device"
-test "$(lsblk -nr -o TYPE "$device" | wc -l)" -eq 1
-test -z "$(lsblk -dn -o PKNAME "$device")"
-test -z "$(lsblk -nr -o MOUNTPOINT "$device" | tr -d '[:space:]')"
+probe_failed() {
+	echo "data volume probe failed: $*" >&2
+	exit 1
+}
+types=$(lsblk -nr -o TYPE "$device") || probe_failed lsblk-types
+test -n "$types" || probe_failed lsblk-types
+test "$(printf '%s\n' "$types" | wc -l)" -eq 1
+parent=$(lsblk -dn -o PKNAME "$device") || probe_failed lsblk-parent
+test -z "$parent"
+mounts=$(lsblk -nr -o MOUNTPOINT "$device") || probe_failed lsblk-mounts
+test -z "$(printf '%s' "$mounts" | tr -d '[:space:]')"
 if blkid -p "$device" >/dev/null; then
 	:
 else
 	status=$?
-	test "$status" -eq 2
+	if test "$status" -ne 2; then
+		probe_failed "blkid ($status)"
+	fi
 	test "$formatted" = false
-	test -z "$(wipefs --no-act --noheadings --output TYPE "$device")"
-	size=$(blockdev --getsize64 "$device")
+	signatures=$(wipefs --no-act --noheadings --output TYPE "$device") || probe_failed wipefs
+	test -z "$signatures"
+	size=$(blockdev --getsize64 "$device") || probe_failed blockdev-size
+	[[ $size =~ ^[0-9]+$ ]] || probe_failed blockdev-size
 	gib=$((1024 * 1024 * 1024))
 	mib=$((1024 * 1024))
-	test "$size" -ge "$((2 * gib))"
+	test "$size" -ge "$((2 * gib))" || probe_failed minimum-size
 	check_zero() {
-		dd if="$device" bs=1M skip="$1" count="$2" iflag=skip_bytes,count_bytes,fullblock status=none | cmp -n "$2" - /dev/zero
+		dd if="$device" bs=1M skip="$1" count="$2" iflag=skip_bytes,count_bytes,fullblock status=none | cmp -n "$2" - /dev/zero || probe_failed "sample $1 length $2"
 	}
 	check_zero 0 "$gib"
 	check_zero "$((size - gib))" "$gib"
@@ -91,17 +103,20 @@ else
 	done
 	mkfs.ext4 -q "$device"
 fi
-test "$(blkid -p -s TYPE -o value "$device")" = ext4
-uuid=$(blkid -p -s UUID -o value "$device")
+fstype=$(blkid -p -s TYPE -o value "$device") || probe_failed blkid-type
+test "$fstype" = ext4
+uuid=$(blkid -p -s UUID -o value "$device") || probe_failed blkid-uuid
 [[ $uuid =~ ^[0-9a-f-]{36}$ ]]
 install -d -m 0755 /var/lib/ts-data
-test -z "$(ls -A /var/lib/ts-data)"
+contents=$(ls -A /var/lib/ts-data) || probe_failed data-directory
+test -z "$contents"
 entry="UUID=$uuid /var/lib/ts-data ext4 defaults 0 2"
 grep -Fxq "$entry" /etc/fstab || printf '%s\n' "$entry" >> /etc/fstab
 mount /var/lib/ts-data
 install -d -m 0755 /var/lib/ts-data/terrabase
 install -d -m 0700 /var/lib/ts-data/ts-orch /var/lib/ts-orch
-test -z "$(ls -A /var/lib/ts-orch)"
+contents=$(ls -A /var/lib/ts-orch) || probe_failed state-directory
+test -z "$contents"
 entry='/var/lib/ts-data/ts-orch /var/lib/ts-orch none bind 0 0'
 grep -Fxq "$entry" /etc/fstab || printf '%s\n' "$entry" >> /etc/fstab
 mount /var/lib/ts-orch
