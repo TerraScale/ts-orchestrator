@@ -10,11 +10,11 @@ The ARM journeys run as independent matrix jobs. Every lane runs for every pull 
 | nodelist | Signed inventory, real-daemon release admission and identity preservation/refusals | 8 minutes | All paths |
 | restarts | Agent and task restart, private/public key preservation and persistent data | 8 minutes | All paths |
 | rollback | Never-ready update rolls back while the previous task serves | 8 minutes | All paths |
-| data-volume | Volume lifecycle and zero-write refusals, format once, adoption, mount reporting and dependent-unit stop/recovery | 8 minutes | All paths |
 | host-logs | Journal settings applied once from current host state, unsupported hosts left untouched, syslog handling | 12 minutes | All paths |
 | monitoring | Alert rule sets, relay delivery, and task metrics that keep the recorded service identity across restart and adoption | 8 minutes | All paths |
 | boot-order | Management and peer cold boots, old declarations, dependency gates and running tasks | 8 minutes | All paths |
 | operator | Fleet routing contracts and startup metadata recovery/outage/cancellation | 8 minutes | All paths |
+| data-volume | Volume lifecycle and zero-write refusals, format once, adoption, mount reporting and dependent-unit stop/recovery | 8 minutes | All paths |
 
 Each lane restores the shared ARM Go cache and builds the static agent and its selected Go journey entry points with the same build.sh. Independent warm-cache builds avoid the artifact producer/upload/download dependency on the longest lane. The node-list journey additionally compiles distinct embedded-inventory variants as part of its assertions. Startup deliberately observes a five-minute metadata window; it runs alongside the other lanes. Boot-order installs the pinned runtime without running the agent installer. Regional and node-list create their own isolated environments. Core, WebSocket, restarts, rollback, host-logs, monitoring and data-volume source the same installer/serving setup. Only data-volume runs the volume bootstrap before installation: it creates the mount requirements as service drop-ins, while the installer itself does not require a data mount. Its privileged volume drills run in private mount and network namespaces. The install fixture adopts their verified filesystem, then the lane uses the shared setup’s per-command sudo. Only core saves the Go cache on main, avoiding concurrent uploads of the same cache key.
 
