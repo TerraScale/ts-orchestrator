@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/fsnotify/fsnotify"
 	"github.com/nats-io/nats.go"
 	"golang.org/x/sys/unix"
 )
@@ -231,7 +232,26 @@ func recoveryCase(ctx context.Context, binary string) {
 			must(os.Rename(installed+".prev", installed+".prev.staged"))
 			require(run("start", unit) != nil, "candidate must exit before Probe")
 			require(record(trialPath + ".staged")["starts"] == float64(0), "early exit must not advance startup count")
-			must(run("start", recoverUnit))
+			watcher, err := fsnotify.NewWatcher()
+			must(err)
+			defer watcher.Close()
+			must(watcher.Add(state))
+			write("/etc/systemd/system/ts-orch-release-recovery.timer.d/lane.conf", "[Timer]\\nOnBootSec=\\nOnActiveSec=100ms\\n")
+			must(run("daemon-reload"))
+			must(run("restart", "ts-orch-release-recovery.timer"))
+			deadline, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			finished := false
+			for !finished {
+				select {
+				case event := <-watcher.Events:
+					finished = event.Name == marker && event.Op&fsnotify.Remove != 0
+				case err := <-watcher.Errors:
+					must(err)
+				case <-deadline.Done():
+					panic("independent recovery timer did not finish")
+				}
+			}
 			active()
 			require(bytes.Equal(read(installed), original) && record(trialPath+".staged") == nil && record(trialPath) == nil, "committed staging must promote and roll back")
 		}},
