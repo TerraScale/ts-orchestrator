@@ -35,6 +35,7 @@ type readinessHistory struct {
 
 type readinessWatch struct {
 	next       time.Time
+	lastProbe  time.Time
 	hungSince  time.Time
 	readySince time.Time
 	suppressed uint64
@@ -45,6 +46,11 @@ func (c *controller) readinessWatch() readinessWatch {
 }
 
 func (w *readinessWatch) observe(now time.Time, err error) bool {
+	if !w.lastProbe.IsZero() && now.Sub(w.lastProbe) > readinessDeadline+2*readinessInterval {
+		w.hungSince = time.Time{}
+		w.readySince = time.Time{}
+	}
+	w.lastProbe = now
 	w.next = now.Add(readinessInterval)
 	if err == nil {
 		w.hungSince = time.Time{}
