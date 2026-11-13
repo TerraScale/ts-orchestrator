@@ -452,15 +452,15 @@ func allPreflightRefused(result Result) bool {
 	if len(result.Refusals) == 0 || len(result.Refusals) != len(result.Workers)+1 {
 		return false
 	}
-	reason := ""
+	revision := ""
 	for _, host := range result.Refusals {
 		record := host.Refusal
-		if record == nil || record.Kind != RefusalHost || !record.Preflight || record.Reason == "" {
+		if record == nil || record.Kind != RefusalHost || !record.Preflight || record.Reason == "" || record.SHA == "" {
 			return false
 		}
-		if reason == "" {
-			reason = record.Reason
-		} else if record.Reason != reason {
+		if revision == "" {
+			revision = record.SHA
+		} else if record.SHA != revision {
 			return false
 		}
 	}

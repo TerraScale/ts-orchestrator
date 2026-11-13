@@ -19,7 +19,9 @@ was proven wrong: an invalid signature, forbidden workflow or URL, a digest
 mismatch after receiving all bytes, or an embedded revision that differs from
 the signed release. Integrity refusals and unknown or absent kinds stop later
 regions. If every host in the first region returns the same candidate preflight
-refusal, the rollout stops there with that reason. The first host collects
+refusal for the same candidate revision, the rollout stops there. This groups
+by candidate and preflight refusal class; per-host diagnostic text may differ
+with local paths or timestamps and remains visible in the result. The first host collects
 explicit replies from registered workers for at most 90 seconds; a missing
 reply remains informational. A first host that refuses preflight still asks its
 workers, so the uniform refusal decision covers the whole first region.
