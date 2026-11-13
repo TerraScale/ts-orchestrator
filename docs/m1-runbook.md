@@ -5,6 +5,8 @@ the containerd executor, a local control socket and the HTTPS edge (`:80`
 ACME HTTP-01 + redirect, `:443`). Services come from
 `deploy/m1/services/*.json`.
 
+These hosts keep at most seven days or 512 MiB of journal, whichever is smaller, and have no central log store.
+
 ## Host
 
 | Fact | Value |
