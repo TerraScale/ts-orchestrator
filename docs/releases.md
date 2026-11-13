@@ -1,5 +1,248 @@
 # Build and release boundaries
 
+## Candidate preflight
+
+After verifying the candidate's digest, the host updater executes
+`<candidate> release preflight` as its own user in its existing sandbox.
+Release A's hook exits successfully without checks. This candidate (B) checks
+the installed relay unit's privileged preparation command and reads each
+candidate regional service secret with the host identity. It has a 70-second
+execution bound. Any failure, timeout or inability to execute refuses that
+host's release before the trial marker or binary changes; the staged candidate
+is removed. The candidate's diagnostic appears in the release reply and run
+output. `ts-orch status` shows each registered host's revision and refusal,
+including candidate revision, run id and run attempt. A later authenticated
+attempt replaces the previous record; a successful attempt clears the refusal.
+The first host relays with a reply inbox and collects explicit worker replies
+for at most 90 seconds (the 70-second hook bound plus a margin). It stops early
+when all registered workers reply; it never waits for their running revisions.
+Each regional JSON line includes worker host names and candidate revisions:
+an explicit refusal sets `state` to `refused on <hosts>` and includes each
+scrubbed reason and structured `kind` in `refusals`. A `host_prerequisite`
+refusal lets other regions release and fails the run at its end. A
+`release_integrity` refusal (including an artifact digest mismatch) stops
+later regions immediately; unknown or absent kinds also stop the rollout. A missing reply appears as `error: "no answer"` in
+`workers` and does not fail the run. With accepted replies, the normal
+`installed` or `current` regional result succeeds. Status inventory is
+diagnostic and does not gate release completion.
+
+The updater drains both candidate output streams while retaining only the first
+4 KiB in total. Stored and displayed diagnostics are valid UTF-8, omit controls,
+replace newlines with spaces, and include `[truncated]` when capped at 4 KiB.
+The small updater records `nats/release-attempt.json`, `nats/release-trial`
+and `nats/release-rolled-back` use a temporary file in the same directory,
+file sync, rename and directory sync. Missing, empty, unreadable or malformed
+records are ignored with one warning per file per process; none prevents
+handler construction or agent startup. The next write replaces a damaged
+record. A failure to update a valid trial's start count is diagnostic and
+does not prevent the agent from starting. The release run-id is also written
+atomically; its validation happens on release requests, not on startup.
+
+The binary rename is the single commit point. Before it, `<binary>.release`
+prepares and syncs an inode-bound candidate identity, rollback binary, run ID,
+unactivated trial and publication manifest. Preparation failures reject without
+changing active binary or release records. After it, directory durability,
+record publication, old rollback removal and cleanup failures only warn: the
+release remains installed, workers are relayed, and restart is requested.
+Incomplete publication retains prepared state, which remains authoritative and
+is recovered by the candidate at startup. The first successful activation stamp
+wins; an unstamped trial receives its full budget at candidate startup.
+
+Release A introduced `ts-orch alert-delivery prepare`.
+Run as root, it reads exactly the three approved alert references using the
+host identity and writes `/run/ts-alert-delivery/{cloudflare_account_id_file,
+cloudflare_email_token_file,ts_alerts_ntfy_topic_file}`. The directory must
+be root-owned mode 0750 on tmpfs with swap disabled; the directory and files
+use the `ts-alerts` group, and files are root-owned mode 0640. Unreadable
+secrets fail preparation visibly without printing values. A kept
+the relay's existing Vault reads; B reads the prepared files instead. Once A is
+on a host, a relay unit
+with the privileged preparation command can safely be installed and restarted:
+preparation works and A's unchanged relay ignores the files.
+
+The updater lane exercises refusals, timeout, inability to execute, corrupt
+records, 10 MiB of noisy output, worker refusal followed by another region's
+release, informational worker silence, and recovery on a passing candidate.
+The preparation lane checks all three files and each failed secret read.
+These lanes run outside the agent's unit sandbox. The staged candidate sits
+beside the binary under a path the checked-in unit keeps writable and
+executable; the first real rollout confirms execution under that unit.
+
+Once hosts run this updater, candidates older than the change introducing
+`release preflight` cannot be released through this pipeline. Releases move
+forward. Automatic probation rollback restores the previous binary by renaming
+`<binary>.prev` directly, without executing this hook.
+
+## Service credential releases
+
+For existing hosts, use this order. At any failed check, stop before the next
+step and repair that check; do not continue on the strength of an earlier
+successful attempt. The previous checked step is the safe resting state.
+If metadata rules are not active yet, do not install or enable them until step 7:
+an old relay behind those restrictions cannot deliver alerts.
+
+If metadata rules are already active, preserve the existing alert-relay exception
+through step 6, including across restarts and reboots; step 7 removes that exception
+only after those checks pass, and a failed check restores the prior exception
+rather than removing the existing protections.
+
+
+"Registered" means present in the region's node inventory. The revision gate
+checks every host row in every region, fails on an unreachable region, inventory
+error, empty inventory, missing reply or refusal, and prints each failing host.
+A machine that never registered, or was removed from that inventory, is not
+visible to this gate. Use the exact published 40-character revisions as
+`A_REVISION` and `B_REVISION`; the gate is read-only and does not change release
+push behavior. Step 1 uses the staged B binary because A does not yet have
+this command; it reads A's existing mesh without installing B.
+
+On a host that already has metadata protections, persist the relay exception in
+a metadata-unit drop-in before advancing. These commands run as root and derive
+the relay's service user; the post-start command inserts one IPv4 accept rule
+after the unit has reloaded the persistent rules:
+
+```sh
+relay_user=$(systemctl show ts-alert-delivery.service --property=User --value)
+relay_uid=$(id -u "$relay_user")
+test "$relay_uid" -ne 0
+metadata_unit=terrascale-ts-auth-metadata.service
+dropin=/etc/systemd/system/$metadata_unit.d/relay.conf
+install -d -m 0755 "/etc/systemd/system/$metadata_unit.d"
+printf '[Service]\nExecStartPost=/usr/sbin/nft insert rule inet terrascale_metadata output ip daddr 169.254.169.254 meta skuid %s accept\n' "$relay_uid" > "$dropin"
+chmod 0644 "$dropin"
+systemctl daemon-reload
+systemctl enable "$metadata_unit"
+systemctl restart "$metadata_unit"
+nft -n list chain inet terrascale_metadata output | grep "ip daddr 169.254.169.254 meta skuid $relay_uid accept"
+sudo -u "$relay_user" curl --fail --max-time 5 -H 'Authorization: Bearer Oracle' -o /dev/null http://169.254.169.254/opc/v2/instance/
+if sudo -u nobody curl --fail --max-time 5 -H 'Authorization: Bearer Oracle' -o /dev/null http://169.254.169.254/opc/v2/instance/; then
+ exit 1
+fi
+```
+
+The enabled unit and its drop-in restore the exception after every restart and
+reboot. Repeat the rule and user-access checks after a restart and after a reboot.
+Preserve existing persistent rules and their local additions through step 6.
+The installer recognizes existing state from the installed binary, state
+directory or existing rules (including symlinks); it creates rules only when
+all are absent. An existing host without rules remains unrestricted until the
+checked step-7 transition.
+
+At step 7, after the step-6 checks, save the active rules and this drop-in before
+replacing the rules and removing the exception:
+
+```sh
+transition_dir=$(mktemp -d /root/metadata-transition.XXXXXX)
+rules=/etc/terrascale-orchestrator/ts-auth-metadata.nft
+cp "$rules" "$transition_dir/rules.nft"
+cp "$dropin" "$transition_dir/relay.conf"
+ts-orch ts-auth metadata-rules > "$transition_dir/next.nft"
+rm "$dropin"
+install -m 0644 "$transition_dir/next.nft" "$rules"
+systemctl daemon-reload
+systemctl restart "$metadata_unit"
+```
+
+Review local additions before this deliberate replacement. Recheck root/agent
+metadata access, blocked task access over IPv4 and IPv6, and real relay delivery.
+If a check fails, restore that host's saved rules and drop-in, keeping the
+previous protections and relay access across subsequent restarts and reboots:
+
+```sh
+install -m 0644 "$transition_dir/rules.nft" "$rules"
+install -m 0644 "$transition_dir/relay.conf" "$dropin"
+systemctl daemon-reload
+systemctl restart "$metadata_unit"
+```
+
+Repeat the rule, relay-user and other-user checks above and restore delivery
+before continuing. For a host without prior rules, step 7 installs the generated
+rules and unit for the first time; undo only that new installation if its checks
+fail.
+
+1. Release A, the updater-preflight release, alone. Run the staged B binary
+   on a host with mesh access for the read-only gate:
+   `sudo /path/to/candidate-B status revision "$A_REVISION"` exits zero. Check regional health
+   with `ts-orch status` as well. Stopping here is safe: the relay retains
+   its existing metadata access, still reads Vault, and A supplies preparation.
+2. Grant reconciliation narrows the earlier broad policy; it is not only
+   additive. Before running B's `ts-orch region add`, preserve the earlier
+   broad grants in the separate active policy `ts-orch-hosts-vault-transition`
+   in the same compartment. The reconciler reads it and refuses to narrow
+   unless it contains every current managed-policy statement. It uses the
+   managed policy's ETag for the update; it never changes the retained policy.
+   Read or update failures preserve the earlier effective grants. Removing
+   existing host compartments from the dynamic group is refused as well. Run `ts-orch region add` for each affected region
+   to add the exact grants. Gate: run the candidate B binary as host root on
+   every affected host: `sudo /path/to/candidate-B release preflight secrets`.
+   This runs the same regional secret reads as B's full release preflight,
+   using that host's instance identity, including approved shared references
+   and the relay's three references where required by the host's region.
+   It writes no secret files, prints no values, and exits non-zero naming a
+   reference that cannot be read. It leaves the later installed-unit check
+   for step 3 and full activation preflight. Only after this gate passes on
+   every host remove the retained broad policy; a failed gate leaves the
+   broad policy in place. Stopping here is safe: the running binary and relay
+   are unchanged and their required reads have passed.
+3. On the host running the relay, install B's
+   `deploy/observability/production/ts-alert-delivery.service` and run
+   `systemctl daemon-reload`. Gate:
+   `systemctl show ts-alert-delivery.service --property=ExecStartPreEx --value`
+   shows `/usr/local/bin/ts-orch alert-delivery prepare` with
+   `flags=full-privileges`, corresponding to
+   `ExecStartPre=+/usr/local/bin/ts-orch alert-delivery prepare`.
+   This unit can be installed any time after step 1 because A already provides
+   its preparation command. Stopping here is safe: the running relay is
+   unchanged and the command exists for its next restart.
+4. Restart the relay once. Gate: the service remains active and a real test
+   delivery arrives (use `ts-orch alert-delivery subscribe` in an interactive
+   terminal and confirm receipt). Preparation now writes the protected files,
+   while A's relay ignores them and still reads Vault. Stopping here is safe:
+   delivery and preparation work, and the relay retains metadata access
+   through the preserved exception if metadata rules are already active.
+5. Release B through the normal release path. Gate:
+   `ts-orch status revision "$B_REVISION"` exits zero. Stopping here after
+   the check is safe: the running relay continues delivering, its new binary
+   and privileged preparation unit are installed, and the prior metadata
+   boundary and relay exception remain in place. A refused or partial attempt
+   is not a completed step; preserve that boundary and repair before retrying.
+6. Restart the relay. Gate:
+   `stat -c '%U:%G %a %n' /run/ts-alert-delivery /run/ts-alert-delivery/*`
+   shows directory `root:ts-alerts 750` and three files `root:ts-alerts 640`
+   (never print contents), `curl --fail http://127.0.0.1:9094/healthz` returns
+   200, and a real test delivery arrives. Stopping here is safe: B's relay now
+   reads only the validated files and its delivery works without metadata.
+7. Only after those checks pass, install or enable metadata rules where they
+   are absent, or remove the preserved alert-relay exception where rules are
+   already active, one host at a time. After each host, gate the next on tasks
+   being unable to reach metadata over IPv4 and IPv6, root and the agent still
+   reaching it, and alert delivery succeeding again. Stopping after each
+   checked host is safe because B's relay uses files. On a failed check, stop
+   and restore the prior alert-relay exception if rules were already active,
+   retaining the existing protections. For newly installed rules, undo only
+   that host's new rule change. Verify the step-6 state and repair before
+   continuing.
+
+Every successfully checked step is a safe resting state. A failed relay restart
+in steps 4 or 6 is not safe until delivery is restored. Preserve existing metadata
+protections and the relay exception, or keep metadata unrestricted if rules are
+not yet active; repair preparation or file validation, restart and recheck delivery.
+A failed step-7 host must return to the verified step-6 state as described above.
+
+Before switching the host binary, release push, self-update and the M1 installer
+execute the candidate's `release preflight`. It checks the installed relay
+unit's effective preparation command where the relay is installed. On OCI hosts
+it reads every secret referenced by the candidate's regional service manifests
+with that host's own instance identity. Failed secret reads retry after 250 ms
+within one shared 60-second budget, inside the updater's 70-second outer bound.
+Missing grants, unavailable secrets or a missing privileged preparation command
+refuse that host's release before activation. The host retains its binary, unit
+and running process; the staged candidate is removed. Release output and
+`ts-orch status` name the candidate, release attempt and refusal reason without
+secret values. A later attempt replaces the refusal record; a successful attempt
+clears it. Hosts without an OCI platform identity have no regional Vault grants
+to check. Status inventory remains diagnostic; the operator must apply the per-host revision gate above before advancing.
+
 ## Apply a signed release bundle
 
 ```sh
