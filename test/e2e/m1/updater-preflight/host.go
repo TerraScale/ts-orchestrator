@@ -44,7 +44,7 @@ func newHost(work string, probation bool) host {
 }
 
 func (h host) handler() *releasepush.Handler {
-	handler, err := releasepush.NewHandler(context.Background(), h.work)
+	handler, err := releasepush.NewHandler(h.work)
 	must(err)
 	handler.Binary, handler.Revision = h.binary, shaA
 	return handler
@@ -69,8 +69,9 @@ func startState(ctx context.Context, work, mode string) {
 		fmt.Println("START rolled-back")
 		return
 	}
-	h, err := releasepush.NewHandler(ctx, work)
+	h, err := releasepush.NewHandler(work)
 	must(err)
+	h.HashRunning(ctx)
 	conn, closeListener := listener(h)
 	defer closeListener()
 	version := settled(ctx, conn)
@@ -122,8 +123,9 @@ func serveRegion(ctx context.Context, args []string) {
 	if mode == "slow" {
 		<-time.NewTimer(slowStep).C
 	}
-	h, err := releasepush.NewHandler(ctx, work)
+	h, err := releasepush.NewHandler(work)
 	must(err)
+	h.HashRunning(ctx)
 	private, closePrivate := listener(h)
 	settled(ctx, private)
 	closePrivate()
@@ -237,8 +239,9 @@ func startDigest(ctx context.Context, work string) {
 	began := time.Now()
 	probation, err := releasepush.Probe(work, os.Stdout)
 	must(err)
-	h, err := releasepush.NewHandler(ctx, work)
+	h, err := releasepush.NewHandler(work)
 	must(err)
+	h.HashRunning(ctx)
 	conn, closeListener := listener(h)
 	defer closeListener()
 	first := request(ctx, conn, releasepush.SubjectVersion, nil, "")

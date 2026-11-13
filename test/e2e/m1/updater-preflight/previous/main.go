@@ -65,7 +65,7 @@ func ask(ctx context.Context, h *releasepush.Handler, subject, payloadFile, jwks
 }
 
 func signal(ctx context.Context, work string) int64 {
-	h, err := releasepush.NewHandler(ctx, work)
+	h, err := releasepush.NewHandler(work)
 	must(err)
 	h.Binary, h.Revision = filepath.Join(work, "installed"), os.Args[5]
 	h.Client = &http.Client{Transport: redirect{os.Args[4]}}
@@ -119,7 +119,7 @@ func main() {
 	result := map[string]any{}
 	switch os.Args[1] {
 	case "install":
-		h, err := releasepush.NewHandler(ctx, work)
+		h, err := releasepush.NewHandler(work)
 		must(err)
 		h.Binary, h.Revision = filepath.Join(work, "installed"), os.Args[5]
 		h.Client = &http.Client{Transport: redirect{os.Args[4]}}
@@ -134,7 +134,7 @@ func main() {
 			result["restart"] = err.Error()
 			break
 		}
-		h, err := releasepush.NewHandler(ctx, work)
+		h, err := releasepush.NewHandler(work)
 		must(err)
 		result["served"] = probation.Served()
 		result["revision"] = h.Revision

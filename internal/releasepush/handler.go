@@ -161,7 +161,7 @@ type Handler struct {
 }
 
 // NewHandler serves this process's release for the binary it runs from.
-func NewHandler(ctx context.Context, state string) (*Handler, error) {
+func NewHandler(state string) (*Handler, error) {
 	binary, err := executable()
 	if err != nil {
 		return nil, err
@@ -172,13 +172,14 @@ func NewHandler(ctx context.Context, state string) (*Handler, error) {
 	h.NodeList = nodelist.Open(state)
 	h.rolledBack.Store(readRollback(h.RollbackFile))
 	h.running.Store(&runningBuild{unavailable: "running binary digest not computed yet"})
-	go h.hashRunning(ctx)
 	return h, nil
 }
 
 type runningBuild struct{ sha256, unavailable string }
 
-func (h *Handler) hashRunning(ctx context.Context) {
+// HashRunning hashes the running executable in the background so no start-up
+// step waits for it; the version answer carries the digest once it is ready.
+func (h *Handler) HashRunning(ctx context.Context) {
 	sum, err := runningDigest(ctx)
 	if ctx.Err() != nil {
 		return

@@ -35,10 +35,12 @@ func rolloutCases(ctx context.Context) {
 	defer p.server.Close()
 	release := p.release(shaB, "100", "e2e")
 	verifier := p.verifier()
-	founder, err := releasepush.NewHandler(ctx, work)
+	founder, err := releasepush.NewHandler(work)
 	must(err)
-	later, err := releasepush.NewHandler(ctx, work)
+	founder.HashRunning(ctx)
+	later, err := releasepush.NewHandler(work)
 	must(err)
+	later.HashRunning(ctx)
 	founder.Binary, founder.Revision, founder.Verifier = accepted, release.SHA, verifier
 	later.Binary, later.Revision, later.Verifier = accepted, release.SHA, verifier
 	var broken atomic.Bool
