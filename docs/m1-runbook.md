@@ -7,6 +7,8 @@ ACME HTTP-01 + redirect, `:443`). Services come from
 
 The agent configures journal targets of 512 MiB on disk (about 1.1% of a 50 GB boot disk), 128 MiB in runtime storage, 64 MiB per file and seven days of retention. These are targets with file granularity: active journal files are not deleted, so usage and age can exceed them. There is no central log store.
 
+At each agent start, background housekeeping compares the drop-in bytes and atomically publishes changes; compares journald’s UTC realtime start with the file’s modification time and attempts one restart if activation cannot be confirmed; requests rotation only immediately after a confirmed restart in that run; then checks syslog and disables, stops and masks it unless an enabled unit requires it. Failures warn once and wait for the next start. Old journal files shrink over the following rotations.
+
 ## Host
 
 | Fact | Value |

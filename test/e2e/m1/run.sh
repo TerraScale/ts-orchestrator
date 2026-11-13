@@ -228,7 +228,7 @@ sudo sha256sum --check "$work/node-private-before.sha256"
 test "$(sudo stat -c %a "$state/node/tls.key")" = 600
 test "$(sudo stat -c %a "$state/node/wg.key")" = 600
 end "ts-orch restart -> both served, node keys kept"
-source "$here/host-logs.sh" "$work" "$state" "$here" "$runtime_pins"
+source "$here/host-logs.sh" "$work" "$here" "$runtime_pins"
 
 begin "restart the e2e-data task"
 before=$(edge data.e2e.test /boots | wc -l)

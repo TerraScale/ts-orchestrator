@@ -22,9 +22,11 @@ type Notifier struct {
 	watchdog time.Duration
 }
 
-// FromEnvironment returns the notifier systemd configured for this process.
-// It unsets the variables so child processes never inherit them.
-func FromEnvironment() *Notifier {
+var processNotifier = captureEnvironment()
+
+func Process() *Notifier { return processNotifier }
+
+func captureEnvironment() *Notifier {
 	notifier := New(os.Getenv("NOTIFY_SOCKET"), os.Getenv("WATCHDOG_USEC"), os.Getenv("WATCHDOG_PID"), os.Getpid())
 	for _, name := range []string{"NOTIFY_SOCKET", "WATCHDOG_USEC", "WATCHDOG_PID"} {
 		_ = os.Unsetenv(name)

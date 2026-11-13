@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 work=$1
-state=$2
-here=$3
-runtime_pins=$4
-intent=$state/host-logs-activation-pending
+here=$2
+runtime_pins=$3
+repo=$(cd "$here/../../.." && pwd)
 config=/etc/systemd/journald.conf.d/60-ts-orch.conf
 
 begin "restart ts-orch repairs host log settings on the controlled runner"
@@ -40,7 +39,7 @@ housekeeping_finished() {
 	sudo journalctl -u ts-orch.service "_SYSTEMD_INVOCATION_ID=$invocation" --no-pager -o cat | grep -E 'Host log settings (applied|skipped)' >/dev/null
 }
 activation_done() {
-	housekeeping_finished && sudo cmp "$work/journal.conf" "$config" && sudo test ! -e "$intent"
+	housekeeping_finished && sudo cmp "$work/journal.conf" "$config"
 }
 syslog_masked() {
 	test "$(systemctl is-enabled rsyslog.service)" = masked &&
@@ -96,89 +95,176 @@ test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$jo
 syslog_masked
 end "ts-orch restarts -> logs repaired, deliberate unsupported cases untouched, both served"
 
-begin "failed and interrupted host log activation resumes at the next start"
+begin "current host state drives one housekeeping attempt per start"
 commands=/run/ts-e2e-host-log-commands
 binaries=/usr/local/lib/ts-e2e-host-log-commands
 sudo install -d -m 0755 "$commands" "$binaries/real"
-sudo cp "$(command -v systemctl)" "$binaries/real/systemctl"
-sudo cp "$(command -v journalctl)" "$binaries/real/journalctl"
-sudo install -m 0755 "$here/host-log-command.py" "$binaries/systemctl"
-sudo install -m 0755 "$here/host-log-command.py" "$binaries/journalctl"
-printf '[Service]\nBindReadOnlyPaths=%s/systemctl:/usr/bin/systemctl %s/journalctl:/usr/bin/journalctl\n' "$binaries" "$binaries" | sudo tee "$dropin" >/dev/null
+for command in systemctl journalctl iptables; do
+	sudo cp "$(command -v "$command")" "$binaries/real/$command"
+	sudo install -m 0755 "$here/host-log-command.py" "$binaries/$command"
+done
+printf '[Service]\nEnvironment=WATCHDOG_USEC=0 WATCHDOG_PID=1\nBindReadOnlyPaths=%s/systemctl:/usr/bin/systemctl %s/journalctl:/usr/bin/journalctl %s/iptables:/usr/sbin/iptables\n' "$binaries" "$binaries" "$binaries" | sudo tee "$dropin" >/dev/null
 sudo systemctl daemon-reload
-for failure in syslog restart rotate interrupted hung pipe; do
-	sudo rm -f "$commands/entered" "$commands/pids" "$commands/restarts"
-	printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee "$config" >/dev/null
-	sudo systemctl unmask rsyslog.service
-	sudo systemctl enable --now rsyslog.service
-	printf '%s\n' "$failure" | sudo tee "$commands/mode" >/dev/null
-	journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
-	if [[ $failure == interrupted ]]; then
-		sudo systemctl restart ts-orch
-		wait_for 30 test -e "$commands/entered"
-		sudo systemctl kill --signal=SIGKILL --kill-whom=main ts-orch
-		printf 'restart\n' | sudo tee "$commands/mode" >/dev/null
+set_mode() { printf '%s\n' "$1" | sudo tee "$commands/mode" >/dev/null; }
+reset_counts() { sudo rm -f "$commands/entered" "$commands/pids" "$commands/restarts" "$commands/rotations" "$commands/syslog-actions"; }
+count_is() {
+	local count=0
+	if sudo test -f "$commands/$1"; then
+		count=$(sudo cat "$commands/$1" | wc -l)
 	fi
+	test "$count" = "$2"
+}
+unchanged_config() { test "$(sudo stat -c %i:%y:%z "$config")" = "$journal_file"; }
+next_run_finished() {
+	test "$(systemctl show ts-orch.service -p InvocationID --value)" != "$agent_before" && activation_done
+}
+set_mode success
+reset_counts
+sudo cp "$work/journal.conf" "$config"
+journal_file=$(sudo stat -c %i:%y:%z "$config")
+for start in 1 2 3; do
+	restart_serving
+	wait_for 30 activation_done
+	count_is restarts 1
+	count_is rotations 1
+	unchanged_config
+done
+sudo grep -q '^iptables activating$' "$commands/notification-probes"
+sudo test ! -e "$commands/notification-leak"
+echo "published but not activated -> one restart, one rotation, no write across three starts; pre-ready child environment clean"
+for configured in hand-configured rebooted; do
+	reset_counts
+	if [[ $configured == hand-configured ]]; then
+		sudo cp "$work/journal.conf" "$config"
+		sudo systemctl restart systemd-journald.service
+	else
+		sudo python3 - "$config" <<'BOOT'
+import os
+import sys
+from pathlib import Path
+boot = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines() if line.startswith("btime "))
+os.utime(sys.argv[1], (boot - 1, boot - 1))
+BOOT
+	fi
+	journal_file=$(sudo stat -c %i:%y:%z "$config")
+	restart_serving
+	wait_for 30 activation_done
+	count_is restarts 0
+	count_is rotations 0
+	unchanged_config
+	echo "$configured ordering -> no restart, rotation or write"
+done
+reset_counts
+sudo cp "$work/journal.conf" "$config"
+journal_file=$(sudo stat -c %i:%y:%z "$config")
+set_mode restart
+for start in 1 2 3; do
+	restart_serving
+	log_skip_once
+	count_is restarts "$start"
+	count_is rotations 0
+	unchanged_config
+done
+echo "restart always fails -> exactly one attempt at each of three starts, no write"
+for uncertain in future unreadable-time; do
+	reset_counts
+	sudo cp "$work/journal.conf" "$config"
+	if [[ $uncertain == future ]]; then
+		sudo touch -d '+1 hour' "$config"
+		set_mode success
+	else
+		set_mode unreadable-time
+	fi
+	journal_file=$(sudo stat -c %i:%y:%z "$config")
+	restart_serving
+	log_skip_once
+	count_is restarts 1
+	count_is rotations 0
+	unchanged_config
+	echo "$uncertain timestamp -> one restart, one warning, no loop or rewrite"
+done
+set_mode success
+for failure in interrupted-publish interrupted-rotate; do
+	reset_counts
+	printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee "$config" >/dev/null
+	set_mode "$failure"
+	restart_serving
+	wait_for 30 test -e "$commands/entered"
+	sudo cmp "$work/journal.conf" "$config"
+	journal_file=$(sudo stat -c %i:%y:%z "$config")
+	agent_before=$(systemctl show ts-orch.service -p InvocationID --value)
+	set_mode success
+	sudo systemctl kill --signal=SIGKILL --kill-whom=main ts-orch
+	wait_for 120 next_run_finished
+	wait_for 120 edge whoami.e2e.test /health
+	wait_for 60 edge data.e2e.test /boots
+	unchanged_config
+	if [[ $failure == interrupted-publish ]]; then
+		count_is restarts 2
+		count_is rotations 1
+	else
+		count_is restarts 1
+		count_is rotations 0
+	fi
+	restart_serving
+	wait_for 30 activation_done
+	unchanged_config
+	if [[ $failure == interrupted-publish ]]; then
+		count_is restarts 2
+		count_is rotations 1
+	else
+		count_is restarts 1
+		count_is rotations 0
+	fi
+	echo "$failure -> next start reads current state, never rewrites, no replay of rotation"
+done
+for failure in syslog rotate hung pipe; do
+	reset_counts
+	printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee "$config" >/dev/null
+	if [[ $failure == syslog ]]; then
+		sudo systemctl unmask rsyslog.service
+		sudo systemctl enable --now rsyslog.service
+	fi
+	set_mode "$failure"
 	activation_started=$(date +%s%N)
 	restart_serving
 	log_skip_once
-	activation_ms=$((($(date +%s%N) - activation_started) / 1000000))
 	if [[ $failure == hung || $failure == pipe ]]; then
-		test "$activation_ms" -lt 30000
+		test "$((($(date +%s%N) - activation_started) / 1000000))" -lt 30000
 		for child in $(sudo cat "$commands/pids"); do
 			if sudo test -e "/proc/$child/stat"; then
 				test "$(sudo awk '{print $3}' "/proc/$child/stat")" = Z
 			fi
 		done
 	fi
-	sudo test -f "$intent"
-	sudo cmp "$work/journal.conf" "$config"
-	if [[ $failure != rotate ]]; then
-		test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
-	fi
-	journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
+	count_is restarts 1
 	journal_file=$(sudo stat -c %i:%y:%z "$config")
-	if [[ $failure == rotate ]]; then
-		sudo cp "$intent" "$work/replay.json"
-		for start in 2 3; do
-			restart_serving
-			log_skip_once
-			test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
-			test "$(sudo cat "$commands/restarts" | wc -l)" = 1
-		done
-	fi
-	echo "$failure activation -> serving, one warning, step intent retained"
-	printf 'success\n' | sudo tee "$commands/mode" >/dev/null
+	set_mode success
 	restart_serving
 	wait_for 30 activation_done
-	test "$(sudo stat -c %i:%y:%z "$config")" = "$journal_file"
-	if [[ $failure == rotate ]]; then
-		test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
-		test "$(sudo cat "$commands/restarts" | wc -l)" = 1
-		sudo python3 - "$work/replay.json" "$intent" <<'REPLAY'
-import json
-import sys
-from pathlib import Path
-intent = json.loads(Path(sys.argv[1]).read_text())
-intent["Rotated"] = True
-intent["Done"] = True
-Path(sys.argv[2]).write_text(json.dumps(intent))
-REPLAY
-		restart_serving
-		wait_for 30 activation_done
-		test "$(sudo cat "$commands/restarts" | wc -l)" = 1
+	unchanged_config
+	if [[ $failure == hung || $failure == pipe ]]; then
+		count_is restarts 2
 	else
-		test "$(systemctl show systemd-journald.service -p InvocationID --value)" != "$journal_started"
+		count_is restarts 1
 	fi
 	syslog_masked
-	echo "$failure activation -> next start resumed recorded steps without rewriting config"
+	echo "$failure -> serving, one warning; next run completes only current-state work"
 done
-end "activation failures and interruption -> completed steps never repeated; hung helpers bounded"
+reset_counts
+set_mode absent
+restart_serving
+wait_for 30 activation_done
+count_is syslog-actions 0
+count_is restarts 0
+echo "absent syslog -> no action"
+end "state checks converge without a progress record; child environment is clean before readiness"
 
-begin "readiness and supervision precede a hung housekeeping restart"
+begin "readiness and supervision precede a timed-out housekeeping restart"
 printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee "$config" >/dev/null
-sudo rm -f "$commands/entered" "$commands/restarts" "$commands/ready"
-printf 'completed-timeout\n' | sudo tee "$commands/mode" >/dev/null
+reset_counts
+sudo rm -f "$commands/ready"
+set_mode completed-timeout
 restart_serving
 wait_for 30 test -e "$commands/entered"
 test "$(systemctl show ts-orch.service -p ActiveState --value)" = active
@@ -186,17 +272,29 @@ sudo grep -q e2e-whoami "$commands/ready"
 orch service ls | grep -q e2e-whoami
 edge whoami.e2e.test /health
 wait_for 30 activation_done
-test "$(sudo cat "$commands/restarts" | wc -l)" = 1
-journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
-printf 'success\n' | sudo tee "$commands/mode" >/dev/null
-restart_serving
-wait_for 30 activation_done
-test "$(sudo cat "$commands/restarts" | wc -l)" = 1
-test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
+count_is restarts 1
+count_is rotations 1
+journal_file=$(sudo stat -c %i:%y:%z "$config")
+set_mode success
+for start in 2 3; do
+	restart_serving
+	wait_for 30 activation_done
+	count_is restarts 1
+	count_is rotations 1
+	unchanged_config
+done
+python3 - "$repo/internal/app/single_host.go" <<'RECOVERY'
+import re
+import sys
+from pathlib import Path
+source = Path(sys.argv[1]).read_text()
+assert re.search(r'go func\(\) \{\s*defer func\(\) \{\s*if value := recover\(\); value != nil \{\s*slog.Warn\("Host log settings skipped", "panic", fmt.Sprint\(value\)\)\s*\}\s*\}\(\)\s*if err := ensureHostLogs\(ctx\);', source)
+print("panic boundary verified by reading: deferred recovery logs the panic and ends only housekeeping; no injectable panic seam")
+RECOVERY
 sudo rm "$dropin"
 sudo systemctl daemon-reload
 sudo rm -rf "$commands" "$binaries"
-end "ready while restart client hung; completed restart recorded once"
+end "ready while restart client hung; timestamp confirms completion once; panic boundary read"
 
 begin "enabled syslog requirement preserves the daemon and still activates the journal"
 required=/run/systemd/system/ts-e2e-syslog-required@.service
