@@ -40,6 +40,9 @@ func Guard(ctx context.Context, args []string) error {
 		if err != nil || t == nil {
 			return err
 		}
+		if t.GuardAfter.IsZero() {
+			return errors.New("release trial is missing its recovery deadline")
+		}
 		if time.Now().Before(t.GuardAfter) {
 			return nil
 		}

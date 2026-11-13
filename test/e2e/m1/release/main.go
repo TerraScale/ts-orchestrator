@@ -206,6 +206,11 @@ func run() {
 	check(os.WriteFile(binary+".prev", original, 0o755))
 	check(os.WriteFile("/var/lib/ts-orch/nats/release-trial", []byte(fmt.Sprintf(`{"sha":%q,"run_id":"0","starts":0}`, current)), 0o600))
 
+	guardOutput, guardErr := exec.Command(binary, "release", "guard").CombinedOutput()
+	require(guardErr != nil && strings.Contains(string(guardOutput), "missing its recovery deadline"), "guard accepted an unconverted binary-only handoff")
+	require(command("systemctl", "is-active", "ts-orch") == "active", "guard stopped agent before first-rollout deadline conversion")
+	fmt.Println("ok release: guard leaves a binary-only handoff running until its first-start deadline conversion")
+
 	reconciled := atFilePermission("unit-installed", func(point, path string, pid int) bool {
 		if point != "unit-installed" {
 			return false
