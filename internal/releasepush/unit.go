@@ -130,18 +130,11 @@ func installUnit(ctx context.Context, data []byte, binary, state string) error {
 		return errors.New("release unit install requires durable trial intent")
 	}
 
-	units := guardUnits(binary)
-	units[filepath.Base(unitPath)] = data
-	dir, err := stageUnits(ctx, units)
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(dir)
-	previous, err := os.ReadFile(unitPath)
-	if err != nil {
-		return fmt.Errorf("read installed unit: %w", err)
-	}
 	if t.OriginalUnit && t.UnitBackup == "" {
+		previous, err := os.ReadFile(unitPath)
+		if err != nil {
+			return err
+		}
 		t.UnitBackup = binary + ".prev.unit"
 		if err := atomicFile(t.UnitBackup, previous); err != nil {
 			return err
@@ -157,6 +150,18 @@ func installUnit(ctx context.Context, data []byte, binary, state string) error {
 		if err := writeJSON(trialFile(state), t); err != nil {
 			return err
 		}
+	}
+
+	units := guardUnits(binary)
+	units[filepath.Base(unitPath)] = data
+	dir, err := stageUnits(ctx, units)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	previous, err := os.ReadFile(unitPath)
+	if err != nil {
+		return fmt.Errorf("read installed unit: %w", err)
 	}
 	if err := installGuard(ctx, binary, state); err != nil {
 		return err

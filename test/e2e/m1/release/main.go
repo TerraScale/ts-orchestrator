@@ -189,6 +189,20 @@ func run() {
 	if modified {
 		current += "-dirty"
 	}
+	invalidUnit := bytes.Replace(originalUnit, []byte("Description=TerraScale Orchestrator single host (milestone 1)"), []byte("Description=Trial"), 1)
+	invalidUnit = bytes.Replace(invalidUnit, []byte("ExecStart="), []byte("ExecStart=relative/path "), 1)
+	invalidUnit = append(invalidUnit, bytes.Repeat([]byte("\n"), len(originalUnit)-len(invalidUnit))...)
+	check(os.WriteFile(binary, bytes.ReplaceAll(original, originalUnit, invalidUnit), 0o755))
+
+	check(os.WriteFile(binary+".prev", original, 0o755))
+	check(os.WriteFile("/var/lib/ts-orch/nats/release-trial", []byte(fmt.Sprintf(`{"sha":%q,"run_id":"0","starts":0}`, current)), 0o600))
+
+	ready(func() { command("systemctl", "start", "--no-block", "ts-orch") })
+	require(bytes.Equal(read(binary), original) && bytes.Equal(read(unit), oldUnit), "first-rollout verification failure did not retain the previous binary and unit")
+	require(bytes.Equal(read(binary+".original.unit"), oldUnit), "refused first rollout did not preserve original unit")
+	require(command("systemctl", "show", "ts-orch", "-p", "StartLimitIntervalUSec", "--value") == "30s", "refused first rollout changed loaded unit")
+	fmt.Println("ok release: invalid first-rollout unit restores the binary already swapped by the binary-only installer")
+
 	check(os.WriteFile(binary+".prev", original, 0o755))
 	check(os.WriteFile("/var/lib/ts-orch/nats/release-trial", []byte(fmt.Sprintf(`{"sha":%q,"run_id":"0","starts":0}`, current)), 0o600))
 
@@ -277,6 +291,9 @@ func run() {
 				var metadataAfter time.Time
 				metadata := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 					require(request.Header.Get("Authorization") == "Bearer Oracle", "missing metadata authentication")
+					if metadataAfter.IsZero() {
+						metadataAfter = time.Now().Add(125 * time.Second)
+					}
 					values := map[string]string{"/opc/v2/instance/canonicalRegionName": "us-sanjose-1", "/opc/v2/instance/id": "instance"}
 					if time.Now().Before(metadataAfter) {
 						w.WriteHeader(http.StatusServiceUnavailable)
@@ -293,7 +310,6 @@ func run() {
 				check(err)
 				defer metadata.Close()
 				command("systemctl", "start", "ts-orch")
-				metadataAfter = time.Now().Add(125 * time.Second)
 				go func() { _ = metadata.Serve(metadataListener) }()
 				check(os.WriteFile("/opt/firmware/chassis_asset_tag", []byte("OracleCloud.com\n"), 0o644))
 				cert, err := x509.ParseCertificate(certificate.Bytes)
