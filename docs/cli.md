@@ -169,12 +169,6 @@ runs isolated load-generator jobs and attaches that usage window. See
 [capacity benchmarking](capacity-benchmarking.md) for setup, current SDK
 blockers, bounds and cleanup guarantees.
 
-`ts-orch disaster-recovery replicate --config FILE [--apply]` prepares
-dedicated cross-region Object Storage mirrors, historical backfills and Vault
-key replicas. It does not execute a full-cell recovery drill. See
-[disaster recovery](disaster-recovery.md) for the exact copy layout and the
-remaining cold-restore requirements.
-
 Prefer `ts-orch` for new operational features. Implement them as Go commands
 in their feature packages instead of adding Python scripts or separate
 executables. CI and operator automation should invoke those commands. Keep
