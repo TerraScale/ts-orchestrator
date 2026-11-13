@@ -2,6 +2,7 @@
 Description=TerraScale Orchestrator single host (milestone 1)
 Wants=network-online.target containerd.service
 After=network-online.target containerd.service
+StartLimitIntervalSec=0
 
 [Service]
 # READY=1 once the node is up, so systemctl is-active means serving.

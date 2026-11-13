@@ -2,12 +2,14 @@ package app
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -163,10 +165,6 @@ type hostPlan struct {
 
 func (p hostPlan) joiner() bool { return p.admission.HostID != p.admission.FounderID }
 
-// planHost reuses the stored admission of a restarted host. A fresh OCI host
-// founds its region's cluster when it wins the region's Vault claim and
-// otherwise joins the founder that published join material; it waits and
-// retries until one holds, since it serves nothing yet.
 func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, error) {
 	loopback := hostPlan{listen: swarmruntime.SingleHostAddress, advertise: swarmruntime.SingleHostAddress, admission: swarmruntime.FounderAdmission()}
 	stored, restarted, err := swarmruntime.StoredAdmission(state)
@@ -178,22 +176,62 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 		return hostPlan{}, fmt.Errorf("read host platform: %w", err)
 	}
 	oracle := strings.TrimSpace(string(asset)) == "OracleCloud.com"
-	if !oracle && (!restarted || stored.HostID == stored.FounderID) {
-		if !restarted {
-			if _, err := os.Stat(swarmruntime.SingleHostSwarmDir(state)); err == nil {
-				return hostPlan{}, errors.New("cluster state exists without stored admission")
+	if !oracle {
+		for _, path := range []string{filepath.Join(state, "mesh"), filepath.Join(state, hostMetadataFile)} {
+			if _, err := os.Stat(path); err == nil {
+				return hostPlan{}, errors.New("host platform is not Oracle but stored mesh state exists")
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return hostPlan{}, err
 			}
-		} else {
+		}
+	}
+	if !restarted {
+		if _, err := os.Stat(swarmruntime.SingleHostSwarmDir(state)); err == nil {
+			return hostPlan{}, errors.New("cluster state exists without stored admission")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return hostPlan{}, err
+		}
+	}
+	if !oracle {
+		if restarted {
+			if stored.HostID != stored.FounderID {
+				return hostPlan{}, errors.New("host platform is not Oracle but stored mesh worker admission exists")
+			}
 			loopback.admission = stored
 		}
 		fmt.Fprintln(output, "local host; using a loopback-only cluster")
 		return loopback, nil
 	}
-	instance, err := regionjoin.Local(ctx)
-	if err != nil {
-		return hostPlan{}, fmt.Errorf("read host metadata: %w", err)
+	notifier := sdnotify.New(os.Getenv("NOTIFY_SOCKET"), "", "", os.Getpid())
+	if err := notifier.ExtendStart(2 * hostMetadataWindow); err != nil {
+		return hostPlan{}, fmt.Errorf("extend host startup window: %w", err)
+	}
+	instance, metadataErr := readHostMetadata(ctx, output)
+	if err := ctx.Err(); err != nil {
+		return hostPlan{}, err
+	}
+	if metadataErr != nil {
+		if !restarted {
+			return hostPlan{}, fmt.Errorf("read host metadata: %w", metadataErr)
+		}
+		if stored.HostID == stored.FounderID {
+			instance, err = storedHostMetadata(state)
+			if err != nil {
+				return hostPlan{}, fmt.Errorf("read host metadata: %w", errors.Join(metadataErr, err))
+			}
+			fmt.Fprintf(output, "using stored host metadata; advertise %s\n", net.JoinHostPort(instance.PrivateIP, strconv.Itoa(swarmruntime.SwarmPort)))
+		} else {
+			fmt.Fprintln(output, "host metadata unavailable; restarting worker from stored admission")
+		}
+	}
+	if metadataErr == nil {
+		data, err := json.Marshal(instance)
+		if err == nil {
+			err = writeOwnerOnlyFile(state, hostMetadataFile, data)
+		}
+		if err != nil {
+			return hostPlan{}, fmt.Errorf("persist host metadata: %w", err)
+		}
 	}
 	if restarted && stored.HostID != stored.FounderID {
 		return hostPlan{listen: loopback.listen, advertise: loopback.advertise, admission: stored,
