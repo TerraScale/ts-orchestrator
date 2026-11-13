@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
-	"time"
 )
 
 const (
