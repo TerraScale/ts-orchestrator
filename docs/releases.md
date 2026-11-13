@@ -75,7 +75,9 @@ digest before renaming it over the candidate. If that binary is missing,
 changed or cannot be restored, the candidate keeps running, the trial and
 rollback marker remain, and an ERROR identifies the failure. Readiness cannot
 confirm that release: version reports `state: unconfirmed`, health reports
-`release probation unconfirmed`, and the release run fails as unconfirmed.
+`release probation unconfirmed`, and the release run fails with the unconfirmed reason. A candidate already
+unconfirmed at rollout preflight returns `state: failed` with its unconfirmed
+health; an installation that later cannot roll back returns `state: unconfirmed`.
 A completed rollback reports the rejected candidate from the restored binary
 matching rollback entry. A replay of that rejected run is refused.
 

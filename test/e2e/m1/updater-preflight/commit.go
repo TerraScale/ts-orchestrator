@@ -111,13 +111,17 @@ func commitCase(ctx context.Context, work, outcome string) {
 	}
 	current, err := os.ReadFile(h.Binary)
 	must(err)
+	preflightRelays := 0
+	if reply.Refusal != nil && reply.Refusal.Preflight {
+		preflightRelays = 1
+	}
 	if outcome == "rejected" {
 		require(reply.State == "rejected" && reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalHost, "precommit failure must be a host refusal")
 		require(bytes.Equal(current, original), "precommit failure must keep installed bytes")
 		fence := active(h.RunIDFile, original)
 		require(fence != nil && fence["run_id"] == "1", "abandoned attempt must preserve installed run fence")
 		require(active(h.TrialFile, original) == nil, "abandoned trial must be inert")
-		require(relays == 0 && len(h.Installed) == 0, "precommit failure must not relay or restart")
+		require(relays == preflightRelays && len(h.Installed) == 0, "precommit failure must not restart; only preflight refusals collect worker evidence")
 		reply = installRequest(ctx, h, conn, work, strings.Repeat("b", 40), "2")
 		require(reply.State == "installed", "same run must succeed after precommit failure")
 	} else {
@@ -131,7 +135,7 @@ func commitCase(ctx context.Context, work, outcome string) {
 	require(active(h.RollbackFile, candidate)["sha"] == strings.Repeat("b", 40), "rollback marker must name candidate")
 	require(active(h.RefusalFile, candidate) != nil, "attempt must exist before commit even if later writes fail")
 	if outcome != "committed" {
-		require(relays == 1, "installed release must relay once")
+		require(relays == 1+preflightRelays, "installed release must relay once")
 		select {
 		case <-h.Installed:
 		case <-ctx.Done():
@@ -191,7 +195,7 @@ func recoverCase(ctx context.Context, work, mode string) {
 		require(version.State == "unconfirmed" && strings.Contains(version.Error, "rollback unavailable") && strings.Contains(health.Health, "unconfirmed"), "agent and release must see unconfirmed rollback failure")
 		require(active(h.TrialFile, current) != nil && active(h.RollbackFile, current) != nil, "impossible rollback must retain both markers")
 		unconfirmedPush(ctx, work, h, current)
-		fmt.Println("candidate unconfirmed; version=unconfirmed; health=release probation unconfirmed; rollout=unconfirmed")
+		fmt.Println("candidate unconfirmed; version=unconfirmed; health=release probation unconfirmed; rollout=failed on unconfirmed health")
 		return
 	}
 	if mode == "inspect" {

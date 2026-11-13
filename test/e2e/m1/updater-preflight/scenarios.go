@@ -408,7 +408,7 @@ func unconfirmedPush(ctx context.Context, work string, h *releasepush.Handler, d
 	require(err != nil && strings.Contains(err.Error(), "unconfirmed"), "release must fail when rollback is unavailable: "+output.String())
 	var result releasepush.Result
 	must(json.Unmarshal(bytes.TrimSpace(output.Bytes()), &result))
-	require(result.State == "unconfirmed", "rollout must report unconfirmed candidate")
+	require(result.State == "failed" && strings.Contains(result.Error, "unconfirmed"), "rollout preflight must report unconfirmed candidate health")
 }
 
 func fenceCase(ctx context.Context, data []byte) {
