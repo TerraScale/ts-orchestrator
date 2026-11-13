@@ -71,7 +71,7 @@ func run(ctx context.Context, binary, previous string) {
 	}()
 	watchdogDone := make(chan struct{})
 	go func() {
-		watchdogCase(ctx)
+		watchdogCase(ctx, binary)
 		close(watchdogDone)
 	}()
 	rolloutCases(ctx, data)
@@ -860,7 +860,7 @@ func staleRecordCase(ctx context.Context) {
 	fmt.Println("ok probation stale record: rollback record of run 1, run 2 installed and confirmed, restart keeps it")
 }
 
-func watchdogCase(ctx context.Context) {
+func watchdogCase(ctx context.Context, pusher string) {
 	work, cleanup := temporary("watchdog-")
 	defer cleanup()
 	must(os.Mkdir(filepath.Join(work, "nats"), 0o700))
@@ -881,7 +881,14 @@ func watchdogCase(ctx context.Context) {
 		return exec.CommandContext(ctx, installed, "serve-region", work, fmt.Sprint(port), verifier.JWKSURL, provider+"/binary")
 	})
 	defer stopRegion()
-	result, err := pushOne(ctx, work, "assets", build, release, provider, regions)
+	assets := filepath.Join(work, "assets")
+	must(os.Mkdir(assets, 0o700))
+	writeExecutable(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), build)
+	push := exec.CommandContext(ctx, pusher, "release", "push", "--sha", release.SHA, "--dir", assets, "--regions", regions)
+	push.Env = append(os.Environ(), "ACTIONS_ID_TOKEN_REQUEST_URL="+provider+"/token?", "ACTIONS_ID_TOKEN_REQUEST_TOKEN=lane")
+	output, err := push.Output()
+	var result releasepush.Result
+	must(json.Unmarshal(bytes.TrimSpace(output), &result))
 	waited := time.Duration(result.ServingMS-result.AcceptedMS) * time.Millisecond
 	require(err == nil && result.State == "installed" && bytes.Equal(read(installed), build) && waited >= 45*time.Second && waited <= 2*time.Minute, fmt.Sprintf("a shutdown stuck until the watchdog ends with the new binary serving early enough to leave a whole probation inside the pusher's wait: %v %+v", err, result))
 	fmt.Println("ok watchdog: stuck shutdown ended by the watchdog; new binary serving", waited.Round(time.Second), "after the reply")
