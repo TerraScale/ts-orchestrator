@@ -171,8 +171,11 @@ func write(output io.Writer, regions []string, reports map[string]Report) error 
 // RunCLI is `ts-orch status`: every region's health over the mesh, or this
 // host's as `local` when it has no mesh.
 func RunCLI(ctx context.Context, args []string, state string, output io.Writer) error {
+	if len(args) > 0 && args[0] == "revision" {
+		return revisionCLI(ctx, args[1:], state, output)
+	}
 	if len(args) != 0 {
-		_, err := io.WriteString(output, "usage:\n  ts-orch status\n")
+		_, err := io.WriteString(output, "usage:\n  ts-orch status\n  ts-orch status revision <published 40-hex revision>\n")
 		if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 			return err
 		}

@@ -1,7 +1,15 @@
 package releasepreflight
 
-import "context"
+import (
+	"context"
 
-func Run(context.Context) error {
-	return nil
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+)
+
+func Run(ctx context.Context) error {
+	return vaultsecret.CheckServiceSecrets(ctx)
+}
+
+func Secrets(ctx context.Context) error {
+	return vaultsecret.CheckRegionalSecrets(ctx)
 }
