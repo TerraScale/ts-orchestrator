@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -272,8 +273,9 @@ func namespace(cfg configuration, node, address string) error {
 	}
 	for _, args := range [][]string{
 		{"link", "set", "lo", "up"},
-		{"addr", "add", address + "/24", "dev", "node-" + node},
-		{"link", "set", "node-" + node, "up"},
+		{"link", "set", "node-" + node, "name", "wt0"},
+		{"addr", "add", address + "/24", "dev", "wt0"},
+		{"link", "set", "wt0", "up"},
 		{"route", "add", "169.254.169.254/32", "via", "10.77.0.1"},
 	} {
 		if err := command(append([]string{"ip", "-n", ns}, args...)...); err != nil {
@@ -378,6 +380,25 @@ func ready(address string) error {
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
 		return fmt.Errorf("readiness on %s: %s", address, response.Status)
+	}
+	return nil
+}
+
+func pendingReadiness(address, name string) error {
+	response, err := (&http.Client{Timeout: 2 * time.Second}).Get("http://" + address + "/edge/ready")
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	var body struct {
+		Ready   bool     `json:"ready"`
+		Missing []string `json:"missing"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusServiceUnavailable || body.Ready || !slices.Contains(body.Missing, "certificate "+name+" pending") {
+		return fmt.Errorf("readiness on %s with uncertified %s: %s %+v", address, name, response.Status, body)
 	}
 	return nil
 }
@@ -760,11 +781,11 @@ func journey(ctx context.Context, cfg configuration) error {
 		}
 	}
 	for _, address := range []string{"10.77.0.2", "10.77.0.3"} {
-		if err := ready(address); err != nil {
+		if err := pendingReadiness(address, "pending.e2e.test"); err != nil {
 			return err
 		}
 	}
-	fmt.Println("PASS SIGSTOP store: 32 fresh HTTPS and 32 Postgres handshakes; both readiness endpoints 200 with a new uncertified hostname")
+	fmt.Println("PASS SIGSTOP store: 32 fresh HTTPS and 32 Postgres handshakes from local copies; both readiness endpoints 503 until the new hostname has a certificate")
 	for _, node := range []string{"a", "b"} {
 		info, err := os.Stat(filepath.Join(cfg.Work, node, "edge-certs", "shared.e2e.test"))
 		if err != nil {

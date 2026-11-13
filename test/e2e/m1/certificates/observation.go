@@ -34,9 +34,9 @@ func observationGet(address, path string) (int, []byte, error) {
 }
 
 func observationMetric(address, name string) (float64, error) {
-	status, data, err := observationGet(address+":9108", "/metrics")
+	status, data, err := observationGet(address, "/edge/certificates/metrics")
 	if err != nil || status != 200 {
-		return 0, fmt.Errorf("metrics %s: status=%d error=%v", address, status, err)
+		return 0, fmt.Errorf("metrics %s: status=%d error=%v body=%q", address, status, err, data)
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(line)
@@ -82,7 +82,7 @@ func observationJourney(cfg configuration) error {
 		}
 		status, data, err = observationGet(address, "/edge/ready")
 		if err != nil || status != 200 {
-			return fmt.Errorf("readiness %s: status=%d error=%v", address, status, err)
+			return fmt.Errorf("readiness %s: status=%d error=%v body=%q", address, status, err, data)
 		}
 		var ready struct {
 			Ready        bool     `json:"ready"`

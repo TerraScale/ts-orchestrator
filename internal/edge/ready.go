@@ -56,11 +56,18 @@ func (e *Edge) readiness() (bool, []string, []string) {
 	if verdict == nil || !verdict.ok || time.Since(verdict.at) > 10*time.Second {
 		missing = append(missing, "edge readiness unavailable")
 	}
-	missing = append(missing, verdict.conditions...)
+	if verdict != nil {
+		missing = append(missing, verdict.conditions...)
+	}
 	missingNames := []string{}
 	for _, name := range e.servedNames() {
+		if _, err := e.certs.load(name); err == nil {
+			continue
+		}
 		if e.certMissing(name) {
 			missingNames = append(missingNames, name)
+		} else {
+			missing = append(missing, "certificate "+name+" pending")
 		}
 	}
 	return len(missing) == 0 && len(missingNames) == 0, missing, missingNames
@@ -103,11 +110,6 @@ func (e *Edge) ready(ctx context.Context) ([]string, error) {
 	web, postgres := *e.routes.Load(), *e.postgres.Load()
 	if len(web)+len(postgres) == 0 {
 		conditions = append(conditions, "routes unavailable")
-	}
-	for _, name := range e.servedNames() {
-		if _, err := e.certs.load(name); err != nil && !e.certMissing(name) {
-			conditions = append(conditions, "certificate "+name+" invalid")
-		}
 	}
 	routes := *e.readyRoutes.Load()
 	if len(routes) == 0 {
@@ -153,6 +155,7 @@ type readinessVerdict struct {
 func (e *Edge) reconcileReadiness(ctx context.Context) {
 	tick := time.NewTicker(3 * time.Second)
 	defer tick.Stop()
+	var reported *bool
 	for {
 		bounded, cancel := context.WithTimeout(ctx, 3*time.Second)
 		conditions, err := e.ready(bounded)
@@ -160,10 +163,10 @@ func (e *Edge) reconcileReadiness(ctx context.Context) {
 			conditions = append(conditions, err.Error())
 		}
 		cancel()
-		ok := len(conditions) == 0
-		previous := e.readyStatus.Swap(&readinessVerdict{ok, time.Now(), conditions})
-		if previous == nil || previous.ok != ok {
-			slog.InfoContext(ctx, "edge readiness changed", "ready", ok)
+		e.readyStatus.Store(&readinessVerdict{len(conditions) == 0, time.Now(), conditions})
+		if ready, missing, missingNames := e.readiness(); reported == nil || *reported != ready {
+			slog.InfoContext(ctx, "edge readiness changed", "ready", ready, "missing", missing, "missing_names", missingNames)
+			reported = &ready
 		}
 		select {
 		case <-ctx.Done():
@@ -179,6 +182,7 @@ func (e *Edge) serveCertificateMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	e.WriteCertificateMetrics(r.Context(), w)
 	e.certs.cache.failures.Range(func(key, value any) bool {
 		name, variant := certificateVariant(key.(string))
 		observability.WriteCounter(w, observability.Series("ts_orch_edge_certificate_order_failures_total", "name", name, "variant", variant), float64(value.(*atomic.Uint64).Load()))

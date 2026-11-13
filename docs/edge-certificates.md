@@ -86,7 +86,8 @@ attempt and next attempt time, and increments
 `ts_orch_edge_certificate_order_failures_total{name,variant}`. There are at
 most two series per known routed name. These counters and the current
 `ts_orch_edge_certificate_unsupported` count are exposed at
-`/edge/certificates/metrics`; serving and scraping them require no store reads.
+`/edge/certificates/metrics`, together with the host-scrape certificate series
+listed under Metrics and alerts; serving and scraping them require no store reads.
 
 The [published Let’s Encrypt limits](https://letsencrypt.org/docs/rate-limits/)
 also apply independently:
@@ -227,9 +228,9 @@ Observation requests never obtain a certificate.
 
 ## Readiness
 
-GET or HEAD /edge/ready is available on HTTP port 80 and on the node's mesh-facing HTTP port 9108. It returns 200 when all four edge listeners are bound, routes have loaded, ingress and local application backends are ready, and every routed HTTPS or PostgreSQL name has a valid ECDSA certificate available locally. Otherwise it returns 503. The JSON body includes ready, missing infrastructure conditions, and missing_names. A name routed within the issuance grace window (ten minutes from assignment) is not yet reported missing; after that window a missing certificate makes readiness fail, matching the reconciliation grace above.
+GET or HEAD /edge/ready is available on HTTP port 80 and on the node's mesh-facing HTTP port 9108. It returns 200 when all four edge listeners are bound, routes have loaded, ingress and local application backends are ready, and every routed HTTPS or PostgreSQL name has an unexpired certificate loaded in memory, ECDSA or RSA. Otherwise it returns 503. The certificate check runs on every request, so readiness turns true as soon as a certificate is installed and never before. The JSON body includes ready, missing infrastructure conditions, and missing_names. A name without a certificate within the issuance grace window (ten minutes from assignment) is listed under missing as `certificate <name> pending`; after that window it moves to missing_names, matching the reconciliation grace above. Readiness fails in both cases.
 
-The endpoint is an operator signal. Release health does not consume it. RSA certificates are reported by inventory, while readiness requires the ECDSA variant selected by normal automatic handshakes.
+The endpoint is an operator signal. Release health does not consume it. The `edge readiness changed` log line reports the same verdict, including certificates, at most every three seconds.
 
 It checks local HTTP backend readiness paths without following redirects and checks PostgreSQL backend TCP connectivity, within a three-second budget.
 
