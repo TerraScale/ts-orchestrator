@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net/http"
+	"time"
+
 	"slices"
 	"strings"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
@@ -37,7 +41,11 @@ func (vaultStore) Read(ctx context.Context, t Target, name string) (Snapshot, er
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{ID: current.ID, Version: current.Version, Value: []byte(current.Value())}, nil
+	version, err := client.GetSecretVersion(ociclient.RequestContext(ctx), ocivault.GetSecretVersionRequest{SecretId: new(current.ID), SecretVersionNumber: new(current.Version)})
+	if err != nil || version.TimeCreated == nil || version.TimeCreated.IsZero() || version.SecretId == nil || *version.SecretId != current.ID || version.VersionNumber == nil || *version.VersionNumber != current.Version {
+		return Snapshot{}, errors.New("registry version creation metadata unavailable")
+	}
+	return Snapshot{ID: current.ID, Version: current.Version, Created: version.TimeCreated.Time, Value: []byte(current.Value())}, nil
 }
 
 func (vaultStore) Write(ctx context.Context, t Target, name string, previous Snapshot, value []byte) error {
@@ -59,7 +67,7 @@ func (vaultStore) Write(ctx context.Context, t Target, name string, previous Sna
 	if err != nil {
 		return errors.New("caller-key Vault bundle client unavailable")
 	}
-	_, err = vaultsecret.Put(ctx, client, bundles, vaultsecret.Target{VaultID: t.Vault, KeyID: t.Key, CompartmentID: t.Compartment}, name, value)
+	_, err = vaultsecret.Put(ctx, fencedCreate{client}, bundles, vaultsecret.Target{VaultID: t.Vault, KeyID: t.Key, CompartmentID: t.Compartment}, name, value)
 	return err
 }
 
@@ -115,7 +123,7 @@ func (vaultStore) Private(ctx context.Context, t Target, name string) (PrivateSt
 	if err != nil {
 		return PrivateState{}, err
 	}
-	state := PrivateState{Current: Snapshot{ID: current.ID, Version: current.Version, Value: []byte(current.Value())}}
+	state := PrivateState{Scheduled: map[int64]time.Time{}, Current: Snapshot{ID: current.ID, Version: current.Version, Value: []byte(current.Value())}}
 	complete := false
 	defer func() {
 		if !complete {
@@ -139,6 +147,10 @@ func (vaultStore) Private(ctx context.Context, t Target, name string) (PrivateSt
 				return PrivateState{}, errors.New("caller-key private version inventory invalid")
 			}
 			if v.TimeOfDeletion != nil {
+				if !slices.Contains(v.Stages, ocivault.SecretVersionSummaryStagesDeprecated) || slices.Contains(v.Stages, ocivault.SecretVersionSummaryStagesCurrent) || slices.Contains(v.Stages, ocivault.SecretVersionSummaryStagesPending) {
+					return PrivateState{}, errors.New("scheduled private version remains usable")
+				}
+				state.Scheduled[*v.VersionNumber] = v.TimeOfDeletion.Time
 				continue
 			}
 			value, err := vaultsecret.ReadBack(ctx, versionBundles{bundles, current.ID, *v.VersionNumber}, t.Vault, name, true)
@@ -176,6 +188,9 @@ func (s vaultStore) Stage(ctx context.Context, t Target, name string, before Pri
 		return errors.New("pending publication requires an existing current secret")
 	}
 	content := base64.StdEncoding.EncodeToString(value)
+	if err := checkDispatch(ctx); err != nil {
+		return err
+	}
 	_, err = client.UpdateSecret(ociclient.RequestContext(ctx), ocivault.UpdateSecretRequest{
 		SecretId: new(before.Current.ID), IfMatch: new(before.Etag),
 		UpdateSecretDetails: ocivault.UpdateSecretDetails{SecretContent: ocivault.Base64SecretContentDetails{Content: new(content), Name: new(versionName), Stage: ocivault.SecretContentDetailsStagePending}},
@@ -214,6 +229,9 @@ func (s vaultStore) Activate(ctx context.Context, t Target, name string, before 
 	if before.Etag == "" || len(expected) == 0 {
 		return errors.New("activation requires a pending version and conditional metadata")
 	}
+	if err := checkDispatch(ctx); err != nil {
+		return err
+	}
 	_, err = client.UpdateSecret(ociclient.RequestContext(ctx), ocivault.UpdateSecretRequest{
 		SecretId: new(before.Current.ID), IfMatch: new(before.Etag),
 		UpdateSecretDetails: ocivault.UpdateSecretDetails{CurrentVersionNumber: new(version)},
@@ -233,22 +251,32 @@ func (s vaultStore) Activate(ctx context.Context, t Target, name string, before 
 }
 
 func managementID(ctx context.Context, client ocivault.VaultsClient, t Target, name string) (string, error) {
+	id, _, err := managementLookup(ctx, client, t, name)
+	return id, err
+}
+
+func managementLookup(ctx context.Context, client ocivault.VaultsClient, t Target, name string) (string, time.Time, error) {
 	request := ocivault.ListSecretsRequest{CompartmentId: new(t.Compartment), VaultId: new(t.Vault), Name: new(name)}
 	id := ""
+	var now time.Time
 	for {
 		response, err := client.ListSecrets(ociclient.RequestContext(ctx), request)
 		if err != nil {
-			return "", errors.New("caller-key management metadata unavailable")
+			return "", time.Time{}, errors.New("caller-key management metadata unavailable")
+		}
+		now, err = storeTime(response.RawResponse)
+		if err != nil {
+			return "", time.Time{}, err
 		}
 		for _, item := range response.Items {
 			if item.SecretName == nil || *item.SecretName != name || item.VaultId == nil || *item.VaultId != t.Vault || item.Id == nil || *item.Id == "" || id != "" {
-				return "", errors.New("caller-key management metadata invalid or ambiguous")
+				return "", time.Time{}, errors.New("caller-key management metadata invalid or ambiguous")
 			}
 			id = *item.Id
 		}
 		request.Page = response.OpcNextPage
 		if request.Page == nil || *request.Page == "" {
-			return id, nil
+			return id, now, nil
 		}
 	}
 }
@@ -258,11 +286,11 @@ func (vaultStore) Metadata(ctx context.Context, t Target, name string, version i
 	if err != nil {
 		return PrivateMetadata{}, err
 	}
-	id, err := managementID(ctx, client, t, name)
+	id, now, err := managementLookup(ctx, client, t, name)
 	if err != nil || id == "" {
-		return PrivateMetadata{}, err
+		return PrivateMetadata{StoreNow: now}, err
 	}
-	result := PrivateMetadata{Secret: true, Version: version == 0 && versionName == ""}
+	result := PrivateMetadata{StoreNow: now, Secret: true, Version: version == 0 && versionName == ""}
 	if result.Version {
 		return result, nil
 	}
@@ -271,6 +299,10 @@ func (vaultStore) Metadata(ctx context.Context, t Target, name string, version i
 		response, err := client.ListSecretVersions(ociclient.RequestContext(ctx), ocivault.ListSecretVersionsRequest{SecretId: new(id), Page: page})
 		if err != nil {
 			return PrivateMetadata{}, errors.New("caller-key version management metadata unavailable")
+		}
+		result.StoreNow, err = storeTime(response.RawResponse)
+		if err != nil {
+			return PrivateMetadata{}, err
 		}
 		for _, v := range response.Items {
 			if v.VersionNumber == nil || v.SecretId == nil || *v.SecretId != id {
@@ -309,35 +341,69 @@ type privateReadError struct{ cause error }
 func (e *privateReadError) Error() string { return "private version unreadable" }
 func (e *privateReadError) Unwrap() error { return e.cause }
 
-func (s vaultStore) Discard(ctx context.Context, t Target, name string, before PrivateState, version int64) error {
+func (s vaultStore) Discard(ctx context.Context, t Target, name string, before PrivateState, version int64) (time.Time, error) {
 	client, _, err := vaultClients(t)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	metadata, err := client.GetSecret(ociclient.RequestContext(ctx), ocivault.GetSecretRequest{SecretId: new(before.Current.ID)})
 	if err != nil || metadata.Etag == nil || *metadata.Etag != before.Etag {
-		return errors.New("caller-key cancellation metadata changed; reread before writing")
+		return time.Time{}, errors.New("caller-key cancellation metadata changed; reread before writing")
 	}
 	v, err := client.GetSecretVersion(ociclient.RequestContext(ctx), ocivault.GetSecretVersionRequest{SecretId: new(before.Current.ID), SecretVersionNumber: new(version)})
 	if err != nil || v.SecretId == nil || *v.SecretId != before.Current.ID || v.Etag == nil || *v.Etag == "" || v.VersionNumber == nil || *v.VersionNumber != version || !slices.Contains(v.Stages, ocivault.SecretVersionStagesDeprecated) || slices.Contains(v.Stages, ocivault.SecretVersionStagesCurrent) || slices.Contains(v.Stages, ocivault.SecretVersionStagesPending) {
-		return errors.New("caller-key cancellation requires a deprecated version and conditional metadata")
+		return time.Time{}, errors.New("caller-key cancellation requires a deprecated version and conditional metadata")
 	}
 	if v.TimeOfDeletion == nil {
+		now, err := storeTime(v.RawResponse)
+		if err != nil {
+			return time.Time{}, err
+		}
+		deletion := common.SDKTime{Time: now.Add(deletionGrace)}
+		if err := checkDispatch(ctx); err != nil {
+			return time.Time{}, err
+		}
 		_, err = client.ScheduleSecretVersionDeletion(ociclient.RequestContext(ctx), ocivault.ScheduleSecretVersionDeletionRequest{
 			SecretId: new(before.Current.ID), SecretVersionNumber: new(version), IfMatch: v.Etag,
-			ScheduleSecretVersionDeletionDetails: ocivault.ScheduleSecretVersionDeletionDetails{},
+			ScheduleSecretVersionDeletionDetails: ocivault.ScheduleSecretVersionDeletionDetails{TimeOfDeletion: &deletion},
 		})
 		if err != nil {
-			return errors.New("caller-key cancellation deletion failed; reread before writing")
+			return time.Time{}, errors.New("caller-key cancellation deletion failed; reread before writing")
+		}
+		v, err = client.GetSecretVersion(ociclient.RequestContext(ctx), ocivault.GetSecretVersionRequest{SecretId: new(before.Current.ID), SecretVersionNumber: new(version)})
+		if err != nil || v.TimeOfDeletion == nil || !v.TimeOfDeletion.Equal(deletion.Time) || v.SecretId == nil || *v.SecretId != before.Current.ID || v.VersionNumber == nil || *v.VersionNumber != version {
+			return time.Time{}, errors.New("caller-key deletion schedule readback differs; recover before removing the public key")
 		}
 	}
 	after, err := s.Private(ctx, t, name)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	defer after.Clear()
 	if after.Current.Version != before.Current.Version || !bytes.Equal(after.Current.Value, before.Current.Value) || slices.ContainsFunc(after.Versions, func(v KeyVersion) bool { return v.Version == version }) {
-		return errors.New("caller-key cancellation readback differs; recover before removing the public key")
+		return time.Time{}, errors.New("caller-key cancellation readback differs; recover before removing the public key")
 	}
-	return nil
+	return v.TimeOfDeletion.Time, nil
+}
+
+func storeTime(response *http.Response) (time.Time, error) {
+	if response == nil {
+		return time.Time{}, errors.New("store response has no clock")
+	}
+	now, err := http.ParseTime(response.Header.Get("Date"))
+	if err != nil {
+		return time.Time{}, errors.New("store response has no valid Date header")
+	}
+	return now, nil
+}
+
+type fencedCreate struct{ ocivault.VaultsClient }
+
+func (client fencedCreate) CreateSecret(ctx context.Context, request ocivault.CreateSecretRequest) (ocivault.CreateSecretResponse, error) {
+	if strings.HasSuffix(*request.SecretName, "-terrabase-key") {
+		if err := checkDispatch(ctx); err != nil {
+			return ocivault.CreateSecretResponse{}, err
+		}
+	}
+	return client.VaultsClient.CreateSecret(ociclient.RequestContext(ctx), request)
 }

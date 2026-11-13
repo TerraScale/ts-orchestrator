@@ -31,12 +31,14 @@ type wireSnapshot struct {
 	Name    string
 }
 type secret struct {
-	Current  wireSnapshot
-	Versions []wireSnapshot
-	Pending  []bool
-	Deleting []bool
-	Etag     string
-	Revision int
+	Current       wireSnapshot
+	Versions      []wireSnapshot
+	Pending       []bool
+	Deleting      []bool
+	DeletionTimes []time.Time
+	Scheduled     map[int64]time.Time
+	Etag          string
+	Revision      int
 }
 type store struct {
 	sync.Mutex
@@ -47,6 +49,13 @@ type store struct {
 	hidden          map[string]bool
 	land            func() bool
 	metadataReads   int
+	now             time.Time
+	operatorSkew    time.Duration
+	progress        time.Duration
+	pauseAt         int
+	pauseStore      time.Duration
+	listingHidden   map[string]bool
+	hideAfterStage  bool
 	metadataError   bool
 	metadataAnswers []callerkey.PrivateMetadata
 	cases           int
@@ -104,6 +113,19 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	must(json.UnmarshalRead(r.Body, &in))
 	s.Lock()
 	defer s.Unlock()
+	if in.Operation == "operator-clock" {
+		w.Write(encoded(time.Now().Add(s.operatorSkew)))
+		return
+	}
+	if in.Operation == "monotonic-clock" {
+		if s.pauseAt > 0 && s.writes >= s.pauseAt {
+			s.progress += 3 * time.Minute
+			s.now = s.now.Add(s.pauseStore)
+			s.pauseAt = 0
+		}
+		w.Write(encoded(time.Unix(1000, 0).Add(s.progress)))
+		return
+	}
 	if in.Operation == "regions" {
 		w.Write(encoded([]string{"sjc", "fra", "gru"}))
 		return
@@ -121,13 +143,17 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(s.metadataAnswers) > 0 {
 			answer := s.metadataAnswers[0]
+			answer.StoreNow = s.now
 			s.metadataAnswers = s.metadataAnswers[1:]
 			w.Write(encoded(answer))
 			return
 		}
-		result := callerkey.PrivateMetadata{Secret: value.Current.Version > 0}
+		result := callerkey.PrivateMetadata{Secret: value.Current.Version > 0 && !s.listingHidden[in.Name], StoreNow: s.now}
 		result.Version = result.Secret && in.Version == 0 && in.VersionName == ""
 		for _, v := range value.Versions {
+			if s.listingHidden[in.Name] {
+				continue
+			}
 			if in.Version > 0 && v.Version == in.Version || in.VersionName != "" && v.Name == in.VersionName {
 				result.Version = true
 			}
@@ -141,8 +167,12 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.Operation == "private" {
 			copy := *value
+			copy.Scheduled = map[int64]time.Time{}
 			copy.Versions, copy.Pending, copy.Deleting = nil, nil, nil
 			for i, v := range value.Versions {
+				if value.Deleting[i] {
+					copy.Scheduled[v.Version] = value.DeletionTimes[i]
+				}
 				if !value.Deleting[i] {
 					copy.Versions = append(copy.Versions, v)
 					copy.Pending = append(copy.Pending, value.Pending[i])
@@ -180,6 +210,7 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			} else {
 				require(!value.Pending[i] && value.Current.Version != in.Version, "only deprecated versions can be deleted")
 				value.Deleting[i] = true
+				value.DeletionTimes[i] = s.now.Add(7 * 24 * time.Hour)
 			}
 		} else {
 			require(len(in.Value) <= 16384, "publication exceeds store limit")
@@ -196,10 +227,11 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				must(json.Unmarshal(in.Value, &key))
 				versionName = key.Kid
 			}
-			next := wireSnapshot{Snapshot: callerkey.Snapshot{ID: in.Name, Version: int64(len(value.Versions) + 1)}, Content: bytes.Clone(in.Value), Name: versionName}
+			next := wireSnapshot{Snapshot: callerkey.Snapshot{ID: in.Name, Version: int64(len(value.Versions) + 1), Created: s.now}, Content: bytes.Clone(in.Value), Name: versionName}
 			value.Versions = append(value.Versions, next)
 			value.Pending = append(value.Pending, in.Operation == "stage")
 			value.Deleting = append(value.Deleting, false)
+			value.DeletionTimes = append(value.DeletionTimes, time.Time{})
 			if in.Operation == "write" {
 				value.Current = next
 			}
@@ -208,6 +240,10 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		value.Etag = strconv.Itoa(value.Revision)
 		s.values[in.Name] = value
 		s.invariant()
+		if s.hideAfterStage && in.Operation == "stage" {
+			s.hidden[in.Name] = true
+			s.hideAfterStage = false
+		}
 		return true
 	}
 	failing := s.writes == s.fail
@@ -221,7 +257,13 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if failing && s.mode == "late" {
-		s.land = apply
+		dispatched := s.now
+		s.land = func() bool {
+			if strings.HasSuffix(in.Name, "-terrabase-key") && !s.now.Before(dispatched.Add(time.Minute)) {
+				return false
+			}
+			return apply()
+		}
 		kill()
 		http.Error(w, "request still in flight", 409)
 		return
@@ -238,6 +280,12 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			kill()
 		}
 		http.Error(w, "injected uncertain write", 409)
+		return
+	}
+	if in.Operation == "discard" {
+		i := slices.IndexFunc(value.Versions, func(v wireSnapshot) bool { return v.Version == in.Version })
+		require(value.DeletionTimes[i].Equal(s.now.Add(7*24*time.Hour)), "deletion grace differs")
+		w.Write(encoded(value.DeletionTimes[i]))
 		return
 	}
 	w.Write(encoded(true))
@@ -291,6 +339,12 @@ func (j *journey) reset() {
 	j.store.land = nil
 	j.store.metadataError = false
 	j.store.metadataAnswers = nil
+	j.store.now = time.Now().UTC()
+	j.store.operatorSkew, j.store.progress = 0, 0
+	j.store.pauseAt = 0
+	j.store.pauseStore = 0
+	j.store.listingHidden = map[string]bool{}
+	j.store.hideAfterStage = false
 }
 func (j *journey) converged() int {
 	j.store.Lock()
@@ -384,18 +438,7 @@ func (j *journey) prepare(operation string) []string {
 func (j *journey) ageIntent() {
 	j.store.Lock()
 	defer j.store.Unlock()
-	started := time.Now().Add(-11 * time.Minute).UTC()
-	for name, v := range j.store.values {
-		if !strings.HasSuffix(name, "-terrabase-callers") {
-			continue
-		}
-		var r callerkey.Registry
-		must(json.Unmarshal(v.Current.Content, &r))
-		if r.Intent != nil {
-			r.Intent.Started = started
-			v.Current.Content = encoded(r)
-		}
-	}
+	j.store.now = j.store.now.Add(11 * time.Minute)
 }
 func (j *journey) recover() {
 	j.ageIntent()
@@ -406,7 +449,7 @@ func (j *journey) recover() {
 func (j *journey) waiting() {
 	before := j.store.writes
 	out, err := j.run(j.targets, "recover")
-	require(err != nil && strings.Contains(out, "waiting for") && strings.Contains(out, "from "), "recover did not describe its wait: "+out)
+	require(err != nil && strings.Contains(out, "waiting until "), "recover did not describe its wait: "+out)
 	require(j.store.writes == before, "waiting recovery changed state")
 	j.store.invariant()
 }
@@ -561,6 +604,7 @@ func (j *journey) expire(kid string) {
 			}
 		}
 		v.Current.Content = encoded(r)
+		j.store.invariant()
 	}
 }
 func (j *journey) sequences() {
@@ -609,6 +653,154 @@ func (j *journey) sequences() {
 	j.store.cases++
 	fmt.Println("accepted first creation and rotation with unreadable contents; late private publication; unsettled/disagreeing/unavailable metadata; expired pending cancellation -> passed")
 }
+func (j *journey) fences() {
+	for _, operation := range []string{"first", "add"} {
+		for _, skew := range []time.Duration{-10 * time.Minute, 10 * time.Minute} {
+			j.failOriginal(operation, "before", 7)
+			j.store.operatorSkew = skew
+			j.waiting()
+			j.ageIntent()
+			j.ok("recover")
+			j.endState(operation, true)
+			j.store.cases++
+
+			for _, elapsed := range []time.Duration{0, 11 * time.Minute} {
+				args := j.seed(operation)
+				j.store.operatorSkew = skew
+				j.store.pauseAt = j.store.writes + 6
+				j.store.pauseStore = elapsed
+				before := j.store.writes
+				out, err := j.run(j.targets, args...)
+				require(err != nil && strings.Contains(out, "dispatch bound elapsed"), "paused writer dispatched: "+out)
+				require(j.store.writes == before+6, "paused writer sent a private request")
+				j.recover()
+				j.endState(operation, true)
+				j.store.cases++
+			}
+
+			j.failOriginal(operation, "late", 7)
+			j.store.operatorSkew = skew
+			j.waiting()
+			j.store.Lock()
+			require(j.store.land(), "bounded private request failed after operator clock skew")
+			j.store.land = nil
+			j.store.invariant()
+			j.store.Unlock()
+			j.recover()
+			j.endState(operation, true)
+			j.store.cases++
+
+			j.failOriginal(operation, "late", 7)
+			j.store.operatorSkew = skew
+			j.ageIntent()
+			j.ok("recover")
+			j.store.Lock()
+			require(!j.store.land(), "timed-out private request landed after the store settle window")
+			j.store.land = nil
+			j.store.invariant()
+			j.store.Unlock()
+			j.endState(operation, true)
+			j.store.cases++
+		}
+	}
+	for _, skew := range []time.Duration{-10 * time.Minute, 10 * time.Minute} {
+		j.seed("add")
+		j.store.operatorSkew = skew
+		j.store.listingHidden["sjc-1-ts-auth-terrabase-key"] = true
+		before := j.store.writes
+		out, err := j.run(j.targets, "retire", "--kid", "ts-auth.sjc.1")
+		require(err != nil && strings.Contains(out, "current") && j.store.writes == before+3, "retire used one absent listing: "+out)
+		j.ageIntent()
+		out, err = j.run(j.targets, "recover")
+		require(err != nil && strings.Contains(out, "current") && j.store.writes == before+3, "aged listing lag permitted retirement")
+		j.store.invariant()
+		j.store.listingHidden = map[string]bool{}
+		before = j.store.writes
+		out, err = j.run(j.targets, "retire", "--kid", "ts-auth.sjc.1")
+		require(err != nil && strings.Contains(out, "current") && j.store.writes == before, "retire removed a current key after listing recovered")
+		j.store.invariant()
+		j.store.cases++
+	}
+	j.failOriginal("first", "before", 7)
+	j.recover()
+	c := makeOrphan()
+	for _, v := range j.store.values {
+		var r callerkey.Registry
+		must(json.Unmarshal(v.Current.Content, &r))
+		r.Callers = append(r.Callers, c)
+		v.Current.Content = encoded(r)
+		j.store.invariant()
+	}
+	out, err := j.run(j.targets, "retire", "--kid", "ts-auth.sjc.2")
+	require(err != nil && strings.Contains(out, "waiting until "), "orphan retire did not persist a waiting intent")
+	j.ageIntent()
+	j.ok("retire", "--kid", "ts-auth.sjc.2")
+	j.converged()
+	j.store.cases++
+	j.failOriginal("first", "crash", 1)
+	out = j.ok("list")
+	require(strings.Count(out, "NO REGISTRY") == 2, "list concealed absent regional registries")
+	j.recover()
+	j.store.cases++
+	j.seed("cancel")
+	j.store.hideAfterStage = true
+	out, err = j.run(j.targets, "retire", "--kid", "ts-auth.sjc.2")
+	require(err != nil && strings.Contains(out, "interrupted") && !strings.Contains(out, "waiting"), "post-write failure reported waiting: "+out)
+	j.store.hidden = map[string]bool{}
+	j.recover()
+	j.store.cases++
+	fmt.Println("independent operator/store/writer clocks; aged-intent dispatch refusal; timed-out late private writes; lagging retire listings; orphan retire; absent registries; post-write errors -> passed")
+}
+
+func makeOrphan() callerkey.Caller {
+	private, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	must(err)
+	encode := func(n *big.Int) string { return base64.RawURLEncoding.EncodeToString(n.FillBytes(make([]byte, 32))) }
+	return callerkey.Caller{Kid: "ts-auth.sjc.2", Caller: "ts-auth", Kind: "service", JWK: callerkey.JWK{Kty: "EC", Crv: "P-256", X: encode(private.X), Y: encode(private.Y)}, Grants: []string{"data:00000000000000000000000002", "closure"}, NotAfter: time.Now().Add(90 * 24 * time.Hour)}
+}
+
+func (j *journey) expiredRecovery() {
+	for _, skew := range []time.Duration{61 * 24 * time.Hour, 91 * 24 * time.Hour} {
+		j.failOriginal("activate", "crash", 3)
+		j.store.operatorSkew = skew
+		start := j.store.writes
+		out := j.ok("recover")
+		require(strings.Contains(out, "activation no longer valid; cancelled pending key") && strings.Contains(out, "deletion scheduled"), "recovery promoted invalid pending key: "+out)
+		count := j.store.writes - start
+		for _, mode := range []string{"before", "uncertain", "crash", "hidden", "late"} {
+			for n := 1; n <= count; n++ {
+				j.failOriginal("activate", "crash", 3)
+				j.store.operatorSkew = skew
+				j.store.fail, j.store.mode = j.store.writes+n, mode
+				_, err := j.run(j.targets, "recover")
+				require(err != nil, "invalid activation recovery did not interrupt")
+				j.store.fail = 0
+				j.store.invariant()
+				j.store.hidden = map[string]bool{}
+				if mode == "late" {
+					j.store.Lock()
+					j.store.land()
+					j.store.land = nil
+					j.store.invariant()
+					j.store.Unlock()
+				}
+				j.recover()
+				var key struct{ Kid string }
+				private := j.store.values["sjc-1-ts-auth-terrabase-key"]
+				must(json.Unmarshal(private.Current.Content, &key))
+				require(key.Kid == "ts-auth.sjc.1", "recovery promoted expired or short-lived key")
+				for _, cell := range []string{"fra", "gru", "sjc"} {
+					var r callerkey.Registry
+					must(json.Unmarshal(j.store.values[cell+"-1-terrabase-callers"].Current.Content, &r))
+					require(!slices.ContainsFunc(r.Callers, func(c callerkey.Caller) bool { return c.Kid == "ts-auth.sjc.2" }), "invalid pending public entry retained")
+				}
+				j.store.cases++
+			}
+		}
+	}
+	fmt.Println("expired and less-than-minimum-life activation recovery -> cancellation at every recovery mutation boundary passed")
+}
+
 func (j *journey) concurrent(retire bool) {
 	args := j.seed("add")
 	other := add("edge.gru.1")
@@ -651,7 +843,7 @@ func main() {
 	binary := filepath.Join(root, "ts-orch")
 	adapter := filepath.Join(repo, "test/e2e/m1/callerkey/store.go.txt")
 	overlay := filepath.Join(root, "overlay.json")
-	must(os.WriteFile(overlay, encoded(map[string]any{"Replace": map[string]string{filepath.Join(repo, "internal/callerkey/vault.go"): adapter}}), 0600))
+	must(os.WriteFile(overlay, encoded(map[string]any{"Replace": map[string]string{filepath.Join(repo, "internal/callerkey/vault.go"): adapter, filepath.Join(repo, "internal/callerkey/clock.go"): filepath.Join(repo, "test/e2e/m1/callerkey/clock.go.txt")}}), 0600))
 	build := exec.Command("nice", "-n", "19", "go", "build", "-overlay", overlay, "-trimpath", "-o", binary, "./cmd/terrascale-orchestrator")
 	output, err := build.CombinedOutput()
 	require(err == nil, fmt.Sprintf("binary build: %v %s", err, output))
@@ -668,6 +860,8 @@ func main() {
 	must(os.WriteFile(j.reverse, encoded(targets), 0600))
 	j.failures()
 	j.sequences()
+	j.fences()
+	j.expiredRecovery()
 	j.concurrent(false)
 	j.concurrent(true)
 	fmt.Println("simultaneous adds in opposite region orders; simultaneous add and retire -> converged")
@@ -690,6 +884,7 @@ func main() {
 		c.NotAfter = expired
 		r.Callers = append(r.Callers, c)
 		v.Current.Content = encoded(r)
+		j.store.invariant()
 	}
 	require(strings.Contains(j.ok("list"), "expired"), "expired status absent")
 	require(strings.Contains(j.ok("list"), "expires within 30 days"), "expiry warning absent")

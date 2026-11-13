@@ -10,22 +10,23 @@ import (
 )
 
 type PrivateMetadata struct {
-	Secret  bool
-	Version bool
+	Secret   bool
+	Version  bool
+	StoreNow time.Time
 }
 
 func waiting(intent *Intent, reason string, cause error) error {
-	from := intent.Started.Add(settleWindow).UTC().Format(time.RFC3339Nano)
+	until := intent.created.Add(settleWindow).UTC().Format(time.RFC3339Nano)
 	if cause != nil {
 		reason += ": " + cause.Error()
 	}
-	return fmt.Errorf("waiting for %s; metadata absence can be decided by a new recover from %s; %s %s intent %s retained", reason, from, intent.Operation, intent.Kid, intent.ID)
+	return fmt.Errorf("waiting until %s for %s; %s %s intent %s retained", until, reason, intent.Operation, intent.Kid, intent.ID)
 }
 
 func privateHalf(ctx context.Context, store Store, target Target, name string, intent *Intent) (PrivateState, bool, error) {
 	var version int64
 	var versionName string
-	if intent != nil {
+	if intent != nil && intent.Operation != "retire" {
 		version, versionName = intent.PrivateVersion, intent.VersionName
 	}
 	metadata, err := store.Metadata(ctx, target, name, version, versionName)
@@ -35,19 +36,20 @@ func privateHalf(ctx context.Context, store Store, target Target, name string, i
 		}
 		return PrivateState{}, false, err
 	}
+	if !metadata.Secret && intent != nil && intent.Operation == "retire" {
+		state, readErr := store.Private(ctx, target, name)
+		if readErr == nil && state.Current.Version > 0 {
+			return state, true, nil
+		}
+		state.Clear()
+	}
 	exists := metadata.Secret && metadata.Version
 	if !exists && intent != nil {
-		if time.Now().Before(intent.Started.Add(settleWindow)) {
-			subject := name + " creation"
-			if version > 0 {
-				subject = fmt.Sprintf("%s version %d", name, version)
-			} else if versionName != "" {
-				subject = name + " version " + versionName
-			}
-			return PrivateState{}, false, waiting(intent, subject+" to settle", nil)
+		if intent.created.IsZero() || metadata.StoreNow.IsZero() || !metadata.StoreNow.After(intent.created.Add(settleWindow)) {
+			return PrivateState{}, false, waiting(intent, name+" creation to settle on the store clock", nil)
 		}
 		second, err := store.Metadata(ctx, target, name, version, versionName)
-		if err != nil || second != metadata {
+		if err != nil || second.Secret != metadata.Secret || second.Version != metadata.Version || !second.StoreNow.After(intent.created.Add(settleWindow)) || second.StoreNow.Before(metadata.StoreNow) {
 			return PrivateState{}, false, waiting(intent, name+" two agreeing management metadata reads", err)
 		}
 	}
@@ -71,7 +73,14 @@ func privateHalf(ctx context.Context, store Store, target Target, name string, i
 	return state, exists, err
 }
 
-func cancelPending(ctx context.Context, store Store, target Target, name string, state PrivateState, intent *Intent) error {
+func cancelPending(ctx context.Context, out io.Writer, store Store, target Target, name string, state PrivateState, intent *Intent, exists bool) error {
+	if deletion, ok := state.Scheduled[intent.PrivateVersion]; ok {
+		if intent.PrivateVersion == state.Current.Version {
+			return errors.New("cannot cancel the current private key")
+		}
+		_, err := fmt.Fprintln(out, name, intent.Kid, "deletion scheduled", deletion.UTC().Format(time.RFC3339))
+		return err
+	}
 	for _, v := range state.Versions {
 		if v.Version != intent.PrivateVersion {
 			continue
@@ -80,23 +89,69 @@ func cancelPending(ctx context.Context, store Store, target Target, name string,
 			return errors.New("cannot cancel the current private key")
 		}
 		if v.Pending {
-			if err := store.Stage(ctx, target, name, state, state.Current.Value, "cancel."+intent.Kid); err != nil {
+			if err := privateWrite(ctx, intent, func(writeCtx context.Context) error {
+				return store.Stage(writeCtx, target, name, state, state.Current.Value, "cancel."+intent.Kid)
+			}); err != nil {
 				return err
 			}
-			after, _, err := privateHalf(ctx, store, target, name, intent)
+			after, err := store.Private(ctx, target, name)
 			if err != nil {
 				return err
 			}
 			defer after.Clear()
 			state = after
 		}
-		return store.Discard(ctx, target, name, state, intent.PrivateVersion)
+		var deletion time.Time
+		err := privateWrite(ctx, intent, func(writeCtx context.Context) (err error) {
+			deletion, err = store.Discard(writeCtx, target, name, state, intent.PrivateVersion)
+			return
+		})
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(out, name, intent.Kid, "deletion scheduled", deletion.UTC().Format(time.RFC3339))
+		return err
+	}
+	if exists {
+		return errors.New("cancellation version missing from coherent inventory; run caller-key recover")
+	}
+	return nil
+}
+
+func retirementReady(registries []Registry, intent *Intent, state PrivateState) error {
+	current, err := privateKid(state.Current)
+	if err != nil {
+		return err
+	}
+	if current == "" {
+		return nil
+	}
+	if current == intent.Kid {
+		return errors.New("cannot remove the current private key")
+	}
+	parts := kidRE.FindStringSubmatch(intent.Replacement)
+	if len(parts) != 4 || parts[1] != intent.Caller || parts[2] != intent.Cell || current != intent.Replacement {
+		return errors.New("retiring a stored key requires --replacement-kid naming the current key for that caller and region")
+	}
+	for _, registry := range registries {
+		if !slices.ContainsFunc(registry.Callers, func(c Caller) bool { return c.Kid == current }) {
+			return errors.New("replacement key must be listed in every region")
+		}
+	}
+	for _, v := range state.Versions {
+		id, err := privateKid(v.Snapshot)
+		if err != nil {
+			return err
+		}
+		if id == intent.Kid && v.Pending {
+			return errors.New("cannot retire a pending private key without cancellation")
+		}
 	}
 	return nil
 }
 
 func recoverOperation(ctx context.Context, out io.Writer, store Store, targets []Target, snapshots []Snapshot, registries []Registry, callers map[string]Caller, highWater map[string]uint64, intent *Intent) error {
-	if !slices.Contains([]string{"add", "activate", "retire", "cancel"}, intent.Operation) || intent.ID == "" || intent.Started.IsZero() || !kidRE.MatchString(intent.Kid) && !operatorRE.MatchString(intent.Kid) {
+	if !slices.Contains([]string{"add", "activate", "retire", "cancel"}, intent.Operation) || intent.ID == "" || intent.DispatchBound != dispatchBound.String() || !kidRE.MatchString(intent.Kid) && !operatorRE.MatchString(intent.Kid) {
 		return errors.New("invalid operation record")
 	}
 	var selected Target
@@ -137,11 +192,23 @@ func recoverOperation(ctx context.Context, out io.Writer, store Store, targets [
 	if intent.Operation == "add" && exists && current != intent.Kid && pending == 0 {
 		return waiting(intent, name+" matching private contents", nil)
 	}
-	if intent.Operation == "activate" && current != intent.Kid && pending == 0 {
-		return waiting(intent, name+" matching pending or current version", nil)
+	if intent.Operation == "activate" && current != intent.Kid {
+		if pending == 0 {
+			return waiting(intent, name+" matching pending or current version", nil)
+		}
+		if err := activationReady(registries, intent.Kid); err != nil {
+			intent.Operation = "cancel"
+			intent.PrivateVersion = pending
+			outcome = "activation no longer valid; cancelled pending key"
+		}
 	}
 	if (intent.Operation == "retire" || intent.Operation == "cancel") && current == intent.Kid {
 		return operationError(intent, errors.New("cannot remove the current private key"))
+	}
+	if intent.Operation == "retire" && kidRE.MatchString(intent.Kid) {
+		if err := retirementReady(registries, intent, state); err != nil {
+			return operationError(intent, err)
+		}
 	}
 	if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
 		return err
@@ -156,26 +223,31 @@ func recoverOperation(ctx context.Context, out io.Writer, store Store, targets [
 			return operationError(intent, errors.New("stored key has no public entry"))
 		}
 	case "activate":
-		for _, r := range registries {
-			if !slices.ContainsFunc(r.Callers, func(c Caller) bool { return c.Kid == intent.Kid }) {
-				return operationError(intent, errors.New("activation requires the public key in every region"))
-			}
-		}
+		intent.validUntil = callers[intent.Kid].NotAfter.Add(-minimumLifetime)
 		if current != intent.Kid {
-			if err := store.Activate(ctx, selected, name, state, pending); err != nil {
+			if err := activationReady(registries, intent.Kid); err != nil {
+				intent.Operation = "cancel"
+				intent.PrivateVersion = pending
+				if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
+					return err
+				}
+				if err := cancelPending(ctx, out, store, selected, name, state, intent, exists); err != nil {
+					return operationError(intent, err)
+				}
+				advance(highWater, intent.Kid)
+				delete(callers, intent.Kid)
+				outcome = "activation no longer valid; cancelled pending key"
+			} else if err := privateWrite(ctx, intent, func(writeCtx context.Context) error { return store.Activate(writeCtx, selected, name, state, pending) }); err != nil {
 				return operationError(intent, err)
 			}
 		}
 	case "cancel":
-		if err := cancelPending(ctx, store, selected, name, state, intent); err != nil {
+		if err := cancelPending(ctx, out, store, selected, name, state, intent, exists); err != nil {
 			return operationError(intent, err)
 		}
 		advance(highWater, intent.Kid)
 		delete(callers, intent.Kid)
 	case "retire":
-		if pending != 0 {
-			return operationError(intent, errors.New("cannot retire a pending private key without cancellation"))
-		}
 		advance(highWater, intent.Kid)
 		delete(callers, intent.Kid)
 	}
@@ -193,4 +265,15 @@ func recoverOperation(ctx context.Context, out io.Writer, store Store, targets [
 	}
 	_, err = fmt.Fprintln(out, "recovered", intent.Operation, intent.Kid, intent.ID, outcome)
 	return err
+}
+
+func sameIntent(a, b *Intent) bool {
+	x, y := *a, *b
+	if x.Operation == "activate" && y.Operation == "cancel" {
+		x.Operation = "cancel"
+	}
+	if y.Operation == "activate" && x.Operation == "cancel" {
+		y.Operation = "cancel"
+	}
+	return sameJSON(x, y)
 }

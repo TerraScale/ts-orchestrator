@@ -23,7 +23,11 @@ import (
 )
 
 const minimumLifetime = 30 * 24 * time.Hour
-const settleWindow = 10 * time.Minute
+const dispatchBound = 2 * time.Minute
+const privateRequestTimeout = 60 * time.Second
+const settleMargin = 7 * time.Minute
+const settleWindow = dispatchBound + privateRequestTimeout + settleMargin
+const deletionGrace = 7 * 24 * time.Hour
 
 const usage = `Usage: ts-orch caller-key <add|activate|retire|recover|list> --targets FILE
   add --service ts-auth|dashboard|edge --region CELL --kid SERVICE.CELL.N --not-after RFC3339
@@ -49,6 +53,7 @@ type Target struct {
 type Snapshot struct {
 	ID      string
 	Version int64
+	Created time.Time
 	Value   []byte `json:"-"`
 }
 
@@ -58,9 +63,10 @@ type KeyVersion struct {
 }
 
 type PrivateState struct {
-	Current  Snapshot
-	Versions []KeyVersion
-	Etag     string
+	Current   Snapshot
+	Versions  []KeyVersion
+	Etag      string
+	Scheduled map[int64]time.Time
 }
 
 func (s PrivateState) Clear() {
@@ -75,7 +81,7 @@ type Store interface {
 	Metadata(context.Context, Target, string, int64, string) (PrivateMetadata, error)
 	Private(context.Context, Target, string) (PrivateState, error)
 	Stage(context.Context, Target, string, PrivateState, []byte, string) error
-	Discard(context.Context, Target, string, PrivateState, int64) error
+	Discard(context.Context, Target, string, PrivateState, int64) (time.Time, error)
 	Activate(context.Context, Target, string, PrivateState, int64) error
 	Read(context.Context, Target, string) (Snapshot, error)
 	Write(context.Context, Target, string, Snapshot, []byte) error
@@ -105,14 +111,18 @@ type Registry struct {
 }
 
 type Intent struct {
-	Operation      string    `json:"operation"`
-	Kid            string    `json:"kid"`
-	Caller         string    `json:"caller"`
-	Cell           string    `json:"cell"`
-	ID             string    `json:"id"`
-	Started        time.Time `json:"started"`
-	PrivateVersion int64     `json:"privateVersion,omitempty"`
-	VersionName    string    `json:"versionName,omitempty"`
+	Operation      string `json:"operation"`
+	Kid            string `json:"kid"`
+	Caller         string `json:"caller"`
+	Cell           string `json:"cell"`
+	ID             string `json:"id"`
+	DispatchBound  string `json:"dispatchBound"`
+	Replacement    string `json:"replacement,omitempty"`
+	created        time.Time
+	acknowledged   time.Time
+	validUntil     time.Time
+	PrivateVersion int64  `json:"privateVersion,omitempty"`
+	VersionName    string `json:"versionName,omitempty"`
 }
 
 func Run(ctx context.Context, args []string, out io.Writer) error {
@@ -155,7 +165,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 	if command == "add" {
 		var err error
 		notAfter, err = time.Parse(time.RFC3339, *expiry)
-		if len(parts) != 4 || parts[1] != *service || parts[2] != *cell || err != nil || !notAfter.After(time.Now().Add(minimumLifetime)) || *replacement != "" {
+		if len(parts) != 4 || parts[1] != *service || parts[2] != *cell || err != nil || !notAfter.After(operatorNow().Add(minimumLifetime)) || *replacement != "" {
 			return errors.New("add requires a matching service, region, numbered kid and --not-after more than 30 days away")
 		}
 	} else if *service != "" || *cell != "" || *expiry != "" || command != "retire" && *replacement != "" || noKid && *kid != "" || !noKid && len(parts) != 4 {
@@ -200,6 +210,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 	callers := map[string]Caller{}
 	highWater := map[string]uint64{}
 	var intent *Intent
+	var intentCreated time.Time
 	for i, t := range targets {
 		current, err := store.Read(ctx, t, registryName(t))
 		if err != nil {
@@ -231,17 +242,28 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 			highWater[prefix] = max(highWater[prefix], sequence)
 		}
 		if registry.Intent != nil {
-			if intent != nil && !sameJSON(intent, registry.Intent) {
+			if intent != nil && !sameIntent(intent, registry.Intent) {
 				return errors.New("regional operation records disagree")
 			}
-			intent = registry.Intent
+			if intent == nil || registry.Intent.Operation == "cancel" {
+				intent = registry.Intent
+			}
+			if current.Created.IsZero() {
+				return errors.New("registry intent has no store creation timestamp")
+			}
+			if current.Created.After(intentCreated) {
+				intentCreated = current.Created
+			}
 		}
 		slices.SortFunc(registry.Callers, func(a, b Caller) int { return strings.Compare(a.Kid, b.Kid) })
 		registries[i] = registry
 	}
+	if intent != nil {
+		intent.created = intentCreated
+	}
 	if command == "list" {
 		for i, t := range targets {
-			if _, err := fmt.Fprintln(out, registryName(t)); err != nil {
+			if _, err := fmt.Fprintln(out, registryName(t), registryPresence(snapshots[i])); err != nil {
 				return err
 			}
 			if registries[i].Intent != nil {
@@ -275,8 +297,11 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		}
 		return recoverOperation(ctx, out, store, targets, snapshots, registries, callers, highWater, intent)
 	}
-	if intent != nil {
+	if intent != nil && !(command == "retire" && intent.Operation == "retire" && intent.Kid == *kid && intent.Replacement == *replacement) {
 		return fmt.Errorf("operation in progress: %s %s %s; run caller-key recover", intent.Operation, intent.Kid, intent.ID)
+	}
+	if intent != nil {
+		return recoverOperation(ctx, out, store, targets, snapshots, registries, callers, highWater, intent)
 	}
 	for i := 1; i < len(registries); i++ {
 		if !sameJSON(registries[0], registries[i]) {
@@ -313,8 +338,8 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		if _, ok := callers[*kid]; !ok {
 			return errors.New("activation requires the kid listed in every region")
 		}
-		if currentKid != *kid && !callers[*kid].NotAfter.After(time.Now()) {
-			return errors.New("expired pending key can only be cancelled")
+		if currentKid != *kid && !callers[*kid].NotAfter.After(operatorNow().Add(minimumLifetime)) {
+			return errors.New("pending key with 30 days or less remaining can only be cancelled")
 		}
 		if currentKid == *kid {
 			_, err := fmt.Fprintln(out, name, *kid, "already current")
@@ -345,7 +370,11 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
 			return err
 		}
-		if err := store.Activate(ctx, selected, name, state, pending); err != nil {
+		intent.validUntil = callers[*kid].NotAfter.Add(-minimumLifetime)
+		if err := activationReady(registries, *kid); err != nil {
+			return operationError(intent, err)
+		}
+		if err := privateWrite(ctx, intent, func(writeCtx context.Context) error { return store.Activate(writeCtx, selected, name, state, pending) }); err != nil {
 			return operationError(intent, err)
 		}
 		if err := clearIntent(ctx, store, targets, snapshots, registries); err != nil {
@@ -374,7 +403,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 				}
 			}
 		}
-		if used || *replacement != "" {
+		if command != "cancel" && (state.Current.Version > 0 || used || *replacement != "") {
 			replacementParts := kidRE.FindStringSubmatch(*replacement)
 			if len(replacementParts) != 4 || replacementParts[1] != parts[1] || replacementParts[2] != parts[2] || *replacement != currentKid || *replacement == *kid {
 				return errors.New("retiring a stored key requires --replacement-kid naming the current key for that caller and region")
@@ -435,21 +464,17 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		return err
 	}
 	intent.PrivateVersion = privateVersion
+	intent.Replacement = *replacement
 	if privateVersion == 0 && (command != "add" || state.Current.Version != 0) {
 		intent.VersionName = *kid
 	}
 	if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
 		return err
 	}
-	if command == "cancel" {
-		if err := cancelPending(ctx, store, selected, name, state, intent); err != nil {
-			return operationError(intent, err)
-		}
+	if command == "retire" || command == "cancel" {
+		return recoverOperation(ctx, out, store, targets, snapshots, registries, callers, highWater, intent)
 	}
 	advance(highWater, *kid)
-	if command == "retire" || command == "cancel" {
-		delete(callers, *kid)
-	}
 	registry := mergedRegistry(callers, highWater, intent)
 	for i := range targets {
 		if err := writeRegistry(ctx, store, targets[i], &snapshots[i], registry); err != nil {
@@ -461,9 +486,13 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		stage := "pending"
 		if state.Current.Version == 0 {
 			stage = "current"
-			err = store.Write(ctx, selected, name, state.Current, private)
+			err = privateWrite(ctx, intent, func(writeCtx context.Context) error {
+				return store.Write(writeCtx, selected, name, state.Current, private)
+			})
 		} else {
-			err = store.Stage(ctx, selected, name, state, private, *kid)
+			err = privateWrite(ctx, intent, func(writeCtx context.Context) error {
+				return store.Stage(writeCtx, selected, name, state, private, *kid)
+			})
 		}
 		if err != nil {
 			return operationError(intent, err)
@@ -478,10 +507,10 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 }
 
 func expiryStatus(c Caller) string {
-	if !c.NotAfter.After(time.Now()) {
+	if !c.NotAfter.After(operatorNow()) {
 		return "expired"
 	}
-	if !c.NotAfter.After(time.Now().Add(minimumLifetime)) {
+	if !c.NotAfter.After(operatorNow().Add(minimumLifetime)) {
 		return "expires within 30 days"
 	}
 	return "valid"
@@ -507,7 +536,7 @@ func newIntent(operation, kid, caller, cell string) (*Intent, error) {
 	if _, err := rand.Read(id[:]); err != nil {
 		return nil, err
 	}
-	return &Intent{Operation: operation, Kid: kid, Caller: caller, Cell: cell, ID: fmt.Sprintf("%x", id), Started: time.Now().UTC()}, nil
+	return &Intent{Operation: operation, Kid: kid, Caller: caller, Cell: cell, ID: fmt.Sprintf("%x", id), DispatchBound: dispatchBound.String()}, nil
 }
 
 func operationError(intent *Intent, err error) error {
@@ -519,8 +548,14 @@ func writeRegistry(ctx context.Context, store Store, target Target, snapshot *Sn
 	if err != nil {
 		return err
 	}
-	if err := store.Write(ctx, target, registryName(target), *snapshot, value); err != nil {
+	writeCtx, cancel := context.WithTimeout(ctx, privateRequestTimeout)
+	defer cancel()
+	writeStarted := monotonicNow()
+	if err := store.Write(writeCtx, target, registryName(target), *snapshot, value); err != nil {
 		return err
+	}
+	if registry.Intent != nil && registry.Intent.acknowledged.IsZero() {
+		registry.Intent.acknowledged = writeStarted
 	}
 	after, err := store.Read(ctx, target, registryName(target))
 	if err != nil {
@@ -538,6 +573,9 @@ func writeIntent(ctx context.Context, store Store, targets []Target, snapshots [
 		registries[i].Intent = intent
 		if err := writeRegistry(ctx, store, targets[i], &snapshots[i], registries[i]); err != nil {
 			return operationError(intent, err)
+		}
+		if snapshots[i].Created.After(intent.created) {
+			intent.created = snapshots[i].Created
 		}
 	}
 	return nil
@@ -611,8 +649,8 @@ func printPrivate(out io.Writer, name string, state PrivateState, callers map[st
 			return errors.New("pending private key has no public entry")
 		}
 		status := expiryStatus(c)
-		if status == "expired" {
-			status = "expired; can only be cancelled"
+		if status != "valid" {
+			status += "; can only be cancelled"
 		}
 		if _, err := fmt.Fprintln(out, name, id, "pending notAfter", c.NotAfter.UTC().Format(time.RFC3339), status); err != nil {
 			return err
@@ -701,4 +739,24 @@ func validateCaller(c Caller) error {
 	}
 	_, err := ecdh.P256().NewPublicKey(point)
 	return err
+}
+
+func registryPresence(snapshot Snapshot) string {
+	if snapshot.Version == 0 {
+		return "NO REGISTRY"
+	}
+	return "present"
+}
+
+func activationReady(registries []Registry, kid string) error {
+	for _, registry := range registries {
+		index := slices.IndexFunc(registry.Callers, func(c Caller) bool { return c.Kid == kid })
+		if index < 0 {
+			return errors.New("activation requires the public key in every region")
+		}
+		if !registry.Callers[index].NotAfter.After(operatorNow().Add(minimumLifetime)) {
+			return errors.New("pending key with 30 days or less remaining can only be cancelled")
+		}
+	}
+	return nil
 }

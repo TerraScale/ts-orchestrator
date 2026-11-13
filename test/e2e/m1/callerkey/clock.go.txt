@@ -1,0 +1,22 @@
+package callerkey
+
+import (
+	"context"
+	"time"
+)
+
+func operatorNow() time.Time {
+	var now time.Time
+	if err := call(context.Background(), request{Operation: "operator-clock"}, &now); err != nil {
+		panic(err)
+	}
+	return now
+}
+
+func monotonicNow() time.Time {
+	var now time.Time
+	if err := call(context.Background(), request{Operation: "monotonic-clock"}, &now); err != nil {
+		panic(err)
+	}
+	return now
+}
