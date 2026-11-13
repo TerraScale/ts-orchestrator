@@ -177,10 +177,17 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	if err == nil && spec.Deployment != nil && spec.Image == spec.Deployment.Image && record.Rollout.Revision != spec.Deployment.Revision {
 		err = errors.New("running image revision does not match the signed release commit")
 	}
+	regressionSeen := false
 	if err == nil {
-		record.Bake, err = n.cfg.applier.Bake(ctx, spec, ready)
+		record.Bake, err = n.cfg.applier.Bake(ctx, spec, ready, func(verdict rollout.BakeVerdict) error {
+			regressionSeen = true
+			record.Bake = verdict
+			n.mu.Lock()
+			defer n.mu.Unlock()
+			return n.saveBake(key, record)
+		})
 	}
-	if n.ctx.Err() != nil && (err == nil || errors.Is(err, context.Canceled)) {
+	if n.ctx.Err() != nil && !regressionSeen && (err == nil || errors.Is(err, context.Canceled)) {
 		record.Bake = rollout.BakeVerdict{}
 		return record, errors.Join(n.ctx.Err(), writeBake(key, record))
 	}

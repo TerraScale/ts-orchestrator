@@ -34,6 +34,10 @@ var apps = []app{
 	{"ts-dashboard", "terrascale", "images-ghcr.yml", []string{"Publish and release"}},
 }
 
+var held = map[string]string{
+	"terrabase": "manual release-only job is not read by deploy lag",
+}
+
 type api struct {
 	client                *http.Client
 	readToken, writeToken string
@@ -239,11 +243,15 @@ walk:
 			}
 		}
 	}
-	return append(report(unread), report(finding)...), nil
+	return append(report(x, unread), report(x, finding)...), nil
 }
 
-func report(finding string) []string {
+func report(x app, finding string) []string {
 	if finding == "" {
+		return nil
+	}
+	if reason, ok := held[x.service]; ok {
+		fmt.Println("held:", finding[2:], "-", reason)
 		return nil
 	}
 	return []string{finding}

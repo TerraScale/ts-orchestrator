@@ -6,7 +6,9 @@ package regionhealth
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -84,8 +86,16 @@ func Classify(in Input) (string, []string) {
 }
 
 func Serving(ctx context.Context, state, service string) error {
-	if service == "" {
-		return nil
+	in := read(ctx, state)
+	var health error
+	if in.Node != "" {
+		health = errors.New(in.Node)
+	}
+	if slices.Contains(in.Failures, "services unreadable") {
+		health = errors.Join(health, errors.New("services unreadable"))
+	}
+	if health != nil || service == "" {
+		return health
 	}
 	client, conn, err := swarmruntime.DialSingleHost(state)
 	if err != nil {

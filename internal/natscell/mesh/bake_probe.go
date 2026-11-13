@@ -19,7 +19,7 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, ready swarmruntime.ServiceRollout) (rollout.BakeVerdict, error) {
+func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, ready swarmruntime.ServiceRollout, observed func(rollout.BakeVerdict) error) (rollout.BakeVerdict, error) {
 	var logs []*bakeLog
 	var initial error
 	if spec.Name == "terrabase" {
@@ -87,7 +87,7 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 			return checks, errors.New("bake dependency placement unavailable")
 		}
 		return checks, bakeDependencies(ctx, client, checks, a.region, local)
-	})
+	}, observed)
 }
 
 // candidateUnready is a running candidate whose application readiness failed.

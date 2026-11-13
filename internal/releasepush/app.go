@@ -66,6 +66,11 @@ func PushApp(ctx context.Context, args []string, output io.Writer) error {
 				}
 				printed = max(printed, len(reply.Events))
 			})
+		if err == nil && reply.State == "done" && *service == "terrabase" {
+			if err = serviceHealth(ctx, region, *service); err != nil {
+				reply.State = "failed"
+			}
+		}
 		result = AppResult{Via: region.Region, State: reply.State, Error: reply.Error, Regions: reply.Result, ServingMS: time.Since(start).Milliseconds()}
 		if err != nil {
 			result.Error = err.Error()
@@ -173,4 +178,28 @@ func Digests(ctx context.Context, args []string, output io.Writer) error {
 		return os.WriteFile(*out, append(data, '\n'), 0o644)
 	}
 	return errors.Join(errors.New("no region returned desired images"), failed)
+}
+
+func serviceHealth(ctx context.Context, region Region, service string) error {
+	token, err := MintToken(ctx)
+	if err != nil {
+		return err
+	}
+	conn, err := Dial(region, token, nats.Name("ts-orch service release health"))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	payload, err := json.Marshal(HealthRequest{Service: service})
+	if err != nil {
+		return err
+	}
+	health, err := request(ctx, conn, SubjectHealth, payload, healthRequestTimeout)
+	if err != nil {
+		return err
+	}
+	if health.Health != "ok" {
+		return fmt.Errorf("release health for %s: %s", service, health.Health)
+	}
+	return nil
 }

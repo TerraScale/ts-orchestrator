@@ -61,18 +61,16 @@ type BakeVerdict struct {
 	HealthySince    time.Time         `json:"healthySince"`
 	RecoverySamples int               `json:"recoverySamples,omitempty"`
 	RecoveryChecks  map[string]string `json:"recoveryChecks,omitempty"`
-	// DependencyOnly marks a failure that only dependency recovery caused: no
-	// candidate or storage regression was seen, so later regions still roll.
-	DependencyOnly bool `json:"dependencyOnly,omitempty"`
+	DependencyOnly  bool              `json:"dependencyOnly,omitempty"`
 }
 
 // RunBake allows bounded dependency recovery, then requires a full
 // healthy window. Candidate and storage failures never receive this allowance.
-func RunBake(ctx context.Context, probe func(context.Context) (map[string]string, error)) (BakeVerdict, error) {
-	return runBake(ctx, probe, BakeWindow, 2*time.Second)
+func RunBake(ctx context.Context, probe func(context.Context) (map[string]string, error), observed func(BakeVerdict) error) (BakeVerdict, error) {
+	return runBake(ctx, probe, observed, BakeWindow, 2*time.Second)
 }
 
-func runBake(ctx context.Context, probe func(context.Context) (map[string]string, error), window, poll time.Duration) (v BakeVerdict, err error) {
+func runBake(ctx context.Context, probe func(context.Context) (map[string]string, error), observed func(BakeVerdict) error, window, poll time.Duration) (v BakeVerdict, err error) {
 	start := time.Now()
 	v.Started = start.UTC()
 	healthySince := start
@@ -131,6 +129,14 @@ func runBake(ctx context.Context, probe func(context.Context) (map[string]string
 		v.Samples++
 		v.Checks = maps.Clone(checks)
 		if failure != nil {
+			if ctx.Err() == nil && observed != nil {
+				regression := v
+				regression.Reason = failure.Error()
+				regression.DependencyOnly = recoveringDependency(failure)
+				if persistErr := observed(regression); persistErr != nil {
+					return v, errors.Join(failure, persistErr)
+				}
+			}
 			if failureSince.IsZero() {
 				failureSince = time.Now()
 				recoveryTimer = time.NewTimer(DependencyRecoveryWindow)

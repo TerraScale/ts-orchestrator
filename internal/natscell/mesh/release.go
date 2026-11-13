@@ -130,7 +130,7 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 		}
 	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
-	hold := releaseHold(service, &next, deployment, before.HoldAfter)
+	hold := before.HoldAfter
 	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: hold}}
 	// A reconnect or process restart resumes the signed deployment's existing
 	// bake instead of publishing a fresh generation and restarting its window.
@@ -261,13 +261,4 @@ func declaredReleasePlacement(next *swarmruntime.ServiceSpec, deployment *Deploy
 		next.Env = maps.Clone(declared.Env)
 	}
 	return nil
-}
-
-func releaseHold(service string, spec *swarmruntime.ServiceSpec, deployment *Deployment, hold string) string {
-	if deployment != nil && service == "terrabase" {
-		if order := rolloutOrder(spec); len(order) != 0 {
-			return order[0]
-		}
-	}
-	return hold
 }

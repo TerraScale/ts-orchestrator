@@ -13,7 +13,7 @@ healthy bake before another region can advance. A continuous dependency failure
 at thirty seconds holds the generation. A flapping dependency may keep the bake
 waiting for its healthy window for up to two more minutes (150 seconds in all).
 A bake that fails only on dependency recovery is reported `excused`
-(`dependencyOnly` in its verdict). It holds advancement just as a candidate failure does. Candidate, catalog-anchor,
+(`dependencyOnly` in its verdict). It holds later regions of that service, just as a candidate failure does; other services keep their own gates. Candidate, catalog-anchor,
 writer-wait and log-coverage failures always hold immediately, including during
 dependency recovery.
 
@@ -53,30 +53,55 @@ readiness needs at most 12 minutes in three regions. A healthy
 region with a 10-second startup and short pull now finishes in under 60 seconds;
 dependency recovery and readiness failures may take longer.
 
-An unfinished, failed or dependency-only bake cannot admit another region. A missing earlier
-region also holds advancement. A completed bake admits the next region only while
-the candidate still serves its desired replicas and readiness endpoint. Failed bakes survive restart and reconciliation;
-an orchestrator restart during an unfinished bake restarts its full window,
-including after an abrupt process exit. A persisted completed failure stays terminal.
-Evidence-write failures retry persistence without reevaluating the candidate.
+An unfinished, failed or dependency-only bake cannot admit another region for
+that service. A missing earlier region also holds advancement. A completed bake
+admits the next region only while the candidate still serves its desired
+replicas and readiness endpoint. Reconciliation probes services concurrently,
+with a 300 ms deadline per service and a two-second refresh interval. Mesh state
+replies read the cached results and their observation timestamps without network
+calls. A result older than five seconds fails closed: this allows two missed
+refreshes without retaining a healthy result through a longer outage. The turn
+rule also rejects expired observations when it consumes the reply.
+
+An orchestrator restart during an unfinished bake restarts its full window only
+if no regression was observed. Each failed observation is persisted immediately,
+before a terminal verdict, so an interrupted bake that saw a candidate or
+dependency regression stays held across restart. Dependency recovery may still
+complete a healthy window in the running process. A completed failed or excused
+bake stays terminal. Evidence-write failures retry persistence without
+reevaluating the candidate.
 
 Fix forward by publishing a corrected image through the existing authorized
-release path. After repairing a dependency, a new apply of the same image also
-creates a fresh generation and evaluates a new bake. Unsigned operator canary holds remain
-until `service resume`; resume still evaluates the bake. Signed TerraBase releases
-retain a first-region hold derived from the rollout order. They advance automatically
-after that region completes its bake and is serving; no region name is fixed in
-the gate. Signed releases use the declared all-region placement. Each subsequent
-region requires the same evidence from every earlier region. Later regions retain
-their serving tasks during a failure. TerraBase updates pause on failure, and
-neither mesh apply nor signed release automatically restores an older storage
-binary. Signed release, runtime identity and peer admission checks still apply.
+release path. After repairing a dependency, dispatching the same image again
+creates a fresh generation and evaluates a new bake. Unsigned operator canary
+holds remain until service resume; resume still evaluates the bake. Signed
+releases use the same per-service turn and serving gates without stamping a
+manual hold. The first region follows the stored order when the service declares
+regions, including TerraBase; otherwise the founded-region order applies. Signed
+releases restore the embedded all-region placement only for services whose
+embedded declaration targets every region. No region name is fixed in the gate.
+Each subsequent region requires the same evidence from every earlier region.
+Later regions retain their serving tasks during a failure. TerraBase updates
+pause on failure, and neither mesh apply nor signed release automatically restores
+an older storage binary. Signed release, runtime identity and peer admission
+checks still apply.
 
-The retired `operator terrabase update` placement path is outside the active
+## When a rollout stays held
+
+Fix a first region that is not serving; later regions then advance by themselves
+when its successful bake and fresh serving result are available. Clear a failed
+or excused first bake by dispatching the release again with the same digest; this
+creates a new generation. There is no skip. Service resume clears an operator
+canary hold and does not replace the signed release dispatch path.
+
+The retired operator terrabase update placement path is outside the active
 SwarmKit mesh deployment path; this gate is implemented in the latter.
 
-Release health requests may name one service. The response combines mesh health
-with that service's current replicas and readiness; an unnamed orchestrator health
-request checks the mesh. An unrelated service's replica shortage does not block
-the named service's release. The deployment-lag monitor reports TerraBase lag
-under the same publication and release-history rules as other services.
+After a TerraBase release completes, its CI client names the service in its release
+health request. Every release health request checks mesh health, SwarmKit node
+readiness and readable services. A named request also checks that service's
+replicas and readiness endpoint; an unrelated replica shortage does not block it.
+An unnamed orchestrator-binary request keeps the host checks and ignores the
+replica-shortage clause. Deployment lag excludes TerraBase until the monitor reads
+the manual release-only job; a skipped release step in its normal main job is
+an expected wait for manual dispatch.

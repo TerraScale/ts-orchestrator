@@ -117,11 +117,10 @@ type stateReply struct {
 	Region  string                  `json:"region"`
 	Desired map[string]desiredState `json:"desired"`
 	// Ready is the generation each local service runs with every replica ready.
-	Ready map[string]int64 `json:"ready,omitempty"`
+	Ready   map[string]int64         `json:"ready,omitempty"`
+	Serving map[string]ServingResult `json:"serving,omitempty"`
 	// Failed is the generation of each service whose rollout here failed.
-	Failed map[string]int64 `json:"failed,omitempty"`
-	// Excused is the generation of each service whose bake here failed only
-	// because a dependency kept recovering: later regions still roll it.
+	Failed  map[string]int64 `json:"failed,omitempty"`
 	Excused map[string]int64 `json:"excused,omitempty"`
 }
 
@@ -137,9 +136,8 @@ type Applier interface {
 	// Wait returns once every replica of spec runs it (and answers its ready
 	// path when the spec names one), using the snapshot returned by Apply.
 	Wait(ctx context.Context, spec swarmruntime.ServiceSpec, original *api.Service) (swarmruntime.ServiceRollout, error)
-	Bake(context.Context, swarmruntime.ServiceSpec, swarmruntime.ServiceRollout) (rollout.BakeVerdict, error)
-	// Ready returns the generation of each service whose up-to-date replicas all run.
-	Ready(ctx context.Context) (map[string]int64, error)
+	Bake(context.Context, swarmruntime.ServiceSpec, swarmruntime.ServiceRollout, func(rollout.BakeVerdict) error) (rollout.BakeVerdict, error)
+	Ready(ctx context.Context) (map[string]ServingResult, error)
 }
 
 type config struct {
@@ -161,6 +159,7 @@ type config struct {
 
 // Node is one region's running mesh server.
 type Node struct {
+	serving       atomic.Pointer[map[string]ServingResult]
 	bootstrapHook atomic.Pointer[bootstrapHook]
 	cfg           config
 	tls           *tls.Config
@@ -277,12 +276,13 @@ func start(cfg config) (_ *Node, err error) {
 				Workers: node.joinedWorkers(), StartedAt: node.listening})
 		},
 		StateSubject: func(m *nats.Msg) {
-			ready, err := cfg.applier.Ready(node.ctx)
-			if err != nil {
-				slog.Warn("mesh ready state unavailable", "error", err)
-			}
 			node.mu.Lock()
-			state := stateReply{Region: cfg.region, Desired: maps.Clone(node.desired), Ready: ready, Failed: maps.Clone(node.failed)}
+			state := stateReply{Region: cfg.region, Desired: maps.Clone(node.desired), Ready: map[string]int64{}, Serving: node.servingSnapshot(), Failed: maps.Clone(node.failed)}
+			for name, result := range state.Serving {
+				if result.fresh() {
+					state.Ready[name] = result.Generation
+				}
+			}
 			node.bakeState(&state)
 			node.mu.Unlock()
 			node.respond(m, state)
@@ -386,6 +386,9 @@ func (n *Node) regions() []string {
 }
 
 func (n *Node) Run(ctx context.Context) {
+	if n.cfg.applier != nil {
+		n.goWork(func() { n.observeServing(n.ctx) })
+	}
 	tick := time.NewTicker(n.cfg.every)
 	defer tick.Stop()
 	var collected time.Time
@@ -656,7 +659,7 @@ func (n *Node) applyWindow(spec *swarmruntime.ServiceSpec) time.Duration {
 
 // held reports a region that comes after entry's canary hold.
 func (n *Node) held(entry Entry) bool {
-	return entry.Deployment == nil && entry.HoldAfter != "" && slices.Contains(n.earlier(entry.Spec), entry.HoldAfter)
+	return entry.HoldAfter != "" && slices.Contains(n.earlier(entry.Spec), entry.HoldAfter)
 }
 
 // errEarlierFailed stops a region from waiting for a generation an earlier
@@ -677,7 +680,7 @@ func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int6
 		if reply.Excused[name] >= generation {
 			return fmt.Errorf("%w: %s dependency bake failed", errEarlierFailed, region)
 		}
-		if reply.Ready[name] < generation {
+		if reply.Ready[name] < generation || !reply.Serving[name].fresh() || reply.Serving[name].Generation < generation {
 			return fmt.Errorf("%s does not run %s generation %d ready yet", region, name, generation)
 		}
 	}
