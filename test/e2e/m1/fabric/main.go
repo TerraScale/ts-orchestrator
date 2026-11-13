@@ -487,6 +487,12 @@ func run(work string) error {
 		if err := place(i, app, system); err != nil {
 			return err
 		}
+		if err := bounded("stopping node current on every group", 6*time.Second, func() bool {
+			state, err := readStatus(i)
+			return err == nil && state.Health == ""
+		}); err != nil {
+			return err
+		}
 		stop := time.Now()
 		if err := processes[i].cmd.Process.Signal(syscall.SIGTERM); err != nil {
 			return err
