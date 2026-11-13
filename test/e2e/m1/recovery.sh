@@ -65,10 +65,10 @@ cat > "$root/etc/systemd/system/ts-orch.service" <<'UNIT'
 Description=Private updater recovery journey
 StartLimitIntervalSec=0
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+Type=notify
+NotifyAccess=all
 ExecStart=/usr/local/bin/terrascale-orchestrator single-host
-TimeoutStartSec=5s
+TimeoutStartSec=30s
 TimeoutStopSec=5s
 UNIT
 cat > "$root/opt/dbus.conf" <<'BUS'

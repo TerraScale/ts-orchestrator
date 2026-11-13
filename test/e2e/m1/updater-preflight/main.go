@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -170,9 +171,24 @@ func main() {
 		if candidateMode() == "early-exit" {
 			os.Exit(17)
 		}
-		probation, err := releasepush.Probe("/var/lib/ts-orch", os.Stdout)
+		h, err := releasepush.NewHandler("/var/lib/ts-orch")
 		must(err)
-		require(probation.Served(), "restored updater must confirm")
+		conn, closeListener := listener(h)
+		defer closeListener()
+		write("/run/recovery-listener", conn.ConnectedUrl())
+		if candidateMode() != "hold" && candidateMode() != "starting" {
+			probation, err := releasepush.Probe("/var/lib/ts-orch", os.Stdout)
+			must(err)
+			require(probation.Served(), "restored updater must confirm")
+		}
+		if candidateMode() != "starting" {
+			socket, err := net.Dial("unixgram", os.Getenv("NOTIFY_SOCKET"))
+			must(err)
+			_, err = socket.Write([]byte("READY=1"))
+			must(err)
+			must(socket.Close())
+		}
+		<-ctx.Done()
 		return
 	}
 	if len(os.Args) >= 3 {
