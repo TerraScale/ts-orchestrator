@@ -207,7 +207,7 @@ func installUnit(ctx context.Context, data []byte, binary, state string) error {
 			return err
 		}
 	}
-	if err := systemctl(ctx, "reset-failed", "ts-orch.service"); err != nil {
+	if err := systemctl(ctx, "reset-failed", "ts-orch.servic[e]"); err != nil {
 		return err
 	}
 	t.Phase = "unit-installed"

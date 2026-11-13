@@ -63,7 +63,7 @@ func restoreTrial(ctx context.Context, state, reason string) error {
 		t.Reason += "; " + reason
 	}
 	if t.Phase == "intent" {
-		if err := systemctl(ctx, "reset-failed", "ts-orch.service"); err != nil {
+		if err := systemctl(ctx, "reset-failed", "ts-orch.servic[e]"); err != nil {
 			return err
 		}
 		if err := systemctl(ctx, "restart", "--no-block", "ts-orch.service"); err != nil {
@@ -100,7 +100,7 @@ func restoreTrial(ctx context.Context, state, reason string) error {
 	if err := systemctl(ctx, "daemon-reload"); err != nil {
 		return err
 	}
-	if err := systemctl(ctx, "reset-failed", "ts-orch.service"); err != nil {
+	if err := systemctl(ctx, "reset-failed", "ts-orch.servic[e]"); err != nil {
 		return err
 	}
 	t.Phase = "restored"

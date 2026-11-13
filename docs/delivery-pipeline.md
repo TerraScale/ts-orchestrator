@@ -50,8 +50,9 @@ last: sjc, fra, gru today. G0 requires every target's version reply within
 10 seconds and health `ok` where the release-health subject is available,
 before installing anything. No responders or `no health check` accepts the
 version probe alone for the first push. G0 accepts any running version; an
-install in progress or a pending restart fails health. G1 waits up to three
-minutes for the requested SHA. G2 polls each region's release-health subject
+install in progress or a pending restart fails health. G1 waits for the requested SHA using the host's reported probation deadline,
+including startup planning and the serving window. It reports accepted releases
+still in probation while waiting; see [release recovery](m1-single-host.md). G2 polls each region's release-health subject
 every two seconds with an eight-second request timeout around the handler's
 five-second total budget, requiring the requested SHA and 15 uninterrupted
 seconds of healthy JetStream leaders and replicas, a READY SwarmKit node and

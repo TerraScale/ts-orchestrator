@@ -232,7 +232,10 @@ probe within 10 seconds and report health `ok` where available (G0). No
 responders or `no health check` accepts version alone for the first push;
 other health failures, including an install or restart in progress, stop the
 push before any install. G0 accepts any running version. Each region must
-serve the requested SHA within three minutes (G1), then report healthy
+serve the requested SHA within its reported probation bound (G1), including
+startup planning and the serving window. The pusher reports an accepted release
+still in probation while waiting; [release recovery](m1-single-host.md) describes
+the delivered units and independent guard. It must then report healthy
 JetStream and regional services
 continuously for 15 seconds within three minutes (G2). Health requires a
 successful server health check, a leader and the configured replica count
