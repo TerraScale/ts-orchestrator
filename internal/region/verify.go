@@ -16,15 +16,12 @@ import (
 // Verifier checks that a region serves: what TS-640 lacked when it was
 // marked done.
 type Verifier struct {
-	HTTP *http.Client
-	// Cell is the region's cell, e.g. sjc-1: TerraBase's region and
-	// Atlas' region ID.
-	Cell string
-	// API, Auth and Atlas are origins without a path.
-	API, Auth, Atlas string
-	LB               lb.API
-	LoadBalancerID   string
-	BackendSets      []string
+	HTTP           *http.Client
+	Cell           string
+	API, Auth      string
+	LB             lb.API
+	LoadBalancerID string
+	BackendSets    []string
 }
 
 // Check is one verification result.
@@ -43,6 +40,17 @@ func (v Verifier) Checks(ctx context.Context) []Check {
 	checks := []Check{{"api", fmt.Sprintf("GET %s/healthz: %s; status=%q region=%q", v.API, outcome(code, err), api.Status, api.Region),
 		err == nil && code == http.StatusOK && api.Status == "ok" && api.Region == v.Cell}}
 
+	pingURL := v.API + "/healthz"
+	dashboard := "https://dashboard.terrascale.tech"
+	code, headers, _, err := v.fetch(ctx, pingURL, dashboard)
+	missing := pingHeaderGaps(code, headers)
+	gaps := "all ping headers present"
+	if len(missing) > 0 {
+		gaps = strings.Join(missing, ", ")
+	}
+	checks = append(checks, Check{"api ping", fmt.Sprintf("GET %s with Origin: %s: %s; %s", pingURL, dashboard, outcome(code, err), gaps),
+		err == nil && len(missing) == 0})
+
 	var discovery struct {
 		Issuer string `json:"issuer"`
 	}
@@ -52,23 +60,6 @@ func (v Verifier) Checks(ctx context.Context) []Check {
 		err == nil && code == http.StatusOK && discovery.Issuer == issuer})
 
 	checks = append(checks, v.balancer(ctx))
-
-	var topology struct {
-		Regions []struct {
-			ID     string `json:"id"`
-			Health string `json:"health"`
-		} `json:"regions"`
-	}
-	code, err = v.get(ctx, v.Atlas+"/v1/discovery", &topology)
-	// ts-atlas docs/discovery-v1.md: health is ok, unknown or down.
-	health := "not listed"
-	for _, r := range topology.Regions {
-		if r.ID == v.Cell {
-			health = r.Health
-		}
-	}
-	checks = append(checks, Check{"atlas", fmt.Sprintf("GET %s/v1/discovery: %s; %s %s", v.Atlas, outcome(code, err), v.Cell, health),
-		err == nil && code == http.StatusOK && health == "ok"})
 	return checks
 }
 
@@ -103,24 +94,50 @@ func outcome(code int, err error) string {
 
 // get decodes a bounded JSON GET without following redirects.
 func (v Verifier) get(ctx context.Context, url string, into any) (int, error) {
+	code, _, body, err := v.fetch(ctx, url, "")
+	if err != nil || code != http.StatusOK {
+		return code, err
+	}
+	if err := json.Unmarshal(body, into); err != nil {
+		return code, errors.New("unexpected JSON")
+	}
+	return code, nil
+}
+
+func (v Verifier) fetch(ctx context.Context, url, origin string) (int, http.Header, []byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return 0, err
+		return 0, nil, nil, err
 	}
-	request.Header.Set("Cache-Control", "no-cache")
+	if origin != "" {
+		request.Header.Set("Origin", origin)
+	} else {
+		request.Header.Set("Cache-Control", "no-cache")
+	}
 	response, err := v.HTTP.Do(request)
 	if err != nil {
-		return 0, err
+		return 0, nil, nil, err
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-	if err != nil || response.StatusCode != http.StatusOK {
-		return response.StatusCode, err
+	return response.StatusCode, response.Header, body, err
+}
+
+func pingHeaderGaps(code int, headers http.Header) []string {
+	var missing []string
+	if code != http.StatusOK {
+		missing = append(missing, fmt.Sprintf("status is %d, want 200", code))
 	}
-	if err := json.Unmarshal(body, into); err != nil {
-		return response.StatusCode, errors.New("unexpected JSON")
+	if got := headers.Get("Access-Control-Allow-Origin"); got != "*" {
+		missing = append(missing, fmt.Sprintf("Access-Control-Allow-Origin is %q, want *", got))
 	}
-	return response.StatusCode, nil
+	if got := headers.Get("Timing-Allow-Origin"); got != "*" {
+		missing = append(missing, fmt.Sprintf("Timing-Allow-Origin is %q, want *", got))
+	}
+	if !strings.Contains(headers.Get("Cache-Control"), "no-store") {
+		missing = append(missing, fmt.Sprintf("Cache-Control is %q, want no-store", headers.Get("Cache-Control")))
+	}
+	return missing
 }
 
 // Until runs the checks every interval until all pass or wait ends, and

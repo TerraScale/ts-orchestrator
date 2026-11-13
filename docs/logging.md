@@ -59,7 +59,7 @@ writes `INFO` and above; `DEBUG` records exist for tests and local runs.
   the one console formatter: record v1 from `TS_*`, `trace_id` from
   `Activity.Current`, single line. Framework categories that log every
   request (`Microsoft.AspNetCore.*`, `System.Net.Http.*`) default to `WARN`.
-- **Workers and ts-dashboard** (ts-atlas, ts-status, ts-dashboard). Same
+- **Workers and ts-dashboard** (ts-status, ts-dashboard). Same
   keys in `console.log(JSON.stringify(...))` or slog; `region` is the
   Cloudflare colo or OCI region, `node` the isolate ID or node name.
 
@@ -147,4 +147,4 @@ posts its output before the fixes and after they reach GRU and SJC.
 4. Log summary: `internal/logs`, the host follower and windows, the stream,
    `logs.View`, `query.logs.v1`, `/v1/logs` and the `errors` source.
 5. `TerraScale.Logging` in ts-libs, then TerraBase and ts-auth adopt it and
-   fix their recurring warnings; ts-dashboard, ts-atlas and ts-status follow.
+   fix their recurring warnings; ts-dashboard and ts-status follow.

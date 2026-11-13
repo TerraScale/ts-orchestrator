@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
-	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -19,7 +18,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/globalview"
 
 	"crypto/ed25519"
-	"github.com/TerraScale/ts-orchestrator/internal/atlas"
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
@@ -1175,7 +1173,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// The home allocates node growth under the monthly budget. Every region
 	// feeds the budget insight from the capacity document it reads.
 	allocator := startCapacityAllocator(runCtx, global, telemetry.regionRollups, runtime.JetStream(),
-		cfg.NATS.Replicas, services.atlasConfig, reservations)
+		cfg.NATS.Replicas, reservations)
 	if err := startBudgetSet(runCtx, runtime.Conn(), global); err != nil {
 		return fmt.Errorf("serve budget requests: %w", err)
 	}
@@ -1261,9 +1259,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	workers.Go(func() { workerErrors <- stateful.effects.Run(runCtx) })
 	workers.Go(func() { workerErrors <- generic.Run(runCtx) })
-	atlasPublisher := &atlas.Loop{Publisher: atlas.Publisher{HTTP: &http.Client{Timeout: atlas.Interval}},
-		Config: atlasRoster(services.atlasConfig, cfg.NATS.Cell, peers), Authority: control, LoadKey: atlas.VaultKey}
-	workers.Go(func() { workerErrors <- atlasPublisher.Run(runCtx) })
 	workers.Go(func() { workerErrors <- services.Run(runCtx) })
 	workers.Go(func() { workerErrors <- nativeReleases.run(runCtx) })
 	workers.Go(func() {

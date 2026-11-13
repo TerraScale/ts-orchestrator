@@ -326,9 +326,6 @@ func publishJoin(ctx context.Context, state string, plan hostPlan) {
 	}
 }
 
-// relayRelease publishes CI's accepted ts-orch release request to the
-// region's workers over the mesh. A worker that misses it catches up on the
-// next push, which CI repeats until every region is current.
 func relayRelease(state, region string, request []byte) {
 	conn, err := mesh.Connect(state)
 	if err != nil {
@@ -341,8 +338,6 @@ func relayRelease(state, region string, request []byte) {
 	}
 }
 
-// serveWorkerReleases installs the releases this worker's founder relays,
-// reconnecting to the local mesh node until ctx ends.
 func serveWorkerReleases(ctx context.Context, state, region string, releases *releasepush.Handler) {
 	for ctx.Err() == nil {
 		conn, err := mesh.Connect(state)

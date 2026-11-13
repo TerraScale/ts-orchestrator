@@ -367,7 +367,7 @@ tests:
 - interval: 1m
   input_series:
   - series: ts_edge_certificate_not_after{name="app.e2e.test",key_type="ecdsa"}
-    values: 1296000+0x20
+    values: 1900800+0x20
   alert_rule_test:
   - eval_time: 1m
     alertname: EdgeCertificateExpiryWarning
@@ -379,7 +379,7 @@ tests:
 - interval: 1m
   input_series:
   - series: ts_edge_certificate_not_after{name="app.e2e.test",key_type="ecdsa"}
-    values: 1123200+0x20
+    values: 1728000+0x20
   alert_rule_test:
   - eval_time: 1m
     alertname: EdgeCertificateExpiryWarning
@@ -389,7 +389,7 @@ tests:
         name: app.e2e.test
         key_type: ecdsa
       exp_annotations:
-        summary: An edge certificate expires within fourteen days
+        summary: An edge certificate expires within twenty-one days
   - eval_time: 1m
     alertname: EdgeCertificateExpiryCritical
     exp_alerts: []
@@ -407,7 +407,7 @@ tests:
         name: app.e2e.test
         key_type: ecdsa
       exp_annotations:
-        summary: An edge certificate expires within fourteen days
+        summary: An edge certificate expires within twenty-one days
   - eval_time: 1m
     alertname: EdgeCertificateExpiryCritical
     exp_alerts:

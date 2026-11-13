@@ -1,5 +1,8 @@
 # TerraScale Orchestrator documentation
 
+The [platform design](platform.md) is the source for the target design of the
+platform. The pages below describe today's implementation.
+
 Start with the [zero-configuration operating contract](zero-configuration.md).
 The technical references below distinguish current runtime dependencies from
 required automatic behavior; they do not certify pending TS-796 automation.
@@ -8,6 +11,7 @@ These pages describe the current greenfield Go implementation.
 
 | Document | Purpose |
 | --- | --- |
+| [Platform design](platform.md) | Target design of the platform, the source for later pull requests and operators |
 | [Regional API hosts](regional-api-hosts.md) | Regional rollout routing and automatic public origin discovery |
 | [Entity IDs](entity-ids.md) | Canonical ULIDs, operational keys, and the TS-754 clean-reset contract |
 | [Architecture and boundaries](architecture.md) | Regional NATS, authority, host delivery, OCI scope, and current limits |

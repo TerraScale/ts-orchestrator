@@ -94,23 +94,27 @@ naming scheme and who may read what.
 | `ts-orch vault deliver --cell REGION --service SERVICE --refs FILE --dir DIR [--refresh 1m] [--once] [--file-names]` | Fetch CURRENT at startup and atomically refresh private tmpfs files on newer versions; output metadata only |
 | `ts-orch vault version --vault-id OCID --name NAME --secret-id OCID --expect-current N --file /dev/stdin [--instance-principal]` | Publish owner-provided bytes with an ETag and verify CURRENT readback; never generate or blindly retry a value |
 | `ts-orch region plan LABEL OCI_REGION --out FILE [--from PLAN]` | Derive a non-home region's plan from another region's reviewed plan; reads OCI, creates nothing ([new region](new-region.md)) |
-| `ts-orch region create LABEL OCI_REGION --state DIR --attempt-base FILE --home-plan FILE` | Bring the region up: foundation, private peering with gru-1, NetBird, founding attempt, edge, DNS, Atlas, verify; resumable, prints each step's wall time |
-| `ts-orch region verify LABEL --plan BOUND_PLAN [--wait D]` | Fail unless api and auth answer, every load balancer backend is healthy and Atlas lists the region |
-| `ts-orch atlas add-region --config OPERATOR_JSON --cell CELL [--out FILE]` | Plan listing a catalog region in the global home's `atlas` section; `--out` writes the unsigned candidate for `release sign-spec --root` (see [Atlas](atlas.md#automatic-discovery-and-vault-delivery)) |
-| `ts-orch atlas publish --plan FILE --section FILE` | Publish a cell spec `atlas` section to Atlas once, as the leader does every 10 s |
+| `ts-orch region create LABEL OCI_REGION --state DIR --attempt-base FILE --home-plan FILE` | Bring the region up: foundation, private peering with gru-1, NetBird, founding attempt, edge, DNS, verify; resumable, prints each step's wall time |
+| `ts-orch region verify LABEL --plan BOUND_PLAN [--wait D]` | Fail unless api and auth answer, the api answers the dashboard's browser ping (`Access-Control-Allow-Origin`, `Timing-Allow-Origin`, `Cache-Control: no-store` on `/healthz`) and every load balancer backend is healthy |
 
 ## Cell spec
 
 `ts-orch get`, `diff` and `apply` read and amend a running cell's signed
-desired state; `ts-orch service` plans service changes to it. See
+desired state; `ts-orch service` applies and removes services in every
+region and inspects this host's. See
 [cell spec](cell-spec.md) for the model, trust chain and runbook.
 
 | Command | Purpose |
 | --- | --- |
 | `ts-orch get --config OPERATOR_JSON` | Print the cell's current spec |
 | `ts-orch diff --config F -f FILE` | Plan a candidate or signed spec on the leader: changes, `root_required`, `requires_binary` |
-| `ts-orch service add\|update --config F --role R --profile F [--spec F] [--out F]` | Plan the next generation; `--out` writes the unsigned candidate |
-| `ts-orch service remove --config F --role R [--out F]` | Plan removing a drained role |
+| `ts-orch service apply -f <spec.json> [--hold-after <region>]` | Apply a service spec in every ordered region over this host's mesh; without a mesh node it applies on this host only; `--hold-after` stops the rollout once that region is done |
+| `ts-orch service resume <name>` | Continue a rollout held with `--hold-after`; needs this host's mesh |
+| `ts-orch service ls` | List this host's services: name, running replicas, image |
+| `ts-orch service rm <name>` | Remove the service in every region over the mesh and on this host |
+| `ts-orch service ps <name>` | Print the service's tasks on this host |
+| `ts-orch service logs [-f \| --previous] <name>` | Print the service's task logs on this host; `-f` follows the current task, `--previous` prints the ended task's snapshot |
+| `ts-orch service inspect <name>` | Print the service's live spec and state as JSON |
 | `ts-orch release sign-spec-delegation ... --out F` | Offline: the root lets the release leaf sign ordinary amendments |
 | `ts-orch release sign-spec --candidate F (--delegation F \| --root) --root-key F --signing-key F --out F` | Offline: the leaf, or for a widening change the root, signs a candidate |
 | `ts-orch apply --config F -f SIGNED` | Apply a signed spec on the authority leader |
@@ -126,6 +130,26 @@ CI runs `ts-orch release deploy` for every `main` merge; see
 | `ts-orch release service-deploy --role R --binary F --repository URL --commit SHA --source-checkout DIR --environment ENV --actor A --signing-key-secret S --vault-id V --namespace NS --cell C...` | CI: release a native service (TerraBase, ts-auth) to every region, canary first, through its service release channel ([automatic service releases](continuous-delivery.md#automatic-service-releases-ts-610)) |
 | `ts-orch release fleet-status --namespace NS [--cell C...] [--role R...]` | Print every region's release channel and rollout status as JSON lines; with `--role`, each named service role's release status instead |
 | `ts-orch release observed-digests --namespace NS [--cell C...] [--role R...]` | Read-only: for each region and native service role (default `terrabase` and `ts-auth`), print the admitted digest and, per replica, the digest its host observes running, when it was observed and whether they match |
+| `ts-orch release push --dir D --sha SHA [--regions F]` | CI only: send a main build one region at a time, waiting for JetStream and the region's services |
+| `ts-orch release app --service NAME --image REF@SHA256 [--regions F]` | CI only (app image): release an app image to every region over the mesh |
+| `ts-orch release digests --out F [--regions F]` | CI only (app digests): record every mesh service's desired image to a file |
+| `ts-orch release mesh-check [--spec F] [--regions F]` | CI only: re-prove mesh ping, `service apply` and HTTPS in every region after a fleet push |
+| `ts-orch release pin [--state DIR]` | Print the SPKI pin of the single-host listener certificate in a state directory |
+| `ts-orch release manifest --sha SHA --sequence N --out FILE` | Operator: build a production release manifest from a CI release's Linux binaries, hashing each download |
+| `ts-orch release sign --manifest FILE --key KEYFILE` | Operator: sign a manifest with `ssh-keygen -Y sign` (namespace `ts-orch-release`, works with ssh-agent and hardware keys); writes `FILE.sig` |
+| `ts-orch release verify --manifest FILE [--sig FILE.sig] [--allowed FILE]` | Verify a manifest's signature against the embedded allowed SSH keys (or a test list with `--allowed`) |
+
+## Signed release manifests
+
+Create a manifest from the newest matching CI release, then sign its exact bytes
+with an SSH key. Each Linux binary is downloaded and hashed with SHA-256.
+Set GITHUB_TOKEN to authenticate release-list requests if needed.
+The sign command attaches the terminal to ssh-keygen, including hardware-key prompts.
+Verification checks the ts-orch-release namespace, manifest fields and signer's
+release role, printing ok sequence=<n> sha=<sha> signer=<name> on success.
+The embedded deploy/m1/allowed-keys.json is initially empty; supply --allowed FILE
+until release keys are enrolled. The file has the shape
+{"keys":[{"name":"operator","key":"<authorized_keys line>","roles":["release"]}]}.
 
 ## Orchestrator rollouts
 
@@ -159,12 +183,6 @@ without a rebuild; see [root rotation](root-rotation.md).
 runs isolated load-generator jobs and attaches that usage window. See
 [capacity benchmarking](capacity-benchmarking.md) for setup, current SDK
 blockers, bounds and cleanup guarantees.
-
-`ts-orch disaster-recovery replicate --config FILE [--apply]` prepares
-dedicated cross-region Object Storage mirrors, historical backfills and Vault
-key replicas. It does not execute a full-cell recovery drill. See
-[disaster recovery](disaster-recovery.md) for the exact copy layout and the
-remaining cold-restore requirements.
 
 Prefer `ts-orch` for new operational features. Implement them as Go commands
 in their feature packages instead of adding Python scripts or separate

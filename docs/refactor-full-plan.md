@@ -144,7 +144,7 @@ directories require a file-level claim before editing.
 
 | ID / owner | Owns | Start independently | Live integration prerequisite |
 | --- | --- | --- | --- |
-| **MESH — regional/global messaging** | Embedded NATS formation, durable membership, scoped global leaf admission, Atlas publication and topology; `internal/natscell` and named membership/global-control integration files. | Define admitted membership versus observed health; implement loop-free topology and restart/partition handling. | OCI/NET host identity and connectivity for regional/global joining. Local service readiness remains independent of a global link. |
+| **MESH — regional/global messaging** | Embedded NATS formation, durable membership, scoped global leaf admission and topology; `internal/natscell` and named membership/global-control integration files. | Define admitted membership versus observed health; implement loop-free topology and restart/partition handling. | OCI/NET host identity and connectivity for regional/global joining. Local service readiness remains independent of a global link. |
 | **OBS — CLI/dashboard/telemetry** | Shared feature API views, CLI output/JSON, metric catalog, Datastar/templ/ECharts and one CSS file; `internal/dashboard`, `internal/observability`, named CLI handlers. | Build real API consumers, metric discovery/history and UI against versioned test fixtures; consolidate styles. | Each producing stream's specific observation/API for its live panel; do not wait for the whole cluster to finish. |
 | **WASM — functions** | Runtime comparison, invocation/artifact contract, HTTP/queue workers, isolation, cancellation and caches. | Compare Wasmtime/wazero and implement bounded workers on both architectures with test-only host capabilities. | CORE/REL/CAP qualified workers plus tenant-scoped capabilities for live execution; DATA only for a capability that actually uses TerraBase. |
 | **DATA — stateful safety** | Writer/volume fencing, catch-up, drain, backup/restore, on-disk/CPU compatibility; retained storage/database lifecycle boundaries. | Extract safety contracts and qualify restore/fencing behavior independently of scheduler cutover. | CORE executor lifecycle hooks, OCI volume ownership and qualified artifacts for live migration. Production cutover requires its own safety evidence and authorization. |
@@ -348,8 +348,8 @@ credentials, scripts, workflows and dependencies before declaring completion.
    quorum, health checks and database drain/fencing gates.
 2. **Provision from authority, not serving health.** Reconcile the authorized
    footprint and authenticated foundation/admitted-membership records before
-   any serving heartbeat exists. Atlas publishes routing/health observations;
-   it must not be the only deployment or bootstrap discovery source. Recover
+   any serving heartbeat exists. Routing/health observations are published
+   separately; they must not be the only deployment or bootstrap discovery source. Recover
    controller ownership and in-flight operations durably; observe actual
    resources instead of treating a completed local journal entry as proof of
    current state. Recover NetBird/Vault writes without hand-written records,
@@ -389,7 +389,7 @@ credentials, scripts, workflows and dependencies before declaring completion.
 | --- | --- |
 | Operator effort and dependencies | Before/after inventory of commands, manual inputs, credential handoffs, external executables and services required for cold bootstrap, routine release and recovery. Production targets: no per-region setup commands, no manually copied first-party secrets, no source/CI dependency at apply time and no operational Python OCI CLI. |
 | Deployment time and repeated work | Retain stage timings for cold region creation, warm release and interrupted retry. Report sample count, p50/p95/p99 when meaningful, slowest region and fleet completion; break out API waits, network join, artifact transfer, image pull and readiness. Record repeated builds, inspections, hashes and bytes transferred. Set numeric targets from a measured baseline; publish no assumed speedup. |
-| Regional independence | In GRU / San Jose (`sjc`) / FRA, make one region's scope/status/storage unreachable or stale. Healthy regions still deploy safely; the failed region reports its blocked stage and catches up after recovery. A live Atlas/CI API is not required to apply an already admitted release from trusted membership. |
+| Regional independence | In GRU / San Jose (`sjc`) / FRA, make one region's scope/status/storage unreachable or stale. Healthy regions still deploy safely; the failed region reports its blocked stage and catches up after recovery. A live discovery API is not required to apply an already admitted release from trusted membership. |
 | Restart and partial failure | Interrupt after resource creation, Vault setup-key storage, image import and channel publication; restart or transfer ownership. Reconcile existing identities without duplicate foundations, competing founders, key replacement or lost successful-region results. Show pending global operations during a partition; do not invent global authority. |
 | Trust, safety and ownership | Refuse wrong scope/architecture, tampered bytes, expired admission and stale release order. Prove producer changes retain the signed sequence floor, and SwarmKit is the only task owner. Retain quorum, database writer/volume fencing and restore evidence. CLI/dashboard expose real progress, timings, partial errors and stale/missing metrics through the shared API. |
 
@@ -902,7 +902,7 @@ arbitrary NetBird peer does not authorize new spending or a new region.
 | Host/network admission — NET + OCI | That host's foundation, verified OCI role/region/pool/architecture and reachable NetBird/Vault endpoints. | Enroll ready hosts while others provision; generate scoped groups/DNS/policies and deliver only role-appropriate material. No per-host operator approval after authorized identity checks pass. |
 | Regional formation — CORE + MESH | Admitted host and durable regional founder identity. | Select exactly one fenced founder, publish its verified endpoint, then join embedded NATS/JetStream and role-correct SwarmKit managers/workers. Independent regions proceed concurrently. Persist/recover identities and upstream certificate rotation; empty discovery never permits a competing founder or worker self-promotion. |
 | Global leaf admission — MESH + NET | Admitted identities and endpoints for both affected regions plus authorized global control generation. | Generate topology, imports/exports, peer credentials and matching policies at both ends. Different links can prepare concurrently; serialize conflicting global topology commits. Use the loop-free GRU tree and authenticate request/reply before reporting connectivity. Regional quorums remain local. |
-| Local workload/readiness — CORE + REL + OCI | Qualified regional executor/capacity, admitted artifact and required service credentials; DATA proofs for stateful tasks. | Deploy local services and reconcile ingress while global leaf admission proceeds. Health/fencing gates actual traffic and Atlas readiness. A service with a genuine cross-region dependency waits only for that dependency. Publish regional readiness and global connectivity separately through OBS. |
+| Local workload/readiness — CORE + REL + OCI | Qualified regional executor/capacity, admitted artifact and required service credentials; DATA proofs for stateful tasks. | Deploy local services and reconcile ingress while global leaf admission proceeds. Health/fencing gates actual traffic and serving readiness. A service with a genuine cross-region dependency waits only for that dependency. Publish regional readiness and global connectivity separately through OBS. |
 
 Use bounded per-provider/per-region concurrency and backoff fixed in code;
 do not start one unbounded goroutine per resource. Scope retries, deadlines and
@@ -915,8 +915,8 @@ Bootstrap discovery must work before the first serving heartbeat: use trusted
 OCI/Vault foundation records, not the public serving-region roster as the sole
 input. Record provisioning, admitted membership and observed readiness separately
 so joining does not depend on already being advertised as healthy. Reuse
-`internal/region`, OCI foundation, NetBird, regional NATS, global control and
-Atlas paths instead of adding a parallel provisioner or membership authority.
+`internal/region`, OCI foundation, NetBird, regional NATS, global control
+instead of adding a parallel provisioner or membership authority.
 
 Use bounded backoff for transient failures and show the blocked stage and
 operation ID. Recheck authority before mutations and recover in-flight work on
@@ -1212,7 +1212,7 @@ This remains a risk-based source review, not exhaustive live verification.
 | Shape/image/price/placement coherence — CAP + CORE | Replace A1-only pool/seed/cost assumptions together; qualify wrong architecture, missing capacity, A1 exhaustion, replacement and rollback. The unwired generic Machines planner must be removed rather than promoted into another scheduler. | RUNTIME per candidate; COMPLETE for the requested capacity/runtime coverage. |
 | Accurate operational documentation — each stream + QA | Correct stale README claims about missing artifact cleanup/serving verification from retained code/evidence. Do this alongside each slice; reuse working paths and never label source tests production readiness. | Every affected claim and COMPLETE. |
 | Shared CLI and full visibility — OBS + feature producers | Reuse dashboard/observability/global-view APIs, consolidate CSS, connect each command/metric family as its producer lands and retain partial-outage/history/chart evidence. HTTP 200 or a green overview is insufficient. | CONNECT for smoke observations; COMPLETE for full coverage. |
-| Continuous regional/global lifecycle — OCI + MESH + NET + CORE | Replace local-only creation journals and manual plan/credential/Atlas/interregion inputs with durable fenced operations. Qualify restart and concurrent boot without duplicate foundations/founders; independently expose blocked local/global stages. | CONNECT for automatic joining; RUNTIME/COMPLETE for full repair and lifecycle coverage. |
+| Continuous regional/global lifecycle — OCI + MESH + NET + CORE | Replace local-only creation journals and manual plan/credential/interregion inputs with durable fenced operations. Qualify restart and concurrent boot without duplicate foundations/founders; independently expose blocked local/global stages. | CONNECT for automatic joining; RUNTIME/COMPLETE for full repair and lifecycle coverage. |
 
 **Deletion is owned by every stream:** Remove each superseded responsibility and
 orphaned caller/dependency with its replacement, while QA verifies CLI actions,

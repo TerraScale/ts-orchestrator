@@ -1,5 +1,3 @@
-// Package alertdelivery delivers loopback Alertmanager notifications through
-// Cloudflare Email Sending and generic push. Credentials remain in Vault and process memory.
 package alertdelivery
 
 import (
@@ -47,7 +45,6 @@ type relay struct {
 
 const recipient = "mariogk@terrascale.tech"
 
-// Run serves only loopback; the relay independently bounds email quota usage.
 func Run(ctx context.Context, args []string) error {
 	if len(args) != 0 && (len(args) != 1 || args[0] != "subscribe") {
 		return errors.New("usage: ts-orch alert-delivery")
@@ -101,7 +98,6 @@ func readCredentials(ctx context.Context) (credentials, error) {
 		"CLOUDFLARE_ACCOUNT_ID_FILE":  {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-account-id"},
 		"CLOUDFLARE_EMAIL_TOKEN_FILE": {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-email-token"},
 	}
-	// Only the two refs approved for alert delivery are shared with this service.
 	values, err := vaultsecret.ReadInstanceSecrets(ctx, "ts-alerts", refs)
 	if err != nil {
 		return credentials{}, errors.New("alert delivery Vault credentials unavailable")

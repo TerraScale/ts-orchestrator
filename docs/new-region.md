@@ -33,7 +33,7 @@ region's evidence PR.
    - `~/.oci/config` with a `DEFAULT` profile (any region; `create` writes
      the region's own copy);
    - the home region's operator material in `/var/lib/terrascale-operator`
-     (`--home-operator`), since Atlas lives in gru-1's cell spec;
+     (`--home-operator`), the home's root-signing material;
    - gru-1's bound plan (`--home-plan`, required), the region's private
      peer;
    - an attempt base: the [attempt](region-bootstrap.md#bootstrap-sequence)
@@ -62,7 +62,6 @@ region's evidence PR.
 | edge | The L7 load balancer, its listeners and backend sets; records its IDs in `bound-plan.json` | `oci-region public-api apply` |
 | peer | The private DRG/RPC peering with gru-1 ([inter-region private networking](region-bootstrap.md#create-a-pairs-peering-with-ts-orch-oci-region-peer)): TCP 7422 (NATS leafnodes) and 9443 (TerraBase) between the private subnets; after `edge`, so it pins the final bound plan; writes `peer-intent.json` once, pinning both plans, and `peer-bound-intent.json` | `oci-region peer --apply` |
 | dns | Full (strict), zone AOP and proxied `<label>.api`, `<label>.auth` and `<label>.orch` | `oci-region dns --apply` |
-| atlas | The region in gru-1's `atlas` section, root-signed | `atlas add-region`, `release sign-spec --root`, `apply` |
 | verify | `region verify`, retried for `--wait` (30 minutes) | in process |
 
 ## What verify checks
@@ -70,9 +69,9 @@ region's evidence PR.
 | Check | Passes when |
 | --- | --- |
 | api | `https://<label>.api.terrascale.tech/healthz` answers 200, `status` `ok`, `region` the cell (`fra-1`) |
+| api ping | the same `/healthz` with `Origin: https://dashboard.terrascale.tech` answers 200 with `Access-Control-Allow-Origin: *`, `Timing-Allow-Origin: *` and `Cache-Control: no-store`, so the dashboard can ping the region from the browser |
 | auth | `https://<label>.auth.terrascale.tech/terrascale/.well-known/openid-configuration` answers 200 with that issuer |
 | load balancer | every backend set (`terrabase`, `ts-auth`, `ts-orch` with orch) has backends, all healthy |
-| atlas | `https://atlas.terrascale.tech/v1/discovery` lists the cell with health `ok` |
 
 Every GET has a 10-second deadline and follows no redirect. TerraBase's and
 ts-auth's `/readyz` are never called: both write
@@ -108,7 +107,38 @@ sjc-1 by hand, 2026-10-07, from the retained TS-640 and TS-662 timestamps:
 | Foundation by hand with `oci`, and removing GRU hard-codes (#270) | 10:53Z | 11:46Z | 53 min |
 | Founding attempt, 5 bugs found (#279) | 11:46Z | 13:16Z | 1 h 30 min |
 | Host agents, specs by hand; TS-640 closed without an edge | 13:16Z | 14:02Z | 46 min |
-| Edge, TerraBase, ts-auth, Atlas (TS-662) | 14:45Z | 17:14Z | 2 h 29 min |
+| Edge, TerraBase, ts-auth (TS-662) | 14:45Z | 17:14Z | 2 h 29 min |
 
 That is 6 h 32 min from the decision to `region verify sjc` passing. The next region's
 `create` journal gives its numbers; record them here.
+
+## Check every host's boot-volume backup
+
+`ts-orch region backups CODE` inventories every live host in the region's control
+compartment, including stopped hosts. It prints the host, attached boot-volume
+OCID (or `NOT FOUND`), assigned policy name (or `none`), newest available backup
+in UTC, and its age. It reads the operator's `~/.oci/config` `DEFAULT` profile;
+`operator.json` is not required. The default invocation performs only reads.
+
+```sh
+ts-orch region backups gru
+ts-orch region backups sjc --check
+ts-orch region backups fra --check
+```
+
+`--check` exits nonzero with one line per problem for a missing boot volume,
+missing policy, missing available backup, or newest available backup older than
+8 days. An empty region or failed OCI read also fails the command. Backups still
+being created, failed backups, and deleted backups do not count as recovery
+points. Terminated and terminating instances are excluded.
+
+After the owner approves the backup cost, `ts-orch region backups CODE --apply`
+assigns `ts-boot-weekly-4` to unassigned volumes through the same path as
+`region add`, creating the regional policy if absent. Existing assignments are
+preserved. `--check` and `--apply` are mutually exclusive. Assignment schedules
+future backups; it does not create an immediate recovery point. See
+[boot-volume policies and costs](boot-volume-backups.md) before applying.
+
+Daily checks should run for `gru`, `sjc`, and `fra` from an authenticated operator
+host. Existing GitHub workflows authenticate to the release listener with OIDC
+and have no OCI read credentials, so no scheduled workflow is installed.

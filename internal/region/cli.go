@@ -32,10 +32,14 @@ const usage = `Usage: ts-orch region <command> [flags]
       Provision the complete signed regional footprint through the same
       operator path as bootstrap foundation provision BUNDLE. Resumes the
       protected original launch and IAM records; discovery publishes last.
+  backups CODE [--check|--apply]
+      Inventory every live host's boot volume, policy and newest available
+      backup. Read-only by default; --check fails for gaps or age over 8 days.
+      --apply assigns ts-boot-weekly-4 to volumes without a policy.
   verify  LABEL --plan BOUND_PLAN [--wait 0]
       Fail unless <label>.api answers /healthz for its cell, <label>.auth
-      serves its OIDC discovery, every load balancer backend is healthy and
-      Atlas lists the region with health ok. With --wait, retry until then.
+      serves its OIDC discovery and every load balancer backend is healthy.
+      With --wait, retry until then.
 `
 
 // Run dispatches the region commands.
@@ -194,7 +198,7 @@ func verify(ctx context.Context, label, bound string, wait time.Duration, out io
 	verifier := Verifier{
 		HTTP: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		Cell: cell, API: "https://" + label + ".api.terrascale.tech", Auth: "https://" + label + ".auth.terrascale.tech",
-		Atlas: "https://atlas.terrascale.tech", LB: balancers, LoadBalancerID: id, BackendSets: sets,
+		LB: balancers, LoadBalancerID: id, BackendSets: sets,
 	}
 	checks, err := verifier.Until(ctx, wait, 30*time.Second)
 	return errors.Join(Print(out, checks), err)

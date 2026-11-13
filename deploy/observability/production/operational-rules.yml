@@ -265,11 +265,11 @@ groups:
   - name: edge-certificates
     rules:
       - alert: EdgeCertificateExpiryWarning
-        expr: ts_edge_certificate_not_after - time() < 14 * 86400
+        expr: ts_edge_certificate_not_after - time() < 21 * 86400
         labels:
           severity: warning
         annotations:
-          summary: An edge certificate expires within fourteen days
+          summary: An edge certificate expires within twenty-one days
       - alert: EdgeCertificateExpiryCritical
         expr: ts_edge_certificate_not_after - time() < 5 * 86400
         labels:

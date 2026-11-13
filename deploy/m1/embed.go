@@ -7,7 +7,7 @@ import "embed"
 // Files holds the host install files and first-party app release declarations.
 // deploy/m1/install.sh also copies the host files over ssh.
 //
-//go:embed host-runtime.sh ts-orch.service services/netbird-server.service services/app-canary.json services/ts-auth.json services/ts-dashboard.json
+//go:embed host-runtime.sh ts-orch.service services/netbird-server.service services/app-canary.json services/ts-auth.json services/ts-dashboard.json allowed-keys.json
 var Files embed.FS
 
 const NodeList = "{\"sequence\":0,\"nodes\":[]}\n"
