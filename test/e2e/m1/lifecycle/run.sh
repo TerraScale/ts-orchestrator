@@ -19,16 +19,16 @@ cleanup() {
 		if [[ -f $root/$name/agent.pid ]]; then kill "$(cat "$root/$name/agent.pid")" 2>/dev/null || true; fi
 		if [[ -S $root/$name/containerd.sock ]]; then
 			while read -r task; do
-				[[ -z $task ]] || ctr --address "$root/$name/containerd.sock" --namespace terrascale tasks kill --signal SIGKILL --all "$task" || true
-			done < <(ctr --address "$root/$name/containerd.sock" --namespace terrascale tasks ls -q)
+				[[ -z $task ]] || ctr --timeout 5s --address "$root/$name/containerd.sock" --namespace terrascale tasks kill --signal SIGKILL --all "$task" || true
+			done < <(ctr --timeout 5s --address "$root/$name/containerd.sock" --namespace terrascale tasks ls -q)
 		fi
 		if [[ -f $root/$name/daemon.pid ]]; then kill "$(cat "$root/$name/daemon.pid")" 2>/dev/null || true; fi
 	done
-	wait || true
 	for name in c18a c18b; do
 		ip netns pids "$name" | xargs -r kill -KILL 2>/dev/null || true
 		ip netns del "$name" || true
 	done
+	wait || true
 }
 trap cleanup EXIT
 for name in c18a c18b; do
@@ -54,6 +54,8 @@ hostname "$name"
 mount --make-rprivate /
 mount --bind "$root/cgroup" /sys/fs/cgroup
 mount -t tmpfs tmpfs /var/lib
+mkdir -p /var/run/nri
+mount -t tmpfs tmpfs /var/run/nri
 mkdir -p /var/lib/ts-data
 mount --bind "$root/$name/data" /var/lib/ts-data
 containerd --root "$root/$name/content" --state "$root/$name/runtime" --address "$root/$name/containerd.sock" >"$root/$name/containerd-output" 2>&1 &
