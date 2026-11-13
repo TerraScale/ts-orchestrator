@@ -107,7 +107,7 @@ Operator tooling:
   source-digest          Compute the versioned TerraBase source-tree digest
   terrabase              C# TerraBase member CA and member data volumes
   ts-auth                Provision ts-auth's Vault secrets and host firewall
-  caller-key             Add, retire and list regional service caller keys
+  caller-key             Add, activate, retire and list regional service caller keys
   vault                  Store secrets in OCI Vault once; render host files from them
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
   atlas                  Create the Atlas publish key; publish the cell's topology to Atlas once
