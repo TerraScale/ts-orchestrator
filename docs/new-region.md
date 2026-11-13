@@ -112,3 +112,34 @@ sjc-1 by hand, 2026-10-07, from the retained TS-640 and TS-662 timestamps:
 
 That is 6 h 32 min from the decision to `region verify sjc` passing. The next region's
 `create` journal gives its numbers; record them here.
+
+## Check every host's boot-volume backup
+
+`ts-orch region backups CODE` inventories every live host in the region's control
+compartment, including stopped hosts. It prints the host, attached boot-volume
+OCID (or `NOT FOUND`), assigned policy name (or `none`), newest available backup
+in UTC, and its age. It reads the operator's `~/.oci/config` `DEFAULT` profile;
+`operator.json` is not required. The default invocation performs only reads.
+
+```sh
+ts-orch region backups gru
+ts-orch region backups sjc --check
+ts-orch region backups fra --check
+```
+
+`--check` exits nonzero with one line per problem for a missing boot volume,
+missing policy, missing available backup, or newest available backup older than
+8 days. An empty region or failed OCI read also fails the command. Backups still
+being created, failed backups, and deleted backups do not count as recovery
+points. Terminated and terminating instances are excluded.
+
+After the owner approves the backup cost, `ts-orch region backups CODE --apply`
+assigns `ts-boot-weekly-4` to unassigned volumes through the same path as
+`region add`, creating the regional policy if absent. Existing assignments are
+preserved. `--check` and `--apply` are mutually exclusive. Assignment schedules
+future backups; it does not create an immediate recovery point. See
+[boot-volume policies and costs](boot-volume-backups.md) before applying.
+
+Daily checks should run for `gru`, `sjc`, and `fra` from an authenticated operator
+host. Existing GitHub workflows authenticate to the release listener with OIDC
+and have no OCI read credentials, so no scheduled workflow is installed.
