@@ -10,7 +10,7 @@ cleanup() {
  exit "$result"
 }
 trap cleanup EXIT
-previous="${CERTIFICATE_PREVIOUS_REF:-fbeeb6c47}"
+previous="${CERTIFICATE_PREVIOUS_REF:-8bc71eb41}"
 git fetch origin "$previous"
 mkdir "$work/main"
 git archive FETCH_HEAD | tar -x -C "$work/main"
