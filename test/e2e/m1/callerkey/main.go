@@ -695,8 +695,17 @@ func (j *journey) safetyNet() {
 			out, err := j.run(j.targets, "list")
 			require(err != nil && strings.Contains(out, "current key ts-auth.sjc.1 in region sjc has no public entry in regions fra") && j.store.writes == before, "list did not flag hand-made violation without writes: "+out)
 			if !intent {
+				originals := map[string][]byte{}
+				for _, cell := range []string{"gru", "sjc"} {
+					other := j.store.values[cell+"-1-terrabase-callers"]
+					originals[cell] = other.Current.Content
+					other.Current.Content = bytes.Clone(value.Current.Content)
+				}
 				out, err = j.run(j.targets, add("ts-auth.sjc.2")...)
 				require(err != nil && strings.Contains(out, "run caller-key recover") && j.store.writes == before, "new intent admitted while current-key repair was required: "+out)
+				for cell, content := range originals {
+					j.store.values[cell+"-1-terrabase-callers"].Current.Content = content
+				}
 			}
 			out = j.ok("recover")
 			require(strings.Contains(out, "repaired current key ts-auth.sjc.1 in region fra"), "recover did not report repair: "+out)
