@@ -110,7 +110,7 @@ func probe(state, binary string, output io.Writer, exit func()) (*Probation, err
 		return p.hold("running binary identity unavailable: " + err.Error()), nil
 	}
 	if !record.names(self) {
-		settleTrial(state, binary, record)
+		settleTrial(state, binary, record, self)
 		return nil, nil
 	}
 	if record.Failure != "" {
@@ -146,8 +146,13 @@ func unfinishedRollback(state, binary string, output io.Writer, exit func()) (*P
 	return p.finish(p.rollBack(decided.Reason))
 }
 
-func settleTrial(state, binary string, record trial) {
-	if decided, err := readRollback(rollbackFile(state)); err == nil && decided != nil && decided.SHA == record.SHA && decided.RunID == record.RunID {
+func settleTrial(state, binary string, record trial, self releaseID) {
+	decided, err := readRollback(rollbackFile(state))
+	rolledBack := err == nil && decided != nil && decided.SHA == record.SHA && decided.RunID == record.RunID
+	if !rolledBack && record.SHA != self.SHA {
+		return
+	}
+	if rolledBack {
 		if err := syncDirectory(filepath.Dir(binary)); err != nil {
 			slog.Warn("restored binary not yet durable; release trial kept", "error", err)
 			return

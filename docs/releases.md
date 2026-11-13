@@ -106,8 +106,9 @@ record it understands: it refuses the rejected run and every older run and
 never reinstalls the rejected candidate. The previous updater names a trial by
 revision only. This release never leaves a trial behind for a binary that is not
 installed: a staging that fails before the binary rename removes its trial, and
-a start that finds a trial naming another binary removes it, so the previous
-updater never counts starts on a trial for another build of its own commit. A
+a start that finds a trial naming another build of its own commit removes it, so
+the previous updater never counts starts on a trial for another build of its own
+commit. A
 later release may change the written format once every host runs a build that
 reads it.
 
@@ -116,7 +117,7 @@ reads it.
 | Step | Failure before the binary rename | After the binary rename |
 | --- | --- | --- |
 | Download, digest verification, candidate preflight, candidate identity check | Refuse; nothing staged. | Not reached. |
-| Write the trial, then the run fence (each through a temporary file, file sync, rename and directory sync); remove the rollback record; link `<binary>.prev` and sync its directory | Refuse and remove the trial just written; the fence only rises, so the same run may retry. A crash here leaves the trial, and the next start removes it because it names a binary that is not running. | Already complete. |
+| Write the trial, then the run fence (each through a temporary file, file sync, rename and directory sync); remove the rollback record; link `<binary>.prev` and sync its directory | Refuse and remove the trial just written; the fence only rises, so the same run may retry. A crash here leaves the trial; it is ignored, removed at the next start when it names another build of the running commit, and replaced by the next staging. | Already complete. |
 | Rename the candidate over the executable | Refuse. | **Commit point: the answer is `installed`.** |
 | Sync the binary directory; collect worker replies; deliver and flush the reply; request restart | Not reached. | Each is best effort with a WARN; none changes the installed answer. |
 
@@ -141,9 +142,10 @@ can arrive and stage its trial before this start is confirmed. The running binar
 one open file) is read once at start; the installed path is hashed again only
 when its size, modification time or inode changes. An in-place rewrite that
 keeps size, modification time and inode is not detected; the updater itself
-only ever renames files into place. A trial naming another binary is removed at
-start; when a rollback record names that trial, the binary directory is synced
-first and the trial is kept if the sync fails.
+only ever renames files into place. A trial naming another binary is ignored. At
+start it is removed when it names another build of the running binary's commit,
+or when a rollback record names it (the rollback finished); in that second case
+the binary directory is synced first and the trial is kept if the sync fails.
 
 Each start of the candidate before serving adds one to `starts` and saves it
 before continuing. The third start rolls back. A failure of the updater's own
