@@ -151,6 +151,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		return errors.New("caller region is not deployed")
 	}
 	snapshots := make([]Snapshot, len(targets))
+	listed := make([][]string, len(targets))
 	callers := map[string]Caller{}
 	for i, t := range targets {
 		current, err := store.Read(ctx, t, registryName(t))
@@ -171,6 +172,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 				return fmt.Errorf("invalid caller entry in %s", registryName(t))
 			}
 			local[c.Kid] = true
+			listed[i] = append(listed[i], c.Kid)
 			if previous, exists := callers[c.Kid]; exists {
 				a, _ := json.Marshal(previous)
 				b, _ := json.Marshal(c)
@@ -182,18 +184,20 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		}
 	}
 	if args[0] == "list" {
-		for _, t := range targets {
+		for i, t := range targets {
 			if _, err := fmt.Fprintln(out, registryName(t)); err != nil {
 				return err
 			}
-		}
-		for _, id := range slices.SortedFunc(maps.Keys(callers), strings.Compare) {
-			if _, err := fmt.Fprintln(out, id); err != nil {
-				return err
+			slices.Sort(listed[i])
+			for _, id := range listed[i] {
+				if _, err := fmt.Fprintln(out, registryName(t), id); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
 	}
+
 	var private []byte
 	var previous Snapshot
 	var secret string
