@@ -1,157 +1,354 @@
 package releasepush
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 )
 
-// A pushed binary is on probation until it serves: install writes a trial
-// marker, every start counts itself in it before anything that can crash, and
-// serving clears it. A start past trialStarts, or no serving probationWait
-// after install, restores <binary>.prev and records the rollback.
 const (
-	// A third start rolls back, inside systemd's default 5 starts per 10 s.
-	trialStarts = 2
-	// Inside push's 3-minute serving wait, so CI reads the rollback.
+	trialStarts   = 2
 	probationWait = 2 * time.Minute
 )
 
-// trial is the marker of a pushed binary that has not served yet.
 type trial struct {
-	SHA       string    `json:"sha"`
-	RunID     string    `json:"run_id"`
-	Installed time.Time `json:"installed"`
-	Starts    int       `json:"starts"`
+	SHA       string     `json:"sha"`
+	SHA256    string     `json:"sha256,omitempty"`
+	RunID     string     `json:"run_id"`
+	Installed time.Time  `json:"installed"`
+	Starts    int        `json:"starts"`
+	Previous  *releaseID `json:"previous,omitempty"`
+	Failure   string     `json:"failure,omitempty"`
 }
 
-// Rollback records a pushed release that never served; its run is not reinstalled.
+func (t trial) valid() bool { return t.SHA != "" && t.RunID != "" }
+
+func (t trial) names(id releaseID) bool {
+	return t.SHA == id.SHA && (t.SHA256 == "" || t.SHA256 == id.SHA256)
+}
+
 type Rollback struct {
 	SHA    string `json:"sha"`
+	SHA256 string `json:"sha256,omitempty"`
 	RunID  string `json:"run_id"`
 	Reason string `json:"reason"`
 }
 
-func trialFile(state string) string    { return filepath.Join(state, "nats", "release-trial") }
-func rollbackFile(state string) string { return filepath.Join(state, "nats", "release-rolled-back") }
+var errSuperseded = errors.New("the release trial no longer names this binary")
 
-func readRollback(path string) *Rollback {
-	var rollback Rollback
-	if data, err := os.ReadFile(path); err != nil || json.Unmarshal(data, &rollback) != nil || rollback.SHA == "" {
-		return nil
+func trialFile(state string) string       { return filepath.Join(state, "nats", "release-trial") }
+func stagedTrial(trial string) string     { return trial + ".staged" }
+func rollbackFile(state string) string    { return filepath.Join(state, "nats", "release-rolled-back") }
+func stagedPrevious(binary string) string { return binary + ".prev.staged" }
+
+func readRollback(path string) (*Rollback, error) {
+	var record Rollback
+	present, err := readRecord(path, &record)
+	if !present {
+		return nil, nil
 	}
-	return &rollback
+	if err == nil && record.SHA == "" {
+		err = errors.New("no release named")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("rollback record %s damaged: %w", filepath.Base(path), err)
+	}
+	return &record, nil
 }
 
-// Probation guards one start of a pushed binary; a nil Probation is no trial.
 type Probation struct {
 	state, binary string
 	output        io.Writer
 	trial         trial
+	decided       bool
+	unconfirmed   string
 	exit          func()
-
-	mu     sync.Mutex
-	served bool
-	timer  *time.Timer
+	install       sync.Mutex
+	mu            sync.Mutex
+	served        bool
+	timer         *time.Timer
 }
 
-// Probe runs first at every single-host start. It returns an error after
-// restoring <binary>.prev, so the caller exits and systemd starts that.
+type startup struct {
+	once      sync.Once
+	probation *Probation
+	err       error
+}
+
+var startups sync.Map
+
 func Probe(state string, output io.Writer) (*Probation, error) {
-	binary, err := executable()
-	if err != nil {
-		return nil, err
-	}
-	return probe(state, binary, Revision(), time.Now(), output, func() { os.Exit(1) })
+	value, _ := startups.LoadOrStore(filepath.Clean(state), &startup{})
+	result := value.(*startup)
+	result.once.Do(func() {
+		binary, err := executable()
+		if err != nil {
+			result.err = err
+			return
+		}
+		result.probation, result.err = probe(state, binary, output, func() { os.Exit(1) })
+	})
+	return result.probation, result.err
 }
 
-func probe(state, binary, revision string, now time.Time, output io.Writer, exit func()) (*Probation, error) {
-	data, err := os.ReadFile(trialFile(state))
-	if errors.Is(err, os.ErrNotExist) {
+func probe(state, binary string, output io.Writer, exit func()) (*Probation, error) {
+	self, selfErr := binaryIdentity(binary)
+	if selfErr == nil {
+		if err := settleStaging(state, binary, self); err != nil {
+			p := &Probation{state: state, binary: binary, output: output, exit: exit}
+			return p.hold("staged release not finished: " + err.Error()), nil
+		}
+	}
+	var record trial
+	present, err := readRecord(trialFile(state), &record)
+	if !present {
+		if selfErr != nil {
+			return nil, nil
+		}
+		return unfinishedRollback(state, binary, self, output, exit)
+	}
+	p := &Probation{state: state, binary: binary, output: output, trial: record, exit: exit}
+	if err == nil && !record.valid() {
+		err = errors.New("no release named")
+	}
+	if err != nil {
+		return p.hold("release trial damaged: " + err.Error()), nil
+	}
+	if selfErr != nil {
+		return p.hold("running binary identity unavailable: " + selfErr.Error()), nil
+	}
+	if !record.names(self) {
+		settleTrial(state, binary, record, self)
 		return nil, nil
 	}
-	if err != nil {
-		return nil, err
+	if record.Failure != "" {
+		return p.hold(record.Failure), nil
 	}
-	p := &Probation{state: state, binary: binary, output: output, exit: exit}
-	if json.Unmarshal(data, &p.trial) != nil || p.trial.SHA != revision {
-		return nil, removeIfExists(trialFile(state))
+	if decided, err := readRollback(rollbackFile(state)); err == nil && decided != nil && decided.SHA == record.SHA && decided.RunID == record.RunID {
+		return p.finish(p.rollBack(decided.Reason))
 	}
 	p.trial.Starts++
 	if p.trial.Starts > trialStarts {
-		return nil, p.rollBack(fmt.Sprintf("exited %d times before serving", trialStarts))
-	}
-	late := "not serving " + probationWait.String() + " after install"
-	left := p.trial.Installed.Add(probationWait).Sub(now)
-	if left <= 0 {
-		return nil, p.rollBack(late)
+		return p.finish(p.rollBack(fmt.Sprintf("exited %d times before serving", trialStarts)))
 	}
 	if err := writeJSON(trialFile(state), p.trial); err != nil {
-		return nil, err
+		slog.Warn("release start count not saved", "starts", p.trial.Starts, "error", err)
+		fmt.Fprintf(p.output, "release start count not saved: %v\n", err)
 	}
-	p.timer = time.AfterFunc(left, func() {
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		if p.served {
-			return
-		}
-		if err := p.rollBack(late); err != nil {
-			fmt.Fprintln(p.output, err)
-			p.exit()
-		}
-	})
+	p.timer = time.AfterFunc(probationWait, p.expire)
 	return p, nil
+}
+
+func unfinishedRollback(state, binary string, self releaseID, output io.Writer, exit func()) (*Probation, error) {
+	decided, err := readRollback(rollbackFile(state))
+	if err != nil || decided == nil {
+		return nil, nil
+	}
+	rejected := trial{SHA: decided.SHA, SHA256: decided.SHA256, RunID: decided.RunID}
+	if !rejected.names(self) {
+		return nil, nil
+	}
+	p := &Probation{state: state, binary: binary, output: output, trial: rejected, decided: true, exit: exit}
+	return p.finish(p.rollBack(decided.Reason))
+}
+
+func settleStaging(state, binary string, self releaseID) error {
+	var staged trial
+	present, err := readRecord(stagedTrial(trialFile(state)), &staged)
+	if present && (err != nil || !staged.valid()) {
+		return nil
+	}
+	if present && staged.SHA256 != "" && staged.names(self) {
+		return promote(trialFile(state), rollbackFile(state), binary)
+	}
+	if err := removeIfExists(stagedPrevious(binary)); err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	if err := syncDirectory(filepath.Dir(binary)); err != nil {
+		return err
+	}
+	return removeDurable(stagedTrial(trialFile(state)))
+}
+
+func promote(trialPath, rollbackPath, binary string) error {
+	if err := os.Rename(stagedPrevious(binary), binary+".prev"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := syncDirectory(filepath.Dir(binary)); err != nil {
+		return err
+	}
+	var existing trial
+	if present, err := readRecord(trialPath, &existing); present && (err != nil || !existing.valid()) {
+		if err := archiveDamaged(trialPath); err != nil {
+			return err
+		}
+	}
+	if err := removeIfExists(rollbackPath); err != nil {
+		return err
+	}
+	if err := os.Rename(stagedTrial(trialPath), trialPath); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(trialPath))
+}
+
+func settleTrial(state, binary string, record trial, self releaseID) {
+	decided, err := readRollback(rollbackFile(state))
+	rolledBack := err == nil && decided != nil && decided.SHA == record.SHA && decided.RunID == record.RunID
+	if !rolledBack && record.SHA != self.SHA {
+		return
+	}
+	if err := syncDirectory(filepath.Dir(binary)); err != nil {
+		slog.Warn("installed binary not yet durable; release trial for another binary kept", "error", err)
+		return
+	}
+	if err := removeDurable(trialFile(state)); err != nil {
+		slog.Warn("release trial for another binary not removed", "error", err)
+	}
+}
+
+func (p *Probation) lockInstall() func() {
+	if p == nil {
+		return func() {}
+	}
+	p.install.Lock()
+	return p.install.Unlock
+}
+
+func (p *Probation) hold(reason string) *Probation {
+	p.unconfirmed = reason
+	slog.Error("release unconfirmed; serving without probation", "reason", reason)
+	fmt.Fprintf(p.output, "release unconfirmed: %s\n", reason)
+	return p
+}
+
+func (p *Probation) finish(restart error) (*Probation, error) {
+	if restart != nil {
+		return nil, restart
+	}
+	return p, nil
+}
+
+func (p *Probation) expire() {
+	p.install.Lock()
+	defer p.install.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.served || p.unconfirmed != "" {
+		return
+	}
+	err := p.rollBack("not serving " + probationWait.String() + " after start")
+	if err != nil && !errors.Is(err, errSuperseded) {
+		fmt.Fprintln(p.output, err)
+		p.exit()
+	}
+}
+
+func (p *Probation) status() (string, string) {
+	if p == nil {
+		return "", ""
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.unconfirmed != "" {
+		return "unconfirmed", p.unconfirmed
+	}
+	if !p.served {
+		return "probation", ""
+	}
+	return "", ""
 }
 
 func (p *Probation) Served() bool {
 	if p == nil {
 		return true
 	}
+	p.install.Lock()
+	defer p.install.Unlock()
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.unconfirmed != "" {
+		return false
+	}
 	p.served = true
-	p.timer.Stop()
-	if err := removeIfExists(trialFile(p.state)); err != nil {
-		fmt.Fprintf(p.output, "release probation: %v\n", err)
+	if p.timer != nil {
+		p.timer.Stop()
+	}
+	if err := p.confirm(); err != nil {
+		p.unconfirmed = "confirmation not saved: " + err.Error()
+		fmt.Fprintf(p.output, "release probation %s\n", p.unconfirmed)
 		return false
 	}
 	return true
 }
 
-// rollBack records the rollback first, so a crash before the swap rolls
-// back again at the next start. It returns nil when nothing was restored:
-// this binary keeps running rather than looping on a missing .prev.
+func (p *Probation) current() (bool, error) {
+	var current trial
+	present, err := readRecord(trialFile(p.state), &current)
+	if p.decided || !present || err != nil {
+		return p.decided && !present, err
+	}
+	return current.SHA == p.trial.SHA && current.SHA256 == p.trial.SHA256 && current.RunID == p.trial.RunID, nil
+}
+
+func (p *Probation) confirm() error {
+	owned, err := p.current()
+	if !owned || err != nil {
+		return err
+	}
+	return removeDurable(trialFile(p.state))
+}
+
 func (p *Probation) rollBack(reason string) error {
-	record := Rollback{SHA: p.trial.SHA, RunID: p.trial.RunID, Reason: reason}
-	err := writeJSON(rollbackFile(p.state), record)
+	if owned, _ := p.current(); !owned {
+		return errSuperseded
+	}
+	previous := p.binary + ".prev"
+	recorded := false
+	err := p.checkPrevious(previous)
 	if err == nil {
-		err = os.Rename(p.binary+".prev", p.binary)
+		err = writeJSON(rollbackFile(p.state), Rollback{SHA: p.trial.SHA, SHA256: p.trial.SHA256, RunID: p.trial.RunID, Reason: reason})
+		recorded = err == nil
+	}
+	if err == nil {
+		err = os.Rename(previous, p.binary)
 	}
 	if err != nil {
-		err = errors.Join(err, removeIfExists(rollbackFile(p.state)), removeIfExists(trialFile(p.state)))
-		fmt.Fprintf(p.output, "release %s %s; cannot restore %s.prev: %v\n", p.trial.SHA, reason, p.binary, err)
+		p.trial.Failure = "rollback unavailable: " + err.Error()
+		if recorded {
+			err = errors.Join(err, removeDurable(rollbackFile(p.state)))
+		}
+		if writeErr := writeJSON(trialFile(p.state), p.trial); writeErr != nil {
+			slog.Warn("release unconfirmed; failure not saved", "error", writeErr)
+		}
+		p.hold(fmt.Sprintf("release %s %s; cannot restore %s: %v", p.trial.SHA, reason, previous, err))
+		p.unconfirmed = p.trial.Failure
 		return nil
 	}
-	_ = os.Remove(trialFile(p.state)) // the restored binary drops it too
-	return fmt.Errorf("rolled back release %s (run %s): %s; restarting on %s.prev", p.trial.SHA, p.trial.RunID, reason, p.binary)
+	if err := syncDirectory(filepath.Dir(p.binary)); err != nil {
+		slog.Warn("rollback installed; directory sync failed, release trial kept", "error", err)
+	} else if err := removeDurable(trialFile(p.state)); err != nil {
+		slog.Warn("rollback installed; trial not removed", "error", err)
+	}
+	return fmt.Errorf("rolled back release %s (run %s): %s; restarting on %s", p.trial.SHA, p.trial.RunID, reason, previous)
 }
 
-func writeJSON(path string, value any) error {
-	data, err := json.Marshal(value)
-	if err != nil {
+func (p *Probation) checkPrevious(path string) error {
+	if p.trial.Previous == nil {
+		_, err := os.Lstat(path)
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
-}
-
-func removeIfExists(path string) error {
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	id, err := binaryIdentity(path)
+	if err == nil && id != *p.trial.Previous {
+		err = errors.New("previous binary is not the recorded build")
 	}
-	return nil
+	return err
 }

@@ -46,6 +46,9 @@ type relay struct {
 const recipient = "mariogk@terrascale.tech"
 
 func Run(ctx context.Context, args []string) error {
+	if len(args) == 1 && args[0] == "prepare" {
+		return prepareCredentials(ctx)
+	}
 	if len(args) != 0 && (len(args) != 1 || args[0] != "subscribe") {
 		return errors.New("usage: ts-orch alert-delivery")
 	}
