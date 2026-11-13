@@ -19,11 +19,10 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
-// One local record per generation retains evidence across restarts and later
-// fix-forward releases. Only a completed successful bake admits the next region.
 type bakeRecord struct {
 	Generation int64               `json:"generation"`
 	Image      string              `json:"image"`
+	Release    *Deployment         `json:"release,omitempty"`
 	Identity   [32]byte            `json:"identity"`
 	Rollout    bakeRuntime         `json:"runtime"`
 	Bake       rollout.BakeVerdict `json:"bake"`
@@ -88,7 +87,7 @@ func (n *Node) bakeState(state *stateReply) {
 	}
 	for name, desired := range n.desired {
 		entry := desired.entry()
-		if entry.Spec == nil || entry.Deployment == nil {
+		if !entry.needsBake() {
 			delete(state.Failed, name)
 			continue
 		}
@@ -149,7 +148,7 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 		return record, err
 	}
 	if record.Identity != identity {
-		record = bakeRecord{Generation: spec.Generation, Image: spec.Image, Identity: identity}
+		record = bakeRecord{Generation: spec.Generation, Image: spec.Image, Identity: identity, Release: applied.state.entry().Deployment}
 	}
 	if n.baking == nil {
 		n.baking = map[string]chan struct{}{}
@@ -173,7 +172,7 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	if err == nil && spec.Deployment != nil && spec.Image == spec.Deployment.Image && record.Rollout.Revision != spec.Deployment.Revision {
 		err = errors.New("running image revision does not match the signed release commit")
 	}
-	if spec.Deployment == nil {
+	if !applied.state.entry().needsBake() {
 		return record, err
 	}
 	if err == nil {
@@ -280,4 +279,8 @@ func parseBakeFile(file string) (string, int64, bool) {
 		return "", 0, false
 	}
 	return rest[:i], generation, true
+}
+
+func (entry Entry) needsBake() bool {
+	return entry.Spec != nil && entry.Deployment != nil && !entry.FirstInstall
 }

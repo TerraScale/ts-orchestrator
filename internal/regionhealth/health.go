@@ -11,6 +11,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
@@ -93,8 +94,8 @@ func Serving(ctx context.Context, state, service string) error {
 	if in.Node != "" {
 		health = errors.New(in.Node)
 	}
-	if slices.Contains(in.Failures, "services unreadable") {
-		health = errors.Join(health, errors.New("services unreadable"))
+	if len(in.Failures) != 0 {
+		health = errors.Join(health, errors.New(strings.Join(in.Failures, ", ")))
 	}
 	if health != nil || service == "" {
 		return health
@@ -118,7 +119,6 @@ func check(ctx context.Context, state string) Report {
 	return Report{State: status, Reasons: reasons, At: time.Now().UTC(), NodeList: nodelist.StatusAt(state)}
 }
 
-// read takes one Input from /proc, statfs and the single-host control socket.
 func read(ctx context.Context, state string) Input {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -128,12 +128,7 @@ func read(ctx context.Context, state string) Input {
 	}
 	results := make(chan reading, 4)
 	go func() {
-		system, err := observability.ReadSystem([]observability.FilesystemRole{{Role: "containerd", Path: containerdRoot}, {Role: "state", Path: state}})
-		part := Input{System: system}
-		if err != nil {
-			part.Failures = []string{"memory unreadable"}
-		}
-		results <- reading{check: "memory unreadable", input: part}
+		results <- reading{check: "memory unreadable", input: sampleHost(ctx, state)}
 	}()
 	go func() {
 		runtime, err := containerd.New(swarmruntime.HostContainerdSocket)
@@ -220,4 +215,52 @@ func read(ctx context.Context, state string) Input {
 		}
 	}
 	return in
+}
+
+const hostSampleBound = 5 * time.Second
+
+var hostSampler struct {
+	sync.Mutex
+	state string
+	at    time.Time
+	input Input
+	done  chan struct{}
+}
+
+func sampleHost(ctx context.Context, state string) Input {
+	hostSampler.Lock()
+	if hostSampler.state == state && !hostSampler.at.IsZero() && time.Since(hostSampler.at) <= hostSampleBound {
+		part := hostSampler.input
+		hostSampler.Unlock()
+		return part
+	}
+	if hostSampler.done == nil {
+		done := make(chan struct{})
+		hostSampler.done = done
+		go func() {
+			started := time.Now()
+			system, err := observability.ReadSystem([]observability.FilesystemRole{{Role: "containerd", Path: containerdRoot}, {Role: "state", Path: state}})
+			part := Input{System: system}
+			if err != nil {
+				part.Failures = []string{"memory unreadable"}
+			}
+			hostSampler.Lock()
+			hostSampler.state, hostSampler.at, hostSampler.input = state, started, part
+			hostSampler.done = nil
+			close(done)
+			hostSampler.Unlock()
+		}()
+	}
+	done := hostSampler.done
+	hostSampler.Unlock()
+	select {
+	case <-done:
+		hostSampler.Lock()
+		defer hostSampler.Unlock()
+		if hostSampler.state == state && time.Since(hostSampler.at) <= hostSampleBound {
+			return hostSampler.input
+		}
+	case <-ctx.Done():
+	}
+	return Input{Node: "host observation unavailable or stale"}
 }

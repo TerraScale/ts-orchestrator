@@ -95,13 +95,17 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	before := entries[service].entry()
 	previous := before.Spec
 	if err := entries[service].accepts(deployment); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s refused release %+v; current signed release %+v: %w", service, deployment, entries[service].Floor, err)
 	}
 	// The retained signed floor survives rollback and operator changes. Once
 	// this run's image is no longer desired, losing the handler's cache must
 	// not turn its terminal failure into a fresh attempt with a new generation.
 	if deployment != nil && entries[service].Floor != nil && *entries[service].Floor == *deployment && (before.RollbackOf != 0 || previous == nil || previous.Image != image) {
 		return nil, fmt.Errorf("%s: signed deployment was rolled back or replaced; retry requires a newer signed run", service)
+	}
+	resume := deployment != nil && before.Deployment != nil && *before.Deployment == *deployment && previous != nil && previous.Image == image
+	if resume && failedAnywhere(ctx, conn, service, before.Generation) {
+		return nil, fmt.Errorf("%s held at failed generation %d by release %+v; refused release %+v; repair the cause and release again from a strictly newer signed run or attempt", service, before.Generation, before.Deployment, deployment)
 	}
 	var next swarmruntime.ServiceSpec
 	if previous == nil {
@@ -134,13 +138,8 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	if deployment != nil {
 		hold = ""
 	}
-	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: hold}}
-	// A reconnect or process restart resumes the signed deployment's existing
-	// bake instead of publishing a fresh generation and restarting its window.
-	// A failed bake is not resumed: a retry bakes a fresh generation, rather
-	// than replaying a verdict a since-recovered dependency caused.
-	if deployment != nil && before.Deployment != nil && *before.Deployment == *deployment && previous != nil && previous.Image == image &&
-		!failedAnywhere(ctx, conn, service, before.Generation) {
+	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: hold, FirstInstall: previous == nil}}
+	if resume {
 		generation = before.Generation
 		request.Entry = before
 	}

@@ -67,10 +67,11 @@ func Regions() []string {
 
 // Entry is one service's desired state; Spec is nil once it is removed.
 type Entry struct {
-	Generation int64                     `json:"generation"`
-	Spec       *swarmruntime.ServiceSpec `json:"spec"`
-	Deployment *Deployment               `json:"deployment,omitempty"`
-	RollbackOf int64                     `json:"rollbackOf,omitzero"`
+	Generation   int64                     `json:"generation"`
+	Spec         *swarmruntime.ServiceSpec `json:"spec"`
+	Deployment   *Deployment               `json:"deployment,omitempty"`
+	FirstInstall bool                      `json:"firstInstall,omitzero"`
+	RollbackOf   int64                     `json:"rollbackOf,omitzero"`
 	// HoldAfter stops the rollout after this region (a canary): later regions
 	// keep the previous generation until `service resume` applies it without one.
 	HoldAfter string `json:"holdAfter,omitempty"`
@@ -585,7 +586,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 		if n.failed == nil {
 			n.failed = map[string]int64{}
 		}
-		if request.Entry.Deployment != nil && err != nil && (reply.Bake == nil || reply.Bake.Reason != "") {
+		if request.Entry.needsBake() && err != nil && (reply.Bake == nil || reply.Bake.Reason != "") {
 			n.failed[request.Name] = request.Entry.Generation
 		} else {
 			delete(n.failed, request.Name)

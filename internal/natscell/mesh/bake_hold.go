@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 )
 
@@ -15,7 +16,7 @@ type bakeReplacement struct {
 
 func (n *Node) heldBakeGeneration(name string) int64 {
 	current := n.desired[name].entry()
-	if current.Deployment == nil {
+	if !current.needsBake() {
 		return 0
 	}
 	record, _ := n.readBake(name, current.Generation)
@@ -30,8 +31,25 @@ func (n *Node) heldBakeGeneration(name string) int64 {
 
 func (n *Node) checkBakeAdmission(name string, entry Entry) error {
 	held := n.heldBakeGeneration(name)
-	if held != 0 && (entry.Deployment == nil || entry.Generation <= held) {
-		return fmt.Errorf("%s held at failed generation %d; repair the cause and release again with the same digest or a corrected image", name, held)
+	if held == 0 {
+		return nil
+	}
+	record, err := n.readBake(name, held)
+	if pending, exists := n.bakeUnsaved[n.bakePath(name, held)]; exists {
+		record, err = pending, nil
+	}
+	if err != nil {
+		return err
+	}
+	previous, next := record.Release, entry.Deployment
+	newer := false
+	if previous != nil && next != nil && previous.Accepts(next) == nil {
+		oldRun, _ := strconv.ParseUint(previous.RunID, 10, 64)
+		newRun, _ := strconv.ParseUint(next.RunID, 10, 64)
+		newer = newRun > oldRun || newRun == oldRun && next.RunAttempt > previous.RunAttempt
+	}
+	if entry.Generation <= held || entry.FirstInstall || !newer {
+		return fmt.Errorf("%s held at failed generation %d by release %+v; refused release %+v; repair the cause and release again from a strictly newer signed run or attempt", name, held, previous, next)
 	}
 	return nil
 }
