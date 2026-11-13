@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 )
 
 func namespace(cfg configuration, node, address string) error {
@@ -318,6 +320,16 @@ func journey(ctx context.Context, cfg configuration) error {
 		}
 		fmt.Println("PASS", node, "autocert, readiness, public inventory, TLS fingerprint and CLI; one automatic order")
 	}
+
+	if err = writeFleetList(); err != nil {
+		return err
+	}
+	for _, selection := range []string{"", "all", "ts-sjc-101"} {
+		if err = fleetCLI(cfg, selection, true); err != nil {
+			return err
+		}
+	}
+	fmt.Println("PASS default, all and named-node inventory read the persisted fleet list without changing state")
 	rsa, err := tls.DialWithDialer(&net.Dialer{Timeout: 20 * time.Second}, "tcp", "10.77.0.3:443", &tls.Config{ServerName: "shared.e2e.test", MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12, CipherSuites: []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}})
 	if err == nil {
 		rsa.Close()
@@ -385,6 +397,10 @@ func journey(ctx context.Context, cfg configuration) error {
 		return err
 	}
 	fmt.Println("PASS inventory CLI fails when its node cannot be read")
+	if err = fleetCLI(cfg, "", false); err != nil {
+		return err
+	}
+	fmt.Println("PASS fleet inventory returns readable certificates and fails for its unreadable node")
 	p, err := launch(ctx, cfg.Work+"/b-restarted", env, "ip", "netns", "exec", "cert-b", self, "node", cfg.Work+"/lane.json", "b", "sjc")
 	if err != nil {
 		return err
@@ -489,6 +505,93 @@ func journey(ctx context.Context, cfg configuration) error {
 			return fmt.Errorf("%s missing metric=%g error=%v", failure, missing, err)
 		}
 		fmt.Println("PASS", failure, "certificate rejected by readiness, inventory CLI and missing-name metric")
+	}
+	return nil
+}
+
+func writeFleetList() error {
+	list := nodelist.List{Sequence: 1, Nodes: []nodelist.Node{}}
+	for _, fixture := range []struct{ process, region, address string }{{"b", "sjc", "10.77.0.3"}, {"c", "fra", "10.77.0.4"}} {
+		name := "ts-" + fixture.region + "-101"
+		address, err := nodelist.MeshIP(name, fixture.region)
+		if err != nil {
+			return err
+		}
+		if err = command("ip", "-n", "cert-"+fixture.process, "addr", "add", address+"/32", "dev", "wt0"); err != nil {
+			return err
+		}
+		if err = command("ip", "route", "add", address+"/32", "via", fixture.address, "dev", "cert-br"); err != nil {
+			return err
+		}
+		key := make([]byte, 32)
+		if _, err = rand.Read(key); err != nil {
+			return err
+		}
+		pin := sha256.Sum256(key)
+		index := len(list.Nodes) + 1
+		list.Nodes = append(list.Nodes, nodelist.Node{Name: name, Region: fixture.region, PublicIP: fmt.Sprintf("192.0.2.%d", index), PrivateIP: fmt.Sprintf("172.20.0.%d", index), MeshIP: address, WGPublicKey: base64.StdEncoding.EncodeToString(key), TLSSPKISHA256: hex.EncodeToString(pin[:])})
+	}
+	if err := list.Validate(); err != nil {
+		return err
+	}
+	data, err := json.Marshal(list)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll("/var/lib/ts-orch/node", 0700); err != nil {
+		return err
+	}
+	return os.WriteFile("/var/lib/ts-orch/node/nodes.json", data, 0600)
+}
+
+func fleetCLI(cfg configuration, selection string, want bool) error {
+	before, err := os.ReadFile("/var/lib/ts-orch/node/nodes.json")
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat("/var/lib/ts-orch/node/nodes.json")
+	if err != nil {
+		return err
+	}
+	args := []string{"edge", "certificates", "inventory"}
+	if selection != "" {
+		args = append(args, selection)
+	}
+	data, callErr := exec.Command(cfg.Work+"/ts-orch", args...).CombinedOutput()
+	if (callErr == nil) != want {
+		return fmt.Errorf("fleet inventory success=%t want=%t output=%s", callErr == nil, want, data)
+	}
+	if want {
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		count := 2
+		if selection == "ts-sjc-101" {
+			count = 1
+		}
+		if len(lines) != count {
+			return fmt.Errorf("fleet inventory certificate lines=%d want=%d: %s", len(lines), count, data)
+		}
+		for _, line := range lines {
+			if !strings.Contains(line, "valid=true") {
+				return fmt.Errorf("fleet inventory validation missing: %s", line)
+			}
+		}
+	} else if !strings.Contains(string(data), "ts-fra-101 names=") || !strings.Contains(string(data), "ts-sjc-101: inventory unavailable") {
+		return fmt.Errorf("partial inventory lost its readable node or failure: %s", data)
+	}
+	after, err := os.ReadFile("/var/lib/ts-orch/node/nodes.json")
+	if err != nil {
+		return err
+	}
+	current, err := os.Stat("/var/lib/ts-orch/node/nodes.json")
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir("/var/lib/ts-orch/node")
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(before, after) || !info.ModTime().Equal(current.ModTime()) || len(entries) != 1 {
+		return errors.New("inventory changed node state")
 	}
 	return nil
 }

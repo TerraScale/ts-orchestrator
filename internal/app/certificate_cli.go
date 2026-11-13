@@ -21,8 +21,16 @@ func RunCertificateCLI(ctx context.Context, args []string, output io.Writer) err
 		return errors.New("usage: ts-orch edge certificates inventory [local|node|all]")
 	}
 	targets := map[string]string{}
+	var nodes []nodelist.Node
+	if len(args) == 1 || args[1] != "local" {
+		list, err := nodelist.Read("/var/lib/ts-orch")
+		if err != nil {
+			return fmt.Errorf("certificate inventory node list: %w", err)
+		}
+		nodes = list.Nodes
+	}
 	if len(args) == 1 || args[1] == "all" {
-		for _, node := range nodelist.Current() {
+		for _, node := range nodes {
 			targets[node.Name] = node.MeshIP
 		}
 	} else if args[1] == "local" {
@@ -45,7 +53,7 @@ func RunCertificateCLI(ctx context.Context, args []string, output io.Writer) err
 			return errors.New("local mesh address unavailable")
 		}
 	} else {
-		for _, node := range nodelist.Current() {
+		for _, node := range nodes {
 			if node.Name == args[1] {
 				targets[node.Name] = node.MeshIP
 			}
@@ -61,13 +69,13 @@ func RunCertificateCLI(ctx context.Context, args []string, output io.Writer) err
 	transport.Proxy = nil
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	nodes := []string{}
+	names := []string{}
 	for node := range targets {
-		nodes = append(nodes, node)
+		names = append(names, node)
 	}
-	slices.Sort(nodes)
+	slices.Sort(names)
 	failures := []error{}
-	for _, node := range nodes {
+	for _, node := range names {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(targets[node], "9108")+"/edge/certificates", nil)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: invalid mesh address", node))

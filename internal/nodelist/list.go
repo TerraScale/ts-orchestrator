@@ -72,6 +72,14 @@ func Current() []Node {
 	return store.Snapshot().Nodes
 }
 
+func Read(state string) (List, error) {
+	data, err := readStored(filepath.Join(state, "node", "nodes.json"))
+	if err != nil {
+		return List{}, err
+	}
+	return Decode(data)
+}
+
 func Open(state string) *Store {
 	local.Store(nil)
 	store := &Store{path: filepath.Join(state, "node", "nodes.json"), list: List{Nodes: []Node{}}}

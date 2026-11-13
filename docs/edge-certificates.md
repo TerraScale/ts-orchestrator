@@ -10,7 +10,7 @@ The endpoint is an operator signal. Release health does not consume it. It check
 
 ## Inventory
 
-Run ts-orch edge certificates inventory to read every node in the embedded node list over its mesh address. Append local to inspect this node, a node name to select one node, or all for the fleet explicitly.
+Run ts-orch edge certificates inventory to read every node in the persisted node list over its mesh address. Append local to inspect this node, a node name to select one node, or all for the fleet explicitly. Fleet and named-node reads load the existing node list directly, without initializing or writing node state.
 
 GET /edge/certificates on mesh port 9108 returns certificates, missing_names and errors arrays. This endpoint shares the mesh host telemetry listener and its network access boundary. It is not exposed through the public HTTPS router. Nodes with no edge return an empty inventory and fail readiness.
 
