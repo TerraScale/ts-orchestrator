@@ -78,15 +78,14 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	defer cancel()
 	swarmReady := make(chan struct{})
 	edgeDone := make(chan error, 1)
-	var public *edge.Edge // nil on a joiner, which serves no edge
-	if plan.joiner() {
-		// shortcut: a worker serves no edge (it has no control socket for routes; the founder's edge serves the region); its releases come relayed from the founder (CI pushes only deploy/m1/regions.json hosts).
+	var public *edge.Edge
+	if plan.admission.Role != "manager" {
 		edgeDone <- nil
 	} else {
 		public = edge.New(*state)
 		go func() {
 			err := public.Run(ctx)
-			cancel() // a failed edge stops the node, so systemd restarts both
+			cancel()
 			edgeDone <- err
 		}()
 		go func() {
@@ -95,7 +94,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 				return
 			case <-swarmReady:
 			}
-			syncEdgeRoutes(ctx, *state, public, plan.region)
+			syncEdgeRoutes(ctx, *state, public, plan.region, plan.admission.HostID)
 		}()
 	}
 	// The mesh never stops local serving; it retries until it reaches Vault and peers.
@@ -110,7 +109,18 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 				handoff.SetTaskDrainer(node.DrainTask)
 				handoff.SetBootstrap(node.Bootstrap)
 				handoff.SetClearPeer(node.ClearPeer)
+				ready := func() []string { return nil }
 				if public != nil {
+					ready = public.ReadyServices
+				}
+				edges, err := node.EdgePeers(ready)
+				if err != nil {
+					slog.ErrorContext(ctx, "edge announcements unavailable", "error", err)
+					cancel()
+					return
+				}
+				if public != nil {
+					public.SetPeerEdges(edges)
 					public.SetRegionalNodes(node.RegionalNodes)
 					node.SetRegionalDrainer(public.DrainRegionalNode)
 					node.SetBootstrap(public.Bootstrap)
@@ -134,7 +144,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	return errors.Join(err, <-edgeDone)
 }
 
-func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region string) {
+func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region, host string) {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	var nextProofRefresh time.Time
@@ -150,12 +160,20 @@ func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region
 					cancel()
 					nextProofRefresh = time.Now().Add(time.Minute)
 				}
-				public.SetRoutes(edgeRoutes(list.Services, region))
+				web, postgres, services := edgeRouteTables(list.Services, region)
+				ready, err := edgeLocalServices(ctx, client, host)
+				if err != nil {
+					slog.WarnContext(ctx, "edge local task sync failed", "error", err)
+				}
+				public.SetServiceRoutes(web, postgres, services, ready)
 				public.SetReadinessRoutes(edgeReadinessRoutes(list.Services, region))
 			} else {
+				public.ClearReadyServices()
 				slog.WarnContext(ctx, "edge route sync failed", "error", err)
 			}
 			_ = conn.Close()
+		} else {
+			public.ClearReadyServices()
 		}
 		select {
 		case <-ctx.Done():
@@ -174,12 +192,18 @@ func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region
 // derived one, and H whose first label already names a catalog region
 // derives nothing.
 func edgeRoutes(services []*api.Service, region string) (web, postgres map[string]int) {
+	web, postgres, _ = edgeRouteTables(services, region)
+	return web, postgres
+}
+
+func edgeRouteTables(services []*api.Service, region string) (web, postgres map[string]int, owners map[string]string) {
 	services = slices.Clone(services)
 	slices.SortStableFunc(services, func(a, b *api.Service) int {
 		at, bt := a.Meta.CreatedAt, b.Meta.CreatedAt
 		return cmp.Or(cmp.Compare(at.GetSeconds(), bt.GetSeconds()), cmp.Compare(at.GetNanos(), bt.GetNanos()), strings.Compare(a.ID, b.ID))
 	})
 	web, postgres = map[string]int{}, map[string]int{}
+	owners, derivedOwners := map[string]string{}, map[string]string{}
 	derived, derivedPG := map[string]int{}, map[string]int{}
 	derive := func(table map[string]int, host string, port int) {
 		first, _, _ := strings.Cut(host, ".")
@@ -208,6 +232,10 @@ func edgeRoutes(services []*api.Service, region string) (web, postgres map[strin
 			}
 			if _, owned := web[host]; !owned {
 				web[host] = port
+				owners[host] = svc.Spec.Annotations.Name
+			}
+			if _, owned := derived[region+"."+host]; !owned {
+				derivedOwners[region+"."+host] = svc.Spec.Annotations.Name
 			}
 			derive(derived, host, port)
 		}
@@ -221,6 +249,7 @@ func edgeRoutes(services []*api.Service, region string) (web, postgres map[strin
 	for host, port := range derived {
 		if _, declared := web[host]; !declared {
 			web[host] = port
+			owners[host] = derivedOwners[host]
 		}
 	}
 	for host, port := range derivedPG {
@@ -228,7 +257,40 @@ func edgeRoutes(services []*api.Service, region string) (web, postgres map[strin
 			postgres[host] = port
 		}
 	}
-	return web, postgres
+	return web, postgres, owners
+}
+
+func edgeLocalServices(ctx context.Context, client api.ControlClient, host string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	var nodeID string
+	for _, node := range nodes.Nodes {
+		if node.Description != nil && node.Description.Hostname == host && node.Role == api.NodeRoleManager {
+			nodeID = node.ID
+			break
+		}
+	}
+	if nodeID == "" {
+		return nil, errors.New("local edge manager absent from task inventory")
+	}
+	tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{NodeIDs: []string{nodeID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+	if err != nil {
+		return nil, err
+	}
+	ready := []string{}
+	for _, task := range tasks.Tasks {
+		if task.NodeID == nodeID && task.Status.State == api.TaskStateRunning && !slices.Contains(ready, task.ServiceAnnotations.Name) && swarmruntime.ProbeLocalTask(ctx, task) == nil {
+			ready = append(ready, task.ServiceAnnotations.Name)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return ready, nil
 }
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
