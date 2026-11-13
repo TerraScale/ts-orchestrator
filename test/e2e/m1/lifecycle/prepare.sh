@@ -4,7 +4,6 @@ work=$1
 binaries=$2
 image=$3
 mount --make-rprivate /
-ip link set lo up
 containerd --root "$work/image/content" --state "$work/image/runtime" --address "$work/image/containerd.sock" >"$work/containerd-output" 2>&1 &
 daemon=$!
 cleanup() { kill "$daemon" 2>/dev/null || true; wait "$daemon" || true; }
@@ -15,4 +14,3 @@ ctr --address "$work/image/containerd.sock" --namespace terrascale images export
 kill "$daemon"
 wait "$daemon" || true
 trap - EXIT
-bash "$(dirname "$0")/run.sh" "$work/readiness" "$binaries/lifecycle" "$image" "$work/busybox.tar" "$binaries/server"

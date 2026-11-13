@@ -9,5 +9,6 @@ if ! $cache_hit; then
 fi
 export PATH="$HOME/.local/bin:$PATH"
 image=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image"])' "$here/data.json")
-sudo env "PATH=$PATH" unshare --mount --net --fork bash "$here/lifecycle/prepare.sh" "$work" "$(dirname "$bin")" "$image"
+sudo env "PATH=$PATH" unshare --mount --fork bash "$here/lifecycle/prepare.sh" "$work" "$(dirname "$bin")" "$image"
+sudo env "PATH=$PATH" unshare --mount --net --fork bash "$here/lifecycle/run.sh" "$work/readiness" "$(dirname "$bin")/lifecycle" "$image" "$work/busybox.tar" "$(dirname "$bin")/server"
 end "readiness reporting"

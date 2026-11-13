@@ -38,7 +38,7 @@ type readinessWatch struct {
 	ctx              context.Context
 	hungSince        time.Time
 	reported         bool
-	hungUnix         atomic.Int64
+	hungAt           atomic.Pointer[time.Time]
 	others           atomic.Bool
 	metric           string
 	peersMetric      string
@@ -67,8 +67,8 @@ func (c *controller) readinessWatch(ctx context.Context) *readinessWatch {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	ReadinessMetrics.NewGauge(w.metric, func() float64 {
-		if since := w.hungUnix.Load(); since != 0 {
-			return max(time.Since(time.Unix(0, since)).Seconds(), 0)
+		if since := w.hungAt.Load(); since != nil {
+			return max(time.Since(*since).Seconds(), 0)
 		}
 		return 0
 	})
@@ -212,7 +212,7 @@ func readinessAnswered(err error) bool {
 func (w *readinessWatch) observe(started time.Time, err error) {
 	if readinessAnswered(err) {
 		w.hungSince = time.Time{}
-		w.hungUnix.Store(0)
+		w.hungAt.Store(nil)
 		if w.reported {
 			slog.InfoContext(w.ctx, "task readiness unresponsive window cleared", "task", w.controller.task.ID)
 			w.reported = false
@@ -221,13 +221,13 @@ func (w *readinessWatch) observe(started time.Time, err error) {
 	}
 	if !errors.Is(err, memberstatus.ErrUnresponsive) {
 		w.hungSince = time.Time{}
-		w.hungUnix.Store(0)
+		w.hungAt.Store(nil)
 		ReadinessMetrics.GetOrCreateCounter(w.unobservedMetric).Inc()
 		return
 	}
 	if w.hungSince.IsZero() {
 		w.hungSince = started
-		w.hungUnix.Store(started.UnixNano())
+		w.hungAt.Store(&started)
 	}
 	if !w.reported && time.Since(w.hungSince) >= readinessWindow {
 		slog.WarnContext(w.ctx, "task unresponsive", "task", w.controller.task.ID, "others_answered", w.others.Load())
