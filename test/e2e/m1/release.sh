@@ -40,7 +40,7 @@ printf 'Local\n' > "$root/opt/firmware/chassis_asset_tag"
 for field in board_asset_tag product_serial product_uuid; do
  printf 'unknown\n' > "$root/opt/firmware/$field"
 done
-binds=("--bind=$root/opt/sys-class:/sys/class")
+binds=()
 for directory in /usr/bin /usr/sbin /usr/lib /usr/lib64 /bin /sbin /lib /lib64 /nix/store /run/current-system; do
  if [[ $directory == /usr/bin && -d /nix/store ]]; then continue; fi
  if [[ -d $directory ]]; then
@@ -126,6 +126,7 @@ UNIT
 cat > "$root/opt/run-lane" <<'INNER'
 export PATH=/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
 ip link set lo up
+mount --bind /opt/sys-class /sys/class
 /opt/release-e2e > /result/lane.log 2>&1
 status=$?
 cat /result/lane.log

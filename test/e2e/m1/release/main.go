@@ -317,6 +317,7 @@ func run() {
 				command("systemctl", "start", "ts-orch")
 				go func() { _ = metadata.Serve(metadataListener) }()
 				check(os.WriteFile("/opt/firmware/chassis_asset_tag", []byte("OracleCloud.com\n"), 0o644))
+				require(string(read("/sys/class/dmi/id/chassis_asset_tag")) == "OracleCloud.com\n", "slow metadata platform marker is hidden by namespace mounts")
 				cert, err := x509.ParseCertificate(certificate.Bytes)
 				check(err)
 				pin := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
