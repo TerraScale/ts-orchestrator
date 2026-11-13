@@ -42,7 +42,7 @@ func rollbackFile(state string) string { return filepath.Join(state, "nats", "re
 
 func readRollback(path string) *Rollback {
 	var rollback Rollback
-	if data, err := os.ReadFile(path); err != nil || json.Unmarshal(data, &rollback) != nil || rollback.SHA == "" {
+	if !readState(path, &rollback) || rollback.SHA == "" {
 		return nil
 	}
 	return &rollback
@@ -71,16 +71,9 @@ func Probe(state string, output io.Writer) (*Probation, error) {
 }
 
 func probe(state, binary, revision string, now time.Time, output io.Writer, exit func()) (*Probation, error) {
-	data, err := os.ReadFile(trialFile(state))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	p := &Probation{state: state, binary: binary, output: output, exit: exit}
-	if json.Unmarshal(data, &p.trial) != nil || p.trial.SHA != revision {
-		return nil, removeIfExists(trialFile(state))
+	if !readState(trialFile(state), &p.trial) || p.trial.SHA != revision {
+		return nil, nil
 	}
 	p.trial.Starts++
 	if p.trial.Starts > trialStarts {
@@ -92,7 +85,7 @@ func probe(state, binary, revision string, now time.Time, output io.Writer, exit
 		return nil, p.rollBack(late)
 	}
 	if err := writeJSON(trialFile(state), p.trial); err != nil {
-		return nil, err
+		stateWarning(trialFile(state))
 	}
 	p.timer = time.AfterFunc(left, func() {
 		p.mu.Lock()
@@ -146,7 +139,7 @@ func writeJSON(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return writeState(path, data)
 }
 
 func removeIfExists(path string) error {

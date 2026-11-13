@@ -11,7 +11,47 @@ is removed. The candidate's diagnostic appears in the release reply and run
 output. `ts-orch status` shows each registered host's revision and refusal,
 including candidate revision, run id and run attempt. A later authenticated
 attempt replaces the previous record; a successful attempt clears the refusal.
-Status inventory is diagnostic and does not gate release completion.
+The first host relays with a reply inbox and collects explicit worker replies
+for at most 90 seconds (the 70-second hook bound plus a margin). It stops early
+when all registered workers reply; it never waits for their running revisions.
+Each regional JSON line includes worker host names and candidate revisions:
+an explicit refusal sets `state` to `refused on <hosts>` and includes each
+scrubbed reason in `refusals`. Other regions still release; the run returns
+failure at its end. A missing reply appears as `error: "no answer"` in
+`workers` and does not fail the run. With accepted replies, the normal
+`installed` or `current` regional result succeeds. Status inventory is
+diagnostic and does not gate release completion.
+
+The updater drains both candidate output streams while retaining only the first
+4 KiB in total. Stored and displayed diagnostics are valid UTF-8, omit controls,
+replace newlines with spaces, and include `[truncated]` when capped at 4 KiB.
+The small updater records `nats/release-attempt.json`, `nats/release-trial`
+and `nats/release-rolled-back` use a temporary file in the same directory,
+file sync, rename and directory sync. Missing, empty, unreadable or malformed
+records are ignored with one warning per file per process; none prevents
+handler construction or agent startup. The next write replaces a damaged
+record. A failure to update a valid trial's start count is diagnostic and
+does not prevent the agent from starting. The release run-id is also written
+atomically; its validation happens on release requests, not on startup.
+
+This updater release also introduces `ts-orch alert-delivery prepare`.
+Run as root, it reads exactly the three approved alert references using the
+host identity and writes `/run/ts-alert-delivery/{cloudflare_account_id_file,
+cloudflare_email_token_file,ts_alerts_ntfy_topic_file}`. The directory must
+be root-owned mode 0750 on tmpfs with swap disabled; the directory and files
+use the `ts-alerts` group, and files are root-owned mode 0640. Unreadable
+secrets fail preparation visibly without printing values. This release keeps
+the relay's existing Vault reads. Once this updater is on a host, a relay unit
+with the privileged preparation command can safely be installed and restarted:
+preparation works and the unchanged relay ignores the files.
+
+The updater lane exercises refusals, timeout, inability to execute, corrupt
+records, 10 MiB of noisy output, worker refusal followed by another region's
+release, informational worker silence, and recovery on a passing candidate.
+The preparation lane checks all three files and each failed secret read.
+These lanes run outside the agent's unit sandbox. The staged candidate sits
+beside the binary under a path the checked-in unit keeps writable and
+executable; the first real rollout confirms execution under that unit.
 
 Once hosts run this updater, candidates older than the change introducing
 `release preflight` cannot be released through this pipeline. Releases move
