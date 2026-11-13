@@ -40,6 +40,17 @@ func (v Verifier) Checks(ctx context.Context) []Check {
 	checks := []Check{{"api", fmt.Sprintf("GET %s/healthz: %s; status=%q region=%q", v.API, outcome(code, err), api.Status, api.Region),
 		err == nil && code == http.StatusOK && api.Status == "ok" && api.Region == v.Cell}}
 
+	pingURL := v.API + "/healthz"
+	dashboard := "https://dashboard.terrascale.tech"
+	code, headers, _, err := v.fetch(ctx, pingURL, dashboard)
+	missing := pingHeaderGaps(code, headers)
+	gaps := "all ping headers present"
+	if len(missing) > 0 {
+		gaps = strings.Join(missing, ", ")
+	}
+	checks = append(checks, Check{"api ping", fmt.Sprintf("GET %s with Origin: %s: %s; %s", pingURL, dashboard, outcome(code, err), gaps),
+		err == nil && len(missing) == 0})
+
 	var discovery struct {
 		Issuer string `json:"issuer"`
 	}
@@ -83,24 +94,50 @@ func outcome(code int, err error) string {
 
 // get decodes a bounded JSON GET without following redirects.
 func (v Verifier) get(ctx context.Context, url string, into any) (int, error) {
+	code, _, body, err := v.fetch(ctx, url, "")
+	if err != nil || code != http.StatusOK {
+		return code, err
+	}
+	if err := json.Unmarshal(body, into); err != nil {
+		return code, errors.New("unexpected JSON")
+	}
+	return code, nil
+}
+
+func (v Verifier) fetch(ctx context.Context, url, origin string) (int, http.Header, []byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return 0, err
+		return 0, nil, nil, err
 	}
-	request.Header.Set("Cache-Control", "no-cache")
+	if origin != "" {
+		request.Header.Set("Origin", origin)
+	} else {
+		request.Header.Set("Cache-Control", "no-cache")
+	}
 	response, err := v.HTTP.Do(request)
 	if err != nil {
-		return 0, err
+		return 0, nil, nil, err
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-	if err != nil || response.StatusCode != http.StatusOK {
-		return response.StatusCode, err
+	return response.StatusCode, response.Header, body, err
+}
+
+func pingHeaderGaps(code int, headers http.Header) []string {
+	var missing []string
+	if code != http.StatusOK {
+		missing = append(missing, fmt.Sprintf("status is %d, want 200", code))
 	}
-	if err := json.Unmarshal(body, into); err != nil {
-		return response.StatusCode, errors.New("unexpected JSON")
+	if got := headers.Get("Access-Control-Allow-Origin"); got != "*" {
+		missing = append(missing, fmt.Sprintf("Access-Control-Allow-Origin is %q, want *", got))
 	}
-	return response.StatusCode, nil
+	if got := headers.Get("Timing-Allow-Origin"); got != "*" {
+		missing = append(missing, fmt.Sprintf("Timing-Allow-Origin is %q, want *", got))
+	}
+	if !strings.Contains(headers.Get("Cache-Control"), "no-store") {
+		missing = append(missing, fmt.Sprintf("Cache-Control is %q, want no-store", headers.Get("Cache-Control")))
+	}
+	return missing
 }
 
 // Until runs the checks every interval until all pass or wait ends, and
