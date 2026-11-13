@@ -162,6 +162,7 @@ type config struct {
 
 // Node is one region's running mesh server.
 type Node struct {
+	lifecycle     *FabricLifecycle
 	serving       atomic.Pointer[map[string]ServingResult]
 	stateDesired  atomic.Pointer[map[string]desiredState]
 	stateUnsaved  atomic.Pointer[map[string]bakeRecord]
@@ -171,6 +172,7 @@ type Node struct {
 	server        *server.Server
 	conn          *nats.Conn
 	fabric        *nats.Conn
+	monitor       *nats.Conn
 	ctx           context.Context
 	cancel        context.CancelFunc
 	// work is every goroutine that writes the node's directory; Close waits
@@ -227,6 +229,10 @@ func start(cfg config) (_ *Node, err error) {
 		return nil, err
 	}
 	tlsConfig := cfg.ca.TLS(cfg.region + "." + Domain)
+	monitorSecret, err := randomHex()
+	if err != nil {
+		return nil, err
+	}
 	fabricSecret, err := randomHex()
 	if err != nil {
 		return nil, err
@@ -239,7 +245,12 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
-	options.CustomClientAuthentication.(*clientAuth).server = embedded
+	auth := options.CustomClientAuthentication.(*clientAuth)
+	auth.server = embedded
+	auth.users["monitor"] = credential{secret: monitorSecret, account: server.DEFAULT_SYSTEM_ACCOUNT, permissions: &server.Permissions{
+		Publish:   &server.SubjectPermission{Allow: []string{"$SYS.REQ.SERVER.PING.RAFTZ"}},
+		Subscribe: &server.SubjectPermission{Allow: []string{"_INBOX.>"}},
+	}}
 	log := newContainedLog()
 	embedded.SetLoggerV2(log, false, false, false)
 	go embedded.Start()
@@ -263,14 +274,24 @@ func start(cfg config) (_ *Node, err error) {
 			return nil, err
 		}
 	}
+	var monitor *nats.Conn
+	if options.JetStream {
+		monitor, err = dialLocal(cfg.localPort, "monitor", monitorSecret)
+		if err != nil {
+			conn.Close()
+			fabric.Close()
+			return nil, err
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, fabric: fabric, ctx: ctx, cancel: cancel, desired: desired,
+	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, fabric: fabric, monitor: monitor, ctx: ctx, cancel: cancel, desired: desired,
 		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{})}
 	if err := node.serveClockReports(); err != nil {
 		node.closeConns()
 		cancel()
 		return nil, err
 	}
+	node.lifecycle = NewFabricLifecycle(embedded, monitor)
 	node.publishTopologyDesired()
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) {
@@ -376,8 +397,15 @@ func (n *Node) goWork(f func()) {
 	}
 }
 
-// Close stops the server; desired state stays on disk.
-func (n *Node) Close() {
+func (n *Node) Close() error {
+	if err := n.PrepareStop(context.Background()); err != nil {
+		return err
+	}
+	n.ForceClose()
+	return nil
+}
+
+func (n *Node) ForceClose() {
 	n.workMu.Lock()
 	n.closing = true
 	n.workMu.Unlock()
