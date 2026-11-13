@@ -29,6 +29,19 @@ func (e *Edge) ServeReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inventory := e.Inventory(r.Context())
+	missingNames := []string{}
+	for _, name := range e.servedNames() {
+		covered := false
+		for _, cert := range inventory.Certificates {
+			if cert.Valid && cert.KeyType == "ecdsa" && slicesContainsName(cert.Names, name) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			missingNames = append(missingNames, name)
+		}
+	}
 	missing := []string{}
 	if e.listeners.Load() != 15 {
 		missing = append(missing, "listeners unavailable")
@@ -90,7 +103,7 @@ func (e *Edge) ServeReady(w http.ResponseWriter, r *http.Request) {
 	}
 
 	missing = append(missing, inventory.Errors...)
-	ready := len(missing) == 0 && len(inventory.MissingNames) == 0
+	ready := len(missing) == 0 && len(missingNames) == 0
 	if !ready {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
@@ -98,5 +111,5 @@ func (e *Edge) ServeReady(w http.ResponseWriter, r *http.Request) {
 		Ready        bool     `json:"ready"`
 		Missing      []string `json:"missing"`
 		MissingNames []string `json:"missing_names"`
-	}{ready, missing, inventory.MissingNames})
+	}{ready, missing, missingNames})
 }

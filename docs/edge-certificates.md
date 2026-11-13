@@ -4,9 +4,11 @@ The edge continues to obtain and renew certificates through its existing automat
 
 ## Readiness
 
-GET or HEAD /edge/ready is available on HTTP port 80 and on the node's mesh-facing HTTP port 9108. It returns 200 when all four edge listeners are bound, routes have loaded, ingress and local application backends are ready, and every routed HTTPS or PostgreSQL name has a valid certificate available locally. Otherwise it returns 503. The JSON body includes ready, missing infrastructure conditions, and missing_names. A newly routed name is reported immediately until its certificate becomes available.
+GET or HEAD /edge/ready is available on HTTP port 80 and on the node's mesh-facing HTTP port 9108. It returns 200 when all four edge listeners are bound, routes have loaded, ingress and local application backends are ready, and every routed HTTPS or PostgreSQL name has a valid ECDSA certificate available locally. Otherwise it returns 503. The JSON body includes ready, missing infrastructure conditions, and missing_names. A newly routed name is reported immediately until its certificate becomes available.
 
-The endpoint is an operator signal. Release health does not consume it. It checks local HTTP backend readiness paths without following redirects and checks PostgreSQL backend TCP connectivity, within a three-second budget.
+The endpoint is an operator signal. Release health does not consume it. RSA certificates are reported by inventory, while readiness requires the ECDSA variant selected by normal automatic handshakes.
+
+It checks local HTTP backend readiness paths without following redirects and checks PostgreSQL backend TCP connectivity, within a three-second budget.
 
 ## Inventory
 

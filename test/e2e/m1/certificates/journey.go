@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -330,9 +331,9 @@ func journey(ctx context.Context, cfg configuration) error {
 		}
 	}
 	fmt.Println("PASS default, all and named-node inventory read the persisted fleet list without changing state")
-	rsa, err := tls.DialWithDialer(&net.Dialer{Timeout: 20 * time.Second}, "tcp", "10.77.0.3:443", &tls.Config{ServerName: "shared.e2e.test", MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12, CipherSuites: []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}})
+	rsaConn, err := tls.DialWithDialer(&net.Dialer{Timeout: 20 * time.Second}, "tcp", "10.77.0.3:443", &tls.Config{ServerName: "shared.e2e.test", MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12, CipherSuites: []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}})
 	if err == nil {
-		rsa.Close()
+		rsaConn.Close()
 		return errors.New("RSA-only handshake succeeded without an RSA certificate")
 	}
 	unsupported, err := metric(ctx, client, "10.77.0.3", "ts_edge_ecdsa_unsupported_handshakes_total")
@@ -506,6 +507,41 @@ func journey(ctx context.Context, cfg configuration) error {
 		}
 		fmt.Println("PASS", failure, "certificate rejected by readiness, inventory CLI and missing-name metric")
 	}
+	nodes["b"].stop()
+	if err = os.Remove(cfg.Work + "/b/edge-certs/shared.e2e.test"); err != nil {
+		return err
+	}
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return err
+	}
+	rsaCert, rsaPrivate, err := fixtureCertificate("shared.e2e.test", rsaKey, root, rootKey, time.Now().Add(24*time.Hour))
+	if err != nil {
+		return err
+	}
+	if err = os.WriteFile(cfg.Work+"/b/edge-certs/shared.e2e.test+rsa", append(rsaPrivate, rsaCert...), 0600); err != nil {
+		return err
+	}
+	p, err = launch(ctx, cfg.Work+"/b-rsa-only", env, "ip", "netns", "exec", "cert-b", self, "node", cfg.Work+"/lane.json", "b", "sjc")
+	if err != nil {
+		return err
+	}
+	nodes["b"] = p
+	if err = p.wait(ctx, "READY node", 1); err != nil {
+		return err
+	}
+	if err = checkReady(ctx, client, "10.77.0.3", 503); err != nil {
+		return err
+	}
+	if err = cli(cfg, "b", true); err != nil {
+		return err
+	}
+	missing, err = metric(ctx, client, "10.77.0.3", "ts_edge_certificate_names_missing")
+	if err != nil || missing != 0 {
+		return fmt.Errorf("valid RSA inventory missing metric=%g error=%v", missing, err)
+	}
+	fmt.Println("PASS RSA-only certificate validates in inventory while readiness requires ECDSA coverage")
+
 	return nil
 }
 
