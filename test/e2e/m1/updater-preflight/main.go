@@ -336,6 +336,8 @@ func main() {
 			os.Exit(17)
 		case "hang":
 			<-time.NewTimer(10 * time.Minute).C
+		case "mark":
+			must(os.WriteFile(os.Getenv("UPDATER_PREFLIGHT_MARK"), []byte(time.Now().Format(time.RFC3339Nano)), 0o600))
 		}
 		return
 	}
