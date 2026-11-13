@@ -42,8 +42,9 @@ func rows(path string) []map[string]any {
 }
 
 func active(path string, data []byte) map[string]any {
+	sum := digest(data)
 	for _, row := range rows(path) {
-		if row["sha256"] == digest(data) {
+		if row["sha256"] == sum {
 			return row
 		}
 	}
@@ -141,6 +142,10 @@ func commitCase(ctx context.Context, work, outcome string) {
 	output, err := command.CombinedOutput()
 	require(err == nil && strings.Contains(string(output), "recovered candidate"), fmt.Sprintf("real startup sequence must confirm: %v: %s", err, output))
 	require(active(h.TrialFile, candidate) == nil, "confirmation must clear only installed trial")
+	if outcome != "committed" && outcome != "twice" {
+		fmt.Println("ok commit", outcome, ": same run, binary-tagged records and real shared startup verified")
+		return
+	}
 	helper, err := os.Executable()
 	must(err)
 	data, err := os.ReadFile(helper)

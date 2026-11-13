@@ -48,6 +48,8 @@ func run(ctx context.Context, binary string) {
 	must(err)
 	data, err := os.ReadFile(helper)
 	must(err)
+	probationDone := make(chan struct{})
+	go func() { rollbackCases(ctx, data); close(probationDone) }()
 	for i, mode := range []string{"refuse", "noise", "cannot-execute", "hang"} {
 		candidate := stamped(data, strings.Repeat("b", 40), mode)
 		if mode == "cannot-execute" {
@@ -80,7 +82,7 @@ func run(ctx context.Context, binary string) {
 	fmt.Println("ok records: empty and truncated records permit Probe -> NewHandler -> Served")
 	networkCases(ctx, work, h, conn, data)
 	rolloutCases(ctx, data)
-	rollbackCases(ctx, data)
+	<-probationDone
 	crossFilesystem(ctx)
 	selfExitCase(ctx, data)
 	fmt.Println("updater-preflight e2e: PASS")
@@ -253,8 +255,21 @@ func rollbackCases(ctx context.Context, data []byte) {
 		work, cleanup := temporary("probation-preflight-")
 		h, _, candidate := preparedHost(work)
 		conn, closeListener := listener(h)
+		if mode == "slow" {
+			_, err := conn.Subscribe("lane.probation.silent", func(*nats.Msg) {})
+			must(err)
+			must(conn.Flush())
+			h.Relay = func(ctx context.Context, payload []byte) []releasepush.HostVersion {
+				return releasepush.RelayWorkers(ctx, conn, "lane.probation.silent", payload, []*api.Node{{ID: "silent", Role: api.NodeRoleWorker}})
+			}
+		}
+		start := time.Now()
 		reply := installRequest(ctx, h, conn, work, strings.Repeat("b", 40), "2")
 		require(reply.State == "installed", "probation scenario must install")
+		if mode == "slow" {
+			require(time.Since(start) >= releasepush.WorkerReplyWait, "silent workers must consume full reply budget")
+		}
+
 		select {
 		case <-h.Installed:
 		case <-ctx.Done():
@@ -305,7 +320,7 @@ func crossFilesystem(ctx context.Context) {
 	must(syscall.Stat(state, &stateStat))
 	require(binaryStat.Dev != stateStat.Dev, "binary and state must use different filesystems")
 	must(os.Symlink(state, filepath.Join(work, "nats")))
-	commitCase(ctx, work, "installed")
+	commitCase(ctx, work, "twice")
 	fmt.Println("ok filesystems: binary on disk; state on tmpfs; restart and second release verified")
 }
 

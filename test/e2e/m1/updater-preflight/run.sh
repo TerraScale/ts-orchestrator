@@ -4,7 +4,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 python=$(python3 -c 'import os,sys;print(os.path.realpath(sys.executable))')
 trap 'sudo rm -rf "$work"' EXIT
-nice -n 19 go build -p 1 -o "$work/updater-preflight" "$here"
+nice -n 19 go build -ldflags="-s -w" -p 1 -o "$work/updater-preflight" "$here"
 mkdir -p "$work/updater-sys/class/dmi/id"
 printf 'Local\n' > "$work/updater-sys/class/dmi/id/chassis_asset_tag"
 sudo -n unshare --mount --net bash -s -- "$bin" "$work" "$here" "$python" <<'SH_UPDATER'

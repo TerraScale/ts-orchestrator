@@ -5,9 +5,9 @@ import pathlib
 import re
 import signal
 import struct
+import subprocess
 import sys
 import tempfile
-import subprocess
 import time
 
 libc = ctypes.CDLL(None, use_errno=True)
@@ -106,7 +106,12 @@ def path_arg(pid, address, directory=-100):
 
 
 class SockFilter(ctypes.Structure):
-    _fields_ = [("code", ctypes.c_ushort), ("jt", ctypes.c_ubyte), ("jf", ctypes.c_ubyte), ("k", ctypes.c_uint)]
+    _fields_ = [
+        ("code", ctypes.c_ushort),
+        ("jt", ctypes.c_ubyte),
+        ("jf", ctypes.c_ubyte),
+        ("k", ctypes.c_uint),
+    ]
 
 
 class SockProgram(ctypes.Structure):
@@ -114,12 +119,28 @@ class SockProgram(ctypes.Structure):
 
 
 def filter_syscalls(name):
-    numbers = [number for number, call in (fd_calls | path_calls).items() if call == name or name == "persistent"]
+    numbers = [
+        number
+        for number, call in (fd_calls | path_calls).items()
+        if call == name or name == "persistent"
+    ]
     if os.uname().machine == "x86_64":
-        numbers += [number for number, call in {82: "rename", 87: "unlink", 86: "link", 83: "mkdir"}.items() if call == name or name == "persistent"]
+        numbers += [
+            number
+            for number, call in {
+                82: "rename",
+                87: "unlink",
+                86: "link",
+                83: "mkdir",
+            }.items()
+            if call == name or name == "persistent"
+        ]
     instructions = [SockFilter(0x20, 0, 0, 0)]
     for number in numbers:
-        instructions += [SockFilter(0x15, 0, 1, number), SockFilter(0x06, 0, 0, 0x7FF00000)]
+        instructions += [
+            SockFilter(0x15, 0, 1, number),
+            SockFilter(0x06, 0, 0, 0x7FF00000),
+        ]
     instructions.append(SockFilter(0x06, 0, 0, 0x7FFF0000))
     compiled = (SockFilter * len(instructions))(*instructions)
     program = SockProgram(len(instructions), compiled)
@@ -149,7 +170,12 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
         committed = False
         committing = set()
         while live:
-            pid, status = os.waitpid(-1, 0x40000000)
+            try:
+                pid, status = os.waitpid(-1, 0x40000000)
+            except ChildProcessError:
+                if root_status is None:
+                    raise
+                break
             if os.WIFEXITED(status) or os.WIFSIGNALED(status):
                 live.discard(pid)
                 if pid == root_pid:
@@ -162,10 +188,9 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                     new = ctypes.c_ulonglong()
                     ptrace(0x4201, pid, 0, ctypes.byref(new))
                     live.add(new.value)
-                if (
-                    (stop == (signal.SIGTRAP | 0x80) or event == 7)
-                    and pathlib.Path(f"/proc/{pid}").exists()
-                ):
+                if (stop == (signal.SIGTRAP | 0x80) or event == 7) and pathlib.Path(
+                    f"/proc/{pid}"
+                ).exists():
                     info = ctypes.create_string_buffer(88)
                     try:
                         ptrace(0x420E, pid, 88, ctypes.byref(info))
@@ -207,16 +232,28 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                         except (OSError, ValueError):
                             pass
                         relative = path.removeprefix(work)
-                        if syscall_name == "persistent" and name == "rename" and relative == "/installed":
+                        if (
+                            syscall_name == "persistent"
+                            and name == "rename"
+                            and relative == "/installed"
+                        ):
                             committing.add(pid)
                         persistent = (
-                            syscall_name == "persistent" and committed
+                            syscall_name == "persistent"
+                            and committed
                             and not pathlib.Path(work, "disarmed").exists()
                             and (relative == "" or relative.startswith("/nats/"))
-                            and (name in ("write", "fsync", "rename", "unlink")
-                                 or name == "open" and (relative == "" or "/.release-" in relative))
+                            and (
+                                name in ("write", "fsync", "rename", "unlink")
+                                or name == "open"
+                                and (relative == "" or "/.release-" in relative)
+                            )
                         )
-                        if persistent or name == syscall_name and re.fullmatch(pattern, relative):
+                        if (
+                            persistent
+                            or name == syscall_name
+                            and re.fullmatch(pattern, relative)
+                        ):
                             hits += 1
                             if hits == occurrence and outcome == "crash":
                                 for traced in live:
@@ -239,31 +276,62 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                     if stop in (signal.SIGSTOP, signal.SIGTRAP, signal.SIGTRAP | 0x80)
                     else stop
                 )
-                ptrace(24 if pid in injected or pid in committing else 7, pid, 0, deliver)
+                ptrace(
+                    24 if pid in injected or pid in committing else 7, pid, 0, deliver
+                )
             except ProcessLookupError:
                 continue
         returncode = os.waitstatus_to_exitcode(root_status)
         log.seek(0)
         output = log.read().decode(errors="replace")
         if outcome == "crash" and hits >= occurrence and returncode == -signal.SIGKILL:
-            continued = subprocess.run([helper, "resume-case", work, "installed"], capture_output=True, text=True, timeout=40)
+            continued = subprocess.run(
+                [helper, "resume-case", work, "installed"],
+                capture_output=True,
+                text=True,
+                timeout=40,
+                check=False,
+            )
             if continued.returncode:
-                raise RuntimeError(f"{step}: subsequent release failed\n{continued.stdout[-2000:]}{continued.stderr[-3000:]}")
-            print(f"ok crash {step}: installed binary retained; same run succeeds; restart and second release verified", flush=True)
+                raise RuntimeError(
+                    f"{step}: subsequent release failed\n{continued.stdout[-2000:]}{continued.stderr[-3000:]}"
+                )
+            print(
+                f"ok crash {step}: installed binary retained; same run succeeds; restart and second release verified",
+                flush=True,
+            )
             return
         if outcome == "persistent" and not returncode:
-            for warning in ("binary rename durability", "diagnostic attempt", "worker relay", "reply delivery", "reply flush", "activation request", "restart notification"):
+            for warning in (
+                "binary rename durability",
+                "diagnostic attempt",
+                "worker relay",
+                "reply delivery",
+                "reply flush",
+                "activation request",
+                "restart notification",
+            ):
                 if warning not in output:
-                    raise RuntimeError(f"{step}: missing WARN for {warning}\n{output[-5000:]}")
-            continued = subprocess.run([helper, "resume-case", work, "committed"], capture_output=True, text=True, timeout=40)
+                    raise RuntimeError(
+                        f"{step}: missing WARN for {warning}\n{output[-5000:]}"
+                    )
+            continued = subprocess.run(
+                [helper, "resume-case", work, "committed"],
+                capture_output=True,
+                text=True,
+                timeout=40,
+                check=False,
+            )
             if continued.returncode:
-                raise RuntimeError(f"{step}: restart and second release failed\n{continued.stdout[-2000:]}{continued.stderr[-3000:]}")
+                raise RuntimeError(
+                    f"{step}: restart and second release failed\n{continued.stdout[-2000:]}{continued.stderr[-3000:]}"
+                )
         if returncode or hits < occurrence:
             raise RuntimeError(
                 f"{step}: exit {returncode}, hits {hits}/{occurrence}\n{output[-5000:]}"
             )
         print(
-            f"ok fault {step}: {outcome}; binary, records, relay, restart; tagged records; restart and second release",
+            f"ok fault {step}: {outcome}; binary, records, relay, restart; tagged records; real startup",
             flush=True,
         )
 
@@ -292,29 +360,41 @@ else:
     raise RuntimeError("syscall fault lane needs Linux amd64 or arm64")
 helper = sys.argv[1]
 cases = []
-for target, pattern in (("candidate", r"/installed.next"), ("previous", r"/installed.prev-.*")):
+for target, pattern in (
+    ("candidate", r"/installed.next"),
+    ("previous", r"/installed.prev-.*"),
+):
     for call in ("open", "write", "chmod", "fsync", "close"):
-        cases.append((target+"-"+call, call, pattern, 1, "rejected"))
+        cases.append((target + "-" + call, call, pattern, 1, "rejected"))
 cases.append(("previous-directory-sync", "fsync", "", 1, "rejected"))
 for index, record in enumerate(("run-id", "trial", "rolled-back", "attempt.json"), 1):
     for call in ("open", "write", "fsync", "close"):
-        cases.append((record+"-"+call, call, r"/nats/.release-.*", index, "rejected"))
-    cases.append((record+"-rename", "rename", "/nats/release-"+record, 1, "rejected"))
-    cases.append((record+"-directory-sync", "fsync", r"/nats", index, "rejected"))
+        cases.append(
+            (record + "-" + call, call, r"/nats/.release-.*", index, "rejected")
+        )
+    cases.append(
+        (record + "-rename", "rename", "/nats/release-" + record, 1, "rejected")
+    )
+    cases.append((record + "-directory-sync", "fsync", r"/nats", index, "rejected"))
 cases.append(("binary-rename", "rename", r"/installed", 1, "rejected"))
 precommit = list(cases)
-cases.extend([
-    ("binary-directory-open", "open", "", 2, "installed"),
-    ("binary-directory-sync", "fsync", "", 2, "installed"),
-    ("diagnostic-write", "write", r"/nats/.release-.*", 5, "installed"),
-    ("diagnostic-sync", "fsync", r"/nats/.release-.*", 5, "installed"),
-    ("diagnostic-rename", "rename", r"/nats/release-attempt.json", 2, "installed"),
-    ("activation-write", "write", r"/nats/.release-.*", 6, "installed"),
-    ("activation-sync", "fsync", r"/nats/.release-.*", 6, "installed"),
-    ("activation-rename", "rename", r"/nats/release-trial", 2, "installed"),
-    ("all-postcommit", "persistent", ".*", 1, "persistent"),
-])
-cases.extend(("crash-"+name, call, pattern, occurrence, "crash") for name, call, pattern, occurrence, _ in precommit)
+cases.extend(
+    [
+        ("binary-directory-open", "open", "", 2, "installed"),
+        ("binary-directory-sync", "fsync", "", 2, "installed"),
+        ("diagnostic-write", "write", r"/nats/.release-.*", 5, "installed"),
+        ("diagnostic-sync", "fsync", r"/nats/.release-.*", 5, "installed"),
+        ("diagnostic-rename", "rename", r"/nats/release-attempt.json", 2, "installed"),
+        ("activation-write", "write", r"/nats/.release-.*", 6, "installed"),
+        ("activation-sync", "fsync", r"/nats/.release-.*", 6, "installed"),
+        ("activation-rename", "rename", r"/nats/release-trial", 2, "installed"),
+        ("all-postcommit", "persistent", ".*", 1, "persistent"),
+    ]
+)
+cases.extend(
+    ("crash-" + name, call, pattern, occurrence, "crash")
+    for name, call, pattern, occurrence, _ in precommit
+)
 if __name__ == "__main__":
     start = time.monotonic()
     completed = 0
@@ -322,4 +402,7 @@ if __name__ == "__main__":
         if len(sys.argv) == 2 or case[0] in sys.argv[2:]:
             run(helper, *case)
             completed += 1
-    print(f"fault journey: {completed} cases PASS in {time.monotonic()-start:.2f}s", flush=True)
+    print(
+        f"fault journey: {completed} cases PASS in {time.monotonic() - start:.2f}s",
+        flush=True,
+    )
