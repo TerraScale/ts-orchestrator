@@ -4,169 +4,139 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"strings"
 	"time"
 )
 
 const BakeWindow = 30 * time.Second
-const DependencyRecoveryWindow = 30 * time.Second
-
-// DependencyRecoveryBudget is how long a bake may keep waiting for a healthy
-// window while a dependency flaps. With 90 s in all, sjc's ts-dashboard bake
-// for run 40729528775 (2026-10-28 16:53Z) failed: TerraBase was slow, the
-// candidate's readiness failed and recovered 26 times, and the release never
-// reached gru or fra.
-const DependencyRecoveryBudget = 2 * time.Minute
-const MaxBakeWindow = BakeWindow + DependencyRecoveryBudget
-
-// sampleBudget bounds one observation: an HTTPS readiness probe (3 s) plus
-// control reads. It is not the poll interval: with 2 s polling, a slow probe
-// timed out the sample and failed ts-dashboard's fra bakes (8894ff6, 9bf95a0).
+const MaxBakeWindow = 10 * time.Minute
+const BakeFailureDuration = 15 * time.Second
 const sampleBudget = 5 * time.Second
 
-// DependencyFailure distinguishes swap-induced dependency recovery from a
-// candidate or storage regression, which must always hold immediately.
 type DependencyFailure struct{ Service, Status string }
 
 func (f *DependencyFailure) Error() string {
 	return "bake " + f.Service + " readiness: " + f.Status
 }
 
-func recoveringDependency(err error) bool {
-	switch failure := err.(type) {
-	case *DependencyFailure:
-		return (failure.Service == "ts-auth" || failure.Service == "ts-dashboard") &&
-			(failure.Status == "HTTP 503" || failure.Status == "request-failed" || failure.Status == "dependency-unavailable-or-missing")
-	case interface{ Unwrap() []error }:
-		if len(failure.Unwrap()) == 0 {
-			return false
-		}
-		for _, cause := range failure.Unwrap() {
-			if !recoveringDependency(cause) {
-				return false
-			}
-		}
-		return true
-	case interface{ Unwrap() error }:
-		return recoveringDependency(failure.Unwrap())
-	}
-	return false
-}
-
 type BakeVerdict struct {
-	Started         time.Time         `json:"started"`
-	Finished        time.Time         `json:"finished"`
-	Samples         int               `json:"samples"`
-	Checks          map[string]string `json:"checks"`
-	Reason          string            `json:"reason,omitempty"`
-	HealthySince    time.Time         `json:"healthySince"`
-	RecoverySamples int               `json:"recoverySamples,omitempty"`
-	RecoveryChecks  map[string]string `json:"recoveryChecks,omitempty"`
-	// DependencyOnly marks a failure that only dependency recovery caused: no
-	// candidate or storage regression was seen, so later regions still roll.
-	DependencyOnly bool `json:"dependencyOnly,omitempty"`
+	Started             time.Time            `json:"started"`
+	Finished            time.Time            `json:"finished"`
+	Samples             int                  `json:"samples"`
+	Checks              map[string]string    `json:"checks"`
+	Reason              string               `json:"reason,omitempty"`
+	HealthySince        time.Time            `json:"healthySince"`
+	FailedSamples       int                  `json:"failedSamples"`
+	LastFailure         string               `json:"lastFailure,omitempty"`
+	ConsecutiveFailures map[string]int       `json:"consecutiveFailures,omitempty"`
+	FailureSince        map[string]time.Time `json:"failureSince,omitempty"`
+	Unsaved             bool                 `json:"unsaved,omitempty"`
 }
 
-// RunBake allows bounded dependency recovery, then requires a full
-// healthy window. Candidate and storage failures never receive this allowance.
-func RunBake(ctx context.Context, probe func(context.Context) (map[string]string, error)) (BakeVerdict, error) {
-	return runBake(ctx, probe, BakeWindow, 2*time.Second)
-}
-
-func runBake(ctx context.Context, probe func(context.Context) (map[string]string, error), window, poll time.Duration) (v BakeVerdict, err error) {
-	start := time.Now()
-	v.Started = start.UTC()
-	healthySince := start
-	var failureSince time.Time
-	var lastFailure error
-	var recovery <-chan time.Time
-	var recoveryTimer *time.Timer
-	defer func() {
-		if recoveryTimer != nil {
-			recoveryTimer.Stop()
+func RunBake(ctx context.Context, v BakeVerdict, probe func(context.Context) (map[string]string, error), observed func(BakeVerdict) error) (BakeVerdict, error) {
+	started := time.Now()
+	v.Started = started
+	v.Finished, v.HealthySince = time.Time{}, time.Time{}
+	v.ConsecutiveFailures = map[string]int{}
+	v.FailureSince = map[string]time.Time{}
+	persist := func() error {
+		if observed == nil {
+			return nil
 		}
-	}()
-	v.HealthySince = start.UTC()
-	defer func() {
-		v.Finished = time.Now().UTC()
-		if err != nil {
-			v.Reason = err.Error()
-			if v.Checks == nil {
-				v.Checks = map[string]string{}
-			}
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				v.Checks["observation"] = v.Reason
-			}
-			v.DependencyOnly = recoveringDependency(err) || errors.Is(err, context.DeadlineExceeded) && lastFailure != nil
-		}
-	}()
-	if probe == nil || window <= 0 || poll <= 0 {
-		return v, errors.New("invalid bake observation")
+		return observed(v)
 	}
-	// A late dependency rollout can restart the healthy window. Repeated
-	// interruptions must not extend a regional rollout indefinitely.
-	ctx, stop := context.WithTimeout(ctx, window+DependencyRecoveryBudget)
-	defer stop()
-	tick := time.NewTicker(poll)
+	fail := func(reason string) (BakeVerdict, error) {
+		v.Reason, v.Finished = reason, time.Now()
+		err := persist()
+		v.Unsaved = err != nil
+		return v, errors.Join(errors.New(reason), err)
+	}
+	if probe == nil {
+		return fail("invalid bake observation")
+	}
+	if err := persist(); err != nil {
+		return v, err
+	}
+	deadline := started.Add(MaxBakeWindow)
+	total, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {
-		if err = ctx.Err(); err != nil {
+		if !time.Now().Before(deadline) {
+			return fail("bake attempt observation bound exceeded")
+		}
+		if err := ctx.Err(); err != nil {
 			return v, err
 		}
-		if !failureSince.IsZero() && time.Since(failureSince) >= DependencyRecoveryWindow {
-			return v, lastFailure
-		}
-		deadline := time.Now().Add(max(poll, sampleBudget))
-		if !failureSince.IsZero() && failureSince.Add(DependencyRecoveryWindow).Before(deadline) {
-			deadline = failureSince.Add(DependencyRecoveryWindow)
-		}
-		sample, cancel := context.WithDeadline(ctx, deadline)
+		sample, stop := context.WithTimeout(total, sampleBudget)
 		checks, failure := probe(sample)
 		if sample.Err() != nil {
 			failure = sample.Err()
+			if checks == nil {
+				checks = map[string]string{}
+			}
+			if len(checks) == 0 {
+				checks["observation"] = failure.Error()
+			}
 		}
-		if ctx.Err() == nil && !failureSince.IsZero() && time.Since(failureSince) >= DependencyRecoveryWindow {
-			failure = lastFailure
+		stop()
+		if !time.Now().Before(deadline) {
+			return fail("bake attempt observation bound exceeded")
 		}
-		cancel()
+		if err := ctx.Err(); err != nil {
+			return v, err
+		}
 		v.Samples++
 		v.Checks = maps.Clone(checks)
+		if len(checks) == 0 {
+			failure = errors.New("bake has no observations")
+		}
+		failed := map[string]int{}
+		since := map[string]time.Time{}
 		if failure != nil {
-			if failureSince.IsZero() {
-				failureSince = time.Now()
-				recoveryTimer = time.NewTimer(DependencyRecoveryWindow)
-				recovery = recoveryTimer.C
+			v.FailedSamples++
+			v.LastFailure = failure.Error()
+			v.HealthySince = time.Time{}
+			for key, value := range checks {
+				if value != "ok" && !strings.HasPrefix(value, "served by ") && key != "terrabase-writer-waits" {
+					failed[key] = v.ConsecutiveFailures[key] + 1
+				}
 			}
-			if !recoveringDependency(failure) || time.Since(failureSince) >= DependencyRecoveryWindow {
-				return v, failure
+			if len(failed) == 0 {
+				failed["observation"] = v.ConsecutiveFailures["observation"] + 1
 			}
-			v.RecoverySamples++
-			v.RecoveryChecks = maps.Clone(checks)
-			lastFailure = failure
-			healthySince, v.HealthySince = time.Time{}, time.Time{}
-		} else if len(checks) == 0 {
-			return v, errors.New("bake has no observations")
-		} else {
-			if recoveryTimer != nil {
-				recoveryTimer.Stop()
-			}
-			recovery = nil
-			failureSince = time.Time{}
-			if healthySince.IsZero() {
-				healthySince = time.Now()
-				v.HealthySince = healthySince.UTC()
-			}
-			if time.Since(healthySince) >= window {
-				return v, nil
+		} else if v.HealthySince.IsZero() {
+			v.HealthySince = time.Now()
+		}
+		for key, count := range failed {
+			since[key] = v.FailureSince[key]
+			if count == 1 || since[key].IsZero() {
+				since[key] = time.Now()
 			}
 		}
-		select {
-		case <-ctx.Done():
-			return v, ctx.Err()
-		case <-recovery:
-			if ctx.Err() != nil {
-				return v, ctx.Err()
+		v.ConsecutiveFailures, v.FailureSince = failed, since
+		for key, count := range failed {
+			if count >= 3 && time.Now().Sub(since[key]) >= BakeFailureDuration {
+				return fail("bake probe " + key + " failed continuously for at least 15 seconds: " + v.LastFailure)
 			}
-			return v, lastFailure
+		}
+		if err := persist(); err != nil {
+			return v, err
+		}
+		if !time.Now().Before(deadline) {
+			return fail("bake attempt observation bound exceeded")
+		}
+		if failure == nil && time.Now().Sub(v.HealthySince) >= BakeWindow {
+			v.Finished = time.Now()
+			return v, persist()
+		}
+		select {
+		case <-total.Done():
+			if err := ctx.Err(); err != nil && time.Now().Before(deadline) {
+				return v, err
+			}
+			return fail("bake attempt observation bound exceeded")
 		case <-tick.C:
 		}
 	}

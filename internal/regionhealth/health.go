@@ -8,14 +8,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/moby/swarmkit/v2/ca"
+	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -36,6 +42,7 @@ const (
 
 // Input is one health reading of this host.
 type Input struct {
+	rootCA []byte
 	System observability.SystemView
 	// Node is why the SwarmKit node is not ready ("" when it is).
 	Node string
@@ -88,19 +95,24 @@ func Classify(in Input) (string, []string) {
 	return StateOK, nil
 }
 
-func Serving(ctx context.Context, state string) error {
+func Serving(ctx context.Context, state, service string) error {
 	in := read(ctx, state)
-	var err error
+	var health error
 	if in.Node != "" {
-		err = errors.New(in.Node)
+		health = errors.New(in.Node)
 	}
-	if slices.Contains(in.Failures, "services unreadable") {
-		err = errors.Join(err, errors.New("services unreadable"))
+	if len(in.Failures) != 0 {
+		health = errors.Join(health, errors.New(strings.Join(in.Failures, ", ")))
 	}
-	if len(in.Lagging) != 0 {
-		err = errors.Join(err, fmt.Errorf("services below desired replicas: %s", strings.Join(in.Lagging, ", ")))
+	if health != nil || service == "" {
+		return health
 	}
-	return err
+	client, conn, err := swarmruntime.DialSingleHostWithCA(state, in.rootCA)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return swarmruntime.ServingService(ctx, client, service)
 }
 
 func gib(bytes uint64) string { return fmt.Sprintf("%.1f GiB", float64(bytes)/(1<<30)) }
@@ -114,41 +126,183 @@ func check(ctx context.Context, state string) Report {
 	return Report{State: status, Reasons: reasons, At: time.Now().UTC(), NodeList: nodelist.StatusAt(state)}
 }
 
-// read takes one Input from /proc, statfs and the single-host control socket.
 func read(ctx context.Context, state string) Input {
-	var in Input
-	system, err := observability.ReadSystem([]observability.FilesystemRole{{Role: "containerd", Path: containerdRoot}, {Role: "state", Path: state}})
-	if err != nil {
-		in.Failures = append(in.Failures, "memory unreadable")
-	}
-	in.System = system
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	client, conn, err := swarmruntime.DialSingleHost(state)
-	if err != nil {
-		in.Node = "swarm node unreachable"
-		return in
+	type reading struct {
+		check string
+		input Input
 	}
-	defer conn.Close()
-	nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
-	if err != nil || len(nodes.Nodes) == 0 {
-		in.Node = "swarm node unreachable"
-		return in
-	}
-	for _, node := range nodes.Nodes {
-		if node.Status.State != api.NodeStatus_READY {
-			in.Node = "swarm node " + strings.ToLower(node.Status.State.String())
-			return in
+	host := sampleHost(ctx, state)
+	results := make(chan reading, 4)
+	results <- reading{check: "memory unreadable", input: host}
+	go func() {
+		runtime, err := containerd.New(swarmruntime.HostContainerdSocket)
+		if err == nil {
+			_, err = runtime.Version(ctx)
+			runtime.Close()
 		}
+		part := Input{}
+		if err != nil {
+			part.Node = "container runtime unreachable"
+		}
+		results <- reading{check: "container runtime unreachable", input: part}
+	}()
+	go func() {
+		part := Input{}
+		client, conn, err := swarmruntime.DialSingleHostWithCA(state, host.rootCA)
+		if err != nil {
+			part.Node = "swarm node unreachable"
+			results <- reading{check: "swarm node unreachable", input: part}
+			return
+		}
+		defer conn.Close()
+		nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+		if err != nil || len(nodes.Nodes) == 0 {
+			part.Node = "swarm node unreachable"
+		} else {
+			for _, node := range nodes.Nodes {
+				if node.Status.State != api.NodeStatus_READY {
+					part.Node = "swarm node " + strings.ToLower(node.Status.State.String())
+					break
+				}
+			}
+		}
+		results <- reading{check: "swarm node unreachable", input: part}
+	}()
+	go func() {
+		part := Input{}
+		client, conn, err := swarmruntime.DialSingleHostWithCA(state, host.rootCA)
+		if err != nil {
+			part.Failures = []string{"services unreadable"}
+			results <- reading{check: "services unreadable", input: part}
+			return
+		}
+		defer conn.Close()
+		services, err := swarmruntime.ListServiceSpecs(ctx, client)
+		if err != nil {
+			part.Failures = []string{"services unreadable"}
+		}
+		for _, service := range services {
+			if service.Running < service.Replicas {
+				part.Lagging = append(part.Lagging, service.Name)
+			}
+		}
+		results <- reading{check: "services unreadable", input: part}
+	}()
+	in := Input{rootCA: host.rootCA}
+	pending := map[string]bool{"memory unreadable": true, "container runtime unreachable": true, "swarm node unreachable": true, "services unreadable": true}
+	merge := func(result reading) {
+		delete(pending, result.check)
+		part := result.input
+		if part.System.MemTotalBytes != 0 {
+			in.System = part.System
+		}
+		if part.Node != "" {
+			in.Node = strings.TrimSpace(in.Node + " " + part.Node)
+		}
+		in.Failures = append(in.Failures, part.Failures...)
+		in.Lagging = append(in.Lagging, part.Lagging...)
 	}
-	services, err := swarmruntime.ListServiceSpecs(ctx, client)
-	if err != nil {
-		in.Failures = append(in.Failures, "services unreadable")
-	}
-	for _, service := range services {
-		if service.Running < service.Replicas {
-			in.Lagging = append(in.Lagging, service.Name)
+	for len(pending) != 0 {
+		select {
+		case part := <-results:
+			merge(part)
+		case <-ctx.Done():
+			for len(pending) != 0 {
+				select {
+				case part := <-results:
+					merge(part)
+				default:
+					in.Node = strings.TrimSpace(in.Node + " " + strings.Join(slices.Sorted(maps.Keys(pending)), ", ") + ": health check deadline exceeded")
+					return in
+				}
+			}
 		}
 	}
 	return in
+}
+
+const hostSampleBound = 5 * time.Second
+
+const maxAbandonedHostSamples = 2
+
+type hostObservation struct {
+	started time.Time
+	done    chan struct{}
+}
+
+var hostSampler struct {
+	sync.Mutex
+	state     string
+	at        time.Time
+	input     Input
+	current   *hostObservation
+	abandoned int
+}
+
+func sampleHost(ctx context.Context, state string) Input {
+	hostSampler.Lock()
+	if hostSampler.state == state && !hostSampler.at.IsZero() && time.Since(hostSampler.at) <= hostSampleBound {
+		part := hostSampler.input
+		hostSampler.Unlock()
+		return part
+	}
+	if current := hostSampler.current; current != nil && time.Since(current.started) >= hostSampleBound {
+		hostSampler.current = nil
+		hostSampler.abandoned++
+	}
+	if hostSampler.current == nil && hostSampler.abandoned < maxAbandonedHostSamples {
+		observation := &hostObservation{started: time.Now(), done: make(chan struct{})}
+		hostSampler.current = observation
+		go func() {
+			system, sampleErr := observability.ReadSystem([]observability.FilesystemRole{{Role: "containerd", Path: containerdRoot}, {Role: "state", Path: state}})
+			part := Input{System: system}
+			root, err := os.ReadFile(ca.NewConfigPaths(filepath.Join(swarmruntime.SingleHostSwarmDir(state), "certificates")).RootCA.Cert)
+			part.rootCA = root
+			if err != nil {
+				part.Failures = append(part.Failures, "swarm root CA unreadable")
+			}
+			if sampleErr != nil {
+				part.Failures = append(part.Failures, "memory unreadable")
+			}
+			if system.MemTotalBytes == 0 {
+				part.Failures = append(part.Failures, "memory unreadable")
+			}
+			for _, filesystem := range system.Filesystems {
+				if filesystem.SizeBytes == 0 {
+					part.Failures = append(part.Failures, "disk "+filesystem.Path+" unreadable")
+				}
+			}
+			hostSampler.Lock()
+			if hostSampler.current == observation {
+				hostSampler.current = nil
+				if time.Since(observation.started) <= hostSampleBound {
+					hostSampler.state, hostSampler.at, hostSampler.input = state, observation.started, part
+				}
+			} else {
+				hostSampler.abandoned--
+			}
+			close(observation.done)
+			hostSampler.Unlock()
+		}()
+	}
+	current := hostSampler.current
+	hostSampler.Unlock()
+	if current == nil {
+		return Input{Node: "host observation abandoned-read limit reached"}
+	}
+	bound := time.NewTimer(max(hostSampleBound-time.Since(current.started), 0))
+	defer bound.Stop()
+	select {
+	case <-current.done:
+		hostSampler.Lock()
+		defer hostSampler.Unlock()
+		if hostSampler.state == state && time.Since(hostSampler.at) <= hostSampleBound {
+			return hostSampler.input
+		}
+	case <-bound.C:
+	case <-ctx.Done():
+	}
+	return Input{Node: "host observation unavailable or stale"}
 }

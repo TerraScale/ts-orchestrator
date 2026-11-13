@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  schedule:
+    - cron: '23 4 * * *'
   pull_request:
   push:
     branches: [main]
@@ -39,23 +41,31 @@ jobs:
       - run: bash scripts/ci/audit-dependencies.sh release
 
   e2e-lane:
+    if: ${{ github.event_name != 'schedule' }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - {lane: core, entry: run.sh, timeout: 8}
           - {lane: websocket, entry: websocket.sh, timeout: 8}
+          - {lane: acme-ari, entry: acme-ari.sh, timeout: 3, packages: "./test/e2e/m1/certificates/ari"}
+          - {lane: certificates, entry: certificates/run.sh, timeout: 5, packages: "./test/e2e/m1/certificates"}
           - {lane: regional, entry: regional.sh, timeout: 3, packages: "./test/e2e/m1/regional"}
           - {lane: nodelist, entry: nodelist.sh, timeout: 8, packages: "./test/e2e/m1/nodelist"}
-          - {lane: restarts, entry: restarts.sh, timeout: 8}
+          - {lane: restarts, entry: restarts.sh, timeout: 8, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+          - {lane: readiness, entry: readiness.sh, timeout: 10, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
           - {lane: rollback, entry: rollback.sh, timeout: 8}
+          - {lane: host-logs, entry: host-logs.sh, timeout: 12}
           - {lane: monitoring, entry: monitoring.sh, timeout: 8, packages: "./test/e2e/m1/monitoring"}
           - {lane: boot-order, entry: boot-order.sh, timeout: 8, packages: "./test/e2e/m1/boot-order"}
           - {lane: updater-preflight, entry: updater-preflight.sh, timeout: 12}
           - {lane: host-credentials, entry: host-credentials.sh, timeout: 5, packages: "./test/e2e/m1/host-credentials"}
           - {lane: release-contracts, entry: release-contracts.sh, timeout: 5, packages: "./test/e2e/m1/revision-gate ./test/e2e/m1/vault-policy"}
           - {lane: metadata-upgrade, entry: metadata-upgrade.sh, timeout: 8}
+          - {lane: rollout, entry: rollout.sh, timeout: 10}
+          - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
+          - {lane: data-volume, entry: data-volume.sh, timeout: 8, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
     name: e2e-m1 / ${{ matrix.lane }}
     concurrency:
       group: e2e-m1-${{ matrix.lane }}-${{ github.ref }}
@@ -66,6 +76,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: ${{ matrix.lane == 'certificates' && '0' || '1' }}
           persist-credentials: false
       - id: go
         uses: ./.github/actions/go
@@ -93,7 +104,7 @@ jobs:
           key: ${{ steps.go.outputs.cache-key }}
 
   e2e-m1:
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name != 'schedule' }}
     needs: e2e-lane
     concurrency:
       group: e2e-m1-${{ github.ref }}
@@ -105,11 +116,85 @@ jobs:
           LANES: ${{ needs.e2e-lane.result }}
         run: test "$LANES" = success
 
+  caller-key-changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/go
+        with:
+          cache: lint
+      - id: paths
+        run: python3 test/e2e/m1/callerkey/inputs.py
+
+  caller-key-build:
+    needs: [caller-key-changes]
+    if: ${{ needs.caller-key-changes.outputs.changed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - id: go
+        uses: ./.github/actions/go
+        with:
+          cache: lint
+      - name: Build the overlay command and journey once
+        run: bash test/e2e/m1/callerkey/build.sh "$RUNNER_TEMP/caller-key-bin"
+      - name: Prove the shard partition
+        run: |
+          set -euo pipefail
+          binary="$RUNNER_TEMP/caller-key-bin/callerkey"
+          for shard in {0..7}; do
+            "$binary" list "$shard" 8
+          done | sort > "$RUNNER_TEMP/sharded.txt"
+          "$binary" list | sort > "$RUNNER_TEMP/unsharded.txt"
+          diff -u "$RUNNER_TEMP/unsharded.txt" "$RUNNER_TEMP/sharded.txt"
+          test -z "$(uniq -d "$RUNNER_TEMP/sharded.txt")"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: caller-key-bin
+          path: |
+            ${{ runner.temp }}/caller-key-bin/callerkey
+            ${{ runner.temp }}/caller-key-bin/terrascale-orchestrator
+          retention-days: 1
+
+  caller-key:
+    needs: [caller-key-changes, caller-key-build]
+    if: ${{ needs.caller-key-changes.outputs.changed == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    name: caller-key / ${{ matrix.shard }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: caller-key-bin
+          path: ${{ runner.temp }}/caller-key-bin
+      - name: Run caller-key lifecycle and recovery shard
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          chmod +x "$RUNNER_TEMP/caller-key-bin/"*
+          "$RUNNER_TEMP/caller-key-bin/callerkey" run "$RUNNER_TEMP/caller-key-bin/terrascale-orchestrator" "${{ matrix.shard }}" 8
+          echo "caller-key shard ${{ matrix.shard }}/8: $(($(date +%s) - start)) s" >> "$GITHUB_STEP_SUMMARY"
+
   build:
     concurrency:
       group: fast-build-${{ github.ref }}
       cancel-in-progress: true
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
       actions: read
@@ -192,8 +277,8 @@ jobs:
   # (deploy/m1/regions.json); fails when any region does not serve it. Only
   # this job can mint the GitHub OIDC token that is the push credential.
   release-push:
-    needs: [build, e2e-m1]
-    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' }}
+    needs: [build, e2e-m1, caller-key-changes, caller-key]
+    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' && needs.caller-key-changes.result == 'success' && (needs.caller-key-changes.outputs.changed == 'true' || needs.caller-key-changes.outputs.changed == 'false') && (needs.caller-key.result == 'success' || (needs.caller-key-changes.outputs.changed == 'false' && needs.caller-key.result == 'skipped')) }}
     name: deploy/release-push
     concurrency:
       group: production-ts-orch
@@ -245,8 +330,11 @@ jobs:
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [lint, e2e-m1, build, release-push]
+    needs: [lint, e2e-m1, caller-key-changes, caller-key-build, caller-key, build, release-push]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
-      - run: test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false
+      - run: |
+          set -euo pipefail
+          test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false
+          test "${{ needs.caller-key-changes.result == 'success' && (needs.caller-key-changes.outputs.changed == 'true' || needs.caller-key-changes.outputs.changed == 'false') && (needs.caller-key.result == 'success' || (needs.caller-key-changes.outputs.changed == 'false' && needs.caller-key.result == 'skipped')) }}" = true

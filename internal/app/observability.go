@@ -116,6 +116,7 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 	}
 	observability.ConfigureDefault(logger)
 	runtime.registry.Register(observability.LogMetrics)
+	runtime.registry.Register(swarmruntime.ReadinessMetrics)
 	runtime.health.Add(observability.Check{Name: "startup", Run: func(context.Context) (bool, string) {
 		if runtime.started.Load() {
 			return true, "runtime started"

@@ -395,12 +395,12 @@ func relayLane(ctx context.Context, conn *nats.Conn) {
 	founder, err := releasepush.NewHandler(workerState)
 	must(err)
 	founder.Revision, founder.Verifier = sha, verifier
-	founder.Health = func(context.Context) error { return nil }
+	founder.Health = func(context.Context, string) releasepush.HealthResult { return releasepush.HealthResult{} }
 	later, err := releasepush.NewHandler(workerState)
 	must(err)
 	later.Revision, later.Verifier = sha, verifier
 	visited := false
-	later.Health = func(context.Context) error { return nil }
+	later.Health = func(context.Context, string) releasepush.HealthResult { return releasepush.HealthResult{} }
 	later.Relay = func(context.Context, []byte) []releasepush.HostVersion { visited = true; return nil }
 	regions := []releasepush.Region{}
 	for i, handler := range []*releasepush.Handler{founder, later} {

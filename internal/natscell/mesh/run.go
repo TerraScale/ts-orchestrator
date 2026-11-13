@@ -6,13 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -116,20 +114,9 @@ func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseTok
 	} else {
 		slog.WarnContext(ctx, "mesh cluster advertises no NetBird address", "error", err)
 	}
-	var applier Applier = swarmApplier{state: state, region: region}
-	if cluster.Worker {
-		applier = nil
-	}
-	fence, err := rolloutmaintenance.Open(state)
-	if err != nil {
-		return nil, err
-	}
-	return start(config{maintenance: fence,
-		region: region, server: name, dir: filepath.Join(state, "mesh"),
-		clusterHost: "0.0.0.0", clusterAdvertise: advertise, clusterPort: ClusterPort, localPort: LocalPort,
-		seeds: seeds, routes: routes, ca: ca, terrabaseToken: terrabaseToken, applier: applier, every: antiEntropyEvery,
-		peersDir: swarmruntime.PeersDirectory, peersEvery: peersEvery, address: NetBirdAddress,
-	})
+	return StartRegionalHost(RegionalHost{State: state, Region: region, Server: name, CA: ca,
+		TerraBaseToken: terrabaseToken, Seeds: seeds, Routes: routes,
+		ClusterAddress: advertise, Address: NetBirdAddress, Worker: cluster.Worker})
 }
 
 // ownRegion maps the instance's OCI region to its catalog region token.
@@ -243,7 +230,9 @@ func (a swarmApplier) Apply(ctx context.Context, spec swarmruntime.ServiceSpec) 
 	return changed, original, err
 }
 
-func (a swarmApplier) Ready(ctx context.Context) (map[string]int64, error) {
+func (a swarmApplier) Ready(ctx context.Context) (map[string]ServingResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, servingProbeBudget)
+	defer cancel()
 	client, done, err := a.control()
 	if err != nil {
 		return nil, err
@@ -253,11 +242,25 @@ func (a swarmApplier) Ready(ctx context.Context) (map[string]int64, error) {
 	if err != nil {
 		return nil, err
 	}
-	ready := map[string]int64{}
+	type observation struct {
+		name   string
+		result ServingResult
+	}
+	results := make(chan observation, len(rows))
 	for _, row := range rows {
-		if row.Replicas > 0 && row.Running == row.Replicas {
-			ready[row.Name] = row.Generation
-		}
+		go func() {
+			probe, stop := context.WithTimeout(ctx, servingProbeBudget)
+			defer stop()
+			result := ServingResult{Generation: row.Generation}
+			result.Serving = row.Replicas > 0 && row.Running == row.Replicas && swarmruntime.ServingService(probe, client, row.Name) == nil && probe.Err() == nil
+			result.At = time.Now()
+			results <- observation{row.Name, result}
+		}()
+	}
+	ready := make(map[string]ServingResult, len(rows))
+	for range rows {
+		result := <-results
+		ready[result.name] = result.result
 	}
 	return ready, nil
 }

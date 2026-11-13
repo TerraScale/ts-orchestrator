@@ -17,6 +17,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/attempt"
 	"github.com/TerraScale/ts-orchestrator/internal/benchmark"
 	bootstrapcli "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli"
+	"github.com/TerraScale/ts-orchestrator/internal/callerkey"
 	"github.com/TerraScale/ts-orchestrator/internal/capacity"
 	"github.com/TerraScale/ts-orchestrator/internal/ci/realcaller"
 	"github.com/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
@@ -94,7 +95,7 @@ Operator tooling:
   member                 List this region's cluster hosts; drain and remove a worker (ls | leave HOSTNAME)
   mesh                   Show which regions answer on the cross-region mesh (ping)
   status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
-  edge                   Apply (or --plan) the GeoDNS steering policy to the nearest healthy region (edge geodns)
+  edge                   Inspect certificates (edge certificates inventory) or apply GeoDNS (edge geodns)
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
   node                   Inspect local public keys, build node lists, and manage cell nodes
   bootstrap              Prepare, sign, verify, and publish bootstrap material
@@ -107,6 +108,7 @@ Operator tooling:
   source-digest          Compute the versioned TerraBase source-tree digest
   terrabase              C# TerraBase member CA and member data volumes
   ts-auth                Provision ts-auth's Vault secrets and host firewall
+  caller-key             Add, activate, retire, recover and list regional caller keys
   vault                  Store secrets in OCI Vault once; render host files from them
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
   atlas                  Create the Atlas publish key; publish the cell's topology to Atlas once
@@ -164,6 +166,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "member":
 		return app.RunMemberCLI(ctx, args[1:], output)
 	case "edge":
+		if len(args) > 1 && args[1] == "certificates" {
+			return app.RunCertificateCLI(ctx, args[2:], output)
+		}
 		return geodns.Run(ctx, args[1:], output)
 	case "mesh":
 		return mesh.RunCLI(ctx, args[1:], "/var/lib/ts-orch", output)
@@ -264,6 +269,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return terrabase.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "ts-auth":
 		return tsauth.Run(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
+	case "caller-key":
+		return callerkey.Run(ctx, args[1:], output)
 	case "vault":
 		return vaultsecret.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "atlas":

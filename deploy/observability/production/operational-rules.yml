@@ -143,6 +143,20 @@ groups:
         annotations:
           summary: Stored service spec rejected; service not managed
           description: The mesh excluded this service from startup because its stored desired state fails validation. Its running task is left alone. Apply a corrected spec to restore management.
+  - name: task-responsiveness
+    rules:
+      - alert: TerraBaseTaskUnresponsive
+        expr: ts_orch_task_unresponsive_seconds{service="terrabase"} >= 240
+        labels:
+          severity: critical
+        annotations:
+          summary: A TerraBase task has stopped answering its readiness endpoint
+      - alert: ServiceTaskUnresponsive
+        expr: ts_orch_task_unresponsive_seconds{service!="terrabase"} >= 240
+        labels:
+          severity: warning
+        annotations:
+          summary: A service task has stopped answering its readiness endpoint
   - name: monitoring-coverage
     rules:
       - alert: ApplicationTaskMetricsDown
@@ -247,3 +261,25 @@ groups:
           severity: critical
         annotations:
           summary: No completed alert delivery probe is observable
+
+  - name: edge-certificates
+    rules:
+      - alert: EdgeCertificateExpiryWarning
+        expr: ts_edge_certificate_not_after - time() < 14 * 86400
+        labels:
+          severity: warning
+        annotations:
+          summary: An edge certificate expires within fourteen days
+      - alert: EdgeCertificateExpiryCritical
+        expr: ts_edge_certificate_not_after - time() < 5 * 86400
+        labels:
+          severity: critical
+        annotations:
+          summary: An edge certificate expires within five days
+      - alert: EdgeCertificateMissing
+        expr: ts_edge_certificate_names_missing > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: A served edge name has no valid certificate

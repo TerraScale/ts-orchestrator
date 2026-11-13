@@ -179,6 +179,10 @@ func DialSingleHost(stateDir string) (api.ControlClient, *grpc.ClientConn, error
 	if err != nil {
 		return nil, nil, err
 	}
+	return DialSingleHostWithCA(stateDir, root)
+}
+
+func DialSingleHostWithCA(stateDir string, root []byte) (api.ControlClient, *grpc.ClientConn, error) {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(root) {
 		return nil, nil, errors.New("single-host root CA is not PEM")
