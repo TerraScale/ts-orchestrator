@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 )
@@ -103,6 +104,7 @@ type Progress interface {
 
 // Handler serves the release subjects on any connection with full permissions.
 type Handler struct {
+	NodeList *nodelist.Store
 	Health   func(context.Context) error
 	Verifier *Verifier
 	// Revision is the running build's vcs.revision.
@@ -144,6 +146,10 @@ func NewHandler(state string) (*Handler, error) {
 	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary,
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
 		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
+	h.NodeList, err = nodelist.Open(state)
+	if err != nil {
+		return nil, err
+	}
 	h.rolledBack.Store(readRollback(h.RollbackFile))
 	return h, nil
 }
@@ -184,6 +190,7 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 		SubjectVersion: func(context.Context, []byte) Reply { return h.version() },
 		SubjectHealth:  h.health,
 		SubjectOrch:    h.relayed,
+		SubjectNodes:   h.nodes,
 		SubjectApp:     h.app,
 		SubjectPing:    func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "ping", data) },
 		SubjectApply:   func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "apply", data) },
@@ -195,7 +202,7 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 // ServeWorker installs the ts-orch releases a region's founder relays on
 // subject: the same signed request CI sent, verified here again.
 func (h *Handler) ServeWorker(conn *nats.Conn, subject string) error {
-	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: h.orch})
+	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: h.workerRelease})
 }
 
 // relayed installs a release and, once this host runs or installed it,

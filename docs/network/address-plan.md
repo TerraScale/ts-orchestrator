@@ -24,6 +24,7 @@ be disjoint. A route to an existing subnet is not another allocated network.
 
 | Owner / network | Dedicated IPv4 allocation | Dedicated IPv6 allocation | State / rule |
 | --- | --- | --- | --- |
+| Node identity mesh | `10.201.0.0/16` | None | Reserved for derived node-list addresses; no routes installed by enrolment |
 | NetBird account mesh | `10.200.0.0/16` | `fd9c:200:2182:65f2::/64` | Live, shared by all account peers; never use the default CGNAT range |
 | OCI regional parent pool | `10.240.0.0/12` | No OCI IPv6 allocation today | Reserve individual `/16`s below; never advertise the entire parent pool |
 | GRU region | `10.251.0.0/16` | None | Live VCN `10.251.0.0/24`; private `10.251.0.0/25`; API `10.251.0.128/26` |

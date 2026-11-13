@@ -181,7 +181,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-          sparse-checkout: deploy/m1/regions.json
+          sparse-checkout: |
+            deploy/m1/regions.json
+            deploy/m1/nodes.json
           sparse-checkout-cone-mode: false
 
       - name: Download this run's release binaries
@@ -205,6 +207,8 @@ jobs:
           jq -r '"| \(.region) | \(.state // "-") | \(.started_at // "-") | \(.connect_ms) | \(.accepted_ms) | \(.serving_ms) | \(.healthy_ms) | \(.health // "") | \(.error // "") |"' "${RUNNER_TEMP}/release-push.jsonl" \
             | { printf '| Region | State | Started | Connect ms | Accepted ms | Serving ms | Healthy ms | Health | Error |\n|---|---|---|---|---|---|---|---|---|\n'; cat; } >> "${GITHUB_STEP_SUMMARY}"
           exit "$status"
+      - name: Publish the node list
+        run: dist/terrascale-orchestrator-linux-amd64 release nodes publish "${GITHUB_SHA}" deploy/m1/nodes.json
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
