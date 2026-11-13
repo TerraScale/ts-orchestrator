@@ -1,5 +1,6 @@
 import concurrent.futures
 import ctypes
+import datetime
 import http.server
 import itertools
 import json
@@ -79,10 +80,14 @@ def record_watch(state):
 
 def run_case(binary, seed_binary, root, case):
     subprocess.run(["mount", "--make-rprivate", "/"], check=True)
+    units = root / case / "units"
     subprocess.run(["ip", "link", "set", "lo", "up"], check=True)
     subprocess.run(["ip", "addr", "add", "169.254.169.254/32", "dev", "lo"], check=True)
     work = root / case
     work.mkdir()
+    units.mkdir()
+    (units / "ts-orch.service").write_bytes(subprocess.check_output([binary, "release", "unit"]))
+    subprocess.run(["mount", "--bind", str(units), "/etc/systemd/system"], check=True)
     firmware = work / "sys/class/dmi/id"
     firmware.mkdir(parents=True)
     for field in ("board_asset_tag", "product_serial", "product_uuid"):
@@ -122,7 +127,7 @@ def run_case(binary, seed_binary, root, case):
                 "/opc/v2/vnics/": '[{"privateIp":"127.0.0.2"}]',
             }
             value = values.get(self.path)
-            ready = delayed and now - began >= 2
+            ready = delayed and now - began >= (125 if case == "manager-delay" else 2)
             self.send_response(200 if ready and value else 503)
             self.end_headers()
             self.wfile.write(
@@ -231,6 +236,20 @@ def run_case(binary, seed_binary, root, case):
         previous_admission = admission.read_bytes() if admission.exists() else None
         if case == "fresh-delay":
             record_events = record_watch(state)
+        if case == "manager-delay":
+            payload = Path(binary).read_bytes()
+            revision = re.search(rb"vcs.revision=([0-9a-f]{40})", payload)[1].decode()
+            if b"vcs.modified=true" in payload:
+                revision += "-dirty"
+            binary = str(work / "release")
+            Path(binary).write_bytes(payload)
+            Path(binary).chmod(0o755)
+            Path(binary + ".prev").write_bytes(payload)
+            (state / "nats").mkdir(exist_ok=True)
+            (state / "nats/release-trial").write_text(json.dumps({
+                "sha": revision, "run_id": "1", "starts": 0,
+                "installed": datetime.datetime.now(datetime.UTC).isoformat(),
+            }))
         began = time.monotonic()
         process = subprocess.Popen(
             [binary, "single-host", "--state", str(state)],
@@ -294,6 +313,10 @@ def run_case(binary, seed_binary, root, case):
                     "read stored host metadata:" in output,
                     "missing recovery record error",
                 )
+        if case == "manager-delay":
+            require(Path(binary).read_bytes() == payload, "good release was replaced")
+            require(not (state / "nats/release-trial").exists(), "release stayed on probation")
+            require(not (state / "nats/release-rolled-back").exists(), "metadata delay rolled back release")
         elapsed = time.monotonic() - began
         require(
             output.count("retrying within startup window") <= 11,

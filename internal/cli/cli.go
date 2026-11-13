@@ -199,6 +199,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		}
 		return app.Run(ctx, args, output)
 	case "release":
+		if len(args) > 1 && args[1] == "unit" {
+			return releasepush.Unit(ctx, args[2:], output)
+		}
 		if len(args) > 1 && args[1] == "push" {
 			return releasepush.Push(ctx, args[2:], output)
 		}

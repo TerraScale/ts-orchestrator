@@ -331,8 +331,6 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
-	// The marker precedes the swap, so the new binary's first start is on
-	// probation; its clock starts after the download.
 	if err := h.install(ctx, binary, func() error {
 		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now()})
 	}); err != nil {
@@ -421,21 +419,25 @@ func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() 
 	if err := writeSynced(next, data); err != nil {
 		return err
 	}
-	if err := beforeSwap(); err != nil {
-		return errors.Join(err, removeIfExists(next))
-	}
 	prev := h.Binary + ".prev"
 	err = removeIfExists(prev)
 	if err == nil {
 		err = link(h.Binary, prev)
 	}
-	if err == nil {
+	if err != nil {
+		return errors.Join(err, removeIfExists(next))
+	}
+	if err := removeIfExists(h.Binary + ".prev.unit"); err != nil {
+		return errors.Join(err, removeIfExists(next))
+	}
+	if _, err := prepareUnit(ctx, next, h.Binary); err != nil {
+		return errors.Join(err, removeIfExists(next))
+	}
+	if err = beforeSwap(); err == nil {
 		err = os.Rename(next, h.Binary)
 	}
 	if err != nil {
-		if errors.Is(err, os.ErrPermission) {
-			err = fmt.Errorf("%w (an immutable binary refuses replacement: run `chattr -i %s %s` on the host)", err, h.Binary, prev)
-		}
+		err = errors.Join(err, restoreUnit(context.WithoutCancel(ctx), next, h.Binary))
 		return errors.Join(err, removeIfExists(next))
 	}
 	dir, err := os.Open(filepath.Dir(h.Binary))

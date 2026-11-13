@@ -1,6 +1,7 @@
 package releasepush
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,14 +12,8 @@ import (
 	"time"
 )
 
-// A pushed binary is on probation until it serves: install writes a trial
-// marker, every start counts itself in it before anything that can crash, and
-// serving clears it. A start past trialStarts, or no serving probationWait
-// after install, restores <binary>.prev and records the rollback.
 const (
-	// A third start rolls back, inside systemd's default 5 starts per 10 s.
-	trialStarts = 2
-	// Inside push's 3-minute serving wait, so CI reads the rollback.
+	trialStarts   = 2
 	probationWait = 2 * time.Minute
 )
 
@@ -67,10 +62,10 @@ func Probe(state string, output io.Writer) (*Probation, error) {
 	if err != nil {
 		return nil, err
 	}
-	return probe(state, binary, Revision(), time.Now(), output, func() { os.Exit(1) })
+	return probe(state, binary, Revision(), output, func() { os.Exit(1) })
 }
 
-func probe(state, binary, revision string, now time.Time, output io.Writer, exit func()) (*Probation, error) {
+func probe(state, binary, revision string, output io.Writer, exit func()) (*Probation, error) {
 	data, err := os.ReadFile(trialFile(state))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -80,22 +75,38 @@ func probe(state, binary, revision string, now time.Time, output io.Writer, exit
 	}
 	p := &Probation{state: state, binary: binary, output: output, exit: exit}
 	if json.Unmarshal(data, &p.trial) != nil || p.trial.SHA != revision {
-		// Not this binary's trial: its install never swapped, or this is the restored binary.
 		return nil, removeIfExists(trialFile(state))
 	}
 	p.trial.Starts++
 	if p.trial.Starts > trialStarts {
 		return nil, p.rollBack(fmt.Sprintf("exited %d times before serving", trialStarts))
 	}
-	late := "not serving " + probationWait.String() + " after install"
-	left := p.trial.Installed.Add(probationWait).Sub(now)
-	if left <= 0 {
-		return nil, p.rollBack(late)
-	}
 	if err := writeJSON(trialFile(state), p.trial); err != nil {
 		return nil, err
 	}
-	p.timer = time.AfterFunc(left, func() {
+	if os.Getenv("NOTIFY_SOCKET") != "" {
+		changed, err := prepareUnit(context.Background(), binary, binary)
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			return nil, errors.New("installed release unit; restarting under its settings")
+		}
+	}
+	return p, nil
+}
+
+func (p *Probation) Planned() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.served || p.timer != nil {
+		return
+	}
+	late := "not serving " + probationWait.String() + " after startup planning"
+	p.timer = time.AfterFunc(probationWait, func() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		if p.served {
@@ -106,7 +117,6 @@ func probe(state, binary, revision string, now time.Time, output io.Writer, exit
 			p.exit()
 		}
 	})
-	return p, nil
 }
 
 func (p *Probation) Served() bool {
@@ -116,7 +126,9 @@ func (p *Probation) Served() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.served = true
-	p.timer.Stop()
+	if p.timer != nil {
+		p.timer.Stop()
+	}
 	if err := removeIfExists(trialFile(p.state)); err != nil {
 		fmt.Fprintf(p.output, "release probation: %v\n", err)
 		return false
@@ -124,21 +136,21 @@ func (p *Probation) Served() bool {
 	return true
 }
 
-// rollBack records the rollback first, so a crash before the swap rolls
-// back again at the next start. It returns nil when nothing was restored:
-// this binary keeps running rather than looping on a missing .prev.
 func (p *Probation) rollBack(reason string) error {
 	record := Rollback{SHA: p.trial.SHA, RunID: p.trial.RunID, Reason: reason}
 	err := writeJSON(rollbackFile(p.state), record)
 	if err == nil {
+		err = restoreUnit(context.Background(), p.binary, p.binary)
+	}
+	if err == nil {
 		err = os.Rename(p.binary+".prev", p.binary)
 	}
 	if err != nil {
-		err = errors.Join(err, removeIfExists(rollbackFile(p.state)), removeIfExists(trialFile(p.state)))
-		fmt.Fprintf(p.output, "release %s %s; cannot restore %s.prev: %v\n", p.trial.SHA, reason, p.binary, err)
-		return nil
+		return fmt.Errorf("release %s %s; cannot restore binary and unit: %w", p.trial.SHA, reason, err)
 	}
-	_ = os.Remove(trialFile(p.state)) // the restored binary drops it too
+	if err := removeIfExists(trialFile(p.state)); err != nil {
+		return fmt.Errorf("remove restored release trial: %w", err)
+	}
 	return fmt.Errorf("rolled back release %s (run %s): %s; restarting on %s.prev", p.trial.SHA, p.trial.RunID, reason, p.binary)
 }
 

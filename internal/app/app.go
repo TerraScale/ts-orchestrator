@@ -74,6 +74,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	if err != nil {
 		return err
 	}
+	probation.Planned()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	swarmReady := make(chan struct{})
