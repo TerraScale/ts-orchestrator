@@ -325,26 +325,14 @@ func edgeLocalServices(ctx context.Context, client api.ControlClient, host strin
 	return services, nil
 }
 
-func Run(ctx context.Context, args []string, output io.Writer) error {
+// RunChild dispatches the same-binary child protocols that live code still
+// spawns over /proc/self/exe: controller admission, the bootstrap credential
+// check and the identity rekey completion probe.
+func RunChild(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: terrascale-orchestrator <bootstrap-controller|run|host|check|operator|identity-new|netbird-enroll|netbird-agent> --config FILE")
+		return errors.New("usage: terrascale-orchestrator child command")
 	}
 	command := args[0]
-	if command == "runtime-worker-admission-source" {
-		return runRuntimeWorkerAdmissionSource(ctx, args[1:], os.Stdin, output)
-	}
-	if command == runtimeControllerHostSourceCommand {
-		return runRuntimeControllerHostAdmissionSource(ctx, args[1:], os.Stdin, output)
-	}
-	if command == "runtime-worker-membership-source" {
-		return runRuntimeWorkerMembershipSource(ctx, args[1:], os.Stdin, output)
-	}
-	if command == runtimeRegistrySourceCommand {
-		return runRuntimeRegistrySource(ctx, args[1:], os.Stdin, output)
-	}
-	if command == "netbird-agent" {
-		return runNetBirdAgent(ctx, args[1:])
-	}
 	if command == "bootstrap-credential-check" {
 		if len(args) != 1 {
 			return errors.New("bootstrap credential check accepts no arguments")
@@ -364,42 +352,6 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		}
 		return runControllerAdmissionChild(ctx, command, os.Stdin)
 	}
-	if command == "identity-new" {
-		return newIdentity(args[1:], output)
-	}
-	if command == "netbird-enroll" {
-		return runNetBirdEnroll(ctx, args[1:], output)
-	}
-	if command == "install-controller-config" {
-		return runInstallControllerConfig(ctx, args[1:])
-	}
-	if command == "identity-rekey" {
-		return runIdentityRekey(ctx, args[1:], output)
-	}
-	if command == "host-setup" {
-		return runHostSetup(ctx, args[1:], output)
-	}
-	if command == "restore-controller-material" {
-		return runRestoreControllerMaterial(ctx, args[1:], output)
-	}
-	if command == "host-volume-init" {
-		return runHostVolumeInit(ctx, args[1:])
-	}
-	if command == "operator" {
-		return runOperator(ctx, args[1:], output)
-	}
-	if command == "service" {
-		return runService(ctx, args[1:], output)
-	}
-	if command == "get" || command == "diff" || command == "apply" {
-		return runSpec(ctx, command, args[1:], output)
-	}
-	if command == "rollout" {
-		return runRollout(ctx, args[1:], output)
-	}
-	if command == "node" {
-		return runNode(ctx, args[1:], output)
-	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	configPath := flags.String("config", "", "JSON role configuration")
@@ -413,20 +365,10 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	switch command {
-	case "bootstrap-controller":
-		return controllerBootstrapCommand(ctx, cfg)
-	case "run":
-		return runController(ctx, cfg, output)
-	case "host":
-		return runHost(ctx, cfg, *configPath, output)
-	case "check":
-		return check(ctx, cfg, output)
-	case "identity-rekey-completion-check":
+	if command == "identity-rekey-completion-check" {
 		return checkControllerIdentityRekeyCompletion(ctx, cfg)
-	default:
-		return fmt.Errorf("unknown command %q", command)
 	}
+	return fmt.Errorf("unknown command %q", command)
 }
 
 var hostClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
