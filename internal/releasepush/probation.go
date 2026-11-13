@@ -62,7 +62,9 @@ type Probation struct {
 	output        io.Writer
 	trial         trial
 	unconfirmed   string
+	uncounted     string
 	exit          func()
+	install       sync.Mutex
 	mu            sync.Mutex
 	served        bool
 	timer         *time.Timer
@@ -94,7 +96,7 @@ func probe(state, binary string, output io.Writer, exit func()) (*Probation, err
 	var record trial
 	present, err := readRecord(trialFile(state), &record)
 	if !present {
-		return nil, nil
+		return unfinishedRollback(state, binary, output, exit)
 	}
 	p := &Probation{state: state, binary: binary, output: output, trial: record, exit: exit}
 	if err == nil && !record.valid() {
@@ -108,6 +110,7 @@ func probe(state, binary string, output io.Writer, exit func()) (*Probation, err
 		return p.hold("running binary identity unavailable: " + err.Error()), nil
 	}
 	if !record.names(self) {
+		settleTrial(state, binary, record)
 		return nil, nil
 	}
 	if record.Failure != "" {
@@ -121,10 +124,46 @@ func probe(state, binary string, output io.Writer, exit func()) (*Probation, err
 		return p.finish(p.rollBack(fmt.Sprintf("exited %d times before serving", trialStarts)))
 	}
 	if err := writeJSON(trialFile(state), p.trial); err != nil {
-		return p.finish(p.rollBack("start count not saved: " + err.Error()))
+		p.uncounted = "start count not saved: " + err.Error()
+		slog.Error("release unconfirmed; start not counted", "reason", p.uncounted)
+		fmt.Fprintf(p.output, "release unconfirmed: %s\n", p.uncounted)
 	}
 	p.timer = time.AfterFunc(probationWait, p.expire)
 	return p, nil
+}
+
+func unfinishedRollback(state, binary string, output io.Writer, exit func()) (*Probation, error) {
+	decided, err := readRollback(rollbackFile(state))
+	if err != nil || decided == nil {
+		return nil, nil
+	}
+	rejected := trial{SHA: decided.SHA, SHA256: decided.SHA256, RunID: decided.RunID}
+	self, err := binaryIdentity(binary)
+	if err != nil || !rejected.names(self) {
+		return nil, nil
+	}
+	p := &Probation{state: state, binary: binary, output: output, trial: rejected, exit: exit}
+	return p.finish(p.rollBack(decided.Reason))
+}
+
+func settleTrial(state, binary string, record trial) {
+	if decided, err := readRollback(rollbackFile(state)); err == nil && decided != nil && decided.SHA == record.SHA && decided.RunID == record.RunID {
+		if err := syncDirectory(filepath.Dir(binary)); err != nil {
+			slog.Warn("restored binary not yet durable; release trial kept", "error", err)
+			return
+		}
+	}
+	if err := removeDurable(trialFile(state)); err != nil {
+		slog.Warn("release trial for another binary not removed", "error", err)
+	}
+}
+
+func (p *Probation) lockInstall() func() {
+	if p == nil {
+		return func() {}
+	}
+	p.install.Lock()
+	return p.install.Unlock
 }
 
 func (p *Probation) hold(reason string) *Probation {
@@ -142,6 +181,8 @@ func (p *Probation) finish(restart error) (*Probation, error) {
 }
 
 func (p *Probation) expire() {
+	p.install.Lock()
+	defer p.install.Unlock()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.served || p.unconfirmed != "" {
@@ -162,6 +203,9 @@ func (p *Probation) status() (string, string) {
 	if p.unconfirmed != "" {
 		return "unconfirmed", p.unconfirmed
 	}
+	if p.uncounted != "" {
+		return "unconfirmed", p.uncounted
+	}
 	if !p.served {
 		return "probation", ""
 	}
@@ -172,6 +216,8 @@ func (p *Probation) Served() bool {
 	if p == nil {
 		return true
 	}
+	p.install.Lock()
+	defer p.install.Unlock()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.unconfirmed != "" {
@@ -181,11 +227,24 @@ func (p *Probation) Served() bool {
 	if p.timer != nil {
 		p.timer.Stop()
 	}
-	if err := removeDurable(trialFile(p.state)); err != nil {
-		fmt.Fprintf(p.output, "release probation confirmation not saved: %v\n", err)
+	if p.uncounted != "" {
+		return false
+	}
+	if err := p.confirm(); err != nil {
+		p.unconfirmed = "confirmation not saved: " + err.Error()
+		fmt.Fprintf(p.output, "release probation %s\n", p.unconfirmed)
 		return false
 	}
 	return true
+}
+
+func (p *Probation) confirm() error {
+	var current trial
+	present, err := readRecord(trialFile(p.state), &current)
+	if !present || err != nil || current.SHA != p.trial.SHA || current.SHA256 != p.trial.SHA256 || current.RunID != p.trial.RunID {
+		return err
+	}
+	return removeDurable(trialFile(p.state))
 }
 
 func (p *Probation) rollBack(reason string) error {
@@ -212,9 +271,8 @@ func (p *Probation) rollBack(reason string) error {
 		return nil
 	}
 	if err := syncDirectory(filepath.Dir(p.binary)); err != nil {
-		slog.Warn("rollback installed; directory sync failed", "error", err)
-	}
-	if err := removeIfExists(trialFile(p.state)); err != nil {
+		slog.Warn("rollback installed; directory sync failed, release trial kept", "error", err)
+	} else if err := removeDurable(trialFile(p.state)); err != nil {
 		slog.Warn("rollback installed; trial not removed", "error", err)
 	}
 	return fmt.Errorf("rolled back release %s (run %s): %s; restarting on %s", p.trial.SHA, p.trial.RunID, reason, previous)

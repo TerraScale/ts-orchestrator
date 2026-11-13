@@ -145,6 +145,18 @@ func request(ctx context.Context, conn *nats.Conn, subject string, payload []byt
 	return reply
 }
 
+func candidateMode() string {
+	path, err := os.Executable()
+	must(err)
+	data, err := os.ReadFile(path)
+	must(err)
+	marker := bytes.LastIndex(data, []byte("\nCANDIDATE:"))
+	if marker < 0 {
+		return ""
+	}
+	return string(data[marker+len("\nCANDIDATE:"):])
+}
+
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Minute)
 	defer cancel()
@@ -174,12 +186,7 @@ func main() {
 		}
 	}
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "preflight" {
-		path, err := os.Executable()
-		must(err)
-		data, err := os.ReadFile(path)
-		must(err)
-		mode := string(data[bytes.LastIndex(data, []byte("\nCANDIDATE:"))+len("\nCANDIDATE:"):])
-		switch mode {
+		switch candidateMode() {
 		case "refuse":
 			fmt.Fprintln(os.Stderr, "candidate refuses this release")
 			os.Exit(17)

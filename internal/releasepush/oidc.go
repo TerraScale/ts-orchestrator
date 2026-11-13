@@ -104,7 +104,12 @@ type Verifier struct {
 	mu       sync.Mutex
 	keys     map[string]*rsa.PublicKey
 	fetched  time.Time
-	inflight chan struct{} // closed when the running JWKS fetch ends
+	inflight *keyFetch
+}
+
+type keyFetch struct {
+	done chan struct{}
+	err  error
 }
 
 // NewVerifier verifies against GitHub's published keys.
@@ -227,7 +232,10 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 		if wait := v.inflight; wait != nil {
 			v.mu.Unlock()
 			select {
-			case <-wait:
+			case <-wait.done:
+				if wait.err != nil {
+					return nil, &hostError{fmt.Errorf("fetch GitHub JWKS: %w", wait.err)}
+				}
 				refreshed = true
 				continue
 			case <-ctx.Done():
@@ -242,20 +250,21 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 			v.mu.Unlock()
 			return nil, &hostError{fmt.Errorf("token key %q is not in signing keys fetched under %s ago", kid, refetchEvery)}
 		}
-		done := make(chan struct{})
-		v.inflight = done
+		running := &keyFetch{done: make(chan struct{})}
+		v.inflight = running
 		v.mu.Unlock()
 		fetchCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
 		keys, err := v.fetch(fetchCtx)
 		cancel()
 		v.mu.Lock()
 		v.inflight = nil
+		running.err = err
 		if err == nil {
 			v.fetched = v.Now()
 			v.keys = keys
 		}
 		v.mu.Unlock()
-		close(done)
+		close(running.done)
 		if err != nil {
 			return nil, &hostError{fmt.Errorf("fetch GitHub JWKS: %w", err)}
 		}

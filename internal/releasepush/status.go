@@ -17,9 +17,11 @@ import (
 const (
 	RefusalHost      = "host_prerequisite"
 	RefusalIntegrity = "release_integrity"
+	RefusalFence     = "run_fence_damaged"
 )
 
 type integrityError struct{ error }
+type fenceError struct{ error }
 type hostError struct{ error }
 type preflightError struct{ error }
 

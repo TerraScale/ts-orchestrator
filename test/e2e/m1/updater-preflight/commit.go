@@ -154,7 +154,7 @@ func commitCase(ctx context.Context, work, outcome string) {
 	switch outcome {
 	case "rejected":
 		require(reply.State == "rejected" && reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalHost, fmt.Sprintf("precommit failure must be a host refusal: %+v", reply))
-	case "installed":
+	case "installed", "busy":
 		require(reply.State == "installed", fmt.Sprintf("postcommit failure must stay installed: %+v", reply))
 		select {
 		case <-h.Installed:
@@ -192,6 +192,7 @@ type started struct {
 	RolledBack  string `json:"rolled_back"`
 	HealthState string `json:"health_state"`
 	Served      bool   `json:"served"`
+	After       string `json:"after"`
 	Restarts    int    `json:"restarts"`
 }
 
@@ -209,8 +210,13 @@ func startState(ctx context.Context, work, mode string) {
 	version := request(ctx, conn, releasepush.SubjectVersion, nil)
 	health := request(ctx, conn, releasepush.SubjectHealth, nil)
 	result := started{Revision: h.Revision, State: version.State, Error: version.Error, RolledBack: version.RolledBack, HealthState: health.State}
-	if mode == "serve" {
+	if mode == "race" {
+		replacement := installAsset(ctx, h, conn, otherAsset(work, shaC), shaC, "3")
+		require(replacement.State == "installed", fmt.Sprintf("a replacement must install before confirmation: %+v", replacement))
+	}
+	if mode == "serve" || mode == "race" {
 		result.Served = probation.Served()
+		result.After = request(ctx, conn, releasepush.SubjectVersion, nil).State
 	}
 	data, err := json.Marshal(result)
 	must(err)

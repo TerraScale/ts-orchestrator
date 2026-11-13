@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -138,6 +139,32 @@ func syncDirectory(path string) error {
 	return errors.Join(dir.Sync(), dir.Close())
 }
 
+func archiveDamaged(path string) error {
+	for n := range 1000 {
+		archive := path + ".damaged"
+		if n > 0 {
+			archive += "." + strconv.Itoa(n)
+		}
+		err := os.Link(path, archive)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		return syncDirectory(filepath.Dir(path))
+	}
+	return errors.New("no free name to archive the damaged release trial")
+}
+
+func (h *Handler) unstage(candidate releaseID, run string) error {
+	var staged trial
+	if present, err := readRecord(h.TrialFile, &staged); !present || err != nil || staged.SHA != candidate.SHA || staged.SHA256 != candidate.SHA256 || staged.RunID != run {
+		return nil
+	}
+	return removeDurable(h.TrialFile)
+}
+
 func (h *Handler) stage(candidate releaseID, run string) error {
 	installed, err := binaryIdentity(h.Binary)
 	if err != nil {
@@ -145,7 +172,7 @@ func (h *Handler) stage(candidate releaseID, run string) error {
 	}
 	var existing trial
 	if present, err := readRecord(h.TrialFile, &existing); present && (err != nil || !existing.valid()) {
-		if err := os.Rename(h.TrialFile, h.TrialFile+".damaged"); err != nil {
+		if err := archiveDamaged(h.TrialFile); err != nil {
 			return err
 		}
 	}

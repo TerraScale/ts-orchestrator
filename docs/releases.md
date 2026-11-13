@@ -6,7 +6,12 @@ After verifying fully received candidate bytes against the release digest, the
 host runs `<candidate> release preflight` as its own user in its existing sandbox.
 The hook currently succeeds without checks and has a 70-second execution bound.
 A failed, timed-out or unexecutable candidate is refused before anything is
-staged: the installed binary, `.prev`, the trial, the run fence and the rollback
+staged. If the exec meets `ETXTBSY` (another process still holds a descriptor
+of the candidate open for writing, such as a child started while the file was
+being written), it is retried for up to 5 seconds and then refused as a
+`host_prerequisite` that is not a candidate preflight refusal. The candidate is
+written without any process-wide lock, so commands the agent starts during a
+slow write are not delayed. On refusal the installed binary, `.prev`, the trial, the run fence and the rollback
 record stay as they were. The reply includes a scrubbed diagnostic, candidate
 revision and SHA-256 digest, run id, run attempt and structured refusal kind.
 Output is drained while only 4 KiB is retained; diagnostics contain valid UTF-8
@@ -14,10 +19,12 @@ without control characters.
 
 `host_prerequisite` means this host could not complete verification or
 installation: unavailable signing keys, incomplete downloads, network errors,
-disk failures, a damaged run fence and candidate preflight refusals have this
-kind. A token whose key is missing after the host refreshed its signing keys is
+disk failures and candidate preflight refusals have this kind. A damaged run
+fence has its own kind, `run_fence_damaged` (see Updater records); the pusher
+treats it like a host prerequisite and names it in the region's refusals. A token whose key is missing after the host refreshed its signing keys is
 `release_integrity`; a key set fetched less than 30 seconds earlier is not
-refreshed again, so that case stays `host_prerequisite`. `release_integrity`
+refreshed again, so that case stays `host_prerequisite`, and so does a request
+that waited for another request's key-set fetch that failed. `release_integrity`
 means a release was proven wrong: an invalid signature, forbidden workflow or
 URL, a digest mismatch after receiving all bytes, or an embedded revision that
 differs from the signed release. Integrity refusals and unknown or absent kinds
@@ -25,17 +32,45 @@ stop later regions; other regions continue past host prerequisites and the run
 fails at its end.
 
 The first host relays the request to every worker in the region's inventory and
-returns one row per expected worker, at most 90 seconds later. A worker that did
+returns one row per expected worker. Collecting worker answers is bounded by 90
+seconds; the inventory lookup (up to 5 seconds), the mesh connection and the
+publish flushes come on top of that. A worker that did
 not answer keeps a `no answer` row; a missing answer is never a refusal. If the
 inventory is unavailable, a `worker inventory` row says so. The rollout stops
 in the first region only when the first host and every expected worker
 explicitly return the same candidate preflight refusal.
 
-A first host that accepted the candidate (`installed` or `current`) always has
-its release health checked before the next region, whatever its workers
-answered. A first host that refused is not health-checked; its region's
-refusals are reported and, unless one is an integrity refusal or the refusal is
-unanimous, the next region proceeds.
+A first host that accepted the candidate (`installed` or `current`) has its
+release health checked before the next region when every refusal in its region
+is a host prerequisite or a damaged fence. When a worker returns an integrity
+refusal or a refusal of an unknown or absent kind, the region fails at once
+without that health check and every later region is skipped. A first host that
+refused is not health-checked; its region's refusals are reported and, unless
+one is an integrity refusal or the refusal is unanimous, the next region
+proceeds.
+
+A region's first host is serving the candidate when its version answer names
+the candidate's revision and one of the release's binary digests, and it is not
+on probation. A rollback of the candidate is checked first, so another build of
+the same commit that rolled back is never reported as serving. A host running a
+build from before this release sends no digest; for that host serving is
+confirmed by revision only and the result line says so in `revision_only`.
+
+### Repair push
+
+Before anything is sent, the pusher asks each region's first host for its
+version and health, and an ordinary push stops when any first host reports a
+health error. If a release caused that error, the release that fixes it could
+never be pushed. `ts-orch release push ... --repair-unhealthy-fleet` is for that
+case only: it skips the initial health check of each first host that answered
+its version request on its pinned, authenticated listener and reported a health
+error. A first host that does not answer its version request still fails the
+push. Each skipped host gets a line with state `repair_skipped_health` and its
+health text before any release is sent, and its region's result carries the
+same text in `repair`. Every later gate is unchanged: after each region's first
+host installs, the push waits for its health and stops before the next region if
+it does not become healthy. The flag is never a default and no other flag sets
+it; use it only to push a fix for a health error that a release caused.
 
 ## Updater records
 
@@ -45,8 +80,8 @@ the state directory; the previous binary sits beside the executable.
 | File | Contents | Absent | Damaged |
 | --- | --- | --- | --- |
 | `<binary>.prev` | Hard link to the binary that was installed before the candidate. | No rollback target: a rollback that needs it leaves the candidate unconfirmed. | Not the build named in the trial: never restored; the candidate stays unconfirmed. |
-| `nats/release-trial` | JSON object: `sha`, `run_id`, `installed`, `starts`; this release adds `sha256`, `previous` (revision and digest of `.prev`) and `failure`. | No probation. | The agent keeps serving, reports `unconfirmed`, does not adopt the embedded node list and never rewrites the file; a replacement install moves it to `release-trial.damaged`. |
-| `nats/release-run-id` | Decimal run id of the newest staged release. | Any run is accepted. | Every run is refused as `host_prerequisite` and the file is left as it is until it is repaired. |
+| `nats/release-trial` | JSON object: `sha`, `run_id`, `installed`, `starts`; this release adds `sha256`, `previous` (revision and digest of `.prev`) and `failure`. | No probation, unless a rollback record names the running binary (see Probation). | The agent keeps serving, reports `unconfirmed`, does not adopt the embedded node list and never rewrites the file; a replacement install first hard-links it to the first free name of `release-trial.damaged`, `release-trial.damaged.1`, ... and then writes its own trial over it, so the trial is never absent and no archive is overwritten. |
+| `nats/release-run-id` | Decimal run id of the newest staged release. | Any run is accepted. | Every different release is refused as `run_fence_damaged`, the refusal is saved in `release-attempt.json`, and the file is left as it is. To repair it, write the highest run id ever pushed to this host (the `run_id` of `release-trial` or `release-rolled-back` when either is present, otherwise the newest release run) as a decimal with no other text. |
 | `nats/release-rolled-back` | JSON object: `sha`, `run_id`, `reason`; this release adds `sha256`. | No rejected run. | Logged; no rejected run is known. |
 | `nats/release-attempt.json` | Last refusal of this host, with the identity of the binary installed at the time. | Nothing to report. | Nothing to report. |
 
@@ -66,56 +101,79 @@ continues, and rollback restores `<binary>.prev` as the previous updater would.
 The previous updater's fence refuses older runs here too.
 
 This release writes the same formats. The fields it adds are ignored by the
-previous updater, so a host rolled back to it reads the trial, the fence and the
-rollback record it understands: it refuses the rejected run and every older run
-and never reinstalls the rejected candidate. A later release may change the
-written format once every host runs a build that reads it.
+previous updater, so a host rolled back to it reads the fence and the rollback
+record it understands: it refuses the rejected run and every older run and
+never reinstalls the rejected candidate. The previous updater names a trial by
+revision only. This release never leaves a trial behind for a binary that is not
+installed: a staging that fails before the binary rename removes its trial, and
+a start that finds a trial naming another binary removes it, so the previous
+updater never counts starts on a trial for another build of its own commit. A
+later release may change the written format once every host runs a build that
+reads it.
 
 ### Install and commit point
 
 | Step | Failure before the binary rename | After the binary rename |
 | --- | --- | --- |
 | Download, digest verification, candidate preflight, candidate identity check | Refuse; nothing staged. | Not reached. |
-| Write the trial, then the run fence (each through a temporary file, file sync, rename and directory sync); remove the rollback record; link `<binary>.prev` and sync its directory | Refuse; a trial for a binary that never became installed is inert, and the fence only rises, so the same run may retry. | Already complete. |
+| Write the trial, then the run fence (each through a temporary file, file sync, rename and directory sync); remove the rollback record; link `<binary>.prev` and sync its directory | Refuse and remove the trial just written; the fence only rises, so the same run may retry. A crash here leaves the trial, and the next start removes it because it names a binary that is not running. | Already complete. |
 | Rename the candidate over the executable | Refuse. | **Commit point: the answer is `installed`.** |
 | Sync the binary directory; collect worker replies; deliver and flush the reply; request restart | Not reached. | Each is best effort with a WARN; none changes the installed answer. |
 
 The fence and `.prev` are durable before the rename, so a crash at any point
 leaves either the previous binary with its records or the candidate with its
-trial, fence and rollback target. A request is `current` only when the
-installed binary has the release's revision and digest; another build of the
-same commit is installed like any other release. The old agent exits at most
-100 seconds after commit (90 seconds for worker collection plus 10 seconds for
-reply and exit), and within one second after the reply path; the service
-manager starts the candidate.
+trial, fence and rollback target. Staging and the rename hold the same lock as
+probation confirmation and the probation deadline. A request is `current` only
+when the installed binary has the release's revision and digest; another build
+of the same commit is installed like any other release. After the reply the
+agent runs its ordinary shutdown (up to 30 seconds, closing edge connections in
+order) and the service manager starts the candidate. A watchdog armed at the
+commit ends the old process 3 minutes after the commit if that shutdown is
+stuck; it takes no lock. If the restart notification cannot be delivered, the
+old process exits at once.
 
 ### Probation
 
-Startup calls `Probe` before anything that can crash, then `NewHandler`, then
-`Served` once the agent is ready; both entry points share one result per state
-directory and process. The running binary's identity (revision and SHA-256 of
+Startup calls `Probe` before anything that can crash and later `NewHandler`;
+both share one result per state directory and process. The release listener is
+subscribed before startup calls `Served` once the agent is ready, so a release
+can arrive and stage its trial before this start is confirmed. The running binary's identity (revision and SHA-256 of
 one open file) is read once at start; the installed path is hashed again only
-when its size, modification time or inode changes. A trial naming another
-binary is inert.
+when its size, modification time or inode changes. An in-place rewrite that
+keeps size, modification time and inode is not detected; the updater itself
+only ever renames files into place. A trial naming another binary is removed at
+start; when a rollback record names that trial, the binary directory is synced
+first and the trial is kept if the sync fails.
 
 Each start of the candidate before serving adds one to `starts` and saves it
-before continuing. The third start rolls back. If the count cannot be saved,
-that start rolls back at once, so a trial can never run unbounded. Within one
-process, a candidate that does not serve within two minutes of its start rolls
-back; no stored wall-clock time is compared with the current time, so a clock
-step neither shortens nor extends probation.
+before continuing. The third start rolls back. A failure of the updater's own
+bookkeeping is never evidence against the candidate: if the count cannot be
+saved, that start is not counted, the candidate keeps running and reports
+`unconfirmed` (with the reason) in version and health replies until a start
+whose count is saved serves. Within one process, a candidate that does not
+serve within two minutes of its start rolls back, counted or not; no stored
+wall-clock time is compared with the current time, so a clock step neither
+shortens nor extends probation. On a host whose state directory cannot be
+written, a crash-looping candidate is therefore bounded only by that two-minute
+deadline of each start and by the service manager, and the host shows as
+unconfirmed until its disk works.
 
 Rollback checks that `.prev` is the build recorded in the trial (when the trial
 records one), writes the rollback record, renames `.prev` over the candidate,
 syncs the directory and exits so the service manager starts the restored
-binary. A start that finds a rollback record naming its own trial completes that
-rollback. If `.prev` is missing, of another build or cannot be renamed, the
+binary. The trial is removed only after that directory sync succeeds. A start
+that finds a rollback record naming its own trial, or a rollback record naming
+the running binary when no trial is left (the rename was lost but the trial's
+removal persisted), completes that rollback. If `.prev` is missing, of another build or cannot be renamed, the
 candidate keeps serving, the trial keeps the failure, no rollback record is
 left, and the agent reports `unconfirmed` in version and health replies.
 
-`Served` removes the trial and syncs its directory before it reports the
-release confirmed; if either fails it reports not confirmed and the next start
-counts again. An unconfirmed host is not a rollout barrier: rollout preflight
+`Served` holds the installation lock, reads the trial again and removes it,
+syncing its directory, only if it still names the running binary (revision,
+digest and run); a trial a replacement staged meanwhile is left untouched. The
+release is reported confirmed only after the removal is durable; if it fails,
+version and health replies report `unconfirmed` and the next start counts
+again. An unconfirmed host is not a rollout barrier: rollout preflight
 admits it when its health is otherwise `ok`, the region's result line carries
 the reason in `unconfirmed`, and a replacement release installs over it. A
 release that becomes unconfirmed during its own rollout fails that rollout.
@@ -144,7 +202,10 @@ record, the rollback rename and the confirmation, and fails each staging
 syscall; after every case it starts the binary on disk through `Probe`,
 `NewHandler` and `Served` and asserts the state it reaches before retrying. It
 also covers damaged trials and fences, refusals, worker silence, a broken first
-host with a refusing worker, and a replacement reaching an unconfirmed host.
+host with a refusing worker, a replacement reaching an unconfirmed host, an
+uncounted start, a busy candidate at exec, an unfinished rollback, a repair
+push, two builds of one commit, a pre-digest host and a slow shutdown after
+commit.
 These lanes run outside the agent's unit sandbox; the first real rollout
 confirms execution under that unit.
 

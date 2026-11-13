@@ -28,8 +28,10 @@ func Check(ctx context.Context, binary string) error {
 	}
 	output := &boundedOutput{}
 	command.Stdout, command.Stderr = output, output
-	err := command.Run()
-	if err != nil {
+	if err := command.Start(); err != nil {
+		return fmt.Errorf("release preflight: %w", err)
+	}
+	if err := command.Wait(); err != nil {
 		return errors.New(Scrub(fmt.Sprintf("release preflight: %v: %s", errors.Join(ctx.Err(), err), output.text())))
 	}
 	return nil

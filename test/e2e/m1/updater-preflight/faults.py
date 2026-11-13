@@ -180,6 +180,7 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
         committed = False
         committing = set()
         kill_after = set()
+        busy = None
         while live:
             try:
                 pid, status = os.waitpid(-1, 0x40000000)
@@ -271,7 +272,16 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
                             and re.fullmatch(pattern, relative)
                         ):
                             hits += 1
-                            if hits == occurrence and outcome == "crash-after":
+                            if outcome == "busy":
+                                if hits == occurrence:
+                                    busy = (
+                                        os.open(work + relative, os.O_WRONLY),
+                                        time.monotonic(),
+                                    )
+                                elif busy and time.monotonic() - busy[1] > 0.3:
+                                    os.close(busy[0])
+                                    busy = None
+                            elif hits == occurrence and outcome == "crash-after":
                                 kill_after.add(pid)
                             elif hits == occurrence and outcome == "crash":
                                 for traced in live:
@@ -310,6 +320,9 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
                 )
             except ProcessLookupError:
                 continue
+        if busy:
+            os.close(busy[0])
+            raise RuntimeError(f"{step}: candidate exec was never retried")
         returncode = os.waitstatus_to_exitcode(root_status)
         log.seek(0)
         output = log.read().decode(errors="replace")
@@ -318,7 +331,7 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
             raise RuntimeError(
                 f"{step}: exit {returncode}, hits {hits}/{occurrence}\n{output[-5000:]}"
             )
-        if expect not in output:
+        if not re.search(expect, output):
             raise RuntimeError(f"{step}: missing {expect!r}\n{output[-5000:]}")
         if outcome == "persistent":
             for warning in (
@@ -375,6 +388,7 @@ precommit = []
 for call in ("open", "write", "chmod", "fsync", "close"):
     precommit.append(("candidate-" + call, call, r"/installed.next", 1))
 precommit.append(("preflight-exec", "exec", r"/installed.next", 1))
+busy_exec = ("preflight-busy", "commit-case", "exec", r"/installed.next", 1, "busy", "commit", "traced install: installed")
 for index, record in enumerate(("trial", "run-id"), 1):
     for call in ("open", "write", "fsync", "close"):
         precommit.append((record + "-" + call, call, r"/nats/.release-.*", index))
@@ -391,6 +405,7 @@ cases = [
     for name, call, pattern, n in precommit
 ]
 cases += [
+    busy_exec,
     ("binary-directory-open", "commit-case", "open", "", 2, "installed", "commit", "traced install: installed"),
     ("binary-directory-sync", "commit-case", "fsync", "", 2, "installed", "commit", "binary rename durability"),
     ("all-postcommit", "commit-case", "persistent", ".*", 1, "persistent", "commit", ""),
@@ -420,8 +435,18 @@ for outcome in ("crash", "crash-after"):
 cases += [
     ("crash-confirm-unlink", "confirm-case", "unlink", "/nats/release-trial", 1, "crash", "confirm", ""),
     ("crash-after-confirm-unlink", "confirm-case", "unlink", "/nats/release-trial", 1, "crash-after", "confirm", ""),
-    ("confirm-sync", "confirm-case", "fsync", r"/nats", 2, "eio", "confirm", '"served":false'),
-    ("start-counter-write", "confirm-case", "rename", "/nats/release-trial", 1, "eio", "rollback", "START rolled-back"),
+    ("confirm-sync", "confirm-case", "fsync", r"/nats", 2, "eio", "confirm", '"served":false,"after":"unconfirmed"'),
+    (
+        "start-counter-write",
+        "confirm-case",
+        "rename",
+        "/nats/release-trial",
+        1,
+        "eio",
+        "confirm",
+        '"state":"unconfirmed","error":"start count not saved[^"]*","rolled_back":"","health_state":"unconfirmed","served":false,"after":"unconfirmed"',
+    ),
+    ("rollback-directory-sync", "rollback-case", "fsync", "", 1, "eio", "rollback", "START rolled-back"),
 ]
 
 

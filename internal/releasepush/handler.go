@@ -48,6 +48,8 @@ const (
 
 const (
 	HandlerWait          = 25 * time.Minute
+	shutdownWatchdog     = WorkerReplyWait + 90*time.Second
+	textBusyWait         = 5 * time.Second
 	healthHandlerBudget  = 5 * time.Second
 	healthRequestTimeout = 8 * time.Second
 )
@@ -86,6 +88,7 @@ type Reply struct {
 
 	State   string `json:"state,omitempty"` // current, installed, stale, rolled_back, rejected; done, failed for mesh
 	Version string `json:"version,omitempty"`
+	SHA256  string `json:"sha256,omitempty"`
 	Health  string `json:"health,omitempty"`
 	Error   string `json:"error,omitempty"`
 	// RolledBack is the release this host restored <binary>.prev over; Error says why.
@@ -125,7 +128,8 @@ type Handler struct {
 	Verifier  *Verifier
 	// Revision is the running build's vcs.revision.
 	Revision string
-	// Binary is the installed executable that a release replaces.
+	// Digest is the running build's vcs sha256.
+	Digest        string
 	Binary        string
 	runningBinary string
 	// RunIDFile records the installed release's GitHub run_id; an older run is refused.
@@ -161,6 +165,11 @@ func NewHandler(state string) (*Handler, error) {
 		return nil, err
 	}
 	h.probation = probation
+	if running, err := binaryIdentity(binary); err == nil {
+		h.Digest = running.SHA256
+	} else {
+		slog.Warn("running binary digest unavailable", "error", err)
+	}
 	rolledBack, err := readRollback(h.RollbackFile)
 	if err != nil {
 		slog.Warn("release rollback record unreadable", "error", err)
@@ -241,11 +250,11 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 					if err := conn.FlushTimeout(5 * time.Second); err != nil {
 						slog.Warn("release installed; reply flush failed", "error", err)
 					}
-					h.exitAfter(time.Second)
 					select {
 					case h.Installed <- struct{}{}:
 					default:
 						slog.Warn("release restart notification not delivered")
+						h.exitAfter(0)
 					}
 				}
 
@@ -260,7 +269,7 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }
 
 func (h *Handler) version() Reply {
-	reply := Reply{Version: h.Revision, NodeList: h.NodeList.Status()}
+	reply := Reply{Version: h.Revision, SHA256: h.Digest, NodeList: h.NodeList.Status()}
 	reply.State, reply.Error = h.probation.status()
 	if rollback := h.rolledBack.Load(); rollback != nil {
 		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason
@@ -336,7 +345,17 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 		return Reply{State: "rolled_back", Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason}
 	}
 	if stale, err := h.olderRun(claims.RunID); err != nil {
-		return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
+		kind := RefusalHost
+		var damaged *fenceError
+		if errors.As(err, &damaged) {
+			kind = RefusalFence
+		}
+		reply = refusalReply(kind, release.SHA, binary.SHA256, claims, err)
+		attempt := *reply.Refusal
+		if err := h.recordAttempt(&attempt); err != nil {
+			slog.Warn("release refusal diagnostic not saved", "error", err)
+		}
+		return reply
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
@@ -400,7 +419,7 @@ func (h *Handler) olderRun(runID string) (bool, error) {
 	}
 	installed, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
 	if err != nil {
-		return true, fmt.Errorf("run fence damaged; every run is refused until it is repaired: %w", err)
+		return true, &fenceError{fmt.Errorf("run fence damaged; every run is refused until it is repaired: %w", err)}
 	}
 	next, _ := strconv.ParseUint(runID, 10, 64)
 	return next < installed, nil
@@ -419,8 +438,8 @@ func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims
 	if err := writeSynced(next, data); err != nil {
 		return err
 	}
-	if err := secretpreflight.Check(ctx, next); err != nil {
-		return &preflightError{err}
+	if err := preflight(ctx, next); err != nil {
+		return err
 	}
 	candidate, err := binaryIdentity(next)
 	if err != nil {
@@ -429,17 +448,40 @@ func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims
 	if candidate.SHA != sha || candidate.SHA256 != binary.SHA256 {
 		return &integrityError{errors.New("candidate revision or digest differs from signed release")}
 	}
+	unlock := h.probation.lockInstall()
+	defer unlock()
 	if err := h.stage(candidate, claims.RunID); err != nil {
-		return err
+		return errors.Join(err, h.unstage(candidate, claims.RunID))
 	}
 	if err := os.Rename(next, h.Binary); err != nil {
-		return err
+		return errors.Join(err, h.unstage(candidate, claims.RunID))
 	}
-	h.exitOnce.Do(func() { h.exitAfter(WorkerReplyWait + 10*time.Second) })
+	h.exitOnce.Do(func() { h.exitAfter(shutdownWatchdog) })
 	if err := syncDirectory(filepath.Dir(h.Binary)); err != nil {
 		slog.Warn("release installed; binary rename durability not confirmed", "error", err)
 	}
 	return nil
+}
+
+func preflight(ctx context.Context, candidate string) error {
+	busySince := time.Now()
+	for {
+		err := secretpreflight.Check(ctx, candidate)
+		if !errors.Is(err, syscall.ETXTBSY) {
+			if err != nil {
+				return &preflightError{err}
+			}
+			return nil
+		}
+		if time.Since(busySince) >= textBusyWait {
+			return fmt.Errorf("candidate still open for writing by another process after %s: %w", textBusyWait, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
 }
 
 var downloadStall = 30 * time.Second
@@ -482,8 +524,6 @@ func (p progress) Read(b []byte) (int, error) {
 }
 
 func writeSynced(path string, data []byte) error {
-	syscall.ForkLock.RLock()
-	defer syscall.ForkLock.RUnlock()
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
 		return err
