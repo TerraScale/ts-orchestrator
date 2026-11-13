@@ -291,7 +291,8 @@ func start(cfg config) (_ *Node, err error) {
 				if result.fresh() {
 					state.Ready[name] = result.Generation
 				} else {
-					delete(state.Serving, name)
+					result.Serving = false
+					state.Serving[name] = result
 				}
 			}
 			node.bakeState(&state)
