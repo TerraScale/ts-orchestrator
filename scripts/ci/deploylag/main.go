@@ -200,7 +200,6 @@ walk:
 		if err != nil {
 			return nil, err
 		}
-		matched := false
 		for _, job := range jobs {
 			matches := job.JobID == x.jobID
 			if job.JobID == "" {
@@ -209,7 +208,6 @@ walk:
 			if !matches {
 				continue
 			}
-			matched = true
 			var published time.Time
 			var publishes bool
 			released := "missing"
@@ -244,9 +242,6 @@ walk:
 				finding = fmt.Sprintf("- %s: image of %s main run %s published %s ago, release: %s",
 					x.service, x.repo, run.HTMLURL, now.Sub(published).Round(time.Minute), released)
 			}
-		}
-		if !matched && run.Conclusion == "success" && unread == "" {
-			unread = fmt.Sprintf("- %s: successful run %s has no current release job or publication step", x.service, run.HTMLURL)
 		}
 	}
 	return slices.DeleteFunc([]string{unread, finding}, func(s string) bool { return s == "" }), nil
@@ -352,7 +347,7 @@ func run(ctx context.Context, a api, now func() time.Time, notify bool) error {
 	}
 	held, err := a.terrabase(ctx)
 	if err != nil {
-		fmt.Println("terrabase held: manual release history unavailable:", err)
+		held = []string{"- terrabase: manual release history unavailable: " + err.Error()}
 	}
 	findings = append(findings, held...)
 	for _, x := range apps {
