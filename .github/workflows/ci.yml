@@ -63,6 +63,8 @@ jobs:
         with:
           path: ~/.cache/ts-m1-runtime
           key: m1-runtime-${{ runner.arch }}-${{ hashFiles('deploy/m1/host-runtime.sh', 'internal/netbird/manager/server_cli.go', 'deploy/m1/install.sh') }}
+      - name: Disable swap for protected runtime files
+        run: sudo swapoff --all
       - name: Verify operator fleet contracts
         run: |
           go run ./test/e2e/m1/operator-truth

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/alertdelivery"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 func must(err error) {
@@ -120,6 +121,10 @@ func main() {
 	}
 	http.DefaultTransport = transport
 	defer transport.CloseIdleConnections()
+	disk, err := os.MkdirTemp("", "not-tmpfs-")
+	must(err)
+	defer os.RemoveAll(disk)
+	require(vaultsecret.RequireMemoryFilesystem(disk) != nil, "non-tmpfs directory must be refused")
 	must(alertdelivery.Run(ctx, []string{"prepare"}))
 	require(len(seen) == 3, "preparation must read all three approved secrets")
 	account, err := user.Lookup("ts-alerts")
