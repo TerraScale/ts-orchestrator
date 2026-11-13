@@ -49,6 +49,7 @@ jobs:
           - {lane: nodelist, entry: nodelist.sh, timeout: 8, packages: "./test/e2e/m1/nodelist"}
           - {lane: restarts, entry: restarts.sh, timeout: 8}
           - {lane: rollback, entry: rollback.sh, timeout: 8}
+          - {lane: monitoring, entry: monitoring.sh, timeout: 8, packages: "./test/e2e/m1/monitoring"}
           - {lane: boot-order, entry: boot-order.sh, timeout: 8, packages: "./test/e2e/m1/boot-order"}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
     name: e2e-m1 / ${{ matrix.lane }}

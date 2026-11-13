@@ -225,6 +225,9 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 	if err != nil {
 		return nil, err
 	}
+	if runtime, ok := executor.(*Executor); ok {
+		runtime.BindSLOAgent(upstream.Agent)
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	if err := upstream.Start(runCtx); err != nil {
 		cancel()

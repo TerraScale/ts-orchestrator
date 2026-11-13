@@ -40,6 +40,7 @@ const HostContainerdSocket = "/run/containerd/containerd.sock"
 
 // Executor translates upstream SwarmKit tasks directly into containerd objects.
 type Executor struct {
+	slo            sloCache
 	bootstrap      *rolloutmaintenance.Store
 	bootstrapTasks map[string]*controller
 	// bootstrapLive reports whether a task has a runtime process; nil uses containerd.
