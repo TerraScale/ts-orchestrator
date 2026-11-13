@@ -74,3 +74,41 @@ a nonempty, valid peers generation containing that host at its current address.
 The writer recreates `/run/ts-orch/peers` from the durable admitted topology once
 the interface exists. It never publishes a partial generation. A plain agent
 restart leaves running tasks in containerd.
+
+The cluster stores the declared dependencies with each service. Inspection
+preserves omission, an explicit peers list and an explicit empty list, and
+excludes the three task environment variables set by the orchestrator.
+Configuration rolls preserve the inspected declaration.
+
+After causal generation and rollback ordering, equal-generation declarations
+with a dependencies field rank above declarations without it. Within either
+group, deterministic encoded bytes break ties. This is a fixed total order:
+merging selects its maximum regardless of arrival order, so a stripped copy
+cannot replace a retained explicit list or make the selection flap. An older
+binary does not know this rule and can still drop the field; apply the new
+declaration only after every mesh node runs the release that understands it.
+
+After installing that release:
+
+1. Verify every mesh node runs it.
+2. Read the management service with `ts-orch service inspect netbird-server`.
+   Carry its current `TS_ORCH_NETBIRD_CONFIG_SHA256` environment value and
+   configuration into the management declaration, set `dependencies: []`,
+   retain its management region placement, and apply it with
+   `ts-orch service apply -f <declaration.json>`:
+
+   ```sh
+   sudo ts-orch service inspect netbird-server |
+     jq '.spec | .regions = ["gru"] | .dependencies = []' > netbird-server.json
+   sudo ts-orch service apply -f netbird-server.json
+   ```
+
+3. On every mesh node, check the management entry in
+   `/var/lib/ts-orch/mesh/desired.json` has `"dependencies":[]` and the
+   expected configuration digest. Check again after a minute; both must remain.
+4. Reboot a host without the management service and verify recovery and its
+   peers view. Then reboot the management host and verify the management
+   service, mesh interface and dependent services recover in that order.
+
+A host without the management service that reboots while the management host
+is down waits for that host to return.

@@ -127,6 +127,11 @@ func InspectService(service *api.Service) (ServiceInspection, error) {
 	labels := service.Spec.Annotations.Labels
 	spec := ServiceSpec{Name: service.Spec.Annotations.Name, Image: container.Image, Args: container.Args,
 		ReadyPath: labels[LabelReadyPath], Hostnames: splitLabel(labels[LabelHostnames])}
+	if dependencies, exists := labels[LabelDependencies]; exists {
+		if err := jsonv1.Unmarshal([]byte(dependencies), &spec.Dependencies); err != nil {
+			return ServiceInspection{}, fmt.Errorf("decode %s: %w", LabelDependencies, err)
+		}
+	}
 	if seconds, err := strconv.ParseUint(labels[LabelReadyTimeout], 10, 32); err == nil {
 		spec.ReadyTimeoutSeconds = uint32(seconds)
 	}
@@ -143,10 +148,13 @@ func InspectService(service *api.Service) (ServiceInspection, error) {
 		spec.MilliCPU, spec.MemoryMiB = uint32(r.Reservations.NanoCPUs/1_000_000), uint32(r.Reservations.MemoryBytes>>20)
 	}
 	for _, entry := range container.Env {
+		key, value, _ := strings.Cut(entry, "=")
+		if slices.Contains(peersEnv, key) {
+			continue
+		}
 		if spec.Env == nil {
 			spec.Env = map[string]string{}
 		}
-		key, value, _ := strings.Cut(entry, "=")
 		spec.Env[key] = value
 	}
 	for _, m := range container.Mounts {

@@ -30,7 +30,7 @@ func reconcileServerConfig(ctx context.Context, config []byte) error {
 	if err != nil {
 		return fmt.Errorf("inspect NetBird server config generation: %w", err)
 	}
-	spec, changed, err := serverConfigSpec(wire, config)
+	spec, changed, err := ServerConfigSpec(wire, config)
 	if err != nil || !changed {
 		return err
 	}
@@ -43,7 +43,7 @@ func reconcileServerConfig(ctx context.Context, config []byte) error {
 	return nil
 }
 
-func serverConfigSpec(inspection, config []byte) ([]byte, bool, error) {
+func ServerConfigSpec(inspection, config []byte) ([]byte, bool, error) {
 	var service struct {
 		Spec map[string]jsontext.Value `json:"spec"`
 	}

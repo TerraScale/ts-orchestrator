@@ -1,5 +1,4 @@
 {
-  "dependencies": ["peers"],
   "name": "whoami",
   "image": "docker.io/traefik/whoami@sha256:c2c89736959e8830c3db090e2f54500499ceb0460267f91dce494728d7327770",
   "env": {"WHOAMI_PORT_NUMBER": "8099"},

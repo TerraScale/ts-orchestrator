@@ -375,9 +375,10 @@ func serviceIntentFingerprint(spec *api.ServiceSpec) (string, error) {
 // Labels the single-host edge (hostnames) and secret injection (secrets) read
 // from a spec-owned service; the probe reads LabelReadyPath.
 const (
-	LabelServiceSpec = "terrascale.service-spec"
-	LabelHostnames   = "terrascale.hostnames"
-	LabelSecrets     = "terrascale.secrets"
+	LabelServiceSpec  = "terrascale.service-spec"
+	LabelDependencies = "terrascale.dependencies"
+	LabelHostnames    = "terrascale.hostnames"
+	LabelSecrets      = "terrascale.secrets"
 	// LabelSecretRefs maps each LabelSecrets key to its OCI Vault secret (JSON object of vaultsecret.Ref).
 	LabelSecretRefs = "terrascale.secret-refs"
 	// LabelGeneration is the mesh desired-state generation the service runs.
@@ -553,6 +554,13 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		return nil, err
 	}
 	labels := map[string]string{LabelServiceSpec: s.Name, LabelReadyPath: readyPath}
+	if s.Dependencies != nil {
+		dependencies, err := json.Marshal(s.Dependencies)
+		if err != nil {
+			return nil, err
+		}
+		labels[LabelDependencies] = string(dependencies)
+	}
 	for key, deployment := range map[string]*Deployment{LabelDeployment: s.Deployment, LabelDeploymentFloor: s.DeploymentFloor} {
 		if deployment != nil {
 			data, err := json.Marshal(deployment)

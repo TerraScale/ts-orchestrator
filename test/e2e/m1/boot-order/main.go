@@ -3,10 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -23,6 +24,7 @@ import (
 	"github.com/containerd/errdefs"
 	"github.com/fsnotify/fsnotify"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/nats-io/nats.go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,7 +45,11 @@ func main() {
 	case "workload":
 		err = workload(ctx)
 	case "lane":
-		err = lane(ctx, os.Args[2])
+		if len(os.Args) != 4 || os.Args[3] != "management" && os.Args[3] != "peer" {
+			err = errors.New("lane needs a management or peer host")
+		} else {
+			err = lane(ctx, os.Args[2], os.Args[3] == "management")
+		}
 	default:
 		err = errors.New("unknown journey operation")
 	}
@@ -80,7 +86,24 @@ func workload(ctx context.Context) error {
 	return err
 }
 
+type bootLog struct {
+	slog.Handler
+}
+
+func (h bootLog) Handle(ctx context.Context, record slog.Record) error {
+	if record.Message == "mesh peers file track failed" {
+		record.Attrs(func(attr slog.Attr) bool {
+			if attr.Key == "error" && strings.Contains(attr.Value.String(), "own NetBird address") {
+				fmt.Println("mesh-track-missing")
+			}
+			return true
+		})
+	}
+	return h.Handler.Handle(ctx, record)
+}
+
 func agent(ctx context.Context, state string) error {
+	slog.SetDefault(slog.New(bootLog{slog.NewTextHandler(os.Stderr, nil)}))
 	executor, err := swarmruntime.NewExecutor(filepath.Join(filepath.Dir(state), "containerd.sock"), state)
 	if err != nil {
 		return err
@@ -113,6 +136,7 @@ func agent(ctx context.Context, state string) error {
 			failure <- err
 			return
 		}
+		fmt.Println("mesh-ready")
 		started <- meshNode
 		meshNode.Run(ctx)
 	}()
@@ -168,6 +192,7 @@ func awaitFile(ctx context.Context, file string) error {
 
 type process struct {
 	cmd     *exec.Cmd
+	output  *bufio.Scanner
 	input   io.WriteCloser
 	events  api.Watch_WatchClient
 	control api.ControlClient
@@ -192,8 +217,8 @@ func startAgent(ctx context.Context, state, executable string) (*process, error)
 		return nil, err
 	}
 	p := &process{cmd: cmd, input: input, ctx: ctx}
-	ready := bufio.NewScanner(output)
-	if !ready.Scan() || ready.Text() != "ready" {
+	p.output = bufio.NewScanner(output)
+	if !p.output.Scan() || p.output.Text() != "ready" {
 		p.stop()
 		return nil, errors.New("agent did not become ready")
 	}
@@ -227,6 +252,24 @@ func startAgent(ctx context.Context, state, executable string) (*process, error)
 	return p, nil
 }
 
+func (p *process) mesh(state string, missing bool) (*nats.Conn, error) {
+	fmt.Fprintln(p.input, "mesh")
+	for _, want := range []string{"mesh-ready", "mesh-track-missing"} {
+		if want == "mesh-track-missing" && !missing {
+			break
+		}
+		for {
+			if !p.output.Scan() {
+				return nil, fmt.Errorf("agent stopped before %s", want)
+			}
+			if p.output.Text() == want {
+				break
+			}
+		}
+	}
+	return mesh.Connect(state)
+}
+
 func (p *process) stop() {
 	if p.runtime != nil {
 		_ = p.runtime.Close()
@@ -240,6 +283,14 @@ func (p *process) stop() {
 }
 
 func (p *process) until(check func(*api.Task) (bool, error)) error {
+	services, err := p.control.ListServices(p.ctx, &api.ListServicesRequest{})
+	if err != nil {
+		return err
+	}
+	generations := map[string]string{}
+	for _, service := range services.Services {
+		generations[service.ID] = service.Spec.Annotations.Labels[swarmruntime.LabelGeneration]
+	}
 	for {
 		tasks := p.initial
 		p.initial = nil
@@ -255,6 +306,9 @@ func (p *process) until(check func(*api.Task) (bool, error)) error {
 			}
 		}
 		for _, task := range tasks {
+			if generation, exists := generations[task.ServiceID]; exists && task.ServiceAnnotations.Labels[swarmruntime.LabelGeneration] != generation {
+				continue
+			}
 			if task.Status.State == api.TaskStateRunning {
 				ctr, err := p.runtime.LoadContainer(p.ctx, "ts-"+task.ID)
 				if errdefs.IsNotFound(err) {
@@ -288,11 +342,11 @@ func (p *process) until(check func(*api.Task) (bool, error)) error {
 func running(ctx context.Context, p *process, management bool) error {
 	want := map[string]bool{"boot-peer": false, "boot-default": false}
 	if management {
-		want["boot-management"] = false
+		want["netbird-server"] = false
 	}
 	return p.until(func(task *api.Task) (bool, error) {
 		name := task.ServiceAnnotations.Labels[swarmruntime.LabelServiceSpec]
-		if task.Status.State == api.TaskStateRejected && name == "boot-management" {
+		if task.Status.State == api.TaskStateRejected && name == "netbird-server" && task.ServiceAnnotations.Labels[swarmruntime.LabelDependencies] == "[]" {
 			return false, fmt.Errorf("management rejected without mesh: %s", task.Status.Err)
 		}
 		if task.Status.State == api.TaskStateRunning {
@@ -307,7 +361,7 @@ func running(ctx context.Context, p *process, management bool) error {
 	})
 }
 
-func desired(state, image, expected string, management bool) error {
+func desired(state, image string, management bool) error {
 	entries := map[string]any{}
 	for _, role := range []string{"management", "peer", "default"} {
 		if role == "management" && !management {
@@ -328,10 +382,14 @@ func desired(state, image, expected string, management bool) error {
 			"env": map[string]string{"ROLE": workloadRole, "LISTEN_PORT": fmt.Sprint(port)}}
 		if role == "peer" {
 			spec["dependencies"] = []string{"peers"}
-		} else if role == "management" {
-			spec["dependencies"] = []string{}
 		}
-		entries["boot-"+role] = map[string]any{"generation": 1, "spec": spec}
+		name := "boot-" + role
+		if role == "management" {
+			name = "netbird-server"
+			spec["name"] = name
+			spec["env"].(map[string]string)["TS_ORCH_NETBIRD_CONFIG_SHA256"] = "existing-config"
+		}
+		entries[name] = map[string]any{"generation": 1, "spec": spec}
 	}
 	data, err := json.Marshal(entries)
 	if err != nil {
@@ -343,7 +401,7 @@ func desired(state, image, expected string, management bool) error {
 	return os.WriteFile(filepath.Join(state, "mesh", "desired.json"), data, 0600)
 }
 
-func lane(ctx context.Context, root string) error {
+func lane(ctx context.Context, root string, management bool) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -386,13 +444,7 @@ func lane(ctx context.Context, root string) error {
 	if err != nil {
 		return err
 	}
-	for _, management := range []bool{true, false} {
-		if err := scenario(ctx, root, executable, ref, client, management); err != nil {
-			return err
-		}
-	}
-	fmt.Println("boot-order: management host and other host recovered; peers remained gated; running tasks survived agent restart")
-	return nil
+	return scenario(ctx, root, executable, ref, client, management)
 }
 
 func scenario(ctx context.Context, root, executable, ref string, client *containerd.Client, management bool) error {
@@ -402,7 +454,7 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 	}
 	defer command("ip", "link", "del", "wt0")
 	warm := "boot-host gru 100.100.0.1\n"
-	if err := desired(state, ref, warm, management); err != nil {
+	if err := desired(state, ref, management); err != nil {
 		return err
 	}
 	p, err := startAgent(ctx, state, executable)
@@ -414,9 +466,61 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 			p.stop()
 		}
 	}()
-	fmt.Fprintln(p.input, "mesh")
+	conn, err := p.mesh(state, false)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
 	if err := running(ctx, p, management); err != nil {
 		return err
+	}
+	if management {
+		p.stop()
+		p = nil
+		if err := stopTasks(ctx, client); err != nil {
+			return err
+		}
+		if err := os.RemoveAll("/run/ts-orch"); err != nil {
+			return err
+		}
+		if err := command("ip", "link", "del", "wt0"); err != nil {
+			return err
+		}
+		p, err = startAgent(ctx, state, executable)
+		if err != nil {
+			return err
+		}
+		conn.Close()
+		conn, err = p.mesh(state, true)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		if err := p.until(func(task *api.Task) (bool, error) {
+			if task.ServiceAnnotations.Labels[swarmruntime.LabelServiceSpec] != "netbird-server" {
+				return false, nil
+			}
+			if task.Status.State == api.TaskStateRunning {
+				return false, errors.New("old management declaration bypassed peers")
+			}
+			return task.Status.State == api.TaskStateRejected, nil
+		}); err != nil {
+			return err
+		}
+		old, err := inspection(ctx, p, "netbird-server")
+		if err != nil || old.Spec.Dependencies != nil {
+			return fmt.Errorf("old declaration lost its omitted dependencies: %w", err)
+		}
+		fmt.Println("boot-order: old stored declaration retained peers requirement after reboot")
+		if err := address("100.100.0.1"); err != nil {
+			return err
+		}
+		if err := running(ctx, p, true); err != nil {
+			return err
+		}
+		if err := upgrade(ctx, p, conn, state); err != nil {
+			return err
+		}
 	}
 	before, err := taskPIDs(ctx, client)
 	if err != nil {
@@ -453,9 +557,6 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 		return err
 	}
 	cold := "boot-host gru 100.100.0.2\n"
-	if err := desired(state, ref, cold, management); err != nil {
-		return err
-	}
 	p, err = startAgent(ctx, state, executable)
 	if err != nil {
 		return err
@@ -466,7 +567,7 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 			return false, errors.New("peer started before the mesh interface")
 		}
 		if management {
-			if name != "boot-management" {
+			if name != "netbird-server" {
 				return false, nil
 			}
 			if task.Status.State == api.TaskStateRejected {
@@ -507,7 +608,17 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 		}
 		fmt.Printf("boot-order: refused peers generation %q\n", bad)
 	}
-	fmt.Fprintln(p.input, "mesh")
+	if err := command("ip", "link", "del", "wt0"); err != nil {
+		return err
+	}
+	coldConn, err := p.mesh(state, true)
+	if err != nil {
+		return err
+	}
+	defer coldConn.Close()
+	if err := address("100.100.0.2"); err != nil {
+		return err
+	}
 	if err := running(ctx, p, false); err != nil {
 		return err
 	}
@@ -523,8 +634,8 @@ func scenario(ctx context.Context, root, executable, ref string, client *contain
 		}
 	}
 	fmt.Printf("boot-order: management=%t recovered with %q; explicit and default peers dependencies held\n", management, cold)
-	for _, name := range []string{"boot-management", "boot-peer", "boot-default"} {
-		if name == "boot-management" && !management {
+	for _, name := range []string{"netbird-server", "boot-peer", "boot-default"} {
+		if name == "netbird-server" && !management {
 			continue
 		}
 		if err := swarmruntime.RemoveServiceSpec(ctx, p.control, name); err != nil {
