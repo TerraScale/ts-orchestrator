@@ -18,8 +18,9 @@ secret name is refused. Unknown or repeated dependencies are refused.
 
 ## Peers file
 
-One line per region the service targets (own region included) whose node
-answered the last mesh ping round, sorted, `\n` terminated:
+One founder line per region the service targets (own region included), sorted
+by founder identity and `\n` terminated. Per-node services also list each
+region's fully joined workers, sorted by node, immediately after its founder:
 
 ```
 <node> <region> <netbird-ipv4>
@@ -41,6 +42,31 @@ answered the last mesh ping round, sorted, `\n` terminated:
   private mesh state, never seeded from `peers`. Missing replies do not
   authorize membership removal: incomplete generations are refused and the
   last complete file remains. An explicit desired `regions` change admits a drain.
+- Worker observations use the founder's two-round missed-reply grace. A
+  reported worker refreshes its address immediately. An omitted worker stays
+  through the first omission and leaves on the second consecutive omission.
+  At the five-second round interval this is nominally 5–10 seconds from a
+  removal becoming visible in replies, plus reply collection and scheduling.
+  A founder retained through a missed round keeps its worker lines too.
+  When an incomplete founder generation is refused, its admitted worker
+  observations survive so startup protection also covers its later return.
+- Ping replies carry the agent's `startedAt` timestamp. An empty worker list
+  from a founder less than 60 seconds old preserves the previous workers
+  without counting omissions until that founder reports a nonempty list or
+  reaches 60 seconds. The normal two-round grace then applies. A first
+  nonempty reply ends this startup protection for that start, so a subsequent
+  real removal does not wait for the remaining startup window.
+- Older readers ignore `startedAt` and retain their existing behavior. New
+  readers receiving an older reply without it apply the normal two-round
+  worker grace, without startup protection. Upgrading the receiving agent is
+  required for worker retention.
+- A removed or unreachable worker can remain listed during grace; listing is
+  membership information, not proof of availability or authority. Consumers
+  must still contact it and validate their own authority and readiness rules.
+  An unanswered request does not become a successful operation merely because
+  the destination is listed. Admitted founder identities and explicit service
+  region changes keep their existing admission checks. An unchanged file keeps
+  its mtime; changed generations still use atomic rename.
 - The own line needs the host's `wt0` IPv4. Peers-dependent services stay
   blocked until it exists. Tracking records the dependency before checking
   the interface, so the next peer observation can write its file.

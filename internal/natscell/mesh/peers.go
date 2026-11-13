@@ -27,6 +27,11 @@ const peersEvery = 5 * time.Second
 
 type peer struct{ node, address string }
 
+type workerObservation struct {
+	peers     []peer
+	startedAt time.Time
+}
+
 // peers keeps <root>/<service>/peers current for every service this node runs.
 type peers struct {
 	root, region, node string
@@ -41,9 +46,11 @@ type peers struct {
 	regions  []string
 	rejected map[string]int
 
-	worker  bool              // this node is a worker: its region's line is the founder's, its own is a worker line
-	workers map[string][]peer // region -> its founder's fully joined workers, sorted by node
-	perNode map[string]bool   // service -> runs on every joined node (PerNode), so its file lists the workers
+	worker       bool
+	workers      map[string][]peer
+	workerMissed map[string]map[string]int
+	workersReady map[string]time.Time
+	perNode      map[string]bool
 }
 
 // peersMissedRounds is how many ping rounds in a row a region must miss
@@ -113,14 +120,9 @@ func (p *peers) untrack(service string) error {
 	return os.RemoveAll(filepath.Join(p.root, service))
 }
 
-// observe takes the regions that answered a ping round (keeping the own line
-// while its address is known); a region that did not keeps its line until it
-// missed peersMissedRounds rounds in a row. It rewrites every tracked file
-// whose content changed.
-func (p *peers) observe(answered map[string]peer, workers map[string][]peer) error {
+func (p *peers) observe(answered map[string]peer, workers map[string]workerObservation) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.workers = workers
 	up := maps.Clone(answered)
 	if !p.worker {
 		if own, ok := p.up[p.region]; ok {
@@ -147,11 +149,63 @@ func (p *peers) observe(answered map[string]peer, workers map[string][]peer) err
 		}
 	}
 	p.up = up
+	p.observeWorkers(answered, workers)
 	var errs []error
 	for _, service := range slices.Sorted(maps.Keys(p.targets)) {
 		errs = append(errs, p.write(service))
 	}
 	return errors.Join(errs...)
+}
+
+func (p *peers) observeWorkers(answered map[string]peer, observations map[string]workerObservation) {
+	if p.workers == nil {
+		p.workers = map[string][]peer{}
+		p.workerMissed = map[string]map[string]int{}
+		p.workersReady = map[string]time.Time{}
+	}
+	for region := range p.workers {
+		if _, ok := p.up[region]; !ok {
+			if _, admitted := p.admitted[region]; admitted {
+				continue
+			}
+			delete(p.workers, region)
+			delete(p.workerMissed, region)
+			delete(p.workersReady, region)
+		}
+	}
+	for region := range answered {
+		observation := observations[region]
+		age := time.Since(observation.startedAt)
+		if len(observation.peers) == 0 && !observation.startedAt.IsZero() && age >= 0 && age < time.Minute &&
+			!p.workersReady[region].Equal(observation.startedAt) {
+			delete(p.workerMissed, region)
+			continue
+		}
+		if len(observation.peers) > 0 {
+			p.workersReady[region] = observation.startedAt
+		}
+		if p.workerMissed[region] == nil {
+			p.workerMissed[region] = map[string]int{}
+		}
+		missed := p.workerMissed[region]
+		next := map[string]peer{}
+		for _, at := range observation.peers {
+			next[at.node] = at
+			delete(missed, at.node)
+		}
+		for _, at := range p.workers[region] {
+			if _, ok := next[at.node]; ok {
+				continue
+			}
+			if missed[at.node]++; missed[at.node] < peersMissedRounds {
+				next[at.node] = at
+			} else {
+				delete(missed, at.node)
+			}
+		}
+		p.workers[region] = slices.Collect(maps.Values(next))
+		slices.SortFunc(p.workers[region], func(a, b peer) int { return strings.Compare(a.node, b.node) })
+	}
 }
 
 // write replaces the file by rename in its own directory, only when it changes; the caller holds p.mu.
@@ -239,9 +293,9 @@ func (p *peers) render(service string, founders map[string]peer) []byte {
 	return []byte(out.String())
 }
 
-func (n *Node) pingPeers(ctx context.Context, wait time.Duration) (map[string]peer, map[string][]peer, map[string]map[string]PeerAttestation) {
+func (n *Node) pingPeers(ctx context.Context, wait time.Duration) (map[string]peer, map[string]workerObservation, map[string]map[string]PeerAttestation) {
 	up := map[string]peer{}
-	workers := map[string][]peer{}
+	workers := map[string]workerObservation{}
 	reports := map[string]map[string]PeerAttestation{}
 	_ = collect(ctx, n.conn, PingSubject, nil, len(n.regions()), wait, func(data []byte) bool {
 		var reply Reply
@@ -249,11 +303,13 @@ func (n *Node) pingPeers(ctx context.Context, wait time.Duration) (map[string]pe
 			if at := (peer{reply.Server, reply.Address}); validPeer(reply.Region, at) {
 				up[reply.Region] = at
 				reports[reply.Region] = reply.Attestations
+				observation := workerObservation{startedAt: reply.StartedAt}
 				for _, worker := range reply.Workers {
 					if w := (peer{worker.Node, worker.Address}); validPeer(reply.Region, w) && w.node != at.node {
-						workers[reply.Region] = append(workers[reply.Region], w)
+						observation.peers = append(observation.peers, w)
 					}
 				}
+				workers[reply.Region] = observation
 			}
 		}
 		return true
