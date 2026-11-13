@@ -716,7 +716,7 @@ func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int6
 			decision.Evidence = "bake failed"
 			return fmt.Errorf("%w: %s", errEarlierFailed, region)
 		}
-		if time.Since(reply.received) > servingMaxAge || reply.Serving != nil && (!reply.Serving[name].Serving || reply.Serving[name].Generation != generation) {
+		if time.Since(reply.received) > servingMaxAge || reply.Nonce != "" && (!reply.Serving[name].Serving || reply.Serving[name].Generation != generation) {
 			decision.Evidence = "fresh serving evidence missing"
 			return fmt.Errorf("%s lacks fresh serving evidence for %s generation %d", region, name, generation)
 		}
