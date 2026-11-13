@@ -16,7 +16,7 @@ The ARM journeys run as independent matrix jobs. Every lane runs for every pull 
 | boot-order | Management and peer cold boots, old declarations, dependency gates and running tasks | 8 minutes | All paths |
 | rollout | Regional bake windows, local holds, signed replacement and nonce admission across three isolated regions | 10 minutes | All paths |
 | rollout-install | First installs, lost receipts, new regions, release identity validation, interruption budgets and host sampling | 10 minutes | All paths |
-| updater-preflight | Candidate preflight (pass, refuse, timeout, unexecutable, busy at exec), refusal kinds including a shared signing-key fetch, region gates after host refusals, silent workers, repair push, digest-aware serving and current, and main's install, probation and rollback behind the preflight, byte-identical to main's updater | 10 minutes | All paths |
+| updater-preflight | Preflight only for a declared release (declaration checks, relay to workers), refusals byte-identical (refuse, timeout, unexecutable, noise, busy at exec), process group killed on every path, refusal kinds including a shared signing-key fetch, region gates, repair push, digest-aware serving with revision-only hosts (old, unreadable executable, same-commit rebuild), founder restart timing and main's pusher against this founder, main's build installed without a preflight, and main's install, probation and rollback, byte-identical to main's updater | 10 minutes | All paths |
 | operator | Fleet routing contracts and startup metadata recovery/outage/cancellation | 8 minutes | All paths |
 | data-volume | Volume lifecycle and zero-write refusals, format once, adoption, mount reporting and dependent-unit stop/recovery | 8 minutes | All paths |
 
