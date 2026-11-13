@@ -228,6 +228,28 @@ sudo sha256sum --check "$work/node-private-before.sha256"
 test "$(sudo stat -c %a "$state/node/tls.key")" = 600
 test "$(sudo stat -c %a "$state/node/wg.key")" = 600
 end "ts-orch restart -> both served, node keys kept"
+begin "restart ts-orch repairs host log settings"
+sed -n '/^\[Journal\]/,/^JOURNAL$/{ /^JOURNAL$/d; p; }' "$runtime_pins" >"$work/journal.conf"
+sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
+printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee /etc/systemd/journald.conf.d/60-ts-orch.conf >/dev/null
+sudo systemctl unmask rsyslog.service
+sudo systemctl enable --now rsyslog.service
+sudo systemctl restart ts-orch
+wait_for 120 edge whoami.e2e.test /health
+wait_for 60 edge data.e2e.test /boots
+sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
+test "$(systemctl is-enabled rsyslog.service)" = masked
+test "$(systemctl is-active rsyslog.service)" = inactive
+systemctl is-active --quiet systemd-journald.service
+journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
+sudo systemctl restart ts-orch
+wait_for 120 edge whoami.e2e.test /health
+wait_for 60 edge data.e2e.test /boots
+sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
+test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
+test "$(systemctl is-enabled rsyslog.service)" = masked
+test "$(systemctl is-active rsyslog.service)" = inactive
+end "ts-orch restarts -> host logs repaired, stable journal, both served"
 
 begin "restart the e2e-data task"
 before=$(edge data.e2e.test /boots | wc -l)

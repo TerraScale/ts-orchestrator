@@ -35,6 +35,9 @@ import (
 // Outside OCI it needs no Vault, NetBird or admission. Serving the release
 // subjects ends a pushed binary's probation.
 func runSingleHost(ctx context.Context, state string, output io.Writer, plan hostPlan, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context) error) error {
+	if err := ensureHostLogs(ctx); err != nil {
+		return err
+	}
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
