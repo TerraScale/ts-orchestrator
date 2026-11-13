@@ -398,11 +398,21 @@ func (n *Node) goWork(f func()) {
 }
 
 func (n *Node) Close() error {
-	if err := n.PrepareStop(context.Background()); err != nil {
-		return err
+	return n.close(context.Background())
+}
+
+func (n *Node) CloseContext(ctx context.Context) error {
+	if ctx.Err() != nil {
+		n.ForceClose()
+		return nil
 	}
+	return n.close(ctx)
+}
+
+func (n *Node) close(ctx context.Context) error {
+	err := n.PrepareStop(ctx)
 	n.ForceClose()
-	return nil
+	return err
 }
 
 func (n *Node) ForceClose() {
