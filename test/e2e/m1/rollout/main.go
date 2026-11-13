@@ -424,10 +424,20 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 	})
 	setHealth(ctx, addresses[0], 18085, "503")
 	failed := evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Reason != "" })
+	require(failed.Bake.Finished.IsZero(), "regression was not persisted before the terminal verdict")
+	meshConnected := conn.StatusChanged(nats.CONNECTED)
+	healthConnected := releases.StatusChanged(nats.CONNECTED)
 	nodes[0].kill()
 	nodes[0] = nil
 	setHealth(ctx, addresses[0], 18085, "200")
 	nodes[0] = boot(0)
+	for _, connected := range []chan nats.Status{meshConnected, healthConnected} {
+		select {
+		case <-connected:
+		case <-ctx.Done():
+			panic(ctx.Err())
+		}
+	}
 	observe(ctx, conn, func(s map[string]state) bool { return s[order[0]].Failed[spec.Name] == generation })
 	retained := evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Reason != "" })
 	require(retained.Bake.Started.Equal(failed.Bake.Started), "restart erased a recorded regression")

@@ -79,7 +79,9 @@ releases use the same per-service turn and serving gates without stamping a
 manual hold. The first region follows the stored order when the service declares
 regions, including TerraBase; otherwise the founded-region order applies. Signed
 releases restore the embedded all-region placement only for services whose
-embedded declaration targets every region. No region name is fixed in the gate.
+embedded declaration targets every region and which had no operator hold.
+A signed release clears an inherited operator hold while retaining its placement.
+No region name is fixed in the gate.
 Each subsequent region requires the same evidence from every earlier region.
 Later regions retain their serving tasks during a failure. TerraBase updates
 pause on failure, and neither mesh apply nor signed release automatically restores

@@ -124,13 +124,16 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 		return nil, fmt.Errorf("%s runs %s; a release may change only its digest", service, repository(next.Image))
 	}
 	next.Image = image
-	if deployment != nil {
+	if deployment != nil && before.HoldAfter == "" {
 		if err := declaredReleasePlacement(&next, deployment); err != nil {
 			return nil, err
 		}
 	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
 	hold := before.HoldAfter
+	if deployment != nil {
+		hold = ""
+	}
 	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: hold}}
 	// A reconnect or process restart resumes the signed deployment's existing
 	// bake instead of publishing a fresh generation and restarting its window.
