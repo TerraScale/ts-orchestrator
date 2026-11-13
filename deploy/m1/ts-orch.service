@@ -25,7 +25,7 @@ UMask=0077
 # cgroup, and a pushed release replaces /usr/local/bin/terrascale-orchestrator.
 NoNewPrivileges=yes
 ProtectSystem=full
-ReadWritePaths=/usr/local/bin
+ReadWritePaths=/usr/local/bin -/etc/systemd/journald.conf.d
 ProtectHome=yes
 PrivateTmp=yes
 ProtectKernelLogs=yes

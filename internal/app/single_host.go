@@ -36,7 +36,7 @@ import (
 // subjects ends a pushed binary's probation.
 func runSingleHost(ctx context.Context, state string, output io.Writer, plan hostPlan, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context) error) error {
 	if err := ensureHostLogs(ctx); err != nil {
-		return err
+		slog.Warn("Host log settings skipped", "error", err)
 	}
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {

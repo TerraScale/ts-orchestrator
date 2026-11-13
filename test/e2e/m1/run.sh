@@ -228,28 +228,76 @@ sudo sha256sum --check "$work/node-private-before.sha256"
 test "$(sudo stat -c %a "$state/node/tls.key")" = 600
 test "$(sudo stat -c %a "$state/node/wg.key")" = 600
 end "ts-orch restart -> both served, node keys kept"
-begin "restart ts-orch repairs host log settings"
+begin "restart ts-orch repairs host log settings when supported"
 sed -n '/^\[Journal\]/,/^JOURNAL$/{ /^JOURNAL$/d; p; }' "$runtime_pins" >"$work/journal.conf"
 sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
-printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee /etc/systemd/journald.conf.d/60-ts-orch.conf >/dev/null
-sudo systemctl unmask rsyslog.service
-sudo systemctl enable --now rsyslog.service
-sudo systemctl restart ts-orch
-wait_for 120 edge whoami.e2e.test /health
-wait_for 60 edge data.e2e.test /boots
-sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
-test "$(systemctl is-enabled rsyslog.service)" = masked
-test "$(systemctl is-active rsyslog.service)" = inactive
-systemctl is-active --quiet systemd-journald.service
+host_logs_supported() {
+	local pid
+	pid=$(systemctl show ts-orch.service -p MainPID --value)
+	sudo nsenter -t "$pid" -m -- test -S /run/systemd/journal/socket &&
+		sudo nsenter -t "$pid" -m -- test -w /etc/systemd/journald.conf.d &&
+		systemctl is-active --quiet systemd-journald.service
+}
+restart_serving() {
+	sudo systemctl restart ts-orch
+	wait_for 120 edge whoami.e2e.test /health
+	wait_for 60 edge data.e2e.test /boots
+}
+log_skip_once() {
+	local invocation
+	invocation=$(systemctl show ts-orch.service -p InvocationID --value)
+	test "$(sudo journalctl -u ts-orch.service "_SYSTEMD_INVOCATION_ID=$invocation" --no-pager -o cat | grep -c 'Host log settings skipped')" = 1
+}
 journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
-sudo systemctl restart ts-orch
-wait_for 120 edge whoami.e2e.test /health
-wait_for 60 edge data.e2e.test /boots
-sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
-test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
-test "$(systemctl is-enabled rsyslog.service)" = masked
-test "$(systemctl is-active rsyslog.service)" = inactive
-end "ts-orch restarts -> host logs repaired, stable journal, both served"
+if host_logs_supported; then
+	printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee /etc/systemd/journald.conf.d/60-ts-orch.conf >/dev/null
+	sudo systemctl unmask rsyslog.service
+	sudo systemctl enable --now rsyslog.service
+	sudo cp /etc/systemd/journald.conf.d/60-ts-orch.conf "$work/drift.conf"
+	syslog_before=$(systemctl show rsyslog.service -p ActiveState -p UnitFileState)
+	dropin=/run/systemd/system/ts-orch.service.d/90-e2e-host-logs.conf
+	sudo install -d -m 0755 "$(dirname "$dropin")"
+	for unsupported in readonly nojournal; do
+		if [[ $unsupported == readonly ]]; then
+			printf '[Service]\nReadWritePaths=\nReadWritePaths=/usr/local/bin\n'
+		else
+			printf '[Service]\nBindReadOnlyPaths=/dev/null:/run/systemd/journal/socket\n'
+		fi | sudo tee "$dropin" >/dev/null
+		sudo systemctl daemon-reload
+		restart_serving
+		log_skip_once
+		sudo cmp "$work/drift.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
+		test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
+		test "$(systemctl show rsyslog.service -p ActiveState -p UnitFileState)" = "$syslog_before"
+		echo "$unsupported logging environment -> started, skipped once, settings unchanged"
+	done
+	sudo rm "$dropin"
+	sudo systemctl daemon-reload
+	restart_serving
+	sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
+	test "$(systemctl is-enabled rsyslog.service)" = masked
+	test "$(systemctl is-active rsyslog.service)" = inactive
+	systemctl is-active --quiet systemd-journald.service
+	test "$(systemctl show systemd-journald.service -p InvocationID --value)" != "$journal_started"
+	journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
+	journal_file=$(sudo stat -c %i:%y:%z /etc/systemd/journald.conf.d/60-ts-orch.conf)
+	restart_serving
+	sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
+	test "$(sudo stat -c %i:%y:%z /etc/systemd/journald.conf.d/60-ts-orch.conf)" = "$journal_file"
+	test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
+	test "$(systemctl is-enabled rsyslog.service)" = masked
+	test "$(systemctl is-active rsyslog.service)" = inactive
+else
+	syslog_before=$(systemctl show rsyslog.service -p ActiveState -p UnitFileState)
+	journal_file=$(sudo stat -c %i:%y:%z /etc/systemd/journald.conf.d/60-ts-orch.conf)
+	restart_serving
+	log_skip_once
+	sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
+	test "$(sudo stat -c %i:%y:%z /etc/systemd/journald.conf.d/60-ts-orch.conf)" = "$journal_file"
+	test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
+	test "$(systemctl show rsyslog.service -p ActiveState -p UnitFileState)" = "$syslog_before"
+fi
+end "ts-orch restarts -> supported logs repaired, unsupported logs untouched, both served"
 
 begin "restart the e2e-data task"
 before=$(edge data.e2e.test /boots | wc -l)
