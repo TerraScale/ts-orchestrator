@@ -637,7 +637,6 @@ func (e *Edge) serveRegionalInternal(ln net.Listener) error {
 	}, Transport: relay, FlushInterval: -1}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Header.Del(edgeHopHeader)
-		r.Header.Del(peerCredentialHeader)
 		if isExtendedConnect(r) {
 			relayTunnel(w, r, relay)
 			return
