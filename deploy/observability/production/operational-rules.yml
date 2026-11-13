@@ -261,3 +261,25 @@ groups:
           severity: critical
         annotations:
           summary: No completed alert delivery probe is observable
+
+  - name: edge-certificates
+    rules:
+      - alert: EdgeCertificateExpiryWarning
+        expr: ts_edge_certificate_not_after - time() < 14 * 86400
+        labels:
+          severity: warning
+        annotations:
+          summary: An edge certificate expires within fourteen days
+      - alert: EdgeCertificateExpiryCritical
+        expr: ts_edge_certificate_not_after - time() < 5 * 86400
+        labels:
+          severity: critical
+        annotations:
+          summary: An edge certificate expires within five days
+      - alert: EdgeCertificateMissing
+        expr: ts_edge_certificate_names_missing > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: A served edge name has no valid certificate

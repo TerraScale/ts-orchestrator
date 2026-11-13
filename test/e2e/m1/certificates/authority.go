@@ -1,0 +1,220 @@
+package main
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"io"
+	"math/big"
+	"net"
+	"net/http"
+	"os"
+	"strconv"
+	"sync"
+	"time"
+
+	"golang.org/x/crypto/acme"
+)
+
+type fakeAuthority struct {
+	mu     sync.Mutex
+	base   string
+	key    *ecdsa.PrivateKey
+	root   *x509.Certificate
+	orders map[string]string
+	count  map[string]int
+	chain  map[string][]byte
+}
+
+func authorityToken(name string) string {
+	digest := sha256.Sum256([]byte(name))
+	return base64.RawURLEncoding.EncodeToString(digest[:])
+}
+
+func (a *fakeAuthority) challenge(name string) (string, error) {
+	answer := ""
+	for index, address := range []string{"10.77.0.2", "10.77.0.3", "10.77.0.4"} {
+		req, err := http.NewRequest(http.MethodGet, "http://"+address+"/.well-known/acme-challenge/"+authorityToken(name), nil)
+		if err != nil {
+			return "", err
+		}
+		req.Host = name
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.Proxy = nil
+		transport.DialContext = (&net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP(fmt.Sprintf("10.%d.0.1", 89+index))}}).DialContext
+		response, err := (&http.Client{Transport: transport, Timeout: 8 * time.Second}).Do(req)
+		transport.CloseIdleConnections()
+		if err != nil {
+			return "", err
+		}
+		data, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil || response.StatusCode != 200 || len(data) == 0 {
+			return "", fmt.Errorf("challenge %s: status=%d error=%v", address, response.StatusCode, err)
+		}
+		if answer != "" && answer != string(data) {
+			return "", fmt.Errorf("challenge answers differ")
+		}
+		answer = string(data)
+	}
+	return answer, nil
+}
+
+func authorityMain(ctx context.Context, cfg configuration) error {
+	data, err := os.ReadFile(cfg.Work + "/ca.pem")
+	if err != nil {
+		return err
+	}
+	block, _ := pem.Decode(data)
+	root, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return err
+	}
+	data, err = os.ReadFile(cfg.Work + "/ca.key")
+	if err != nil {
+		return err
+	}
+	block, _ = pem.Decode(data)
+	key, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		return err
+	}
+	a := &fakeAuthority{base: "https://acme-v02.api.letsencrypt.org", root: root, key: key, orders: map[string]string{}, count: map[string]int{}, chain: map[string][]byte{}}
+	pair, err := tls.LoadX509KeyPair(cfg.Work+"/identity.pem", cfg.Work+"/identity.key")
+	if err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", "10.77.0.1:443")
+	if err != nil {
+		return err
+	}
+	server := &http.Server{Handler: http.HandlerFunc(a.serve)}
+	go server.Serve(tls.NewListener(listener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}))
+	fmt.Println("READY authority")
+	<-ctx.Done()
+	return server.Close()
+}
+func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	base := a.base
+	w.Header().Set("Replay-Nonce", base64.RawURLEncoding.EncodeToString([]byte(strconv.FormatInt(time.Now().UnixNano(), 10))))
+	w.Header().Set("Content-Type", "application/json")
+	var envelope struct {
+		Payload string `json:"payload"`
+	}
+	var payload struct {
+		Identifiers        []acme.AuthzID `json:"identifiers"`
+		CSR                string         `json:"csr"`
+		OnlyReturnExisting bool           `json:"onlyReturnExisting"`
+	}
+	if r.Method == http.MethodPost {
+		if err := json.NewDecoder(r.Body).Decode(&envelope); err != nil {
+			http.Error(w, "JWS", 400)
+			return
+		}
+		body, err := base64.RawURLEncoding.DecodeString(envelope.Payload)
+		if err != nil {
+			http.Error(w, "payload", 400)
+			return
+		}
+		if len(body) > 0 && json.Unmarshal(body, &payload) != nil {
+			http.Error(w, "JSON", 400)
+			return
+		}
+	}
+	id := r.URL.Query().Get("id")
+	switch r.URL.Path {
+	case "/counts":
+		_ = json.NewEncoder(w).Encode(a.count)
+	case "/directory":
+		_ = json.NewEncoder(w).Encode(map[string]string{"newNonce": base + "/nonce", "newAccount": base + "/account", "newOrder": base + "/new-order"})
+	case "/nonce":
+		w.WriteHeader(http.StatusNoContent)
+	case "/account":
+		w.Header().Set("Location", base+"/account/1")
+		if payload.OnlyReturnExisting {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusCreated)
+		}
+		_, _ = io.WriteString(w, `{"status":"valid"}`)
+	case "/new-order":
+		if len(payload.Identifiers) != 1 {
+			http.Error(w, "identifiers", 400)
+			return
+		}
+		id = payload.Identifiers[0].Value
+		a.count[id]++
+		if a.count[id] > 4 {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"type": "urn:ietf:params:acme:error:rejectedIdentifier", "detail": "journey order budget exhausted"})
+			return
+		}
+
+		a.orders[id] = "pending"
+		a.mu.Unlock()
+		fmt.Println("order", id)
+		a.mu.Lock()
+		if r.Context().Err() != nil {
+			return
+		}
+		w.Header().Set("Location", base+"/order?id="+id)
+		w.WriteHeader(http.StatusCreated)
+		a.writeOrder(w, id)
+	case "/order":
+		a.writeOrder(w, id)
+	case "/authorization":
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": map[bool]string{true: "valid", false: "pending"}[a.orders[id] != "pending"], "identifier": acme.AuthzID{Type: "dns", Value: id}, "challenges": []map[string]string{{"type": "http-01", "url": base + "/challenge?id=" + id, "token": authorityToken(id), "status": "pending"}}})
+	case "/challenge":
+		a.mu.Unlock()
+		value, err := a.challenge(id)
+		a.mu.Lock()
+		if err != nil || value == "" {
+			fmt.Println("challenge failed", id, err)
+			http.Error(w, "challenge unavailable", 400)
+			return
+		}
+		a.orders[id] = "ready"
+		_ = json.NewEncoder(w).Encode(map[string]string{"type": "http-01", "url": base + "/challenge?id=" + id, "token": authorityToken(id), "status": "valid"})
+	case "/finalize":
+		csrDER, err := base64.RawURLEncoding.DecodeString(payload.CSR)
+		if err != nil {
+			http.Error(w, "CSR", 400)
+			return
+		}
+		csr, err := x509.ParseCertificateRequest(csrDER)
+		if err != nil || csr.CheckSignature() != nil {
+			http.Error(w, "CSR signature", 400)
+			return
+		}
+		leaf := &x509.Certificate{SerialNumber: big.NewInt(int64(len(a.chain) + 1)), DNSNames: csr.DNSNames, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(90 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+		der, err := x509.CreateCertificate(rand.Reader, leaf, a.root, csr.PublicKey, a.key)
+		if err != nil {
+			http.Error(w, "sign", 500)
+			return
+		}
+		fmt.Printf("issued %s %T\n", id, csr.PublicKey)
+
+		a.chain[id] = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+		a.orders[id] = "valid"
+		a.writeOrder(w, id)
+	case "/certificate":
+		w.Header().Set("Content-Type", "application/pem-certificate-chain")
+		_, _ = w.Write(a.chain[id])
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (a *fakeAuthority) writeOrder(w http.ResponseWriter, id string) {
+	_ = json.NewEncoder(w).Encode(map[string]any{"status": a.orders[id], "identifiers": []acme.AuthzID{{Type: "dns", Value: id}}, "authorizations": []string{a.base + "/authorization?id=" + id}, "finalize": a.base + "/finalize?id=" + id, "certificate": a.base + "/certificate?id=" + id})
+}

@@ -363,3 +363,73 @@ tests:
   - eval_time: 5m15s
     alertname: ServiceTaskUnresponsive
     exp_alerts: []
+
+- interval: 1m
+  input_series:
+  - series: ts_edge_certificate_not_after{name="app.e2e.test",key_type="ecdsa"}
+    values: 1296000+0x20
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: EdgeCertificateExpiryWarning
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: EdgeCertificateExpiryCritical
+    exp_alerts: []
+
+- interval: 1m
+  input_series:
+  - series: ts_edge_certificate_not_after{name="app.e2e.test",key_type="ecdsa"}
+    values: 1123200+0x20
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: EdgeCertificateExpiryWarning
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        name: app.e2e.test
+        key_type: ecdsa
+      exp_annotations:
+        summary: An edge certificate expires within fourteen days
+  - eval_time: 1m
+    alertname: EdgeCertificateExpiryCritical
+    exp_alerts: []
+
+- interval: 1m
+  input_series:
+  - series: ts_edge_certificate_not_after{name="app.e2e.test",key_type="ecdsa"}
+    values: 345600+0x20
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: EdgeCertificateExpiryWarning
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        name: app.e2e.test
+        key_type: ecdsa
+      exp_annotations:
+        summary: An edge certificate expires within fourteen days
+  - eval_time: 1m
+    alertname: EdgeCertificateExpiryCritical
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        name: app.e2e.test
+        key_type: ecdsa
+      exp_annotations:
+        summary: An edge certificate expires within five days
+
+- interval: 1m
+  input_series:
+  - series: ts_edge_certificate_names_missing
+    values: 1+0x20
+  alert_rule_test:
+  - eval_time: 9m
+    alertname: EdgeCertificateMissing
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: EdgeCertificateMissing
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+      exp_annotations:
+        summary: A served edge name has no valid certificate
