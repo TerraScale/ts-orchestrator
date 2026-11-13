@@ -147,6 +147,13 @@ func node(ctx context.Context, root, name string) error {
 		switch r.URL.Path {
 		case "/metrics":
 			swarmruntime.ReadinessMetrics.WritePrometheus(w)
+		case "/binary":
+			binary, err := os.Executable()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			http.ServeFile(w, r, binary)
 		case "/agent-stop":
 			if err := node.Stop(r.Context()); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -232,7 +239,7 @@ func run(ctx context.Context, root, image string) error {
 	if err != nil {
 		return err
 	}
-	emptySpec, err := (swarmruntime.ServiceSpec{Name: "c18-empty", Image: image, Args: []string{"sh", "-c", "mkdir -p /tmp/www; echo ready > /tmp/www/ready; exec httpd -f -p 18084 -h /tmp/www"}, Port: 18084, ReadyPath: "/ready", Replicas: 1}).SwarmSpec()
+	emptySpec, err := (swarmruntime.ServiceSpec{Name: "c18-empty", Image: image, Args: []string{"sh", "-c", "wget -q -O /tmp/lifecycle http://127.0.0.1:19090/binary && chmod +x /tmp/lifecycle && exec /tmp/lifecycle serve"}, Port: 18083, ReadyPath: "/ready", Replicas: 1}).SwarmSpec()
 	if err != nil {
 		return err
 	}
@@ -244,7 +251,7 @@ func run(ctx context.Context, root, image string) error {
 			_ = runtime.Close()
 		}
 	}()
-	addresses := []string{"10.231.0.2:18083", "10.231.0.3:18084"}
+	addresses := []string{"10.231.0.2:18083", "10.231.0.3:18083"}
 	for i, spec := range []*api.ServiceSpec{dataSpec, emptySpec} {
 		name := []string{"c18a", "c18b"}[i]
 		nodeID, err := os.ReadFile(filepath.Join(root, name, "ready"))
