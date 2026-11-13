@@ -55,15 +55,15 @@ func ready(cmd *exec.Cmd, marker string) {
 	cmd.Stderr = cmd.Stdout
 	must(cmd.Start())
 	scanner := bufio.NewScanner(pipe)
-	last := ""
+	var seen []string
 	for scanner.Scan() {
-		last = scanner.Text()
+		seen = append(seen, scanner.Text())
 		if strings.Contains(scanner.Text(), marker) {
 			go io.Copy(io.Discard, pipe)
 			return
 		}
 	}
-	panic("process did not announce " + marker + ": " + last)
+	panic("process did not announce " + marker + ":\n" + strings.Join(seen[max(0, len(seen)-40):], "\n"))
 }
 
 type corruptTransport struct{ base http.RoundTripper }
