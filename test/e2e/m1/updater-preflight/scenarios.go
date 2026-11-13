@@ -883,6 +883,6 @@ func watchdogCase(ctx context.Context) {
 	defer stopRegion()
 	result, err := pushOne(ctx, work, "assets", build, release, provider, regions)
 	waited := time.Duration(result.ServingMS-result.AcceptedMS) * time.Millisecond
-	require(err == nil && result.State == "installed" && bytes.Equal(read(installed), build) && waited >= 45*time.Second, fmt.Sprintf("a shutdown stuck until the watchdog still ends with the new binary serving inside the pusher's wait: %v %+v", err, result))
+	require(err == nil && result.State == "installed" && bytes.Equal(read(installed), build) && waited >= 45*time.Second && waited <= 2*time.Minute, fmt.Sprintf("a shutdown stuck until the watchdog ends with the new binary serving early enough to leave a whole probation inside the pusher's wait: %v %+v", err, result))
 	fmt.Println("ok watchdog: stuck shutdown ended by the watchdog; new binary serving", waited.Round(time.Second), "after the reply")
 }
