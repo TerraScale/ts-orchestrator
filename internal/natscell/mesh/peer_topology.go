@@ -247,6 +247,7 @@ func (n *Node) servePeerMetrics(ctx context.Context) {
 				}
 				w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 				n.writePeerMetrics(w)
+				n.writeStoreMetrics(w)
 			})}
 	}
 	tick := time.NewTicker(5 * time.Second)

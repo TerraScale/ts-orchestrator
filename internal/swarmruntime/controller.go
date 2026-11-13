@@ -877,7 +877,15 @@ func (c *controller) Terminate(ctx context.Context) error {
 	return err
 }
 
-func (c *controller) Remove(ctx context.Context) error {
+func (c *controller) Remove(ctx context.Context) (result error) {
+	defer func() {
+		if result == nil {
+			c.executor.mu.Lock()
+			delete(c.executor.sloTasks, c.task.ID)
+			c.executor.mu.Unlock()
+		}
+	}()
+
 	var bootstrapDone func()
 	var bootstrapErr error
 	ctx, bootstrapDone, bootstrapErr = c.bootstrapOperation(ctx, "remove")

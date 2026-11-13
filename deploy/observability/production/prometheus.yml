@@ -12,27 +12,27 @@ alerting:
     - static_configs:
         - targets: ['127.0.0.1:9093']
 scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['127.0.0.1:9090']
   - job_name: peer-topology
     scrape_interval: 5s
     static_configs:
       - targets: ['127.0.0.1:9097']
-  - job_name: terrabase
-    metrics_path: /metrics
-    file_sd_configs:
-      - files: ['/run/ts-orch-observability/storage.json']
-        refresh_interval: 5s
-    relabel_configs:
-      - source_labels: [__address__]
-        regex: '(.*):9108'
-        target_label: __address__
-        replacement: '${1}:9091'
-      - target_label: service
-        replacement: terrabase
   - job_name: application-slo
-    metrics_path: /metrics
-    file_sd_configs:
-      - files: ['/run/ts-orch-observability/targets.json']
-        refresh_interval: 5s
+    http_sd_configs:
+      - url: http://ts-sjc-1.nb.ts.internal:9108/services
+        refresh_interval: 15s
+      - url: http://ts-sjc-2.nb.ts.internal:9108/services
+        refresh_interval: 15s
+      - url: http://ts-fra-1.nb.ts.internal:9108/services
+        refresh_interval: 15s
+      - url: http://ts-fra-2.nb.ts.internal:9108/services
+        refresh_interval: 15s
+      - url: http://ts-gru-1.nb.ts.internal:9108/services
+        refresh_interval: 15s
+      - url: http://ts-gru-2.nb.ts.internal:9108/services
+        refresh_interval: 15s
   - job_name: service-readiness
     metrics_path: /metrics
     scrape_timeout: 10s
@@ -42,7 +42,7 @@ scrape_configs:
           region: gru
 
   - job_name: host-storage
-    sample_limit: 2560
+    sample_limit: 4096
     file_sd_configs:
       - files: ['/run/ts-orch-observability/storage.json']
         refresh_interval: 5s

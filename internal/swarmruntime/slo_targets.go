@@ -2,6 +2,7 @@ package swarmruntime
 
 import (
 	"context"
+	"maps"
 	"net"
 	"slices"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-// SLOTarget is a Prometheus file-discovery group for one serving process.
 type SLOTarget struct {
 	Targets []string          `json:"targets"`
 	Labels  map[string]string `json:"labels"`
@@ -22,10 +22,10 @@ type sloContainer struct {
 	pid    uint32
 }
 
-// SLOTargets discovers native exporters, never the switching service proxy.
-// Auth has a dedicated listener; dashboard uses its application listener.
-// TerraBase retains its dedicated metrics listener on 9091.
-func (e *Executor) SLOTargets(ctx context.Context, services []*api.Service, region string) ([]SLOTarget, error) {
+func (e *Executor) SLOTargets(ctx context.Context, region string) ([]SLOTarget, error) {
+	e.mu.Lock()
+	names := maps.Clone(e.sloTasks)
+	e.mu.Unlock()
 	ctx = runtimeContext(ctx)
 	containers, err := e.client.Containers(ctx)
 	if err != nil {
@@ -58,34 +58,27 @@ func (e *Executor) SLOTargets(ctx context.Context, services []*api.Service, regi
 			containersRunning = append(containersRunning, sloContainer{metadata, task.Pid()})
 		}
 	}
-	return sloTargets(ctx, services, containersRunning, region)
+	return sloTargets(ctx, names, containersRunning, region)
 }
 
-func sloTargets(ctx context.Context, services []*api.Service, containers []sloContainer, region string) ([]SLOTarget, error) {
-	names := map[string]string{}
-	for _, service := range services {
-		if service == nil || service.PendingDelete {
-			continue
-		}
-		name := service.Spec.Annotations.Name
-		if name == "ts-auth" || name == "ts-dashboard" {
-			names[service.ID] = name
-		}
-	}
+func sloTargets(ctx context.Context, names map[string]string, containers []sloContainer, region string) ([]SLOTarget, error) {
 	targets := make([]SLOTarget, 0)
 	for _, container := range containers {
 		labels := container.labels
-		name, task := names[labels["terrascale.service"]], labels["terrascale.task"]
+		name, task := names[labels["terrascale.task"]], labels["terrascale.task"]
 		port, err := strconv.ParseUint(labels[portsLabel], 10, 16)
-		if name == "" || task == "" || err != nil || port == 0 {
+		if name == "terrabase" {
+			port, err = 9091, nil
+		}
+		if name == "" || task == "" {
 			continue
 		}
-		address := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port)))
+		address := ""
+		if err == nil && port > 0 {
+			address = net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port)))
+		}
 		if name == "ts-auth" {
 			address = discoverSLOListener(ctx, container.pid, uint16(port))
-			if address == "" {
-				continue
-			}
 		}
 		targets = append(targets, SLOTarget{
 			Targets: []string{address},
@@ -95,9 +88,19 @@ func sloTargets(ctx context.Context, services []*api.Service, containers []sloCo
 	slices.SortFunc(targets, func(a, b SLOTarget) int {
 		return slices.Compare(a.Targets, b.Targets)
 	})
-	// Never publish a partial inventory after the refresh budget expires.
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return targets, nil
+}
+
+func (e *Executor) trackSLOTask(task *api.Task) {
+	name := task.ServiceAnnotations.Name
+	if name != "terrabase" && name != "ts-auth" && name != "ts-dashboard" {
+		return
+	}
+	if e.sloTasks == nil {
+		e.sloTasks = map[string]string{}
+	}
+	e.sloTasks[task.ID] = name
 }

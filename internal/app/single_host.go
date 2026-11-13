@@ -65,7 +65,8 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	}()
 	healthCtx, stopHealth := context.WithCancel(ctx)
 	defer stopHealth()
-	go hostmetrics.Run(healthCtx)
+	go hostmetrics.Run(healthCtx, plan.region, executor)
+	go syncHostTargets(healthCtx)
 	go executor.ReapExitedTasks(healthCtx)
 	failed := make(chan error, 2)
 	go func() {
@@ -76,7 +77,6 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	// shortcut: a worker has no control socket and would answer for its region a second time; give workers their own health row when they serve.
 	if !plan.joiner() {
 		go regionhealth.Run(healthCtx, state)
-		go syncSLOTargets(healthCtx, state, plan.region, executor)
 		if plan.region != "" {
 			// The operator dashboard on the NetBird address; its token lives in gru-vault.
 			go func() {

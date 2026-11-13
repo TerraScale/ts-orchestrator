@@ -42,6 +42,7 @@ const HostContainerdSocket = "/run/containerd/containerd.sock"
 type Executor struct {
 	bootstrap      *rolloutmaintenance.Store
 	bootstrapTasks map[string]*controller
+	sloTasks       map[string]string
 	// bootstrapLive reports whether a task has a runtime process; nil uses containerd.
 	bootstrapLive     func(context.Context, *controller) (bool, error)
 	client            *containerd.Client
@@ -186,6 +187,9 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 		base := &controller{executor: e, task: t.Copy(), spec: spec, id: "ts-" + t.ID, fingerprint: fingerprint}
 		stateful := &statefulController{controller: base, source: source, hooks: source.Hooks()}
 		base.stateful = stateful
+		e.mu.Lock()
+		e.trackSLOTask(t)
+		e.mu.Unlock()
 		return stateful, nil
 	}
 	s, err := DecodeContainer(t)
@@ -195,6 +199,7 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 	controller := &controller{executor: e, task: t.Copy(), spec: s, id: "ts-" + t.ID, fingerprint: taskFingerprint(t)}
 	e.mu.Lock()
 	e.trackLoadTask(controller)
+	e.trackSLOTask(t)
 	if e.bootstrap != nil && controller.regionalTerraBase() {
 		if len(e.bootstrapTasks) >= 128 && e.bootstrapTasks[t.ID] == nil {
 			e.mu.Unlock()

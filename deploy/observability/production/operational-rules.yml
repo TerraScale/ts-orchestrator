@@ -70,7 +70,7 @@ groups:
         annotations:
           summary: A TerraBase region replica has gone an hour without a completed checksum verification
       - alert: TerraBaseMetricsDown
-        expr: up{job="terrabase"} == 0
+        expr: up{job="application-slo",service="terrabase"} == 0
         for: 2m
         labels:
           severity: critical
@@ -143,3 +143,68 @@ groups:
         annotations:
           summary: Stored service spec rejected; service not managed
           description: The mesh excluded this service from startup because its stored desired state fails validation. Its running task is left alone. Apply a corrected spec to restore management.
+  - name: monitoring-coverage
+    rules:
+      - alert: ServiceTaskDiscoveryFailed
+        expr: increase(prometheus_sd_http_failures_total[2m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: A node is not publishing its running service tasks
+      - alert: ApplicationTaskMetricsDown
+        expr: up{job="application-slo"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: A running service task cannot be scraped
+      - alert: CertificateExpirySoon
+        expr: terrascale_certificate_expiry_timestamp_seconds - time() < 1814400
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: A public service certificate expires within twenty-one days or cannot be verified
+      - alert: MeshStoreLeaderUnavailable
+        expr: ts_orch_mesh_store_leader_available == 0 or ts_orch_mesh_store_observed == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: The mesh store has no observed leader
+      - alert: MeshStoreQuorumUnavailable
+        expr: ts_orch_mesh_store_quorum_available == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: The mesh store cannot reach its metadata quorum
+      - alert: HostUnitRestartLoop
+        expr: increase(ts_host_unit_restarts_total[10m]) >= 3
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: A host service repeatedly restarts
+      - alert: ProductionJourneyFailed
+        expr: terrascale_production_journey_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: The latest executed production journey failed
+      - alert: ProductionJourneyTelemetryMissing
+        expr: terrascale_production_journey_observed == 0 or time() - terrascale_production_journey_completed_timestamp_seconds > 129600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: No recent executed production journey can be verified
+      - alert: TerraBaseBackupAge
+        expr: time() - terrabase_backup_last_success_seconds{service="terrabase"} > 86400
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: The oldest file shipment has not advanced for twenty-four hours

@@ -14,22 +14,14 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
-	"github.com/moby/swarmkit/v2/api"
 )
 
-// Keep discovery outside the private state tree. Only loopback addresses and
-// bounded service/process labels are readable by the Prometheus service user.
-const sloTargetsFile = "/run/ts-orch-observability/targets.json"
-
-func syncSLOTargets(ctx context.Context, state, region string, executor *swarmruntime.Executor) {
+func syncHostTargets(ctx context.Context) {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
 		if err := refreshStorageTargets(ctx, "/run/ts-orch-observability/storage.json"); err != nil && ctx.Err() == nil {
-			slog.WarnContext(ctx, "Host storage target discovery failed", "error", err)
-		}
-		if err := refreshSLOTargets(ctx, state, region, executor); err != nil && ctx.Err() == nil {
-			slog.WarnContext(ctx, "SLO target discovery failed", "error", err)
+			slog.WarnContext(ctx, "Host target discovery failed", "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -37,25 +29,6 @@ func syncSLOTargets(ctx context.Context, state, region string, executor *swarmru
 		case <-tick.C:
 		}
 	}
-}
-
-func refreshSLOTargets(ctx context.Context, state, region string, executor *swarmruntime.Executor) error {
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-	client, conn, err := swarmruntime.DialSingleHost(state)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	services, err := client.ListServices(ctx, &api.ListServicesRequest{})
-	if err != nil {
-		return err
-	}
-	targets, err := executor.SLOTargets(ctx, services.Services, region)
-	if err != nil {
-		return err
-	}
-	return writeSLOTargets(sloTargetsFile, targets)
 }
 
 func writeSLOTargets(path string, targets []swarmruntime.SLOTarget) error {
@@ -66,8 +39,6 @@ func writeSLOTargets(path string, targets []swarmruntime.SLOTarget) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	// The root runtime uses umask 0077; Prometheus must traverse this owned
-	// directory even on a restart after an older 0700 directory was created.
 	if err := os.Chmod(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
@@ -91,7 +62,6 @@ func writeSLOTargets(path string, targets []swarmruntime.SLOTarget) error {
 	return os.Rename(file.Name(), path)
 }
 
-// NetBird membership includes every host, including workers in the same region.
 func refreshStorageTargets(ctx context.Context, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
@@ -123,7 +93,6 @@ func storageTargets(data []byte) ([]swarmruntime.SLOTarget, error) {
 	if status.FQDN == "" || status.IP == "" {
 		return nil, errors.New("missing local NetBird identity")
 	}
-	// The local status uses address/prefix; peer details use bare addresses.
 	if ip, _, err := net.ParseCIDR(status.IP); err == nil {
 		status.IP = ip.String()
 	}

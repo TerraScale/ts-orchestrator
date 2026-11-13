@@ -28,6 +28,12 @@ if [[ $mode == --local ]]; then
     echo 'Install a ts-orch release supporting alert-delivery before installing monitoring' >&2
     exit 2
   fi
+  while read -r discovery; do
+    if ! curl --fail --silent --show-error --max-time 5 "$discovery" --output /dev/null; then
+      echo 'Upgrade every host agent before installing task discovery; no monitoring changes made' >&2
+      exit 2
+    fi
+  done < <(awk '$1 == "-" && $2 == "url:" {print $3}' "$source_dir/prometheus.yml")
   status=0
   relay_help=$(timeout --kill-after=1s 5s /usr/local/bin/ts-orch alert-delivery --help 2>&1) || status=$?
   if [[ $status != 1 || $relay_help != 'usage: ts-orch alert-delivery' ]]; then
@@ -86,6 +92,7 @@ done
 for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service; do
   put "$source_dir/$unit" "/etc/systemd/system/$unit" 0644
 done
+rm -f /run/ts-orch-observability/targets.json
 systemctl daemon-reload
 systemctl enable ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service
 if [[ $changed == 1 ]]; then
