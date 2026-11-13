@@ -215,7 +215,7 @@ func run() {
 		data = bytes.ReplaceAll(data, []byte("vcs.modified=true\n"), []byte("vcs.modified=fals\n"))
 
 		candidate := originalUnit
-		if mode == "verify" || mode == "start" || strings.HasPrefix(mode, "sandbox") || mode == "reboot" || (mode == "guard-crash" || mode == "sandbox-reboot-guard-crash") {
+		if mode == "verify" || mode == "start" || strings.HasPrefix(mode, "sandbox") || mode == "reboot" || mode == "crash:unit-staged" || mode == "crash:unit-installed" || mode == "guard-crash" {
 			candidate = bytes.Replace(candidate, []byte("Description=TerraScale Orchestrator single host (milestone 1)"), []byte("Description=Trial"), 1)
 			switch mode {
 			case "verify":
@@ -367,15 +367,26 @@ func run() {
 	require(command("systemctl", "show", "-p", "UnitsLoadFinishTimestampMonotonic", "--value") == reloads, "matching unit reloaded manager")
 	fmt.Println("ok release: matching unit changes neither inode, mtime nor manager reload timestamp")
 
+	for index, phase := range []string{"intent", "unit-staged", "unit-installed", "binary-swapped"} {
+		next := release(strconv.Itoa(index+1), 3+index, "crash:"+phase)
+		if phase == "binary-swapped" {
+			previous = next
+		}
+		require(bytes.Equal(read(binary), previous) && bytes.Equal(read(unit), originalUnit), "phase crash did not restore pair: "+phase)
+		require(command("systemctl", "show", "ts-orch", "-p", "StartLimitIntervalUSec", "--value") == "10min", "phase crash did not restore loaded properties")
+		require(command("systemctl", "is-active", "ts-orch") == "active", "phase crash left agent stopped")
+		fmt.Println("ok release: kill at " + phase + " repaired on next start; unit, binary, properties and agent verified")
+	}
+
 	families := command("systemctl", "show", "ts-orch", "-p", "RestrictAddressFamilies", "--value")
 	verifyBefore := read(binary)
 	verifyUnit := read(unit)
-	release("c", 3, "verify")
+	release("c", 7, "verify")
 	require(bytes.Equal(read(binary), verifyBefore) && bytes.Equal(read(unit), verifyUnit), "verification failure changed installed files")
 	require(command("systemctl", "is-active", "ts-orch") == "active", "verification failure stopped agent")
 	require(command("systemctl", "show", "ts-orch", "-p", "StartLimitIntervalUSec", "--value") == "10min", "verification failure changed loaded unit")
 	fmt.Println("ok release: verification failure refused with unchanged unit, binary and loaded properties")
-	release("d", 4, "start")
+	release("d", 8, "start")
 	require(bytes.Equal(read(binary), previous) && bytes.Equal(read(unit), originalUnit), "guard did not restore binary and unit together")
 	require(command("systemctl", "show", "ts-orch", "-p", "ExecStartPre", "--value") == "", "failed prestart remains loaded")
 	var rollback releasepush.Rollback
@@ -383,7 +394,7 @@ func run() {
 	require(rollback.SHA == strings.Repeat("d", 40) && strings.Contains(rollback.Reason, "guard deadline"), "unstartable agent was not restored by independent guard")
 	require(bytes.Equal(read(dropin), []byte(fmt.Sprintf("[Service]\nEnvironment=HTTPS_PROXY=http://%s SSL_CERT_FILE=%s\n", listener.Addr(), ca))), "release changed drop-ins")
 	fmt.Println("ok release: independent timer restores a verified unit whose ExecStartPre prevents every new agent start")
-	release("e", 5, "sandbox-reboot-guard-crash")
+	release("e", 9, "sandbox-reboot-guard-crash")
 	require(bytes.Equal(read(binary), previous) && bytes.Equal(read(unit), originalUnit), "sandbox failure did not restore pair")
 	require(command("systemctl", "show", "ts-orch", "-p", "RestrictAddressFamilies", "--value") == families, "failed socket sandbox remains loaded")
 	check(json.Unmarshal(read("/var/lib/ts-orch/nats/release-rolled-back"), &rollback))
@@ -393,16 +404,7 @@ func run() {
 	fmt.Println("ok release: independent timer repairs a sandbox that blocks in-process root restoration")
 	fmt.Println("ok release: guard interrupted after unit restore finishes from retained backups on the next timer activation")
 	fmt.Println("ok release: reboot-equivalent stop of agent, runtime and guard resumes recovery from the boot timer")
-	for index, phase := range []string{"intent", "unit-staged", "unit-installed", "binary-swapped"} {
-		next := release(strconv.Itoa(index+1), 6+index, "crash:"+phase)
-		if phase == "binary-swapped" || phase == "unit-installed" {
-			previous = next
-		}
-		require(bytes.Equal(read(binary), previous) && bytes.Equal(read(unit), originalUnit), "phase crash did not restore pair: "+phase)
-		require(command("systemctl", "show", "ts-orch", "-p", "StartLimitIntervalUSec", "--value") == "10min", "phase crash did not restore loaded properties")
-		require(command("systemctl", "is-active", "ts-orch") == "active", "phase crash left agent stopped")
-		fmt.Println("ok release: kill at " + phase + " repaired on next start; unit, binary, properties and agent verified")
-	}
+
 	command("systemctl", "stop", "ts-orch")
 	check(os.WriteFile(unit, originalUnit, 0o644))
 	command("systemctl", "daemon-reload")
