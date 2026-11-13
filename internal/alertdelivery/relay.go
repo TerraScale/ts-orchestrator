@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 type notification struct {
@@ -44,18 +46,12 @@ type relay struct {
 const recipient = "mariogk@terrascale.tech"
 
 func Run(ctx context.Context, args []string) error {
-	if len(args) == 1 && args[0] == "prepare" {
-		return prepareCredentials(ctx)
-	}
 	if len(args) != 0 && (len(args) != 1 || args[0] != "subscribe") {
 		return errors.New("usage: ts-orch alert-delivery")
 	}
 	r := relay{ledgerPath: "/var/lib/ts-alerts/email-ledger.json", client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, endpoint: "https://api.cloudflare.com/client/v4/accounts/", pushEndpoint: "https://ntfy.sh/", read: readCredentials, readTopic: readPushTopic}
 	if len(args) == 1 {
 		return r.subscribe(ctx)
-	}
-	if err := checkCredentials(ctx); err != nil {
-		return err
 	}
 	mux := http.NewServeMux()
 	client := newReadinessClient()
@@ -68,13 +64,7 @@ func Run(ctx context.Context, args []string) error {
 	mux.HandleFunc("GET /metrics", readinessMetrics(client, journey, r.probe))
 	mux.HandleFunc("POST /alerts", r.deliver)
 	mux.HandleFunc("POST /alerts/digest", r.digest)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, request *http.Request) {
-		if err := checkCredentials(request.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	})
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	listener, err := net.Listen("tcp", "127.0.0.1:9094")
 	if err != nil {
 		return err
@@ -103,25 +93,18 @@ func Run(ctx context.Context, args []string) error {
 	return err
 }
 
-func checkCredentials(ctx context.Context) error {
-	if _, err := readCredentials(ctx); err != nil {
-		return err
-	}
-	_, err := readPushTopic(ctx)
-	return err
-}
-
 func readCredentials(ctx context.Context) (credentials, error) {
-	values, err := readCredentialFiles("CLOUDFLARE_ACCOUNT_ID_FILE", "CLOUDFLARE_EMAIL_TOKEN_FILE")
+	refs := map[string]vaultsecret.Ref{
+		"CLOUDFLARE_ACCOUNT_ID_FILE":  {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-account-id"},
+		"CLOUDFLARE_EMAIL_TOKEN_FILE": {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-email-token"},
+	}
+	values, err := vaultsecret.ReadInstanceSecrets(ctx, "ts-alerts", refs)
 	if err != nil {
-		return credentials{}, err
+		return credentials{}, errors.New("alert delivery Vault credentials unavailable")
 	}
 	account, token := strings.TrimSpace(values["CLOUDFLARE_ACCOUNT_ID_FILE"]), strings.TrimSpace(values["CLOUDFLARE_EMAIL_TOKEN_FILE"])
-	if !regexp.MustCompile(`^[a-fA-F0-9]{32}$`).MatchString(account) {
-		return credentials{}, errors.New("alert credential file CLOUDFLARE_ACCOUNT_ID_FILE invalid")
-	}
-	if !regexp.MustCompile(`^[A-Za-z0-9._~+/-]+=*$`).MatchString(token) {
-		return credentials{}, errors.New("alert credential file CLOUDFLARE_EMAIL_TOKEN_FILE invalid")
+	if !regexp.MustCompile(`^[a-fA-F0-9]{32}$`).MatchString(account) || token == "" || strings.ContainsAny(token, "\r\n") {
+		return credentials{}, errors.New("alert delivery Vault credentials invalid")
 	}
 	return credentials{account, token}, nil
 }

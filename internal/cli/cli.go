@@ -47,7 +47,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
 	releasecli "github.com/TerraScale/ts-orchestrator/internal/release/cli"
-	"github.com/TerraScale/ts-orchestrator/internal/releasepreflight"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
 	selfupdatecli "github.com/TerraScale/ts-orchestrator/internal/selfupdate/cli"
@@ -200,15 +199,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		}
 		return app.Run(ctx, args, output)
 	case "release":
-		if len(args) > 1 && args[1] == "preflight" {
-			if len(args) == 3 && args[2] == "secrets" {
-				return releasepreflight.Secrets(ctx)
-			}
-			if len(args) != 2 {
-				return errors.New("usage: ts-orch release preflight [secrets]")
-			}
-			return releasepreflight.Run(ctx)
-		}
 		if len(args) > 1 && args[1] == "push" {
 			return releasepush.Push(ctx, args[2:], output)
 		}

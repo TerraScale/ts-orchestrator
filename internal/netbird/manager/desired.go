@@ -206,8 +206,8 @@ func serverAccessPolicies(groups []string) []PolicySpec {
 				Description: cell + " servers → same-region servers: NATS client 4222, ts-auth readiness 8080, TerraBase readiness 9465",
 				Protocol:    "tcp", Ports: []string{"4222", "8080", "9465"}, Sources: []string{group}, Destinations: []string{group}},
 			PolicySpec{Name: group + "-to-" + group + "-terrabase-peers",
-				Description: "TerraBase internal listener between servers",
-				Protocol:    "tcp", Ports: []string{"8081"}, Sources: []string{group}, Destinations: []string{group}})
+				Description: "TerraBase internal listener between servers (8081 production, 18081 the disposable terrabase-e2e; drop 18081 after the live proof)",
+				Protocol:    "tcp", Ports: []string{"8081", "18081"}, Sources: []string{group}, Destinations: []string{group}})
 	}
 	return policies
 }

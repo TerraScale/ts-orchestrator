@@ -1,8 +1,6 @@
 import http.client
 import json
 import os
-import pwd
-import secrets
 import select
 import subprocess
 import sys
@@ -17,19 +15,6 @@ Path("/var/lib/ts-alerts/email-ledger.json").write_text(json.dumps([{
     "send_by": now.isoformat(),
     "until": (now + timedelta(days=1)).isoformat(),
 }]))
-directory = Path("/run/ts-alert-delivery")
-directory.mkdir(mode=0o750)
-gid = pwd.getpwnam("ts-alerts").pw_gid
-os.chown(directory, 0, gid)
-for key, value in {
-    "cloudflare_account_id_file": secrets.token_hex(16),
-    "cloudflare_email_token_file": secrets.token_urlsafe(32),
-    "ts_alerts_ntfy_topic_file": secrets.token_urlsafe(32),
-}.items():
-    path = directory / key
-    path.write_text(value)
-    path.chmod(0o640)
-    os.chown(path, 0, gid)
 process = subprocess.Popen([binary, "alert-delivery"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 lines = []
 try:

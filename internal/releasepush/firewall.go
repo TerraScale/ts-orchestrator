@@ -7,15 +7,7 @@ import (
 	"strconv"
 )
 
-func EnsureFirewall(ctx context.Context) error {
-	rule := []string{"INPUT", "-p", "tcp", "--dport", "7222", "-j", "ACCEPT"}
-	for exec.CommandContext(ctx, "iptables", append([]string{"-w", "5", "-C"}, rule...)...).Run() == nil {
-		if output, err := exec.CommandContext(ctx, "iptables", append([]string{"-w", "5", "-D"}, rule...)...).CombinedOutput(); err != nil {
-			return fmt.Errorf("remove unused listener rule: %w: %s", err, output)
-		}
-	}
-	return OpenTCP(ctx, Port)
-}
+func EnsureFirewall(ctx context.Context) error { return OpenTCP(ctx, Port) }
 
 // OpenTCP puts a tcp/port ACCEPT above the Ubuntu OCI image's INPUT REJECT.
 func OpenTCP(ctx context.Context, port int) error { return open(ctx, "tcp", port) }

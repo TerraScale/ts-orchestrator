@@ -47,18 +47,16 @@ type Region struct {
 
 // Result is the one JSON line push prints per region.
 type Result struct {
-	Region     string        `json:"region"`
-	State      string        `json:"state,omitempty"`
-	ConnectMS  int64         `json:"connect_ms"`
-	AcceptedMS int64         `json:"accepted_ms"`
-	ServingMS  int64         `json:"serving_ms"`
-	ObservedAt string        `json:"observed_at,omitempty"`
-	StartedAt  string        `json:"started_at,omitempty"`
-	HealthyMS  int64         `json:"healthy_ms"`
-	Health     string        `json:"health,omitempty"`
-	Workers    []HostVersion `json:"workers,omitempty"`
-	Refusals   []HostVersion `json:"refusals,omitempty"`
-	Error      string        `json:"error,omitempty"`
+	Region     string `json:"region"`
+	State      string `json:"state,omitempty"`
+	ConnectMS  int64  `json:"connect_ms"`
+	AcceptedMS int64  `json:"accepted_ms"`
+	ServingMS  int64  `json:"serving_ms"`
+	ObservedAt string `json:"observed_at,omitempty"`
+	StartedAt  string `json:"started_at,omitempty"`
+	HealthyMS  int64  `json:"healthy_ms"`
+	Health     string `json:"health,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 func Push(ctx context.Context, args []string, output io.Writer) error {
@@ -124,7 +122,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 			release.Token, err = MintToken(ctx)
 			if err == nil {
 				result = pushRegion(ctx, region, release)
-				if result.Error == "" && len(result.Refusals) == 0 {
+				if result.Error == "" {
 					result.HealthyMS, result.Health, err = awaitHealthy(ctx, region, release)
 				}
 			}
@@ -135,10 +133,6 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 				blocked = region.Region
 				failed = errors.Join(failed, fmt.Errorf("region %s: %s", region.Region, result.Error))
 			}
-		}
-		if refusal := RefusedOn(result.Refusals); refusal != "" {
-			result.State = refusal
-			failed = errors.Join(failed, fmt.Errorf("region %s: %s", region.Region, refusal))
 		}
 		line, _ := json.Marshal(result)
 		if _, err := fmt.Fprintf(output, "%s\n", line); err != nil {
@@ -335,34 +329,11 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	if err != nil {
 		return fail(err)
 	}
-	reply, err := request(ctx, conn, SubjectOrch, payload, 2*time.Minute+WorkerReplyWait)
+	reply, err := request(ctx, conn, SubjectOrch, payload, 2*time.Minute)
 	if err != nil {
 		return fail(fmt.Errorf("release: %w", err))
 	}
 	result.State, result.AcceptedMS = reply.State, since()
-	result.Workers = reply.Workers
-	for _, row := range reply.Workers {
-		if row.Refusal != nil {
-			if row.Refusal.Kind != RefusalHost {
-				result.Error = "release integrity failure on " + row.Host + ": " + row.Refusal.Reason
-			}
-			result.Refusals = append(result.Refusals, row)
-		}
-	}
-	if reply.Refusal != nil && reply.Refusal.SHA == release.SHA {
-		host := reply.Host
-		if host == "" {
-			host = region.Region + " first host"
-		}
-		result.Refusals = append(result.Refusals, HostVersion{Host: host, Refusal: reply.Refusal})
-		if reply.Refusal.Kind != RefusalHost {
-			result.Error = "release integrity failure on " + host + ": " + reply.Refusal.Reason
-		}
-		return result
-	}
-	if result.Error != "" {
-		return result
-	}
 	if reply.State != "installed" && reply.State != "current" {
 		return fail(fmt.Errorf("release %s: %s", reply.State, reply.Error))
 	}
