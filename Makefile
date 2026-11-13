@@ -38,10 +38,13 @@ format-check:
 TEMPL_SOURCES = $(shell find . -type f -name '*.templ' -not -path './.git/*' -not -path './third_party/*' -not -path './docs/*')
 
 generate:
+	python3 scripts/ci/node-list.py
 	$(if $(TEMPL_SOURCES),$(GO) tool templ fmt $(TEMPL_SOURCES))
 	$(GO) tool templ generate
 
 generate-check:
+	python3 scripts/ci/node-list.py check
+	$(GO) run ./cmd/terrascale-orchestrator node list check deploy/m1/nodes.json
 	GO="$(GO)" bash scripts/ci/check-templ.sh
 
 vet:

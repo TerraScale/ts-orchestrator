@@ -35,6 +35,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/pathaudit"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 	"github.com/TerraScale/ts-orchestrator/internal/networkcheck"
+	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
@@ -94,7 +95,7 @@ Operator tooling:
   status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
   edge                   Apply (or --plan) the GeoDNS steering policy to the nearest healthy region (edge geodns)
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
-  node                   Drain, reboot, resize, add and retire a cell's nodes, one at a time behind the load balancer
+  node                   Inspect local public keys, build node lists, and manage cell nodes
   bootstrap              Prepare, sign, verify, and publish bootstrap material
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources
@@ -187,6 +188,11 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return logscan.Run(ctx, args[1:], output)
 	case "bootstrap":
 		return bootstrapcli.Run(ctx, args[1:], output)
+	case "node":
+		if len(args) > 1 && (args[1] == "keys" || args[1] == "list") {
+			return nodelist.Run(args[1:], output)
+		}
+		return app.Run(ctx, args, output)
 	case "release":
 		if len(args) > 1 && args[1] == "push" {
 			return releasepush.Push(ctx, args[2:], output)
@@ -272,7 +278,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 			return err
 		}
 		return runtimepriority.Run(ctx, args[1:], commandio.NewWriter(output))
-	case "run", "host", "check", "operator", "get", "diff", "apply", "rollout", "node", "identity-new", "netbird-enroll",
+	case "run", "host", "check", "operator", "get", "diff", "apply", "rollout", "identity-new", "netbird-enroll",
 		"bootstrap-controller", "bootstrap-credential-check", "bootstrap-admit-initial",
 		"bootstrap-admit-restart", "identity-rekey-completion-check", "identity-rekey", "install-controller-config", "host-setup", "host-volume-init", "restore-controller-material":
 		return app.Run(ctx, args, output)

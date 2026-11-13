@@ -212,11 +212,22 @@ go -C "$repo" build -trimpath -o "$work/regional-edge" ./test/e2e/m1/regional
 sudo unshare -n sh -c 'ip link set lo up && exec "$0" "$@"' "$work/regional-edge" "$work/regional" "$work/ca.pem" regional.e2e.test upgrade.e2e.test
 end "regional edge -> REST, two WebSockets, a drain with both open, REST after it, an upload after a backend's half-close"
 
+nice -n 19 go -C "$repo" run ./test/e2e/m1/nodelist "$bin"
+
 begin "restart ts-orch"
+sudo test -s "$state/node/tls.key"
+sudo test -s "$state/node/wg.key"
+orch node keys >"$work/node-public-before.json"
+sudo sha256sum "$state/node/tls.key" "$state/node/wg.key" | tee "$work/node-private-before.sha256" >/dev/null
 sudo systemctl restart ts-orch
 wait_for 120 edge whoami.e2e.test /health
 wait_for 60 edge data.e2e.test /boots
-end "ts-orch restart -> both served"
+orch node keys >"$work/node-public-after.json"
+cmp "$work/node-public-before.json" "$work/node-public-after.json"
+sudo sha256sum --check "$work/node-private-before.sha256"
+test "$(sudo stat -c %a "$state/node/tls.key")" = 600
+test "$(sudo stat -c %a "$state/node/wg.key")" = 600
+end "ts-orch restart -> both served, node keys kept"
 
 begin "restart the e2e-data task"
 before=$(edge data.e2e.test /boots | wc -l)

@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 )
@@ -94,6 +95,7 @@ type Reply struct {
 	Result   json.RawMessage `json:"result,omitempty"`
 	Deadline time.Time       `json:"deadline,omitzero"`
 	Events   []string        `json:"events,omitempty"`
+	NodeList nodelist.Status `json:"node_list,omitzero"`
 }
 
 type Progress interface {
@@ -103,6 +105,7 @@ type Progress interface {
 
 // Handler serves the release subjects on any connection with full permissions.
 type Handler struct {
+	NodeList *nodelist.Store
 	Health   func(context.Context) error
 	Verifier *Verifier
 	// Revision is the running build's vcs.revision.
@@ -144,6 +147,7 @@ func NewHandler(state string) (*Handler, error) {
 	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary,
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
 		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
+	h.NodeList = nodelist.Open(state)
 	h.rolledBack.Store(readRollback(h.RollbackFile))
 	return h, nil
 }
@@ -242,10 +246,11 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }
 
 func (h *Handler) version() Reply {
+	reply := Reply{Version: h.Revision, NodeList: h.NodeList.Status()}
 	if rollback := h.rolledBack.Load(); rollback != nil {
-		return Reply{Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason}
+		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason
 	}
-	return Reply{Version: h.Revision}
+	return reply
 }
 
 func (h *Handler) health(ctx context.Context, _ []byte) Reply {

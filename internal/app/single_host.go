@@ -130,7 +130,9 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	if err := notifier.Ready("single-host node ready"); err != nil {
 		return err
 	}
-	probation.Served()
+	if probation.Served() {
+		releases.NodeList.AdoptEmbedded()
+	}
 	defer func() { _ = notifier.Stopping() }()
 	if _, err := fmt.Fprintf(output, "single-host %s %s ready; advertise %s\n", plan.admission.Role, node.ID(), plan.advertise); err != nil {
 		return err

@@ -32,6 +32,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -68,6 +69,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	if err != nil {
 		return err
 	}
+	nodelist.InitIdentity(*state)
 	plan, err := planHost(ctx, *state, output)
 	if err != nil {
 		return err

@@ -181,7 +181,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-          sparse-checkout: deploy/m1/regions.json
+          sparse-checkout: |
+            deploy/m1/regions.json
           sparse-checkout-cone-mode: false
 
       - name: Download this run's release binaries

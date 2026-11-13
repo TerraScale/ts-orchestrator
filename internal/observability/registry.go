@@ -32,7 +32,7 @@ type Registry struct {
 // and process series that VictoriaMetrics/metrics collects.
 func NewRegistry(processMetrics bool) *Registry {
 	metrics.ExposeMetadata(true)
-	return &Registry{processMetrics: processMetrics}
+	return &Registry{processMetrics: processMetrics, writers: []func(io.Writer){WriteNodeFeatureMetrics}}
 }
 
 // Register adds one slice's metric set. Registering the same set twice is a
