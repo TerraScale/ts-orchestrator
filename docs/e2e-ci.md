@@ -14,10 +14,6 @@ The ARM journeys run as independent matrix jobs. Every lane runs for every pull 
 | host-logs | Journal settings applied once from current host state, unsupported hosts left untouched, syslog handling | 12 minutes | All paths |
 | monitoring | Alert rule sets, relay delivery, and task metrics that keep the recorded service identity across restart and adoption | 8 minutes | All paths |
 | boot-order | Management and peer cold boots, old declarations, dependency gates and running tasks | 8 minutes | All paths |
-| updater-preflight | Candidate preflight before the binary swap, the single commit point under injected write failures, host and integrity refusals across regions, probation, and the alert relay runtime files | 12 minutes | All paths |
-| host-credentials | Prepared-file relay startup, missing/malformed/protection health checks and activation preparation gate | 5 minutes | All paths |
-| release-contracts | Revision admission/refusals, retained Vault policy narrowing, installer metadata preservation and platform preflight | 5 minutes | All paths |
-| metadata-upgrade | Real installer upgrade preserves metadata exceptions and local rules through a systemd unit restart | 8 minutes | All paths |
 | rollout | Regional bake windows, local holds, signed replacement and nonce admission across three isolated regions | 10 minutes | All paths |
 | rollout-install | First installs, lost receipts, new regions, release identity validation, interruption budgets and host sampling | 10 minutes | All paths |
 | operator | Fleet routing contracts and startup metadata recovery/outage/cancellation | 8 minutes | All paths |
@@ -49,12 +45,6 @@ bash test/e2e/m1/run.sh /tmp/m1-bin/terrascale-orchestrator
 ~~~
 
 Substitute the selected entry script. Install-based lanes require passwordless sudo and modify the disposable host.
-
-## Credential isolation
-
-The host-credentials lane uses mount and network namespaces with an actual tmpfs and disables swap on its disposable runner. The updater-preflight lane runs the alert-preparation assertions with the same memory protection. Together they cover every assertion in the local credential-vm harness without requiring KVM or QEMU in CI. That harness remains available for local machines whose active swap must stay untouched; it adds no VM-only assertions. The monitoring lane also disables swap and prepares protected disposable credential files before starting the real relay. Its malformed journey-state assertions continue to exercise alert acceptance independently of journey observations.
-
-Release-contracts runs its short namespace/API journeys together. Metadata-upgrade seeds the generated metadata rules before sourcing setup.sh, modeling an existing host with a protected metadata boundary, then exercises the real installed systemd unit. Setup creates persistent state for certificates before installation, so it intentionally does not represent an installer-fresh host. Release-contracts covers fresh-host rule creation in its isolated installer journey. Metadata-upgrade moves the NTP stand-in into a peer network namespace before upgrading: metadata prerouting protections correctly reject traffic to a runner-local metadata address, while the peer models the real external clock endpoint. Core run.sh and operator startup.sh remain identical to the merged base.
 
 ## Publication on main
 

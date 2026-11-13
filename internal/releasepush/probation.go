@@ -42,7 +42,7 @@ func rollbackFile(state string) string { return filepath.Join(state, "nats", "re
 
 func readRollback(path string) *Rollback {
 	var rollback Rollback
-	if !readState(path, &rollback) || rollback.SHA == "" {
+	if data, err := os.ReadFile(path); err != nil || json.Unmarshal(data, &rollback) != nil || rollback.SHA == "" {
 		return nil
 	}
 	return &rollback
@@ -50,11 +50,10 @@ func readRollback(path string) *Rollback {
 
 // Probation guards one start of a pushed binary; a nil Probation is no trial.
 type Probation struct {
-	state, binary       string
-	trialPath, previous string
-	output              io.Writer
-	trial               trial
-	exit                func()
+	state, binary string
+	output        io.Writer
+	trial         trial
+	exit          func()
 
 	mu     sync.Mutex
 	served bool
@@ -72,13 +71,16 @@ func Probe(state string, output io.Writer) (*Probation, error) {
 }
 
 func probe(state, binary, revision string, now time.Time, output io.Writer, exit func()) (*Probation, error) {
-	_, trialPath, _, previous := releaseState(binary, filepath.Join(state, "nats", "release-run-id"), trialFile(state), rollbackFile(state))
-	p := &Probation{state: state, binary: binary, trialPath: trialPath, previous: previous, output: output, exit: exit}
-	if !readState(p.trialPath, &p.trial) || p.trial.SHA != revision {
+	data, err := os.ReadFile(trialFile(state))
+	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
-	if p.trial.Installed.IsZero() {
-		p.trial.Installed = now
+	if err != nil {
+		return nil, err
+	}
+	p := &Probation{state: state, binary: binary, output: output, exit: exit}
+	if json.Unmarshal(data, &p.trial) != nil || p.trial.SHA != revision {
+		return nil, removeIfExists(trialFile(state))
 	}
 	p.trial.Starts++
 	if p.trial.Starts > trialStarts {
@@ -89,8 +91,8 @@ func probe(state, binary, revision string, now time.Time, output io.Writer, exit
 	if left <= 0 {
 		return nil, p.rollBack(late)
 	}
-	if err := writeJSON(p.trialPath, p.trial); err != nil {
-		stateWarning(trialFile(state), "crash counter not saved")
+	if err := writeJSON(trialFile(state), p.trial); err != nil {
+		return nil, err
 	}
 	p.timer = time.AfterFunc(left, func() {
 		p.mu.Lock()
@@ -114,11 +116,10 @@ func (p *Probation) Served() bool {
 	defer p.mu.Unlock()
 	p.served = true
 	p.timer.Stop()
-	if err := errors.Join(removeIfExists(p.trialPath), removeIfExists(trialFile(p.state))); err != nil {
+	if err := removeIfExists(trialFile(p.state)); err != nil {
 		fmt.Fprintf(p.output, "release probation: %v\n", err)
 		return false
 	}
-	cleanupRelease(p.binary + ".release")
 	return true
 }
 
@@ -129,15 +130,14 @@ func (p *Probation) rollBack(reason string) error {
 	record := Rollback{SHA: p.trial.SHA, RunID: p.trial.RunID, Reason: reason}
 	err := writeJSON(rollbackFile(p.state), record)
 	if err == nil {
-		err = os.Rename(p.previous, p.binary)
+		err = os.Rename(p.binary+".prev", p.binary)
 	}
 	if err != nil {
-		err = errors.Join(err, removeIfExists(rollbackFile(p.state)), removeIfExists(p.trialPath))
+		err = errors.Join(err, removeIfExists(rollbackFile(p.state)), removeIfExists(trialFile(p.state)))
 		fmt.Fprintf(p.output, "release %s %s; cannot restore %s.prev: %v\n", p.trial.SHA, reason, p.binary, err)
 		return nil
 	}
-	_ = os.Remove(trialFile(p.state))
-	cleanupRelease(p.binary + ".release")
+	_ = os.Remove(trialFile(p.state)) // the restored binary drops it too
 	return fmt.Errorf("rolled back release %s (run %s): %s; restarting on %s.prev", p.trial.SHA, p.trial.RunID, reason, p.binary)
 }
 
@@ -146,7 +146,7 @@ func writeJSON(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	return writeState(path, data)
+	return os.WriteFile(path, data, 0o600)
 }
 
 func removeIfExists(path string) error {

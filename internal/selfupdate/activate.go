@@ -1,7 +1,6 @@
 package selfupdate
 
 import (
-	"context"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -150,9 +148,6 @@ func Activate(layout Layout, digest, unit string, now time.Time, window time.Dur
 			if err := layout.VerifyRelease(digest); err != nil {
 				return Activation{}, err
 			}
-			if err := secretpreflight.Check(context.Background(), layout.BinaryPath(digest)); err != nil {
-				return Activation{}, err
-			}
 			return pending, layout.flipCurrent(digest)
 		}
 		return Activation{}, fmt.Errorf("%w: activation %s is still pending", ErrInvalid, pending.ActivationID)
@@ -176,10 +171,6 @@ func Activate(layout Layout, digest, unit string, now time.Time, window time.Dur
 		if err := layout.VerifyRelease(release); err != nil {
 			return Activation{}, err
 		}
-	}
-
-	if err := secretpreflight.Check(context.Background(), layout.BinaryPath(digest)); err != nil {
-		return Activation{}, err
 	}
 
 	activation := Activation{
