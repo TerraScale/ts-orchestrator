@@ -115,7 +115,7 @@ jobs:
 
   caller-key-changes:
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: 5
     outputs:
       changed: ${{ steps.paths.outputs.changed }}
     steps:
