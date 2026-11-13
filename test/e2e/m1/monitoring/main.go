@@ -51,7 +51,7 @@ func run() error {
 	defer os.RemoveAll(state)
 	executor, err := swarmruntime.NewExecutor(swarmruntime.HostContainerdSocket, filepath.Join(state, "runtime"))
 	if err != nil {
-		return err
+		return fmt.Errorf("open monitoring executor: %w", err)
 	}
 	defer executor.Close()
 	var tasks []*api.Task
@@ -84,13 +84,30 @@ func run() error {
 		controllers = append(controllers, controller)
 		tasks = append(tasks, task)
 		if err := controller.Prepare(ctx); err != nil {
-			return err
+			return fmt.Errorf("prepare %s: %w", name, err)
 		}
 		if err := controller.Start(ctx); err != nil {
-			return err
+			return fmt.Errorf("start %s: %w", name, err)
 		}
 	}
 	verify := func(executor *swarmruntime.Executor) error {
+		for _, task := range tasks {
+			container, err := client.LoadContainer(ctx, "ts-"+task.ID)
+			if err != nil {
+				return err
+			}
+			process, err := container.Task(ctx, nil)
+			if err != nil {
+				return err
+			}
+			status, err := process.Status(ctx)
+			if err != nil {
+				return err
+			}
+			if status.Status != containerd.Running {
+				return fmt.Errorf("task %s is not running: %s", task.ID, status.Status)
+			}
+		}
 		targets, err := executor.SLOTargets(ctx, "local")
 		if err != nil {
 			return err
@@ -118,7 +135,7 @@ func run() error {
 	if err := verify(executor); err != nil {
 		return err
 	}
-	restarted, err := swarmruntime.NewExecutor(swarmruntime.HostContainerdSocket, filepath.Join(state, "restarted"))
+	restarted, err := swarmruntime.NewExecutor(swarmruntime.HostContainerdSocket, filepath.Join(state, "runtime"))
 	if err != nil {
 		return err
 	}
@@ -139,10 +156,10 @@ func run() error {
 			return err
 		}
 		if err := adopted.Prepare(ctx); err != nil {
-			return err
+			return fmt.Errorf("adopt %s: %w", task.ID, err)
 		}
 	}
-	adopted, err := swarmruntime.NewExecutor(swarmruntime.HostContainerdSocket, filepath.Join(state, "adopted"))
+	adopted, err := swarmruntime.NewExecutor(swarmruntime.HostContainerdSocket, filepath.Join(state, "runtime"))
 	if err != nil {
 		return err
 	}
