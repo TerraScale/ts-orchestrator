@@ -100,7 +100,12 @@ func busyCases(ctx context.Context) {
 		_, err = syscall.InotifyAddWatch(watch, held, syscall.IN_CLOSE_WRITE)
 		must(err)
 		replied := make(chan releasepush.Reply, 1)
-		go func() { replied <- send(ctx, conn, p.release(shaB, "2", "e2e")) }()
+		var repliedAt time.Time
+		go func() {
+			reply := send(ctx, conn, p.release(shaB, "2", "e2e"))
+			repliedAt = time.Now()
+			replied <- reply
+		}()
 		event := make([]byte, 4096)
 		_, err = syscall.Read(watch, event)
 		must(errors.Join(err, syscall.Close(watch)))
@@ -111,11 +116,12 @@ func busyCases(ctx context.Context) {
 		case <-ctx.Done():
 			panic("busy case outlived the lane")
 		}
+		released := time.Now()
 		must(writer.Close())
 		reply := <-replied
-		waited := time.Since(written)
+		waited := repliedAt.Sub(written)
 		if hold < textBusyLimit {
-			require(reply.State == "installed" && waited >= hold, fmt.Sprintf("a candidate busy for %s must be retried and installed: %+v after %s", hold, reply, waited))
+			require(reply.State == "installed" && repliedAt.After(released), fmt.Sprintf("a candidate busy for %s must be retried until it is released, then installed: %+v after %s", hold, reply, waited))
 			require(bytes.Equal(read(h.binary), asset) && h.trial()["sha"] == shaB, "the retried candidate must be installed by main's flow")
 			fmt.Println("ok busy candidate: ETXTBSY for", hold, "retried; installed after", waited.Round(time.Millisecond))
 		} else {
