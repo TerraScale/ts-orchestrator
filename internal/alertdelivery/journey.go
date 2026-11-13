@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -19,9 +20,10 @@ import (
 
 type journeyObservation struct {
 	sync.RWMutex
-	at     time.Time
-	result string
-	path   string
+	at          time.Time
+	result      string
+	path        string
+	unavailable bool
 }
 
 type journeyState struct {
@@ -33,7 +35,7 @@ type journeyState struct {
 func openJourney(path string) (*journeyObservation, error) {
 	state, err := loadJourney(path)
 	if err != nil {
-		return nil, err
+		return &journeyObservation{path: path}, err
 	}
 	return &journeyObservation{at: state.At, result: state.Result, path: path}, nil
 }
@@ -48,10 +50,13 @@ func loadJourney(path string) (journeyState, error) {
 	}
 	var state journeyState
 	err = json.Unmarshal(data, &state)
+	if err == nil && (state.Next.IsZero() || (!state.At.IsZero() && !regexp.MustCompile("^terrascale_production_journey_observed 1\\nterrascale_production_journey_success [01]\\nterrascale_production_journey_completed_timestamp_seconds [0-9]+\\n$").MatchString(state.Result)) || (state.At.IsZero() && state.Result != "")) {
+		err = errors.New("invalid journey observation state")
+	}
 	return state, err
 }
 
-func saveJourney(path string, state journeyState) error {
+func saveObservation(path string, state any) error {
 	data, err := json.Marshal(state)
 	if err != nil {
 		return err
@@ -90,7 +95,10 @@ func (j *journeyObservation) refresh(ctx context.Context, client *http.Client) (
 	defer lock.Unlock()
 	state, err := loadJourney(j.path)
 	if err != nil {
-		return 30 * time.Minute, err
+		j.Lock()
+		j.at, j.result = time.Time{}, ""
+		j.Unlock()
+		return time.Minute, err
 	}
 	j.Lock()
 	j.at, j.result = state.At, state.Result
@@ -99,17 +107,24 @@ func (j *journeyObservation) refresh(ctx context.Context, client *http.Client) (
 		return delay, nil
 	}
 	state.Next = time.Now().Add(30 * time.Minute)
-	if err := saveJourney(j.path, state); err != nil {
+	if err := saveObservation(j.path, state); err != nil {
 		return 30 * time.Minute, err
 	}
 	refresh, cancel := context.WithTimeout(ctx, 35*time.Second)
 	defer cancel()
 	result, err := readJourney(refresh, client)
 	if err != nil {
+		var refusal *journeyRefusal
+		if errors.As(err, &refusal) && refusal.next.After(state.Next) {
+			state.Next = refusal.next
+			if saveErr := saveObservation(j.path, state); saveErr != nil {
+				return 30 * time.Minute, saveErr
+			}
+		}
 		return time.Until(state.Next), err
 	}
 	state.At, state.Result = time.Now(), result
-	if err := saveJourney(j.path, state); err != nil {
+	if err := saveObservation(j.path, state); err != nil {
 		return time.Until(state.Next), err
 	}
 	j.Lock()
@@ -127,9 +142,10 @@ func (j *journeyObservation) run(ctx context.Context, client *http.Client) {
 			return
 		case <-tick.C:
 			delay, err := j.refresh(ctx, client)
-			if err != nil && ctx.Err() == nil {
+			if err != nil && ctx.Err() == nil && !j.unavailable {
 				slog.WarnContext(ctx, "Production journey observation unavailable", "error", err)
 			}
+			j.unavailable = err != nil
 			tick.Reset(delay)
 		}
 	}
@@ -141,6 +157,9 @@ func (j *journeyObservation) write(w io.Writer) {
 	age := time.Since(j.at).Seconds()
 	if j.at.IsZero() {
 		age = 1e12
+	}
+	if j.result == "" {
+		fmt.Fprintln(w, "terrascale_production_journey_observed 0")
 	}
 	fmt.Fprintf(w, "terrascale_production_journey_observation_age_seconds %g\n%s", age, j.result)
 }
@@ -157,7 +176,7 @@ func githubJSON(ctx context.Context, client *http.Client, path string, out any) 
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("journey metadata unavailable")
+		return &journeyRefusal{next: githubRetryAt(response.Header)}
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
 	if err != nil || len(data) > 1<<20 {
@@ -202,4 +221,25 @@ func readJourney(ctx context.Context, client *http.Client) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no executed production journey observed")
+}
+
+type journeyRefusal struct{ next time.Time }
+
+func (*journeyRefusal) Error() string { return "journey metadata refused" }
+
+func githubRetryAt(headers http.Header) time.Time {
+	next := time.Now().Add(30 * time.Minute)
+	if seconds, err := strconv.ParseInt(headers.Get("Retry-After"), 10, 64); err == nil && seconds > 0 {
+		if retry := time.Now().Add(time.Duration(min(seconds, int64((1<<63-1)/int64(time.Second)))) * time.Second); retry.After(next) {
+			next = retry
+		}
+	} else if retry, err := http.ParseTime(headers.Get("Retry-After")); err == nil && retry.After(next) {
+		next = retry
+	}
+	if seconds, err := strconv.ParseInt(headers.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+		if reset := time.Unix(seconds, 0); reset.After(next) {
+			next = reset
+		}
+	}
+	return next
 }

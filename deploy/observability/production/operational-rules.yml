@@ -153,12 +153,12 @@ groups:
         annotations:
           summary: A running service task cannot be scraped
       - alert: ServiceTaskScrapeCoverageMissing
-        expr: ts_host_service_tasks_expected{job="host-storage"} > on (host, region, service) (count by (host, region, service) (up{job="application-slo"}) or on (host, region, service) (0 * ts_host_service_tasks_expected{job="host-storage"}))
-        for: 15m
+        expr: ts_host_service_tasks_expected{job="host-storage"} > on (host, region, service) (count by (host, region, service) (up{job="application-slo"} == 1) or on (host, region, service) (0 * ts_host_service_tasks_expected{job="host-storage"}))
+        for: 5m
         labels:
           severity: critical
         annotations:
-          summary: A service has fewer scrape targets than running tasks on a node
+          summary: A service has fewer healthy scrape targets than assigned tasks on a node
       - alert: HostServiceTaskInventoryMissing
         expr: |
           absent(ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc"}) or
@@ -227,3 +227,23 @@ groups:
           severity: critical
         annotations:
           summary: The oldest file shipment has not advanced for twenty-four hours
+      - alert: AlertDeliveryHeartbeat
+        expr: vector(1)
+        labels:
+          delivery_probe: heartbeat
+        annotations:
+          summary: Scheduled alert delivery probe
+      - alert: AlertDeliveryProbeStale
+        expr: (time() - terrascale_alert_delivery_probe_completed_timestamp_seconds >= 900) and (terrascale_alert_delivery_probe_completed_timestamp_seconds > 0)
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: No alert delivery probe completed in fifteen minutes
+      - alert: AlertDeliveryProbeMissing
+        expr: terrascale_alert_delivery_probe_completed_timestamp_seconds == 0 or absent(terrascale_alert_delivery_probe_completed_timestamp_seconds)
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: No completed alert delivery probe is observable

@@ -181,6 +181,9 @@ grep -Eq '^e2e-whoami +1/1 running' ls.txt
 grep -Eq '^e2e-data +1/1 running' ls.txt
 
 begin "task monitoring preserves service identity"
+nice -n 19 python3 "$here/monitoring/host_sets.py"
+nice -n 19 bash "$repo/deploy/observability/production/install.sh" --check
+sudo nice -n 19 unshare --mount --net --fork bash "$here/monitoring/relay.sh" "$bin"
 CGO_ENABLED=0 go -C "$repo" build -trimpath -o "$work/monitoring" ./test/e2e/m1/monitoring
 sudo "$work/monitoring" "$here/whoami.json"
 end "same image -> only the recorded dashboard service is published, including after restart and adoption"

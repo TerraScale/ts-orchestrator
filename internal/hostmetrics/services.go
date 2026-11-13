@@ -89,12 +89,17 @@ func proxyService(ctx context.Context, w http.ResponseWriter, address string) {
 }
 
 func writeServiceCounts(ctx context.Context, w io.Writer, executor *swarmruntime.Executor) error {
-	counts, err := executor.SLOTaskCounts(ctx)
+	counts, err := executor.SLOTaskInventory(ctx, "")
 	if err != nil {
 		return err
 	}
 	for _, service := range []string{"terrabase", "ts-auth", "ts-dashboard"} {
-		fmt.Fprintf(w, "ts_host_service_tasks_expected{service=%q} %d\n", service, counts[service])
+		fmt.Fprintf(w, "ts_host_service_tasks_expected{service=%q} %d\n", service, counts.Expected[service])
+		fmt.Fprintf(w, "ts_host_service_tasks_running{service=%q} %d\n", service, counts.Running[service])
+		fmt.Fprintf(w, "ts_host_service_tasks_discovered{service=%q} %d\n", service, counts.Discovered[service])
+	}
+	for _, reason := range []string{"task_identity", "service_identity", "image_identity"} {
+		fmt.Fprintf(w, "ts_host_service_task_identity_rejected{reason=%q} %d\n", reason, counts.Rejected[reason])
 	}
 	return nil
 }

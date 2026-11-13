@@ -2,15 +2,17 @@
 set -euo pipefail
 source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
+python3 "$source_dir/check-hosts.py"
+
 # Only the explicit host invocation deploys; --check downloads and validates locally.
 if [[ $# == 1 && $1 != --local && $1 != --check ]]; then
   [[ $1 != -* && $1 =~ ^[a-zA-Z0-9_.@-]+$ ]] || { echo 'Invalid SSH host' >&2; exit 2; }
-  tar -C "$source_dir/.." -czf - production slo-rules.yml | ssh "$1" '
+  tar -C "$source_dir/../../.." -czf - deploy/observability/production deploy/observability/slo-rules.yml test/e2e/m1/monitoring/rules.yml | ssh "$1" '
     set -eu
     staging=$(mktemp -d)
     trap '\''rm -rf -- "$staging"'\'' EXIT HUP INT TERM
     tar -xzf - -C "$staging"
-    sudo bash "$staging/production/install.sh" --local
+    sudo bash "$staging/deploy/observability/production/install.sh" --local
   '
   exit
 fi
@@ -48,7 +50,7 @@ if [[ $mode == --local ]]; then
     done
     checked=$((checked + 1))
   done < <(awk '$1 == "-" && $2 == "url:" {print $3}' "$source_dir/prometheus.yml")
-  [[ $checked == 6 ]] || { echo 'Expected six host inventory endpoints' >&2; exit 2; }
+  [[ $checked == $(wc -l < "$source_dir/hosts.txt") ]] || { echo 'Expected every configured host inventory endpoint' >&2; exit 2; }
   status=0
   relay_help=$(timeout --kill-after=1s 5s /usr/local/bin/ts-orch alert-delivery --help 2>&1) || status=$?
   if [[ $status != 1 || $relay_help != 'usage: ts-orch alert-delivery' ]]; then
@@ -79,6 +81,7 @@ done
 prom_dir="$staging/prometheus-3.15.0.linux-$arch"
 alert_dir="$staging/alertmanager-0.34.1.linux-$arch"
 "$prom_dir/promtool" check config "$source_dir/prometheus.yml"
+(cd "$source_dir/../../../test/e2e/m1/monitoring" && "$prom_dir/promtool" test rules rules.yml)
 "$alert_dir/amtool" check-config "$source_dir/alertmanager.yml"
 if [[ $mode == --check ]]; then exit; fi
 
@@ -107,7 +110,6 @@ done
 for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service; do
   put "$source_dir/$unit" "/etc/systemd/system/$unit" 0644
 done
-rm -f /run/ts-orch-observability/targets.json
 systemctl daemon-reload
 systemctl enable ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service
 if [[ $changed == 1 ]]; then

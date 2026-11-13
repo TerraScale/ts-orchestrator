@@ -2,6 +2,8 @@ package swarmruntime
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"maps"
 	"net"
 	"slices"
@@ -11,6 +13,8 @@ import (
 
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"
+	"github.com/moby/swarmkit/v2/agent"
+	"github.com/moby/swarmkit/v2/api"
 )
 
 type SLOTarget struct {
@@ -26,13 +30,16 @@ type sloContainer struct {
 
 type sloCache struct {
 	sync.Mutex
-	at         time.Time
-	containers []sloContainer
-	err        error
-	targetsAt  time.Time
-	targets    []SLOTarget
-	targetsErr error
-	region     string
+	at          time.Time
+	containers  []sloContainer
+	err         error
+	targetsAt   time.Time
+	targets     []SLOTarget
+	targetsErr  error
+	region      string
+	assignments func() ([]*api.Task, error)
+	rejected    map[string]int
+	logged      map[string]bool
 }
 
 func (e *Executor) SLOTargets(ctx context.Context, region string) ([]SLOTarget, error) {
@@ -53,18 +60,46 @@ func (e *Executor) SLOTargets(ctx context.Context, region string) ([]SLOTarget, 
 	return targets, e.slo.targetsErr
 }
 
-func (e *Executor) SLOTaskCounts(ctx context.Context) (map[string]int, error) {
+type SLOInventory struct {
+	Expected   map[string]int
+	Running    map[string]int
+	Discovered map[string]int
+	Rejected   map[string]int
+}
+
+func (e *Executor) SLOTaskInventory(ctx context.Context, region string) (SLOInventory, error) {
 	e.slo.Lock()
 	defer e.slo.Unlock()
+	inventory := SLOInventory{Expected: map[string]int{}, Running: map[string]int{}, Discovered: map[string]int{}}
+	if e.slo.assignments == nil {
+		return inventory, errors.New("node assignments unavailable")
+	}
+	assignments, err := e.slo.assignments()
+	if err != nil {
+		return inventory, err
+	}
+	for _, task := range assignments {
+		name := task.ServiceAnnotations.Labels[LabelServiceSpec]
+		if task.DesiredState == api.TaskStateRunning && slices.Contains([]string{"terrabase", "ts-auth", "ts-dashboard"}, name) {
+			inventory.Expected[name]++
+		}
+	}
 	containers, err := e.cachedSLOContainers(ctx)
 	if err != nil {
-		return nil, err
+		return inventory, err
 	}
-	counts := map[string]int{"terrabase": 0, "ts-auth": 0, "ts-dashboard": 0}
 	for _, container := range containers {
-		counts[container.name]++
+		inventory.Running[container.name]++
 	}
-	return counts, nil
+	targets, err := sloTargets(ctx, containers, region)
+	if err != nil {
+		return inventory, err
+	}
+	for _, target := range targets {
+		inventory.Discovered[target.Labels["service"]]++
+	}
+	inventory.Rejected = maps.Clone(e.slo.rejected)
+	return inventory, nil
 }
 
 func (e *Executor) cachedSLOContainers(ctx context.Context) ([]sloContainer, error) {
@@ -81,7 +116,25 @@ func (e *Executor) runningSLOContainers(ctx context.Context) ([]sloContainer, er
 	if err != nil {
 		return nil, err
 	}
+	bindings := map[string]*api.Task{}
+	if e.slo.assignments != nil {
+		tasks, err := e.slo.assignments()
+		if err != nil {
+			return nil, err
+		}
+		for _, task := range tasks {
+			if slices.Contains([]string{"terrabase", "ts-auth", "ts-dashboard"}, task.ServiceAnnotations.Labels[LabelServiceSpec]) {
+				bindings["ts-"+task.ID] = task
+			}
+		}
+	}
 	var containersRunning []sloContainer
+	e.slo.rejected = map[string]int{"task_identity": 0, "service_identity": 0, "image_identity": 0}
+	if e.slo.logged == nil {
+		e.slo.logged = map[string]bool{}
+	}
+	present := map[string]bool{}
+
 	for _, container := range containers {
 		info, err := container.Info(ctx)
 		if errdefs.IsNotFound(err) {
@@ -91,9 +144,26 @@ func (e *Executor) runningSLOContainers(ctx context.Context) ([]sloContainer, er
 			return nil, err
 		}
 		name := info.Labels[LabelServiceSpec]
-		if !slices.Contains([]string{"terrabase", "ts-auth", "ts-dashboard"}, name) ||
-			info.Labels["terrascale.service"] == "" || info.Labels["terrascale.task"] == "" ||
-			container.ID() != "ts-"+info.Labels["terrascale.task"] || !DeploymentImageBelongsToService(name, info.Image) {
+		binding := bindings[container.ID()]
+		if binding == nil && !slices.Contains([]string{"terrabase", "ts-auth", "ts-dashboard"}, name) {
+			continue
+		}
+		present[container.ID()] = true
+		reason := ""
+		switch {
+		case info.Labels["terrascale.task"] == "" || container.ID() != "ts-"+info.Labels["terrascale.task"]:
+			reason = "task_identity"
+		case info.Labels["terrascale.service"] == "" || (binding != nil && (name != binding.ServiceAnnotations.Labels[LabelServiceSpec] || info.Labels["terrascale.service"] != binding.ServiceID)):
+			reason = "service_identity"
+		case !DeploymentImageBelongsToService(name, info.Image):
+			reason = "image_identity"
+		}
+		if reason != "" {
+			e.slo.rejected[reason]++
+			if !e.slo.logged[container.ID()] {
+				slog.WarnContext(ctx, "Task monitoring identity rejected", "task", container.ID(), "reason", reason)
+				e.slo.logged[container.ID()] = true
+			}
 			continue
 		}
 		task, err := container.Task(ctx, nil)
@@ -112,6 +182,11 @@ func (e *Executor) runningSLOContainers(ctx context.Context) ([]sloContainer, er
 		}
 		if status.Status == containerd.Running {
 			containersRunning = append(containersRunning, sloContainer{info.Labels, task.Pid(), name})
+		}
+	}
+	for task := range e.slo.logged {
+		if !present[task] {
+			delete(e.slo.logged, task)
 		}
 	}
 	return containersRunning, ctx.Err()
@@ -148,4 +223,16 @@ func sloTargets(ctx context.Context, containers []sloContainer, region string) (
 		return nil, err
 	}
 	return targets, nil
+}
+
+func (e *Executor) BindSLOAgent(source func() *agent.Agent) {
+	e.slo.Lock()
+	defer e.slo.Unlock()
+	e.slo.assignments = func() ([]*api.Task, error) {
+		current := source()
+		if current == nil {
+			return nil, errors.New("node assignments unavailable")
+		}
+		return current.AssignedTasks()
+	}
 }

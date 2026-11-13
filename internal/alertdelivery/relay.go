@@ -40,6 +40,7 @@ type relay struct {
 	endpoint     string
 	pushEndpoint string
 	ledgerPath   string
+	probe        *deliveryProbe
 	read         func(context.Context) (credentials, error)
 	readTopic    func(context.Context) (string, error)
 }
@@ -59,9 +60,11 @@ func Run(ctx context.Context, args []string) error {
 	client := newReadinessClient()
 	journey, err := openJourney(filepath.Join(filepath.Dir(r.ledgerPath), "journey.json"))
 	if err != nil {
-		return err
+		slog.WarnContext(ctx, "Production journey state unavailable; alert delivery continues")
+		journey.unavailable = true
 	}
-	mux.HandleFunc("GET /metrics", readinessMetrics(client, journey))
+	r.probe = &deliveryProbe{path: filepath.Join(filepath.Dir(r.ledgerPath), "delivery-probe.json"), pending: make(chan struct{}, 1)}
+	mux.HandleFunc("GET /metrics", readinessMetrics(client, journey, r.probe))
 	mux.HandleFunc("POST /alerts", r.deliver)
 	mux.HandleFunc("POST /alerts/digest", r.digest)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
@@ -69,8 +72,11 @@ func Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	slog.InfoContext(ctx, "Alert delivery listener ready")
 	refreshCtx, cancelRefresh := context.WithCancel(ctx)
 	refreshed := make(chan struct{})
+	probed := make(chan struct{})
+	go func() { defer close(probed); r.probe.run(refreshCtx, r) }()
 	go func() {
 		defer close(refreshed)
 		journey.run(refreshCtx, client)
@@ -78,6 +84,7 @@ func Run(ctx context.Context, args []string) error {
 	defer func() {
 		cancelRefresh()
 		<-refreshed
+		<-probed
 	}()
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 55 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
 	stop := context.AfterFunc(ctx, func() { _ = server.Close() })
@@ -119,6 +126,23 @@ func (r relay) handle(w http.ResponseWriter, request *http.Request, digest bool)
 	body, err := io.ReadAll(http.MaxBytesReader(w, request.Body, 64<<10))
 	if err != nil || json.Unmarshal(body, &notice) != nil || len(notice.Alerts) == 0 || len(notice.Alerts) > 64 || (notice.Status != "firing" && notice.Status != "resolved") {
 		http.Error(w, "invalid alert notification", http.StatusBadRequest)
+		return
+	}
+	var realAlerts = notice.Alerts[:0]
+	heartbeat := false
+	for _, alert := range notice.Alerts {
+		if alert.Labels["delivery_probe"] == "heartbeat" {
+			heartbeat = heartbeat || alert.Status == "firing"
+		} else {
+			realAlerts = append(realAlerts, alert)
+		}
+	}
+	notice.Alerts = realAlerts
+	if heartbeat && r.probe != nil {
+		r.probe.signal()
+	}
+	if len(notice.Alerts) == 0 {
+		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 	var lines []string

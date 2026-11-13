@@ -1,78 +1,325 @@
 rule_files:
-  - ../../../../deploy/observability/production/operational-rules.yml
-evaluation_interval: 1m
+- ../../../../deploy/observability/production/operational-rules.yml
+evaluation_interval: 15s
 tests:
-  - interval: 1m
-    input_series:
-      - series: 'ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-dashboard"}'
-        values: '0+0x20'
-      - series: 'ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-2",region="sjc",service="ts-dashboard"}'
-        values: '0+0x20'
-      - series: 'ts_host_service_tasks_expected{job="host-storage",host="ts-fra-1",region="fra",service="ts-dashboard"}'
-        values: '0+0x20'
-      - series: 'ts_host_service_tasks_expected{job="host-storage",host="ts-fra-2",region="fra",service="ts-dashboard"}'
-        values: '0+0x20'
-      - series: 'ts_host_service_tasks_expected{job="host-storage",host="ts-gru-1",region="gru",service="ts-dashboard"}'
-        values: '0+0x20'
-    alert_rule_test:
-      - eval_time: 14m
-        alertname: HostServiceTaskInventoryMissing
-        exp_alerts: []
-      - eval_time: 15m
-        alertname: HostServiceTaskInventoryMissing
-        exp_alerts:
-          - exp_labels:
-              severity: critical
-              job: host-storage
-              host: ts-gru-2
-              region: gru
-            exp_annotations:
-              summary: Service task inventory is absent on ts-gru-2
-  - interval: 1m
-    input_series: []
-    alert_rule_test:
-      - eval_time: 15m
-        alertname: HostServiceTaskInventoryMissing
-        exp_alerts:
-          - exp_labels:
-              severity: critical
-              job: host-storage
-              host: ts-sjc-1
-              region: sjc
-            exp_annotations:
-              summary: Service task inventory is absent on ts-sjc-1
-          - exp_labels:
-              severity: critical
-              job: host-storage
-              host: ts-sjc-2
-              region: sjc
-            exp_annotations:
-              summary: Service task inventory is absent on ts-sjc-2
-          - exp_labels:
-              severity: critical
-              job: host-storage
-              host: ts-fra-1
-              region: fra
-            exp_annotations:
-              summary: Service task inventory is absent on ts-fra-1
-          - exp_labels:
-              severity: critical
-              job: host-storage
-              host: ts-fra-2
-              region: fra
-            exp_annotations:
-              summary: Service task inventory is absent on ts-fra-2
-          - exp_labels:
-              severity: critical
-              job: host-storage
-              host: ts-gru-1
-              region: gru
-            exp_annotations:
-              summary: Service task inventory is absent on ts-gru-1
-          - exp_labels:
-              severity: critical
-              job: host-storage
-              host: ts-gru-2
-              region: gru
-            exp_annotations:
-              summary: Service task inventory is absent on ts-gru-2
+- interval: 1m
+  input_series:
+  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-dashboard"}
+    values: 0+0x20
+  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-2",region="sjc",service="ts-dashboard"}
+    values: 0+0x20
+  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-fra-1",region="fra",service="ts-dashboard"}
+    values: 0+0x20
+  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-fra-2",region="fra",service="ts-dashboard"}
+    values: 0+0x20
+  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-gru-1",region="gru",service="ts-dashboard"}
+    values: 0+0x20
+  alert_rule_test:
+  - eval_time: 14m
+    alertname: HostServiceTaskInventoryMissing
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: HostServiceTaskInventoryMissing
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        job: host-storage
+        host: ts-gru-2
+        region: gru
+      exp_annotations:
+        summary: Service task inventory is absent on ts-gru-2
+- interval: 1m
+  input_series: []
+  alert_rule_test:
+  - eval_time: 15m
+    alertname: HostServiceTaskInventoryMissing
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        job: host-storage
+        host: ts-sjc-1
+        region: sjc
+      exp_annotations:
+        summary: Service task inventory is absent on ts-sjc-1
+    - exp_labels:
+        severity: critical
+        job: host-storage
+        host: ts-sjc-2
+        region: sjc
+      exp_annotations:
+        summary: Service task inventory is absent on ts-sjc-2
+    - exp_labels:
+        severity: critical
+        job: host-storage
+        host: ts-fra-1
+        region: fra
+      exp_annotations:
+        summary: Service task inventory is absent on ts-fra-1
+    - exp_labels:
+        severity: critical
+        job: host-storage
+        host: ts-fra-2
+        region: fra
+      exp_annotations:
+        summary: Service task inventory is absent on ts-fra-2
+    - exp_labels:
+        severity: critical
+        job: host-storage
+        host: ts-gru-1
+        region: gru
+      exp_annotations:
+        summary: Service task inventory is absent on ts-gru-1
+    - exp_labels:
+        severity: critical
+        job: host-storage
+        host: ts-gru-2
+        region: gru
+      exp_annotations:
+        summary: Service task inventory is absent on ts-gru-2
+- interval: 15s
+  input_series:
+  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc",service="terrabase"}
+    values: 1+0x24
+  - series: up{job="application-slo",host="ts-sjc-1",region="sjc",service="terrabase",instance="db-task"}
+    values: 0+0x24
+  - series: ts_host_service_tasks_running{job="host-storage",host="ts-sjc-1",region="sjc",service="terrabase"}
+    values: 1+0x24
+  - series: ts_host_service_tasks_discovered{job="host-storage",host="ts-sjc-1",region="sjc",service="terrabase"}
+    values: 1+0x24
+  alert_rule_test:
+  - eval_time: 1m45s
+    alertname: TerraBaseMetricsDown
+    exp_alerts: &id001 []
+  - eval_time: 2m
+    alertname: TerraBaseMetricsDown
+    exp_alerts:
+    - exp_labels:
+        host: ts-sjc-1
+        region: sjc
+        service: terrabase
+        job: application-slo
+        instance: db-task
+        severity: critical
+      exp_annotations:
+        summary: TerraBase metrics scrape failed
+  - eval_time: 4m45s
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts:
+    - exp_labels:
+        host: ts-sjc-1
+        region: sjc
+        service: terrabase
+        severity: critical
+      exp_annotations:
+        summary: A service has fewer healthy scrape targets than assigned tasks on a node
+- interval: 15s
+  input_series:
+  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc",service="terrabase"}
+    values: 1+0x24
+  - series: ts_host_service_tasks_running{job="host-storage",host="ts-sjc-1",region="sjc",service="terrabase"}
+    values: 0+0x24
+  - series: ts_host_service_tasks_discovered{job="host-storage",host="ts-sjc-1",region="sjc",service="terrabase"}
+    values: 0+0x24
+  alert_rule_test:
+  - eval_time: 4m45s
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts:
+    - exp_labels:
+        host: ts-sjc-1
+        region: sjc
+        service: terrabase
+        severity: critical
+      exp_annotations:
+        summary: A service has fewer healthy scrape targets than assigned tasks on a node
+- interval: 15s
+  input_series:
+  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-auth"}
+    values: 1+0x24
+  - series: ts_host_service_tasks_running{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-auth"}
+    values: 0+0x24
+  - series: ts_host_service_tasks_discovered{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-auth"}
+    values: 0+0x24
+  alert_rule_test:
+  - eval_time: 4m45s
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts:
+    - exp_labels:
+        host: ts-sjc-1
+        region: sjc
+        service: ts-auth
+        severity: critical
+      exp_annotations:
+        summary: A service has fewer healthy scrape targets than assigned tasks on a node
+- interval: 20s
+  input_series:
+  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc",service="terrabase"}
+    values: 1+0x12
+  - series: up{job="application-slo",host="ts-sjc-1",region="sjc",service="terrabase",instance="db-task"}
+    values: 0 0 1+0x10
+  - series: ts_host_service_tasks_running{job="host-storage",host="ts-sjc-1",region="sjc",service="terrabase"}
+    values: 0 0 1+0x10
+  - series: ts_host_service_tasks_discovered{job="host-storage",host="ts-sjc-1",region="sjc",service="terrabase"}
+    values: 0 0 1+0x10
+  alert_rule_test:
+  - eval_time: 40s
+    alertname: TerraBaseMetricsDown
+    exp_alerts: *id001
+  - eval_time: 2m
+    alertname: TerraBaseMetricsDown
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: TerraBaseMetricsDown
+    exp_alerts: *id001
+  - eval_time: 40s
+    alertname: ApplicationTaskMetricsDown
+    exp_alerts: *id001
+  - eval_time: 2m
+    alertname: ApplicationTaskMetricsDown
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: ApplicationTaskMetricsDown
+    exp_alerts: *id001
+  - eval_time: 40s
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+  - eval_time: 2m
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+- interval: 20s
+  input_series:
+  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-auth"}
+    values: 1+0x12
+  - series: up{job="application-slo",host="ts-sjc-1",region="sjc",service="ts-auth",instance="db-task"}
+    values: 0 0 1+0x10
+  - series: ts_host_service_tasks_running{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-auth"}
+    values: 0 0 1+0x10
+  - series: ts_host_service_tasks_discovered{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-auth"}
+    values: 0 0 1+0x10
+  alert_rule_test:
+  - eval_time: 40s
+    alertname: TerraBaseMetricsDown
+    exp_alerts: *id001
+  - eval_time: 2m
+    alertname: TerraBaseMetricsDown
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: TerraBaseMetricsDown
+    exp_alerts: *id001
+  - eval_time: 40s
+    alertname: ApplicationTaskMetricsDown
+    exp_alerts: *id001
+  - eval_time: 2m
+    alertname: ApplicationTaskMetricsDown
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: ApplicationTaskMetricsDown
+    exp_alerts: *id001
+  - eval_time: 40s
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+  - eval_time: 2m
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+- interval: 20s
+  input_series:
+  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-dashboard"}
+    values: 1+0x12
+  - series: up{job="application-slo",host="ts-sjc-1",region="sjc",service="ts-dashboard",instance="db-task"}
+    values: 0 0 1+0x10
+  - series: ts_host_service_tasks_running{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-dashboard"}
+    values: 0 0 1+0x10
+  - series: ts_host_service_tasks_discovered{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-dashboard"}
+    values: 0 0 1+0x10
+  alert_rule_test:
+  - eval_time: 40s
+    alertname: TerraBaseMetricsDown
+    exp_alerts: *id001
+  - eval_time: 2m
+    alertname: TerraBaseMetricsDown
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: TerraBaseMetricsDown
+    exp_alerts: *id001
+  - eval_time: 40s
+    alertname: ApplicationTaskMetricsDown
+    exp_alerts: *id001
+  - eval_time: 2m
+    alertname: ApplicationTaskMetricsDown
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: ApplicationTaskMetricsDown
+    exp_alerts: *id001
+  - eval_time: 40s
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+  - eval_time: 2m
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+  - eval_time: 5m
+    alertname: ServiceTaskScrapeCoverageMissing
+    exp_alerts: *id001
+- interval: 15s
+  input_series:
+  - series: terrascale_alert_delivery_probe_completed_timestamp_seconds
+    values: 0 0 0 0 60+0x64
+  alert_rule_test:
+  - eval_time: 15m45s
+    alertname: AlertDeliveryProbeStale
+    exp_alerts: *id001
+  - eval_time: 16m
+    alertname: AlertDeliveryProbeStale
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+      exp_annotations:
+        summary: No alert delivery probe completed in fifteen minutes
+- interval: 15s
+  input_series:
+  - series: terrascale_alert_delivery_probe_completed_timestamp_seconds
+    values: 0+0x64
+  alert_rule_test:
+  - eval_time: 14m45s
+    alertname: AlertDeliveryProbeMissing
+    exp_alerts: *id001
+  - eval_time: 15m
+    alertname: AlertDeliveryProbeMissing
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+      exp_annotations:
+        summary: No completed alert delivery probe is observable
+- interval: 15s
+  input_series:
+  - series: up{job="application-slo",service="ts-auth",host="ts-gru-1",region="gru",instance="auth-task"}
+    values: 0+0x12
+  alert_rule_test:
+  - eval_time: 1m45s
+    alertname: ApplicationTaskMetricsDown
+    exp_alerts: *id001
+  - eval_time: 2m
+    alertname: ApplicationTaskMetricsDown
+    exp_alerts:
+    - exp_labels:
+        job: application-slo
+        service: ts-auth
+        host: ts-gru-1
+        region: gru
+        instance: auth-task
+        severity: critical
+      exp_annotations:
+        summary: A running service task cannot be scraped

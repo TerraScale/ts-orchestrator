@@ -14,14 +14,20 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/moby/swarmkit/v2/api"
 )
 
-func syncHostTargets(ctx context.Context) {
+const sloTargetsFile = "/run/ts-orch-observability/targets.json"
+
+func syncSLOTargets(ctx context.Context, state, region string, executor *swarmruntime.Executor) {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
 		if err := refreshStorageTargets(ctx, "/run/ts-orch-observability/storage.json"); err != nil && ctx.Err() == nil {
-			slog.WarnContext(ctx, "Host target discovery failed", "error", err)
+			slog.WarnContext(ctx, "Host storage target discovery failed", "error", err)
+		}
+		if err := refreshSLOTargets(ctx, state, region, executor); err != nil && ctx.Err() == nil {
+			slog.WarnContext(ctx, "SLO target discovery failed", "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -29,6 +35,25 @@ func syncHostTargets(ctx context.Context) {
 		case <-tick.C:
 		}
 	}
+}
+
+func refreshSLOTargets(ctx context.Context, state, region string, executor *swarmruntime.Executor) error {
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	client, conn, err := swarmruntime.DialSingleHost(state)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	services, err := client.ListServices(ctx, &api.ListServicesRequest{})
+	if err != nil {
+		return err
+	}
+	targets, err := executor.FileSLOTargets(ctx, services.Services, region)
+	if err != nil {
+		return err
+	}
+	return writeSLOTargets(sloTargetsFile, targets)
 }
 
 func writeSLOTargets(path string, targets []swarmruntime.SLOTarget) error {
@@ -119,4 +144,19 @@ func storageTargets(data []byte) ([]swarmruntime.SLOTarget, error) {
 		return nil, errors.New("invalid storage inventory size")
 	}
 	return targets, nil
+}
+
+func syncHostTargets(ctx context.Context) {
+	tick := time.NewTicker(5 * time.Second)
+	defer tick.Stop()
+	for {
+		if err := refreshStorageTargets(ctx, "/run/ts-orch-observability/storage.json"); err != nil && ctx.Err() == nil {
+			slog.WarnContext(ctx, "Host target discovery failed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }
