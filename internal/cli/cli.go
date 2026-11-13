@@ -94,7 +94,7 @@ Operator tooling:
   member                 List this region's cluster hosts; drain and remove a worker (ls | leave HOSTNAME)
   mesh                   Show which regions answer on the cross-region mesh (ping)
   status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
-  edge                   Apply (or --plan) the GeoDNS steering policy to the nearest healthy region (edge geodns)
+  edge                   Inspect certificates (edge certificates inventory) or apply GeoDNS (edge geodns)
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
   node                   Inspect local public keys, build node lists, and manage cell nodes
   bootstrap              Prepare, sign, verify, and publish bootstrap material
@@ -165,6 +165,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "member":
 		return app.RunMemberCLI(ctx, args[1:], output)
 	case "edge":
+		if len(args) > 1 && args[1] == "certificates" {
+			return app.RunCertificateCLI(ctx, args[2:], output)
+		}
 		return geodns.Run(ctx, args[1:], output)
 	case "mesh":
 		return mesh.RunCLI(ctx, args[1:], "/var/lib/ts-orch", output)

@@ -35,7 +35,7 @@ const (
 )
 
 func (e *Edge) servePostgres(ln net.Listener) error {
-	config := e.certs.TLSConfig()
+	config := e.certificateTLSConfig()
 	config.NextProtos = []string{postgresALPN}
 	getCert := config.GetCertificate
 	config.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {

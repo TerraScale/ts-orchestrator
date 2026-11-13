@@ -17,6 +17,13 @@ const challengePath = "/.well-known/acme-challenge/"
 // vantage points reach different regions, so a token this edge does not
 // hold is fetched from the other regions' edges over mesh mTLS.
 func (e *Edge) serveChallenge(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimPrefix(r.URL.Path, challengePath)
+	if len(token) < 22 || len(token) > 128 || strings.IndexFunc(token, func(char rune) bool {
+		return !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '-' || char == '_')
+	}) >= 0 {
+		http.NotFound(w, r)
+		return
+	}
 	local := httptest.NewRecorder()
 	e.challenges.ServeHTTP(local, r)
 	m := e.meshNode()
