@@ -183,7 +183,7 @@ func await(ctx context.Context, name string, check func() bool) error {
 	tick := time.NewTicker(20 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		if check() {
+		if err := ctx.Err(); err == nil && check() {
 			return nil
 		}
 		select {
@@ -265,38 +265,31 @@ func place(i int, app, system *nats.Conn) error {
 		{app, "$JS.API.CONSUMER.LEADER.STEPDOWN.KV_leases.lease_audit", "C-"},
 	}
 	for _, api := range apis {
-		state, err := readStatus(i)
-		if err != nil {
-			return err
-		}
-		already := false
-		for _, account := range state.Groups {
-			for name, group := range account {
-				if strings.HasPrefix(name, api.group) && group.State == "LEADER" {
-					already = true
-				}
+		var lastErr error
+		issued := time.Time{}
+		if err := bounded("preferred "+api.group+" leader", 6*time.Second, func() bool {
+			state, err := readStatus(i)
+			if err != nil {
+				lastErr = err
+				return false
 			}
-		}
-		if !already {
-			if err := request(api.conn, api.subject, names[i]); err != nil {
-				return err
-			}
-			if err := bounded("preferred "+api.group+" leader", 2*time.Second, func() bool {
-				state, err := readStatus(i)
-				if err != nil {
-					return false
-				}
-				for _, account := range state.Groups {
-					for name, group := range account {
-						if strings.HasPrefix(name, api.group) && group.State == "LEADER" {
-							return true
-						}
+			for _, account := range state.Groups {
+				for name, group := range account {
+					if strings.HasPrefix(name, api.group) && group.State == "LEADER" {
+						return true
 					}
 				}
-				return false
-			}); err != nil {
-				return err
 			}
+			if time.Now().After(issued) {
+				lastErr = request(api.conn, api.subject, names[i])
+				issued = time.Now().Add(250 * time.Millisecond)
+			}
+			return false
+		}); err != nil {
+			if lastErr != nil {
+				return fmt.Errorf("%w; last stepdown error: %v", err, lastErr)
+			}
+			return err
 		}
 	}
 	if !leadsAll(i) {
