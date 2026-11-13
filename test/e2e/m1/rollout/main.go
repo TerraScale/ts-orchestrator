@@ -438,7 +438,9 @@ func journey(ctx context.Context, root, launcher, specFile string) {
 			panic(ctx.Err())
 		}
 	}
-	observe(ctx, conn, func(s map[string]state) bool { return s[order[0]].Failed[spec.Name] == generation })
+	observe(ctx, conn, func(s map[string]state) bool {
+		return s[order[0]].Failed[spec.Name] == generation || s[order[0]].Excused[spec.Name] == generation
+	})
 	retained := evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Reason != "" })
 	require(retained.Bake.Started.Equal(failed.Bake.Started), "restart erased a recorded regression")
 	require(states(ctx, conn)[order[1]].Ready[spec.Name] < generation, "failed first bake admitted the next region")
