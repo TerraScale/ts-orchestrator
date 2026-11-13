@@ -55,7 +55,8 @@ cloudflare_email_token_file,ts_alerts_ntfy_topic_file}`. The directory must
 be root-owned mode 0750 on tmpfs with swap disabled; the directory and files
 use the `ts-alerts` group, and files are root-owned mode 0640. Unreadable
 secrets fail preparation visibly without printing values. A kept
-the relay's existing Vault reads; B reads the prepared files instead. Once this updater is on a host, a relay unit
+the relay's existing Vault reads; B reads the prepared files instead. Once A is
+on a host, a relay unit
 with the privileged preparation command can safely be installed and restarted:
 preparation works and A's unchanged relay ignores the files.
 
