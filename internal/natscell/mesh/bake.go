@@ -64,6 +64,7 @@ func (n *Node) saveBake(key string, record bakeRecord) error {
 }
 
 func writeBake(key string, record bakeRecord) error {
+	record.Bake.Unsaved = false
 	data, err := protocol.EncodeJSON(record)
 	if err == nil {
 		err = writePrivate(key, data)
@@ -79,7 +80,6 @@ func bakeIdentity(state desiredState) ([32]byte, error) {
 	return sha256.Sum256(data), err
 }
 
-// bakeState is called with n.mu held. Readiness alone never releases a region.
 func (n *Node) bakeState(state *stateReply) {
 	if state.Failed == nil {
 		state.Failed = map[string]int64{}
@@ -89,30 +89,35 @@ func (n *Node) bakeState(state *stateReply) {
 		if entry.Spec == nil {
 			continue
 		}
+		key := n.bakePath(name, entry.Generation)
 		record, err := n.readBake(name, entry.Generation)
-		_, unsaved := n.bakeUnsaved[n.bakePath(name, entry.Generation)]
+		_, unsaved := n.bakeUnsaved[key]
+		if pending, exists := n.bakeUnsaved[key]; exists {
+			record, err = pending, nil
+		}
 		identity, identityErr := bakeIdentity(desired)
-		if unsaved || err != nil || identityErr != nil || record.Identity != identity || record.Bake.Finished.IsZero() || record.Bake.Reason != "" {
+		sticky := false
+		for _, region := range append(n.earlier(entry.Spec), n.cfg.region) {
+			sticky = sticky || n.stickyFailure(name, entry.Generation, region)
+		}
+		if err != nil || identityErr != nil || record.Identity != identity || record.Bake.Finished.IsZero() || record.Bake.Reason != "" || sticky || unsaved {
 			delete(state.Ready, name)
 		}
-		if err == nil && record.Bake.Reason != "" && n.baking[n.bakePath(name, entry.Generation)] == nil {
-			if record.Bake.DependencyOnly {
-				if state.Excused == nil {
-					state.Excused = map[string]int64{}
-				}
-				state.Excused[name] = entry.Generation
-			} else {
-				state.Failed[name] = entry.Generation
-			}
-		}
-		if !unsaved && err == nil && identityErr == nil && record.Identity == identity && !record.Bake.Finished.IsZero() && record.Bake.Reason == "" {
+		if !sticky && !unsaved && err == nil && identityErr == nil && record.Identity == identity && !record.Bake.Finished.IsZero() && record.Bake.Reason == "" {
 			delete(state.Failed, name)
+		}
+		if record.Bake.Reason != "" || sticky {
+			state.Failed[name] = entry.Generation
+			if record.Bake.Unsaved {
+				if state.Unsaved == nil {
+					state.Unsaved = map[string]int64{}
+				}
+				state.Unsaved[name] = entry.Generation
+			}
 		}
 	}
 }
 
-// evaluate coalesces CLI and anti-entropy work. An interrupted bake restarts
-// its full window; a failed one stays held until a new generation fixes forward.
 func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, error) {
 	spec, original := applied.spec, applied.service
 	identity, err := bakeIdentity(applied.state)
@@ -121,7 +126,6 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	}
 	key := n.bakePath(spec.Name, spec.Generation)
 	n.mu.Lock()
-	// This hold either registers the bake in baking or finds it settled.
 	delete(n.starting, spec.Name)
 	current := n.desired[spec.Name]
 	if !reflect.DeepEqual(current.entry(), applied.state.entry()) || !reflect.DeepEqual(current.Floor, applied.state.Floor) {
@@ -137,25 +141,16 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 		}
 		return n.evaluate(ctx, applied)
 	}
-	if record, ok := n.bakeUnsaved[key]; ok {
-		err := n.saveBake(key, record)
-		n.mu.Unlock()
-		if record.Bake.Reason != "" {
-			err = errors.Join(err, errors.New(record.Bake.Reason))
-		}
-		return record, err
-	}
 	record, err := n.readBake(spec.Name, spec.Generation)
-	if err == nil && record.Identity == identity && (!record.Bake.Finished.IsZero() || record.Bake.Reason != "") {
-		n.mu.Unlock()
-		if record.Bake.Reason != "" {
-			return record, errors.New(record.Bake.Reason)
-		}
-		return record, nil
+	if pending, exists := n.bakeUnsaved[key]; exists {
+		record, err = pending, nil
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		n.mu.Unlock()
 		return record, err
+	}
+	if record.Identity != identity {
+		record = bakeRecord{Generation: spec.Generation, Image: spec.Image, Identity: identity}
 	}
 	if n.baking == nil {
 		n.baking = map[string]chan struct{}{}
@@ -164,50 +159,50 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	n.baking[key] = done
 	n.mu.Unlock()
 	defer func() { n.mu.Lock(); delete(n.baking, key); close(done); n.mu.Unlock() }()
+	if record.Bake.Reason != "" {
+		err := n.retainBakeFailure(n.ctx, spec.Name, key, record)
+		return record, errors.Join(errors.New(record.Bake.Reason), err)
+	}
+
+	for _, region := range append(n.earlier(&spec), n.cfg.region) {
+		if n.stickyFailure(spec.Name, spec.Generation, region) {
+			return record, errEarlierFailed
+		}
+	}
+	if !record.Bake.Finished.IsZero() {
+		return record, nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, regionWindow(&spec))
 	defer cancel()
-	record = bakeRecord{Generation: spec.Generation, Image: spec.Image, Identity: identity}
-	record.Bake = rollout.BakeVerdict{Started: time.Now().UTC()}
-	if err := writeBake(key, record); err != nil {
-		return record, err
-	}
-	record.Bake = rollout.BakeVerdict{}
 	ready, err := n.cfg.applier.Wait(ctx, spec, original)
 	record.Rollout = bakeRuntime{int64(ready.Running), int64(ready.Ready), ready.Tasks, ready.Revision, ready.StopFirst}
 	if err == nil && spec.Deployment != nil && spec.Image == spec.Deployment.Image && record.Rollout.Revision != spec.Deployment.Revision {
 		err = errors.New("running image revision does not match the signed release commit")
 	}
-	regressionSeen := false
 	if err == nil {
-		record.Bake, err = n.cfg.applier.Bake(ctx, spec, ready, func(verdict rollout.BakeVerdict) error {
-			regressionSeen = true
+		record.Bake, err = n.cfg.applier.Bake(ctx, spec, ready, record.Bake, func(verdict rollout.BakeVerdict) error {
 			record.Bake = verdict
+			if verdict.Reason != "" {
+				return n.retainBakeFailure(n.ctx, spec.Name, key, record)
+			}
 			n.mu.Lock()
 			defer n.mu.Unlock()
 			return n.saveBake(key, record)
 		})
-	}
-	if n.ctx.Err() != nil && !regressionSeen && (err == nil || errors.Is(err, context.Canceled)) {
-		record.Bake = rollout.BakeVerdict{}
-		return record, errors.Join(n.ctx.Err(), writeBake(key, record))
+	} else if n.ctx.Err() == nil && !errors.Is(err, context.Canceled) {
+		record.Bake.Reason, record.Bake.Finished = err.Error(), time.Now().UTC()
+		err = errors.Join(err, n.retainBakeFailure(n.ctx, spec.Name, key, record))
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if current := n.desired[spec.Name]; !reflect.DeepEqual(current.entry(), applied.state.entry()) || !reflect.DeepEqual(current.Floor, applied.state.Floor) {
-		err = swarmruntime.ErrSupersededDuringBake
+		return record, swarmruntime.ErrSupersededDuringBake
 	}
-	if err != nil {
-		record.Bake.Reason = err.Error()
-	}
-	if record.Bake.Finished.IsZero() {
-		record.Bake.Finished = time.Now().UTC()
-	}
-	saveErr := n.saveBake(key, record)
-	if err == nil && saveErr == nil {
+	if err == nil {
 		n.collectImages(ctx)
 	}
-	slog.InfoContext(ctx, "regional rollout bake verdict", "region", n.cfg.region, "service", spec.Name, "generation", spec.Generation, "image", spec.Image, "bake", record.Bake, "save_error", saveErr)
-	return record, errors.Join(err, saveErr)
+	slog.InfoContext(ctx, "regional rollout bake verdict", "region", n.cfg.region, "service", spec.Name, "generation", spec.Generation, "image", spec.Image, "bake", record.Bake)
+	return record, err
 }
 
 func bakeHeld(rows []Reply, service string) bool {

@@ -119,9 +119,9 @@ type stateReply struct {
 	// Ready is the generation each local service runs with every replica ready.
 	Ready   map[string]int64         `json:"ready,omitempty"`
 	Serving map[string]ServingResult `json:"serving,omitempty"`
-	// Failed is the generation of each service whose rollout here failed.
-	Failed  map[string]int64 `json:"failed,omitempty"`
-	Excused map[string]int64 `json:"excused,omitempty"`
+	Failed  map[string]int64         `json:"failed,omitempty"`
+	Unsaved map[string]int64         `json:"unsaved,omitempty"`
+	Holds   map[string]bakeFailure   `json:"holds,omitempty"`
 }
 
 // Applier changes this host's services.
@@ -136,7 +136,7 @@ type Applier interface {
 	// Wait returns once every replica of spec runs it (and answers its ready
 	// path when the spec names one), using the snapshot returned by Apply.
 	Wait(ctx context.Context, spec swarmruntime.ServiceSpec, original *api.Service) (swarmruntime.ServiceRollout, error)
-	Bake(context.Context, swarmruntime.ServiceSpec, swarmruntime.ServiceRollout, func(rollout.BakeVerdict) error) (rollout.BakeVerdict, error)
+	Bake(context.Context, swarmruntime.ServiceSpec, swarmruntime.ServiceRollout, rollout.BakeVerdict, func(rollout.BakeVerdict) error) (rollout.BakeVerdict, error)
 	Ready(ctx context.Context) (map[string]ServingResult, error)
 }
 
@@ -183,6 +183,9 @@ type Node struct {
 	// evaluate has not yet registered its bake in baking.
 	starting             map[string]bool
 	bakeUnsaved          map[string]bakeRecord
+	bakeFailures         map[string]bakeFailure
+	bakeFailureMu        sync.Mutex
+	bakeFailuresDirty    bool
 	peers                *peers
 	peerReports          map[string]map[string]PeerAttestation
 	peerReportMu         sync.Mutex
@@ -265,6 +268,13 @@ func start(cfg config) (_ *Node, err error) {
 		cancel()
 		return nil, err
 	}
+	if err := node.loadBakeFailures(); err != nil {
+		node.closeConns()
+		cancel()
+		embedded.Shutdown()
+		embedded.WaitForShutdown()
+		return nil, err
+	}
 	node.publishTopologyDesired()
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) {
@@ -283,6 +293,7 @@ func start(cfg config) (_ *Node, err error) {
 					state.Ready[name] = result.Generation
 				}
 			}
+			state.Holds = node.bakeFailureSnapshot()
 			node.bakeState(&state)
 			node.mu.Unlock()
 			node.respond(m, state)
@@ -290,6 +301,7 @@ func start(cfg config) (_ *Node, err error) {
 		// An apply waits for its tasks to run, so it must not hold up the next message.
 		ApplySubject: func(m *nats.Msg) { node.goWork(func() { node.handleApply(m) }) },
 	}
+	handlers[bakeFailureSubject+cfg.region] = func(m *nats.Msg) { node.goWork(func() { node.receiveBakeFailure(m) }) }
 	handlers[protocol.MeshWorkerPrefix+cfg.region] = node.recordWorker
 	handlers[protocol.MeshDrainPrefix+cfg.region] = func(m *nats.Msg) { node.goWork(func() { node.handleDrain(m) }) }
 	if cfg.applier == nil {
@@ -431,6 +443,10 @@ func (n *Node) sync(ctx context.Context) {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if err := n.mergeBakeFailures(states); err != nil {
+		slog.WarnContext(ctx, "mesh bake holds persistence failed", "error", err)
+		return
+	}
 	before := maps.Clone(n.desired)
 	changed := false
 	for _, desired := range peers {
@@ -443,6 +459,10 @@ func (n *Node) sync(ctx context.Context) {
 					continue
 				}
 				if !reflect.DeepEqual(merged, current) {
+					if err := n.acceptBakeReplacement(name, merged.entry()); err != nil {
+						slog.WarnContext(ctx, "mesh held service refused", "service", name, "error", err)
+						continue
+					}
 					n.desired[name] = merged
 					changed = true
 				}
@@ -460,6 +480,9 @@ func (n *Node) sync(ctx context.Context) {
 	for _, name := range slices.Sorted(maps.Keys(n.desired)) {
 		if n.ctx.Err() != nil {
 			return
+		}
+		if err := n.acceptBakeReplacement(name, n.desired[name].entry()); err != nil {
+			continue
 		}
 		if err, rejected := n.specInvalid[name]; rejected {
 			slog.ErrorContext(ctx, "stored service spec rejected; service not managed", "service", name,
@@ -504,6 +527,11 @@ func (n *Node) handleApply(m *nats.Msg) {
 	defer cancel()
 	reply := Reply{Region: n.cfg.region, Server: n.cfg.server, Regions: n.regions()}
 	var applied applyResult
+	if err == nil {
+		n.mu.Lock()
+		err = n.checkBakeAdmission(request.Name, request.Entry)
+		n.mu.Unlock()
+	}
 	var pulled time.Duration
 	var pullErr error
 	if spec := request.Entry.Spec; err == nil && spec != nil && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
@@ -577,7 +605,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 		if n.failed == nil {
 			n.failed = map[string]int64{}
 		}
-		if err != nil && (reply.Bake == nil || !reply.Bake.DependencyOnly) {
+		if err != nil && (reply.Bake == nil || reply.Bake.Reason != "") {
 			n.failed[request.Name] = request.Entry.Generation
 		} else {
 			delete(n.failed, request.Name)
@@ -633,8 +661,6 @@ func (n *Node) earlier(spec *swarmruntime.ServiceSpec) []string {
 	return nil // first, untargeted or outside the order: waits for nobody
 }
 
-// regionWindow is one region's share of a rollout: its readiness timeout
-// plus pull/submit, bounded dependency recovery and a full healthy bake.
 func regionWindow(spec *swarmruntime.ServiceSpec) time.Duration {
 	ready := swarmruntime.DefaultReadyTimeout
 	if spec != nil && spec.ReadyTimeoutSeconds != 0 {
@@ -669,16 +695,22 @@ var errEarlierFailed = errors.New("an earlier region failed this rollout")
 // turn allows this region to apply only after every earlier region reports
 // the generation ready with a successful bake. Missing verdicts fail closed.
 func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int64, states map[string]stateReply) error {
+	if err := n.mergeBakeFailures(states); err != nil {
+		return err
+	}
 	for _, region := range n.earlier(spec) {
 		reply, answered := states[region]
 		if !answered {
 			return fmt.Errorf("%s has no bake verdict yet", region)
 		}
-		if reply.Failed[name] >= generation {
-			return fmt.Errorf("%w: %s", errEarlierFailed, region)
+		if n.stickyFailure(name, generation, region) {
+			if reply.Ready[name] >= generation {
+				slog.Warn("passed bake refused after sticky failure", "service", name, "generation", generation, "region", region)
+			}
+			return fmt.Errorf("%w: %s sticky verdict", errEarlierFailed, region)
 		}
-		if reply.Excused[name] >= generation {
-			return fmt.Errorf("%w: %s dependency bake failed", errEarlierFailed, region)
+		if reply.Failed[name] == generation {
+			return fmt.Errorf("%w: %s", errEarlierFailed, region)
 		}
 		if reply.Ready[name] < generation || !reply.Serving[name].fresh() || reply.Serving[name].Generation < generation {
 			return fmt.Errorf("%s does not run %s generation %d ready yet", region, name, generation)
@@ -792,6 +824,9 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 	}
 	if !reflect.DeepEqual(merged.entry(), request.Entry) {
 		return applyResult{}, fmt.Errorf("superseded by generation %d", current.Generation)
+	}
+	if err := n.acceptBakeReplacement(request.Name, request.Entry); err != nil {
+		return applyResult{}, err
 	}
 	n.desired[request.Name] = merged
 	// Persist before reconciliation, including retries of a persisted generation.

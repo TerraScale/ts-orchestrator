@@ -69,11 +69,6 @@ func Remove(ctx context.Context, conn *nats.Conn, name string, output io.Writer)
 	return printApply(output)(send(ctx, conn, ApplyRequest{Name: name, Entry: Entry{Generation: time.Now().UnixNano()}}, applyWait))
 }
 
-// applySpec rolls spec out region by region. When a targeted region fails,
-// the later ones never apply and the previous entry comes back, hold included:
-// a region past a held canary keeps what it runs, never the held spec. A newer
-// apply that replaced this one meanwhile is left alone.
-// Only resume clears a hold: any other apply of a held service stays held.
 func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSpec, holdAfter string, resume bool, wait time.Duration) ([]Reply, error) {
 	if err := validEntry(spec.Name, Entry{Generation: 1, Spec: &spec, HoldAfter: holdAfter}); err != nil {
 		return nil, err
@@ -83,6 +78,9 @@ func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSp
 		return nil, err
 	}
 	before := entries[spec.Name].entry()
+	if failedAnywhere(ctx, conn, spec.Name, before.Generation) {
+		return nil, fmt.Errorf("%s held at failed generation %d; repair the cause and dispatch the signed release workflow with the same digest or a corrected image", spec.Name, before.Generation)
+	}
 	if holdAfter == "" && !resume && before.HoldAfter != "" && slices.Contains(rolloutOrder(&spec), before.HoldAfter) {
 		holdAfter = before.HoldAfter
 	}

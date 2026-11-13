@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -126,6 +127,15 @@ func read(ctx context.Context, state string) Input {
 	in.System = system
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	runtime, err := containerd.New(swarmruntime.HostContainerdSocket)
+	if err == nil {
+		_, err = runtime.Version(ctx)
+		runtime.Close()
+	}
+	if err != nil {
+		in.Node = "container runtime unreachable"
+		return in
+	}
 	client, conn, err := swarmruntime.DialSingleHost(state)
 	if err != nil {
 		in.Node = "swarm node unreachable"

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -204,10 +205,13 @@ func desiredImages(ctx context.Context, conn *nats.Conn) (map[string]string, err
 
 // failedAnywhere reports a region whose rollout of name's generation failed.
 func failedAnywhere(ctx context.Context, conn *nats.Conn, name string, generation int64) bool {
+	if generation <= 0 {
+		return false
+	}
 	failed := false
 	_ = collect(ctx, conn, StateSubject, nil, len(Regions()), stateWait, func(data []byte) bool {
 		var reply stateReply
-		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && (reply.Failed[name] >= generation || reply.Excused[name] >= generation) {
+		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && (reply.Failed[name] == generation || slices.ContainsFunc(slices.Collect(maps.Values(reply.Holds)), func(v bakeFailure) bool { return v.Service == name && v.Generation == generation })) {
 			failed = true
 		}
 		return true
