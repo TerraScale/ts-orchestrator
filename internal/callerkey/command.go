@@ -24,16 +24,17 @@ import (
 
 const minimumLifetime = 30 * 24 * time.Hour
 
-const usage = `Usage: ts-orch caller-key <add|activate|retire|list> --targets FILE
+const usage = `Usage: ts-orch caller-key <add|activate|retire|recover|list> --targets FILE
   add --service ts-auth|dashboard|edge --region CELL --kid SERVICE.CELL.N --not-after RFC3339
   activate --kid SERVICE.CELL.N
-  retire --kid SERVICE.CELL.N [--replacement-kid SERVICE.CELL.N]
+  retire --kid SERVICE.CELL.N|op.NAME.N|agent.NAME.N [--replacement-kid SERVICE.CELL.N]
+  recover
   list
 
 Targets is a JSON array of {cell, vault, key, compartment}, covering the authenticated footprint.
 Add publishes every public registry before creating a first CURRENT key or a rotation PENDING key.
 Roll TerraBase before shipping a first spec reference or activating a rotation.
-Add and activate require identical registries and at least 30 days remaining on every listed key.
+Interrupted operations require recover before another change. Expiring entries produce warnings.
 Output contains only key ids, secret names, stages and expiry times.
 `
 
@@ -94,9 +95,19 @@ type Caller struct {
 }
 
 type Registry struct {
-	Version int      `json:"version"`
-	Callers []Caller `json:"callers"`
-	Retired []string `json:"retired,omitempty"`
+	Version   int               `json:"version"`
+	Callers   []Caller          `json:"callers"`
+	HighWater map[string]uint64 `json:"highWater,omitempty"`
+	Intent    *Intent           `json:"intent,omitempty"`
+}
+
+type Intent struct {
+	Operation string    `json:"operation"`
+	Kid       string    `json:"kid"`
+	Caller    string    `json:"caller"`
+	Cell      string    `json:"cell"`
+	ID        string    `json:"id"`
+	Started   time.Time `json:"started"`
 }
 
 func Run(ctx context.Context, args []string, out io.Writer) error {
@@ -113,7 +124,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		return err
 	}
 	command := args[0]
-	if !slices.Contains([]string{"add", "activate", "retire", "list"}, command) {
+	if !slices.Contains([]string{"add", "activate", "retire", "recover", "list"}, command) {
 		return errors.New("unknown caller-key command")
 	}
 	flags := flag.NewFlagSet("caller-key", flag.ContinueOnError)
@@ -131,6 +142,10 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		return errors.New("caller-key requires --targets and no positional arguments")
 	}
 	parts := kidRE.FindStringSubmatch(*kid)
+	if command == "retire" && len(parts) == 0 {
+		parts = operatorRE.FindStringSubmatch(*kid)
+	}
+	noKid := command == "list" || command == "recover"
 	var notAfter time.Time
 	if command == "add" {
 		var err error
@@ -138,8 +153,8 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		if len(parts) != 4 || parts[1] != *service || parts[2] != *cell || err != nil || !notAfter.After(time.Now().Add(minimumLifetime)) || *replacement != "" {
 			return errors.New("add requires a matching service, region, numbered kid and --not-after more than 30 days away")
 		}
-	} else if *service != "" || *cell != "" || *expiry != "" || command != "retire" && *replacement != "" || command == "list" && *kid != "" || command != "list" && len(parts) != 4 {
-		return errors.New("list takes only targets; activate and retire require a service kid")
+	} else if *service != "" || *cell != "" || *expiry != "" || command != "retire" && *replacement != "" || noKid && *kid != "" || !noKid && len(parts) != 4 {
+		return errors.New("list and recover take only targets; activate requires a service kid; retire requires a caller kid")
 	}
 	var targets []Target
 	if err := readJSON(*targetsPath, &targets); err != nil {
@@ -171,13 +186,15 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 			selected = t
 		}
 	}
-	if command != "list" && selected.Cell == "" {
+	if !noKid && kidRE.MatchString(*kid) && selected.Cell == "" {
 		return errors.New("caller region is not deployed")
 	}
+	slices.SortFunc(targets, func(a, b Target) int { return strings.Compare(a.Cell, b.Cell) })
 	registries := make([]Registry, len(targets))
 	snapshots := make([]Snapshot, len(targets))
 	callers := map[string]Caller{}
-	retired := map[string]bool{}
+	highWater := map[string]uint64{}
+	var intent *Intent
 	for i, t := range targets {
 		current, err := store.Read(ctx, t, registryName(t))
 		if err != nil {
@@ -196,19 +213,25 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 				return fmt.Errorf("invalid caller entry in %s", registryName(t))
 			}
 			local[c.Kid] = true
-			if previous, exists := callers[c.Kid]; exists && !sameJSON(previous, c) && !(command == "retire" && c.Kid == *kid) {
+			if previous, exists := callers[c.Kid]; exists && !sameJSON(previous, c) {
 				return errors.New("registries disagree on a caller key")
 			}
 			callers[c.Kid] = c
 		}
-		for _, id := range registry.Retired {
-			if !kidRE.MatchString(id) || local[id] {
-				return fmt.Errorf("invalid retired key in %s", registryName(t))
+
+		for prefix, sequence := range registry.HighWater {
+			if sequence == 0 || !kidRE.MatchString(prefix+".1") && !operatorRE.MatchString(prefix+".1") {
+				return errors.New("invalid caller sequence high-water mark")
 			}
-			retired[id] = true
+			highWater[prefix] = max(highWater[prefix], sequence)
+		}
+		if registry.Intent != nil {
+			if intent != nil && !sameJSON(intent, registry.Intent) {
+				return errors.New("regional operation records disagree")
+			}
+			intent = registry.Intent
 		}
 		slices.SortFunc(registry.Callers, func(a, b Caller) int { return strings.Compare(a.Kid, b.Kid) })
-		slices.Sort(registry.Retired)
 		registries[i] = registry
 	}
 	if command == "list" {
@@ -216,8 +239,11 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 			if _, err := fmt.Fprintln(out, registryName(t)); err != nil {
 				return err
 			}
+			if registries[i].Intent != nil {
+				fmt.Fprintln(out, "operation in progress", registries[i].Intent.Operation, registries[i].Intent.Kid, registries[i].Intent.ID, "run caller-key recover")
+			}
 			for _, c := range registries[i].Callers {
-				if _, err := fmt.Fprintln(out, registryName(t), c.Kid, "notAfter", c.NotAfter.UTC().Format(time.RFC3339)); err != nil {
+				if _, err := fmt.Fprintln(out, registryName(t), c.Kid, "notAfter", c.NotAfter.UTC().Format(time.RFC3339), expiryStatus(c)); err != nil {
 					return err
 				}
 			}
@@ -236,22 +262,36 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		}
 		return nil
 	}
-	if command == "add" || command == "activate" {
-		for i := 1; i < len(registries); i++ {
-			if !sameJSON(registries[0], registries[i]) {
-				return errors.New("regional registries differ; converge with retire before add or activate")
-			}
+
+	if command == "recover" {
+		if intent == nil {
+			_, err := fmt.Fprintln(out, "no operation in progress")
+			return err
 		}
-		for _, c := range registries[0].Callers {
-			if !c.NotAfter.After(time.Now().Add(minimumLifetime)) {
-				return fmt.Errorf("key %s expires within 30 days; retire it before add or activate", c.Kid)
+		return recoverOperation(ctx, out, store, targets, snapshots, registries, callers, highWater, intent)
+	}
+	if intent != nil {
+		return fmt.Errorf("operation in progress: %s %s %s; run caller-key recover", intent.Operation, intent.Kid, intent.ID)
+	}
+	for i := 1; i < len(registries); i++ {
+		if !sameJSON(registries[0], registries[i]) {
+			return errors.New("regional registries differ without an operation record")
+		}
+	}
+	if command == "add" || command == "activate" {
+		for _, c := range callers {
+			if status := expiryStatus(c); status != "valid" {
+				fmt.Fprintln(out, "warning", c.Kid, status)
 			}
 		}
 	}
 	name := secretName(parts[1], parts[2])
-	state, err := store.Private(ctx, selected, name)
-	if err != nil {
-		return err
+	state := PrivateState{}
+	if kidRE.MatchString(*kid) {
+		state, err = store.Private(ctx, selected, name)
+		if err != nil {
+			return err
+		}
 	}
 	defer state.Clear()
 	currentKid, err := privateKid(state.Current)
@@ -265,7 +305,7 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		}
 	}
 	if command == "activate" {
-		if _, ok := callers[*kid]; !ok || retired[*kid] {
+		if _, ok := callers[*kid]; !ok {
 			return errors.New("activation requires the kid listed in every region")
 		}
 		if currentKid == *kid {
@@ -285,14 +325,25 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		if pending == 0 {
 			return errors.New("activation requires a matching pending private key")
 		}
-		if err := store.Activate(ctx, selected, name, state, pending); err != nil {
+
+		intent, err := newIntent(command, *kid, callers[*kid].Caller, parts[2])
+		if err != nil {
 			return err
 		}
-		_, err := fmt.Fprintln(out, name, *kid, "current")
+		if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
+			return err
+		}
+		if err := store.Activate(ctx, selected, name, state, pending); err != nil {
+			return operationError(intent, err)
+		}
+		if err := clearIntent(ctx, store, targets, snapshots, registries); err != nil {
+			return operationError(intent, err)
+		}
+		_, err = fmt.Fprintln(out, name, *kid, "current")
 		return err
 	}
 	if command == "retire" {
-		if _, ok := callers[*kid]; !ok && !retired[*kid] {
+		if _, ok := callers[*kid]; !ok {
 			return errors.New("kid is not registered")
 		}
 		if currentKid == *kid {
@@ -319,23 +370,8 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 				}
 			}
 		}
-		for _, registry := range registries {
-			hasKey, hasOther := false, false
-			for _, c := range registry.Callers {
-				if c.Kid == *kid {
-					hasKey = true
-				}
-				p := kidRE.FindStringSubmatch(c.Kid)
-				if c.Kid != *kid && len(p) == 4 && p[1] == parts[1] && p[2] == parts[2] && !retired[c.Kid] {
-					hasOther = true
-				}
-			}
-			if hasKey && !hasOther {
-				return errors.New("cannot retire the caller's last listed key for a region")
-			}
-		}
-		retired[*kid] = true
 	}
+
 	var private []byte
 	if command == "add" {
 		sequence, err := keySequence(*kid)
@@ -347,8 +383,9 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		for id := range callers {
 			ids = append(ids, id)
 		}
-		for id := range retired {
-			ids = append(ids, id)
+
+		if sequence <= highWater[strings.TrimSuffix(*kid, "."+parts[3])] {
+			return errors.New("new kid sequence must exceed the high-water mark")
 		}
 		if currentKid != "" {
 			ids = append(ids, currentKid)
@@ -376,28 +413,25 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 		defer clear(private)
 		callers[*kid] = c
 	}
-	registry := Registry{Version: 1, Callers: []Caller{}}
-	for id, c := range callers {
-		if !retired[id] {
-			registry.Callers = append(registry.Callers, c)
-		}
-	}
-	for id := range retired {
-		registry.Retired = append(registry.Retired, id)
-	}
-	slices.SortFunc(registry.Callers, func(a, b Caller) int { return strings.Compare(a.Kid, b.Kid) })
-	slices.Sort(registry.Retired)
-	value, err := json.Marshal(registry)
+
+	caller := callers[*kid].Caller
+	intent, err = newIntent(command, *kid, caller, selected.Cell)
 	if err != nil {
 		return err
 	}
-	for i, t := range targets {
-		if err := store.Write(ctx, t, registryName(t), snapshots[i], value); err != nil {
-			return err
+	if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
+		return err
+	}
+	advance(highWater, *kid)
+	if command == "retire" {
+		delete(callers, *kid)
+	}
+	registry := mergedRegistry(callers, highWater, intent)
+	for i := range targets {
+		if err := writeRegistry(ctx, store, targets[i], &snapshots[i], registry); err != nil {
+			return operationError(intent, err)
 		}
-		if _, err := fmt.Fprintln(out, registryName(t)); err != nil {
-			return err
-		}
+		registries[i] = registry
 	}
 	if command == "add" {
 		stage := "pending"
@@ -408,19 +442,182 @@ func RunWithStore(ctx context.Context, args []string, out io.Writer, store Store
 			err = store.Stage(ctx, selected, name, state, private)
 		}
 		if err != nil {
-			return err
+			return operationError(intent, err)
 		}
-		if _, err := fmt.Fprintln(out, name, *kid, stage); err != nil {
-			return err
-		}
+		fmt.Fprintln(out, name, *kid, stage)
+	}
+	if err := clearIntent(ctx, store, targets, snapshots, registries); err != nil {
+		return operationError(intent, err)
 	}
 	_, err = fmt.Fprintln(out, *kid)
 	return err
 }
 
+func expiryStatus(c Caller) string {
+	if !c.NotAfter.After(time.Now()) {
+		return "expired"
+	}
+	if !c.NotAfter.After(time.Now().Add(minimumLifetime)) {
+		return "expires within 30 days"
+	}
+	return "valid"
+}
+
+func advance(highWater map[string]uint64, kid string) {
+	index := strings.LastIndexByte(kid, '.')
+	sequence, _ := strconv.ParseUint(kid[index+1:], 10, 64)
+	highWater[kid[:index]] = max(highWater[kid[:index]], sequence)
+}
+
+func mergedRegistry(callers map[string]Caller, highWater map[string]uint64, intent *Intent) Registry {
+	r := Registry{Version: 1, Callers: []Caller{}, HighWater: highWater, Intent: intent}
+	for _, c := range callers {
+		r.Callers = append(r.Callers, c)
+	}
+	slices.SortFunc(r.Callers, func(a, b Caller) int { return strings.Compare(a.Kid, b.Kid) })
+	return r
+}
+
+func newIntent(operation, kid, caller, cell string) (*Intent, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return nil, err
+	}
+	return &Intent{operation, kid, caller, cell, fmt.Sprintf("%x", id), time.Now().UTC()}, nil
+}
+
+func operationError(intent *Intent, err error) error {
+	return fmt.Errorf("%s %s (%s) interrupted: %w; run caller-key recover, then use the next sequence for a failed add", intent.Operation, intent.Kid, intent.ID, err)
+}
+
+func writeRegistry(ctx context.Context, store Store, target Target, snapshot *Snapshot, registry Registry) error {
+	value, err := json.Marshal(registry, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	if err := store.Write(ctx, target, registryName(target), *snapshot, value); err != nil {
+		return err
+	}
+	after, err := store.Read(ctx, target, registryName(target))
+	if err != nil {
+		return err
+	}
+	if string(after.Value) != string(value) {
+		return errors.New("registry changed during publication")
+	}
+	*snapshot = after
+	return nil
+}
+
+func writeIntent(ctx context.Context, store Store, targets []Target, snapshots []Snapshot, registries []Registry, intent *Intent) error {
+	for i := range targets {
+		registries[i].Intent = intent
+		if err := writeRegistry(ctx, store, targets[i], &snapshots[i], registries[i]); err != nil {
+			return operationError(intent, err)
+		}
+	}
+	return nil
+}
+
+func clearIntent(ctx context.Context, store Store, targets []Target, snapshots []Snapshot, registries []Registry) error {
+	for i := range targets {
+		registries[i].Intent = nil
+		if err := writeRegistry(ctx, store, targets[i], &snapshots[i], registries[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func recoverOperation(ctx context.Context, out io.Writer, store Store, targets []Target, snapshots []Snapshot, registries []Registry, callers map[string]Caller, highWater map[string]uint64, intent *Intent) error {
+	if !slices.Contains([]string{"add", "activate", "retire"}, intent.Operation) || intent.ID == "" || intent.Started.IsZero() || !kidRE.MatchString(intent.Kid) && !operatorRE.MatchString(intent.Kid) {
+		return errors.New("invalid operation record")
+	}
+	var selected Target
+	for _, t := range targets {
+		if t.Cell == intent.Cell {
+			selected = t
+		}
+	}
+	state := PrivateState{}
+	name := secretName(intent.Caller, intent.Cell)
+	if kidRE.MatchString(intent.Kid) {
+		if selected.Cell == "" {
+			return errors.New("operation region is not deployed")
+		}
+		var err error
+		state, err = store.Private(ctx, selected, name)
+		if err != nil {
+			return err
+		}
+	}
+	defer state.Clear()
+	current, err := privateKid(state.Current)
+	if err != nil {
+		return err
+	}
+	var pending int64
+	for _, v := range state.Versions {
+		id, err := privateKid(v.Snapshot)
+		if err != nil {
+			return err
+		}
+		if id == intent.Kid && v.Pending {
+			pending = v.Version
+		}
+	}
+	if err := writeIntent(ctx, store, targets, snapshots, registries, intent); err != nil {
+		return err
+	}
+	switch intent.Operation {
+	case "add":
+		advance(highWater, intent.Kid)
+		if current != intent.Kid && pending == 0 {
+			delete(callers, intent.Kid)
+		} else if _, ok := callers[intent.Kid]; !ok {
+			return operationError(intent, errors.New("stored key has no public entry"))
+		}
+	case "activate":
+		complete := true
+		for _, r := range registries {
+			complete = complete && slices.ContainsFunc(r.Callers, func(c Caller) bool { return c.Kid == intent.Kid })
+		}
+		if !complete {
+			fmt.Fprintln(out, "activation not applied: public key is not listed in every region")
+		} else if current != intent.Kid {
+			if pending == 0 {
+				return operationError(intent, errors.New("matching pending private key unavailable"))
+			}
+			if err := store.Activate(ctx, selected, name, state, pending); err != nil {
+				return operationError(intent, err)
+			}
+		}
+	case "retire":
+		if current == intent.Kid || pending != 0 {
+			return operationError(intent, errors.New("cannot retire a current or pending private key"))
+		}
+		advance(highWater, intent.Kid)
+		delete(callers, intent.Kid)
+	}
+	if intent.Operation != "activate" {
+		r := mergedRegistry(callers, highWater, intent)
+		for i := range targets {
+			if err := writeRegistry(ctx, store, targets[i], &snapshots[i], r); err != nil {
+				return operationError(intent, err)
+			}
+			registries[i] = r
+		}
+	}
+	if err := clearIntent(ctx, store, targets, snapshots, registries); err != nil {
+		return operationError(intent, err)
+	}
+	_, err = fmt.Fprintln(out, "recovered", intent.Operation, intent.Kid, intent.ID)
+	return err
+}
+
 func sameJSON(a, b any) bool {
-	x, _ := json.Marshal(a)
-	y, _ := json.Marshal(b)
+	x, _ := json.Marshal(a, json.Deterministic(true))
+	y, _ := json.Marshal(b, json.Deterministic(true))
 	return string(x) == string(y)
 }
 
