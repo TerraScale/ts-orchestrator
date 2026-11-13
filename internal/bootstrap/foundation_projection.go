@@ -79,13 +79,6 @@ func (template StartupTemplate) ValidateFoundation(cell string) error {
 	return nil
 }
 
-// ProjectFoundationStartup resolves only the exact resource fields authorized
-// by the independently verified bindings. Callers retain the original signed
-// template and its digest beside this concrete installation projection.
-func ProjectFoundationStartup(template StartupTemplate, bindings foundationbinding.VerifiedBindings) (StartupTemplate, error) {
-	return projectFoundationStartup(template, bindings.Cell(), bindings.Resolve)
-}
-
 func projectFoundationStartup(template StartupTemplate, cell string, lookup func(string) (string, error)) (StartupTemplate, error) {
 	if err := template.ValidateFoundation(cell); err != nil {
 		return StartupTemplate{}, err

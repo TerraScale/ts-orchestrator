@@ -15,17 +15,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// NewDerivedCurrentFounderAuthorityReader retains the original source capability
-// and the existing local floor. It accepts no selector or replacement store.
-func NewDerivedCurrentFounderAuthorityReader(baked BakedInputs, accepted AcceptedInstall,
-	authority bootstrap.DerivedStartupAuthority, floor *FounderSelectionFloorStore,
-) (*CurrentFounderAuthorityReader, error) {
-	if _, err := authority.Template().OriginalLaunch(); err == nil {
-		return nil, ErrOriginalStartup
-	}
-	return NewDerivedCurrentFounderAuthorityReaderContext(context.Background(), baked, accepted, authority, floor)
-}
-
 func NewDerivedCurrentFounderAuthorityReaderContext(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
 	authority bootstrap.DerivedStartupAuthority, floor *FounderSelectionFloorStore,
 ) (*CurrentFounderAuthorityReader, error) {

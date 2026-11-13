@@ -5,10 +5,11 @@ package dashboard
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
-import "github.com/a-h/templ"
-import templruntime "github.com/a-h/templ/runtime"
-
-import "github.com/TerraScale/ts-orchestrator/internal/budget"
+import (
+	"github.com/TerraScale/ts-orchestrator/internal/budget"
+	"github.com/a-h/templ"
+	templruntime "github.com/a-h/templ/runtime"
+)
 
 // capacityBody is the capacity page: the monthly budget and its form, the
 // capacity document, this region's node scaling and the region suggestion.
@@ -779,5 +780,3 @@ func suggestionSection(data CapacityView, unreadable bool) templ.Component {
 		return nil
 	})
 }
-
-var _ = templruntime.GeneratedTemplate

@@ -4,7 +4,6 @@ package identityrekey
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -186,23 +185,6 @@ func (checkpoint AcceptedIdentityCheckpoint) AcceptanceSHA256(slot string) (stri
 		return sha256Hex(append([]byte(acceptanceDomain), wire...)), nil
 	}
 	return "", fmt.Errorf("%w: unknown controller slot", ErrCheckpointInvalid)
-}
-
-// IssueAcceptedIdentityCheckpoint signs only v1 with a bounded interval.
-func IssueAcceptedIdentityCheckpoint(checkpoint AcceptedIdentityCheckpoint, issuedAt, expiresAt time.Time,
-	rootPrivateKey ed25519.PrivateKey,
-) (trust.Envelope, error) {
-	if err := checkpoint.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	if !expiresAt.After(issuedAt) || expiresAt.Sub(issuedAt) > MaxCheckpointLifetime {
-		return trust.Envelope{}, fmt.Errorf("%w: invalid signature interval", ErrCheckpointInvalid)
-	}
-	payload, err := trust.EncodePayload(checkpoint)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	return trust.Sign(payload, checkpoint.scope(), issuedAt, expiresAt, rootPrivateKey)
 }
 
 // VerifyAcceptedIdentityCheckpoint verifies canonical v1 wire bytes using only

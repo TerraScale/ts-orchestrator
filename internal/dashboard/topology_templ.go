@@ -5,8 +5,10 @@ package dashboard
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
-import "github.com/a-h/templ"
-import templruntime "github.com/a-h/templ/runtime"
+import (
+	"github.com/a-h/templ"
+	templruntime "github.com/a-h/templ/runtime"
+)
 
 // topologyBody draws every region's nodes and the services on them as
 // server-rendered SVG; nats=1 adds the NATS layer. The page stream patches
@@ -1320,5 +1322,3 @@ func topologyRow(row topoRow) templ.Component {
 		return nil
 	})
 }
-
-var _ = templruntime.GeneratedTemplate

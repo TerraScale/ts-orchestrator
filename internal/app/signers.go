@@ -50,13 +50,6 @@ type delegatedReleaseSigner struct {
 // current reports whether d still authorizes its key.
 func (d *delegatedReleaseSigner) current() bool { return d != nil && time.Now().Before(d.expires) }
 
-// ValidateTrustedSignerGrant applies the same actor, scope, and key checks used
-// by the controller and operator runtime before an offline role config is made.
-func ValidateTrustedSignerGrant(grant TrustedSignerConfig) error {
-	_, err := buildSignerPolicy(Config{Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}})
-	return err
-}
-
 // signerSet is one immutable set of trusted signers, by key ID and by actor.
 type signerSet struct {
 	trusted map[string]delivery.TrustedSigner
@@ -98,11 +91,6 @@ func (p signerPolicy) setReleaseDelegation(delegation release.BinaryUpdateDelega
 	}
 	p.release.Store(&delegatedReleaseSigner{delegation: delegation, key: key, keyID: keyID, actor: actor, expires: expires})
 	return nil
-}
-
-// trusted returns the current signer of keyID.
-func (p signerPolicy) trusted(keyID string) (delivery.TrustedSigner, bool) {
-	return p.codec.Lookup(keyID)
 }
 
 // grant returns actor's current grant.
@@ -188,12 +176,6 @@ func newSignerSet(signers []TrustedSignerConfig) (signerSet, error) {
 		grants[grant.Actor] = grant
 	}
 	return signerSet{trusted: trusted, grants: grants}, nil
-}
-
-func (p signerPolicy) canManageClientKeys(actor, database, partition string) bool {
-	grant, ok := p.grant(actor)
-	return ok && grant.CanManageClientKeys &&
-		slices.Contains(grant.ClientKeyScopes, database+"."+partition)
 }
 
 func (p signerPolicy) withOperator(cfg OperatorConfig) (delivery.Ed25519Codec, error) {

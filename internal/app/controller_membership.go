@@ -5,45 +5,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/membership"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
-
-// natsMembershipPeers adapts the embedded broker's JetStream metadata view.
-type natsMembershipPeers struct{ runtime *natscell.Runtime }
-
-func (peers natsMembershipPeers) Meta(context.Context) (membership.Meta, error) {
-	view, err := peers.runtime.Meta()
-	if err != nil {
-		return membership.Meta{}, err
-	}
-	return membershipMeta(view), nil
-}
-
-func membershipMeta(view natscell.MetaView) membership.Meta {
-	meta := membership.Meta{Leader: view.Leader, Size: view.Size}
-	for _, replica := range view.Replicas {
-		if replica.Name == view.Self {
-			continue
-		}
-		meta.Peers = append(meta.Peers, membership.Peer{Name: replica.Name,
-			Online: !replica.Offline && !replica.Pending, Current: replica.Current,
-			Lag: replica.Lag, Active: replica.Active})
-	}
-	return meta
-}
 
 // ledgerMembershipSlots reads historically verified controller slot HEADs.
 type ledgerMembershipSlots struct {
@@ -67,30 +40,6 @@ func (source ledgerMembershipSlots) Slots(ctx context.Context, slots []string) (
 
 type lifecycleObserver interface {
 	ObserveLifecycle(context.Context, string) (string, error)
-}
-
-type lifecycleInstances struct{ observer lifecycleObserver }
-
-func (instances lifecycleInstances) Lifecycle(ctx context.Context, instanceID string) (string, error) {
-	return instances.observer.ObserveLifecycle(ctx, instanceID)
-}
-
-// founderMembershipReplacer relaunches a slot through the seed's founder. It
-// is opened lazily per action so a long-lived controller always uses the
-// currently selected founder authority, and fails closed off the seed.
-type founderMembershipReplacer struct {
-	open func(context.Context) (*bootstrapstart.FounderReplacer, error)
-}
-
-func (replacer founderMembershipReplacer) Replace(ctx context.Context, action membership.Action) error {
-	if replacer.open == nil {
-		return membership.ErrReplacerUnavailable
-	}
-	founder, err := replacer.open(ctx)
-	if err != nil {
-		return fmt.Errorf("open seed founder replacer: %w", err)
-	}
-	return founder.ReplaceFenced(ctx, action.Slot, action.Retirement.Wire, action.Fence)
 }
 
 // RetirementRequestSuffix names the unsigned candidate a controller writes
@@ -355,165 +304,4 @@ func RenderBreakGlassRetirementRequest(ctx context.Context, slot, dir string, no
 		return "", err
 	}
 	return filepath.Join(dir, slot+RetirementRequestSuffix), nil
-}
-
-// controllerMembership is the membership supervision of one production
-// controller: the reconciler every controller runs, and on the seed,
-// the server that executes replacements a non-seed
-// authority leader decided.
-type controllerMembership struct {
-	reconciler *membership.Reconciler
-	seed       *seedReplacementService
-	// Provider availability cannot gate local serving or bypass verified membership.
-	open func(context.Context) (*controllerMembership, error)
-}
-
-// Run runs the reconciler and the seed server until ctx ends. Either one
-// returning early (the seed failing to subscribe, say) stops the other, and
-// both are joined before Run returns, so the controller's worker supervision
-// sees the failure at once instead of only at shutdown.
-func (m *controllerMembership) Run(ctx context.Context) error {
-	if m.open != nil {
-		for {
-			attemptCtx, cancel := context.WithCancel(ctx)
-			timer := time.AfterFunc(20*time.Second, cancel)
-			opened, err := m.open(attemptCtx)
-			stopped := timer.Stop()
-			if err == nil && stopped && attemptCtx.Err() == nil {
-				defer cancel()
-				return opened.Run(attemptCtx)
-			}
-			if opened != nil && opened.seed != nil {
-				opened.seed.server.Close()
-			}
-			cancel()
-			if ctx.Err() != nil {
-				return nil
-			}
-			if err == nil {
-				err = context.DeadlineExceeded
-			}
-			slog.WarnContext(ctx, "controller membership held while verified ledger is unavailable",
-				"component", "membership", "error", err)
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(membership.DefaultInterval):
-			}
-		}
-	}
-	if m.seed == nil {
-		return m.reconciler.Run(ctx)
-	}
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	errs := make(chan error, 2)
-	go func() { errs <- m.seed.Run(runCtx) }()
-	go func() { errs <- m.reconciler.Run(runCtx) }()
-	first := <-errs
-	cancel()
-	return errors.Join(first, <-errs)
-}
-
-// startControllerMembership builds the reconciler for every production controller.
-func startControllerMembership(ctx context.Context, cfg Config, runtime *natscell.Runtime,
-	control *authority.Runtime,
-) (*controllerMembership, error) {
-	return &controllerMembership{open: func(openCtx context.Context) (*controllerMembership, error) {
-		return openControllerMembership(openCtx, cfg, runtime, control)
-	}}, nil
-}
-
-func openControllerMembership(ctx context.Context, cfg Config, runtime *natscell.Runtime,
-	control *authority.Runtime,
-) (*controllerMembership, error) {
-	opened, err := openMembershipLedger(ctx)
-	if err != nil {
-		return nil, err
-	}
-	baked, accepted, observer, ledger := opened.baked, opened.accepted, opened.observer, opened.ledger
-	topology := membership.Topology{Cell: cfg.NATS.Cell, Slots: accepted.ControllerSlots,
-		SeedSlot: accepted.SeedSlot, SelfSlot: accepted.Slot}
-	logger := slog.Default().With("component", "membership")
-	instances := lifecycleInstances{observer: observer}
-	var replacer membership.Replacer
-	var seed *seedReplacementService
-	switch {
-	case opened.initial != nil && accepted.Slot == accepted.SeedSlot:
-		// The seed's own reconciler and its seed-routing server share one
-		// founder replacer, which runs one replacement at a time.
-		founder := &serializedReplacer{inner: founderMembershipReplacer{
-			open: func(openCtx context.Context) (*bootstrapstart.FounderReplacer, error) {
-				serviceUID, serviceGID, err := controllerServiceIdentity()
-				if err != nil {
-					return nil, err
-				}
-				local, derived, present, err := installedAutomaticStartup(openCtx)
-				if err != nil {
-					return nil, err
-				}
-				if present {
-					if !bytes.Equal(local.baked.AnchorWire, baked.AnchorWire) {
-						return nil, errors.New("replacement startup authority differs from the installed anchor")
-					}
-					return bootstrapstart.NewAdmittedDerivedFounderReplacer(openCtx, baked, *opened.initial, derived, serviceUID, serviceGID)
-				}
-				return bootstrapstart.NewAdmittedFounderReplacer(openCtx, baked, *opened.initial, serviceUID, serviceGID)
-			}}}
-		replacer = founder
-		server, err := membership.NewSeedServer(ctx, topology, membership.SeedServerDependencies{
-			Leases: control, Instances: instances, Replacer: founder, Logger: logger})
-		if err != nil {
-			return nil, err
-		}
-		seed = &seedReplacementService{conn: runtime.Conn(), subject: protocol.MembershipReplaceSubject(cfg.NATS.Cell),
-			server: server}
-	case opened.initial != nil:
-		replacer = membership.SeedRoutedReplacer{Cell: cfg.NATS.Cell, Leadership: control,
-			Request: natsSeedRequester(runtime.Conn(), protocol.MembershipReplaceSubject(cfg.NATS.Cell))}
-	}
-	var requests membership.RetirementRequester
-	if opened.initial != nil {
-		requests = ledgerRetirementRequests{ledger: ledger, deploymentID: accepted.DeploymentID, cell: accepted.Cell,
-			dir: membership.DefaultRetirementEvidenceDir}
-	}
-	reconciler, err := membership.New(topology, membership.Dependencies{
-		Leadership: control, Peers: natsMembershipPeers{runtime: runtime},
-		Ledger:    opened.slots,
-		Instances: instances,
-		Evidence:  membership.NewFileEvidence(membership.DefaultRetirementEvidenceDir, topology.Slots, logger),
-		Requests:  requests,
-		Replacer:  replacer, Logger: logger,
-	})
-	if err != nil {
-		if seed != nil {
-			seed.server.Close()
-		}
-		return nil, err
-	}
-	return &controllerMembership{reconciler: reconciler, seed: seed}, nil
-}
-
-// stepDownMetaLeaderOnShutdown hands JetStream metadata leadership to a peer
-// before this broker stops, using only the scoped membership user. It is a
-// best-effort courtesy; a failure never blocks shutdown.
-func stepDownMetaLeaderOnShutdown(runtime *natscell.Runtime, credentials string) {
-	if runtime == nil || credentials == "" {
-		return
-	}
-	view, err := runtime.Meta()
-	if err != nil || view.Leader == "" || view.Leader != view.Self {
-		return
-	}
-	admin, err := runtime.OpenMembershipAdmin(credentials)
-	if err != nil {
-		slog.Warn("membership step-down credentials unavailable", "error", err)
-		return
-	}
-	defer admin.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := admin.StepDownMetaLeader(ctx); err != nil {
-		slog.WarnContext(ctx, "JetStream metadata leader step-down before shutdown failed", "error", err)
-	}
 }

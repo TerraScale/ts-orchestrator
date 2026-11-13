@@ -17,52 +17,6 @@ import (
 
 const rekeyPinsHeader = "TerraScale-Identity-Rekey-Pins"
 
-// VerifyIdentityResetPredecessors checks inventory completeness and exact
-// reviewed heads before shared effects. Replacement CAS remains mandatory.
-func VerifyIdentityResetPredecessors(ctx context.Context, js jetstream.JetStream, reset IdentityReset, replicas int) error {
-	if err := reset.Validate(); err != nil {
-		return err
-	}
-	if err := verifyIdentityResetHostInventory(ctx, js, reset, replicas); err != nil {
-		return err
-	}
-	reader, err := identityRecordReader(js)
-	if err != nil {
-		return err
-	}
-	if reset.GlobalLease != nil {
-		stream, err := js.Stream(ctx, ControlStreamName)
-		if err != nil {
-			return err
-		}
-		if err := verifyIdentityResetGlobalPredecessor(ctx, stream, reset); err != nil {
-			return err
-		}
-	}
-	for _, record := range reset.Records {
-		stream := ControlStreamName
-		if record.Action != IdentityResetAppendHostHead {
-			if err := checkIdentityBucket(ctx, js, record.Bucket, replicas); err != nil {
-				return err
-			}
-			stream = "KV_" + record.Bucket
-		}
-		bounded, cancel := context.WithTimeout(ctx, authorityAPITimeout)
-		previous, err := reader.GetLastMsg(stream, identityRecordSubject(record), nats.Context(bounded))
-		cancel()
-		if errors.Is(err, nats.ErrMsgNotFound) && record.PreviousRevision == 0 {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if !identityRecordPredecessor(record, previous) {
-			return fmt.Errorf("%w: identity predecessor %s/%s changed", ErrConflict, record.Bucket, record.Key)
-		}
-	}
-	return nil
-}
-
 func verifyIdentityResetHostInventory(ctx context.Context, js jetstream.JetStream, reset IdentityReset, replicas int) error {
 	if js == nil {
 		return errors.New("identity inventory requires JetStream")

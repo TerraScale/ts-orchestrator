@@ -393,9 +393,4 @@ func (verified DerivedCompletedFounderPlan) StoredCompletionBeforeLaunchDeadline
 		!headStored.Add(time.Second).After(verified.plan.LaunchDeadline)
 }
 
-var (
-	_ FounderPlanAuthority    = VerifiedFounderPlan{}
-	_ FounderPlanAuthority    = DerivedFounderPlan{}
-	_ FounderPlanContinuation = VerifiedCompletedFounderPlan{}
-	_ FounderPlanContinuation = DerivedCompletedFounderPlan{}
-)
+var ()

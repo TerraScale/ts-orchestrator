@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"slices"
@@ -292,26 +291,6 @@ func (expected MaterialGenerationExpectation) matches(generation MaterialGenerat
 func materialGenerationScope(deployment, cell, environment string) trust.Scope {
 	return trust.Scope{Domain: materialGenerationDomain, DeploymentID: deployment, Cell: cell, Environment: environment,
 		Role: materialGenerationRole, Slot: materialGenerationSlot}
-}
-
-// SignMaterialGeneration signs a generation under the offline root.
-func SignMaterialGeneration(generation MaterialGeneration, issuedAt, expiresAt time.Time, rootPrivateKey ed25519.PrivateKey,
-) (trust.Envelope, error) {
-	if err := generation.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	payload, err := trust.EncodePayload(generation)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if len(payload) > MaxMaterialGenerationBytes {
-		return trust.Envelope{}, fmt.Errorf("%w: generation exceeds its size limit", ErrMaterialGenerationInvalid)
-	}
-	if expiresAt.Sub(issuedAt) > MaxMaterialGenerationLifetime {
-		return trust.Envelope{}, fmt.Errorf("%w: validity exceeds %s", ErrMaterialGenerationInvalid, MaxMaterialGenerationLifetime)
-	}
-	return trust.Sign(payload, materialGenerationScope(generation.DeploymentID, string(generation.Cell), generation.Environment),
-		issuedAt, expiresAt, rootPrivateKey)
 }
 
 // VerifyMaterialGenerationChain verifies a chain, oldest first, for the

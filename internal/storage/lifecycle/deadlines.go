@@ -2,7 +2,6 @@ package lifecycle
 
 import (
 	"errors"
-	"fmt"
 	"time"
 )
 
@@ -107,55 +106,4 @@ func (deadlines Deadlines) Expired(state State, now time.Time) bool {
 	return now.Sub(state.Since) >= limit
 }
 
-// Check moves an expired transitional state to Stuck. It returns the state
-// unchanged and false otherwise.
-func Check(state State, now time.Time, deadlines Deadlines) (State, bool) {
-	if !state.Phase.Transitional() || !deadlines.Expired(state, now) {
-		return state, false
-	}
-	return State{
-		Phase: Stuck, Since: now.UTC(), StuckFrom: state.Phase, Attempts: state.Attempts,
-		Reason: fmt.Sprintf("%s exceeded %s", state.Phase, deadlines.For(state.Phase)),
-	}, true
-}
-
-// Remediation is the next safe action for a stuck volume. Every remediation
-// that moves data access requires its own fencing proof at execution time;
-// this decision never authorizes an effect by itself.
-type Remediation string
-
-const (
-	RemediationNone Remediation = ""
-	// RemediationForceDetachRetry force-detaches the stalled attachment (no
-	// writer has ever been granted a mount through it) and retries the attach
-	// on the same host with a fresh idempotency key.
-	RemediationForceDetachRetry Remediation = "force-detach-retry"
-	// RemediationReplaceHost gives up on the host: the volume is reattached to
-	// a replacement only after the old instance is proven terminated.
-	RemediationReplaceHost Remediation = "replace-host"
-	// RemediationForceDetach repeats a stalled detach with force semantics.
-	RemediationForceDetach Remediation = "force-detach"
-	// RemediationOperator holds for an exact-resource operator workflow.
-	RemediationOperator Remediation = "operator"
-)
-
-// Remediate chooses the remediation for a stuck state.
-func Remediate(state State, deadlines Deadlines) Remediation {
-	if state.Phase != Stuck {
-		return RemediationNone
-	}
-	deadlines = deadlines.WithDefaults()
-	switch state.StuckFrom {
-	case Attaching:
-		if state.Attempts < deadlines.MaxAttachRetries {
-			return RemediationForceDetachRetry
-		}
-		return RemediationReplaceHost
-	case Detaching:
-		return RemediationForceDetach
-	default:
-		// Create, format, resize and delete stalls touch durable data or an
-		// unknown provider outcome; automation never guesses.
-		return RemediationOperator
-	}
-}
+const ()

@@ -79,10 +79,6 @@ func PublicOrigin(cell string) string { return "https://" + Hostname(cell) }
 // name as their audience.
 func APIURL(cell string) string { return "https://" + cell + ".api.terrascale.tech" }
 
-// Issuer is the hosted OpenID Connect issuer of ts-auth in cell; its
-// discovery document is Issuer + "/.well-known/openid-configuration".
-func Issuer(cell string) string { return PublicOrigin(cell) + "/terrascale" }
-
 // Settings the workload profile supplies. They are signed controller
 // configuration, readable wherever desired state is, so they hold no secret.
 const (
@@ -148,15 +144,8 @@ var optionalSecrets = []string{"TS_AUTH_STRIPE_SECRET_KEY", "TS_AUTH_STRIPE_WEBH
 	"TS_AUTH_SENTRY_DSN", "TS_AUTH_AUDIT_VERIFY_KEYS", "OTEL_EXPORTER_OTLP_HEADERS"}
 
 var (
-	assetRE  = regexp.MustCompile(`^ts-auth-linux-(?:amd64|arm64)$`)
 	apiKeyRE = regexp.MustCompile(`^[\x21-\x7e]+$`)
 )
-
-// VerifyRelease checks ts-auth-linux-<arch> against its .sha256 release
-// asset and returns the digest to pin.
-func VerifyRelease(binaryPath, checksumPath string) (string, error) {
-	return terrabase.VerifyAsset(binaryPath, checksumPath, assetRE)
-}
 
 // ValidateProfile checks the "ts-auth" workload profile. ts-auth lets an
 // argument override any setting, so a profile sets env only, and it names
@@ -347,43 +336,4 @@ func probe(ctx context.Context, url, want string) error {
 		return fmt.Errorf("HTTP %d, status %q", response.StatusCode, body.Status)
 	}
 	return nil
-}
-
-// LoadBalancer is what the cell's public API load balancer, gru-1-api in
-// gru-1 (TS-486), needs to serve ts-auth: a Hostname rule to a backend set of every controller,
-// since a replica may run on any of them, on Port, with an HTTP health check
-// of HealthPath that passes only on a ready replica (200,
-// {"status":"ready"}). TLS ends at the load balancer; backends speak plain
-// HTTP.
-type LoadBalancer struct {
-	Hostname   string   `json:"hostname"`
-	Backends   []string `json:"backends"` // controller private IPs
-	Port       int      `json:"port"`
-	HealthPath string   `json:"health_path"`
-}
-
-// BackendSet returns ts-auth's load balancer configuration for the cell plan.
-func BackendSet(plan map[string]any) (LoadBalancer, error) {
-	entry, ok := catalog.Lookup(fmt.Sprint(plan["cell"]))
-	if !ok {
-		return LoadBalancer{}, fmt.Errorf("plan cell %v is not a catalog cell", plan["cell"])
-	}
-	hosts, _ := plan["hosts"].([]any)
-	set := LoadBalancer{Hostname: Hostname(entry.Name()), Port: Port, HealthPath: ReadyPath}
-	for _, value := range hosts {
-		host, _ := value.(map[string]any)
-		slot, _ := host["slot"].(string)
-		ip, _ := host["private_ip"].(string)
-		if !strings.HasPrefix(slot, "controller-") {
-			continue
-		}
-		if ip == "" {
-			return LoadBalancer{}, fmt.Errorf("plan controller %q has no private IP", slot)
-		}
-		set.Backends = append(set.Backends, ip)
-	}
-	if len(set.Backends) < Replicas {
-		return LoadBalancer{}, fmt.Errorf("plan has %d controllers, ts-auth needs %d", len(set.Backends), Replicas)
-	}
-	return set, nil
 }

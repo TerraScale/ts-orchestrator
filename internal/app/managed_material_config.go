@@ -3,7 +3,6 @@ package app
 import (
 	"crypto/ed25519"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
@@ -16,15 +15,6 @@ type acceptedMaterialConfig struct {
 	recipientSigner      ed25519.PublicKey
 	subnetCIDR           string
 	nativeVerifierSHA256 string
-}
-
-// Read the root-owned accepted material domain again before opening OCI.
-func loadAcceptedMaterialConfig(cell string, region oci.RegionConfig) (acceptedMaterialConfig, error) {
-	marker, err := bootstrapstart.NewMarkerStore().ReadIdentity()
-	if err != nil {
-		return acceptedMaterialConfig{}, fmt.Errorf("read accepted material domain: %w", err)
-	}
-	return acceptedMaterialConfigFromMarker(marker, cell, region)
 }
 
 func acceptedMaterialConfigFromMarker(marker bootstrapstart.AcceptedIdentity, cell string,

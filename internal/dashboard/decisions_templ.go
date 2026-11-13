@@ -5,10 +5,11 @@ package dashboard
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
-import "github.com/a-h/templ"
-import templruntime "github.com/a-h/templ/runtime"
-
-import "github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+import (
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/a-h/templ"
+	templruntime "github.com/a-h/templ/runtime"
+)
 
 // decisionsBody is the global decision journal: what the orchestrator
 // decided in every region and why, filterable by region, kind, actor,
@@ -1198,5 +1199,3 @@ func decisionStep(current view, decision decisionlog.Decision) templ.Component {
 		return nil
 	})
 }
-
-var _ = templruntime.GeneratedTemplate

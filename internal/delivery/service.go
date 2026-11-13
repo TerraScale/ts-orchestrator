@@ -188,66 +188,6 @@ func ConnectClient(ctx context.Context, cfg Config) (*Service, error) {
 	return s, nil
 }
 
-// Open provisions the durable regional resources and may be used by CLI
-// commands without starting a consumer. Serve requires the controller ports.
-func Open(ctx context.Context, cfg Config) (*Service, error) {
-	if cfg.Conn == nil || cfg.JS == nil || !validCell(cfg.Cell) || cfg.Replicas != 1 && cfg.Replicas != 3 && cfg.Replicas != 5 || cfg.ArtifactStoreMaxBytes < 0 {
-		return nil, fmt.Errorf("%w: delivery service configuration", ErrInvalid)
-	}
-	artifactStoreMaxBytes := cfg.ArtifactStoreMaxBytes
-	if artifactStoreMaxBytes == 0 {
-		artifactStoreMaxBytes = DefaultArtifactStoreMaxBytes
-	}
-	// A larger quota already in force came from the cell spec
-	// (artifact_store), which the leader re-applies; a restart must not
-	// shrink the store under an upload before then.
-	if existing, err := cfg.JS.Stream(ctx, "OBJ_"+ArtifactBucket); err == nil {
-		artifactStoreMaxBytes = max(artifactStoreMaxBytes, existing.CachedInfo().Config.MaxBytes)
-	} else if !errors.Is(err, jetstream.ErrStreamNotFound) {
-		return nil, fmt.Errorf("inspect artifact store limits: %w", err)
-	}
-	s := &Service{js: cfg.JS, config: cfg}
-	var err error
-	s.artifacts, err = cfg.JS.CreateOrUpdateObjectStore(ctx, artifactStoreConfig(cfg.Replicas, artifactStoreMaxBytes))
-	if err != nil {
-		return nil, fmt.Errorf("artifact store: %w", err)
-	}
-	stream, err := cfg.JS.Stream(ctx, "OBJ_"+ArtifactBucket)
-	if err != nil {
-		if errors.Is(err, jetstream.ErrStreamNotFound) {
-			return nil, fmt.Errorf("%w: inspect artifact store limits: %w", ErrStoreNotReady, err)
-		}
-		return nil, fmt.Errorf("inspect artifact store limits: %w", err)
-	}
-	streamInfo, err := stream.Info(ctx)
-	if err != nil {
-		if errors.Is(err, jetstream.ErrStreamNotFound) {
-			return nil, fmt.Errorf("%w: inspect artifact store limits: %w", ErrStoreNotReady, err)
-		}
-		return nil, fmt.Errorf("inspect artifact store limits: %w", err)
-	}
-	if streamInfo.Config.MaxBytes != artifactStoreMaxBytes || streamInfo.Config.Discard != jetstream.DiscardNew {
-		return nil, fmt.Errorf("%w: artifact store must enforce the configured byte quota with discard-new", ErrInvalid)
-	}
-	s.admissions, err = cfg.JS.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: AdmissionBucket, Storage: jetstream.FileStorage, Replicas: cfg.Replicas, History: 1})
-	if err != nil {
-		return nil, fmt.Errorf("artifact admissions: %w", err)
-	}
-	s.operations, err = cfg.JS.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: OperationBucket, Storage: jetstream.FileStorage, Replicas: cfg.Replicas, History: 4})
-	if err != nil {
-		return nil, fmt.Errorf("delivery operations: %w", err)
-	}
-	_, err = cfg.JS.CreateOrUpdateStream(ctx, jetstream.StreamConfig{Name: IntentStream, Subjects: []string{IntentSubject(cfg.Cell)}, Storage: jetstream.FileStorage, Replicas: cfg.Replicas, Retention: jetstream.WorkQueuePolicy, Discard: jetstream.DiscardNew, MaxMsgs: 100_000, MaxBytes: 1 << 30, MaxMsgSize: MaxIntentBytes + 8192, Duplicates: 2 * time.Minute})
-	if err != nil {
-		return nil, fmt.Errorf("delivery intent stream: %w", err)
-	}
-	s.consumer, err = cfg.JS.CreateOrUpdateConsumer(ctx, IntentStream, intentConsumerConfig(cfg.Cell))
-	if err != nil {
-		return nil, fmt.Errorf("delivery intent consumer: %w", err)
-	}
-	return s, nil
-}
-
 // intentConsumerConfig keeps redelivery unbounded at the broker: a broker
 // MaxDeliver would drop an intent without a receipt. The consumer bounds
 // planner refusals itself and records a durable held receipt instead.

@@ -289,52 +289,6 @@ type TaskLoadSource interface {
 	ReadTaskLoad(context.Context) ([]hostload.RoleUsage, error)
 }
 
-type ControllerConfig struct {
-	Cell           string
-	Conn           *nats.Conn
-	JS             jetstream.JetStream
-	State          jetstream.KeyValue
-	Artifacts      ArtifactStore
-	ResponseKey    ed25519.PrivateKey
-	StateReplicas  int
-	AuthorityEpoch func() uint64
-	AuthorityGuard func(context.Context, uint64) error
-	// AuthorityLeader reports whether this controller holds the cell authority;
-	// only the leader serves host requests. Nil serves always (one controller).
-	AuthorityLeader             func() bool
-	HostMutations               authority.HostMutationStore
-	ManagedRegistrationVerifier ManagedRegistrationVerifier
-	ManagedDesiredVerifier      ManagedDesiredVerifier
-	ManagedEffectGate           func(context.Context, uint64, authority.WorkloadScope) (func(), error)
-	ManagedMaterialProvider     ManagedMaterialProvider
-	FunctionMaterialProvider    FunctionMaterialProvider
-	ManagedCredentialFloor      func(context.Context, Registration) (uint64, error)
-	ManagedVolumeInspector      ManagedVolumeInspector
-	RuntimeEffects              RuntimeEffectHandler
-	ContainerMaterialProvider   ContainerMaterialProvider
-	RegistryAdmissionProvider   RegistryAdmissionProvider
-	// TaskLoadRoles returns roles assigned to this exact current registration
-	// by the authenticated manager. With this source, non-TerraBase roles never
-	// fall back to native desired state. Reports never select allocations.
-	TaskLoadRoles func(context.Context, Registration) ([]string, error)
-	ControlLog    jetstream.Stream
-	// TerraBaseCA signs C# TerraBase member certificates; nil refuses them.
-	TerraBaseCA *terrabase.CA
-	// RoleIdentity issues a granted role's NATS identity; nil refuses it.
-	RoleIdentity RoleIdentityIssuer
-	// NodeAddress returns the private address the cell spec grants node,
-	// empty without a grant; it finds the member of a renamed node (TS-609).
-	NodeAddress func(node string) string
-	// RestartGate, when set, is asked before a host opens a new cycle to
-	// apply desired. A cycle it does not grant is held: the host keeps its
-	// running workload and reports it waiting at the new generation, and
-	// asks again on its next poll. Nil grants every cycle. Withdrawals and
-	// managed members, which stop their workload before they ask, are never
-	// held, and a host revalidating a cycle it already holds is not asked
-	// again.
-	RestartGate func(ctx context.Context, node string, desired Desired) (bool, error)
-}
-
 // ManagedVolumeInspector independently reobserves the exact owned OCI host,
 // retained volume and attachment before a host may prepare its local device.
 type ManagedVolumeInspector func(context.Context, Desired, Registration) (VolumeInitObservation, error)
@@ -501,31 +455,6 @@ func validateManagedPlacementBinding(binding ManagedPlacementBinding) error {
 	if binding.IntentGeneration == 0 || validateDigest(binding.IntentPayloadDigest) != nil ||
 		validateDigest(binding.CanonicalRosterDigest) != nil || validateDigest(binding.ManagedHostProfileDigest) != nil {
 		return errors.New("managed placement pins are invalid")
-	}
-	return nil
-}
-
-// ManagedRegistrationPins describes the current values that a managed
-// registration must match before it can be admitted or used by placement.
-type ManagedRegistrationPins struct {
-	Placement              ManagedPlacementBinding
-	Member                 ManagedMemberBinding
-	OCI                    ManagedOCIBinding
-	FailureDomain          string
-	AllocatableMemoryBytes uint64
-	SystemReserveBytes     uint64
-}
-
-// ValidateManagedRegistrationPins rejects a registration that does not match
-// the current schema-3 placement, member attempt, OCI host, and memory pins.
-func ValidateManagedRegistrationPins(registration Registration, pins ManagedRegistrationPins) error {
-	if registration.ManagedPlacement == nil || *registration.ManagedPlacement != pins.Placement ||
-		registration.ManagedMember == nil || *registration.ManagedMember != pins.Member ||
-		registration.ManagedOCI == nil || *registration.ManagedOCI != pins.OCI ||
-		registration.FailureDomain != pins.FailureDomain || pins.AllocatableMemoryBytes > math.MaxInt64 ||
-		registration.Capacity.MemoryBytes != int64(pins.AllocatableMemoryBytes) || pins.SystemReserveBytes > math.MaxInt64 ||
-		registration.SystemReserveBytes != int64(pins.SystemReserveBytes) {
-		return errors.New("managed registration differs from current placement pins")
 	}
 	return nil
 }

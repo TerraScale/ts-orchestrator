@@ -227,6 +227,3 @@ func (reader admissionLedger) PublishAcceptedInstall(ctx context.Context, scope 
 ) error {
 	return reader.ledger.PublishAcceptedInstall(ctx, scope, marker)
 }
-
-var _ LedgerOpener = InstancePrincipalLedgerOpener{}
-var _ AdmissionLedger = admissionLedger{}

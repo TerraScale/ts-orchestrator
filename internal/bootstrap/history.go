@@ -118,11 +118,5 @@ type HistoricalReceipt struct {
 // Receipt returns a value copy of the historically verified receipt.
 func (verified HistoricalReceipt) Receipt() Receipt { return verified.receipt }
 
-// InstanceOCID returns the exact instance identity bound by the receipt.
-func (verified HistoricalReceipt) InstanceOCID() string { return verified.receipt.InstanceOCID }
-
 // Slot returns the exact controller slot bound by the receipt.
 func (verified HistoricalReceipt) Slot() string { return verified.receipt.Slot }
-
-// ManifestDigest returns the root-authorized manifest digest bound by the receipt.
-func (verified HistoricalReceipt) ManifestDigest() string { return verified.manifestDigest }

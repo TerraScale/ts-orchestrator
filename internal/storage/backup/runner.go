@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -200,40 +199,6 @@ func (runner Runner) guard(ctx context.Context, epoch uint64) error {
 		return fmt.Errorf("volume backup authority was fenced: %w", err)
 	}
 	return nil
-}
-
-// Run evaluates the policy every fifteen minutes until ctx ends. Followers skip
-// quietly; failures are logged and retried on the next tick.
-func (runner Runner) Run(ctx context.Context) error {
-	if err := runner.validate(); err != nil {
-		return err
-	}
-	return RunPolicy(ctx, runner.RunOnce)
-}
-
-// RunPolicy schedules the same fixed policy cadence when reconciliation is
-// performed through the authenticated root boundary.
-func RunPolicy(ctx context.Context, evaluate func(context.Context) (Report, error)) error {
-	if evaluate == nil {
-		return errors.New("volume backup policy requires reconciliation")
-	}
-	ticker := time.NewTicker(runInterval)
-	defer ticker.Stop()
-	for {
-		report, err := evaluate(ctx)
-		switch {
-		case errors.Is(err, authority.ErrNotLeader):
-		case err != nil && ctx.Err() == nil:
-			slog.WarnContext(ctx, "volume backup evaluation failed", "error", err)
-		case len(report.Created)+len(report.Deleted) > 0:
-			slog.InfoContext(ctx, "volume backup policy applied", "created", report.Created, "deleted", report.Deleted)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
 }
 
 // retryToken scopes the OCI retry token to the controller owner and region:

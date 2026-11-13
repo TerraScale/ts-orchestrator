@@ -6,8 +6,6 @@
 package lifecycle
 
 import (
-	"errors"
-	"fmt"
 	"time"
 )
 
@@ -57,30 +55,7 @@ func (phase Phase) Transitional() bool {
 	}
 }
 
-// Event is an observed fact or a requested effect.
-type Event string
-
-const (
-	EventCreateRequested Event = "create-requested"
-	EventCreated         Event = "created"
-	EventAttachRequested Event = "attach-requested"
-	EventAttached        Event = "attached"
-	EventFormatStarted   Event = "format-started"
-	EventMounted         Event = "mounted"
-	EventResizeRequested Event = "resize-requested"
-	EventResized         Event = "resized"
-	EventDetachRequested Event = "detach-requested"
-	EventDetached        Event = "detached"
-	EventDeleteRequested Event = "delete-requested"
-	EventDeleted         Event = "deleted"
-	// EventHold moves any non-terminal phase to Held with a reason.
-	EventHold Event = "hold"
-	// EventRelease returns a Held volume to the phase it was held from.
-	EventRelease Event = "release"
-	// EventRetry returns a Stuck volume to the phase that stalled, restarting
-	// its deadline and counting one remediation attempt.
-	EventRetry Event = "retry"
-)
+const ()
 
 // State is the durable lifecycle record. Since drives deadlines; callers must
 // persist it unchanged while a phase is merely re-observed.
@@ -94,138 +69,4 @@ type State struct {
 	Attempts uint32 `json:"attempts,omitzero"`
 }
 
-var (
-	ErrInvalidTransition = errors.New("invalid retained volume lifecycle transition")
-	ErrTerminal          = errors.New("retained volume lifecycle is terminal")
-)
-
-// New returns the initial Pending state.
-func New(now time.Time) State {
-	return State{Phase: Pending, Since: now.UTC()}
-}
-
-// Apply returns the state after event at now. It never mutates its input and
-// rejects any transition not listed in the transition table.
-func Apply(state State, event Event, now time.Time, reason string) (State, error) {
-	if !state.Phase.Valid() {
-		return state, fmt.Errorf("%w: unknown phase %q", ErrInvalidTransition, state.Phase)
-	}
-	now = now.UTC()
-	if state.Phase == Deleted {
-		return state, ErrTerminal
-	}
-	switch event {
-	case EventHold:
-		if state.Phase == Held {
-			return state, nil
-		}
-		from := state.Phase
-		if from == Stuck {
-			from = state.StuckFrom
-		}
-		return State{Phase: Held, Since: now, HeldFrom: from, Reason: reason, Attempts: state.Attempts}, nil
-	case EventRelease:
-		if state.Phase != Held || !state.HeldFrom.Valid() || state.HeldFrom == Held || state.HeldFrom == Stuck {
-			return state, fmt.Errorf("%w: release requires a held volume with a recorded phase", ErrInvalidTransition)
-		}
-		// Attempts survive the hold: a release must not reset the bound that
-		// escalates repeated same-host attach stalls to host replacement.
-		return State{Phase: state.HeldFrom, Since: now, Attempts: state.Attempts}, nil
-	case EventRetry:
-		if state.Phase != Stuck || !state.StuckFrom.Transitional() {
-			return state, fmt.Errorf("%w: retry requires a stuck transitional phase", ErrInvalidTransition)
-		}
-		return State{Phase: state.StuckFrom, Since: now, Attempts: state.Attempts + 1}, nil
-	}
-	from := state.Phase
-	if from == Stuck {
-		// A late positive observation resolves a stall without a retry.
-		from = state.StuckFrom
-	}
-	next, ok := transitions[edge{from, event}]
-	if !ok || state.Phase == Held {
-		return state, fmt.Errorf("%w: %s on %s", ErrInvalidTransition, event, state.Phase)
-	}
-	if next == from {
-		// Re-observing or re-requesting the current phase keeps the original
-		// deadline; a stuck volume stays stuck until it makes progress or an
-		// explicit retry restarts its deadline.
-		return state, nil
-	}
-	attempts := uint32(0)
-	if attachRetryCycle(from) && attachRetryCycle(next) {
-		// A force-detach-retry passes through Detaching and Detached back
-		// to Attaching. The same-host attach retry count must survive that
-		// cycle, or repeated stalls never escalate to host replacement. It
-		// resets once the attach succeeds or the volume leaves the cycle.
-		attempts = state.Attempts
-	}
-	return State{Phase: next, Since: now, Attempts: attempts}, nil
-}
-
-// attachRetryCycle reports the phases a same-host attach retry cycles through.
-func attachRetryCycle(phase Phase) bool {
-	return phase == Attaching || phase == Detaching || phase == Detached
-}
-
-type edge struct {
-	from  Phase
-	event Event
-}
-
-// transitions is the complete allowed graph outside Hold/Release/Retry.
-// Re-requesting the current transitional phase is idempotent.
-var transitions = map[edge]Phase{
-	{Pending, EventCreateRequested}:   Creating,
-	{Creating, EventCreateRequested}:  Creating,
-	{Creating, EventCreated}:          Available,
-	{Creating, EventDeleteRequested}:  Deleting,
-	{Available, EventCreated}:         Available,
-	{Available, EventAttachRequested}: Attaching,
-	{Available, EventDeleteRequested}: Deleting,
-	{Attaching, EventAttachRequested}: Attaching,
-	{Attaching, EventAttached}:        Attached,
-	{Attaching, EventDetachRequested}: Detaching,
-	{Attaching, EventDetached}:        Detached,
-	{Attached, EventAttached}:         Attached,
-	{Attached, EventFormatStarted}:    Formatting,
-	{Attached, EventMounted}:          Mounted,
-	{Attached, EventDetachRequested}:  Detaching,
-	{Attached, EventDetached}:         Detached,
-	{Formatting, EventAttached}:       Formatting,
-	{Formatting, EventFormatStarted}:  Formatting,
-	{Formatting, EventMounted}:        Mounted,
-	{Mounted, EventAttached}:          Mounted,
-	{Mounted, EventMounted}:           Mounted,
-	{Mounted, EventResizeRequested}:   Resizing,
-	{Mounted, EventDetachRequested}:   Detaching,
-	{Mounted, EventDetached}:          Detached,
-	{Resizing, EventAttached}:         Resizing,
-	{Resizing, EventMounted}:          Resizing,
-	{Resizing, EventResizeRequested}:  Resizing,
-	{Resizing, EventResized}:          Mounted,
-	{Detaching, EventDetachRequested}: Detaching,
-	{Detaching, EventDetached}:        Detached,
-	{Detached, EventDetached}:         Detached,
-	{Detached, EventAttachRequested}:  Attaching,
-	{Detached, EventDeleteRequested}:  Deleting,
-	{Deleting, EventDeleteRequested}:  Deleting,
-	{Deleting, EventDeleted}:          Deleted,
-}
-
-// FromOCIAttachmentState maps an OCI volume-attachment lifecycle state to the
-// event it represents. Unknown states return false and must be held.
-func FromOCIAttachmentState(state string) (Event, bool) {
-	switch state {
-	case "ATTACHING":
-		return EventAttachRequested, true
-	case "ATTACHED":
-		return EventAttached, true
-	case "DETACHING":
-		return EventDetachRequested, true
-	case "DETACHED":
-		return EventDetached, true
-	default:
-		return "", false
-	}
-}
+var ()

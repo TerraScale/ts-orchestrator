@@ -100,27 +100,6 @@ func (migration SequenceMigration) signingScope() trust.Scope {
 	return scope
 }
 
-func SignSequenceMigration(migration SequenceMigration, now time.Time, root ed25519.PrivateKey) (trust.Envelope, error) {
-	if err := migration.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	if len(root) != ed25519.PrivateKeySize {
-		return trust.Envelope{}, trust.ErrInvalid
-	}
-	rootID, err := trust.KeyID(root.Public().(ed25519.PublicKey))
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if rootID == migration.SignerKeyID {
-		return trust.Envelope{}, fmt.Errorf("%w: online sequence signer must differ from offline root", ErrInvalidReceipt)
-	}
-	payload, err := trust.EncodePayload(migration)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	return trust.Sign(payload, migration.signingScope(), now, now.Add(MaxSequenceMigrationLifetime), root)
-}
-
 // VerifySequenceMigrationHistorical checks a durable authorization already
 // imported by the signer; importing a new migration requires current validity.
 func VerifySequenceMigrationHistorical(envelope trust.Envelope, roots trust.Keyring, role, environment string) (SequenceMigration, error) {

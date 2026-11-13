@@ -9,10 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
-	"slices"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
@@ -333,10 +331,6 @@ func observeNetBirdGeometry(ctx context.Context, factory *ociclient.Factory, int
 	return boot, err
 }
 
-func observeNetBirdManagerGeometry(ctx context.Context, factory *ociclient.Factory, intent NetBirdManagerIntent, launch NetBirdManagerLaunch, compartment string) (string, string, error) {
-	return observeNetBirdManagerGeometryCurrent(ctx, factory, intent, launch, compartment, true)
-}
-
 func observeNetBirdManagerGeometryCurrent(ctx context.Context, factory *ociclient.Factory, intent NetBirdManagerIntent, launch NetBirdManagerLaunch, compartment string, original bool) (string, string, error) {
 	compute, err := factory.Compute()
 	if err != nil {
@@ -437,63 +431,4 @@ func observeNetBirdManagerGeometryCurrent(ctx context.Context, factory *ociclien
 		return "", "", errors.New("original manager boot attachment or image differs from its exact physical launch")
 	}
 	return *b.Id, *attachment.VnicId, nil
-}
-
-// netBirdObservedInstance checks the entire isolated network and exact disk
-// before the generic local-instance admission can release a sealed claim.
-type netBirdObservedInstance struct {
-	factory  *ociclient.Factory
-	resolver FoundationResolver
-	reader   *SignedFootprint
-	observer bootstrapstart.InstanceObserver
-}
-
-func (o netBirdObservedInstance) ObserveInstance(ctx context.Context, id string) (bootstrapstart.InstanceObservation, error) {
-	intent, err := o.reader.authorizedNetBirdManager(ctx)
-	if err != nil {
-		return bootstrapstart.InstanceObservation{}, err
-	}
-	record, err := o.resolver.Resolve(ctx, "GRU")
-	if err != nil {
-		return bootstrapstart.InstanceObservation{}, err
-	}
-	if record.NetBirdManager == nil || record.NetBirdManager.InstanceID != id || record.NetBirdManager.BootVolumeID == "" {
-		return bootstrapstart.InstanceObservation{}, errors.New("dedicated manager exact instance and disk checkpoints are absent")
-	}
-	footprint, err := o.reader.AuthorizedRegions(ctx)
-	if err != nil {
-		return bootstrapstart.InstanceObservation{}, err
-	}
-	var plan map[string]any
-	for _, r := range footprint.Regions {
-		if r.Plan["cell"] == "GRU" {
-			plan = r.Plan
-		}
-	}
-	ids := map[string]any{}
-	for key, value := range record.ResourceIDs {
-		ids[key] = value
-	}
-	plan["resource_ids"] = ids
-	progress := FoundationProgress{OperationID: record.OperationID, AuxiliaryIDs: record.AuxiliaryIDs,
-		BeforeWrite: func(ctx context.Context, _ bool) (context.Context, func(), error) {
-			return ctx, nil, errors.New("manager admission cannot create or repair network resources")
-		},
-		PrepareCreate: func(context.Context, foundation.CreateIdentity, bool) error {
-			return errors.New("manager admission cannot prepare network creates")
-		},
-		CheckpointAuxiliary: func(context.Context, string, string) error {
-			return errors.New("manager admission cannot adopt network resources")
-		}}
-	if _, _, err := ReconcileNetBirdNetwork(ctx, o.factory, plan, intent.intent.Profile, progress); err != nil {
-		return bootstrapstart.InstanceObservation{}, err
-	}
-	if _, err := observeNetBirdGeometry(ctx, o.factory, intent.intent, *record.NetBirdManager, record.ResourceIDs["control_compartment"]); err != nil {
-		return bootstrapstart.InstanceObservation{}, err
-	}
-	observed, err := o.observer.ObserveInstance(ctx, id)
-	if err == nil && !slices.Equal(observed.NSGOCIDs, []string{record.AuxiliaryIDs["netbird_manager_nsg"]}) {
-		return bootstrapstart.InstanceObservation{}, errors.New("dedicated manager network security attachment differs")
-	}
-	return observed, err
 }

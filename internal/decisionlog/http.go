@@ -1,9 +1,7 @@
 package decisionlog
 
 import (
-	"encoding/json"
 	"errors"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -58,44 +56,4 @@ func parseTime(raw string, now time.Time) (time.Time, error) {
 		return now.Add(-duration.Abs()), nil
 	}
 	return time.Parse(time.RFC3339, raw)
-}
-
-// Handler serves GET /v1/decisions (a query) and GET /v1/decisions/{id}
-// (the chain containing id) as JSON. Mount it only on an authenticated
-// listener.
-func Handler(source Source) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/decisions", func(writer http.ResponseWriter, request *http.Request) {
-		query, err := ParseQuery(request.URL.Query(), time.Now())
-		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
-			return
-		}
-		result, err := source.Query(request.Context(), query)
-		if err != nil {
-			http.Error(writer, "decision journal unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		writeJSON(writer, result)
-	})
-	mux.HandleFunc("GET /v1/decisions/{id}", func(writer http.ResponseWriter, request *http.Request) {
-		chain, err := source.Chain(request.Context(), request.PathValue("id"))
-		if errors.Is(err, ErrNotFound) {
-			http.Error(writer, "decision not found", http.StatusNotFound)
-			return
-		}
-		if err != nil {
-			http.Error(writer, "decision journal unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		writeJSON(writer, chain)
-	})
-	return mux
-}
-
-func writeJSON(writer http.ResponseWriter, value any) {
-	writer.Header().Set("Content-Type", "application/json")
-	writer.Header().Set("Cache-Control", "no-store")
-	writer.Header().Set("X-Content-Type-Options", "nosniff")
-	_ = json.NewEncoder(writer).Encode(value)
 }

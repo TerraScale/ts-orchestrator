@@ -17,12 +17,12 @@ import (
 )
 
 var (
-	ErrNotFound       = errors.New("global record not found")
-	ErrConflict       = errors.New("global record compare-and-set conflict")
-	ErrStaleRecord    = errors.New("global record generation does not advance")
-	ErrNotHomeRegion  = errors.New("global state is writable only in the home region")
-	ErrRecordCorrupt  = errors.New("global record is corrupt")
-	ErrRosterRequired = errors.New("global directory writes require a region roster")
+	ErrNotFound    = errors.New("global record not found")
+	ErrConflict    = errors.New("global record compare-and-set conflict")
+	ErrStaleRecord = errors.New("global record generation does not advance")
+
+	ErrRecordCorrupt = errors.New("global record is corrupt")
+
 	// ErrMirrorGap means a regional mirror is missing home records. The home
 	// stream never loses a record (no deletes, purges or limits), so a gap
 	// means the mirror's durable consumer was reset past records the mirror
@@ -209,99 +209,6 @@ type Writer struct {
 	// beforePublish runs between the fenced reads and the conditional
 	// append; tests use it to interleave a new term.
 	beforePublish func()
-}
-
-// OpenHome creates or verifies the writable home stream and the durable
-// mirror consumer of every peer that mirrors it. cell must equal the roster
-// home; fencer must be the global-scope authority runtime. Mirror consumers of
-// regions that are no longer peers are deleted.
-func OpenHome(ctx context.Context, js jetstream.JetStream, cell string, peers []string, replicas int,
-	fencer authority.Fencer,
-) (*Writer, error) {
-	if !cellToken.MatchString(cell) {
-		return nil, errors.New("global home cell is invalid")
-	}
-	if err := validMirrorPeers(cell, peers); err != nil {
-		return nil, err
-	}
-	if fencer == nil || fencer.Current().Scope != protocol.GlobalScope {
-		return nil, errors.New("global writes require the global-scope authority")
-	}
-	stream, err := openStream(ctx, js, HomeStreamConfig(replicas), func(actual jetstream.StreamConfig) error {
-		return verifyHome(actual, replicas)
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err := ensureMirrorConsumers(ctx, stream, peers, replicas); err != nil {
-		return nil, err
-	}
-	if err := removeStaleMirrorConsumers(ctx, stream, peers); err != nil {
-		return nil, err
-	}
-	return &Writer{Reader: Reader{stream: stream, js: js}, home: cell, fencer: fencer, replicas: replicas}, nil
-}
-
-// validMirrorPeers requires every peer to be a regional cell other than home.
-func validMirrorPeers(home string, peers []string) error {
-	for _, peer := range peers {
-		if !cellToken.MatchString(peer) || peer == protocol.GlobalScope || peer == home {
-			return fmt.Errorf("global mirror peer %q is invalid", peer)
-		}
-	}
-	return nil
-}
-
-// PutRoster writes the next roster generation. The home region cannot be
-// moved through this path; a home transfer needs an operator-signed envelope.
-func (w *Writer) PutRoster(ctx context.Context, epoch uint64, roster Roster) (uint64, error) {
-	if err := roster.Validate(); err != nil {
-		return 0, err
-	}
-	if roster.HomeRegion != w.home {
-		return 0, ErrNotHomeRegion
-	}
-	payload, err := protocol.EncodeJSON(roster)
-	if err != nil {
-		return 0, err
-	}
-	return w.put(ctx, epoch, KindRoster, RosterKey, roster.Generation, payload, nil)
-}
-
-// PutDirectory writes the next generation of a partition's directory entry.
-// Every active region must be Active in the current roster.
-func (w *Writer) PutDirectory(ctx context.Context, epoch uint64, entry DirectoryEntry) (uint64, error) {
-	roster, _, err := w.Roster(ctx)
-	if errors.Is(err, ErrNotFound) {
-		return 0, ErrRosterRequired
-	}
-	if err != nil {
-		return 0, err
-	}
-	if err := entry.ValidateAgainst(roster); err != nil {
-		return 0, err
-	}
-	payload, err := protocol.EncodeJSON(entry)
-	if err != nil {
-		return 0, err
-	}
-	return w.put(ctx, epoch, KindDirectory, entry.Key(), entry.Generation, payload, nil)
-}
-
-// Fence appends the term barrier for epoch unless the stream already holds
-// it. A new global leader calls it eagerly so that no older leader can append
-// once it returns; every write also establishes the term first.
-func (w *Writer) Fence(ctx context.Context, epoch uint64) error {
-	if epoch == 0 {
-		return authority.ErrFenced
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if err := w.fencer.Guard(ctx, epoch); err != nil {
-		return err
-	}
-	_, err := w.establishTerm(ctx, epoch)
-	return err
 }
 
 // Term returns the epoch of the latest term barrier, or 0 before the first.

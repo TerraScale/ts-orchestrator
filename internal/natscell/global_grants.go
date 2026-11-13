@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/nats-io/nkeys"
 )
 
 // GlobalControllerPublishes is what a controller in the global home region
@@ -33,47 +32,6 @@ func GlobalControllerRequests() []string { return []string{protocol.GlobalBudget
 // global home grants. Re-issue their signed material before starting the
 // global home controller.
 var ErrMissingGlobalGrants = errors.New("controller NATS credentials lack the global home publish grants")
-
-// ValidateGlobalControllerPermissions checks, before the global authority
-// starts, that this controller's credentials may publish every global home
-// subject. Without the check a permission violation surfaces only as a
-// publish timeout that the controller start-up retry loop never escapes.
-// Credentials without publish restrictions (unrestricted test users) pass.
-func ValidateGlobalControllerPermissions(cfg Config) error {
-	switch {
-	case cfg.CredentialsFile != "":
-		claim, _, err := credentialUser(cfg.CredentialsFile)
-		if err != nil {
-			return fmt.Errorf("controller credentials: %w", err)
-		}
-		return globalPublishGranted(claim.Pub.Allow, claim.Pub.Deny)
-	case cfg.NKeySeedFile != "" && cfg.Embedded != nil && len(cfg.Embedded.Users) != 0:
-		data, err := readPrivateFile(cfg.NKeySeedFile, 4096)
-		if err != nil {
-			return fmt.Errorf("controller NKey seed: %w", err)
-		}
-		pair, err := nkeys.ParseDecoratedUserNKey(data)
-		clear(data)
-		if err != nil {
-			return fmt.Errorf("controller NKey seed: %w", err)
-		}
-		public, err := pair.PublicKey()
-		pair.Wipe()
-		if err != nil {
-			return err
-		}
-		for _, user := range cfg.Embedded.Users {
-			if user.PublicKey == public {
-				if user.Role != "controller" || !user.Global {
-					return ErrMissingGlobalGrants
-				}
-				return nil
-			}
-		}
-		return ErrMissingGlobalGrants
-	}
-	return nil
-}
 
 // ValidateGlobalControllerCredentialBytes checks the home grants before
 // offline credentials are admitted into a signed material generation.

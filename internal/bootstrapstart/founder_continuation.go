@@ -39,17 +39,6 @@ func NewOCIFounderPeerContinuation(baked BakedInputs, accepted AcceptedInstall,
 		serviceUID: serviceUID, serviceGID: serviceGID, now: time.Now}, nil
 }
 
-// NewDerivedFounderPeerContinuation keeps source-derived peer evidence on the
-// same durable floor and completed-ledger checks as the original peer path.
-func NewDerivedFounderPeerContinuation(baked BakedInputs, accepted AcceptedInstall,
-	authority bootstrap.DerivedStartupAuthority, serviceUID, serviceGID uint32,
-) (*FounderPeerContinuation, error) {
-	if _, err := authority.Template().OriginalLaunch(); err == nil {
-		return nil, ErrOriginalStartup
-	}
-	return NewDerivedFounderPeerContinuationContext(context.Background(), baked, accepted, authority, serviceUID, serviceGID)
-}
-
 // NewDerivedFounderPeerContinuationContext retains caller cancellation through
 // the original provenance and current physical host checks.
 func NewDerivedFounderPeerContinuationContext(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,

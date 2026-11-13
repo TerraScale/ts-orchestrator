@@ -14,7 +14,6 @@ package cellspec
 
 import (
 	"bytes"
-	"cmp"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
@@ -759,20 +758,6 @@ func Decode(encoded []byte) (Spec, error) {
 	return spec, nil
 }
 
-// Candidate reads the spec of an unsigned candidate or of a signed file
-// without verifying any signature, for review before apply.
-func Candidate(data []byte) (Spec, error) {
-	var signed Signed
-	if protocol.DecodeStrict(data, &signed, MaxSignedBytes) != nil || len(signed.Spec) == 0 {
-		return Decode(data)
-	}
-	envelope, err := trust.DecodeEnvelope(signed.Spec)
-	if err != nil {
-		return Spec{}, fmt.Errorf("signed spec envelope: %w", err)
-	}
-	return Decode(envelope.Payload)
-}
-
 // Digest is the SHA-256 of the spec's canonical payload.
 func Digest(spec Spec) (string, error) {
 	encoded, err := Encode(spec)
@@ -1063,115 +1048,6 @@ type Plan struct {
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
-}
-
-// Diff lists the services next adds, changes and removes relative to
-// current and what it widens.
-func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
-	plan := Plan{Identity: next.Identity, From: current.Generation, To: next.Generation,
-		RequiresBinary: next.RequiresBinary, RootRequired: AuthorityChanges(current, next, signed)}
-	for _, service := range next.Services {
-		previous, exists := current.Find(service.Role)
-		if !exists {
-			plan.Added = append(plan.Added, service.Role)
-			continue
-		}
-		before, err := protocol.EncodeJSON(previous)
-		if err != nil {
-			return Plan{}, err
-		}
-		after, err := protocol.EncodeJSON(service)
-		if err != nil {
-			return Plan{}, err
-		}
-		if !bytes.Equal(before, after) {
-			plan.Updated = append(plan.Updated, service.Role)
-		}
-	}
-	for _, service := range current.Services {
-		if _, exists := next.Find(service.Role); !exists {
-			plan.Removed = append(plan.Removed, service.Role)
-		}
-	}
-	nodes := map[string]bool{}
-	for _, grants := range [][]HostGrant{current.HostGrants, next.HostGrants} {
-		for _, grant := range grants {
-			nodes[grant.Node] = true
-		}
-	}
-	for _, node := range slices.Sorted(maps.Keys(nodes)) {
-		before, _ := current.Grant(node)
-		after, _ := next.Grant(node)
-		if !reflect.DeepEqual(before, after) {
-			plan.HostGrants = append(plan.HostGrants, node)
-		}
-	}
-	images := map[string]bool{}
-	for _, list := range [][]HostImage{current.HostImages, next.HostImages} {
-		for _, image := range list {
-			images[image.ImageID] = true
-		}
-	}
-	for _, id := range slices.Sorted(maps.Keys(images)) {
-		before, _ := current.HostImage(id)
-		after, _ := next.HostImage(id)
-		if !reflect.DeepEqual(before, after) {
-			plan.HostImages = append(plan.HostImages, id)
-		}
-	}
-	switch before, after := current.OCIDesired, next.OCIDesired; {
-	case before == nil && after != nil:
-		plan.OCIDesired = "added"
-	case before != nil && after == nil:
-		plan.OCIDesired = "removed"
-	case before != nil && !reflect.DeepEqual(*before, *after):
-		plan.OCIDesired = "updated"
-	}
-	plan.Signers = signerChanges(current.Signers, next.Signers)
-	if next.LaunchImage != current.LaunchImage {
-		plan.LaunchImage = cmp.Or(next.LaunchImage, "pinned")
-	}
-	switch before, after := current.ArtifactStore, next.ArtifactStore; {
-	case before == nil && after != nil:
-		plan.ArtifactStore = "added"
-	case before != nil && after == nil:
-		plan.ArtifactStore = "removed"
-	case before != nil && *before != *after:
-		plan.ArtifactStore = "updated"
-	}
-	switch before, after := current.ReleaseFence, next.ReleaseFence; {
-	case before == nil && after != nil:
-		plan.ReleaseFence = "added"
-	case before != nil && after == nil:
-		plan.ReleaseFence = "removed"
-	case before != nil && !reflect.DeepEqual(*before, *after):
-		plan.ReleaseFence = "updated"
-	}
-	switch before, after := current.MachinesAPI, next.MachinesAPI; {
-	case before == nil && after != nil:
-		plan.MachinesAPI = "added"
-	case before != nil && after == nil:
-		plan.MachinesAPI = "removed"
-	case before != nil && !reflect.DeepEqual(*before, *after):
-		plan.MachinesAPI = "updated"
-	}
-	switch before, after := current.Dashboard, next.Dashboard; {
-	case before == nil && after != nil:
-		plan.Dashboard = "added"
-	case before != nil && after == nil:
-		plan.Dashboard = "removed"
-	case before != nil && *before != *after:
-		plan.Dashboard = "updated"
-	}
-	switch before, after := current.NetBird, next.NetBird; {
-	case before == nil && after != nil:
-		plan.NetBird = "added"
-	case before != nil && after == nil:
-		plan.NetBird = "removed"
-	case before != nil && !reflect.DeepEqual(before, after):
-		plan.NetBird = "updated"
-	}
-	return plan, nil
 }
 
 // Empty reports whether the plan changes nothing.

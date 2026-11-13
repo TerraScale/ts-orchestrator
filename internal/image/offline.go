@@ -6,7 +6,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
 	"io"
 	"math"
 	"os"
@@ -18,6 +17,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
+
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
@@ -28,10 +29,6 @@ func fileHash(path string) (string, error) { return client.SHA256(path) }
 type GuestBuildOptions struct {
 	Image, KernelRelease, KernelOut, Work, Sysusers, Profile, PriorityRoot, Binary, NativeVerifier, Timesyncd, NetBirdBinary, NetBirdConfig string
 	BootstrapRoots                                                                                                                          []string
-}
-
-func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Writer) error {
-	return (Services{}).guestBuild(ctx, repo, o, out)
 }
 
 func (services Services) guestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Writer) (result error) {
@@ -407,10 +404,6 @@ type OfflineOptions struct {
 	Base, KernelRelease, Binary, Qualification, SourceRevision, NativeVerifier, NativeSHA256, NetBirdBinary, NetBirdSHA256, NetBirdConfig, ReleaseTool, Timesyncd, Out, KernelOut string
 	BootstrapRoots                                                                                                                                                                []string
 	Priority                                                                                                                                                                      PriorityInputs
-}
-
-func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Writer) error {
-	return (Services{}).offlineBuild(ctx, repo, o, out)
 }
 
 func (services Services) offlineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Writer) error {

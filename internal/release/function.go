@@ -2,7 +2,6 @@ package release
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -76,17 +75,6 @@ func FunctionScope(claim FunctionClaim) trust.Scope {
 		Domain: FunctionDomain, DeploymentID: claim.TenantID, Cell: claim.Cell,
 		Environment: claim.Environment, Role: "function-worker", Slot: claim.FunctionID,
 	}
-}
-
-// SignFunctionClaim signs only bytes matching the claim and a current exact
-// root delegation. The producer allocates Sequence durably before calling it.
-func SignFunctionClaim(claim FunctionClaim, module []byte, delegation trust.Envelope, roots trust.Keyring,
-	privateKey ed25519.PrivateKey, now time.Time, validFor time.Duration,
-) (trust.Envelope, error) {
-	if err := claim.validateModule(module); err != nil {
-		return trust.Envelope{}, err
-	}
-	return signReceipt(claim, FunctionScope(claim), delegation, roots, privateKey, now, validFor)
 }
 
 // VerifyFunctionCurrent admits portable bytes only after checking the trusted

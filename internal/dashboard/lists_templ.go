@@ -5,10 +5,12 @@ package dashboard
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
-import "github.com/a-h/templ"
-import templruntime "github.com/a-h/templ/runtime"
+import (
+	"strings"
 
-import "strings"
+	"github.com/a-h/templ"
+	templruntime "github.com/a-h/templ/runtime"
+)
 
 // pagerNav shows the rows on this page and links to the previous and next
 // page. The links keep every other filter.
@@ -478,5 +480,3 @@ func globalVolumesBody(current view) templ.Component {
 		return nil
 	})
 }
-
-var _ = templruntime.GeneratedTemplate

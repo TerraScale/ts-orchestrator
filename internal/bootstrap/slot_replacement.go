@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"crypto/ed25519"
 	"fmt"
 	"slices"
 	"strconv"
@@ -13,10 +12,6 @@ import (
 // SlotRetirementDisposition is the only disposition a managed controller slot
 // replacement accepts: the prior instance is gone and cannot rejoin.
 const SlotRetirementDisposition = "instance-retired"
-
-// MaxSlotRetirementLifetime bounds a signed retirement. The ledger accepts the
-// general manifest lifetime; replacement evidence must be acted on promptly.
-const MaxSlotRetirementLifetime = 24 * time.Hour
 
 // SlotRetirementCandidate returns the unsigned retirement evidence that must
 // be reviewed and root-signed before a completed managed peer slot may advance
@@ -56,29 +51,6 @@ func ValidateSlotRetirementCandidate(evidence RetirementEvidence) error {
 		return fmt.Errorf("%w: retirement candidate is incomplete", ErrRetirementInvalid)
 	}
 	return nil
-}
-
-// SignSlotRetirement signs reviewed managed-slot retirement evidence with the
-// offline root key in the exact ledger scope.
-func SignSlotRetirement(evidence RetirementEvidence, issuedAt, expiresAt time.Time,
-	rootPrivateKey ed25519.PrivateKey,
-) (trust.Envelope, error) {
-	if err := ValidateSlotRetirementCandidate(evidence); err != nil {
-		return trust.Envelope{}, err
-	}
-	issuedAt = issuedAt.Round(0).UTC()
-	expiresAt = expiresAt.Round(0).UTC()
-	if !validFounderNow(issuedAt) || !expiresAt.After(issuedAt) || issuedAt.Before(evidence.ObservedAt) ||
-		expiresAt.Sub(issuedAt) > MaxSlotRetirementLifetime {
-		return trust.Envelope{}, fmt.Errorf("%w: retirement signing interval is invalid", ErrRetirementInvalid)
-	}
-	payload, err := trust.EncodePayload(evidence)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	return trust.Sign(payload, trust.Scope{Domain: domainSlotRetirement, DeploymentID: evidence.DeploymentID,
-		Cell: evidence.Cell, Environment: evidence.Environment, Role: roleController, Slot: evidence.Slot},
-		issuedAt, expiresAt, rootPrivateKey)
 }
 
 // DecodeSlotRetirementCandidate decodes, without verifying, the payload of a

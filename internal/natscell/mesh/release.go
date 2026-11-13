@@ -62,19 +62,6 @@ func Release(state string) func(ctx context.Context, service, image string, clai
 	}
 }
 
-// release applies the desired spec with only its image changed. When a
-// targeted region fails or does not get ready within wait, it re-applies the
-// previous spec everywhere, unless a newer release replaced this one meanwhile;
-// the rollback's rows follow the release's.
-func release(ctx context.Context, conn *nats.Conn, service, image string, wait, rollbackWait time.Duration) ([]Reply, error) {
-	return releaseDeployment(ctx, conn, service, image, nil, wait, rollbackWait, unreported{})
-}
-
-type unreported struct{}
-
-func (unreported) Deadline(time.Time) {}
-func (unreported) Event(string)       {}
-
 func regionEvent(prefix string, reply Reply) string {
 	elapsed := time.Duration(reply.ElapsedMS) * time.Millisecond
 	switch {

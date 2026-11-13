@@ -187,10 +187,6 @@ func decodeStrict(data []byte, destination any) error {
 	return protocol.DecodeStrict(data, destination, 512<<10)
 }
 
-func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey ed25519.PublicKey, r request, out any) error {
-	return exchangeWithEnvelope(ctx, conn, cell, controllerKey, r, out, nil)
-}
-
 func exchangeWithEnvelope(ctx context.Context, conn *nats.Conn, cell string, controllerKey ed25519.PublicKey,
 	r request, out any, signedOut *protocol.Envelope,
 ) error {

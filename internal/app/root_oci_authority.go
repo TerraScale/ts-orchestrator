@@ -253,15 +253,6 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 			worker.RegistrationGeneration, currentAuthority.Anchor().Digest())}, nil
 }
 
-func controllerRuntimeID() (string, error) {
-	witness, err := rootoci.CaptureProcess(os.Getpid())
-	if err != nil {
-		return "", err
-	}
-	defer witness.Close()
-	return entityid.Derive("controller-runtime", witness.Binding()), nil
-}
-
 func (authority *rootOCIAuthority) verifyMarker() error {
 	current, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	if err != nil {

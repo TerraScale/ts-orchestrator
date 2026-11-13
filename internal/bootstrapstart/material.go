@@ -22,15 +22,6 @@ const (
 	StagingDirectory  = "/run/terrascale-orchestrator-bootstrap"
 )
 
-// OperatorDirectory is where an operator workstation keeps a cell's operator
-// material and operator.json: GRU's predates the cell suffix.
-func OperatorDirectory(cell string) string {
-	if cell == "gru" {
-		return "/var/lib/terrascale-operator"
-	}
-	return "/var/lib/terrascale-operator-" + cell
-}
-
 var ErrMaterial = errors.New("controller credential material is invalid")
 
 type SecretMaterializer interface {
@@ -311,5 +302,3 @@ func openMaterialDirectory(path string, uid, gid uint32, mode uint32, allowUnsaf
 	}
 	return fd, nil
 }
-
-var _ MaterialChecker = MaterialStore{}

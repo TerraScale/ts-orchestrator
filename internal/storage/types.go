@@ -13,22 +13,7 @@
 //	failover    reattach-on-host-loss core gated by terminated-instance proof
 package storage
 
-import (
-	"errors"
-	"time"
-)
-
-var (
-	// ErrVolumeStuck reports a volume whose lifecycle phase exceeded its deadline.
-	ErrVolumeStuck = errors.New("retained volume lifecycle phase exceeded its deadline")
-	// ErrVolumeHeld reports a fail-closed hold that only an operator can
-	// clear (a foreign or unknown attachment); retrying cannot resolve it,
-	// unlike the deadline stall ErrVolumeStuck reports.
-	ErrVolumeHeld = errors.New("retained volume is held for an operator")
-	// ErrWriterNotFenced reports that the previous writer has not been proven
-	// stopped, so the volume must not be attached anywhere else.
-	ErrWriterNotFenced = errors.New("retained volume writer is not proven fenced")
-)
+var ()
 
 // VolumeRole names what a measured or managed volume is used for.
 type VolumeRole string
@@ -55,14 +40,6 @@ const (
 	FileSystemXFS  = "xfs"
 )
 
-// ValidFileSystem reports whether fsType can be formatted, mounted and grown.
-func ValidFileSystem(fsType string) bool {
-	return fsType == FileSystemExt4 || fsType == FileSystemXFS
-}
-
 // Telemetry defaults applied when the matching Config field is zero. Phase
 // deadlines default through lifecycle.DefaultDeadlines, not here.
-const (
-	DefaultUsageTTL        = 2 * time.Minute
-	DefaultCollectInterval = 30 * time.Second
-)
+const ()

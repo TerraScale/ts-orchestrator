@@ -3,7 +3,6 @@ package bootstrapstart
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -170,57 +169,6 @@ func (verified VerifiedIdentityRekey) InstallationRoots(inputs TrustInputs) trus
 		return verified.AcceptedRoots()
 	}
 	return inputs.Roots.Current
-}
-
-// FinalizeIdentityRekeyJournal changes only the opaque lease predecessor and
-// acceptance time after preparation. It never extends the reviewed authority.
-func FinalizeIdentityRekeyJournal(verified VerifiedIdentityRekey, inputs TrustInputs, floor authority.IdentityResetFloor,
-	key ed25519.PrivateKey, now time.Time,
-) (IdentityRekeyJournal, error) {
-	now = now.Round(0).UTC()
-	current, err := verified.VerifyCurrent(inputs, now)
-	if err != nil {
-		return IdentityRekeyJournal{}, err
-	}
-	if current.committedJS != nil || len(key) != ed25519.PrivateKeySize {
-		return IdentityRekeyJournal{}, trust.ErrUntrustedKey
-	}
-	public := key.Public().(ed25519.PublicKey)
-	id, err := trust.KeyID(public)
-	if err != nil || !bytes.Equal(inputs.Roots.Current[id], public) {
-		return IdentityRekeyJournal{}, trust.ErrUntrustedKey
-	}
-	reset := current.Reset()
-	reset.LastSequence, reset.PreviousSequence, reset.PreviousSHA256 = floor.LastSequence, floor.PreviousSequence, floor.PreviousSHA256
-	envelope, err := current.ResetEnvelope()
-	if err != nil {
-		return IdentityRekeyJournal{}, err
-	}
-	envelope, err = authority.SignIdentityReset(reset, now, envelope.ExpiresAt, key)
-	if err != nil {
-		return IdentityRekeyJournal{}, err
-	}
-	journal := current.journal
-	journal.ResetWire, err = trust.EncodeEnvelope(envelope)
-	if err != nil {
-		return IdentityRekeyJournal{}, err
-	}
-	accepted, err := AcceptedIdentityFromCheckpoint(current.Checkpoint(), current.Accepted().Slot, now)
-	if err != nil {
-		return IdentityRekeyJournal{}, err
-	}
-	journal.AcceptedWire, err = EncodeAcceptedIdentity(accepted)
-	if err != nil {
-		return IdentityRekeyJournal{}, err
-	}
-	if _, err := verifyIdentityRekeyJournal(journal, inputs, now, false); err != nil {
-		return IdentityRekeyJournal{}, err
-	}
-	// Historical restart/completion must verify the new signature at acceptance.
-	if _, err := verifyIdentityRekeyJournal(journal, inputs, accepted.AcceptedAt, true); err != nil {
-		return IdentityRekeyJournal{}, err
-	}
-	return journal, nil
 }
 
 func identityRekeyExpectation(journal IdentityRekeyJournal, accepted AcceptedIdentity) identityrekey.CheckpointExpectation {

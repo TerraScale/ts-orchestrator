@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -27,32 +26,6 @@ func (r RetainedFoundation) clone() RetainedFoundation {
 	r.AnchorWire = bytes.Clone(r.AnchorWire)
 	r.GrantWire = bytes.Clone(r.GrantWire)
 	return r
-}
-
-// ExportCurrentFoundation authenticates read-only OCI discovery and durably
-// adopts its current lineage before returning exact public document bytes.
-func ExportCurrentFoundation(ctx context.Context, factory *ociclient.Factory) (RetainedFoundation, error) {
-	genesis, err := trust.DiscoveryGenesis()
-	if err != nil {
-		return RetainedFoundation{}, err
-	}
-	client, tenancy, err := foundationHomeClient(factory)
-	if err != nil {
-		return RetainedFoundation{}, err
-	}
-	_, snapshot, err := resolveCurrentFoundation(ctx, client, tenancy, genesis, nil)
-	return snapshot, err
-}
-
-// VerifyRetainedFoundation verifies current signatures and the same durable
-// per-tenancy lineage floors as online discovery. It constructs no OCI client;
-// the returned resolver exposes signed scope/material only and has no store.
-func VerifyRetainedFoundation(ctx context.Context, snapshot RetainedFoundation) (FoundationResolver, error) {
-	genesis, err := trust.DiscoveryGenesis()
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	return verifyRetainedFoundation(ctx, snapshot, genesis)
 }
 
 func verifyRetainedFoundation(ctx context.Context, snapshot RetainedFoundation, genesis trust.Keyring) (FoundationResolver, error) {

@@ -16,12 +16,6 @@ const (
 	MaxPinAge          = 2 * time.Minute
 )
 
-// PinRefreshDue also corrects timestamps beyond the clock allowance.
-func PinRefreshDue(updatedAt, now time.Time) bool {
-	age := now.Sub(updatedAt)
-	return updatedAt.IsZero() || age >= PinRefreshInterval || age < -PinRefreshInterval
-}
-
 // ValidateFresh requires recent, complete inventories before pruning.
 func (pins *ReleasePins) ValidateFresh(updatedAt, now time.Time) error {
 	if err := pins.Validate(); err != nil {

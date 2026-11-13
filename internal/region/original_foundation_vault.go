@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -18,8 +17,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
 )
-
-var ErrOriginalFoundationVaultPending = fmt.Errorf("%w: original regional Vault and key retained; original actor and material archive remain unavailable", ErrOriginalSourceProducerHold)
 
 // OriginalFoundationVault retains prerequisites, never runtime or material authority.
 type OriginalFoundationVault struct {

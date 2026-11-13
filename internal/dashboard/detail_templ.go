@@ -5,12 +5,11 @@ package dashboard
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
-import "github.com/a-h/templ"
-import templruntime "github.com/a-h/templ/runtime"
-
 import (
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/a-h/templ"
+	templruntime "github.com/a-h/templ/runtime"
 )
 
 // detailHead is a detail page's title with the way back to its list.
@@ -2198,5 +2197,3 @@ func hostDetailBody(current view) templ.Component {
 		return nil
 	})
 }
-
-var _ = templruntime.GeneratedTemplate

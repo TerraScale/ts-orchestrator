@@ -14,8 +14,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/rootvolumeclient"
 )
 
-var _ rootoci.VolumeReader = (*Backend)(nil)
-
 type volumeScope struct {
 	intent oci.RegionIntent
 	config oci.RegionConfig

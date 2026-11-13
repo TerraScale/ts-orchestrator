@@ -1,16 +1,10 @@
 package rolloutexec
 
 import (
-	"context"
-	"crypto/ed25519"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
-	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
@@ -42,33 +36,6 @@ const (
 	// release. The agent restages FromDigest first when it was pruned.
 	StepRollback StepAction = "rollback"
 )
-
-// Step is one unit step the executor asks a Driver to perform.
-type Step struct {
-	RolloutID   string
-	Kind        rollout.Kind
-	Unit        string
-	OperationID string
-	Action      StepAction
-	Digest      string
-	// Replaces is the release the step moves the unit away from: the
-	// rollout's predecessor for a forward step, the rejected target for a
-	// rollback. An agent refuses a step whose Replaces the unit does not
-	// run, so a replayed forward step never undoes a later update.
-	Replaces string
-	Epoch    uint64
-	// ProofWindow is how long the unit's watchdog waits for the new
-	// process's version proof before it rolls the activation back.
-	ProofWindow time.Duration
-	// Deadline is the phase deadline of the step; the signed command
-	// expires no later, so an agent never applies it after the leader
-	// gave up on it.
-	Deadline time.Time
-	// Fence, when set, re-checks the leader's authority lease; a driver
-	// calls it after its own preparation (receipt lookup, signing) and
-	// immediately before the step leaves, and sends nothing if it fails.
-	Fence func(context.Context) error
-}
 
 // StepCommand is the leader-signed wire form of a Step. Receipt and
 // Delegation are the release receipt (and optional scoped delegation) of
@@ -107,32 +74,6 @@ func (command StepCommand) validate() error {
 func stepScope(command StepCommand) trust.Scope {
 	return trust.Scope{Domain: StepDomain, DeploymentID: command.OperationID, Cell: command.Cell,
 		Environment: stepEnvironment, Role: string(command.Action), Slot: command.Unit}
-}
-
-// SignStepCommand signs command with the leader's controller key. The
-// signature expires at deadline, or StepLifetime after now when that is
-// sooner or deadline is zero: an agent never acts on a step after the phase
-// deadline the leader enforces for it.
-func SignStepCommand(command StepCommand, key ed25519.PrivateKey, now, deadline time.Time) ([]byte, error) {
-	if err := command.validate(); err != nil {
-		return nil, err
-	}
-	expires := now.Add(StepLifetime)
-	if !deadline.IsZero() && deadline.Before(expires) {
-		expires = deadline
-	}
-	if !expires.After(now) {
-		return nil, fmt.Errorf("%w: step deadline has passed", ErrInvalid)
-	}
-	payload, err := trust.EncodePayload(command)
-	if err != nil {
-		return nil, err
-	}
-	envelope, err := trust.Sign(payload, stepScope(command), now, expires, key)
-	if err != nil {
-		return nil, err
-	}
-	return trust.EncodeEnvelope(envelope)
 }
 
 // VerifyStepCommand accepts a current command for exactly this cell and
@@ -201,19 +142,6 @@ type StepReply struct {
 	Reason  string      `json:"reason,omitempty"`
 }
 
-// Driver performs one unit step. It must be idempotent per OperationID: the
-// executor resends a step after a leader change or a lost reply.
-type Driver interface {
-	Step(ctx context.Context, step Step) (StepReply, error)
-}
-
-// ReleaseSource returns the release receipt and delegation of a digest, so
-// a step can carry what an agent needs to restage it. A digest without a
-// receipt returns empty slices; the agent then refuses to restage it.
-type ReleaseSource interface {
-	Receipt(ctx context.Context, digest string) (receipt, delegation []byte, err error)
-}
-
 // Steps travel through the replicated rollout bucket, not a direct
 // request: the leader writes each signed step under its unit's step key and
 // reads the agent's answer from the unit's reply key. The unit's own
@@ -226,91 +154,3 @@ type ReleaseSource interface {
 // identities are hashed so caller-controlled names never become key tokens.
 func StepKey(unit string) string  { return entityid.Derive("rollout-step", unit) }
 func ReplyKey(unit string) string { return entityid.Derive("rollout-step-reply", unit) }
-
-// KVDriver posts signed steps to unit agents through the rollout bucket.
-type KVDriver struct {
-	KV       jetstream.KeyValue
-	Cell     string
-	Key      ed25519.PrivateKey
-	Releases ReleaseSource
-	Timeout  time.Duration
-	Now      func() time.Time
-}
-
-// Step signs and posts one step and returns the agent's reply to it. Until
-// the agent answered this operation it asks the executor to retry; the
-// executor posts the step again, freshly signed, on its next tick.
-func (d KVDriver) Step(ctx context.Context, step Step) (StepReply, error) {
-	if d.KV == nil || len(d.Key) != ed25519.PrivateKeySize {
-		return StepReply{}, fmt.Errorf("%w: step driver configuration", ErrInvalid)
-	}
-	now := time.Now
-	if d.Now != nil {
-		now = d.Now
-	}
-	timeout := d.Timeout
-	if timeout <= 0 {
-		timeout = 30 * time.Second
-	}
-	// The receipt lookup, signing and the writes share one deadline.
-	requestCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	command := StepCommand{Schema: StepSchema, Cell: d.Cell, RolloutID: step.RolloutID, Kind: step.Kind, Unit: step.Unit,
-		OperationID: step.OperationID, Action: step.Action, Digest: step.Digest, Replaces: step.Replaces, Epoch: step.Epoch,
-		ProofWindowSeconds: int64(step.ProofWindow / time.Second)}
-	if d.Releases != nil {
-		receipt, delegation, err := d.Releases.Receipt(requestCtx, step.Digest)
-		if err != nil {
-			return StepReply{}, fmt.Errorf("read release receipt: %w", err)
-		}
-		command.Receipt, command.Delegation = receipt, delegation
-	}
-	wire, err := SignStepCommand(command, d.Key, now().UTC(), step.Deadline)
-	if err != nil {
-		return StepReply{}, err
-	}
-	// The lease is re-checked after the lookup and signing, immediately
-	// before the step leaves: a leader that lost it meanwhile sends nothing.
-	if step.Fence != nil {
-		if err := step.Fence(requestCtx); err != nil {
-			return StepReply{}, err
-		}
-	}
-	if _, err := d.KV.Put(requestCtx, StepKey(step.Unit), wire); err != nil {
-		return StepReply{}, fmt.Errorf("post rollout step: %w", err)
-	}
-	waiting := StepReply{OperationID: step.OperationID, Unit: step.Unit, Outcome: OutcomeRetry,
-		Reason: "waiting for the unit's step agent"}
-	entry, err := d.KV.Get(requestCtx, ReplyKey(step.Unit))
-	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		return waiting, nil
-	}
-	if err != nil {
-		return StepReply{}, fmt.Errorf("read rollout step reply: %w", err)
-	}
-	// A reply to an earlier step of the unit is not an answer to this one.
-	if reply, err := decodeReply(entry.Value(), step); err == nil {
-		return reply, nil
-	}
-	return waiting, nil
-}
-
-func decodeReply(data []byte, step Step) (StepReply, error) {
-	if len(data) > maxReplyBytes {
-		return StepReply{}, fmt.Errorf("%w: step reply too large", ErrInvalid)
-	}
-	var reply StepReply
-	if err := json.Unmarshal(data, &reply); err != nil {
-		return StepReply{}, fmt.Errorf("decode step reply: %w", err)
-	}
-	switch reply.Outcome {
-	case OutcomeActivated, OutcomePending, OutcomeCurrent, OutcomeRetry, OutcomeRefused:
-	default:
-		return StepReply{}, fmt.Errorf("%w: step reply outcome", ErrInvalid)
-	}
-	if reply.OperationID != step.OperationID || reply.Unit != step.Unit || reply.Epoch != step.Epoch ||
-		len(reply.Reason) > maxReplyReason {
-		return StepReply{}, errors.New("step reply does not answer this step")
-	}
-	return reply, nil
-}

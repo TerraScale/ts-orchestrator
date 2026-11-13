@@ -269,7 +269,7 @@ func (p *Qualifier) VerifyBakedProfile() (Object, error) {
 	}
 	return o, e
 }
-func PackagedSourceIdentity() (any, string) { return nil, "/etc/systemd/system" }
+
 func (p *Qualifier) memoryBudget(values Object, service string) Object {
 	role := str(p.Args, "role")
 	prefix := "expected_memory_"

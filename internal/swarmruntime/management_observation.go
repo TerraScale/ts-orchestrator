@@ -6,10 +6,8 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
-	"io"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/manager/state"
@@ -70,20 +68,6 @@ type ManagementObservationStream struct {
 	through  uint64
 	phase    uint8
 	expected *ManagementObservationCursor
-}
-
-// DialManagementClients shares one authenticated Unix connection; its closer
-// belongs to the caller. The old DialManagement API remains available.
-func DialManagementClients(ctx context.Context, accepted bootstrapstart.AcceptedIdentity) (api.ControlClient, ManagementObservationClient, string, io.Closer, error) {
-	binding, err := acceptedBinding(accepted)
-	if err != nil {
-		return nil, ManagementObservationClient{}, "", nil, err
-	}
-	control, id, conn, err := dialManagementAt(ctx, managementSocket, 0, binding)
-	if err != nil {
-		return nil, ManagementObservationClient{}, "", nil, err
-	}
-	return control, ManagementObservationClient{conn: conn}, id, conn, nil
 }
 
 func (c ManagementObservationClient) Observe(ctx context.Context, resume *ManagementObservationCursor) (*ManagementObservationStream, error) {

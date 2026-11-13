@@ -3,7 +3,6 @@ package authority
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -158,23 +157,6 @@ func (reset IdentityReset) trustScope() trust.Scope {
 		Environment: reset.Environment, Role: "authority", Slot: "identity-reset"}
 }
 
-func SignIdentityReset(reset IdentityReset, issuedAt, expiresAt time.Time, key ed25519.PrivateKey) (trust.Envelope, error) {
-	if err := reset.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	if expiresAt.Sub(issuedAt) > identityResetPolicy.MaxLifetime {
-		return trust.Envelope{}, errors.New("identity reset authority exceeds one hour")
-	}
-	payload, err := trust.EncodePayload(reset)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if len(payload) > maxIdentityResetBytes {
-		return trust.Envelope{}, errors.New("identity reset exceeds bounded root pin payload")
-	}
-	return trust.Sign(payload, reset.trustScope(), issuedAt, expiresAt, key)
-}
-
 func VerifyIdentityReset(envelope trust.Envelope, roots trust.Keyring, target IdentityResetTarget, now time.Time) (IdentityReset, error) {
 	if target.Replicas < 1 || target.Replicas > 5 || target.Replicas%2 == 0 {
 		return IdentityReset{}, errors.New("identity reset requires an existing odd replica quorum")
@@ -291,45 +273,6 @@ func ResetIdentityLease(ctx context.Context, js jetstream.JetStream, envelope tr
 		return 0, fmt.Errorf("%w: committed reset needs current-root recovery authorization: %w", ErrOutcomeUnknown, err)
 	}
 	return stored.Sequence, nil
-}
-
-// IdentityResetFloor is an opaque, leader-observed lease predecessor. The two
-// existing CAS checks still decide whether a subsequently signed reset wins.
-type IdentityResetFloor struct {
-	LastSequence     uint64
-	PreviousSequence uint64
-	PreviousSHA256   string
-}
-
-func ObserveIdentityResetFloor(ctx context.Context, js jetstream.JetStream, scope string, replicas int) (IdentityResetFloor, error) {
-	if js == nil || !natsToken.MatchString(scope) || replicas < 1 || replicas > 5 || replicas%2 == 0 {
-		return IdentityResetFloor{}, ErrConflict
-	}
-	bounded, cancel := context.WithTimeout(ctx, authorityAPITimeout)
-	defer cancel()
-	stream, err := js.Stream(bounded, ControlStreamName)
-	if err != nil {
-		return IdentityResetFloor{}, err
-	}
-	info, err := stream.Info(bounded)
-	if err != nil {
-		return IdentityResetFloor{}, err
-	}
-	if err := verifyControlStreamConfig(info.Config, replicas); err != nil {
-		return IdentityResetFloor{}, err
-	}
-	previous, err := stream.GetLastMsgForSubject(bounded, fmt.Sprintf("%s.%s.lease", controlSubjectRoot, scope))
-	if err != nil {
-		return IdentityResetFloor{}, err
-	}
-	if previous.Sequence == 0 || previous.Sequence > info.State.LastSeq || info.State.LastSeq == ^uint64(0) {
-		return IdentityResetFloor{}, ErrConflict
-	}
-	if lease, err := decodeLease(previous.Data); err == nil && lease.IdentityResetSHA256 != "" {
-		return IdentityResetFloor{}, ErrConflict
-	}
-	return IdentityResetFloor{LastSequence: info.State.LastSeq, PreviousSequence: previous.Sequence,
-		PreviousSHA256: resetDigest(previous.Data)}, nil
 }
 
 // VerifyIdentityResetUncommittable proves the original global CAS slot is

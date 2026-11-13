@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
 	"slices"
@@ -75,9 +74,6 @@ func NewStartupProjection(template bootstrap.VerifiedStartupTemplate, material V
 func (projection StartupProjection) Manifest() bootstrap.Manifest {
 	manifest, _ := projection.template.ManifestFor(projection.manifest.Slot, slices.Clone(projection.manifest.Secrets))
 	return manifest
-}
-func (projection StartupProjection) TrustedSigners() jsontext.Value {
-	return projection.template.Template().TrustedSigners
 }
 
 // BindConfigs records every slot's public provenance atomically before any

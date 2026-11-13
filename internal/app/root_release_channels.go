@@ -49,8 +49,6 @@ type rootReleaseChannels struct {
 	proofWires  map[string][]byte
 }
 
-var _ rootoci.Releases = (*rootReleaseChannels)(nil)
-
 func newRootReleaseChannels(ctx context.Context, cfg Config, factory *ociclient.Factory, containers *rootrelease.Backend, founder *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity) (*rootReleaseChannels, error) {
 	if os.Geteuid() != 0 || ctx == nil || factory == nil || containers == nil || founder == nil || accepted.Validate() != nil {
 		return nil, rootoci.ErrUnauthorized

@@ -5,8 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -245,50 +243,4 @@ func verifyCurrentImageManifest(ctx context.Context, location Location, manifest
 		expires = deadline
 	}
 	return CurrentImage{Image: image, ExpiresAt: expires, ReceiptWire: bytes.Clone(manifest.Receipt), DelegationWire: bytes.Clone(manifest.Delegation), QualificationWire: bytes.Clone(proof.Qualification), QualificationDelegationWire: bytes.Clone(proof.Delegation)}, true, nil
-}
-
-// PublishCurrentImage writes immutable signed inputs before replacing discovery.
-// Images have no signed sequence today; existing grants, not locator timestamps, pin launches.
-func PublishCurrentImage(ctx context.Context, location Location, receiptWire, delegationWire []byte, roots trust.Keyring, expected CurrentImageExpectation, now time.Time) error {
-	if err := currentImageLocation(location, expected); err != nil {
-		return err
-	}
-	manifest := imageCurrentManifest{Receipt: receiptWire, Delegation: delegationWire}
-	_, found, err := verifyCurrentImageManifest(ctx, location, manifest, roots, expected, now)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return fmt.Errorf("%w: missing image role qualification", ErrInvalid)
-	}
-	wire, err := json.Marshal(manifest, json.Deterministic(true))
-	if err != nil {
-		return err
-	}
-	sum := sha256.Sum256(wire)
-	digest := hex.EncodeToString(sum[:])
-	name := ImageManifestObject(digest)
-	putErr := location.put(ctx, name, wire, "")
-	retained, _, found, readErr := location.get(ctx, name, MaxChannelBytes)
-	if readErr != nil || !found || !bytes.Equal(retained, wire) {
-		return errors.Join(putErr, readErr, fmt.Errorf("%w: immutable image manifest read-back", ErrInvalid))
-	}
-	locator, err := json.Marshal(imageCurrentLocator{Schema: currentImageSchema, ManifestSHA256: digest}, json.Deterministic(true))
-	if err != nil {
-		return err
-	}
-	current := CurrentImageObject(expected.Role, expected.Architecture, expected.Environment)
-	for range 3 {
-		previous, etag, found, err := location.get(ctx, current, trust.MaxEnvelopeBytes)
-		if err != nil {
-			return err
-		}
-		if found && bytes.Equal(previous, locator) {
-			return nil
-		}
-		if err := location.put(ctx, current, locator, etag); !errors.Is(err, ErrConflict) {
-			return err
-		}
-	}
-	return ErrConflict
 }

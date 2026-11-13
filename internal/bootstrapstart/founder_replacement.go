@@ -52,31 +52,6 @@ func NewAdmittedFounderReplacer(ctx context.Context, baked BakedInputs, accepted
 	return newAdmittedFounderReplacer(ctx, baked, accepted, reader, serviceUID, serviceGID)
 }
 
-// NewAdmittedDerivedFounderReplacer retains the original source authority for
-// replacement while preserving root-signed retirement and the existing floor.
-func NewAdmittedDerivedFounderReplacer(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
-	authority bootstrap.DerivedStartupAuthority, serviceUID, serviceGID uint32,
-) (*FounderReplacer, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if accepted.validate() != nil || accepted.Slot != accepted.SeedSlot || accepted.DeploymentID != baked.Identity.DeploymentID || accepted.Cell != string(baked.Identity.Cell) || serviceUID == 0 || serviceGID == 0 {
-		return nil, ErrFounderReplacement
-	}
-	floor, err := NewServiceFounderSelectionFloorStore(serviceUID)
-	if err != nil {
-		return nil, err
-	}
-	if err := verifyExistingFounderFloor(floor); err != nil {
-		return nil, err
-	}
-	reader, err := NewDerivedCurrentFounderAuthorityReaderContext(ctx, baked, accepted, authority, floor)
-	if err != nil {
-		return nil, err
-	}
-	return newAdmittedFounderReplacer(ctx, baked, accepted, reader, serviceUID, serviceGID)
-}
-
 func newAdmittedFounderReplacer(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
 	reader *CurrentFounderAuthorityReader, serviceUID, serviceGID uint32,
 ) (*FounderReplacer, error) {

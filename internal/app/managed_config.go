@@ -25,26 +25,6 @@ type managedControllerConfig struct {
 	placement managedPlacementSettings
 }
 
-func (m managedControllerConfig) placementConfig(cell string, onError func(error), onHold func(string)) placement.Config {
-	settings := m.placement
-	return placement.Config{
-		Cell: cell, Region: m.region.Region, FaultDomains: m.region.FaultDomains,
-		ManagedOwner: m.region.Owner, FleetGeneration: m.region.Generation,
-		ImageID:     m.region.ImageID,
-		Environment: settings.Environment, MemberRole: settings.MemberRole, Resources: settings.Resources,
-		OnError: onError, OnHold: onHold,
-	}
-}
-
-// withKnownBad makes managed update admission enforce the cell's rollout
-// known-bad list; a nil source (rollout store disabled) leaves it unset.
-func withKnownBad(config placement.Config, knownBad *rolloutKnownBad) placement.Config {
-	if knownBad != nil {
-		config.KnownBad = knownBad
-	}
-	return config
-}
-
 func loadManagedControllerConfig(cfg Config) (*managedControllerConfig, error) {
 	controller := cfg.Controller
 	configured := controller.OciRegionIntentFile != "" || controller.OciRegionConfig != "" || controller.PlacementConfig != ""

@@ -10,22 +10,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 )
 
-const (
-	controllerUnit = selfupdate.ControllerUnit
-	hostUnit       = selfupdate.HostUnit
-)
-
-// emitSelfUpdateProof confirms a pending self-update activation once the
-// process is ready. It never fails the runtime: a missing proof only lets
-// the root watchdog roll the activation back at its deadline.
-func emitSelfUpdateProof(proofFile, root, keyFile, unit string, output io.Writer) {
-	key, err := readPrivateKey(keyFile)
-	if err != nil {
-		slog.Warn("self-update version proof key unavailable", "error", err)
-		return
-	}
-	emitSelfUpdateProofWithKey(proofFile, root, key, unit, output)
-}
+const ()
 
 // selfUpdateRoot returns the configured release root, which must be the
 // --root the unit's prepare and watchdog steps use.

@@ -173,5 +173,3 @@ func effectContext(ctx context.Context, guard func(context.Context) error) conte
 		return func() {}, nil
 	})
 }
-
-var _ rootoci.Foundation = (*Backend)(nil)

@@ -103,5 +103,3 @@ func (reports *meshReports) close() {
 		reports.conn.Close()
 	}
 }
-
-var _ observability.ClusterSource = (*meshCluster)(nil)

@@ -1,36 +1,13 @@
 package bootstrapstart
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 var ErrExternalSeedObservation = errors.New("external seed OCI observation differs from signed authority")
-
-// NewOperatorLedger opens the exact current anchor-scoped ledger with an
-// operator-supplied OCI provider. It never creates compute resources.
-func NewOperatorLedger(ctx context.Context, anchor bootstrap.VerifiedBootstrapAnchor,
-	roots trust.Keyring, provider common.ConfigurationProvider,
-) (*bootstrap.Ledger, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	config, err := currentLedgerConfig(anchor, roots)
-	if err != nil {
-		return nil, err
-	}
-	ledger, err := bootstrap.NewInstancePrincipalLedgerWithProvider(config.Cell, config, provider)
-	if err != nil {
-		return nil, fmt.Errorf("open exact operator bootstrap ledger: %w", err)
-	}
-	return ledger, ctx.Err()
-}
 
 // VerifyExternalSeedObservation compares a fresh GetInstance/VNIC observation
 // with the first signed external intent and current signed seed manifest. The

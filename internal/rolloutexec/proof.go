@@ -1,7 +1,6 @@
 package rolloutexec
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -99,12 +97,6 @@ func (proof HealthProof) seen() time.Time {
 		return proof.ReceivedAt
 	}
 	return proof.ObservedAt
-}
-
-// arrivedAfter reports whether the proof reached the leader after at, a
-// leader-clock time.
-func (proof HealthProof) arrivedAfter(at time.Time) bool {
-	return proof.seen().After(at)
 }
 
 func (proof HealthProof) sameIncarnation(other HealthProof) bool {
@@ -305,61 +297,6 @@ func (c *Collector) Subscribe(conn *nats.Conn) (*nats.Subscription, error) {
 			slog.Debug("rollout health proof dropped", "component", "rollout", "error", err)
 		}
 	})
-}
-
-// Publisher signs and publishes this process's health proof while Healthy
-// reports true. The binary digest is hashed once from the running
-// executable, so a replaced file on disk never changes what is reported.
-type Publisher struct {
-	Conn     *nats.Conn
-	Cell     string
-	Unit     string
-	Key      ed25519.PrivateKey
-	Healthy  func() bool
-	Interval time.Duration
-	// Executable defaults to /proc/self/exe.
-	Executable string
-	Now        func() time.Time
-}
-
-// Run publishes until ctx ends.
-func (p Publisher) Run(ctx context.Context) error {
-	if p.Conn == nil || !unitRE.MatchString(p.Cell) || !unitRE.MatchString(p.Unit) ||
-		len(p.Key) != ed25519.PrivateKeySize || p.Healthy == nil {
-		return fmt.Errorf("%w: proof publisher configuration", ErrInvalid)
-	}
-	now, interval, executable := p.Now, p.Interval, p.Executable
-	if now == nil {
-		now = time.Now
-	}
-	if interval <= 0 {
-		interval = DefaultProofInterval
-	}
-	identity, err := ProcessIdentity(p.Cell, p.Unit, executable)
-	if err != nil {
-		return err
-	}
-	subject := protocol.RolloutProofSubject(p.Cell, p.Unit)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		ctx := observability.StartTrace(ctx)
-		if p.Healthy() {
-			at := now().UTC()
-			proof := identity
-			proof.ObservedAt = at
-			if wire, err := SignHealthProof(proof, p.Key, at); err != nil {
-				return err
-			} else if err := p.Conn.Publish(subject, wire); err != nil {
-				slog.DebugContext(ctx, "rollout health proof not published", "component", "rollout", "error", err)
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
 }
 
 // ProcessIdentity is this process's proof for unit, without its time: the

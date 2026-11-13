@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -15,7 +13,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -113,24 +110,6 @@ func (r *rootRegistry) historical() trust.Keyring {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.verified.Historical
-}
-
-func (r *rootRegistry) open(ctx context.Context, js jetstream.JetStream, replicas int) error {
-	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: rootChainBucket, History: 4,
-		MaxValueSize: trust.MaxRootChainBytes, Storage: jetstream.FileStorage, Replicas: replicas})
-	if err != nil {
-		return fmt.Errorf("open root chain: %w", err)
-	}
-	r.kv = kv
-	entry, err := kv.Get(ctx, rootChainKey)
-	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read root chain: %w", err)
-	}
-	r.load(ctx, entry)
-	return nil
 }
 
 // Run adopts every chain another controller stores.
@@ -390,83 +369,4 @@ func (r *rootRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fen
 		slog.InfoContext(ctx, "root rotation applied", observability.ComponentKey, "trust", "sequence", rotation.Sequence, "epoch", epoch)
 	}
 	return r.reply(status), nil
-}
-
-// serve answers a signed operator request; the root signatures, not the
-// operator, authorize a rotation.
-func (r *rootRegistry) serve(ctx context.Context, wire []byte, policy signerPolicy, fencer authority.Fencer) (rootChainReply, error) {
-	envelope, actor, err := verifyCellRequest(wire, policy, fencer)
-	if err != nil {
-		return rootChainReply{}, err
-	}
-	if envelope.Kind == rootListKind {
-		return r.reply(""), nil
-	}
-	reply, err := r.apply(ctx, envelope.Payload, envelope.Epoch, fencer)
-	if err == nil {
-		slog.InfoContext(ctx, "root rotation request", observability.ComponentKey, "trust", "actor", actor,
-			"sequence", reply.Sequence, "status", reply.Status)
-	}
-	return reply, err
-}
-
-func requestRootChain(ctx context.Context, cfg Config, runtime *natscell.Runtime, kind string, payload []byte,
-) (rootChainReply, error) {
-	data, err := requestLeader(ctx, cfg, runtime, kind, "trust-root", payload)
-	if err != nil {
-		return rootChainReply{}, err
-	}
-	var reply rootChainReply
-	if err := protocol.DecodeStrict(data, &reply, 2*trust.MaxRootChainBytes); err != nil {
-		return rootChainReply{}, fmt.Errorf("decode root chain reply: %w", err)
-	}
-	if reply.Version != 1 {
-		return rootChainReply{}, errors.New("root chain reply requires version 1")
-	}
-	if reply.Error != "" {
-		return rootChainReply{}, errors.New(reply.Error)
-	}
-	return reply, nil
-}
-
-// operatorTrustRoots prints the cell's current roots and, with out, writes
-// the chain the next rotation extends.
-func operatorTrustRoots(ctx context.Context, cfg Config, runtime *natscell.Runtime, out string, output io.Writer) error {
-	reply, err := requestRootChain(ctx, cfg, runtime, rootListKind, []byte("{}"))
-	if err != nil {
-		return err
-	}
-	if out != "" {
-		wire, err := trust.EncodeRootChain(reply.Chain)
-		if err != nil {
-			return err
-		}
-		file, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if err != nil {
-			return fmt.Errorf("write root chain: %w", err)
-		}
-		_, writeErr := file.Write(wire)
-		if err := errors.Join(writeErr, file.Close()); err != nil {
-			_ = os.Remove(out)
-			return fmt.Errorf("write root chain: %w", err)
-		}
-	}
-	reply.Chain = trust.RootChain{}
-	return printJSON(output, reply)
-}
-
-func operatorTrustRotate(ctx context.Context, cfg Config, runtime *natscell.Runtime, path string, output io.Writer) error {
-	data, err := readBoundedConfigFile(path)
-	if err != nil {
-		return err
-	}
-	if len(data) > maxRegistrationBytes {
-		return errors.New("signed root rotation exceeds the controller request bound")
-	}
-	reply, err := requestRootChain(ctx, cfg, runtime, rootRotateKind, data)
-	if err != nil {
-		return err
-	}
-	reply.Chain = trust.RootChain{}
-	return printJSON(output, reply)
 }

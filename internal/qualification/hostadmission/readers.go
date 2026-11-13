@@ -16,8 +16,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
-var _ rootoci.Reader = StartupReader{}
-
 func (r StartupReader) begin(ctx context.Context, call rootoci.Call, operation rootoci.Operation) (context.Context, context.CancelFunc, error) {
 	cancel := func() {}
 	if call.Operation() != "" && call.Operation() != operation || call.Guard(ctx) != nil || r.Guard(ctx) != nil {

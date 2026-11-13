@@ -5,10 +5,11 @@ package dashboard
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
-import "github.com/a-h/templ"
-import templruntime "github.com/a-h/templ/runtime"
-
-import "github.com/TerraScale/ts-orchestrator/internal/insights"
+import (
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/a-h/templ"
+	templruntime "github.com/a-h/templ/runtime"
+)
 
 // insightsBody is the ranked needs-attention list across regions. Every
 // insight says why it fired, shows its evidence against the threshold,
@@ -773,5 +774,3 @@ func stateFields(state uiState) templ.Component {
 		return nil
 	})
 }
-
-var _ = templruntime.GeneratedTemplate

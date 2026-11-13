@@ -10,11 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nkeys"
 
-	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/budget"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
@@ -58,160 +55,6 @@ type capacityReservations struct {
 	specs                   *specRegistry
 	responseKey             ed25519.PrivateKey
 	homeKey                 func(context.Context) (ed25519.PublicKey, error)
-}
-
-// startCapacityReservations serves only on the home global leader. The signed
-// footprint supplies every accepted source cell; credentials independently bound
-// those exact source subjects and the controller's private reply namespace.
-func startCapacityReservations(ctx context.Context, cfg Config, conn *nats.Conn, global *globalControl,
-	spending capacitySpendAuthority, specs *specRegistry,
-	responseKey ed25519.PrivateKey, homeKey func(context.Context) (ed25519.PublicKey, error),
-) (*capacityReservations, error) {
-	data, err := readBoundedConfigFile(cfg.NATS.CredentialsFile)
-	if err != nil {
-		return nil, fmt.Errorf("read capacity requester identity: %w", err)
-	}
-	defer clear(data)
-	raw, err := nkeys.ParseDecoratedJWT(data)
-	if err != nil {
-		return nil, err
-	}
-	claim, err := jwt.DecodeUserClaims(raw)
-	if err != nil || !nkeys.IsValidPublicUserKey(claim.Subject) {
-		return nil, errors.New("capacity requester needs its authenticated controller user identity")
-	}
-	environment := ""
-	if specs != nil {
-		environment = specs.identity.Environment
-	}
-	r := &capacityReservations{cell: cfg.NATS.Cell, user: claim.Subject, environment: environment,
-		conn: conn, global: global, spending: spending, specs: specs, responseKey: responseKey, homeKey: homeKey, caFile: cfg.NATS.TLS.CAFile}
-	r.workers, _ = spending.(capacityWorkerAuthority)
-	if global != nil && global.writer != nil && global.authority != nil {
-		go r.serve(ctx)
-	}
-	return r, nil
-}
-
-func (r *capacityReservations) serve(ctx context.Context) {
-	subscriptions := map[string]*nats.Subscription{}
-	defer func() {
-		for _, subscription := range subscriptions {
-			_ = subscription.Unsubscribe()
-		}
-	}()
-	for {
-		type route struct{ source, action string }
-		wanted := map[string]route{}
-		add := func(source, action string) {
-			if subject := protocol.CapacityReservationSubject(source, action); subject != "" {
-				wanted[subject] = route{source: source, action: action}
-			}
-		}
-		if r.spending != nil {
-			proof, err := r.spending.InfrastructureSpend(ctx)
-			if err == nil && proof.ValidAt(time.Now()) {
-				for _, source := range proof.Footprint().Regions {
-					for _, action := range []string{"reserve", "revalidate", "observe"} {
-						add(source.Cell, action)
-					}
-				}
-			}
-		}
-		// Known cleanup has its own signed worker purpose. Missing purchase or
-		// current-image readiness must not remove its authenticated home route.
-		if scopes, ok := r.spending.(interface {
-			CapacityPoolCells(context.Context) ([]string, error)
-		}); ok {
-			if cells, err := scopes.CapacityPoolCells(ctx); err == nil {
-				for _, cell := range cells {
-					add(cell, "observe")
-				}
-			}
-		}
-		for subject, target := range wanted {
-			if subscriptions[subject] != nil {
-				continue
-			}
-			subscription, err := r.conn.Subscribe(subject, func(message *nats.Msg) {
-				r.answer(ctx, target.source, target.action, message)
-			})
-			if err == nil {
-				subscriptions[subject] = subscription
-			}
-		}
-		for subject, subscription := range subscriptions {
-			if _, keep := wanted[subject]; !keep {
-				_ = subscription.Unsubscribe()
-				delete(subscriptions, subject)
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Minute):
-		}
-	}
-}
-
-func (r *capacityReservations) answer(ctx context.Context, source, action string, message *nats.Msg) {
-	leading := r.global.authority.Current()
-	if !leading.CanMutate() {
-		return
-	}
-	var request capacityReservationRequest
-	if protocol.DecodeStrict(message.Data, &request, 128<<10) != nil {
-		return
-	}
-	parts := strings.Split(message.Reply, ".")
-	if len(parts) != 6 || protocol.CapacityReservationReplySubject(source, parts[4], request.Nonce) != message.Reply {
-		return
-	}
-	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
-	defer cancel()
-	response := capacityReservationResponse{Nonce: request.Nonce}
-	var err error
-	if request.Pool != nil {
-		if action != "observe" {
-			return
-		}
-		var stopLeader context.CancelFunc
-		ctx, stopLeader = context.WithDeadline(ctx, leading.ExpiresAt)
-		defer stopLeader()
-		response.Pool, err = r.applyPool(ctx, source, *request.Pool, leading.Epoch)
-	} else {
-		var receipt budget.Reservation
-		receipt, err = r.apply(ctx, source, action, request, leading.Epoch)
-		if err == nil {
-			response.Receipt = new(receipt)
-		}
-	}
-	if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) {
-		return
-	}
-	if err != nil {
-		response.Error = err.Error()
-	}
-	if err := r.global.authority.Guard(ctx, leading.Epoch); err != nil {
-		return
-	}
-	payload, err := protocol.EncodeJSON(response)
-	if err != nil {
-		return
-	}
-	now := time.Now().UTC()
-	expires := now.Add(30 * time.Second)
-	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
-		expires = deadline
-	}
-	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: source, Kind: "capacity." + action + ".response",
-		Actor: "capacity-home", OperationID: request.Nonce, Epoch: leading.Epoch}, now, expires, r.responseKey)
-	if err != nil {
-		return
-	}
-	if wire, err := protocol.EncodeJSON(envelope); err == nil && r.global.authority.Guard(ctx, leading.Epoch) == nil {
-		_ = message.Respond(wire)
-	}
 }
 
 func (r *capacityReservations) facts(ctx context.Context) (*capacityinventory.Reader, region.VerifiedInfrastructureSpend, capacityinventory.Snapshot, error) {
@@ -285,35 +128,6 @@ func (r *capacityReservations) apply(ctx context.Context, source, action string,
 	default:
 		return budget.Reservation{}, errors.New("unknown capacity reservation action")
 	}
-}
-
-// Reconcile all outstanding operations, including launches finished before a
-// restart. Absence never retires a commitment; Observe requires every node and boot ID.
-func (r *capacityReservations) reconcile(ctx context.Context, epoch uint64, proof region.VerifiedInfrastructureSpend, snapshot capacityinventory.Snapshot) error {
-	capacity, _, err := budget.ReadCapacity(ctx, r.global.reader)
-	if err != nil {
-		return err
-	}
-	var pending []error
-	for _, receipt := range capacity.Reservations {
-		if !receipt.RetiredAt.IsZero() {
-			continue
-		}
-		ids := []string{}
-		for _, resource := range snapshot.Resources {
-			if resource.OperationID == receipt.OperationID && resource.RecipeSHA256 == receipt.RecipeSHA256 &&
-				resource.Cell == receipt.Cell && resource.CompartmentID == receipt.CompartmentID {
-				ids = append(ids, resource.ID)
-			}
-		}
-		if err := r.global.authority.Guard(ctx, epoch); err != nil {
-			return err
-		}
-		if _, err := budget.Observe(ctx, r.global.reader, r.global.writer, epoch, receipt.OperationID, ids, proof, snapshot, time.Now()); err != nil {
-			pending = append(pending, fmt.Errorf("operation %s: %w", receipt.OperationID, err))
-		}
-	}
-	return errors.Join(pending...)
 }
 
 func (r *capacityReservations) verifyCandidate(ctx context.Context, reader *capacityinventory.Reader, proof region.VerifiedInfrastructureSpend,
@@ -405,19 +219,6 @@ func (r *capacityReservations) verifyCandidate(ctx context.Context, reader *capa
 		}
 	}
 	return quote, nil
-}
-
-// request uses the dedicated protected reply namespace. Ordinary cross-region
-// inboxes are publishable by legacy links and cannot authenticate authority.
-func (r *capacityReservations) request(ctx context.Context, action string, request capacityReservationRequest) (budget.Reservation, error) {
-	response, err := r.exchange(ctx, action, request)
-	if err != nil {
-		return budget.Reservation{}, err
-	}
-	if response.Pool != nil || response.Receipt == nil || response.Receipt.OperationID != request.Request.OperationID || response.Receipt.RecipeSHA256 != request.Recipe.SHA256() {
-		return budget.Reservation{}, fmt.Errorf("%w: home response differs from the original capacity reservation", nodescale.ErrCapacityPending)
-	}
-	return *response.Receipt, nil
 }
 
 func (r *capacityReservations) exchange(ctx context.Context, action string, request capacityReservationRequest) (capacityReservationResponse, error) {

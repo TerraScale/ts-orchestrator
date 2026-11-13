@@ -5,13 +5,12 @@ package dashboard
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
-import "github.com/a-h/templ"
-import templruntime "github.com/a-h/templ/runtime"
-
 import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/regionlink"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
+	"github.com/a-h/templ"
+	templruntime "github.com/a-h/templ/runtime"
 )
 
 // regionBody drills into one region: this member's own region, with its live
@@ -584,5 +583,3 @@ func regionLinkProbes(summary regionview.Summary) templ.Component {
 		return nil
 	})
 }
-
-var _ = templruntime.GeneratedTemplate

@@ -2,14 +2,11 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
@@ -44,33 +41,7 @@ type managedImageVerifier struct {
 	holdLaunch func() func()
 }
 
-var (
-	_ oci.ImageQualificationVerifier = (*managedImageVerifier)(nil)
-	_ oci.HostImageAllowList         = (*managedImageVerifier)(nil)
-)
-
-type managedFleetFactory func(oci.RegionConfig, oci.RegionIntent, oci.Journal, authority.Fencer,
-	oci.DrainRequester, oci.WriterStopVerifier, oci.ImageQualificationVerifier, map[string]string) (oci.Fleet, error)
-
-// Keep the production constructor's qualification dependency explicit. A nil
-// verifier must never silently turn managed retained volumes into held work.
-func openManagedControllerFleet(ctx context.Context, region oci.RegionConfig, intent oci.RegionIntent,
-	journal oci.Journal, fencer authority.Fencer, hostMetadata map[string]string,
-	newVerifier func(context.Context, oci.RegionConfig) (oci.ImageQualificationVerifier, error),
-	newFleet managedFleetFactory,
-) (oci.Fleet, error) {
-	if newVerifier == nil || newFleet == nil {
-		return nil, errors.New("managed OCI image and fleet constructors are required")
-	}
-	verifier, err := newVerifier(ctx, region)
-	if err != nil {
-		return nil, fmt.Errorf("configure managed OCI image qualification: %w", err)
-	}
-	if verifier == nil {
-		return nil, errors.New("managed OCI image qualification is unavailable")
-	}
-	return newFleet(region, intent, journal, fencer, nil, nil, verifier, hostMetadata)
-}
+var ()
 
 // managedImageVerifierFor selects the managed-host image qualification
 // source. By default the image must be the controller's own accepted boot
@@ -373,9 +344,4 @@ func observedManagedImageArchitecture(ctx context.Context, images managedImageRe
 		return "", errors.New("OCI managed image shape is unavailable in its availability domain")
 	}
 	return architecture, ctx.Err()
-}
-
-func digestManagedImageWire(wire []byte) string {
-	digest := sha256.Sum256(wire)
-	return hex.EncodeToString(digest[:])
 }

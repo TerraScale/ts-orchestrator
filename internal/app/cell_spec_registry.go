@@ -23,7 +23,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
@@ -234,25 +233,6 @@ func (r *specRegistry) keepsStoredSpec(ctx context.Context, roots trust.Keyring)
 			"apply the next spec generation signed under a new root, then rotate again")
 	}
 	return nil
-}
-
-// open creates the replicated record and adopts the stored spec, so the
-// reconciler and planner start from it.
-func (r *specRegistry) open(ctx context.Context, js jetstream.JetStream, replicas int) error {
-	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: cellSpecBucket, History: 4,
-		MaxValueSize: cellspec.MaxSignedBytes, Storage: jetstream.FileStorage, Replicas: replicas})
-	if err != nil {
-		return fmt.Errorf("open cell spec: %w", err)
-	}
-	r.kv = kv
-	entry, err := kv.Get(ctx, cellSpecKey)
-	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read cell spec: %w", err)
-	}
-	return r.load(entry)
 }
 
 // Run adopts every spec another controller stores.
@@ -514,12 +494,6 @@ func (s hostImageSnapshot) ids() []string {
 	return ids
 }
 
-// hostImages returns the image IDs the adopted spec allows managed hosts to
-// run besides the signed fleet image.
-func (r *specRegistry) hostImages() []string {
-	return r.hostImageSnapshot().ids()
-}
-
 // holdLaunch holds the launch fence for reading until the returned release.
 func (r *specRegistry) holdLaunch() func() {
 	r.launches.RLock()
@@ -585,15 +559,6 @@ func (r *specRegistry) ociDesired() *cellspec.OCIDesired {
 	return r.signedDesired
 }
 
-// releaseFence is the current spec's release fence, or nil, and the private
-// address of each granted node.
-// nodeAddress returns the private address the current spec grants node,
-// empty without a grant.
-func (r *specRegistry) nodeAddress(node string) string {
-	grant, _, _ := r.hostGrant(node)
-	return grant.PrivateIP
-}
-
 // hostGrants is a copy of the current spec's host grants.
 func (r *specRegistry) hostGrants() []cellspec.HostGrant {
 	r.mu.Lock()
@@ -616,30 +581,6 @@ func (r *specRegistry) controllerNode(cell, slot string) string {
 	return naming.NATSServer(cell, slot)
 }
 
-func (r *specRegistry) releaseFence() (*cellspec.ReleaseFence, map[string]string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	addresses := make(map[string]string, len(r.current.HostGrants))
-	for _, grant := range r.current.HostGrants {
-		addresses[grant.Node] = grant.PrivateIP
-	}
-	return r.current.ReleaseFence, addresses
-}
-
-// machinesAPI is the current spec's Machines API, or nil.
-func (r *specRegistry) machinesAPI() *cellspec.MachinesAPI {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.current.MachinesAPI
-}
-
-// dashboard is the current spec's dashboard listener, or nil.
-func (r *specRegistry) dashboard() (*cellspec.Dashboard, uint64) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.current.Dashboard, r.current.Generation
-}
-
 // withSigned fills the sections generation 0 holds in the signed config, so
 // plans and the root rule compare what is in force: restating the signed
 // setting changes nothing, and dropping a section returns to it.
@@ -652,17 +593,6 @@ func (r *specRegistry) withSigned(spec cellspec.Spec) cellspec.Spec {
 		spec.ArtifactStore = &cellspec.ArtifactStore{MaxBytes: r.signedArtifactStore}
 	}
 	return spec
-}
-
-// artifactStoreMaxBytes is the current spec's artifact store quota, or the
-// signed config's when the spec sets none.
-func (r *specRegistry) artifactStoreMaxBytes() int64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.current.ArtifactStore != nil {
-		return r.current.ArtifactStore.MaxBytes
-	}
-	return r.signedArtifactStore
 }
 
 func (r *specRegistry) profiles() map[string]WorkloadProfile {
@@ -699,41 +629,6 @@ func (r *specRegistry) amended(ctx context.Context) (current cellspec.Spec, revi
 		return verified.Spec, entry.Revision(), true, nil
 	}
 	return current, entry.Revision(), false, nil
-}
-
-// diff plans a candidate against the spec it amends, with the cell's rules
-// and the authority it widens, without changing anything.
-func (r *specRegistry) diff(ctx context.Context, payload []byte) (specReply, error) {
-	candidate, err := cellspec.Decode(payload)
-	if err != nil {
-		return specReply{}, err
-	}
-	if candidate.Identity != r.identity {
-		return specReply{}, errors.New("cell spec names another deployment, cell or environment")
-	}
-	if err := r.validate(candidate); err != nil {
-		return specReply{}, err
-	}
-	current, _, _, err := r.amended(ctx)
-	if err != nil {
-		return specReply{}, err
-	}
-	now := time.Now()
-	if err := cellspec.VerifyHostImages(current, candidate, r.roots.current(), &now); err != nil {
-		return specReply{}, err
-	}
-	plan, err := cellspec.Diff(r.withSigned(current), r.withSigned(candidate), r.fixed)
-	if err != nil {
-		return specReply{}, err
-	}
-	status := "planned"
-	switch {
-	case sameSpec(current, candidate):
-		status = "unchanged"
-	case candidate.Generation != current.Generation+1:
-		status = "stale"
-	}
-	return specReply{Spec: candidate, Plan: &plan, Status: status}, nil
 }
 
 // apply admits a signed spec on the authority leader. A spec equal to the
@@ -830,53 +725,6 @@ func (r *specRegistry) apply(ctx context.Context, wire []byte, keyID string, epo
 		Attrs: map[string]string{"generation": strconv.FormatUint(spec.Generation, 10),
 			"requires_binary": strconv.FormatUint(spec.RequiresBinary, 10), "signer": signer}})
 	return specReply{Spec: spec, Status: "applied"}, nil
-}
-
-// serve answers a signed operator request on the host registration subject,
-// which every issued operator credential may already publish to.
-func (r *specRegistry) serve(ctx context.Context, wire []byte, policy signerPolicy, fencer authority.Fencer,
-	hosts *host.Controller,
-) (specReply, error) {
-	envelope, actor, err := verifyCellRequest(wire, policy, fencer)
-	if err != nil {
-		return specReply{}, err
-	}
-	switch envelope.Kind {
-	case cellSpecGetKind:
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		return specReply{Spec: r.current}, nil
-	case cellSpecDiffKind:
-		return r.diff(ctx, envelope.Payload)
-	}
-	reply, err := r.apply(ctx, envelope.Payload, envelope.KeyID, envelope.Epoch, fencer, hosts)
-	if err == nil {
-		slog.InfoContext(ctx, "cell spec request", observability.ComponentKey, "cellspec", "actor", actor,
-			"generation", reply.Spec.Generation, "status", reply.Status)
-	}
-	return reply, err
-}
-
-// verifyCellRequest verifies a trusted operator's signed request to the
-// current authority term and returns it with the signer's actor.
-func verifyCellRequest(wire []byte, policy signerPolicy, fencer authority.Fencer) (protocol.Envelope, string, error) {
-	var envelope protocol.Envelope
-	if err := protocol.DecodeStrict(wire, &envelope, maxRegistrationWireBytes); err != nil {
-		return protocol.Envelope{}, "", err
-	}
-	trusted, ok := policy.trusted(envelope.KeyID)
-	if !ok || trusted.Actor != envelope.Actor {
-		return protocol.Envelope{}, "", errors.New("operator request signer is untrusted")
-	}
-	if err := protocol.VerifyEnvelope(envelope, protocol.EnvelopeScope{Region: policy.cell, Kind: envelope.Kind,
-		Actor: trusted.Actor, OperationID: envelope.OperationID, Generation: envelope.Generation, Epoch: envelope.Epoch,
-	}, trusted.PublicKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: time.Minute, ClockSkew: 30 * time.Second}); err != nil {
-		return protocol.Envelope{}, "", err
-	}
-	if envelope.Epoch == 0 || fencer.Current().Epoch != envelope.Epoch {
-		return protocol.Envelope{}, "", authority.ErrFenced
-	}
-	return envelope, trusted.Actor, nil
 }
 
 func sameSpec(a, b cellspec.Spec) bool {

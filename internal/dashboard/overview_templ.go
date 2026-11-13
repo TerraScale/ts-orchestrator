@@ -5,8 +5,10 @@ package dashboard
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
-import "github.com/a-h/templ"
-import templruntime "github.com/a-h/templ/runtime"
+import (
+	"github.com/a-h/templ"
+	templruntime "github.com/a-h/templ/runtime"
+)
 
 // overviewBody is the landing page. It renders only the in-memory global
 // view, so a load or stream tick never asks another region.
@@ -150,5 +152,3 @@ func overviewBody(current view) templ.Component {
 		return nil
 	})
 }
-
-var _ = templruntime.GeneratedTemplate

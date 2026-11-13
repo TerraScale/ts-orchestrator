@@ -23,12 +23,6 @@ func VerifyRuntimePolicy(original, current Profile) error {
 	return nil
 }
 
-// VerifyHistoricalContinuity compares signed renewal policy without granting
-// current release, actor, lease or task admission.
-func VerifyHistoricalContinuity(original Profile, historical release.HistoricalContainer, candidate Profile, renewed release.HistoricalContainer) error {
-	return verifyContinuity(original, historical, candidate, renewed)
-}
-
 // VerifyContinuity compares an archived original release with independently
 // current authority. It grants no actor, lease or task admission.
 func VerifyContinuity(original Profile, historical release.HistoricalContainer, current Profile, verified release.VerifiedContainer, now time.Time) error {

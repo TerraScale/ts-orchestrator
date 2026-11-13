@@ -308,14 +308,3 @@ func (current view) decisions() []decisionlog.Decision {
 	}
 	return current.Decisions.Decisions
 }
-
-// decisionsOf filters the loaded decisions by kind.
-func (current view) decisionsOf(kinds ...decisionlog.Kind) []decisionlog.Decision {
-	var out []decisionlog.Decision
-	for _, decision := range current.decisions() {
-		if slices.Contains(kinds, decision.Kind) {
-			out = append(out, decision)
-		}
-	}
-	return out
-}

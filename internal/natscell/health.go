@@ -184,19 +184,3 @@ func StreamLagging(info *jetstream.StreamInfo) bool {
 	}
 	return false
 }
-
-// PeerRoutes returns the production seed-route shape: every signed controller
-// route except this node's own. NATS bootstraps the JetStream metadata group
-// with max(2, len(routes)) expected peers, which for an odd cluster size N
-// gives the same quorum (N-1)/2+1 as N/2+1, so omitting the self route never
-// lowers the safety threshold. Tests use this helper so they exercise the
-// exact shape that signed controller configs carry.
-func PeerRoutes(routes []string, self string) []string {
-	peers := make([]string, 0, len(routes))
-	for _, route := range routes {
-		if route != self {
-			peers = append(peers, route)
-		}
-	}
-	return peers
-}

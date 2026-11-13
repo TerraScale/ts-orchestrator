@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -11,101 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"golang.org/x/sys/unix"
 )
-
-func runInstallControllerConfig(ctx context.Context, args []string) error {
-	if len(args) != 0 || os.Geteuid() != 0 {
-		return errors.New("install-controller-config requires root and accepts no arguments")
-	}
-	if accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity(); err == nil {
-		return bootstrapstart.CheckIdentityRekeyPrestart(accepted)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect accepted controller install: %w", err)
-	}
-	if present, err := bootstrapstart.IdentityRekeyJournalPresent(); err != nil {
-		return err
-	} else if present {
-		return bootstrapstart.ErrIdentityRekeyLocalPending
-	}
-	if err := controllerClockCheck(controllerBrokerClockProbe())(); err != nil {
-		return fmt.Errorf("controller install NTP clock health: %w", err)
-	}
-	if local, derived, present, err := installedAutomaticStartup(ctx); err != nil {
-		return err
-	} else if present {
-		if _, err := ValidateSignedControllerConfig(derived.Manifest(), local.observed.PrimaryPrivateIP); err != nil {
-			return err
-		}
-		return installAutomaticControllerFiles(ctx, derived)
-	}
-	imds := bootstrapstart.NewIMDSClient()
-	now := time.Now().Round(0).UTC()
-	if err := bootstrapstart.InstallLaunchMaterial(ctx, imds, now); errors.Is(err, bootstrapstart.ErrNotController) {
-		// Managed hosts share the image; the bootstrap unit then skips on its
-		// missing controller config.
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("install launch bootstrap material: %w", err)
-	}
-	baked, err := bootstrapstart.LoadBakedInputs()
-	if err != nil {
-		return err
-	}
-	anchorEnvelope, err := trust.DecodeEnvelope(baked.AnchorWire)
-	if err != nil {
-		return err
-	}
-	anchor, err := bootstrap.VerifyBootstrapAnchor(anchorEnvelope, baked.Roots,
-		baked.Identity.AnchorExpectation(), now, bootstrap.BootstrapAnchorTrustPolicy())
-	if err != nil {
-		return fmt.Errorf("verify current baked anchor: %w", err)
-	}
-	observer, _, _, err := bootstrapstart.NewCurrentOCIAdmissionClients(anchor, baked.Roots)
-	if err != nil {
-		return err
-	}
-	if _, err := imds.FetchDescriptor(ctx); err != nil {
-		return err
-	}
-	wire, err := imds.FetchControllerManifest(ctx)
-	if err != nil {
-		return fmt.Errorf("read signed controller manifest metadata: %w", err)
-	}
-	manifest, observed, err := bootstrapstart.VerifyControllerConfigInstall(ctx, baked, wire, imds, observer, now)
-	if err != nil {
-		return err
-	}
-	if _, err := ValidateInstalledControllerConfig(manifest, observed.PrimaryPrivateIP); err != nil {
-		return err
-	}
-	return installSignedControllerFiles(controllerConfigDirectory, wire, manifest)
-}
-
-// installSignedControllerFiles installs the manifest and sidecars before the
-// config that enables bootstrap. Existing files must match byte for byte, so a
-// crash or retry cannot quietly replace a partially installed role.
-func installSignedControllerFiles(directory string, wire []byte, manifest bootstrap.Manifest) error {
-	dir, err := openControllerConfigDirectory(directory)
-	if err != nil {
-		return err
-	}
-	defer unix.Close(dir)
-	if err := installExactControllerFile(dir, controllerManifestFilename, wire, 0, 0, 0o444); err != nil {
-		return err
-	}
-	for _, file := range manifest.ControllerFiles {
-		if err := installExactControllerFile(dir, file.Name, file.Bytes, 0, 0, 0o444); err != nil {
-			return err
-		}
-	}
-	return installExactControllerFile(dir, controllerConfigFilename, manifest.ControllerConfig, 0, 0, 0o444)
-}
 
 func openControllerConfigDirectory(path string) (int, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {

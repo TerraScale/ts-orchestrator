@@ -80,7 +80,6 @@ Operator tooling:
   mesh                   Show which regions answer on the cross-region mesh (ping)
   status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
   edge                   Inspect certificates (edge certificates inventory) or apply GeoDNS (edge geodns)
-  rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
   node                   Inspect local public keys and build node lists
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources

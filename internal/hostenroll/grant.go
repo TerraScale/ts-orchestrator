@@ -43,13 +43,6 @@ func mutationNotApplied(err error) error {
 	return &grantMutationNotAppliedError{err: err}
 }
 
-// IsGrantMutationNotApplied reports errors returned only after the store has
-// established that the requested KV mutation could not have been committed.
-// Callers may settle an effect only after an exact unchanged readback.
-func IsGrantMutationNotApplied(err error) bool {
-	return errors.Is(err, ErrGrantMutationNotApplied)
-}
-
 // Grant pins the first successful private-network enrollment to one exact
 // instance and request. Response is set durably before it is sent to the host.
 type Grant struct {
@@ -74,24 +67,6 @@ type Grant struct {
 type GrantStore struct {
 	kv jetstream.KeyValue
 	js jetstream.JetStream
-}
-
-func OpenGrantStore(ctx context.Context, js jetstream.JetStream, replicas int) (*GrantStore, error) {
-	if js == nil || replicas < 1 || replicas > 5 {
-		return nil, errors.New("host enrollment requires replicated JetStream")
-	}
-	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
-		Bucket: GrantBucket, History: 2, MaxValueSize: MaxGrantBytes,
-		MaxBytes: 64 << 20, Storage: jetstream.FileStorage, Replicas: replicas,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("open host enrollment grants: %w", err)
-	}
-	status, err := kv.Status(ctx)
-	if err != nil || status.Config().Replicas != replicas {
-		return nil, errors.New("host enrollment grant replication differs from regional quorum")
-	}
-	return &GrantStore{kv: kv, js: js}, nil
 }
 
 func grantKey(instanceID string) string {

@@ -1,10 +1,7 @@
 package regionview
 
 import (
-	"context"
 	"time"
-
-	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // LinkProbe is the most recent scheduled request to another region.
@@ -33,15 +30,4 @@ type WANPeer struct {
 	Conflicts        float64   `json:"conflicts"`
 	Unregistered     float64   `json:"unregistered"`
 	AheadFailures    *float64  `json:"ahead_failures,omitzero"`
-}
-
-// Probe bypasses the dashboard cache so each scheduled request tests the link.
-func (provider *Provider) Probe(ctx context.Context, region string) Summary {
-	summary := provider.remote(ctx, region)
-	if summary.Reach == decisionlog.RegionOK && (summary.ObservedAt.IsZero() ||
-		provider.now().Sub(summary.ObservedAt) > 2*time.Minute || summary.ObservedAt.After(provider.now().Add(time.Minute))) {
-		summary.Reach = decisionlog.RegionError
-		summary.Health = Health{Status: StatusUnknown, Reasons: []string{"region answered with stale telemetry"}}
-	}
-	return summary
 }

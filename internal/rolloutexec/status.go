@@ -2,7 +2,6 @@ package rolloutexec
 
 import (
 	"encoding/json"
-	"slices"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -10,9 +9,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 )
-
-// StatusSchema versions the rollout status publication.
-const StatusSchema = "terrascale.orchestrator.rollout-status.v1"
 
 // UnitStatus is one unit's state in a status publication.
 type UnitStatus struct {
@@ -53,11 +49,6 @@ type Status struct {
 	UpdatedAt time.Time    `json:"updated_at"`
 }
 
-// StatusSink receives every status the executor derives.
-type StatusSink interface {
-	PublishStatus(Status)
-}
-
 // NATSStatus publishes status on protocol.RolloutStatusSubject.
 type NATSStatus struct {
 	Conn *nats.Conn
@@ -72,46 +63,4 @@ func (sink NATSStatus) PublishStatus(status Status) {
 	if data, err := json.Marshal(status); err == nil {
 		_ = sink.Conn.Publish(protocol.RolloutStatusSubject(sink.Cell), data)
 	}
-}
-
-func statusOf(cell string, epoch uint64, record *rollout.Record, proofs ProofSource, holds map[string]string,
-	now time.Time,
-) Status {
-	status := Status{Schema: StatusSchema, Cell: cell, Epoch: epoch, UpdatedAt: now.UTC()}
-	if record == nil {
-		return status
-	}
-	status.Active = record.Phase.Active()
-	status.RolloutID, status.Kind, status.Phase = record.RolloutID, record.Kind, record.Phase
-	status.Wave, status.Waves = record.WaveIndex+1, len(record.Waves)
-	status.FromDigest, status.ToDigest, status.Reason = record.FromDigest, record.ToDigest, record.Reason
-	status.PhaseDeadline = record.PhaseDeadline
-	if len(holds) > 0 {
-		status.Holds = make(map[string]string, len(holds))
-		for unit, reason := range holds {
-			status.Holds[unit] = reason
-		}
-	}
-	for id, progress := range record.Units {
-		unit := UnitStatus{ID: id, Group: progress.Group, Seed: progress.Seed, Wave: progress.Wave, State: progress.State}
-		if proofs != nil {
-			if proof, ok := proofs.Latest(id); ok {
-				unit.Digest, unit.ProofAt = proof.BinarySHA256, proof.ObservedAt
-			}
-		}
-		status.Units = append(status.Units, unit)
-	}
-	slices.SortFunc(status.Units, func(a, b UnitStatus) int {
-		if a.Wave != b.Wave {
-			return a.Wave - b.Wave
-		}
-		if a.ID < b.ID {
-			return -1
-		}
-		if a.ID > b.ID {
-			return 1
-		}
-		return 0
-	})
-	return status
 }

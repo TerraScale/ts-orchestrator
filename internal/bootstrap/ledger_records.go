@@ -589,8 +589,6 @@ func sameIntent(a, b Intent) bool {
 	return bytes.Equal(left, right)
 }
 
-func sameResult(a, b Result) bool { return a == b }
-
 func validIntentClock(intent Intent, record StoredRecord, tolerance time.Duration) error {
 	if err := CheckRetryWindow(record); err != nil {
 		return err

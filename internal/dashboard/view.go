@@ -607,11 +607,6 @@ func memoryUsed(system *observability.SystemView) float64 {
 		float64(system.MemTotalBytes))
 }
 
-func filesystemUsed(filesystem observability.FilesystemView) float64 {
-	return ratio(float64(filesystem.SizeBytes-min(filesystem.AvailBytes, filesystem.SizeBytes)),
-		float64(filesystem.SizeBytes))
-}
-
 func storeUsed(nats *observability.NATSView) float64 {
 	if nats == nil || nats.StoreLimitBytes <= 0 {
 		return 0

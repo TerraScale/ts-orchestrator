@@ -54,12 +54,7 @@ func recoverError(err *error) {
 		panic(p)
 	}
 }
-func ErrorType(err error) string {
-	if e, ok := errors.AsType[*DomainError](err); ok {
-		return e.Domain
-	}
-	return "error"
-}
+
 func Hash(wire []byte) string { sum := sha256.Sum256(wire); return hex.EncodeToString(sum[:]) }
 func Canonical(value any) []byte {
 	b, err := json.Marshal(value, json.Deterministic(true))

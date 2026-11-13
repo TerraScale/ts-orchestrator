@@ -660,10 +660,6 @@ func (cfg Config) validate() error {
 	return nil
 }
 
-func serverOptions(cfg Config) (*server.Options, error) {
-	return serverOptionsForStart(cfg, false)
-}
-
 func serverOptionsForStart(cfg Config, identityRekey bool) (*server.Options, error) {
 	e := cfg.Embedded
 	if err := os.MkdirAll(e.StoreDir, 0o700); err != nil {

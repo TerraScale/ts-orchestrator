@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,7 +24,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
-	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -128,14 +126,6 @@ func (c *rolloutControl) Exchange(ctx context.Context, registration host.Registr
 		return host.RolloutStep{}, err
 	}
 	return host.RolloutStep{Step: entry.Value()}, nil
-}
-
-// heldBy reports whether node said recently that a restart hold is set.
-func (h *rolloutHosts) heldBy(node string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	at, held := h.held[node]
-	return held && time.Since(at) < 3*rolloutexec.DefaultProofInterval
 }
 
 // putChanged writes value under key unless it already holds it.
@@ -258,121 +248,6 @@ func followHostRollouts(h hostRollout) func(context.Context, host.RolloutSession
 			}
 		}
 	}
-}
-
-// rolloutGate adds the host rules to the cluster gate. A host step waits
-// while the host says a restart hold is set on it (TS-578), while the
-// TerraBase seat controller (controller.terrabase_seats) has a seat out of
-// rotation, and, for a host with a TerraBase member, until every member of
-// the cell serves its desired generation: the previous host's member serves
-// again before the next one restarts, a member down for any other reason
-// holds every host step, and no TerraBase release is restarting a seat
-// meanwhile. The seat controller in turn starts no seat restart while a
-// host rollout is active (hostRolloutActive).
-//
-// With a release fence, a controller or host step then waits until the
-// unit's node is out of rotation on the load balancer (rolloutFence).
-type rolloutGate struct {
-	cluster      rolloutexec.Gate
-	drainedSeats func(context.Context) (map[string]bool, error)
-	// held reports a host that said a restart hold is set on it.
-	held func(unit string) bool
-	// serving returns nil while every TerraBase member serves; nil skips it.
-	serving func(ctx context.Context, unit string) error
-	// fenced returns nil once the unit's node is out of rotation; nil
-	// fences nothing.
-	fenced func(ctx context.Context, unit string) error
-}
-
-func (g rolloutGate) Check(ctx context.Context, record rollout.Record, unit string) error {
-	if err := g.cluster.Check(ctx, record, unit); err != nil {
-		return err
-	}
-	if unit == "" {
-		return nil
-	}
-	if record.Kind == rollout.KindHost {
-		if err := g.hostRules(ctx, unit); err != nil {
-			return err
-		}
-	}
-	if g.fenced != nil {
-		return g.fenced(ctx, unit)
-	}
-	return nil
-}
-
-func (g rolloutGate) hostRules(ctx context.Context, unit string) error {
-	if g.held != nil && g.held(unit) {
-		return fmt.Errorf("%w: an operator holds restarts on %s", rolloutexec.ErrGateHeld, unit)
-	}
-	if g.drainedSeats != nil {
-		drained, err := g.drainedSeats(ctx)
-		if err != nil {
-			return fmt.Errorf("%w: read the TerraBase seats: %v", rolloutexec.ErrGateHeld, err)
-		}
-		if len(drained) > 0 {
-			return fmt.Errorf("%w: TerraBase seats %s are out of rotation", rolloutexec.ErrGateHeld,
-				strings.Join(slices.Sorted(maps.Keys(drained)), ", "))
-		}
-	}
-	if g.serving != nil {
-		return g.serving(ctx, unit)
-	}
-	return nil
-}
-
-// terraBaseServing returns nil for a host without a TerraBase member, and
-// otherwise only while every TerraBase member of the cell recently reported
-// running (which includes its /readyz) at its desired generation.
-func terraBaseServing(hosts seatrollout.Hosts) func(context.Context, string) error {
-	return func(ctx context.Context, unit string) error {
-		desired, err := hosts.ListDesired(ctx, terrabase.Role)
-		if err != nil {
-			return fmt.Errorf("%w: read the TerraBase members: %v", rolloutexec.ErrGateHeld, err)
-		}
-		members := map[string]uint64{}
-		for _, d := range desired {
-			if !d.Withdrawn {
-				members[d.Node] = d.Generation
-			}
-		}
-		if _, member := members[unit]; !member {
-			return nil
-		}
-		statuses, err := hosts.ListHosts(ctx)
-		if err != nil {
-			return fmt.Errorf("%w: read the TerraBase members: %v", rolloutexec.ErrGateHeld, err)
-		}
-		serving := map[string]bool{}
-		for _, status := range statuses {
-			for _, report := range status.Reports {
-				generation, member := members[report.Node]
-				serving[report.Node] = serving[report.Node] || member && report.Role == terrabase.Role &&
-					report.State == "running" && report.Generation == generation && time.Since(report.ObservedAt) < host.ReportMaxAge
-			}
-		}
-		for _, node := range slices.Sorted(maps.Keys(members)) {
-			if !serving[node] {
-				return fmt.Errorf("%w: TerraBase member %s does not serve its desired generation", rolloutexec.ErrGateHeld, node)
-			}
-		}
-		return nil
-	}
-}
-
-// hostRolloutActive names the cell's active orchestrator host rollout, if
-// any; the seat controller starts no seat restart meanwhile.
-func (c *rolloutControl) hostRolloutActive(ctx context.Context) (string, error) {
-	store := c.store.Load()
-	if store == nil {
-		return "", nil
-	}
-	record, _, active, err := store.Active(ctx)
-	if err != nil || !active || record.Kind != rollout.KindHost || record.Phase.Terminal() {
-		return "", err
-	}
-	return "orchestrator host rollout " + record.RolloutID + " is active", nil
 }
 
 // colocatedNodes reports the controllers and the hosts on their VMs: the node

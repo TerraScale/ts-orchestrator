@@ -1,66 +1,20 @@
 package region
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
-	"maps"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
-
-var ErrOriginalNetBirdFoundationPending = fmt.Errorf("%w: original NetBird physical prerequisites retained; local actor custody and runtime admission remain unavailable", ErrOriginalSourceProducerHold)
-
-// ProvisionOriginalNetBirdFoundation authenticates successful actor facts from
-// the original journal; a lower producer's pending error never admits this stage.
-func ProvisionOriginalNetBirdFoundation(ctx context.Context, factory *ociclient.Factory, roots trust.Keyring, bundle RetainedFoundation) error {
-	stage, err := provisionFoundationMaterial(ctx, factory, roots, bundle)
-	if err != nil {
-		return err
-	}
-	defer stage.cancel()
-	ctx, release, err := stage.authority.HomeWrite(stage.ctx, 0)
-	if err != nil {
-		return err
-	}
-	defer release()
-	record, _, grant, _, err := originalActorPrerequisites(ctx, stage.authority, true)
-	if err != nil {
-		return err
-	}
-	if grant.SchemaVersion != 3 || grant.Generation != 1 || record.validateOriginalFoundationActors() != nil {
-		return ErrOriginalSourceProducerHold
-	}
-	for index, region := range record.OriginalFoundationCompartments.Regions {
-		actor := region.Actor
-		if actor == nil || actor.Provenance == nil || actor.BootVolumeID == "" || actor.PrimaryVNICID == "" || actor.ReadbackSHA256 == "" || actor.VerifiedAt.IsZero() || actor.HoldReason != "" {
-			return ErrOriginalSourceProducerHold
-		}
-		if err := retainOriginalActorReadback(ctx, stage.authority, record, index); err != nil {
-			return err
-		}
-	}
-	if err := retainOriginalNetBirdManager(ctx, stage.authority); err != nil {
-		return err
-	}
-	if err := retainOriginalNetBirdBackup(ctx, stage.authority); err != nil {
-		return err
-	}
-	return ErrOriginalNetBirdFoundationPending
-}
 
 // This allocation is sealed only by the original full grant and its original
 // producer journal. It never becomes generic infrastructure spending authority.
@@ -265,172 +219,6 @@ func (m *originalNetBirdAuthorityMemo) markScopeVerified() {
 	}
 }
 
-// verifiedOriginalNetBirdAuthority serves read-only write guards. Within one
-// manager reconciliation it verifies the original authority once; every
-// journal step still reads and fully verifies its own write base.
-func verifiedOriginalNetBirdAuthority(ctx context.Context, authority *HomeIAMAuthority) (verifiedNetBirdIntent, originalNetBirdAllocation, error) {
-	memo, _ := ctx.Value(originalNetBirdAuthorityMemoKey{}).(*originalNetBirdAuthorityMemo)
-	if memo != nil {
-		memo.mu.Lock()
-		verified, intent, allocation := memo.verified, memo.intent, memo.allocation
-		memo.mu.Unlock()
-		if verified {
-			return intent, allocation, nil
-		}
-	}
-	_, _, intent, allocation, err := originalNetBirdAuthority(ctx, authority)
-	if err == nil && memo != nil {
-		memo.mu.Lock()
-		memo.verified, memo.intent, memo.allocation = true, intent, allocation
-		memo.mu.Unlock()
-	}
-	return intent, allocation, err
-}
-
-func retainOriginalNetBirdManager(ctx context.Context, authority *HomeIAMAuthority) error {
-	ctx = context.WithValue(ctx, originalNetBirdAuthorityMemoKey{}, &originalNetBirdAuthorityMemo{})
-	record, etag, intent, allocation, err := originalNetBirdAuthority(ctx, authority)
-	if err != nil {
-		return err
-	}
-	manager := record.OriginalFoundationCompartments.Regions[0].NetBirdManager
-	if manager == nil {
-		grant, err := authority.originalMaterialGrant()
-		if err != nil {
-			return err
-		}
-		slot, err := originalNetBirdSignedSlot(grant)
-		if err != nil {
-			return err
-		}
-		scope, err := originalNetBirdManagerScope(record, intent.intent, slot)
-		if err != nil {
-			return err
-		}
-		record.OriginalFoundationCompartments.Regions[0].NetBirdManager = &scope
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-		manager = &scope
-	}
-	if manager.HoldReason != "" {
-		return ErrOriginalSourceProducerHold
-	}
-	journal := &originalNetBirdNetworkJournal{authority: authority}
-	progress := FoundationProgress{OperationID: allocation.OperationID(), AuxiliaryIDs: originalNetBirdManagerIDs(manager), NetBirdManager: manager.Launch,
-		ManagerAuthority: func(ctx context.Context) (verifiedNetBirdIntent, error) {
-			current, _, err := verifiedOriginalNetBirdAuthority(ctx, authority)
-			return current, err
-		},
-		BeforeWrite: func(ctx context.Context, _ bool) (context.Context, func(), error) {
-			current, currentAllocation, err := verifiedOriginalNetBirdAuthority(ctx, authority)
-			if err != nil {
-				return ctx, nil, err
-			}
-			if err := currentAllocation.Revalidate(ctx); err != nil {
-				return ctx, nil, err
-			}
-			lease, ok := ctx.Value(homeIAMLeaseKey{}).(*homeIAMLease)
-			if !ok || lease == nil || lease.authority != authority {
-				return ctx, nil, ErrOriginalSourceProducerHold
-			}
-			lease.mu.Lock()
-			leaseExpires := lease.record.ExpiresAt
-			lease.mu.Unlock()
-			for _, deadline := range []time.Time{leaseExpires, authority.operator.deadline, current.expires} {
-				if err := ociclient.LimitAdmission(ctx, deadline); err != nil {
-					return ctx, nil, err
-				}
-			}
-			return ctx, func() {}, nil
-		}, PrepareCreate: journal.prepare, CheckpointAuxiliary: journal.created,
-		CheckpointManager: func(ctx context.Context, launch NetBirdManagerLaunch) error {
-			saved, etag, _, _, err := originalNetBirdAuthority(ctx, authority)
-			if err != nil {
-				return err
-			}
-			m := saved.OriginalFoundationCompartments.Regions[0].NetBirdManager
-			if m == nil || m.HoldReason != "" || launch.OriginalQuote == nil {
-				return ErrOriginalSourceProducerHold
-			}
-			if launch.InstanceID != "" && !validOriginalActorID("instance", foundationHomeRegion, launch.InstanceID) {
-				return journal.managerHold(ctx, "create-unresolved")
-			}
-			before, err := json.Marshal(m, json.Deterministic(true))
-			if err != nil {
-				return err
-			}
-			m.Launch = &launch
-			if launch.BootVolumeID != "" {
-				boot, vnic, err := observeNetBirdManagerGeometry(ctx, authority.factory, m.Intent, launch, m.ControlCompartmentID)
-				if err != nil || boot != launch.BootVolumeID {
-					return errors.Join(ErrOriginalSourceProducerHold, err)
-				}
-				readback, err := originalNetBirdManagerReadback(m, boot, vnic)
-				if err != nil || m.ReadbackSHA256 != "" && m.ReadbackSHA256 != readback || m.PrimaryVNICID != "" && m.PrimaryVNICID != vnic {
-					return errors.Join(ErrOriginalSourceProducerHold, err)
-				}
-				m.PrimaryVNICID, m.ReadbackSHA256 = vnic, readback
-				if m.VerifiedAt.IsZero() {
-					m.VerifiedAt = time.Now().UTC()
-				}
-			}
-			// A reopened ready manager re-observes the same launch; do not rewrite it.
-			if after, err := json.Marshal(m, json.Deterministic(true)); err != nil || bytes.Equal(before, after) {
-				return err
-			}
-			return checkpointOriginalCompartments(ctx, authority, &saved, &etag)
-		}}
-	if manager.Launch != nil && manager.Launch.InstanceID == "" && !time.Now().Before(manager.Launch.StartedAt.Add(bootstrapRetryLifetime)) {
-		return journal.managerHold(ctx, "retry-expired")
-	}
-	err = reconcileNetBirdManagerAllocation(ctx, authority.factory, originalNetBirdManagerPlan(manager), progress,
-		func(ctx context.Context, slot string) (netBirdManagerAllocation, error) {
-			_, current, err := verifiedOriginalNetBirdAuthority(ctx, authority)
-			if err == nil && current.slot.SlotID != slot {
-				err = ErrOriginalSourceProducerHold
-			}
-			return current, err
-		}, func(ctx context.Context, factory *ociclient.Factory, plan map[string]any, profile NetBirdManagerProfile, p FoundationProgress) (string, string, error) {
-			return reconcileNetBirdNetwork(ctx, factory, plan, profile, p, journal)
-		}, func(ctx context.Context, err error) error {
-			if errors.Is(err, errNetBirdManagerLaunchIdentity) {
-				return errors.Join(err, journal.managerHold(ctx, "create-unresolved"))
-			}
-			if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() >= 400 && service.GetHTTPStatusCode() < 500 && service.GetHTTPStatusCode() != 408 && service.GetHTTPStatusCode() != 429 {
-				return errors.Join(err, journal.managerHold(ctx, "create-refused"))
-			}
-			return err
-		})
-	return err
-}
-
-func originalNetBirdManagerPlan(manager *OriginalFoundationNetBirdManager) map[string]any {
-	plan := maps.Clone(manager.Plan)
-	ids, _ := plan["resource_ids"].(map[string]any)
-	ids = maps.Clone(ids)
-	if ids == nil {
-		ids = map[string]any{}
-	}
-	ids["control_compartment"], ids["network_compartment"] = manager.ControlCompartmentID, manager.NetworkCompartmentID
-	plan["resource_ids"] = ids
-	return plan
-}
-
-func checkOriginalNetBirdManagerNetwork(ctx context.Context, factory *ociclient.Factory, manager *OriginalFoundationNetBirdManager) error {
-	if manager == nil || manager.Launch == nil {
-		return ErrOriginalSourceProducerHold
-	}
-	progress := FoundationProgress{OperationID: manager.Launch.OperationID, AuxiliaryIDs: originalNetBirdManagerIDs(manager),
-		BeforeWrite: func(ctx context.Context, _ bool) (context.Context, func(), error) {
-			return ctx, nil, ErrOriginalSourceProducerHold
-		},
-		PrepareCreate:       func(context.Context, foundation.CreateIdentity, bool) error { return ErrOriginalSourceProducerHold },
-		CheckpointAuxiliary: func(context.Context, string, string) error { return ErrOriginalSourceProducerHold }}
-	_, _, err := ReconcileNetBirdNetwork(ctx, factory, originalNetBirdManagerPlan(manager), manager.Intent.Profile, progress)
-	return err
-}
-
 type originalNetBirdNetworkJournal struct{ authority *HomeIAMAuthority }
 
 func (j *originalNetBirdNetworkJournal) entry(ctx context.Context, key string) (FoundationRecord, string, *OriginalFoundationNetworkCreate, error) {
@@ -455,30 +243,6 @@ func originalNetBirdNetworkToken(operation, key, digest string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (j *originalNetBirdNetworkJournal) prepare(ctx context.Context, request foundation.CreateIdentity, home bool) error {
-	record, etag, entry, err := j.entry(ctx, request.Key)
-	if err != nil {
-		return err
-	}
-	a := record.NetBirdMaterial.Authority.Context
-	if home || request.Region != foundationHomeRegion || !validFoundationDigest(request.RequestDigest) || request.RetryToken != originalNetBirdNetworkToken(a.ManagerOperationID, request.Key, request.RequestDigest) || entry.Provenance != nil || entry.HoldReason != "" {
-		return ErrOriginalSourceProducerHold
-	}
-	if entry.Pending == nil {
-		entry.Pending = &PendingFoundationCreate{OperationID: a.ManagerOperationID, IntentDigest: record.IntentDigest, FirstAttemptAt: time.Now().UTC(), Request: request}
-		if err := checkpointOriginalCompartments(ctx, j.authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	if entry.Pending.Request != request {
-		return ErrOriginalSourceProducerHold
-	}
-	if !time.Now().Before(entry.Pending.FirstAttemptAt.Add(bootstrapRetryLifetime)) {
-		return j.hold(ctx, request.Key, "retry-expired")
-	}
-	return ociclient.LimitAdmission(ctx, entry.Pending.FirstAttemptAt.Add(bootstrapRetryLifetime))
-}
-
 func (j *originalNetBirdNetworkJournal) dispatch(ctx context.Context, key, digest, token string) error {
 	_, _, entry, err := j.entry(ociclient.CheckpointContext(ctx), key)
 	if err != nil {
@@ -496,21 +260,6 @@ func (j *originalNetBirdNetworkJournal) dispatch(ctx context.Context, key, diges
 		}
 	}
 	return nil
-}
-
-func (j *originalNetBirdNetworkJournal) created(ctx context.Context, key, id string) error {
-	record, etag, entry, err := j.entry(ctx, key)
-	if err != nil {
-		return err
-	}
-	if !validOriginalNetBirdNetworkID(key, id) {
-		return j.hold(ctx, key, "create-unresolved")
-	}
-	if entry.Pending == nil || entry.Provenance != nil || entry.HoldReason != "" {
-		return ErrOriginalSourceProducerHold
-	}
-	entry.Provenance = &FoundationResourceProvenance{Create: *entry.Pending, ResourceID: id, Generation: record.Generation, GrantSHA256: record.GrantSHA256}
-	return checkpointOriginalCompartments(ctx, j.authority, &record, &etag)
 }
 
 func (j *originalNetBirdNetworkJournal) observed(ctx context.Context, key, id, digest string) error {
@@ -544,21 +293,5 @@ func (j *originalNetBirdNetworkJournal) hold(ctx context.Context, key, reason st
 		return ErrOriginalSourceProducerHold
 	}
 	entry.HoldReason = reason
-	return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, j.authority, &record, &etag))
-}
-
-func (j *originalNetBirdNetworkJournal) managerHold(ctx context.Context, reason string) error {
-	record, etag, err := j.authority.resolver.Store.Load(ociclient.CheckpointContext(ctx), "GRU")
-	if err != nil {
-		return err
-	}
-	if record.OriginalFoundationCompartments == nil {
-		return ErrOriginalSourceProducerHold
-	}
-	m := record.OriginalFoundationCompartments.Regions[0].NetBirdManager
-	if m == nil || m.Launch == nil || m.Launch.InstanceID != "" || !slices.Contains([]string{"retry-expired", "create-refused", "create-unresolved"}, reason) {
-		return ErrOriginalSourceProducerHold
-	}
-	m.HoldReason = reason
 	return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, j.authority, &record, &etag))
 }

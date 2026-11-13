@@ -59,22 +59,6 @@ type Server struct {
 	historyOnce  sync.Once
 }
 
-// NewServer validates config, reads the bearer token and builds the routes.
-// It does not bind; Start does.
-func NewServer(config Config, deps ServerDeps) (*Server, error) {
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-	var token []byte
-	if config.BearerTokenFile != "" {
-		var err error
-		if token, err = readBearerToken(config.BearerTokenFile); err != nil {
-			return nil, err
-		}
-	}
-	return newServer(config, token, deps)
-}
-
 // NewTokenServer is NewServer with the bearer token itself instead of
 // bearer_token_file, for a listener whose token is read from Vault. The
 // token is required whatever the address.
