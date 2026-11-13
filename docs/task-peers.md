@@ -1,7 +1,11 @@
 # Task region, node and peers file
 
-Every service task the mesh applies gets three environment variables. ts-orch
-sets them; a spec that sets any of them (as env or as a secret name) is refused.
+Every service task the mesh applies gets `TS_REGION` and `TS_NODE`. Services
+require peers by default; `dependencies: ["peers"]` makes that requirement
+explicit. They get `TS_PEERS_FILE` and its read-only mount. A service declaring
+`dependencies: []` has no mesh prerequisite. ts-orch sets these variables; a
+spec that sets any of them as env or as a secret name is refused. Unknown or
+repeated dependencies are refused.
 
 | Variable | Value |
 |---|---|
@@ -21,17 +25,20 @@ answered the last mesh ping round, sorted, `\n` terminated:
 - Host path: `/run/ts-orch/peers/<service>/peers`; the directory is bound
   read-only at `/run/ts-orch/peers` in the task, so the atomic rename that
   replaces the file is visible inside.
-- The mesh writes the file (at least the own line) before it applies the
-  service, and rewrites it only when its content changes.
+- The mesh writes a complete generation containing the host at its current
+  mesh address before it applies a service with a peers dependency, and
+  rewrites it only when its content changes. Task preparation independently
+  refuses empty, malformed or stale local-address generations.
 - Each node pings every region every 5 s (`ts.mesh.ping`; the reply carries
   the node's `wt0` IPv4). Admitted identities persist independently in the
   private mesh state, never seeded from `peers`. Missing replies do not
   authorize membership removal: incomplete generations are refused and the
   last complete file remains. An explicit desired `regions` change admits a drain.
-- The own line needs the host's `wt0` IPv4; without NetBird the mesh does not
-  apply the service and retries on its next round.
+- The own line needs the host's `wt0` IPv4. Peers-dependent services stay
+  blocked until it exists. Tracking records the dependency before checking
+  the interface, so the next peer observation can write its file.
 - `ts-orch service apply` without a running mesh (this host only) sets none of
-  the three variables.
+  the three variables and refuses an explicit peers dependency.
 
 Ports 9095 (health) and 9096 (metrics) belong to NetBird.
 The loopback `127.0.0.1:9097/metrics` exporter aggregates every targeted region's
@@ -52,3 +59,18 @@ and verify the mismatch within 60 seconds, then apply an authorized placement
 drain and verify agreement. Never modify a production peers file. Record
 expected/file agreement on each recovered production region, the loaded
 Prometheus rule and one synthetic deduplicated notification.
+
+## Host boot order
+
+A host keeps its SwarmKit admission, service declarations, container images and
+service data on persistent storage. The agent restores local tasks from that
+state without waiting for the mesh or a mesh-carried store. The mesh management
+service uses its local configuration and data and declares `dependencies: []`.
+It starts where it is placed; the host client can then connect and create
+`wt0`. On other hosts the client connects to the management service remotely.
+
+Services declaring `dependencies: ["peers"]` wait for the host mesh address and
+a nonempty, valid peers generation containing that host at its current address.
+The writer recreates `/run/ts-orch/peers` from the durable admitted topology once
+the interface exists. It never publishes a partial generation. A plain agent
+restart leaves running tasks in containerd.

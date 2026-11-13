@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -28,8 +30,14 @@ var peersEnv = []string{"TS_NODE", "TS_PEERS_FILE", "TS_REGION"}
 // NodeName is the shape of TS_NODE and TS_REGION.
 var NodeName = regexp.MustCompile(`^[a-z0-9-]{1,63}$`)
 
-// taskEnv is the spec's env plus, on a mesh host, the peers variables.
+func (s ServiceSpec) NeedsPeers() bool {
+	return s.Dependencies == nil || slices.Contains(*s.Dependencies, "peers")
+}
+
 func (s ServiceSpec) taskEnv() ([]string, error) {
+	if s.Dependencies != nil && (len(*s.Dependencies) > 1 || len(*s.Dependencies) == 1 && !s.NeedsPeers()) {
+		return nil, errors.New("dependencies must contain only peers, without duplicates")
+	}
 	for _, key := range peersEnv {
 		if _, set := s.Env[key]; set {
 			return nil, fmt.Errorf("env %s is set by ts-orch, not the spec", key)
@@ -43,7 +51,10 @@ func (s ServiceSpec) taskEnv() ([]string, error) {
 		if env == nil {
 			env = map[string]string{}
 		}
-		maps.Copy(env, map[string]string{"TS_REGION": s.Region, "TS_NODE": s.Node, "TS_PEERS_FILE": PeersFile})
+		maps.Copy(env, map[string]string{"TS_REGION": s.Region, "TS_NODE": s.Node})
+		if s.NeedsPeers() {
+			env["TS_PEERS_FILE"] = PeersFile
+		}
 	}
 	var out []string
 	for _, key := range slices.Sorted(maps.Keys(env)) {
@@ -80,8 +91,55 @@ func (c *controller) peersMount() ([]runtimespec.Mount, error) {
 		return nil, errors.New("TS_PEERS_FILE needs a declared service")
 	}
 	source := filepath.Join(PeersDirectory, name)
-	if _, err := os.Stat(filepath.Join(source, "peers")); err != nil {
+	data, err := os.ReadFile(filepath.Join(source, "peers"))
+	if err != nil {
 		return nil, fmt.Errorf("peers file is not written yet: %w", err)
 	}
+	address, err := client.Address()
+	if err != nil {
+		return nil, fmt.Errorf("peers need this host's mesh address: %w", err)
+	}
+	node, err := os.Hostname()
+	if err != nil {
+		return nil, err
+	}
+	var region string
+	for _, env := range c.spec.Env {
+		if strings.HasPrefix(env, "TS_REGION=") {
+			region = strings.TrimPrefix(env, "TS_REGION=")
+		}
+	}
+	if err := ValidatePeers(data, node, region, address); err != nil {
+		return nil, err
+	}
 	return []runtimespec.Mount{{Destination: PeersDirectory, Type: "bind", Source: source, Options: []string{"rbind", "ro", "nosuid", "nodev", "noexec"}}}, nil
+}
+
+func ValidatePeers(data []byte, node, region, address string) error {
+	if len(data) == 0 || data[len(data)-1] != '\n' {
+		return errors.New("peers generation is empty or unterminated")
+	}
+	own := false
+	seen := map[string]bool{}
+	for line := range strings.SplitSeq(strings.TrimSuffix(string(data), "\n"), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 3 || !NodeName.MatchString(fields[0]) || !NodeName.MatchString(fields[1]) {
+			return errors.New("peers generation has an invalid identity")
+		}
+		ip := net.ParseIP(fields[2])
+		if ip == nil || ip.To4() == nil || ip.To4().String() != fields[2] || seen[fields[0]] {
+			return errors.New("peers generation has an invalid address or duplicate node")
+		}
+		seen[fields[0]] = true
+		if fields[0] == node {
+			if fields[1] != region || fields[2] != address {
+				return errors.New("peers generation has a stale local address or region")
+			}
+			own = true
+		}
+	}
+	if !own {
+		return errors.New("peers generation is missing this host")
+	}
+	return nil
 }

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -50,22 +51,8 @@ type peers struct {
 // the gateways connect, and a restart must not shrink a file to this region.
 const peersMissedRounds = 2
 
-// NetBirdAddress is this host's NetBird IPv4 (wt0), where TerraBase binds its internal listener.
 func NetBirdAddress() (string, error) {
-	iface, err := net.InterfaceByName("wt0")
-	if err != nil {
-		return "", err
-	}
-	addrs, err := iface.Addrs()
-	if err != nil {
-		return "", err
-	}
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.To4() != nil {
-			return ipnet.IP.To4().String(), nil
-		}
-	}
-	return "", errors.New("wt0 has no IPv4 address")
+	return client.Address()
 }
 
 func validPeer(region string, at peer) bool {
@@ -74,13 +61,7 @@ func validPeer(region string, at peer) bool {
 	return known && swarmruntime.NodeName.MatchString(at.node) && ip != nil && ip.To4() != nil
 }
 
-// track writes service's file, at least with this node's own line, before
-// the service is applied.
 func (p *peers) track(service string, regions []string, perNode bool) error {
-	address, err := p.address()
-	if err != nil {
-		return fmt.Errorf("own NetBird address for the peers file: %w", err)
-	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.up == nil {
@@ -93,9 +74,6 @@ func (p *peers) track(service string, regions []string, perNode bool) error {
 		p.perNode = map[string]bool{}
 	}
 	p.perNode[service] = perNode
-	if !p.worker {
-		p.up[p.region] = peer{p.node, address}
-	}
 	if p.admitted == nil {
 		p.seed(service)
 	} else {
@@ -186,6 +164,13 @@ func (p *peers) write(service string) error {
 		}
 	}
 	data := p.render(service, founders)
+	address, err := p.address()
+	if err != nil {
+		return fmt.Errorf("own NetBird address for the peers file: %w", err)
+	}
+	if err := swarmruntime.ValidatePeers(data, p.node, p.region, address); err != nil {
+		return err
+	}
 	if p.admitted != nil {
 		expected, complete := p.expectedFor(service, regions)
 		if p.rejected == nil {

@@ -411,16 +411,17 @@ var (
 
 // ServiceSpec is one operator-declared single-host service, `deploy/m1/services/*.json`.
 type ServiceSpec struct {
-	Name      string                     `json:"name"`
-	Image     string                     `json:"image"`
-	Args      []string                   `json:"args,omitempty"`
-	Env       map[string]string          `json:"env,omitempty"`
-	Secrets   map[string]vaultsecret.Ref `json:"secrets,omitempty"`
-	Mounts    []ServiceMount             `json:"mounts,omitempty"`
-	Port      uint32                     `json:"port"`
-	ReadyPath string                     `json:"readyPath,omitempty"`
-	Hostnames []string                   `json:"hostnames,omitempty"`
-	Replicas  uint64                     `json:"replicas"`
+	Name         string                     `json:"name"`
+	Image        string                     `json:"image"`
+	Args         []string                   `json:"args,omitempty"`
+	Env          map[string]string          `json:"env,omitempty"`
+	Secrets      map[string]vaultsecret.Ref `json:"secrets,omitempty"`
+	Mounts       []ServiceMount             `json:"mounts,omitempty"`
+	Port         uint32                     `json:"port"`
+	ReadyPath    string                     `json:"readyPath,omitempty"`
+	Hostnames    []string                   `json:"hostnames,omitempty"`
+	Replicas     uint64                     `json:"replicas"`
+	Dependencies *[]string                  `json:"dependencies,omitzero"`
 	// ReadyTimeoutSeconds bounds how long a new task may take to answer
 	// readyPath before the update rolls back; zero keeps DefaultReadyTimeout.
 	ReadyTimeoutSeconds uint32 `json:"readyTimeoutSeconds,omitempty"`
@@ -441,10 +442,8 @@ type ServiceSpec struct {
 	// Deployment is actual signed authority; DeploymentFloor also accompanies operator entries.
 	Deployment      *Deployment `json:"-"`
 	DeploymentFloor *Deployment `json:"-"`
-	// Region and Node are the mesh host's region and node name; when set,
-	// the task gets TS_REGION, TS_NODE and TS_PEERS_FILE.
-	Region string `json:"-"`
-	Node   string `json:"-"`
+	Region          string      `json:"-"`
+	Node            string      `json:"-"`
 	// WorkerAddresses is the founder's fresh, READY/ACTIVE mesh membership,
 	// derived at reconciliation; declarations cannot supply this inventory.
 	WorkerAddresses map[string]string `json:"-"`
@@ -860,6 +859,9 @@ func CompleteServiceSpec(ctx context.Context, client api.ControlClient, s Servic
 }
 
 func applyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec, previous *api.Service, resolve SecretResolver) (*api.Service, error) {
+	if s.Dependencies != nil && s.NeedsPeers() && (s.Region == "" || s.Node == "") {
+		return nil, errors.New("peers dependency requires the mesh region and node")
+	}
 	spec, err := s.SwarmSpec()
 	if err != nil {
 		return nil, err
