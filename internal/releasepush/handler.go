@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/datamount"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
@@ -85,6 +86,9 @@ type MeshRequest struct {
 
 // Reply answers every release request.
 type Reply struct {
+	DataMount      *datamount.Report `json:"data_mount,omitempty"`
+	DataMountError string            `json:"data_mount_error,omitempty"`
+
 	State   string `json:"state,omitempty"` // current, installed, stale, rolled_back, rejected; done, failed for mesh
 	Version string `json:"version,omitempty"`
 	Health  string `json:"health,omitempty"`
@@ -274,7 +278,12 @@ func (h *Handler) health(ctx context.Context, _ []byte) Reply {
 	if previous := h.lastHealth.Swap(&text); previous == nil || *previous != text {
 		slog.Info("release health changed", "health", text)
 	}
-	return Reply{Version: h.Revision, Health: text}
+	mount, err := datamount.Read(ctx)
+	mountError := ""
+	if err != nil {
+		mountError = err.Error()
+	}
+	return Reply{Version: h.Revision, Health: text, DataMount: mount, DataMountError: mountError}
 }
 
 func (h *Handler) orch(ctx context.Context, data []byte) Reply {
