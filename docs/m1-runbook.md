@@ -5,7 +5,7 @@ the containerd executor, a local control socket and the HTTPS edge (`:80`
 ACME HTTP-01 + redirect, `:443`). Services come from
 `deploy/m1/services/*.json`.
 
-These hosts keep at most seven days or 512 MiB of journal, whichever is smaller, and have no central log store.
+The agent configures journal targets of 512 MiB on disk (about 1.1% of a 50 GB boot disk), 128 MiB in runtime storage, 64 MiB per file and seven days of retention. These are targets with file granularity: active journal files are not deleted, so usage and age can exceed them. There is no central log store.
 
 ## Host
 

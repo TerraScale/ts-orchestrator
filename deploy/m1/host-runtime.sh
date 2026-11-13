@@ -1,21 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-install -d -m 0755 /etc/systemd/journald.conf.d
-cat > /etc/systemd/journald.conf.d/60-ts-orch.conf <<'JOURNAL'
-[Journal]
-Storage=persistent
-SystemMaxUse=512M
-RuntimeMaxUse=128M
-SystemMaxFileSize=64M
-MaxRetentionSec=7day
-ForwardToSyslog=no
-JOURNAL
-systemctl disable --now rsyslog.service
-systemctl mask rsyslog.service
-systemctl restart systemd-journald.service
-journalctl --rotate
-
 if ! command -v chronyc >/dev/null; then
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chrony

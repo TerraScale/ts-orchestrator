@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -71,62 +73,172 @@ func ensureHostLogs(ctx context.Context, state string) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(hostJournalConfig)))
 	pending := filepath.Join(state, "host-logs-activation-pending")
-	_, err = os.Stat(pending)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	intent := hostLogIntent{Hash: hash}
+	wire, err := os.ReadFile(pending)
+	if err == nil {
+		if err := json.Unmarshal(wire, &intent); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
+	} else if bytes.Equal(current, []byte(hostJournalConfig)) {
+		intent.Published = true
+		intent.Restarted = hash
+		intent.Rotated = true
 	}
-	activate := err == nil
-	changed := !bytes.Equal(current, []byte(hostJournalConfig))
-	if changed {
-		if err := os.MkdirAll(directory, 0755); err != nil {
-			return err
-		}
-		if err := os.MkdirAll(state, 0700); err != nil {
-			return err
-		}
-		if err := writeAtomicHostFile(pending, []byte("pending\n"), 0600); err != nil {
-			return err
-		}
-		if err := writeAtomicHostFile(path, []byte(hostJournalConfig), 0644); err != nil {
-			return err
-		}
-		activate = true
+	if intent.Hash != hash || !bytes.Equal(current, []byte(hostJournalConfig)) {
+		intent = hostLogIntent{Hash: hash}
 	}
-	var commands [][]string
-	if preserveSyslog == nil && !strings.Contains(status, "LoadState=not-found\n") {
-		if !strings.Contains(status, "UnitFileState=masked\n") {
-			commands = append(commands,
-				[]string{"systemctl", "disable", "--now", "rsyslog.service"},
-				[]string{"systemctl", "mask", "rsyslog.service"})
-		} else if !strings.Contains(status, "ActiveState=inactive\n") {
-			commands = append(commands, []string{"systemctl", "stop", "rsyslog.service"})
-		}
-	}
-	if activate {
-		commands = append(commands,
-			[]string{"systemctl", "restart", "systemd-journald.service"},
-			[]string{"journalctl", "--rotate"})
-	}
-	for _, command := range commands {
-		if output, err := runHostLogCommand(ctx, command[0], command[1:]...); err != nil {
-			return fmt.Errorf("apply host log settings: %s: %w: %s", command[0], err, output)
-		}
-	}
-	if activate {
-		if err := os.Remove(pending); err != nil {
-			return err
-		}
-		directory, err := os.Open(state)
+	save := func() error {
+		wire, err := json.Marshal(intent)
 		if err != nil {
 			return err
 		}
-		defer directory.Close()
-		if err := directory.Sync(); err != nil {
+		return writeAtomicHostFile(pending, wire, 0600)
+	}
+	if err := os.MkdirAll(state, 0700); err != nil {
+		return err
+	}
+	if !intent.Published {
+		if err := save(); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(directory, 0755); err != nil {
+			return err
+		}
+		if err := publishHostJournal(path); err != nil {
+			return err
+		}
+		intent.Published = true
+		if err := save(); err != nil {
 			return err
 		}
 	}
+	if !intent.Syslog {
+		if preserveSyslog == nil && !strings.Contains(status, "LoadState=not-found\n") {
+			var commands [][]string
+			if !strings.Contains(status, "UnitFileState=masked\n") {
+				commands = append(commands,
+					[]string{"disable", "--now", "rsyslog.service"},
+					[]string{"mask", "rsyslog.service"})
+			} else if !strings.Contains(status, "ActiveState=inactive\n") {
+				commands = append(commands, []string{"stop", "rsyslog.service"})
+			}
+			for _, args := range commands {
+				if output, err := runHostLogCommand(ctx, "systemctl", args...); err != nil {
+					return fmt.Errorf("handle syslog: %w: %s", err, output)
+				}
+			}
+		}
+		intent.Syslog = true
+		if err := save(); err != nil {
+			return err
+		}
+	}
+	if intent.Restarted != hash {
+		active, invocation, err := hostJournalState(ctx)
+		if err != nil {
+			return err
+		}
+		if intent.Before == "" || !active || invocation == intent.Before {
+			intent.Before = invocation
+			if err := save(); err != nil {
+				return err
+			}
+			output, restartErr := runHostLogCommand(ctx, "systemctl", "restart", "systemd-journald.service")
+			active, invocation, err = hostJournalState(ctx)
+			if err != nil || !active || invocation == intent.Before {
+				return fmt.Errorf("restart journal not confirmed: %w: %s", errors.Join(restartErr, err, errors.New("no new active journal invocation")), output)
+			}
+		}
+		intent.Restarted = hash
+		if err := save(); err != nil {
+			return err
+		}
+	}
+	if !intent.Rotated {
+		if output, err := runHostLogCommand(ctx, "journalctl", "--rotate"); err != nil {
+			return fmt.Errorf("rotate journal: %w: %s", err, output)
+		}
+		intent.Rotated = true
+		if err := save(); err != nil {
+			return err
+		}
+	}
+	intent.Done = true
+	if err := save(); err != nil {
+		return err
+	}
+	if err := os.Remove(pending); err != nil {
+		return err
+	}
+	if err := syncHostLogDirectory(state); err != nil {
+		return err
+	}
 	return preserveSyslog
+}
+
+type hostLogIntent struct {
+	Hash      string
+	Published bool
+	Syslog    bool
+	Before    string
+	Restarted string
+	Rotated   bool
+	Done      bool
+}
+
+func hostJournalState(ctx context.Context) (bool, string, error) {
+	output, err := runHostLogCommand(ctx, "systemctl", "show", "systemd-journald.service", "--property=ActiveState,InvocationID")
+	if err != nil {
+		return false, "", fmt.Errorf("read journal restart state: %w: %s", err, output)
+	}
+	var invocation string
+	for line := range strings.SplitSeq(string(output), "\n") {
+		if value, ok := strings.CutPrefix(line, "InvocationID="); ok {
+			invocation = value
+		}
+	}
+	return strings.Contains(string(output), "ActiveState=active\n") && invocation != "", invocation, nil
+}
+
+func publishHostJournal(path string) error {
+	file, err := os.CreateTemp(filepath.Dir(path), ".60-ts-orch-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	defer file.Close()
+	if _, err := file.Write([]byte(hostJournalConfig)); err != nil {
+		return err
+	}
+	if err := file.Chown(0, 0); err != nil {
+		return err
+	}
+	if err := file.Chmod(0644); err != nil {
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(file.Name(), path); err != nil {
+		return err
+	}
+	return syncHostLogDirectory(filepath.Dir(path))
+}
+
+func syncHostLogDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 func hostSyslogRequiredBy(ctx context.Context) ([]string, error) {

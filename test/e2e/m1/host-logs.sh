@@ -3,10 +3,11 @@ work=$1
 state=$2
 here=$3
 runtime_pins=$4
+intent=$state/host-logs-activation-pending
+config=/etc/systemd/journald.conf.d/60-ts-orch.conf
 
 begin "restart ts-orch repairs host log settings on the controlled runner"
-sed -n '/^\[Journal\]/,/^JOURNAL$/{ /^JOURNAL$/d; p; }' "$runtime_pins" >"$work/journal.conf"
-sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
+sed -n '/^const hostJournalConfig = /,/^`$/{ s/^const hostJournalConfig = `//; /^`$/d; p; }' "$repo/internal/app/host_logs.go" >"$work/journal.conf"
 host_logs_supported() {
 	local pid
 	pid=$(systemctl show ts-orch.service -p MainPID --value)
@@ -22,24 +23,44 @@ restart_serving() {
 	wait_for 120 edge whoami.e2e.test /health
 	wait_for 60 edge data.e2e.test /boots
 }
+warning_present() {
+	local invocation
+	invocation=$(systemctl show ts-orch.service -p InvocationID --value)
+	sudo journalctl -u ts-orch.service "_SYSTEMD_INVOCATION_ID=$invocation" --no-pager -o cat | grep 'Host log settings skipped' >/dev/null
+}
 log_skip_once() {
 	local invocation
+	wait_for 30 warning_present
 	invocation=$(systemctl show ts-orch.service -p InvocationID --value)
 	test "$(sudo journalctl -u ts-orch.service "_SYSTEMD_INVOCATION_ID=$invocation" --no-pager -o cat | grep -c 'Host log settings skipped')" = 1
 }
+housekeeping_finished() {
+	local invocation
+	invocation=$(systemctl show ts-orch.service -p InvocationID --value)
+	sudo journalctl -u ts-orch.service "_SYSTEMD_INVOCATION_ID=$invocation" --no-pager -o cat | grep -E 'Host log settings (applied|skipped)' >/dev/null
+}
+activation_done() {
+	housekeeping_finished && sudo cmp "$work/journal.conf" "$config" && sudo test ! -e "$intent"
+}
+syslog_masked() {
+	test "$(systemctl is-enabled rsyslog.service)" = masked &&
+		test "$(systemctl is-active rsyslog.service)" = inactive
+}
+wait_for 30 activation_done
+sudo cmp "$work/journal.conf" "$config"
 journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
 require_host_logs
 echo "controlled runner writable journal path -> support check passed"
-printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee /etc/systemd/journald.conf.d/60-ts-orch.conf >/dev/null
+printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee "$config" >/dev/null
 sudo systemctl unmask rsyslog.service
 sudo systemctl enable --now rsyslog.service
-sudo cp /etc/systemd/journald.conf.d/60-ts-orch.conf "$work/drift.conf"
+sudo cp "$config" "$work/drift.conf"
 syslog_before=$(systemctl show rsyslog.service -p ActiveState -p UnitFileState)
 dropin=/run/systemd/system/ts-orch.service.d/90-e2e-host-logs.conf
 sudo install -d -m 0755 "$(dirname "$dropin")"
 for unsupported in readonly nojournal; do
 	if [[ $unsupported == readonly ]]; then
-		printf '[Service]\nReadWritePaths=\nReadWritePaths=/usr/local/bin\n'
+		printf '[Service]\nConfigurationDirectory=\nReadWritePaths=\nReadWritePaths=/usr/local/bin\n'
 	else
 		printf '[Service]\nBindReadOnlyPaths=/dev/null:/run/systemd/journal/socket\n'
 	fi | sudo tee "$dropin" >/dev/null
@@ -53,7 +74,7 @@ for unsupported in readonly nojournal; do
 		fi
 		echo "writable path removed -> required runner check failed as expected"
 	fi
-	sudo cmp "$work/drift.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
+	sudo cmp "$work/drift.conf" "$config"
 	test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
 	test "$(systemctl show rsyslog.service -p ActiveState -p UnitFileState)" = "$syslog_before"
 	echo "$unsupported logging environment -> started, skipped once, settings unchanged"
@@ -61,20 +82,18 @@ done
 sudo rm "$dropin"
 sudo systemctl daemon-reload
 restart_serving
-sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
-test "$(systemctl is-enabled rsyslog.service)" = masked
-test "$(systemctl is-active rsyslog.service)" = inactive
+wait_for 30 activation_done
+wait_for 30 syslog_masked
+test "$(sudo stat -c %a:%u:%g "$config")" = 644:0:0
 systemctl is-active --quiet systemd-journald.service
 test "$(systemctl show systemd-journald.service -p InvocationID --value)" != "$journal_started"
 journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
-journal_file=$(sudo stat -c %i:%y:%z /etc/systemd/journald.conf.d/60-ts-orch.conf)
+journal_file=$(sudo stat -c %i:%y:%z "$config")
 restart_serving
-sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
-test "$(sudo stat -c %i:%y:%z /etc/systemd/journald.conf.d/60-ts-orch.conf)" = "$journal_file"
+wait_for 30 activation_done
+test "$(sudo stat -c %i:%y:%z "$config")" = "$journal_file"
 test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
-test "$(systemctl is-enabled rsyslog.service)" = masked
-test "$(systemctl is-active rsyslog.service)" = inactive
-sudo test ! -e "$state/host-logs-activation-pending"
+syslog_masked
 end "ts-orch restarts -> logs repaired, deliberate unsupported cases untouched, both served"
 
 begin "failed and interrupted host log activation resumes at the next start"
@@ -88,19 +107,21 @@ sudo install -m 0755 "$here/host-log-command.py" "$binaries/journalctl"
 printf '[Service]\nBindReadOnlyPaths=%s/systemctl:/usr/bin/systemctl %s/journalctl:/usr/bin/journalctl\n' "$binaries" "$binaries" | sudo tee "$dropin" >/dev/null
 sudo systemctl daemon-reload
 for failure in syslog restart rotate interrupted hung pipe; do
-	printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee /etc/systemd/journald.conf.d/60-ts-orch.conf >/dev/null
+	sudo rm -f "$commands/entered" "$commands/pids" "$commands/restarts"
+	printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee "$config" >/dev/null
 	sudo systemctl unmask rsyslog.service
 	sudo systemctl enable --now rsyslog.service
 	printf '%s\n' "$failure" | sudo tee "$commands/mode" >/dev/null
 	journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
 	if [[ $failure == interrupted ]]; then
-		sudo systemctl restart --no-block ts-orch
+		sudo systemctl restart ts-orch
 		wait_for 30 test -e "$commands/entered"
 		sudo systemctl kill --signal=SIGKILL --kill-whom=main ts-orch
 		printf 'restart\n' | sudo tee "$commands/mode" >/dev/null
 	fi
 	activation_started=$(date +%s%N)
 	restart_serving
+	log_skip_once
 	activation_ms=$((($(date +%s%N) - activation_started) / 1000000))
 	if [[ $failure == hung || $failure == pipe ]]; then
 		test "$activation_ms" -lt 30000
@@ -110,28 +131,72 @@ for failure in syslog restart rotate interrupted hung pipe; do
 			fi
 		done
 	fi
-	log_skip_once
-	sudo test -f "$state/host-logs-activation-pending"
-	sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
+	sudo test -f "$intent"
+	sudo cmp "$work/journal.conf" "$config"
 	if [[ $failure != rotate ]]; then
 		test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
 	fi
 	journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
-	journal_file=$(sudo stat -c %i:%y:%z /etc/systemd/journald.conf.d/60-ts-orch.conf)
-	echo "$failure activation -> serving, one warning, pending marker ($activation_ms ms)"
+	journal_file=$(sudo stat -c %i:%y:%z "$config")
+	if [[ $failure == rotate ]]; then
+		sudo cp "$intent" "$work/replay.json"
+		for start in 2 3; do
+			restart_serving
+			log_skip_once
+			test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
+			test "$(sudo cat "$commands/restarts" | wc -l)" = 1
+		done
+	fi
+	echo "$failure activation -> serving, one warning, step intent retained"
 	printf 'success\n' | sudo tee "$commands/mode" >/dev/null
 	restart_serving
-	sudo test ! -e "$state/host-logs-activation-pending"
-	test "$(sudo stat -c %i:%y:%z /etc/systemd/journald.conf.d/60-ts-orch.conf)" = "$journal_file"
-	test "$(systemctl show systemd-journald.service -p InvocationID --value)" != "$journal_started"
-	test "$(systemctl is-enabled rsyslog.service)" = masked
-	test "$(systemctl is-active rsyslog.service)" = inactive
-	echo "$failure activation -> next start completed activation without rewriting config"
+	wait_for 30 activation_done
+	test "$(sudo stat -c %i:%y:%z "$config")" = "$journal_file"
+	if [[ $failure == rotate ]]; then
+		test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
+		test "$(sudo cat "$commands/restarts" | wc -l)" = 1
+		sudo python3 - "$work/replay.json" "$intent" <<'REPLAY'
+import json
+import sys
+from pathlib import Path
+intent = json.loads(Path(sys.argv[1]).read_text())
+intent["Rotated"] = True
+intent["Done"] = True
+Path(sys.argv[2]).write_text(json.dumps(intent))
+REPLAY
+		restart_serving
+		wait_for 30 activation_done
+		test "$(sudo cat "$commands/restarts" | wc -l)" = 1
+	else
+		test "$(systemctl show systemd-journald.service -p InvocationID --value)" != "$journal_started"
+	fi
+	syslog_masked
+	echo "$failure activation -> next start resumed recorded steps without rewriting config"
 done
+end "activation failures and interruption -> completed steps never repeated; hung helpers bounded"
+
+begin "readiness and supervision precede a hung housekeeping restart"
+printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee "$config" >/dev/null
+sudo rm -f "$commands/entered" "$commands/restarts" "$commands/ready"
+printf 'completed-timeout\n' | sudo tee "$commands/mode" >/dev/null
+restart_serving
+wait_for 30 test -e "$commands/entered"
+test "$(systemctl show ts-orch.service -p ActiveState --value)" = active
+sudo grep -q e2e-whoami "$commands/ready"
+orch service ls | grep -q e2e-whoami
+edge whoami.e2e.test /health
+wait_for 30 activation_done
+test "$(sudo cat "$commands/restarts" | wc -l)" = 1
+journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
+printf 'success\n' | sudo tee "$commands/mode" >/dev/null
+restart_serving
+wait_for 30 activation_done
+test "$(sudo cat "$commands/restarts" | wc -l)" = 1
+test "$(systemctl show systemd-journald.service -p InvocationID --value)" = "$journal_started"
 sudo rm "$dropin"
 sudo systemctl daemon-reload
 sudo rm -rf "$commands" "$binaries"
-end "activation failures and interruption -> next start activates matching bytes; hung helpers bounded"
+end "ready while restart client hung; completed restart recorded once"
 
 begin "enabled syslog requirement preserves the daemon and still activates the journal"
 required=/run/systemd/system/ts-e2e-syslog-required@.service
@@ -140,21 +205,22 @@ sudo systemctl daemon-reload
 sudo systemctl unmask rsyslog.service
 sudo systemctl enable --now rsyslog.service
 sudo systemctl enable ts-e2e-syslog-required@proof.service
-printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee /etc/systemd/journald.conf.d/60-ts-orch.conf >/dev/null
+printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee "$config" >/dev/null
 journal_started=$(systemctl show systemd-journald.service -p InvocationID --value)
 restart_serving
 log_skip_once
-sudo cmp "$work/journal.conf" /etc/systemd/journald.conf.d/60-ts-orch.conf
+wait_for 30 activation_done
 test "$(systemctl show systemd-journald.service -p InvocationID --value)" != "$journal_started"
 systemctl is-active --quiet rsyslog.service
 test "$(systemctl is-enabled rsyslog.service)" = enabled
-sudo test ! -e "$state/host-logs-activation-pending"
+sudo bash "$runtime_pins"
+systemctl is-active --quiet rsyslog.service
+test "$(systemctl is-enabled rsyslog.service)" = enabled
 sudo systemctl disable --now ts-e2e-syslog-required@proof.service
 sudo rm "$required"
 sudo systemctl daemon-reload
 restart_serving
-test "$(systemctl is-enabled rsyslog.service)" = masked
-test "$(systemctl is-active rsyslog.service)" = inactive
+wait_for 30 syslog_masked
 orch service logs e2e-whoami >"$work/task-logs.txt"
 test -s "$work/task-logs.txt"
-end "required syslog -> left running with one warning, journal activated, tasks still log"
+end "required syslog -> installer untouched, one warning, journal activated, tasks still log"

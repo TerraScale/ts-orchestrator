@@ -35,9 +35,6 @@ import (
 // Outside OCI it needs no Vault, NetBird or admission. Serving the release
 // subjects ends a pushed binary's probation.
 func runSingleHost(ctx context.Context, state string, output io.Writer, plan hostPlan, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context) error) error {
-	if err := ensureHostLogs(ctx, state); err != nil {
-		slog.Warn("Host log settings skipped", "error", err)
-	}
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -142,6 +139,13 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	}
 	waited := make(chan error, 1)
 	go func() { waited <- node.Wait(ctx) }()
+	go func() {
+		if err := ensureHostLogs(ctx, state); err != nil {
+			slog.Warn("Host log settings skipped", "error", err)
+		} else {
+			slog.Info("Host log settings applied")
+		}
+	}()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
