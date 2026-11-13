@@ -2,15 +2,17 @@
 set -euo pipefail
 source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
+python3 "$source_dir/check-hosts.py"
+
 # Only the explicit host invocation deploys; --check downloads and validates locally.
 if [[ $# == 1 && $1 != --local && $1 != --check ]]; then
   [[ $1 != -* && $1 =~ ^[a-zA-Z0-9_.@-]+$ ]] || { echo 'Invalid SSH host' >&2; exit 2; }
-  tar -C "$source_dir/.." -czf - production slo-rules.yml | ssh "$1" '
+  tar -C "$source_dir/../../.." -czf - deploy/observability/production deploy/observability/slo-rules.yml test/e2e/m1/monitoring/rules.yml | ssh "$1" '
     set -eu
     staging=$(mktemp -d)
     trap '\''rm -rf -- "$staging"'\'' EXIT HUP INT TERM
     tar -xzf - -C "$staging"
-    sudo bash "$staging/production/install.sh" --local
+    sudo bash "$staging/deploy/observability/production/install.sh" --local
   '
   exit
 fi
@@ -28,6 +30,27 @@ if [[ $mode == --local ]]; then
     echo 'Install a ts-orch release supporting alert-delivery before installing monitoring' >&2
     exit 2
   fi
+  while read -r discovery; do
+    if ! curl --fail --silent --show-error --max-time 5 "$discovery" --output /dev/null; then
+      echo 'Upgrade every host agent before installing task discovery; no monitoring changes made' >&2
+      exit 2
+    fi
+  done < <(awk '$1 == "-" && $2 == "url:" {print $3}' "$source_dir/prometheus.yml")
+  checked=0
+  while read -r discovery; do
+    if ! metrics=$(curl --fail --silent --show-error --max-time 5 "${discovery%/services}/metrics"); then
+      echo "Host task inventory unavailable: $discovery; no monitoring changes made" >&2
+      exit 2
+    fi
+    for service in terrabase ts-auth ts-dashboard; do
+      if ! grep -Eq "^ts_host_service_tasks_expected\{service=\"$service\"\} [0-9]+$" <<<"$metrics"; then
+        echo "Upgrade host task inventory: $discovery ($service); no monitoring changes made" >&2
+        exit 2
+      fi
+    done
+    checked=$((checked + 1))
+  done < <(awk '$1 == "-" && $2 == "url:" {print $3}' "$source_dir/prometheus.yml")
+  [[ $checked == $(wc -l < "$source_dir/hosts.txt") ]] || { echo 'Expected every configured host inventory endpoint' >&2; exit 2; }
   status=0
   relay_help=$(timeout --kill-after=1s 5s /usr/local/bin/ts-orch alert-delivery --help 2>&1) || status=$?
   if [[ $status != 1 || $relay_help != 'usage: ts-orch alert-delivery' ]]; then
@@ -58,6 +81,7 @@ done
 prom_dir="$staging/prometheus-3.15.0.linux-$arch"
 alert_dir="$staging/alertmanager-0.34.1.linux-$arch"
 "$prom_dir/promtool" check config "$source_dir/prometheus.yml"
+(cd "$source_dir/../../../test/e2e/m1/monitoring" && "$prom_dir/promtool" test rules rules.yml)
 "$alert_dir/amtool" check-config "$source_dir/alertmanager.yml"
 if [[ $mode == --check ]]; then exit; fi
 

@@ -5,6 +5,12 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
+    - matchers: ['delivery_probe="heartbeat"']
+      receiver: local-relay
+      group_by: [delivery_probe]
+      group_wait: 0s
+      group_interval: 5m
+      repeat_interval: 5m
     # Warnings never page: one digest of every open warning, at most daily.
     - matchers: ['severity="warning"']
       receiver: daily-digest
