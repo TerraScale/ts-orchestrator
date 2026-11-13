@@ -40,6 +40,9 @@ volumes manually outside this tool.
 
 // Run is `ts-orch region add|rm`; args start with add or rm.
 func Run(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "backups" {
+		return runBackups(ctx, args[1:], out)
+	}
 	fs := flag.NewFlagSet("region "+args[0], flag.ContinueOnError)
 	fs.SetOutput(out)
 	fs.Usage = func() { io.WriteString(out, usage) }

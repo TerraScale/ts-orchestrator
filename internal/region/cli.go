@@ -32,6 +32,10 @@ const usage = `Usage: ts-orch region <command> [flags]
       Provision the complete signed regional footprint through the same
       operator path as bootstrap foundation provision BUNDLE. Resumes the
       protected original launch and IAM records; discovery publishes last.
+  backups CODE [--check|--apply]
+      Inventory every live host's boot volume, policy and newest available
+      backup. Read-only by default; --check fails for gaps or age over 8 days.
+      --apply assigns ts-boot-weekly-4 to volumes without a policy.
   verify  LABEL --plan BOUND_PLAN [--wait 0]
       Fail unless <label>.api answers /healthz for its cell, <label>.auth
       serves its OIDC discovery, every load balancer backend is healthy and
