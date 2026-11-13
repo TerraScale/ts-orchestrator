@@ -72,6 +72,61 @@ host installs, the push waits for its health and stops before the next region if
 it does not become healthy. The flag is never a default and no other flag sets
 it; use it only to push a fix for a health error that a release caused.
 
+## Independent recovery
+
+The single-host updater retains its own executable as
+`/usr/local/bin/terrascale-orchestrator.recovery` before staging a replacement.
+It writes and verifies the recovery service and timer under their actual unit
+names in the writable binary directory, then asks the service manager to link
+and enable them. The agent unit stays unchanged. The manager performs the
+linking, so installation works with `ProtectSystem=full` without a privileged
+transient unit or a writable system unit directory in the agent sandbox.
+
+The boot-enabled timer starts checking after 15 seconds and checks every minute.
+It runs the retained updater independently of the candidate executable and its
+service sandbox. A candidate can pass preflight and then fail before `Probe`;
+that failure never advances the startup counter or starts its in-process timer.
+The independent timer closes that gap. Recovery is installed by this updater
+before the replacements it accepts; an older installing updater cannot provide
+this protection for its first upgrade to this version.
+
+Each new trial stores a recovery window through its `installed` and
+`recover_after` fields before the binary rename. The window includes the
+loaded stop timeout, restart delay, the greater of the loaded start timeout and
+the ten-minute planning window, two minutes of probation, and 30 seconds of
+margin. The shipped bounds give 931 seconds. Trials without `recover_after`
+receive 20 minutes.
+
+Recovery measures this window from the candidate unit's first execution in the
+current boot, using `ExecMainStartTimestampMonotonic` and `CLOCK_MONOTONIC`.
+It persists that start, boot identity, release identity and window in
+`nats/release-runtime` so repeated crashes do not reset the window. A new boot
+gives the candidate a full window; time powered off and wall-clock corrections
+do not consume it. Idle ticks read the trial records first and never open the
+agent binary when neither a trial nor a recovery intent exists.
+
+After the window, recovery records a durable `nats/release-recovery` intent.
+Before stopping the candidate, it settles committed staging and verifies that
+the previous binary matches the trial. Missing or mismatched backups retain
+the trial and intent, save a rollback failure and fail the recovery job while
+the agent keeps serving. Staging errors also leave the serving agent running.
+A later repair release remains installable.
+
+Recovery re-reads identity and records after stopping, preserving a concurrent
+confirmation or replacement. Every return after an attempted stop clears the
+failed-start state and starts the service again, including rollback failures.
+Rollback uses the existing identity check, rollback record, rename and directory
+sync. Recovery removes its intent only after a successful restart. Interrupted
+recovery resumes even if the rename already consumed `.prev`. An unconfirmed
+updater preserves an existing recovery executable when accepting a repair;
+when none exists, it installs the executable and unit pair with that repair.
+
+`StartLimitIntervalSec=0` remains intentional: starts reaching `Probe` use the
+durable startup counter, while the independent deadline bounds failures that
+cannot reach it. A systemd rate limit could otherwise prevent the rollback
+startup. Binary releases do not deliver or replace `ts-orch.service`; the
+previous unit-swapping release architecture is not part of this updater.
+
 ## Updater records
 
 An installed candidate is on probation until it serves. These files live in
@@ -81,6 +136,7 @@ the state directory; the previous binary sits beside the executable.
 | --- | --- | --- | --- |
 | `<binary>.prev` | Hard link to the binary that was installed before the candidate. | No rollback target: a rollback that needs it leaves the candidate unconfirmed. | Not the build named in the trial: never restored; the candidate stays unconfirmed. |
 | `nats/release-trial` | JSON object: `sha`, `run_id`, `installed`, `starts`; this release adds `sha256`, `previous` (revision and digest of `.prev`) and `failure`. | No probation, unless a rollback record names the running binary (see Probation). | The agent keeps serving, reports `unconfirmed`, does not adopt the embedded node list and never rewrites the file. It stays in place through a replacement that fails before its binary rename; after the rename the replacement hard-links it to the first free name of `release-trial.damaged`, `release-trial.damaged.1`, ... and then moves its own trial over it, so the trial is never absent and no archive is overwritten. |
+| `nats/release-runtime` | Candidate identity, run, boot identity, monotonic first execution and recovery window. | Initialized from the unit when a trial exists and its candidate has started. | Recovery reports an error while the agent keeps serving. A different boot or release establishes a new runtime. |
 | `nats/release-trial.staged` | A replacement's trial, same format, written before its binary rename. | Nothing staged. | Left as it is and ignored. |
 | `<binary>.prev.staged` | Hard link to the binary that is installed while a replacement is staged; becomes `.prev` after the replacement's binary rename. | Nothing staged. | Not applicable (any file is only renamed or removed). |
 | `nats/release-run-id` | Decimal run id of the newest staged release. | Any run is accepted. | Every different release is refused as `run_fence_damaged`, the refusal is saved in `release-attempt.json`, and the file is left as it is. To repair it, write the highest run id ever pushed to this host (the `run_id` of `release-trial` or `release-rolled-back` when either is present, otherwise the newest release run) as a decimal with no other text. |

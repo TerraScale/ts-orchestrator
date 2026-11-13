@@ -201,6 +201,12 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		}
 		return app.Run(ctx, args, output)
 	case "release":
+		if len(args) > 1 && args[1] == "recover" {
+			if len(args) != 2 {
+				return errors.New("usage: ts-orch release recover")
+			}
+			return releasepush.Recovery(ctx, output)
+		}
 		if len(args) > 1 && args[1] == "preflight" {
 			if len(args) != 2 {
 				return errors.New("usage: ts-orch release preflight")

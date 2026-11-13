@@ -145,6 +145,7 @@ type Handler struct {
 	RefusalFile   string
 	mu            sync.Mutex
 	pending       releaseID
+	recoverAfter  time.Time
 	rolledBack    atomic.Pointer[Rollback]
 	exitOnce      sync.Once
 	lastHealth    atomic.Pointer[string]
@@ -461,6 +462,11 @@ func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims
 	}
 	unlock := h.probation.lockInstall()
 	defer unlock()
+	recoverAfter, err := h.prepareRecovery(ctx)
+	if err != nil {
+		return err
+	}
+	h.recoverAfter = recoverAfter
 	if err := h.stage(candidate, claims.RunID); err != nil {
 		return errors.Join(err, h.unstage())
 	}
