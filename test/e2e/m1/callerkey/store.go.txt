@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -91,38 +90,20 @@ func (vaultStore) Private(ctx context.Context, t Target, name string) (value Pri
 	return
 }
 func (vaultStore) Write(ctx context.Context, t Target, name string, before Snapshot, value []byte) error {
-	if strings.HasSuffix(name, "-terrabase-key") {
-		if err := checkDispatch(ctx); err != nil {
-			return err
-		}
-	}
 	var output bool
 	return call(ctx, request{Operation: "write", Target: t, Name: name, Before: before, Value: value}, &output)
 }
 func (vaultStore) Stage(ctx context.Context, t Target, name string, state PrivateState, value []byte, versionName string) error {
-	if err := checkDispatch(ctx); err != nil {
-		return err
-	}
 	var output bool
 	return call(ctx, request{Operation: "stage", Target: t, Name: name, State: state, Value: value, VersionName: versionName}, &output)
 }
 func (vaultStore) Activate(ctx context.Context, t Target, name string, state PrivateState, version int64) error {
-	if err := checkDispatch(ctx); err != nil {
-		return err
-	}
 	var output bool
 	return call(ctx, request{Operation: "activate", Target: t, Name: name, State: state, Version: version}, &output)
 }
 
-func (vaultStore) Metadata(ctx context.Context, t Target, name string, version int64, versionName string) (value PrivateMetadata, err error) {
-	err = call(ctx, request{Operation: "metadata", Target: t, Name: name, Version: version, VersionName: versionName}, &value)
-	return
-}
 func (vaultStore) Discard(ctx context.Context, t Target, name string, state PrivateState, version int64) (time.Time, error) {
 	var output time.Time
-	err := checkDispatch(ctx)
-	if err == nil {
-		err = call(ctx, request{Operation: "discard", Target: t, Name: name, State: state, Version: version}, &output)
-	}
+	err := call(ctx, request{Operation: "discard", Target: t, Name: name, State: state, Version: version}, &output)
 	return output, err
 }

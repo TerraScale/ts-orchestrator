@@ -42,25 +42,18 @@ type secret struct {
 }
 type store struct {
 	sync.Mutex
-	values          map[string]*secret
-	writes          int
-	fail            int
-	mode            string
-	hidden          map[string]bool
-	land            func() bool
-	metadataReads   int
-	now             time.Time
-	operatorSkew    time.Duration
-	progress        time.Duration
-	pauseAt         int
-	pauseStore      time.Duration
-	listingHidden   map[string]bool
-	hideAfterStage  bool
-	metadataError   bool
-	metadataAnswers []callerkey.PrivateMetadata
-	cases           int
-	reads           chan struct{}
-	release         chan struct{}
+	values         map[string]*secret
+	writes         int
+	fail           int
+	mode           string
+	hidden         map[string]bool
+	land           func() bool
+	now            time.Time
+	landAt         int
+	hideAfterStage bool
+	cases          int
+	reads          chan struct{}
+	release        chan struct{}
 }
 
 func require(ok bool, message string) {
@@ -113,19 +106,6 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	must(json.UnmarshalRead(r.Body, &in))
 	s.Lock()
 	defer s.Unlock()
-	if in.Operation == "operator-clock" {
-		w.Write(encoded(time.Now().Add(s.operatorSkew)))
-		return
-	}
-	if in.Operation == "monotonic-clock" {
-		if s.pauseAt > 0 && s.writes >= s.pauseAt {
-			s.progress += 3 * time.Minute
-			s.now = s.now.Add(s.pauseStore)
-			s.pauseAt = 0
-		}
-		w.Write(encoded(time.Unix(1000, 0).Add(s.progress)))
-		return
-	}
 	if in.Operation == "regions" {
 		w.Write(encoded([]string{"sjc", "fra", "gru"}))
 		return
@@ -135,31 +115,6 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		value = &secret{}
 	}
 	switch in.Operation {
-	case "metadata":
-		s.metadataReads++
-		if s.metadataError {
-			http.Error(w, "management metadata unavailable", 403)
-			return
-		}
-		if len(s.metadataAnswers) > 0 {
-			answer := s.metadataAnswers[0]
-			answer.StoreNow = s.now
-			s.metadataAnswers = s.metadataAnswers[1:]
-			w.Write(encoded(answer))
-			return
-		}
-		result := callerkey.PrivateMetadata{Secret: value.Current.Version > 0 && !s.listingHidden[in.Name], StoreNow: s.now}
-		result.Version = result.Secret && in.Version == 0 && in.VersionName == ""
-		for _, v := range value.Versions {
-			if s.listingHidden[in.Name] {
-				continue
-			}
-			if in.Version > 0 && v.Version == in.Version || in.VersionName != "" && v.Name == in.VersionName {
-				result.Version = true
-			}
-		}
-		w.Write(encoded(result))
-		return
 	case "read", "private":
 		if s.hidden[in.Name] {
 			http.Error(w, "accepted write not readable yet", 404)
@@ -192,6 +147,10 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writes++
+	if s.landAt > 0 && s.writes == s.landAt {
+		s.land()
+		s.land, s.landAt = nil, 0
+	}
 	apply := func() bool {
 		value := s.values[in.Name]
 		if value == nil {
@@ -227,7 +186,7 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				must(json.Unmarshal(in.Value, &key))
 				versionName = key.Kid
 			}
-			next := wireSnapshot{Snapshot: callerkey.Snapshot{ID: in.Name, Version: int64(len(value.Versions) + 1), Created: s.now}, Content: bytes.Clone(in.Value), Name: versionName}
+			next := wireSnapshot{Snapshot: callerkey.Snapshot{ID: in.Name, Version: int64(len(value.Versions) + 1)}, Content: bytes.Clone(in.Value), Name: versionName}
 			value.Versions = append(value.Versions, next)
 			value.Pending = append(value.Pending, in.Operation == "stage")
 			value.Deleting = append(value.Deleting, false)
@@ -257,13 +216,7 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if failing && s.mode == "late" {
-		dispatched := s.now
-		s.land = func() bool {
-			if strings.HasSuffix(in.Name, "-terrabase-key") && !s.now.Before(dispatched.Add(time.Minute)) {
-				return false
-			}
-			return apply()
-		}
+		s.land = apply
 		kill()
 		http.Error(w, "request still in flight", 409)
 		return
@@ -337,13 +290,8 @@ func (j *journey) reset() {
 	j.store.reads = nil
 	j.store.hidden = map[string]bool{}
 	j.store.land = nil
-	j.store.metadataError = false
-	j.store.metadataAnswers = nil
+	j.store.landAt = 0
 	j.store.now = time.Now().UTC()
-	j.store.operatorSkew, j.store.progress = 0, 0
-	j.store.pauseAt = 0
-	j.store.pauseStore = 0
-	j.store.listingHidden = map[string]bool{}
 	j.store.hideAfterStage = false
 }
 func (j *journey) converged() int {
@@ -435,23 +383,10 @@ func (j *journey) prepare(operation string) []string {
 	j.ok("activate", "--kid", "ts-auth.sjc.2")
 	return []string{"retire", "--kid", "ts-auth.sjc.1", "--replacement-kid", "ts-auth.sjc.2"}
 }
-func (j *journey) ageIntent() {
-	j.store.Lock()
-	defer j.store.Unlock()
-	j.store.now = j.store.now.Add(11 * time.Minute)
-}
 func (j *journey) recover() {
-	j.ageIntent()
 	j.ok("recover")
 	require(strings.Contains(j.ok("recover"), "no operation"), "second recovery changed state")
 	j.converged()
-}
-func (j *journey) waiting() {
-	before := j.store.writes
-	out, err := j.run(j.targets, "recover")
-	require(err != nil && strings.Contains(out, "waiting until "), "recover did not describe its wait: "+out)
-	require(j.store.writes == before, "waiting recovery changed state")
-	j.store.invariant()
 }
 func (j *journey) endState(operation string, applied bool) {
 	j.converged()
@@ -479,7 +414,10 @@ func (j *journey) endState(operation string, applied bool) {
 				stored = stored || key.Kid == id && (private.Pending[i] || version.Version == private.Current.Version)
 			}
 		}
-		require(listed == stored, "add recovery did not match private existence")
+		require(!stored || listed, "add recovery lost a public entry for a visible private key")
+		if applied {
+			require(listed, "add recovery did not keep its public entry")
+		}
 	}
 	if applied && (operation == "retire" || operation == "cancel") {
 		require(!listed, "removal recovery retained public entry")
@@ -527,7 +465,10 @@ func (j *journey) failures() {
 				if mode == "hidden" {
 					start := j.store.writes
 					_, err := j.run(j.targets, "recover")
-					require(err != nil && j.store.writes == start, "hidden accepted write did not wait without mutations")
+					require(err != nil, "unreadable state was reported complete")
+					if operation != "first" && operation != "add" {
+						require(j.store.writes == start, "unreadable removal mutated state")
+					}
 					j.store.hidden = map[string]bool{}
 				}
 				if mode == "late" {
@@ -553,14 +494,12 @@ func (j *journey) failures() {
 		}
 		for _, original := range boundaries {
 			j.failOriginal(operation, "crash", original)
-			j.ageIntent()
 			start := j.store.writes
 			j.ok("recover")
 			recoveryWrites := j.store.writes - start
 			for _, mode := range []string{"before", "uncertain", "crash", "hidden", "late"} {
 				for n := 1; n <= recoveryWrites; n++ {
 					j.failOriginal(operation, "crash", original)
-					j.ageIntent()
 					j.store.fail, j.store.mode = j.store.writes+n, mode
 					_, err := j.run(j.targets, "recover")
 					require(err != nil, fmt.Sprintf("%s original %d recovery %s boundary %d did not interrupt", operation, original, mode, n))
@@ -591,7 +530,9 @@ func (j *journey) failures() {
 	}
 }
 func (j *journey) expire(kid string) {
-	expiry := time.Now().Add(-time.Hour).UTC()
+	j.setExpiry(kid, time.Now().Add(-time.Hour).UTC())
+}
+func (j *journey) setExpiry(kid string, expiry time.Time) {
 	for name, v := range j.store.values {
 		if !strings.HasSuffix(name, "-terrabase-callers") {
 			continue
@@ -607,162 +548,173 @@ func (j *journey) expire(kid string) {
 		j.store.invariant()
 	}
 }
-func (j *journey) sequences() {
+func (j *journey) lateCreations() {
 	for _, operation := range []string{"first", "add"} {
-		j.failOriginal(operation, "hidden", 7)
-		j.waiting()
-		j.store.hidden = map[string]bool{}
-		j.recover()
-		j.endState(operation, true)
-		j.store.cases++
-
-		j.failOriginal(operation, "late", 7)
-		j.waiting()
-		j.store.Lock()
-		require(j.store.land(), "in-flight private publication was rejected unexpectedly")
-		j.store.land = nil
-		j.store.invariant()
-		j.store.Unlock()
-		j.recover()
-		j.endState(operation, true)
-		j.store.cases++
-
-		j.failOriginal(operation, "before", 7)
-		j.waiting()
-		j.ageIntent()
-		j.store.metadataAnswers = []callerkey.PrivateMetadata{{}, {Secret: true, Version: true}}
-		j.waiting()
-		j.store.metadataError = true
-		j.waiting()
-		j.store.metadataError = false
-		reads := j.store.metadataReads
-		j.recover()
-		require(j.store.metadataReads-reads == 2, "backward recovery did not double-check management absence")
-		j.endState(operation, true)
-		j.store.cases++
-	}
-	j.seed("cancel")
-	before := j.store.writes
-	out := j.ok("list")
-	require(strings.Contains(out, "pending notAfter") && strings.Contains(out, "expired; can only be cancelled"), "expired pending status absent")
-	_, err := j.run(j.targets, "activate", "--kid", "ts-auth.sjc.2")
-	require(err != nil && j.store.writes == before, "expired pending key activated")
-	j.ok("retire", "--kid", "ts-auth.sjc.2")
-	j.recover()
-	j.endState("cancel", true)
-	j.store.cases++
-	fmt.Println("accepted first creation and rotation with unreadable contents; late private publication; unsettled/disagreeing/unavailable metadata; expired pending cancellation -> passed")
-}
-func (j *journey) fences() {
-	for _, operation := range []string{"first", "add"} {
-		for _, skew := range []time.Duration{-10 * time.Minute, 10 * time.Minute} {
-			j.failOriginal(operation, "before", 7)
-			j.store.operatorSkew = skew
-			j.waiting()
-			j.ageIntent()
-			j.ok("recover")
-			j.endState(operation, true)
-			j.store.cases++
-
-			for _, elapsed := range []time.Duration{0, 11 * time.Minute} {
-				args := j.seed(operation)
-				j.store.operatorSkew = skew
-				j.store.pauseAt = j.store.writes + 6
-				j.store.pauseStore = elapsed
-				before := j.store.writes
-				out, err := j.run(j.targets, args...)
-				require(err != nil && strings.Contains(out, "dispatch bound elapsed"), "paused writer dispatched: "+out)
-				require(j.store.writes == before+6, "paused writer sent a private request")
-				j.recover()
-				j.endState(operation, true)
+		for _, delay := range []time.Duration{0, 11 * time.Minute, 100 * 365 * 24 * time.Hour} {
+			for _, ordering := range []string{"immediate", "after recover", "after another add", "during another add", "after retire attempt", "after replacement retirement"} {
+				j.failOriginal(operation, "late", 7)
+				j.store.now = j.store.now.Add(delay)
+				id, replacement, next := "ts-auth.sjc.1", "ts-auth.sjc.2", "ts-auth.sjc.2"
+				if operation == "add" {
+					id, replacement, next = "ts-auth.sjc.2", "ts-auth.sjc.1", "ts-auth.sjc.3"
+				}
+				if ordering != "immediate" {
+					out := j.ok("recover")
+					require(strings.Contains(out, "public entry kept; private key not visible"), "add recovery did not describe harmless retained entry: "+out)
+					require(strings.Contains(j.ok("list"), "orphan (no private key visible)"), "orphan label missing")
+					_, err := j.run(j.targets, add(id)...)
+					require(err != nil, "interrupted add sequence reused")
+				}
+				if ordering == "after another add" || ordering == "after replacement retirement" {
+					j.ok(add(next)...)
+					if operation == "add" {
+						j.ok("activate", "--kid", next)
+						replacement = next
+					}
+				}
+				if ordering == "during another add" {
+					j.store.landAt = j.store.writes + 7
+					out, err := j.run(j.targets, add(next)...)
+					require(err != nil && strings.Contains(out, "interrupted"), "stale private writer did not conflict: "+out)
+					j.recover()
+				} else {
+					if ordering == "after retire attempt" || ordering == "after replacement retirement" {
+						before := j.store.writes
+						out, err := j.run(j.targets, "retire", "--kid", id, "--replacement-kid", replacement)
+						if operation == "first" && ordering == "after retire attempt" {
+							require(err != nil && strings.Contains(out, "orphan public entry is harmless") && j.store.writes == before, "retire without current replacement mutated state: "+out)
+						} else {
+							require(err == nil, "positive replacement retirement failed: "+out)
+						}
+					}
+					j.store.Lock()
+					landed := j.store.land()
+					j.store.land = nil
+					j.store.invariant()
+					j.store.Unlock()
+					if ordering == "after another add" || ordering == "after replacement retirement" {
+						require(!landed, "create-once name or conditional version allowed a stale private write")
+					} else {
+						require(landed, "private creation was incorrectly bounded by time")
+					}
+					if operation == "add" && ordering == "after retire attempt" {
+						_, err := j.run(j.targets, "activate", "--kid", id)
+						require(err != nil, "late pending version activated without a public entry")
+						j.ok("retire", "--kid", id)
+					}
+					j.recover()
+				}
+				j.store.invariant()
 				j.store.cases++
 			}
+		}
+	}
+	fmt.Println("unbounded late first creation and pending rotation: immediately, after recover, after/during another add, after retire attempt, after replacement retirement -> invariant holds after every mutation")
+}
 
-			j.failOriginal(operation, "late", 7)
-			j.store.operatorSkew = skew
-			j.waiting()
-			j.store.Lock()
-			require(j.store.land(), "bounded private request failed after operator clock skew")
-			j.store.land = nil
+func (j *journey) safetyNet() {
+	j.failOriginal("first", "before", 7)
+	j.recover()
+	before := j.store.writes
+	out, err := j.run(j.targets, "retire", "--kid", "ts-auth.sjc.1")
+	require(err != nil && strings.Contains(out, "orphan public entry is harmless") && j.store.writes == before, "orphan retirement without secret was allowed: "+out)
+	j.store.cases++
+	j.failOriginal("first", "crash", 1)
+	require(strings.Count(j.ok("list"), "NO REGISTRY") == 2, "absent registries were concealed")
+	j.recover()
+	j.store.cases++
+	for _, intent := range []bool{false, true} {
+		for _, mismatch := range []bool{false, true} {
+			j.reset()
+			j.ok(add("ts-auth.sjc.1")...)
+			if intent {
+				j.store.fail, j.store.mode = j.store.writes+1, "crash"
+				_, err := j.run(j.targets, add("ts-auth.sjc.2")...)
+				require(err != nil, "add intent did not interrupt")
+				j.store.fail = 0
+			}
+			value := j.store.values["fra-1-terrabase-callers"]
+			var registry callerkey.Registry
+			must(json.Unmarshal(value.Current.Content, &registry))
+			if mismatch {
+				private, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+				must(err)
+				registry.Callers[0].JWK.X = base64.RawURLEncoding.EncodeToString(private.X.FillBytes(make([]byte, 32)))
+				registry.Callers[0].JWK.Y = base64.RawURLEncoding.EncodeToString(private.Y.FillBytes(make([]byte, 32)))
+			} else {
+				registry.Callers = slices.DeleteFunc(registry.Callers, func(c callerkey.Caller) bool { return c.Kid == "ts-auth.sjc.1" })
+			}
+			value.Current.Content = encoded(registry)
+			before := j.store.writes
+			out, err := j.run(j.targets, "list")
+			require(err != nil && strings.Contains(out, "current key ts-auth.sjc.1 in region sjc has no public entry in regions fra") && j.store.writes == before, "list did not flag hand-made violation without writes: "+out)
+			out = j.ok("recover")
+			require(strings.Contains(out, "repaired current key ts-auth.sjc.1 in region fra"), "recover did not report repair: "+out)
+			j.converged()
 			j.store.invariant()
-			j.store.Unlock()
-			j.recover()
-			j.endState(operation, true)
-			j.store.cases++
-
-			j.failOriginal(operation, "late", 7)
-			j.store.operatorSkew = skew
-			j.ageIntent()
-			j.ok("recover")
-			j.store.Lock()
-			require(!j.store.land(), "timed-out private request landed after the store settle window")
-			j.store.land = nil
-			j.store.invariant()
-			j.store.Unlock()
-			j.endState(operation, true)
+			j.ok("list")
 			j.store.cases++
 		}
 	}
-	for _, skew := range []time.Duration{-10 * time.Minute, 10 * time.Minute} {
-		j.seed("add")
-		j.store.operatorSkew = skew
-		j.store.listingHidden["sjc-1-ts-auth-terrabase-key"] = true
-		before := j.store.writes
-		out, err := j.run(j.targets, "retire", "--kid", "ts-auth.sjc.1")
-		require(err != nil && strings.Contains(out, "current") && j.store.writes == before, "retire used one absent listing: "+out)
-		j.ageIntent()
-		out, err = j.run(j.targets, "retire", "--kid", "ts-auth.sjc.1")
-		require(err != nil && strings.Contains(out, "current") && j.store.writes == before, "aged listing lag permitted retirement")
-		j.store.invariant()
-		j.store.listingHidden = map[string]bool{}
-		before = j.store.writes
-		out, err = j.run(j.targets, "retire", "--kid", "ts-auth.sjc.1")
-		require(err != nil && strings.Contains(out, "current") && j.store.writes == before, "retire removed a current key after listing recovered")
+	for _, mode := range []string{"before", "uncertain", "crash", "hidden", "late"} {
+		j.reset()
+		j.ok(add("ts-auth.sjc.1")...)
+		value := j.store.values["fra-1-terrabase-callers"]
+		var registry callerkey.Registry
+		must(json.Unmarshal(value.Current.Content, &registry))
+		registry.Callers = []callerkey.Caller{}
+		value.Current.Content = encoded(registry)
+		j.store.fail, j.store.mode = j.store.writes+1, mode
+		out, err := j.run(j.targets, "recover")
+		require(err != nil, "repair write did not interrupt: "+out)
+		j.store.fail = 0
+		j.store.hidden = map[string]bool{}
+		if mode == "late" {
+			j.recover()
+			j.store.Lock()
+			require(!j.store.land(), "late repair overwrote a newer registry version")
+			j.store.land = nil
+			j.store.Unlock()
+		}
+		j.recover()
 		j.store.invariant()
 		j.store.cases++
 	}
-	j.failOriginal("first", "before", 7)
-	j.recover()
-	c := makeOrphan()
-	for _, v := range j.store.values {
-		var r callerkey.Registry
-		must(json.Unmarshal(v.Current.Content, &r))
-		r.Callers = append(r.Callers, c)
-		v.Current.Content = encoded(r)
-		j.store.invariant()
+	for _, operation := range []string{"cancel", "activate"} {
+		j.failOriginal(operation, "crash", 3)
+		if operation == "activate" {
+			j.expire("ts-auth.sjc.2")
+		}
+		private := j.store.values["sjc-1-ts-auth-terrabase-key"]
+		versions, pending, deleting, times := private.Versions, private.Pending, private.Deleting, private.DeletionTimes
+		private.Versions, private.Pending, private.Deleting, private.DeletionTimes = versions[:1], pending[:1], deleting[:1], times[:1]
+		before := j.store.writes
+		out, err := j.run(j.targets, "recover")
+		require(err != nil && (strings.Contains(out, "version missing") || strings.Contains(out, "version not visible")) && j.store.writes == before, "missing cancellation evidence allowed mutations: "+out)
+		private.Versions, private.Pending, private.Deleting, private.DeletionTimes = versions, pending, deleting, times
+		j.recover()
+		j.store.cases++
 	}
-	out, err := j.run(j.targets, "retire", "--kid", "ts-auth.sjc.2")
-	require(err != nil && strings.Contains(out, "waiting until "), "orphan retire did not persist a waiting intent")
-	j.ageIntent()
-	j.ok("retire", "--kid", "ts-auth.sjc.2")
-	j.converged()
-	j.store.cases++
-	j.failOriginal("first", "crash", 1)
-	out = j.ok("list")
-	require(strings.Count(out, "NO REGISTRY") == 2, "list concealed absent regional registries")
-	j.recover()
+	j.failOriginal("activate", "crash", 4)
+	j.expire("ts-auth.sjc.2")
+	require(strings.Contains(j.ok("recover"), "current key expired"), "already promoted expired recovery did not report expiry")
 	j.store.cases++
 	j.seed("cancel")
+	require(strings.Contains(j.ok("list"), "expired; can only be cancelled"), "expired pending status missing")
 	j.store.hideAfterStage = true
 	out, err = j.run(j.targets, "retire", "--kid", "ts-auth.sjc.2")
-	require(err != nil && strings.Contains(out, "interrupted") && !strings.Contains(out, "waiting"), "post-write failure reported waiting: "+out)
+	require(err != nil && strings.Contains(out, "interrupted") && !strings.Contains(out, "waiting"), "post-write interruption outcome missing: "+out)
 	j.store.hidden = map[string]bool{}
 	j.recover()
+	j.endState("cancel", true)
 	j.store.cases++
-	fmt.Println("independent operator/store/writer clocks; aged-intent dispatch refusal; timed-out late private writes; lagging retire listings; orphan retire; absent registries; post-write errors -> passed")
-}
-
-func makeOrphan() callerkey.Caller {
-	private, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	must(err)
-	encode := func(n *big.Int) string { return base64.RawURLEncoding.EncodeToString(n.FillBytes(make([]byte, 32))) }
-	return callerkey.Caller{Kid: "ts-auth.sjc.2", Caller: "ts-auth", Kind: "service", JWK: callerkey.JWK{Kty: "EC", Crv: "P-256", X: encode(private.X), Y: encode(private.Y)}, Grants: []string{"data:00000000000000000000000002", "closure"}, NotAfter: time.Now().Add(90 * 24 * time.Hour)}
+	fmt.Println("no-secret retirement refusal; current-key missing/mismatched public detection and repair with/without intent; expired-current output; cancellation readback interruption -> passed")
 }
 
 func (j *journey) expiredRecovery() {
-	for _, skew := range []time.Duration{61 * 24 * time.Hour, 91 * 24 * time.Hour} {
+	for _, lifetime := range []time.Duration{24 * time.Hour, -time.Hour} {
 		j.failOriginal("activate", "crash", 3)
-		j.store.operatorSkew = skew
+		j.setExpiry("ts-auth.sjc.2", time.Now().Add(lifetime))
 		start := j.store.writes
 		out := j.ok("recover")
 		require(strings.Contains(out, "activation no longer valid; cancelled pending key") && strings.Contains(out, "deletion scheduled"), "recovery promoted invalid pending key: "+out)
@@ -770,7 +722,7 @@ func (j *journey) expiredRecovery() {
 		for _, mode := range []string{"before", "uncertain", "crash", "hidden", "late"} {
 			for n := 1; n <= count; n++ {
 				j.failOriginal("activate", "crash", 3)
-				j.store.operatorSkew = skew
+				j.setExpiry("ts-auth.sjc.2", time.Now().Add(lifetime))
 				j.store.fail, j.store.mode = j.store.writes+n, mode
 				_, err := j.run(j.targets, "recover")
 				require(err != nil, "invalid activation recovery did not interrupt")
@@ -845,8 +797,8 @@ func main() {
 	binary := filepath.Join(root, "ts-orch")
 	adapter := filepath.Join(repo, "test/e2e/m1/callerkey/store.go.txt")
 	overlay := filepath.Join(root, "overlay.json")
-	must(os.WriteFile(overlay, encoded(map[string]any{"Replace": map[string]string{filepath.Join(repo, "internal/callerkey/vault.go"): adapter, filepath.Join(repo, "internal/callerkey/clock.go"): filepath.Join(repo, "test/e2e/m1/callerkey/clock.go.txt")}}), 0600))
-	build := exec.Command("nice", "-n", "19", "go", "build", "-overlay", overlay, "-trimpath", "-o", binary, "./cmd/terrascale-orchestrator")
+	must(os.WriteFile(overlay, encoded(map[string]any{"Replace": map[string]string{filepath.Join(repo, "internal/callerkey/vault.go"): adapter}}), 0600))
+	build := exec.Command("nice", "-n", "19", "go", "build", "-p", "2", "-overlay", overlay, "-trimpath", "-o", binary, "./cmd/terrascale-orchestrator")
 	output, err := build.CombinedOutput()
 	require(err == nil, fmt.Sprintf("binary build: %v %s", err, output))
 	targets := []callerkey.Target{}
@@ -861,8 +813,8 @@ func main() {
 	slices.Reverse(targets)
 	must(os.WriteFile(j.reverse, encoded(targets), 0600))
 	j.failures()
-	j.sequences()
-	j.fences()
+	j.lateCreations()
+	j.safetyNet()
 	j.expiredRecovery()
 	j.concurrent(false)
 	j.concurrent(true)
@@ -890,8 +842,10 @@ func main() {
 	}
 	require(strings.Contains(j.ok("list"), "expired"), "expired status absent")
 	require(strings.Contains(j.ok("list"), "expires within 30 days"), "expiry warning absent")
-	j.ok("retire", "--kid", "agent.deploy.1")
-	j.ok("retire", "--kid", "op.admin.1")
+	for _, id := range []string{"agent.deploy.1", "op.admin.1"} {
+		_, err := j.run(j.targets, "retire", "--kid", id)
+		require(err != nil, "unmanaged retirement accepted without positive evidence")
+	}
 	j.ok(add("edge.gru.2")...)
 	j.ok("activate", "--kid", "edge.gru.2")
 	j.ok("retire", "--kid", "edge.gru.1", "--replacement-kid", "edge.gru.2")
@@ -921,7 +875,7 @@ func main() {
 		j.ok("retire", "--kid", "ts-auth.sjc."+strconv.Itoa(n-1), "--replacement-kid", id)
 		require(j.converged() == start, "retired history grows document")
 	}
-	fmt.Println("near-expiry rotation, expired operator/agent retirement, 50 rotations -> flat", start, "byte registries")
+	fmt.Println("near-expiry rotation, unmanaged retirement refusal, 50 rotations -> flat", start, "byte registries")
 	_, err = j.run(j.targets, add("ts-auth.sjc.59")...)
 	require(err != nil, "sequence reuse accepted")
 	fmt.Println("caller-key real CLI subprocess journey -> passed;", s.cases, "fault cases")

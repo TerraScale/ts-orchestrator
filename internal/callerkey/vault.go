@@ -41,11 +41,7 @@ func (vaultStore) Read(ctx context.Context, t Target, name string) (Snapshot, er
 	if err != nil {
 		return Snapshot{}, err
 	}
-	version, err := client.GetSecretVersion(ociclient.RequestContext(ctx), ocivault.GetSecretVersionRequest{SecretId: new(current.ID), SecretVersionNumber: new(current.Version)})
-	if err != nil || version.TimeCreated == nil || version.TimeCreated.IsZero() || version.SecretId == nil || *version.SecretId != current.ID || version.VersionNumber == nil || *version.VersionNumber != current.Version {
-		return Snapshot{}, errors.New("registry version creation metadata unavailable")
-	}
-	return Snapshot{ID: current.ID, Version: current.Version, Created: version.TimeCreated.Time, Value: []byte(current.Value())}, nil
+	return Snapshot{ID: current.ID, Version: current.Version, Value: []byte(current.Value())}, nil
 }
 
 func (vaultStore) Write(ctx context.Context, t Target, name string, previous Snapshot, value []byte) error {
@@ -67,7 +63,7 @@ func (vaultStore) Write(ctx context.Context, t Target, name string, previous Sna
 	if err != nil {
 		return errors.New("caller-key Vault bundle client unavailable")
 	}
-	_, err = vaultsecret.Put(ctx, fencedCreate{client}, bundles, vaultsecret.Target{VaultID: t.Vault, KeyID: t.Key, CompartmentID: t.Compartment}, name, value)
+	_, err = vaultsecret.Put(ctx, client, bundles, vaultsecret.Target{VaultID: t.Vault, KeyID: t.Key, CompartmentID: t.Compartment}, name, value)
 	return err
 }
 
@@ -116,11 +112,11 @@ func (vaultStore) Private(ctx context.Context, t Target, name string) (PrivateSt
 		return PrivateState{}, err
 	}
 	ctx = ociclient.RequestContext(ctx)
-	if _, err := vaultsecret.ReadBack(ctx, bundles, t.Vault, name, true); err != nil {
-		return PrivateState{}, err
-	}
 	current, err := vaultsecret.ReadCurrent(ctx, bundles, vaultsecret.Ref{Vault: t.Vault, Name: name})
 	if err != nil {
+		if vaultsecret.Absent(err) {
+			return PrivateState{}, nil
+		}
 		return PrivateState{}, err
 	}
 	state := PrivateState{Scheduled: map[int64]time.Time{}, Current: Snapshot{ID: current.ID, Version: current.Version, Value: []byte(current.Value())}}
@@ -188,9 +184,6 @@ func (s vaultStore) Stage(ctx context.Context, t Target, name string, before Pri
 		return errors.New("pending publication requires an existing current secret")
 	}
 	content := base64.StdEncoding.EncodeToString(value)
-	if err := checkDispatch(ctx); err != nil {
-		return err
-	}
 	_, err = client.UpdateSecret(ociclient.RequestContext(ctx), ocivault.UpdateSecretRequest{
 		SecretId: new(before.Current.ID), IfMatch: new(before.Etag),
 		UpdateSecretDetails: ocivault.UpdateSecretDetails{SecretContent: ocivault.Base64SecretContentDetails{Content: new(content), Name: new(versionName), Stage: ocivault.SecretContentDetailsStagePending}},
@@ -229,9 +222,6 @@ func (s vaultStore) Activate(ctx context.Context, t Target, name string, before 
 	if before.Etag == "" || len(expected) == 0 {
 		return errors.New("activation requires a pending version and conditional metadata")
 	}
-	if err := checkDispatch(ctx); err != nil {
-		return err
-	}
 	_, err = client.UpdateSecret(ociclient.RequestContext(ctx), ocivault.UpdateSecretRequest{
 		SecretId: new(before.Current.ID), IfMatch: new(before.Etag),
 		UpdateSecretDetails: ocivault.UpdateSecretDetails{CurrentVersionNumber: new(version)},
@@ -251,70 +241,22 @@ func (s vaultStore) Activate(ctx context.Context, t Target, name string, before 
 }
 
 func managementID(ctx context.Context, client ocivault.VaultsClient, t Target, name string) (string, error) {
-	id, _, err := managementLookup(ctx, client, t, name)
-	return id, err
-}
-
-func managementLookup(ctx context.Context, client ocivault.VaultsClient, t Target, name string) (string, time.Time, error) {
 	request := ocivault.ListSecretsRequest{CompartmentId: new(t.Compartment), VaultId: new(t.Vault), Name: new(name)}
 	id := ""
-	var now time.Time
 	for {
 		response, err := client.ListSecrets(ociclient.RequestContext(ctx), request)
 		if err != nil {
-			return "", time.Time{}, errors.New("caller-key management metadata unavailable")
-		}
-		now, err = storeTime(response.RawResponse)
-		if err != nil {
-			return "", time.Time{}, err
+			return "", errors.New("caller-key management metadata unavailable")
 		}
 		for _, item := range response.Items {
 			if item.SecretName == nil || *item.SecretName != name || item.VaultId == nil || *item.VaultId != t.Vault || item.Id == nil || *item.Id == "" || id != "" {
-				return "", time.Time{}, errors.New("caller-key management metadata invalid or ambiguous")
+				return "", errors.New("caller-key management metadata invalid or ambiguous")
 			}
 			id = *item.Id
 		}
 		request.Page = response.OpcNextPage
 		if request.Page == nil || *request.Page == "" {
-			return id, now, nil
-		}
-	}
-}
-
-func (vaultStore) Metadata(ctx context.Context, t Target, name string, version int64, versionName string) (PrivateMetadata, error) {
-	client, _, err := vaultClients(t)
-	if err != nil {
-		return PrivateMetadata{}, err
-	}
-	id, now, err := managementLookup(ctx, client, t, name)
-	if err != nil || id == "" {
-		return PrivateMetadata{StoreNow: now}, err
-	}
-	result := PrivateMetadata{StoreNow: now, Secret: true, Version: version == 0 && versionName == ""}
-	if result.Version {
-		return result, nil
-	}
-	var page *string
-	for {
-		response, err := client.ListSecretVersions(ociclient.RequestContext(ctx), ocivault.ListSecretVersionsRequest{SecretId: new(id), Page: page})
-		if err != nil {
-			return PrivateMetadata{}, errors.New("caller-key version management metadata unavailable")
-		}
-		result.StoreNow, err = storeTime(response.RawResponse)
-		if err != nil {
-			return PrivateMetadata{}, err
-		}
-		for _, v := range response.Items {
-			if v.VersionNumber == nil || v.SecretId == nil || *v.SecretId != id {
-				return PrivateMetadata{}, errors.New("caller-key version management metadata invalid")
-			}
-			if version > 0 && *v.VersionNumber == version || versionName != "" && v.Name != nil && *v.Name == versionName {
-				result.Version = true
-			}
-		}
-		page = response.OpcNextPage
-		if page == nil || *page == "" {
-			return result, nil
+			return id, nil
 		}
 	}
 }
@@ -360,9 +302,6 @@ func (s vaultStore) Discard(ctx context.Context, t Target, name string, before P
 			return time.Time{}, err
 		}
 		deletion := common.SDKTime{Time: now.Add(deletionGrace)}
-		if err := checkDispatch(ctx); err != nil {
-			return time.Time{}, err
-		}
 		_, err = client.ScheduleSecretVersionDeletion(ociclient.RequestContext(ctx), ocivault.ScheduleSecretVersionDeletionRequest{
 			SecretId: new(before.Current.ID), SecretVersionNumber: new(version), IfMatch: v.Etag,
 			ScheduleSecretVersionDeletionDetails: ocivault.ScheduleSecretVersionDeletionDetails{TimeOfDeletion: &deletion},
@@ -395,15 +334,4 @@ func storeTime(response *http.Response) (time.Time, error) {
 		return time.Time{}, errors.New("store response has no valid Date header")
 	}
 	return now, nil
-}
-
-type fencedCreate struct{ ocivault.VaultsClient }
-
-func (client fencedCreate) CreateSecret(ctx context.Context, request ocivault.CreateSecretRequest) (ocivault.CreateSecretResponse, error) {
-	if strings.HasSuffix(*request.SecretName, "-terrabase-key") {
-		if err := checkDispatch(ctx); err != nil {
-			return ocivault.CreateSecretResponse{}, err
-		}
-	}
-	return client.VaultsClient.CreateSecret(ociclient.RequestContext(ctx), request)
 }

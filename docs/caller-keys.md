@@ -2,11 +2,15 @@
 
 `ts-orch caller-key add|activate|retire|recover|list` manages regional ES256 service
 identities with operator OCI credentials. It does not restart services.
-Output contains secret names, key ids, current/pending stages and expiry times.
+Output contains secret names, key ids, stages, expiry times and deletion schedules;
+private key material stays in memory and the secret store.
 
-Regions come from the authenticated, signed foundation footprint, using the
-same OCI discovery as other operator commands. Supply an operational JSON file
-to `--targets` containing exactly one entry per discovered region:
+Never remove a public entry because a secret or version is absent from a read or listing.
+Remove an entry only with positive evidence of a different named current key, its matching public entry everywhere, and cancellation of any pending version being removed.
+Orphans are harmless public keys with no visible private key and are labelled as such.
+
+Regions come from the authenticated, signed foundation footprint. Supply a JSON
+file to `--targets` containing exactly one entry per discovered region:
 
 ```json
 [
@@ -19,8 +23,7 @@ to `--targets` containing exactly one entry per discovered region:
 ]
 ```
 
-The example shows one entry; include every deployed region. Targets must use each
-cell's regional Vault and encryption key. There is no `--regions` option.
+Include every deployed region using its regional Vault and encryption key.
 
 | Caller | Key id | Private secret |
 | --- | --- | --- |
@@ -28,44 +31,32 @@ cell's regional Vault and encryption key. There is no `--regions` option.
 | dashboard | `dashboard.CELL.N` | `CELL-1-ts-dashboard-terrabase-key` |
 | edge | `edge.CELL.N` | `CELL-1-orch-terrabase-key` |
 
-The private secret is a P-256 JWK with kid, kty, crv, x, y, d.
+The private secret is a P-256 JWK with `kid`, `kty`, `crv`, `x`, `y`, `d` and
+`metadata` holding the caller, grants, expiry and public entry. Public registry
+entries contain `kid`, `caller`, `kind`, `jwk` (without `d`), `grants` and
+`notAfter`, inside `{ "version": 1, "callers": [...], "highWater": {...}, "intent": {...} }`.
+The optional high-water map records the highest sequence used per caller and
+originating cell. The optional intent contains the operation id, key id, caller,
+cell, replacement and private version identity; an add also carries its public
+entry so recovery can finish publication even after the first intent write.
+The database verifier ignores these registry bookkeeping fields.
 
-Public registry entries contain `kid`, `caller`, `kind`, `jwk` (without `d`),
-`grants`, and `notAfter`, inside
-`{ "version": 1, "callers": [...], "highWater": {...}, "intent": {...} }`.
-The optional high-water map retains only the highest sequence used for each
-caller and originating cell; the optional intent records the operation, key id,
-caller, cell, operation id, dispatch bound and private version identity. The database
-verifier ignores these extra fields. Operator entries retain `op:<name>` and agent entries retain
-`agent:<name>` as their caller names.
+## Add and rotate
 
-For a service's first key in a region:
-
-1. Run `add` to publish the public entry to every region and create the service's
-   private secret with that key as its current version.
-2. Run `list` and confirm the registry is present in every region before pointing
-   any database at it, then roll TerraBase in every region to load it. A first
-   add interrupted during initial publication can leave regions with no registry;
-   `list` explicitly prints `NO REGISTRY` for each missing region.
-3. Ship the service spec reference to the private secret, then roll the service.
+For a first key, `add` publishes the public entry in every region before creating
+the private secret with that key as CURRENT. Run `list`, roll TerraBase everywhere
+to load the public registry, then ship the service spec reference and roll the
+service. `list` prints `NO REGISTRY` for each region without a registry.
 
 ```sh
 ts-orch caller-key add --targets /secure/caller-targets.json --service dashboard --region sjc --kid dashboard.sjc.1 --not-after 2027-11-12T00:00:00Z
 ts-orch caller-key list --targets /secure/caller-targets.json
 ```
 
-Before the spec reference ships, nothing reads the first private secret.
-`list` shows the first key as current; activating it reports `already current`.
-
-For every rotation of an existing secret:
-
-1. Run `add` with a fresh, larger sequence. It publishes every public registry,
-   then appends a pending private version while preserving the current version.
-2. Roll TerraBase in every region to load both public keys.
-3. Run `activate --kid NEW` to promote the pending private version. It requires
-   the key id in every region and a matching pending private version.
-4. Roll the service to load the current key. After the old key's use has ceased,
-   retire it with `--replacement-kid NEW`, then roll TerraBase again.
+For a rotation, `add` publishes the new public entry everywhere and appends a
+PENDING private version, preserving CURRENT. Roll TerraBase everywhere, activate
+the pending key, then roll the service. After the old key is no longer in use,
+retire it with the current replacement and roll TerraBase again:
 
 ```sh
 ts-orch caller-key add --targets /secure/caller-targets.json --service dashboard --region sjc --kid dashboard.sjc.2 --not-after 2027-11-12T00:00:00Z
@@ -73,163 +64,136 @@ ts-orch caller-key activate --targets /secure/caller-targets.json --kid dashboar
 ts-orch caller-key retire --targets /secure/caller-targets.json --kid dashboard.sjc.1 --replacement-kid dashboard.sjc.2
 ```
 
-Only one pending rotation may be staged at a time. The operator completes the
-database rollout before activation; the command checks registry publication,
-not which registry each running database has loaded.
+New keys require more than 30 days of lifetime. Only one pending rotation may
+exist at a time. Activation requires matching private contents and the same
+public key in every registry, with more than 30 days remaining. The operator
+completes the database rollout before activation; the command checks publication,
+not what each running database has loaded. Activating an already-current key
+reports `already current`.
 
-New keys require more than 30 days of lifetime. Both `add` and `activate`
-warn about expired entries and entries expiring within 30 days; activation refuses
-a pending key with 30 days or less remaining. Recovery applies the same minimum
-remaining lifetime immediately before promotion; an interrupted activation that
-no longer qualifies becomes a recoverable cancellation and reports that outcome.
-`list` shows each public entry's `notAfter` and expiry status.
+## Retire and cancel
 
-`retire` refuses a service's current private key. For a pending key that has
-never been activated, it cancels the rotation, including a pending key with 30 days or less remaining. Recovery applies the same minimum
-remaining lifetime immediately before promotion; an interrupted activation that
-no longer qualifies becomes a recoverable cancellation and reports that outcome.
-`list` shows its pending stage, expiry and when it can only be cancelled.
-Cancellation conditionally supersedes the pending version with a copy of the
-current key, verifies that the cancelled version is deprecated, and schedules
-its deletion with an explicit seven-day grace period before removing its public
-entry. It reads the scheduled timestamp back and prints `deletion scheduled TIME`.
-During that period, cancel the deletion using
-`oci vault secret-version cancel-deletion --secret-id SECRET_OCID --secret-version-number N`.
-This restores a deprecated version, not a pending or current signing key; its
-removed public entry stays removed. Use a new numbered add for another rotation. The current signing key stays
-current. Activation requires the public entry in every region and a matching
-usable pending version, so a cancelled key cannot be activated. Cancellation
-consumes its sequence and permits a new `add` with a higher sequence.
+Retirement requires readable private contents and coherent version metadata:
+the service has a CURRENT key with a different id, `--replacement-kid` names that
+same service and region's current key, its matching public key is listed in every
+region, and the removed id is not pending. These checks run again before each
+public removal write. Empty listings never authorize removal. Without a current
+secret, retirement refuses: the orphan is harmless and can be retired after
+another key becomes current. Operator and agent keys have no managed regional
+private secret from which to establish this evidence, so this command refuses
+their retirement too.
 
-Retiring any
-public key for a service that has a private secret requires `--replacement-kid` naming the same
-service and region's current key, listed in every region. After all use of an
-operator or agent key has ceased, retire it with `--kid op.NAME.N` or
-`--kid agent.NAME.N`; a replacement argument is unnecessary. If management metadata says a service has no private secret, retirement first
-records its intent and uses the same settled absence decision as recovery. It
-exits non-zero with `waiting until TIME` until that decision is safe; `recover`
-or repeating the same `retire` then completes the orphan removal. An empty
-listing by itself never permits retirement. Operator and agent entries have no
-private half managed by this command and can be retired directly.
-Historical private versions are preserved.
+For a pending key, `retire --kid KEY` performs cancellation first, including for
+expired keys. It conditionally stages a copy of CURRENT to supersede the named
+pending version, verifies that version is deprecated, schedules deletion with a
+seven-day grace period, and reads back the schedule before removing its public
+entry. It reports `deletion scheduled TIME`. A missing cancellation version is
+an error, never permission to remove. Cancellation can also clean up a late
+pending version whose public entry was previously retired with a replacement.
 
-Sequences must exceed the caller and cell's high-water mark and every listed
-and stored private key id for that service and region. The map size depends on
-the number of callers and cells, rather than the number of rotations.
+A cancelled version's deletion can be cancelled through the store's version API
+during the grace period; it remains deprecated. Activation requires a matching
+pending version and its public entry everywhere. Use a fresh numbered add for
+another rotation. Historical private versions stay stored; cancellation schedules
+only the identified unactivated version for deletion.
 
-Every change first conditionally records its intent in every region, always
-visiting regions in sorted cell order. Another changing command encountering an
-intent stops and names the operation id. After all public and private writes
-complete, the command clears the intents in the same sorted order. Every
-changing command reads all regions and stops if any still carries an intent. Private staging and activation also condition on the private
-secret's metadata ETag and verify readback.
+Sequences must exceed the high-water mark and every listed and stored id for
+that caller and region. Interrupted adds consume their ids, including those
+whose private creation never becomes visible. Registry size depends on retained
+public keys and caller/cell high-water marks; unused orphan entries can remain
+indefinitely until a current replacement makes retirement safe.
 
-After a command stops or crashes, stop any remaining process for that operation
-before recovery. Do not run recovery alongside an operator command that is
-still executing. Run:
+## Recover and inspect
+
+Every change conditionally records its intent in every region in sorted cell
+order. Other changes stop on an outstanding intent. Registry writes compare the
+previous version; private writes compare metadata ETags. Stop any remaining
+operator process before recovery; do not run recovery alongside a live command.
+Store requests retain ordinary request timeouts. No timeout, elapsed age or
+agreement between empty listings proves that an accepted creation cannot land.
 
 ```sh
 ts-orch caller-key recover --targets /secure/caller-targets.json
 ts-orch caller-key list --targets /secure/caller-targets.json
 ```
 
-Recovery has three outcomes for the recorded operation id:
+Recovery outcomes:
 
-- **Finished forward:** management metadata confirms the secret or rotation
-  version exists, even while it is being created. Recovery waits for readable
-  contents using the store readback path, then keeps the added public entry,
-  finishes activation, retirement or pending cancellation as recorded.
-- **Finished backward:** an add's private half is authoritatively absent.
-  Recovery removes its public entry, consumes its sequence and clears the intent
-  only after the store reports an age greater than 10 minutes and two fresh
-  management metadata reads agree that the secret or version is absent, with
-  the second read after the window.
-- **Waiting:** metadata is unavailable, absence is not settled, or an existing
-  private version is not readable yet. Recovery changes nothing, retains the
-  intent and exits non-zero with `waiting until TIME`, naming what must settle. Re-running recovery is safe.
+- An interrupted add always finishes forward: restore its public entry everywhere,
+  consume its sequence and clear the intent. If readable, report `current` or
+  `pending`. Otherwise report `public entry kept; private key not visible: run add
+  again for a new key, or wait: this entry is harmless and can be retired once
+  another key is current`. Recovery never recreates a lost private half.
+- Activation finishes forward if already current or still eligible. An expired
+  or short-lived pending key becomes cancellation, using the same positive
+  evidence and deletion readback. An already-promoted expired key reports
+  `current key expired`.
+- Retirement and cancellation finish only with positive evidence. Missing,
+  unreadable or inconsistent private state stops recovery and preserves remaining
+  public entries. If a write interrupts completion, the error says
+  `interrupted: run recover`; there is no timed waiting outcome.
+- With no intent, report `no operation in progress` and inspect current keys.
+  The only automatic write without an intent repairs a current key's missing or
+  mismatched public entry, using the public half derived in memory from its
+  private scalar and the caller metadata stored with that key. Each repaired
+  region is reported. Recovery also performs this inspection with an intent.
 
-After any recovery write, a subsequent failure instead reports `interrupted`
-and instructs the operator to run recovery again.
+`list` labels public entries `current`, `pending`, `orphan (no private key visible)`
+or `retained` for visible historical versions, together with their expiry status.
+Expired pending keys say `can only be cancelled`. For every service with a secret,
+it checks that its CURRENT id has the same public key in every region. It exits
+non-zero and prints one loud line per violation:
+`current key KEY in region CELL has no public entry in regions CELLS`.
+A mismatched public key is also a violation. `list` makes no writes.
 
-The intent carries a two-minute private dispatch bound. Each running command
-measures elapsed time with its monotonic clock. Its fence starts no later than
-acknowledgement of its first intent write: conservatively, it retains the
-monotonic timestamp taken immediately before that request, so delayed
-acknowledgements and scheduling cannot extend the bound. Immediately before
-every private mutation, including each wire attempt, elapsed time must remain
-below two minutes. Otherwise it refuses dispatch and asks for recovery. Each
-private operation has a 60-second request timeout, including readback. Recovery
-gets a new bound only after recording its own intent writes.
+A first creation may land arbitrarily late after an interrupted command: its
+public entry stays present, so becoming CURRENT is safe. A subsequent add uses
+a new id: if the first creation already landed it stages a rotation; otherwise
+it attempts a create-once name. If competing creations overlap, that name admits
+only one CURRENT secret and both possible keys already have public entries.
+A late rotation remains PENDING; retirement of its public entry requires a
+published current replacement. Without its public entry activation refuses,
+and cancellation can clean up that pending version.
 
-Absence decisions never consult workstation wall time. The registry snapshot's
-creation time is `GetSecretVersion.SecretVersion.timeCreated` for the exact
-registry version that carries the intent. If several regions carry an intent,
-the newest such timestamp is used. Store time now is the HTTP `Date` header of
-the fresh management metadata response made by this command:
-`ListSecretsResponse.RawResponse.Header["Date"]`, or the last
-`ListSecretVersionsResponse.RawResponse.Header["Date"]` when checking a named
-version. Listing reads consume all pages and lifecycle states. Missing/invalid
-timestamps, backwards store time, differing reads or unavailable metadata retain
-the intent. The threshold is two minutes of dispatch allowance plus 60 seconds
-of request lifetime plus a seven-minute margin: ten minutes total. Operator
-clock skew of either sign cannot age an intent; operator wall time is used for
-key lifetime validation and display only.
+## Adapter contracts and disposable-store rehearsal
 
-All removals that rely on absence use the same metadata-based private-half decision.
-Retirement also attempts a current-content read when a listing omits the secret;
-readable current contents override that negative listing.
-Retirement with an existing private secret instead reads a different, named
-current replacement and requires its public entry in every region. A contents
-read returning not-found never authorizes removal of a public key. Recovery
-never promotes a key without its public entry in every region.
+Rehearse an adapter on a disposable store before using it with real identities.
+These contracts remain necessary; there is no late-write completion bound or
+shared-clock requirement:
 
-Recovery clears the intent last. It can itself be interrupted and run again;
-running it with no intent reports that no operation is in progress. Complete
-the same database and service rollouts described above after recovery.
-
-After a failed add, run `recover`, then add again with the next sequence. This
-also covers a final public write whose response was interrupted after the store
-accepted it: when no private version was stored, recovery removes the public
-entry and consumes its sequence. If recovery finds the private version, complete
-its first-key or rotation procedure before adding another key.
-
-The e2e lane substitutes only the store adapter and clocks at build time.
-It checks the current-private/public-registry invariant after each mutation,
-including interrupted recovery, independently advanced clocks, delayed dispatch,
-listing lag and cancellation of expired activations. It cannot prove the
-following provider contracts.
-
-| Adapter contract | Enforcement and limit if the store differs |
+| Contract | Readback and limits |
 | --- | --- |
-| Listings include all lifecycle states and all pages | Management reads consume every page without a lifecycle filter and reject ambiguous identities. Omitted items/pages are not detectable from an otherwise valid response; two agreeing reads are insufficient if listings remain incomplete beyond the settling bound. |
-| Late writes settle within the fence | Monotonic dispatch checks and the 60-second request deadline bound the writer; store age plus the margin delays absence rollback. The provider must settle accepted requests and listing visibility within that total, and its Date/timeCreated clocks must agree. Completion or listing lag beyond it is not detectable in advance; do not use this adapter if rehearsal violates the bound. |
-| Names are unique and create-once | Creation looks up the regional name and reads the exact value back. Duplicate IDs or mismatched contents stop the operation. A provider allowing an omitted duplicate name is not fully detectable by readback. |
-| Conditional writes fence every transition | Registry writes compare the previously read current version and metadata ETag; staging, promotion and cancellation use conditional metadata. Registry/current/version readbacks reject divergence. A provider ignoring conditions can race between checks; readback detects many failures only after mutation and cannot restore the invariant. |
-| Version inventories are coherent | Private reads compare metadata ETags before/after all version pages, require the current bundle in the inventory and validate its contents/stage. Missing non-current versions under an unchanged ETag are not detectable. |
-| Pending publication preserves current | Stage reads back the same current version/content and the requested pending content. A changed current stops with an interrupted operation; detection occurs after mutation. |
-| Promotion selects exactly the requested version | Activation reads back the exact requested version and content. A different selection stops; readback cannot undo a provider-side unsafe promotion. |
-| Deletion honours the version condition and preserves current | Cancellation first supersedes pending, requires deprecated/non-current/non-pending version metadata, uses that version's ETag, supplies seven days explicitly, reads the deletion timestamp back and verifies unchanged current with the cancelled version excluded. Ignored conditions or an unsafe concurrent promotion can be detected only after mutation. |
+| Create-once regional secret names | The store rejects a duplicate name rather than overwriting CURRENT. Private reads bind the named secret, CURRENT contents, id and version metadata; registry readback checks the exact published document. Conflicting first creations must leave one secret, never replace its contents. |
+| Conditional writes | Registry publication checks the previously read version and metadata ETag; staging and promotion condition on the private ETag, deletion on the version ETag. Readback detects changed contents or inventory. A provider ignoring these conditions can race between reads and mutations and is unsupported. |
+| Version stages and coherent contents | CURRENT and every usable version are read with their metadata; CURRENT must agree with its version bundle, and metadata ETags must agree before and after inventory. Scheduled versions must be deprecated, never CURRENT or PENDING. Readback rejects missing or inconsistent inventory. |
+| Promotion | Updating the current version must promote exactly the identified pending contents without changing those contents. CURRENT readback rejects a different version or value. |
+| Pending supersession and deletion | Staging the current contents must leave CURRENT unchanged and supersede the old pending version. Deletion requires deprecated, non-current, non-pending metadata, then an exact schedule readback and coherent inventory. A missing schedule or still-usable version blocks public removal. The provider must honor the seven-day deletion grace. |
 
-Before the first real key, rehearse against a disposable store with the real
-adapter and disposable targets. Keep all key material in the store and record
-only ids, stages, metadata and timestamps:
+On a disposable store with subprocess termination and deferred request delivery:
 
-1. Interrupt a first add and a rotation add at publication/private boundaries;
-   recover both forward (private accepted) and backward (no private accepted),
-   including the store-aged absence window.
-2. Accept a private creation but lose its response; delay contents and listing
-   visibility independently, skew operator time by plus/minus ten minutes, and
-   verify recovery retains all public entries until existence is resolved.
-3. Add a pending rotation, cancel it, verify current is unchanged and the
-   explicit deletion timestamp is seven days away, then cancel that scheduled
-   deletion within its grace period and verify the version remains deprecated.
-4. Add, activate and retire with a named current replacement present in every
-   registry; verify the selected private versions and every public registry.
-5. Attempt to retire the current key, including while listing visibility lags
-   behind readable contents; verify no public entry is removed.
-6. Interrupt cancellation before/after superseding pending and scheduling
-   deletion while a competing activation attempts to proceed. Verify its
-   conditions fail, current remains published everywhere, and recovery finishes.
-
-If any undetectable contract fails rehearsal, keep databases and services
-unreferenced and fix the adapter/provider contract before using it for real keys.
+1. Interrupt a first add at every write boundary and recover. Its public entry
+   appears everywhere and its sequence stays consumed, even with no private key.
+2. Deliver an accepted first creation at an arbitrary later time: immediately,
+   after recovery, during or after another add, and after a retire attempt. Assert
+   after every mutation that any CURRENT key has its matching public entry in
+   every region. A no-secret retire attempt must refuse without writes. Competing
+   creates must honor create-once names; a key becoming current must stay published.
+3. Add again with the next id. If a secret exists, confirm this is a rotation;
+   otherwise create a new first key. Rotate, verify CURRENT stays unchanged until
+   activation, then promote and verify exact CURRENT contents.
+4. Cancel a pending key, including an expired one and a late pending version
+   without a public entry. Check supersession, deprecation, deletion schedule and
+   the unchanged current replacement. Refuse activation without publication.
+5. Retire with a different published current replacement. Refuse without that
+   replacement, without a secret, or while the removed version is still pending.
+6. Interrupt add, activate, retire, cancel and recovery at every write boundary,
+   including uncertain responses, unreadable accepted writes and arbitrarily late
+   requests. Recover twice and assert convergence, consumed sequences and no key
+   material in output. Exercise concurrent commands with opposite target orders.
+7. Remove a CURRENT public entry behind the tool's back, then repeat with a
+   different public key under the same id. `list` must exit non-zero without
+   writing. `recover`, with and without an intent, must derive and republish the
+   correct public half, report each repair and leave `list` successful.
+8. Complete 50 rotations, checking matching publication after each mutation and
+   bounded registry size after retirement. Confirm an already-promoted key that
+   expires before recovery is reported as `current key expired`.
