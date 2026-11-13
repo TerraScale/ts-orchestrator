@@ -15,7 +15,7 @@ Every watched task has a `ts_orch_task_unresponsive_seconds{task,service}` gauge
 | Host replacement budget used or cannot be established safely | `not replaced: host replacement budget unavailable`, duration gauge | Retained and reconsidered after the budget frees |
 | Exact task endpoint cannot be established | `ts_orch_task_readiness_unobserved_total{task,service}` increments each skipped round; one `task readiness not observed: exact task endpoint unavailable` warning per watch | No observation; the shared service port is never substituted for a missing task port |
 
-The budget is serialized and recorded next to the host runtime socket before a stop is authorized. Agent restarts retain it. An unreadable or invalid budget record blocks replacement. A task using a fixed host port by design is probed at that port; a task using `${PORT}` must have a readable, valid, nonzero port label identifying its own endpoint.
+The budget is serialized and recorded in persistent agent state before a stop is authorized. Agent and host restarts retain it. An unreadable or invalid budget record blocks replacement. A task using a fixed host port by design is probed at that port; a task using `${PORT}` must have a readable, valid, nonzero port label identifying its own endpoint.
 
 Decisions are local to a host. The same fault affecting several hosts can lead each host to replace one task. A task whose readiness handler hangs on a dependency for more than fifteen seconds while it still serves traffic can be replaced if it is the only failing task and witnesses keep answering. Services should bound their own readiness checks.
 

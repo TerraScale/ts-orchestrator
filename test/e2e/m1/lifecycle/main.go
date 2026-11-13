@@ -666,7 +666,7 @@ func run(ctx context.Context, root, image string) error {
 		return err
 	}
 	fmt.Printf("one frozen task with witnesses replaced once: PID %d stopped, new PID %d; witness PIDs %d %d retained\n", first.process.Pid(), replacement.process.Pid(), owner.process.Pid(), second.process.Pid())
-	budgetData, err := os.ReadFile(filepath.Join(root, "c18a", "containerd.sock.readiness-replacement"))
+	budgetData, err := os.ReadFile(filepath.Join(root, "c18a", "readiness-replacement"))
 	if err != nil {
 		return err
 	}
@@ -688,7 +688,7 @@ func run(ctx context.Context, root, image string) error {
 	if err != nil {
 		return err
 	}
-	nextBudgetData, err := os.ReadFile(filepath.Join(root, "c18a", "containerd.sock.readiness-replacement"))
+	nextBudgetData, err := os.ReadFile(filepath.Join(root, "c18a", "readiness-replacement"))
 	if err != nil {
 		return err
 	}

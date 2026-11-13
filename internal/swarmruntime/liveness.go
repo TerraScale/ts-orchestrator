@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -381,7 +382,7 @@ func (e *Executor) reserveReadinessReplacement(now time.Time) error {
 		return errors.New("host replacement budget locked")
 	}
 	defer lock.Unlock()
-	path := e.socket + ".readiness-replacement"
+	path := filepath.Join(filepath.Dir(e.logRoot), "readiness-replacement")
 	data, err := os.ReadFile(path)
 	if err == nil {
 		last, err := time.Parse(time.RFC3339Nano, string(data))
