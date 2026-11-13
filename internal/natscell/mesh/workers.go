@@ -250,7 +250,7 @@ func (a swarmApplier) Replicas(ctx context.Context, service string) (replicas ui
 	return replicas, err
 }
 
-func (n *Node) EdgePeers(ready func() []string) (func() []WorkerPeer, error) {
+func (n *Node) EdgePeers(ready func() []string) func() []WorkerPeer {
 	type observed struct {
 		peer WorkerPeer
 		at   time.Time
@@ -258,19 +258,31 @@ func (n *Node) EdgePeers(ready func() []string) (func() []WorkerPeer, error) {
 	var mu sync.Mutex
 	peers := map[string]observed{}
 	subject := protocol.MeshWorkerPrefix + n.cfg.region + ".edge"
-	subscription, err := n.conn.Subscribe(subject, func(message *nats.Msg) {
-		var at WorkerPeer
-		if protocol.DecodeTolerant(message.Data, &at, maxWire) != nil || at.Node == n.cfg.server || !validPeer(n.cfg.region, peer{at.Node, at.Address}) {
-			return
-		}
-		mu.Lock()
-		peers[at.Node] = observed{peer: at, at: time.Now()}
-		mu.Unlock()
-	})
-	if err != nil {
-		return nil, err
-	}
 	n.goWork(func() {
+		var subscription *nats.Subscription
+		backoff := time.Second
+		for {
+			var err error
+			subscription, err = n.conn.Subscribe(subject, func(message *nats.Msg) {
+				var at WorkerPeer
+				if protocol.DecodeTolerant(message.Data, &at, maxWire) != nil || at.Node == n.cfg.server || !validPeer(n.cfg.region, peer{at.Node, at.Address}) {
+					return
+				}
+				mu.Lock()
+				peers[at.Node] = observed{peer: at, at: time.Now()}
+				mu.Unlock()
+			})
+			if err == nil {
+				break
+			}
+			slog.WarnContext(n.ctx, "edge announcements unavailable; retrying", "error", err)
+			select {
+			case <-n.ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff = min(2*backoff, 30*time.Second)
+		}
 		defer func() { _ = subscription.Unsubscribe() }()
 		ticker := time.NewTicker(n.cfg.peersEvery)
 		defer ticker.Stop()
@@ -305,5 +317,5 @@ func (n *Node) EdgePeers(ready func() []string) (func() []WorkerPeer, error) {
 		}
 		slices.SortFunc(result, func(a, b WorkerPeer) int { return strings.Compare(a.Node, b.Node) })
 		return result
-	}, nil
+	}
 }

@@ -310,7 +310,7 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e.identify(w, r)
-	peer := fromPeer(r)
+	peer := fromPeer(r) || r.Context().Value(edgeHopKey{}) != nil
 	if strings.HasPrefix(r.URL.Path, postgresCancelPath) {
 		e.servePostgresCancel(w, r)
 		return
@@ -339,11 +339,7 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	var available bool
-	r, available = e.routePeerEdge(w, r)
-	if !available {
-		return
-	}
+	r = e.routePeerEdge(r)
 	if strings.EqualFold(host, netbirdHost) && !netbirdBackend(r) && r.Context().Value(edgeTargetKey{}) == nil {
 		secureHeaders(w.Header())
 		e.netbirdDashboard.ServeHTTP(w, r)

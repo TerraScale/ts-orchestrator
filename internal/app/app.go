@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -109,18 +110,8 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 				handoff.SetTaskDrainer(node.DrainTask)
 				handoff.SetBootstrap(node.Bootstrap)
 				handoff.SetClearPeer(node.ClearPeer)
-				ready := func() []string { return nil }
 				if public != nil {
-					ready = public.ReadyServices
-				}
-				edges, err := node.EdgePeers(ready)
-				if err != nil {
-					slog.ErrorContext(ctx, "edge announcements unavailable", "error", err)
-					cancel()
-					return
-				}
-				if public != nil {
-					public.SetPeerEdges(edges)
+					public.SetPeerEdges(node.EdgePeers(public.ReadyServices))
 					public.SetRegionalNodes(node.RegionalNodes)
 					node.SetRegionalDrainer(public.DrainRegionalNode)
 					node.SetBootstrap(public.Bootstrap)
@@ -149,7 +140,6 @@ func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region
 	defer tick.Stop()
 	var nextProofRefresh time.Time
 	for {
-		// Dial errors are expected until the node opens its control socket.
 		if client, conn, err := swarmruntime.DialSingleHost(state); err == nil {
 			if list, err := client.ListServices(ctx, &api.ListServicesRequest{}); err == nil {
 				if time.Now().After(nextProofRefresh) {
@@ -164,16 +154,16 @@ func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region
 				ready, err := edgeLocalServices(ctx, client, host)
 				if err != nil {
 					slog.WarnContext(ctx, "edge local task sync failed", "error", err)
+				} else {
+					public.SetServiceRoutes(web, postgres, services, ready)
+					public.SetReadinessRoutes(edgeReadinessRoutes(list.Services, region))
 				}
-				public.SetServiceRoutes(web, postgres, services, ready)
-				public.SetReadinessRoutes(edgeReadinessRoutes(list.Services, region))
 			} else {
-				public.ClearReadyServices()
 				slog.WarnContext(ctx, "edge route sync failed", "error", err)
 			}
 			_ = conn.Close()
 		} else {
-			public.ClearReadyServices()
+			slog.WarnContext(ctx, "edge control socket unavailable", "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -261,9 +251,9 @@ func edgeRouteTables(services []*api.Service, region string) (web, postgres map[
 }
 
 func edgeLocalServices(ctx context.Context, client api.ControlClient, host string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	inventoryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	nodes, err := client.ListNodes(inventoryCtx, &api.ListNodesRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -277,20 +267,48 @@ func edgeLocalServices(ctx context.Context, client api.ControlClient, host strin
 	if nodeID == "" {
 		return nil, errors.New("local edge manager absent from task inventory")
 	}
-	tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{NodeIDs: []string{nodeID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+	tasks, err := client.ListTasks(inventoryCtx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{NodeIDs: []string{nodeID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
 	if err != nil {
 		return nil, err
 	}
-	ready := []string{}
-	for _, task := range tasks.Tasks {
-		if task.NodeID == nodeID && task.Status.State == api.TaskStateRunning && !slices.Contains(ready, task.ServiceAnnotations.Name) && swarmruntime.ProbeLocalTask(ctx, task) == nil {
-			ready = append(ready, task.ServiceAnnotations.Name)
-		}
+	if err := inventoryCtx.Err(); err != nil {
+		return nil, err
 	}
+	cancel()
+	type probeResult struct {
+		service string
+		err     error
+	}
+	results := make(chan probeResult, len(tasks.Tasks))
+	var probes sync.WaitGroup
+	for _, task := range tasks.Tasks {
+		if task.NodeID != nodeID || task.Status.State != api.TaskStateRunning {
+			continue
+		}
+		probes.Go(func() {
+			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			results <- probeResult{service: task.ServiceAnnotations.Name, err: swarmruntime.ProbeLocalTask(probeCtx, task)}
+		})
+	}
+	probes.Wait()
+	close(results)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return ready, nil
+	services := []string{}
+	for result := range results {
+		if result.err != nil {
+			var unready *swarmruntime.TaskReadinessError
+			if !errors.As(result.err, &unready) {
+				return nil, result.err
+			}
+		} else if !slices.Contains(services, result.service) {
+			services = append(services, result.service)
+		}
+	}
+	slices.Sort(services)
+	return services, nil
 }
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
