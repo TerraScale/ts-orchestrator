@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
-	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,6 +19,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -314,113 +314,7 @@ func channelLocation(env deployEnv, cell, namespace string) (releasechannel.Loca
 }
 
 func (c command) fleetStatus(args []string) error {
-	return c.fleetStatusWith(args, deployEnv{storage: operatorObjectStorage, discover: discoverServingCells})
-}
-
-// fleetStatusWith prints one JSON line per cell: the release in its channel
-// and the status its leader reports, or with --role each named service
-// role's status instead. It fails if any cell cannot be read.
-func (c command) fleetStatusWith(args []string, env deployEnv) error {
-	flags := flag.NewFlagSet("fleet-status", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	namespace := flags.String("namespace", "", "Object Storage namespace of the regions' head buckets")
-	requirePins := flags.Bool("require-pins", false, "refuse missing statuses or release pins before CI pruning")
-	var cells stringList
-	flags.Var(&cells, "cell", "cell to show; repeatable; default every cell")
-	var roles stringList
-	flags.Var(&roles, "role", "service role whose status to show instead of the orchestrator channel; repeatable")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if !validStorageToken(*namespace) || flags.NArg() != 0 {
-		return errors.New("fleet-status requires --namespace")
-	}
-	for _, role := range roles {
-		if !validStorageToken(role) {
-			return fmt.Errorf("invalid --role %q", role)
-		}
-	}
-	targetCells, err := deploymentCells(c.ctx, cells, env.discover)
-	if err != nil {
-		return err
-	}
-	cells = targetCells
-	type line struct {
-		Cell    string                 `json:"cell"`
-		Channel *channelSummary        `json:"channel,omitempty"`
-		Status  *releasechannel.Status `json:"status,omitempty"`
-		// Services are the --role statuses, in flag order.
-		Services []releasechannel.ServiceStatus `json:"services,omitempty"`
-		Error    string                         `json:"error,omitempty"`
-	}
-	var failed []string
-	for _, cell := range cells {
-		out := line{Cell: cell}
-		err := func() error {
-			location, err := channelLocation(env, cell, *namespace)
-			if err != nil {
-				return err
-			}
-			for _, role := range roles {
-				status, found, err := releasechannel.ReadServiceStatus(c.ctx, location, role)
-				if err != nil {
-					return err
-				}
-				if found {
-					out.Services = append(out.Services, status)
-				}
-				if *requirePins && (!found || status.Schema != releasechannel.ServiceStatusSchema || status.Cell != cell ||
-					status.Role != role || status.Pins == nil) {
-					return fmt.Errorf("%s %s has no release pins from its leader", cell, role)
-				}
-				if *requirePins {
-					if err := status.Pins.ValidateFresh(status.UpdatedAt, time.Now().UTC()); err != nil {
-						return err
-					}
-				}
-			}
-			if len(roles) > 0 {
-				return nil
-			}
-			channel, found, err := releasechannel.ReadChannel(c.ctx, location)
-			if err != nil {
-				return err
-			}
-			if found {
-				out.Channel = &channelSummary{SourceRevision: channel.SourceRevision, RunNumber: channel.RunNumber}
-			}
-			status, found, err := releasechannel.ReadStatus(c.ctx, location)
-			if found {
-				out.Status = &status
-			}
-			if err == nil && *requirePins && (!found || status.Schema != releasechannel.StatusSchema || status.Cell != cell || status.Pins == nil) {
-				return fmt.Errorf("%s has no release pins from its leader", cell)
-			}
-			if err == nil && *requirePins {
-				return status.Pins.ValidateFresh(status.UpdatedAt, time.Now().UTC())
-			}
-			return err
-		}()
-		if err != nil {
-			out.Error = err.Error()
-			failed = append(failed, cell)
-		}
-		if err := json.MarshalWrite(c.output, out); err != nil {
-			return err
-		}
-		if _, err := io.WriteString(c.output, "\n"); err != nil {
-			return err
-		}
-	}
-	if len(failed) > 0 {
-		return fmt.Errorf("could not read the release status of %s", strings.Join(failed, " "))
-	}
-	return nil
-}
-
-type channelSummary struct {
-	SourceRevision string `json:"source_revision"`
-	RunNumber      int64  `json:"run_number"`
+	return releasepush.FleetStatus(c.ctx, args, c.output)
 }
 
 func operatorObjectStorage(cell string) (releasechannel.ObjectClient, error) {
