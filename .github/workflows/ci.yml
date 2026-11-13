@@ -52,6 +52,9 @@ jobs:
           - {lane: monitoring, entry: monitoring.sh, timeout: 8, packages: "./test/e2e/m1/monitoring"}
           - {lane: boot-order, entry: boot-order.sh, timeout: 8, packages: "./test/e2e/m1/boot-order"}
           - {lane: updater-preflight, entry: updater-preflight.sh, timeout: 12}
+          - {lane: host-credentials, entry: host-credentials.sh, timeout: 5, packages: "./test/e2e/m1/host-credentials"}
+          - {lane: release-contracts, entry: release-contracts.sh, timeout: 5, packages: "./test/e2e/m1/revision-gate ./test/e2e/m1/vault-policy"}
+          - {lane: metadata-upgrade, entry: metadata-upgrade.sh, timeout: 8}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
     name: e2e-m1 / ${{ matrix.lane }}
     concurrency:

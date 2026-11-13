@@ -88,7 +88,7 @@ func relay(ctx context.Context, binary string) {
 		write("/run/ts-alert-delivery/"+key, values[i])
 	}
 	command = exec.CommandContext(ctx, binary, "alert-delivery")
-	ready(command, "alert delivery listening")
+	ready(command, "Alert delivery listener ready")
 	defer stop(command)
 	check := func(want int, name string) {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:9094/healthz", nil)
