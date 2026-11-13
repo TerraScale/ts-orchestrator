@@ -16,6 +16,7 @@ import (
 const dataDevice = "/dev/oracleoci/oraclevdb"
 const dataPolicy = "ts-host-data-daily-7d"
 const dataFormattedTag = "terrascale-data-formatted"
+const dataSerialTag = "terrascale-data-serial"
 const dataUUIDTag = "terrascale-data-uuid"
 const dataVolumeTag = "terrascale-data-volume"
 const dataFormatTag = "terrascale-data-may-format"
@@ -207,8 +208,8 @@ func (r *run) attachDataVolume(host string, instance *core.Instance, volume *cor
 			return err
 		}
 		instance, volume = &current.Instance, &read.Volume
-		if instance.FreeformTags[dataVolumeTag] != deref(volume.Id) || volume.FreeformTags[dataInstanceTag] != deref(instance.Id) {
-			return fmt.Errorf("refusing attachment: instance %s launched for volume %s; requested volume %s bound to instance %s", deref(instance.Id), instance.FreeformTags[dataVolumeTag], deref(volume.Id), volume.FreeformTags[dataInstanceTag])
+		if instance.Metadata[dataVolumeTag] != deref(volume.Id) || volume.FreeformTags[dataInstanceTag] != deref(instance.Id) {
+			return fmt.Errorf("refusing attachment: instance %s launched for volume %s; requested volume %s bound to instance %s", deref(instance.Id), instance.Metadata[dataVolumeTag], deref(volume.Id), volume.FreeformTags[dataInstanceTag])
 		}
 		if instance.LifecycleState != core.InstanceLifecycleStateRunning {
 			return fmt.Errorf("instance %s is %s; finish or abandon the removal before add", deref(instance.Id), instance.LifecycleState)
@@ -322,12 +323,16 @@ func (r *run) confirmDataMounted(host string, instance *core.Instance, volume *c
 	if err != nil {
 		return err
 	}
-	if mount.MountPoint != "/var/lib/ts-data" || mount.Device != dataDevice || mount.FilesystemType != "ext4" || !filesystemUUID.MatchString(mount.UUID) {
-		return fmt.Errorf("host %s data mount identity mismatch: got %+v; want /var/lib/ts-data on %s, ext4 and a filesystem UUID", host, mount, dataDevice)
+	if mount.MountPoint != "/var/lib/ts-data" || mount.Device != dataDevice || mount.FilesystemType != "ext4" || !filesystemUUID.MatchString(mount.UUID) || !diskSerial.MatchString(mount.Serial) {
+		return fmt.Errorf("host %s data mount identity mismatch: got %+v; want /var/lib/ts-data on %s, ext4, a filesystem UUID and a disk serial", host, mount, dataDevice)
 	}
 	expectedSize := deref(read.SizeInGBs) * 1024 * 1024 * 1024
 	if expectedSize <= 0 || mount.SizeBytes != expectedSize {
 		return fmt.Errorf("volume %s size mismatch: host %d bytes, API %d bytes", deref(volume.Id), mount.SizeBytes, expectedSize)
+	}
+	expectedSerial := read.FreeformTags[dataSerialTag]
+	if expectedSerial != "" && mount.Serial != expectedSerial {
+		return fmt.Errorf("volume %s serial mismatch: host %s, volume tag %s", deref(volume.Id), mount.Serial, expectedSerial)
 	}
 	expectedUUID := read.FreeformTags[dataUUIDTag]
 	if expectedUUID != "" && mount.UUID != expectedUUID {
@@ -336,11 +341,11 @@ func (r *run) confirmDataMounted(host string, instance *core.Instance, volume *c
 	if !r.createdVolumes[deref(volume.Id)] && (read.FreeformTags[dataFormattedTag] != "yes" || expectedUUID == "") {
 		return fmt.Errorf("adopted volume %s requires initialised tag and UUID", deref(volume.Id))
 	}
-	if read.FreeformTags[dataFormattedTag] == "yes" && expectedUUID == mount.UUID {
+	if read.FreeformTags[dataFormattedTag] == "yes" && expectedUUID == mount.UUID && expectedSerial == mount.Serial {
 		return r.report("unchanged", "data-volume-formatted", host+"-data", deref(volume.Id))
 	}
 	tags := maps.Clone(read.FreeformTags)
-	tags[dataFormattedTag], tags[dataUUIDTag] = "yes", mount.UUID
+	tags[dataFormattedTag], tags[dataUUIDTag], tags[dataSerialTag] = "yes", mount.UUID, mount.Serial
 	_, err = r.storage.UpdateVolume(r.ctx, core.UpdateVolumeRequest{VolumeId: volume.Id, IfMatch: read.Etag, UpdateVolumeDetails: core.UpdateVolumeDetails{FreeformTags: tags}})
 	if err != nil {
 		return err
@@ -349,8 +354,8 @@ func (r *run) confirmDataMounted(host string, instance *core.Instance, volume *c
 	if err != nil {
 		return err
 	}
-	if verified.FreeformTags[dataFormattedTag] != "yes" || verified.FreeformTags[dataUUIDTag] != mount.UUID {
-		return errors.New("data volume initialised tag and UUID did not read back")
+	if verified.FreeformTags[dataFormattedTag] != "yes" || verified.FreeformTags[dataUUIDTag] != mount.UUID || verified.FreeformTags[dataSerialTag] != mount.Serial {
+		return errors.New("data volume initialised tag, UUID and serial did not read back")
 	}
 	return r.report("updated", "data-volume-formatted", host+"-data", deref(volume.Id))
 }
@@ -359,8 +364,8 @@ func (r *run) bindDataVolume(instance *core.Instance, volume *core.Volume) error
 	if r.dry {
 		return nil
 	}
-	if instance.FreeformTags[dataVolumeTag] != deref(volume.Id) {
-		return fmt.Errorf("instance %s launched for volume %s, refusing volume %s", deref(instance.Id), instance.FreeformTags[dataVolumeTag], deref(volume.Id))
+	if instance.Metadata[dataVolumeTag] != deref(volume.Id) {
+		return fmt.Errorf("instance %s launched for volume %s, refusing volume %s", deref(instance.Id), instance.Metadata[dataVolumeTag], deref(volume.Id))
 	}
 	read, err := r.storage.GetVolume(r.ctx, core.GetVolumeRequest{VolumeId: volume.Id})
 	if err != nil {

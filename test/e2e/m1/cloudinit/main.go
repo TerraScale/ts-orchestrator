@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	script, err := regionhost.CloudInit(m1.Files, "https://example.com/ts-orch", strings.Repeat("0", 64), "data", "", true)
+	script, err := regionhost.CloudInit(m1.Files, "https://example.com/ts-orch", strings.Repeat("0", 64), "ocid1.volume.oc1.test.data", "", "", true)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

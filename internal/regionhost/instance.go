@@ -110,14 +110,14 @@ func (r *run) ensureInstance(host, shape string) (*core.Instance, *core.Volume, 
 		if err != nil {
 			return nil, nil, err
 		}
-		if found.FreeformTags[dataFormatTag] == "yes" && (volume == nil || found.FreeformTags[dataVolumeTag] != deref(volume.Id) || volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag])) {
+		if found.Metadata[dataFormatTag] == "true" && (volume == nil || found.Metadata[dataVolumeTag] != deref(volume.Id) || volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag])) {
 			if r.dry {
 				return nil, nil, fmt.Errorf("unfinished formatting instance %s must be terminated and replaced", deref(found.Id))
 			}
 			if err := r.stopInstance(found); err != nil {
 				return nil, nil, err
 			}
-			bound := &core.Volume{Id: new(found.FreeformTags[dataVolumeTag])}
+			bound := &core.Volume{Id: new(found.Metadata[dataVolumeTag])}
 			if deref(bound.Id) != "" {
 				attachment, err := r.dataAttachment(found, bound)
 				if err != nil {
@@ -132,10 +132,10 @@ func (r *run) ensureInstance(host, shape string) (*core.Instance, *core.Volume, 
 			if err := r.terminateInstance(found); err != nil {
 				return nil, nil, err
 			}
-			return nil, nil, fmt.Errorf("terminated unfinished formatting instance %s; inspect volume %s (discovered %s) and set initialised tag and UUID before a new add", deref(found.Id), found.FreeformTags[dataVolumeTag], volumeID(volume))
+			return nil, nil, fmt.Errorf("terminated unfinished formatting instance %s; inspect volume %s (discovered %s) and set initialised tag and UUID before a new add", deref(found.Id), found.Metadata[dataVolumeTag], volumeID(volume))
 		}
-		if volume == nil || found.FreeformTags[dataVolumeTag] != deref(volume.Id) {
-			return nil, nil, fmt.Errorf("instance %s launched for volume %s; refusing discovered volume %s", deref(found.Id), found.FreeformTags[dataVolumeTag], volumeID(volume))
+		if volume == nil || found.Metadata[dataVolumeTag] != deref(volume.Id) {
+			return nil, nil, fmt.Errorf("instance %s launched for volume %s; refusing discovered volume %s", deref(found.Id), found.Metadata[dataVolumeTag], volumeID(volume))
 		}
 		if volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag]) {
 			return nil, nil, fmt.Errorf("existing volume %s requires the terrascale-data-formatted tag and terrascale-data-uuid after inspection", deref(volume.Id))
@@ -304,21 +304,20 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 			continue
 		}
 		mayFormat := r.createdVolumes[deref(volume.Id)]
-		script, scriptErr := CloudInit(m1.Files, url, sum, deref(volume.Id), volume.FreeformTags[dataUUIDTag], mayFormat)
+		script, scriptErr := CloudInit(m1.Files, url, sum, deref(volume.Id), volume.FreeformTags[dataUUIDTag], volume.FreeformTags[dataSerialTag], mayFormat)
 		if scriptErr != nil {
 			return nil, nil, scriptErr
 		}
-		permission := "no"
+		permission := "false"
 		if mayFormat {
-			permission = "yes"
+			permission = "true"
 		}
 		launched, err = r.compute.LaunchInstance(r.ctx, core.LaunchInstanceRequest{LaunchInstanceDetails: core.LaunchInstanceDetails{
 			AvailabilityDomain: at.ad, FaultDomain: at.fd, CompartmentId: &r.compartment, DisplayName: &name, Shape: &m.shape,
 			ShapeConfig:       &core.LaunchInstanceShapeConfigDetails{Ocpus: &m.ocpus, MemoryInGBs: &m.gb},
 			SourceDetails:     core.InstanceSourceViaImageDetails{ImageId: images.Items[i].Id, BootVolumeSizeInGBs: new(int64(50))},
 			CreateVnicDetails: &core.CreateVnicDetails{SubnetId: &subnet, AssignPublicIp: new(true), NsgIds: nsgs, HostnameLabel: &name},
-			Metadata:          map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script))},
-			FreeformTags:      map[string]string{dataVolumeTag: deref(volume.Id), dataFormatTag: permission},
+			Metadata:          map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script)), dataVolumeTag: deref(volume.Id), dataFormatTag: permission},
 		}})
 		if err == nil {
 			break

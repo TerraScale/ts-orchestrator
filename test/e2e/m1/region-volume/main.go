@@ -32,6 +32,8 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 )
 
+const serial = "0123456789abcdef0123456789abcdef"
+
 const uuid = "11111111-1111-4111-8111-111111111111"
 
 type object = map[string]any
@@ -54,12 +56,12 @@ func newCloud() *cloud {
 	c := &cloud{resources: map[string][]object{}, reads: map[string]int{}, rules: map[string][]object{}}
 	c.resources["instances"] = []object{
 		{"id": "keeper", "displayName": "keeper", "lifecycleState": "RUNNING", "timeCreated": "2020-01-01T00:00:00Z", "availabilityDomain": "AD", "faultDomain": "FD-1", "compartmentId": "cell"},
-		{"id": "extra", "displayName": "extra", "lifecycleState": "RUNNING", "timeCreated": "2021-01-01T00:00:00Z", "availabilityDomain": "AD", "faultDomain": "FD-2", "compartmentId": "cell", "freeformTags": object{"terrascale-data-volume": "data", "terrascale-data-may-format": "no"}},
+		{"id": "extra", "displayName": "extra", "lifecycleState": "RUNNING", "timeCreated": "2021-01-01T00:00:00Z", "availabilityDomain": "AD", "faultDomain": "FD-2", "compartmentId": "cell", "metadata": object{"terrascale-data-volume": "ocid1.volume.oc1.test.data", "terrascale-data-may-format": "false"}},
 	}
-	c.resources["volumes"] = []object{{"id": "data", "displayName": "extra-data", "availabilityDomain": "AD", "lifecycleState": "AVAILABLE", "sizeInGBs": 3, "freeformTags": object{
-		"terrascale-managed-by": "ts-orchestrator", "terrascale-resource": "data-volume", "terrascale-host": "extra", "terrascale-data-formatted": "yes", "terrascale-data-uuid": uuid, "terrascale-data-instance": "extra",
+	c.resources["volumes"] = []object{{"id": "ocid1.volume.oc1.test.data", "displayName": "extra-data", "availabilityDomain": "AD", "lifecycleState": "AVAILABLE", "sizeInGBs": 3, "freeformTags": object{
+		"terrascale-managed-by": "ts-orchestrator", "terrascale-resource": "data-volume", "terrascale-host": "extra", "terrascale-data-formatted": "yes", "terrascale-data-uuid": uuid, "terrascale-data-instance": "extra", "terrascale-data-serial": serial,
 	}}}
-	c.resources["volumeAttachments"] = []object{{"id": "attachment", "instanceId": "extra", "volumeId": "data", "attachmentType": "paravirtualized", "device": "/dev/oracleoci/oraclevdb", "lifecycleState": "ATTACHED"}}
+	c.resources["volumeAttachments"] = []object{{"id": "attachment", "instanceId": "extra", "volumeId": "ocid1.volume.oc1.test.data", "attachmentType": "paravirtualized", "device": "/dev/oracleoci/oraclevdb", "lifecycleState": "ATTACHED"}}
 	c.resources["subnets"] = []object{{"id": "subnet", "displayName": "gru-1-host-subnet", "lifecycleState": "AVAILABLE", "cidrBlock": "10.251.0.0/25"}}
 	return c
 }
@@ -275,6 +277,9 @@ func (c *cloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	item["id"] = fmt.Sprintf("%s-%d", kind, len(c.resources[kind]))
+	if kind == "volumes" {
+		item["id"] = fmt.Sprintf("ocid1.volume.oc1.test.created%d", len(c.resources[kind]))
+	}
 	item["lifecycleState"] = "AVAILABLE"
 	if kind == "instances" {
 		for _, old := range c.resources[kind] {
@@ -288,7 +293,7 @@ func (c *cloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if kind == "volumeAttachments" {
 		for _, instance := range c.resources["instances"] {
 			if instance["id"] == item["instanceId"] {
-				must(instance["freeformTags"].(object)["terrascale-data-volume"] == item["volumeId"], "attachment not launch-bound")
+				must(instance["metadata"].(object)["terrascale-data-volume"] == item["volumeId"], "attachment not launch-bound")
 			}
 		}
 		item["attachmentType"] = "paravirtualized"
@@ -382,7 +387,7 @@ func run() error {
 		return err
 	}
 	defer conn.Close()
-	report := &datamount.Report{MountPoint: datamount.MountPoint, Device: datamount.Device, UUID: uuid, FilesystemType: "ext4", SizeBytes: 3 * 1024 * 1024 * 1024}
+	report := &datamount.Report{Serial: serial, MountPoint: datamount.MountPoint, Device: datamount.Device, UUID: uuid, FilesystemType: "ext4", SizeBytes: 3 * 1024 * 1024 * 1024}
 	var reportMu sync.Mutex
 	_, err = conn.Subscribe(releasepush.SubjectHealth, func(m *nats.Msg) {
 		reportMu.Lock()
@@ -432,7 +437,7 @@ func run() error {
 		must(err != nil && strings.Contains(err.Error(), "finish or abandon"), fmt.Sprint(err))
 		must(digest(c) == before && !slices.Contains(c.events, "POST volumeAttachments") && !slices.Contains(c.events, "POST instances"), "add restarted removal")
 	}
-	for _, difference := range []string{"missing", "uuid", "size", "device", "mountpoint", "filesystem"} {
+	for _, difference := range []string{"missing", "uuid", "size", "device", "mountpoint", "filesystem", "serial", "serial-empty"} {
 		reportMu.Lock()
 		saved := *report
 		switch difference {
@@ -440,6 +445,10 @@ func run() error {
 			report = nil
 		case "uuid":
 			report.UUID = "22222222-2222-4222-8222-222222222222"
+		case "serial":
+			report.Serial = "fedcba9876543210fedcba9876543210"
+		case "serial-empty":
+			report.Serial = ""
 		case "size":
 			report.SizeBytes++
 		case "device":
@@ -459,14 +468,19 @@ func run() error {
 		report = &saved
 		reportMu.Unlock()
 	}
-	fmt.Println("region volume: answering host without mount, UUID/size/device/mountpoint/filesystem mismatches refuse unchanged")
+	fmt.Println("region volume: answering host without mount, UUID/serial/size/device/mountpoint/filesystem mismatches refuse unchanged")
 	c = newCloud()
 	before := digest(c)
 	_, err = invoke(c, "add", "gru", "--host", "extra")
 	must(err == nil, fmt.Sprint("matching report: ", err))
 	must(digest(c) == before, "matching adopted mount rewrote volume")
 	c = newCloud()
-	c.resources["instances"][1]["freeformTags"] = object{"terrascale-data-volume": "created-before-interruption", "terrascale-data-may-format": "yes"}
+	delete(c.resources["volumes"][0]["freeformTags"].(object), "terrascale-data-serial")
+	_, err = invoke(c, "add", "gru", "--host", "extra")
+	must(err == nil && c.resources["volumes"][0]["freeformTags"].(object)["terrascale-data-serial"] == serial, fmt.Sprint("adoption serial backfill: ", err))
+	fmt.Println("region volume: serial mismatch adoption refuses unchanged; UUID-only adoption records serial after full match")
+	c = newCloud()
+	c.resources["instances"][1]["metadata"] = object{"terrascale-data-volume": "created-before-interruption", "terrascale-data-may-format": "true"}
 	c.resources["volumeAttachments"][0]["lifecycleState"] = "DETACHED"
 	_, err = invoke(c, "add", "gru", "--host", "extra")
 	must(err != nil && !slices.Contains(c.events, "POST volumeAttachments"), fmt.Sprint("stale formatting instance adopted another volume: ", err, c.events))
@@ -484,7 +498,7 @@ func run() error {
 	_, err = invoke(c, "add", "gru", "--host", "extra")
 	must(err == nil, fmt.Sprint("adopted replacement: ", err))
 	launched := c.resources["instances"][2]
-	must(launched["freeformTags"].(object)["terrascale-data-may-format"] == "no", "adopted launch granted format")
+	must(launched["metadata"].(object)["terrascale-data-may-format"] == "false", "adopted launch granted format")
 	must(c.resources["volumes"][0]["freeformTags"].(object)["terrascale-data-instance"] == launched["id"], "missing instance binding")
 	fmt.Println("region volume: adoption needs initialised UUID tags; replacement launch denies format and binds before attachment")
 
@@ -499,9 +513,9 @@ func run() error {
 	must(err == nil, fmt.Sprint("new volume: ", err))
 	fresh := c.resources["volumes"][0]
 	tags := fresh["freeformTags"].(object)
-	must(tags["terrascale-data-formatted"] == "yes" && tags["terrascale-data-uuid"] == uuid, "fresh format report not recorded")
-	must(c.resources["instances"][2]["freeformTags"].(object)["terrascale-data-may-format"] == "yes", "new-volume launch lacks permission")
-	fmt.Println("region volume: only API creation in this invocation grants launch permission; full mount match records initialised UUID")
+	must(tags["terrascale-data-formatted"] == "yes" && tags["terrascale-data-uuid"] == uuid && tags["terrascale-data-serial"] == serial, "fresh format report not recorded")
+	must(c.resources["instances"][2]["metadata"].(object)["terrascale-data-may-format"] == "true", "new-volume launch lacks permission")
+	fmt.Println("region volume: only API creation in this invocation grants launch permission; full mount match records initialised UUID and serial")
 	c = newCloud()
 	c.resources["instances"][1]["lifecycleState"] = "TERMINATED"
 	c.resources["volumes"] = nil
@@ -513,19 +527,19 @@ func run() error {
 	c.events = nil
 	c.resources["volumes"][0]["freeformTags"].(object)["terrascale-host"] = "retained-original"
 	adopted := newCloud().resources["volumes"][0]
-	adopted["id"] = "adopted"
+	adopted["id"] = "ocid1.volume.oc1.test.adopted"
 	adopted["freeformTags"].(object)["terrascale-data-instance"] = ""
 	c.resources["volumes"] = append(c.resources["volumes"], adopted)
 	before = digest(c)
 	_, err = invoke(c, "add", "gru", "--host", "extra")
-	must(err != nil && strings.Contains(err.Error(), "discovered adopted") && !slices.Contains(c.events, "POST volumeAttachments"), fmt.Sprint("interrupted then adopted: ", err, c.events))
+	must(err != nil && strings.Contains(err.Error(), "discovered ocid1.volume.oc1.test.adopted") && !slices.Contains(c.events, "POST volumeAttachments"), fmt.Sprint("interrupted then adopted: ", err, c.events))
 	must(c.resources["instances"][2]["lifecycleState"] == "TERMINATED" && digest(c) == before, "stale format instance reused or volumes changed")
 	reportMu.Lock()
 	report.SizeBytes = 3 * 1024 * 1024 * 1024
 	reportMu.Unlock()
 	_, err = invoke(c, "add", "gru", "--host", "extra")
 	must(err == nil, fmt.Sprint("replace stale format instance: ", err))
-	must(c.resources["instances"][3]["freeformTags"].(object)["terrascale-data-may-format"] == "no", "replacement granted stale permission")
+	must(c.resources["instances"][3]["metadata"].(object)["terrascale-data-may-format"] == "false", "replacement granted stale permission")
 	fmt.Println("region volume: exact interrupted launch then adopted disk refuses attachment, terminates stale instance, replaces without format permission")
 	return nil
 }

@@ -51,7 +51,7 @@ func (r *run) rm(host string, confirmed bool) error {
 		return err
 	}
 	if target != nil && volume == nil {
-		expected := target.FreeformTags[dataVolumeTag]
+		expected := target.Metadata[dataVolumeTag]
 		if expected != "" {
 			return errors.New("the host data volume is missing; refusing to terminate before detachment")
 		}

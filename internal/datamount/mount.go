@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +15,10 @@ import (
 const Device = "/dev/oracleoci/oraclevdb"
 const MountPoint = "/var/lib/ts-data"
 
+var diskSerial = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+
 type Report struct {
+	Serial         string `json:"serial"`
 	MountPoint     string `json:"mount_point"`
 	Device         string `json:"device"`
 	UUID           string `json:"uuid"`
@@ -58,5 +62,16 @@ func Read(ctx context.Context) (*Report, error) {
 	if err != nil || bytes <= 0 {
 		return nil, fmt.Errorf("invalid data device size %q", size)
 	}
-	return &Report{MountPoint: mount.Target, Device: Device, UUID: mount.UUID, FilesystemType: mount.Fstype, SizeBytes: bytes}, nil
+	identity := make(map[string]string)
+	for _, field := range []string{"MODEL", "SERIAL", "WWN"} {
+		value, err := exec.CommandContext(ctx, "lsblk", "-dnr", "-o", field, Device).Output()
+		if err != nil {
+			return nil, fmt.Errorf("data device %s: %w", field, err)
+		}
+		identity[field] = strings.TrimSpace(string(value))
+	}
+	if identity["MODEL"] != "BlockVolume" || !diskSerial.MatchString(identity["SERIAL"]) || identity["WWN"] != "0x"+identity["SERIAL"] {
+		return nil, fmt.Errorf("invalid data device identity")
+	}
+	return &Report{Serial: identity["SERIAL"], MountPoint: mount.Target, Device: Device, UUID: mount.UUID, FilesystemType: mount.Fstype, SizeBytes: bytes}, nil
 }
