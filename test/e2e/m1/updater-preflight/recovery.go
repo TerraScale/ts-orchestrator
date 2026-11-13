@@ -42,6 +42,10 @@ func recoveryCase(ctx context.Context, binary string) {
 	require(bytes.Equal(read(installed+".prev"), original), "previous bytes must be retained by binary staging")
 	trialPath := filepath.Join(state, "nats/release-trial")
 	trial := record(trialPath)
+	require(trial["recover_after"] != nil, "the deadline must be durable before commit")
+	before := read(trialPath)
+	must(exec.CommandContext(ctx, "systemctl", "start", "ts-orch-release-recovery.service").Run())
+	require(bytes.Equal(read(trialPath), before) && record(filepath.Join(state, "nats/release-recovery")) == nil, "a candidate before its deadline must remain untouched")
 	trial["installed"] = time.Now().Add(-time.Hour)
 	trial["recover_after"] = time.Now().Add(-time.Minute)
 	data, err := json.Marshal(trial)
@@ -60,7 +64,8 @@ func recoveryCase(ctx context.Context, binary string) {
 	must(exec.CommandContext(ctx, "systemctl", "restart", "ts-orch-release-recovery.timer").Run())
 	deadline, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	for {
+	finished := false
+	for !finished {
 		select {
 		case event := <-watcher.Events:
 			if event.Name != filepath.Join(state, "nats/release-recovery") || event.Op&fsnotify.Remove == 0 {
@@ -70,11 +75,44 @@ func recoveryCase(ctx context.Context, binary string) {
 			require(record(trialPath) == nil && record(filepath.Join(state, "nats/release-rolled-back"))["sha"] == shaB, "recovery must durably reject the candidate and remove its trial")
 			must(exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", "ts-orch.service").Run())
 			fmt.Println("ok recovery: real signed install; candidate exits before Probe; independent timer restores previous bytes and restarts the unit")
-			return
+			finished = true
 		case err := <-watcher.Errors:
 			must(err)
 		case <-deadline.Done():
 			panic("independent recovery timer did not finish: " + deadline.Err().Error())
 		}
 	}
+	invocation, err := exec.CommandContext(ctx, "systemctl", "show", "ts-orch.service", "-p", "InvocationID", "--value").Output()
+	must(err)
+	must(exec.CommandContext(ctx, "systemctl", "start", "ts-orch-release-recovery.service").Run())
+	after, err := exec.CommandContext(ctx, "systemctl", "show", "ts-orch.service", "-p", "InvocationID", "--value").Output()
+	must(err)
+	require(bytes.Equal(invocation, after), "a confirmed release must not restart")
+	fmt.Println("ok recovery: deadline not reached and confirmed release are both no-ops")
+	must(exec.CommandContext(ctx, "systemctl", "stop", "ts-orch-release-recovery.timer", "ts-orch.service").Run())
+	marker := filepath.Join(state, "nats/release-recovery")
+	write(marker, string(data))
+	must(exec.CommandContext(ctx, "systemctl", "start", "ts-orch-release-recovery.service").Run())
+	require(record(marker) == nil && bytes.Equal(read(installed), original), "recovery interrupted after rename must finish the restart without a previous file")
+	must(exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", "ts-orch.service").Run())
+	fmt.Println("ok recovery: durable restart intent resumes after rollback rename")
+	must(exec.CommandContext(ctx, "systemctl", "stop", "ts-orch.service").Run())
+	candidate := stamped(original, shaB, "early-exit")
+	writeExecutable(installed, candidate)
+	writeExecutable(installed+".prev.staged", original)
+	must(os.WriteFile(trialPath+".staged", data, 0600))
+	must(exec.CommandContext(ctx, "systemctl", "start", "ts-orch-release-recovery.service").Run())
+	require(bytes.Equal(read(installed), original) && record(trialPath+".staged") == nil && record(trialPath) == nil, "post-rename staged trial must promote before recovery")
+	fmt.Println("ok recovery: committed binary with unpromoted staged records rolls back")
+	must(exec.CommandContext(ctx, "systemctl", "stop", "ts-orch.service").Run())
+	writeExecutable(installed, candidate)
+	write(trialPath, string(data))
+	command = exec.CommandContext(ctx, "systemctl", "start", "ts-orch-release-recovery.service")
+	require(command.Run() != nil, "missing backup must fail recovery visibly")
+	require(record(marker) != nil && record(trialPath)["failure"] != nil && bytes.Equal(read(installed), candidate), "missing backup must retain trial, intent and candidate bytes")
+	writeExecutable(installed+".prev", original)
+	must(exec.CommandContext(ctx, "systemctl", "start", "ts-orch-release-recovery.service").Run())
+	require(record(marker) == nil && record(trialPath) == nil && bytes.Equal(read(installed), original), "retained intent must recover once the recorded backup is available")
+	fmt.Println("ok recovery: missing backup fails visibly; durable intent remains until restoration succeeds")
+
 }

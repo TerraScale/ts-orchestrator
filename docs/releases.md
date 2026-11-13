@@ -72,6 +72,50 @@ host installs, the push waits for its health and stops before the next region if
 it does not become healthy. The flag is never a default and no other flag sets
 it; use it only to push a fix for a health error that a release caused.
 
+## Independent recovery
+
+The single-host updater retains its own executable as
+`/usr/local/bin/terrascale-orchestrator.recovery` before staging a replacement.
+It writes and verifies the recovery service and timer under their actual unit
+names in the writable binary directory, then asks the service manager to link
+and enable them. The agent unit stays unchanged. The manager performs the
+linking, so installation works with `ProtectSystem=full` without a privileged
+transient unit or a writable system unit directory in the agent sandbox.
+
+The boot-enabled timer starts checking after 15 seconds and checks every minute.
+It runs the retained updater independently of the candidate executable and its
+service sandbox. A candidate can pass preflight and then fail before `Probe`;
+that failure never advances the startup counter or starts its in-process timer.
+The independent timer closes that gap. Recovery is installed by this updater
+before the replacements it accepts; an older installing updater cannot provide
+this protection for its first upgrade to this version.
+
+Each new trial stores `recover_after` before the binary rename. Its deadline is
+the installation time plus the loaded stop timeout, restart delay, the greater
+of the loaded start timeout and the ten-minute planning window, two minutes of
+probation, and 30 seconds of margin. The shipped bounds give 931 seconds. Older
+trials without that field use their installation time plus 20 minutes. Missing
+or damaged records remain visible errors rather than guesses at a rollback
+target.
+
+After the deadline, recovery records a durable `nats/release-recovery` intent,
+stops the candidate service, and re-reads the binary identity and records. It
+settles committed staged records using the same promotion path as startup and
+restores only the trial named by its intent. A concurrent confirmation or a
+newer replacement is preserved. Rollback uses the existing previous-binary
+identity check, rollback record, rename and directory sync. Recovery clears the
+failed-start state, starts the restored service and durably removes its intent.
+An interrupted recovery resumes from that intent even if the binary rename has
+already consumed `.prev`. A missing or mismatched backup retains the trial and
+intent and fails the service visibly. An unconfirmed updater preserves the
+existing recovery executable and unit pair when accepting a repair.
+
+`StartLimitIntervalSec=0` remains intentional: starts reaching `Probe` use the
+durable startup counter, while the independent deadline bounds failures that
+cannot reach it. A systemd rate limit could otherwise prevent the rollback
+startup. Binary releases do not deliver or replace `ts-orch.service`; the
+previous unit-swapping release architecture is not part of this updater.
+
 ## Updater records
 
 An installed candidate is on probation until it serves. These files live in

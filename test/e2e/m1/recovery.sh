@@ -26,12 +26,6 @@ fi
 nice -n 19 go build -p 2 -o "$work/recovery-e2e" "$here/updater-preflight"
 root=$work/root
 mkdir -p "$root"/{etc/systemd/system,var/lib/ts-orch/nats,var/log/journal,usr/local/bin,opt,run,proc,sys,dev,tmp,result}
-mkdir -p "$root/opt/sys-class/dmi/id"
-ln -s sys-class/dmi/id "$root/opt/firmware"
-printf 'Local\n' > "$root/opt/firmware/chassis_asset_tag"
-for field in board_asset_tag product_serial product_uuid; do
- printf 'unknown\n' > "$root/opt/firmware/$field"
-done
 binds=()
 for directory in /usr/bin /usr/sbin /usr/lib /usr/lib64 /bin /sbin /lib /lib64 /nix/store /run/current-system; do
  if [[ $directory == /usr/bin && -d /nix/store ]]; then continue; fi
@@ -61,7 +55,6 @@ for target in basic sysinit; do
 done
 ln -s /dev/null "$root/etc/systemd/system/systemd-firstboot.service"
 ln -s /dev/null "$root/etc/systemd/system/systemd-oomd.service"
-printf 'nameserver 1.1.1.1\n' > "$root/etc/resolv.conf"
 cp "$bin" "$root/usr/local/bin/terrascale-orchestrator"
 chmod 755 "$root/usr/local/bin/terrascale-orchestrator"
 cp "$work/recovery-e2e" "$root/opt/recovery-e2e"
@@ -120,7 +113,7 @@ TimeoutStartSec=infinity
 UNIT
 cat > "$root/opt/run-lane" <<'INNER'
 export PATH=/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
-if ip link set lo up && mount --bind /opt/sys-class /sys/class; then
+if ip link set lo up; then
  /opt/recovery-e2e recovery-case /opt/recovery-e2e > /result/lane.log 2>&1
  status=$?
 else

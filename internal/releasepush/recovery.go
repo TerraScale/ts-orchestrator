@@ -79,7 +79,19 @@ func (h *Handler) prepareRecovery(ctx context.Context) (time.Time, error) {
 		}
 	}
 	status, _ := h.probation.status()
-	if status == "" {
+	if status != "" {
+		if _, err := os.Stat(h.Binary + ".recovery"); err != nil {
+			return time.Time{}, fmt.Errorf("unconfirmed updater has no independent recovery executable: %w", err)
+		}
+		if err := recoveryCommand(ctx, "systemctl", "is-enabled", "--quiet", recoveryTimer); err != nil {
+			return time.Time{}, err
+		}
+		if err := recoveryCommand(ctx, "systemctl", "start", recoveryTimer); err != nil {
+			return time.Time{}, err
+		}
+		return time.Now().Add(wait), nil
+	}
+	{
 		source, err := os.Open("/proc/self/exe")
 		if err != nil {
 			return time.Time{}, err
@@ -102,8 +114,6 @@ func (h *Handler) prepareRecovery(ctx context.Context) (time.Time, error) {
 		if err := syncDirectory(filepath.Dir(h.Binary)); err != nil {
 			return time.Time{}, err
 		}
-	} else if _, err := os.Stat(h.Binary + ".recovery"); err != nil {
-		return time.Time{}, fmt.Errorf("unconfirmed updater has no independent recovery executable: %w", err)
 	}
 	if err := recoveryCommand(ctx, "systemd-analyze", "verify", "--man=no", filepath.Join(directory, recoveryUnit), filepath.Join(directory, recoveryTimer)); err != nil {
 		return time.Time{}, err
