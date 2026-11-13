@@ -78,6 +78,7 @@ func encoded(value any) string {
 }
 
 func run() {
+	require(string(read("/sys/class/dmi/id/chassis_asset_tag")) == "Local\n", "private firmware mount is hidden before release tests")
 	fd, err := unix.FanotifyInit(unix.FAN_CLOEXEC|unix.FAN_CLASS_CONTENT, unix.O_RDONLY|unix.O_LARGEFILE|unix.O_CLOEXEC)
 	check(err)
 	check(unix.Close(fd))

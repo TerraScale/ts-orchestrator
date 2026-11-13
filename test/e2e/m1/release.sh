@@ -53,9 +53,10 @@ systemd_root=$(dirname "$(dirname "$systemctl")")
 if [[ -d $systemd_root/example/systemd/system ]]; then
  mkdir -p "$root/usr/lib/systemd" "$root/usr/bin"
  ln -s "$systemd_root/example/systemd/system" "$root/usr/lib/systemd/system"
- for tool in systemctl systemd-run systemd-analyze journalctl ip mount bash nice cat dbus-daemon; do
+ for tool in systemctl systemd-run systemd-analyze journalctl ip bash nice cat dbus-daemon; do
   ln -s "$(command -v "$tool")" "$root/usr/bin/$tool"
  done
+ ln -s "$(dirname "$(readlink -f "$(command -v nsenter)")")/mount" "$root/usr/bin/mount"
  mkdir -p "$root/sbin"
  ln -s "$systemd_root/lib/systemd/systemd" "$root/sbin/init"
 fi
@@ -125,10 +126,12 @@ TimeoutStartSec=infinity
 UNIT
 cat > "$root/opt/run-lane" <<'INNER'
 export PATH=/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
-ip link set lo up
-mount --bind /opt/sys-class /sys/class
-/opt/release-e2e > /result/lane.log 2>&1
-status=$?
+if ip link set lo up && mount --bind /opt/sys-class /sys/class; then
+ /opt/release-e2e > /result/lane.log 2>&1
+ status=$?
+else
+ status=$?
+fi
 cat /result/lane.log
 printf '%s\n' "$status" > /result/status
 systemctl poweroff --no-block
