@@ -155,6 +155,8 @@ func journey(ctx context.Context, cfg configuration) error {
 		{"ip", "link", "add", "cert-br", "type", "bridge"},
 		{"ip", "addr", "add", "10.77.0.1/24", "dev", "cert-br"},
 		{"ip", "addr", "add", "10.89.0.1/24", "dev", "cert-br"},
+		{"ip", "addr", "add", "10.90.0.1/24", "dev", "cert-br"},
+		{"ip", "addr", "add", "10.91.0.1/24", "dev", "cert-br"},
 		{"ip", "link", "set", "cert-br", "up"},
 	} {
 		if err := command(args...); err != nil {
@@ -285,7 +287,7 @@ func journey(ctx context.Context, cfg configuration) error {
 			return fmt.Errorf("%s automatic issuance: %w", node, err)
 		}
 		if node == "previous" {
-			fmt.Println("PASS previous binary order validated through both new edges under probes")
+			fmt.Println("PASS previous binary order validated through both new edges from three source networks under probes")
 			continue
 		}
 		if err = checkReady(ctx, client, address, 200); err != nil {

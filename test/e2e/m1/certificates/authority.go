@@ -24,17 +24,13 @@ import (
 )
 
 type fakeAuthority struct {
-	work    string
-	mu      sync.Mutex
-	base    string
-	key     *ecdsa.PrivateKey
-	root    *x509.Certificate
-	orders  map[string]string
-	issuers map[string]string
-	count   map[string]int
-	chain   map[string][]byte
-	proceed chan struct{}
-	once    sync.Once
+	mu     sync.Mutex
+	base   string
+	key    *ecdsa.PrivateKey
+	root   *x509.Certificate
+	orders map[string]string
+	count  map[string]int
+	chain  map[string][]byte
 }
 
 func authorityToken(name string) string {
@@ -44,7 +40,7 @@ func authorityToken(name string) string {
 
 func (a *fakeAuthority) challenge(name string) (string, error) {
 	answer := ""
-	for _, address := range []string{"10.77.0.2", "10.77.0.3", "10.77.0.4"} {
+	for index, address := range []string{"10.77.0.2", "10.77.0.3", "10.77.0.4"} {
 		req, err := http.NewRequest(http.MethodGet, "http://"+address+"/.well-known/acme-challenge/"+authorityToken(name), nil)
 		if err != nil {
 			return "", err
@@ -52,7 +48,7 @@ func (a *fakeAuthority) challenge(name string) (string, error) {
 		req.Host = name
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Proxy = nil
-		transport.DialContext = (&net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP("10.89.0.1")}}).DialContext
+		transport.DialContext = (&net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP(fmt.Sprintf("10.%d.0.1", 89+index))}}).DialContext
 		response, err := (&http.Client{Transport: transport, Timeout: 8 * time.Second}).Do(req)
 		transport.CloseIdleConnections()
 		if err != nil {
@@ -90,8 +86,7 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 	if err != nil {
 		return err
 	}
-	a := &fakeAuthority{base: "https://acme-v02.api.letsencrypt.org", root: root, key: key, orders: map[string]string{}, issuers: map[string]string{}, count: map[string]int{}, chain: map[string][]byte{}, proceed: make(chan struct{})}
-	close(a.proceed)
+	a := &fakeAuthority{base: "https://acme-v02.api.letsencrypt.org", root: root, key: key, orders: map[string]string{}, count: map[string]int{}, chain: map[string][]byte{}}
 	pair, err := tls.LoadX509KeyPair(cfg.Work+"/identity.pem", cfg.Work+"/identity.key")
 	if err != nil {
 		return err
@@ -139,9 +134,6 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/counts":
 		_ = json.NewEncoder(w).Encode(a.count)
-	case "/release":
-		a.once.Do(func() { close(a.proceed) })
-		w.WriteHeader(204)
 	case "/directory":
 		_ = json.NewEncoder(w).Encode(map[string]string{"newNonce": base + "/nonce", "newAccount": base + "/account", "newOrder": base + "/new-order"})
 	case "/nonce":
@@ -167,17 +159,10 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"type": "urn:ietf:params:acme:error:rejectedIdentifier", "detail": "journey order budget exhausted"})
 			return
 		}
-		a.issuers[id], _, _ = net.SplitHostPort(r.RemoteAddr)
 
 		a.orders[id] = "pending"
 		a.mu.Unlock()
 		fmt.Println("order", id)
-		if id == "shared.e2e.test" {
-			select {
-			case <-a.proceed:
-			case <-r.Context().Done():
-			}
-		}
 		a.mu.Lock()
 		if r.Context().Err() != nil {
 			return
