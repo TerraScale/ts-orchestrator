@@ -72,12 +72,15 @@ func InitIdentity(state string) {
 	_, err := Keys(state)
 	observability.SetNodeFeatureAvailable("identity", err == nil)
 	if err != nil {
-		slog.Warn("node identity unavailable")
+		slog.Warn("node identity unavailable", "reason", err.Error())
 	}
 }
 
 func ReadKeys(state string) (PublicKeys, error) {
 	dir := filepath.Join(state, "node")
+	if err := checkDirectory(dir); err != nil {
+		return PublicKeys{}, err
+	}
 	tlsBytes, err := identityFile(filepath.Join(dir, "tls.key"))
 	if err != nil {
 		return PublicKeys{}, fmt.Errorf("read node TLS identity: %w", err)
@@ -100,7 +103,7 @@ func ReadKeys(state string) (PublicKeys, error) {
 	}
 	wgBytes, err := identityFile(filepath.Join(dir, "wg.key"))
 	if err != nil {
-		return PublicKeys{}, err
+		return PublicKeys{}, fmt.Errorf("read node WireGuard identity: %w", err)
 	}
 	raw, err := base64.StdEncoding.DecodeString(string(wgBytes))
 	if err != nil {
@@ -119,8 +122,9 @@ func identityFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
-		return nil, errors.New("node private key must be a regular 0600 file")
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || !ok || owner.Uid != uint32(os.Geteuid()) {
+		return nil, errors.New("node private key must be an owned regular 0600 file")
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -162,6 +166,10 @@ func secureDirectory(path string) error {
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		return err
 	}
+	return checkDirectory(path)
+}
+
+func checkDirectory(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return err

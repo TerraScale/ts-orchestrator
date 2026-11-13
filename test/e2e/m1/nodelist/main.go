@@ -1,7 +1,11 @@
 package main
 
 import (
+	"archive/tar"
+	"bufio"
 	"bytes"
+	"compress/gzip"
+	"context"
 	"crypto"
 	"crypto/ecdh"
 	"crypto/ecdsa"
@@ -25,21 +29,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
-	"sync/atomic"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/moby/swarmkit/v2/api"
 )
 
-const (
-	sha     = "1111111111111111111111111111111111111111"
-	nextSHA = "2222222222222222222222222222222222222222"
-	state   = "/var/lib/ts-orch"
-	dropin  = "/run/systemd/system/ts-orch.service.d/node-list-e2e.conf"
-)
+const state = "/var/lib/ts-orch"
 
 func must(err error) {
 	if err != nil {
@@ -57,6 +60,176 @@ func encode(value any) []byte {
 	data, err := json.Marshal(value)
 	must(err)
 	return data
+}
+
+func run(args ...string) []byte {
+	output, err := exec.Command(args[0], args[1:]...).CombinedOutput()
+	if err != nil {
+		panic(fmt.Sprintf("%s: %v: %s", args[0], err, output))
+	}
+	return output
+}
+
+func write(path string, data []byte) {
+	must(os.WriteFile(path, data, 0600))
+}
+
+type artifact struct {
+	Name string
+	SHA  string
+	Path string
+	List nodelist.List
+}
+
+func prepare(work string) {
+	inventory := []nodelist.Node{}
+	for index := 1; index <= 2; index++ {
+		wg, err := ecdh.X25519().GenerateKey(rand.Reader)
+		must(err)
+		pin := sha256.Sum256([]byte(fmt.Sprint(index)))
+		inventory = append(inventory, nodelist.Node{
+			Name: fmt.Sprintf("ts-gru-%d", index), Region: "gru",
+			PublicIP: fmt.Sprintf("192.0.2.%d", index), PrivateIP: fmt.Sprintf("10.251.0.%d", index),
+			MeshIP:      fmt.Sprintf("10.201.1.%d", index),
+			WGPublicKey: base64.StdEncoding.EncodeToString(wg.PublicKey().Bytes()), TLSSPKISHA256: hex.EncodeToString(pin[:]),
+		})
+	}
+	base := nodelist.List{Sequence: 1, Nodes: inventory}
+	higher := nodelist.List{Sequence: 2, Nodes: inventory}
+	conflict := nodelist.List{Sequence: 2, Nodes: append([]nodelist.Node{}, inventory...)}
+	conflict.Nodes[0].PublicIP = "192.0.2.20"
+	noncanonical := nodelist.List{Sequence: 3, Nodes: append([]nodelist.Node{}, inventory...)}
+	noncanonical.Nodes[1].WGPublicKey = inventory[0].WGPublicKey[:4] + "\n" + inventory[0].WGPublicKey[4:]
+	duplicate := nodelist.List{Sequence: 3, Nodes: append([]nodelist.Node{}, inventory...)}
+	duplicate.Nodes[1].WGPublicKey = inventory[0].WGPublicKey
+	items := []artifact{
+		{Name: "base", List: base},
+		{Name: "higher", List: higher},
+		{Name: "conflict", List: conflict},
+		{Name: "canonical", List: noncanonical},
+		{Name: "duplicate", List: duplicate},
+		{Name: "empty", List: nodelist.List{Sequence: 3, Nodes: []nodelist.Node{}}},
+	}
+	repo, err := os.Getwd()
+	must(err)
+	source := filepath.Join(repo, "deploy/m1/embed.go")
+	original, err := os.ReadFile(source)
+	must(err)
+	declaration := regexp.MustCompile(`(?m)^const NodeList = .*\n?`)
+	revision := strings.TrimSpace(string(run("git", "rev-parse", "HEAD")))
+	for index := range items {
+		item := &items[index]
+		item.SHA = fmt.Sprintf("%040x", index+101)
+		item.Path = filepath.Join(work, item.Name)
+		embedded := declaration.ReplaceAllFunc(original, func([]byte) []byte {
+			return []byte(fmt.Sprintf("const NodeList = %q\n", encode(item.List)))
+		})
+		overlaySource := filepath.Join(work, "embed.go")
+		write(overlaySource, embedded)
+		overlay := filepath.Join(work, "overlay.json")
+		write(overlay, encode(map[string]any{"Replace": map[string]string{source: overlaySource}}))
+		run("nice", "-n", "19", "go", "build", "-p", "2", "-buildvcs=true", "-overlay", overlay, "-o", item.Path, "./cmd/terrascale-orchestrator")
+		binary, err := os.ReadFile(item.Path)
+		must(err)
+		from := []byte("vcs.revision=" + revision)
+		require(bytes.Contains(binary, from), "build revision missing")
+		binary = bytes.ReplaceAll(binary, from, []byte("vcs.revision="+item.SHA))
+		binary = bytes.ReplaceAll(binary, []byte("vcs.modified=true"), []byte("vcs.modified=truE"))
+		write(item.Path, binary)
+		must(os.Chmod(item.Path, 0700))
+	}
+	write(filepath.Join(work, "artifacts.json"), encode(items))
+	versionFile, err := os.ReadFile("deploy/m1/host-runtime.sh")
+	must(err)
+	version := regexp.MustCompile(`(?m)^containerd_version=(.*)$`).FindSubmatch(versionFile)
+	require(len(version) == 2, "containerd version missing")
+	client := &http.Client{Timeout: time.Minute}
+	response, err := client.Get(fmt.Sprintf("https://github.com/containerd/containerd/releases/download/v%s/containerd-%s-linux-%s.tar.gz", version[1], version[1], runtime.GOARCH))
+	must(err)
+	defer response.Body.Close()
+	require(response.StatusCode == http.StatusOK, "containerd download refused")
+	zipped, err := gzip.NewReader(response.Body)
+	must(err)
+	defer zipped.Close()
+	archive := tar.NewReader(zipped)
+	for {
+		header, err := archive.Next()
+		must(err)
+		if header.Name == "bin/containerd" {
+			binary, err := io.ReadAll(archive)
+			must(err)
+			write(filepath.Join(work, "containerd"), binary)
+			must(os.Chmod(filepath.Join(work, "containerd"), 0700))
+			break
+		}
+	}
+}
+
+type process struct {
+	cmd   *exec.Cmd
+	mu    sync.Mutex
+	log   bytes.Buffer
+	ready chan struct{}
+	done  chan error
+}
+
+func start(needle string, environment []string, args ...string) *process {
+	p := &process{cmd: exec.Command(args[0], args[1:]...), ready: make(chan struct{}), done: make(chan error, 1)}
+	p.cmd.Env = append(os.Environ(), environment...)
+	reader, err := p.cmd.StdoutPipe()
+	must(err)
+	p.cmd.Stderr = p.cmd.Stdout
+	must(p.cmd.Start())
+	go func() {
+		scanner := bufio.NewScanner(reader)
+		found := false
+		for scanner.Scan() {
+			line := scanner.Text()
+			p.mu.Lock()
+			p.log.WriteString(line + "\n")
+			p.mu.Unlock()
+			if !found && strings.Contains(line, needle) {
+				close(p.ready)
+				found = true
+			}
+		}
+		p.done <- p.cmd.Wait()
+	}()
+	return p
+}
+
+func (p *process) text() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.log.String()
+}
+
+func (p *process) wait() error {
+	select {
+	case err := <-p.done:
+		return err
+	case <-time.After(30 * time.Second):
+		_ = p.cmd.Process.Kill()
+		<-p.done
+		panic("process did not exit: " + p.text())
+	}
+}
+
+func (p *process) serving() {
+	select {
+	case <-p.ready:
+	case err := <-p.done:
+		panic(fmt.Sprintf("not serving: %v: %s", err, p.text()))
+	case <-time.After(30 * time.Second):
+		_ = p.cmd.Process.Kill()
+		<-p.done
+		panic("not ready: " + p.text())
+	}
+}
+
+func (p *process) stop() {
+	must(p.cmd.Process.Signal(syscall.SIGTERM))
+	_ = p.wait()
 }
 
 func signed(key *rsa.PrivateKey, kid, commit, run string, overrides map[string]any) string {
@@ -79,152 +252,76 @@ func signed(key *rsa.PrivateKey, kid, commit, run string, overrides map[string]a
 	return input + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
-func run(input []byte, args ...string) []byte {
-	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Stdin = bytes.NewReader(input)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		panic(fmt.Sprintf("%s failed: %v: %s", args[0], err, output))
+func lane(work string) {
+	run("mount", "--make-rprivate", "/")
+	run("ip", "link", "set", "lo", "up")
+	for _, name := range []string{"varlib", "run", "firmware"} {
+		must(os.Mkdir(filepath.Join(work, name), 0700))
 	}
-	return output
-}
-
-func main() {
-	require(len(os.Args) == 2, "binary argument required")
-	bin, err := filepath.Abs(os.Args[1])
+	write(filepath.Join(work, "firmware/chassis_asset_tag"), []byte("Local"))
+	run("mount", "--bind", filepath.Join(work, "varlib"), "/var/lib")
+	must(os.MkdirAll("/var/lib/containerd", 0700))
+	for _, path := range []string{"/run/containerd", "/run/ts-orch", "/run/ts-orch-observability"} {
+		isolated := filepath.Join(work, "run", filepath.Base(path))
+		must(os.MkdirAll(isolated, 0700))
+		must(os.MkdirAll(path, 0700))
+		run("mount", "--bind", isolated, path)
+	}
+	run("mount", "--bind", filepath.Join(work, "firmware"), "/sys/class/dmi/id")
+	runtimeProcess := start("containerd successfully booted", nil, filepath.Join(work, "containerd"),
+		"--root", filepath.Join(work, "containerd-root"), "--state", filepath.Join(work, "containerd-state"),
+		"--address", "/run/containerd/containerd.sock")
+	defer runtimeProcess.stop()
+	runtimeProcess.serving()
+	var items []artifact
+	data, err := os.ReadFile(filepath.Join(work, "artifacts.json"))
 	must(err)
-	work, err := os.MkdirTemp("", "node-list-e2e-")
-	must(err)
-	defer os.RemoveAll(work)
-	command := func(args ...string) []byte {
-		return run(nil, append([]string{bin}, args...)...)
-	}
-	root := func(args ...string) []byte {
-		return run(nil, append([]string{"sudo", "-n"}, args...)...)
-	}
-	save := func(path string, data []byte) {
-		run(data, "sudo", "-n", "install", "-m", "0600", "/dev/stdin", path)
-	}
-	tlsPath, wgPath := state+"/node/tls.key", state+"/node/wg.key"
-	tlsPrivate, wgPrivate := root("cat", tlsPath), root("cat", wgPath)
-	defer func() {
-		save(tlsPath, tlsPrivate)
-		save(wgPath, wgPrivate)
-		root("rm", "-f", state+"/node/nodes.json", dropin, "/run/ts-node-list-e2e-ca.pem")
-		root("systemctl", "daemon-reload")
-		root("systemctl", "restart", "ts-orch")
-	}()
-	public := root(bin, "node", "keys")
-	require(bytes.Equal(public, root(bin, "node", "keys")), "public identity changed across processes")
-	require(!bytes.Contains(public, bytes.TrimSpace(tlsPrivate)) && !bytes.Contains(public, bytes.TrimSpace(wgPrivate)), "private key exposed")
-	var keys nodelist.PublicKeys
-	must(json.Unmarshal(public, &keys))
-	var fields map[string]any
-	must(json.Unmarshal(public, &fields))
-	require(len(fields) == 2 && len(keys.WGPublicKey) == 44 && len(keys.TLSSPKISHA256) == 64, "public identity incomplete")
-	for _, path := range []string{tlsPath, wgPath} {
-		require(strings.TrimSpace(string(root("stat", "-c", "%a", path))) == "600", "private key mode differs")
-	}
-	missing := exec.Command(bin, "node", "keys", filepath.Join(work, "absent"))
-	require(missing.Run() != nil, "keys command created an absent identity")
-	_, err = os.Stat(filepath.Join(work, "absent"))
-	require(os.IsNotExist(err), "read-only keys command changed state")
-	emptyPath := filepath.Join(work, "empty.json")
-	must(os.WriteFile(emptyPath, []byte("{\"sequence\":0,\"nodes\":[]}"), 0600))
-	require(len(command("release", "nodes", "publish", sha, emptyPath, "absent-regions")) == 0, "empty list attempted delivery")
-	inventory := []nodelist.Node{}
-	for index := 1; index <= 3; index++ {
-		if index > 1 {
-			wg, err := ecdh.X25519().GenerateKey(rand.Reader)
-			must(err)
-			tlsKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-			must(err)
-			spki, err := x509.MarshalPKIXPublicKey(&tlsKey.PublicKey)
-			must(err)
-			pin := sha256.Sum256(spki)
-			keys = nodelist.PublicKeys{WGPublicKey: base64.StdEncoding.EncodeToString(wg.PublicKey().Bytes()), TLSSPKISHA256: hex.EncodeToString(pin[:])}
-		}
-		inventory = append(inventory, nodelist.Node{Name: fmt.Sprintf("ts-gru-%d", index), Region: "gru",
-			PublicIP: fmt.Sprintf("192.0.2.%d", index), PrivateIP: fmt.Sprintf("10.251.0.%d", index),
-			WGPublicKey: keys.WGPublicKey, TLSSPKISHA256: keys.TLSSPKISHA256})
-	}
-	inventoryPath, listPath := filepath.Join(work, "inventory.json"), filepath.Join(work, "nodes.json")
-	must(os.WriteFile(inventoryPath, encode(inventory), 0600))
-	command("node", "list", "build", "2", inventoryPath, listPath)
-	listWire, err := os.ReadFile(listPath)
-	must(err)
-	list, err := nodelist.Decode(listWire)
-	must(err)
-	require(list.Nodes[2].MeshIP == "10.201.1.3", "builder derived wrong mesh IP")
-	newer := list
-	newer.Sequence = 3
-	newerWire := encode(newer)
-	commits := map[string][]byte{sha: listWire, nextSHA: newerWire}
+	must(json.Unmarshal(data, &items))
 	signer, err := rsa.GenerateKey(rand.Reader, 2048)
 	must(err)
-	unknown, err := rsa.GenerateKey(rand.Reader, 2048)
-	must(err)
-	var token atomic.Value
-	var fetchFailed atomic.Bool
-	var fetched atomic.Uint64
-	token.Store(signed(signer, "run-key", sha, "20", nil))
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	must(err)
-	cert := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "M1 node list"},
-		DNSNames:  []string{"token.actions.githubusercontent.com", "raw.githubusercontent.com"},
+	cert := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "M1 releases"},
+		DNSNames:  []string{"token.actions.githubusercontent.com", "github.com"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
 	der, err := x509.CreateCertificate(rand.Reader, cert, cert, &caKey.PublicKey, caKey)
 	must(err)
-	caPath := "/run/ts-node-list-e2e-ca.pem"
-	save(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+	caPath := filepath.Join(work, "ca.pem")
+	write(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Host == "token.actions.githubusercontent.com" && r.URL.Path == "/.well-known/jwks":
+		if r.Host == "token.actions.githubusercontent.com" && r.URL.Path == "/.well-known/jwks" {
 			must(json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]string{
 				"kty": "RSA", "kid": "run-key", "n": base64.RawURLEncoding.EncodeToString(signer.N.Bytes()),
 				"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(signer.E)).Bytes()),
 			}}}))
-		case r.Host == "raw.githubusercontent.com":
-			fetched.Add(1)
-			if fetchFailed.Load() {
-				http.Error(w, "unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			for commit, data := range commits {
-				if r.URL.Path == "/TerraScale/ts-orchestrator/"+commit+"/deploy/m1/nodes.json" {
-					_, err := w.Write(data)
-					must(err)
+			return
+		}
+		if r.Host == "github.com" {
+			for _, item := range items {
+				if strings.Contains(r.URL.Path, "/ci-"+item.SHA+"-run-") {
+					http.ServeFile(w, r, item.Path)
 					return
 				}
 			}
-			http.NotFound(w, r)
-		default:
-			http.NotFound(w, r)
 		}
+		http.NotFound(w, r)
 	}))
 	upstream.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: caKey}}}
 	upstream.StartTLS()
 	defer upstream.Close()
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodConnect {
-			http.Error(w, "CONNECT required", http.StatusMethodNotAllowed)
+		if r.Method != http.MethodConnect || r.Host != "token.actions.githubusercontent.com:443" && r.Host != "github.com:443" {
+			http.Error(w, "unexpected upstream", http.StatusBadGateway)
 			return
 		}
-		address := r.Host
-		if address == "token.actions.githubusercontent.com:443" || address == "raw.githubusercontent.com:443" {
-			address = upstream.Listener.Addr().String()
-		}
-		target, err := net.DialTimeout("tcp", address, 5*time.Second)
-		if err != nil {
-			http.Error(w, "connection failed", http.StatusBadGateway)
-			return
-		}
+		target, err := net.DialTimeout("tcp", upstream.Listener.Addr().String(), 5*time.Second)
+		must(err)
+		defer target.Close()
 		client, buffered, err := w.(http.Hijacker).Hijack()
 		must(err)
 		defer client.Close()
-		defer target.Close()
 		_, err = buffered.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
 		must(err)
 		must(buffered.Flush())
@@ -235,144 +332,270 @@ func main() {
 		<-done
 	}))
 	defer proxy.Close()
-	mint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require(r.Header.Get("Authorization") == "bearer e2e-only", "unauthenticated mint")
-		must(json.NewEncoder(w).Encode(map[string]string{"value": token.Load().(string)}))
-	}))
-	defer mint.Close()
-	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", mint.URL+"?request=e2e"))
-	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "e2e-only"))
-	root("install", "-d", filepath.Dir(dropin))
-	save(dropin, []byte(fmt.Sprintf("[Service]\nEnvironment=HTTPS_PROXY=%s SSL_CERT_FILE=%s\n", proxy.URL, caPath)))
-	root("systemctl", "daemon-reload")
-	root("systemctl", "restart", "ts-orch")
-	pin := strings.TrimSpace(string(root(bin, "release", "pin", "--state", state)))
+	environment := []string{"HTTPS_PROXY=" + proxy.URL, "SSL_CERT_FILE=" + caPath}
+	executable := filepath.Join(work, "agent")
+	data, err = os.ReadFile(items[0].Path)
+	must(err)
+	write(executable, data)
+	must(os.Chmod(executable, 0700))
+	launch := func(broken bool) *process {
+		env := append([]string{}, environment...)
+		if broken {
+			env = append(env, "NOTIFY_SOCKET="+filepath.Join(work, "missing.sock"))
+		}
+		return start("ready; advertise", env, executable, "single-host", "--state", state)
+	}
+	current := launch(false)
+	defer func() {
+		if current != nil {
+			current.stop()
+		}
+	}()
+	current.serving()
+	pin := strings.TrimSpace(string(run(executable, "release", "pin", "--state", state)))
 	region := releasepush.Region{Region: "gru", NATS: "tls://127.0.0.1:4222", SPKISHA256: pin}
-	dial := func() *connection {
-		conn, err := releasepush.Dial(region, token.Load().(string))
+	token := signed(signer, "run-key", items[0].SHA, "100", nil)
+	request := func(subject string, value any) releasepush.Reply {
+		conn, err := releasepush.Dial(region, token)
 		must(err)
-		return &connection{request: func(subject string, wire []byte) releasepush.Reply {
-			message, err := conn.Request(subject, wire, 5*time.Second)
-			must(err)
-			var reply releasepush.Reply
-			must(json.Unmarshal(message.Data, &reply))
-			return reply
-		}, close: conn.Close}
+		defer conn.Close()
+		message, err := conn.Request(subject, encode(value), 15*time.Second)
+		must(err)
+		var reply releasepush.Reply
+		must(json.Unmarshal(message.Data, &reply))
+		return reply
 	}
-	conn := dial()
-	defer func() { conn.close() }()
-	send := func(value releasepush.NodesRelease) releasepush.Reply {
-		return conn.request(releasepush.SubjectNodes, encode(value))
+	snapshot := func() []byte {
+		data, err := os.ReadFile(state + "/node/nodes.json")
+		must(err)
+		return data
 	}
-	version := conn.request(releasepush.SubjectVersion, nil).Version
-	binary, err := os.ReadFile(bin)
-	must(err)
-	sum := sha256.Sum256(binary)
-	binaryRelease := releasepush.OrchRelease{SHA: version, Token: signed(signer, "run-key", version, "22", nil),
-		Binaries: map[string]releasepush.Binary{runtime.GOARCH: {URL: releasepush.ReleaseURL(version, "22", runtime.GOARCH), SHA256: hex.EncodeToString(sum[:])}}}
-	binaryWorks := func() {
-		require(conn.request(releasepush.SubjectOrch, encode(binaryRelease)).State == "current", "current binary release refused")
+	baselineHealth := request(releasepush.SubjectHealth, nil).Health
+	require(baselineHealth != "", "release health reply missing")
+	serves := func() {
+		client, conn, err := swarmruntime.DialSingleHost(state)
+		must(err)
+		defer conn.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+		must(err)
+		require(len(nodes.Nodes) == 1 && nodes.Nodes[0].Status.State == api.NodeStatus_READY, "host control API is not serving its ready node")
+		require(request(releasepush.SubjectHealth, nil).Health == baselineHealth, "node list changed release health")
 	}
-	binaryWorks()
-	sign := func(commit string) releasepush.NodesRelease {
-		var release releasepush.NodesRelease
-		must(json.Unmarshal(command("release", "nodes", "sign", commit, listPath), &release))
-		return release
+	check := func(item artifact, refusal string) {
+		reply := request(releasepush.SubjectVersion, nil)
+		wire := encode(item.List)
+		digest := sha256.Sum256(wire)
+		require(reply.NodeList.Sequence == item.List.Sequence, fmt.Sprintf("sequence differs: %+v", reply))
+		require(reply.NodeList.Digest == hex.EncodeToString(digest[:]), "status digest differs")
+		require(strings.Contains(reply.NodeList.Refused, refusal) && (refusal != "" || reply.NodeList.Refused == ""), fmt.Sprintf("refusal differs: %+v", reply))
+		output := run(executable, "status")
+		require(bytes.Contains(output, []byte(reply.NodeList.String())), "CLI status did not show daemon decision: "+string(output))
+		serves()
 	}
-	release := sign(sha)
-	bad := release
-	parts := strings.Split(bad.Token, ".")
-	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
-	must(err)
-	signature[0] ^= 1
-	parts[2] = base64.RawURLEncoding.EncodeToString(signature)
-	bad.Token = strings.Join(parts, ".")
-	require(send(bad).State == "rejected", "bad signature accepted")
-	bad.Token = signed(unknown, "unknown-key", sha, "20", nil)
-	require(send(bad).State == "rejected", "unknown signer accepted")
-	for _, refusal := range []struct {
+	push := func(index, runID int) {
+		item := items[index]
+		binary, err := os.ReadFile(item.Path)
+		must(err)
+		sum := sha256.Sum256(binary)
+		runText := fmt.Sprint(runID)
+		release := releasepush.OrchRelease{SHA: item.SHA, Token: signed(signer, "run-key", item.SHA, runText, nil),
+			Binaries: map[string]releasepush.Binary{runtime.GOARCH: {
+				URL: releasepush.ReleaseURL(item.SHA, runText, runtime.GOARCH), SHA256: hex.EncodeToString(sum[:]),
+			}}}
+		reply := request(releasepush.SubjectOrch, release)
+		require(reply.State == "installed", fmt.Sprintf("release refused: %+v", reply))
+		require(current.wait() != nil, "installed release did not restart")
+		current = nil
+	}
+	check(items[0], "")
+	public := run(executable, "node", "keys")
+	inventoryPath, listPath := filepath.Join(work, "inventory.json"), filepath.Join(work, "built-list.json")
+	write(listPath, []byte("unchanged"))
+	for _, invalid := range []struct {
 		name   string
-		claims map[string]any
+		change func([]nodelist.Node)
+		reason string
 	}{
-		{"another workflow", map[string]any{"workflow_ref": "TerraScale/ts-orchestrator/.github/workflows/app-canary.yml@refs/heads/main"}},
-		{"pull-request event", map[string]any{"event_name": "pull_request"}},
-		{"non-main ref", map[string]any{"ref": "refs/heads/feature"}},
-		{"another repository", map[string]any{"repository": "TerraScale/terrascale", "workflow_ref": "TerraScale/terrascale/.github/workflows/ci.yml@refs/heads/main"}},
+		{"escaped CRLF", func(nodes []nodelist.Node) {
+			nodes[1].WGPublicKey = nodes[0].WGPublicKey[:4] + "\r\n" + nodes[0].WGPublicKey[4:]
+		}, "invalid canonical WireGuard"},
+		{"decoded WG duplicate", func(nodes []nodelist.Node) { nodes[1].WGPublicKey = nodes[0].WGPublicKey }, "duplicate node wg_public_key"},
+		{"uppercase TLS hash", func(nodes []nodelist.Node) { nodes[0].TLSSPKISHA256 = strings.ToUpper(nodes[0].TLSSPKISHA256) }, "invalid canonical TLS"},
+		{"decoded TLS duplicate", func(nodes []nodelist.Node) { nodes[1].TLSSPKISHA256 = nodes[0].TLSSPKISHA256 }, "duplicate node tls_spki_sha256"},
+		{"parsed cross-field address duplicate", func(nodes []nodelist.Node) { nodes[1].PrivateIP = nodes[0].PublicIP }, "duplicate node address"},
+		{"noncanonical address", func(nodes []nodelist.Node) { nodes[0].PublicIP = "192.000.2.1" }, "invalid canonical IPv4"},
+		{"uppercase name", func(nodes []nodelist.Node) { nodes[0].Name = "TS-GRU-1" }, "node name must be"},
+		{"noncanonical index", func(nodes []nodelist.Node) { nodes[0].Name = "ts-gru-01" }, "node name must be"},
 	} {
-		bad.Token = signed(signer, "run-key", sha, "20", refusal.claims)
-		require(send(bad).State == "rejected", refusal.name+" accepted")
+		nodes := append([]nodelist.Node{}, items[0].List.Nodes...)
+		invalid.change(nodes)
+		write(inventoryPath, encode(nodes))
+		output, err := exec.Command(executable, "node", "list", "build", "4", inventoryPath, listPath).CombinedOutput()
+		require(err != nil && bytes.Contains(output, []byte(invalid.reason)), invalid.name+" was not refused: "+string(output))
+		data, err := os.ReadFile(listPath)
+		must(err)
+		require(string(data) == "unchanged", "invalid builder input replaced output")
 	}
-	require(fetched.Load() == 0, "refused authorization fetched content")
-	bad = release
-	bad.Artifact.URL = releasepush.NodesURL(nextSHA)
-	require(send(bad).State == "rejected", "unsigned commit URL accepted")
-	must(os.WriteFile(listPath, newerWire, 0600))
-	bad = sign(sha)
-	require(send(bad).State == "rejected", "content absent from signed commit accepted")
-	must(os.WriteFile(listPath, listWire, 0600))
-	require(send(release).State == "updated", "valid signed list refused")
-	require(send(release).State == "current", "idempotent publish refused")
-	snapshot := func() []byte { return root("cat", state+"/node/nodes.json") }
+	write(inventoryPath, []byte("[]"))
+	run(executable, "node", "list", "build", "4", inventoryPath, listPath)
+	built, err := os.ReadFile(listPath)
+	must(err)
+	var empty nodelist.List
+	must(json.Unmarshal(built, &empty))
+	require(empty.Sequence == 4 && len(empty.Nodes) == 0, "builder refused final removal")
+	fmt.Println("ok public CLI: canonical keys, decoded key uniqueness, parsed address uniqueness and canonical names enforced; final removal builds")
+
+	keys := []string{state + "/node/tls.key", state + "/node/wg.key"}
+	private := make([][]byte, len(keys))
+	for index, path := range keys {
+		private[index], err = os.ReadFile(path)
+		must(err)
+		require(!bytes.Contains(public, bytes.TrimSpace(private[index])), "private identity exposed by public CLI")
+		info, err := os.Stat(path)
+		must(err)
+		require(info.Mode().Perm() == 0600 && info.Sys().(*syscall.Stat_t).Uid == 0, "generated identity permissions differ")
+	}
 	held := snapshot()
-	fetchFailed.Store(true)
-	require(send(release).State == "rejected", "failed commit fetch accepted")
-	require(bytes.Equal(held, snapshot()), "failed fetch changed stored list")
-	fetchFailed.Store(false)
-	must(os.WriteFile(listPath, newerWire, 0600))
-	token.Store(signed(signer, "run-key", nextSHA, "21", nil))
-	newRelease := sign(nextSHA)
-	envelopePath, regionsPath := filepath.Join(work, "envelope.json"), filepath.Join(work, "regions.json")
-	must(os.WriteFile(envelopePath, encode(newRelease), 0600))
-	must(os.WriteFile(regionsPath, encode([]releasepush.Region{region}), 0600))
-	require(bytes.Contains(command("release", "nodes", "push", envelopePath, regionsPath), []byte("\"updated\"")), "external publish failed")
-	require(send(release).State == "stale", "older sequence was not stale")
-	bad = newRelease
-	bad.Token = signed(signer, "run-key", nextSHA, "19", nil)
-	require(send(bad).State == "stale", "older run was not stale")
-	restart := func() {
-		conn.close()
-		root("systemctl", "restart", "ts-orch")
-		conn = dial()
-		require(strings.TrimSpace(string(root(bin, "release", "pin", "--state", state))) == pin, "release pin changed")
-		run(nil, "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:18081/health")
+	push(1, 101)
+	require(bytes.Equal(snapshot(), held), "install adopted before confirmation")
+	for attempt := 0; attempt < 3; attempt++ {
+		failed := launch(true)
+		require(failed.wait() != nil, "unconfirmed release unexpectedly served")
+		if attempt < 2 {
+			require(strings.Contains(failed.text(), "missing.sock"), "failure did not reach readiness: "+failed.text())
+		} else {
+			require(strings.Contains(failed.text(), "rolled back release"), "trial did not roll back: "+failed.text())
+		}
+		require(bytes.Equal(snapshot(), held), "unconfirmed or rolled-back release changed list")
 	}
-	restart()
-	require(send(release).State == "stale", "sequence floor lost on restart")
-	require(send(bad).State == "stale", "run floor lost on restart")
+	current = launch(false)
+	current.serving()
+	check(items[0], "")
+	fmt.Println("ok real daemon: unconfirmed higher embedded list and rolled-back release preserve stored list")
+	push(1, 102)
+	require(bytes.Equal(snapshot(), held), "higher list adopted during installation")
+	current = launch(false)
+	current.serving()
+	check(items[1], "")
+	require(!bytes.Equal(snapshot(), held), "confirmed higher sequence not persisted")
 	held = snapshot()
-	require(bytes.Equal(public, root(bin, "node", "keys")), "restart replaced identity")
-	root("rm", wgPath)
-	restart()
-	binaryWorks()
-	require(bytes.Equal(root("cat", tlsPath), tlsPrivate), "partial identity replaced surviving key")
-	missing = exec.Command("sudo", "-n", bin, "node", "keys")
-	require(missing.Run() != nil, "partial keys command succeeded")
-	require(exec.Command("sudo", "-n", "test", "-e", wgPath).Run() != nil, "partial identity regenerated")
-	save(wgPath, wgPrivate)
-	save(tlsPath, []byte("damaged"))
-	restart()
-	binaryWorks()
-	require(string(root("cat", tlsPath)) == "damaged", "damaged key replaced")
-	save(tlsPath, tlsPrivate)
-	root("chmod", "0644", tlsPath)
-	restart()
-	binaryWorks()
-	require(strings.TrimSpace(string(root("stat", "-c", "%a", tlsPath))) == "644", "invalid mode silently repaired")
-	root("chmod", "0600", tlsPath)
-	save(state+"/node/nodes.json", []byte("damaged"))
-	restart()
-	binaryWorks()
-	require(send(newRelease).State == "rejected", "unavailable list handler accepted list")
-	require(string(snapshot()) == "damaged", "damaged list replaced")
-	save(state+"/node/nodes.json", held)
-	restart()
-	require(send(newRelease).State == "current", "restored list refused")
-	fmt.Println("ok real daemon: valid list accepted; signature, signer, workflow, PR event, ref, repository, commit contents, sequence and run checked")
-	fmt.Println("ok real daemon: failed fetch preserves list; damaged, incomplete and wrong-mode identities and damaged list preserve serving, release listener and host pin")
-	fmt.Println("ok external commands: keys only reads; build, sign and push; persisted floors and identity survive restart")
+	fmt.Println("ok real daemon: higher embedded sequence adopted after confirmation; status sequence and digest converge")
+	push(0, 103)
+	current = launch(false)
+	current.serving()
+	check(items[1], "")
+	require(bytes.Equal(snapshot(), held), "older binary lowered stored list")
+	fmt.Println("ok real daemon: older binary and restart keep higher stored sequence silently")
+	for _, refusal := range []struct {
+		index  int
+		reason string
+	}{
+		{2, "conflicting node lists at the same sequence"},
+		{3, "invalid canonical WireGuard public key"},
+		{4, "duplicate node wg_public_key"},
+	} {
+		push(refusal.index, 104+refusal.index)
+		current = launch(false)
+		current.serving()
+		check(items[1], refusal.reason)
+		require(bytes.Equal(snapshot(), held), "refused list changed stored bytes")
+		require(strings.Count(current.text(), "node list: refused, ") == 1, "refusal was not logged once: "+current.text())
+		require(exec.Command("test", "-e", state+"/nats/release-trial").Run() != nil, "refusal blocked confirmation")
+	}
+	fmt.Println("ok real daemon: equal-sequence conflict, noncanonical escaped-newline key and decoded duplicate refused once; releases confirm and serve")
+	push(5, 110)
+	current = launch(false)
+	current.serving()
+	check(items[5], "")
+	held = snapshot()
+	fmt.Println("ok real daemon: higher empty list removes final enrolled hosts")
+	for index, path := range keys {
+		for _, wrong := range []string{"mode", "owner"} {
+			current.stop()
+			current = nil
+			if wrong == "mode" {
+				must(os.Chmod(path, 0644))
+			} else {
+				must(os.Chown(path, 65534, 65534))
+			}
+			current = launch(false)
+			current.serving()
+			check(items[5], "")
+			require(exec.Command(executable, "node", "keys").Run() != nil, "invalid key metadata accepted")
+			actual, err := os.ReadFile(path)
+			must(err)
+			require(bytes.Equal(actual, private[index]), "existing identity bytes changed")
+			info, err := os.Stat(path)
+			must(err)
+			require(wrong != "mode" || info.Mode().Perm() == 0644, "existing key mode silently changed")
+			require(wrong != "owner" || info.Sys().(*syscall.Stat_t).Uid == 65534, "existing key owner silently changed")
+			require(strings.Count(current.text(), "node identity unavailable") == 1, "identity failure not reported once")
+			must(os.Chown(path, 0, 0))
+			must(os.Chmod(path, 0600))
+		}
+	}
+	for index, path := range keys {
+		current.stop()
+		current = nil
+		write(path, []byte("damaged"))
+		current = launch(false)
+		current.serving()
+		check(items[5], "")
+		require(exec.Command(executable, "node", "keys").Run() != nil, "damaged identity accepted")
+		actual, err := os.ReadFile(path)
+		must(err)
+		require(string(actual) == "damaged", "damaged identity silently replaced")
+		write(path, private[index])
+	}
+	current.stop()
+	current = nil
+	must(os.Remove(keys[1]))
+	current = launch(false)
+	current.serving()
+	check(items[5], "")
+	_, err = os.Stat(keys[1])
+	require(os.IsNotExist(err), "incomplete identity regenerated")
+	require(exec.Command(executable, "node", "keys").Run() != nil, "incomplete identity accepted")
+	actual, err := os.ReadFile(keys[0])
+	must(err)
+	require(bytes.Equal(actual, private[0]), "incomplete identity replaced surviving key")
+	write(keys[1], private[1])
+	current.stop()
+	current = nil
+	write(state+"/node/nodes.json", []byte("damaged"))
+	current = launch(false)
+	current.serving()
+	reply := request(releasepush.SubjectVersion, nil)
+	require(strings.Contains(reply.NodeList.Refused, "stored node list"), "damaged stored list not reported")
+	require(string(snapshot()) == "damaged", "damaged stored list overwritten")
+	serves()
+	current.stop()
+	current = nil
+	write(state+"/node/nodes.json", held)
+	current = launch(false)
+	current.serving()
+	check(items[5], "")
+	require(bytes.Equal(public, run(executable, "node", "keys")), "identity changed over releases and restarts")
+	require(exec.Command(executable, "node", "keys", filepath.Join(work, "absent")).Run() != nil, "absent identity accepted")
+	_, err = os.Stat(filepath.Join(work, "absent"))
+	require(os.IsNotExist(err), "public-key command created state")
+	fmt.Println("ok real daemon: both existing keys with wrong owner or mode reported unchanged; damaged and incomplete keys preserve serving and identity")
+	fmt.Println("ok real daemon: damaged stored list refused and preserved without blocking serving; public-key CLI remains read-only")
 }
 
-type connection struct {
-	request func(string, []byte) releasepush.Reply
-	close   func()
+func main() {
+	require(len(os.Args) == 2, "binary or prepared lane directory required")
+	if os.Geteuid() == 0 {
+		lane(os.Args[1])
+		return
+	}
+	work, err := os.MkdirTemp("", "node-list-e2e-")
+	must(err)
+	defer func() { run("sudo", "-n", "rm", "-rf", work) }()
+	prepare(work)
+	self, err := os.Executable()
+	must(err)
+	fmt.Print(string(run("sudo", "-n", "env", "PATH="+os.Getenv("PATH"), "unshare", "--mount", "--net", self, work)))
 }

@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 )
@@ -96,6 +95,7 @@ type Reply struct {
 	Result   json.RawMessage `json:"result,omitempty"`
 	Deadline time.Time       `json:"deadline,omitzero"`
 	Events   []string        `json:"events,omitempty"`
+	NodeList nodelist.Status `json:"node_list,omitzero"`
 }
 
 type Progress interface {
@@ -147,11 +147,7 @@ func NewHandler(state string) (*Handler, error) {
 	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary,
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
 		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
-	h.NodeList, err = nodelist.Open(state)
-	observability.SetNodeFeatureAvailable("list", err == nil)
-	if err != nil {
-		slog.Warn("node list unavailable")
-	}
+	h.NodeList = nodelist.Open(state)
 	h.rolledBack.Store(readRollback(h.RollbackFile))
 	return h, nil
 }
@@ -192,7 +188,6 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 		SubjectVersion: func(context.Context, []byte) Reply { return h.version() },
 		SubjectHealth:  h.health,
 		SubjectOrch:    h.relayed,
-		SubjectNodes:   h.nodes,
 		SubjectApp:     h.app,
 		SubjectPing:    func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "ping", data) },
 		SubjectApply:   func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "apply", data) },
@@ -204,7 +199,7 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 // ServeWorker installs the ts-orch releases a region's founder relays on
 // subject: the same signed request CI sent, verified here again.
 func (h *Handler) ServeWorker(conn *nats.Conn, subject string) error {
-	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: h.workerRelease})
+	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: h.orch})
 }
 
 // relayed installs a release and, once this host runs or installed it,
@@ -251,10 +246,11 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }
 
 func (h *Handler) version() Reply {
+	reply := Reply{Version: h.Revision, NodeList: h.NodeList.Status()}
 	if rollback := h.rolledBack.Load(); rollback != nil {
-		return Reply{Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason}
+		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason
 	}
-	return Reply{Version: h.Revision}
+	return reply
 }
 
 func (h *Handler) health(ctx context.Context, _ []byte) Reply {

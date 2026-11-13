@@ -2,11 +2,13 @@ package nodelist
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -22,8 +24,6 @@ import (
 )
 
 const MaxBytes = 64 << 10
-
-var ErrStale = errors.New("a newer node list is held")
 
 var local atomic.Pointer[Store]
 
@@ -42,15 +42,26 @@ type List struct {
 	Nodes    []Node `json:"nodes"`
 }
 
-type held struct {
-	List  List   `json:"list"`
-	RunID uint64 `json:"run_id"`
+type Status struct {
+	Sequence uint64 `json:"sequence"`
+	Digest   string `json:"digest"`
+	Refused  string `json:"refused,omitempty"`
+}
+
+func (s Status) String() string {
+	text := fmt.Sprintf("node list: sequence %d, sha256 %s", s.Sequence, s.Digest)
+	if s.Refused != "" {
+		text = "node list: refused, " + s.Refused + "; " + text
+	}
+	return text
 }
 
 type Store struct {
-	mu   sync.Mutex
-	path string
-	held held
+	mu      sync.Mutex
+	path    string
+	list    List
+	refused string
+	loadErr error
 }
 
 func Current() []Node {
@@ -61,52 +72,40 @@ func Current() []Node {
 	return store.Snapshot().Nodes
 }
 
-func Open(state string) (*Store, error) {
-	return OpenEmbedded(state, []byte(m1.NodeList))
-}
-
-func OpenEmbedded(state string, embedded []byte) (*Store, error) {
+func Open(state string) *Store {
 	local.Store(nil)
-	if err := secureDirectory(filepath.Join(state, "node")); err != nil {
-		return nil, err
-	}
-	list, err := Decode(embedded)
-	if err != nil {
-		return nil, fmt.Errorf("embedded node list: %w", err)
-	}
-	store := &Store{path: filepath.Join(state, "node", "nodes.json"), held: held{List: list}}
-	data, err := readStored(store.path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
+	store := &Store{path: filepath.Join(state, "node", "nodes.json"), list: List{Nodes: []Node{}}}
+	err := secureDirectory(filepath.Dir(store.path))
 	if err == nil {
-		var saved held
-		if err := protocol.DecodeStrict(data, &saved, MaxBytes); err != nil {
-			return nil, err
-		}
-		if err := saved.List.Validate(); err != nil {
-			return nil, err
-		}
-		if saved.List.Sequence == list.Sequence && !same(saved.List, list) {
-			return nil, errors.New("conflicting node lists at the same sequence")
-		}
-		if saved.List.Sequence >= list.Sequence {
-			store.held = saved
-		} else {
-			store.held.RunID = saved.RunID
+		var data []byte
+		data, err = readStored(store.path)
+		if errors.Is(err, os.ErrNotExist) {
+			err = nil
+		} else if err == nil {
+			store.list, err = Decode(data)
 		}
 	}
-	if store.held.List.Sequence != 0 {
-		wire, err := protocol.EncodeJSON(store.held)
-		if err != nil {
-			return nil, err
-		}
-		if err := persist(store.path, wire); err != nil {
-			return nil, err
-		}
+	if err != nil {
+		store.list = List{Nodes: []Node{}}
+		store.loadErr = fmt.Errorf("stored node list: %w", err)
 	}
 	local.Store(store)
-	return store, nil
+	return store
+}
+
+func StatusAt(state string) Status {
+	if store := local.Load(); store != nil && store.path == filepath.Join(state, "node", "nodes.json") {
+		return store.Status()
+	}
+	data, err := readStored(filepath.Join(state, "node", "list-status.json"))
+	var status Status
+	if err == nil {
+		err = protocol.DecodeStrict(data, &status, MaxBytes)
+	}
+	if err != nil {
+		status.Refused = "node list status unavailable"
+	}
+	return status
 }
 
 func readStored(path string) ([]byte, error) {
@@ -128,35 +127,57 @@ func readStored(path string) ([]byte, error) {
 func (s *Store) Snapshot() List {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return List{Sequence: s.held.List.Sequence, Nodes: slices.Clone(s.held.List.Nodes)}
+	return List{Sequence: s.list.Sequence, Nodes: slices.Clone(s.list.Nodes)}
 }
 
-func (s *Store) Apply(list List, run uint64) (bool, error) {
-	if err := list.Validate(); err != nil {
-		return false, err
-	}
-	if run == 0 {
-		return false, errors.New("node list requires a release run")
-	}
+func (s *Store) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if run < s.held.RunID || list.Sequence < s.held.List.Sequence {
-		return false, ErrStale
+	return s.status()
+}
+
+func (s *Store) status() Status {
+	wire, _ := protocol.EncodeJSON(s.list)
+	sum := sha256.Sum256(wire)
+	return Status{Sequence: s.list.Sequence, Digest: hex.EncodeToString(sum[:]), Refused: s.refused}
+}
+
+func (s *Store) AdoptEmbedded() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list, err := Decode([]byte(m1.NodeList))
+	if s.loadErr != nil {
+		err = s.loadErr
 	}
-	if list.Sequence == s.held.List.Sequence && !same(list, s.held.List) {
-		return false, errors.New("conflicting node lists at the same sequence")
+	if err == nil {
+		if list.Sequence == s.list.Sequence && !same(list, s.list) {
+			err = errors.New("conflicting node lists at the same sequence")
+		} else if list.Sequence > s.list.Sequence {
+			var wire []byte
+			wire, err = protocol.EncodeJSON(list)
+			if err == nil {
+				err = persist(s.path, wire)
+			}
+			if err == nil {
+				s.list = list
+			}
+		}
 	}
-	changed := list.Sequence != s.held.List.Sequence
-	next := held{List: List{Sequence: list.Sequence, Nodes: slices.Clone(list.Nodes)}, RunID: run}
-	wire, err := protocol.EncodeJSON(next)
+	reason := ""
 	if err != nil {
-		return false, err
+		reason = err.Error()
+		if s.refused != reason {
+			slog.Warn("node list: refused, " + reason)
+		}
 	}
-	if err := persist(s.path, wire); err != nil {
-		return false, err
+	s.refused = reason
+	wire, statusErr := protocol.EncodeJSON(s.status())
+	if statusErr == nil {
+		statusErr = persist(filepath.Join(filepath.Dir(s.path), "list-status.json"), wire)
 	}
-	s.held = next
-	return changed, nil
+	if statusErr != nil && err == nil {
+		slog.Warn("node list status unavailable", "reason", statusErr.Error())
+	}
 }
 
 func same(a, b List) bool {
@@ -166,13 +187,17 @@ func same(a, b List) bool {
 }
 
 func Decode(data []byte) (List, error) {
-	var list List
-	if len(data) == 0 {
-		return list, nil
+	var wire struct {
+		Sequence *uint64 `json:"sequence"`
+		Nodes    *[]Node `json:"nodes"`
 	}
-	if err := protocol.DecodeStrict(data, &list, MaxBytes); err != nil {
+	if err := protocol.DecodeStrict(data, &wire, MaxBytes); err != nil {
 		return List{}, err
 	}
+	if wire.Sequence == nil || wire.Nodes == nil {
+		return List{}, errors.New("node list requires sequence and a nodes array")
+	}
+	list := List{Sequence: *wire.Sequence, Nodes: *wire.Nodes}
 	return list, list.Validate()
 }
 
@@ -187,41 +212,40 @@ func MeshIP(name, region string) (string, error) {
 }
 
 func (l List) Validate() error {
-	if len(l.Nodes) == 0 {
-		if l.Sequence != 0 {
-			return errors.New("an empty node list must have sequence zero")
-		}
-		return nil
-	}
-	if l.Sequence == 0 {
+	if len(l.Nodes) > 0 && l.Sequence == 0 {
 		return errors.New("a populated node list needs a positive sequence")
 	}
 	seen := map[string]bool{}
+	addresses := map[netip.Addr]bool{}
 	for _, node := range l.Nodes {
 		mesh, err := MeshIP(node.Name, node.Region)
 		if err != nil || node.MeshIP != mesh {
 			return fmt.Errorf("node %q has an invalid derived mesh address", node.Name)
 		}
-		for _, field := range []struct{ kind, value string }{{"name", node.Name}, {"public_ip", node.PublicIP}, {"private_ip", node.PrivateIP}, {"mesh_ip", node.MeshIP}, {"wg_public_key", node.WGPublicKey}, {"tls_spki_sha256", node.TLSSPKISHA256}} {
+		wg, err := base64.StdEncoding.Strict().DecodeString(node.WGPublicKey)
+		if err != nil || len(wg) != 32 || bytes.Equal(wg, make([]byte, 32)) || base64.StdEncoding.EncodeToString(wg) != node.WGPublicKey {
+			return errors.New("invalid canonical WireGuard public key")
+		}
+		pin, err := hex.DecodeString(node.TLSSPKISHA256)
+		if err != nil || len(pin) != 32 || hex.EncodeToString(pin) != node.TLSSPKISHA256 {
+			return errors.New("invalid canonical TLS SPKI hash")
+		}
+		for _, field := range []struct{ kind, value string }{{"name", node.Name}, {"wg_public_key", string(wg)}, {"tls_spki_sha256", string(pin)}} {
 			key := field.kind + ":" + field.value
 			if seen[key] {
 				return fmt.Errorf("duplicate node %s", field.kind)
 			}
 			seen[key] = true
 		}
-		for _, text := range []string{node.PublicIP, node.PrivateIP} {
+		for _, text := range []string{node.PublicIP, node.PrivateIP, node.MeshIP} {
 			ip, err := netip.ParseAddr(text)
-			if err != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsMulticast() {
-				return fmt.Errorf("node %q has an invalid IPv4 address", node.Name)
+			if err != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsMulticast() || ip.String() != text {
+				return fmt.Errorf("node %q has an invalid canonical IPv4 address", node.Name)
 			}
-		}
-		wg, err := base64.StdEncoding.Strict().DecodeString(node.WGPublicKey)
-		if err != nil || len(wg) != 32 || bytes.Equal(wg, make([]byte, 32)) {
-			return errors.New("invalid WireGuard public key")
-		}
-		pin, err := hex.DecodeString(node.TLSSPKISHA256)
-		if err != nil || len(pin) != 32 || strings.ToLower(node.TLSSPKISHA256) != node.TLSSPKISHA256 {
-			return errors.New("invalid TLS SPKI hash")
+			if addresses[ip] {
+				return errors.New("duplicate node address")
+			}
+			addresses[ip] = true
 		}
 	}
 	wire, err := protocol.EncodeJSON(l)

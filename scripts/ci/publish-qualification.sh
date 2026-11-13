@@ -29,7 +29,6 @@ cmp -- "$probe_source" "$probe_path"
 probe_bytes=$(stat -c '%s' "$probe_path")
 probe_sha256=$(sha256sum "$probe_path" | awk '{print $1}')
 [[ $probe_bytes -gt 0 && $probe_bytes -le 536870912 ]] || { echo 'D15 probe exceeds its bound' >&2; exit 1; }
-cp -- deploy/m1/nodes.json dist/nodes.json
 artifacts='[]'
 for architecture in amd64 arm64; do
     name="terrascale-orchestrator-linux-${architecture}"
@@ -83,7 +82,7 @@ fi
 jq -e --arg tag "$tag" '.tagName == $tag and .isPrerelease == true and
     (.assets | all(.name == "terrascale-orchestrator-linux-amd64" or
       .name == "terrascale-orchestrator-linux-arm64" or .name == "terrascale-d15-qualify" or
-      .name == "terrascale-d15-probe.json" or .name == "qualification.json" or .name == "nodes.json" or
+      .name == "terrascale-d15-probe.json" or .name == "qualification.json" or
       (.name | test("^production-[A-Z]{3}-(amd64|arm64)(-delegation)?\\.json$")) or
       (.name | test("^production-evidence-[0-9a-f]{64}$")) or
       (.name | test("^image-production-[0-9a-f]{64}-[A-Z]{3}-(amd64|arm64)(-delegation)?\\.json$")) or
@@ -131,7 +130,6 @@ retain() {
 }
 retain terrascale-orchestrator-linux-amd64
 retain terrascale-orchestrator-linux-arm64
-retain nodes.json
 retain "$probe_name"
 retain terrascale-d15-probe.json
 # The manifest is the completion marker. A partial upload cannot be admitted.

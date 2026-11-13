@@ -9,7 +9,13 @@ root = Path(__file__).resolve().parents[2]
 source = root / "deploy/m1/nodes.json"
 target = root / "deploy/m1/embed.go"
 wire = source.read_text()
-json.loads(wire)
+node_list = json.loads(wire)
+if set(node_list) != {"sequence", "nodes"} or type(node_list["sequence"]) is not int:
+    sys.exit("node list requires an integer sequence and nodes array")
+if node_list["sequence"] < 0 or node_list["sequence"] > 2**64 - 1 or not isinstance(node_list["nodes"], list):
+    sys.exit("invalid node list sequence or nodes array")
+if node_list["nodes"] and node_list["sequence"] == 0:
+    sys.exit("a populated node list requires a positive sequence")
 declaration = "const NodeList = " + json.dumps(wire, ensure_ascii=False) + "\n"
 current = target.read_text()
 match = re.search(r"^const NodeList = .*\n?", current, re.MULTILINE)

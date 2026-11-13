@@ -109,10 +109,9 @@ func probe(state, binary, revision string, now time.Time, output io.Writer, exit
 	return p, nil
 }
 
-// Served ends the probation: this binary now answers releases.
-func (p *Probation) Served() {
+func (p *Probation) Served() bool {
 	if p == nil {
-		return
+		return true
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -120,7 +119,9 @@ func (p *Probation) Served() {
 	p.timer.Stop()
 	if err := removeIfExists(trialFile(p.state)); err != nil {
 		fmt.Fprintf(p.output, "release probation: %v\n", err)
+		return false
 	}
+	return true
 }
 
 // rollBack records the rollback first, so a crash before the swap rolls

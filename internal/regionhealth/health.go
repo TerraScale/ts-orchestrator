@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
@@ -45,11 +46,12 @@ type Input struct {
 
 // Report is one region's health, the MeshHealthSubject reply.
 type Report struct {
-	Region  string    `json:"region"`
-	Server  string    `json:"server"`
-	State   string    `json:"state"`
-	Reasons []string  `json:"reasons,omitempty"`
-	At      time.Time `json:"at"`
+	Region   string          `json:"region"`
+	Server   string          `json:"server"`
+	State    string          `json:"state"`
+	Reasons  []string        `json:"reasons,omitempty"`
+	At       time.Time       `json:"at"`
+	NodeList nodelist.Status `json:"node_list"`
 }
 
 // Classify maps one reading to ok, degraded or down with its reasons.
@@ -106,7 +108,7 @@ func Check(ctx context.Context, state string) Report { return check(ctx, state) 
 // check reads and classifies this host now.
 func check(ctx context.Context, state string) Report {
 	status, reasons := Classify(read(ctx, state))
-	return Report{State: status, Reasons: reasons, At: time.Now().UTC()}
+	return Report{State: status, Reasons: reasons, At: time.Now().UTC(), NodeList: nodelist.StatusAt(state)}
 }
 
 // read takes one Input from /proc, statfs and the single-host control socket.
