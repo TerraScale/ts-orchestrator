@@ -1,11 +1,14 @@
 package regionhost
 
 import (
+	"encoding/json/v2"
+	"fmt"
 	"maps"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -46,27 +49,87 @@ func sameRule(live string, ids []string) bool {
 	return live == matchingRule(have) && slices.Equal(slices.Sorted(slices.Values(have)), slices.Sorted(slices.Values(ids)))
 }
 
-// statements are the gru-vault statements (formerly oci-iam.sh) plus, per region, read
-// and write of its in-region join secret ts-orch-join-<region> and of its
-// operator dashboard token <region>-1-orch-dashboard-token (hostdashboard.SecretName),
-// which the region's first host creates.
-func statements(regions []string) []string {
+func statements(hosts map[string]string) ([]string, error) {
 	in := "in compartment id " + gruCompartment
 	vault := "target.vault.id = '" + gruVault + "'"
 	s := []string{
-		"Allow dynamic-group " + dynamicGroup + " to read secret-bundles " + in + " where " + vault,
 		"Allow dynamic-group " + dynamicGroup + " to read vaults " + in + " where " + vault,
 		"Allow dynamic-group " + dynamicGroup + " to inspect secrets " + in,
-		"Allow dynamic-group " + dynamicGroup + " to manage secret-family " + in + " where all {" + vault + ", target.secret.name = 'ts-orch-mesh-key'}",
 		"Allow dynamic-group " + dynamicGroup + " to use vaults " + in + " where " + vault,
 		"Allow dynamic-group " + dynamicGroup + " to use keys " + in + " where target.key.id = '" + gruVaultKey + "'",
 	}
-	for _, region := range slices.Sorted(slices.Values(regions)) {
-		for _, secret := range []string{"ts-orch-join-" + region, dashboardSecret(region)} {
-			s = append(s, "Allow dynamic-group "+dynamicGroup+" to manage secret-family "+in+" where all {"+vault+", target.secret.name = '"+secret+"'}")
+	services, err := m1.Files.ReadDir("services")
+	if err != nil {
+		return nil, err
+	}
+	principals := map[string][]string{}
+	for _, region := range slices.Sorted(maps.Keys(hosts)) {
+		grants := map[string]string{}
+		for _, secret := range []string{"ts-orch-mesh-key", "gru-1-terrabase-nats-token", "ts-orch-join-" + region, dashboardSecret(region)} {
+			grants[secret] = "manage secret-family"
+		}
+		for _, secret := range []string{
+			"gru-1-ghcr-pull-token", "gru-1-netbird-setup-key",
+			"gru-1-terrabase-backup-access-key-id", "gru-1-terrabase-backup-secret-key",
+			"gru-1-terrabase-files-access-key-id", "gru-1-terrabase-files-secret-key",
+			"gru-1-terrabase-master-key", "gru-1-terrabase-peer-secret",
+			"gru-1-terrabase-shapes-access-key-id", "gru-1-terrabase-shapes-secret-access-key",
+			"gru-1-terrabase-shapes-cdn-api-token",
+		} {
+			grants[secret] = "read secret-bundles"
+		}
+		if region == "gru" {
+			for _, secret := range []string{"gru-1-cloudflare-account-id", "gru-1-cloudflare-email-token", "gru-1-ts-alerts-ntfy-topic"} {
+				grants[secret] = "read secret-bundles"
+			}
+			for _, secret := range []string{"gru-1-netbird-admin-pat", "gru-1-netbird-owner-password", "gru-1-netbird-operators-setup-key", "gru-1-netbird-relay-auth-secret", "gru-1-netbird-session-cookie-key", "gru-1-netbird-datastore-encryption-key", "gru-1-netbird-setup-key"} {
+				grants[secret] = "manage secret-family"
+			}
+		}
+		for _, service := range services {
+			if !strings.HasSuffix(service.Name(), ".json") {
+				continue
+			}
+			body, err := m1.Files.ReadFile("services/" + service.Name())
+			if err != nil {
+				return nil, err
+			}
+			var manifest struct {
+				Regions []string `json:"regions"`
+				Secrets map[string]struct {
+					Vault string `json:"vault"`
+					Name  string `json:"name"`
+				} `json:"secrets"`
+			}
+			if err := json.Unmarshal(body, &manifest); err != nil {
+				return nil, fmt.Errorf("service manifest %s: %w", service.Name(), err)
+			}
+			if len(manifest.Regions) > 0 && !slices.Contains(manifest.Regions, region) {
+				continue
+			}
+			for _, ref := range manifest.Secrets {
+				if ref.Vault != gruVault || ref.Name == "" {
+					return nil, fmt.Errorf("service manifest %s has an unsupported secret reference", service.Name())
+				}
+				if _, exists := grants[ref.Name]; !exists {
+					grants[ref.Name] = "read secret-bundles"
+				}
+			}
+		}
+		for _, secret := range slices.Sorted(maps.Keys(grants)) {
+			key := grants[secret] + "|" + secret
+			principals[key] = append(principals[key], "request.principal.compartment.id = '"+hosts[region]+"'")
 		}
 	}
-	return s
+	for _, key := range slices.Sorted(maps.Keys(principals)) {
+		grant, secret, _ := strings.Cut(key, "|")
+		scope := strings.Join(principals[key], ", ")
+		if len(principals[key]) > 1 {
+			scope = "any {" + scope + "}"
+		}
+		s = append(s, "Allow dynamic-group "+dynamicGroup+" to "+grant+" "+in+" where all {"+vault+", "+scope+", target.secret.name = '"+secret+"'}")
+	}
+	return s, nil
 }
 
 // dashboardSecret is hostdashboard.SecretName without its dependencies.
@@ -163,7 +226,10 @@ func (r *run) ensureIAM() error {
 	if err != nil {
 		return err
 	}
-	want := statements(regions)
+	want, err := statements(hosts)
+	if err != nil {
+		return err
+	}
 	switch {
 	case len(policies.Items) == 0:
 		id := "-"

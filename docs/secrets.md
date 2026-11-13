@@ -312,3 +312,78 @@ move and stay unchanged:
 - `secret/homelab/external/ts-forgejo-oci/static/{backup-local,backup-s3,harbor,object-storage}`:
   Forgejo host configuration from the HomeLab ts-ops runbook, not used by
   this repository.
+
+## Host metadata and alert credentials
+
+The metadata rules reserve instance identity for host root over IPv4 and IPv6.
+Workloads use the host resolver and time service. The provider’s host agent is
+also denied metadata access; its features are not used by this deployment.
+Installing the metadata unit starts it without restarting its runtime dependents.
+
+The alert relay’s root-run `alert-delivery prepare` step reads exactly
+`gru-1-cloudflare-account-id`, `gru-1-cloudflare-email-token` and
+`gru-1-ts-alerts-ntfy-topic`. It writes root-owned, group-readable files in
+`/run/ts-alert-delivery`, a root-owned tmpfs directory with swap disabled.
+The `ts-alerts` process reads these files and never obtains instance identity.
+Restart only the relay to refresh these credentials after rotation.
+
+Follow the release order below for the credential-file transition.
+
+The relay validates all three files before listening and exits with the missing
+or malformed file’s name if validation fails. Each `/healthz` request rereads
+and validates the small files, returning 200 only while they are usable and
+503 otherwise. Verify `systemctl status ts-alert-delivery.service`, then run
+`stat -c '%U:%G %a %n' /run/ts-alert-delivery /run/ts-alert-delivery/*` without
+printing contents: expect `root:ts-alerts 750` for the directory and
+`root:ts-alerts 640` for each file. Check `/healthz` and send one real test using
+`ts-orch alert-delivery subscribe` in an interactive terminal, confirming receipt
+in the subscribed client. Credential health does not prove provider delivery.
+
+The shared messaging token retains `manage secret-family` because host mesh
+startup creates it once when absent through `loadSecret` in
+`internal/natscell/mesh/run.go`; hosts do not rotate an existing token.
+
+## Release order
+
+Before releasing a change to service secrets:
+
+1. Release the updater-preflight change by itself to every host. Run
+   `ts-orch status` and compare every registered host's reported revision
+   with the published updater-preflight release revision (or a later release
+   containing it). Resolve missing reports or older hosts before proceeding:
+   an updater without the hook cannot enforce candidate checks.
+2. Use the candidate operator binary to run `ts-orch region add` for each
+   affected region, reconciling the candidate manifests' exact-secret grants.
+3. On the host that runs the alert relay, install the candidate
+   `deploy/observability/production/ts-alert-delivery.service` and run
+   `systemctl daemon-reload`. Verify
+   `systemctl show ts-alert-delivery.service --property=ExecStartPreEx --value`
+   reports `/usr/local/bin/ts-orch alert-delivery prepare` with
+   `flags=full-privileges`. The unit contains
+   `ExecStartPre=+/usr/local/bin/ts-orch alert-delivery prepare`.
+   Leave the running relay in place until the candidate binary is installed.
+4. Release this candidate through the normal release path.
+
+Before switching the host binary, release push, self-update and the M1 installer
+execute the candidate's `release preflight`. It checks the installed relay
+unit's effective preparation command where the relay is installed. On OCI hosts
+it reads every secret referenced by the candidate's regional service manifests
+with that host's own instance identity. Failed secret reads retry after 250 ms
+within one shared 60-second budget, inside the updater's 70-second outer bound.
+Missing grants, unavailable secrets or a missing privileged preparation command
+refuse that host's release before activation. The host retains its binary, unit
+and running process; the staged candidate is removed. Release output and
+`ts-orch status` name the candidate, release attempt and refusal reason without
+secret values. A later attempt replaces the refusal record; a successful attempt
+clears it. Hosts without an OCI platform identity have no regional Vault grants
+to check. Status inventory remains diagnostic, without a fleet-completion gate.
+
+After release, restart the relay and check
+`systemctl status ts-alert-delivery.service` and
+`curl --fail http://127.0.0.1:9094/healthz`. Inspect ownership and modes without
+contents using `stat -c '%U:%G %a %n' /run/ts-alert-delivery /run/ts-alert-delivery/*`:
+the directory must be `root:ts-alerts 750`, the three files `root:ts-alerts 640`.
+Send a delivery check with `ts-orch alert-delivery subscribe` in an interactive
+terminal and confirm receipt. Health rechecks all three files and returns 503
+when any credential becomes unavailable or malformed; startup fails in that
+state. A 200 checks credential availability, not external provider delivery.

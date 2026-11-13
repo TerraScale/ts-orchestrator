@@ -2,11 +2,38 @@ set -euo pipefail
 bin=$(realpath "$1")
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
-python=$(python3 -c 'import sys; print(sys.executable)')
+python=$(python3 -c 'import os, sys; print(os.path.realpath(sys.executable))')
 trap 'sudo rm -rf "$work"' EXIT
-nice -n 19 go build -o "$work/seed" "$here/startup"
+nice -n 19 go build -p 1 -o "$work/seed" "$here/startup"
 bash "$here/updater-preflight/run.sh" "$bin"
 bash "$here/alert-prepare/run.sh"
+nice -n 19 go build -p 1 -o "$work/host-credentials" "$here/host-credentials"
+sudo unshare --mount --net bash -s -- "$bin" "$work" <<'SH_CREDENTIALS'
+set -euo pipefail
+bin=$1
+work=$2
+mount --make-rprivate /
+ip link set lo up
+"$work/host-credentials" "$bin" "$work"
+SH_CREDENTIALS
+mkdir -p "$work/preflight-sys/class/dmi/id"
+printf 'OracleCloud.com\n' > "$work/preflight-sys/class/dmi/id/chassis_asset_tag"
+sudo unshare --mount --net bash -s -- "$bin" "$work" <<'SH_PREFLIGHT'
+set -euo pipefail
+bin=$1
+work=$2
+mount --make-rprivate /
+mount --bind "$work/preflight-sys" /sys
+if "$bin" release preflight > "$work/preflight-output" 2>&1; then
+	cat "$work/preflight-output"
+	exit 1
+fi
+grep "Vault secrets need OCI instance metadata" "$work/preflight-output"
+echo "Oracle release preflight refuses unavailable instance identity"
+printf 'Local\n' > "$work/preflight-sys/class/dmi/id/chassis_asset_tag"
+"$bin" release preflight
+echo "Local release preflight needs no OCI credentials"
+SH_PREFLIGHT
 version=$(sed -n 's/^containerd_version=//p' "$here/../../../deploy/m1/host-runtime.sh")
 arch=$(uname -m)
 case $arch in

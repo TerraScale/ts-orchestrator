@@ -1,5 +1,3 @@
-// Package alertdelivery delivers loopback Alertmanager notifications through
-// Cloudflare Email Sending and generic push. Credentials remain in Vault and process memory.
 package alertdelivery
 
 import (
@@ -17,8 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 type notification struct {
@@ -56,15 +52,25 @@ func Run(ctx context.Context, args []string) error {
 	if len(args) == 1 {
 		return r.subscribe(ctx)
 	}
+	if err := checkCredentials(ctx); err != nil {
+		return err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /metrics", readinessMetrics(newReadinessClient()))
 	mux.HandleFunc("POST /alerts", r.deliver)
 	mux.HandleFunc("POST /alerts/digest", r.digest)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, request *http.Request) {
+		if err := checkCredentials(request.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
 	listener, err := net.Listen("tcp", "127.0.0.1:9094")
 	if err != nil {
 		return err
 	}
+	slog.InfoContext(ctx, "alert delivery listening")
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 55 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
 	stop := context.AfterFunc(ctx, func() { _ = server.Close() })
 	defer stop()
@@ -75,19 +81,25 @@ func Run(ctx context.Context, args []string) error {
 	return err
 }
 
-func readCredentials(ctx context.Context) (credentials, error) {
-	refs := map[string]vaultsecret.Ref{
-		"CLOUDFLARE_ACCOUNT_ID_FILE":  {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-account-id"},
-		"CLOUDFLARE_EMAIL_TOKEN_FILE": {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-email-token"},
+func checkCredentials(ctx context.Context) error {
+	if _, err := readCredentials(ctx); err != nil {
+		return err
 	}
-	// Only the two refs approved for alert delivery are shared with this service.
-	values, err := vaultsecret.ReadInstanceSecrets(ctx, "ts-alerts", refs)
+	_, err := readPushTopic(ctx)
+	return err
+}
+
+func readCredentials(ctx context.Context) (credentials, error) {
+	values, err := readCredentialFiles("CLOUDFLARE_ACCOUNT_ID_FILE", "CLOUDFLARE_EMAIL_TOKEN_FILE")
 	if err != nil {
-		return credentials{}, errors.New("alert delivery Vault credentials unavailable")
+		return credentials{}, err
 	}
 	account, token := strings.TrimSpace(values["CLOUDFLARE_ACCOUNT_ID_FILE"]), strings.TrimSpace(values["CLOUDFLARE_EMAIL_TOKEN_FILE"])
-	if !regexp.MustCompile(`^[a-fA-F0-9]{32}$`).MatchString(account) || token == "" || strings.ContainsAny(token, "\r\n") {
-		return credentials{}, errors.New("alert delivery Vault credentials invalid")
+	if !regexp.MustCompile(`^[a-fA-F0-9]{32}$`).MatchString(account) {
+		return credentials{}, errors.New("alert credential file CLOUDFLARE_ACCOUNT_ID_FILE invalid")
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9._~+/-]+=*$`).MatchString(token) {
+		return credentials{}, errors.New("alert credential file CLOUDFLARE_EMAIL_TOKEN_FILE invalid")
 	}
 	return credentials{account, token}, nil
 }

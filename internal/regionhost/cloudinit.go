@@ -57,9 +57,13 @@ install -d -m 0700 /var/lib/ts-orch
 install -d -m 0755 /var/lib/ts-data /var/lib/ts-data/terrabase
 echo '%s' | base64 -d > /etc/systemd/system/ts-orch.service
 echo '%s' | base64 -d > /etc/systemd/system/netbird-server.service
-chmod 0644 /etc/systemd/system/ts-orch.service /etc/systemd/system/netbird-server.service
+/usr/local/bin/terrascale-orchestrator ts-auth metadata-unit > /etc/systemd/system/terrascale-ts-auth-metadata.service
+install -d -m 0755 /etc/terrascale-orchestrator
+/usr/local/bin/terrascale-orchestrator ts-auth metadata-rules > /etc/terrascale-orchestrator/ts-auth-metadata.nft
+chmod 0644 /etc/systemd/system/ts-orch.service /etc/systemd/system/netbird-server.service /etc/systemd/system/terrascale-ts-auth-metadata.service
 systemctl daemon-reload
-systemctl enable ts-orch.service netbird-server.service
+systemctl enable ts-orch.service netbird-server.service terrascale-ts-auth-metadata.service
+systemctl start terrascale-ts-auth-metadata.service
 systemctl restart ts-orch.service netbird-server.service
 `, base64.StdEncoding.EncodeToString(runtime), binaryURL, sum, base64.StdEncoding.EncodeToString(unit),
 		base64.StdEncoding.EncodeToString(companion)), nil
