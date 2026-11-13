@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -euo pipefail
 bin=$(realpath "$1")
 here=$(cd "$(dirname "$0")" && pwd)
@@ -130,12 +131,13 @@ DefaultDependencies=no
 Wants=release-lane.service
 UNIT
 ln -s release-lane.target "$root/etc/systemd/system/default.target"
-sudo env LD_LIBRARY_PATH="$nspawn_library_dir" "$nspawn" --quiet --boot --directory="$root" --machine="release-e2e-$$" --register=no --private-network --link-journal=no --settings=no --capability=CAP_SYS_ADMIN --system-call-filter='fanotify_init fanotify_mark' "${binds[@]}" > "$work/boot.log" 2>&1 &
+{ sudo env LD_LIBRARY_PATH="$nspawn_library_dir" "$nspawn" --quiet --boot --directory="$root" --machine="release-e2e-$$" --register=no --private-network --link-journal=no --settings=no --capability=CAP_SYS_ADMIN --system-call-filter='fanotify_init fanotify_mark' "${binds[@]}"; } > "$work/boot.log" 2>&1 &
 lane_pid=$!
-wait "$lane_pid" || status=$?
+lane_status=0
+wait "$lane_pid" || lane_status=$?
 lane_pid=""
 sudo cat "$root/result/lane.log" 2>/dev/null || true
-if [[ ! -f $root/result/status ]] || [[ $(sudo cat "$root/result/status") != 0 ]]; then
+if [[ $lane_status != 0 ]] || [[ ! -f $root/result/status ]] || [[ $(sudo cat "$root/result/status") != 0 ]]; then
  tail -60 "$work/boot.log"
  exit 1
 fi
