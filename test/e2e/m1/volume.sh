@@ -109,6 +109,7 @@ if [[ ${PROBE_FAIL:-} == "$probe-disagree" ]]; then
  exit 0
 fi
 case "$probe" in
+ format) exec "$("$PROBE_CAT" "$0.path")" -E lazy_itable_init=0,lazy_journal_init=0 "$@" ;;
  lsblk-types) test "$("$("$PROBE_CAT" "$0.path")" "$@")" = loop; echo disk; exit 0 ;;
  wait) exit 0 ;;
  disk-model) echo BlockVolume; exit 0 ;;
