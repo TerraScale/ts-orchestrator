@@ -17,7 +17,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func secretGate(ctx context.Context, values map[string]string, seen *map[string]bool, denied *string) {
+func secretGate(values map[string]string, seen *map[string]bool, denied *string) {
+	ctx := context.Background()
 	if os.Getpid() == 1 {
 		socket, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
 		must(err)
@@ -77,7 +78,7 @@ func secretGate(ctx context.Context, values map[string]string, seen *map[string]
 	http.DefaultTransport = gateTransport{original, *denied, cancel}
 	defer func() { http.DefaultTransport = original }()
 	err = cli.Run(gateCtx, []string{"release", "preflight", "secrets"}, io.Discard)
-	require(err != nil && strings.Contains(err.Error(), *denied), "manual gate must fail naming the unreadable reference")
+	require(err != nil && strings.Contains(err.Error(), *denied), fmt.Sprintf("manual gate must fail naming the unreadable reference: %v", err))
 	for _, value := range values {
 		require(!strings.Contains(err.Error(), value), "manual gate must not expose values")
 	}
