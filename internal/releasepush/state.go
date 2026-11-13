@@ -1,9 +1,7 @@
 package releasepush
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -16,28 +14,6 @@ func stateWarning(path, loss string) {
 	if _, loaded := stateWarnings.LoadOrStore(path, struct{}{}); !loaded {
 		slog.Warn(loss, "file", filepath.Base(path))
 	}
-}
-
-func stateLoss(value any) string {
-	if _, ok := value.(*trial); ok {
-		return "probation disabled for this release"
-	}
-	return "release diagnostic record unavailable"
-}
-
-func readState(path string, value any) bool {
-	file, err := os.Open(path)
-	if err != nil {
-		stateWarning(path, stateLoss(value))
-		return false
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, 64<<10+1))
-	if err != nil || len(data) > 64<<10 || json.Unmarshal(data, value) != nil {
-		stateWarning(path, stateLoss(value))
-		return false
-	}
-	return true
 }
 
 func writeState(path string, data []byte) error {

@@ -7,6 +7,8 @@ import signal
 import struct
 import sys
 import tempfile
+import subprocess
+import time
 
 libc = ctypes.CDLL(None, use_errno=True)
 libc.ptrace.restype = ctypes.c_long
@@ -121,6 +123,8 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
         injected = set()
         hits = 0
         root_status = None
+        committed = False
+        committing = set()
         while live:
             pid, status = os.waitpid(-1, 0x40000000)
             if os.WIFEXITED(status) or os.WIFSIGNALED(status):
@@ -180,14 +184,33 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
                         except (OSError, ValueError):
                             pass
                         relative = path.removeprefix(work)
-                        if name == syscall_name and re.fullmatch(pattern, relative):
+                        if name == "rename" and relative == "/installed":
+                            committing.add(pid)
+                        persistent = (
+                            syscall_name == "persistent" and committed
+                            and not pathlib.Path(work, "disarmed").exists()
+                            and (relative == "" or relative.startswith("/nats/"))
+                            and (name in ("write", "fsync", "rename", "unlink")
+                                 or name == "open" and (relative == "" or "/.release-" in relative))
+                        )
+                        if persistent or name == syscall_name and re.fullmatch(pattern, relative):
                             hits += 1
-                            if hits == occurrence:
+                            if hits == occurrence and outcome == "crash":
+                                for traced in live:
+                                    try:
+                                        os.kill(traced, signal.SIGKILL)
+                                    except ProcessLookupError:
+                                        pass
+                            elif persistent or hits == occurrence:
                                 result_register(pid, (1 << 64) - 1, skip=True)
                                 injected.add(pid)
-                    elif op == 2 and pid in injected:
-                        result_register(pid, (1 << 64) - errno.EIO)
-                        injected.remove(pid)
+                    elif op == 2:
+                        if pid in committing:
+                            committed = struct.unpack_from("q", info.raw, 24)[0] == 0
+                            committing.remove(pid)
+                        if pid in injected:
+                            result_register(pid, (1 << 64) - errno.EIO)
+                            injected.remove(pid)
                 deliver = (
                     0
                     if stop in (signal.SIGSTOP, signal.SIGTRAP, signal.SIGTRAP | 0x80)
@@ -199,12 +222,25 @@ def run(helper, step, syscall_name, pattern, occurrence, outcome):
         returncode = os.waitstatus_to_exitcode(root_status)
         log.seek(0)
         output = log.read().decode(errors="replace")
+        if outcome == "crash" and hits >= occurrence and returncode == -signal.SIGKILL:
+            continued = subprocess.run([helper, "resume-case", work, "installed"], capture_output=True, text=True, timeout=40)
+            if continued.returncode:
+                raise RuntimeError(f"{step}: subsequent release failed\n{continued.stdout[-2000:]}{continued.stderr[-3000:]}")
+            print(f"ok crash {step}: installed binary retained; same run succeeds; restart and second release verified", flush=True)
+            return
+        if outcome == "persistent" and not returncode:
+            for warning in ("binary rename durability", "diagnostic attempt", "worker relay", "reply delivery", "reply flush", "activation request", "restart notification"):
+                if warning not in output:
+                    raise RuntimeError(f"{step}: missing WARN for {warning}\n{output[-5000:]}")
+            continued = subprocess.run([helper, "resume-case", work, "committed"], capture_output=True, text=True, timeout=40)
+            if continued.returncode:
+                raise RuntimeError(f"{step}: restart and second release failed\n{continued.stdout[-2000:]}{continued.stderr[-3000:]}")
         if returncode or hits < occurrence:
             raise RuntimeError(
                 f"{step}: exit {returncode}, hits {hits}/{occurrence}\n{output[-5000:]}"
             )
         print(
-            f"ok fault {step}: {outcome}; binary, records, relay, restart; first activation wins",
+            f"ok fault {step}: {outcome}; binary, records, relay, restart; tagged records; restart and second release",
             flush=True,
         )
 
@@ -232,64 +268,35 @@ elif os.uname().machine == "aarch64":
 else:
     raise RuntimeError("syscall fault lane needs Linux amd64 or arm64")
 helper = sys.argv[1]
-cases = [
-    ("candidate-open", "open", r"/installed.next", 1, "rejected"),
-    ("candidate-write", "write", r"/installed.next", 1, "rejected"),
-    ("candidate-chmod", "chmod", r"/installed.next", 1, "rejected"),
-    ("candidate-sync", "fsync", r"/installed.next", 1, "rejected"),
-    ("candidate-close", "close", r"/installed.next", 1, "rejected"),
-    ("journal-create", "mkdir", r"/installed.release", 1, "rejected"),
-    ("previous-link", "link", r"/installed.release/previous", 1, "rejected"),
-    ("candidate-link", "link", r"/installed.release/candidate", 1, "rejected"),
-]
-for index, record in enumerate(("run", "trial", "manifest"), 1):
+cases = []
+for target, pattern in (("candidate", r"/installed.next"), ("previous", r"/installed.prev-.*")):
+    for call in ("open", "write", "chmod", "fsync", "close"):
+        cases.append((target+"-"+call, call, pattern, 1, "rejected"))
+cases.append(("previous-directory-sync", "fsync", "", 1, "rejected"))
+for index, record in enumerate(("run-id", "trial", "rolled-back", "attempt.json"), 1):
     for call in ("open", "write", "fsync", "close"):
-        cases.append(
-            (
-                record + "-" + call,
-                call,
-                r"/installed.release/.release-.*",
-                index,
-                "rejected",
-            )
-        )
-    cases.append(
-        (record + "-rename", "rename", "/installed.release/" + record, 1, "rejected")
-    )
-    cases.append(
-        (record + "-directory-sync", "fsync", r"/installed.release", index, "rejected")
-    )
-cases.extend(
-    [
-        ("prepare-parent-sync", "fsync", "", 1, "rejected"),
-        ("binary-rename", "rename", r"/installed", 1, "rejected"),
-        ("binary-directory-open", "open", "", 2, "installed"),
-        ("binary-directory-sync", "fsync", "", 2, "installed"),
-        ("previous-publish-link", "link", r"/installed.prev.publish", 1, "installed"),
-        ("previous-publish-rename", "rename", r"/installed.prev", 1, "installed"),
-        ("previous-publish-sync", "fsync", "", 3, "installed"),
-        ("run-publish-link", "link", r"/nats/release-run-id.publish", 1, "installed"),
-        ("run-publish-rename", "rename", r"/nats/release-run-id", 1, "installed"),
-        ("trial-publish-link", "link", r"/nats/release-trial.publish", 1, "installed"),
-        ("trial-publish-rename", "rename", r"/nats/release-trial", 1, "installed"),
-        ("rollback-removal", "unlink", r"/nats/release-rolled-back", 1, "installed"),
-        ("state-detach", "rename", r"/installed.release.done", 1, "installed"),
-        (
-            "state-cleanup",
-            "unlink",
-            r"/installed.release.done/previous",
-            1,
-            "installed",
-        ),
-        ("run-directory-sync", "fsync", r"/nats", 2, "installed"),
-        ("trial-directory-sync", "fsync", r"/nats", 3, "installed"),
-        ("rollback-directory-sync", "fsync", r"/nats", 4, "installed"),
-        ("activation-write", "write", r"/nats/.release-.*", 3, "installed"),
-        ("activation-sync", "fsync", r"/nats/.release-.*", 3, "installed"),
-        ("activation-rename", "rename", r"/nats/release-trial", 2, "installed"),
-    ]
-)
+        cases.append((record+"-"+call, call, r"/nats/.release-.*", index, "rejected"))
+    cases.append((record+"-rename", "rename", "/nats/release-"+record, 1, "rejected"))
+    cases.append((record+"-directory-sync", "fsync", r"/nats", index, "rejected"))
+cases.append(("binary-rename", "rename", r"/installed", 1, "rejected"))
+precommit = list(cases)
+cases.extend([
+    ("binary-directory-open", "open", "", 2, "installed"),
+    ("binary-directory-sync", "fsync", "", 2, "installed"),
+    ("diagnostic-write", "write", r"/nats/.release-.*", 5, "installed"),
+    ("diagnostic-sync", "fsync", r"/nats/.release-.*", 5, "installed"),
+    ("diagnostic-rename", "rename", r"/nats/release-attempt.json", 2, "installed"),
+    ("activation-write", "write", r"/nats/.release-.*", 6, "installed"),
+    ("activation-sync", "fsync", r"/nats/.release-.*", 6, "installed"),
+    ("activation-rename", "rename", r"/nats/release-trial", 2, "installed"),
+    ("all-postcommit", "persistent", ".*", 1, "persistent"),
+])
+cases.extend(("crash-"+name, call, pattern, occurrence, "crash") for name, call, pattern, occurrence, _ in precommit)
 if __name__ == "__main__":
+    start = time.monotonic()
+    completed = 0
     for case in cases:
         if len(sys.argv) == 2 or case[0] in sys.argv[2:]:
             run(helper, *case)
+            completed += 1
+    print(f"fault journey: {completed} cases PASS in {time.monotonic()-start:.2f}s", flush=True)

@@ -20,6 +20,14 @@ const (
 )
 
 type integrityError struct{ error }
+type hostError struct{ error }
+type preflightError struct{ error }
+
+func refusalReply(kind, sha, digest string, claims Claims, err error) Reply {
+	reply := rejected(err)
+	reply.Refusal = &Refusal{Kind: kind, SHA: sha, SHA256: digest, RunID: claims.RunID, RunAttempt: claims.RunAttempt, Reason: secretpreflight.Scrub(err.Error())}
+	return reply
+}
 
 func integrityReply(sha string, claims Claims, err error) Reply {
 	reply := rejected(err)
@@ -30,6 +38,8 @@ func integrityReply(sha string, claims Claims, err error) Reply {
 type Refusal struct {
 	Kind       string `json:"kind"`
 	SHA        string `json:"sha"`
+	SHA256     string `json:"sha256"`
+	Preflight  bool   `json:"preflight,omitempty"`
 	RunID      string `json:"run_id"`
 	RunAttempt string `json:"run_attempt"`
 	Reason     string `json:"reason,omitempty"`
@@ -85,9 +95,12 @@ func ReadHostVersions(ctx context.Context, conn *nats.Conn, region string, nodes
 
 func (h *Handler) recordAttempt(attempt *Refusal) error {
 	attempt.Reason = secretpreflight.Scrub(attempt.Reason)
-	h.attempt.Store(attempt)
 	if h.RefusalFile != "" {
-		if err := writeJSON(h.RefusalFile, attempt); err != nil {
+		id, err := binaryIdentity(h.Binary)
+		if err != nil {
+			return err
+		}
+		if err := storeRecord(h.RefusalFile, *attempt, id); err != nil {
 			return errors.New("cannot persist release attempt")
 		}
 	}
@@ -95,9 +108,13 @@ func (h *Handler) recordAttempt(attempt *Refusal) error {
 }
 
 func (h *Handler) refusal() *Refusal {
-	attempt := h.attempt.Load()
-	if attempt == nil || attempt.Reason == "" {
+	id, err := binaryIdentity(h.Binary)
+	if err != nil {
 		return nil
 	}
-	return attempt
+	record, ok := selected[Refusal](h.RefusalFile, id)
+	if !ok || record.Reason == "" {
+		return nil
+	}
+	return &record
 }

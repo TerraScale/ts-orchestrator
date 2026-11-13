@@ -2,49 +2,82 @@
 
 ## Candidate preflight
 
-After verifying the candidate's digest, the host updater executes
-`<candidate> release preflight` as its own user in its existing sandbox.
-The hook currently exits successfully without checks. It has a 70-second
-execution bound. Any failure, timeout or inability to execute refuses that
-host's release before the trial marker or binary changes; the staged candidate
-is removed. The candidate's diagnostic appears in the release reply and run
-output. `ts-orch status` shows each registered host's revision and refusal,
-including candidate revision, run id and run attempt. A later authenticated
-attempt replaces the previous record; a successful attempt clears the refusal.
-The first host relays with a reply inbox and collects explicit worker replies
-for at most 90 seconds (the 70-second hook bound plus a margin). It stops early
-when all registered workers reply; it never waits for their running revisions.
-Each regional JSON line includes worker host names and candidate revisions:
-an explicit refusal sets `state` to `refused on <hosts>` and includes each
-scrubbed reason and structured `kind` in `refusals`. A `host_prerequisite`
-refusal lets other regions release and fails the run at its end. A
-`release_integrity` refusal (including an artifact digest mismatch) stops
-later regions immediately; unknown or absent kinds also stop the rollout. A missing reply appears as `error: "no answer"` in
-`workers` and does not fail the run. With accepted replies, the normal
-`installed` or `current` regional result succeeds. Status inventory is
-diagnostic and does not gate release completion.
+After verifying fully received candidate bytes against the release digest, the
+host runs `<candidate> release preflight` as its own user in its existing sandbox.
+The hook currently succeeds without checks and has a 70-second execution bound.
+A failed, timed-out or unexecutable candidate is refused before changing the
+installed binary, its rollback target or its probation and run records. The
+reply includes a scrubbed diagnostic, candidate revision and SHA-256 digest,
+run id, run attempt and structured refusal kind. Output is drained while only
+4 KiB is retained; diagnostics contain valid UTF-8 without control characters.
 
-The updater drains both candidate output streams while retaining only the first
-4 KiB in total. Stored and displayed diagnostics are valid UTF-8, omit controls,
-replace newlines with spaces, and include `[truncated]` when capped at 4 KiB.
-The small updater records `nats/release-attempt.json`, `nats/release-trial`
-and `nats/release-rolled-back` use a temporary file in the same directory,
-file sync, rename and directory sync. Missing, empty, unreadable or malformed
-records are ignored with one warning per file per process; none prevents
-handler construction or agent startup. The next write replaces a damaged
-record. A failure to update a valid trial's start count is diagnostic and
-does not prevent the agent from starting. The release run-id is also written
-atomically; its validation happens on release requests, not on startup.
+`host_prerequisite` means this host could not complete verification or
+installation: unavailable signing keys, incomplete downloads, network errors,
+disk failures and candidate preflight refusals have this kind. Other regions
+can continue and the run fails at its end. `release_integrity` means a release
+was proven wrong: an invalid signature, forbidden workflow or URL, a digest
+mismatch after receiving all bytes, or an embedded revision that differs from
+the signed release. Integrity refusals and unknown or absent kinds stop later
+regions. If every host in the first region returns the same candidate preflight
+refusal, the rollout stops there with that reason. The first host collects
+explicit replies from registered workers for at most 90 seconds; a missing
+reply remains informational. A first host that refuses preflight still asks its
+workers, so the uniform refusal decision covers the whole first region.
 
-The binary rename is the single commit point. Before it, `<binary>.release`
-prepares and syncs an inode-bound candidate identity, rollback binary, run ID,
-unactivated trial and publication manifest. Preparation failures reject without
-changing active binary or release records. After it, directory durability,
-record publication, old rollback removal and cleanup failures only warn: the
-release remains installed, workers are relayed, and restart is requested.
-Incomplete publication retains prepared state, which remains authoritative and
-is recovered by the candidate at startup. The first successful activation stamp
-wins; an unstamped trial receives its full budget at candidate startup.
+**First release:** an older agent returns refusals without a kind. Those
+refusals stop later regions; deploy this updater before relying on regional
+continuation for host prerequisites.
+
+The binary on disk determines which release is installed. Each final record
+file contains a JSON array of entries tagged with `sha` and `sha256`. Readers
+select only the entry matching the installed binary, including its embedded
+build revision. Staging retains the installed entry and replaces any abandoned
+candidate entry, so a failed attempt cannot erase the installed run fence or
+probation. No link or filesystem identity is used, and the binary and state
+paths may be on different filesystems.
+
+| Final record | What its entry names |
+| --- | --- |
+| `nats/release-run-id` | Revision, digest and installed run id; equal or older runs are refused. An abandoned attempt cannot advance this fence. |
+| `nats/release-trial` | Candidate revision, digest, run, previous revision/digest, start count, first candidate start, optional restart-request time and rollback failure. |
+| `nats/release-rolled-back` | Candidate revision, digest, run and previous identity; a completed rollback also writes an entry naming the restored binary and identifying the rejected candidate in `rejected`. |
+| `nats/release-attempt.json` | Candidate revision, digest, run, attempt, refusal kind, preflight indicator and scrubbed reason. Uninstalled candidates appear in direct release replies; their stored diagnostics are inert in host status. |
+
+| Step | Failure before the binary rename | Failure after the binary rename |
+| --- | --- | --- |
+| Download, digest verification and candidate preflight | Refuse; keep installed bytes, run fence and probation. | Already complete. |
+| Copy previous binary beside the executable as `<binary>.prev-<revision>-<digest>`; sync the copy and its directory | Refuse; a later attempt may overwrite the unused copy. | Already complete. |
+| Write each final record, sync its file, rename it in its own directory and sync that directory | Refuse; candidate entries are inert, and installed entries remain authoritative. | Already complete. |
+| Rename the candidate over the executable | Refuse if the rename fails. | **Commit point: the answer is `installed`.** |
+| Sync the binary directory; update diagnostics; collect worker replies; stamp the restart request; deliver and flush the reply; request restart | Not reached. | Each is best effort with a WARN; none changes the installed answer. |
+
+There is no required filesystem step after commit. The old agent arms an
+independent exit deadline at commit: at most 100 seconds (90 seconds for worker
+collection plus 10 seconds for reply and exit). It also exits within one second
+after the reply/flush path, independently of delivery of the restart channel
+notification. The service manager starts the candidate. This bound assumes the
+process is scheduled; it does not bound a stopped process or machine outage.
+The restart-request timestamp is diagnostic and starts no probation timer.
+
+Startup calls `Probe`, then constructs `NewHandler`, then confirms readiness
+with `Served`. Both entry points share one recovery result per state directory
+and process. Recovery selects the installed binary identity once. A matching
+trial starts probation; an unrelated trial is inert. The first candidate start
+receives the full two-minute budget even if its restart request was stamped
+long before, and crash starts share that budget. A third start before serving
+attempts rollback. Worker collection and reply delivery happen in the old
+process and consume none of the candidate budget. Readiness clears only the
+matching trial. Empty, malformed or unreadable diagnostic/trial records warn
+and permit startup; release requests refuse an unreadable run fence.
+
+Rollback validates the kept binary against the trial previous revision and
+digest before renaming it over the candidate. If that binary is missing,
+changed or cannot be restored, the candidate keeps running, the trial and
+rollback marker remain, and an ERROR identifies the failure. Readiness cannot
+confirm that release: version reports `state: unconfirmed`, health reports
+`release probation unconfirmed`, and the release run fails as unconfirmed.
+A completed rollback reports the rejected candidate from the restored binary
+matching rollback entry. A replay of that rejected run is refused.
 
 This updater release also introduces `ts-orch alert-delivery prepare`.
 Run as root, it reads exactly the three approved alert references using the
@@ -67,8 +100,8 @@ executable; the first real rollout confirms execution under that unit.
 
 Once hosts run this updater, candidates older than the change introducing
 `release preflight` cannot be released through this pipeline. Releases move
-forward. Automatic probation rollback restores the previous binary by renaming
-`<binary>.prev` directly, without executing this hook.
+forward. Automatic probation rollback validates and renames the revision-named previous
+binary directly, without executing this hook.
 
 ## Apply a signed release bundle
 

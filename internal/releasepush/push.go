@@ -113,7 +113,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 		}
 	}
 	preflight := failed
-	for _, region := range regions {
+	for index, region := range regions {
 		result := Result{Region: region.Region}
 		if blocked != "" {
 			result.State, result.Error = "skipped", "not pushed: "+blocked+" failed"
@@ -130,6 +130,9 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 			}
 			if err != nil {
 				result.Error = err.Error()
+			}
+			if index == 0 && allPreflightRefused(result) {
+				result.Error = "every host in the first region refused the same candidate preflight; rollout stopped"
 			}
 			if result.Error != "" {
 				blocked = region.Region
@@ -369,7 +372,11 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	deadline := time.Now().Add(3 * time.Minute)
 	for {
 		version, err := request(ctx, conn, SubjectVersion, nil, time.Second)
-		if err == nil && version.Version == release.SHA {
+		if err == nil && version.Version == release.SHA && version.State == "unconfirmed" {
+			result.State = "unconfirmed"
+			return fail(errors.New("release remains unconfirmed: " + version.Error))
+		}
+		if err == nil && version.Version == release.SHA && version.State != "probation" {
 			result.ServingMS = since()
 			result.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
 			return result
@@ -439,4 +446,23 @@ func request(ctx context.Context, conn *nats.Conn, subject string, payload []byt
 	}
 	var reply Reply
 	return reply, json.Unmarshal(message.Data, &reply)
+}
+
+func allPreflightRefused(result Result) bool {
+	if len(result.Refusals) == 0 || len(result.Refusals) != len(result.Workers)+1 {
+		return false
+	}
+	reason := ""
+	for _, host := range result.Refusals {
+		record := host.Refusal
+		if record == nil || record.Kind != RefusalHost || !record.Preflight || record.Reason == "" {
+			return false
+		}
+		if reason == "" {
+			reason = record.Reason
+		} else if record.Reason != reason {
+			return false
+		}
+	}
+	return true
 }

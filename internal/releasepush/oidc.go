@@ -229,7 +229,7 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 			case <-wait:
 				continue
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, &hostError{ctx.Err()}
 			}
 		}
 		if !v.fetched.IsZero() && v.Now().Sub(v.fetched) < refetchEvery {
@@ -243,14 +243,15 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 		keys, err := v.fetch(fetchCtx)
 		cancel()
 		v.mu.Lock()
-		v.fetched, v.inflight = v.Now(), nil
+		v.inflight = nil
 		if err == nil {
+			v.fetched = v.Now()
 			v.keys = keys
 		}
 		v.mu.Unlock()
 		close(done)
 		if err != nil {
-			return nil, fmt.Errorf("fetch GitHub JWKS: %w", err)
+			return nil, &hostError{fmt.Errorf("fetch GitHub JWKS: %w", err)}
 		}
 	}
 }
