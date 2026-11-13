@@ -20,7 +20,7 @@ if [[ -z $nspawn ]]; then
   dpkg-deb -x "$package" "$work/nspawn/root"
  done
  nspawn="$work/nspawn/root/usr/bin/systemd-nspawn"
- nspawn_library=$(rg --files "$work/nspawn/root/usr/lib" | rg '/libsystemd-shared[^/]+\.so$')
+ nspawn_library=$(find "$work/nspawn/root/usr/lib" -regextype posix-extended -regex '.*/libsystemd-shared[^/]+\.so')
  nspawn_library_dir=$(dirname "$nspawn_library")
 fi
 nice -n 19 go build -p 2 -o "$work/release-e2e" "$here/release"
