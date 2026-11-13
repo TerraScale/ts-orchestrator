@@ -60,6 +60,7 @@ jobs:
           - {lane: boot-order, entry: boot-order.sh, timeout: 8, packages: "./test/e2e/m1/boot-order"}
           - {lane: rollout, entry: rollout.sh, timeout: 10}
           - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
+          - {lane: recovery, entry: recovery.sh, timeout: 5}
           - {lane: updater-preflight, entry: updater-preflight.sh, timeout: 12}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
           - {lane: data-volume, entry: data-volume.sh, timeout: 8, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
