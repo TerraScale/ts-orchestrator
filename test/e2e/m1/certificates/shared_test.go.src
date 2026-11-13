@@ -75,7 +75,7 @@ func fleet(t *testing.T) *nats.Conn {
 		options := &server.Options{}
 		must(t, options.ProcessConfigString(`accounts {
  SYS { users: [{user:sys, password:e2e}] }
- APP { jetstream: enabled, users: [{user:app, password:e2e}] }
+ APP { jetstream: {max_memory: 1M, max_file: 64M, max_streams: 3, max_consumers: 64}, users: [{user:app, password:e2e}] }
 }
 system_account: SYS`))
 		configured := server.Options{ServerName: fmt.Sprintf("edge-e2e-%d", i), Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir(), NoSigs: true, Routes: routes, Cluster: server.ClusterOpts{Name: "edge-e2e", Host: "127.0.0.1", Port: ports[i]}}
