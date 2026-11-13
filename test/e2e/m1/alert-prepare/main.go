@@ -48,6 +48,7 @@ func main() {
 			unix.Reboot(unix.LINUX_REBOOT_CMD_POWER_OFF)
 		}()
 		must(unix.Mount("tmpfs", "/run", "tmpfs", 0, "mode=0755"))
+		must(unix.Mount("ramfs", "/tmp", "ramfs", 0, "mode=1777"))
 		socket, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
 		must(err)
 		request, err := unix.NewIfreq("lo")
@@ -124,6 +125,9 @@ func main() {
 	disk, err := os.MkdirTemp("", "not-tmpfs-")
 	must(err)
 	defer os.RemoveAll(disk)
+	var fs unix.Statfs_t
+	must(unix.Statfs(disk, &fs))
+	require(fs.Type != unix.TMPFS_MAGIC, "negative case must use a non-tmpfs filesystem")
 	require(vaultsecret.RequireMemoryFilesystem(disk) != nil, "non-tmpfs directory must be refused")
 	must(alertdelivery.Run(ctx, []string{"prepare"}))
 	require(len(seen) == 3, "preparation must read all three approved secrets")
