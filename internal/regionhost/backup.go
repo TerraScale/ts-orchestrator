@@ -1,12 +1,15 @@
 package regionhost
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 const bootBackupPolicy = "ts-boot-weekly-4"
+
+var errBootVolumeNotFound = errors.New("attached boot volume not found")
 
 func (r *run) ensureBootBackup(inst *core.Instance) error {
 	if inst == nil {
@@ -16,6 +19,10 @@ func (r *run) ensureBootBackup(inst *core.Instance) error {
 	if err != nil {
 		return err
 	}
+	return r.ensureVolumeBootBackup(volume)
+}
+
+func (r *run) ensureVolumeBootBackup(volume string) error {
 	policy, err := r.weeklyBootBackupPolicy()
 	if err != nil {
 		return err
@@ -69,6 +76,9 @@ func (r *run) bootVolume(inst *core.Instance) (string, error) {
 			break
 		}
 		req.Page = page.OpcNextPage
+	}
+	if len(volumes) == 0 {
+		return "", fmt.Errorf("%s: %w", deref(inst.DisplayName), errBootVolumeNotFound)
 	}
 	if len(volumes) != 1 || volumes[0] == "" {
 		return "", fmt.Errorf("want one attached boot volume for %s, found %d", deref(inst.DisplayName), len(volumes))

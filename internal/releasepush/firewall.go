@@ -7,8 +7,6 @@ import (
 	"strconv"
 )
 
-// EnsureFirewall puts a tcp/4222 ACCEPT above the Ubuntu OCI image's INPUT
-// REJECT. It runs on every start, so nothing needs to persist the rule.
 func EnsureFirewall(ctx context.Context) error { return OpenTCP(ctx, Port) }
 
 // OpenTCP puts a tcp/port ACCEPT above the Ubuntu OCI image's INPUT REJECT.

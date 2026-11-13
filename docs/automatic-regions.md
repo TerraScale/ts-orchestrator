@@ -23,7 +23,7 @@ flowchart TD
     D --> E[Join scoped global NATS fabric]
     D --> F[Deploy signed workloads and verify local readiness]
     E --> G[Publish observed global connectivity]
-    F --> H[Publish actual service readiness to Atlas]
+    F --> H[Report actual service readiness]
 ```
 
 Global-link unavailability must not stop an established region from serving
@@ -38,7 +38,7 @@ pending; it must not invent a replacement authority.
 | Network admission | Recover or bootstrap the dedicated GRU NetBird server, verify OCI host identity, deliver scoped enrollment material through Vault, reconcile peer/group/policy/DNS membership. | Expected private identity and required endpoint connectivity; no pasted tokens or maintained peer maps. |
 | Regional formation | Reserve founder authority durably, form regional embedded NATS/JetStream, join scheduler managers/workers through their distinct roles and recover persisted node identity. | One regional cluster identity, observed membership/quorum as appropriate to the qualified topology, role-correct authenticated admission. |
 | Global admission | Reconcile versioned loop-free leaf topology and scoped credentials/imports/exports at both affected ends. Generate interregion controller material and mesh policy automatically. | Intended parent/child identities, authenticated regional request/reply, observable topology generation and connection health. |
-| Serving and repair | Discover signed artifacts, provision first-party service credentials, reconcile placement and ingress, verify readiness, publish actual Atlas service health and continue repairing drift. | Real serving evidence and CLI/dashboard visibility; failures distinguish network, cluster, global-link and workload stages. |
+| Serving and repair | Discover signed artifacts, provision first-party service credentials, reconcile placement and ingress, verify readiness, publish actual service health and continue repairing drift. | Real serving evidence and CLI/dashboard visibility; failures distinguish network, cluster, global-link and workload stages. |
 
 ## Avoid bootstrap cycles and competing founders
 
@@ -92,12 +92,12 @@ adapters. `internal/region/cli.go` still exposes these prerequisites. This is
 reusable behavior, not continuous region reconciliation or distributed founder
 fencing. Do not run it concurrently from every host or merely wrap it in a loop.
 
-`internal/atlas` and its publisher still require configured topology inputs;
-existing signed publication alone does not establish automatic region admission.
+Region creation still requires configured topology inputs; existing signed
+publication alone does not establish automatic region admission.
 `internal/natscell/interregion.go` validates explicit signed peer/topology and
 account material; generating and reconciling both ends automatically remains
 work. Preserve its scope and tree validation. NetBird/Vault bootstrap gaps are
-tracked in REFACTOR.md and [Atlas](atlas.md).
+tracked in [REFACTOR.md](../REFACTOR.md).
 
 Reuse the existing feature packages and one operation/membership authority.
 Replace manual inputs in the target path; do not add activation flags, alternate

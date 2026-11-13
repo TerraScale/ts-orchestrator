@@ -26,7 +26,7 @@
       "get": {
         "summary": "Original minute probe and WAN evidence from every regional controller",
         "operationId": "getLinkHealth",
-        "description": "Public read-only health over TLS. No-store; bounded local snapshots share a three-second cache. A 200 reports evidence, not healthy links. Consumers must compare each expected member and admitted peer, reject future evidence, and independently expire probe timestamps older than two minutes. Empty/missing observations are monitoring loss; not_linked and unknown WAN are unobserved, not measured outages. Fetch origins through Atlas; do not derive hostnames from region codes.",
+        "description": "Public read-only health over TLS. No-store; bounded local snapshots share a three-second cache. A 200 reports evidence, not healthy links. Consumers must compare each expected member and admitted peer, reject future evidence, and independently expire probe timestamps older than two minutes. Empty/missing observations are monitoring loss; not_linked and unknown WAN are unobserved, not measured outages. Fetch origins from the roster; do not derive hostnames from region codes.",
         "security": [],
         "responses": {
           "200": {"description": "Bounded health evidence (at most 128 KiB)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LinkHealth"}}}},

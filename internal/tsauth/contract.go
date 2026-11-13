@@ -70,7 +70,6 @@ const (
 
 // Hostname is ts-auth's regional name in cell, the lower-case catalog cell
 // token: <cell>.auth.terrascale.tech, the load balancer's hostname rule.
-// Atlas serves auth.terrascale.tech.
 func Hostname(cell string) string { return cell + ".auth.terrascale.tech" }
 
 // PublicOrigin is ts-auth's public origin in cell.

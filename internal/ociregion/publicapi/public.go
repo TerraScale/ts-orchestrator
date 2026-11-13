@@ -235,7 +235,6 @@ func (p planFile) desired() (Desired, error) {
 	d := Desired{Cell: cellName, Region: p.Region, Network: id("network_compartment"),
 		Control: id("control_compartment"), VCN: id("vcn"), ControllerNSG: id("network_security_group"), WorkloadNSG: id("workload_network_security_group"),
 		Vault: id("vault"), Key: id("key"), PrivateCIDR: private.String(), PublicCIDR: subnet.String(),
-		// <region>.<service>.terrascale.tech; Atlas fronts the global names.
 		APIHost: strings.ToLower(p.Cell) + ".api.terrascale.tech", AuthHost: strings.ToLower(p.Cell) + ".auth.terrascale.tech", ClientPort: public.ClientPort,
 		MinMbps: public.MinMbps, MaxMbps: public.MaxMbps, Names: names,
 		Owner: p.OrchestratorOwner, Owned: ociresource.Key{Region: p.Cell, Kind: lb.Kind, Name: lb.PublicTerraBase}}

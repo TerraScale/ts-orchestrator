@@ -258,7 +258,7 @@ The existing host telemetry /metrics scrape includes these series whenever an ed
 
 Name labels come only from the route tables. Key types and outcomes have bounded sets. Counters reset with the process. A successful order metric means the authority accepted the order; it does not mean issuance completed.
 
-The production operational rules emit EdgeCertificateExpiryWarning within 14 days of expiry, EdgeCertificateExpiryCritical within 5 days, and EdgeCertificateMissing after a served name has lacked a valid certificate for 10 minutes. The expiry alerts can both fire within five days. The rules operate on each scraped node independently.
+The production operational rules emit EdgeCertificateExpiryWarning within 21 days of expiry, EdgeCertificateExpiryCritical within 5 days, and EdgeCertificateMissing after a served name has lacked a valid certificate for 10 minutes. The expiry alerts can both fire within five days. The rules operate on each scraped node independently.
 
 ## HTTP-01 challenges
 

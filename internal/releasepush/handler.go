@@ -140,9 +140,7 @@ type Handler struct {
 	App func(ctx context.Context, service, image string, claims Claims, progress Progress) (json.RawMessage, error)
 	// Mesh runs a multi-region workflow request (op "ping" or "apply") on the
 	// cross-region mesh and returns its rows, also when it fails; nil refuses them.
-	Mesh func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
-	// Relay, when set, passes an accepted ts-orch release request on to the
-	// region's workers (the founder's mesh); each worker verifies it itself.
+	Mesh  func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
 	Relay func(request []byte)
 	// Installed receives once after a new binary is in place; the caller exits
 	// so systemd restarts the new binary.
@@ -331,8 +329,6 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
-	// The marker precedes the swap, so the new binary's first start is on
-	// probation; its clock starts after the download.
 	if err := h.install(ctx, binary, func() error {
 		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now()})
 	}); err != nil {
@@ -400,17 +396,12 @@ func (h *Handler) olderRun(runID string) (bool, error) {
 	return next < installed, nil
 }
 
-// link is os.Link; tests stand in an immutable binary.
 var link = os.Link
 
-// install downloads and verifies the binary, runs beforeSwap, then atomically
-// swaps it in, keeping the previous one as <binary>.prev. A failed swap leaves
-// no <binary>.next.
 func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() error) error {
 	next := h.Binary + ".next"
 	data, err := h.download(ctx, binary.URL)
 	if err != nil {
-		// One immediate retry: no sleeps on the release path.
 		if data, err = h.download(ctx, binary.URL); err != nil {
 			return err
 		}

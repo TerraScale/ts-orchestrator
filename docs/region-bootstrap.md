@@ -755,8 +755,7 @@ rules are not restored; nothing listens on those ports.
 The cell's public API is an OCI flexible load balancer behind proxied
 Cloudflare DNS. `gru.api.terrascale.tech` reaches TerraBase and
 `gru.auth.terrascale.tech` reaches ts-auth (TS-487): regional hosts follow
-`<region>.<service>.terrascale.tech`, and ts-atlas fronts the global
-`api.terrascale.tech` and `auth.terrascale.tech`. Names come from
+`<region>.<service>.terrascale.tech`. Names come from
 `internal/naming`: load balancer `gru-1-api`, `gru-1-api-igw`,
 `gru-1-api-routes`, `gru-1-api-security`, `gru-1-api-subnet`,
 `gru-1-api-nsg`, and the Vault secret `gru-1-api-origin`.
@@ -863,9 +862,8 @@ and every other error. Remove an existing association by hand first.
 Unbound plans can be previewed without these inputs; `cert`, `apply`, and
 DNS security validation require them. Every cell uses the same reviewed
 zone certificate. Each cell publishes only its own regional names,
-`<region>.api.terrascale.tech` and `<region>.auth.terrascale.tech`. The global
-`api.terrascale.tech` and `auth.terrascale.tech` are ts-atlas Worker routes
-that forward to them; `dns` never touches them. Zone AOP also affects other origins
+`<region>.api.terrascale.tech` and `<region>.auth.terrascale.tech`. The global `api.terrascale.tech` and `auth.terrascale.tech` names are
+retired with ts-atlas; `dns` never touches them. Zone AOP also affects other origins
 in this zone that request client certificates: coordinate their trust before
 enabling it. The DNS command does not upload, replace, or delete AOP keys.
 

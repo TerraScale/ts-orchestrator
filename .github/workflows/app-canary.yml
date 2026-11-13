@@ -31,6 +31,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -74,8 +75,43 @@ jobs:
           digest=$(docker buildx imagetools inspect "${image}:${GITHUB_SHA}" --format '{{json .Manifest}}' |
             jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64") | .digest')
           test -n "$digest"
+          echo "arm64=${digest}" >> "$GITHUB_OUTPUT"
           echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
           echo "Published \`${image}@${digest}\` (linux/arm64)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/terrascale/app-canary
+          subject-digest: ${{ steps.image.outputs.arm64 }}
+          push-to-registry: true
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ghcr.io/terrascale/app-canary@${{ steps.image.outputs.arm64 }}
+          format: spdx-json
+          output-file: ${{ runner.temp }}/sbom.spdx.json
+          upload-artifact: false
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ghcr.io/terrascale/app-canary
+          subject-digest: ${{ steps.image.outputs.arm64 }}
+          sbom-path: ${{ runner.temp }}/sbom.spdx.json
+          push-to-registry: true
+
+      - name: Verify attestations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh attestation verify "oci://ghcr.io/terrascale/app-canary@${{ steps.image.outputs.arm64 }}" \
+            --owner TerraScale \
+            --signer-workflow TerraScale/ts-orchestrator/.github/workflows/app-canary.yml \
+            --bundle-from-oci
 
       - name: Release to every region
         shell: bash

@@ -104,8 +104,8 @@ persisted intent retains conservative recovery because hosts may have changed.
 | `ts-dashboard` | ts-orch service on `ts-gru-1` (`deploy/m1/services`); image built in ts-dashboard | Integrate its release/rollback boundary and retain native-login ancestry protection (at least ts-dashboard #180) |
 
 Embedded NATS and the operator dashboard follow the orchestrator binary.
-`ts-atlas` and `ts-status` are external Cloudflare Workers rather than native
-service-channel roles. The native channel currently recognizes only
+`ts-status` is an external Cloudflare Worker rather than a native
+service-channel role; ts-atlas is retired. The native channel currently recognizes only
 TerraBase and ts-auth; other services need an explicit supported release path.
 The [remaining baseline timer inventory](rollout-timer-inventory.md) records
 the CLI/config switches, thresholds, qualification stages, CI timers and

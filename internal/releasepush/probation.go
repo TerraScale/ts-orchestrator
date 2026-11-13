@@ -80,7 +80,6 @@ func probe(state, binary, revision string, now time.Time, output io.Writer, exit
 	}
 	p := &Probation{state: state, binary: binary, output: output, exit: exit}
 	if json.Unmarshal(data, &p.trial) != nil || p.trial.SHA != revision {
-		// Not this binary's trial: its install never swapped, or this is the restored binary.
 		return nil, removeIfExists(trialFile(state))
 	}
 	p.trial.Starts++
