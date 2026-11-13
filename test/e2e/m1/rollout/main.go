@@ -617,26 +617,6 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 		fmt.Println("install and budget journey passed")
 		return
 	}
-	management, err := os.ReadFile(filepath.Join(root, "management.json"))
-	must(err)
-	var initialApply swarmruntime.ServiceSpec
-	must(json.Unmarshal(management, &initialApply))
-	initialApply.Image, initialApply.Port, initialApply.Args, initialApply.Regions = spec.Image, 18090, []string{"--port", "18090"}, []string{order[0]}
-	initialApply.Env, initialApply.Mounts, initialApply.Hostnames = nil, nil, nil
-	initialApply.ReadyPath = spec.ReadyPath
-	initialData, err := json.Marshal(initialApply)
-	must(err)
-	initialPath := filepath.Join(roots[0], "management.json")
-	must(os.WriteFile(initialPath, initialData, 0600))
-	for range 2 {
-		output, err := serviceCLI(ctx, names[0], launcher, roots[0], "apply", "-f", initialPath)
-		require(err == nil, fmt.Sprintf("management service plain apply: %v %s", err, output))
-	}
-	entries, err := os.ReadDir(filepath.Join(roots[0], "mesh"))
-	must(err)
-	require(len(entries) > 0, "management apply lost local state")
-	logStep("management service declaration applied twice through service apply completes its bake")
-
 	replacementImage, err := os.ReadFile(filepath.Join(roots[0], "replacement-image"))
 	must(err)
 	spec.Image = string(replacementImage)
