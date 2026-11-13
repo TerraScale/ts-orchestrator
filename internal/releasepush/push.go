@@ -30,6 +30,7 @@ import (
 
 const (
 	healthWait   = 3 * time.Minute
+	servingWait  = 4 * time.Minute
 	healthSteady = 15 * time.Second
 	healthEvery  = 2 * time.Second
 	versionProbe = 10 * time.Second
@@ -397,7 +398,7 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	if reply.State != "installed" && reply.State != "current" {
 		return fail(fmt.Errorf("release %s: %s", reply.State, reply.Error))
 	}
-	deadline := time.Now().Add(3 * time.Minute)
+	deadline := time.Now().Add(servingWait)
 	for {
 		version, err := request(ctx, conn, SubjectVersion, nil, time.Second)
 		if err == nil && version.RolledBack == release.SHA {

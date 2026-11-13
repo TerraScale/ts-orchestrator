@@ -171,6 +171,24 @@ func main() {
 		case "confirm-case":
 			stageCase(ctx, os.Args[2], 0, "serve")
 			return
+		case "confirm-last-case":
+			stageCase(ctx, os.Args[2], 1, "serve")
+			return
+		case "replace-case":
+			replaceCase(ctx, os.Args[2], false)
+			return
+		case "damaged-replace-case":
+			replaceCase(ctx, os.Args[2], true)
+			return
+		case "expiry-race-case":
+			expiryRaceCase(os.Args[2])
+			return
+		case "expiry-race-start":
+			expiryRaceStart(ctx, os.Args[2])
+			return
+		case "settle-case":
+			settleCase(os.Args[2])
+			return
 		case "resume-case":
 			resumeCase(ctx, os.Args[2], os.Args[3])
 			return

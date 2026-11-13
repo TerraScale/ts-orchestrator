@@ -48,7 +48,7 @@ const (
 
 const (
 	HandlerWait          = 25 * time.Minute
-	shutdownWatchdog     = WorkerReplyWait + 90*time.Second
+	shutdownWatchdog     = 45 * time.Second
 	textBusyWait         = 5 * time.Second
 	healthHandlerBudget  = 5 * time.Second
 	healthRequestTimeout = 8 * time.Second
@@ -86,21 +86,19 @@ type Reply struct {
 	DataMount      *datamount.Report `json:"data_mount,omitempty"`
 	DataMountError string            `json:"data_mount_error,omitempty"`
 
-	State   string `json:"state,omitempty"` // current, installed, stale, rolled_back, rejected; done, failed for mesh
-	Version string `json:"version,omitempty"`
-	SHA256  string `json:"sha256,omitempty"`
-	Health  string `json:"health,omitempty"`
-	Error   string `json:"error,omitempty"`
-	// RolledBack is the release this host restored <binary>.prev over; Error says why.
-	RolledBack string `json:"rolled_back,omitempty"`
-	// Result is the mesh's per-region rows.
-	Result   json.RawMessage `json:"result,omitempty"`
-	Deadline time.Time       `json:"deadline,omitzero"`
-	Refusal  *Refusal        `json:"refusal,omitempty"`
-	Events   []string        `json:"events,omitempty"`
-	NodeList nodelist.Status `json:"node_list,omitzero"`
-	Host     string          `json:"host,omitempty"`
-	Workers  []HostVersion   `json:"workers,omitempty"`
+	State      string          `json:"state,omitempty"`
+	Version    string          `json:"version,omitempty"`
+	SHA256     string          `json:"sha256,omitempty"`
+	Health     string          `json:"health,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	RolledBack string          `json:"rolled_back,omitempty"`
+	Result     json.RawMessage `json:"result,omitempty"`
+	Deadline   time.Time       `json:"deadline,omitzero"`
+	Refusal    *Refusal        `json:"refusal,omitempty"`
+	Events     []string        `json:"events,omitempty"`
+	NodeList   nodelist.Status `json:"node_list,omitzero"`
+	Host       string          `json:"host,omitempty"`
+	Workers    []HostVersion   `json:"workers,omitempty"`
 }
 
 type HealthRequest struct {
@@ -250,14 +248,12 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 					if err := conn.FlushTimeout(5 * time.Second); err != nil {
 						slog.Warn("release installed; reply flush failed", "error", err)
 					}
+					h.exitOnce.Do(func() { h.exitAfter(shutdownWatchdog) })
 					select {
 					case h.Installed <- struct{}{}:
 					default:
-						slog.Warn("release restart notification not delivered")
-						h.exitAfter(0)
 					}
 				}
-
 			}()
 		}); err != nil {
 			return err
@@ -451,14 +447,17 @@ func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims
 	unlock := h.probation.lockInstall()
 	defer unlock()
 	if err := h.stage(candidate, claims.RunID); err != nil {
-		return errors.Join(err, h.unstage(candidate, claims.RunID))
+		return errors.Join(err, h.unstage())
 	}
 	if err := os.Rename(next, h.Binary); err != nil {
-		return errors.Join(err, h.unstage(candidate, claims.RunID))
+		return errors.Join(err, h.unstage())
 	}
-	h.exitOnce.Do(func() { h.exitAfter(shutdownWatchdog) })
 	if err := syncDirectory(filepath.Dir(h.Binary)); err != nil {
-		slog.Warn("release installed; binary rename durability not confirmed", "error", err)
+		slog.Warn("release installed; binary rename durability not confirmed; the candidate moves its staged trial at start", "error", err)
+		return nil
+	}
+	if err := promote(h.TrialFile, h.RollbackFile, h.Binary); err != nil {
+		slog.Warn("release installed; staged trial not moved into place; the candidate moves it at start", "error", err)
 	}
 	return nil
 }

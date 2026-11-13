@@ -55,6 +55,8 @@ func run(ctx context.Context, binary, previous string) {
 		rollbackCases(ctx)
 		lostRollbackCase(ctx)
 		confirmRaceCase(ctx)
+		mainFormatCase(ctx)
+		staleRecordCase(ctx)
 		upgradeCases(ctx, data, previous)
 		close(probationDone)
 	}()
@@ -67,12 +69,18 @@ func run(ctx context.Context, binary, previous string) {
 		slowWriteCase(ctx)
 		close(preflightDone)
 	}()
+	watchdogDone := make(chan struct{})
+	go func() {
+		watchdogCase(ctx)
+		close(watchdogDone)
+	}()
 	rolloutCases(ctx, data)
 	replacementCase(ctx)
 	rebuildCase(ctx)
 	oldHostCase(ctx)
 	<-preflightDone
 	<-probationDone
+	<-watchdogDone
 	crossFilesystem(ctx)
 	selfExitCase(ctx, data)
 	fmt.Println("updater-preflight e2e: PASS")
@@ -407,6 +415,9 @@ func serveRegion(ctx context.Context, args []string) {
 	fmt.Println("SERVING", probation.Served())
 	select {
 	case <-h.Installed:
+		if candidateMode() == "stuck" {
+			<-ctx.Done()
+		}
 		conn.Close()
 		srv.Shutdown()
 		srv.WaitForShutdown()
@@ -521,7 +532,13 @@ func upgradeCases(ctx context.Context, data []byte, previous string) {
 	defer closeOlder()
 	restored := previousRun(ctx, filepath.Join(work, "installed"), "start", work, payloadFile(work, "replay.json", release), verifier.JWKSURL, payloadFile(work, "older.json", older), olderVerifier.JWKSURL)
 	require(restored["restart"] == nil && restored["served"] == true && restored["rolled_back"] == shaB && restored["replay"] == "rolled_back" && restored["older"] == "stale", fmt.Sprintf("the previous build reads the state this build leaves: %v", restored))
-	fmt.Println("ok upgrade: previous build installs this build; probation counts from its trial; its fence refuses run 1; third start restores its exact bytes; it then refuses the replay and run 1")
+	newer, newerVerifier, newerClient, closeNewer := signedRelease(ctx, asset, shaB, "3", "1")
+	defer closeNewer()
+	again := previousRun(ctx, filepath.Join(work, "installed"), "install", work, payloadFile(work, "run-3.json", newer), newerClient.Transport.(providerTransport).url, revisionOf(previous), newerVerifier.JWKSURL)
+	require(again["install"] == "installed" && bytes.Equal(read(filepath.Join(work, "installed")), candidate), fmt.Sprintf("the previous build installs this build again after the rollback: %v", again))
+	upgraded := startInstalled(ctx, work, "serve")
+	require(upgraded.Revision == shaB && upgraded.State == "probation" && upgraded.Served && upgraded.After == "" && record(trialPath) == nil, fmt.Sprintf("this build installed again by the previous build starts on probation and confirms: %+v", upgraded))
+	fmt.Println("ok upgrade: previous build installs this build; probation counts from its trial; its fence refuses run 1; third start restores its exact bytes; it then refuses the replay and run 1; it installs this build again, which confirms")
 }
 
 func crossFilesystem(ctx context.Context) {
@@ -548,8 +565,8 @@ func selfExitCase(ctx context.Context, data []byte) {
 	writeExecutable(filepath.Join(work, "asset"), stamped(data, strings.Repeat("b", 40), "pass"))
 	command := exec.CommandContext(ctx, binary, "self-update", work, "slow-shutdown")
 	output, err := command.CombinedOutput()
-	require(err == nil && strings.Contains(string(output), "installed reply collected") && strings.Contains(string(output), "ordinary shutdown finished"), fmt.Sprintf("the old process must finish its ordinary shutdown after commit: %v %s", err, output))
-	fmt.Println("ok process exit: installed reply collected; a 4-second ordinary shutdown finished; old process exited")
+	require(err == nil && strings.Contains(string(output), "installed reply collected") && strings.Contains(string(output), "duplicates installed installed") && strings.Contains(string(output), "ordinary shutdown finished"), fmt.Sprintf("the old process must finish its ordinary shutdown after commit despite duplicate notifications: %v %s", err, output))
+	fmt.Println("ok process exit: installed reply collected; two duplicate requests during a 4-second ordinary shutdown coalesced; shutdown finished; old process exited")
 }
 
 func selfUpdate(ctx context.Context, work, mode string) {
@@ -558,7 +575,6 @@ func selfUpdate(ctx context.Context, work, mode string) {
 	conn, closeListener := listener(h)
 	defer closeListener()
 	if mode == "postcommit-failures" {
-		h.Installed = nil
 		h.Relay = func(context.Context, []byte) []releasepush.HostVersion {
 			conn.Close()
 			return []releasepush.HostVersion{{Host: "worker", Error: "relay network unavailable"}}
@@ -570,8 +586,12 @@ func selfUpdate(ctx context.Context, work, mode string) {
 		must(err)
 		must(conn.Publish(releasepush.SubjectOrch, payload))
 		must(conn.Flush())
-		<-ctx.Done()
-		panic("old process did not exit after lost reply and notification")
+		select {
+		case <-h.Installed:
+		case <-ctx.Done():
+			panic("old process was not told to restart after a lost reply")
+		}
+		return
 	}
 	reply := installRequest(ctx, h, conn, work, strings.Repeat("b", 40), "2")
 	require(reply.State == "installed", "self update must return installed")
@@ -581,6 +601,9 @@ func selfUpdate(ctx context.Context, work, mode string) {
 	case <-ctx.Done():
 		panic("restart notification missing")
 	}
+	first := installRequest(ctx, h, conn, work, strings.Repeat("b", 40), "2")
+	second := installRequest(ctx, h, conn, work, strings.Repeat("b", 40), "2")
+	fmt.Println("duplicates", first.State, second.State)
 	select {
 	case <-time.After(4 * time.Second):
 	case <-ctx.Done():
@@ -802,4 +825,63 @@ func oldHostCase(ctx context.Context) {
 	result, err := pushOne(ctx, work, "assets", build, release, strings.TrimSuffix(client.Transport.(providerTransport).url, "/binary"), regionFile(work, "regions.json", srv.ClientURL()))
 	require(err == nil && result.State == "current" && result.Health == "ok" && strings.Contains(result.RevisionOnly, "revision only"), fmt.Sprintf("a host without a digest in its version answer is confirmed by revision and says so: %v %+v", err, result))
 	fmt.Println("ok old host: no digest in the version answer; serving confirmed by revision only and reported")
+}
+
+func mainFormatCase(ctx context.Context) {
+	work, cleanup := temporary("main-format-")
+	defer cleanup()
+	must(os.Mkdir(filepath.Join(work, "nats"), 0o700))
+	original, candidate := hostBytes()
+	writeExecutable(filepath.Join(work, "installed"), candidate)
+	writeExecutable(filepath.Join(work, "installed.prev"), original)
+	trialPath := filepath.Join(work, "nats/release-trial")
+	write(trialPath, fmt.Sprintf(`{"sha":%q,"run_id":"2","installed":%q,"starts":0}`, shaB, time.Now().UTC().Format(time.RFC3339Nano)))
+	state := startInstalled(ctx, work, "serve")
+	require(state.Revision == shaB && state.State == "probation" && state.Served && state.After == "" && state.Restarts == 0 && record(trialPath) == nil, fmt.Sprintf("a trial in the previous updater's format for the running binary is kept, counted and confirmed: %+v", state))
+	fmt.Println("ok probation previous format: trial without digest kept for the running binary, on probation, confirmed")
+}
+
+func staleRecordCase(ctx context.Context) {
+	work, cleanup := temporary("stale-record-")
+	defer cleanup()
+	must(os.MkdirAll(filepath.Join(work, "nats"), 0o700))
+	_, candidate := hostBytes()
+	write(filepath.Join(work, "nats/release-rolled-back"), fmt.Sprintf(`{"sha":%q,"sha256":%q,"run_id":"1","reason":"exited 2 times before serving"}`, shaB, digest(candidate)))
+	h, _, _ := preparedHost(work)
+	conn, closeListener := listener(h)
+	reply := installRequest(ctx, h, conn, work, shaB, "2")
+	closeListener()
+	require(reply.State == "installed", fmt.Sprintf("a newer run of a rolled-back build installs: %+v", reply))
+	confirmed := startInstalled(ctx, work, "serve")
+	require(confirmed.Revision == shaB && confirmed.State == "probation" && confirmed.Served && confirmed.After == "", fmt.Sprintf("the newer run confirms: %+v", confirmed))
+	again := startInstalled(ctx, work, "serve")
+	require(again.Revision == shaB && again.State == "" && again.RolledBack == "" && again.Restarts == 0 && bytes.Equal(read(filepath.Join(work, "installed")), candidate), fmt.Sprintf("a confirmed binary is never rolled back by an older rollback record: %+v", again))
+	fmt.Println("ok probation stale record: rollback record of run 1, run 2 installed and confirmed, restart keeps it")
+}
+
+func watchdogCase(ctx context.Context) {
+	work, cleanup := temporary("watchdog-")
+	defer cleanup()
+	must(os.Mkdir(filepath.Join(work, "nats"), 0o700))
+	helper, err := os.Executable()
+	must(err)
+	data := read(helper)
+	installed := filepath.Join(work, "installed")
+	writeExecutable(installed, stamped(data, shaA, "stuck"))
+	port := freePort()
+	regions := regionFile(work, "regions.json", fmt.Sprintf("nats://127.0.0.1:%d", port))
+	build := stamped(data, shaB, "pass")
+	asset := filepath.Join(work, "asset")
+	writeExecutable(asset, build)
+	release, verifier, client, closeProvider := signedRelease(ctx, asset, shaB, "2", "1")
+	defer closeProvider()
+	provider := strings.TrimSuffix(client.Transport.(providerTransport).url, "/binary")
+	stopRegion := keepServing(ctx, func() *exec.Cmd {
+		return exec.CommandContext(ctx, installed, "serve-region", work, fmt.Sprint(port), verifier.JWKSURL, provider+"/binary")
+	})
+	defer stopRegion()
+	result, err := pushOne(ctx, work, "assets", build, release, provider, regions)
+	waited := time.Duration(result.ServingMS-result.AcceptedMS) * time.Millisecond
+	require(err == nil && result.State == "installed" && bytes.Equal(read(installed), build) && waited >= 45*time.Second, fmt.Sprintf("a shutdown stuck until the watchdog still ends with the new binary serving inside the pusher's wait: %v %+v", err, result))
+	fmt.Println("ok watchdog: stuck shutdown ended by the watchdog; new binary serving", waited.Round(time.Second), "after the reply")
 }

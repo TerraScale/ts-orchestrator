@@ -163,7 +163,7 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
             filter_syscalls(syscall_name)
             os.execv(
                 helper,
-                [helper, flow, work] + ([outcome] if flow == "commit-case" else []),
+                [helper, flow, work, outcome],
             )
         _, status = os.waitpid(root_pid, 0)
         if not os.WIFSTOPPED(status):
@@ -181,13 +181,24 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
         committing = set()
         kill_after = set()
         busy = None
+        stalled = {}
         while live:
+            for held, until in list(stalled.items()):
+                if time.monotonic() >= until:
+                    del stalled[held]
+                    try:
+                        ptrace(7, held)
+                    except ProcessLookupError:
+                        pass
             try:
-                pid, status = os.waitpid(-1, 0x40000000)
+                pid, status = os.waitpid(-1, 0x40000000 | (os.WNOHANG if stalled else 0))
             except ChildProcessError:
                 if root_status is None:
                     raise
                 break
+            if pid == 0:
+                time.sleep(0.01)
+                continue
             if os.WIFEXITED(status) or os.WIFSIGNALED(status):
                 live.discard(pid)
                 if pid == root_pid:
@@ -281,6 +292,8 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
                                 elif busy and time.monotonic() - busy[1] > 0.3:
                                     os.close(busy[0])
                                     busy = None
+                            elif hits == occurrence and outcome == "stall":
+                                stalled[pid] = time.monotonic() + 123
                             elif hits == occurrence and outcome == "crash-after":
                                 kill_after.add(pid)
                             elif hits == occurrence and outcome == "crash":
@@ -310,6 +323,8 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
                     if stop in (signal.SIGSTOP, signal.SIGTRAP, signal.SIGTRAP | 0x80)
                     else stop
                 )
+                if pid in stalled:
+                    continue
                 ptrace(
                     24
                     if pid in injected or pid in committing or pid in kill_after
@@ -327,6 +342,8 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
         log.seek(0)
         output = log.read().decode(errors="replace")
         killed = outcome in ("crash", "crash-after")
+        if stalled:
+            raise RuntimeError(f"{step}: a stalled syscall was never released")
         if hits < occurrence or returncode != (-signal.SIGKILL if killed else 0):
             raise RuntimeError(
                 f"{step}: exit {returncode}, hits {hits}/{occurrence}\n{output[-5000:]}"
@@ -339,7 +356,6 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
                 "worker relay",
                 "reply delivery",
                 "reply flush",
-                "restart notification",
             ):
                 if warning not in output:
                     raise RuntimeError(
@@ -389,14 +405,16 @@ for call in ("open", "write", "chmod", "fsync", "close"):
     precommit.append(("candidate-" + call, call, r"/installed.next", 1))
 precommit.append(("preflight-exec", "exec", r"/installed.next", 1))
 busy_exec = ("preflight-busy", "commit-case", "exec", r"/installed.next", 1, "busy", "commit", "traced install: installed")
-for index, record in enumerate(("trial", "run-id"), 1):
+for index, (record, staged) in enumerate(
+    (("trial", "/nats/release-trial.staged"), ("run-id", "/nats/release-run-id")), 1
+):
     for call in ("open", "write", "fsync", "close"):
         precommit.append((record + "-" + call, call, r"/nats/.release-.*", index))
-    precommit.append((record + "-rename", "rename", "/nats/release-" + record, 1))
+    precommit.append((record + "-rename", "rename", staged, 1))
     precommit.append((record + "-directory-sync", "fsync", r"/nats", index))
 precommit += [
-    ("previous-unlink", "unlink", r"/installed.prev", 1),
-    ("previous-link", "link", r"/installed.prev", 1),
+    ("previous-unlink", "unlink", r"/installed.prev.staged", 1),
+    ("previous-link", "link", r"/installed.prev.staged", 1),
     ("previous-directory-sync", "fsync", "", 1),
     ("binary-rename", "rename", r"/installed", 1),
 ]
@@ -418,9 +436,9 @@ cases += [
 cases += [
     ("crash-after-" + name, "commit-case", call, pattern, n, "crash-after", "commit", "")
     for name, call, pattern, n in (
-        ("trial-rename", "rename", "/nats/release-trial", 1),
+        ("trial-rename", "rename", "/nats/release-trial.staged", 1),
         ("run-id-rename", "rename", "/nats/release-run-id", 1),
-        ("previous-link", "link", r"/installed.prev", 1),
+        ("previous-link", "link", r"/installed.prev.staged", 1),
         ("binary-rename", "rename", r"/installed", 1),
         ("binary-directory-sync", "fsync", "", 2),
     )
@@ -436,18 +454,55 @@ cases += [
     ("crash-confirm-unlink", "confirm-case", "unlink", "/nats/release-trial", 1, "crash", "confirm", ""),
     ("crash-after-confirm-unlink", "confirm-case", "unlink", "/nats/release-trial", 1, "crash-after", "confirm", ""),
     ("confirm-sync", "confirm-case", "fsync", r"/nats", 2, "eio", "confirm", '"served":false,"after":"unconfirmed"'),
-    (
-        "start-counter-write",
-        "confirm-case",
-        "rename",
-        "/nats/release-trial",
-        1,
-        "eio",
-        "confirm",
-        '"state":"unconfirmed","error":"start count not saved[^"]*","rolled_back":"","health_state":"unconfirmed","served":false,"after":"unconfirmed"',
-    ),
-    ("rollback-directory-sync", "rollback-case", "fsync", "", 1, "eio", "rollback", "START rolled-back"),
+    ("rollback-directory-sync", "rollback-case", "fsync", "", 1, "eio", "rollback-kept", "START rolled-back"),
+    ("settle-directory-sync", "settle-case", "fsync", "", 1, "eio", "settle", '"state":"","error":"","rolled_back":"","health_state":"","served":true'),
+    ("expiry-race", "expiry-race-case", "rename", r"/installed", 1, "stall", "expiry", "traced expiry race: installed probation"),
 ]
+served = '"state":"probation","error":"","rolled_back":"","health_state":"","served":true,"after":""'
+for flow, label in (("confirm-case", "first"), ("confirm-last-case", "last")):
+    cases += [
+        ("counter-sync-" + label, flow, "fsync", r"/nats", 1, "eio", "confirm", served),
+        ("counter-rename-" + label, flow, "rename", "/nats/release-trial", 1, "eio", "confirm", served),
+    ]
+for flow, resume, steps in (
+    (
+        "replace-case",
+        "replace",
+        (
+            ("trial-stage", "rename", "/nats/release-trial.staged", 1),
+            ("fence-write", "rename", "/nats/release-run-id", 1),
+            ("preflight", "exec", r"/installed.next", 1),
+            ("previous-stage", "link", r"/installed.prev.staged", 1),
+            ("previous-stage-sync", "fsync", "", 1),
+            ("binary-rename", "rename", r"/installed", 1),
+        ),
+    ),
+    (
+        "damaged-replace-case",
+        "damaged-replace",
+        (
+            ("fence-write", "rename", "/nats/release-run-id", 1),
+            ("previous-stage", "link", r"/installed.prev.staged", 1),
+        ),
+    ),
+):
+    cases += [
+        (flow.removesuffix("-case") + "-" + name, flow, call, pattern, n, "rejected", resume, "traced replace: rejected")
+        for name, call, pattern, n in steps
+    ]
+for flow, resume, outcome, name, call, pattern, n in (
+    ("replace-case", "replace", "crash-after", "trial-stage", "rename", "/nats/release-trial.staged", 1),
+    ("replace-case", "replace", "crash", "binary-rename", "rename", r"/installed", 1),
+    ("replace-case", "replace", "crash-after", "binary-rename", "rename", r"/installed", 1),
+    ("replace-case", "replace", "crash-after", "binary-directory-sync", "fsync", "", 2),
+    ("replace-case", "replace", "crash-after", "previous-promote", "rename", r"/installed.prev", 1),
+    ("replace-case", "replace", "crash-after", "record-remove", "unlink", "/nats/release-rolled-back", 1),
+    ("replace-case", "replace", "crash-after", "trial-promote", "rename", "/nats/release-trial", 1),
+    ("replace-case", "replace", "crash-after", "trial-directory-sync", "fsync", r"/nats", 3),
+    ("damaged-replace-case", "damaged-replace", "crash-after", "damaged-archive", "link", "/nats/release-trial.damaged", 1),
+    ("damaged-replace-case", "damaged-replace", "crash-after", "trial-promote", "rename", "/nats/release-trial", 1),
+):
+    cases.append((outcome + "-" + flow.removesuffix("-case") + "-" + name, flow, call, pattern, n, outcome, resume, ""))
 
 
 def isolated(case):

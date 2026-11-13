@@ -157,12 +157,8 @@ func archiveDamaged(path string) error {
 	return errors.New("no free name to archive the damaged release trial")
 }
 
-func (h *Handler) unstage(candidate releaseID, run string) error {
-	var staged trial
-	if present, err := readRecord(h.TrialFile, &staged); !present || err != nil || staged.SHA != candidate.SHA || staged.SHA256 != candidate.SHA256 || staged.RunID != run {
-		return nil
-	}
-	return removeDurable(h.TrialFile)
+func (h *Handler) unstage() error {
+	return errors.Join(removeIfExists(stagedPrevious(h.Binary)), removeDurable(stagedTrial(h.TrialFile)))
 }
 
 func (h *Handler) stage(candidate releaseID, run string) error {
@@ -170,23 +166,14 @@ func (h *Handler) stage(candidate releaseID, run string) error {
 	if err != nil {
 		return err
 	}
-	var existing trial
-	if present, err := readRecord(h.TrialFile, &existing); present && (err != nil || !existing.valid()) {
-		if err := archiveDamaged(h.TrialFile); err != nil {
-			return err
-		}
-	}
 	record := trial{SHA: candidate.SHA, SHA256: candidate.SHA256, RunID: run, Installed: time.Now(), Previous: &installed}
-	if err := writeJSON(h.TrialFile, record); err != nil {
+	if err := writeJSON(stagedTrial(h.TrialFile), record); err != nil {
 		return err
 	}
 	if err := writeState(h.RunIDFile, []byte(run)); err != nil {
 		return err
 	}
-	if err := removeIfExists(h.RollbackFile); err != nil {
-		return err
-	}
-	previous := h.Binary + ".prev"
+	previous := stagedPrevious(h.Binary)
 	err = removeIfExists(previous)
 	if err == nil {
 		err = os.Link(h.Binary, previous)
@@ -195,7 +182,7 @@ func (h *Handler) stage(candidate releaseID, run string) error {
 		err = syncDirectory(filepath.Dir(h.Binary))
 	}
 	if errors.Is(err, os.ErrPermission) {
-		err = fmt.Errorf("%w (an immutable binary refuses replacement: run `chattr -i %s %s` on the host)", err, h.Binary, previous)
+		err = fmt.Errorf("%w (an immutable binary refuses replacement: run `chattr -i %s %s.prev` on the host)", err, h.Binary, h.Binary)
 	}
 	return err
 }
