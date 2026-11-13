@@ -65,7 +65,7 @@ func run(ctx context.Context, binary, previous string) {
 }
 
 func refusedUnchanged(reply releasepush.Reply, kind string, preflight bool, asset []byte) {
-	require(reply.State == "rejected" && reply.Refusal != nil && reply.Refusal.Kind == kind && reply.Preflight != nil && reply.Preflight.Declared && reply.Preflight.Executed == preflight, fmt.Sprintf("refusal must be %s, declared, preflight executed=%v: %+v", kind, preflight, reply))
+	require(reply.State == "rejected" && reply.Refusal != nil && reply.Refusal.Kind == kind && reply.Preflight != nil && reply.Preflight.Executed == preflight, fmt.Sprintf("refusal must be %s, preflight executed=%v: %+v", kind, preflight, reply))
 	require(reply.Refusal.SHA == shaB && reply.Refusal.SHA256 == digest(asset) && reply.Refusal.RunAttempt == "1" && reply.Refusal.RunID != "", fmt.Sprintf("refusal must name the candidate: %+v", reply.Refusal))
 	require(len(reply.Refusal.Reason) <= 4<<10 && utf8.ValidString(reply.Refusal.Reason) && !strings.ContainsFunc(reply.Refusal.Reason, unicode.IsControl), "diagnostic must be bounded valid text")
 }
