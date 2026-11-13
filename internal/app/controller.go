@@ -103,8 +103,7 @@ func controllerClockCheck(probe brokerauth.ClockProbe) func() error {
 }
 
 func runController(ctx context.Context, cfg Config, output io.Writer) (err error) {
-	// Take the systemd notification socket before any child process starts.
-	notifier := sdnotify.FromEnvironment()
+	notifier := sdnotify.Process()
 	defer func() { _ = notifier.Stopping() }()
 	telemetry, err := startRuntimeObservability(ctx, cfg, "controller", cfg.NATS.Instance)
 	if err != nil {

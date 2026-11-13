@@ -26,6 +26,7 @@ UMask=0077
 NoNewPrivileges=yes
 ProtectSystem=full
 ReadWritePaths=/usr/local/bin
+ConfigurationDirectory=systemd/journald.conf.d
 ProtectHome=yes
 PrivateTmp=yes
 ProtectKernelLogs=yes

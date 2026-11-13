@@ -47,7 +47,7 @@ func Deliver(ctx context.Context, cell, service, refsFile, directory string,
 		return err
 	}
 	defer root.Close()
-	notifier := sdnotify.FromEnvironment()
+	notifier := sdnotify.Process()
 	ready := false
 	apply := func(snapshot map[string]Current) error {
 		for key, secret := range snapshot {
