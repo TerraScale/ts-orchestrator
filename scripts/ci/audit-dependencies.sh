@@ -24,8 +24,7 @@ source)
 	mapfile -d '' -t manifests < <(git ls-files -z -- go.mod '**/go.mod')
 	count=0
 	for manifest in "${manifests[@]}"; do
-		# Immutable historical evidence/snapshots do not select current builds.
-		case "$manifest" in docs/evidence/*|docs/patches/*/snapshot/*) continue ;; esac
+	case "$manifest" in docs/patches/*/snapshot/*) continue ;; esac
 		module=$(dirname -- "$manifest")
 		echo "Auditing package/test graph: $module"
 		(cd "$module" && "$scanner" -scan=package -test ./...)

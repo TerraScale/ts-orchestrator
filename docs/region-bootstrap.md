@@ -32,10 +32,8 @@ OCI has accepted delayed deletion of all 502 cell secrets for
 `2026-10-05T01:45:58.728Z` and the dedicated vault/key for
 `2026-10-11T01:48:37.642Z`. The network and workload compartments are
 deleted. The control compartment remains until that purge; the shared
-TerraScale parent stays. The [2026-10-04 inventory](evidence/gru-teardown-20261004.md)
-lists what remains and its reviewed teardown plan. Rerun
-`ts-orch oci-region teardown --plan docs/evidence/gru-teardown-20261004-plan.json`
-to print the diff, and add `--apply` only with the owner's approval: it deletes
+TerraScale parent stays. The 2026-10-04 inventory lists what remains and its reviewed teardown plan. Rerunning `ts-orch oci-region teardown` with that plan prints the diff;
+add `--apply` only with the owner's approval: it deletes
 the listed resources in dependency order, never touches one already deleting,
 and deletes the control compartment only once everything else is gone.
 Current cleanup state is in the
@@ -43,8 +41,7 @@ Current cleanup state is in the
 COS relayed the user's 2026-10-04 decision: keep these purge dates, do not
 run OCI `--apply` now, and wait for COS to request it after 2026-10-11.
 The approved stale Cloudflare `gru.api.terrascale.tech` A record was deleted
-and its absence verified; both email DKIM records remain. See the
-[confirmed dry-run and DNS evidence](evidence/gru-teardown-dryrun-20261004.md).
+and its absence verified; both email DKIM records remain.
 The old OpenBao `/infra/netbird/servers-gru` entry stays unchanged, including
 its two versions. Its old group/key IDs are invalid for enrollment; the
 rebuild prepares a new local key and a fresh OCI secret without reading,
@@ -60,7 +57,7 @@ in [TerraBase deployment](terrabase-deployment.md) is an example.
 
 The new foundation uses `gru-1-control`, `gru-1-network`, and
 `gru-1-workload`, distinct from the pending old `terrascale-control`.
-Its [itemized create proposal](evidence/gru-rebuild-plan-20261004.md) names
+Its itemized create proposal names
 every target, cost, dependency, and hold. Before any live create, present
 that exact stage as `NEEDS CONFIRM` and wait for COS to relay approval.
 The new compartment names allow foundation preparation while old purges
@@ -99,7 +96,7 @@ ts-orch operator terrabase-release \
 
 `WORK` and `COMMIT` come from the verified release workflow. Capture controller
 health, both members' digest/status, static NetBird peer names, and ts-status
-reachability in `docs/evidence`. The current C# runtime has no replication
+reachability. The current C# runtime has no replication
 implementation or readiness endpoint: a `running` report proves process
 liveness only. TS-470's replication acceptance remains open until TerraBase
 TS-464/TS-469 support it; do not report the rebuilt cell as replicating based

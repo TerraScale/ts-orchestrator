@@ -108,5 +108,4 @@ unreadable. Recovery is limited to the Vault's own durability.
 The throwaway drill (provision a scratch cell, break it in a controlled way,
 measure the targets above) is planned. **Gap:** not built; no command drives
 it. Production drills need owner-approved dates: they take real capacity and
-risk real data, so nobody schedules one autonomously. Evidence from a drill
-or a real recovery goes to `docs/evidence/dr-<region>-<date>.md`.
+risk real data, so nobody schedules one autonomously.

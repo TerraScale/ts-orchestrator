@@ -159,6 +159,5 @@ and customer payloads at collection boundaries, with scope-appropriate access.
    responsiveness on the smallest qualified A1 host. Add ARM/x86/Wasm coverage
    as each runtime is admitted. Publish the evidence.
 
-Local integration checks exercise the implemented source interfaces; retained
-results and remaining gaps are in [OBS evidence](evidence/obs-refactor-20261016.md).
-Live fleet, browser, cloud, runtime and cost acceptance remain unverified.
+Local integration checks exercise the implemented source interfaces; live
+fleet, browser, cloud, runtime and cost acceptance remain unverified.

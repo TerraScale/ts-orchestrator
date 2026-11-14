@@ -1,2 +1,0 @@
-warning: expected one unrevoked setup key named gru-servers, found 0
-no changes

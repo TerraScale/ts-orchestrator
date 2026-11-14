@@ -2,7 +2,7 @@
 
 **Status: IN PROGRESS; NOT PRODUCTION READY.**
 **Acceptance completion: 0/16 gates verified (0%)**, as recorded in the
-[shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
+shared-goal acceptance ledger.
 The fixed denominator is M0 exit plus D01–D15. At each named breakthrough,
 report the fully verified count and percentage and list completed and remaining
 gate names. A gate counts only when every child requirement has passing
@@ -14,8 +14,7 @@ gates remain separate until complete.
 
 Root `GOAL.md` SHA-256
 `99de61cbd4bd49a678d2d48b5cbc92297d93849746773229a80594ba7533d0a6`
-remains the scope authority. The shared-goal ledger's
-[2026-09-29 checkpoint](evidence/shared-goal-history.md#full-remaining-scope-mapped-to-the-existing-ids)
+remains the scope authority. The shared-goal ledger's 2026-09-29 checkpoint
 and `/tmp/ts-alpha-acceptance-queue-20260928.md` keep the M0–M3 map and next
 checks. **Formal acceptance remains 0/16.**
 

@@ -18,7 +18,7 @@ BASELINES = (
     (
         "github.com/moby/swarmkit/v2", "v2.1.2", "third_party/swarmkit",
         "12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb",
-        "docs/evidence/core-runtime-contract.md",
+        "docs/dependency-advisories-2026-10-26.md",
         "4e2475adee705924c9c800d205ab2b5c8869359318c8db3eee600ea157c0737c",
     ),
     (

@@ -97,11 +97,11 @@ TerraScale networks. Default routes are forwarding entries, not reservations.
 
 | Audited scope | Ranges / observations | Evidence |
 | --- | --- | --- |
-| GRU + SJC OCI APIs | All accessible active compartments and tenancy root: three VCNs, five subnets, two DRGs, reciprocal PEERED RPCs; no OCI IPv6 | [OCI inventory and object IDs](../evidence/ts-675-oci-audit-20261007.md) |
+| GRU + SJC OCI APIs | All accessible active compartments and tenancy root: three VCNs, five subnets, two DRGs, reciprocal PEERED RPCs; no OCI IPv6 | Same OCI/node inventory |
 | Six regional nodes | VCN private `/25`s, mesh IPv4/IPv6; NATS4222/6222 on private VNICs; no active bridges or Tailscale; no7422 listener at cutoff | Same OCI/node inventory |
-| delta + beta + mariogk-dev | LAN10.10.10/24; dev10.11.99/24; NetBird10.200/16; Tailscale CGNAT; IPv6 scopes disjoint; six unused Podman defaults | [Host, route, DNS and client inventory](../evidence/ts-675-host-audit-20261007.md) |
+| delta + beta + mariogk-dev | LAN10.10.10/24; dev10.11.99/24; NetBird10.200/16; Tailscale CGNAT; IPv6 scopes disjoint; six unused Podman defaults | Same refreshed host inventory |
 | mariogk-desktop, refreshed audit | LAN10.10.10/24; both meshes; Docker172.17/16,172.18/16,172.19/16 are dormant without endpoints | Same refreshed host inventory |
-| NetBird management0.80 | IPv4/IPv6 settings,12 peers, GRU `/25` resource, scoped DNS objects and policy IDs | [Management API inventory](../evidence/ts-675-mesh-audit-20261007.md) |
+| NetBird management0.80 | IPv4/IPv6 settings,12 peers, GRU `/25` resource, scoped DNS objects and policy IDs | Same refreshed host inventory |
 
 The supplied `mariogk-dev` facts actually identify **delta**:
 `10.200.87.10`, `100.77.52.68`. Verified mariogk-dev uses
@@ -173,9 +173,9 @@ active routes/bridges; the separate management/container inventories are still
 required to account for inactive definitions and offline clients. `--all`
 cannot discover a server hidden by the operator's NetBird policy or audit
 unlisted user devices; compare its printed hosts with this inventory.
-The [live check evidence](../evidence/ts-675-coexistence-check-20261007.md)
-retains the original nine-host result and the corrected ten-host run: four PCs
-pass dual-mesh checks and all six regional servers pass NetBird checks, exit0.
+The live check evidence retains the original nine-host result and the
+corrected ten-host run: four PCs pass dual-mesh checks and all six regional
+servers pass NetBird checks, exit0.
 The original server failures included incorrectly required client-only checks;
 the corrected server checks do not require Tailscale or MagicDNS.
 
