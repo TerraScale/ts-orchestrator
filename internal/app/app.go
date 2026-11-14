@@ -57,14 +57,13 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	if os.Geteuid() != 0 {
 		return errors.New("single-host requires root")
 	}
-	if err := sdnotify.Process().ExtendStart(2 * hostMetadataWindow); err != nil {
-		return fmt.Errorf("extend host startup window: %w", err)
-	}
-	// First, before anything that can crash: a pushed binary that never
-	// serves restores the previous one, and this start exits to run it.
+	startupErr := sdnotify.Process().ExtendStart(2 * hostMetadataWindow)
 	probation, err := releasepush.Probe(*state, output)
 	if err != nil {
 		return err
+	}
+	if startupErr != nil {
+		return fmt.Errorf("extend host startup window: %w", startupErr)
 	}
 	nodelist.InitIdentity(*state)
 	plan, err := planHost(ctx, *state, output)
