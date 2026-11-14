@@ -3,7 +3,6 @@ package edge
 import (
 	"context"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,55 +11,6 @@ import (
 
 	"golang.org/x/crypto/acme/autocert"
 )
-
-func issuedData(data []byte, state certificateLocalState) []byte {
-	data = stripIssuedState(data)
-	metadata, _ := json.Marshal(state)
-	return append(data, pem.EncodeToMemory(&pem.Block{Type: "EDGE ISSUANCE", Bytes: metadata})...)
-}
-
-func stripIssuedState(data []byte) []byte {
-	var clean []byte
-	for len(data) != 0 {
-		block, rest := pem.Decode(data)
-		if block == nil {
-			break
-		}
-		if block.Type != "EDGE ISSUANCE" {
-			clean = append(clean, pem.EncodeToMemory(block)...)
-		}
-		data = rest
-	}
-	return clean
-}
-
-func issuedState(data []byte) (certificateLocalState, bool) {
-	for len(data) != 0 {
-		block, rest := pem.Decode(data)
-		if block == nil {
-			break
-		}
-		if block.Type == "EDGE ISSUANCE" {
-			var state certificateLocalState
-			err := json.Unmarshal(block.Bytes, &state)
-			return state, err == nil
-		}
-		data = rest
-	}
-	return certificateLocalState{}, false
-}
-
-func (c *certificateCache) completeLocal(ctx context.Context, key string, data []byte, state certificateLocalState) error {
-	if err := c.persist(ctx, key, stripIssuedState(data)); err != nil {
-		return err
-	}
-	if value, ok := c.memory.Load(key); ok {
-		cert := value.(cachedCertificate)
-		cert.data = stripIssuedState(cert.data)
-		c.memory.Store(key, cert)
-	}
-	return c.saveState(ctx, key, state)
-}
 
 func (c *certificateCache) saveRetry(ctx context.Context, key string, retry certificateRetry) error {
 	c.pending.Store(key, retry)
@@ -130,7 +80,7 @@ func (c *certificateCache) repair(ctx context.Context, key string) error {
 	c.mu.Lock()
 	seal := c.seal
 	c.mu.Unlock()
-	value.Data = seal.Seal(nil, nil, stripIssuedState(local), []byte(key))
+	value.Data = seal.Seal(nil, nil, local, []byte(key))
 	if _, err := c.write(ctx, key, value, revision); err != nil {
 		return err
 	}

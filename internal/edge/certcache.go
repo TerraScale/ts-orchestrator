@@ -61,6 +61,7 @@ type certificateCache struct {
 	watchCancel           context.CancelFunc
 	required              sync.Map
 	memory                sync.Map
+	volatile              sync.Map
 	states                sync.Map
 	live                  sync.Map
 	unsupported           sync.Map
@@ -96,6 +97,11 @@ type certificateLocalState struct {
 	Retry      certificateRetry
 	Withheld   string
 	Generation string
+}
+
+type certificateClaim struct {
+	Generation string
+	Next       time.Time
 }
 
 type certificateLease struct {
@@ -356,12 +362,26 @@ func (c *certificateCache) save(ctx context.Context, key string, data []byte) er
 	if current, ok := c.memory.Load(key); ok && !preferredCertificate(cert, current.(cachedCertificate).cert) {
 		return nil
 	}
-	err = c.persist(ctx, key, data)
 	c.memory.Store(key, cachedCertificate{cert, data})
-	if err != nil {
+	c.volatile.Store(key, true)
+	slog.Info("edge certificate installed", "name", key, "expires", cert.Leaf.NotAfter)
+	return c.makeDurable(ctx, key)
+}
+
+func (c *certificateCache) makeDurable(ctx context.Context, key string) error {
+	if _, volatile := c.volatile.Load(key); !volatile {
+		return nil
+	}
+	value, ok := c.memory.Load(key)
+	if !ok {
+		c.volatile.Delete(key)
+		return nil
+	}
+	if err := c.persist(ctx, key, value.(cachedCertificate).data); err != nil {
+		slog.Warn("edge certificate served but not durable", "name", key, "error", err)
 		return err
 	}
-	slog.Info("edge certificate installed", "name", key, "expires", cert.Leaf.NotAfter)
+	c.volatile.Delete(key)
 	return nil
 }
 
@@ -378,6 +398,11 @@ func (c *certificateCache) reconcile(ctx context.Context, key string) error {
 }
 
 func (c *certificateCache) reconcileLocked(ctx context.Context, key string) error {
+	durable := c.makeDurable(ctx, key)
+	return errors.Join(durable, c.exchange(ctx, key))
+}
+
+func (c *certificateCache) exchange(ctx context.Context, key string) error {
 	if err := c.publishRetry(ctx, key); err != nil {
 		return err
 	}
@@ -419,7 +444,7 @@ func (c *certificateCache) reconcileLocked(ctx context.Context, key string) erro
 			shared, _ := validCertificate(data, key)
 			if certificateFingerprint(shared) == state.Withheld {
 				state.Withheld, state.Generation = "", ""
-				return c.completeLocal(ctx, key, candidate.data, state)
+				return c.saveState(ctx, key, state)
 			}
 		}
 		if state.Generation == "" || value.Lease.Generation != state.Generation || !time.Now().Before(value.Lease.Until) {
@@ -428,14 +453,14 @@ func (c *certificateCache) reconcileLocked(ctx context.Context, key string) erro
 		c.mu.Lock()
 		seal := c.seal
 		c.mu.Unlock()
-		value.Data = seal.Seal(nil, nil, stripIssuedState(candidate.data), []byte(key))
+		value.Data = seal.Seal(nil, nil, candidate.data, []byte(key))
 		value.Lease = certificateLease{}
 		value.Retry = certificateRetry{Updated: time.Now()}
 		if _, err := c.write(ctx, key, value, revision); err != nil {
 			return err
 		}
 		state.Withheld, state.Generation, state.Retry = "", "", value.Retry
-		return c.completeLocal(ctx, key, candidate.data, state)
+		return c.saveState(ctx, key, state)
 	}
 	if err == nil {
 		shared, _ := validCertificate(data, key)
@@ -449,7 +474,7 @@ func (c *certificateCache) reconcileLocked(ctx context.Context, key string) erro
 	c.mu.Lock()
 	seal := c.seal
 	c.mu.Unlock()
-	value.Data = seal.Seal(nil, nil, stripIssuedState(candidate.data), []byte(key))
+	value.Data = seal.Seal(nil, nil, candidate.data, []byte(key))
 	_, err = c.write(ctx, key, value, revision)
 	return err
 }
@@ -505,12 +530,6 @@ func (c *certificateCache) loadDisk(ctx context.Context) error {
 			slog.Info("edge certificate installed", "name", entry.Name(), "expires", cert.Leaf.NotAfter)
 		}
 	}
-	c.memory.Range(func(key, value any) bool {
-		if state, ok := issuedState(value.(cachedCertificate).data); ok {
-			c.states.Store(key, state)
-		}
-		return true
-	})
 	return nil
 }
 
@@ -532,9 +551,9 @@ func retryDeadline(attempt int, now time.Time) time.Time {
 }
 
 func (c *certificateCache) lease(ctx context.Context, key string) (*issuanceLease, error) {
-	var unacknowledged []string
+	var unacknowledged []certificateClaim
 	if claims, ok := c.claims.Load(key); ok {
-		unacknowledged = claims.([]string)
+		unacknowledged = claims.([]certificateClaim)
 	}
 	if retry := c.state(key).Retry; len(unacknowledged) == 0 && time.Now().Before(retry.Next) {
 		return nil, c.deferRenewal(key, "local retry deadline", "next_attempt", stamp(retry.Next), "attempt", retry.Attempt)
@@ -543,7 +562,16 @@ func (c *certificateCache) lease(ctx context.Context, key string) (*issuanceLeas
 	if err != nil {
 		return nil, err
 	}
-	orphaned := value.Lease.Generation != "" && slices.Contains(unacknowledged, value.Lease.Generation)
+	claim := slices.IndexFunc(unacknowledged, func(claim certificateClaim) bool { return claim.Generation == value.Lease.Generation })
+	orphaned := value.Lease.Generation != "" && claim >= 0
+	known := c.state(key).Retry.Next
+	if pending, ok := c.pending.Load(key); ok {
+		known = maxTime(known, pending.(certificateRetry).Next)
+	}
+	known = maxTime(known, value.Retry.Next)
+	if orphaned && known.After(unacknowledged[claim].Next) && time.Now().Before(known) {
+		return nil, c.deferRenewal(key, "retry deadline extended past unacknowledged reservation", "next_attempt", stamp(known), "reserved", stamp(unacknowledged[claim].Next))
+	}
 	if retry := c.state(key).Retry; len(unacknowledged) != 0 && !orphaned && time.Now().Before(retry.Next) {
 		return nil, c.deferRenewal(key, "local retry deadline", "next_attempt", stamp(retry.Next), "attempt", retry.Attempt)
 	}
@@ -571,13 +599,17 @@ func (c *certificateCache) lease(ctx context.Context, key string) (*issuanceLeas
 	}
 	holder, _, _ := c.roster()
 	value.Lease = certificateLease{rand.Text(), now.Add(issueTTL), holder}
-	value.Retry = certificateRetry{attempt, retryDeadline(attempt, now.Add(issueBudget)), now}
+	reserved := retryDeadline(attempt, now.Add(issueBudget))
+	if orphaned {
+		known = maxTime(known, unacknowledged[claim].Next)
+	}
+	value.Retry = certificateRetry{attempt, maxTime(reserved, known), now}
 	revision, err = c.write(ctx, key, value, revision)
 	if errors.Is(err, jetstream.ErrKeyExists) {
 		return nil, c.deferRenewal(key, "issuance lease taken concurrently", "revision", revision)
 	}
 	if err != nil {
-		c.claims.Store(key, append(slices.Clone(unacknowledged), value.Lease.Generation))
+		c.claims.Store(key, append(slices.Clone(unacknowledged), certificateClaim{value.Lease.Generation, value.Retry.Next}))
 		return nil, fmt.Errorf("edge: issuance lease write unacknowledged generation=%s: %w", value.Lease.Generation, err)
 	}
 	c.claims.Delete(key)
@@ -637,7 +669,7 @@ func (l *issuanceLease) finish(data []byte, retry certificateRetry) error {
 		l.cache.mu.Lock()
 		seal := l.cache.seal
 		l.cache.mu.Unlock()
-		value.Data = seal.Seal(nil, nil, stripIssuedState(data), []byte(l.key))
+		value.Data = seal.Seal(nil, nil, data, []byte(l.key))
 	}
 	value.Lease = certificateLease{}
 	value.Retry = retry

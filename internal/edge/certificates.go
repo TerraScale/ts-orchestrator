@@ -41,19 +41,6 @@ func (m *certificateManager) TLSConfig() *tls.Config {
 	return &tls.Config{MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"}, GetCertificate: m.GetCertificate}
 }
 
-func (m *certificateManager) load(name string) (*tls.Certificate, error) {
-	for _, key := range []string{name, name + "+rsa"} {
-		if value, ok := m.cache.memory.Load(key); ok {
-			cert := value.(cachedCertificate).cert
-			now := time.Now()
-			if !now.Before(cert.Leaf.NotBefore) && now.Before(cert.Leaf.NotAfter) {
-				return cert, nil
-			}
-		}
-	}
-	return nil, autocert.ErrCacheMiss
-}
-
 func (m *certificateManager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	name := strings.ToLower(strings.TrimSuffix(hello.ServerName, "."))
 	if err := m.policy(hello.Context(), name); err != nil {
@@ -200,17 +187,15 @@ func (m *certificateManager) ensureVariant(ctx context.Context, key string) erro
 	}
 	state := m.cache.state(key)
 	state.Withheld, state.Generation = certificateFingerprint(cert), lease.generation
-	m.cache.states.Store(key, state)
-	data = issuedData(data, state)
-	saveErr := m.cache.save(context.Background(), key, data)
 	metadataErr := m.cache.saveState(context.Background(), key, state)
+	saveErr := m.cache.save(context.Background(), key, data)
 	retry := certificateRetry{Updated: time.Now()}
 	finishErr := lease.finish(data, retry)
 	if finishErr != nil {
 		return errors.Join(saveErr, metadataErr, finishErr)
 	}
 	state.Retry, state.Withheld, state.Generation = retry, "", ""
-	return errors.Join(saveErr, metadataErr, m.cache.completeLocal(context.Background(), key, data, state))
+	return errors.Join(saveErr, metadataErr, m.cache.saveState(context.Background(), key, state))
 }
 
 func (m *certificateManager) issue(ctx context.Context, client *acme.Client, keyName string) ([]byte, error) {
