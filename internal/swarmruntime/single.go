@@ -61,6 +61,9 @@ func StoredAdmission(stateDir string) (Admission, bool, error) {
 	if err := json.Unmarshal(data, &stored); err != nil {
 		return Admission{}, false, fmt.Errorf("read swarm admission: %w", err)
 	}
+	if err := reconcileAdmissionRole(context.Background(), SingleHostSwarmDir(stateDir), &stored); err != nil {
+		return Admission{}, false, err
+	}
 	return Admission{Region: stored.Region, HostID: stored.HostID, InstanceID: stored.InstanceID, FounderID: stored.FounderID, Role: stored.Role}, true, nil
 }
 
@@ -85,15 +88,15 @@ func StartSingleHost(ctx context.Context, stateDir string, executor exec.Executo
 	if err != nil {
 		return nil, err
 	}
-	if admission.Role != "manager" {
-		return node, nil // a worker has no control socket
-	}
 	link := SingleHostSocket(stateDir)
 	if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, errors.Join(err, node.Stop(context.WithoutCancel(ctx)))
 	}
 	if err := os.Symlink(filepath.Join("swarm", "control.sock"), link); err != nil {
 		return nil, errors.Join(err, node.Stop(context.WithoutCancel(ctx)))
+	}
+	if !node.IsManager() {
+		return node, nil
 	}
 	if err := removeIngressNetwork(ctx, stateDir); err != nil {
 		return nil, errors.Join(err, node.Stop(context.WithoutCancel(ctx)))
@@ -197,4 +200,12 @@ func DialSingleHostWithCA(stateDir string, root []byte) (api.ControlClient, *grp
 		return nil, nil, err
 	}
 	return singleHostControl{ControlClient: api.NewControlClient(conn), state: stateDir}, conn, nil
+}
+
+func SingleHostNodeID(ctx context.Context, stateDir string) (string, error) {
+	certificate, err := nodeCertificate(ctx, SingleHostSwarmDir(stateDir))
+	if err != nil {
+		return "", err
+	}
+	return certificate.Subject.CommonName, nil
 }

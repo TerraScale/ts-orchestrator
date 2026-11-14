@@ -37,16 +37,44 @@ func ListMembers(ctx context.Context, client api.ControlClient) ([]Member, error
 	return members, nil
 }
 
-// LeaveMember drains the worker named hostname, waits until none of its tasks
-// runs, then removes it from the cluster. The removed host cannot rejoin with
-// its old identity; it is retired or rebuilt from empty state.
 func LeaveMember(ctx context.Context, client api.ControlClient, hostname string) error {
 	node, err := memberNode(ctx, client, hostname)
 	if err != nil {
 		return err
 	}
-	if node.Role == api.NodeRoleManager {
-		return fmt.Errorf("%s is the region's manager; only workers leave", hostname)
+	if node.Role == api.NodeRoleManager || node.Spec.DesiredRole == api.NodeRoleManager {
+		if err := canDemoteManager(ctx, client, node.ID); err != nil {
+			return fmt.Errorf("cannot remove %s; promote replacement managers first: %w", hostname, err)
+		}
+		if node.Spec.DesiredRole != api.NodeRoleWorker || node.Spec.Availability != api.NodeAvailabilityDrain {
+			spec := node.Spec.Copy()
+			spec.DesiredRole = api.NodeRoleWorker
+			spec.Availability = api.NodeAvailabilityDrain
+			if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec}); err != nil {
+				return fmt.Errorf("demote %s: %w", hostname, err)
+			}
+		}
+		demoteCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		for demoted := false; !demoted; {
+			current, err := memberNode(demoteCtx, client, hostname)
+			if err != nil {
+				cancel()
+				return err
+			}
+			if demoted = current.Role == api.NodeRoleWorker && current.ManagerStatus == nil; !demoted {
+				select {
+				case <-demoteCtx.Done():
+					cancel()
+					return fmt.Errorf("demote %s: %w", hostname, demoteCtx.Err())
+				case <-time.After(time.Second):
+				}
+			}
+		}
+		cancel()
+		node, err = memberNode(ctx, client, hostname)
+		if err != nil {
+			return err
+		}
 	}
 	if node.Spec.Availability != api.NodeAvailabilityDrain {
 		spec := node.Spec.Copy()
@@ -91,6 +119,32 @@ func SetMemberAvailability(ctx context.Context, client api.ControlClient, hostna
 	spec.Availability = availability
 	_, err = client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec})
 	return err
+}
+
+func canDemoteManager(ctx context.Context, client api.ControlClient, nodeID string) error {
+	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return err
+	}
+	managers, remaining := 0, 0
+	for _, node := range listed.Nodes {
+		if node.Role != node.Spec.DesiredRole {
+			return fmt.Errorf("node %s has a pending role change", node.ID)
+		}
+		if node.Role == api.NodeRoleManager {
+			managers++
+			if node.ID == nodeID && node.ManagerStatus != nil && node.ManagerStatus.Leader {
+				return fmt.Errorf("transfer Raft leadership before removing the leader")
+			}
+			if node.ID != nodeID && managerReady(node) {
+				remaining++
+			}
+		}
+	}
+	if managers < 2 || remaining < managers/2+1 {
+		return fmt.Errorf("%d reachable remaining managers cannot preserve the majority of %d", remaining, managers)
+	}
+	return nil
 }
 
 func memberNode(ctx context.Context, client api.ControlClient, hostname string) (*api.Node, error) {
