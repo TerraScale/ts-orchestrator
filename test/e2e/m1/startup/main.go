@@ -12,6 +12,9 @@ import (
 )
 
 func seed() error {
+	if os.Args[2] == "promotion-mesh" {
+		return servePromotionMesh()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := os.Args[1]
@@ -30,6 +33,9 @@ func seed() error {
 		defer cancel()
 		_ = manager.Stop(stop)
 	}()
+	if os.Args[2] == "promotion" {
+		return promotionJourney(ctx, state, manager)
+	}
 	if os.Args[2] == "worker" {
 		client, conn, err := swarmruntime.DialSingleHost(filepath.Join(state, "manager"))
 		if err != nil {
