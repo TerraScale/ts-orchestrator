@@ -118,6 +118,7 @@ func checkReady(ctx context.Context, client *http.Client, address string, want i
 	}
 	var ready struct {
 		Ready        bool
+		Missing      []string `json:"missing"`
 		MissingNames []string `json:"missing_names"`
 	}
 	if err = json.Unmarshal(data, &ready); err != nil {
@@ -128,6 +129,12 @@ func checkReady(ctx context.Context, client *http.Client, address string, want i
 	}
 	if want == 503 && (len(ready.MissingNames) != 1 || ready.MissingNames[0] != "shared.e2e.test") {
 		return errors.New("missing name absent from readiness")
+	}
+	if want == 503 && len(ready.Missing) != 0 {
+		return fmt.Errorf("certificate gap reported as infrastructure condition: %s", data)
+	}
+	if want == 200 && (len(ready.Missing) != 0 || len(ready.MissingNames) != 0) {
+		return errors.New("ready response reports conditions")
 	}
 	return nil
 }

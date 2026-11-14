@@ -23,11 +23,11 @@ type Readiness struct {
 	MissingNames []string
 }
 
-func (r Readiness) Err() error {
-	if r.Ready {
+func (r Readiness) InfraErr() error {
+	if len(r.Missing) == 0 {
 		return nil
 	}
-	return fmt.Errorf("edge not ready: %s (missing names: %s)", strings.Join(r.Missing, ", "), strings.Join(r.MissingNames, ", "))
+	return fmt.Errorf("edge not ready: %s", strings.Join(r.Missing, ", "))
 }
 
 func (e *Edge) SetReadinessRoutes(routes []ReadinessRoute) { e.readyRoutes.Store(&routes) }
