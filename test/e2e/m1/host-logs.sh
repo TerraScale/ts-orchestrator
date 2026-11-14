@@ -290,7 +290,8 @@ restart_serving
 wait_for 30 test -e "$commands/entered"
 test "$(systemctl show ts-orch.service -p ActiveState --value)" = active
 sudo grep -q e2e-whoami "$commands/ready"
-orch service ls | grep -q e2e-whoami
+orch service ls >"$work/services.txt"
+grep -q e2e-whoami "$work/services.txt"
 edge whoami.e2e.test /health
 wait_for 30 activation_done
 count_is restarts 1

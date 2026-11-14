@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,13 +26,17 @@ import (
 )
 
 type fakeAuthority struct {
-	mu     sync.Mutex
-	base   string
-	key    *ecdsa.PrivateKey
-	root   *x509.Certificate
-	orders map[string]string
-	count  map[string]int
-	chain  map[string][]byte
+	work    string
+	mu      sync.Mutex
+	base    string
+	key     *ecdsa.PrivateKey
+	root    *x509.Certificate
+	orders  map[string]string
+	issuers map[string]string
+	count   map[string]int
+	chain   map[string][]byte
+	proceed chan struct{}
+	once    sync.Once
 }
 
 func authorityToken(name string) string {
@@ -39,28 +45,37 @@ func authorityToken(name string) string {
 }
 
 func (a *fakeAuthority) challenge(name string) (string, error) {
-	answer := ""
-	for index, address := range []string{"10.77.0.2", "10.77.0.3", "10.77.0.4"} {
-		req, err := http.NewRequest(http.MethodGet, "http://"+address+"/.well-known/acme-challenge/"+authorityToken(name), nil)
+	var answer string
+	a.mu.Lock()
+	nodes := []string{a.issuers[name]}
+	a.mu.Unlock()
+	if name == "shared.e2e.test" {
+		nodes = []string{"10.77.0.2", "10.77.0.3"}
+	}
+
+	if strings.HasPrefix(name, "gru.") {
+		nodes = []string{"10.77.0.2"}
+	}
+	if strings.HasPrefix(name, "sjc.") {
+		nodes = []string{"10.77.0.3"}
+	}
+	for _, node := range nodes {
+		request, err := http.NewRequest(http.MethodGet, "http://"+node+"/.well-known/acme-challenge/"+authorityToken(name), nil)
 		if err != nil {
 			return "", err
 		}
-		req.Host = name
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.Proxy = nil
-		transport.DialContext = (&net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP(fmt.Sprintf("10.%d.0.1", 89+index))}}).DialContext
-		response, err := (&http.Client{Transport: transport, Timeout: 8 * time.Second}).Do(req)
-		transport.CloseIdleConnections()
+		request.Host = name
+		response, err := (&http.Client{Timeout: 3 * time.Second}).Do(request)
 		if err != nil {
 			return "", err
 		}
 		data, err := io.ReadAll(response.Body)
 		response.Body.Close()
 		if err != nil || response.StatusCode != 200 || len(data) == 0 {
-			return "", fmt.Errorf("challenge %s: status=%d error=%v", address, response.StatusCode, err)
+			return "", fmt.Errorf("challenge on %s: HTTP %d, %v", node, response.StatusCode, err)
 		}
 		if answer != "" && answer != string(data) {
-			return "", fmt.Errorf("challenge answers differ")
+			return "", fmt.Errorf("challenge responses differ")
 		}
 		answer = string(data)
 	}
@@ -68,39 +83,151 @@ func (a *fakeAuthority) challenge(name string) (string, error) {
 }
 
 func authorityMain(ctx context.Context, cfg configuration) error {
-	data, err := os.ReadFile(cfg.Work + "/ca.pem")
+	rootPEM, err := os.ReadFile(cfg.Work + "/ca.pem")
 	if err != nil {
 		return err
 	}
-	block, _ := pem.Decode(data)
-	root, err := x509.ParseCertificate(block.Bytes)
+	rootBlock, _ := pem.Decode(rootPEM)
+	root, err := x509.ParseCertificate(rootBlock.Bytes)
 	if err != nil {
 		return err
 	}
-	data, err = os.ReadFile(cfg.Work + "/ca.key")
+	private, err := os.ReadFile(cfg.Work + "/ca.key")
 	if err != nil {
 		return err
 	}
-	block, _ = pem.Decode(data)
-	key, err := x509.ParseECPrivateKey(block.Bytes)
+	keyBlock, _ := pem.Decode(private)
+	key, err := x509.ParseECPrivateKey(keyBlock.Bytes)
 	if err != nil {
 		return err
 	}
-	a := &fakeAuthority{base: "https://acme-v02.api.letsencrypt.org", root: root, key: key, orders: map[string]string{}, count: map[string]int{}, chain: map[string][]byte{}}
+	a := &fakeAuthority{work: cfg.Work, base: "https://acme-v02.api.letsencrypt.org", key: key, root: root, orders: map[string]string{}, issuers: map[string]string{}, count: map[string]int{}, chain: map[string][]byte{}, proceed: make(chan struct{})}
+	control, err := net.Listen("tcp", "10.77.0.1:8088")
+	if err != nil {
+		return err
+	}
+	defer control.Close()
+	public, err := net.Listen("tcp", "10.77.0.1:443")
+	if err != nil {
+		return err
+	}
+	defer public.Close()
+	metadata, err := net.Listen("tcp", "169.254.169.254:80")
+	if err != nil {
+		return err
+	}
+	defer metadata.Close()
+	api, err := net.Listen("tcp", "10.77.0.1:9443")
+	if err != nil {
+		return err
+	}
+	defer api.Close()
+	proxy, err := net.Listen("tcp", "10.77.0.1:8089")
+	if err != nil {
+		return err
+	}
+	defer proxy.Close()
 	pair, err := tls.LoadX509KeyPair(cfg.Work+"/identity.pem", cfg.Work+"/identity.key")
 	if err != nil {
 		return err
 	}
-	listener, err := net.Listen("tcp", "10.77.0.1:443")
-	if err != nil {
-		return err
+	tlsAPI := tls.NewListener(api, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}})
+	defer tlsAPI.Close()
+	var databaseReads int
+	servers := []*http.Server{
+		{Handler: http.HandlerFunc(a.serve)},
+		{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/instance/id"):
+				_, _ = io.WriteString(w, "ocid1.instance.oc1..journey")
+			case strings.HasSuffix(r.URL.Path, "/vnics/"):
+				address := "10.77.0.2"
+				if strings.HasPrefix(r.RemoteAddr, "10.77.0.3:") {
+					address = "10.77.0.3"
+				}
+				_ = json.NewEncoder(w).Encode([]map[string]string{{"privateIp": address}})
+			case strings.HasSuffix(r.URL.Path, "/canonicalRegionName"):
+				region := "sa-saopaulo-1"
+				if strings.HasPrefix(r.RemoteAddr, "10.77.0.3:") {
+					region = "us-sanjose-1"
+				}
+				_, _ = io.WriteString(w, region)
+			case strings.HasSuffix(r.URL.Path, "/region"):
+				_, _ = io.WriteString(w, "sa-saopaulo-1")
+			case strings.HasSuffix(r.URL.Path, "/identity/key.pem"):
+				http.ServeFile(w, r, cfg.Work+"/identity.key")
+			case strings.HasSuffix(r.URL.Path, "/identity/cert.pem"), strings.HasSuffix(r.URL.Path, "/identity/intermediate.pem"):
+				http.ServeFile(w, r, cfg.Work+"/identity.pem")
+			default:
+				http.NotFound(w, r)
+			}
+		})},
+		{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case strings.Contains(r.URL.Path, "x509"):
+				claims, _ := json.Marshal(map[string]any{"exp": time.Now().Add(time.Hour).Unix(), "opc-tenant": "ocid1.tenancy.oc1..journey"})
+				token := base64.RawURLEncoding.EncodeToString([]byte("{}")) + "." + base64.RawURLEncoding.EncodeToString(claims) + ".signature"
+				_ = json.NewEncoder(w).Encode(map[string]string{"token": token})
+			case strings.Contains(r.URL.Path, "secretbundles"):
+				value, ok := map[string]string{"ts-orch-mesh-key": cfg.MeshSeed, "gru-1-terrabase-nats-token": cfg.DatabaseToken}[r.URL.Query().Get("secretName")]
+				if r.URL.Query().Get("secretName") == "gru-1-terrabase-nats-token" {
+					a.mu.Lock()
+					databaseReads++
+					digest := sha256.Sum256([]byte(cfg.DatabaseToken + strconv.Itoa(databaseReads)))
+					value = hex.EncodeToString(digest[:])
+					a.mu.Unlock()
+				}
+				if !ok {
+					http.NotFound(w, r)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString([]byte(value))}, "versionNumber": 1})
+			default:
+				http.NotFound(w, r)
+			}
+		})},
+		{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodConnect || r.Host != "auth.sa-saopaulo-1.oraclecloud.com:443" && r.Host != "secrets.vaults.sa-saopaulo-1.oci.oraclecloud.com:443" {
+				http.Error(w, "unexpected upstream", 403)
+				return
+			}
+			upstream, err := net.DialTimeout("tcp", "10.77.0.1:9443", 3*time.Second)
+			if err != nil {
+				http.Error(w, "upstream unavailable", 502)
+				return
+			}
+			defer upstream.Close()
+			downstream, stream, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				return
+			}
+			defer downstream.Close()
+			_, _ = stream.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
+			_ = stream.Flush()
+			done := make(chan struct{})
+			go func() { _, _ = io.Copy(upstream, stream); _ = upstream.Close(); close(done) }()
+			_, _ = io.Copy(downstream, upstream)
+			_ = downstream.Close()
+			<-done
+		})},
 	}
-	server := &http.Server{Handler: http.HandlerFunc(a.serve)}
-	go server.Serve(tls.NewListener(listener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}))
+	publicTLS := tls.NewListener(public, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}})
+	servers = append(servers, &http.Server{Handler: http.HandlerFunc(a.serve)})
+	listeners := []net.Listener{publicTLS, metadata, tlsAPI, proxy, control}
+	var running sync.WaitGroup
+	for i, server := range servers {
+		running.Go(func() { _ = server.Serve(listeners[i]) })
+	}
 	fmt.Println("READY authority")
 	<-ctx.Done()
-	return server.Close()
+	for _, server := range servers {
+		_ = server.Close()
+	}
+	running.Wait()
+	return nil
 }
+
 func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -134,6 +261,9 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/counts":
 		_ = json.NewEncoder(w).Encode(a.count)
+	case "/release":
+		a.once.Do(func() { close(a.proceed) })
+		w.WriteHeader(204)
 	case "/directory":
 		_ = json.NewEncoder(w).Encode(map[string]string{"newNonce": base + "/nonce", "newAccount": base + "/account", "newOrder": base + "/new-order"})
 	case "/nonce":
@@ -153,16 +283,27 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		id = payload.Identifiers[0].Value
 		a.count[id]++
-		if a.count[id] > 4 {
+		a.issuers[id], _, _ = net.SplitHostPort(r.RemoteAddr)
+		if strings.HasPrefix(id, "fail-") {
 			w.Header().Set("Content-Type", "application/problem+json")
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"type": "urn:ietf:params:acme:error:rejectedIdentifier", "detail": "journey order budget exhausted"})
+			if id == "fail-long.e2e.test" || id == "fail-upload.e2e.test" {
+				w.Header().Set("Retry-After", "172800")
+			}
+			w.WriteHeader(429)
+			_ = json.NewEncoder(w).Encode(map[string]string{"type": "urn:ietf:params:acme:error:rateLimited", "detail": "lane rejection"})
+			fmt.Println("rejected", id)
 			return
 		}
 
 		a.orders[id] = "pending"
 		a.mu.Unlock()
 		fmt.Println("order", id)
+		if id == "shared.e2e.test" {
+			select {
+			case <-a.proceed:
+			case <-r.Context().Done():
+			}
+		}
 		a.mu.Lock()
 		if r.Context().Err() != nil {
 			return
@@ -208,6 +349,17 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 		a.orders[id] = "valid"
 		a.writeOrder(w, id)
 	case "/certificate":
+		if id == "metadata.e2e.test" {
+			name := a.work + "/a/edge-certs/.state-" + id
+			if err := os.Remove(name); err != nil {
+				http.Error(w, "remove metadata", 500)
+				return
+			}
+			if err := os.Mkdir(name, 0700); err != nil {
+				http.Error(w, "block metadata", 500)
+				return
+			}
+		}
 		w.Header().Set("Content-Type", "application/pem-certificate-chain")
 		_, _ = w.Write(a.chain[id])
 	default:

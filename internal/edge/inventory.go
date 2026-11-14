@@ -52,8 +52,11 @@ func (e *Edge) servedNames() []string {
 func (e *Edge) heldCertificates(ctx context.Context) ([]*tls.Certificate, []string) {
 	certs := []*tls.Certificate{}
 	problems := []string{}
-	e.held.Range(func(_, value any) bool { certs = append(certs, value.(*tls.Certificate)); return true })
-	entries, err := os.ReadDir(e.certificateDir)
+	e.certs.cache.memory.Range(func(_, value any) bool {
+		certs = append(certs, value.(cachedCertificate).cert)
+		return true
+	})
+	entries, err := os.ReadDir(string(e.certs.cache.local))
 	if err != nil && !os.IsNotExist(err) {
 		problems = append(problems, "certificate directory unreadable")
 	}
@@ -69,7 +72,7 @@ func (e *Edge) heldCertificates(ctx context.Context) ([]*tls.Certificate, []stri
 		if strings.HasPrefix(name, "acme_account+key") || strings.HasPrefix(name, "acme_account.key") || strings.Contains(name, "+http-01") || strings.HasSuffix(name, "+token") || strings.HasPrefix(name, ".") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(e.certificateDir, name))
+		data, err := os.ReadFile(filepath.Join(string(e.certs.cache.local), name))
 		if os.IsNotExist(err) {
 			continue
 		}
@@ -133,7 +136,7 @@ func (e *Edge) Inventory(ctx context.Context) Inventory {
 			continue
 		}
 		seen[fingerprint] = true
-		item := Certificate{Names: leaf.DNSNames, KeyType: strings.ToLower(leaf.PublicKeyAlgorithm.String()), Issuer: leaf.Issuer.String(), Serial: leaf.SerialNumber.Text(16), NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter, Fingerprint: fingerprint, Source: "autocert", Valid: true, Problems: []string{}}
+		item := Certificate{Names: leaf.DNSNames, KeyType: strings.ToLower(leaf.PublicKeyAlgorithm.String()), Issuer: leaf.Issuer.String(), Serial: leaf.SerialNumber.Text(16), NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter, Fingerprint: fingerprint, Source: "local", Valid: true, Problems: []string{}}
 		intermediate := x509.NewCertPool()
 		for _, der := range pair.Certificate[1:] {
 			cert, err := x509.ParseCertificate(der)
@@ -179,7 +182,7 @@ func (e *Edge) Inventory(ctx context.Context) Inventory {
 func ServeLocal(w http.ResponseWriter, r *http.Request) {
 	e := localEdge.Load()
 	if e == nil {
-		if r.URL.Path == "/edge/ready" {
+		if r.URL.Path == "/edge/ready" || r.URL.Path == "/edge/certificates/metrics" {
 			http.Error(w, "edge unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -193,7 +196,11 @@ func ServeLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/edge/ready" {
-		e.ServeReady(w, r)
+		e.serveReady(w, r)
+		return
+	}
+	if r.URL.Path == "/edge/certificates/metrics" {
+		e.serveCertificateMetrics(w, r)
 		return
 	}
 	if r.Method != http.MethodGet {

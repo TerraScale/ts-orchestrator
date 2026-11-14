@@ -5,22 +5,24 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 type orderTransport struct {
-	edge *Edge
-	next http.RoundTripper
+	success *atomic.Uint64
+	failure *atomic.Uint64
+	next    http.RoundTripper
 }
 
 func (t orderTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	response, err := t.next.RoundTrip(r)
 	if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/new-order") {
 		if err == nil && response.StatusCode == http.StatusCreated {
-			t.edge.orderSuccess.Add(1)
+			t.success.Add(1)
 		} else {
-			t.edge.orderFailure.Add(1)
+			t.failure.Add(1)
 		}
 	}
 	return response, err
@@ -55,9 +57,9 @@ func (e *Edge) WriteCertificateMetrics(ctx context.Context, w io.Writer) {
 		}
 	}
 	observability.WriteGauge(w, "ts_edge_certificate_names_missing", float64(len(inventory.MissingNames)))
-	observability.WriteCounter(w, "ts_edge_ecdsa_unsupported_handshakes_total", float64(e.unsupported.Load()))
-	observability.WriteCounter(w, observability.Series("ts_edge_autocert_orders_total", "outcome", "success"), float64(e.orderSuccess.Load()))
-	observability.WriteCounter(w, observability.Series("ts_edge_autocert_orders_total", "outcome", "error"), float64(e.orderFailure.Load()))
+	observability.WriteCounter(w, "ts_edge_ecdsa_unsupported_handshakes_total", float64(e.certs.cache.unsupportedHandshakes.Load()))
+	observability.WriteCounter(w, observability.Series("ts_edge_autocert_orders_total", "outcome", "success"), float64(e.certs.success.Load()))
+	observability.WriteCounter(w, observability.Series("ts_edge_autocert_orders_total", "outcome", "error"), float64(e.certs.failure.Load()))
 }
 
 func slicesContainsName(names []string, name string) bool {
