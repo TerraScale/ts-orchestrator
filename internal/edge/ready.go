@@ -2,12 +2,15 @@ package edge
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -47,7 +50,8 @@ func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request) {
 		Ready        bool     `json:"ready"`
 		Missing      []string `json:"missing"`
 		MissingNames []string `json:"missing_names"`
-	}{len(missing) == 0 && len(missingNames) == 0, missing, missingNames})
+		NotDurable   []string `json:"not_durable"`
+	}{len(missing) == 0 && len(missingNames) == 0, missing, missingNames, e.notDurable()})
 }
 
 func (e *Edge) readiness() (bool, []string, []string) {
@@ -61,7 +65,7 @@ func (e *Edge) readiness() (bool, []string, []string) {
 	}
 	missingNames := []string{}
 	for _, name := range e.servedNames() {
-		if _, err := e.certs.load(name); err == nil {
+		if e.servesTrusted(name) == nil {
 			continue
 		}
 		if e.certMissing(name) {
@@ -73,10 +77,47 @@ func (e *Edge) readiness() (bool, []string, []string) {
 	return len(missing) == 0 && len(missingNames) == 0, missing, missingNames
 }
 
-func (e *Edge) certMissing(name string) bool {
-	if _, err := e.certs.load(name); err == nil {
-		return false
+func readinessHello(name string) *tls.ClientHelloInfo {
+	suites := []uint16{}
+	for _, suite := range tls.CipherSuites() {
+		suites = append(suites, suite.ID)
 	}
+	return &tls.ClientHelloInfo{
+		ServerName:        name,
+		CipherSuites:      suites,
+		SupportedVersions: []uint16{tls.VersionTLS13, tls.VersionTLS12},
+		SupportedCurves:   []tls.CurveID{tls.X25519, tls.CurveP256, tls.CurveP384},
+		SupportedPoints:   []uint8{0},
+		SupportedProtos:   []string{"h2", "http/1.1"},
+		SignatureSchemes:  []tls.SignatureScheme{tls.ECDSAWithP256AndSHA256, tls.ECDSAWithP384AndSHA384, tls.PSSWithSHA256, tls.PSSWithSHA384, tls.PSSWithSHA512, tls.PKCS1WithSHA256, tls.PKCS1WithSHA384, tls.PKCS1WithSHA512},
+	}
+}
+
+func (e *Edge) servesTrusted(name string) error {
+	cert, _, err := e.selectCertificate(readinessHello(name))
+	if err != nil {
+		return err
+	}
+	intermediates := x509.NewCertPool()
+	for _, der := range cert.Certificate[1:] {
+		parsed, err := x509.ParseCertificate(der)
+		if err != nil {
+			return err
+		}
+		intermediates.AddCert(parsed)
+	}
+	_, err = cert.Leaf.Verify(x509.VerifyOptions{DNSName: name, Intermediates: intermediates})
+	return err
+}
+
+func (e *Edge) notDurable() []string {
+	names := []string{}
+	e.certs.cache.volatile.Range(func(key, _ any) bool { names = append(names, key.(string)); return true })
+	slices.Sort(names)
+	return names
+}
+
+func (e *Edge) certMissing(name string) bool {
 	seen, _ := e.certSeen.Load(name)
 	grace, ok := seen.(time.Time)
 	if !ok || time.Since(grace) < issueTTL {
@@ -200,4 +241,7 @@ func (e *Edge) serveCertificateMetrics(w http.ResponseWriter, r *http.Request) {
 	count := 0
 	e.certs.cache.unsupported.Range(func(_, _ any) bool { count++; return true })
 	_, _ = io.WriteString(w, fmt.Sprintf("ts_orch_edge_certificate_unsupported %d\n", count))
+	volatile := 0
+	e.certs.cache.volatile.Range(func(_, _ any) bool { volatile++; return true })
+	_, _ = fmt.Fprintf(w, "ts_orch_edge_certificate_not_durable %d\n", volatile)
 }

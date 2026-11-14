@@ -76,7 +76,6 @@ func (c *certificateCache) publishHoldings(ctx context.Context) error {
 		if json.Unmarshal(old, &previous) != nil || previous.Version != "v1" {
 			return errUnsupportedCertificate
 		}
-		holdings.Registered = append(holdings.Registered, previous.Registered...)
 	} else if !errors.Is(err, jetstream.ErrKeyNotFound) {
 		return err
 	}

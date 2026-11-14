@@ -483,29 +483,34 @@ func (f roundTripper) RoundTrip(r *http.Request) (*http.Response, error) { retur
 func (e *Edge) certificateTLSConfig() *tls.Config {
 	config := e.certs.TLSConfig()
 	config.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		cert, err := e.certs.GetCertificate(hello)
-		if len(hello.SupportedProtos) == 1 && hello.SupportedProtos[0] == acme.ALPNProto {
-			return cert, err
-		}
-		if (err != nil || cert != nil && hello.SupportsCertificate(cert) != nil) && e.hostPolicy(hello.Context(), hello.ServerName) == nil {
-			covered := false
-			e.certs.cache.memory.Range(func(_, value any) bool {
-				candidate := value.(cachedCertificate).cert
-				if candidate.Leaf.VerifyHostname(hello.ServerName) != nil || time.Now().After(candidate.Leaf.NotAfter) {
-					return true
-				}
-				covered = true
-				if hello.SupportsCertificate(candidate) == nil {
-					cert, err = candidate, nil
-					return false
-				}
-				return true
-			})
-			if err != nil && covered {
-				e.certs.cache.unsupportedHandshakes.Add(1)
-			}
+		cert, covered, err := e.selectCertificate(hello)
+		if err != nil && covered {
+			e.certs.cache.unsupportedHandshakes.Add(1)
 		}
 		return cert, err
 	}
 	return config
+}
+
+func (e *Edge) selectCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, bool, error) {
+	cert, err := e.certs.GetCertificate(hello)
+	if len(hello.SupportedProtos) == 1 && hello.SupportedProtos[0] == acme.ALPNProto {
+		return cert, false, err
+	}
+	covered := false
+	if (err != nil || cert != nil && hello.SupportsCertificate(cert) != nil) && e.hostPolicy(hello.Context(), hello.ServerName) == nil {
+		e.certs.cache.memory.Range(func(_, value any) bool {
+			candidate := value.(cachedCertificate).cert
+			if candidate.Leaf.VerifyHostname(hello.ServerName) != nil || time.Now().After(candidate.Leaf.NotAfter) {
+				return true
+			}
+			covered = true
+			if hello.SupportsCertificate(candidate) == nil {
+				cert, err = candidate, nil
+				return false
+			}
+			return true
+		})
+	}
+	return cert, covered, err
 }
