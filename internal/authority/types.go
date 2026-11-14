@@ -35,9 +35,9 @@ var (
 	ErrOperationConflict = errors.New("operation ID is already bound to different content")
 	ErrOutcomeUnknown    = errors.New("control log publish outcome is unknown")
 	ErrInvalidTransition = errors.New("invalid operation journal transition")
-	ErrProofConsumed     = errors.New("operation proof has already been consumed")
-	ErrListTooLarge      = errors.New("placement intent count exceeds the configured bound")
-	ErrClockUnhealthy    = errors.New("authority clock health is not bounded")
+
+	ErrListTooLarge   = errors.New("placement intent count exceeds the configured bound")
+	ErrClockUnhealthy = errors.New("authority clock health is not bounded")
 )
 
 // Config identifies this candidate within one regional or global control log.
@@ -259,13 +259,6 @@ type MaterialReceiptStore interface {
 	ReadMaterialReceipt(context.Context, string, string) (LogEntry, error)
 }
 
-// ClientCredentialStore orders signed, monotonically numbered credential
-// generations for the same database partition as the initial material.
-type ClientCredentialStore interface {
-	CommitClientCredentials(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error)
-	ReadClientCredentials(context.Context, string, string) (LogEntry, error)
-}
-
 // ManagedUpdatePhase is one immutable step in a signed managed runtime update.
 type ManagedUpdatePhase string
 
@@ -298,20 +291,4 @@ type ManagedUpdateRecord struct {
 	CandidateSourceDigest   string             `json:"candidate_source_digest"`
 	DurabilityProfileSHA256 string             `json:"durability_profile_sha256"`
 	Outcome                 string             `json:"outcome,omitempty"`
-}
-
-// ManagedUpdateReader returns immutable signed Prepare and canary phase
-// receipts from the retained R3 operation history.
-type ManagedUpdateReader interface {
-	ReadManagedUpdate(context.Context, string, string) (LogEntry, error)
-	ReadManagedUpdateOperation(context.Context, string, string, string) ([]LogEntry, error)
-	ListManagedUpdates(context.Context, string, string) ([]LogEntry, error)
-}
-
-// ManagedUpdateStore records the immutable signed Prepare request and each
-// terminal canary result. Operation reads return every exact phase entry so
-// callers can reconcile across authority epochs.
-type ManagedUpdateStore interface {
-	ManagedUpdateReader
-	CommitManagedUpdate(context.Context, uint64, ManagedUpdateRecord, uint64, func(context.Context) error) (uint64, error)
 }

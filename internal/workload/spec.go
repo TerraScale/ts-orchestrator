@@ -53,9 +53,6 @@ type Rollout struct {
 	MaxUnavailable int `json:"max_unavailable,omitzero"`
 }
 
-func (r Rollout) surge() int       { return max(r.MaxSurge, 1) }
-func (r Rollout) unavailable() int { return max(r.MaxUnavailable, 1) }
-
 // VolumeRetention decides what happens to a retired stateful member's volume.
 type VolumeRetention string
 

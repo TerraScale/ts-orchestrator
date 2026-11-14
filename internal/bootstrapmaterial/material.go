@@ -26,7 +26,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"slices"
 	"strings"
 	"syscall"
@@ -146,11 +145,6 @@ func (cfg Config) validate() error {
 
 // Validate binds the material cell to the canonical supported OCI region.
 func (cfg Config) Validate() error { return cfg.validate() }
-
-var (
-	identityRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
-	clusterRE  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-)
 
 // Generate creates an immutable local source. An incomplete directory is an
 // operator hold: no automatic cleanup can prove that publication never began.
@@ -582,10 +576,6 @@ func credentials(claim *jwt.UserClaims, account, user nkeys.KeyPair) ([]byte, er
 }
 
 func inbox(cell, public string) string { return protocol.InboxGrant(cell, public) }
-
-// HostScope is the cell account's scope for the host NATS issuer: hosts may
-// publish only their own observations and read their own inbox.
-func HostScope(cell, issuer string) *jwt.UserScope { return expectedHostScope(cell, issuer) }
 
 func expectedHostScope(cell, issuer string) *jwt.UserScope {
 	scope := jwt.NewUserScope()

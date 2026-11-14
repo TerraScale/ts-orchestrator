@@ -9,11 +9,6 @@ import (
 	"time"
 )
 
-func (r *Runner) ValidatePressure(role string, evidence, response, request Object) (err error) {
-	defer recoverError(&err)
-	r.validatePressure(role, evidence, response, request)
-	return
-}
 func (r *Runner) validatePressure(role string, evidence, response, request Object) {
 	initial := role == "pressure_start"
 	if initial {
@@ -242,11 +237,7 @@ func targetIdentity(target Object) Object {
 	}
 	return o
 }
-func (r *Runner) ValidateOOM(evidence, request Object, observed string) (err error) {
-	defer recoverError(&err)
-	r.validateOOM(evidence, request, observed)
-	return
-}
+
 func (r *Runner) validateOOM(evidence, request Object, observed string) {
 	events, ok := evidence["events"].([]any)
 	if !ok || len(events) > 4096 {

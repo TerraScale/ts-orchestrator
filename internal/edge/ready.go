@@ -3,9 +3,11 @@ package edge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -15,20 +17,29 @@ type ReadinessRoute struct {
 	Path string
 }
 
+type Readiness struct {
+	Ready        bool
+	Missing      []string
+	MissingNames []string
+}
+
+func (r Readiness) InfraErr() error {
+	if len(r.Missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("edge not ready: %s", strings.Join(r.Missing, ", "))
+}
+
 func (e *Edge) SetReadinessRoutes(routes []ReadinessRoute) { e.readyRoutes.Store(&routes) }
 
 func listenerBit(protocol string) uint32 {
 	return map[string]uint32{"http": 1, "https": 2, "postgres": 4, "terrabase": 8}[protocol]
 }
 
-func (e *Edge) ServeReady(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	inventory := e.Inventory(r.Context())
+func (e *Edge) Readiness(ctx context.Context) Readiness {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	inventory := e.Inventory(ctx)
 	missingNames := []string{}
 	for _, name := range e.servedNames() {
 		covered := false
@@ -53,7 +64,7 @@ func (e *Edge) ServeReady(w http.ResponseWriter, r *http.Request) {
 		missing = append(missing, "bootstrap unavailable")
 	}
 	if e.bootstrap != nil {
-		held, err := e.bootstrap.Ingress(r.Context())
+		held, err := e.bootstrap.Ingress(ctx)
 		if err != nil || held != nil {
 			missing = append(missing, "ingress unavailable")
 		}
@@ -66,9 +77,6 @@ func (e *Edge) ServeReady(w http.ResponseWriter, r *http.Request) {
 			missing = append(missing, "node draining")
 		}
 	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
 	if routes := e.readyRoutes.Load(); routes != nil {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Proxy = nil
@@ -103,13 +111,23 @@ func (e *Edge) ServeReady(w http.ResponseWriter, r *http.Request) {
 	}
 
 	missing = append(missing, inventory.Errors...)
-	ready := len(missing) == 0 && len(missingNames) == 0
-	if !ready {
+	return Readiness{Ready: len(missing) == 0 && len(missingNames) == 0, Missing: missing, MissingNames: missingNames}
+}
+
+func (e *Edge) ServeReady(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	readiness := e.Readiness(r.Context())
+	if !readiness.Ready {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 	_ = json.NewEncoder(w).Encode(struct {
 		Ready        bool     `json:"ready"`
 		Missing      []string `json:"missing"`
 		MissingNames []string `json:"missing_names"`
-	}{ready, missing, missingNames})
+	}{readiness.Ready, readiness.Missing, readiness.MissingNames})
 }

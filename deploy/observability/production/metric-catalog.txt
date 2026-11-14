@@ -30,6 +30,7 @@ slo:requests:rate3d
 slo:requests:rate5m
 slo:requests:rate6h
 terrabase_backup_abandoned_total
+terrabase_backup_bucket_snapshot_seconds
 terrabase_backup_drills_total
 terrabase_backup_holes_total
 terrabase_backup_lag_seconds

@@ -11,14 +11,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// ReadStagedIdentityRekeyEvidence verifies expired proofs only at their exact
-// accepted time. It grants no current mutation or predecessor replacement.
-func ReadStagedIdentityRekeyEvidence(expectedSHA256 string) (IdentityRekeyJournal, VerifiedIdentityRekey, error) {
-	return NewMarkerStore().stagedIdentityRekeyEvidence(expectedSHA256, bakedStore{
-		directory: BakedDirectory, chainFile: RootChainFile, ownerUID: 0, ownerGID: 0,
-	})
-}
-
 func (store MarkerStore) stagedIdentityRekeyEvidence(expectedSHA256 string, baked bakedStore) (IdentityRekeyJournal, VerifiedIdentityRekey, error) {
 	if !markerDigestRE.MatchString(expectedSHA256) {
 		return IdentityRekeyJournal{}, VerifiedIdentityRekey{}, ErrIdentityRekeyJournal

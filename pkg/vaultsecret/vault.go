@@ -14,8 +14,6 @@ type Current = internal.Current
 type Stored = internal.Stored
 type VersionClient = internal.VersionClient
 
-var ErrVersionConflict = internal.ErrVersionConflict
-
 // PublishVersion uses the owner's OCI client and an ETag to add a version.
 // The owner rereads CURRENT after success or uncertainty before retrying.
 func PublishVersion(ctx context.Context, client VersionClient, ref Ref, id string, expected int64, value []byte) (Stored, error) {

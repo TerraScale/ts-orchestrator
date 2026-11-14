@@ -108,10 +108,11 @@ type HealthRequest struct {
 type HealthResult struct {
 	Mesh    error
 	Service error
+	Edge    error
 }
 
 func (result HealthResult) Err() error {
-	return errors.Join(result.Mesh, result.Service)
+	return errors.Join(result.Mesh, result.Service, result.Edge)
 }
 
 type Progress interface {
@@ -120,10 +121,12 @@ type Progress interface {
 }
 
 type Handler struct {
-	probation *Probation
-	NodeList  *nodelist.Store
-	Health    func(context.Context, string) HealthResult
-	Verifier  *Verifier
+	probation   *Probation
+	NodeList    *nodelist.Store
+	Health      func(context.Context, string) HealthResult
+	Verifier    *Verifier
+	PrepareStop func(context.Context) error
+	AbortStop   func()
 	// Revision is the running build's vcs.revision.
 	Revision      string
 	Digest        string
@@ -143,6 +146,7 @@ type Handler struct {
 	RefusalFile   string
 	mu            sync.Mutex
 	pending       releaseID
+	recoverAfter  time.Time
 	rolledBack    atomic.Pointer[Rollback]
 	exitOnce      sync.Once
 	lastHealth    atomic.Pointer[string]
@@ -354,7 +358,21 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
-	if err := h.install(ctx, binary, release.SHA, claims); err != nil {
+	prepared := false
+	defer func() {
+		if prepared && h.pending != candidate && h.AbortStop != nil {
+			h.AbortStop()
+		}
+	}()
+	if err := h.install(ctx, binary, release.SHA, claims, func() error {
+		if h.PrepareStop != nil {
+			if err := h.PrepareStop(ctx); err != nil {
+				return fmt.Errorf("host refused release restart: %w", err)
+			}
+			prepared = true
+		}
+		return nil
+	}); err != nil {
 		kind := RefusalHost
 		var integrity *integrityError
 		if errors.As(err, &integrity) {
@@ -420,7 +438,7 @@ func (h *Handler) olderRun(runID string) (bool, error) {
 	return next < installed, nil
 }
 
-func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims Claims) error {
+func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims Claims, beforeSwap func() error) error {
 	next := h.Binary + ".next"
 	data, err := h.download(ctx, binary.URL)
 	if err != nil {
@@ -445,8 +463,18 @@ func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims
 	}
 	unlock := h.probation.lockInstall()
 	defer unlock()
+	recoverAfter, err := h.prepareRecovery(ctx)
+	if err != nil {
+		return err
+	}
+	h.recoverAfter = recoverAfter
 	if err := h.stage(candidate, claims.RunID); err != nil {
 		return errors.Join(err, h.unstage())
+	}
+	if beforeSwap != nil {
+		if err := beforeSwap(); err != nil {
+			return errors.Join(err, h.unstage())
+		}
 	}
 	if err := os.Rename(next, h.Binary); err != nil {
 		return errors.Join(err, h.unstage())

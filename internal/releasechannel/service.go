@@ -5,15 +5,11 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"io"
 	"strings"
 	"time"
-
-	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -100,56 +96,6 @@ func PublishService(ctx context.Context, location Location, role string, claim [
 		return fmt.Errorf("%w: sequenced service requires verified migration", ErrInvalid)
 	}
 	return publishService(ctx, location, role, claim, nil, nil)
-}
-
-// PublishServiceSequenced transports the root-authorized migration separately
-// so existing readers continue to receive the original signed artifact claim.
-func PublishServiceSequenced(ctx context.Context, location Location, role string, claim []byte, envelope trust.Envelope, roots trust.Keyring, now time.Time) error {
-	record, _, err := serviceClaimOrder(claim)
-	if err != nil {
-		return err
-	}
-	migration, err := release.VerifySequenceMigrationHistorical(envelope, roots, role, record.Environment)
-	if err != nil {
-		return err
-	}
-	var claimEnvelope protocol.Envelope
-	if err := protocol.DecodeStrict(claim, &claimEnvelope, MaxServiceClaimBytes); err != nil {
-		return err
-	}
-	if claimEnvelope.KeyID != migration.SignerKeyID {
-		return fmt.Errorf("%w: claim signer does not own release order", ErrInvalid)
-	}
-	fingerprint, err := trust.Fingerprint(envelope)
-	if err != nil {
-		return err
-	}
-	if record.Role != role || record.ReleaseSequence <= migration.SequenceFloor || record.SequenceMigrationSHA256 != fingerprint {
-		return fmt.Errorf("%w: service sequence migration", ErrInvalid)
-	}
-	if err := verifyServiceSequenceClaim(ctx, claim, migration); err != nil {
-		return err
-	}
-	expectedBucket, err := BucketName(strings.ToUpper(record.Cell))
-	if err != nil {
-		return err
-	}
-	if expectedBucket != location.Bucket || migration.Namespace != location.Namespace {
-		return fmt.Errorf("%w: service publication target scope", ErrInvalid)
-	}
-	wire, err := trust.EncodeEnvelope(envelope)
-	if err != nil {
-		return err
-	}
-	if err := location.put(ctx, SequenceMigrationObject(fingerprint), wire, ""); err != nil {
-		if !errors.Is(err, ErrConflict) {
-			return err
-		}
-		if _, found, err := ReadSequenceMigration(ctx, location, fingerprint); err != nil || !found {
-			return fmt.Errorf("%w: existing sequence migration: %w", ErrInvalid, err)
-		}
-	}
-	return publishService(ctx, location, role, claim, &migration, roots)
 }
 
 func serviceClaimOrder(claim []byte) (delivery.ArtifactRecord, time.Time, error) {
@@ -246,38 +192,6 @@ func ReadServiceStatus(ctx context.Context, location Location, role string) (Ser
 	return status, found, err
 }
 
-// WriteServiceStatus replaces role's status; only the region's authority
-// leader writes it.
-func WriteServiceStatus(ctx context.Context, location Location, status ServiceStatus) error {
-	status.Schema, status.Reason = ServiceStatusSchema, Clip(status.Reason)
-	wire, err := json.Marshal(status, json.Deterministic(true))
-	if err != nil {
-		return err
-	}
-	return location.write(ctx, ServiceStatusObject(status.Role), wire)
-}
-
-// ReadServiceBinary copies role's binary with digest to dst, at most
-// MaxServiceBinaryBytes. The caller checks the bytes against the claim.
-func ReadServiceBinary(ctx context.Context, location Location, role, digest string, dst io.Writer) error {
-	name := ServiceBinaryObject(role, digest)
-	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{
-		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
-	})
-	if err != nil {
-		return fmt.Errorf("read %s/%s: %w", location.Bucket, name, err)
-	}
-	defer response.Content.Close()
-	read, err := io.Copy(dst, io.LimitReader(response.Content, MaxServiceBinaryBytes+1))
-	if err != nil {
-		return fmt.Errorf("read %s/%s: %w", location.Bucket, name, err)
-	}
-	if read > MaxServiceBinaryBytes {
-		return fmt.Errorf("%w: %s/%s exceeds %d bytes", ErrInvalid, location.Bucket, name, MaxServiceBinaryBytes)
-	}
-	return nil
-}
-
 // AwaitService polls role's status every poll until it reports the release
 // with digest issued at issued complete. It fails when the region reports it
 // failed or a newer release replaced it, or when deadline passes. Each status
@@ -286,13 +200,6 @@ func AwaitService(ctx context.Context, location Location, cell, role, digest str
 	poll time.Duration, deadline time.Time, progress io.Writer,
 ) error {
 	return awaitService(ctx, location, cell, role, digest, issued, 0, poll, deadline, progress)
-}
-
-func AwaitServiceSequenced(ctx context.Context, location Location, cell, role, digest string, issued time.Time, sequence uint64, poll time.Duration, deadline time.Time, progress io.Writer) error {
-	if sequence == 0 {
-		return fmt.Errorf("%w: missing service sequence", ErrInvalid)
-	}
-	return awaitService(ctx, location, cell, role, digest, issued, sequence, poll, deadline, progress)
 }
 
 func awaitService(ctx context.Context, location Location, cell, role, digest string, issued time.Time, sequence uint64, poll time.Duration, deadline time.Time, progress io.Writer) error {

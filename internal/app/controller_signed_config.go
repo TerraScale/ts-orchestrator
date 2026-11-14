@@ -22,7 +22,6 @@ import (
 
 const controllerConfigDirectory = "/etc/terrascale-orchestrator"
 const controllerConfigFilename = "controller.json"
-const controllerManifestFilename = "controller-manifest.json"
 
 // ValidateSignedControllerConfig checks, before signing, that the config is
 // this binary's canonical app.Config JSON with a valid role-specific meaning.

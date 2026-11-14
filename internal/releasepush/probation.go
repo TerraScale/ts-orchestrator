@@ -17,13 +17,14 @@ const (
 )
 
 type trial struct {
-	SHA       string     `json:"sha"`
-	SHA256    string     `json:"sha256,omitempty"`
-	RunID     string     `json:"run_id"`
-	Installed time.Time  `json:"installed"`
-	Starts    int        `json:"starts"`
-	Previous  *releaseID `json:"previous,omitempty"`
-	Failure   string     `json:"failure,omitempty"`
+	SHA          string     `json:"sha"`
+	SHA256       string     `json:"sha256,omitempty"`
+	RunID        string     `json:"run_id"`
+	Installed    time.Time  `json:"installed"`
+	RecoverAfter time.Time  `json:"recover_after,omitzero"`
+	Starts       int        `json:"starts"`
+	Previous     *releaseID `json:"previous,omitempty"`
+	Failure      string     `json:"failure,omitempty"`
 }
 
 func (t trial) valid() bool { return t.SHA != "" && t.RunID != "" }

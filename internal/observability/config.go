@@ -4,9 +4,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
-	"io"
 	"net/netip"
-	"os"
 	"strings"
 )
 
@@ -82,25 +80,6 @@ func ValidateListenAddress(raw string) (netip.AddrPort, error) {
 		return netip.AddrPort{}, errors.New("observability listener must bind loopback or a private VCN or NetBird address")
 	}
 	return address, nil
-}
-
-// readBearerToken reads a private token file. Group or world access is
-// rejected the same way other key files of this binary are.
-func readBearerToken(path string) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("open observability bearer token: %w", err)
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-		return nil, errors.New("observability bearer token must be a private regular file")
-	}
-	data, err := io.ReadAll(io.LimitReader(file, maxBearerTokenBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	return checkBearerToken(data)
 }
 
 // checkBearerToken accepts one 32-4096 byte line, surrounding whitespace

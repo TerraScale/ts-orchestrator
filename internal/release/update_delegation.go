@@ -291,18 +291,6 @@ func SignBinaryUpdateReceipt(binary BinaryReceipt, qualification Qualification, 
 	return signBinaryUpdateReceipt(binary, qualification, qualificationSHA256, cell, environment, checker, delegationEnvelope, roots, privateKey, now, validFor, 0, "")
 }
 
-// SignBinaryUpdateReceiptSequenced binds the signer-owned order and its exact
-// root-authorized migration without changing historical CI provenance.
-func SignBinaryUpdateReceiptSequenced(binary BinaryReceipt, qualification Qualification, qualificationSHA256, cell, environment string,
-	checker LineageChecker, delegationEnvelope trust.Envelope, roots trust.Keyring, privateKey ed25519.PrivateKey,
-	now time.Time, validFor time.Duration, sequence uint64, migrationSHA256 string,
-) (trust.Envelope, error) {
-	if sequence == 0 || !digestPattern.MatchString(migrationSHA256) {
-		return trust.Envelope{}, fmt.Errorf("%w: release order", ErrInvalidReceipt)
-	}
-	return signBinaryUpdateReceipt(binary, qualification, qualificationSHA256, cell, environment, checker, delegationEnvelope, roots, privateKey, now, validFor, sequence, migrationSHA256)
-}
-
 func signBinaryUpdateReceipt(binary BinaryReceipt, qualification Qualification, qualificationSHA256, cell, environment string,
 	checker LineageChecker, delegationEnvelope trust.Envelope, roots trust.Keyring, privateKey ed25519.PrivateKey,
 	now time.Time, validFor time.Duration, sequence uint64, migrationSHA256 string,

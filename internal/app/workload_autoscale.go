@@ -1,12 +1,8 @@
 package app
 
 import (
-	"context"
-	"errors"
 	"fmt"
 
-	"github.com/TerraScale/ts-orchestrator/internal/delivery"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
@@ -62,53 +58,4 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 		}
 	}
 	return nil
-}
-
-// PlanShaped plans a release. Roles with a signed stateless service policy get a
-// release-scoped generation and keep their current scale; every other role
-// keeps the intent's own generation and replica count.
-func (p *regionalDeliveryPlanner) PlanShaped(ctx context.Context, intent delivery.Intent) (delivery.PlanShape, []host.Desired, error) {
-	if p.migrated != nil && p.migrated(intent.Role) {
-		return delivery.PlanShape{}, nil, errors.New("stateless native release planning is retired; signed container intent required")
-	}
-	shape := delivery.PlanShape{Generation: intent.Generation, Replicas: intent.DesiredReplicas}
-	spec, owned := p.nativeServiceSpec(intent.Role)
-	if !owned || spec.Environment != intent.Environment {
-		// A role the reconciler once owned carries release-scoped host
-		// generations (intent << ReleaseShift). Planning it at the plain
-		// intent generation would move every host backwards and hold
-		// every later release, so it stays in that generation space.
-		plan, err := p.plan(ctx, intent, func(observation workload.Observation) (delivery.PlanShape, error) {
-			return unownedShape(intent, observation)
-		}, &shape)
-		return shape, plan, err
-	}
-	plan, err := p.plan(ctx, intent, func(observation workload.Observation) (delivery.PlanShape, error) {
-		generation, replicas, err := workload.ReleaseShape(spec, intent.Generation, intent.DesiredReplicas, observation)
-		return delivery.PlanShape{Generation: generation, Replicas: replicas}, err
-	}, &shape)
-	return shape, plan, err
-}
-
-func (p *regionalDeliveryPlanner) nativeServiceSpec(role string) (workload.ServiceSpec, bool) {
-	if p.services != nil {
-		_, specs := p.services.effective()
-		for _, spec := range specs {
-			if spec.Role == role && spec.Kind == workload.KindStateless {
-				return spec, true
-			}
-		}
-	}
-	return workload.ServiceSpec{}, false
-}
-
-// unownedShape is the shape of a release for a role the reconciler does not
-// own: the intent's own generation and replicas, except that a role once
-// committed with release-scoped generations keeps that generation space.
-func unownedShape(intent delivery.Intent, observation workload.Observation) (delivery.PlanShape, error) {
-	if !observation.Shaped() {
-		return delivery.PlanShape{Generation: intent.Generation, Replicas: intent.DesiredReplicas}, nil
-	}
-	generation, err := workload.ReleaseGeneration(intent.Generation)
-	return delivery.PlanShape{Generation: generation, Replicas: intent.DesiredReplicas}, err
 }

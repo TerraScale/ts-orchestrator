@@ -183,19 +183,6 @@ func automaticStartupSigners(wire []byte) ([]TrustedSignerConfig, error) {
 	return signers, nil
 }
 
-func automaticControllerConfig(manifest bootstrap.Manifest, record bootstrapmaterial.Record, signerWire []byte, now time.Time) (bootstrap.Manifest, error) {
-	signers, err := automaticStartupSigners(signerWire)
-	if err != nil {
-		return bootstrap.Manifest{}, err
-	}
-	config, err := ControllerConfigFromRecord(manifest, record, signers[0], now)
-	if err != nil {
-		return bootstrap.Manifest{}, err
-	}
-	config.Controller.TrustedSigners = signers
-	return automaticRenderedControllerConfig(manifest, config)
-}
-
 func automaticRenderedControllerConfig(manifest bootstrap.Manifest, config Config) (bootstrap.Manifest, error) {
 	wire, err := protocol.EncodeJSON(config)
 	if err != nil || len(wire) > bootstrap.MaxControllerConfigBytes {
@@ -339,17 +326,6 @@ func (install VerifiedAutomaticInstall) bindAuthority(ctx context.Context) (boot
 	}
 	if !bytes.Equal(authority.Manifest().ControllerConfig, install.manifest.ControllerConfig) {
 		return bootstrap.DerivedStartupAuthority{}, errors.New("durable automatic installation differs from its local rendering")
-	}
-	return authority, nil
-}
-
-func (install VerifiedAutomaticInstall) install(ctx context.Context) (bootstrap.DerivedStartupAuthority, error) {
-	authority, err := install.bindAuthority(ctx)
-	if err != nil {
-		return bootstrap.DerivedStartupAuthority{}, err
-	}
-	if err := installAutomaticControllerFiles(ctx, authority); err != nil {
-		return bootstrap.DerivedStartupAuthority{}, err
 	}
 	return authority, nil
 }

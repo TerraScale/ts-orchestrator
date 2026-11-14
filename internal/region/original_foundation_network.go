@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -17,8 +16,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
-
-var ErrOriginalFoundationNetworkPending = fmt.Errorf("%w: original private network retained; original actor and startup remain unavailable", ErrOriginalSourceProducerHold)
 
 // OriginalFoundationNetwork is an original prerequisite journal, never a runtime binding.
 type OriginalFoundationNetwork struct {

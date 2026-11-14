@@ -6,7 +6,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"google.golang.org/grpc"
@@ -25,62 +24,6 @@ type workerMembershipRequest struct {
 type workerAdmitRequest struct {
 	Query   WorkerRegistrationQuery     `json:"query"`
 	Binding hostenroll.SwarmNodeBinding `json:"binding"`
-}
-
-// PrepareEnrolledWorker asks the root manager for a worker-only Vault projection.
-// The manager independently verifies current registration, OCI and enrollment.
-func PrepareEnrolledWorker(ctx context.Context, accepted bootstrapstart.AcceptedIdentity, query WorkerRegistrationQuery) ([]byte, error) {
-	return workerManagementCall(ctx, accepted, workerPrepareMethod, query)
-}
-
-// AdmitEnrolledWorker carries the host-and-Swarm-key binding proof, never labels.
-func AdmitEnrolledWorker(ctx context.Context, accepted bootstrapstart.AcceptedIdentity, query WorkerRegistrationQuery, binding hostenroll.SwarmNodeBinding) error {
-	_, err := workerManagementCall(ctx, accepted, workerAdmitMethod, workerAdmitRequest{Query: query, Binding: binding})
-	return err
-}
-
-// AuditWorkerMembership rechecks root-owned admission without exposing manager credentials.
-func AuditWorkerMembership(ctx context.Context, accepted bootstrapstart.AcceptedIdentity) error {
-	_, err := workerManagementCall(ctx, accepted, workerAuditMethod, struct{}{})
-	return err
-}
-
-// ReadWorkerMembership wraps only a reply authenticated as the existing root
-// management process; inert JSON alone cannot construct this proof.
-func ReadWorkerMembership(ctx context.Context, accepted bootstrapstart.AcceptedIdentity, nodeID string) (VerifiedWorkerMembership, error) {
-	wire, err := workerManagementCall(ctx, accepted, workerReadMembershipMethod, workerMembershipRequest{NodeID: nodeID})
-	if err != nil {
-		return VerifiedWorkerMembership{}, err
-	}
-	var info WorkerMembershipInfo
-	if err := protocol.DecodeStrict(wire, &info, 128<<10); err != nil {
-		return VerifiedWorkerMembership{}, err
-	}
-	if info.NodeID != nodeID {
-		return VerifiedWorkerMembership{}, denied()
-	}
-	return verifiedWorkerMembership(info)
-}
-
-func workerManagementCall(ctx context.Context, accepted bootstrapstart.AcceptedIdentity, method string, request any) ([]byte, error) {
-	wire, err := protocol.EncodeJSON(request)
-	if err != nil {
-		return nil, err
-	}
-	binding, err := acceptedBinding(accepted)
-	if err != nil {
-		return nil, err
-	}
-	_, _, connection, err := dialManagementAt(ctx, managementSocket, 0, binding)
-	if err != nil {
-		return nil, err
-	}
-	defer connection.Close()
-	response := new(wrapperspb.BytesValue)
-	if err := connection.Invoke(ctx, method, &wrapperspb.BytesValue{Value: wire}, response); err != nil {
-		return nil, err
-	}
-	return response.Value, nil
 }
 
 type workerManagementRPC interface {

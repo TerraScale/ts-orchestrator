@@ -35,7 +35,7 @@ import (
 // executor and the release NATS listener (:4222) CI pushes releases to.
 // Outside OCI it needs no Vault, NetBird or admission. Serving the release
 // subjects ends a pushed binary's probation.
-func runSingleHost(ctx context.Context, state string, output io.Writer, plan hostPlan, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context, string) releasepush.HealthResult) error {
+func runSingleHost(ctx context.Context, state string, output io.Writer, plan hostPlan, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -93,6 +93,8 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		return err
 	}
 	releases.Health = health
+	releases.PrepareStop = prepareStop
+	releases.AbortStop = abortStop
 	releases.Mesh = mesh.Bridge(state)
 	releases.App = mesh.Release(state)
 	if plan.region != "" {
@@ -352,16 +354,6 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 			}
 			defer conn.Close()
 			listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
-			if err != nil {
-				return err
-			}
-			if !swarmruntime.IsLeader(listed.Nodes, nodeID) {
-				return nil
-			}
-			if err := swarmruntime.PromoteManagers(ctx, client, api.NewWatchClient(conn), nodeID); err != nil {
-				return err
-			}
-			listed, err = client.ListNodes(ctx, &api.ListNodesRequest{})
 			if err != nil {
 				return err
 			}

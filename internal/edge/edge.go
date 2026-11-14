@@ -70,6 +70,8 @@ type Edge struct {
 	spoolDir           string
 	requestProofSecret atomic.Pointer[[]byte]
 	netbirdDashboard   *netbirddashboard.Handler
+	draining           atomic.Bool
+	lastHealthProbe    atomic.Int64
 }
 
 // New returns an edge that caches certificates under stateDir/edge-certs.
@@ -234,15 +236,46 @@ func (e *Edge) setRoutes(web, postgres map[string]int) {
 	e.postgres.Store(lower(postgres))
 }
 
+func (e *Edge) Drain() { e.draining.Store(true) }
+
+func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
+		return false
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
+			e.lastHealthProbe.Store(time.Now().UnixNano())
+		}
+	}
+	if !e.draining.Load() {
+		return false
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	return true
+}
+
 func (e *Edge) Run(ctx context.Context) error {
+	listeners, stop := context.WithCancel(context.WithoutCancel(ctx))
+	defer stop()
 	var running sync.WaitGroup
 	running.Go(func() { e.reconcileNetBirdDashboard(ctx) })
 	for _, protocol := range []string{"http", "https", "postgres", "terrabase"} {
-		running.Go(func() { e.runListener(ctx, protocol) })
+		running.Go(func() { e.runListener(listeners, protocol) })
 	}
+	<-ctx.Done()
+	e.Drain()
+	if time.Since(time.Unix(0, e.lastHealthProbe.Load())) < time.Minute {
+		timer := time.NewTimer(drainGrace)
+		defer timer.Stop()
+		<-timer.C
+	}
+	stop()
 	running.Wait()
 	return nil
 }
+
+const drainGrace = 20 * time.Second
 
 const clientIdleTimeout = 120 * time.Second
 
@@ -271,6 +304,9 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 			// GeoDNS health checks probe region IPs, where SNI cannot pick a
 			// certificate; liveness and readiness carry no secrets, so :80 answers them.
 			if (r.URL.Path == "/readyz" || r.URL.Path == "/healthz") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+				if e.drainingHealth(w, r) {
+					return
+				}
 				e.proxy.ServeHTTP(w, withBackendTrace(r))
 				return
 			}
@@ -310,6 +346,9 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e.identify(w, r)
+	if e.drainingHealth(w, r) {
+		return
+	}
 	peer := fromPeer(r) || r.Context().Value(edgeHopKey{}) != nil
 	if strings.HasPrefix(r.URL.Path, postgresCancelPath) {
 		e.servePostgresCancel(w, r)

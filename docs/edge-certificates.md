@@ -2,11 +2,17 @@
 
 The edge continues to obtain and renew certificates through its existing automatic issuance manager. Observation requests never obtain a certificate.
 
+## Graceful drain
+
+On SIGTERM the edge immediately answers 503 on `/healthz` and `/readyz` on ports 80 and 443.
+The edge waits 20 s before closing only when an external health checker probed it in the last minute.
+During that wait it keeps its listeners open and serves other requests.
+
 ## Readiness
 
 GET or HEAD /edge/ready is available on HTTP port 80 and on the node's mesh-facing HTTP port 9108. It returns 200 when all four edge listeners are bound, routes have loaded, ingress and local application backends are ready, and every routed HTTPS or PostgreSQL name has a valid ECDSA certificate available locally. Otherwise it returns 503. The JSON body includes ready, missing infrastructure conditions, and missing_names. A newly routed name is reported immediately until its certificate becomes available.
 
-The endpoint is an operator signal. Release health does not consume it. RSA certificates are reported by inventory, while readiness requires the ECDSA variant selected by normal automatic handshakes.
+The endpoint is an operator signal and a release health input. Release health (`ts.release.health`, which `ts-orch release push` and release app pushes poll to decide a region is healthy after a rollout) joins the edge's infrastructure readiness error (listeners, routes, bootstrap, ingress, backends; `missing` in the JSON above) with its mesh and service checks on every host that serves an edge: a release whose edge infrastructure is not ready reports unhealthy. Certificate coverage (`missing_names`) is deliberately not part of release health: routed names get their ECDSA certificates issued on demand, so a healthy region can temporarily serve names whose certificate has not arrived yet; coverage stays visible in `/edge/ready` and through the certificate inventory, the `ts_edge_certificate_names_missing` metric and its alerts. RSA certificates are reported by inventory, while readiness requires the ECDSA variant selected by normal automatic handshakes.
 
 It checks local HTTP backend readiness paths without following redirects and checks PostgreSQL backend TCP connectivity, within a three-second budget.
 

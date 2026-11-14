@@ -2,17 +2,13 @@ package host
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -112,183 +108,6 @@ func runProbeSupervisor() {
 		os.Exit(112)
 	}
 	os.Exit(0)
-}
-
-// ProbeNativeRuntime verifies the kernel and cgroup execution contract before a
-// host acquires its signed session. runnerStateRoot must be the same fully scoped
-// state path later passed to NewProcessRunner. The probe uses two executions in
-// the same role name, separated by cgroup.kill and cgroup recreation.
-func ProbeNativeRuntime(ctx context.Context, runnerStateRoot string, identity WorkloadIdentity) error {
-	if ctx == nil || !filepath.IsAbs(runnerStateRoot) {
-		return errors.New("native runtime probe requires a context and absolute runner state root")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := validateWorkloadIdentity(identity); err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	root, err := nativeCgroupRoot(runnerStateRoot)
-	if err != nil {
-		return err
-	}
-	if err := prepareNativeCgroupRoot(root); err != nil {
-		return fmt.Errorf("prepare native runtime probe cgroup: %w", err)
-	}
-	var roleID [8]byte
-	if _, err := rand.Read(roleID[:]); err != nil {
-		return fmt.Errorf("native runtime probe random role: %w", err)
-	}
-	rolePath := filepath.Join(root, "runtime-probe-"+hex.EncodeToString(roleID[:]))
-	for attempt := range 2 {
-		if err := probeNativeExecution(ctx, rolePath, identity); err != nil {
-			return fmt.Errorf("native runtime probe execution %d: %w", attempt+1, err)
-		}
-	}
-	return nil
-}
-
-func probeNativeExecution(ctx context.Context, rolePath string, identity WorkloadIdentity) (resultErr error) {
-	if err := os.Mkdir(rolePath, 0700); err != nil {
-		return fmt.Errorf("create probe cgroup: %w", err)
-	}
-	var supervisor *exec.Cmd
-	locked := false
-	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		sealErr := sealCgroup(cleanupCtx, rolePath)
-		if sealErr != nil {
-			resultErr = errors.Join(resultErr, fmt.Errorf("seal probe cgroup: %w", sealErr))
-		}
-		if supervisor != nil && supervisor.Process != nil {
-			if resultErr != nil {
-				_ = supervisor.Process.Kill()
-			}
-			waitCtx, stopWait := context.WithTimeout(context.Background(), 2*time.Second)
-			status, err := waitProbeSupervisor(waitCtx, supervisor.Process.Pid)
-			stopWait()
-			if err != nil {
-				_ = supervisor.Process.Kill()
-				reapCtx, stopReap := context.WithTimeout(context.Background(), 2*time.Second)
-				_, reapErr := waitProbeSupervisor(reapCtx, supervisor.Process.Pid)
-				stopReap()
-				resultErr = errors.Join(resultErr, fmt.Errorf("probe supervisor did not finish after cgroup seal: %w", err), reapErr)
-			} else if resultErr == nil && (!status.Exited() || status.ExitStatus() != 0) {
-				resultErr = fmt.Errorf("probe supervisor did not confirm target SIGKILL: %v", status)
-			}
-			_ = supervisor.Process.Release()
-		}
-		if locked {
-			runtime.UnlockOSThread()
-		}
-		if resultErr == nil {
-			resultErr = ctx.Err()
-		}
-	}()
-	cgroup, err := os.Open(rolePath)
-	if err != nil {
-		return fmt.Errorf("open probe cgroup: %w", err)
-	}
-	defer cgroup.Close()
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		return fmt.Errorf("create probe acknowledgment pipe: %w", err)
-	}
-	defer reader.Close()
-	defer writer.Close()
-	var nonceBytes [16]byte
-	if _, err := rand.Read(nonceBytes[:]); err != nil {
-		return fmt.Errorf("native runtime probe random nonce: %w", err)
-	}
-	nonce := hex.EncodeToString(nonceBytes[:])
-	supervisor = exec.Command("/proc/self/exe", probeSupervisorArgument)
-	supervisor.Env = []string{probeNonceEnv + "=" + nonce, probeUIDEnv + "=" + strconv.FormatUint(uint64(identity.UID), 10), probeGIDEnv + "=" + strconv.FormatUint(uint64(identity.GID), 10)}
-	supervisor.Stderr = os.Stderr
-	supervisor.ExtraFiles = []*os.File{cgroup, writer}
-	supervisor.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
-	// Keep the creator thread alive until the supervisor has been reaped.
-	runtime.LockOSThread()
-	locked = true
-	if err := supervisor.Start(); err != nil {
-		return fmt.Errorf("start native probe supervisor: %w", err)
-	}
-	if err := writer.Close(); err != nil {
-		return fmt.Errorf("close parent probe pipe writer: %w", err)
-	}
-	stopRead := context.AfterFunc(ctx, func() { _ = reader.Close() })
-	defer stopRead()
-	ack := make([]byte, 36)
-	if _, err := io.ReadFull(reader, ack); err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return fmt.Errorf("probe child did not execute userspace acknowledgment: %w", err)
-	}
-	if string(ack[:32]) != nonce {
-		return errors.New("probe child userspace acknowledgment mismatch")
-	}
-	pid := int(binary.LittleEndian.Uint32(ack[32:]))
-	if pid < 2 {
-		return errors.New("probe child reported an invalid PID")
-	}
-	contained, err := probeCgroupContainsOnlyPID(rolePath, pid)
-	if err != nil {
-		return err
-	}
-	if !contained {
-		return errors.New("probe child is not the sole process in its cgroup")
-	}
-	if err := probeNativeTargetIdentity(pid, identity); err != nil {
-		return err
-	}
-	populated, err := cgroupPopulated(rolePath)
-	if err != nil {
-		return fmt.Errorf("observe probe cgroup: %w", err)
-	}
-	if !populated {
-		return errors.New("probe cgroup was not populated after child userspace execution")
-	}
-	return ctx.Err()
-}
-
-// Poll without a Wait goroutine so a stuck kernel task cannot leave an
-// unmanaged Go goroutine after the startup deadline. A successful call reaps
-// the supervisor; timeout always fails host admission.
-func waitProbeSupervisor(ctx context.Context, pid int) (syscall.WaitStatus, error) {
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		var status syscall.WaitStatus
-		waited, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
-		if errors.Is(err, syscall.EINTR) {
-			continue
-		}
-		if err != nil {
-			return 0, err
-		}
-		if waited == pid {
-			return status, nil
-		}
-		select {
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		case <-ticker.C:
-		}
-	}
-}
-
-func probeCgroupContainsOnlyPID(path string, pid int) (bool, error) {
-	data, err := os.ReadFile(filepath.Join(path, "cgroup.procs"))
-	if err != nil {
-		return false, fmt.Errorf("read probe cgroup membership: %w", err)
-	}
-	return strings.TrimSpace(string(data)) == strconv.Itoa(pid), nil
 }
 
 func probeNativeTargetIdentity(pid int, identity WorkloadIdentity) error {

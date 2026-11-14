@@ -473,20 +473,6 @@ func (plan HostStateHandoffPlan) Validate(now time.Time) error {
 	return nil
 }
 
-func SignHostStateHandoffPlan(plan HostStateHandoffPlan, issuedAt, expiresAt time.Time, root ed25519.PrivateKey) (trust.Envelope, error) {
-	if err := plan.Validate(issuedAt); err != nil {
-		return trust.Envelope{}, err
-	}
-	if !expiresAt.After(issuedAt) || expiresAt.Sub(issuedAt) > time.Hour {
-		return trust.Envelope{}, ErrHostStateHandoff
-	}
-	payload, err := trust.EncodePayload(plan)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	return trust.Sign(payload, plan.scope(), issuedAt, expiresAt, root)
-}
-
 func VerifyHostStateHandoffPlan(envelope trust.Envelope, currentRoots trust.Keyring, observed HostStateObservation, now time.Time) (VerifiedHostStateHandoffPlan, error) {
 	expected, err := BuildHostStateHandoffPlan(observed, now)
 	if err != nil {

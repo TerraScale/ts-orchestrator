@@ -54,11 +54,6 @@ func Generate(context.Context) (string, error) {
 	return base64.StdEncoding.EncodeToString(key), nil
 }
 
-// readSecret reads and checks the current version of one secret.
-func readSecret(ctx context.Context, client BundleClient, vaultID, cell, key string) (string, error) {
-	return readBack(ctx, client, vaultID, cell, key, false)
-}
-
 // readBack reads and checks a secret that may have been created a moment ago.
 func readBack(ctx context.Context, client BundleClient, vaultID, cell, key string, created bool) (string, error) {
 	name := SecretName(cell, key)

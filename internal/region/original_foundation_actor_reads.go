@@ -286,14 +286,6 @@ func originalActorReadOrigin(record FoundationRecord, index int, grant Foundatio
 	return selected, key, nil
 }
 
-func originalActorReadScope(record FoundationRecord, index int, releaseDigest string, origin release.WorkloadGenesis, key, compartment string, bundleBytes int64) (OriginalFoundationActorReads, error) {
-	var scope OriginalFoundationActorReads
-	if err := originalActorReadsActors(record); err != nil {
-		return scope, err
-	}
-	return originalActorReadScopeFromPrerequisites(record, index, releaseDigest, origin, key, compartment, bundleBytes)
-}
-
 func originalActorReadScopeFromPrerequisites(record FoundationRecord, index int, releaseDigest string, origin release.WorkloadGenesis, key, compartment string, bundleBytes int64) (OriginalFoundationActorReads, error) {
 	var scope OriginalFoundationActorReads
 	region := record.OriginalFoundationCompartments.Regions[index]
@@ -485,29 +477,6 @@ func originalActorPolicyReadback(entry OriginalFoundationActorReads) (string, er
 		return "", err
 	}
 	return digestSource(wire), nil
-}
-
-func (record FoundationRecord) validateOriginalFoundationActorReads() error {
-	root := record.OriginalFoundationCompartments
-	if root == nil {
-		return nil
-	}
-	attached := 0
-	for _, region := range root.Regions {
-		if region.ActorReads != nil {
-			attached++
-		}
-	}
-	if attached == 0 {
-		return nil
-	}
-	if attached != 3 {
-		return ErrOriginalSourceProducerHold
-	}
-	if err := originalActorReadsActors(record); err != nil {
-		return err
-	}
-	return record.validateOriginalFoundationActorReadsFromValidatedActors()
 }
 
 func (record FoundationRecord) validateOriginalFoundationActorReadsFromValidatedActors() error {

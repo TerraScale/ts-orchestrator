@@ -43,16 +43,6 @@ func (c VerifiedContainer) WorkerFamilyEvidence() ([]byte, error) {
 	return slices.Clone(c.familyEvidence), nil
 }
 
-// VerifyWorkerFamilyEvidence authenticates historical allocation evidence and
-// compares its family with an already verified incoming worker. It grants no
-// runtime authority and never treats another architecture's sequence as a floor.
-func VerifyWorkerFamilyEvidence(wire []byte, roots trust.Keyring, incoming VerifiedContainer) error {
-	if incoming.fingerprint == "" || len(incoming.familyEvidence) == 0 {
-		return errors.New("worker family requires a verified incoming container")
-	}
-	return verifyWorkerFamilyEvidence(wire, roots, incoming.claim, incoming.genesis)
-}
-
 func verifyWorkerFamilyEvidence(wire []byte, roots trust.Keyring, claim ContainerClaim, genesis ...VerifiedWorkloadGenesis) error {
 	if len(wire) == 0 || len(wire) > MaxWorkerFamilyEvidenceBytes {
 		return errors.New("worker family evidence exceeds bound or is missing")

@@ -228,5 +228,3 @@ func sameLease(before, after authority.Snapshot) bool {
 	return before.Scope == after.Scope && before.DeploymentID == after.DeploymentID && before.Epoch == after.Epoch &&
 		before.CandidateID == after.CandidateID && before.OwnerID == after.OwnerID
 }
-
-var _ rootoci.VolumeBackups = (*Backend)(nil)

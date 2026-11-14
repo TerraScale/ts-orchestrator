@@ -166,7 +166,7 @@ func (h *Handler) stage(candidate releaseID, run string) error {
 	if err != nil {
 		return err
 	}
-	record := trial{SHA: candidate.SHA, SHA256: candidate.SHA256, RunID: run, Installed: time.Now(), Previous: &installed}
+	record := trial{SHA: candidate.SHA, SHA256: candidate.SHA256, RunID: run, Installed: time.Now(), RecoverAfter: h.recoverAfter, Previous: &installed}
 	if err := writeJSON(stagedTrial(h.TrialFile), record); err != nil {
 		return err
 	}

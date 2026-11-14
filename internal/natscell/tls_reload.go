@@ -149,11 +149,6 @@ func (r *ReloadingTLS) verified(read tlsFiles, roots *x509.CertPool) (tlsMateria
 	return material, nil
 }
 
-// Certificate is a tls.Config GetCertificate callback.
-func (r *ReloadingTLS) Certificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-	return r.material().certificate, nil
-}
-
 // ServerConfig accepts only clients whose certificate chains to the current
 // bundle. Session tickets are off: a resumed session would skip that check.
 func (r *ReloadingTLS) ServerConfig() *tls.Config {

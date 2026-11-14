@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -40,71 +39,6 @@ func QueueIdentity(manifest Manifest) (QueueScope, error) {
 	digest := sha256.Sum256([]byte(subject))
 	identity := hex.EncodeToString(digest[:])
 	return QueueScope{Subject: subject, Stream: "TS_FUNCTION_" + identity, ReceiptBucket: "TS_FUNCTION_RECEIPTS_" + identity}, nil
-}
-
-// ProvisionQueue is called by the trusted regional material producer before the
-// worker is launched. Worker credentials must not grant stream/consumer mutation.
-func ProvisionQueue(ctx context.Context, nc *nats.Conn, admitted release.VerifiedFunction) error {
-	if !admitted.Valid() {
-		return ErrScope
-	}
-	claim := admitted.Claim()
-	manifest := Manifest{ABI: claim.ABI, TenantID: claim.TenantID, FunctionID: claim.FunctionID, Revision: claim.Revision, Digest: claim.Digest, Capabilities: claim.Capabilities}
-	ctx, cancel := context.WithDeadline(ctx, admitted.ExpiresAt())
-	defer cancel()
-	return provisionQueue(ctx, nc, manifest)
-}
-
-func provisionQueue(ctx context.Context, nc *nats.Conn, manifest Manifest) error {
-	if nc == nil {
-		return fmt.Errorf("%w: broker required", ErrInvalid)
-	}
-	scope, err := QueueIdentity(manifest)
-	if err != nil {
-		return err
-	}
-	js, err := jetstream.New(nc)
-	if err != nil {
-		return err
-	}
-	stream, err := provisionRequest(ctx, func(ctx context.Context) (jetstream.Stream, error) {
-		return js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{Name: scope.Stream, Subjects: []string{scope.Subject},
-			Storage: jetstream.FileStorage, Replicas: 3, Retention: jetstream.WorkQueuePolicy, Discard: jetstream.DiscardNew,
-			MaxAge: time.Hour, MaxMsgs: 10000, MaxBytes: 64 << 20, MaxMsgSize: MaxPayloadBytes + 8192, Duplicates: 2 * time.Minute})
-	})
-	if err != nil {
-		return fmt.Errorf("function queue: %w", err)
-	}
-	_, err = provisionRequest(ctx, func(ctx context.Context) (jetstream.KeyValue, error) {
-		return js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: scope.ReceiptBucket, Storage: jetstream.FileStorage, Replicas: 3, History: 1, TTL: 24 * time.Hour, MaxBytes: 64 << 20, MaxValueSize: 512})
-	})
-	if err != nil {
-		return fmt.Errorf("function receipts: %w", err)
-	}
-	_, err = provisionRequest(ctx, func(ctx context.Context) (jetstream.Consumer, error) {
-		return js.CreateOrUpdateConsumer(ctx, scope.Stream, jetstream.ConsumerConfig{Durable: "worker", Replicas: stream.CachedInfo().Config.Replicas, FilterSubject: scope.Subject, AckPolicy: jetstream.AckExplicitPolicy, AckWait: 30 * time.Second, MaxDeliver: -1, MaxAckPending: 1, MaxWaiting: 32, MaxRequestBatch: 1, MaxRequestExpires: time.Second})
-	})
-	if err != nil {
-		return fmt.Errorf("function consumer: %w", err)
-	}
-	return nil
-}
-
-// provisionRequestTimeout bounds one JetStream API request; it matches the nats.go default API timeout.
-const provisionRequestTimeout = 5 * time.Second
-
-// provisionRequest retries an idempotent create-or-update whose reply never came.
-// Clustered JetStream answers an update only from the asset leader, so an update
-// applied during a leader election is never answered.
-func provisionRequest[T any](ctx context.Context, request func(context.Context) (T, error)) (T, error) {
-	for {
-		attempt, cancel := context.WithTimeout(ctx, provisionRequestTimeout)
-		value, err := request(attempt)
-		cancel()
-		if ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
-			return value, err
-		}
-	}
 }
 
 // NewQueueWorker binds only preprovisioned resources. Subject-restricted NATS
@@ -152,8 +86,6 @@ func NewQueueWorker(ctx context.Context, nc *nats.Conn, worker Invoker) (*QueueW
 	}
 	return &QueueWorker{worker: worker, manifest: manifest, subject: scope.Subject, consumer: consumer, receipts: receipts}, nil
 }
-
-func (q *QueueWorker) Subject() string { return q.subject }
 
 // Run acknowledges only durable successes, retries transient failures and
 // terminates invalid or trapped invocations. MaxAckPending=1 serializes normal

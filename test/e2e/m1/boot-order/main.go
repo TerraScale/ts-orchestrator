@@ -155,7 +155,13 @@ func agent(ctx context.Context, state string) error {
 	case err := <-failure:
 		return err
 	case meshNode := <-started:
-		defer meshNode.Close()
+		defer func() {
+			if ctx.Err() != nil {
+				meshNode.ForceClose()
+				return
+			}
+			_ = meshNode.Close()
+		}()
 		<-ctx.Done()
 	}
 	return nil

@@ -64,14 +64,6 @@ type Store struct {
 	loadErr error
 }
 
-func Current() []Node {
-	store := local.Load()
-	if store == nil {
-		return nil
-	}
-	return store.Snapshot().Nodes
-}
-
 func Read(state string) (List, error) {
 	data, err := readStored(filepath.Join(state, "node", "nodes.json"))
 	if err != nil {

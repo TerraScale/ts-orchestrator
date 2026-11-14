@@ -6,7 +6,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
 	"io"
 	"math"
 	"os"
@@ -18,6 +17,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
+
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
@@ -28,10 +29,6 @@ func fileHash(path string) (string, error) { return client.SHA256(path) }
 type GuestBuildOptions struct {
 	Image, KernelRelease, KernelOut, Work, Sysusers, Profile, PriorityRoot, Binary, NativeVerifier, Timesyncd, NetBirdBinary, NetBirdConfig string
 	BootstrapRoots                                                                                                                          []string
-}
-
-func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Writer) error {
-	return (Services{}).guestBuild(ctx, repo, o, out)
 }
 
 func (services Services) guestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Writer) (result error) {
@@ -236,9 +233,17 @@ func installMetadataFence(ctx context.Context, g *Guest, repo, architecture, wor
 	if err := os.WriteFile(rulesPath, rules.Bytes(), 0644); err != nil {
 		return err
 	}
+	var unit bytes.Buffer
+	if err := tsauth.Run(ctx, []string{"metadata-unit"}, &unit, nil); err != nil {
+		return err
+	}
+	unitPath := filepath.Join(work, MetadataUnit)
+	if err := os.WriteFile(unitPath, unit.Bytes(), 0644); err != nil {
+		return err
+	}
 	for _, artifact := range []upload{
 		{rulesPath, MetadataRules, 0644},
-		{filepath.Join(repo, "deploy/systemd", MetadataUnit), "/etc/systemd/system/" + MetadataUnit, 0644},
+		{unitPath, "/etc/systemd/system/" + MetadataUnit, 0644},
 	} {
 		if err := g.Directory(path.Dir(artifact.destination), 0, 0, 0755); err != nil {
 			return err
@@ -407,10 +412,6 @@ type OfflineOptions struct {
 	Base, KernelRelease, Binary, Qualification, SourceRevision, NativeVerifier, NativeSHA256, NetBirdBinary, NetBirdSHA256, NetBirdConfig, ReleaseTool, Timesyncd, Out, KernelOut string
 	BootstrapRoots                                                                                                                                                                []string
 	Priority                                                                                                                                                                      PriorityInputs
-}
-
-func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Writer) error {
-	return (Services{}).offlineBuild(ctx, repo, o, out)
 }
 
 func (services Services) offlineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Writer) error {
@@ -651,7 +652,7 @@ func (services Services) offlineBuild(ctx context.Context, repo string, o Offlin
 		expected = append(expected, "/usr/local/bin/"+name+"="+digest)
 	}
 	for _, artifact := range [][2]string{
-		{MetadataUnit, filepath.Join(repo, "deploy/systemd", MetadataUnit)},
+		{MetadataUnit, filepath.Join(work, MetadataUnit)},
 		{"containerd.service", filepath.Join(work, "containerd.service")},
 		{"terrascale-orchestrator-controller.service.d/70-containerd.conf", filepath.Join(work, "70-containerd.conf")},
 		{"terrascale-orchestrator-host.service.d/70-containerd.conf", filepath.Join(work, "70-containerd.conf")},

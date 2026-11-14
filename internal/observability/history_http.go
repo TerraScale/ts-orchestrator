@@ -2,7 +2,6 @@ package observability
 
 import (
 	"errors"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -65,23 +64,4 @@ func ParseHistoryQuery(values url.Values, now time.Time) (HistoryQuery, error) {
 		}
 	}
 	return query, nil
-}
-
-// HistoryHandler serves GET /v1/history (a range query) and
-// GET /v1/history/metrics (the stored metric names) as JSON. Mount it only
-// on an authenticated listener.
-func HistoryHandler(source HistorySource) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/history", func(writer http.ResponseWriter, request *http.Request) {
-		query, err := ParseHistoryQuery(request.URL.Query(), time.Now())
-		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
-			return
-		}
-		writeJSON(writer, source.Range(query))
-	})
-	mux.HandleFunc("GET /v1/history/metrics", func(writer http.ResponseWriter, _ *http.Request) {
-		writeJSON(writer, source.Metrics())
-	})
-	return mux
 }

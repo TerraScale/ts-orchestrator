@@ -25,13 +25,3 @@ func recordAcknowledged() {
 	intentsAcknowledged.Inc()
 	lastAcknowledged.Store(time.Now().UnixNano())
 }
-
-// View returns this process's delivery processing counters.
-func View() observability.DeliveryView {
-	view := observability.DeliveryView{Acknowledged: intentsAcknowledged.Get(), Deferred: intentsDeferred.Get(),
-		TransportRetries: transportRetries.Get()}
-	if at := lastAcknowledged.Load(); at > 0 {
-		view.LastAckAt = time.Unix(0, at).UTC()
-	}
-	return view
-}

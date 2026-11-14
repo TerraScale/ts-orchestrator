@@ -47,8 +47,6 @@ type Sources struct {
 	Credentials  *rootsecret.ControllerReader
 }
 
-var _ rootoci.NetBird = (*Backend)(nil)
-
 // New requires no broker; Bind supplies genuine retained readers after READY.
 func New(factory *ociclient.Factory) (*Backend, error) {
 	if os.Geteuid() != 0 || factory == nil || !catalog.IsOCIRegion(factory.Region()) {

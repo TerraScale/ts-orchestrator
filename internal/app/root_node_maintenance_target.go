@@ -490,32 +490,6 @@ func (target *rootNodeMaintenanceTarget) Revalidate(ctx context.Context) error {
 	return target.source.live(ctx)
 }
 
-func (producer *rootMaterialAdmission) nodeMaintenanceTarget(ctx context.Context, call rootoci.Call, admission rootNodeOperationAdmission) (*rootNodeMaintenanceTarget, error) {
-	if err := admission.Revalidate(ctx); err != nil {
-		return nil, err
-	}
-	source, err := producer.nodeMaintenanceTargets(ctx, call)
-	if err != nil {
-		return nil, err
-	}
-	fail := func(err error) (*rootNodeMaintenanceTarget, error) { source.config.JS.Conn().Close(); return nil, err }
-	if !source.snapshot.same(admission.source.snapshot) || source.lease.Epoch != admission.original.Epoch || source.call.RuntimeID() != admission.source.call.RuntimeID() {
-		return fail(rootoci.ErrUnauthorized)
-	}
-	candidates, err := source.candidates(ctx)
-	if err != nil {
-		return fail(err)
-	}
-	target, err := source.target(ctx, admission.Node(), admission.From(), candidates)
-	if err != nil {
-		return fail(err)
-	}
-	if err := admission.Revalidate(ctx); err != nil {
-		return fail(err)
-	}
-	return target, nil
-}
-
 func (producer *rootMaterialAdmission) ObserveNodeMaintenanceNodes(ctx context.Context, call rootoci.Call) ([]rootoci.NodeMaintenanceNode, error) {
 	source, err := producer.nodeMaintenanceTargets(ctx, call)
 	if err != nil {

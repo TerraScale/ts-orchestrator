@@ -450,12 +450,6 @@ func readCgroupMemoryMax(cgroupPath string) (uint64, error) {
 	return limit, nil
 }
 
-// Linux delivers Pdeathsig when the thread that created the child exits.
-// Keep that thread alive until Wait so an idle Go thread cannot kill a live workload.
-func startWorkloadOnLockedThread(cmd *exec.Cmd) (func(), <-chan error, error) {
-	return startWorkloadOnLockedThreadWithCheck(cmd, nil)
-}
-
 func startWorkloadOnLockedThreadWithCheck(cmd *exec.Cmd, check func() error) (func(), <-chan error, error) {
 	started := make(chan error, 1)
 	release := make(chan struct{})

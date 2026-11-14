@@ -47,10 +47,6 @@ type controller struct {
 	loadTerminal        bool // guarded by executor.mu
 }
 
-var _ exec.Controller = (*controller)(nil)
-var _ exec.ContainerStatuser = (*controller)(nil)
-var _ exec.ControllerLogs = (*controller)(nil)
-
 func (c *controller) Update(_ context.Context, t *api.Task) error {
 	if _, err := DecodeContainer(t); err != nil || t.ID != c.task.ID || taskFingerprint(t) != c.fingerprint {
 		return exec.ErrTaskUpdateRejected

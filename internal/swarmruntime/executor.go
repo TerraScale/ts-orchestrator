@@ -67,8 +67,6 @@ type Executor struct {
 	restarts          map[string]slotRestart // guarded by mu
 }
 
-var _ exec.Executor = (*Executor)(nil)
-
 func NewExecutor(socket, stateDir string) (*Executor, error) {
 	if !filepath.IsAbs(socket) || !filepath.IsAbs(stateDir) {
 		return nil, fmt.Errorf("runtime socket and state directory must be absolute")

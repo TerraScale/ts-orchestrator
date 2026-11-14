@@ -6,7 +6,6 @@
 package capacity
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -161,60 +160,4 @@ func Evaluate(usage VolumeUsage, policy Policy) Signal {
 		signal.Level, signal.Reason = LevelWarn, fmt.Sprintf("%.1f%% used, at or above grow threshold %.0f%%", percent, policy.WarnPercent)
 	}
 	return signal
-}
-
-// SignalSource is consumed by placement and autoscaling. Implementations
-// return only current (unexpired) measurements.
-type SignalSource interface {
-	Signals(context.Context) ([]Signal, error)
-}
-
-// Worst returns the most severe signal, preferring the higher utilization on
-// ties. ok is false for an empty slice.
-func Worst(signals []Signal) (Signal, bool) {
-	if len(signals) == 0 {
-		return Signal{}, false
-	}
-	worst := signals[0]
-	for _, signal := range signals[1:] {
-		if signal.Level > worst.Level || signal.Level == worst.Level && signal.Utilization > worst.Utilization {
-			worst = signal
-		}
-	}
-	return worst, true
-}
-
-// NodeHeadroomBytes returns the measured free boot-volume bytes of node after
-// reservations, the value placement should use instead of a configured disk
-// capacity. ok is false when no current boot measurement exists.
-//
-// Reservations are aggregated across the node's records: a reservation made
-// on another mount (the JetStream max-store reserve on its StoreDir) counts
-// against the boot headroom when that mount is the boot filesystem. The two
-// records describe the same filesystem when they report identical byte and
-// inode totals; a coincidental match only under-reports headroom, which is
-// the safe direction.
-func NodeHeadroomBytes(signals []Signal, node string) (uint64, bool) {
-	var boot VolumeUsage
-	found := false
-	for _, signal := range signals {
-		if usage := signal.Usage; usage.Node == node && usage.Role == storage.RoleBoot {
-			boot, found = usage, true
-			break
-		}
-	}
-	if !found {
-		return 0, false
-	}
-	reserved := boot.ReservedBytes
-	for _, signal := range signals {
-		usage := signal.Usage
-		if usage.Node != node || usage.Role == storage.RoleBoot || usage.ReservedBytes == 0 {
-			continue
-		}
-		if usage.TotalBytes == boot.TotalBytes && usage.InodesTotal == boot.InodesTotal {
-			reserved += usage.ReservedBytes
-		}
-	}
-	return boot.AvailBytes - min(boot.AvailBytes, reserved), true
 }

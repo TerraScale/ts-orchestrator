@@ -44,94 +44,6 @@ const (
 	createdStreamInfoRetryDelay        = 100 * time.Millisecond
 )
 
-func openControlStream(ctx context.Context, js jetstream.JetStream, replicas int) (jetstream.Stream, error) {
-	config := jetstream.StreamConfig{
-		Name:              ControlStreamName,
-		Description:       "Fenced regional authority, operation, and host mutation log",
-		Subjects:          []string{controlStreamSubject},
-		Retention:         jetstream.LimitsPolicy,
-		MaxConsumers:      -1,
-		MaxMsgs:           -1,
-		MaxBytes:          -1,
-		MaxMsgsPerSubject: -1,
-		Storage:           jetstream.FileStorage,
-		Replicas:          replicas,
-		DenyDelete:        true,
-		DenyPurge:         true,
-		// Lease reads must go through the stream leader; direct reads can be stale on followers.
-		AllowDirect: false,
-		Metadata:    map[string]string{"terrascale-contract": "authority-log-v1"},
-	}
-	// JetStream only applies its default API timeout when the caller has no
-	// deadline. A long startup deadline must not let one lost reply consume the
-	// entire attempt.
-	createCtx, cancel := context.WithTimeout(ctx, authorityAPITimeout)
-	stream, err := js.CreateStream(createCtx, config)
-	cancel()
-	created := err == nil
-	if err != nil {
-		if !errors.Is(err, jetstream.ErrStreamNameAlreadyInUse) && !errors.Is(err, jetstream.ErrBucketExists) {
-			return nil, fmt.Errorf("create authority stream: %w", err)
-		}
-		lookupCtx, lookupCancel := context.WithTimeout(ctx, authorityAPITimeout)
-		stream, err = js.Stream(lookupCtx, ControlStreamName)
-		lookupCancel()
-		if err != nil {
-			return nil, fmt.Errorf("lookup existing authority stream: %w", err)
-		}
-	}
-	var info *jetstream.StreamInfo
-	if created {
-		info, err = inspectCreatedControlStream(ctx, stream, createdStreamInfoConvergenceWindow)
-	} else {
-		infoCtx, infoCancel := context.WithTimeout(ctx, authorityAPITimeout)
-		info, err = stream.Info(infoCtx)
-		infoCancel()
-	}
-	if err != nil {
-		return nil, fmt.Errorf("inspect authority stream: %w", err)
-	}
-	if info == nil {
-		return nil, errors.New("authority stream info is missing")
-	}
-	if err := verifyControlStreamConfig(info.Config, replicas); err != nil {
-		return nil, err
-	}
-	return stream, nil
-}
-
-// A new R3 stream may be visible to CreateStream before its metadata leader
-// serves Info. Retry only the exact stream-not-found API response at this one
-// post-create boundary, within both the caller deadline and a short local cap.
-func inspectCreatedControlStream(ctx context.Context, stream jetstream.Stream,
-	convergenceWindow time.Duration,
-) (*jetstream.StreamInfo, error) {
-	windowCtx, cancel := context.WithTimeout(ctx, convergenceWindow)
-	defer cancel()
-	for {
-		infoCtx, infoCancel := context.WithTimeout(windowCtx, authorityAPITimeout)
-		info, err := stream.Info(infoCtx)
-		infoCancel()
-		if err == nil {
-			return info, nil
-		}
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		apiErr, ok := errors.AsType[*jetstream.APIError](err)
-		if !ok || apiErr.Code != 404 || apiErr.ErrorCode != jetstream.JSErrCodeStreamNotFound {
-			return nil, err
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-windowCtx.Done():
-			return nil, err
-		case <-time.After(createdStreamInfoRetryDelay):
-		}
-	}
-}
-
 func verifyControlStreamConfig(actual jetstream.StreamConfig, replicas int) error {
 	if (replicas != 1 && replicas != 3 && replicas != 5) || actual.Name != ControlStreamName ||
 		actual.Replicas != replicas || actual.Retention != jetstream.LimitsPolicy ||
@@ -1371,9 +1283,3 @@ func isSequenceConflict(err error) bool {
 	return ok && (apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence ||
 		apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant)
 }
-
-var _ HostMutationStore = (*Runtime)(nil)
-var _ HostMutationStore = (*Reader)(nil)
-var _ PlacementIntentStore = (*Runtime)(nil)
-var _ PlacementIntentStore = (*Reader)(nil)
-var _ Fencer = (*Runtime)(nil)

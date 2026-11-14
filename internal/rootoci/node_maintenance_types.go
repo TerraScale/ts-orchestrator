@@ -1,18 +1,8 @@
 package rootoci
 
 import (
-	"context"
 	"time"
 )
-
-// NodeMaintenance selects the retained signed node.submit request. Targets,
-// provider requests and the retained operation lifetime are derived in root.
-type NodeMaintenance interface {
-	ObserveNodeMaintenanceNodes(context.Context, Call) ([]NodeMaintenanceNode, error)
-	PrepareNodeMaintenance(context.Context, Call, NodeMaintenanceRequest) (NodeMaintenanceView, error)
-	ObserveNodeMaintenance(context.Context, Call, NodeMaintenanceRequest) (NodeMaintenanceView, error)
-	AdvanceNodeMaintenance(context.Context, Call, NodeMaintenanceAdvanceRequest) (NodeMaintenanceView, error)
-}
 
 type NodeMaintenanceNode struct {
 	InstanceID string  `json:"instance_id"`
@@ -29,14 +19,6 @@ type NodeMaintenanceRequest struct {
 }
 
 type NodeMaintenanceStep string
-
-const (
-	NodeMaintenanceReboot    NodeMaintenanceStep = "reboot"
-	NodeMaintenanceResize    NodeMaintenanceStep = "resize"
-	NodeMaintenanceRename    NodeMaintenanceStep = "rename"
-	NodeMaintenanceBackup    NodeMaintenanceStep = "backup"
-	NodeMaintenanceTerminate NodeMaintenanceStep = "terminate"
-)
 
 // Step narrows the original operation; it cannot authorize another action.
 type NodeMaintenanceAdvanceRequest struct {

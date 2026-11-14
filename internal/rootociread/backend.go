@@ -36,8 +36,6 @@ type Backend struct {
 	bound   bool
 }
 
-var _ rootoci.Reader = (*Backend)(nil)
-
 func New(factory *ociclient.Factory) (*Backend, error) {
 	if os.Geteuid() != 0 || factory == nil || !catalog.IsOCIRegion(factory.Region()) {
 		return nil, errors.New("root OCI observations require the root process and its regional principal")

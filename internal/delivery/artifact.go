@@ -44,10 +44,6 @@ const admissionCASAttempts = 8
 // artifactUploadTimeout bounds one artifact upload, including every chunk ack.
 const artifactUploadTimeout = 15 * time.Minute
 
-func ArtifactClaimSubject(cell string) string {
-	return protocol.DeliveryArtifactAdmitSubject(cell)
-}
-
 // PrepareArtifact uploads content-addressed bytes and returns a signed claim.
 // It does not grant admission; the controller must process the claim with
 // AcceptArtifactClaim before the artifact can be deployed.

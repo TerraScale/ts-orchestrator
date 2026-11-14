@@ -1,10 +1,8 @@
 package budget
 
 import (
-	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"regexp"
 	"slices"
@@ -15,7 +13,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/globalcontrol"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 )
 
@@ -90,13 +87,6 @@ type InfrastructureSpending struct {
 	ProjectedCents         uint64    `json:"projected_cents"`
 	ObservedAt             time.Time `json:"observed_at"`
 	ExpiresAt              time.Time `json:"expires_at"`
-}
-
-func (r ReservationRequest) validate(now time.Time) error {
-	if !entityid.Valid(r.OperationID) || !reservationDigest.MatchString(r.RecipeSHA256) || r.Cell == "" || r.CompartmentID == "" || !validGeometry(r.Shape, r.OCPUs, r.MemoryGB, r.BootGB) || r.MonthlyCents == 0 || r.MonthlyCents > maxMonthlyCapCents || !now.Before(r.FactsExpireAt) {
-		return errors.New("capacity reservation lacks exact operation, recipe, positive known cost or current facts")
-	}
-	return nil
 }
 
 func validGeometry(shape string, ocpus, memoryGB, bootGB float64) bool {
@@ -179,23 +169,6 @@ func spendingFacts(ctx context.Context, reader *globalcontrol.Reader, proof regi
 	return monthly, found, limit, nil
 }
 
-// retainBootstrap preserves the original allocation identity and the largest
-// verified slice, including during held planning and historical observations.
-func retainBootstrap(c *Capacity, proof region.VerifiedInfrastructureSpend) error {
-	if !proof.IsVerified() || proof.BootstrapReservedMinor() <= 0 {
-		return nil
-	}
-	reserved := uint64(proof.BootstrapReservedMinor())
-	if reserved > maxMonthlyCapCents {
-		return errors.New("bootstrap allocation exceeds the supported finite ceiling")
-	}
-	c.BootstrapReservedCents = max(c.BootstrapReservedCents, reserved)
-	if c.BootstrapSHA256 == "" {
-		c.BootstrapSHA256 = proof.BootstrapDigest()
-	}
-	return nil
-}
-
 // bootstrapLimit never refunds a signed bootstrap slice on renewal or expiry.
 // A changed allocation needs provider-proven fencing, for which no release path exists.
 func bootstrapLimit(c Capacity, proof region.VerifiedInfrastructureSpend, limit uint64) (uint64, error) {
@@ -255,106 +228,6 @@ func projection(c Capacity, snapshot capacityinventory.Snapshot, excludeOperatio
 		}
 	}
 	return total
-}
-
-// InfrastructureHeadroom filters candidates before Reserve; it never authorizes
-// mutation. An exact operation retry already owns its outstanding commitment.
-func InfrastructureHeadroom(ctx context.Context, reader *globalcontrol.Reader, proof region.VerifiedInfrastructureSpend,
-	snapshot capacityinventory.Snapshot, operationID string, now time.Time,
-) (uint64, error) {
-	monthly, found, limit, err := spendingFacts(ctx, reader, proof, snapshot, now)
-	if err != nil {
-		return 0, err
-	}
-	c, _, err := ReadCapacity(ctx, reader)
-	if err != nil {
-		return 0, err
-	}
-	limit, err = bootstrapLimit(c, proof, limit)
-	if err != nil {
-		return 0, err
-	}
-	exclude := ""
-	if i := reservationIndex(c, operationID); i >= 0 {
-		tenantID := ""
-		if found {
-			tenantID = monthly.ID
-		}
-		if err := currentReservation(c.Reservations[i], tenantID, proof, now); err != nil {
-			return 0, err
-		}
-		exclude = operationID
-	}
-	total := projection(c, snapshot, exclude)
-	latest, hasBudget, err := ReadBudget(ctx, reader)
-	if err != nil {
-		return 0, err
-	}
-	if hasBudget != found || hasBudget && latest != monthly {
-		return 0, errors.New("tenant spending ceiling changed during candidate selection")
-	}
-	if total >= limit {
-		return 0, nil
-	}
-	return limit - total, nil
-}
-
-// Reserve appends an idempotent exact-candidate commitment under the home CAS.
-// A tenant budget can tighten the signed infrastructure ceiling, never expand it.
-func Reserve(ctx context.Context, reader *globalcontrol.Reader, writer *globalcontrol.Writer, epoch uint64,
-	request ReservationRequest, proof region.VerifiedInfrastructureSpend, quote capacityinventory.Quote, snapshot capacityinventory.Snapshot, now time.Time,
-) (Reservation, error) {
-	if err := request.validate(now); err != nil {
-		return Reservation{}, err
-	}
-	if !allowedCompartment(proof.Footprint(), request.Cell, request.CompartmentID) {
-		return Reservation{}, errors.New("candidate is outside the signed infrastructure footprint")
-	}
-	if err := quotedCandidate(proof, quote, request.Cell, request.CompartmentID, request.Shape, request.OCPUs, request.MemoryGB, request.BootGB, request.MonthlyCents, now); err != nil {
-		return Reservation{}, err
-	}
-	var result Reservation
-	err := changeReservations(ctx, reader, writer, epoch, proof, snapshot, now, true, func(c *Capacity, monthly Budget, found bool) error {
-		checkedAt := time.Now()
-		if now.After(checkedAt) {
-			checkedAt = now
-		}
-		if err := request.validate(checkedAt); err != nil {
-			return err
-		}
-		if err := quotedCandidate(proof, quote, request.Cell, request.CompartmentID, request.Shape, request.OCPUs, request.MemoryGB, request.BootGB, request.MonthlyCents, checkedAt); err != nil {
-			return err
-		}
-		tenantID := ""
-		if found {
-			tenantID = monthly.ID
-		}
-		if i := reservationIndex(*c, request.OperationID); i >= 0 {
-			r := c.Reservations[i]
-			if r.RecipeSHA256 != request.RecipeSHA256 || r.MonthlyCents != request.MonthlyCents || r.Cell != request.Cell || r.CompartmentID != request.CompartmentID || r.Shape != request.Shape || r.OCPUs != request.OCPUs || r.MemoryGB != request.MemoryGB || r.BootGB != request.BootGB {
-				return errors.New("operation is already reserved for a different candidate or price")
-			}
-			if err := currentReservation(r, tenantID, proof, checkedAt); err != nil {
-				return err
-			}
-			result = r
-			return nil
-		}
-		if len(c.Reservations) >= maxInfrastructureReservations {
-			// shortcut: unknown commitments remain charged; add provider-proven cancellation before reclaiming entries.
-			return errors.New("infrastructure reservation ledger is full")
-		}
-		expires := minTime(request.FactsExpireAt, proof.ExpiresAt(), quote.ExpiresAt(), snapshot.ExpiresAt, now.Add(ReservationTTL))
-		originalQuote := quote.Original()
-		result = Reservation{OperationID: request.OperationID, RecipeSHA256: request.RecipeSHA256, Cell: request.Cell,
-			CompartmentID: request.CompartmentID, Shape: request.Shape, OCPUs: request.OCPUs, MemoryGB: request.MemoryGB, BootGB: request.BootGB, MonthlyCents: request.MonthlyCents, BudgetID: tenantID,
-			InfrastructureBudgetID: proof.BudgetID(), GrantSHA256: proof.GrantDigest(), ScopeSHA256: proof.ScopeDigest(),
-			ResolvedScopeSHA256: proof.PhysicalScopeDigest(), BindingSHA256: proof.BindingDigest(), GrantGeneration: proof.Generation(), QuoteSHA256: quote.SHA256(), OriginalQuote: new(originalQuote), Currency: proof.Currency(), TenancyID: proof.Footprint().TenancyID, IssuedAt: now, LaunchExpiresAt: expires}
-		c.Reservations = append(slices.Clone(c.Reservations), result)
-		slices.SortFunc(c.Reservations, func(a, b Reservation) int { return cmp.Compare(a.OperationID, b.OperationID) })
-		return nil
-	})
-	return result, err
 }
 
 func currentReservation(r Reservation, tenantID string, proof region.VerifiedInfrastructureSpend, now time.Time) error {
@@ -539,179 +412,4 @@ func quotedCandidate(proof region.VerifiedInfrastructureSpend, quote capacityinv
 		return errors.New("candidate price differs from the sealed quote or spending currency")
 	}
 	return nil
-}
-
-// Observe binds an operation to actual priced resources. Replays must name the
-// same identities. Retirement requires positive terminal observations for all IDs.
-func Observe(ctx context.Context, reader *globalcontrol.Reader, writer *globalcontrol.Writer, epoch uint64,
-	operationID string, resourceIDs []string, proof region.VerifiedInfrastructureSpend, snapshot capacityinventory.Snapshot, now time.Time,
-) (Reservation, error) {
-	ids := slices.Clone(resourceIDs)
-	slices.Sort(ids)
-	if len(ids) == 0 || len(ids) > 16 || slices.Contains(ids, "") || len(slices.Compact(slices.Clone(ids))) != len(ids) {
-		return Reservation{}, errors.New("observed commitment needs unique exact resource identities")
-	}
-	var result Reservation
-	err := changeReservations(ctx, reader, writer, epoch, proof, snapshot, now, false, func(c *Capacity, _ Budget, _ bool) error {
-		i := reservationIndex(*c, operationID)
-		if i < 0 {
-			return errors.New("no reserved operation matches the observed resources")
-		}
-		r := c.Reservations[i]
-		if len(r.ResourceIDs) > 0 && !slices.Equal(r.ResourceIDs, ids) {
-			return errors.New("reservation already names different resources")
-		}
-		// A node commitment includes its boot volume; an instance alone cannot retire it.
-		associated := []string{}
-		instance, boot := false, false
-		for _, resource := range snapshot.Resources {
-			if resource.OperationID == r.OperationID && resource.RecipeSHA256 == r.RecipeSHA256 && resource.Cell == r.Cell && resource.CompartmentID == r.CompartmentID {
-				associated = append(associated, resource.ID)
-				instance = instance || strings.HasPrefix(resource.ID, "ocid1.instance.")
-				boot = boot || strings.HasPrefix(resource.ID, "ocid1.bootvolume.")
-			}
-		}
-		slices.Sort(associated)
-		if !instance || !boot || !slices.Equal(ids, associated) {
-			return errors.New("observation must name every exact node and boot resource of this operation")
-		}
-		retired := true
-		for _, id := range ids {
-			resource, ok := snapshotResource(snapshot, r, id)
-			if !ok {
-				return fmt.Errorf("resource %s lacks positive owned-resource cost evidence", id)
-			}
-			retired = retired && retiredResource(resource.LifecycleState)
-		}
-		r.ResourceIDs = ids
-		if retired && r.RetiredAt.IsZero() {
-			r.RetiredAt = now
-		}
-		c.Reservations = slices.Clone(c.Reservations)
-		c.Reservations[i] = r
-		result = r
-		return nil
-	})
-	return result, err
-}
-
-func changeReservations(ctx context.Context, reader *globalcontrol.Reader, writer *globalcontrol.Writer, epoch uint64,
-	proof region.VerifiedInfrastructureSpend, snapshot capacityinventory.Snapshot, now time.Time, admit bool,
-	change func(*Capacity, Budget, bool) error,
-) error {
-	if writer == nil || reader == nil {
-		return errors.New("infrastructure reservations require the home global writer")
-	}
-	reader = &writer.Reader
-	for range 8 {
-		var monthly Budget
-		var found bool
-		var limit uint64
-		var err error
-		if admit {
-			monthly, found, limit, err = spendingFacts(ctx, reader, proof, snapshot, now)
-		} else {
-			// Financial expiry prevents purchases, not observations of owned resources.
-			if !proof.IsVerified() {
-				return errors.New("owned-resource observation lacks signed footprint proof")
-			}
-			err = snapshot.ValidateOwned(proof.Footprint(), now)
-			if err == nil {
-				monthly, found, err = ReadBudget(ctx, reader)
-			}
-			if proof.MonthlyLimitMinor() > 0 {
-				limit = uint64(proof.MonthlyLimitMinor())
-			}
-			if found && monthly.Currency == proof.Currency() {
-				limit = min(limit, monthly.MonthlyCapCents)
-			}
-		}
-		if err != nil {
-			return err
-		}
-		c, exists, err := ReadCapacity(ctx, reader)
-		if err != nil {
-			return err
-		}
-		var expected []byte
-		if exists {
-			expected, err = c.Encode()
-			if err != nil {
-				return err
-			}
-		} else {
-			c = Capacity{Schema: Schema, At: now, State: StateNone, Reason: "infrastructure commitments; tenant budget is unset"}
-		}
-		if admit {
-			limit, err = bootstrapLimit(c, proof, limit)
-			if err != nil {
-				return err
-			}
-		} else {
-			reserved := max(c.BootstrapReservedCents, uint64(proof.BootstrapReservedMinor()))
-			limit -= min(limit, reserved)
-		}
-		if err := retainBootstrap(&c, proof); err != nil {
-			return err
-		}
-		if err := change(&c, monthly, found); err != nil {
-			return err
-		}
-		total := projection(c, snapshot, "")
-		if admit && total > limit {
-			return fmt.Errorf("infrastructure commitment %d exceeds authorized monthly ceiling %d", total, limit)
-		}
-		c.Spending = &InfrastructureSpending{InfrastructureBudgetID: proof.BudgetID(), GrantSHA256: proof.GrantDigest(), ScopeSHA256: proof.ScopeDigest(), Currency: proof.Currency(), MonthlyLimitCents: limit, ProjectedCents: total, ObservedAt: snapshot.ObservedAt, ExpiresAt: snapshot.ExpiresAt}
-		c.ProjectedCents = max(c.ProjectedCents, total)
-		if c.CapCents > 0 {
-			c.Ratio = float64(c.ProjectedCents) / float64(c.CapCents)
-			if c.ProjectedCents >= c.CapCents {
-				c.State = StateOver
-			} else if c.State == StateOK && c.Ratio >= WarnRatio {
-				c.State = StateWarn
-			}
-		}
-		payload, err := c.Encode()
-		if err != nil {
-			return err
-		}
-		_, err = writer.PutDocument(ctx, epoch, globalcontrol.KindCapacity, protocol.GlobalScope, payload, func(stored []byte) error {
-			if !sameCapacity(stored, expected) {
-				return globalcontrol.ErrConflict
-			}
-			latest, hasBudget, readErr := ReadBudget(ctx, reader)
-			if readErr != nil {
-				return readErr
-			}
-			if hasBudget != found || hasBudget && latest != monthly {
-				return globalcontrol.ErrConflict
-			}
-			return nil
-		})
-		if errors.Is(err, globalcontrol.ErrConflict) {
-			continue
-		}
-		if err == nil {
-			// An identical document retry can return before PutDocument's admission callback.
-			latest, hasBudget, readErr := ReadBudget(ctx, reader)
-			if readErr != nil {
-				return readErr
-			}
-			if hasBudget != found || hasBudget && latest != monthly {
-				continue
-			}
-		}
-		return err
-	}
-	return globalcontrol.ErrConflict
-}
-
-func minTime(times ...time.Time) time.Time {
-	result := times[0]
-	for _, at := range times[1:] {
-		if at.Before(result) {
-			result = at
-		}
-	}
-	return result
 }

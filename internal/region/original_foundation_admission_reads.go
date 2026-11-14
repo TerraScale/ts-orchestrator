@@ -70,10 +70,6 @@ func originalAdmissionReadOperations() [12]OriginalActorAdmissionReadOperation {
 	}
 }
 
-func originalAdmissionReadRecipe(purpose OriginalSourceProducerIntent, startup bootstrap.StartupTemplate, network string) (OriginalActorAdmissionReadIntent, error) {
-	return originalAdmissionReadRecipeVersion(originalAdmissionReadPurposeV2, purpose, startup, network)
-}
-
 func originalAdmissionReadRecipeVersion(version string, purpose OriginalSourceProducerIntent, startup bootstrap.StartupTemplate, network string) (OriginalActorAdmissionReadIntent, error) {
 	if version != originalAdmissionReadPurpose && version != originalAdmissionReadPurposeV2 {
 		return OriginalActorAdmissionReadIntent{}, ErrOriginalSourceProducerHold

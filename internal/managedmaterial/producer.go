@@ -439,10 +439,6 @@ func validPrivateIP(value string) bool {
 	return ip != nil && ip.To4() != nil && ip.IsPrivate() && !ip.IsLoopback() && !ip.IsUnspecified()
 }
 
-// RecipientGrantMessage is the exact message a customer signer authorizes.
-// The caller must pin the signer independently of this signed grant.
-func RecipientGrantMessage(spec InitialSpec) []byte { return recipientGrantMessage(spec) }
-
 func recipientGrantMessage(spec InitialSpec) []byte {
 	if len(spec.SQLTables) > 0 {
 		tableDigest, err := sqlTableSetDigest(spec.SQLTables)

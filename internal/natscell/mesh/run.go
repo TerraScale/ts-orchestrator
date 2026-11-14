@@ -60,8 +60,11 @@ func Run(ctx context.Context, state string, cluster Cluster, started func(*Node)
 			go watchHostRole(runCtx, state, cluster.Worker, cancel)
 			node.Run(runCtx)
 			roleChanged := runCtx.Err() != nil
+			if err := node.CloseContext(ctx); err != nil {
+				slog.Warn("mesh stop forced", "error", err)
+				node.ForceClose()
+			}
 			cancel()
-			node.Close()
 			if ctx.Err() != nil {
 				return
 			}

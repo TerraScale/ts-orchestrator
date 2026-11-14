@@ -54,13 +54,6 @@ func NewServiceAuthorizer(config ServiceAuthorizerConfig) (*ServiceAuthorizer, e
 	return &ServiceAuthorizer{config: config}, nil
 }
 
-// AuthorizeStatefulService authenticates scheduling, independently of the later
-// per-task volume, writer and execution-effect admission. Labels only locate
-// durable records; the complete spec must equal the root-derived canonical one.
-func (a *ServiceAuthorizer) AuthorizeStatefulService(ctx context.Context, requested *api.ServiceSpec) error {
-	return a.withStatefulService(ctx, requested, nil)
-}
-
 // WithStatefulService retains one canonical admission and its original deadline
 // through exactly one synchronous scheduling effect; rechecking cannot renew it.
 func (a *ServiceAuthorizer) WithStatefulService(ctx context.Context, requested *api.ServiceSpec, effect func(context.Context) error) error {

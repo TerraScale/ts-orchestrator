@@ -25,9 +25,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// ErrStateNotReady reports delayed visibility after host state provisioning.
-var ErrStateNotReady = errors.New("provisioned host state is not yet visible")
-
 // Controller holds the durable host authority and serves restricted host RPCs.
 // Administrative callers own admission of Register and ApplyDesired operations.
 type Controller struct {
@@ -84,75 +81,6 @@ type Controller struct {
 	netbirdSink atomic.Pointer[NetBirdSink]
 }
 
-func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, error) {
-	if err := validateToken(cfg.Cell, "cell"); err != nil {
-		return nil, err
-	}
-	if cfg.Conn == nil || cfg.JS == nil || cfg.Artifacts == nil || cfg.HostMutations == nil || len(cfg.ResponseKey) != ed25519.PrivateKeySize {
-		return nil, errors.New("controller requires NATS, JetStream, ordered host mutations, artifact store and Ed25519 response key")
-	}
-	if cfg.AuthorityEpoch == nil || cfg.AuthorityGuard == nil {
-		return nil, errors.New("controller requires authority epoch and guard")
-	}
-	managedEffectGate := cfg.ManagedEffectGate
-	if managedEffectGate == nil {
-		if gate, ok := cfg.HostMutations.(interface {
-			BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error)
-		}); ok {
-			managedEffectGate = gate.BeginActiveWorkloadEffect
-		}
-	}
-	if cfg.ManagedRegistrationVerifier != nil && managedEffectGate == nil {
-		return nil, errors.New("managed host registration requires a terminal effect gate")
-	}
-	replicas := cfg.StateReplicas
-	if replicas == 0 {
-		replicas = 3
-	}
-	if replicas < 1 || replicas > 5 {
-		return nil, errors.New("invalid host state replica count")
-	}
-	state := cfg.State
-	if state == nil {
-		var err error
-		state, err = cfg.JS.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: stateBucket, History: 2, MaxValueSize: 64 << 10, MaxBytes: 256 << 20, Storage: jetstream.FileStorage, Replicas: replicas})
-		if err != nil {
-			return nil, fmt.Errorf("open host state: %w", err)
-		}
-	}
-	status, err := state.Status(ctx)
-	if err != nil {
-		if cfg.State == nil && errors.Is(err, jetstream.ErrStreamNotFound) {
-			return nil, fmt.Errorf("%w: inspect host state: %w", ErrStateNotReady, err)
-		}
-		return nil, err
-	}
-	if status.Config().Replicas != replicas {
-		return nil, fmt.Errorf("host state has %d replicas, requires %d", status.Config().Replicas, replicas)
-	}
-	if err := rejectObsoleteRetirementState(ctx, state, cfg.Cell); err != nil {
-		return nil, err
-	}
-	controlLog := cfg.ControlLog
-	if controlLog == nil {
-		controlLog, err = cfg.JS.Stream(ctx, "TS_CONTROL_LOG")
-		if err != nil {
-			return nil, fmt.Errorf("open ordered control log: %w", err)
-		}
-	}
-	cacheCtx, cacheCancel := context.WithCancel(context.Background())
-	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations,
-		managedVerifier: cfg.ManagedRegistrationVerifier, managedDesiredVerifier: cfg.ManagedDesiredVerifier,
-		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
-		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector, runtimeEffects: cfg.RuntimeEffects,
-		containerMaterial: cfg.ContainerMaterialProvider, registryAdmission: cfg.RegistryAdmissionProvider,
-		taskLoadRoles:    cfg.TaskLoadRoles,
-		functionMaterial: cfg.FunctionMaterialProvider,
-		terraBaseCA:      cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, nodeAddress: cfg.NodeAddress, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
-		authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, authorityLeader: cfg.AuthorityLeader,
-		cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
-}
-
 // Ready closes once all host request subscriptions are accepted by NATS.
 func (c *Controller) Ready() <-chan struct{} { return c.ready }
 
@@ -166,10 +94,10 @@ func (c *Controller) guard(ctx context.Context, epoch uint64) error {
 	return c.authorityGuard(ctx, epoch)
 }
 
-func sessionKey(cell, node string) string       { return "session." + cell + "." + node }
-func desiredKey(cell, node, role string) string { return "desired." + cell + "." + node + "." + role }
-func reportKey(cell, node, role string) string  { return "report." + cell + "." + node + "." + role }
-func cycleKey(cell, node, role string) string   { return "cycle." + cell + "." + node + "." + role }
+func sessionKey(cell, node string) string { return "session." + cell + "." + node }
+
+func reportKey(cell, node, role string) string { return "report." + cell + "." + node + "." + role }
+func cycleKey(cell, node, role string) string  { return "cycle." + cell + "." + node + "." + role }
 
 func (c *Controller) get(ctx context.Context, key string, destination any) (uint64, bool, error) {
 	if c.conn != nil {
