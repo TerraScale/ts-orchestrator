@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -22,6 +23,25 @@ type ReadinessRoute struct {
 	Host string
 	Port int
 	Path string
+}
+
+type Readiness struct {
+	Ready        bool
+	Missing      []string
+	MissingNames []string
+	NotDurable   []string
+}
+
+func (r Readiness) Err() error {
+	if r.Ready {
+		return nil
+	}
+	return fmt.Errorf("edge not ready: %s (missing names: %s)", strings.Join(r.Missing, ", "), strings.Join(r.MissingNames, ", "))
+}
+
+func (e *Edge) Readiness() Readiness {
+	ready, missing, missingNames := e.readiness()
+	return Readiness{Ready: ready, Missing: missing, MissingNames: missingNames, NotDurable: e.notDurable()}
 }
 
 func (e *Edge) SetReadinessRoutes(routes []ReadinessRoute) {
@@ -40,18 +60,18 @@ func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	_, missing, missingNames := e.readiness()
-	if len(missing) > 0 || len(missingNames) > 0 {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	} else {
+	readiness := e.Readiness()
+	if readiness.Ready {
 		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 	_ = json.NewEncoder(w).Encode(struct {
 		Ready        bool     `json:"ready"`
 		Missing      []string `json:"missing"`
 		MissingNames []string `json:"missing_names"`
 		NotDurable   []string `json:"not_durable"`
-	}{len(missing) == 0 && len(missingNames) == 0, missing, missingNames, e.notDurable()})
+	}{readiness.Ready, readiness.Missing, readiness.MissingNames, readiness.NotDurable})
 }
 
 func (e *Edge) readiness() (bool, []string, []string) {

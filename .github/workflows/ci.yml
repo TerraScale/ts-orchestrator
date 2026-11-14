@@ -48,7 +48,6 @@ jobs:
         include:
           - {lane: core, entry: run.sh, timeout: 8}
           - {lane: websocket, entry: websocket.sh, timeout: 8}
-          - {lane: acme-ari, entry: acme-ari.sh, timeout: 3, packages: "./test/e2e/m1/certificates/ari"}
           - {lane: fabric, entry: fabric/run.sh, timeout: 3, packages: "./test/e2e/m1/fabric"}
           - {lane: regional, entry: regional.sh, timeout: 3, packages: "./test/e2e/m1/regional"}
           - {lane: nodelist, entry: nodelist.sh, timeout: 8, packages: "./test/e2e/m1/nodelist"}

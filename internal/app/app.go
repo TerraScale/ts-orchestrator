@@ -121,6 +121,11 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 		} else {
 			result.Mesh = errors.New("mesh not started")
 		}
+		if public != nil {
+			if readiness := public.Readiness(); !readiness.Ready {
+				result.Edge = readiness.Err()
+			}
+		}
 		return result
 	}, func(ctx context.Context) error {
 		if node := meshNode.Load(); node != nil {

@@ -46,11 +46,16 @@ certificate write; no multi-key transaction or reader generation heuristic is
 needed. The five-minute order deadline is shorter than the ten-minute lease.
 The lease is renewed every minute during an order.
 
-The issued certificate and key are atomically saved together with a local
-issuance receipt, then installed in memory, before separate metadata is saved.
+The host first saves a local issuance receipt with the fingerprint and lease
+generation in the `.state-<name>` sidecar, then atomically saves the issued
+certificate and key exactly as autocert writes them (key and chain, nothing
+else), so the previous binary still reads the file after a rollback. A crash
+between the two writes leaves a receipt without its certificate, which is
+harmless; a restart never finds a withheld certificate without its receipt.
 A metadata failure is reported and reconciled later; it never discards an issued
-certificate. The receipt records the fingerprint and lease generation in the
-same atomic file as the key, so a restart cannot publish an unfenced result.
+certificate. A certificate whose disk write fails is still served from memory,
+reported as not durable, and written again on every reconciliation until the
+write succeeds.
 If the lease is lost, the host keeps and serves that valid certificate but does
 not publish it. Publication can be retried without another order only while the
 same lease generation remains live, using its current record revision.
@@ -59,7 +64,9 @@ can still replace it by the normal preference rule.
 
 After each failed order, the next attempt is delayed by 30 minutes, 1 hour,
 2 hours, 4 hours, 8 hours, 16 hours, then 24 hours for every subsequent failure.
-Any later authority `Retry-After` deadline wins. The authority response is
+Any later authority `Retry-After` deadline wins. A host adopting its own unacknowledged lease
+waits for any deadline later than the reservation it wrote, such as a peer's
+authority `Retry-After`, and never writes a shorter deadline. The authority response is
 journaled immediately in an atomic owner-only local file before completion is
 attempted. Reconciliation conditionally publishes the maximum of the journaled
 and shared deadlines, preserving the current holder's lease generation and
@@ -174,11 +181,12 @@ inventory containing names, variants, expiry, healthy-until time and SHA-256
 fingerprints, without certificate keys. Inventories share the certificate bucket.
 
 Registered edges are the configured region founders, durably admitted mesh
-founders and joined serving workers reported by the mesh. Inventories retain
-previously registered identities and the ordering gate follows the union of
-their rosters. A temporary disconnect does not establish absence. An unresolved
-configured founder still requires an inventory. Retiring a host requires an
-explicit membership change; a stale roster conservatively delays additions.
+founders and joined serving workers reported by the mesh. Each inventory lists
+the publishing host's current roster, and the ordering gate follows the rosters
+of the current members' inventories. A temporary disconnect does not establish
+absence. An unresolved configured founder still requires an inventory. A host
+removed from membership stops counting once the current members republish their
+inventories, at most a reconciliation interval later.
 
 A missing shared record never proves that no certificate exists elsewhere.
 An ordinary order requires inventories from every registered edge and no
@@ -234,9 +242,9 @@ During that wait it keeps its listeners open and serves other requests.
 
 ## Readiness
 
-GET or HEAD /edge/ready is available only on the node's mesh-facing HTTP port 9108; public port 80 answers it with 404. It returns 200 when all four edge listeners are bound, routes have loaded, ingress and local application backends are ready, and every routed HTTPS or PostgreSQL name has an unexpired certificate loaded in memory, ECDSA or RSA. Otherwise it returns 503. The certificate check runs on every request, so readiness turns true as soon as a certificate is installed and never before. The JSON body includes ready, missing infrastructure conditions, and missing_names. A name without a certificate within the issuance grace window (ten minutes from assignment) is listed under missing as `certificate <name> pending`; after that window it moves to missing_names, matching the reconciliation grace above. Readiness fails in both cases.
+GET or HEAD /edge/ready is available only on the node's mesh-facing HTTP port 9108; public port 80 answers it with 404. It returns 200 when all four edge listeners are bound, routes have loaded, ingress and local application backends are ready, and every routed HTTPS or PostgreSQL name gets a certificate clients accept. For each name, readiness selects the certificate exactly as the TLS handshake does for a client that supports ECDSA and RSA (the exact cache entry first, then any cached certificate whose names cover it, such as a wildcard), and verifies the chain it would serve, the dates and the name against the system roots. Otherwise it returns 503. The certificate check runs on every request, so readiness turns true as soon as a certificate is installed and never before. The JSON body includes ready, missing infrastructure conditions, missing_names, and not_durable: certificates served from memory whose disk write failed. The edge retries that write on every reconciliation, also while the shared store is unavailable, and `ts_orch_edge_certificate_not_durable` counts them; they do not fail readiness, because the host still serves valid TLS. A name without a certificate within the issuance grace window (ten minutes from assignment) is listed under missing as `certificate <name> pending`; after that window it moves to missing_names, matching the reconciliation grace above. Readiness fails in both cases.
 
-The endpoint is an operator signal. Release health does not consume it. The `edge readiness changed` log line reports the same verdict, including certificates, at most every three seconds.
+The endpoint is an operator signal and a release health input. Release health (`ts.release.health`, which `ts-orch release push` and release app pushes poll to decide a region is healthy after a rollout) joins the edge readiness error with its mesh and service checks on every host that serves an edge: a release whose edge is not ready reports unhealthy, with the missing conditions and names in the health text. The `edge readiness changed` log line reports the same verdict, including certificates, at most every three seconds.
 
 It checks local HTTP backend readiness paths without following redirects and checks PostgreSQL backend TCP connectivity, within a three-second budget.
 
