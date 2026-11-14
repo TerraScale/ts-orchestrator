@@ -371,6 +371,7 @@ func lane(work string) {
 		return data
 	}
 	baselineHealth := request(releasepush.SubjectHealth, nil).Health
+	require(strings.Contains(baselineHealth, "edge not ready: routes unavailable"), "release health omitted edge readiness: "+baselineHealth)
 	require(baselineHealth != "", "release health reply missing")
 	serves := func() {
 		client, conn, err := swarmruntime.DialSingleHost(state)

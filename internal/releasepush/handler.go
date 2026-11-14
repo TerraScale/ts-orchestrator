@@ -108,10 +108,11 @@ type HealthRequest struct {
 type HealthResult struct {
 	Mesh    error
 	Service error
+	Edge    error
 }
 
 func (result HealthResult) Err() error {
-	return errors.Join(result.Mesh, result.Service)
+	return errors.Join(result.Mesh, result.Service, result.Edge)
 }
 
 type Progress interface {
