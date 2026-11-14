@@ -493,6 +493,9 @@ func durabilityJourney(ctx context.Context, cfg configuration, conn *nats.Conn, 
 	if err := restarted.wait(ctx, "edge certificate installed name="+name+" ", 1); err != nil {
 		return err
 	}
+	if err := restarted.wait(ctx, "edge readiness changed ready=true", 1); err != nil {
+		return err
+	}
 	recovered, err := fingerprint(cfg, "10.77.0.2", name, false)
 	if err != nil || recovered != served {
 		return fmt.Errorf("restart with unavailable store lost certificate: fingerprint=%s error=%v", recovered, err)
