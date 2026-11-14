@@ -176,12 +176,10 @@ func (d Desired) withServerGroups(names []string) (Desired, error) {
 	return d, nil
 }
 
-const monitoringServers = "gru-servers"
-
 func metricsScrapePolicy(groups []string) PolicySpec {
-	return PolicySpec{Name: monitoringServers + "-to-servers-metrics",
-		Description: "GRU servers (Prometheus runs on ts-gru-1) → regional servers in every region: host exporter 9108 and TerraBase metrics 9091",
-		Protocol:    "tcp", Ports: []string{"9108", "9091"}, Sources: []string{monitoringServers}, Destinations: groups}
+	return PolicySpec{Name: "servers-to-servers-metrics", RenamedFrom: []string{"gru-servers-to-servers-metrics"},
+		Description: "Regional monitoring → servers in every region: host exporter 9108 and TerraBase metrics 9091",
+		Protocol:    "tcp", Ports: []string{"9108", "9091"}, Sources: groups, Destinations: groups}
 }
 
 func meshRoutesPolicy(groups []string) PolicySpec {

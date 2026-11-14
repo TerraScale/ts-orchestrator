@@ -20,7 +20,7 @@ groups:
   - name: terrabase-operations
     rules:
       - alert: TerraBaseErasurePendingDay20
-        expr: max(terrabase_purge_oldest_age_seconds) >= 1728000 or max(terrabase_backup_purge_oldest_age_seconds) >= 1728000
+        expr: max by (region) (terrabase_purge_oldest_age_seconds) >= 1728000 or max by (region) (terrabase_backup_purge_oldest_age_seconds) >= 1728000
         labels:
           service: terrabase
           severity: warning
@@ -63,15 +63,14 @@ groups:
           summary: No TerraBase restore drill has completed in twenty-six hours
           description: terrabase_backup_drills_total counts completed snapshot restore drills by result and drills run daily. No increase for twenty-six hours means no drill completed on the reporting member; a Prometheus with less than twenty-six hours of history truncates the window and can fire earlier. Failed drills page separately through TerraBaseBackupDrillFailed.
           runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/disaster-recovery.md#drill
-      # First observed failures also fire; historical failures expire after five minutes.
-      - alert: TerraBaseBackupAbandoned
-        expr: (increase(terrabase_backup_abandoned_total{service="terrabase"}[5m]) > 0) or ((terrabase_backup_abandoned_total{service="terrabase"} > 0) unless terrabase_backup_abandoned_total{service="terrabase"} offset 5m)
+      - alert: TerraBaseBackupFailed
+        expr: (increase(terrabase_backup_failures_total{service="terrabase"}[5m]) > 0) or ((terrabase_backup_failures_total{service="terrabase"} > 0) unless terrabase_backup_failures_total{service="terrabase"} offset 5m)
         labels:
           severity: critical
         annotations:
-          summary: TerraBase has abandoned a backup
+          summary: A TerraBase backup pass failed
       - alert: TerraBaseBackupHoles
-        expr: (increase(terrabase_backup_holes_total{service="terrabase"}[5m]) > 0) or ((terrabase_backup_holes_total{service="terrabase"} > 0) unless terrabase_backup_holes_total{service="terrabase"} offset 5m)
+        expr: (increase(terrabase_backup_holes_recorded_total{service="terrabase"}[5m]) > 0) or ((terrabase_backup_holes_recorded_total{service="terrabase"} > 0) unless terrabase_backup_holes_recorded_total{service="terrabase"} offset 5m)
         labels:
           severity: critical
         annotations:
@@ -83,7 +82,6 @@ groups:
           severity: critical
         annotations:
           summary: TerraBase replication send lag exceeds thirty seconds
-      # A diverged replica rebootstraps itself; a repeat within 15 minutes waits, so this alert is the operator's signal.
       - alert: TerraBaseReplicaDiverged
         expr: (increase(terrabase_replica_verifications_total{service="terrabase",result="diverged"}[15m]) > 0) or ((terrabase_replica_verifications_total{service="terrabase",result="diverged"} > 0) unless terrabase_replica_verifications_total{service="terrabase",result="diverged"} offset 15m)
         labels:
@@ -112,7 +110,7 @@ groups:
           severity: critical
         annotations:
           summary: TerraBase host metrics are not scraped
-          description: The terrabase-host-storage scrape of this host's TerraBase metrics on tcp 9091 has been down for two minutes. Check first that the NetBird policy gru-servers-to-servers-metrics is applied, then that TerraBase is listening on 9091 and that the host's NetBird address in /run/ts-orch-observability/storage.json answers.
+          description: The terrabase-host-storage scrape of this host's TerraBase metrics on tcp 9091 has been down for two minutes. Check first that the NetBird servers-to-servers-metrics policy is applied, then that TerraBase is listening on 9091 and that the host's NetBird DNS name resolves and answers.
       - alert: TerraBaseBackupDrillFailed
         expr: (increase(terrabase_backup_drills_total{service="terrabase",result="failed"}[5m]) > 0) or ((terrabase_backup_drills_total{service="terrabase",result="failed"} > 0) unless terrabase_backup_drills_total{service="terrabase",result="failed"} offset 5m)
         labels:
@@ -121,8 +119,6 @@ groups:
           summary: TerraBase backup restore drill failed
       - alert: ServiceReadinessFailed
         expr: terrascale_service_readiness{service=~"terrabase|ts-auth|ts-dashboard"} == 0
-        # Probe flaps shorter than five minutes never page; a recovery must hold
-        # ten minutes before the alert resolves, so one outage is one alert.
         for: 5m
         keep_firing_for: 10m
         labels:
@@ -202,35 +198,6 @@ groups:
           severity: critical
         annotations:
           summary: A service has fewer healthy scrape targets than assigned tasks on a node
-      - alert: HostServiceTaskInventoryMissing
-        expr: |
-          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc"}) or
-          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-2",region="sjc"}) or
-          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-fra-1",region="fra"}) or
-          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-fra-2",region="fra"}) or
-          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-gru-1",region="gru"}) or
-          absent(ts_host_service_tasks_expected{job="host-storage",host="ts-gru-2",region="gru"})
-        for: 15m
-        labels:
-          severity: critical
-        annotations:
-          summary: 'Service task inventory is absent on {{ $labels.host }}'
-      - alert: ExpectedNodeAbsent
-        expr: |
-          (sum by (region) (up{job="host-storage"}) < 2)
-          or absent(up{job="host-storage",host="ts-sjc-1",region="sjc"})
-          or absent(up{job="host-storage",host="ts-sjc-2",region="sjc"})
-          or absent(up{job="host-storage",host="ts-fra-1",region="fra"})
-          or absent(up{job="host-storage",host="ts-fra-2",region="fra"})
-          or absent(up{job="host-storage",host="ts-gru-1",region="gru"})
-          or absent(up{job="host-storage",host="ts-gru-2",region="gru"})
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: 'Expected node {{ $labels.host }} has no host-storage heartbeat ({{ $labels.region }})'
-          description: 'Each region (gru, sjc, fra) runs two hosts and every host agent exports the host-storage heartbeat, so a healthy region sums up{job="host-storage"} to two. The region clause fires when a heartbeat is down or vanished; the absent clauses name the configured host whose series disappeared from discovery. Use node operations for drain, reboot and rebuild; a stopped ts-prometheus on ts-gru-1 also stops evaluation and delivery for every region.'
-          runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/node-operations.md
       - alert: HostOOMKill
         expr: increase(ts_host_oom_kills_total{job="host-storage"}[15m]) > 0
         labels:

@@ -2,28 +2,39 @@
 set -euo pipefail
 source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
-python3 "$source_dir/check-hosts.py"
-
-# Only the explicit host invocation deploys; --check downloads and validates locally.
+if [[ $# == 1 && $1 == --fleet ]]; then
+  while read -r host; do
+    bash "$source_dir/install.sh" "$host"
+  done < <(awk -F- '!seen[$2]++' "$source_dir/hosts.txt")
+  exit
+fi
 if [[ $# == 1 && $1 != --local && $1 != --check ]]; then
   [[ $1 != -* && $1 =~ ^[a-zA-Z0-9_.@-]+$ ]] || { echo 'Invalid SSH host' >&2; exit 2; }
-  tar -C "$source_dir/../../.." -czf - deploy/observability/production deploy/observability/slo-rules.yml test/e2e/m1/monitoring/rules.yml | ssh "$1" '
+  rendered=$(mktemp -d)
+  trap 'rm -rf -- "$rendered"' EXIT
+  (cd "$source_dir/../../.." && go run ./scripts/monitoring "$rendered/rendered")
+  cp -a "$source_dir" "$rendered/production"
+  tar -C "$rendered" -czf - production rendered | ssh "$1" '
     set -eu
     staging=$(mktemp -d)
     trap '\''rm -rf -- "$staging"'\'' EXIT HUP INT TERM
     tar -xzf - -C "$staging"
-    sudo bash "$staging/deploy/observability/production/install.sh" --local
+    sudo bash "$staging/production/install.sh" --local
   '
   exit
 fi
 [[ $# == 1 && ( $1 == --local || $1 == --check ) ]] || {
-  echo "Usage: $0 <SSH-host> | --check" >&2; exit 2;
+  echo "Usage: $0 <SSH-host> | --fleet | --check" >&2; exit 2;
 }
 mode=$1
+rendered="$source_dir/../rendered"
+if [[ $mode == --local ]]; then
+  config_dir="$rendered/$(hostname -s)"
+  [[ -f $config_dir/prometheus.yml ]] || { echo "Host is not an inventory monitoring backend" >&2; exit 2; }
+fi
 if [[ $mode == --local && $EUID != 0 ]]; then
   echo 'Remote installation requires sudo/root' >&2; exit 2
 fi
-# Global help dispatches before runtime startup; never probe the bare daemon command.
 if [[ $mode == --local ]]; then
   if ! help_output=$(timeout --kill-after=1s 5s /usr/local/bin/ts-orch --help 2>&1) ||
     ! grep -Eq '^  alert-delivery[[:space:]]' <<<"$help_output"; then
@@ -35,7 +46,7 @@ if [[ $mode == --local ]]; then
       echo 'Upgrade every host agent before installing task discovery; no monitoring changes made' >&2
       exit 2
     fi
-  done < <(awk '$1 == "-" && $2 == "url:" {print $3}' "$source_dir/prometheus.yml")
+  done < <(python3 -c 'import json,sys; print("\n".join(d["url"] for j in json.load(open(sys.argv[1]))["scrape_configs"] for d in j.get("http_sd_configs", [])))' "$config_dir/prometheus.yml")
   checked=0
   while read -r discovery; do
     if ! metrics=$(curl --fail --silent --show-error --max-time 5 "${discovery%/services}/metrics"); then
@@ -48,8 +59,12 @@ if [[ $mode == --local ]]; then
         exit 2
       fi
     done
+    if ! curl --fail --silent --show-error --max-time 5 "${discovery%/services}/orchestrator/metrics" --output /dev/null; then
+      echo "Upgrade host monitoring proxy: $discovery; no monitoring changes made" >&2
+      exit 2
+    fi
     checked=$((checked + 1))
-  done < <(awk '$1 == "-" && $2 == "url:" {print $3}' "$source_dir/prometheus.yml")
+  done < <(python3 -c 'import json,sys; print("\n".join(d["url"] for j in json.load(open(sys.argv[1]))["scrape_configs"] for d in j.get("http_sd_configs", [])))' "$config_dir/prometheus.yml")
   [[ $checked == $(wc -l < "$source_dir/hosts.txt") ]] || { echo 'Expected every configured host inventory endpoint' >&2; exit 2; }
   status=0
   relay_help=$(timeout --kill-after=1s 5s /usr/local/bin/ts-orch alert-delivery --help 2>&1) || status=$?
@@ -69,6 +84,11 @@ case $(uname -m) in
 esac
 staging=$(mktemp -d)
 trap 'rm -rf -- "$staging"' EXIT HUP INT TERM
+if [[ $mode == --check ]]; then
+  rendered="$staging/rendered"
+  (cd "$source_dir/../../.." && go build -o "$staging/render-monitoring" ./scripts/monitoring)
+  "$staging/render-monitoring" "$rendered" "$source_dir/../../.."
+fi
 for component in prometheus alertmanager; do
   if [[ $component == prometheus ]]; then version=3.15.0; checksum=$prom_sha
   else version=0.34.1; checksum=$alert_sha; fi
@@ -80,12 +100,16 @@ for component in prometheus alertmanager; do
 done
 prom_dir="$staging/prometheus-3.15.0.linux-$arch"
 alert_dir="$staging/alertmanager-0.34.1.linux-$arch"
-"$prom_dir/promtool" check config "$source_dir/prometheus.yml"
-(cd "$source_dir/../../../test/e2e/m1/monitoring" && "$prom_dir/promtool" test rules rules.yml)
+for config in "$rendered"/*/prometheus.yml; do
+  "$prom_dir/promtool" check config "$config"
+done
+if [[ $mode == --check ]]; then
+  (cd "$source_dir/../../../test/e2e/m1/monitoring" && "$prom_dir/promtool" test rules rules.yml)
+  python3 "$source_dir/../../../test/e2e/m1/monitoring/regions.py" "$rendered" "$prom_dir/promtool" "$staging/render-monitoring"
+fi
 "$alert_dir/amtool" check-config "$source_dir/alertmanager.yml"
 if [[ $mode == --check ]]; then exit; fi
 
-# Config and release checks above must pass before any installed state changes.
 for account in ts-prometheus ts-alertmanager ts-alerts; do
   if ! id "$account" >/dev/null 2>&1; then
     useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$account"
@@ -103,10 +127,10 @@ put "$prom_dir/prometheus" /usr/local/lib/ts-monitoring/prometheus 0755
 put "$prom_dir/promtool" /usr/local/lib/ts-monitoring/promtool 0755
 put "$alert_dir/alertmanager" /usr/local/lib/ts-monitoring/alertmanager 0755
 put "$alert_dir/amtool" /usr/local/lib/ts-monitoring/amtool 0755
-put "$source_dir/../slo-rules.yml" /etc/ts-monitoring/slo-rules.yml 0644
-for config in prometheus.yml alertmanager.yml operational-rules.yml host-storage-rules.yml; do
-  put "$source_dir/$config" "/etc/ts-monitoring/production/$config" 0644
+for config in prometheus.yml rules.yml; do
+  put "$config_dir/$config" "/etc/ts-monitoring/production/$config" 0644
 done
+put "$source_dir/alertmanager.yml" /etc/ts-monitoring/production/alertmanager.yml 0644
 for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service; do
   put "$source_dir/$unit" "/etc/systemd/system/$unit" 0644
 done
