@@ -114,7 +114,7 @@ func RegionalPeersJourney(root string) error {
 		if region == "gru" {
 			other = "sjc"
 		}
-		return config{region: region, server: name, dir: filepath.Join(root, name), ca: ca, terrabaseToken: strings.Repeat("t", 32),
+		return config{region: region, server: name, nodeID: manager.ID(), founder: true, dir: filepath.Join(root, name), ca: ca, terrabaseToken: strings.Repeat("t", 32),
 			clusterHost: "127.0.0.1", clusterPort: cluster, clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", cluster), localPort: local,
 			seeds:   map[string][]string{other: {fmt.Sprintf("nats://127.0.0.1:%d", remote)}},
 			applier: swarmApplier{state: managerState, region: region}, every: time.Second, peersEvery: 250 * time.Millisecond,
@@ -139,6 +139,7 @@ func RegionalPeersJourney(root string) error {
 	workerName := "regional-worker"
 	workerCfg := cfg("sjc", workerName, "127.0.0.4", ports[4], ports[5], ports[3])
 	workerCfg.applier = nil
+	workerCfg.nodeID = worker.ID()
 	workerCfg.seeds = nil
 	workerCfg.routes = []string{fmt.Sprintf("nats://127.0.0.1:%d", ports[3])}
 	workerAgent, err := start(workerCfg)

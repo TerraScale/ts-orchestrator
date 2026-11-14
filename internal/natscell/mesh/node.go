@@ -353,9 +353,8 @@ func start(cfg config) (_ *Node, err error) {
 		return nil, err
 	}
 	node.goWork(func() { node.watchPeers(ctx) })
-	if cfg.applier == nil {
-		node.goWork(func() { node.announce(ctx) })
-	} else {
+	node.goWork(func() { node.announce(ctx) })
+	if cfg.applier != nil {
 		node.goWork(func() { node.refreshJoined(ctx) })
 	}
 	return node, nil

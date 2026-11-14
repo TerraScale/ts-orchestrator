@@ -268,10 +268,6 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 		fmt.Fprintln(output, "local host; using a loopback-only cluster")
 		return loopback, nil
 	}
-	notifier := sdnotify.Process()
-	if err := notifier.ExtendStart(2 * hostMetadataWindow); err != nil {
-		return hostPlan{}, fmt.Errorf("extend host startup window: %w", err)
-	}
 	instance, metadataErr := readHostMetadata(ctx, output)
 	if err := ctx.Err(); err != nil {
 		return hostPlan{}, err

@@ -34,6 +34,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
+	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -55,6 +56,9 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	}
 	if os.Geteuid() != 0 {
 		return errors.New("single-host requires root")
+	}
+	if err := sdnotify.Process().ExtendStart(2 * hostMetadataWindow); err != nil {
+		return fmt.Errorf("extend host startup window: %w", err)
 	}
 	// First, before anything that can crash: a pushed binary that never
 	// serves restores the previous one, and this start exits to run it.

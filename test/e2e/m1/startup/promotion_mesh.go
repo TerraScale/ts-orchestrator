@@ -193,6 +193,11 @@ func servePromotionMesh() error {
 		return err
 	}
 	defer conn.Close()
+	membership, err := conn.SubscribeSync(protocol.MeshWorkerPrefix + "gru")
+	if err != nil {
+		return err
+	}
+	defer membership.Unsubscribe()
 	if err := regionhealth.Serve(conn, func() regionhealth.Report {
 		return regionhealth.Report{State: regionhealth.StateOK, At: time.Now().UTC()}
 	}); err != nil {
@@ -204,6 +209,17 @@ func servePromotionMesh() error {
 	fmt.Println("ready " + conn.ConnectedServerName())
 	if !input.Scan() || input.Text() != "check" {
 		return fmt.Errorf("mesh child missing check signal")
+	}
+	for len(node.RegionalNodes()) != 3 {
+		if _, err := membership.NextMsgWithContext(ctx); err != nil {
+			return fmt.Errorf("manager promotion lost regional serving peers: %w", err)
+		}
+	}
+	for _, peer := range node.RegionalNodes() {
+		want := map[string]string{"manager": meshIP(0), "worker-0": meshIP(1), "worker-1": meshIP(2)}
+		if peer.Address != want[peer.Node] {
+			return fmt.Errorf("regional manager peer changed identity or address: %+v", peer)
+		}
 	}
 	if err := checkRegionRequests(conn); err != nil {
 		return err
