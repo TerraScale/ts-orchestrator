@@ -26,11 +26,24 @@ and never cancel a running rollout.
 
 Every main push runs `e2e-m1` again on the merged tree, beside the
 `verify/go + artifact/linux-amd64-arm64` job. `lint` runs in `ci.yml` only on
-pull requests and restores the `lint` build cache; every main push runs the same
+pull requests and restores the `lint-v2` build cache; every main push runs the same
 commands in [`lint-cache.yml`](../.github/workflows/lint-cache.yml)
 (`Lint cache`), which saves that cache. Nothing reads its result: a red run
-means main does not lint, and it holds back no merge and no release. The
-`verify/go + artifact/linux-amd64-arm64` job compares the push's
+means main does not lint, and it holds back no merge and no release.
+
+The Go action returns the exact cache key and paths for main-push saves.
+Caller-key change detection restores only module sources under its own cache
+name; the caller-key builder has a separate build/module cache. Neither restores
+the lint audit cache. Lint uses a fresh namespace to exclude oversized historical
+entries. Cache keys include the pinned Go version, go.sum and UTC date, with a
+restore prefix restricted to the same dependency hash. A job saves at most once
+per day for those inputs instead of once per commit. Before saving, compiled
+build caches are trimmed oldest-first to 1 GiB; module sources are retained.
+Go rebuilds evicted outputs it needs. ARM64 journey and release producers retain
+their cache names and save the paths returned by the action. Job time limits
+are unchanged.
+
+The `verify/go + artifact/linux-amd64-arm64` job compares the push's
 executable inputs with the newest retained `ci-*` release in its history:
 different inputs publish, and the same inputs skip publication and
 `deploy/release-push` when that release's run succeeded; a release whose run

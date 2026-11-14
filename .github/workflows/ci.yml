@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/go
         with:
-          cache: lint
+          cache: lint-v2
       - run: make lint GO=go
       - run: make --jobs=2 release-check GO=go
       - run: bash scripts/ci/audit-dependencies.sh source
@@ -95,12 +95,12 @@ jobs:
           key: m1-runtime-${{ runner.arch }}-${{ hashFiles('deploy/m1/host-runtime.sh', 'internal/netbird/manager/server_cli.go', 'deploy/m1/install.sh') }}
       - name: Run the lane
         run: bash "test/e2e/m1/${{ matrix.entry }}" "$RUNNER_TEMP/m1-bin/terrascale-orchestrator"
-      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.lane == 'core' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.lane == 'core' && steps.go.outputs.cache-hit != 'true' }}
+        run: python3 scripts/ci/trim-go-cache.py
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.lane == 'core' && steps.go.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
+          path: ${{ steps.go.outputs.cache-paths }}
           key: ${{ steps.go.outputs.cache-key }}
 
   e2e-m1:
@@ -154,11 +154,18 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/go
+      - id: go
+        uses: ./.github/actions/go
         with:
-          cache: lint
+          cache: caller-key-changes
+          modules-only: 'true'
       - id: paths
         run: python3 test/e2e/m1/callerkey/inputs.py
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ steps.go.outputs.cache-paths }}
+          key: ${{ steps.go.outputs.cache-key }}
 
   e2e-certificates:
     needs: certificate-paths
@@ -195,7 +202,7 @@ jobs:
       - id: go
         uses: ./.github/actions/go
         with:
-          cache: lint
+          cache: caller-key-build
       - name: Build the overlay command and journey once
         run: bash test/e2e/m1/callerkey/build.sh "$RUNNER_TEMP/caller-key-bin"
       - name: Prove the shard partition
@@ -215,6 +222,13 @@ jobs:
             ${{ runner.temp }}/caller-key-bin/callerkey
             ${{ runner.temp }}/caller-key-bin/terrascale-orchestrator
           retention-days: 1
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go.outputs.cache-hit != 'true' }}
+        run: python3 scripts/ci/trim-go-cache.py
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ steps.go.outputs.cache-paths }}
+          key: ${{ steps.go.outputs.cache-key }}
 
   caller-key:
     needs: [caller-key-changes, caller-key-build]
@@ -314,12 +328,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_READ_TOKEN: ${{ github.token }}
         run: bash scripts/ci/publish-qualification.sh
-      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go.outputs.cache-hit != 'true' }}
+        run: python3 scripts/ci/trim-go-cache.py
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
+          path: ${{ steps.go.outputs.cache-paths }}
           key: ${{ steps.go.outputs.cache-key }}
 
   # Push the retained release to every region's ts-orch over NATS
