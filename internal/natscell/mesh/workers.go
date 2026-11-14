@@ -28,14 +28,8 @@ type WorkerPeer struct {
 
 // announcement is a worker's last word to its founder.
 type announcement struct {
-	nodeID  string
 	address string
 	at      time.Time
-}
-
-type nodeAnnouncement struct {
-	WorkerPeer
-	NodeID string `json:"node_id"`
 }
 
 // workerFresh is how long an announcement counts: three missed rounds drop
@@ -71,7 +65,7 @@ func regionalReplicas(spec *swarmruntime.ServiceSpec) uint64 {
 func (n *Node) announce(ctx context.Context) {
 	for {
 		if address, err := n.cfg.address(); err == nil {
-			data, err := protocol.EncodeJSON(nodeAnnouncement{WorkerPeer: WorkerPeer{Node: n.cfg.server, Address: address}, NodeID: n.cfg.nodeID})
+			data, err := protocol.EncodeJSON(WorkerPeer{Node: n.cfg.server, Address: address})
 			if err == nil {
 				err = n.conn.Publish(protocol.MeshWorkerPrefix+n.cfg.region, data)
 			}
@@ -91,7 +85,7 @@ func (n *Node) announce(ctx context.Context) {
 
 // recordWorker keeps a worker's announcement; only the founder subscribes.
 func (n *Node) recordWorker(m *nats.Msg) {
-	var at nodeAnnouncement
+	var at WorkerPeer
 	if protocol.DecodeStrict(m.Data, &at, maxWire) != nil || at.Node == n.cfg.server || !validPeer(n.cfg.region, peer{at.Node, at.Address}) {
 		return
 	}
@@ -100,7 +94,7 @@ func (n *Node) recordWorker(m *nats.Msg) {
 	if n.announced == nil {
 		n.announced = map[string]announcement{}
 	}
-	n.announced[at.Node] = announcement{nodeID: at.NodeID, address: at.Address, at: time.Now()}
+	n.announced[at.Node] = announcement{address: at.Address, at: time.Now()}
 }
 
 // refreshJoined is the founder's loop: a worker is fully joined while it
@@ -133,7 +127,7 @@ func (n *Node) setJoined(ctx context.Context) {
 	defer n.workerMu.Unlock()
 	joined := []WorkerPeer{}
 	for node, at := range n.announced {
-		if time.Since(at.at) <= fresh && (ready[node] || ready[at.nodeID]) {
+		if time.Since(at.at) <= fresh && ready[node] {
 			joined = append(joined, WorkerPeer{Node: node, Address: at.address})
 		}
 	}
@@ -235,15 +229,13 @@ func (a swarmApplier) WorkerStates(ctx context.Context) (ready, pending map[stri
 	}
 	ready, pending = map[string]bool{}, map[string]bool{}
 	for _, node := range nodes.Nodes {
-		if node.Spec.Availability != api.NodeAvailabilityActive || node.Spec.Membership != api.NodeMembershipAccepted || node.Description == nil {
+		if node.Spec.DesiredRole != api.NodeRoleWorker || node.Spec.Availability != api.NodeAvailabilityActive || node.Description == nil {
 			continue
 		}
 		switch node.Status.State {
 		case api.NodeStatus_READY:
-			ready[node.ID] = true
 			ready[node.Description.Hostname] = true
 		case api.NodeStatus_UNKNOWN:
-			pending[node.ID] = true
 			pending[node.Description.Hostname] = true
 		}
 	}

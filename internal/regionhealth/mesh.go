@@ -82,7 +82,7 @@ func Serve(conn *nats.Conn, latest func() Report) error {
 	if region == "" {
 		return errors.New("mesh server has no region identity")
 	}
-	_, err := conn.QueueSubscribe(protocol.MeshHealthSubject, region, func(m *nats.Msg) {
+	_, err := conn.Subscribe(protocol.MeshHealthSubject, func(m *nats.Msg) {
 		report := latest()
 		report.Region = region
 		data, err := protocol.EncodeJSON(report)

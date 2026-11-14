@@ -14,7 +14,6 @@ import time
 from pathlib import Path
 
 CASES = (
-    "promotion",
     "fresh-outage",
     "worker-outage",
     "manager-match",
@@ -84,20 +83,6 @@ def run_case(binary, seed_binary, root, case):
     subprocess.run(["ip", "addr", "add", "169.254.169.254/32", "dev", "lo"], check=True)
     work = root / case
     work.mkdir()
-    if case == "promotion":
-        local_var = work / "var-lib"
-        local_var.mkdir()
-        subprocess.run(["mount", "--bind", str(local_var), "/var/lib"], check=True)
-        result = subprocess.run(
-            [seed_binary, str(work), "promotion", binary],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-        require(result.returncode == 0, result.stdout[-1000:] + result.stderr[-6000:])
-        print(result.stdout.strip(), flush=True)
-        return
     firmware = work / "sys/class/dmi/id"
     firmware.mkdir(parents=True)
     for field in ("board_asset_tag", "product_serial", "product_uuid"):
@@ -134,7 +119,7 @@ def run_case(binary, seed_binary, root, case):
             values = {
                 "/opc/v2/instance/canonicalRegionName": "us-sanjose-1",
                 "/opc/v2/instance/id": "instance",
-                "/opc/v2/vnics/": '[{"privateIp":"127.0.0.2","vcnCidrBlock":"127.0.0.0/16"}]',
+                "/opc/v2/vnics/": '[{"privateIp":"127.0.0.2"}]',
             }
             value = values.get(self.path)
             ready = delayed and now - began >= 2
@@ -254,16 +239,8 @@ def run_case(binary, seed_binary, root, case):
             env=environment,
         )
         processes.append(process)
-        try:
-            extension = notify.recv(4096)
-        except TimeoutError:
-            stop(process)
-            data, _ = process.communicate()
-            raise AssertionError(
-                f"startup did not notify: {data.decode(errors='replace')[-5000:]}"
-            ) from None
         require(
-            extension == b"EXTEND_TIMEOUT_USEC=600000000",
+            notify.recv(4096) == b"EXTEND_TIMEOUT_USEC=600000000",
             "startup did not reserve time for recovery after the metadata window",
         )
         if case == "cancel":
@@ -290,7 +267,7 @@ def run_case(binary, seed_binary, root, case):
             role = "container" if case.startswith("worker-") else "manager"
             address = (
                 "127.0.0.1:4242"
-                if case in ("worker-outage", "manager-match")
+                if case.startswith("worker-") or case == "manager-match"
                 else "127.0.0.2:4242"
             )
             require(
@@ -352,12 +329,7 @@ def run_case(binary, seed_binary, root, case):
         if delayed:
             require(
                 json.loads(record.read_text())
-                == {
-                    "Region": "sjc",
-                    "ID": "instance",
-                    "PrivateIP": "127.0.0.2",
-                    "VCNCIDR": "127.0.0.0/16",
-                },
+                == {"Region": "sjc", "ID": "instance", "PrivateIP": "127.0.0.2"},
                 "successful metadata did not refresh the record",
             )
             require(

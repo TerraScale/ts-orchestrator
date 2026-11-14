@@ -146,12 +146,10 @@ type Applier interface {
 type config struct {
 	maintenance            *rolloutmaintenance.Store
 	region, server, dir    string
-	nodeID                 string
-	founder                bool
 	clusterHost            string
 	clusterAdvertise       string
 	clusterPort, localPort int
-	seeds                  map[string][]string
+	seeds                  map[string]string
 	routes                 []string
 	ca                     *CA
 	terrabaseToken         string  // TerraBase's client token, from Vault
@@ -343,13 +341,7 @@ func start(cfg config) (_ *Node, err error) {
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".fence"] = func(m *nats.Msg) { node.handleBootstrapFence(m) }
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".clear"] = func(m *nats.Msg) { node.handleBootstrapClear(m) }
 	for subject, handler := range handlers {
-		var err error
-		if subject == protocol.MeshWorkerPrefix+cfg.region {
-			_, err = conn.Subscribe(subject, handler)
-		} else {
-			_, err = conn.QueueSubscribe(subject, cfg.region, handler)
-		}
-		if err != nil {
+		if _, err := conn.Subscribe(subject, handler); err != nil {
 			node.closeConns()
 			cancel()
 			return nil, err
@@ -361,8 +353,9 @@ func start(cfg config) (_ *Node, err error) {
 		return nil, err
 	}
 	node.goWork(func() { node.watchPeers(ctx) })
-	node.goWork(func() { node.announce(ctx) })
-	if cfg.applier != nil {
+	if cfg.applier == nil {
+		node.goWork(func() { node.announce(ctx) })
+	} else {
 		node.goWork(func() { node.refreshJoined(ctx) })
 	}
 	return node, nil
@@ -462,9 +455,7 @@ func (n *Node) Run(ctx context.Context) {
 	settled := n.settled
 	for {
 		if n.cfg.applier != nil {
-			if n.isLeader(ctx) {
-				n.sync(ctx)
-			}
+			n.sync(ctx)
 			if time.Since(collected) >= 10*time.Minute {
 				n.mu.Lock()
 				n.collectImages(ctx)

@@ -75,7 +75,7 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 	if a.Role != "manager" && a.Role != "container" && a.Role != "wasm" {
 		return nil, errors.New("swarm node requires an admitted manager, container or wasm host role")
 	}
-	if a.HostID == a.FounderID && (a.ManagerAddress != "" || a.JoinToken != "") {
+	if a.HostID == a.FounderID && (a.Role != "manager" || a.ManagerAddress != "" || a.JoinToken != "") {
 		return nil, errors.New("regional founder admission must be a manager without join material")
 	}
 	for _, address := range []string{cfg.ListenAddress, cfg.AdvertiseAddress} {
@@ -113,17 +113,9 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 		if err := json.Unmarshal(stored, &previous); err != nil {
 			return nil, fmt.Errorf("read swarm admission: %w", err)
 		}
-		expected := identity
-		expected.Role = previous.Role
-		if previous != expected {
-			return nil, errors.New("swarm admission cannot change an existing node identity")
+		if previous != identity {
+			return nil, errors.New("swarm admission cannot change an existing node identity or role")
 		}
-		if err := reconcileAdmissionRole(ctx, cfg.StateDir, &previous); err != nil {
-			return nil, err
-		}
-		identity, a.Role = previous, previous.Role
-	} else if a.HostID == a.FounderID && a.Role != "manager" {
-		return nil, errors.New("regional founder admission must be a manager")
 	}
 
 	paths := ca.NewConfigPaths(filepath.Join(cfg.StateDir, "certificates"))
@@ -268,8 +260,6 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 // ID returns the durable upstream node certificate identity.
 func (n *Node) ID() string { return n.upstream.NodeID() }
 
-func (n *Node) IsManager() bool { return n.upstream.Manager() != nil }
-
 // RemoteAddress returns the manager's actual bound remote API address.
 func (n *Node) RemoteAddress() (string, error) { return n.upstream.RemoteAPIAddr() }
 
@@ -286,7 +276,7 @@ func (n *Node) Wait(ctx context.Context) error {
 // ControlClient exposes the manager's trusted local control connection. Its
 // lifecycle belongs to Node; worker admission never grants control access.
 func (n *Node) ControlClient(ctx context.Context) (api.ControlClient, error) {
-	if !n.IsManager() {
+	if n.role != "manager" || n.upstream.Manager() == nil {
 		return nil, errors.New("swarm control API requires an admitted manager")
 	}
 	waitCtx, cancel := context.WithCancel(ctx)
