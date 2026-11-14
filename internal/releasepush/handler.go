@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/datamount"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
 	"github.com/nats-io/nats.go"
 )
@@ -35,6 +36,7 @@ const (
 	SubjectHealth  = protocol.ReleaseHealth
 	SubjectOrch    = protocol.ReleaseOrch
 	SubjectApp     = protocol.ReleaseApp
+	SubjectNudge   = protocol.ReleaseNudge
 	SubjectPing    = protocol.ReleaseMeshPing
 	SubjectApply   = protocol.ReleaseMeshApply
 	SubjectRemove  = protocol.ReleaseMeshRemove
@@ -99,6 +101,7 @@ type Reply struct {
 	NodeList   nodelist.Status `json:"node_list,omitzero"`
 	Host       string          `json:"host,omitempty"`
 	Workers    []HostVersion   `json:"workers,omitempty"`
+	Arch       string          `json:"arch,omitempty"`
 }
 
 type HealthRequest struct {
@@ -142,6 +145,10 @@ type Handler struct {
 	Mesh                    func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
 	Relay                   func(context.Context, []byte) []HostVersion
 	Installed               chan struct{}
+	Attest                  releaseattest.Verifier
+	Source                  *releaseattest.Source
+	Nudges                  chan Nudge
+	lastNudge               atomic.Int64
 
 	RefusalFile   string
 	mu            sync.Mutex
@@ -160,7 +167,12 @@ func NewHandler(state string) (*Handler, error) {
 	}
 	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary, runningBinary: binary,
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
-		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
+		Client: &http.Client{}, Installed: make(chan struct{}, 1), Source: releaseattest.NewSource(), Nudges: make(chan Nudge, 1)}
+	attest, err := releaseattest.PublicGood()
+	if err != nil {
+		return nil, err
+	}
+	h.Attest = attest
 	probation, err := Probe(state, os.Stderr)
 	if err != nil {
 		return nil, err
@@ -203,6 +215,7 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 		SubjectHealth:  h.health,
 		SubjectOrch:    h.relayed,
 		SubjectApp:     h.app,
+		SubjectNudge:   h.nudge,
 		SubjectPing:    func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "ping", data) },
 		SubjectApply:   func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "apply", data) },
 		SubjectRemove:  func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "rm", data) },
@@ -247,7 +260,7 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 				if err := m.Respond(data); err != nil {
 					slog.Warn("release reply delivery failed", "error", err)
 				}
-				if reply.State == "installed" {
+				if reply.State == "installed" || reply.State == stateRestoring {
 					if err := conn.FlushTimeout(5 * time.Second); err != nil {
 						slog.Warn("release installed; reply flush failed", "error", err)
 					}
@@ -268,7 +281,7 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }
 
 func (h *Handler) version() Reply {
-	reply := Reply{Version: h.Revision, SHA256: h.Digest, NodeList: h.NodeList.Status()}
+	reply := Reply{Version: h.Revision, SHA256: h.Digest, NodeList: h.NodeList.Status(), Arch: runtime.GOARCH}
 	reply.State, reply.Error = h.probation.status()
 	if rollback := h.rolledBack.Load(); rollback != nil {
 		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason
@@ -331,16 +344,20 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 		}
 		return integrityReply(release.SHA, claims, err)
 	}
-	candidate := releaseID{release.SHA, binary.SHA256}
+	return h.installRelease(ctx, release.SHA, binary, claims)
+}
+
+func (h *Handler) installRelease(ctx context.Context, sha string, binary Binary, claims Claims) (reply Reply) {
+	candidate := releaseID{sha, binary.SHA256}
 	if candidate == h.pending {
-		return Reply{State: "installed", Version: release.SHA}
+		return Reply{State: "installed", Version: sha}
 	}
-	if release.SHA == h.Revision {
+	if sha == h.Revision {
 		if installed, err := binaryIdentity(h.Binary); err == nil && installed == candidate {
 			return Reply{State: "current", Version: h.Revision}
 		}
 	}
-	if rollback := h.rolledBack.Load(); rollback != nil && rollback.SHA == release.SHA && rollback.RunID == claims.RunID {
+	if rollback := h.rolledBack.Load(); rollback != nil && rollback.SHA == sha && rollback.RunID == claims.RunID {
 		return Reply{State: "rolled_back", Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason}
 	}
 	if stale, err := h.olderRun(claims.RunID); err != nil {
@@ -349,7 +366,7 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 		if errors.As(err, &damaged) {
 			kind = RefusalFence
 		}
-		reply = refusalReply(kind, release.SHA, binary.SHA256, claims, err)
+		reply = refusalReply(kind, sha, binary.SHA256, claims, err)
 		attempt := *reply.Refusal
 		if err := h.recordAttempt(&attempt); err != nil {
 			slog.Warn("release refusal diagnostic not saved", "error", err)
@@ -364,7 +381,7 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 			h.AbortStop()
 		}
 	}()
-	if err := h.install(ctx, binary, release.SHA, claims, func() error {
+	if err := h.install(ctx, binary, sha, claims, func() error {
 		if h.PrepareStop != nil {
 			if err := h.PrepareStop(ctx); err != nil {
 				return fmt.Errorf("host refused release restart: %w", err)
@@ -378,7 +395,7 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 		if errors.As(err, &integrity) {
 			kind = RefusalIntegrity
 		}
-		reply = refusalReply(kind, release.SHA, binary.SHA256, claims, err)
+		reply = refusalReply(kind, sha, binary.SHA256, claims, err)
 		var preflight *preflightError
 		reply.Refusal.Preflight = errors.As(err, &preflight)
 		attempt := *reply.Refusal
@@ -389,7 +406,7 @@ func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
 	}
 	h.pending = candidate
 	h.rolledBack.Store(nil)
-	return Reply{State: "installed", Version: release.SHA}
+	return Reply{State: "installed", Version: sha}
 }
 
 func ReleaseTag(sha, runID string) string { return "ci-" + sha + "-run-" + runID }

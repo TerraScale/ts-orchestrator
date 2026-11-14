@@ -8,6 +8,7 @@ const (
 	ReleaseHealth   = "ts.release.health"
 	ReleaseOrch     = "ts.release.ts-orch"
 	ReleaseApp      = "ts.release.app"
+	ReleaseNudge    = "ts.release.nudge"
 	// The multi-region workflow may publish only under ReleaseMeshWildcard;
 	// the host forwards these to the cross-region mesh (internal/natscell/mesh).
 	ReleaseMeshWildcard = "ts.release.mesh.>"
