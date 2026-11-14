@@ -138,7 +138,7 @@ func systemctl() {
 		return
 	}
 	if strings.Contains(string(data), prepare) {
-		fmt.Println("{ path=/usr/local/bin/ts-orch ; argv[]=/usr/local/bin/ts-orch alert-delivery prepare ; flags=full-privileges ; start_time=[n/a] ; }")
+		fmt.Println("{ path=/usr/local/bin/ts-orch ; argv[]=/usr/local/bin/ts-orch alert-delivery prepare ; flags=privileged ; start_time=[n/a] ; }")
 	}
 }
 
