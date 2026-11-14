@@ -183,7 +183,7 @@ jobs:
       - name: Install certificate lane tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gdb containerd iproute2 ca-certificates
+          sudo apt-get install -y -qq gdb containerd iproute2 iptables ca-certificates
       - name: Build ts-orch
         run: go build -trimpath -o "$RUNNER_TEMP/terrascale-orchestrator" ./cmd/terrascale-orchestrator
       - name: Run real lease, rollout and recovery proofs

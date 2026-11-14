@@ -164,7 +164,7 @@ func regressionJourney(ctx context.Context, cfg configuration, current **process
 		{"selection", func(ctx context.Context) error { return selectionJourney(ctx, cfg, conn, *current) }},
 		{"chains", func(ctx context.Context) error { return chainsJourney(ctx, cfg, conn, *current) }},
 		{"retirement", func(ctx context.Context) error { return retirementJourney(ctx, cfg, conn, *current) }},
-		{"adoption", func(ctx context.Context) error { return adoptionJourney(ctx, cfg, conn, *current, store) }},
+		{"adoption", func(ctx context.Context) error { return adoptionJourney(ctx, cfg, conn, *current) }},
 		{"durability", func(ctx context.Context) error { return durabilityJourney(ctx, cfg, conn, current, store, startNode) }},
 	} {
 		if scenario != "journey" && scenario != step.name {
@@ -332,7 +332,7 @@ func retirementJourney(ctx context.Context, cfg configuration, conn *nats.Conn, 
 	return nil
 }
 
-func adoptionJourney(ctx context.Context, cfg configuration, conn *nats.Conn, current, store *process) error {
+func adoptionJourney(ctx context.Context, cfg configuration, conn *nats.Conn, current *process) error {
 	name := "adoption.e2e.test"
 	pidData, err := os.ReadFile(cfg.Work + "/a.pid")
 	if err != nil {
@@ -351,12 +351,13 @@ func adoptionJourney(ctx context.Context, cfg configuration, conn *nats.Conn, cu
 		"-ex", "handle SIGPIPE nostop noprint pass", "-ex", "handle SIGURG nostop noprint pass", "-ex", "set pagination off", "-ex", "set confirm off", "-ex", "set auto-load off", "-ex", "set print frame-arguments none", "-ex", "set print thread-events off",
 		"-ex", fmt.Sprintf("attach %d", pid), "-ex", "break 'github.com/TerraScale/ts-orchestrator/internal/edge.(*certificateCache).lease'",
 		"-ex", "echo READY adoption debugger\\n", "-ex", "continue", "-ex", "delete", "-ex", "break 'github.com/TerraScale/ts-orchestrator/internal/edge.(*certificateCache).write'", "-ex", "continue",
-		"-ex", fmt.Sprintf("shell kill -STOP %d", store.cmd.Process.Pid), "-ex", "echo STORE STOPPED\\n", "-ex", "detach")
+		"-ex", "shell ip netns exec cert-a iptables -I OUTPUT -p tcp --sport 4223 -s 127.0.0.1 -m string --string '\"stream\":\"KV_edge-certs\"' --algo bm -j DROP", "-ex", "echo ACK WITHHELD\\n", "-ex", "detach")
 	if err != nil {
 		return err
 	}
 	defer debugger.stop()
-	defer store.cmd.Process.Signal(syscall.SIGCONT)
+	rule := []string{"ip", "netns", "exec", "cert-a", "iptables", "-D", "OUTPUT", "-p", "tcp", "--sport", "4223", "-s", "127.0.0.1", "-m", "string", "--string", "\"stream\":\"KV_edge-certs\"", "--algo", "bm", "-j", "DROP"}
+	defer func() { _ = command(rule...) }()
 	defer syscall.Kill(pid, syscall.SIGCONT)
 	if err := debugger.wait(ctx, "READY adoption debugger", 1); err != nil {
 		return err
@@ -364,7 +365,7 @@ func adoptionJourney(ctx context.Context, cfg configuration, conn *nats.Conn, cu
 	if err := route(ctx, cfg, "a", "adoption", []string{name}); err != nil {
 		return err
 	}
-	if err := debugger.wait(ctx, "STORE STOPPED", 1); err != nil {
+	if err := debugger.wait(ctx, "ACK WITHHELD", 1); err != nil {
 		return err
 	}
 	if err := current.wait(ctx, "edge certificate unavailable name="+name+" ", 1); err != nil {
@@ -373,7 +374,7 @@ func adoptionJourney(ctx context.Context, cfg configuration, conn *nats.Conn, cu
 	if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
 		return err
 	}
-	if err := store.cmd.Process.Signal(syscall.SIGCONT); err != nil {
+	if err := command(rule...); err != nil {
 		return err
 	}
 	var reserved laneEnvelope
