@@ -31,9 +31,7 @@ type Material struct {
 	Manager     string `json:"manager,omitempty"`
 	WorkerToken string `json:"workerToken,omitempty"`
 	// Route is the founder's mesh NATS cluster route, nats://<private VCN IP>:6222.
-	Route    string   `json:"route,omitempty"`
-	Managers []string `json:"managers,omitempty"`
-	Routes   []string `json:"routes,omitempty"`
+	Route string `json:"route,omitempty"`
 }
 
 // Read returns the region's current join material.
@@ -148,7 +146,7 @@ func Publish(ctx context.Context, region string, m Material) error {
 
 // Instance is what IMDS says about this OCI host.
 type Instance struct {
-	Region, ID, PrivateIP, VCNCIDR string
+	Region, ID, PrivateIP string
 }
 
 // Local reads this host's region, instance OCID and private VCN address.
@@ -167,12 +165,11 @@ func Local(ctx context.Context) (Instance, error) {
 	}
 	var listed []struct {
 		PrivateIP string `json:"privateIp"`
-		VCNCIDR   string `json:"vcnCidrBlock"`
 	}
 	if err := json.Unmarshal([]byte(vnics), &listed); err != nil || len(listed) == 0 || listed[0].PrivateIP == "" {
 		return Instance{}, errors.New("IMDS lists no VNIC private IP")
 	}
-	return Instance{Region: region, ID: strings.TrimSpace(id), PrivateIP: listed[0].PrivateIP, VCNCIDR: listed[0].VCNCIDR}, nil
+	return Instance{Region: region, ID: strings.TrimSpace(id), PrivateIP: listed[0].PrivateIP}, nil
 }
 
 func imds(ctx context.Context, path string) (string, error) {

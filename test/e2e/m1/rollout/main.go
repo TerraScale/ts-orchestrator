@@ -298,7 +298,7 @@ func runRegion(ctx context.Context, args []string) {
 	serverName, err := os.Hostname()
 	must(err)
 	node, err := mesh.StartRegionalHost(mesh.RegionalHost{State: root, Region: region, Server: serverName, CA: ca,
-		TerraBaseToken: fmt.Sprintf("%x", seed), Seeds: map[string][]string{peerRegion: {"nats://" + peerAddress + ":6222"}},
+		TerraBaseToken: fmt.Sprintf("%x", seed), Seeds: map[string]string{peerRegion: "nats://" + peerAddress + ":6222"},
 		ClusterAddress: address + ":6222", Address: func() (string, error) { return address, nil }})
 	must(err)
 	defer node.Close()
