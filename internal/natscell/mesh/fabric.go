@@ -54,7 +54,10 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret s
 	options.Host, options.Port = "127.0.0.1", cfg.localPort
 	options.NoSigs, options.MaxPayload = true, maxWire
 	options.Tags.Add(regionTag + cfg.region)
-	routes := append(slices.Clone(cfg.routes), slices.Sorted(maps.Values(cfg.seeds))...)
+	routes := slices.Clone(cfg.routes)
+	for seeds := range maps.Values(cfg.seeds) {
+		routes = append(routes, seeds...)
+	}
 	slices.Sort(routes)
 	for _, route := range slices.Compact(routes) {
 		address, err := url.Parse(route)
@@ -141,7 +144,10 @@ func (a *clientAuth) Check(c server.ClientAuthentication) bool {
 
 func serverName(cfg config) string {
 	if cfg.applier != nil {
-		return cfg.region
+		if cfg.founder {
+			return cfg.region
+		}
+		return cfg.region + "." + cfg.nodeID[:min(12, len(cfg.nodeID))]
 	}
 	return cfg.region + "." + cfg.server
 }
