@@ -822,5 +822,5 @@ func journey(ctx context.Context, cfg configuration) error {
 			return errors.New("certificate file is not owner-only")
 		}
 	}
-	return nil
+	return rollbackJourney(ctx, cfg, current, store, startNode)
 }

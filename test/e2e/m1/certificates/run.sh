@@ -25,6 +25,7 @@ previous="${CERTIFICATE_PREVIOUS_REF:-8bc71eb416af482823ec9165a4e799acd95330df}"
 git fetch origin "$previous"
 mkdir "$work/main"
 git archive FETCH_HEAD | tar -x -C "$work/main"
+nice -n 19 go test -count=1 -p 2 ./internal/edge
 nice -n 19 go build -p 2 -trimpath -o "$work/certificates" ./test/e2e/m1/certificates
 nice -n 19 go -C "$work/main" build -p 2 -trimpath -o "$work/main-orchestrator" ./cmd/terrascale-orchestrator
 python3 - "$work" "$binary" <<'PY'
