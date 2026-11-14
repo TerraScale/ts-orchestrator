@@ -33,6 +33,8 @@ require (
 	github.com/oracle/oci-go-sdk/v65 v65.126.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/common v0.72.0
+	github.com/secure-systems-lab/go-securesystemslib v0.11.1
+	github.com/sigstore/protobuf-specs v0.5.2
 	github.com/sigstore/sigstore-go v1.4.0
 	github.com/sirupsen/logrus v1.10.2
 	github.com/starfederation/datastar-go v1.2.2
@@ -53,6 +55,7 @@ require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
 	github.com/Microsoft/go-winio v0.6.3-0.20251027160822-ad3df93bed29 // indirect
 	github.com/Microsoft/hcsshim v0.15.0-rc.4 // indirect
+	github.com/ProtonMail/go-crypto v1.4.1 // indirect
 	github.com/a-h/parse v0.0.0-20250122154542-74294addb73e // indirect
 	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect
@@ -64,6 +67,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cli/browser v1.3.0 // indirect
 	github.com/cloudflare/cfssl v1.6.4 // indirect
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/container-storage-interface/spec v1.2.0 // indirect
 	github.com/containerd/cgroups/v3 v3.1.3 // indirect
 	github.com/containerd/continuity v0.5.0 // indirect
@@ -119,9 +123,11 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/in-toto/attestation v1.2.0 // indirect
 	github.com/in-toto/in-toto-golang v0.11.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.9.2 // indirect
+	github.com/jedisct1/go-minisign v0.0.0-20211028175153-1c139d1cc84b // indirect
 	github.com/jmoiron/sqlx v1.4.0 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
@@ -137,15 +143,17 @@ require (
 	github.com/prometheus/client_golang v1.25.0 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
-	github.com/secure-systems-lab/go-securesystemslib v0.11.1 // indirect
+	github.com/sassoftware/relic/v8 v8.2.0 // indirect
 	github.com/shibumi/go-pathspec v1.3.0 // indirect
-	github.com/sigstore/protobuf-specs v0.5.2 // indirect
 	github.com/sigstore/rekor v1.5.5 // indirect
 	github.com/sigstore/rekor-tiles/v2 v2.4.0 // indirect
 	github.com/sigstore/sigstore v1.11.1 // indirect
 	github.com/sigstore/timestamp-authority/v2 v2.2.0 // indirect
 	github.com/sony/gobreaker/v2 v2.4.0 // indirect
+	github.com/spf13/cobra v1.10.2 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
+	github.com/theupdateframework/go-tuf v0.7.0 // indirect
 	github.com/theupdateframework/go-tuf/v2 v2.4.2 // indirect
 	github.com/transparency-dev/formats v0.1.1 // indirect
 	github.com/transparency-dev/merkle v0.0.2 // indirect
