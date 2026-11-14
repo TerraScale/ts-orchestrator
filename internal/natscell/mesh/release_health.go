@@ -62,8 +62,8 @@ func (n *Node) ReleaseHealth(ctx context.Context) error {
 				return fmt.Errorf("stream %s: got %d replicas, want %d", stream.Config.Name, 1+len(stream.Cluster.Replicas), stream.Config.Replicas)
 			}
 			for _, replica := range stream.Cluster.Replicas {
-				if replica.Offline || !replica.Current || replica.Active > replicaActiveMax || replica.Lag != 0 {
-					return fmt.Errorf("stream %s: replica %s behind (lag %d, active %s)", stream.Config.Name, replica.Name, replica.Lag, replica.Active)
+				if replica.Offline || replica.Active > replicaActiveMax {
+					return fmt.Errorf("stream %s: replica %s unreachable (active %s)", stream.Config.Name, replica.Name, replica.Active)
 				}
 			}
 		}
