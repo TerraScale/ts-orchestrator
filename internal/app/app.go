@@ -122,9 +122,8 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			result.Mesh = errors.New("mesh not started")
 		}
 		if public != nil {
-			if readiness := public.Readiness(ctx); !readiness.Ready {
-				result.Edge = readiness.Err()
-			}
+			readiness := public.Readiness(ctx)
+			result.Edge = readiness.InfraErr()
 		}
 		return result
 	}, func(ctx context.Context) error {

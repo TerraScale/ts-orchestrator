@@ -277,6 +277,9 @@ func TestReadinessRejectsChainsClientsReject(t *testing.T) {
 			if ready != item.ready || (handshakeErr == nil) != item.ready {
 				t.Fatalf("ready=%v missing=%v names=%v handshake=%v, want ready=%v", ready, missing, names, handshakeErr, item.ready)
 			}
+			if err := edge.report().InfraErr(); err != nil {
+				t.Fatalf("certificate gap reached release health: %v", err)
+			}
 		})
 	}
 }

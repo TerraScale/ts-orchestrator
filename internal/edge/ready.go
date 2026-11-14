@@ -30,13 +30,14 @@ type Readiness struct {
 	Missing      []string
 	MissingNames []string
 	NotDurable   []string
+	infra        []string
 }
 
-func (r Readiness) Err() error {
-	if r.Ready {
+func (r Readiness) InfraErr() error {
+	if len(r.infra) == 0 {
 		return nil
 	}
-	return fmt.Errorf("edge not ready: %s (missing names: %s)", strings.Join(r.Missing, ", "), strings.Join(r.MissingNames, ", "))
+	return fmt.Errorf("edge not ready: %s", strings.Join(r.infra, ", "))
 }
 
 func (e *Edge) Readiness(ctx context.Context) Readiness {
@@ -47,8 +48,14 @@ func (e *Edge) Readiness(ctx context.Context) Readiness {
 		conditions = append(conditions, err.Error())
 	}
 	e.readyStatus.Store(&readinessVerdict{len(conditions) == 0, time.Now(), conditions})
-	ready, missing, missingNames := e.readiness()
-	return Readiness{Ready: ready, Missing: missing, MissingNames: missingNames, NotDurable: e.notDurable()}
+	return e.report()
+}
+
+func (e *Edge) report() Readiness {
+	infra := e.infrastructure()
+	pending, missingNames := e.certificateGaps()
+	missing := append(slices.Clone(infra), pending...)
+	return Readiness{Ready: len(missing) == 0 && len(missingNames) == 0, Missing: missing, MissingNames: missingNames, NotDurable: e.notDurable(), infra: infra}
 }
 
 func (e *Edge) SetReadinessRoutes(routes []ReadinessRoute) {
@@ -82,6 +89,11 @@ func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request) {
 }
 
 func (e *Edge) readiness() (bool, []string, []string) {
+	report := e.report()
+	return report.Ready, report.Missing, report.MissingNames
+}
+
+func (e *Edge) infrastructure() []string {
 	verdict := e.readyStatus.Load()
 	missing := []string{}
 	if verdict == nil || time.Since(verdict.at) > 10*time.Second {
@@ -90,7 +102,11 @@ func (e *Edge) readiness() (bool, []string, []string) {
 	if verdict != nil {
 		missing = append(missing, verdict.conditions...)
 	}
-	missingNames := []string{}
+	return missing
+}
+
+func (e *Edge) certificateGaps() ([]string, []string) {
+	pending, missingNames := []string{}, []string{}
 	for _, name := range e.servedNames() {
 		if e.servesTrusted(name) == nil {
 			continue
@@ -98,10 +114,10 @@ func (e *Edge) readiness() (bool, []string, []string) {
 		if e.certMissing(name) {
 			missingNames = append(missingNames, name)
 		} else {
-			missing = append(missing, "certificate "+name+" pending")
+			pending = append(pending, "certificate "+name+" pending")
 		}
 	}
-	return len(missing) == 0 && len(missingNames) == 0, missing, missingNames
+	return pending, missingNames
 }
 
 func readinessHello(name string) *tls.ClientHelloInfo {
