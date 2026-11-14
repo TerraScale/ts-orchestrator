@@ -28,12 +28,41 @@ groups:
           summary: A TerraBase deletion has stayed pending for twenty days
           description: Inspect pending holders. Region removal requires explicit user authorization.
       - alert: TerraBaseBackupLag
-        expr: terrabase_backup_lag_seconds{service="terrabase"} > 600
-        for: 2m
+        expr: terrabase_backup_lag_seconds{service="terrabase"} > 60
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: TerraBase backup lag exceeds sixty seconds
+          description: terrabase_backup_lag_seconds is the seconds the oldest committed data not yet in the backup bucket has waited, over every file the reporting member ships. Sixty seconds sustained for five minutes erodes the recoverable point; TerraBaseBackupLagCritical pages past three hundred seconds.
+          runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/disaster-recovery.md
+      - alert: TerraBaseBackupLagCritical
+        expr: terrabase_backup_lag_seconds{service="terrabase"} > 300
+        for: 5m
         labels:
           severity: critical
         annotations:
-          summary: TerraBase backup lag exceeds ten minutes
+          summary: TerraBase backup lag exceeds five minutes
+          description: The oldest committed data not yet in the backup bucket has waited more than five minutes, so point-in-time recovery is losing window on every file the reporting member ships. Inspect the backup pass on the reporting member and the bucket destination.
+          runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/disaster-recovery.md
+      - alert: TerraBaseBackupSnapshotAge
+        expr: (time() - terrabase_backup_bucket_snapshot_seconds{service="terrabase"} > 93600) and (terrabase_backup_bucket_snapshot_seconds{service="terrabase"} > 0)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: The newest TerraBase backup bucket snapshot is older than twenty-six hours
+          description: terrabase_backup_bucket_snapshot_seconds is the unix time of the newest Tigris snapshot of the backup bucket on the member that takes them and zero on every other member, so zero-valued members never fire. Tigris snapshots land daily; a value older than twenty-six hours means the daily snapshot of the backup bucket did not complete.
+          runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/disaster-recovery.md
+      - alert: TerraBaseBackupDrillStale
+        expr: (increase(terrabase_backup_drills_total{service="terrabase"}[26h]) <= 0) or absent(terrabase_backup_drills_total{service="terrabase"})
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: No TerraBase restore drill has completed in twenty-six hours
+          description: terrabase_backup_drills_total counts completed snapshot restore drills by result and drills run daily. No increase for twenty-six hours means no drill completed on the reporting member; a Prometheus with less than twenty-six hours of history truncates the window and can fire earlier. Failed drills page separately through TerraBaseBackupDrillFailed.
+          runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/disaster-recovery.md#drill
       # First observed failures also fire; historical failures expire after five minutes.
       - alert: TerraBaseBackupAbandoned
         expr: (increase(terrabase_backup_abandoned_total{service="terrabase"}[5m]) > 0) or ((terrabase_backup_abandoned_total{service="terrabase"} > 0) unless terrabase_backup_abandoned_total{service="terrabase"} offset 5m)
@@ -186,6 +215,22 @@ groups:
           severity: critical
         annotations:
           summary: 'Service task inventory is absent on {{ $labels.host }}'
+      - alert: ExpectedNodeAbsent
+        expr: |
+          (sum by (region) (up{job="host-storage"}) < 2)
+          or absent(up{job="host-storage",host="ts-sjc-1",region="sjc"})
+          or absent(up{job="host-storage",host="ts-sjc-2",region="sjc"})
+          or absent(up{job="host-storage",host="ts-fra-1",region="fra"})
+          or absent(up{job="host-storage",host="ts-fra-2",region="fra"})
+          or absent(up{job="host-storage",host="ts-gru-1",region="gru"})
+          or absent(up{job="host-storage",host="ts-gru-2",region="gru"})
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Expected node {{ $labels.host }} has no host-storage heartbeat ({{ $labels.region }})'
+          description: 'Each region (gru, sjc, fra) runs two hosts and every host agent exports the host-storage heartbeat, so a healthy region sums up{job="host-storage"} to two. The region clause fires when a heartbeat is down or vanished; the absent clauses name the configured host whose series disappeared from discovery. Use node operations for drain, reboot and rebuild; a stopped ts-prometheus on ts-gru-1 also stops evaluation and delivery for every region.'
+          runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/node-operations.md
       - alert: HostOOMKill
         expr: increase(ts_host_oom_kills_total{job="host-storage"}[15m]) > 0
         labels:
