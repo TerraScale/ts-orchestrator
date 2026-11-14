@@ -83,6 +83,72 @@ provide only G0's version check if health is unavailable; G2 always checks
 the requested binary, including on reruns where it is already current.
 Runtime credentials remain managed by OCI Vault.
 
+After every region passed, the same job attests the two pushed binaries with
+GitHub build provenance (`actions/attest-build-provenance`, signed keylessly
+by Sigstore with this job's OIDC identity), uploads the bundle to the run's
+release as `provenance.sigstore.json` and runs `ts-orch release nudge`, which
+sends one OIDC-authenticated nudge to each region in
+[`deploy/m1/regions.json`](../deploy/m1/regions.json). The job needs
+`contents: write` for the upload and `attestations: write` and
+`id-token: write` for the attestation. A release without that bundle is never
+pulled, so a push that failed a gate is not pulled either.
+
+## Pull-based self-update
+
+Each region's SwarmKit manager runs the release updater
+(`internal/pullrelease`). The updater, not CI, decides what runs:
+
+- **Discovery.** It reads the public releases API without a token
+  (`GET /repos/TerraScale/ts-orchestrator/releases`, with `If-None-Match`)
+  every five minutes and at once when a nudge arrives. It honours
+  `X-RateLimit-Remaining`, `X-RateLimit-Reset` and `Retry-After` and waits
+  until the reset before it asks again. It takes the newest `ci-<sha>-run-<id>`
+  release that carries `provenance.sigstore.json`. A lost nudge only delays
+  the update until the next poll.
+- **The nudge is a hint.** `ts.release.nudge` on the release listener (TLS
+  :4222, the same pinned listener CI pushes to) accepts only a GitHub OIDC
+  token from `ci.yml` on `refs/heads/main` and at most one nudge per ten
+  seconds. It wakes the updater; the token is not a release authorization
+  and the updater ignores what the nudge names.
+- **Verification.** The updater and then every host check the Sigstore bundle
+  against the public-good trusted root with `sigstore-go`: a transparency-log
+  entry and an observer timestamp, certificate identity
+  `https://github.com/TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main`
+  from `https://token.actions.githubusercontent.com`, source repository
+  `TerraScale/ts-orchestrator`, ref `refs/heads/main`, the release's commit,
+  a `push` trigger, the release's run and SLSA provenance v1. The binary for
+  the host's architecture must have the attested digest; the host checks the
+  downloaded bytes against it, then the binary's own VCS revision. The release
+  commit must descend from the host's installed revision (the public compare
+  API: `ahead` or `identical`), and the run must not be older than the
+  installed run. The host's existing preflight, commit point and probation
+  apply unchanged.
+- **Rollout.** One host at a time per region, workers first and the manager
+  (the updater's own host) last. Before each host every other host must answer,
+  be out of probation and report health `ok`, and the region's release health
+  must be `ok`. A host's restart goes through the same planned-stop gate
+  (`PrepareStop`) as a pushed release. After the install the host must
+  run the attested digest, have passed probation and stay healthy, together
+  with the region, for 15 uninterrupted seconds within three minutes.
+- **Rollback.** A candidate that never serves rolls itself back by probation.
+  A candidate that serves but fails the gate is told to roll back: it records
+  the rollback, restarts, and its next start restores the previous binary. The
+  updater marks that release bad and does not retry it; the next newer release
+  rolls out normally.
+- **Restart and status.** The updater writes its progress to
+  `nats/pull-rollout.json` and publishes each change on
+  `ts.mesh.pull-progress.<region>`. After its own restart, including its own
+  update, it continues from that record; hosts already on the target are not
+  installed again. `ts-orch status` prints the rollout phase, its target, each
+  host's progress and version under the region.
+
+Regions update independently. The push job still runs first, so today the
+updater finds every host current, confirms each host's health and records
+the rollout complete. The follow-up PR deletes the `Push the release one region at a
+time` step and `ts-orch release push`'s orchestrator path once production
+status shows pulled rollouts completing, leaving CI with build, attest,
+upload and nudge.
+
 If `e2e-m1` fails or is cancelled after the build published, the run leaves its
 public `ci-<sha>-run-<id>` prerelease behind, skips `deploy/release-push` and
 fails `all-green`, so nothing reaches the regions. The comparison above passes
@@ -110,7 +176,9 @@ release proofs; `BUNDLE/binaries/<sha256>` supplies the exact bytes.
 Application verifies trust, scope, digests and channel ordering, then publishes
 to existing OCI channels. Region consumers verify locally and poll for updates.
 Application needs no GitHub repository, `gh`, Git checkout or signing secret.
-A webhook can hint that data exists; it cannot authorize a release.
+A webhook can hint that data exists; it cannot authorize a release. The
+pull-based self-update follows the same rule: its nudge only wakes the
+updater, and the Sigstore attestation authorizes the binary.
 
 The signed channel sequence remains the `run_number` wire field, currently a
 CI counter. Changing producers must preserve monotonic ordering. See
