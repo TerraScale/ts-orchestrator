@@ -498,7 +498,7 @@ func meshRoute(address string) string {
 
 func meshCluster(plan hostPlan) mesh.Cluster {
 	cluster := mesh.Cluster{Worker: plan.admission.Role != "manager"}
-	if plan.region != "" {
+	if plan.joiner() {
 		cluster.Routes = func(ctx context.Context, region string) ([]string, error) {
 			material, err := regionjoin.Read(ctx, region)
 			if err != nil {
