@@ -74,12 +74,12 @@ reset complete:
 nice -n 19 python3 /home/mariogk/.local/libexec/ts-status-recover-canaries.py < /home/mariogk/.config/terrascale/mailbox-password
 ```
 
-The helper is installed from the reviewed ts-status
-[`scripts/recover-canaries.py`](https://github.com/TerraScale/ts-status/blob/6c0ca20ab1e4ae3e7e3357123f1d98fb08689979/scripts/recover-canaries.py).
-To refresh that local executable from a reviewed ts-status checkout, use
-`install -m 700 scripts/recover-canaries.py /home/mariogk/.local/libexec/ts-status-recover-canaries.py`.
-The complete [recovery contract and evidence](https://github.com/TerraScale/ts-status/blob/6c0ca20ab1e4ae3e7e3357123f1d98fb08689979/docs/canary-recovery.md)
-belongs to ts-status; do not duplicate credentials or regional host lists here.
+The helper is installed from the reviewed terrascale `status-site/`
+[`scripts/recover-canaries.py`](https://github.com/TerraScale/terrascale/blob/main/status-site/scripts/recover-canaries.py).
+To refresh that local executable from a reviewed terrascale checkout, use
+`install -m 700 status-site/scripts/recover-canaries.py /home/mariogk/.local/libexec/ts-status-recover-canaries.py`.
+The complete [recovery contract and evidence](https://github.com/TerraScale/terrascale/tree/main/status-site)
+belongs to terrascale `status-site/`; do not duplicate credentials or regional host lists here.
 
 The command reuses `mariogk+status-canary@terrascale.tech`, recreates it after
 a wipe, discovers regions, verifies region-pinned authenticated
