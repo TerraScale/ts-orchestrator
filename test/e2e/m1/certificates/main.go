@@ -91,10 +91,10 @@ func run() error {
 		return storeMain(ctx, cfg)
 	case "backend":
 		return backendMain(ctx)
-	case "journey":
+	case "journey", "adoption", "durability", "retirement", "selection", "chains":
 		bounded, stop := context.WithTimeout(ctx, 20*time.Minute)
 		defer stop()
-		return journey(bounded, cfg)
+		return journey(bounded, cfg, os.Args[1])
 	default:
 		return errors.New("unknown lane process")
 	}
@@ -183,7 +183,7 @@ func fixtures(cfg configuration) error {
 			return err
 		}
 
-		names := []string{"asymmetric.e2e.test", "urgent.e2e.test", "metadata.e2e.test", "repair.e2e.test", "fail-upload.e2e.test", "existing.e2e.test", "rsa.e2e.test", "postgres.e2e.test", "unknown.e2e.test", "unknown-local.e2e.test", "ecdsa-renew.e2e.test", "rsa-renew-rsa.e2e.test", "equal.e2e.test", "barrier.e2e.test", "fenced.e2e.test", "fail-first.e2e.test", "fail-second.e2e.test", "fail-long.e2e.test", region + ".regional.e2e.test"}
+		names := []string{"asymmetric.e2e.test", "urgent.e2e.test", "adoption.e2e.test", "metadata.e2e.test", "repair.e2e.test", "fail-upload.e2e.test", "existing.e2e.test", "rsa.e2e.test", "postgres.e2e.test", "unknown.e2e.test", "unknown-local.e2e.test", "ecdsa-renew.e2e.test", "rsa-renew-rsa.e2e.test", "equal.e2e.test", "barrier.e2e.test", "fenced.e2e.test", "fail-first.e2e.test", "fail-second.e2e.test", "fail-long.e2e.test", region + ".regional.e2e.test"}
 		base := append([]string(nil), names...)
 		for _, name := range base {
 			names = append(names, region+"."+name)
@@ -213,7 +213,7 @@ func fixtures(cfg configuration) error {
 			if name == "unknown.e2e.test" || name == "fenced.e2e.test" || name == "metadata.e2e.test" || name == "fail-upload.e2e.test" {
 				continue
 			}
-			if name == "ecdsa-renew.e2e.test" || name == "urgent.e2e.test" {
+			if name == "ecdsa-renew.e2e.test" || name == "urgent.e2e.test" || name == "adoption.e2e.test" {
 				until = time.Now().Add(10 * 24 * time.Hour)
 			}
 			if name == "rsa-renew-rsa.e2e.test" {
@@ -251,7 +251,7 @@ func fixtures(cfg configuration) error {
 
 		}
 	}
-	return nil
+	return regressionFixtures(cfg, root, key)
 }
 
 func namespace(cfg configuration, node, address string) error {
@@ -451,7 +451,7 @@ func backendMain(ctx context.Context) error {
 	return server.Close()
 }
 
-func journey(ctx context.Context, cfg configuration) error {
+func journey(ctx context.Context, cfg configuration, scenario string) error {
 	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"} {
 		_ = os.Setenv(key, "")
 	}
@@ -562,7 +562,11 @@ func journey(ctx context.Context, cfg configuration) error {
 		}
 		bootstrap.stop()
 	}
-	old, err := startNode("b", cfg.MainBinary, "old", "oracle")
+	peerBinary := cfg.MainBinary
+	if scenario != "journey" {
+		peerBinary = cfg.Binary
+	}
+	old, err := startNode("b", peerBinary, "old", "oracle")
 	if err != nil {
 		return err
 	}
@@ -599,6 +603,9 @@ func journey(ctx context.Context, cfg configuration) error {
 		}
 	}
 	fmt.Println("PASS main and current binaries serve existing ECDSA, RSA and Postgres certificates together")
+	if scenario != "journey" {
+		return regressionJourney(ctx, cfg, &current, store, startNode, scenario)
+	}
 	if err := unacknowledgedLeaseRollout(ctx, cfg, current, store); err != nil {
 		return err
 	}
@@ -749,6 +756,9 @@ func journey(ctx context.Context, cfg configuration) error {
 	}
 	fmt.Println("PASS two production processes use the host seed and account path; two lease contenders, one order per name, HTTP-01 on every eligible node; TLS fingerprint", firstFingerprint)
 	if err := observationJourney(cfg); err != nil {
+		return err
+	}
+	if err := regressionJourney(ctx, cfg, &current, store, startNode, scenario); err != nil {
 		return err
 	}
 	if err := recoveryJourney(ctx, cfg, conn, current); err != nil {

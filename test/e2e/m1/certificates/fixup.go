@@ -36,6 +36,7 @@ type laneEnvelope struct {
 	Lease   struct {
 		Generation string
 		Until      time.Time
+		Holder     string
 	}
 	Retry laneRetry
 }
