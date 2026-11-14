@@ -27,6 +27,7 @@ repo, work = map(pathlib.Path, sys.argv[1:])
 source = repo / "test/e2e/m1/regional/_journey"
 replace = {
     str(repo / "internal/natscell/mesh/regional_journey.go"): str(source / "mesh.go"),
+    str(repo / "internal/natscell/mesh/meta_journey.go"): str(source / "meta.go"),
     str(repo / "test/e2e/m1/regional/main.go"): str(source / "main.go"),
 }
 (work / "peers-overlay.json").write_text(json.dumps({"Replace": replace}))
