@@ -15,6 +15,8 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+const metaGroup = "_meta_"
+
 type FabricLifecycle struct {
 	server       *server.Server
 	monitor      *nats.Conn
@@ -42,6 +44,9 @@ func (n *FabricLifecycle) Health(ctx context.Context) error {
 	defer tick.Stop()
 	for {
 		err := n.fabricQuorum(ctx, false, targets)
+		if err == nil {
+			err = n.placement()
+		}
 		var catchingUp *replicaCatchup
 		if !errors.As(err, &catchingUp) {
 			return err
@@ -54,6 +59,19 @@ func (n *FabricLifecycle) Health(ctx context.Context) error {
 		case <-tick.C:
 		}
 	}
+}
+
+func (n *FabricLifecycle) placement() error {
+	for _, group := range n.raftGroups() {
+		if group.Group != metaGroup || !group.Leader {
+			continue
+		}
+		placeable := n.server.JetStreamClusterPeers()
+		if len(placeable) < len(group.Members) {
+			return &replicaCatchup{fmt.Sprintf("raft group %s: %d/%d members accept placement", group.Group, len(placeable), len(group.Members))}
+		}
+	}
+	return nil
 }
 
 type raftGroup struct {

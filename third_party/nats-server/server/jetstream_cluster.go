@@ -1385,6 +1385,23 @@ func (js *jetStream) setupMetaGroup() error {
 		}
 	}
 
+	if size := s.getOpts().JetStreamMetaBootSize; size > 0 {
+		var state StreamState
+		fs.FastState(&state)
+		if state.LastSeq == 0 {
+			ps, err := readPeerState(s.diskIOSemaphore(), storeDir)
+			if err != nil {
+				return err
+			}
+			ps.clusterSize = size
+			if err := writePeerState(s.diskIOSemaphore(), storeDir, ps); err != nil {
+				return err
+			}
+			cfg.Observer = true
+			s.Noticef("JetStream metadata log is empty: expecting %d peers and waiting in observer mode", size)
+		}
+	}
+
 	// Start up our meta node.
 	n, err := s.startRaftNode(sysAcc.GetName(), cfg, pprofLabels{
 		"type":    "metaleader",

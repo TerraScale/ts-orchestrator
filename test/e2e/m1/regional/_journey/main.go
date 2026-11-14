@@ -12,4 +12,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "FAIL regional peers:", err)
 		os.Exit(1)
 	}
+	if err := mesh.MetaBootJourney(os.Args[1]); err != nil {
+		fmt.Fprintln(os.Stderr, "FAIL metadata boot:", err)
+		os.Exit(1)
+	}
 }

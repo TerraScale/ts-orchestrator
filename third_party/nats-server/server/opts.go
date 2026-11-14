@@ -477,6 +477,7 @@ type Options struct {
 	JetStreamMaxCatchup        int64
 	JetStreamRequestQueueLimit int64
 	JetStreamInfoQueueLimit    int64
+	JetStreamMetaBootSize      int `json:"-"`
 	JetStreamMetaCompact       uint64
 	JetStreamMetaCompactSize   uint64
 	JetStreamMetaCompactSync   bool
