@@ -90,11 +90,10 @@ system_account: SYS
 			}
 		}
 		_ = json.NewEncoder(w).Encode(struct {
-			Placeable []string
-			Groups    *server.RaftzStatus
-			Health    string
-			Refusal   *string
-		}{s.JetStreamClusterPeers(), &groups, text, last})
+			Groups  *server.RaftzStatus
+			Health  string
+			Refusal *string
+		}{&groups, text, last})
 	})
 	mux.HandleFunc("/prepare", func(w http.ResponseWriter, r *http.Request) {
 		if err := lifecycle.PrepareStop(r.Context()); err != nil {
@@ -149,10 +148,9 @@ func start(work string, i int) (*process, error) {
 }
 
 type status struct {
-	Placeable []string
-	Groups    server.RaftzStatus
-	Health    string
-	Refusal   *string
+	Groups  server.RaftzStatus
+	Health  string
+	Refusal *string
 }
 
 var client = &http.Client{Timeout: 1500 * time.Millisecond}
@@ -403,7 +401,6 @@ func run(work string) error {
 		processes[i] = p
 	}
 	healthy := func() bool {
-		placeable := false
 		for i := range names {
 			state, err := readStatus(i)
 			if err != nil || state.Health != "" {
@@ -412,9 +409,8 @@ func run(work string) error {
 			if len(state.Groups) == 0 {
 				return false
 			}
-			placeable = placeable || len(state.Placeable) == len(names)
 		}
-		return placeable
+		return true
 	}
 	if err := bounded("three current metadata members", 20*time.Second, healthy); err != nil {
 		return err
