@@ -302,6 +302,9 @@ func start(cfg config) (_ *Node, err error) {
 		return nil, err
 	}
 	node.lifecycle = NewFabricLifecycle(embedded, monitor)
+	if options.JetStream {
+		go node.formMeta()
+	}
 	node.publishTopologyDesired()
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) {

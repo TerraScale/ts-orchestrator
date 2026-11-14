@@ -70,11 +70,21 @@ timeouts are unchanged; transfers work with unmodified v2.15.0 members in
 either direction. Current-replica observations use the existing RAFTZ system
 request, which is also available on unmodified members.
 
+`server/opts.go` adds `JetStreamMetaBootSize`, and `server/jetstream_cluster.go`
+uses it when the metadata group's log is empty. Upstream estimates the size of a
+new metadata group from the number of configured route URLs, but the mesh dials
+three seed URLs per peer region, most of which name hosts that do not exist on
+a new fleet, so three founders expected six peers and never elected a leader. With
+the option set, a server whose metadata log is empty expects that many peers and
+starts its metadata node as an observer, so it never campaigns; the embedding
+mesh ends observer mode once the node has seen a leader, or once every founder is
+reachable and none has metadata state. Unset, behavior is unchanged.
+
 Compare this directory with the upstream `v2.15.0` Go module archive before
 upgrading. Apart from this README,
 `server/server.go`, `server/accounts.go`, `server/leafnode.go`,
 `server/route.go`, `server/events.go`, `server/client.go`, `server/auth.go`, `server/stream.go`,
-`server/raft.go` and `server/jetstream_cluster.go`
+`server/raft.go`, `server/opts.go` and `server/jetstream_cluster.go`
 are the changed upstream files. An upgrade re-applies each change above and
 updates the source digest that `scripts/ci/audit-replacements.py` pins for this
 directory.

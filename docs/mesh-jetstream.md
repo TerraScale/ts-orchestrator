@@ -220,6 +220,20 @@ Activate one region at a time, in order sjc, gru, fra:
   any one region or founder.
 - It runs only when the node is in the cluster. A server with no routes runs
   no JetStream.
+- A new metadata group forms only from founders. A server whose metadata log
+  is empty expects one peer per region it seeds (3 in production) and waits as
+  a non-voting candidate: it never campaigns. It leaves that state when it sees
+  a leader (it joined the existing group), or, on a founder, when every founder
+  answers on the mesh and none has metadata state. NATS elects a group with
+  empty logs only when every expected peer votes, so a brand-new fleet elects
+  once all founders are up, and a node that lost its state, or stopped before
+  any leader existed, joins the group it can reach instead of forming a second
+  one. A server with metadata state recovers its group from disk as before, so
+  a full-fleet restart re-elects from the persisted peers.
+- Health on the metadata leader also waits until every metadata member accepts
+  placement. NATS marks a route-connected peer placeable only after its first
+  statsz, up to a second later, and a stream or bucket created in that window
+  fails with "no suitable peers for placement, peer offline".
 - A fatal error inside the embedded server, such as a JetStream store it
   cannot create, fails the mesh start and the mesh retries every 30 s. It never
   exits ts-orch, so the release listener on 4222 keeps serving.
