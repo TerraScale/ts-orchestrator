@@ -3,6 +3,7 @@ package mesh
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -34,20 +35,39 @@ func (n *Node) AbortStop() {
 }
 
 func (n *FabricLifecycle) Health(ctx context.Context) error {
-	return n.fabricQuorum(ctx, false)
+	targets := make(map[string]uint64)
+	catchup := time.NewTimer(replicaActiveMax)
+	defer catchup.Stop()
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		err := n.fabricQuorum(ctx, false, targets)
+		var catchingUp *replicaCatchup
+		if !errors.As(err, &catchingUp) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-catchup.C:
+			return err
+		case <-tick.C:
+		}
+	}
 }
 
 type raftGroup struct {
-	Group    string
-	ID       string
-	Leader   bool
-	Term     uint64
-	Members  []string
-	Current  []string
-	Active   []string
-	Quorum   int
-	Size     int
-	Changing bool
+	Group      string
+	ID         string
+	Leader     bool
+	Term       uint64
+	Members    []string
+	Active     []string
+	Committed  uint64
+	Replicated map[string]uint64
+	Quorum     int
+	Size       int
+	Changing   bool
 }
 
 func (n *FabricLifecycle) raftGroups() []raftGroup {
@@ -55,16 +75,6 @@ func (n *FabricLifecycle) raftGroups() []raftGroup {
 	for _, node := range n.server.RaftNodes() {
 		group := raftGroup{Group: node.Group(), ID: node.ID(), Leader: node.Leader(), Term: node.Term(),
 			Members: node.VotingPeerNames(), Quorum: node.QuorumNeeded(), Size: node.ClusterSize(), Changing: node.MembershipChangeInProgress()}
-		if group.Leader {
-			for _, peer := range node.Peers() {
-				if peer.ID == group.ID || time.Since(peer.Last) < replicaActiveMax {
-					group.Active = append(group.Active, peer.ID)
-					if peer.Current {
-						group.Current = append(group.Current, peer.ID)
-					}
-				}
-			}
-		}
 		groups = append(groups, group)
 	}
 	return groups
@@ -72,9 +82,13 @@ func (n *FabricLifecycle) raftGroups() []raftGroup {
 
 func (n *FabricLifecycle) groupLeaders(ctx context.Context, groups []raftGroup) (map[string]raftGroup, error) {
 	leaders := make(map[string]raftGroup)
-	for _, group := range groups {
-		if group.Leader {
-			leaders[group.Group] = group
+	accounts, err := n.server.Accountz(nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, account := range accounts.Accounts {
+		if status := n.server.Raftz(&server.RaftzOptions{AccountFilter: account}); status != nil {
+			observeLeaders(leaders, *status)
 		}
 	}
 	complete := func() bool {
@@ -97,10 +111,6 @@ func (n *FabricLifecycle) groupLeaders(ctx context.Context, groups []raftGroup) 
 		return nil, err
 	}
 	defer sub.Unsubscribe()
-	accounts, err := n.server.Accountz(nil)
-	if err != nil {
-		return nil, err
-	}
 	for _, account := range accounts.Accounts {
 		payload, err := json.Marshal(server.RaftzOptions{AccountFilter: account})
 		if err != nil {
@@ -121,32 +131,34 @@ func (n *FabricLifecycle) groupLeaders(ctx context.Context, groups []raftGroup) 
 		if err := json.Unmarshal(message.Data, &reply); err != nil {
 			return leaders, err
 		}
-		for _, account := range reply.Data {
-			for name, raft := range account {
-				if raft.State != "LEADER" || raft.Term < leaders[name].Term {
-					continue
-				}
-				group := raftGroup{Group: name, ID: raft.ID, Leader: true, Term: raft.Term,
-					Size: raft.Size, Quorum: raft.QuorumNeeded, Members: []string{raft.ID}, Current: []string{raft.ID}, Active: []string{raft.ID}}
-				for id, peer := range raft.Peers {
-					group.Members = append(group.Members, id)
-					age, err := time.ParseDuration(peer.LastSeen)
-					if peer.Known && err == nil && age < replicaActiveMax {
-						group.Active = append(group.Active, id)
-						if peer.LastReplicatedIndex >= raft.Committed {
-							group.Current = append(group.Current, id)
-						}
-					}
-					group.Changing = group.Changing || !peer.Known
-				}
-				leaders[name] = group
-			}
-		}
+		observeLeaders(leaders, reply.Data)
 	}
 	return leaders, nil
 }
 
-func (n *FabricLifecycle) fabricQuorum(ctx context.Context, stopping bool) error {
+func observeLeaders(leaders map[string]raftGroup, status server.RaftzStatus) {
+	for _, account := range status {
+		for name, raft := range account {
+			if raft.State != "LEADER" || raft.Term < leaders[name].Term {
+				continue
+			}
+			group := raftGroup{Group: name, ID: raft.ID, Leader: true, Term: raft.Term, Size: raft.Size, Quorum: raft.QuorumNeeded,
+				Members: []string{raft.ID}, Active: []string{raft.ID}, Committed: raft.Committed, Replicated: map[string]uint64{raft.ID: raft.Committed}}
+			for id, peer := range raft.Peers {
+				group.Members = append(group.Members, id)
+				age, err := time.ParseDuration(peer.LastSeen)
+				if peer.Known && err == nil && age < replicaActiveMax {
+					group.Active = append(group.Active, id)
+					group.Replicated[id] = peer.LastReplicatedIndex
+				}
+				group.Changing = group.Changing || !peer.Known
+			}
+			leaders[name] = group
+		}
+	}
+}
+
+func (n *FabricLifecycle) fabricQuorum(ctx context.Context, stopping bool, targets map[string]uint64) error {
 	groups := n.raftGroups()
 	if len(groups) == 0 {
 		return nil
@@ -168,19 +180,26 @@ func (n *FabricLifecycle) fabricQuorum(ctx context.Context, stopping bool) error
 		if group.Changing || leader.Changing || len(group.Members) != group.Size || !sameMembers(group.Members, leader.Members) {
 			return fmt.Errorf("raft group %s: membership is changing", group.Group)
 		}
-		current := 0
-		for _, id := range leader.Current {
-			if slices.Contains(group.Members, id) && (!stopping || id != group.ID) {
+		target := leader.Committed
+		if targets != nil {
+			key := fmt.Sprintf("%s/%d", leader.Group, leader.Term)
+			if pinned, ok := targets[key]; ok {
+				target = pinned
+			} else {
+				targets[key] = target
+			}
+		}
+		current, active := 0, 0
+		for _, id := range leader.Active {
+			if !slices.Contains(group.Members, id) || (stopping && id == group.ID) {
+				continue
+			}
+			active++
+			if leader.Replicated[id] >= target {
 				current++
 			}
 		}
 		if stopping && current < group.Quorum {
-			active := 0
-			for _, id := range leader.Active {
-				if id != group.ID && slices.Contains(group.Members, id) {
-					active++
-				}
-			}
 			message := fmt.Sprintf("raft group %s: planned stop refused: %d current replicas remain, quorum needs %d", group.Group, current, group.Quorum)
 			if active >= group.Quorum {
 				return &replicaCatchup{message}
@@ -188,7 +207,11 @@ func (n *FabricLifecycle) fabricQuorum(ctx context.Context, stopping bool) error
 			return fmt.Errorf("%s", message)
 		}
 		if !stopping && current != group.Size {
-			return fmt.Errorf("raft group %s: leader %s, %d/%d current replicas, quorum needs %d", group.Group, leader.ID, current, group.Size, group.Quorum)
+			message := fmt.Sprintf("raft group %s: leader %s, %d/%d current replicas, quorum needs %d", group.Group, leader.ID, current, group.Size, group.Quorum)
+			if active == group.Size {
+				return &replicaCatchup{message}
+			}
+			return fmt.Errorf("%s", message)
 		}
 	}
 	return nil
@@ -224,7 +247,7 @@ func (n *FabricLifecycle) PrepareStop(ctx context.Context) error {
 	tick := time.NewTicker(20 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		err := n.fabricQuorum(ctx, true)
+		err := n.fabricQuorum(ctx, true, nil)
 		if err == nil {
 			break
 		}

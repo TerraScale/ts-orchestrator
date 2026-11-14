@@ -59,7 +59,14 @@ A refusal returns `host refused release restart` to the release caller and
 keeps the running binary and listeners. An unsuccessful installation restores
 election eligibility. Release health is healthy only when every local
 replicated metadata, stream, and consumer group has a leader and every
-replica is current; unhealthy replies name the group and available counts.
+replica is current. A replica is current once it has replicated the leader's
+commit index from the first observation of that leader's term. Commit needs
+only a quorum, so on cross-region groups with steady writes the farthest
+follower is always a round trip behind the newest commit; an active replica
+gets up to two seconds (`replicaActiveMax`) to reach the observed index. A
+replica that is inactive, or still behind after that, makes health fail;
+unhealthy replies name the group and available counts. The stream check adds
+leader, replica count and liveness; it does not judge lag again.
 The existing release ordering and health observation intervals are unchanged.
 
 The first SIGTERM or interrupt runs admission before canceling serving work.
