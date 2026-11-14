@@ -166,10 +166,10 @@ func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region
 				ready, err := edgeLocalServices(ctx, client, host)
 				if err != nil {
 					slog.WarnContext(ctx, "edge local task sync failed", "error", err)
-				} else {
-					public.SetServiceRoutes(web, postgres, services, ready)
-					public.SetReadinessRoutes(edgeReadinessRoutes(list.Services, region))
+					ready = nil
 				}
+				public.SetServiceRoutes(web, postgres, services, ready)
+				public.SetReadinessRoutes(edgeReadinessRoutes(list.Services, region))
 			} else {
 				slog.WarnContext(ctx, "edge route sync failed", "error", err)
 			}

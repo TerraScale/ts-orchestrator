@@ -18,6 +18,8 @@ import (
 
 const edgeHopHeader = "X-TerraScale-Edge-Hop"
 
+var errNoReadyService = errors.New("no ready service backend")
+
 type edgeHopKey struct{}
 type edgeTargetKey struct{}
 
@@ -44,7 +46,7 @@ func (e *Edge) SetServiceRoutes(web, postgres map[string]int, hosts map[string]s
 
 func (e *Edge) ReadyServices() []string {
 	routes := e.serviceRoutes.Load()
-	if routes == nil {
+	if routes == nil || e.draining.Load() {
 		return nil
 	}
 	return slices.Sorted(maps.Keys(routes.ready))
@@ -76,9 +78,9 @@ func (e *Edge) authorizeEdgeHop(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-func (e *Edge) routePeerEdge(r *http.Request) *http.Request {
+func (e *Edge) routePeerEdge(r *http.Request, balance bool) *http.Request {
 	port, _ := e.port(r.Host)
-	if port == 8080 || r.Context().Value(edgeHopKey{}) != nil {
+	if port == 8080 {
 		return r
 	}
 	host := r.Host
@@ -90,21 +92,38 @@ func (e *Edge) routePeerEdge(r *http.Request) *http.Request {
 		return r
 	}
 	service := routes.hosts[strings.ToLower(host)]
-	peers := e.peerEdges.Load()
-	if service == "" || routes.ready[service] || peers == nil || e.requestProofSecret.Load() == nil {
+	if service == "" {
 		return r
 	}
+	local := routes.ready[service] && !e.draining.Load()
+	if r.Context().Value(edgeHopKey{}) != nil {
+		if local {
+			return r
+		}
+		return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{}))
+	}
 	addresses := []string{}
-	for _, peer := range (*peers)() {
-		if slices.Contains(peer.ReadyServices, service) {
-			addresses = append(addresses, peer.Address)
+	if local {
+		addresses = append(addresses, "")
+	}
+	if peers := e.peerEdges.Load(); peers != nil && e.requestProofSecret.Load() != nil {
+		for _, peer := range (*peers)() {
+			if slices.Contains(peer.ReadyServices, service) {
+				addresses = append(addresses, peer.Address)
+			}
 		}
 	}
 	if len(addresses) == 0 {
+		return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{}))
+	}
+	if len(addresses) == 1 && addresses[0] == "" {
 		return r
 	}
-	value, _ := e.edgeNext.LoadOrStore(service, new(atomic.Uint64))
-	start := int((value.(*atomic.Uint64).Add(1) - 1) % uint64(len(addresses)))
+	start := 0
+	if balance {
+		value, _ := e.edgeNext.LoadOrStore(service, new(atomic.Uint64))
+		start = int((value.(*atomic.Uint64).Add(1) - 1) % uint64(len(addresses)))
+	}
 	addresses = append(slices.Clone(addresses[start:]), addresses[:start]...)
 	return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{addresses: addresses}))
 }
@@ -122,6 +141,10 @@ func (b edgeAttemptBody) Close() error {
 }
 
 func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Response, error) {
+	if len(target.addresses) == 0 {
+		closeBody(r)
+		return nil, errNoReadyService
+	}
 	key := e.requestProofSecret.Load()
 	if key == nil {
 		closeBody(r)
@@ -144,6 +167,9 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 	}
 	var lastErr error
 	for _, address := range target.addresses {
+		if address == "" {
+			return e.local.RoundTrip(r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, nil)))
+		}
 		connected := new(atomic.Bool)
 		out := r.Clone(httptrace.WithClientTrace(r.Context(), &httptrace.ClientTrace{
 			GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },

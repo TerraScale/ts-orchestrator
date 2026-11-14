@@ -3,6 +3,7 @@ package mesh
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"net"
@@ -23,6 +24,40 @@ func stopNode(node *Node) {
 	if err := node.Close(); err != nil {
 		node.ForceClose()
 	}
+}
+
+func FleetEdgeNodes(root string) ([]*Node, func(), error) {
+	ports, err := freePorts(6)
+	if err != nil {
+		return nil, nil, err
+	}
+	seed := make([]byte, 32)
+	if _, err := rand.Read(seed); err != nil {
+		return nil, nil, err
+	}
+	ca, err := DeriveCA(seed)
+	if err != nil {
+		return nil, nil, err
+	}
+	nodes := []*Node{}
+	cleanup := func() {
+		for _, node := range nodes {
+			stopNode(node)
+		}
+	}
+	for i, region := range []string{"gru", "gru", "sjc", "sjc", "fra", "fra"} {
+		name := fmt.Sprintf("ts-%s-%d", region, i%2+1)
+		address := fmt.Sprintf("127.0.0.%d", 10+i)
+		node, err := start(config{region: region, server: name, dir: filepath.Join(root, name), ca: ca,
+			terrabaseToken: strings.Repeat("t", 32), localPort: ports[i],
+			address: func() (string, error) { return address, nil }, peersDir: filepath.Join(root, name+"-peers")})
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes, cleanup, nil
 }
 
 func RegionalPeersJourney(root string) error {

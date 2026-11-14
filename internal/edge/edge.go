@@ -182,7 +182,11 @@ func newEdge(stateDir string) *Edge {
 				w.Header().Set(replayDownHeader, "1")
 			}
 			secureHeaders(w.Header())
-			w.WriteHeader(http.StatusBadGateway)
+			status := http.StatusBadGateway
+			if errors.Is(err, errNoReadyService) {
+				status = http.StatusServiceUnavailable
+			}
+			w.WriteHeader(status)
 		},
 		// gRPC and SSE streams must reach the client as each message arrives.
 		FlushInterval: -1,
@@ -237,7 +241,7 @@ func (e *Edge) setRoutes(web, postgres map[string]int) {
 func (e *Edge) Drain() { e.draining.Store(true) }
 
 func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
-	if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
+	if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" && r.URL.Path != "/edge/ready" {
 		return false
 	}
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
@@ -291,6 +295,10 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 				return
 			}
 			e.identify(w, r)
+			if r.URL.Path == "/edge/ready" {
+				e.serveReady(w, r)
+				return
+			}
 			// A Postgres hostname needs :80 only for its certificate's challenge.
 			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
 				http.NotFound(w, r)
@@ -345,6 +353,10 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e.identify(w, r)
+	if r.URL.Path == "/edge/ready" {
+		e.serveReady(w, r)
+		return
+	}
 	if e.drainingHealth(w, r) {
 		return
 	}
@@ -377,7 +389,7 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	r = e.routePeerEdge(r)
+	r = e.routePeerEdge(r, true)
 	if strings.EqualFold(host, netbirdHost) && !netbirdBackend(r) && r.Context().Value(edgeTargetKey{}) == nil {
 		secureHeaders(w.Header())
 		e.netbirdDashboard.ServeHTTP(w, r)

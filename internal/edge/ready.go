@@ -74,6 +74,9 @@ func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	if e.drainingHealth(w, r) {
+		return
+	}
 	readiness := e.Readiness(r.Context())
 	if readiness.Ready {
 		w.WriteHeader(http.StatusOK)
@@ -171,6 +174,9 @@ func (e *Edge) certMissing(name string) bool {
 
 func (e *Edge) ready(ctx context.Context) ([]string, error) {
 	conditions := []string{}
+	if e.draining.Load() {
+		conditions = append(conditions, "node draining")
+	}
 	if e.listeners.Load() != 15 {
 		conditions = append(conditions, "listeners unavailable")
 	}
@@ -199,17 +205,13 @@ func (e *Edge) ready(ctx context.Context) ([]string, error) {
 	if len(routes) == 0 {
 		conditions = append(conditions, "readiness routes unavailable")
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	for _, route := range routes {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(route.Port))+route.Path, nil)
 		if err != nil {
 			return conditions, err
 		}
 		req.Host = route.Host
-		resp, err := client.Do(req)
+		resp, err := e.local.RoundTrip(e.routePeerEdge(req, false))
 		if err != nil {
 			conditions = append(conditions, "backend unavailable")
 			continue
