@@ -76,11 +76,12 @@ system_account: SYS
 		return err
 	})
 	mux := http.NewServeMux()
-	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
-		health := lifecycle.Health(r.Context())
+	serveStatus := func(w http.ResponseWriter, r *http.Request) {
 		text := ""
-		if health != nil {
-			text = health.Error()
+		if r.URL.Path == "/status" {
+			if health := lifecycle.Health(r.Context()); health != nil {
+				text = health.Error()
+			}
 		}
 		last := refusal.Load()
 		groups := server.RaftzStatus{}
@@ -94,7 +95,9 @@ system_account: SYS
 			Health  string
 			Refusal *string
 		}{&groups, text, last})
-	})
+	}
+	mux.HandleFunc("/status", serveStatus)
+	mux.HandleFunc("/groups", serveStatus)
 	mux.HandleFunc("/prepare", func(w http.ResponseWriter, r *http.Request) {
 		if err := lifecycle.PrepareStop(r.Context()); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -156,8 +159,12 @@ type status struct {
 var client = &http.Client{Timeout: 1500 * time.Millisecond}
 
 func readStatus(i int) (status, error) {
+	return readNode(i, "status")
+}
+
+func readNode(i int, path string) (status, error) {
 	var result status
-	response, err := client.Get("http://" + address(i) + ":8090/status")
+	response, err := client.Get("http://" + address(i) + ":8090/" + path)
 	if err != nil {
 		return result, err
 	}
@@ -493,6 +500,22 @@ func run(work string) error {
 		}); err != nil {
 			return err
 		}
+
+		previous, err := readNode(i, "groups")
+		if err != nil {
+			return err
+		}
+		terms := map[string]uint64{}
+		for _, account := range previous.Groups {
+			for name, group := range account {
+				if group.State == "LEADER" {
+					terms[name] = group.Term
+				}
+			}
+		}
+		if len(terms) != 3 {
+			return errors.New("stopping node does not lead every group")
+		}
 		stop := time.Now()
 		if err := processes[i].cmd.Process.Signal(syscall.SIGTERM); err != nil {
 			return err
@@ -503,13 +526,13 @@ func run(work string) error {
 				if i == j {
 					continue
 				}
-				state, err := readStatus(j)
+				state, err := readNode(j, "groups")
 				if err != nil {
 					return false
 				}
 				for _, account := range state.Groups {
 					for name, group := range account {
-						if group.State == "LEADER" {
+						if term, led := terms[name]; led && group.State == "LEADER" && group.Term > term {
 							leaders[name] = true
 						}
 					}

@@ -213,16 +213,16 @@ Activate one region at a time, in order sjc, gru, fra:
 
 ## JetStream
 
-- JetStream runs on every founder (the host that answers for its region).
-  Workers carry messages but store nothing. So the JetStream cluster has 3
-  peers, one per region, and a second node per region adds no vote: an R3
-  asset keeps one replica per region, and a meta group of 3 tolerates losing
-  any one region or founder.
+- JetStream runs on regional managers, with up to three managers per region.
+  Workers carry messages but store nothing. Additional managers can join the
+  metadata group and accept placement; the metadata quorum follows its voting
+  membership. Stream and bucket placement stays region-unique: an R3 asset
+  keeps one replica per region, regardless of the number of managers.
 - It runs only when the node is in the cluster. A server with no routes runs
   no JetStream.
 - A new metadata group forms only from founders. A server whose metadata log
-  is empty expects one peer per region it seeds (3 in production) and waits as
-  a non-voting candidate: it never campaigns. It leaves that state when it sees
+  is empty expects one peer per seeded region, including its own, and starts
+  as an observer: it never campaigns. It leaves that state when it sees
   a leader (it joined the existing group), or, on a founder, when every founder
   answers on the mesh and none has metadata state. NATS elects a group with
   empty logs only when every expected peer votes, so a brand-new fleet elects
@@ -314,8 +314,8 @@ a READY SwarmKit node and no service below
 its desired replicas. Unreadable service state fails the gate; host memory
 and disk pressure do not gate releases.
 
-Only after G2 may the next region restart, keeping at most one of the three
-JetStream peers down during the rollout. A region already running the release
+Only after G2 may the next region restart, keeping at most one region
+restarting during the rollout. A region already running the release
 still passes G1 and the full G2 health gate. A failed gate stops the push
 and marks unreached regions skipped. G2 requires health replies from the
 requested SHA, polling every two seconds
