@@ -556,6 +556,10 @@ func journey(ctx context.Context, cfg configuration) error {
 		if err != nil {
 			return err
 		}
+		if err := bootstrap.wait(ctx, "JetStream cluster new metadata leader:", 1); err != nil {
+			bootstrap.stop()
+			return err
+		}
 		bootstrap.stop()
 	}
 	old, err := startNode("b", cfg.MainBinary, "old", "oracle")

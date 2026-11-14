@@ -379,6 +379,15 @@ func fixupJourney(ctx context.Context, cfg configuration, conn *nats.Conn, autho
 	if _, err := js.Publish("$KV.edge-certs."+hex.EncodeToString([]byte("fenced.e2e.test")), data, nats.ExpectLastSequencePerSubject(revision), nats.Context(ctx)); err != nil {
 		return err
 	}
+	bucket, err := js.KeyValue("edge-certs")
+	if err != nil {
+		return err
+	}
+	publications, err := bucket.Watch(hex.EncodeToString([]byte("fenced.e2e.test")), nats.Context(ctx), nats.UpdatesOnly())
+	if err != nil {
+		return err
+	}
+	defer publications.Stop()
 	if err := route(ctx, cfg, "b", "fenced", []string{"fenced.e2e.test"}); err != nil {
 		return err
 	}
@@ -392,6 +401,27 @@ func fixupJourney(ctx context.Context, cfg configuration, conn *nats.Conn, autho
 	}
 	if replacement == paused {
 		return errors.New("next holder did not replace paused issuer")
+	}
+publication:
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case entry, ok := <-publications.Updates():
+			if !ok {
+				return errors.New("certificate publication watch closed")
+			}
+			if entry == nil {
+				continue
+			}
+			var value laneEnvelope
+			if err := json.Unmarshal(entry.Value(), &value); err != nil {
+				return err
+			}
+			if len(value.Data) != 0 {
+				break publication
+			}
+		}
 	}
 	if err := current.cmd.Process.Signal(syscall.SIGCONT); err != nil {
 		return err
