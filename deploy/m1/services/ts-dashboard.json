@@ -37,6 +37,6 @@
     "platform.terrascale.tech"
   ],
   "replicas": 1,
-  "milliCPU": 500,
+  "milliCPU": 200,
   "memoryMiB": 2048
 }
