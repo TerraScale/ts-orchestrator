@@ -39,7 +39,14 @@ func (r Readiness) Err() error {
 	return fmt.Errorf("edge not ready: %s (missing names: %s)", strings.Join(r.Missing, ", "), strings.Join(r.MissingNames, ", "))
 }
 
-func (e *Edge) Readiness() Readiness {
+func (e *Edge) Readiness(ctx context.Context) Readiness {
+	bounded, cancel := context.WithTimeout(ctx, 3*time.Second)
+	conditions, err := e.ready(bounded)
+	cancel()
+	if err != nil {
+		conditions = append(conditions, err.Error())
+	}
+	e.readyStatus.Store(&readinessVerdict{len(conditions) == 0, time.Now(), conditions})
 	ready, missing, missingNames := e.readiness()
 	return Readiness{Ready: ready, Missing: missing, MissingNames: missingNames, NotDurable: e.notDurable()}
 }
@@ -60,7 +67,7 @@ func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	readiness := e.Readiness()
+	readiness := e.Readiness(r.Context())
 	if readiness.Ready {
 		w.WriteHeader(http.StatusOK)
 	} else {
@@ -77,7 +84,7 @@ func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request) {
 func (e *Edge) readiness() (bool, []string, []string) {
 	verdict := e.readyStatus.Load()
 	missing := []string{}
-	if verdict == nil || !verdict.ok || time.Since(verdict.at) > 10*time.Second {
+	if verdict == nil || time.Since(verdict.at) > 10*time.Second {
 		missing = append(missing, "edge readiness unavailable")
 	}
 	if verdict != nil {
@@ -218,16 +225,9 @@ func (e *Edge) reconcileReadiness(ctx context.Context) {
 	defer tick.Stop()
 	var reported *bool
 	for {
-		bounded, cancel := context.WithTimeout(ctx, 3*time.Second)
-		conditions, err := e.ready(bounded)
-		if err != nil {
-			conditions = append(conditions, err.Error())
-		}
-		cancel()
-		e.readyStatus.Store(&readinessVerdict{len(conditions) == 0, time.Now(), conditions})
-		if ready, missing, missingNames := e.readiness(); reported == nil || *reported != ready {
-			slog.InfoContext(ctx, "edge readiness changed", "ready", ready, "missing", missing, "missing_names", missingNames)
-			reported = &ready
+		if readiness := e.Readiness(ctx); reported == nil || *reported != readiness.Ready {
+			slog.InfoContext(ctx, "edge readiness changed", "ready", readiness.Ready, "missing", readiness.Missing, "missing_names", readiness.MissingNames)
+			reported = &readiness.Ready
 		}
 		select {
 		case <-ctx.Done():
