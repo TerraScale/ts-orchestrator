@@ -5,7 +5,7 @@ it ready for admission elsewhere. This includes first installations, recreated
 services, newly added regions and regions with no local history or bake records.
 No history journal or first-install classification participates in admission.
 Plain service applies also bake; the agent binary release is outside this path.
-A healthy first installation costs one 30-second observation window per target
+A healthy first installation costs one 15-second observation window per target
 region, in order, in addition to startup, readiness and evidence delivery time.
 
 The bake protects the other regions. In the first region the new generation has
@@ -17,7 +17,7 @@ generation serving until the candidate passes is a separate change.
 ## Observation and interruption budgets
 
 After exact task readiness and local release identity validation, observations
-run every two seconds. A bake passes after 30 seconds of consecutive healthy
+run every two seconds. A bake passes after 15 seconds of consecutive healthy
 observations. Failed samples reset that window and retain checks and counts.
 The same probe failing for at least 15 seconds and at least three consecutive
 observations saves a finished failure. Validation failure is also saved as a

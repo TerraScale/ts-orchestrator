@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const BakeWindow = 30 * time.Second
+const BakeWindow = 15 * time.Second
 const MaxBakeWindow = 10 * time.Minute
 const BakeFailureDuration = 15 * time.Second
 const sampleBudget = 5 * time.Second
