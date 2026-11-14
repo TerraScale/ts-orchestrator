@@ -162,19 +162,20 @@ type config struct {
 
 // Node is one region's running mesh server.
 type Node struct {
-	lifecycle     *FabricLifecycle
-	serving       atomic.Pointer[map[string]ServingResult]
-	stateDesired  atomic.Pointer[map[string]desiredState]
-	stateUnsaved  atomic.Pointer[map[string]bakeRecord]
-	bootstrapHook atomic.Pointer[bootstrapHook]
-	cfg           config
-	tls           *tls.Config
-	server        *server.Server
-	conn          *nats.Conn
-	fabric        *nats.Conn
-	monitor       *nats.Conn
-	ctx           context.Context
-	cancel        context.CancelFunc
+	lifecycle       *FabricLifecycle
+	serving         atomic.Pointer[map[string]ServingResult]
+	stateDesired    atomic.Pointer[map[string]desiredState]
+	stateUnsaved    atomic.Pointer[map[string]bakeRecord]
+	bootstrapHook   atomic.Pointer[bootstrapHook]
+	cfg             config
+	tls             *tls.Config
+	server          *server.Server
+	conn            *nats.Conn
+	fabric          *nats.Conn
+	monitor         *nats.Conn
+	certificateConn *nats.Conn
+	ctx             context.Context
+	cancel          context.CancelFunc
 	// work is every goroutine that writes the node's directory; Close waits
 	// for it, and closing (under workMu) refuses new ones.
 	workMu  sync.Mutex
@@ -267,12 +268,19 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
+	certificateConn, err := dialLocal(cfg.localPort, fabricUser, fabricSecret)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := writePrivate(filepath.Join(cfg.dir, "fabric.token"), []byte(fabricSecret)); err != nil {
+		certificateConn.Close()
+		conn.Close()
+		return nil, err
+	}
 	var fabric *nats.Conn
 	if options.JetStream {
-		if fabric, err = dialLocal(cfg.localPort, fabricUser, fabricSecret); err != nil {
-			conn.Close()
-			return nil, err
-		}
+		fabric = certificateConn
 	}
 	var monitor *nats.Conn
 	if options.JetStream {
@@ -284,7 +292,7 @@ func start(cfg config) (_ *Node, err error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, fabric: fabric, monitor: monitor, ctx: ctx, cancel: cancel, desired: desired,
+	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
 		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{})}
 	if err := node.serveClockReports(); err != nil {
 		node.closeConns()

@@ -164,8 +164,8 @@ func (n *Node) closeConns() {
 		n.monitor.Close()
 	}
 	n.conn.Close()
-	if n.fabric != nil {
-		n.fabric.Close()
+	if n.certificateConn != nil {
+		n.certificateConn.Close()
 	}
 }
 

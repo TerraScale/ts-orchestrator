@@ -11,7 +11,8 @@ fi
 cat "$work/apply.txt"
 grep -q 'rolled back' "$work/apply.txt"
 edge whoami.e2e.test /health
-orch events | grep 'e2e-whoami' | tail -5
-orch events | grep -q 'service e2e-whoami updated .* update=rollback_completed'
+orch events >"$work/events.txt"
+grep 'e2e-whoami' "$work/events.txt" | tail -5
+grep -q 'service e2e-whoami updated .* update=rollback_completed' "$work/events.txt"
 orch service ps e2e-whoami
 end "never-ready deploy -> rolled back, previous task serves"

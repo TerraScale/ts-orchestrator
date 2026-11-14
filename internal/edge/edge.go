@@ -2,12 +2,11 @@ package edge
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -36,14 +35,13 @@ type Edge struct {
 	bootstrapBarrier bootstrapBarrier
 	listen           func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
 	terrabase        func() (string, error)
-	certs            *autocert.Manager
-	certificateDir   string
-	held             sync.Map
+	certs            *certificateManager
+	certRoutes       chan struct{}
+	certWork         sync.Map
+	certSeen         sync.Map
+	readyStatus      atomic.Pointer[readinessVerdict]
 	listeners        atomic.Uint32
 	readyRoutes      atomic.Pointer[[]ReadinessRoute]
-	orderSuccess     atomic.Uint64
-	orderFailure     atomic.Uint64
-	unsupported      atomic.Uint64
 	routes           atomic.Pointer[map[string]int]
 	postgres         atomic.Pointer[map[string]int]
 	pgKeys           postgresKeys
@@ -74,11 +72,9 @@ type Edge struct {
 	lastHealthProbe    atomic.Int64
 }
 
-// New returns an edge that caches certificates under stateDir/edge-certs.
-func New(stateDir string) *Edge { return newEdge(stateDir, nil) }
+func New(stateDir string) *Edge { return newEdge(stateDir) }
 
-// newEdge uses client as the ACME client; nil means Let's Encrypt.
-func newEdge(stateDir string, client *acme.Client) *Edge {
+func newEdge(stateDir string) *Edge {
 	e := &Edge{
 		pgRelays: make(chan struct{}, 32), pgControl: make(chan struct{}, 32),
 		listen:       net.Listen,
@@ -93,27 +89,9 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	e.peers = newPeerTransport(e)
 	e.routes.Store(&map[string]int{})
 	e.postgres.Store(&map[string]int{})
-	e.certs = &autocert.Manager{
-		Prompt:     autocert.AcceptTOS,
-		Cache:      autocert.DirCache(filepath.Join(stateDir, "edge-certs")),
-		HostPolicy: e.hostPolicy,
-		Client:     client,
-	}
-	e.certs.Cache = certificateObservation{Cache: e.certs.Cache, edge: e}
-	e.certificateDir = filepath.Join(stateDir, "edge-certs")
-	if client == nil {
-		e.certs.Client = &acme.Client{DirectoryURL: autocert.DefaultACMEDirectory}
-	}
-	observed := *http.DefaultClient
-	if e.certs.Client.HTTPClient != nil {
-		observed = *e.certs.Client.HTTPClient
-	}
-	transport := observed.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
-	observed.Transport = orderTransport{edge: e, next: transport}
-	e.certs.Client.HTTPClient = &observed
+	e.certRoutes = make(chan struct{}, 1)
+	e.certs = &certificateManager{policy: e.hostPolicy, cache: &certificateCache{local: autocert.DirCache(filepath.Join(stateDir, "edge-certs")), source: e.certificateStore, roster: e.certificateRoster}}
+	e.readyRoutes.Store(&[]ReadinessRoute{})
 	e.challenges = e.certs.HTTPHandler(nil)
 	localEdge.Store(e)
 	http1 := http.DefaultTransport.(*http.Transport).Clone()
@@ -228,12 +206,32 @@ func (e *Edge) setRoutes(web, postgres map[string]int) {
 	lower := func(routes map[string]int) *map[string]int {
 		table := make(map[string]int, len(routes))
 		for host, port := range routes {
-			table[strings.ToLower(host)] = port
+			name := strings.ToLower(host)
+			table[name] = port
+			e.certSeen.LoadOrStore(name, time.Now())
 		}
 		return &table
 	}
-	e.routes.Store(lower(web))
-	e.postgres.Store(lower(postgres))
+	webTable, postgresTable := lower(web), lower(postgres)
+	changed := !maps.Equal(*e.routes.Load(), *webTable) || !maps.Equal(*e.postgres.Load(), *postgresTable)
+	e.routes.Store(webTable)
+	e.postgres.Store(postgresTable)
+	e.certSeen.Range(func(key, _ any) bool {
+		name := key.(string)
+		if _, web := (*e.routes.Load())[name]; !web {
+			if _, pg := (*e.postgres.Load())[name]; !pg {
+				e.certSeen.Delete(name)
+			}
+		}
+		return true
+	})
+	if !changed {
+		return
+	}
+	select {
+	case e.certRoutes <- struct{}{}:
+	default:
+	}
 }
 
 func (e *Edge) Drain() { e.draining.Store(true) }
@@ -256,9 +254,14 @@ func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (e *Edge) Run(ctx context.Context) error {
+	if err := e.certs.cache.loadDisk(ctx); err != nil {
+		return err
+	}
 	listeners, stop := context.WithCancel(context.WithoutCancel(ctx))
 	defer stop()
 	var running sync.WaitGroup
+	running.Go(func() { e.reconcileCertificates(ctx) })
+	running.Go(func() { e.reconcileReadiness(ctx) })
 	running.Go(func() { e.reconcileNetBirdDashboard(ctx) })
 	for _, protocol := range []string{"http", "https", "postgres", "terrabase"} {
 		running.Go(func() { e.runListener(listeners, protocol) })
@@ -288,10 +291,6 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 				return
 			}
 			e.identify(w, r)
-			if r.URL.Path == "/edge/ready" {
-				e.ServeReady(w, r)
-				return
-			}
 			// A Postgres hostname needs :80 only for its certificate's challenge.
 			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
 				http.NotFound(w, r)
@@ -484,33 +483,34 @@ func (f roundTripper) RoundTrip(r *http.Request) (*http.Response, error) { retur
 func (e *Edge) certificateTLSConfig() *tls.Config {
 	config := e.certs.TLSConfig()
 	config.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		cert, err := e.certs.GetCertificate(hello)
-		if len(hello.SupportedProtos) == 1 && hello.SupportedProtos[0] == acme.ALPNProto {
-			return cert, err
-		}
-		if err == nil && cert != nil {
-			e.rememberCertificate(hello.ServerName, cert)
-		}
-		if (err != nil || cert != nil && hello.SupportsCertificate(cert) != nil) && e.hostPolicy(hello.Context(), hello.ServerName) == nil {
-			inventory := e.Inventory(hello.Context())
-			valid := map[string]bool{}
-			for _, held := range inventory.Certificates {
-				if held.Valid && slicesContainsName(held.Names, hello.ServerName) {
-					valid[held.Fingerprint] = true
-				}
-			}
-			candidates, _ := e.heldCertificates(hello.Context())
-			for _, candidate := range candidates {
-				digest := sha256.Sum256(candidate.Certificate[0])
-				if valid[hex.EncodeToString(digest[:])] && hello.SupportsCertificate(candidate) == nil {
-					return cert, err
-				}
-			}
-			if len(valid) > 0 {
-				e.unsupported.Add(1)
-			}
+		cert, covered, err := e.selectCertificate(hello)
+		if err != nil && covered {
+			e.certs.cache.unsupportedHandshakes.Add(1)
 		}
 		return cert, err
 	}
 	return config
+}
+
+func (e *Edge) selectCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, bool, error) {
+	cert, err := e.certs.GetCertificate(hello)
+	if len(hello.SupportedProtos) == 1 && hello.SupportedProtos[0] == acme.ALPNProto {
+		return cert, false, err
+	}
+	covered := false
+	if (err != nil || cert != nil && hello.SupportsCertificate(cert) != nil) && e.hostPolicy(hello.Context(), hello.ServerName) == nil {
+		e.certs.cache.memory.Range(func(_, value any) bool {
+			candidate := value.(cachedCertificate).cert
+			if candidate.Leaf.VerifyHostname(hello.ServerName) != nil || time.Now().After(candidate.Leaf.NotAfter) {
+				return true
+			}
+			covered = true
+			if hello.SupportsCertificate(candidate) == nil {
+				cert, err = candidate, nil
+				return false
+			}
+			return true
+		})
+	}
+	return cert, covered, err
 }

@@ -2,7 +2,7 @@ name: CI
 
 on:
   schedule:
-    - cron: '23 4 * * *'
+    - cron: "23 4 * * *"
   pull_request:
   push:
     branches: [main]
@@ -48,7 +48,6 @@ jobs:
         include:
           - {lane: core, entry: run.sh, timeout: 8}
           - {lane: websocket, entry: websocket.sh, timeout: 8}
-          - {lane: certificates, entry: certificates/run.sh, timeout: 5, packages: "./test/e2e/m1/certificates"}
           - {lane: fabric, entry: fabric/run.sh, timeout: 3, packages: "./test/e2e/m1/fabric"}
           - {lane: regional, entry: regional.sh, timeout: 3, packages: "./test/e2e/m1/regional"}
           - {lane: nodelist, entry: nodelist.sh, timeout: 8, packages: "./test/e2e/m1/nodelist"}
@@ -77,7 +76,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ env.SOURCE_SHA }}
-          fetch-depth: ${{ matrix.lane == 'certificates' && '0' || '1' }}
+          fetch-depth: 1
           persist-credentials: false
       - id: go
         uses: ./.github/actions/go
@@ -117,6 +116,33 @@ jobs:
           LANES: ${{ needs.e2e-lane.result }}
         run: test "$LANES" = success
 
+  certificate-paths:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "${CHANGE_BASE:-HEAD^}" HEAD)
+          if grep -Eq '^(internal/edge/|internal/natscell/mesh/|internal/cli/|test/e2e/m1/certificates/|docs/edge-certificates\.md$|go\.mod$|go\.sum$|\.github/)' <<< "$changed"; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          fi
+
   caller-key-changes:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -133,6 +159,28 @@ jobs:
           cache: lint
       - id: paths
         run: python3 test/e2e/m1/callerkey/inputs.py
+
+  e2e-certificates:
+    needs: certificate-paths
+    if: ${{ needs.certificate-paths.outputs.changed == 'true' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - uses: ./.github/actions/go
+        with:
+          cache: e2e-arm64
+      - name: Install certificate lane tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gdb containerd iproute2 ca-certificates
+      - name: Build ts-orch
+        run: go build -trimpath -o "$RUNNER_TEMP/terrascale-orchestrator" ./cmd/terrascale-orchestrator
+      - name: Run real lease, rollout and recovery proofs
+        run: bash test/e2e/m1/certificates/run.sh "$RUNNER_TEMP/terrascale-orchestrator"
 
   caller-key-build:
     needs: [caller-key-changes]
@@ -278,8 +326,8 @@ jobs:
   # (deploy/m1/regions.json); fails when any region does not serve it. Only
   # this job can mint the GitHub OIDC token that is the push credential.
   release-push:
-    needs: [build, e2e-m1, caller-key-changes, caller-key]
-    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' && needs.caller-key-changes.result == 'success' && (needs.caller-key-changes.outputs.changed == 'true' || needs.caller-key-changes.outputs.changed == 'false') && (needs.caller-key.result == 'success' || (needs.caller-key-changes.outputs.changed == 'false' && needs.caller-key.result == 'skipped')) }}
+    needs: [build, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key]
+    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' && needs.certificate-paths.result == 'success' && (needs.e2e-certificates.result == 'success' || (needs.e2e-certificates.result == 'skipped' && needs.certificate-paths.outputs.changed == 'false')) && needs.caller-key-changes.result == 'success' && (needs.caller-key.result == 'success' || needs.caller-key.result == 'skipped') }}
     name: deploy/release-push
     concurrency:
       group: production-ts-orch
@@ -331,11 +379,12 @@ jobs:
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [lint, e2e-m1, caller-key-changes, caller-key-build, caller-key, build, release-push]
+    needs: [lint, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-push]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
       - run: |
           set -euo pipefail
           test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false
-          test "${{ needs.caller-key-changes.result == 'success' && (needs.caller-key-changes.outputs.changed == 'true' || needs.caller-key-changes.outputs.changed == 'false') && (needs.caller-key.result == 'success' || (needs.caller-key-changes.outputs.changed == 'false' && needs.caller-key.result == 'skipped')) }}" = true
+          test "${{ needs.certificate-paths.result == 'success' && (needs.e2e-certificates.result == 'success' || needs.certificate-paths.outputs.changed == 'false') }}" = true
+          test "${{ needs.caller-key-changes.result == 'success' && (needs.caller-key.result == 'success' || needs.caller-key.result == 'skipped') }}" = true
