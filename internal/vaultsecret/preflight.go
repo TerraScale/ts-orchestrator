@@ -103,7 +103,7 @@ func checkRelayUnit(ctx context.Context) error {
 	output, err = exec.CommandContext(ctx, "systemctl", "show", "ts-alert-delivery.service", "--property=ExecStartPreEx", "--value").Output()
 	if err == nil {
 		for _, command := range strings.Split(string(output), "} {") {
-			if strings.Contains(command, "argv[]=/usr/local/bin/ts-orch alert-delivery prepare ;") && strings.Contains(command, "flags=full-privileges ;") {
+			if strings.Contains(command, "argv[]=/usr/local/bin/ts-orch alert-delivery prepare ;") && strings.Contains(command, "flags=privileged ;") {
 				return nil
 			}
 		}

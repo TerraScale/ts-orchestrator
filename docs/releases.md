@@ -430,7 +430,7 @@ fail.
    `systemctl daemon-reload`. Gate:
    `systemctl show ts-alert-delivery.service --property=ExecStartPreEx --value`
    shows `/usr/local/bin/ts-orch alert-delivery prepare` with
-   `flags=full-privileges`, corresponding to
+   `flags=privileged`, corresponding to
    `ExecStartPre=+/usr/local/bin/ts-orch alert-delivery prepare`.
    This unit can be installed any time after step 1 because A already provides
    its preparation command. Stopping here is safe: the running relay is
