@@ -301,7 +301,7 @@ keys) still needs one. See [services](cell-spec.md#vault-secrets).
 
 ## Retired OpenBao entries
 
-The [migration record](evidence/ts-534-oci-vault-secrets-20261005.md) lists
+The migration record lists
 what moved and how each consumer was verified. These OpenBao entries did not
 move and stay unchanged:
 

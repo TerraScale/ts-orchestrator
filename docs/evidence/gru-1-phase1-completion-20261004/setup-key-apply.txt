@@ -1,1 +1,0 @@
-applied: create setup-key gru-servers (reusable, never expires, auto-group gru-servers)

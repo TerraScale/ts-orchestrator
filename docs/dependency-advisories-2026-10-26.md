@@ -65,8 +65,7 @@ the PR/ticket evidence index.
 
 Runtime source provenance remains in the existing records:
 
-- SwarmKit 2.1.2: `docs/evidence/core-runtime-contract.md`, upstream
-  `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`.
+- SwarmKit `github.com/moby/swarmkit/v2` v2.1.2: upstream `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`.
 - NATS 2.15.0: `third_party/nats-server/README.terrascale.md`, upstream
   `eb763679aa3c24a40dcd3012aa046ad1996d851c` and recorded local runtime patches.
 - OCI 65.126.0: `docs/patches/oci-sdk-v65.126.0-context/provenance.json`, upstream

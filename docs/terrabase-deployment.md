@@ -293,8 +293,7 @@ endpoints, until `terrabase_replication_sender_durable_lag` is 0.
 
 **Prepared, not executed.** Every step marked **LIVE** creates or changes OCI
 or cell state and runs only after COS relays the user's approval for that
-step. Blast radius: the new `gru-1-*` resources of
-[the rebuild proposal](evidence/gru-rebuild-plan-20261004.md); TerraBase
+step. Blast radius: the new `gru-1-*` resources of the rebuild proposal; TerraBase
 members of `gru-1` start, or restart, on the new binary at once. There is no
 terrabase-rust data to migrate. Run each phase on its own; do not use
 `attempt up` for a live cell. Every phase is resumable: rerunning it after an
@@ -403,8 +402,7 @@ Inputs, outside Git except where named:
    canary --profile <terrabase_profile> --wait 10m` as described in [Run](#run).
 9. **Verify.** The release prints `{"step":"ready", ...}` with two
     members, and `operator hosts` shows a `terrabase` report `running` with
-    the new digest on `gru-1-db-1` and `gru-1-db-2`. Capture the evidence in
-    `docs/evidence`. `running` proves process liveness only; replication
+    the new digest on `gru-1-db-1` and `gru-1-db-2`. Capture the evidence in the release record. `running` proves process liveness only; replication
     acceptance waits for TerraBase TS-464/TS-469.
 
 

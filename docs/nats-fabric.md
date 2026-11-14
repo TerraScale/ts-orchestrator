@@ -138,8 +138,7 @@ and its settings prefix; today only `terrabase` has one.
   brokers' cell account holds the signer. A region founded from material
   generated since TS-663 holds it from the start; a cell founded before
   needs [the role claim](broker-claim-rotation.md#role-claim) once.
-- **Live.** gru-1 since 2026-10-07: the
-  [delivery record](evidence/ts-651-role-identity-gru-1-20261007.md).
+- **Live.** gru-1 since 2026-10-07.
 
 ## Which pattern to use
 

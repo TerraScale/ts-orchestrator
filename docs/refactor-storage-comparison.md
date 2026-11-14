@@ -28,8 +28,8 @@ identity checks, checksums, encryption/key recovery or release admission.
 
 ### Historical inventory is useful, but is not today's bill
 
-The [2026-10-08 preparation record](evidence/ts-641-replication-20261008.md)
-contains these source observations before its copy runs:
+The 2026-10-08 preparation record contains these source observations before
+its copy runs:
 
 | Bucket | Current objects | Recorded bytes |
 | --- | ---: | ---: |

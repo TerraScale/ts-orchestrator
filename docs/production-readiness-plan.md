@@ -61,10 +61,8 @@ restart/recovery behavior against effective systemd/cgroup settings; host or
 kernel failure remains a separate recovery case.
 
 This authorization does not show that a preview has been deployed or that an
-API scenario has passed. The current inventory and execution status are in the
-[OCI preview record](evidence/oci-preview-20260926.json); milestone gates are in
-the [shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
-This production-readiness plan remains a dated audit, not deployment evidence.
+API scenario has passed. This production-readiness plan remains a dated audit,
+not deployment evidence.
 
 ## Objective and current decision
 
@@ -650,8 +648,7 @@ qualification. They are design inputs, not accepted production behavior.
 
 No production gate in this table is **CLOSED**. Evidence must be collected
 from the exact code and image being qualified; a design document or isolated
-unit test does not close an integration gate. The current M0/M1 delivery gates
-are tracked separately in the [shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
+unit test does not close an integration gate.
 
 | Gate / ownership | Required implementation and acceptance evidence | State |
 | --- | --- | --- |
@@ -667,8 +664,7 @@ are tracked separately in the [shared-goal acceptance ledger](evidence/shared-go
 ## Production-readiness follow-on
 
 The API-first preview sequence and M0/M1 exit criteria are defined in the
-workspace GOAL and tracked in the
-[shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
+workspace GOAL.
 After that milestone, close the production gates above: signed release and
 pinned-image qualification, host enrollment and runtime recovery, durable
 TerraBase serving and drain evidence, safe scale-in, backup and restore, and

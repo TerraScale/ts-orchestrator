@@ -2,9 +2,8 @@
 
 Status, 2026-10-07: root cause verified; uniform policy and failover are not
 implemented. The draft contains an operator audit, not a serving-cell rollout.
-The [sanitized live readback](../evidence/ts-676-control-plane-baseline-20261007.json)
-records every peer's observed sockets, OCI DNS answer, TLS probes and the
-relevant OCI route/egress metadata.
+The sanitized live readback records every peer's observed sockets, OCI DNS
+answer, TLS probes and the relevant OCI route/egress metadata.
 
 ## Why GRU is private and SJC is public
 

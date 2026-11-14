@@ -38,7 +38,6 @@ These pages describe the current greenfield Go implementation.
 | [Self-healing and automatic maintenance](self-healing.md) | TS-568 design and slices: credential expiry watch, `ts-orch doctor`, renewal, host repair, OS patching, drift and SLOs |
 | [Decision journal](decision-journal.md) | Recording decisions (call pattern for every slice), metric history, insights, summaries and the region view |
 | [Capacity](capacity.md) | TS-804 design: 3 to 12 nodes per region on load, the dashboard budget cap, and regions added or removed by one explicit call |
-| [Shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md) | Gate index, formal count, live preview entries and current handoff; one evidence file per gate in [`evidence/gates/`](evidence/gates/) and per pipeline lane in [`evidence/pipeline/`](evidence/pipeline/) |
 | [Qualification status 2026-09-26](qualification-status-20260926.md) | Dated migration and qualification snapshot; not the current gate ledger |
 | [Production readiness checkpoint](production-readiness.md) | Checkpoint status and open areas |
 | [Production readiness plan](production-readiness-plan.md) | Dated readiness audit, historical canary, and open gate order |

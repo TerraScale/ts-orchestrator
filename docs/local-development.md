@@ -5,13 +5,9 @@ workspace GOAL prioritizes end-to-end API behavior and an
 early, low-cost ARM64 preview of ts-orchestrator with TerraBase. It authorizes
 that preview under a combined recurring-cost cap of **US$200/month for
 qualification testing and preview**; these local commands do not deploy or
-qualify it. Current preview evidence and open gates are linked in the
-[OCI preview record](evidence/oci-preview-20260926.json) and
-[shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
-The management resource-protection and pressure/restart acceptance requirement
-is defined as D15 in the workspace GOAL
-and tracked in the [D15 gate file](evidence/gates/d15.md); the commands below
-do not establish that runtime qualification.
+qualify it. The management resource-protection and pressure/restart acceptance
+requirement is defined as D15 in the workspace GOAL; the commands below do not
+establish that runtime qualification.
 
 The `go` line of `go.mod` pins the Go version, and `.mise.toml` installs the same
 one. On a first checkout, trust that repository config and install its toolchain,
