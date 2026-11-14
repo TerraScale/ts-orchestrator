@@ -201,6 +201,7 @@ type Node struct {
 	specInvalidPublished atomic.Pointer[map[string]error]
 
 	regionalDrain atomic.Pointer[regionalDrainer]
+	edgeInventory atomic.Pointer[EdgeInventory]
 	workerMu      sync.Mutex
 	announced     map[string]announcement // founder: worker node -> its last announcement
 	joined        []WorkerPeer            // founder: the fully joined workers, refreshed each peersEvery
@@ -951,7 +952,10 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 		// itself over the mesh and SwarmKit has it READY and ACTIVE, so a drained
 		// or half-joined worker is never a release target.
 		workers, settled := n.settledWorkers()
-		spec.Replicas = min(regionalReplicas(&spec), uint64(1+len(workers)))
+		spec.Replicas = uint64(1 + len(workers))
+		if !spec.Stateless() {
+			spec.Replicas = min(regionalReplicas(&spec), spec.Replicas)
+		}
 		if !settled {
 			if err := n.keepReplicas(ctx, spec); err != nil {
 				return applyResult{}, err

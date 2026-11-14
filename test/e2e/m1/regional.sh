@@ -4,7 +4,7 @@ source "$here/certificates.sh"
 
 begin "regional path through a second edge in its own network namespace"
 install -d -m 0700 "$work/regional/edge-certs"
-for host in regional.e2e.test upgrade.e2e.test fleet.e2e.test; do
+for host in regional.e2e.test upgrade.e2e.test dash.e2e.test api.e2e.test auth.e2e.test pg.e2e.test; do
 	leaf "$host" "DNS:$host"
 	cat "$host.key" "$host.pem" >"$work/regional/edge-certs/$host"
 done

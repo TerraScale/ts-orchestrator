@@ -9,13 +9,14 @@ import (
 )
 
 func main() {
-	nodes, closeNodes, err := mesh.FleetEdgeNodes(os.Args[1])
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "FAIL edge mesh:", err)
-		os.Exit(1)
+	if os.Args[1] == "host" {
+		if err := edge.FleetHost(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "FAIL fleet host:", err)
+			os.Exit(1)
+		}
+		return
 	}
-	defer closeNodes()
-	if err := edge.FleetEdgeJourney(os.Args[1], nodes); err != nil {
+	if err := edge.FleetEdgeJourney(os.Args[1]); err != nil {
 		fmt.Fprintln(os.Stderr, "FAIL edge fleet:", err)
 		os.Exit(1)
 	}

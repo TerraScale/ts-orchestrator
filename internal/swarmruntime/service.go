@@ -128,7 +128,6 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 		}
 	}
 	if i.Role == "ts-auth" {
-		spec.Task.Placement.Constraints = append(spec.Task.Placement.Constraints, "node.role==manager")
 		spec.Task.Placement.MaxReplicas = 1
 		// Three occupied controller domains leave no slot for start-first updates.
 		spec.Update.Order = api.UpdateConfig_STOP_FIRST
@@ -332,6 +331,10 @@ type ServiceMount struct {
 	Target string `json:"target"`
 }
 
+func (s ServiceSpec) Stateless() bool {
+	return len(s.Mounts) == 0 && s.Postgres == nil && len(s.Hostnames) != 0
+}
+
 // SwarmSpec maps the declaration to an upstream service; the executor
 // re-validates the container on every task.
 func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
@@ -514,10 +517,8 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		// One per node: the mesh counts only fully joined nodes in Replicas, each
 		// task names its own host as TS_NODE and reads that host's peers file.
 		spec.Task.Placement = &api.Placement{MaxReplicas: 1}
+	case s.Region != "" && s.Stateless():
 	case s.Region != "":
-		// Every other mesh service runs on the founder (the region's manager):
-		// the founder's edge serves it on loopback, and a worker rejected such a
-		// task for want of its peers file (ts-sjc-2, 2026-11-04).
 		spec.Task.Placement = &api.Placement{Constraints: []string{"node.role==manager"}}
 	}
 	if s.Name == "terrabase" {

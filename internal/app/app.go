@@ -15,7 +15,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -74,27 +73,48 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	defer cancel()
 	swarmReady := make(chan struct{})
 	edgeDone := make(chan error, 1)
-	var public *edge.Edge
-	if plan.admission.Role != "manager" {
-		edgeDone <- nil
-	} else {
-		public = edge.New(*state)
-		go func() {
-			err := public.Run(ctx)
-			cancel()
-			edgeDone <- err
-		}()
+	public := edge.New(*state)
+	go func() {
+		err := public.Run(ctx)
+		cancel()
+		edgeDone <- err
+	}()
+	var inventory atomic.Pointer[func() (mesh.EdgeInventory, bool)]
+	go public.FollowInventory(ctx, func() (mesh.EdgeInventory, bool) {
+		if source := inventory.Load(); source != nil {
+			return (*source)()
+		}
+		return mesh.EdgeInventory{}, false
+	}, func(ctx context.Context, ref string) error {
+		return refreshEdgeRequestProof(ctx, public, ref, vaultsecret.ReadInstanceSecrets)
+	})
+	var meshNode atomic.Pointer[mesh.Node]
+	manager := plan.admission.Role == "manager"
+	if manager {
+		var local atomic.Pointer[mesh.EdgeInventory]
+		source := func() (mesh.EdgeInventory, bool) {
+			if current := local.Load(); current != nil {
+				return *current, true
+			}
+			return mesh.EdgeInventory{}, false
+		}
+		inventory.Store(&source)
 		go func() {
 			select {
 			case <-ctx.Done():
 				return
 			case <-swarmReady:
 			}
-			syncEdgeRoutes(ctx, *state, public, plan.region, plan.admission.HostID)
+			syncEdgeInventory(ctx, *state, plan.region, func(current mesh.EdgeInventory) {
+				local.Store(&current)
+				if node := meshNode.Load(); node != nil {
+					if err := node.PublishEdgeInventory(current); err != nil {
+						slog.WarnContext(ctx, "edge inventory publication failed", "error", err)
+					}
+				}
+			})
 		}()
 	}
-	// The mesh never stops local serving; it retries until it reaches Vault and peers.
-	var meshNode atomic.Pointer[mesh.Node]
 	meshDone := make(chan struct{})
 	if plan.joiner() && plan.address == "" {
 		close(meshDone) // a worker without IMDS stays out of the region's NATS cluster
@@ -106,12 +126,13 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 				handoff.SetTaskDrainer(node.DrainTask)
 				handoff.SetBootstrap(node.Bootstrap)
 				handoff.SetClearPeer(node.ClearPeer)
-				if public != nil {
-					public.SetPeerEdges(node.EdgePeers(public.ReadyServices))
-					public.SetRegionalNodes(node.RegionalNodes)
+				public.JoinMesh(node)
+				if manager {
 					node.SetRegionalDrainer(public.DrainRegionalNode)
 					node.SetBootstrap(public.Bootstrap)
-					public.SetMesh(node)
+				} else {
+					follow := node.FollowEdgeInventory()
+					inventory.Store(&follow)
 				}
 			})
 			close(meshDone)
@@ -124,10 +145,8 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 		} else {
 			result.Mesh = errors.New("mesh not started")
 		}
-		if public != nil {
-			readiness := public.Readiness(ctx)
-			result.Edge = readiness.InfraErr()
-		}
+		readiness := public.Readiness(ctx)
+		result.Edge = readiness.InfraErr()
 		return result
 	}, func(ctx context.Context) error {
 		if node := meshNode.Load(); node != nil {
@@ -147,29 +166,18 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	return errors.Join(err, <-edgeDone)
 }
 
-func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region, host string) {
+func syncEdgeInventory(ctx context.Context, state, region string, publish func(mesh.EdgeInventory)) {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
-	var nextProofRefresh time.Time
 	for {
 		if client, conn, err := swarmruntime.DialSingleHost(state); err == nil {
 			if list, err := client.ListServices(ctx, &api.ListServicesRequest{}); err == nil {
-				if time.Now().After(nextProofRefresh) {
-					proofCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-					if err := refreshEdgeRequestProof(proofCtx, public, list.Services, vaultsecret.ReadInstanceSecrets); err != nil {
-						slog.WarnContext(ctx, "edge request proof credential unavailable")
-					}
-					cancel()
-					nextProofRefresh = time.Now().Add(time.Minute)
-				}
 				web, postgres, services := edgeRouteTables(list.Services, region)
-				ready, err := edgeLocalServices(ctx, client, host)
+				ref, err := edgeProofRef(list.Services)
 				if err != nil {
-					slog.WarnContext(ctx, "edge local task sync failed", "error", err)
-					ready = nil
+					slog.WarnContext(ctx, "edge request proof reference invalid", "error", err)
 				}
-				public.SetServiceRoutes(web, postgres, services, ready)
-				public.SetReadinessRoutes(edgeReadinessRoutes(list.Services, region))
+				publish(mesh.EdgeInventory{Web: web, Postgres: postgres, Services: services, Readiness: edgeReadinessRoutes(list.Services, region), ProofRef: ref})
 			} else {
 				slog.WarnContext(ctx, "edge route sync failed", "error", err)
 			}
@@ -260,67 +268,6 @@ func edgeRouteTables(services []*api.Service, region string) (web, postgres map[
 		}
 	}
 	return web, postgres, owners
-}
-
-func edgeLocalServices(ctx context.Context, client api.ControlClient, host string) ([]string, error) {
-	inventoryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	nodes, err := client.ListNodes(inventoryCtx, &api.ListNodesRequest{})
-	if err != nil {
-		return nil, err
-	}
-	var nodeID string
-	for _, node := range nodes.Nodes {
-		if node.Description != nil && node.Description.Hostname == host && node.Role == api.NodeRoleManager {
-			nodeID = node.ID
-			break
-		}
-	}
-	if nodeID == "" {
-		return nil, errors.New("local edge manager absent from task inventory")
-	}
-	tasks, err := client.ListTasks(inventoryCtx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{NodeIDs: []string{nodeID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
-	if err != nil {
-		return nil, err
-	}
-	if err := inventoryCtx.Err(); err != nil {
-		return nil, err
-	}
-	cancel()
-	type probeResult struct {
-		service string
-		err     error
-	}
-	results := make(chan probeResult, len(tasks.Tasks))
-	var probes sync.WaitGroup
-	for _, task := range tasks.Tasks {
-		if task.NodeID != nodeID || task.Status.State != api.TaskStateRunning {
-			continue
-		}
-		probes.Go(func() {
-			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-			results <- probeResult{service: task.ServiceAnnotations.Name, err: swarmruntime.ProbeLocalTask(probeCtx, task)}
-		})
-	}
-	probes.Wait()
-	close(results)
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	services := []string{}
-	for result := range results {
-		if result.err != nil {
-			var unready *swarmruntime.TaskReadinessError
-			if !errors.As(result.err, &unready) {
-				return nil, result.err
-			}
-		} else if !slices.Contains(services, result.service) {
-			services = append(services, result.service)
-		}
-	}
-	slices.Sort(services)
-	return services, nil
 }
 
 func RunChild(ctx context.Context, args []string, output io.Writer) error {

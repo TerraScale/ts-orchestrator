@@ -49,11 +49,8 @@ type workerNodes interface {
 
 var errWorkersSettling = errors.New("the founder has not heard its workers for a full announcement window since it started")
 
-// PerNode reports whether spec runs one task on every fully joined node of
-// its region (a data owner such as TerraBase with replicas > 1) rather than
-// once, on the founder.
 func PerNode(spec *swarmruntime.ServiceSpec) bool {
-	return spec != nil && len(spec.Mounts) != 0 && regionalReplicas(spec) > 1
+	return spec != nil && (spec.Stateless() || len(spec.Mounts) != 0 && regionalReplicas(spec) > 1)
 }
 
 // regionalReplicas upgrades existing TerraBase declarations in place. R10's

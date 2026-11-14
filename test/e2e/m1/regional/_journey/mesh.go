@@ -3,7 +3,6 @@ package mesh
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"net"
@@ -26,38 +25,16 @@ func stopNode(node *Node) {
 	}
 }
 
-func FleetEdgeNodes(root string) ([]*Node, func(), error) {
-	ports, err := freePorts(6)
-	if err != nil {
-		return nil, nil, err
-	}
-	seed := make([]byte, 32)
-	if _, err := rand.Read(seed); err != nil {
-		return nil, nil, err
-	}
+func FleetHostNode(root, region, name, address, peer string, seed []byte) (*Node, error) {
 	ca, err := DeriveCA(seed)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	nodes := []*Node{}
-	cleanup := func() {
-		for _, node := range nodes {
-			stopNode(node)
-		}
-	}
-	for i, region := range []string{"gru", "gru", "sjc", "sjc", "fra", "fra"} {
-		name := fmt.Sprintf("ts-%s-%d", region, i%2+1)
-		address := fmt.Sprintf("127.0.0.%d", 10+i)
-		node, err := start(config{region: region, server: name, dir: filepath.Join(root, name), ca: ca,
-			terrabaseToken: strings.Repeat("t", 32), localPort: ports[i],
-			address: func() (string, error) { return address, nil }, peersDir: filepath.Join(root, name+"-peers")})
-		if err != nil {
-			cleanup()
-			return nil, nil, err
-		}
-		nodes = append(nodes, node)
-	}
-	return nodes, cleanup, nil
+	cfg := config{region: region, server: name, founder: true, dir: filepath.Join(root, name), ca: ca,
+		terrabaseToken: strings.Repeat("t", 32), clusterHost: address, clusterPort: 6222, clusterAdvertise: address + ":6222", localPort: 4222,
+		peersEvery: 250 * time.Millisecond, peersDir: filepath.Join(root, name+"-peers"), address: func() (string, error) { return address, nil }}
+	cfg.routes = []string{"nats://" + peer + ":6222"}
+	return start(cfg)
 }
 
 func RegionalPeersJourney(root string) error {

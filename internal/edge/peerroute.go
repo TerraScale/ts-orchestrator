@@ -12,7 +12,9 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
@@ -53,6 +55,20 @@ func (e *Edge) ReadyServices() []string {
 }
 
 func (e *Edge) SetPeerEdges(peers func() []mesh.WorkerPeer) { e.peerEdges.Store(&peers) }
+
+const peerDialBackoff = 15 * time.Second
+
+func (e *Edge) peerRecentlyFailed(address string) bool {
+	failed, ok := e.peerDialFailed.Load(address)
+	if !ok {
+		return false
+	}
+	if time.Since(failed.(time.Time)) < peerDialBackoff {
+		return true
+	}
+	e.peerDialFailed.CompareAndDelete(address, failed)
+	return false
+}
 
 func (e *Edge) authorizeEdgeHop(w http.ResponseWriter, r *http.Request) bool {
 	values := r.Header.Values(edgeHopHeader)
@@ -102,16 +118,20 @@ func (e *Edge) routePeerEdge(r *http.Request, balance bool) *http.Request {
 		}
 		return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{}))
 	}
+	held := local && handoff.Held(uint16(port))
 	addresses := []string{}
-	if local {
+	if local && !held {
 		addresses = append(addresses, "")
 	}
 	if peers := e.peerEdges.Load(); peers != nil && e.requestProofSecret.Load() != nil {
 		for _, peer := range (*peers)() {
-			if slices.Contains(peer.ReadyServices, service) {
+			if slices.Contains(peer.ReadyServices, service) && !e.peerRecentlyFailed(peer.Address) {
 				addresses = append(addresses, peer.Address)
 			}
 		}
+	}
+	if len(addresses) == 0 && held {
+		return r
 	}
 	if len(addresses) == 0 {
 		return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{}))
@@ -190,6 +210,7 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 			closeBody(r)
 			return response, err
 		}
+		e.peerDialFailed.Store(address, time.Now())
 		lastErr = err
 	}
 	closeBody(r)

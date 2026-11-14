@@ -55,6 +55,7 @@ type Edge struct {
 	peerEdges        atomic.Pointer[func() []mesh.WorkerPeer]
 	edgeTransports   sync.Map
 	edgeNext         sync.Map
+	peerDialFailed   sync.Map
 	proxy            *httputil.ReverseProxy
 	// challenges answers HTTP-01 for the tokens this edge holds.
 	challenges http.Handler
