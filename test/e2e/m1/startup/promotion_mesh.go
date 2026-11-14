@@ -17,6 +17,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats.go"
 )
@@ -113,7 +114,7 @@ func meshPromotionJourney(ctx context.Context, state string, nodes []*swarmrunti
 		}
 		want := "gru"
 		if i > 0 {
-			want += "-" + node.ID()[:12]
+			want += "." + node.ID()[:12]
 		}
 		if !scanner.Scan() || scanner.Text() != "ready "+want {
 			return fmt.Errorf("mesh %d did not start with server name %s: %s", i, want, scanner.Text())
@@ -127,10 +128,12 @@ func meshPromotionJourney(ctx context.Context, state string, nodes []*swarmrunti
 		case <-elected:
 		}
 	}
-	for i, input := range inputs {
+	for _, input := range inputs {
 		if _, err := fmt.Fprintln(input, "check"); err != nil {
 			return err
 		}
+	}
+	for i := range outputs {
 		if !outputs[i].Scan() || outputs[i].Text() != "checked" {
 			return fmt.Errorf("mesh %d failed region request checks: %s", i, outputs[i].Text())
 		}
@@ -190,6 +193,11 @@ func servePromotionMesh() error {
 		return err
 	}
 	defer conn.Close()
+	if err := regionhealth.Serve(conn, func() regionhealth.Report {
+		return regionhealth.Report{State: regionhealth.StateOK, At: time.Now().UTC()}
+	}); err != nil {
+		return err
+	}
 	if err := conn.Flush(); err != nil {
 		return err
 	}
@@ -219,7 +227,7 @@ func servePromotionMesh() error {
 }
 
 func checkRegionRequests(conn *nats.Conn) error {
-	for _, subject := range []string{mesh.PingSubject, mesh.StateSubject, mesh.ApplySubject, protocol.MeshDrainPrefix + "gru"} {
+	for _, subject := range []string{mesh.PingSubject, mesh.StateSubject, mesh.ApplySubject, protocol.MeshDrainPrefix + "gru", protocol.MeshHealthSubject} {
 		payload := []byte("{}")
 		if subject == mesh.ApplySubject {
 			encoded, err := protocol.EncodeJSON(mesh.ApplyRequest{Name: "promotion-probe", Entry: mesh.Entry{Generation: time.Now().UnixNano()}})
@@ -262,6 +270,12 @@ func oneRegionReply(conn *nats.Conn, subject string, payload []byte) error {
 			var reply mesh.Reply
 			if err := protocol.DecodeTolerant(message.Data, &reply, 1<<20); err != nil || reply.Region != "gru" {
 				return fmt.Errorf("%s returned an invalid region reply: %s", subject, message.Data)
+			}
+		}
+		if subject == protocol.MeshHealthSubject {
+			var report regionhealth.Report
+			if err := protocol.DecodeTolerant(message.Data, &report, 1<<20); err != nil || report.Region != "gru" || report.State != regionhealth.StateOK {
+				return fmt.Errorf("health returned an invalid region report: %s", message.Data)
 			}
 		}
 		replies++

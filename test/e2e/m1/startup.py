@@ -85,8 +85,11 @@ def run_case(binary, seed_binary, root, case):
     work = root / case
     work.mkdir()
     if case == "promotion":
+        local_var = work / "var-lib"
+        local_var.mkdir()
+        subprocess.run(["mount", "--bind", str(local_var), "/var/lib"], check=True)
         result = subprocess.run(
-            [seed_binary, str(work), "promotion"],
+            [seed_binary, str(work), "promotion", binary],
             capture_output=True,
             text=True,
             timeout=60,
@@ -131,7 +134,7 @@ def run_case(binary, seed_binary, root, case):
             values = {
                 "/opc/v2/instance/canonicalRegionName": "us-sanjose-1",
                 "/opc/v2/instance/id": "instance",
-                "/opc/v2/vnics/": '[{"privateIp":"127.0.0.2"}]',
+                "/opc/v2/vnics/": '[{"privateIp":"127.0.0.2","vcnCidrBlock":"127.0.0.0/16"}]',
             }
             value = values.get(self.path)
             ready = delayed and now - began >= 2
@@ -251,8 +254,16 @@ def run_case(binary, seed_binary, root, case):
             env=environment,
         )
         processes.append(process)
+        try:
+            extension = notify.recv(4096)
+        except TimeoutError:
+            stop(process)
+            data, _ = process.communicate()
+            raise AssertionError(
+                f"startup did not notify: {data.decode(errors='replace')[-5000:]}"
+            ) from None
         require(
-            notify.recv(4096) == b"EXTEND_TIMEOUT_USEC=600000000",
+            extension == b"EXTEND_TIMEOUT_USEC=600000000",
             "startup did not reserve time for recovery after the metadata window",
         )
         if case == "cancel":
@@ -341,7 +352,12 @@ def run_case(binary, seed_binary, root, case):
         if delayed:
             require(
                 json.loads(record.read_text())
-                == {"Region": "sjc", "ID": "instance", "PrivateIP": "127.0.0.2"},
+                == {
+                    "Region": "sjc",
+                    "ID": "instance",
+                    "PrivateIP": "127.0.0.2",
+                    "VCNCIDR": "127.0.0.0/16",
+                },
                 "successful metadata did not refresh the record",
             )
             require(

@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/fsnotify/fsnotify"
 	"github.com/moby/swarmkit/v2/api"
+	"golang.org/x/sys/unix"
 )
 
 func promotionJourney(ctx context.Context, state string, manager *swarmruntime.Node) error {
@@ -20,6 +24,19 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	}
 	defer conn.Close()
 	watcher := api.NewWatchClient(conn)
+	if err := os.MkdirAll("/var/lib/ts-orch", 0o700); err != nil {
+		return err
+	}
+	if err := unix.Mount(filepath.Join(state, "manager"), "/var/lib/ts-orch", "", unix.MS_BIND, ""); err != nil {
+		return err
+	}
+	defer unix.Unmount("/var/lib/ts-orch", 0)
+	command := func(args ...string) ([]byte, error) {
+		return exec.CommandContext(ctx, os.Args[3], append([]string{"member"}, args...)...).CombinedOutput()
+	}
+	if output, err := command("leave", "single-host"); err == nil || !strings.Contains(string(output), "cannot remove") {
+		return fmt.Errorf("last manager removal was not refused: %s: %v", output, err)
+	}
 	clusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
 	if err != nil {
 		return err
@@ -52,8 +69,11 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 		if _, err := swarmruntime.AdmitNode(ctx, client, worker.ID(), admission); err != nil {
 			return err
 		}
-		if err := swarmruntime.PromoteManagers(ctx, client, watcher, manager.ID()); err != nil {
-			return err
+		if err := awaitPromotionReady(ctx, client, watcher, len(workers)+1, 1); err != nil {
+			return fmt.Errorf("joining workers changed manager roles without an operator command: %w", err)
+		}
+		if output, err := command("promote"); err != nil {
+			return fmt.Errorf("member promote: %w: %s", err, output)
 		}
 		listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 		if err != nil {
@@ -73,6 +93,24 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	if err := awaitPromotionReady(ctx, client, watcher, 3, 3); err != nil {
 		return err
 	}
+	if err := swarmruntime.PromoteManagers(ctx, client, watcher, workers[0].ID()); err == nil {
+		return fmt.Errorf("a follower was allowed to change manager membership")
+	}
+	lock, err := os.OpenFile(filepath.Join(state, "manager", "membership.lock"), os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		return err
+	}
+	output, commandErr := command("promote")
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_UN); err != nil {
+		return err
+	}
+	if commandErr == nil || !strings.Contains(string(output), "another membership change") {
+		return fmt.Errorf("concurrent membership change was not refused: %s: %v", output, commandErr)
+	}
 	if err := meshPromotionJourney(ctx, state, append([]*swarmruntime.Node{manager}, workers...)); err != nil {
 		return err
 	}
@@ -80,20 +118,24 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	if err := awaitStoredRole(ctx, workerState, "manager"); err != nil {
 		return err
 	}
-	current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: workers[0].ID()})
-	if err != nil {
-		return err
-	}
-	node := current.Node
-	spec := node.Spec.Copy()
-	spec.DesiredRole, spec.Availability = api.NodeRoleWorker, api.NodeAvailabilityDrain
-	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec}); err != nil {
-		return err
+	if output, err := command("leave", "worker-0"); err != nil {
+		return fmt.Errorf("manager departure: %w: %s", err, output)
 	}
 	if err := awaitStoredRole(ctx, workerState, "container"); err != nil {
 		return err
 	}
-	fmt.Println("ok promotion: one worker keeps one manager; two workers reach three; admission follows promotion and demotion")
+	output, commandErr = command("leave", "worker-1")
+	if commandErr == nil || !strings.Contains(string(output), "promote replacement managers first") {
+		return fmt.Errorf("below-majority departure was not refused: %s: %v", output, commandErr)
+	}
+	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return err
+	}
+	if len(listed.Nodes) != 2 {
+		return fmt.Errorf("refused departure changed membership: %d nodes", len(listed.Nodes))
+	}
+	fmt.Println("ok promotion: operator command reaches three managers; concurrent, follower and below-majority changes refused; admission follows departure")
 	return nil
 }
 

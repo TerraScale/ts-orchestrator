@@ -147,14 +147,13 @@ func serverName(cfg config) string {
 		if cfg.founder {
 			return cfg.region
 		}
-		return cfg.region + "-" + cfg.nodeID[:min(12, len(cfg.nodeID))]
+		return cfg.region + "." + cfg.nodeID[:min(12, len(cfg.nodeID))]
 	}
 	return cfg.region + "." + cfg.server
 }
 
 func serverRegion(name string) string {
 	region, _, _ := strings.Cut(name, ".")
-	region, _, _ = strings.Cut(region, "-")
 	return region
 }
 

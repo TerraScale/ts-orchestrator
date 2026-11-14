@@ -24,12 +24,15 @@ func PromoteManagers(ctx context.Context, client api.ControlClient, watcher api.
 		return err
 	}
 	if !IsLeader(listed.Nodes, nodeID) {
-		return nil
+		return errors.New("manager promotion must run on the Raft leader")
 	}
 	managers := 0
 	var eligible []*api.Node
 	for _, node := range listed.Nodes {
 		if node.Role == api.NodeRoleManager || node.Spec.DesiredRole == api.NodeRoleManager {
+			if !managerReady(node) {
+				return fmt.Errorf("manager %s is not ready; membership must settle before promotion", node.ID)
+			}
 			managers++
 		} else if promotionEligible(node) {
 			eligible = append(eligible, node)
@@ -54,6 +57,9 @@ func PromoteManagers(ctx context.Context, client api.ControlClient, watcher api.
 		managers := 0
 		for _, node := range listed.Nodes {
 			if node.Role == api.NodeRoleManager || node.Spec.DesiredRole == api.NodeRoleManager {
+				if !managerReady(node) {
+					return fmt.Errorf("manager %s is not ready; membership must settle before promotion", node.ID)
+				}
 				managers++
 			}
 		}
@@ -75,6 +81,10 @@ func promotionEligible(node *api.Node) bool {
 
 func managerReachable(node *api.Node) bool {
 	return node.Role == api.NodeRoleManager && node.ManagerStatus != nil && node.ManagerStatus.Reachability == api.RaftMemberStatus_REACHABLE
+}
+
+func managerReady(node *api.Node) bool {
+	return managerReachable(node) && node.Status.State == api.NodeStatus_READY && node.Spec.DesiredRole == api.NodeRoleManager
 }
 
 func promoteManager(ctx context.Context, client api.ControlClient, watcher api.WatchClient, nodeID string) error {
@@ -126,7 +136,7 @@ func promoteManager(ctx context.Context, client api.ControlClient, watcher api.W
 		if err != nil {
 			return err
 		}
-		if managerReachable(current.Node) {
+		if managerReady(current.Node) {
 			return nil
 		}
 		select {
