@@ -1,0 +1,139 @@
+package pullrelease
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
+)
+
+const (
+	PhaseIdle       = "idle"
+	PhaseRolling    = "rolling"
+	PhaseComplete   = "complete"
+	PhaseRefused    = "refused"
+	PhaseRolledBack = "rolled_back"
+	PhaseWaiting    = "waiting"
+
+	HostPending    = "pending"
+	HostInstalling = "installing"
+	HostGating     = "gating"
+	HostDone       = "done"
+	HostRolledBack = "rolled_back"
+
+	badLimit = 16
+)
+
+type HostProgress struct {
+	ID      string `json:"id"`
+	Host    string `json:"host"`
+	State   string `json:"state"`
+	Version string `json:"version,omitempty"`
+	SHA256  string `json:"sha256,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type Status struct {
+	Region  string                 `json:"region"`
+	Phase   string                 `json:"phase"`
+	Target  *releaseattest.Release `json:"target,omitempty"`
+	Hosts   []HostProgress         `json:"hosts,omitempty"`
+	Reason  string                 `json:"reason,omitempty"`
+	Bad     []string               `json:"bad,omitempty"`
+	Nudged  string                 `json:"nudged,omitempty"`
+	Checked time.Time              `json:"checked,omitzero"`
+	Updated time.Time              `json:"updated,omitzero"`
+}
+
+func statusFile(state string) string { return filepath.Join(state, "nats", "pull-rollout.json") }
+
+func Read(state string) (*Status, error) {
+	data, err := os.ReadFile(statusFile(state))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var status Status
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, fmt.Errorf("pull rollout record damaged: %w", err)
+	}
+	return &status, nil
+}
+
+func write(state string, status Status) error {
+	data, err := json.Marshal(status)
+	if err != nil {
+		return err
+	}
+	path := statusFile(state)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(filepath.Dir(path), ".pull-rollout-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	_, err = file.Write(data)
+	if err = errors.Join(err, file.Sync(), file.Close()); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), path)
+}
+
+func (s *Status) bad(tag string) bool {
+	for _, known := range s.Bad {
+		if known == tag {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Status) markBad(tag string) {
+	if s.bad(tag) {
+		return
+	}
+	s.Bad = append(s.Bad, tag)
+	if len(s.Bad) > badLimit {
+		s.Bad = s.Bad[len(s.Bad)-badLimit:]
+	}
+}
+
+func (s *Status) host(id string) *HostProgress {
+	for i := range s.Hosts {
+		if s.Hosts[i].ID == id {
+			return &s.Hosts[i]
+		}
+	}
+	return nil
+}
+
+func (s Status) String() string {
+	line := "pull rollout " + s.Phase
+	if s.Target != nil {
+		line += " " + s.Target.Tag()
+	}
+	if s.Reason != "" {
+		line += " (" + s.Reason + ")"
+	}
+	parts := []string{line}
+	for _, host := range s.Hosts {
+		row := "    " + host.Host + ": " + host.State
+		if host.Version != "" {
+			row += " on " + host.Version
+		}
+		if host.Error != "" {
+			row += "; " + host.Error
+		}
+		parts = append(parts, row)
+	}
+	return strings.Join(parts, "\n")
+}

@@ -23,6 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -116,6 +117,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	}
 	if plan.region != "" {
 		go serveHostReleases(ctx, state, plan.region, node, releases)
+		go runPullUpdates(ctx, state, plan.region, node, releases)
 	}
 	notifier := sdnotify.Process()
 	if err := notifier.Ready("single-host node ready"); err != nil {
@@ -458,6 +460,9 @@ func serveHostReleases(ctx context.Context, state, region string, node *swarmrun
 			closed := make(chan struct{})
 			conn.SetClosedHandler(func(*nats.Conn) { close(closed) })
 			err = releases.ServeHostVersion(conn, region, node.ID())
+			if err == nil {
+				err = releases.ServePulled(conn, region, node.ID())
+			}
 			if err == nil && worker {
 				err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region, node.ID())
 			}
@@ -490,6 +495,69 @@ func serveHostReleases(ctx context.Context, state, region string, node *swarmrun
 		case <-time.After(30 * time.Second):
 		}
 	}
+}
+
+func runPullUpdates(ctx context.Context, state, region string, node *swarmruntime.Node, releases *releasepush.Handler) {
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	for ctx.Err() == nil {
+		if !node.IsManager() {
+			select {
+			case <-ctx.Done():
+			case <-tick.C:
+			}
+			continue
+		}
+		conn, err := mesh.Connect(state)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+			case <-time.After(30 * time.Second):
+			}
+			continue
+		}
+		managing, stop := context.WithCancel(ctx)
+		go func() {
+			for managing.Err() == nil && node.IsManager() && !conn.IsClosed() {
+				select {
+				case <-managing.Done():
+				case <-tick.C:
+				}
+			}
+			stop()
+		}()
+		updater := pullrelease.New(region, node.ID(), state, conn, releases, func(ctx context.Context) ([]pullrelease.Host, error) {
+			return regionHosts(ctx, state)
+		})
+		if err := updater.Run(managing); err != nil && ctx.Err() == nil && managing.Err() == nil {
+			slog.WarnContext(ctx, "pull release updater stopped", "error", err)
+		}
+		stop()
+		conn.Close()
+	}
+}
+
+func regionHosts(ctx context.Context, state string) ([]pullrelease.Host, error) {
+	control, closer, err := swarmruntime.DialSingleHost(state)
+	if err != nil {
+		return nil, err
+	}
+	defer closer.Close()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	listed, err := control.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	hosts := make([]pullrelease.Host, 0, len(listed.Nodes))
+	for _, node := range listed.Nodes {
+		name := node.ID
+		if node.Description != nil && node.Description.Hostname != "" {
+			name = node.Description.Hostname
+		}
+		hosts = append(hosts, pullrelease.Host{ID: node.ID, Name: name})
+	}
+	return hosts, nil
 }
 
 func meshRoute(address string) string {

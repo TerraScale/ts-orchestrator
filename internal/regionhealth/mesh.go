@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
@@ -49,6 +50,9 @@ func Run(ctx context.Context, state string) {
 		report.Hosts = hosts
 		if err != nil {
 			report.HostError = "host revision inventory unavailable"
+		}
+		if report.Rollout, err = pullrelease.Read(state); err != nil {
+			slog.WarnContext(ctx, "pull rollout record unreadable", "error", err)
 		}
 		latest.Store(&report)
 		if report.State != previous {
@@ -149,6 +153,9 @@ func write(output io.Writer, regions []string, reports map[string]Report) error 
 		if report.HostError != "" {
 			line += "\n  " + report.HostError
 		}
+		if report.Rollout != nil {
+			line += "\n  " + report.Rollout.String()
+		}
 		for _, host := range report.Hosts {
 			line += fmt.Sprintf("\n  host %s: revision %s", host.Host, host.Version)
 			if host.Refusal != nil {
@@ -187,6 +194,9 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 		report.Hosts, err = HostVersions(ctx, state, "")
 		if err != nil {
 			report.HostError = "host revision inventory unavailable"
+		}
+		if report.Rollout, err = pullrelease.Read(state); err != nil {
+			report.Reasons = append(report.Reasons, err.Error())
 		}
 		return write(output, []string{"local"}, map[string]Report{"local": report})
 	}
