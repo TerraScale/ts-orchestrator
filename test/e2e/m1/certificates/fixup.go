@@ -250,6 +250,9 @@ func fixupJourney(ctx context.Context, cfg configuration, conn *nats.Conn, autho
 		if err := second.wait(ctx, "edge certificate order failed name="+name+" ", 1); err != nil {
 			return err
 		}
+		if err := second.wait(ctx, "edge certificate unavailable name="+name+" ", 1); err != nil {
+			return err
+		}
 	}
 	if err := failureDeadline(second, "fail-first.e2e.test", 1, 30*time.Minute); err != nil {
 		return err
