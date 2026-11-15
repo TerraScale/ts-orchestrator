@@ -48,7 +48,7 @@ type inventory struct {
 
 func main() {
 	if len(os.Args) < 2 || len(os.Args) > 3 {
-		fmt.Fprintln(os.Stderr, "usage: go run ./scripts/monitoring <output-directory> [source-directory]")
+		fmt.Fprintln(os.Stderr, "usage: go run -C scripts/monitoring . <output-directory> <source-directory>")
 		os.Exit(2)
 	}
 	if len(os.Args) == 3 {
@@ -92,12 +92,56 @@ func render(output string) error {
 			}
 		}
 	}
+	for _, g := range source.Groups {
+		for _, r := range g.Rules {
+			if _, pinned := r.Labels["region"]; pinned {
+				return errors.New("source rules must not pin a region label")
+			}
+			if _, err := regionalExpression(r.Expr, inv.Regions[0], catalog); err != nil {
+				return fmt.Errorf("%s%s: %w", r.Alert, r.Record, err)
+			}
+		}
+	}
 	for _, monitor := range inv.Monitors {
 		var generated rules
+		for _, g := range source.Groups {
+			target := group{Name: g.Name + "-global", Interval: g.Interval}
+			for _, r := range g.Rules {
+				fleet := slices.Contains([]string{"ServiceReadinessFailed", "ProductionJourneyFailed", "ProductionJourneyTelemetryMissing", "AlertDeliveryHeartbeat"}, r.Alert)
+				if g.Name != "service-slo" && !fleet || r.Alert == "ServiceSLOTelemetryMissing" || r.Record == "terrascale_slo_requests_total" {
+					continue
+				}
+				if g.Name == "service-slo" {
+					expr, err := parser.NewParser(parser.Options{}).ParseExpr(r.Expr)
+					if err != nil {
+						return err
+					}
+					parser.Inspect(expr, func(node parser.Node, _ []parser.Node) error {
+						if selector, ok := node.(*parser.VectorSelector); ok && strings.HasPrefix(selector.Name, "slo:") {
+							selector.LabelMatchers = append(selector.LabelMatchers, labels.MustNewMatcher(labels.MatchEqual, "region", "global"))
+						}
+						return nil
+					})
+					r.Expr = expr.String()
+					if r.Alert != "" {
+						r.Alert += "Global"
+					}
+				}
+				r.Labels = copyLabels(r.Labels)
+				r.Labels["region"] = "global"
+				target.Rules = append(target.Rules, r)
+			}
+			if len(target.Rules) > 0 {
+				generated.Groups = append(generated.Groups, target)
+			}
+		}
 		for _, region := range inv.Regions {
 			for _, g := range source.Groups {
 				target := group{Name: g.Name + "-" + region, Interval: g.Interval}
 				for _, r := range g.Rules {
+					if slices.Contains([]string{"ServiceReadinessFailed", "ProductionJourneyFailed", "ProductionJourneyTelemetryMissing", "AlertDeliveryHeartbeat"}, r.Alert) {
+						continue
+					}
 					if _, pinned := r.Labels["region"]; pinned {
 						return errors.New("source rules must not pin a region label")
 					}
@@ -119,6 +163,23 @@ func render(output string) error {
 			return err
 		}
 		if err := writeJSON(filepath.Join(dir, "rules.yml"), generated); err != nil {
+			return err
+		}
+		unit, err := os.ReadFile("deploy/observability/production/ts-alertmanager.service")
+		if err != nil {
+			return err
+		}
+		var peers []string
+		for _, peer := range inv.Monitors {
+			if peer != monitor {
+				peers = append(peers, "--cluster.peer="+peer+".nb.ts.internal:9095")
+			}
+		}
+		unit = []byte(strings.ReplaceAll(string(unit), "@peers@", strings.Join(peers, " ")))
+		if err := os.WriteFile(filepath.Join(dir, "ts-alertmanager.service"), unit, 0644); err != nil {
+			return err
+		}
+		if err := writeJSON(filepath.Join(dir, "email-budget.json"), map[string]int{"hourly": 12 / len(inv.Monitors), "daily": 288 / len(inv.Monitors)}); err != nil {
 			return err
 		}
 		if err := writeJSON(filepath.Join(dir, "prometheus.yml"), prometheusConfig(inv, monitor)); err != nil {
@@ -277,6 +338,7 @@ func coverageRules(inv inventory, region string) group {
 
 func prometheusConfig(inv inventory, monitor string) map[string]any {
 	var discovery, hosts, controllers, backends []map[string]any
+	var alertmanagers []string
 	for _, host := range inv.Hosts {
 		region := strings.Split(host, "-")[1]
 		discovery = append(discovery, map[string]any{"url": "http://" + host + ".nb.ts.internal:9108/services", "refresh_interval": "15s"})
@@ -284,12 +346,13 @@ func prometheusConfig(inv inventory, monitor string) map[string]any {
 		controllers = append(controllers, map[string]any{"targets": []string{host + ".nb.ts.internal:9108"}, "labels": map[string]string{"host": host, "region": region, "instance": host, "service": "orchestrator"}})
 	}
 	for _, host := range inv.Monitors {
+		alertmanagers = append(alertmanagers, host+".nb.ts.internal:9093")
 		backends = append(backends, map[string]any{"targets": []string{host + ".nb.ts.internal:9108"}, "labels": map[string]string{"host": host, "region": strings.Split(host, "-")[1], "instance": host}})
 	}
 	return map[string]any{
 		"global":     map[string]any{"scrape_interval": "15s", "evaluation_interval": "15s", "external_labels": map[string]string{"monitor": monitor}},
 		"rule_files": []string{"rules.yml"},
-		"alerting":   map[string]any{"alert_relabel_configs": []map[string]any{{"action": "labeldrop", "regex": "monitor"}}, "alertmanagers": []map[string]any{{"static_configs": []map[string]any{{"targets": []string{"127.0.0.1:9093"}}}}}},
+		"alerting":   map[string]any{"alert_relabel_configs": []map[string]any{{"action": "labeldrop", "regex": "monitor"}}, "alertmanagers": []map[string]any{{"static_configs": []map[string]any{{"targets": alertmanagers}}}}},
 		"scrape_configs": []map[string]any{
 			{"job_name": "application-slo", "http_sd_configs": discovery},
 			{"job_name": "host-storage", "honor_labels": true, "sample_limit": 4096, "static_configs": hosts},

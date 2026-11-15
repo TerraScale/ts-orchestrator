@@ -486,3 +486,92 @@ tests:
         description: terrabase_backup_drills_total counts completed snapshot restore drills by result and drills run daily. No increase for twenty-six hours means no drill completed on the reporting member; a Prometheus with less than twenty-six hours of history truncates the window and can fire earlier. Failed drills page separately through TerraBaseBackupDrillFailed.
         runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/disaster-recovery.md#drill
 
+
+- interval: 1m
+  input_series:
+  - series: terrabase_backup_failures_total{service="terrabase",instance="old-member"}
+    values: 38+0x20
+  - series: terrabase_backup_holes_recorded_total{service="terrabase",instance="old-member"}
+    values: 2+0x20
+  - series: terrabase_replica_verifications_total{service="terrabase",instance="old-member",result="diverged"}
+    values: 2+0x20
+  - series: terrabase_backup_drills_total{service="terrabase",instance="old-member",result="failed"}
+    values: 1+0x20
+  - series: ts_auth_emails_total{service="ts-auth",region="gru",outcome="provider_exhausted"}
+    values: 1+0x20
+  alert_rule_test:
+  - eval_time: 0m
+    alertname: TerraBaseBackupFailed
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: TerraBaseBackupFailed
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: TerraBaseBackupFailed
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: TerraBaseBackupFailed
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts: []
+
+- interval: 1m
+  input_series:
+  - series: terrabase_backup_failures_total{service="terrabase",instance="retrying"}
+    values: 0 1 2 3 4 5
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: TerraBaseBackupFailed
+    exp_alerts:
+    - exp_labels:
+        service: terrabase
+        instance: retrying
+        severity: warning
+      exp_annotations:
+        summary: A TerraBase backup pass failed

@@ -11,6 +11,11 @@ cp /etc/passwd "$work/passwd"
 if ! getent passwd ts-alerts >/dev/null; then
  printf 'ts-alerts:x:32123:32123:Alert relay:/nonexistent:/usr/sbin/nologin\n' >> "$work/passwd"
 fi
+mkdir -p "$work/etc-upper" "$work/etc-work"
+mount -t overlay -o "lowerdir=/etc,upperdir=$work/etc-upper,workdir=$work/etc-work" overlay /etc
 mount --bind "$work/passwd" /etc/passwd
-mount -t tmpfs -o mode=0755 tmpfs /run
-python3 "$(dirname "$0")/relay.py" "$1"
+mkdir -p /etc/ts-monitoring/production
+script=$(realpath "$(dirname "$0")/relay.py")
+mkdir -p /run/ts-alert-delivery
+mount -t tmpfs -o mode=0750 tmpfs /run/ts-alert-delivery
+python3 "$script" "$1" "$2"

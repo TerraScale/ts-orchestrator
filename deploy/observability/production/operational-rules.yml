@@ -64,13 +64,13 @@ groups:
           description: terrabase_backup_drills_total counts completed snapshot restore drills by result and drills run daily. No increase for twenty-six hours means no drill completed on the reporting member; a Prometheus with less than twenty-six hours of history truncates the window and can fire earlier. Failed drills page separately through TerraBaseBackupDrillFailed.
           runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/disaster-recovery.md#drill
       - alert: TerraBaseBackupFailed
-        expr: (increase(terrabase_backup_failures_total{service="terrabase"}[5m]) > 0) or ((terrabase_backup_failures_total{service="terrabase"} > 0) unless terrabase_backup_failures_total{service="terrabase"} offset 5m)
+        expr: increase(terrabase_backup_failures_total{service="terrabase"}[5m]) > 0
         labels:
-          severity: critical
+          severity: warning
         annotations:
           summary: A TerraBase backup pass failed
       - alert: TerraBaseBackupHoles
-        expr: (increase(terrabase_backup_holes_recorded_total{service="terrabase"}[5m]) > 0) or ((terrabase_backup_holes_recorded_total{service="terrabase"} > 0) unless terrabase_backup_holes_recorded_total{service="terrabase"} offset 5m)
+        expr: increase(terrabase_backup_holes_recorded_total{service="terrabase"}[5m]) > 0
         labels:
           severity: critical
         annotations:
@@ -83,7 +83,7 @@ groups:
         annotations:
           summary: TerraBase replication send lag exceeds thirty seconds
       - alert: TerraBaseReplicaDiverged
-        expr: (increase(terrabase_replica_verifications_total{service="terrabase",result="diverged"}[15m]) > 0) or ((terrabase_replica_verifications_total{service="terrabase",result="diverged"} > 0) unless terrabase_replica_verifications_total{service="terrabase",result="diverged"} offset 15m)
+        expr: increase(terrabase_replica_verifications_total{service="terrabase",result="diverged"}[15m]) > 0
         labels:
           severity: critical
         annotations:
@@ -112,13 +112,13 @@ groups:
           summary: TerraBase host metrics are not scraped
           description: The terrabase-host-storage scrape of this host's TerraBase metrics on tcp 9091 has been down for two minutes. Check first that the NetBird servers-to-servers-metrics policy is applied, then that TerraBase is listening on 9091 and that the host's NetBird DNS name resolves and answers.
       - alert: TerraBaseBackupDrillFailed
-        expr: (increase(terrabase_backup_drills_total{service="terrabase",result="failed"}[5m]) > 0) or ((terrabase_backup_drills_total{service="terrabase",result="failed"} > 0) unless terrabase_backup_drills_total{service="terrabase",result="failed"} offset 5m)
+        expr: increase(terrabase_backup_drills_total{service="terrabase",result="failed"}[5m]) > 0
         labels:
           severity: critical
         annotations:
           summary: TerraBase backup restore drill failed
       - alert: ServiceReadinessFailed
-        expr: terrascale_service_readiness{service=~"terrabase|ts-auth|ts-dashboard"} == 0
+        expr: min by (service) (terrascale_service_readiness{service=~"terrabase|ts-auth|ts-dashboard"}) == 0
         for: 5m
         keep_firing_for: 10m
         labels:
@@ -126,7 +126,7 @@ groups:
         annotations:
           summary: Public service readiness failed
       - alert: AuthEmailProviderExhausted
-        expr: sum by (service, region) ((increase(ts_auth_emails_total{service="ts-auth",outcome="provider_exhausted"}[5m]) > 0) or ((ts_auth_emails_total{service="ts-auth",outcome="provider_exhausted"} > 0) unless ts_auth_emails_total{service="ts-auth",outcome="provider_exhausted"} offset 5m)) > 0
+        expr: sum by (service, region) (increase(ts_auth_emails_total{service="ts-auth",outcome="provider_exhausted"}[5m])) > 0
         labels:
           severity: critical
         annotations:
@@ -233,14 +233,14 @@ groups:
         annotations:
           summary: A host service repeatedly restarts
       - alert: ProductionJourneyFailed
-        expr: terrascale_production_journey_success == 0
+        expr: min(terrascale_production_journey_success) == 0
         for: 5m
         labels:
           severity: critical
         annotations:
           summary: The latest executed production journey failed
       - alert: ProductionJourneyTelemetryMissing
-        expr: terrascale_production_journey_observation_age_seconds > 3900 or time() - terrascale_production_journey_completed_timestamp_seconds > 129600 or absent(terrascale_production_journey_observation_age_seconds)
+        expr: max(terrascale_production_journey_observation_age_seconds) > 3900 or time() - min(terrascale_production_journey_completed_timestamp_seconds) > 129600 or absent(terrascale_production_journey_observation_age_seconds)
         for: 10m
         labels:
           severity: warning

@@ -255,6 +255,31 @@ func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
 		return err
 	}
 
+	canonical := slices.ContainsFunc(policies, func(policy apiPolicy) bool { return policy.Name == "servers-to-servers-metrics" })
+	if canonical {
+		for _, policy := range policies {
+			if policy.Name != "gru-servers-to-servers-metrics" {
+				continue
+			}
+			var groups []string
+			for _, group := range d.Groups {
+				if regionServerGroup(group.Name) {
+					groups = append(groups, group.Name)
+				}
+			}
+			historical := PolicySpec{Name: policy.Name,
+				Description: "GRU servers (Prometheus runs on ts-gru-1) → regional servers in every region: host exporter 9108 and TerraBase metrics 9091",
+				Protocol:    "tcp", Ports: []string{"9108", "9091"}, Sources: []string{"gru-servers"}, Destinations: groups}
+			if policy.ID == "" || len(policy.SourcePostureChecks) != 0 || len(policy.Rules) != 1 || len(policy.Rules[0].AuthorizedGroups) != 0 || len(policyDiff(policy, historical, &p.refs)) != 0 {
+				return errors.New("historical NetBird monitoring policy has a conflicting shape")
+			}
+			p.add(Change{"delete", "policy", policy.Name, "replaced by servers-to-servers-metrics"}, func(ctx context.Context, _ *refs) error {
+				return api.do(ctx, "DELETE", "/policies/"+policy.ID, nil, nil)
+			})
+		}
+		policies = slices.DeleteFunc(policies, func(policy apiPolicy) bool { return policy.Name == "gru-servers-to-servers-metrics" })
+	}
+
 	managed := map[string]bool{}
 	for _, spec := range d.Policies {
 		current, err := matchName(policies, func(p apiPolicy) string { return p.Name }, spec.Name, spec.RenamedFrom, "policy")

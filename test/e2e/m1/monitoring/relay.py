@@ -11,6 +11,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 binary = os.path.realpath(sys.argv[1])
+budgets = [json.loads(path.read_text()) for path in Path(sys.argv[2]).glob("*/email-budget.json")]
+assert len(budgets) == 3
+assert sum(b["hourly"] for b in budgets) <= 12
+assert sum(b["daily"] for b in budgets) <= 288
+budget_path = Path("/etc/ts-monitoring/production/email-budget.json")
+budget_path.write_text(json.dumps(budgets[0]))
 now = datetime.now(UTC)
 Path("/var/lib/ts-alerts/email-ledger.json").write_text(json.dumps([{
     "key": "daily-digest",
@@ -18,7 +24,8 @@ Path("/var/lib/ts-alerts/email-ledger.json").write_text(json.dumps([{
     "until": (now + timedelta(days=1)).isoformat(),
 }]))
 directory = Path("/run/ts-alert-delivery")
-directory.mkdir(mode=0o750)
+directory.mkdir(mode=0o750, exist_ok=True)
+directory.chmod(0o750)
 gid = pwd.getpwnam("ts-alerts").pw_gid
 os.chown(directory, 0, gid)
 for key, value in {
@@ -40,7 +47,7 @@ try:
             raise RuntimeError("relay listener did not open")
         line = os.read(process.stderr.fileno(), 8192).decode()
         if not line:
-            raise RuntimeError("relay exited before listener opened")
+            raise RuntimeError("relay exited before listener opened: " + "".join(lines)[-2000:])
         lines.append(line)
         if "Alert delivery listener ready" in "".join(lines):
             break
@@ -57,6 +64,38 @@ try:
     response.read()
     if response.status != 202:
         raise RuntimeError(f"real relay rejected notification: {response.status}")
+    ledger = Path("/var/lib/ts-alerts/email-ledger.json")
+
+    def send_group(key):
+        connection.request("POST", "/alerts", json.dumps({
+            "status": "firing", "groupKey": key,
+            "alerts": [{"status": "firing", "labels": {"alertname": "EmailBudgetJourney", "severity": "critical"}}],
+        }), {"Content-Type": "application/json"})
+        response = connection.getresponse()
+        response.read()
+        assert response.status == 202, response.status
+
+    for index, budget in enumerate(budgets):
+        budget_path.write_text(json.dumps(budget))
+        ledger.write_text("[]")
+        for attempt in range(budget["hourly"] + 2):
+            send_group(f"region-{index}-attempt-{attempt}")
+        entries = json.loads(ledger.read_text())
+        assert len(entries) == budget["hourly"], entries
+        send_group(f"region-{index}-attempt-0")
+        assert json.loads(ledger.read_text()) == entries
+        past = datetime.now(UTC) - timedelta(hours=2)
+        ledger.write_text(json.dumps([{
+            "key": f"spent-{attempt}", "send_by": past.isoformat(), "until": (past + timedelta(hours=4)).isoformat(),
+        } for attempt in range(budget["daily"])]))
+        before = ledger.read_bytes()
+        send_group(f"region-{index}-daily-exhausted")
+        assert ledger.read_bytes() == before
+    budget_path.unlink()
+    ledger.write_text("[]")
+    send_group("missing-budget")
+    assert ledger.read_text() == "[]"
+    print("monitoring: real relay enforces rendered fleet caps <=12/hour, <=288/day across three budgets, duplicate suppression and missing-budget fail closed")
     connection.close()
 finally:
     process.terminate()

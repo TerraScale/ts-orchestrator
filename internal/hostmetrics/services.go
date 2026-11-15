@@ -20,7 +20,7 @@ var serviceClient = &http.Client{
 	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 }
 
-var serviceSlots = make(chan struct{}, 4)
+var serviceSlots = make(chan struct{}, 32)
 
 func serveServices(w http.ResponseWriter, r *http.Request, region, address string, executor *swarmruntime.Executor) {
 	select {

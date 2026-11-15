@@ -28,14 +28,13 @@ for monitor in monitors:
     coverage = {}
     for group in generated["groups"]:
         for rule in group["rules"]:
-            coverage.setdefault(rule.get("alert", rule.get("record")), set()).add(rule["labels"]["region"])
+            if rule["labels"]["region"] != "global":
+                coverage.setdefault(rule.get("alert", rule.get("record")), set()).add(rule["labels"]["region"])
     if any(found != set(regions) for found in coverage.values()):
         raise SystemExit("monitoring: rule misses a region")
     canonical = json.loads((rendered / monitors[0] / "rules.yml").read_text())
     if generated != canonical:
         raise SystemExit("monitoring: backends evaluate different regional rules")
-    if monitor != monitors[0]:
-        continue
     cases = []
     for lost in regions:
         lost_monitor = next(host for host in monitors if host.split("-")[1] == lost)
@@ -71,6 +70,43 @@ for monitor in monitors:
         slo_series.append({"series": f'terrascale_slo_requests_total{{service="ts-dashboard",region="{region}",instance="{region}-task",outcome="bad"}}', "values": "0+20x65"})
         slo_alerts.append({"exp_labels": {"service": "ts-dashboard", "region": region, "slo": "availability", "severity": "critical", "long_window": "1h", "short_window": "5m"}, "exp_annotations": {"summary": "ts-dashboard availability error budget is burning", "description": "Burn exceeds 14.4x in both 1h and 5m with at least 695 eligible requests in 1h; inspect service failures before changing capacity or releases."}})
     cases.append({"interval": "1m", "input_series": slo_series, "alert_rule_test": [{"eval_time": "1h", "alertname": "ServiceSLOBurnFast", "exp_alerts": slo_alerts}]})
+    split = [{"series": f'terrascale_slo_requests_total{{service="ts-dashboard",region="{region}",instance="{region}-task",outcome="bad"}}', "values": "0+5x65"} for region in regions]
+    global_alert = {"exp_labels": {"service": "ts-dashboard", "region": "global", "slo": "availability", "severity": "critical", "long_window": "1h", "short_window": "5m"}, "exp_annotations": slo_alerts[0]["exp_annotations"]}
+    cases.append({"interval": "1m", "input_series": split, "alert_rule_test": [
+        {"eval_time": "1h", "alertname": "ServiceSLOBurnFast", "exp_alerts": []},
+        {"eval_time": "1h", "alertname": "ServiceSLOBurnFastGlobal", "exp_alerts": [global_alert]},
+    ]})
+    for mode in ("missing", "flapping", "down", "other-job", "missing-inventory"):
+        series = []
+        expected = []
+        lost_host = hosts[-1]
+        for host in hosts:
+            region = host.split("-")[1]
+            if host != lost_host or mode != "missing":
+                values = "1+0x28"
+                if host == lost_host and mode == "flapping":
+                    values = "1 0 1 0 1+0x24"
+                if host == lost_host and mode == "down":
+                    values = "1 0+0x27"
+                series.append({"series": f'up{{job="host-storage",host="{host}",instance="{host}",region="{region}"}}', "values": values})
+            if host != lost_host or mode != "missing-inventory":
+                series.append({"series": f'ts_host_service_tasks_expected{{job="host-storage",host="{host}",region="{region}",service="ts-dashboard"}}', "values": "0+0x64"})
+        if mode == "other-job":
+            series.append({"series": f'up{{job="other",host="{hosts[0]}",region="{hosts[0].split("-")[1]}"}}', "values": "1+0x28"})
+        region = lost_host.split("-")[1]
+        if mode in ("missing", "down"):
+            labels = {"severity": "critical", "region": region, "job": "host-storage", "host": lost_host}
+            if mode == "down":
+                labels["instance"] = lost_host
+            expected.append({"exp_labels": labels, "exp_annotations": {"summary": f"Expected node {lost_host} has no host-storage heartbeat ({region})"}})
+        inventory_missing = []
+        if mode == "missing-inventory":
+            inventory_missing.append({"exp_labels": {"severity": "critical", "job": "host-storage", "host": lost_host, "region": region}, "exp_annotations": {"summary": f"Service task inventory is absent on {lost_host}"}})
+        cases.append({"interval": "15s", "input_series": series, "alert_rule_test": [
+            {"eval_time": "4m45s", "alertname": "ExpectedNodeAbsent", "exp_alerts": []},
+            {"eval_time": "6m", "alertname": "ExpectedNodeAbsent", "exp_alerts": expected},
+            {"eval_time": "15m", "alertname": "HostServiceTaskInventoryMissing", "exp_alerts": inventory_missing},
+        ]})
     telemetry_series = []
     telemetry_alerts = []
     for region in regions:
@@ -80,9 +116,28 @@ for monitor in monitors:
             if assigned:
                 telemetry_alerts.append({"exp_labels": {"service": service, "region": region, "slo": "availability", "severity": "warning"}, "exp_annotations": {"summary": f"{service} SLO telemetry is missing", "description": "No recent good or bad request counter; restore instrumentation or collection. Missing telemetry is not availability success."}})
     cases.append({"interval": "1m", "input_series": telemetry_series, "alert_rule_test": [{"eval_time": "15m", "alertname": "ServiceSLOTelemetryMissing", "exp_alerts": telemetry_alerts}]})
-    fixture = rendered / monitor / "region-loss.yml"
-    fixture.write_text(json.dumps({"rule_files": ["rules.yml"], "evaluation_interval": "15s", "tests": cases}))
-    subprocess.run([str(promtool), "test", "rules", str(fixture)], check=True)
+    import re
+    records = {r["record"]: r for g in generated["groups"] for r in g["rules"] if "record" in r}
+    for index, case in enumerate(cases):
+        names = {check["alertname"] for check in case["alert_rule_test"]}
+        selected = [r for g in generated["groups"] for r in g["rules"] if r.get("alert") in names]
+        required = set()
+        pending = selected[:]
+        while pending:
+            for name in re.findall(r"[a-zA-Z_:][a-zA-Z0-9_:]*", pending.pop()["expr"]):
+                if name in records and name not in required:
+                    required.add(name)
+                    pending.extend(r for g in generated["groups"] for r in g["rules"] if r.get("record") == name)
+        groups = [{"name": g["name"], "interval": g.get("interval", "15s"), "rules": [r for r in g["rules"] if r.get("alert") in names or r.get("record") in required]} for g in generated["groups"]]
+        groups = [g for g in groups if g["rules"]]
+        rule_file = rendered / monitor / f"case-{index}-rules.yml"
+        rule_file.write_text(json.dumps({"groups": groups}))
+        fixture = rendered / monitor / f"case-{index}.yml"
+        fixture.write_text(json.dumps({"rule_files": [rule_file.name], "evaluation_interval": "15s", "tests": [case]}))
+        result = subprocess.run([str(promtool), "test", "rules", str(fixture)], capture_output=True, text=True, check=False)
+        if result.returncode:
+            raise RuntimeError(result.stdout + result.stderr)
+    print(f"monitoring: {monitor} passed {len(cases)} regional cases", flush=True)
 with tempfile.TemporaryDirectory() as directory:
     staged = Path(directory)
     shutil.copytree(root / "deploy/observability", staged / "deploy/observability")

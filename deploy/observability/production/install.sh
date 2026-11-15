@@ -1,7 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)
 
+if [[ ${1:-} == --remove ]]; then
+  shift
+  if [[ $# == 1 && $1 == --fleet ]]; then
+    while read -r host; do
+      bash "$source_dir/install.sh" --remove "$host"
+    done < <(awk -F- '!seen[$2]++' "$source_dir/hosts.txt")
+  elif [[ $# == 1 && $1 == --local ]]; then
+    [[ $EUID == 0 ]] || { echo 'Removal requires sudo/root' >&2; exit 2; }
+    for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service; do
+      if [[ -f /etc/systemd/system/$unit ]]; then
+        systemctl disable --now "$unit"
+        rm -f "/etc/systemd/system/$unit"
+      fi
+    done
+    rm -rf /etc/ts-monitoring/production /usr/local/lib/ts-monitoring
+    systemctl daemon-reload
+  elif [[ $# == 1 && $1 != -* && $1 =~ ^[a-zA-Z0-9_.@-]+$ ]]; then
+    ssh "$1" 'sudo bash -s -- --remove --local' < "$source_dir/install.sh"
+  else
+    echo "Usage: $0 --remove <SSH-host> | --remove --fleet" >&2; exit 2
+  fi
+  exit
+fi
 if [[ $# == 1 && $1 == --fleet ]]; then
   while read -r host; do
     bash "$source_dir/install.sh" "$host"
@@ -12,7 +35,7 @@ if [[ $# == 1 && $1 != --local && $1 != --check ]]; then
   [[ $1 != -* && $1 =~ ^[a-zA-Z0-9_.@-]+$ ]] || { echo 'Invalid SSH host' >&2; exit 2; }
   rendered=$(mktemp -d)
   trap 'rm -rf -- "$rendered"' EXIT
-  (cd "$source_dir/../../.." && go run ./scripts/monitoring "$rendered/rendered")
+  go -C "$source_dir/../../../scripts/monitoring" run . "$rendered/rendered" "$source_dir/../../.."
   cp -a "$source_dir" "$rendered/production"
   tar -C "$rendered" -czf - production rendered | ssh "$1" '
     set -eu
@@ -23,14 +46,17 @@ if [[ $# == 1 && $1 != --local && $1 != --check ]]; then
   '
   exit
 fi
-[[ $# == 1 && ( $1 == --local || $1 == --check ) ]] || {
+[[ ( $# == 1 && $1 == --local ) || ( $# -ge 1 && $# -le 2 && $1 == --check ) ]] || {
   echo "Usage: $0 <SSH-host> | --fleet | --check" >&2; exit 2;
 }
 mode=$1
+check_tools=${2:-}
 rendered="$source_dir/../rendered"
 if [[ $mode == --local ]]; then
   config_dir="$rendered/$(hostname -s)"
   [[ -f $config_dir/prometheus.yml ]] || { echo "Host is not an inventory monitoring backend" >&2; exit 2; }
+monitor_address=$(python3 -c 'import ipaddress,socket,sys; address=socket.gethostbyname(sys.argv[1]+".nb.ts.internal"); assert ipaddress.ip_address(address).is_private; print(address)' "$(hostname -s)")
+printf 'MONITOR_ADDRESS=%s\n' "$monitor_address" > "$config_dir/alertmanager.env"
 fi
 if [[ $mode == --local && $EUID != 0 ]]; then
   echo 'Remote installation requires sudo/root' >&2; exit 2
@@ -86,7 +112,7 @@ staging=$(mktemp -d)
 trap 'rm -rf -- "$staging"' EXIT HUP INT TERM
 if [[ $mode == --check ]]; then
   rendered="$staging/rendered"
-  (cd "$source_dir/../../.." && go build -o "$staging/render-monitoring" ./scripts/monitoring)
+  go -C "$source_dir/../../../scripts/monitoring" build -o "$staging/render-monitoring" .
   "$staging/render-monitoring" "$rendered" "$source_dir/../../.."
 fi
 for component in prometheus alertmanager; do
@@ -108,7 +134,14 @@ if [[ $mode == --check ]]; then
   python3 "$source_dir/../../../test/e2e/m1/monitoring/regions.py" "$rendered" "$prom_dir/promtool" "$staging/render-monitoring"
 fi
 "$alert_dir/amtool" check-config "$source_dir/alertmanager.yml"
-if [[ $mode == --check ]]; then exit; fi
+if [[ $mode == --check ]]; then
+  if [[ -n $check_tools ]]; then
+    mkdir -p "$check_tools"
+    cp "$prom_dir/prometheus" "$alert_dir/alertmanager" "$check_tools/"
+    cp -a "$rendered" "$check_tools/"
+  fi
+  exit
+fi
 
 for account in ts-prometheus ts-alertmanager ts-alerts; do
   if ! id "$account" >/dev/null 2>&1; then
@@ -127,12 +160,14 @@ put "$prom_dir/prometheus" /usr/local/lib/ts-monitoring/prometheus 0755
 put "$prom_dir/promtool" /usr/local/lib/ts-monitoring/promtool 0755
 put "$alert_dir/alertmanager" /usr/local/lib/ts-monitoring/alertmanager 0755
 put "$alert_dir/amtool" /usr/local/lib/ts-monitoring/amtool 0755
-for config in prometheus.yml rules.yml; do
+for config in prometheus.yml rules.yml email-budget.json alertmanager.env; do
   put "$config_dir/$config" "/etc/ts-monitoring/production/$config" 0644
 done
 put "$source_dir/alertmanager.yml" /etc/ts-monitoring/production/alertmanager.yml 0644
 for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service; do
-  put "$source_dir/$unit" "/etc/systemd/system/$unit" 0644
+  unit_source="$source_dir/$unit"
+  if [[ $unit == ts-alertmanager.service ]]; then unit_source="$config_dir/$unit"; fi
+  put "$unit_source" "/etc/systemd/system/$unit" 0644
 done
 systemctl daemon-reload
 systemctl enable ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service

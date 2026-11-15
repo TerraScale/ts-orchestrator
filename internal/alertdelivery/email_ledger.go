@@ -15,11 +15,8 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// Match production/alertmanager.yml. These limits are shared by every group and
-// status in the single production relay, leaving sign-in emails the daily quota.
 const emailRepeatInterval = 4 * time.Hour
 const digestInterval = 24 * time.Hour
-const emailHourlyLimit = 12
 
 // Every warning shares one digest identity, whatever Alertmanager regrouped.
 const digestKey = "daily-digest"
@@ -63,29 +60,43 @@ func (n notification) emailKey() string {
 // quota slot. Persist attempts even on errors. File locking covers concurrent
 // requests and overlapping relay processes; restart never resets the budget.
 func (r relay) reserveEmail(ctx context.Context, key string, window time.Duration, now time.Time) string {
+	data, err := os.ReadFile("/etc/ts-monitoring/production/email-budget.json")
+	var budget struct {
+		Hourly int `json:"hourly"`
+		Daily  int `json:"daily"`
+	}
+	if err != nil || json.Unmarshal(data, &budget) != nil || budget.Hourly < 1 || budget.Hourly > 12 || budget.Daily < 1 || budget.Daily > 288 {
+		return "budget unavailable"
+	}
 	lock := flock.New(r.ledgerPath + ".lock")
 	locked, err := lock.TryLockContext(ctx, 10*time.Millisecond)
 	if err != nil || !locked {
 		return "ledger unavailable"
 	}
 	defer lock.Unlock()
-	data, err := os.ReadFile(r.ledgerPath)
+	data, err = os.ReadFile(r.ledgerPath)
 	var reservations []emailReservation
 	if err != nil && !errors.Is(err, os.ErrNotExist) || err == nil && json.Unmarshal(data, &reservations) != nil {
 		return "ledger unavailable"
 	}
-	reservations = slices.DeleteFunc(reservations, func(v emailReservation) bool { return !v.expiry().After(now) })
-	count := 0
+	reservations = slices.DeleteFunc(reservations, func(v emailReservation) bool { return !v.expiry().After(now) && !v.SendBy.Add(24*time.Hour).After(now) })
+	count, daily := 0, 0
 	for _, entry := range reservations {
-		if entry.Key == key {
+		if entry.Key == key && entry.expiry().After(now) {
 			return "duplicate"
+		}
+		if entry.SendBy.Add(24 * time.Hour).After(now) {
+			daily++
 		}
 		if entry.SendBy.Add(time.Hour).After(now) {
 			count++
 		}
 	}
-	if count >= emailHourlyLimit {
+	if count >= budget.Hourly {
 		return "hourly cap"
+	}
+	if daily >= budget.Daily {
+		return "daily cap"
 	}
 	// The context bounds locking, Vault reads and provider delivery. Expire from
 	// its deadline, not reservation time, so delayed sends cannot overlap the
