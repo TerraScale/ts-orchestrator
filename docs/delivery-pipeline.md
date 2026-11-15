@@ -176,14 +176,14 @@ decides what runs:
   A worker that refuses the release, or installs it but is not ready in time,
   makes the manager keep its binary, refuse and drop the claim, so a region
   never mixes releases because of a failed install. A worker that does not
-  answer and that SwarmKit lists as not READY (a stopped host) does not hold
+  answer and that SwarmKit lists as `DOWN` or `DISCONNECTED` (a stopped host) does not hold
   the push: the relay does not wait for it, the manager installs anyway and
   records the skip in `nats/release-degraded.json`. That host's region then
   reports `degraded` in `ts-orch status`, the push result lists it under
   `degraded`, and the manager exports `ts_orch_release_worker_skipped`
   (alert `ReleaseWorkerSkipped`, critical) until a later push reaches every
-  worker. A worker that does not answer while SwarmKit lists it READY still
-  holds the push. A worker's release health checks
+  worker. A worker that does not answer while SwarmKit lists it in any other
+  state still holds the push. A worker's release health checks
   its own duties: its mesh NATS server, its orchestrator connection and a route
   into its region (workers run no JetStream).
 - **Restart and status.** The owner publishes each change of the record on

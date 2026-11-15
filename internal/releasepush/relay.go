@@ -32,7 +32,7 @@ func RelayWorkers(ctx context.Context, conn *nats.Conn, subject string, data []b
 			name = node.Description.Hostname
 		}
 		pending[node.ID] = len(rows)
-		down := node.Status.State != api.NodeStatus_READY
+		down := node.Status.State == api.NodeStatus_DOWN || node.Status.State == api.NodeStatus_DISCONNECTED
 		if !down {
 			up++
 		}
