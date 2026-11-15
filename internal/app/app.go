@@ -172,11 +172,12 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 func syncEdgeInventory(ctx context.Context, state, region string, publish func(mesh.EdgeInventory)) {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
+	ref := ""
 	for {
 		if client, conn, err := swarmruntime.DialSingleHost(state); err == nil {
 			if list, err := client.ListServices(ctx, &api.ListServicesRequest{}); err == nil {
 				web, postgres, services := edgeRouteTables(list.Services, region)
-				ref, err := edgeProofRef(list.Services)
+				ref, err = edge.RequestProofRef(list.Services, ref)
 				if err != nil {
 					slog.WarnContext(ctx, "edge request proof reference invalid", "error", err)
 				}
