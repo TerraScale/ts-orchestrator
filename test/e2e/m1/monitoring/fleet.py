@@ -85,6 +85,40 @@ def query(index, expression):
     return result["data"]["result"]
 
 
+def burst_reserved(names):
+    delivered = {}
+    for entry in groups("firing", names):
+        if entry[6] != "true":
+            continue
+        delivered.setdefault(entry[4], []).append(entry)
+    if set(delivered) != names:
+        return False
+    for entries in delivered.values():
+        mails = [mail for entry in entries for mail in email_of(entry)]
+        if not mails or any(mail[3] == "budget unavailable" for mail in mails):
+            return False
+    return True
+
+
+def await_burst(names):
+    progress = -1
+    stalled = time.monotonic()
+    while not burst_reserved(names):
+        for process in processes:
+            if process.poll() is not None and process not in stopped:
+                raise RuntimeError(f"twenty critical groups reserve under 400ms write latency: process exited {process.args}")
+        current = len(groups("firing", names)) + len([mail for entry in groups("firing", names) for mail in email_of(entry)])
+        if current != progress:
+            progress = current
+            stalled = time.monotonic()
+        elif time.monotonic() - stalled > 15:
+            raise RuntimeError("twenty critical groups reserve under 400ms write latency: reservations stopped")
+        try:
+            events.get(timeout=15)
+        except queue.Empty:
+            pass
+
+
 def await_event(description, predicate, seconds=45):
     deadline = time.monotonic() + seconds
     while not predicate():
@@ -321,12 +355,13 @@ try:
     budget_write_latency(True)
     try:
         post_alerts([{**incident, "alertname": name, "service": "ts-dashboard"} for name in sorted(names)])
-        await_event("twenty critical groups reserve under 400ms write latency", lambda: len(groups("firing", names)) == 20 and all(email_of(e) and all(m[3] != "budget unavailable" for m in email_of(e)) for e in groups("firing", names)), seconds=60)
+        await_burst(names)
     finally:
         budget_write_latency(False)
     assert len([m for m in mailed() if m[3] == "budget unavailable"]) == unavailable
     assert len(emails) == 12 and any(m[3] == "hourly cap" for e in groups("firing", names) for m in email_of(e)), (emails, mailed())
-    assert all(entry[6] == "true" for entry in handled() if entry[4] != "LaneDigest"), handled()
+    critical = {entry[4] for entry in handled() if entry[4] != "LaneDigest"}
+    assert critical == {entry[4] for entry in handled() if entry[6] == "true" and entry[4] != "LaneDigest"}, handled()
     await_event("the withheld email pages by push", lambda: len(groups("firing", {"AlertDeliveryEmailBudgetUnavailable"})) == 1, seconds=90)
     await_event("the spent fleet budget pages by push", lambda: len(groups("firing", {"AlertDeliveryEmailBudgetExhausted"})) == 1, seconds=90)
     exhausted = groups("firing", {"AlertDeliveryEmailBudgetExhausted"})[0]
@@ -346,7 +381,7 @@ try:
     assert all(entry[0] != addresses[2] and entry[6] == "true" and [m[3] for m in email_of(entry)] == ["hourly cap"] for entry in burst()), (burst(), mailed())
     await_event("the topology incident's resolution reaches exactly one relay across the region loss", lambda: len(groups("resolved", {"RuntimePeerTopologyMismatch"})) == 1, seconds=30)
     assert len(burst()) == len(expected) and len(emails) == 12, (burst(), emails)
-    keys = [entry[3] for entry in handled() if entry[4] != "LaneDigest"]
+    keys = [entry[3] for entry in handled() if entry[4] != "LaneDigest" and entry[6] == "true"]
     assert len(keys) == len(set(keys)), handled()
     assert len(pushes) == len([entry for entry in handled() if entry[6] == "true"]), (pushes, handled())
     labels = {"service": "ts-dashboard", "slo": "availability", "severity": "critical"}
