@@ -22,7 +22,9 @@ Release health joins the edge's infrastructure conditions (listeners, routes,
 bootstrap, ingress, backends) on every host. The one exception is a worker's
 `edge inventory unavailable`: a worker without a valid inventory answers 503 to
 the load balancer and still reports healthy to `ts.release.health`, so it never
-blocks a release.
+blocks a release. As on main, the stored Swarm admission determines the
+release-health checks: managers require service and JetStream health; workers
+require their mesh node to have started and skip both manager-only checks.
 
 Peer routing is a separate layer on top of main's request path. An ingress
 edge enters it only when the request's service has at least one ready peer and
@@ -43,10 +45,12 @@ returned to the client. The failing peer is marked down and gets no requests
 until it next advertises ready services. A peer that stops answering is
 detected by its own liveness: an attempt is abandoned once the peer has not
 advertised for three advertisement intervals, the same window that keeps it
-listed as a peer (15 seconds in production). The whole layer, fallback
-included, is bounded by main's 30-second response header bound, so a request
-never waits longer than it would have on main. WebSocket and other upgrades
-pass through a peer unchanged. Routes on port 8080 use the fenced regional
+listed as a peer (15 seconds in production). Ordinary HTTP shares a 30-second
+response-header budget across the layer and its local fallback, starting when
+the first request finishes writing. Request uploads and response bodies are
+not subject to this timer. As on main, gRPC has no response-header deadline.
+WebSocket and other upgrades preserve bidirectional traffic and client
+half-close through a peer. Routes on port 8080 use the fenced regional
 writer router from every host, so SQL writes from any edge reach the region's
 writer.
 
