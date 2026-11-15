@@ -10,7 +10,7 @@ if [[ ${1:-} == --remove ]]; then
     done < <(awk -F- '!seen[$2]++' "$source_dir/hosts.txt")
   elif [[ $# == 1 && $1 == --local ]]; then
     [[ $EUID == 0 ]] || { echo 'Removal requires sudo/root' >&2; exit 2; }
-    for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service; do
+    for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service ts-alert-delivery-token.path ts-alert-delivery-token.service; do
       if [[ -f /etc/systemd/system/$unit ]]; then
         systemctl disable --now "$unit"
         rm -f "/etc/systemd/system/$unit"
@@ -194,17 +194,17 @@ for config in prometheus.yml rules.yml alertmanager.env; do
   put "$config_dir/$config" "/etc/ts-monitoring/production/$config" 0644
 done
 put "$source_dir/alertmanager.yml" /etc/ts-monitoring/production/alertmanager.yml 0644
-for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service; do
+for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service ts-alert-delivery-token.path ts-alert-delivery-token.service; do
   unit_source="$source_dir/$unit"
   if [[ $unit == ts-alertmanager.service ]]; then unit_source="$config_dir/$unit"; fi
   put "$unit_source" "/etc/systemd/system/$unit" 0644
 done
 systemctl daemon-reload
-systemctl enable ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service
+systemctl enable ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service ts-alert-delivery-token.path
 if [[ $changed == 1 ]]; then
-  systemctl restart ts-alert-delivery.service ts-alertmanager.service ts-prometheus.service
+  systemctl restart ts-alert-delivery-token.path ts-alert-delivery.service ts-alertmanager.service ts-prometheus.service
 else
-  systemctl start ts-alert-delivery.service ts-alertmanager.service ts-prometheus.service
+  systemctl start ts-alert-delivery-token.path ts-alert-delivery.service ts-alertmanager.service ts-prometheus.service
 fi
 curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9090/-/ready
 curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9093/-/ready

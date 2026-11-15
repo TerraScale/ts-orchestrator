@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -103,6 +104,9 @@ func render(output string) error {
 				return fmt.Errorf("%s%s: %w", r.Alert, r.Record, err)
 			}
 		}
+	}
+	if err := checkNotificationTiming("deploy/observability/production/alertmanager.yml", len(inv.Monitors)); err != nil {
+		return err
 	}
 	for _, monitor := range inv.Monitors {
 		var generated rules
@@ -257,6 +261,47 @@ func regionalExpression(text, region string, catalog map[string]bool) (string, e
 		return "", invalid
 	}
 	return expr.String(), nil
+}
+
+const alertmanagerPeerTimeout = 15 * time.Second
+
+type notificationRoute struct {
+	GroupInterval string              `yaml:"group_interval"`
+	Routes        []notificationRoute `yaml:"routes"`
+}
+
+func checkNotificationTiming(path string, peers int) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var config struct {
+		Route notificationRoute `yaml:"route"`
+	}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return err
+	}
+	var walk func(notificationRoute, time.Duration) error
+	walk = func(route notificationRoute, inherited time.Duration) error {
+		interval := inherited
+		if route.GroupInterval != "" {
+			parsed, err := time.ParseDuration(route.GroupInterval)
+			if err != nil {
+				return err
+			}
+			interval = parsed
+		}
+		if interval <= time.Duration(peers)*alertmanagerPeerTimeout {
+			return fmt.Errorf("alertmanager group_interval %s must exceed %d peers x %s peer timeout, or a peer resends a stale notification", interval, peers, alertmanagerPeerTimeout)
+		}
+		for _, child := range route.Routes {
+			if err := walk(child, interval); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return walk(config.Route, 5*time.Minute)
 }
 
 func metricCatalog() (map[string]bool, error) {

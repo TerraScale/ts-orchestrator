@@ -45,14 +45,14 @@ SH
 chmod +x "$work/bin/"*
 export PATH="$work/bin:$PATH"
 printf 'retained\n' > /var/lib/ts-alerts/email-ledger.json
-for unit in ts-prometheus ts-alertmanager ts-alert-delivery; do
-  printf 'journey\n' > "/etc/systemd/system/$unit.service"
+for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service ts-alert-delivery-token.path ts-alert-delivery-token.service; do
+  printf 'journey\n' > "/etc/systemd/system/$unit"
 done
 printf 'journey\n' > /usr/local/lib/ts-monitoring/prometheus
 bash "$installer" --remove --local
-for unit in ts-prometheus ts-alertmanager ts-alert-delivery; do
-  [[ ! -e /etc/systemd/system/$unit.service ]]
-  grep -Fxq "disable --now $unit.service" "$MONITORING_REMOVAL_LOG"
+for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service ts-alert-delivery-token.path ts-alert-delivery-token.service; do
+  [[ ! -e /etc/systemd/system/$unit ]]
+  grep -Fxq "disable --now $unit" "$MONITORING_REMOVAL_LOG"
 done
 [[ ! -e /etc/ts-monitoring/production && ! -e /usr/local/lib/ts-monitoring ]]
 grep -Fxq retained /var/lib/ts-alerts/email-ledger.json

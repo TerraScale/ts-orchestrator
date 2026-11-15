@@ -1,0 +1,6 @@
+[Unit]
+Description=TerraScale alert relay credentials refresh after the mesh writes its alert budget token
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ts-orch alert-delivery prepare

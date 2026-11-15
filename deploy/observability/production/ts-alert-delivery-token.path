@@ -1,0 +1,9 @@
+[Unit]
+Description=TerraScale mesh alert budget token
+
+[Path]
+PathChanged=/var/lib/ts-orch/mesh/alerts.token
+Unit=ts-alert-delivery-token.service
+
+[Install]
+WantedBy=multi-user.target

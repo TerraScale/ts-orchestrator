@@ -8,13 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/gofrs/flock"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -37,7 +39,6 @@ const (
 )
 
 type emailBudget struct {
-	mu       sync.Mutex
 	withheld [2]atomic.Uint64
 }
 
@@ -74,9 +75,7 @@ func (b *emailBudget) write(w io.Writer) {
 }
 
 func (b *emailBudget) reserve(ctx context.Context, key string, window time.Duration) (string, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	reason, err := b.reserveShared(ctx, key, window)
+	reason, err := reserveEmail(ctx, key, window)
 	switch {
 	case err != nil:
 		b.withheld[budgetUnavailable].Add(1)
@@ -87,43 +86,33 @@ func (b *emailBudget) reserve(ctx context.Context, key string, window time.Durat
 	return reason, nil
 }
 
-func (b *emailBudget) reserveShared(ctx context.Context, key string, window time.Duration) (string, error) {
-	values, err := readCredentialFiles("TS_ALERTS_NATS_TOKEN_FILE")
-	if err != nil {
-		return "", err
+type reservationStore interface {
+	load(context.Context) ([]emailReservation, uint64, error)
+	save(context.Context, []byte, uint64) (bool, error)
+	close()
+}
+
+func openStore(ctx context.Context) (reservationStore, error) {
+	if _, err := os.Stat(fleetLayout); errors.Is(err, os.ErrNotExist) {
+		return openLedger(ctx, filepath.Join(stateDirectory, "email-ledger.json"))
+	} else if err != nil {
+		return nil, err
 	}
-	token := strings.TrimSpace(values["TS_ALERTS_NATS_TOKEN_FILE"])
+	return openShared(ctx)
+}
+
+func reserveEmail(ctx context.Context, key string, window time.Duration) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	conn, err := nats.Connect(budgetServer, nats.UserInfo(mesh.AlertsUser, token), nats.Name("ts-alerts"), nats.Timeout(2*time.Second), nats.NoReconnect())
+	store, err := openStore(ctx)
 	if err != nil {
 		return "", err
 	}
-	defer conn.Close()
-	js, err := jetstream.New(conn)
-	if err != nil {
-		return "", err
-	}
-	bucket, err := js.KeyValue(ctx, budgetBucket)
-	if errors.Is(err, jetstream.ErrBucketNotFound) {
-		bucket, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: budgetBucket, History: 1, Replicas: 3, MaxBytes: 4 << 20, MaxValueSize: 128 << 10, Storage: jetstream.FileStorage})
-	}
-	if err != nil {
-		return "", err
-	}
+	defer store.close()
 	for {
-		var reservations []emailReservation
-		var revision uint64
-		entry, err := bucket.Get(ctx, budgetKey)
-		switch {
-		case errors.Is(err, jetstream.ErrKeyNotFound):
-		case err != nil:
+		reservations, revision, err := store.load(ctx)
+		if err != nil {
 			return "", err
-		default:
-			revision = entry.Revision()
-			if err := json.Unmarshal(entry.Value(), &reservations); err != nil {
-				return "", err
-			}
 		}
 		now := time.Now()
 		reservations = slices.DeleteFunc(reservations, func(v emailReservation) bool { return !v.Until.After(now) && !v.SendBy.Add(24*time.Hour).After(now) })
@@ -150,11 +139,116 @@ func (b *emailBudget) reserveShared(ctx context.Context, key string, window time
 		if err != nil {
 			return "", err
 		}
-		_, err = bucket.Update(ctx, budgetKey, data, revision)
-		var conflict *jetstream.APIError
-		if errors.As(err, &conflict) && (conflict.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence || conflict.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant) {
-			continue
+		conflict, err := store.save(ctx, data, revision)
+		if !conflict {
+			return "", err
 		}
-		return "", err
 	}
 }
+
+type sharedStore struct {
+	conn   *nats.Conn
+	bucket jetstream.KeyValue
+}
+
+func openShared(ctx context.Context) (reservationStore, error) {
+	values, err := readCredentialFiles("TS_ALERTS_NATS_TOKEN_FILE")
+	if err != nil {
+		return nil, err
+	}
+	conn, err := nats.Connect(budgetServer, nats.UserInfo(mesh.AlertsUser, strings.TrimSpace(values["TS_ALERTS_NATS_TOKEN_FILE"])), nats.Name("ts-alerts"), nats.Timeout(2*time.Second), nats.NoReconnect())
+	if err != nil {
+		return nil, err
+	}
+	js, err := jetstream.New(conn)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	bucket, err := js.KeyValue(ctx, budgetBucket)
+	if errors.Is(err, jetstream.ErrBucketNotFound) {
+		bucket, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: budgetBucket, History: 1, Replicas: 3, MaxBytes: 4 << 20, MaxValueSize: 128 << 10, Storage: jetstream.FileStorage})
+	}
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return sharedStore{conn, bucket}, nil
+}
+
+func (s sharedStore) load(ctx context.Context) ([]emailReservation, uint64, error) {
+	entry, err := s.bucket.Get(ctx, budgetKey)
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil, 0, nil
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	var reservations []emailReservation
+	return reservations, entry.Revision(), json.Unmarshal(entry.Value(), &reservations)
+}
+
+func (s sharedStore) save(ctx context.Context, data []byte, revision uint64) (bool, error) {
+	_, err := s.bucket.Update(ctx, budgetKey, data, revision)
+	var conflict *jetstream.APIError
+	if errors.As(err, &conflict) && (conflict.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence || conflict.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant) {
+		return true, nil
+	}
+	return false, err
+}
+
+func (s sharedStore) close() { s.conn.Close() }
+
+type ledgerStore struct {
+	path string
+	lock *flock.Flock
+}
+
+func openLedger(ctx context.Context, path string) (reservationStore, error) {
+	lock := flock.New(path + ".lock")
+	locked, err := lock.TryLockContext(ctx, 10*time.Millisecond)
+	if err != nil {
+		return nil, err
+	}
+	if !locked {
+		return nil, errors.New("email ledger locked")
+	}
+	return ledgerStore{path, lock}, nil
+}
+
+func (l ledgerStore) load(context.Context) ([]emailReservation, uint64, error) {
+	data, err := os.ReadFile(l.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, 0, nil
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	var reservations []emailReservation
+	return reservations, 0, json.Unmarshal(data, &reservations)
+}
+
+func (l ledgerStore) save(_ context.Context, data []byte, _ uint64) (bool, error) {
+	file, err := os.CreateTemp(filepath.Dir(l.path), ".email-ledger-*")
+	if err != nil {
+		return false, err
+	}
+	defer os.Remove(file.Name())
+	_, writeErr := file.Write(data)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
+		return false, err
+	}
+	if err := os.Rename(file.Name(), l.path); err != nil {
+		return false, err
+	}
+	dir, err := os.Open(filepath.Dir(l.path))
+	if err != nil {
+		return false, err
+	}
+	defer dir.Close()
+	return false, dir.Sync()
+}
+
+func (l ledgerStore) close() { _ = l.lock.Unlock() }

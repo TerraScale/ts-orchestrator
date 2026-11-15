@@ -151,6 +151,13 @@ with tempfile.TemporaryDirectory() as directory:
         if result.returncode == 0 or message not in result.stderr:
             raise SystemExit(f"monitoring: invalid rule was accepted: {replacement}: {result.stderr}")
     rules.write_text(original)
+    manager = staged / "deploy/observability/production/alertmanager.yml"
+    timing = manager.read_text()
+    manager.write_text(timing.replace("group_interval: 2m", "group_interval: 5s"))
+    result = subprocess.run([str(renderer), str(staged / "output"), str(staged)], capture_output=True, text=True, check=False)
+    if result.returncode == 0 or "peer timeout" not in result.stderr:
+        raise SystemExit(f"monitoring: a group_interval under the Alertmanager peer waits was accepted: {result.stderr}")
+    manager.write_text(timing)
     inventory = staged / "deploy/observability/production/hosts.txt"
     inventory.write_text(inventory.read_text() + "ts-iad-1\n")
     subprocess.run([str(renderer), str(staged / "expanded"), str(staged)], check=True)

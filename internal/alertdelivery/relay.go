@@ -14,7 +14,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -171,44 +170,41 @@ func (r relay) handle(w http.ResponseWriter, request *http.Request, digest bool)
 	if notice.TruncatedAlerts > 0 {
 		lines = append(lines, fmt.Sprintf("%d additional alerts in this group; inspect Prometheus for every affected host", notice.TruncatedAlerts))
 	}
-	ctx, cancel := context.WithTimeout(request.Context(), 50*time.Second)
-	defer cancel()
-	var emailErr, pushErr error
-	var deliveries sync.WaitGroup
 	key, window, subject := notice.emailKey(), emailRepeatInterval, "TerraScale production alert: "+notice.Status
 	if digest {
 		key, window, subject = digestKey, digestInterval, "TerraScale daily alert digest"
 	}
-	reason := ""
 	if notice.Status == "firing" {
-		var budgetErr error
-		reason, budgetErr = r.budget.reserve(ctx, key, window)
-		if budgetErr != nil {
-			slog.WarnContext(ctx, "fleet alert email budget unreachable; email withheld", "error", budgetErr)
-		}
+		go r.sendEmail(context.WithoutCancel(request.Context()), key, window, subject, lines)
 	}
-	deliveries.Go(func() {
-		if notice.Status == "resolved" {
-			return
-		}
-		if reason != "" {
-			slog.WarnContext(ctx, "production alert email suppressed", "reason", reason)
-			return
-		}
-		emailErr = r.email(ctx, subject, lines)
-	})
+	var pushErr error
 	if !digest {
-		deliveries.Go(func() { pushErr = r.push(ctx, notice.Status) })
+		ctx, cancel := context.WithTimeout(request.Context(), 20*time.Second)
+		pushErr = r.push(ctx, notice.Status)
+		cancel()
 	}
-	deliveries.Wait()
+	slog.InfoContext(request.Context(), "production alert notification handled", "status", notice.Status, "alerts", len(notice.Alerts), "group", key, "alertname", notice.Alerts[0].Labels["alertname"], "region", notice.Alerts[0].Labels["region"], "push", !digest && pushErr == nil)
 	if pushErr != nil {
-		slog.WarnContext(ctx, "production alert push failed", "status", notice.Status)
-	}
-	if emailErr != nil {
-		slog.WarnContext(ctx, "production alert email rejected", "status", notice.Status)
+		slog.WarnContext(request.Context(), "production alert push failed", "status", notice.Status)
+		http.Error(w, "alert push failed", http.StatusBadGateway)
+		return
 	}
 	w.WriteHeader(http.StatusAccepted)
-	slog.InfoContext(ctx, "production alert notification handled", "status", notice.Status, "alerts", len(notice.Alerts), "group", key, "alertname", notice.Alerts[0].Labels["alertname"], "region", notice.Alerts[0].Labels["region"], "email", notice.Status == "firing" && reason == "" && emailErr == nil, "push", !digest && pushErr == nil)
+}
+
+func (r relay) sendEmail(ctx context.Context, key string, window time.Duration, subject string, lines []string) {
+	ctx, cancel := context.WithTimeout(ctx, 50*time.Second)
+	defer cancel()
+	reason, err := r.budget.reserve(ctx, key, window)
+	if err != nil {
+		slog.WarnContext(ctx, "fleet alert email budget unreachable; email withheld", "error", err)
+	}
+	if reason == "" {
+		if err := r.email(ctx, subject, lines); err != nil {
+			reason = err.Error()
+		}
+	}
+	slog.InfoContext(ctx, "production alert email", "group", key, "sent", reason == "", "reason", reason)
 }
 
 func (r relay) email(ctx context.Context, subject string, lines []string) error {
@@ -218,9 +214,7 @@ func (r relay) email(ctx context.Context, subject string, lines []string) error 
 	}
 	sendBy, err := r.admit(ctx, secrets.token)
 	if err != nil {
-		// Suppression is handled, just like the local cap; push remains independent.
-		slog.WarnContext(ctx, "production alert email suppressed", "reason", "admission unavailable")
-		return nil
+		return err
 	}
 	ctx, cancel := context.WithDeadline(ctx, sendBy)
 	defer cancel()
