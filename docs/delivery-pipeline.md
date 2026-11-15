@@ -100,7 +100,9 @@ Each region's SwarmKit managers run the release updater
 decides what runs:
 
 - **One owner per region.** The updaters share the replicated JetStream KV
-  bucket `TS_ORCH_PULL_ROLLOUT` on the mesh. Key `<region>.lease` names the
+  bucket `TS_ORCH_PULL_ROLLOUT` in the mesh's TERRABASE account, which
+  carries JetStream (the ORCH account has none; the updater sends its host
+  requests there and opens the bucket as the `ts-orch` fabric user). Key `<region>.lease` names the
   owner for 15 seconds; the owner renews it every 5 seconds and another manager
   takes it only after it lapses. Key `<region>` is the rollout record. Every
   write is compare-and-set on its revision, and a new owner first rewrites the
@@ -148,21 +150,33 @@ decides what runs:
 - **Rollback.** A candidate that never serves rolls itself back by probation.
   A candidate that serves but fails the gate is told to roll back: it records
   the rollback, restarts, and its next start restores the previous binary.
-  Until the host answers on a revision other than the candidate, out of
-  probation and healthy, the rollout stays `rolling_back` with the host
-  `restoring`; a refused restore (for example `PrepareStop` refusing for
-  quorum) is asked again on the next pass. Only then does the updater mark the
-  release bad; it does not retry it, and the next newer release rolls out
-  normally.
-- **Push and pull share the region.** A pushed release first claims the
-  rollout record (`push`, held for at most 15 minutes). The claim is refused
-  while a pull rollout is `rolling`, `waiting` or `rolling_back`, and the owner
-  starts no pull install while a claim is open; it drops the claim once every
-  host answers healthy and out of probation and the claiming manager runs the
-  pushed binary. The manager relays the push to its workers first and restarts
+  Until the host answers on `ts.release.version.<region>.<host>` (which every
+  binary serves, including one from before pull updates) on a revision other
+  than the candidate and out of probation, the rollout stays `rolling_back`
+  with the host `restoring`; a refused restore (for example `PrepareStop`
+  refusing for quorum) is asked again on the next pass. Only then does the
+  updater mark the release bad; it does not retry it, and the next newer
+  release rolls out normally. A rollback still pending twice the gate
+  deadline (six minutes) after it began becomes `rollback_stalled`: the
+  reason starts with `critical:`, the release is marked bad, the region's
+  health turns `degraded`, and the updater holds nothing; the host keeps the
+  candidate until an operator or a push restores it.
+- **A push always wins.** A pushed release records a claim in the rollout
+  record (`push`, held for at most 15 minutes, written within five seconds);
+  pull state never refuses it, and when the record is unreachable the push
+  proceeds and logs that the region cannot see it. A pull rollout that sees a
+  claim records the preemption (`preempted`), drops its target (marking it bad
+  when it was rolling it back) and checks the record again before each install
+  and on every gate tick, so it never installs beside a push it can see. The
+  owner drops the claim once every host answers healthy and out of probation
+  and the claiming manager runs the pushed binary, then discovers the newest
+  release again and rolls out from what the hosts now run. The manager relays the push to its workers first and restarts
   itself only after each worker that installed it answers on the new binary,
   out of probation and healthy (`releasepush.WorkerReadyWait`, three minutes);
-  otherwise it keeps its binary, refuses and drops the claim.
+  a worker the relay could not reach counts as not ready. Otherwise it keeps
+  its binary, refuses and drops the claim. A worker's release health checks
+  its own duties: its mesh NATS server, its orchestrator connection and a route
+  into its region (workers run no JetStream).
 - **Restart and status.** The owner publishes each change of the record on
   `ts.mesh.pull-progress.<region>`, and every manager mirrors it to
   `nats/pull-rollout.json` for its health report. `ts-orch status` prints the
