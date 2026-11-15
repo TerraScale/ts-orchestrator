@@ -2,8 +2,8 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../../../.." && pwd)
-work=$1
-tools=$2
+mode=$1
+work=$2
 python3 - "$repo" "$work" <<'PY'
 import json
 import sys
@@ -14,8 +14,13 @@ repo, work = map(Path, sys.argv[1:])
     str(repo / "internal/alertdelivery/endpoints.go"): str(repo / "test/e2e/m1/monitoring/_journey/endpoints.go"),
 }}))
 PY
-go -C "$repo" build -overlay "$work/overlay.json" -o "$work/metrics" ./test/e2e/m1/monitoring/_fleet
-go -C "$repo" build -overlay "$work/overlay.json" -o "$work/relay" ./test/e2e/m1/monitoring/_relay
+if [[ $mode == build ]]; then
+  go -C "$repo" build -overlay "$work/overlay.json" -o "$work/metrics" ./test/e2e/m1/monitoring/_fleet
+  go -C "$repo" build -overlay "$work/overlay.json" -o "$work/relay" ./test/e2e/m1/monitoring/_relay
+  exit
+fi
+tools=$3
+cp "$tools/metrics" "$tools/relay" "$work/"
 sudo unshare --mount --net bash -s "$here/fleet.py" "$work" "$tools" <<'SH'
 set -euo pipefail
 mount --make-rprivate /

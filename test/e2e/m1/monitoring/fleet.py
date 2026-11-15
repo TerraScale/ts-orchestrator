@@ -269,17 +269,16 @@ try:
     request(addresses[1], 9094, "/alerts/digest", digest)
     await_event("once the token appears the running relay emails the digest, without a restart, and never pushes", lambda: len(emails) == 1)
     assert emails[0]["subject"] == "TerraScale daily alert digest" and all(entry[6] == "false" for entry in groups("firing", {"LaneDigest"})), (emails, handled())
-    await_event("the withheld email pages by push", lambda: len(groups("firing", {"AlertDeliveryEmailBudgetUnavailable"})) == 1, seconds=90)
     incident = {"alertname": "RuntimePeerTopologyMismatch", "service": "ts-orch", "region": "global", "severity": "critical"}
     post_alerts([incident])
     await_event("a firing topology incident reaches exactly one relay with production timings", lambda: len(groups("firing", {"RuntimePeerTopologyMismatch"})) == 1, seconds=40)
     post_alerts([incident], ends=datetime.now(UTC).isoformat())
     names = {f"JourneyBudget{index}" for index in range(12)}
     post_alerts([{**incident, "alertname": name, "service": "ts-dashboard"} for name in sorted(names)])
-    await_event("its resolution reaches exactly one relay", lambda: len(groups("resolved", {"RuntimePeerTopologyMismatch"})) == 1, seconds=160)
     await_event("twelve more critical groups push once each", lambda: len(groups("firing", names)) == 12 and len([m for e in groups("firing", names) for m in email_of(e)]) == 12, seconds=60)
     assert len(emails) == 12 and any(m[3] == "hourly cap" for e in groups("firing", names) for m in email_of(e)), (emails, mailed())
     assert all(entry[6] == "true" for entry in handled() if entry[4] != "LaneDigest"), handled()
+    await_event("the withheld email pages by push", lambda: len(groups("firing", {"AlertDeliveryEmailBudgetUnavailable"})) == 1, seconds=90)
     await_event("the spent fleet budget pages by push", lambda: len(groups("firing", {"AlertDeliveryEmailBudgetExhausted"})) == 1, seconds=90)
     exhausted = groups("firing", {"AlertDeliveryEmailBudgetExhausted"})[0]
     assert exhausted[5] == "global" and exhausted[6] == "true", exhausted
@@ -299,6 +298,7 @@ try:
     timestamp = 'timestamp(up{job="monitoring-prometheus",region="sjc"})'
     baseline = [float(query(i, timestamp)[0]["value"][1]) for i in range(2)]
     await_event("both surviving backends scrape through a full failover window without duplicates", lambda: all(float(query(i, timestamp)[0]["value"][1]) >= baseline[i] + 35 for i in range(2)), seconds=60)
+    await_event("the topology incident's resolution reaches exactly one relay across the region loss", lambda: len(groups("resolved", {"RuntimePeerTopologyMismatch"})) == 1, seconds=120)
     assert len(burst()) == len(expected) and len(emails) == 12, (burst(), emails)
     keys = [entry[3] for entry in handled() if entry[4] != "LaneDigest"]
     assert len(keys) == len(set(keys)), handled()
@@ -327,7 +327,7 @@ try:
     await_event("the old-layout relay keeps emailing from its own ledger", lambda: len(emails) == 13)
     ledger = json.loads((work / "gru-old" / "relay" / "email-ledger.json").read_text())
     assert len(ledger) == 1 and emails[-1]["text"].startswith("firing: OldLayoutIncident"), (ledger, emails[-1])
-    print(f"monitoring: production Alertmanager 0.34.1 timings x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; a missing mesh token withholds email and pages, the token appearing later is used without a restart; topology incident firing then resolved -> one notification each; fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; hung budget store + 13 concurrent notifications -> 13 pushes and 13 withheld emails; old-layout relay still emails from its ledger; passed")
+    print(f"monitoring: production Alertmanager 0.34.1 timings x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; a missing mesh token withholds email and pages, the token appearing later is used without a restart; topology incident firing then resolved across the region loss -> one notification each; fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; hung budget store + 13 concurrent notifications -> 13 pushes and 13 withheld emails; old-layout relay still emails from its ledger; passed")
 finally:
     for server in servers:
         server.shutdown()
