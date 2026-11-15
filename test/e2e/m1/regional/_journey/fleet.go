@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -144,6 +145,21 @@ func FleetHost(args []string) error {
 		}
 	}
 	public := New(state)
+	if role != "founder" {
+		public.SetInventoryFollower()
+	}
+	authPort := fleetWeb["auth.e2e.test"]
+	entered := make(chan struct{}, 1)
+	inner := public.local
+	public.local = roundTripper(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Port() == strconv.Itoa(authPort) && r.URL.Path == "/payload" && handoff.Held(uint16(authPort)) {
+			select {
+			case entered <- struct{}{}:
+			default:
+			}
+		}
+		return inner.RoundTrip(r)
+	})
 	public.JoinMesh(node)
 	web := maps.Clone(fleetWeb)
 	web[fleetWriter] = 8080
@@ -184,6 +200,9 @@ func FleetHost(args []string) error {
 	defer stop()
 	err = fleetAwait(started, func() bool {
 		peers := public.peerEdges.Load()
+		if role == "orphan" {
+			return public.listeners.Load() == 15
+		}
 		return public.Readiness(started).Ready && len(public.ReadyServices()) == len(fleetWeb) && (role == "alone" || peers != nil &&
 			slices.ContainsFunc((*peers)(), func(peer mesh.WorkerPeer) bool { return len(peer.ReadyServices) == len(fleetWeb) }))
 	})
@@ -208,6 +227,21 @@ func FleetHost(args []string) error {
 			}); err != nil {
 				return fmt.Errorf("%s never heard a ready peer: %w", name, err)
 			}
+		case "hold":
+			handoff.Hold(uint16(authPort))
+		case "release":
+			select {
+			case <-entered:
+			case <-ctx.Done():
+			}
+			ready.Store(true)
+			handoff.Release(uint16(authPort))
+		case "health":
+			if err := public.Readiness(ctx).InfraErr(); err != nil {
+				fmt.Println("health", err)
+			} else {
+				fmt.Println("health ok")
+			}
 		case "refresh":
 			mesh.FleetRefreshEdgeInventory(node)
 		case "forge":
@@ -224,10 +258,10 @@ func FleetHost(args []string) error {
 }
 
 type fleetProcess struct {
-	name, address string
-	cmd           *exec.Cmd
-	stdin         io.WriteCloser
-	lines         chan string
+	name, address, veth string
+	cmd                 *exec.Cmd
+	stdin               io.WriteCloser
+	lines               chan string
 }
 
 func (p *fleetProcess) expect(ctx context.Context, want string) error {
@@ -242,6 +276,16 @@ func (p *fleetProcess) expect(ctx context.Context, want string) error {
 	}
 }
 
+func (p *fleetProcess) query(ctx context.Context, command, want string) error {
+	if _, err := fmt.Fprintln(p.stdin, command); err != nil {
+		return err
+	}
+	if err := p.expect(ctx, want); err != nil {
+		return err
+	}
+	return p.expect(ctx, "ok")
+}
+
 func (p *fleetProcess) command(ctx context.Context, command string) error {
 	if _, err := fmt.Fprintln(p.stdin, command); err != nil {
 		return err
@@ -252,6 +296,7 @@ func (p *fleetProcess) command(ctx context.Context, command string) error {
 func (p *fleetProcess) kill() {
 	_ = p.cmd.Process.Kill()
 	_ = p.cmd.Wait()
+	_ = exec.Command("ip", "link", "del", p.veth).Run()
 }
 
 func fleetRun(name string, args ...string) error {
@@ -297,6 +342,7 @@ func startFleetHost(root, self string, index int, region, role, seed, secret str
 	}()
 	pid := strconv.Itoa(p.cmd.Process.Pid)
 	veth := fmt.Sprintf("fv%d-%d", index, start)
+	p.veth = veth
 	for _, step := range [][]string{
 		{"ip", "link", "add", veth, "type", "veth", "peer", "name", "eth0", "netns", pid},
 		{"ip", "link", "set", veth, "master", "fleet0", "up"},
@@ -539,13 +585,14 @@ func FleetEdgeJourney(root string) error {
 		}
 	}
 	client := fleetClient{roots: roots, plain: &http.Client{Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}}
+	signal := func(host *fleetProcess, sig syscall.Signal) error { return host.cmd.Process.Signal(sig) }
 	for region := range 3 {
 		founder, worker := hosts[2*region], hosts[2*region+1]
 		for _, host := range []*fleetProcess{founder, worker} {
 			if err := client.ready(ctx, host, http.StatusOK); err != nil {
 				return err
 			}
-			if err := client.serves(ctx, host, founder, worker); err != nil {
+			if err := client.serves(ctx, host, host); err != nil {
 				return err
 			}
 		}
@@ -560,7 +607,7 @@ func FleetEdgeJourney(root string) error {
 			if err := worker.command(ctx, "forge"); err != nil {
 				return err
 			}
-			if err := client.serves(ctx, worker, founder, worker); err != nil {
+			if err := client.serves(ctx, worker, worker); err != nil {
 				return err
 			}
 			founder.kill()
@@ -584,22 +631,45 @@ func FleetEdgeJourney(root string) error {
 			if err := client.serves(ctx, worker, worker); err != nil {
 				return err
 			}
-			fmt.Printf("ok %s: SQL writes from the worker edge on :8080 reach the writer; forged, tampered and replayed inventories are refused; the worker serves after losing its manager and again after a cold restart with the manager down\n", founder.name[3:6])
+			worker.kill()
+			if err := os.Remove(filepath.Join(root, "state-"+worker.name, "edge-inventory.json")); err != nil {
+				return err
+			}
+			if err := start(2*region+1, "orphan"); err != nil {
+				return err
+			}
+			worker = hosts[2*region+1]
+			if err := worker.awaitReady(ctx, root); err != nil {
+				return err
+			}
+			if err := client.ready(ctx, worker, http.StatusServiceUnavailable); err != nil {
+				return err
+			}
+			if err := worker.query(ctx, "health", "health ok"); err != nil {
+				return err
+			}
+			fmt.Printf("ok %s: SQL writes from the worker edge on :8080 reach the writer; forged, tampered and replayed inventories are refused; the worker serves after losing its manager and after a cold restart with the manager down; without any inventory it answers 503 and stays release-healthy\n", founder.name[3:6])
 		case 1:
 			if err := client.write(ctx, worker, founder, 1); err != nil {
 				return err
 			}
-			worker.kill()
-			if err := client.ready(ctx, founder, http.StatusOK); err != nil {
+			if err := founder.command(ctx, "unready"); err != nil {
 				return err
 			}
-			if err := client.serves(ctx, founder, founder); err != nil {
+			if err := founder.query(ctx, "health", "health edge not ready: backend not ready, backend not ready"); err != nil {
 				return err
+			}
+			if err := client.serves(ctx, founder, worker); err != nil {
+				return err
+			}
+			worker.kill()
+			if status, _, err := client.get(ctx, founder, "dash.e2e.test"); err != nil || status == http.StatusOK {
+				return fmt.Errorf("lost worker still answered through the manager: %d, %w", status, err)
 			}
 			if err := client.write(ctx, founder, founder, 3); err != nil {
 				return err
 			}
-			if err := start(2*region+1, "worker"); err != nil {
+			if err := start(2*region+1, "alone"); err != nil {
 				return err
 			}
 			worker = hosts[2*region+1]
@@ -609,18 +679,74 @@ func FleetEdgeJourney(root string) error {
 			if err := founder.command(ctx, "await-peer"); err != nil {
 				return err
 			}
-			if err := client.serves(ctx, founder, founder, worker); err != nil {
+			if err := client.serves(ctx, founder, worker); err != nil {
 				return err
 			}
-			fmt.Printf("ok %s: the manager serves alone after losing its worker, and balances to the worker again as soon as it re-advertises ready\n", founder.name[3:6])
+			if err := client.write(ctx, worker, founder, 5); err != nil {
+				return err
+			}
+			fmt.Printf("ok %s: an unready manager forwards to its worker and is release-unhealthy; after the worker is lost and cold-restarts it forwards again as soon as it re-advertises ready, and SQL writes from it reach the writer\n", founder.name[3:6])
 		case 2:
 			if err := founder.command(ctx, "unready"); err != nil {
 				return err
 			}
-			if err := client.ready(ctx, founder, http.StatusOK); err != nil {
+			if err := client.ready(ctx, founder, http.StatusServiceUnavailable); err != nil {
 				return err
 			}
 			if err := client.serves(ctx, founder, worker); err != nil {
+				return err
+			}
+			if err := signal(worker, syscall.SIGSTOP); err != nil {
+				return err
+			}
+			began := time.Now()
+			status, _, err := client.get(ctx, founder, "dash.e2e.test")
+			if took := time.Since(began); err != nil || status == http.StatusOK || took > 5*time.Second {
+				return fmt.Errorf("request to a stopped peer: HTTP %d after %s, %v", status, took, err)
+			}
+			if status, _, err := client.get(ctx, founder, "dash.e2e.test"); err != nil || status != http.StatusServiceUnavailable {
+				return fmt.Errorf("a down peer was still a candidate: HTTP %d, %v", status, err)
+			}
+			if err := signal(worker, syscall.SIGCONT); err != nil {
+				return err
+			}
+			if err := founder.command(ctx, "await-peer"); err != nil {
+				return err
+			}
+			if err := client.serves(ctx, founder, worker); err != nil {
+				return err
+			}
+			if err := signal(worker, syscall.SIGSTOP); err != nil {
+				return err
+			}
+			if err := founder.command(ctx, "hold"); err != nil {
+				return err
+			}
+			answered := make(chan error, 1)
+			go func() {
+				status, body, err := client.get(ctx, founder, "auth.e2e.test")
+				if err == nil && (status != http.StatusOK || body != founder.name) {
+					err = fmt.Errorf("held request answered HTTP %d %q", status, body)
+				}
+				answered <- err
+			}()
+			released := make(chan error, 1)
+			go func() { released <- founder.command(ctx, "release") }()
+			select {
+			case err := <-answered:
+				return fmt.Errorf("a held request was answered before its replacement: %v", err)
+			case err := <-released:
+				if err != nil {
+					return err
+				}
+			}
+			if err := <-answered; err != nil {
+				return err
+			}
+			if err := signal(worker, syscall.SIGCONT); err != nil {
+				return err
+			}
+			if err := founder.command(ctx, "await-peer"); err != nil {
 				return err
 			}
 			if err := founder.command(ctx, "drain"); err != nil {
@@ -639,7 +765,7 @@ func FleetEdgeJourney(root string) error {
 			if err != nil || status != http.StatusServiceUnavailable || body != "" {
 				return fmt.Errorf("no ready backend still answered: %d %q, %w", status, body, err)
 			}
-			fmt.Printf("ok %s: both hosts balance 6/6; an unready host forwards to its peer, drains to 503, and no ready backend answers 503\n", founder.name[3:6])
+			fmt.Printf("ok %s: an unready manager is not ready itself but forwards to its peer; a stopped peer fails fast and is skipped until it re-advertises; a held stop-first port falls back from the stalled peer and waits for its replacement; drain and no ready backend answer 503\n", founder.name[3:6])
 		}
 	}
 	return nil
