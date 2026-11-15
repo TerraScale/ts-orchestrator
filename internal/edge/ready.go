@@ -44,13 +44,6 @@ func (r Readiness) InfraErr() error {
 }
 
 func (e *Edge) Readiness(ctx context.Context) Readiness {
-	if err := ctx.Err(); err != nil {
-		return Readiness{infra: []string{err.Error()}}
-	}
-	return e.report()
-}
-
-func (e *Edge) probeReadiness(ctx context.Context) {
 	bounded, cancel := context.WithTimeout(ctx, 3*time.Second)
 	conditions, err := e.ready(bounded)
 	cancel()
@@ -58,6 +51,7 @@ func (e *Edge) probeReadiness(ctx context.Context) {
 		conditions = append(conditions, err.Error())
 	}
 	e.readyStatus.Store(&readinessVerdict{len(conditions) == 0, time.Now(), conditions})
+	return e.report()
 }
 
 func (e *Edge) report() Readiness {
@@ -273,9 +267,7 @@ func (e *Edge) reconcileReadiness(ctx context.Context) {
 	defer tick.Stop()
 	var reported *bool
 	for {
-		e.probeReadiness(ctx)
-		readiness := e.report()
-		if reported == nil || *reported != readiness.Ready {
+		if readiness := e.Readiness(ctx); reported == nil || *reported != readiness.Ready {
 			slog.InfoContext(ctx, "edge readiness changed", "ready", readiness.Ready, "missing", readiness.Missing, "missing_names", readiness.MissingNames)
 			reported = &readiness.Ready
 		}

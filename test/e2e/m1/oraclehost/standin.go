@@ -182,7 +182,11 @@ func (s *standIn) seedProductionSecrets() error {
 			return fmt.Errorf("first-party secret %s lives in a %s Vault the stand-in does not serve", ref.Name, region)
 		}
 		digest := sha256.Sum256([]byte(ref.Name))
-		s.secrets[ref.Name] = &secret{ID: "ocid1.vaultsecret.oc1." + region + "." + hex.EncodeToString(digest[:12]), Name: ref.Name, VaultID: ref.Vault, Versions: [][]byte{[]byte("stand-in " + ref.Name)}}
+		value := []byte("stand-in " + ref.Name)
+		if strings.HasSuffix(ref.Name, "-terrabase-peer-secret") {
+			value = []byte(hex.EncodeToString(digest[:]))
+		}
+		s.secrets[ref.Name] = &secret{ID: "ocid1.vaultsecret.oc1." + region + "." + hex.EncodeToString(digest[:12]), Name: ref.Name, VaultID: ref.Vault, Versions: [][]byte{value}}
 	}
 	return nil
 }

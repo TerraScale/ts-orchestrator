@@ -14,9 +14,12 @@ import (
 	"strings"
 	"time"
 
+	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/oraclehost"
 )
 
@@ -312,13 +315,15 @@ func main() {
 	meshUp(ctx, fleet)
 	installNodeList(fleet)
 	step("node list names every host so workers can verify their manager's edge inventory")
-	applied := filepath.Join(work, "workload.json")
-	data, err := json.Marshal(spec)
-	must(err)
-	must(os.WriteFile(applied, data, 0o644))
-	output, err := managers[0].Exec(ctx, "/usr/local/bin/ts-orch", "service", "apply", "-f", applied)
-	require(err == nil && !bytes.Contains(output, []byte("on this host only")), "service apply on %s did not go through the mesh: %v: %s", managers[0].Name, err, output)
-	step("applied %s on %s through the mesh: %s", spec["name"], managers[0].Name, bytes.TrimSpace(output))
+	for _, service := range []map[string]any{peerCredentialService(spec), spec} {
+		applied := filepath.Join(work, service["name"].(string)+".json")
+		data, err := json.Marshal(service)
+		must(err)
+		must(os.WriteFile(applied, data, 0o644))
+		output, err := managers[0].Exec(ctx, "/usr/local/bin/ts-orch", "service", "apply", "-f", applied)
+		require(err == nil && !bytes.Contains(output, []byte("on this host only")), "service apply on %s did not go through the mesh: %v: %s", managers[0].Name, err, output)
+		step("applied %s on %s through the mesh: %s", service["name"], managers[0].Name, bytes.TrimSpace(output))
+	}
 	ready(ctx, fleet, first, ca)
 
 	for _, host := range fleet.Hosts {
@@ -331,6 +336,26 @@ func main() {
 	}
 	ready(ctx, fleet, first, ca)
 	step("single-host-region lane passed in %s", time.Since(started).Round(time.Second))
+}
+
+func peerCredentialService(whoami map[string]any) map[string]any {
+	data, err := m1.Files.ReadFile("services/terrabase.json")
+	must(err)
+	var terrabase struct {
+		Secrets map[string]vaultsecret.Ref `json:"secrets"`
+	}
+	must(json.Unmarshal(data, &terrabase))
+	ref, ok := terrabase.Secrets[edge.RequestProofKey]
+	require(ok, "deploy/m1/services/terrabase.json has no %s", edge.RequestProofKey)
+	return map[string]any{
+		"name":      "terrabase",
+		"image":     whoami["image"],
+		"args":      []string{"--port", "18082"},
+		"port":      18082,
+		"readyPath": "/health",
+		"replicas":  1,
+		"secrets":   map[string]vaultsecret.Ref{edge.RequestProofKey: ref},
+	}
 }
 
 func workload(specFile, imagesFile string) map[string]any {
