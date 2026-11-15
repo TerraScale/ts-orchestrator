@@ -1,0 +1,470 @@
+package oraclehost
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"golang.org/x/sys/unix"
+)
+
+const (
+	bridgeName     = "osh-br"
+	gatewayAddress = "10.204.0.1"
+	subnetCIDR     = "10.204.0.0/24"
+	metadataIP     = "169.254.169.254"
+)
+
+type Region struct {
+	Name      string
+	OCIRegion string
+	Hosts     []*Host
+}
+
+type Host struct {
+	Name       string
+	Region     *Region
+	Namespace  string
+	Address    string
+	NetBird    string
+	InstanceID string
+	Dir        string
+	fleet      *Fleet
+	mu         sync.Mutex
+	events     []Event
+	changed    chan struct{}
+	process    *exec.Cmd
+	done       chan error
+}
+
+type Fleet struct {
+	Work     string
+	Binary   string
+	Registry string
+	Regions  []*Region
+	Hosts    []*Host
+	standIn  *standIn
+	run      int
+}
+
+func New(ctx context.Context, work, binary string, registry string, regions []string, hostsPerRegion int) (*Fleet, error) {
+	unix.Umask(0o022)
+	f := &Fleet{Work: work, Binary: binary, Registry: registry}
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		return nil, err
+	}
+	for r, name := range regions {
+		entry, ok := catalog.LookupName(name)
+		if !ok {
+			return nil, fmt.Errorf("%s is not a catalog region", name)
+		}
+		region := &Region{Name: name, OCIRegion: entry.OCIRegion}
+		for i := 1; i <= hostsPerRegion; i++ {
+			octet := 10*(r+1) + i
+			host := &Host{Name: fmt.Sprintf("ts-%s-%d", name, i), Region: region, Namespace: fmt.Sprintf("osh-%s-%d", name, i),
+				Address: fmt.Sprintf("10.204.0.%d", octet), NetBird: fmt.Sprintf("100.104.0.%d", octet),
+				InstanceID: fmt.Sprintf("ocid1.instance.oc1.%s.singlehostregion%d", entry.OCIRegion, octet), fleet: f, changed: make(chan struct{})}
+			host.Dir = filepath.Join(work, host.Name)
+			region.Hosts = append(region.Hosts, host)
+			f.Hosts = append(f.Hosts, host)
+		}
+		f.Regions = append(f.Regions, region)
+	}
+	standIn, pair, err := newStandIn(f)
+	if err != nil {
+		return nil, err
+	}
+	f.standIn = standIn
+	if err := standIn.writeFiles(work); err != nil {
+		return nil, err
+	}
+	if err := f.network(ctx); err != nil {
+		return nil, err
+	}
+	listen := func(address string) (net.Listener, error) { return net.Listen("tcp", address) }
+	metadata, err := listen(metadataIP + ":80")
+	if err != nil {
+		return nil, err
+	}
+	standIn.serve(metadata, standIn.metadata)
+	cloud, err := listen(gatewayAddress + ":443")
+	if err != nil {
+		return nil, err
+	}
+	standIn.serve(tls.NewListener(cloud, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{*pair}}), standIn.cloud)
+	for _, host := range f.Hosts {
+		if err := f.prepare(host); err != nil {
+			return nil, err
+		}
+	}
+	return f, nil
+}
+
+func ip(ctx context.Context, args ...string) error {
+	output, err := exec.CommandContext(ctx, "ip", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ip %s: %w: %s", strings.Join(args, " "), err, bytes.TrimSpace(output))
+	}
+	return nil
+}
+
+func (f *Fleet) network(ctx context.Context) error {
+	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
+		return fmt.Errorf("the lane must run in its own mount and network namespace (unshare --mount --net): %w", err)
+	}
+	for _, dir := range []string{"/run/netns", "/etc/netns"} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		if err := unix.Mount("tmpfs", dir, "tmpfs", 0, "mode=0755"); err != nil {
+			return err
+		}
+	}
+	steps := [][]string{
+		{"link", "set", "lo", "up"},
+		{"link", "add", bridgeName, "type", "bridge"},
+		{"addr", "add", gatewayAddress + "/24", "dev", bridgeName},
+		{"addr", "add", metadataIP + "/32", "dev", bridgeName},
+		{"link", "set", bridgeName, "up"},
+	}
+	for _, host := range f.Hosts {
+		steps = append(steps,
+			[]string{"netns", "add", host.Namespace},
+			[]string{"link", "add", host.Namespace, "type", "veth", "peer", "name", "eth0", "netns", host.Namespace},
+			[]string{"link", "set", host.Namespace, "master", bridgeName, "up"},
+			[]string{"-n", host.Namespace, "link", "set", "lo", "up"},
+			[]string{"-n", host.Namespace, "addr", "add", host.Address + "/24", "dev", "eth0"},
+			[]string{"-n", host.Namespace, "link", "set", "eth0", "up"},
+			[]string{"-n", host.Namespace, "link", "add", "wt0", "type", "dummy"},
+			[]string{"-n", host.Namespace, "addr", "add", host.NetBird + "/32", "dev", "wt0"},
+			[]string{"-n", host.Namespace, "link", "set", "wt0", "up"},
+			[]string{"-n", host.Namespace, "route", "add", "default", "via", gatewayAddress},
+		)
+		for _, peer := range f.Hosts {
+			if peer != host {
+				steps = append(steps, []string{"-n", host.Namespace, "route", "add", peer.NetBird + "/32", "via", peer.Address, "src", host.NetBird})
+			}
+		}
+	}
+	for _, step := range steps {
+		if err := ip(ctx, step...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f *Fleet) hosts(self *Host) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "127.0.0.1 localhost\n::1 localhost\n127.0.1.1 %s\n", self.Name)
+	for _, host := range f.Hosts {
+		fmt.Fprintf(&b, "%s %s.nb.ts.internal\n", host.NetBird, host.Name)
+	}
+	fmt.Fprintf(&b, "%s %s\n", gatewayAddress, strings.Join(f.standIn.names, " "))
+	return b.String()
+}
+
+func copyFile(source, target string, mode os.FileMode) error {
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(target, data, mode)
+}
+
+func (f *Fleet) prepare(host *Host) error {
+	for _, dir := range []string{"state", "containerd", "bin"} {
+		if err := os.MkdirAll(filepath.Join(host.Dir, dir), 0o755); err != nil {
+			return err
+		}
+	}
+	if err := copyFile(f.Binary, filepath.Join(host.Dir, "bin", filepath.Base(installedPath)), 0o755); err != nil {
+		return err
+	}
+	if err := os.Symlink(filepath.Base(installedPath), filepath.Join(host.Dir, "bin", "ts-orch")); err != nil {
+		return err
+	}
+	for _, name := range []string{"containerd", "containerd-shim-runc-v2"} {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			return err
+		}
+		if err := copyFile(path, filepath.Join(host.Dir, "bin", name), 0o755); err != nil {
+			return err
+		}
+	}
+	netns := filepath.Join("/etc/netns", host.Namespace)
+	if err := os.MkdirAll(netns, 0o755); err != nil {
+		return err
+	}
+	for name, content := range map[string]string{
+		"hosts":         f.hosts(host),
+		"resolv.conf":   "nameserver 127.0.0.1\noptions timeout:1 attempts:1\n",
+		"nsswitch.conf": "hosts: files dns\n",
+	} {
+		if err := os.WriteFile(filepath.Join(netns, name), []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	cfg, err := json.Marshal(hostConfig{Name: host.Name, Dir: host.Dir, InstanceID: host.InstanceID, CABundle: filepath.Join(f.Work, "ca.pem"), Containerd: "/usr/local/bin/containerd"})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(host.Dir, "host.json"), cfg, 0o644)
+}
+
+func (f *Fleet) hostByAddress(address string) *Host {
+	for _, host := range f.Hosts {
+		if host.Address == address {
+			return host
+		}
+	}
+	return nil
+}
+
+func (f *Fleet) Boot(hosts ...*Host) error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	for _, host := range hosts {
+		cmd := exec.Command("ip", "netns", "exec", host.Namespace, "unshare", "--mount", "--uts", "--propagation", "private", self, hostCommand, filepath.Join(host.Dir, "host.json"))
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		stderr, err := os.Create(filepath.Join(host.Dir, "host.log"))
+		if err != nil {
+			return err
+		}
+		cmd.Stderr = stderr
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		host.process, host.done = cmd, make(chan error, 1)
+		go host.read(stdout)
+		go func() { host.done <- cmd.Wait(); _ = stderr.Close() }()
+	}
+	return nil
+}
+
+func (h *Host) read(stdout io.Reader) {
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		var event Event
+		if json.Unmarshal(scanner.Bytes(), &event) != nil {
+			continue
+		}
+		fmt.Printf("%s %s %s run %d %s %s\n", event.At.Format("15:04:05.000"), h.Name, event.Kind, event.Run, short(event.Revision), event.Detail)
+		h.mu.Lock()
+		h.events = append(h.events, event)
+		close(h.changed)
+		h.changed = make(chan struct{})
+		h.mu.Unlock()
+	}
+	h.mu.Lock()
+	h.events = append(h.events, Event{At: time.Now(), Kind: "gone"})
+	close(h.changed)
+	h.changed = make(chan struct{})
+	h.mu.Unlock()
+}
+
+func short(revision string) string {
+	if len(revision) > 12 {
+		return revision[:12]
+	}
+	return revision
+}
+
+func (h *Host) Events() []Event {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]Event(nil), h.events...)
+}
+
+func (h *Host) WaitEvent(ctx context.Context, match func(Event) bool) (Event, error) {
+	seen := 0
+	for {
+		h.mu.Lock()
+		events, changed := h.events[seen:], h.changed
+		seen = len(h.events)
+		h.mu.Unlock()
+		for _, event := range events {
+			if match(event) {
+				return event, nil
+			}
+			if event.Kind == "gone" {
+				return Event{}, fmt.Errorf("%s host process ended: %s", h.Name, h.tail("host.log"))
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return Event{}, fmt.Errorf("%s: %w; journal tail:\n%s", h.Name, ctx.Err(), h.tail("journal.log"))
+		case <-changed:
+		}
+	}
+}
+
+func (h *Host) WaitReady(ctx context.Context, after int, revision string) (Event, error) {
+	return h.WaitEvent(ctx, func(e Event) bool {
+		return e.Kind == "ready" && e.Run > after && (revision == "" || e.Revision == revision)
+	})
+}
+
+func (h *Host) LastRun() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	run := 0
+	for _, event := range h.events {
+		run = max(run, event.Run)
+	}
+	return run
+}
+
+func (h *Host) tail(name string) string {
+	data, _ := os.ReadFile(filepath.Join(h.Dir, name))
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	return strings.Join(lines[max(0, len(lines)-40):], "\n")
+}
+
+func (h *Host) Restart() error { return h.process.Process.Signal(syscall.SIGHUP) }
+
+func (h *Host) Exec(ctx context.Context, args ...string) ([]byte, error) {
+	command := append([]string{"-t", fmt.Sprint(h.process.Process.Pid), "-m", "-n", "-u", "--"}, args...)
+	return exec.CommandContext(ctx, "nsenter", command...).CombinedOutput()
+}
+
+func (h *Host) Listening(ctx context.Context, port int) (bool, error) {
+	output, err := exec.CommandContext(ctx, "ip", "netns", "exec", h.Namespace, "ss", "-Hltn", fmt.Sprintf("sport = :%d", port)).CombinedOutput()
+	return strings.TrimSpace(string(output)) != "", err
+}
+
+func (h *Host) Established(ctx context.Context, port int) ([]string, error) {
+	output, err := exec.CommandContext(ctx, "ip", "netns", "exec", h.Namespace, "ss", "-Htn", "state", "established", fmt.Sprintf("( sport = :%d or dport = :%d )", port, port)).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("ss: %w: %s", err, output)
+	}
+	peers := []string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 4 {
+			address, _, _ := net.SplitHostPort(fields[3])
+			peers = append(peers, strings.TrimPrefix(address, "::ffff:"))
+		}
+	}
+	return peers, nil
+}
+
+func (h *Host) State(path string) string { return filepath.Join(h.Dir, "state", path) }
+
+func (h *Host) ReleaseRegion() (releasepush.Region, error) {
+	data, err := os.ReadFile(h.State("nats/tls.crt"))
+	if err != nil {
+		return releasepush.Region{}, err
+	}
+	certificate, err := tls.X509KeyPair(data, mustRead(h.State("nats/tls.key")))
+	if err != nil {
+		return releasepush.Region{}, err
+	}
+	pin, err := releasepush.SPKIPin(certificate.Certificate[0])
+	return releasepush.Region{Region: h.Region.Name, NATS: "tls://" + h.Address + ":4222", SPKISHA256: pin}, err
+}
+
+func mustRead(path string) []byte {
+	data, _ := os.ReadFile(path)
+	return data
+}
+
+func (h *Host) Health(ctx context.Context) (releasepush.Reply, error) {
+	region, err := h.ReleaseRegion()
+	if err != nil {
+		return releasepush.Reply{}, err
+	}
+	token, err := h.fleet.standIn.token(revisionOf(h.fleet.Binary), "1")
+	if err != nil {
+		return releasepush.Reply{}, err
+	}
+	conn, err := releasepush.Dial(region, token)
+	if err != nil {
+		return releasepush.Reply{}, err
+	}
+	defer conn.Close()
+	message, err := conn.RequestWithContext(ctx, releasepush.SubjectHealth, nil)
+	if err != nil {
+		return releasepush.Reply{}, err
+	}
+	var reply releasepush.Reply
+	return reply, json.Unmarshal(message.Data, &reply)
+}
+
+func (f *Fleet) Secret(name string) (string, int) {
+	f.standIn.mu.Lock()
+	defer f.standIn.mu.Unlock()
+	item := f.standIn.secrets[name]
+	if item == nil {
+		return "", 0
+	}
+	return string(item.Versions[len(item.Versions)-1]), len(item.Versions)
+}
+
+func (f *Fleet) WaitSecret(ctx context.Context, name string, match func(string) bool) (string, error) {
+	for {
+		f.standIn.mu.Lock()
+		changed := f.standIn.changed
+		item := f.standIn.secrets[name]
+		value := ""
+		if item != nil {
+			value = string(item.Versions[len(item.Versions)-1])
+		}
+		f.standIn.mu.Unlock()
+		if item != nil && match(value) {
+			return value, nil
+		}
+		select {
+		case <-ctx.Done():
+			return value, fmt.Errorf("Vault secret %s: %w (last %q)", name, ctx.Err(), value)
+		case <-changed:
+		}
+	}
+}
+
+func (f *Fleet) Requests() map[string]int { return f.standIn.Requests() }
+
+func (f *Fleet) Close() {
+	for _, host := range f.Hosts {
+		if host.process != nil {
+			_ = host.process.Process.Signal(syscall.SIGINT)
+		}
+	}
+	for _, host := range f.Hosts {
+		if host.process != nil {
+			select {
+			case <-host.done:
+			case <-time.After(3 * time.Minute):
+				_ = host.process.Process.Kill()
+			}
+		}
+		output, _ := exec.Command("ip", "netns", "pids", host.Namespace).Output()
+		for _, field := range strings.Fields(string(output)) {
+			var pid int
+			if _, err := fmt.Sscan(field, &pid); err == nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	}
+	f.standIn.close()
+}
