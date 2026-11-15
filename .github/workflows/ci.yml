@@ -63,6 +63,7 @@ jobs:
           - {lane: release-contracts, entry: release-contracts.sh, timeout: 5, packages: "./test/e2e/m1/revision-gate ./test/e2e/m1/vault-policy"}
           - {lane: metadata-upgrade, entry: metadata-upgrade.sh, timeout: 8}
           - {lane: rollout, entry: rollout.sh, timeout: 10}
+          - {lane: single-host-region, entry: single-host-region.sh, timeout: 5, packages: "./test/e2e/m1/single-host-region"}
           - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
           - {lane: recovery, entry: recovery.sh, timeout: 5}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
