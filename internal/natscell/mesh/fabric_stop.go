@@ -15,7 +15,13 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const metaGroup = "_meta_"
+const (
+	metaGroup           = "_meta_"
+	sustainWindow       = replicaActiveMax
+	observeEvery        = 100 * time.Millisecond
+	sustainObservations = 3
+	stopBudget          = 5 * time.Second
+)
 
 type FabricLifecycle struct {
 	server       *server.Server
@@ -38,24 +44,37 @@ func (n *Node) AbortStop() {
 
 func (n *FabricLifecycle) Health(ctx context.Context) error {
 	targets := make(map[string]uint64)
-	catchup := time.NewTimer(replicaActiveMax)
-	defer catchup.Stop()
-	tick := time.NewTicker(100 * time.Millisecond)
+	return sustained(ctx, replicaActiveMax, func() error { return n.observe(ctx, targets) })
+}
+
+func (n *FabricLifecycle) observe(ctx context.Context, targets map[string]uint64) error {
+	if err := n.fabricQuorum(ctx, false, targets); err != nil {
+		return err
+	}
+	return n.placement()
+}
+
+func sustained(ctx context.Context, catchup time.Duration, observe func() error) error {
+	failing, failures := time.Now(), 0
+	tick := time.NewTicker(observeEvery)
 	defer tick.Stop()
 	for {
-		err := n.fabricQuorum(ctx, false, targets)
+		err := observe()
 		if err == nil {
-			err = n.placement()
+			return nil
 		}
+		failures++
+		window := sustainWindow
 		var catchingUp *replicaCatchup
-		if !errors.As(err, &catchingUp) {
+		if errors.As(err, &catchingUp) {
+			window = catchup
+		}
+		if failures >= sustainObservations && time.Since(failing) >= window {
 			return err
 		}
 		select {
 		case <-ctx.Done():
-			return err
-		case <-catchup.C:
-			return err
+			return fmt.Errorf("%w: %w", err, ctx.Err())
 		case <-tick.C:
 		}
 	}
@@ -260,27 +279,14 @@ func (n *FabricLifecycle) PrepareStop(ctx context.Context) error {
 		}
 	}
 	started := time.Now()
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, stopBudget)
 	defer cancel()
+	if err := sustained(ctx, stopBudget, func() error { return n.fabricQuorum(ctx, true, nil) }); err != nil {
+		slog.Warn("mesh planned stop refused", "error", err)
+		return err
+	}
 	tick := time.NewTicker(20 * time.Millisecond)
 	defer tick.Stop()
-	for {
-		err := n.fabricQuorum(ctx, true, nil)
-		if err == nil {
-			break
-		}
-		if _, catchingUp := err.(*replicaCatchup); !catchingUp {
-			slog.Warn("mesh planned stop refused", "error", err)
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			err = fmt.Errorf("%w: %w", err, ctx.Err())
-			slog.Warn("mesh planned stop refused", "error", err)
-			return err
-		case <-tick.C:
-		}
-	}
 	before := n.raftGroups()
 	led := make(map[string]uint64)
 	for _, group := range before {

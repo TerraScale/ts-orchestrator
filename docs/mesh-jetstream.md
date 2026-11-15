@@ -49,7 +49,11 @@ The agent uses NATS's lame-duck leadership transfer step while keeping
 listeners and clients open. It chooses a current follower, prevents local
 reelection, and confirms successor leadership before stopping the server.
 Admission waits for recently active replicas to catch up within the same
-five-second budget as the handoff. Stale replicas refuse admission. An incomplete handoff refuses
+five-second budget as the handoff. Stale replicas refuse admission. Any other
+refusal (no current leader observation, changing membership, too few current
+replicas) must hold in at least three consecutive observations, 100 ms
+apart, spanning two seconds (`sustainWindow`); one that clears sooner admits
+the stop. An incomplete handoff refuses
 the planned stop and restores election eligibility. The single log entry
 `mesh leaders transferred` gives the transferred group count, elapsed time,
 and groups whose successor was still unconfirmed at the bound.
@@ -66,7 +70,15 @@ follower is always a round trip behind the newest commit; an active replica
 gets up to two seconds (`replicaActiveMax`) to reach the observed index. A
 replica that is inactive, or still behind after that, makes health fail;
 unhealthy replies name the group and available counts. The stream check adds
-leader, replica count and liveness; it does not judge lag again.
+the server health check, leader, replica count and liveness; it does not judge
+lag again. No check fails health from a single instant: release health and
+fabric health observe every 100 ms and fail only when a failure held in at
+least three consecutive observations spanning two seconds (`sustainWindow`),
+the rule the rollout bake already uses, or, for catch-up, when the
+replica did not reach the pinned index within `replicaActiveMax`. The first
+passing observation passes, because each one already carries windowed
+evidence (replicas active within two seconds and at the pinned index), and a
+caller that needs a pass to persist, such as the G2 release gate, asks again.
 The existing release ordering and health observation intervals are unchanged.
 
 The first SIGTERM or interrupt runs admission before canceling serving work.
@@ -233,7 +245,11 @@ Activate one region at a time, in order sjc, gru, fra:
 - Health on the metadata leader also waits until every metadata member accepts
   placement. NATS marks a route-connected peer placeable only after its first
   statsz, up to a second later, and a stream or bucket created in that window
-  fails with "no suitable peers for placement, peer offline".
+  fails with "no suitable peers for placement, peer offline". A route that
+  registers again for the same server keeps that server's statsz
+  (`third_party/nats-server/README.terrascale.md`), so route churn never makes
+  a live member unplaceable; upstream dropped it until the next statsz, up to
+  ten seconds later, which failed about one fabric lane in 80.
 - A fatal error inside the embedded server, such as a JetStream store it
   cannot create, fails the mesh start and the mesh retries every 30 s. It never
   exits ts-orch, so the release listener on 4222 keeps serving.
