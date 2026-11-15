@@ -74,7 +74,7 @@ func main() {
 		runHost(os.Args[2:])
 		return
 	}
-	require(len(os.Args) == 3 && (os.Args[2] == "pull" || os.Args[2] == "push"), "usage: pull-update <ts-orch binary> pull|push")
+	require(len(os.Args) == 3 && (os.Args[2] == "pull" || os.Args[2] == "push" || os.Args[2] == "degraded"), "usage: pull-update <ts-orch binary> pull|push|degraded")
 	journey(os.Args[1], os.Args[2])
 }
 
@@ -121,6 +121,7 @@ func runHost(args []string) {
 	if probation, err := releasepush.Probe(state, os.Stdout); err == nil && probation != nil {
 		require(probation.Served(), "%s must confirm its release", id)
 	}
+	var listener *server.Server
 	if role == "manager" {
 		h.Claim = func(ctx context.Context, release, sha string, digests map[string]string) error {
 			return pullrelease.ClaimPush(ctx, fabric, region, pullrelease.PushClaim{Release: release, SHA: sha, Binaries: digests, Host: id})
@@ -132,7 +133,11 @@ func runHost(args []string) {
 			return releasepush.AwaitReady(ctx, conn, region, host, sha, digests)
 		}
 		h.Relay = func(ctx context.Context, request []byte) []releasepush.HostVersion {
-			return releasepush.RelayWorkers(ctx, conn, protocol.MeshWorkerReleasePrefix+region, request, []*api.Node{{ID: region + "-w", Role: api.NodeRoleWorker}})
+			worker := &api.Node{ID: region + "-w", Role: api.NodeRoleWorker, Status: api.NodeStatus{State: api.NodeStatus_READY}}
+			if _, err := os.Stat(filepath.Join(filepath.Dir(dir), region+"-w", "stopped")); err == nil {
+				worker.Status.State = api.NodeStatus_DOWN
+			}
+			return releasepush.RelayWorkers(ctx, conn, protocol.MeshWorkerReleasePrefix+region, request, []*api.Node{worker})
 		}
 		if listen != "0" {
 			port, err := strconv.Atoi(listen)
@@ -142,7 +147,7 @@ func runHost(args []string) {
 			options, err := releasepush.Options(state, auth)
 			must(err)
 			options.Host, options.Port = "127.0.0.1", port
-			listener, err := server.NewServer(options)
+			listener, err = server.NewServer(options)
 			must(err)
 			go listener.Start()
 			require(listener.ReadyForConnections(10*time.Second), "release listener must listen")
@@ -168,6 +173,10 @@ func runHost(args []string) {
 	must(conn.Publish("e2e.ready."+region+"."+id, []byte(h.Digest)))
 	must(conn.Flush())
 	<-h.Installed
+	if listener != nil {
+		listener.Shutdown()
+		listener.WaitForShutdown()
+	}
 	must(conn.Publish("e2e.down."+region+"."+id, nil))
 	must(conn.Flush())
 	os.Exit(0)
@@ -423,6 +432,10 @@ func journey(bin, part string) {
 		l.pushes(ctx)
 		return
 	}
+	if part == "degraded" {
+		l.degraded(ctx)
+		return
+	}
 	l.pulls(ctx)
 }
 
@@ -605,6 +618,46 @@ func (l *lane) pushes(ctx context.Context) {
 	l.waitStatus(ctx, "sjc", "sjc completes "+r16.tag, complete(r16))
 	l.requireVersions(ctx, r16.digest, l.region("gru", "sjc")...)
 	fmt.Printf("worker ready -> manager installed the push; its claim dropped and the pull rolled %s out\n%s\n", r16.tag, gru)
+
+}
+
+func (l *lane) degraded(ctx context.Context) {
+	revision := l.revision
+	worker := l.hosts["gru-w"]
+	stopped := filepath.Join(worker.dir, "stopped")
+	must(os.WriteFile(stopped, nil, 0o600))
+	worker.holdRestart()
+	worker.kill()
+	r17 := l.publishGood("117", "c117")
+	reply := l.push(ctx, "117", l.candidate("c117"))
+	require(reply.State == "installed" && slices.Equal(reply.Degraded, []string{"gru-w"}) && len(reply.Workers) == 1 &&
+		reply.Workers[0].Down && reply.Workers[0].Error == "no answer",
+		"a push must install the manager past a stopped worker and report the region degraded, replied %+v", reply)
+	l.waitReady(ctx, "gru.gru-m", r17.digest)
+	metrics := l.releaseMetrics("gru-m")
+	require(strings.Contains(metrics, "ts_orch_release_region_degraded 1") &&
+		strings.Contains(metrics, `ts_orch_release_worker_skipped{host="gru-w",sha="`+revision+`",run="117"} 1`),
+		"gru-m must export the skipped worker, exports:\n%s", metrics)
+	fmt.Printf("worker host stopped -> the push installed gru-m anyway and the region reports degraded\n%s", metrics)
+	must(os.Remove(stopped))
+	worker.releaseRestart()
+	l.waitReady(ctx, "gru.gru-w", hex.EncodeToString(sha256Of(l.self)))
+	r18 := l.publishGood("118", "c118")
+	reply = l.push(ctx, "118", l.candidate("c118"))
+	require(reply.State == "installed" && len(reply.Degraded) == 0 && len(reply.Workers) == 1 && reply.Workers[0].Error == "" && reply.Workers[0].Refusal == nil,
+		"the next push must reach the returned worker, replied %+v", reply)
+	l.waitReady(ctx, "gru.gru-m", r18.digest)
+	metrics = l.releaseMetrics("gru-m")
+	require(strings.Contains(metrics, "ts_orch_release_region_degraded 0") && !strings.Contains(metrics, "ts_orch_release_worker_skipped"),
+		"the push that reached every worker must clear the degraded report, exports:\n%s", metrics)
+	l.requireVersions(ctx, r18.digest, "gru-m", "gru-w")
+	fmt.Println("worker back -> the next push reached it and cleared the degraded report")
+}
+
+func (l *lane) releaseMetrics(id string) string {
+	var metrics bytes.Buffer
+	releasepush.WriteReleaseMetrics(&metrics, filepath.Join(l.hosts[id].dir, "state"))
+	return metrics.String()
 }
 
 func (l *lane) waitDown(ctx context.Context, who string) {
