@@ -1032,10 +1032,11 @@ func FleetEdgeJourney(root string) error {
 			}
 			began = time.Now()
 			status, _, err = client.get(ctx, founder, "dash.e2e.test")
+			var headerErr error
 			if took := time.Since(began); err != nil || status != http.StatusBadGateway || took > peerLayerBudget+time.Second {
-				return fmt.Errorf("a peer that never answers: HTTP %d after %s, %v, want main's 502 within %s", status, took, err, peerLayerBudget)
+				headerErr = fmt.Errorf("a peer that never answers: HTTP %d after %s, %v, want main's 502 within %s", status, took, err, peerLayerBudget)
 			}
-			if err := <-streams; err != nil {
+			if err := errors.Join(headerErr, <-streams); err != nil {
 				return err
 			}
 			fmt.Println("ok fleet: same as main, local and peer HTTP/2 gRPC calls return their frame and success trailer after 31 seconds; client half-close preserves the complete backend reply")
