@@ -776,13 +776,17 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 			if err != nil {
 				return err
 			}
+			body, err := io.ReadAll(response.Body)
 			response.Body.Close()
-			if response.StatusCode != want {
-				return fmt.Errorf("public %s%s: %s, want %d", address, path, response.Status, want)
+			if err != nil {
+				return err
+			}
+			if response.StatusCode != want || path == "/edge/ready" && len(body) != 0 {
+				return fmt.Errorf("public %s%s: %s with %q, want %d and no readiness detail", address, path, response.Status, body, want)
 			}
 		}
 	}
-	fmt.Println("PASS host readiness answers on the mesh port and public port 80; certificate metrics only on the mesh port")
+	fmt.Println("PASS readiness detail answers only on the mesh port; public port 80 answers host readiness as a bare status; certificate metrics only on the mesh port")
 	if err := store.cmd.Process.Signal(syscall.SIGSTOP); err != nil {
 		return err
 	}

@@ -20,16 +20,21 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
-var fleetWeb = map[string]int{"dash.e2e.test": 18101, "api.e2e.test": 18102, "auth.e2e.test": 18103}
+var fleetWeb = map[string]int{"dash.e2e.test": 18101, "auth.e2e.test": 18103}
 
-var fleetServices = map[string]string{"dash.e2e.test": "ts-dashboard", "api.e2e.test": "api-front", "auth.e2e.test": "ts-auth"}
+var fleetServices = map[string]string{"dash.e2e.test": "ts-dashboard", "auth.e2e.test": "ts-auth"}
+
+const fleetWriter = "api.e2e.test"
 
 const fleetPostgres = "pg.e2e.test"
 
@@ -78,6 +83,34 @@ func FleetHost(args []string) error {
 		}
 		go http.Serve(listener, app)
 	}
+	writer := "ts-" + region + "-1"
+	var writes atomic.Int64
+	internal, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(TerraBaseInternalPort)))
+	if err != nil {
+		return err
+	}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	terrabase := &http.Server{Protocols: protocols, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(peerCredentialHeader) != secret {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		switch r.URL.Path {
+		case "/v1/rollout/status":
+			fmt.Fprintf(w, `{"node":%q,"owner":%q,"epoch":1,"writer":%t,"ready":true}`, name, writer, name == writer)
+		case "/v1/sql":
+			if name != writer || r.Method != http.MethodPost {
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
+			fmt.Fprintf(w, "%s %d", name, writes.Add(1))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})}
+	go terrabase.Serve(internal)
 	database, err := net.Listen("tcp", "127.0.0.1:15432")
 	if err != nil {
 		return err
@@ -101,7 +134,7 @@ func FleetHost(args []string) error {
 	if err := os.MkdirAll(filepath.Join(state, "edge-certs"), 0700); err != nil {
 		return err
 	}
-	for _, host := range append(slices.Sorted(maps.Keys(fleetWeb)), fleetPostgres) {
+	for _, host := range append(slices.Sorted(maps.Keys(fleetWeb)), fleetPostgres, fleetWriter) {
 		cert, err := os.ReadFile(filepath.Join(root, "regional", "edge-certs", host))
 		if err != nil {
 			return err
@@ -112,20 +145,22 @@ func FleetHost(args []string) error {
 	}
 	public := New(state)
 	public.JoinMesh(node)
-	inventory := mesh.EdgeInventory{Web: fleetWeb, Postgres: map[string]int{fleetPostgres: 15432}, Services: fleetServices, ProofRef: "fleet"}
+	web := maps.Clone(fleetWeb)
+	web[fleetWriter] = 8080
+	inventory := mesh.EdgeInventory{Web: web, Postgres: map[string]int{fleetPostgres: 15432}, Services: fleetServices, ProofRef: "fleet"}
 	for host, port := range fleetWeb {
 		inventory.Readiness = append(inventory.Readiness, mesh.EdgeRoute{Host: host, Port: port, Path: "/readyz"})
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	source := node.FollowEdgeInventory()
+	var source func() (mesh.EdgeInventory, bool)
 	if role == "founder" {
 		source = func() (mesh.EdgeInventory, bool) { return inventory, true }
 		go func() {
 			tick := time.NewTicker(time.Second)
 			defer tick.Stop()
 			for {
-				if err := node.PublishEdgeInventory(inventory); err != nil {
+				if err := node.PublishEdgeInventory(state, inventory); err != nil {
 					fmt.Fprintln(os.Stderr, "fleet inventory publication:", err)
 				}
 				select {
@@ -135,6 +170,8 @@ func FleetHost(args []string) error {
 				}
 			}
 		}()
+	} else {
+		source = node.FollowEdgeInventory(state)
 	}
 	go public.Run(ctx)
 	go public.FollowInventory(ctx, source, func(_ context.Context, ref string) error {
@@ -147,22 +184,39 @@ func FleetHost(args []string) error {
 	defer stop()
 	err = fleetAwait(started, func() bool {
 		peers := public.peerEdges.Load()
-		return public.Readiness(started).Ready && len(public.ReadyServices()) == len(fleetWeb) && peers != nil &&
-			slices.ContainsFunc((*peers)(), func(peer mesh.WorkerPeer) bool { return len(peer.ReadyServices) == len(fleetWeb) })
+		return public.Readiness(started).Ready && len(public.ReadyServices()) == len(fleetWeb) && (role == "alone" || peers != nil &&
+			slices.ContainsFunc((*peers)(), func(peer mesh.WorkerPeer) bool { return len(peer.ReadyServices) == len(fleetWeb) }))
 	})
 	if err != nil {
-		return fmt.Errorf("%s never served with its peer: %w (%+v)", name, err, public.Readiness(ctx))
+		return fmt.Errorf("%s never served as %s: %w (%+v)", name, role, err, public.Readiness(ctx))
 	}
+	first, _ := os.ReadFile(filepath.Join(state, "edge-inventory.json"))
+	firstGeneration := mesh.FleetEdgeInventoryGeneration(node)
 	fmt.Println("ready")
 	for commands.Scan() {
 		switch commands.Text() {
 		case "unready":
 			ready.Store(false)
-			if err := fleetAwait(started, func() bool { return len(public.ReadyServices()) == 0 }); err != nil {
+			if err := fleetAwait(ctx, func() bool { return len(public.ReadyServices()) == 0 }); err != nil {
 				return fmt.Errorf("%s kept advertising unready services: %w", name, err)
 			}
 		case "drain":
 			public.Drain()
+		case "await-peer":
+			if err := fleetAwait(ctx, func() bool {
+				return slices.ContainsFunc((*public.peerEdges.Load())(), func(peer mesh.WorkerPeer) bool { return len(peer.ReadyServices) == len(fleetWeb) })
+			}); err != nil {
+				return fmt.Errorf("%s never heard a ready peer: %w", name, err)
+			}
+		case "refresh":
+			mesh.FleetRefreshEdgeInventory(node)
+		case "forge":
+			if err := fleetAwait(ctx, func() bool { return mesh.FleetEdgeInventoryGeneration(node) > firstGeneration }); err != nil {
+				return fmt.Errorf("%s never followed a newer manager inventory: %w", name, err)
+			}
+			if err := mesh.FleetForgeEdgeInventory(node, state, first); err != nil {
+				return err
+			}
 		}
 		fmt.Println("ok")
 	}
@@ -207,15 +261,19 @@ func fleetRun(name string, args ...string) error {
 	return nil
 }
 
-func startFleetHost(root, self string, index int, region, seed, secret string) (*fleetProcess, error) {
-	p := &fleetProcess{name: fmt.Sprintf("ts-%s-%d", region, index%2+1), address: fmt.Sprintf("10.77.0.%d", 10+index), lines: make(chan string, 4)}
-	log, err := os.Create(filepath.Join(root, p.name+".log"))
+func fleetHostName(index int, region string) string {
+	return fmt.Sprintf("ts-%s-%d", region, index%2+1)
+}
+
+func startFleetHost(root, self string, index int, region, role, seed, secret string, start int) (*fleetProcess, error) {
+	p := &fleetProcess{name: fleetHostName(index, region), address: fmt.Sprintf("10.77.0.%d", 10+index), lines: make(chan string, 4)}
+	log, err := os.OpenFile(filepath.Join(root, p.name+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	peer, role := fmt.Sprintf("10.77.0.%d", 11+index), "founder"
+	peer := fmt.Sprintf("10.77.0.%d", 11+index)
 	if index%2 == 1 {
-		peer, role = fmt.Sprintf("10.77.0.%d", 9+index), "worker"
+		peer = fmt.Sprintf("10.77.0.%d", 9+index)
 	}
 	p.cmd = exec.Command(self, "host", root, region, p.name, p.address, peer, role, seed, secret)
 	p.cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWNET}
@@ -238,7 +296,7 @@ func startFleetHost(root, self string, index int, region, seed, secret string) (
 		}
 	}()
 	pid := strconv.Itoa(p.cmd.Process.Pid)
-	veth := fmt.Sprintf("fv%d", index)
+	veth := fmt.Sprintf("fv%d-%d", index, start)
 	for _, step := range [][]string{
 		{"ip", "link", "add", veth, "type", "veth", "peer", "name", "eth0", "netns", pid},
 		{"ip", "link", "set", veth, "master", "fleet0", "up"},
@@ -258,18 +316,71 @@ func startFleetHost(root, self string, index int, region, seed, secret string) (
 	return p, nil
 }
 
+func (p *fleetProcess) awaitReady(ctx context.Context, root string) error {
+	if err := p.expect(ctx, "ready"); err != nil {
+		log, _ := os.ReadFile(filepath.Join(root, p.name+".log"))
+		return fmt.Errorf("%w: %s", err, log[max(0, len(log)-2000):])
+	}
+	return nil
+}
+
+func fleetNodeList(root string, regions []string) error {
+	list := nodelist.List{Sequence: 1}
+	for index, region := range regions {
+		name := fleetHostName(index, region)
+		keys, err := nodelist.Keys(filepath.Join(root, "state-"+name))
+		if err != nil {
+			return err
+		}
+		meshIP, err := nodelist.MeshIP(name, region)
+		if err != nil {
+			return err
+		}
+		list.Nodes = append(list.Nodes, nodelist.Node{Name: name, Region: region, PublicIP: fmt.Sprintf("198.51.100.%d", 10+index),
+			PrivateIP: fmt.Sprintf("10.77.0.%d", 10+index), MeshIP: meshIP, WGPublicKey: keys.WGPublicKey, TLSSPKISHA256: keys.TLSSPKISHA256})
+	}
+	if err := list.Validate(); err != nil {
+		return err
+	}
+	wire, err := protocol.EncodeJSON(list)
+	if err != nil {
+		return err
+	}
+	for index, region := range regions {
+		if err := os.WriteFile(filepath.Join(root, "state-"+fleetHostName(index, region), "node", "nodes.json"), wire, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type fleetClient struct {
 	roots *x509.CertPool
 	plain *http.Client
 }
 
 func (c fleetClient) get(ctx context.Context, host *fleetProcess, name string) (int, string, error) {
+	return c.do(ctx, host, http.MethodGet, "https://"+name+"/payload", nil)
+}
+
+func (c fleetClient) write(ctx context.Context, through, writer *fleetProcess, want int) error {
+	for range 2 {
+		status, body, err := c.do(ctx, through, http.MethodPost, "https://"+fleetWriter+"/v1/sql", strings.NewReader("insert into fleet values (1)"))
+		if err != nil || status != http.StatusOK || body != fmt.Sprintf("%s %d", writer.name, want) {
+			return fmt.Errorf("SQL write via %s on :8080: HTTP %d %q, want %s %d, %w", through.name, status, body, writer.name, want, err)
+		}
+		want++
+	}
+	return nil
+}
+
+func (c fleetClient) do(ctx context.Context, host *fleetProcess, method, url string, body io.Reader) (int, string, error) {
 	transport := &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{RootCAs: c.roots}, DisableKeepAlives: true}
 	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(host.address, "443"))
 	}
 	defer transport.CloseIdleConnections()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+name+"/payload", nil)
+	request, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return 0, "", err
 	}
@@ -291,9 +402,13 @@ func (c fleetClient) ready(ctx context.Context, host *fleetProcess, want int) er
 	if err != nil {
 		return err
 	}
-	response.Body.Close()
-	if response.StatusCode != want {
-		return fmt.Errorf("%s /edge/ready: got %d, want %d", host.name, response.StatusCode, want)
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != want || len(body) != 0 {
+		return fmt.Errorf("%s public /edge/ready: got %d with %q, want %d and no body", host.name, response.StatusCode, body, want)
 	}
 	return nil
 }
@@ -385,23 +500,42 @@ func FleetEdgeJourney(root string) error {
 			return err
 		}
 	}
+	regions := []string{"gru", "gru", "sjc", "sjc", "fra", "fra"}
+	if err := fleetNodeList(root, regions); err != nil {
+		return err
+	}
 	hosts := []*fleetProcess{}
 	defer func() {
 		for _, host := range hosts {
 			host.kill()
 		}
 	}()
-	for index, region := range []string{"gru", "gru", "sjc", "sjc", "fra", "fra"} {
-		host, err := startFleetHost(root, self, index, region, hex.EncodeToString(seed), hex.EncodeToString(secret))
+	starts := 0
+	start := func(index int, role string) error {
+		starts++
+		host, err := startFleetHost(root, self, index, regions[index], role, hex.EncodeToString(seed), hex.EncodeToString(secret), starts)
 		if err != nil {
 			return err
 		}
-		hosts = append(hosts, host)
+		if index < len(hosts) {
+			hosts[index] = host
+		} else {
+			hosts = append(hosts, host)
+		}
+		return nil
+	}
+	for index := range regions {
+		role := "founder"
+		if index%2 == 1 {
+			role = "worker"
+		}
+		if err := start(index, role); err != nil {
+			return err
+		}
 	}
 	for _, host := range hosts {
-		if err := host.expect(ctx, "ready"); err != nil {
-			log, _ := os.ReadFile(filepath.Join(root, host.name+".log"))
-			return fmt.Errorf("%w: %s", err, log[max(0, len(log)-2000):])
+		if err := host.awaitReady(ctx, root); err != nil {
+			return err
 		}
 	}
 	client := fleetClient{roots: roots, plain: &http.Client{Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}}
@@ -416,19 +550,69 @@ func FleetEdgeJourney(root string) error {
 			}
 		}
 		switch region {
-		case 0, 1:
-			lost, survivor := founder, worker
-			if region == 1 {
-				lost, survivor = worker, founder
-			}
-			lost.kill()
-			if err := client.ready(ctx, survivor, http.StatusOK); err != nil {
+		case 0:
+			if err := client.write(ctx, worker, founder, 1); err != nil {
 				return err
 			}
-			if err := client.serves(ctx, survivor, survivor); err != nil {
+			if err := founder.command(ctx, "refresh"); err != nil {
 				return err
 			}
-			fmt.Printf("ok %s: both hosts balance every endpoint 6/6 and serve Postgres; %s still serves everything after %s is lost\n", founder.name[3:6], survivor.name, lost.name)
+			if err := worker.command(ctx, "forge"); err != nil {
+				return err
+			}
+			if err := client.serves(ctx, worker, founder, worker); err != nil {
+				return err
+			}
+			founder.kill()
+			if err := client.ready(ctx, worker, http.StatusOK); err != nil {
+				return err
+			}
+			if err := client.serves(ctx, worker, worker); err != nil {
+				return err
+			}
+			worker.kill()
+			if err := start(2*region+1, "alone"); err != nil {
+				return err
+			}
+			worker = hosts[2*region+1]
+			if err := worker.awaitReady(ctx, root); err != nil {
+				return err
+			}
+			if err := client.ready(ctx, worker, http.StatusOK); err != nil {
+				return err
+			}
+			if err := client.serves(ctx, worker, worker); err != nil {
+				return err
+			}
+			fmt.Printf("ok %s: SQL writes from the worker edge on :8080 reach the writer; forged, tampered and replayed inventories are refused; the worker serves after losing its manager and again after a cold restart with the manager down\n", founder.name[3:6])
+		case 1:
+			if err := client.write(ctx, worker, founder, 1); err != nil {
+				return err
+			}
+			worker.kill()
+			if err := client.ready(ctx, founder, http.StatusOK); err != nil {
+				return err
+			}
+			if err := client.serves(ctx, founder, founder); err != nil {
+				return err
+			}
+			if err := client.write(ctx, founder, founder, 3); err != nil {
+				return err
+			}
+			if err := start(2*region+1, "worker"); err != nil {
+				return err
+			}
+			worker = hosts[2*region+1]
+			if err := worker.awaitReady(ctx, root); err != nil {
+				return err
+			}
+			if err := founder.command(ctx, "await-peer"); err != nil {
+				return err
+			}
+			if err := client.serves(ctx, founder, founder, worker); err != nil {
+				return err
+			}
+			fmt.Printf("ok %s: the manager serves alone after losing its worker, and balances to the worker again as soon as it re-advertises ready\n", founder.name[3:6])
 		case 2:
 			if err := founder.command(ctx, "unready"); err != nil {
 				return err
