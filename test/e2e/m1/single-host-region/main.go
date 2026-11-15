@@ -3,16 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"debug/buildinfo"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
-	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,37 +157,14 @@ func installNodeList(fleet *oraclehost.Fleet) {
 }
 
 func installEdgeCert(fleet *oraclehost.Fleet) string {
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	material, err := fleet.EdgeMaterial("whoami.e2e.test")
 	must(err)
-	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	must(err)
-	now := time.Now()
-	template := func(name string, ca bool, serial int64) *x509.Certificate {
-		return &x509.Certificate{
-			SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: name},
-			NotBefore: now.Add(-time.Hour), NotAfter: now.Add(90 * 24 * time.Hour),
-			IsCA: ca, BasicConstraintsValid: true,
-			KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		}
-	}
-	caTemplate := template("single-host whoami", true, 1)
-	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caKey.Public(), caKey)
-	must(err)
-	leafTemplate := template("whoami.e2e.test", false, 2)
-	leafTemplate.DNSNames = []string{"whoami.e2e.test"}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caTemplate, leafKey.Public(), caKey)
-	must(err)
-	keyDER, err := x509.MarshalPKCS8PrivateKey(leafKey)
-	must(err)
-	material := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})...)
-	caPath := filepath.Join(fleet.Work, "whoami-ca.pem")
-	must(os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), 0o644))
 	for _, host := range fleet.Hosts {
 		dir := host.State("edge-certs")
 		must(os.MkdirAll(dir, 0o700))
 		must(os.WriteFile(filepath.Join(dir, "whoami.e2e.test"), material, 0o600))
 	}
-	return caPath
+	return filepath.Join(fleet.Work, "ca.pem")
 }
 
 func whoamiBody(ctx context.Context, host *oraclehost.Host, ca string) ([]byte, error) {

@@ -53,6 +53,8 @@ type secret struct {
 type standIn struct {
 	fleet    *Fleet
 	names    []string
+	caKey    *ecdsa.PrivateKey
+	caCert   *x509.Certificate
 	caPEM    []byte
 	identity [3][]byte
 	signer   *rsa.PrivateKey
@@ -80,16 +82,32 @@ func certificate(template, parent *x509.Certificate, public crypto.PublicKey, si
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), nil
 }
 
+func (f *Fleet) EdgeMaterial(name string) ([]byte, error) {
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	leafPEM, err := certificate(&x509.Certificate{Subject: pkix.Name{CommonName: name}, DNSNames: []string{name}, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}, f.standIn.caCert, leafKey.Public(), f.standIn.caKey)
+	if err != nil {
+		return nil, err
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(leafKey)
+	if err != nil {
+		return nil, err
+	}
+	return append(leafPEM, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})...), nil
+}
+
 func newStandIn(f *Fleet) (*standIn, *tls.Certificate, error) {
 	names := slices.Clone(standInNames)
 	for _, region := range f.Regions {
 		names = append(names, "auth."+region.OCIRegion+".oraclecloud.com")
 	}
-	s := &standIn{fleet: f, names: names, secrets: map[string]*secret{}, changed: make(chan struct{}), requests: map[string]int{}}
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
+	s := &standIn{fleet: f, names: names, caKey: caKey, secrets: map[string]*secret{}, changed: make(chan struct{}), requests: map[string]int{}}
 	ca := &x509.Certificate{Subject: pkix.Name{CommonName: "single-host-region stand-in CA"}, IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
 	if s.caPEM, err = certificate(ca, nil, caKey.Public(), caKey); err != nil {
 		return nil, nil, err
@@ -98,6 +116,7 @@ func newStandIn(f *Fleet) (*standIn, *tls.Certificate, error) {
 	if ca, err = x509.ParseCertificate(block.Bytes); err != nil {
 		return nil, nil, err
 	}
+	s.caCert = ca
 	serverKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
