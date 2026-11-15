@@ -19,15 +19,22 @@ const (
 func (n *Node) ReleaseHealth(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err := n.lifecycle.Health(ctx); err != nil {
-		return err
-	}
-	if status := n.server.Healthz(&server.HealthzOptions{}); status.StatusCode != http.StatusOK {
-		return fmt.Errorf("jetstream: %s", status.Error)
-	}
 	if n.fabric == nil {
 		return errors.New("jetstream: fabric not started")
 	}
+	targets := make(map[string]uint64)
+	return sustained(ctx, replicaActiveMax, func() error {
+		if err := n.lifecycle.observe(ctx, targets); err != nil {
+			return err
+		}
+		if status := n.server.Healthz(&server.HealthzOptions{}); status.StatusCode != http.StatusOK {
+			return fmt.Errorf("jetstream: %s", status.Error)
+		}
+		return n.streamsServing(ctx)
+	})
+}
+
+func (n *Node) streamsServing(ctx context.Context) error {
 	for offset := 0; ; {
 		payload, err := json.Marshal(struct {
 			Offset int `json:"offset"`

@@ -2372,7 +2372,7 @@ func (s *Server) addRoute(c *client, didSolicit, sendDelayedInfo bool, gossipMod
 		if doOnce {
 			// check to be consistent and future proof. but will be same domain
 			if s.sameDomain(info.Domain) {
-				s.nodeToInfo.Store(rHash, nodeInfo{
+				registered := nodeInfo{
 					name:            rn,
 					version:         s.info.Version,
 					cluster:         s.info.Cluster,
@@ -2385,7 +2385,13 @@ func (s *Server) addRoute(c *client, didSolicit, sendDelayedInfo bool, gossipMod
 					js:              info.JetStream,
 					binarySnapshots: true, // Updated default to true. Versions 2.10.0+ support it.
 					accountNRG:      false,
-				})
+				}
+				if known, ok := s.nodeToInfo.Load(rHash); ok && known != nil && known.(nodeInfo).id == id {
+					registered = known.(nodeInfo)
+					registered.offline = false
+					registered.js = info.JetStream
+				}
+				s.nodeToInfo.Store(rHash, registered)
 			}
 		}
 

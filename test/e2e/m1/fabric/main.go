@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -90,11 +91,18 @@ system_account: SYS
 				groups[name] = values
 			}
 		}
+		routes := map[string][]uint64{}
+		if routez, err := s.Routez(&server.RoutezOptions{}); err == nil {
+			for _, route := range routez.Routes {
+				routes[route.RemoteName] = append(routes[route.RemoteName], route.Rid)
+			}
+		}
 		_ = json.NewEncoder(w).Encode(struct {
 			Groups  *server.RaftzStatus
+			Routes  map[string][]uint64
 			Health  string
 			Refusal *string
-		}{&groups, text, last})
+		}{&groups, routes, text, last})
 	}
 	mux.HandleFunc("/status", serveStatus)
 	mux.HandleFunc("/groups", serveStatus)
@@ -152,11 +160,12 @@ func start(work string, i int) (*process, error) {
 
 type status struct {
 	Groups  server.RaftzStatus
+	Routes  map[string][]uint64
 	Health  string
 	Refusal *string
 }
 
-var client = &http.Client{Timeout: 1500 * time.Millisecond}
+var client = &http.Client{Timeout: 5 * time.Second}
 
 func readStatus(i int) (status, error) {
 	return readNode(i, "status")
@@ -305,6 +314,83 @@ func place(i int, app, system *nats.Conn) error {
 	return nil
 }
 
+func reregistered(i int, before []status) func() bool {
+	return func() bool {
+		for k := range names {
+			state, err := readNode(k, "groups")
+			if err != nil {
+				return false
+			}
+			for remote, old := range before[k].Routes {
+				if k != i && remote != names[i] {
+					continue
+				}
+				current := state.Routes[remote]
+				if len(current) != len(old) || slices.ContainsFunc(current, func(id uint64) bool { return slices.Contains(old, id) }) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+}
+
+func routeChurn() error {
+	conns := make([]*nats.Conn, len(names))
+	for k := range names {
+		conn, err := dial(k, false)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		conns[k] = conn
+	}
+	for round := range 3 * len(names) {
+		i := round % len(names)
+		before := make([]status, len(names))
+		for k := range names {
+			state, err := readNode(k, "groups")
+			if err != nil {
+				return err
+			}
+			if k != i && len(state.Routes[names[i]]) == 0 || k == i && len(state.Routes) != len(names)-1 {
+				return fmt.Errorf("round %d: %s routes before churn: %v", round, names[k], state.Routes)
+			}
+			before[k] = state
+		}
+		if output, err := exec.Command("ip", "netns", "exec", fmt.Sprintf("fabric%d", i+1), "ss", "-K", "( sport = :6222 or dport = :6222 )").CombinedOutput(); err != nil {
+			return fmt.Errorf("round %d: drop %s routes: %w: %s", round, names[i], err, output)
+		}
+		if err := bounded(fmt.Sprintf("round %d: %s routes registered again", round, names[i]), 10*time.Second, reregistered(i, before)); err != nil {
+			return err
+		}
+		failures := make(chan error, len(names))
+		for k, conn := range conns {
+			go func() {
+				js, err := conn.JetStream(nats.MaxWait(5 * time.Second))
+				if err == nil {
+					name := fmt.Sprintf("churn-%d-%d", round, k)
+					if _, err = js.AddStream(&nats.StreamConfig{Name: name, Subjects: []string{"churn." + name}, Replicas: 3}); err == nil {
+						err = js.DeleteStream(name)
+					}
+				}
+				if err != nil {
+					err = fmt.Errorf("round %d: R3 stream via %s after %s routes registered again: %w", round, names[k], names[i], err)
+				}
+				failures <- err
+			}()
+		}
+		var failed error
+		for range conns {
+			failed = errors.Join(failed, <-failures)
+		}
+		if failed != nil {
+			return failed
+		}
+	}
+	return nil
+}
+
 type lease struct {
 	mu       sync.Mutex
 	last     time.Time
@@ -445,6 +531,10 @@ func run(work string) error {
 	if err := bounded("three current stream and consumer members", 10*time.Second, healthy); err != nil {
 		return err
 	}
+	if err := routeChurn(); err != nil {
+		return err
+	}
+	fmt.Println("ok route churn: every member stays placeable when its routes register again")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	leases := make([]*lease, 3)

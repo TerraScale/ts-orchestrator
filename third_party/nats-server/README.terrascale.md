@@ -80,6 +80,16 @@ starts its metadata node as an observer, so it never campaigns; the embedding
 mesh ends observer mode once the node has seen a leader, or once every founder is
 reachable and none has metadata state. Unset, behavior is unchanged.
 
+`server/route.go` keeps a known server's JetStream configuration and usage
+stats when a route connection to that same server ID registers again. Upstream
+rebuilt the server's node entry without them, so after a route pool closed and
+reconnected (route churn at cluster formation, or any route reset) the
+metadata leader treated a live peer as never heard from until its next statsz,
+up to ten seconds later, and refused R3 placement with "no suitable peers for
+placement, peer offline". A new server ID still starts without stats. The
+fabric lane's route-churn step creates R3 streams right after every route of a
+member is re-registered.
+
 Compare this directory with the upstream `v2.15.0` Go module archive before
 upgrading. Apart from this README,
 `server/server.go`, `server/accounts.go`, `server/leafnode.go`,
