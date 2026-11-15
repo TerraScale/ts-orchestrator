@@ -19,6 +19,7 @@ The ARM journeys run as independent matrix jobs. Every lane runs for every pull 
 | release-contracts | Revision admission/refusals, retained Vault policy narrowing, installer metadata preservation and platform preflight | 5 minutes | All paths |
 | metadata-upgrade | Real installer upgrade preserves metadata exceptions and local rules through a systemd unit restart | 8 minutes | All paths |
 | rollout | Regional bake windows, local holds, signed replacement and nonce admission across three isolated regions | 10 minutes | All paths |
+| single-host-region | Real `ts-orch single-host` in Oracle mode, started from the production unit, on three regions of one manager and one worker each: founder claim and join material in Vault, worker join, a workload applied through the mesh, release health ok with role-correct checks on every host, `ts-orch status` ok for every region, mesh routes, JetStream and edge listeners on managers only, and a restart of every host back to ready | 5 minutes | All paths |
 | rollout-install | First installs, lost receipts, new regions, release identity validation, interruption budgets and host sampling | 10 minutes | All paths |
 | recovery | Signed binary install from the real sandbox; pre-probation exit; independent timer rollback; no-op and interrupted recovery; staged records and missing backup | 5 minutes | All paths |
 | updater-preflight | Candidate preflight before the binary swap, the single commit point under injected write failures and kills, the start after each crash, upgrade from and rollback to the previous updater, host and integrity refusals across regions, probation, and the alert relay runtime files | 12 minutes | All paths |
@@ -54,6 +55,24 @@ bash test/e2e/m1/run.sh /tmp/m1-bin/terrascale-orchestrator
 ~~~
 
 Substitute the selected entry script. Install-based lanes require passwordless sudo and modify the disposable host.
+
+## Oracle-mode single-host harness
+
+The single-host-region lane runs the real agent exactly as `deploy/m1/ts-orch.service` starts it, with every Oracle and cloud dependency replaced by a test-only stand-in. The harness is the Go package `test/e2e/m1/oraclehost`; another lane reuses it by calling `oraclehost.Main()` first in its own `main`, then `oraclehost.New` for a fleet, `Boot`, `WaitReady`, `Health`, `Exec`, `Restart` and the Vault observers. The lane runs inside `unshare --mount --net`, so the fleet's bridge, namespaces and stand-ins never touch the runner's own network or Azure metadata service.
+
+| Production dependency | Stand-in |
+|---|---|
+| Host | One network namespace per host on a private bridge (VCN `10.204.0.0/24`, gateway `10.204.0.1`), with its own mount and UTS namespace: hostname `ts-<region>-<n>`, tmpfs `/run`, `/var/lib` and `/etc/systemd`, per-host `/var/lib/ts-orch`, `/var/lib/containerd` and `/usr/local/bin` (agent, containerd and its runc shim), and its own containerd |
+| systemd | A supervisor that reads `ts-orch.service` from the embedded `deploy/m1` files and refuses any `[Service]` key it does not reproduce. It runs `ExecStart` with the systemd environment (`PATH`, `LANG`, `NOTIFY_SOCKET=/run/systemd/notify`, `INVOCATION_ID`), `PrivateTmp`, `ProtectHome`, `ProtectSystem=full` with `ReadWritePaths` and `ConfigurationDirectory`, `NoNewPrivileges`, `UMask` and `LimitNOFILE`; readiness is the `READY=1` notification, `Restart=always` with `RestartSec`, and a restart is SIGTERM with `TimeoutStopSec` before SIGKILL. Sandbox keys that only add seccomp or capability filters are accepted without emulation |
+| DMI | A tmpfs over `/sys/class/dmi/id` with `chassis_asset_tag` `OracleCloud.com` and `board_asset_tag` set to the instance OCID |
+| NetBird | A `wt0` dummy interface holding the host's `100.104.0.x` address, host routes to every peer's `wt0` address through its VCN address, and `ts-<region>-<n>.nb.ts.internal` names in the namespace's hosts file. No `netbird` binary is installed |
+| IMDS | `169.254.169.254:80` on the bridge, answering `/opc/v2` only with `Authorization: Bearer Oracle`: instance document, id, display name, region, canonical region name, VNIC list (private IP and VCN CIDR) and the instance identity certificate, key and intermediate. It tells hosts apart by source address |
+| OCI federation | `auth.<region>.oraclecloud.com/v1/x509` for every fleet region over TLS, reached through the namespace's hosts file and a CA bundle bound over `/etc/ssl/certs/ca-certificates.crt`. It accepts only the instance identity certificate it issued |
+| OCI Vault | `secrets.vaults.sa-saopaulo-1.oci.oraclecloud.com` bundles by name and `vaults.sa-saopaulo-1.oci.oraclecloud.com` list, create (409 on an existing name), get and etag-checked update. It starts with every secret the embedded first-party services and alert delivery reference; the mesh key, TerraBase token and `ts-orch-join-<region>` material are created and published by the hosts themselves |
+| GitHub OIDC | `token.actions.githubusercontent.com/.well-known/jwks` with the lane's signing key, so the lane can open each host's pinned release listener with a signed token |
+| Container registry | `registry-1.docker.io` serving, by digest only, the workload image the lane fetched before it entered its private network |
+
+The lane boots the three founders first and the workers once Vault holds each region's join material, because a worker that finds no material waits a full join period. It does not yet install a pushed release: the release handler's recovery step links and starts a systemd timer and reads `ts-orch.service` through `systemctl`, which needs a real systemd per host.
 
 ## Credential isolation
 
