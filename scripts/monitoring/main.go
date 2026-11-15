@@ -46,7 +46,7 @@ type inventory struct {
 	Monitors []string
 }
 
-var fleetAlerts = []string{"ServiceReadinessFailed", "ProductionJourneyFailed", "ProductionJourneyTelemetryMissing", "CertificateExpirySoon", "AlertDeliveryHeartbeat", "AlertDeliveryProbeStale", "AlertDeliveryProbeMissing", "AlertmanagerClusterDegraded"}
+var fleetAlerts = []string{"ServiceReadinessFailed", "ProductionJourneyFailed", "ProductionJourneyTelemetryMissing", "CertificateExpirySoon", "AlertDeliveryHeartbeat", "AlertDeliveryProbeStale", "AlertDeliveryProbeMissing", "AlertmanagerClusterDegraded", "AlertDeliveryEmailBudgetExhausted", "AlertDeliveryEmailBudgetUnavailable"}
 
 func main() {
 	if len(os.Args) < 2 || len(os.Args) > 3 {
@@ -181,9 +181,6 @@ func render(output string) error {
 		if err := os.WriteFile(filepath.Join(dir, "ts-alertmanager.service"), unit, 0644); err != nil {
 			return err
 		}
-		if err := writeJSON(filepath.Join(dir, "email-budget.json"), map[string]int{"hourly": 12 / len(inv.Monitors), "daily": 288 / len(inv.Monitors)}); err != nil {
-			return err
-		}
 		if err := writeJSON(filepath.Join(dir, "prometheus.yml"), prometheusConfig(inv, monitor)); err != nil {
 			return err
 		}
@@ -269,6 +266,16 @@ func metricCatalog() (map[string]bool, error) {
 		return nil, err
 	}
 	for _, metric := range strings.Fields(string(data)) {
+		if strings.HasPrefix(metric, "terrabase_") || strings.HasPrefix(metric, "ts_auth_") {
+			return nil, fmt.Errorf("metric-catalog.txt lists product metric %s; product names come only from product-metrics.txt", metric)
+		}
+		catalog[metric] = true
+	}
+	product, err := os.ReadFile("deploy/observability/production/product-metrics.txt")
+	if err != nil {
+		return nil, err
+	}
+	for _, metric := range strings.Fields(string(product)) {
 		catalog[metric] = true
 	}
 	metricName := regexp.MustCompile(`(?:ts_(?:orch|host|edge)_|terrascale_)[a-zA-Z0-9_:]+`)

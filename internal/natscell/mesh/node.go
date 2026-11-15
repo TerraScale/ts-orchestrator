@@ -227,7 +227,11 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
-	secret, err := clientToken(cfg.dir)
+	secret, err := persistentToken(cfg.dir, "client.token")
+	if err != nil {
+		return nil, err
+	}
+	alertsSecret, err := persistentToken(cfg.dir, "alerts.token")
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +244,7 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
-	options, err := serverOptions(cfg, tlsConfig, secret, fabricSecret)
+	options, err := serverOptions(cfg, tlsConfig, secret, fabricSecret, alertsSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -1105,10 +1109,8 @@ func saveDesired(dir string, desired map[string]desiredState) error {
 }
 
 // writePrivate replaces path atomically with an owner-only file.
-// clientToken keeps the root CLI's token across restarts, so a CLI that read
-// it before ts-orch restarted still authenticates afterwards.
-func clientToken(dir string) (string, error) {
-	path := filepath.Join(dir, "client.token")
+func persistentToken(dir, name string) (string, error) {
+	path := filepath.Join(dir, name)
 	if data, err := os.ReadFile(path); err == nil {
 		if token := strings.TrimSpace(string(data)); len(token) == 64 {
 			if _, err := hex.DecodeString(token); err == nil {

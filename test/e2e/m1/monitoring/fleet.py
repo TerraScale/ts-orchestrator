@@ -1,38 +1,44 @@
 import concurrent.futures
 import http.client
 import json
+import os
+import pwd
 import queue
+import re
+import secrets
 import subprocess
 import sys
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlencode
 
 work, tools = map(Path, sys.argv[1:])
 events = queue.Queue()
-notices = []
 processes = []
 servers = []
 regions = ("sjc", "fra", "gru")
 addresses = ("127.0.0.1", "127.0.0.2", "127.0.0.3")
 state = {"readiness": 1, "burst": False}
-accepted = {}
-refused = []
+emails = []
+pushes = []
 root = Path(__file__).resolve().parents[4]
 counter_alerts = {"TerraBaseBackupFailed", "TerraBaseBackupHoles", "TerraBaseBackupDrillFailed", "TerraBaseReplicaDiverged", "AuthEmailProviderExhausted"}
+budget_alerts = {"AlertDeliveryEmailBudgetExhausted", "AlertDeliveryEmailBudgetUnavailable"}
+handled_line = re.compile(r'production alert notification handled status=(\w+) alerts=(\d+) group=(\w+) alertname=(\S+) region=(\S*) email=(\w+) push=(\w+)')
 
 
-def request(address, port, path):
+def request(address, port, path, body=None):
     connection = http.client.HTTPConnection(address, port, timeout=5)
-    connection.request("GET", path)
+    connection.request("GET" if body is None else "POST", path, body, {"Content-Type": "application/json"})
     response = connection.getresponse()
-    body = response.read()
+    data = response.read()
     connection.close()
-    if response.status != 200:
-        raise RuntimeError(f"{address}:{port}{path}: {response.status}: {body[:200]!r}")
-    return body
+    if response.status not in (200, 202):
+        raise RuntimeError(f"{address}:{port}{path}: {response.status}: {data[:200]!r}")
+    return data
 
 
 def query(index, expression):
@@ -56,16 +62,19 @@ def await_event(description, predicate, seconds=45):
             raise RuntimeError(f"{description}: no event before deadline") from error
 
 
-def launch(name, command, cwd=None):
+def launch(name, command, cwd=None, env=None):
     log = (work / f"{name}.log").open("w")
-    process = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     processes.append(process)
+    lines = []
+    process.lines = lines
 
     def consume():
         for line in process.stdout:
             log.write(line)
             log.flush()
-            if "ready to receive web requests" in line or "gossip settled; proceeding" in line:
+            lines.append(line)
+            if "ready to receive web requests" in line or "gossip settled; proceeding" in line or "Alert delivery listener ready" in line:
                 ready.add(name)
             events.put(name)
         log.close()
@@ -75,7 +84,15 @@ def launch(name, command, cwd=None):
     return process
 
 
-class Relay(BaseHTTPRequestHandler):
+def handled():
+    return [(relay.address,) + match.groups() for relay in relays for line in list(relay.lines) for match in [handled_line.search(line)] if match]
+
+
+def groups(status, names):
+    return [entry for entry in handled() if entry[1] == status and entry[4] in names]
+
+
+class Metrics(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
@@ -97,35 +114,78 @@ class Relay(BaseHTTPRequestHandler):
         self.wfile.write(text.encode())
         events.put("scrape")
 
-    def do_POST(self):
-        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        address = self.server.server_address[0]
-        notices.append((address, body))
-        group = (body["alerts"][0]["labels"]["alertname"], body["alerts"][0]["labels"].get("region"))
-        status = 202
-        if self.path == "/alerts" and body["status"] == "firing" and group not in accepted.get(address, {}):
-            if len(accepted.setdefault(address, {})) >= budgets[address]:
-                status = 503
-                refused.append((address, group))
-            else:
-                accepted[address][group] = body
-        self.send_response(status)
+
+class Providers(BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        pass
+
+    def reply(self, value):
+        data = json.dumps(value).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
         self.end_headers()
-        events.put("notification")
+        self.wfile.write(data)
+        events.put("provider")
+
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"]))
+        if self.path == "/admission":
+            self.reply({"status": "admitted", "sendBy": (datetime.now(UTC) + timedelta(seconds=5)).isoformat()})
+        elif self.path.startswith("/accounts/") and self.path.endswith("/email/sending/send"):
+            emails.append(json.loads(body))
+            self.reply({"success": True, "result": {"delivered": ["mariogk@terrascale.tech"], "queued": [], "permanent_bounces": [], "suppressed_recipients": []}})
+        elif self.path.startswith("/push/"):
+            topic = self.path.removeprefix("/push/")
+            pushes.append(body.decode())
+            self.reply({"id": secrets.token_hex(6), "event": "message", "topic": topic})
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+def post_alerts(alerts, ends=None):
+    payload = json.dumps([{"labels": labels, **({"endsAt": ends} if ends else {})} for labels in alerts])
+    for address in alive:
+        request(address, 9093, "/api/v2/alerts", payload)
 
 
 ready = set()
 stopped = set()
-budgets = {address: json.loads((tools / "rendered" / f"ts-{region}-1" / "email-budget.json").read_text())["hourly"] for region, address in zip(regions, addresses)}
+alive = list(addresses)
+relays = []
+budget_servers = []
+token = secrets.token_hex(32)
+credentials = Path("/run/ts-alert-delivery")
+gid = pwd.getpwnam("ts-alerts").pw_gid
+os.chown(credentials, 0, gid)
+for key, value in {"cloudflare_account_id_file": secrets.token_hex(16), "cloudflare_email_token_file": secrets.token_urlsafe(32),
+                   "ts_alerts_ntfy_topic_file": secrets.token_urlsafe(32), "ts_alerts_nats_token_file": token}.items():
+    (credentials / key).write_text(value)
+    (credentials / key).chmod(0o640)
+    os.chown(credentials / key, 0, gid)
 try:
+    providers = ThreadingHTTPServer(("127.0.0.9", 8025), Providers)
+    servers.append(providers)
+    threading.Thread(target=providers.serve_forever, daemon=True).start()
     launch("metrics", [str(work / "metrics"), str(work / "mesh-state")])
+    for region, address in zip(regions, addresses):
+        directory = work / region
+        (directory / "budget").mkdir(parents=True)
+        (directory / "budget" / "alerts.token").write_text(token)
+        (directory / "relay").mkdir()
+        if region == "sjc":
+            (directory / "relay" / "journey.json").write_text("{broken\n")
+        budget_servers.append(launch("budget-" + region, [str(work / "metrics"), "budget", str(directory / "budget"), region, address] + [a for a in addresses if a != address]))
+        relay = launch("relay-" + region, [str(work / "relay")], env={**os.environ, "JOURNEY_RELAY_ADDRESS": address, "JOURNEY_RELAY_STATE": str(directory / "relay")})
+        relay.address = address
+        relays.append(relay)
+        metrics = ThreadingHTTPServer((address, 9099), Metrics)
+        servers.append(metrics)
+        threading.Thread(target=metrics.serve_forever, daemon=True).start()
     prometheuses, alertmanagers = [], []
     for index, (region, address) in enumerate(zip(regions, addresses)):
-        server = ThreadingHTTPServer((address, 9094), Relay)
-        servers.append(server)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
         directory = work / region
-        directory.mkdir()
         source = tools / "rendered" / f"ts-{region}-1"
         config = json.loads((source / "prometheus.yml").read_text())
         config["alerting"]["alertmanagers"][0]["static_configs"][0]["targets"] = [a + ":9093" for a in addresses]
@@ -133,31 +193,36 @@ try:
         config["scrape_configs"] = [
             {"job_name": "peer-topology", "metrics_path": "/orchestrator/metrics", "static_configs": [{"targets": ["127.0.0.1:9108"], "labels": {"region": "sjc"}}]},
         ]
-        for job, port, path in (("monitoring-prometheus", 9090, "/metrics"), ("monitoring-alertmanager", 9093, "/metrics"), ("service-readiness", 9094, "/metrics"), ("application-slo", 9094, "/application")):
+        for job, port, path in (("monitoring-prometheus", 9090, "/metrics"), ("monitoring-alertmanager", 9093, "/metrics"), ("application-slo", 9099, "/application")):
             config["scrape_configs"].append({"job_name": job, "metrics_path": path, "static_configs": [
                 {"targets": [a + f":{port}"], "labels": {"region": r, "host": f"ts-{r}-1"}} for a, r in zip(addresses, regions)
             ]})
+        config["scrape_configs"].append({"job_name": "service-readiness", "metrics_path": "/metrics", "static_configs": [
+            {"targets": [a + ":9099", a + ":9094"], "labels": {"region": r, "host": f"ts-{r}-1"}} for a, r in zip(addresses, regions)
+        ], "metric_relabel_configs": [{"source_labels": ["__name__", "instance"], "regex": "terrascale_alert_delivery_email_withheld_total;.*:9094|.*;.*:9099", "action": "keep"}]})
         generated = json.loads((source / "rules.yml").read_text())
-        allowed = counter_alerts | {"MonitoringBackendDown", "ServiceReadinessFailed", "ProductionJourneyFailed"}
+        allowed = counter_alerts | budget_alerts | {"ServiceReadinessFailed", "ProductionJourneyFailed"}
         generated["groups"] = [{"name": group["name"], "rules": [rule for rule in group["rules"] if rule.get("alert") in allowed]} for group in generated["groups"]]
         generated["groups"] = [group for group in generated["groups"] if group["rules"]]
         (directory / "prometheus.yml").write_text(json.dumps(config))
         (directory / "rules.yml").write_text(json.dumps(generated))
-        (directory / "alertmanager.yml").write_text((root / "deploy/observability/production/alertmanager.yml").read_text().replace("127.0.0.1:9094", address + ":9094"))
-        command = [str(tools / "alertmanager"), "--config.file=" + str(directory / "alertmanager.yml"), "--storage.path=" + str(directory / "alerts"), "--web.listen-address=" + address + ":9093", "--cluster.listen-address=" + address + ":9095", "--cluster.advertise-address=" + address + ":9095"]
+        manager = (root / "deploy/observability/production/alertmanager.yml").read_text().replace("127.0.0.1:9094", address + ":9094")
+        (directory / "alertmanager.yml").write_text(manager.replace("group_wait: 30s", "group_wait: 1s").replace("group_interval: 5m", "group_interval: 10s"))
+        command = [str(tools / "alertmanager"), "--config.file=" + str(directory / "alertmanager.yml"), "--storage.path=" + str(directory / "alerts"), "--web.listen-address=" + address + ":9093", "--cluster.listen-address=" + address + ":9095", "--cluster.advertise-address=" + address + ":9095", "--cluster.peer-timeout=2s"]
         command.extend("--cluster.peer=" + a + ":9095" for a in addresses if a != address)
         alertmanagers.append(launch("alertmanager-" + region, command))
         prometheuses.append(launch("prometheus-" + region, [str(tools / "prometheus"), "--config.file=" + str(directory / "prometheus.yml"), "--storage.tsdb.path=" + str(directory / "data"), "--web.listen-address=" + address + ":9090"], directory))
-    await_event("every backend ready and gossip settled", lambda: len(ready) == 6)
+    await_event("every backend and relay ready and gossip settled", lambda: len(ready) == 9)
     for address in addresses:
         cluster = json.loads(request(address, 9093, "/api/v2/status"))["cluster"]
         assert len(cluster["peers"]) == 3, cluster
-    await_event("every Prometheus scrapes actual mesh metrics through the 9108 proxy", lambda: all(query(i, 'ts_orch_mesh_store_observed{job="peer-topology"}') for i in range(3)))
+    assert "".join(relays[0].lines).count("Production journey state unavailable; alert delivery continues") == 1, relays[0].lines
+    await_event("every Prometheus scrapes actual mesh metrics through the 9108 proxy and every relay's budget counters at 0", lambda: all(query(i, 'ts_orch_mesh_store_observed{job="peer-topology"}') and len(query(i, 'terrascale_alert_delivery_email_withheld_total == 0')) == 6 for i in range(3)))
     await_event("old counters have repeated real scrapes", lambda: all(len(query(i, 'count_over_time(terrabase_backup_failures_total[1m]) >= 2')) == 3 for i in range(3)))
     for i in range(3):
         active = json.loads(request(addresses[i], 9090, "/api/v1/alerts"))["data"]["alerts"]
-        assert not [a for a in active if a["labels"]["alertname"] in counter_alerts], active
-    assert not notices, notices
+        assert not [a for a in active if a["labels"]["alertname"] in counter_alerts | budget_alerts], active
+    assert not handled() and not pushes and not emails, (handled(), pushes, emails)
     state["readiness"] = 0
     await_event("relay perspectives aggregate one pending service outage", lambda: all(len(query(i, 'ALERTS{alertname="ServiceReadinessFailed",alertstate="pending",service="ts-dashboard",region="global"}')) == 1 for i in range(3)))
     for i in range(3):
@@ -166,37 +231,48 @@ try:
     with concurrent.futures.ThreadPoolExecutor(max_workers=24) as pool:
         replies = list(pool.map(lambda _: request("127.0.0.1", 9108, "/orchestrator/metrics"), range(24)))
     assert all(b"ts_orch_mesh_store_observed " in body for body in replies)
-    await_event("readiness recovered before its hold", lambda: all(not query(i, 'ALERTS{alertname="ServiceReadinessFailed"}') for i in range(3)))
-    stopped.update((prometheuses[2], alertmanagers[2]))
+    request(addresses[1], 9094, "/alerts/digest", json.dumps({"status": "firing", "alerts": [{"status": "firing", "labels": {"alertname": "LaneDigest", "severity": "warning"}}]}))
+    await_event("a warning digest emails once and never pushes", lambda: len(emails) == 1)
+    assert emails[0]["subject"] == "TerraScale daily alert digest" and not pushes, (emails, pushes)
+    incident = {"alertname": "JourneyIncident", "service": "ts-dashboard", "region": "global", "severity": "critical"}
+    post_alerts([incident])
+    await_event("a firing group reaches exactly one relay", lambda: len(groups("firing", {"JourneyIncident"})) == 1 and len(pushes) == 1)
+    settled = time.monotonic() + 3 * 2
+    await_event("every peer's firing pipeline passes its peer timeout", lambda: time.monotonic() >= settled)
+    post_alerts([incident], ends=datetime.now(UTC).isoformat())
+    await_event("its resolution reaches exactly one relay", lambda: len(groups("resolved", {"JourneyIncident"})) == 1 and len(pushes) == 2)
+    assert len(emails) == 2 and pushes == ["TerraScale production alert: firing. Check production monitoring.", "TerraScale production alert: resolved. Check production monitoring."], (emails, pushes)
+    names = {f"JourneyBudget{index}" for index in range(11)}
+    post_alerts([{**incident, "alertname": name} for name in sorted(names)])
+    await_event("eleven more critical groups push once each", lambda: len(groups("firing", names)) == 11 and len(pushes) == 13)
+    withheld = [entry for entry in groups("firing", names) if entry[6] == "false"]
+    assert len(emails) == 12 and len(withheld) == 1 and all(entry[7] == "true" for entry in groups("firing", names)), (emails, handled())
+    await_event("the spent fleet budget pages by push", lambda: len(groups("firing", {"AlertDeliveryEmailBudgetExhausted"})) == 1, seconds=60)
+    exhausted = groups("firing", {"AlertDeliveryEmailBudgetExhausted"})[0]
+    assert exhausted[5] == "global" and exhausted[6] == "false" and exhausted[7] == "true" and len(emails) == 12, (exhausted, emails)
+    stopped.update((prometheuses[2], alertmanagers[2], relays[2], budget_servers[2]))
     for process in stopped:
         process.terminate()
         process.wait(timeout=10)
-    servers[2].shutdown()
-    servers[2].server_close()
+    servers[3].shutdown()
+    servers[3].server_close()
+    alive.remove(addresses[2])
     state["burst"] = True
-    expected = {("MonitoringBackendDown", "gru")} | {(name, region) for name in ("TerraBaseBackupHoles", "TerraBaseBackupDrillFailed", "TerraBaseReplicaDiverged") for region in ("sjc", "fra")}
-    delivered = lambda: {group for groups in accepted.values() for group in groups}
-    await_event("the region-loss burst delivers every critical group through the surviving relays' shares", lambda: delivered() == expected, seconds=240)
-    assert addresses[2] not in accepted, accepted
-    assert all(len(groups) <= budgets[address] for address, groups in accepted.items()), accepted
-    assert sum(len(groups) for groups in accepted.values()) == len(expected) <= sum(budgets[a] for a in addresses[:2]) <= 12, accepted
-    assert refused and all(any(group in groups for address, groups in accepted.items() if address != refuser) for refuser, group in refused), (refused, accepted)
-    down = next(body for groups in accepted.values() for group, body in groups.items() if group[0] == "MonitoringBackendDown")
-    assert len(down["alerts"]) == 3, down
+    expected = {(name, region) for name in ("TerraBaseBackupHoles", "TerraBaseBackupDrillFailed", "TerraBaseReplicaDiverged") for region in ("sjc", "fra")}
+    burst = lambda: [entry for entry in groups("firing", {name for name, _ in expected}) if (entry[4], entry[5]) in expected]
+    await_event("the region-loss burst delivers every critical group once through the surviving relays", lambda: {(entry[4], entry[5]) for entry in burst()} == expected, seconds=60)
+    assert all(entry[0] != addresses[2] and entry[7] == "true" and entry[6] == "false" for entry in burst()), burst()
     timestamp = 'timestamp(up{job="monitoring-prometheus",region="sjc"})'
     baseline = [float(query(i, timestamp)[0]["value"][1]) for i in range(2)]
-    await_event("both surviving backends scrape through a full failover window without duplicates", lambda: all(float(query(i, timestamp)[0]["value"][1]) >= baseline[i] + 45 for i in range(2)), seconds=65)
-    assert delivered() == expected and sum(len(groups) for groups in accepted.values()) == len(expected), accepted
+    await_event("both surviving backends scrape through a full failover window without duplicates", lambda: all(float(query(i, timestamp)[0]["value"][1]) >= baseline[i] + 15 for i in range(2)), seconds=30)
+    assert len(burst()) == len(expected) and len(emails) == 12, (burst(), emails)
+    keys = [entry[3] for entry in handled()]
+    assert len(keys) == len(set(keys)), handled()
     labels = {"service": "ts-dashboard", "slo": "availability", "severity": "critical"}
-    connection = http.client.HTTPConnection(addresses[0], 9093, timeout=5)
-    connection.request("POST", "/api/v2/alerts", json.dumps([{"labels": {**labels, "alertname": "ServiceSLOBurnFastGlobal", "region": "global"}}, {"labels": {**labels, "alertname": "ServiceSLOBurnFast", "region": "sjc"}}]), {"Content-Type": "application/json"})
-    response = connection.getresponse()
-    response.read()
-    connection.close()
-    assert response.status == 200, response.status
+    request(addresses[0], 9093, "/api/v2/alerts", json.dumps([{"labels": {**labels, "alertname": "ServiceSLOBurnFastGlobal", "region": "global"}}, {"labels": {**labels, "alertname": "ServiceSLOBurnFast", "region": "sjc"}}]))
     regional = lambda: json.loads(request(addresses[0], 9093, "/api/v2/alerts?" + urlencode({"filter": 'alertname="ServiceSLOBurnFast"'})))
     await_event("a global fast burn inhibits the same service's regional fast burn", lambda: [a["status"]["state"] for a in regional()] == ["suppressed"] and regional()[0]["status"]["inhibitedBy"])
-    print("monitoring: real mesh exporter + 9108 proxy; old counters page nothing; 24 concurrent proxies; three Prometheus + gossip; GRU lost with a 7-group critical burst -> a capped relay answers 503, the next Alertmanager peer delivers through its own share, every group exactly once within the fleet budget; global burn inhibits the regional page")
+    print(f"monitoring: real Alertmanager 0.34.1 x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; digest emails once; firing then resolved -> one notification each; {len(pushes)} pushes, fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; no group key handled twice; global burn inhibits regional; passed")
 finally:
     for server in servers:
         server.shutdown()

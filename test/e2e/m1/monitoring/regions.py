@@ -144,7 +144,7 @@ with tempfile.TemporaryDirectory() as directory:
     shutil.copytree(root / "internal", staged / "internal")
     rules = staged / "deploy/observability/production/operational-rules.yml"
     original = rules.read_text()
-    for replacement, message in (("ts_nonexistent_monitoring_metric", "metric has no exporter"), ("terrabase_backup_abandoned_total", "metric has no exporter"), ("terrabase_backup_holes_total", "metric has no exporter"), ('ts_host_oom_kills_total{region="gru",', "must not pin a region")):
+    for replacement, message in (("ts_nonexistent_monitoring_metric", "metric has no exporter"), ("terrabase_backup_abandoned_total", "metric has no exporter"), ("terrabase_backup_holes_recorded", "metric has no exporter"), ('ts_host_oom_kills_total{region="gru",', "must not pin a region")):
         source = "ts_host_oom_kills_total{" if "region=" in replacement else "ts_host_oom_kills_total"
         rules.write_text(original.replace(source, replacement))
         result = subprocess.run([str(renderer), str(staged / "output"), str(staged)], capture_output=True, text=True, check=False)

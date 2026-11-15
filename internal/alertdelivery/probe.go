@@ -20,7 +20,7 @@ func newReadinessClient() *http.Client {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
-func readinessMetrics(client *http.Client, journey *journeyObservation, delivery *deliveryProbe) http.HandlerFunc {
+func readinessMetrics(client *http.Client, journey *journeyObservation, delivery *deliveryProbe, budget *emailBudget) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		services := [...]string{"terrabase", "ts-auth", "ts-dashboard"}
 		values := [3]int{}
@@ -44,8 +44,7 @@ func readinessMetrics(client *http.Client, journey *journeyObservation, delivery
 		}
 		journey.write(w)
 		delivery.write(w)
-		_, _, valid := emailBudget()
-		fmt.Fprintf(w, "terrascale_alert_delivery_email_budget_valid %d\n", map[bool]int{false: 0, true: 1}[valid])
+		budget.write(w)
 	}
 }
 

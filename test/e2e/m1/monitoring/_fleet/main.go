@@ -16,6 +16,13 @@ import (
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 	defer cancel()
+	if os.Args[1] == "budget" {
+		if err := mesh.JourneyAlertBudget(ctx, os.Args[2], os.Args[3], os.Args[4], os.Args[5:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	go func() {
 		if err := mesh.JourneyMonitoring(ctx, os.Args[1]); err != nil {
 			fmt.Fprintln(os.Stderr, err)

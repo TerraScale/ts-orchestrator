@@ -493,6 +493,8 @@ tests:
     values: 38+0x20
   - series: terrabase_backup_holes_recorded_total{service="terrabase",instance="old-member"}
     values: 2+0x20
+  - series: terrabase_backup_holes_total{service="terrabase",instance="old-member"}
+    values: 1+0x20
   - series: terrabase_replica_verifications_total{service="terrabase",instance="old-member",result="diverged"}
     values: 2+0x20
   - series: terrabase_backup_drills_total{service="terrabase",instance="old-member",result="failed"}
@@ -863,22 +865,50 @@ tests:
 
 - interval: 1m
   input_series:
-  - series: terrascale_alert_delivery_email_budget_valid{job="service-readiness",host="ts-sjc-1",instance="ts-sjc-1"}
-    values: 0+0x12
-  - series: terrascale_alert_delivery_email_budget_valid{job="service-readiness",host="ts-fra-1",instance="ts-fra-1"}
-    values: 1+0x12
+  - series: terrascale_alert_delivery_email_withheld_total{job="service-readiness",host="ts-sjc-1",instance="ts-sjc-1",reason="budget_exhausted"}
+    values: 0+0x5 1+0x20
+  - series: terrascale_alert_delivery_email_withheld_total{job="service-readiness",host="ts-fra-1",instance="ts-fra-1",reason="budget_exhausted"}
+    values: 0+0x5 2+0x20
+  - series: terrascale_alert_delivery_email_withheld_total{job="service-readiness",host="ts-sjc-1",instance="ts-sjc-1",reason="budget_unavailable"}
+    values: 0+0x25
   alert_rule_test:
-  - eval_time: 9m
-    alertname: AlertDeliveryEmailBudgetInvalid
+  - eval_time: 5m
+    alertname: AlertDeliveryEmailBudgetExhausted
     exp_alerts: []
-  - eval_time: 10m
-    alertname: AlertDeliveryEmailBudgetInvalid
+  - eval_time: 6m
+    alertname: AlertDeliveryEmailBudgetExhausted
     exp_alerts:
     - exp_labels:
-        job: service-readiness
-        host: ts-sjc-1
-        instance: ts-sjc-1
+        service: ts-alerts
         severity: critical
       exp_annotations:
-        summary: "The alert relay on ts-sjc-1 has no valid rendered email budget and sends with the single-relay share"
-        description: "The relay found /etc/ts-monitoring/production/email-budget.json missing or invalid, so it uses the whole fleet share of 12 emails per hour and 288 per day. With several relays the fleet can exceed that allowance. Reinstall monitoring on the host with install.sh."
+        summary: "The fleet alert email budget of 12 per hour and 288 per day is spent; alert email is withheld and push still pages"
+        description: "Every relay reserves alert email from one shared JetStream budget on the mesh. Read the withheld alerts in Alertmanager; email resumes as the rolling hour and day free up."
+  - eval_time: 22m
+    alertname: AlertDeliveryEmailBudgetExhausted
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: AlertDeliveryEmailBudgetUnavailable
+    exp_alerts: []
+- interval: 1m
+  input_series:
+  - series: up{job="application-slo",service="terrabase",instance="gru-db"}
+    values: 1+0x20
+  - series: terrabase_backup_holes_total{service="terrabase",instance="gru-db"}
+    values: 1+0x5 2+0x15
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: TerraBaseBackupHoles
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "gru-db"
+        severity: "critical"
+      exp_annotations:
+        summary: "TerraBase backup contains holes"
+  - eval_time: 12m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []

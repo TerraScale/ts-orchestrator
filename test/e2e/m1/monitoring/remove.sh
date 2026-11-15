@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 installer=$1
+previous=$2
+agent=$3
+real_curl=$(command -v curl)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mount --make-rprivate /
@@ -28,6 +31,17 @@ cat > "$work/bin/ssh" <<'SH'
 printf '%s\n' "$1" >> "$MONITORING_HOSTS_LOG"
 bash -s -- --remove --local
 SH
+cat > "$work/bin/curl" <<SH
+#!/usr/bin/env bash
+for argument; do [[ \$argument == http*://* ]] && url=\$argument; done
+case \$url in
+  https://*) exec $real_curl "\$@" ;;
+  */services) printf '[]\\n' ;;
+  */metrics) printf 'ts_host_service_tasks_expected{service="%s"} 1\\n' terrabase ts-auth ts-dashboard ;;
+  http://127.0.0.1:909[034]/*) printf 'ok\\n' ;;
+  *) exit 7 ;;
+esac
+SH
 chmod +x "$work/bin/"*
 export PATH="$work/bin:$PATH"
 printf 'retained\n' > /var/lib/ts-alerts/email-ledger.json
@@ -48,4 +62,14 @@ bash "$installer" --remove --fleet
 for host in ts-sjc-1 ts-fra-1 ts-gru-1; do
   grep -Fxq "$host" "$MONITORING_HOSTS_LOG"
 done
-printf 'monitoring: real installer removes local/fleet units and assets, supports SSH stdin, preserves the ledger and is idempotent\n'
+install -D -m 0755 "$agent" /usr/local/bin/ts-orch
+: > "$MONITORING_REMOVAL_LOG"
+bash "$previous" --local > "$work/previous.log" 2>&1 || { tail -20 "$work/previous.log"; exit 1; }
+for unit in ts-prometheus ts-alertmanager ts-alert-delivery; do
+  cmp "$(dirname "$previous")/$unit.service" "/etc/systemd/system/$unit.service"
+done
+grep -Fxq "enable ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service" "$MONITORING_REMOVAL_LOG"
+cmp "$(dirname "$previous")/alertmanager.yml" /etc/ts-monitoring/production/alertmanager.yml
+/usr/local/lib/ts-monitoring/prometheus --version > /dev/null
+grep -Fxq retained /var/lib/ts-alerts/email-ledger.json
+printf 'monitoring: real installer removes local/fleet units and assets, supports SSH stdin, preserves the ledger and is idempotent; the previous revision installs over the kept state\n'

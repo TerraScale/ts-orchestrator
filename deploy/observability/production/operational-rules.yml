@@ -70,7 +70,7 @@ groups:
         annotations:
           summary: A TerraBase backup pass failed
       - alert: TerraBaseBackupHoles
-        expr: (increase(terrabase_backup_holes_recorded_total{service="terrabase"}[5m]) > 0) or (((terrabase_backup_holes_recorded_total{service="terrabase"} > 0) unless terrabase_backup_holes_recorded_total{service="terrabase"} offset 5m) and on (instance) (up{job="application-slo"} offset 5m == 1))
+        expr: (increase(terrabase_backup_holes_recorded_total{service="terrabase"}[5m]) > 0) or (((terrabase_backup_holes_recorded_total{service="terrabase"} > 0) unless terrabase_backup_holes_recorded_total{service="terrabase"} offset 5m) and on (instance) (up{job="application-slo"} offset 5m == 1)) or (increase(terrabase_backup_holes_total{service="terrabase"}[5m]) > 0) or (((terrabase_backup_holes_total{service="terrabase"} > 0) unless terrabase_backup_holes_total{service="terrabase"} offset 5m) and on (instance) (up{job="application-slo"} offset 5m == 1))
         labels:
           severity: critical
         annotations:
@@ -266,14 +266,22 @@ groups:
           severity: critical
         annotations:
           summary: No alert delivery probe completed in fifteen minutes
-      - alert: AlertDeliveryEmailBudgetInvalid
-        expr: terrascale_alert_delivery_email_budget_valid{job="service-readiness"} == 0
-        for: 10m
+      - alert: AlertDeliveryEmailBudgetExhausted
+        expr: sum by (service) (increase(terrascale_alert_delivery_email_withheld_total{job="service-readiness",reason="budget_exhausted"}[15m])) > 0
         labels:
           severity: critical
+          service: ts-alerts
         annotations:
-          summary: 'The alert relay on {{ $labels.host }} has no valid rendered email budget and sends with the single-relay share'
-          description: The relay found /etc/ts-monitoring/production/email-budget.json missing or invalid, so it uses the whole fleet share of 12 emails per hour and 288 per day. With several relays the fleet can exceed that allowance. Reinstall monitoring on the host with install.sh.
+          summary: The fleet alert email budget of 12 per hour and 288 per day is spent; alert email is withheld and push still pages
+          description: Every relay reserves alert email from one shared JetStream budget on the mesh. Read the withheld alerts in Alertmanager; email resumes as the rolling hour and day free up.
+      - alert: AlertDeliveryEmailBudgetUnavailable
+        expr: sum by (service) (increase(terrascale_alert_delivery_email_withheld_total{job="service-readiness",reason="budget_unavailable"}[15m])) > 0
+        labels:
+          severity: critical
+          service: ts-alerts
+        annotations:
+          summary: A relay could not reach the fleet alert email budget on the mesh; its alert email is withheld and push still pages
+          description: The relay reserves alert email from the ts-alert-email JetStream bucket through the local mesh on 127.0.0.1:4223 with the ts-alerts mesh user. Check the mesh on the relay's host and /run/ts-alert-delivery/ts_alerts_nats_token_file.
       - alert: AlertmanagerClusterDegraded
         expr: (max by (host) (alertmanager_cluster_members{job="monitoring-alertmanager"}) < on () group_left () count(up{job="monitoring-alertmanager"} == 1)) or (max by (host) (alertmanager_cluster_failed_peers{job="monitoring-alertmanager"}) > 0 and on () (count(up{job="monitoring-alertmanager"} == 1) >= count(up{job="monitoring-alertmanager"})))
         for: 5m

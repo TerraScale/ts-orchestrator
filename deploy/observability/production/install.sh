@@ -190,7 +190,7 @@ put "$prom_dir/prometheus" /usr/local/lib/ts-monitoring/prometheus 0755
 put "$prom_dir/promtool" /usr/local/lib/ts-monitoring/promtool 0755
 put "$alert_dir/alertmanager" /usr/local/lib/ts-monitoring/alertmanager 0755
 put "$alert_dir/amtool" /usr/local/lib/ts-monitoring/amtool 0755
-for config in prometheus.yml rules.yml email-budget.json alertmanager.env; do
+for config in prometheus.yml rules.yml alertmanager.env; do
   put "$config_dir/$config" "/etc/ts-monitoring/production/$config" 0644
 done
 put "$source_dir/alertmanager.yml" /etc/ts-monitoring/production/alertmanager.yml 0644

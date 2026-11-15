@@ -1,9 +1,10 @@
 # Shared email admission
 
-The alert relay reserves its existing durable group/status and rolling-hour
-budget before asking ts-auth for one shared non-auth email slot. The 12/hour
-local cap and four-hour dedupe remain; ts-auth additionally applies its shared
-account budget and ts-alerts limit of 50 attempts per 25 hours.
+The alert relay reserves from the fleet-wide alert email budget on the mesh
+(12 per rolling hour, 288 per rolling day, four-hour dedupe per group and
+status) before asking ts-auth for one shared non-auth email slot; ts-auth
+additionally applies its shared account budget and ts-alerts limit of 50
+attempts per 25 hours.
 
 The relay sends one POST to
 `https://auth.terrascale.tech/v1/terrascale/email/admission`, with JSON
@@ -28,7 +29,7 @@ or sign-in priority. Both sides must use the exact versioned proof domain.
 
 Rollout belongs to the parent/FR1: deploy the auth admission endpoint and shared
 sender accounting first, then this orchestrator release and monitoring rules.
-Preserve `/var/lib/ts-alerts/email-ledger.json` and its StateDirectory. Until auth
+Preserve the `ts-alerts` StateDirectory. Until auth
 is ready, the new relay suppresses mail while continuing push. No deploy,
 restart, provider send or credential change is part of this source change.
 
