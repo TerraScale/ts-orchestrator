@@ -86,29 +86,65 @@ try:
         }), {"Content-Type": "application/json"})
         response = connection.getresponse()
         response.read()
-        assert response.status == 202, response.status
+        return response.status
 
+    def budget_valid():
+        connection.request("GET", "/metrics")
+        response = connection.getresponse()
+        body = response.read().decode()
+        assert response.status == 200, response.status
+        return [line for line in body.splitlines() if line.startswith("terrascale_alert_delivery_email_budget_valid ")]
+
+    def await_logs(expected):
+        deadline = time.monotonic() + 10
+        while any("".join(lines).count(text) < count for text, count in expected.items()):
+            if events.get(timeout=max(0, deadline - time.monotonic())) is None:
+                raise RuntimeError("relay exited: " + "".join(lines)[-2000:])
+        return {text: "".join(lines).count(text) for text in expected}
+
+    pushes = "production alert push failed"
+    handled = "production alert notification handled"
+    assert budget_valid() == ["terrascale_alert_delivery_email_budget_valid 1"], budget_valid()
     for index, budget in enumerate(budgets):
         budget_path.write_text(json.dumps(budget))
         ledger.write_text("[]")
         for attempt in range(budget["hourly"] + 2):
-            send_group(f"region-{index}-attempt-{attempt}")
+            assert send_group(f"region-{index}-attempt-{attempt}") == (202 if attempt < budget["hourly"] else 503)
         entries = json.loads(ledger.read_text())
         assert len(entries) == budget["hourly"], entries
-        send_group(f"region-{index}-attempt-0")
+        assert send_group(f"region-{index}-attempt-0") == 202
         assert json.loads(ledger.read_text()) == entries
         past = datetime.now(UTC) - timedelta(hours=2)
         ledger.write_text(json.dumps([{
             "key": f"spent-{attempt}", "send_by": past.isoformat(), "until": (past + timedelta(hours=4)).isoformat(),
         } for attempt in range(budget["daily"])]))
         before = ledger.read_bytes()
-        send_group(f"region-{index}-daily-exhausted")
+        assert send_group(f"region-{index}-daily-exhausted") == 503
         assert ledger.read_bytes() == before
-    budget_path.unlink()
     ledger.write_text("[]")
-    send_group("missing-budget")
-    assert ledger.read_text() == "[]"
-    print("monitoring: real relay enforces rendered fleet caps <=12/hour, <=288/day across three budgets, duplicate suppression and missing-budget fail closed")
+    for attempt in range(budgets[0]["hourly"]):
+        assert send_group(f"push-{attempt}") == 202
+    assert send_group("capped-first") == 503
+    assert send_group("capped-first") == 503
+    assert send_group("capped-first") == 503
+    assert send_group("capped-second") == 503
+    assert send_group("push-0") == 202
+    expected_pushes = sum(b["hourly"] + 4 for b in budgets) + budgets[0]["hourly"] + 3
+    counts = await_logs({handled: 1 + sum(b["hourly"] + 1 for b in budgets) + budgets[0]["hourly"] + 1, pushes: expected_pushes})
+    assert counts[pushes] == expected_pushes, counts
+    budget_path.unlink()
+    assert budget_valid() == ["terrascale_alert_delivery_email_budget_valid 0"], budget_valid()
+    ledger.write_text("[]")
+    assert send_group("missing-budget") == 202
+    assert len(json.loads(ledger.read_text())) == 1
+    budget_path.write_text('{"hourly": 99, "daily": 288}')
+    assert budget_valid() == ["terrascale_alert_delivery_email_budget_valid 0"], budget_valid()
+    ledger.write_text("[]")
+    for attempt in range(14):
+        assert send_group(f"invalid-budget-{attempt}") == (202 if attempt < 12 else 503)
+    assert len(json.loads(ledger.read_text())) == 12
+    await_logs({"production alert email budget file missing or invalid; using the single-relay share": 15})
+    print("monitoring: real relay enforces rendered fleet caps <=12/hour, <=288/day across three budgets, duplicate suppression; a capped firing group answers 503 and pushes once; a missing or invalid budget sends with the 12/hour single-relay share, logs it and exports budget_valid 0")
     connection.close()
 finally:
     process.terminate()

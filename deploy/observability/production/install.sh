@@ -26,12 +26,37 @@ if [[ ${1:-} == --remove ]]; then
   exit
 fi
 if [[ $# == 1 && $1 == --fleet ]]; then
-  while read -r host; do
+  mapfile -t monitors < <(awk -F- '!seen[$2]++' "$source_dir/hosts.txt")
+  existing=()
+  added=()
+  for host in "${monitors[@]}"; do
+    if ! state=$(bash "$source_dir/install.sh" --preflight "$host" | tail -n 1); then
+      echo "Preflight failed on $host; no monitoring changes made on any host" >&2; exit 2
+    fi
+    case $state in
+      existing) existing+=("$host") ;;
+      new) added+=("$host") ;;
+      *) echo "Preflight failed on $host; no monitoring changes made on any host" >&2; exit 2 ;;
+    esac
+  done
+  for host in "${existing[@]}" "${added[@]}"; do
     bash "$source_dir/install.sh" "$host"
-  done < <(awk -F- '!seen[$2]++' "$source_dir/hosts.txt")
+  done
+  for host in "${monitors[@]}"; do
+    members=$(ssh "$host" 'curl --fail --silent --show-error --max-time 5 http://127.0.0.1:9093/api/v2/status' | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["cluster"]["peers"]))')
+    if [[ $members != "${#monitors[@]}" ]]; then
+      echo "Alertmanager on $host sees $members of ${#monitors[@]} cluster members; check NetBird TCP and UDP 9095 between monitoring hosts" >&2; exit 1
+    fi
+  done
+  echo "monitoring: ${#monitors[@]} Alertmanagers installed and clustered"
   exit
 fi
-if [[ $# == 1 && $1 != --local && $1 != --check ]]; then
+remote_mode=--local
+if [[ $# == 2 && $1 == --preflight ]]; then
+  remote_mode=--preflight
+  shift
+fi
+if [[ $# == 1 && $1 != --local && $1 != --check && $1 != --preflight ]]; then
   [[ $1 != -* && $1 =~ ^[a-zA-Z0-9_.@-]+$ ]] || { echo 'Invalid SSH host' >&2; exit 2; }
   rendered=$(mktemp -d)
   trap 'rm -rf -- "$rendered"' EXIT
@@ -42,26 +67,26 @@ if [[ $# == 1 && $1 != --local && $1 != --check ]]; then
     staging=$(mktemp -d)
     trap '\''rm -rf -- "$staging"'\'' EXIT HUP INT TERM
     tar -xzf - -C "$staging"
-    sudo bash "$staging/production/install.sh" --local
+    sudo bash "$staging/production/install.sh" '"$remote_mode"'
   '
   exit
 fi
-[[ ( $# == 1 && $1 == --local ) || ( $# -ge 1 && $# -le 2 && $1 == --check ) ]] || {
-  echo "Usage: $0 <SSH-host> | --fleet | --check" >&2; exit 2;
+[[ ( $# == 1 && ( $1 == --local || $1 == --preflight ) ) || ( $# -ge 1 && $# -le 2 && $1 == --check ) ]] || {
+  echo "Usage: $0 <SSH-host> | --preflight <SSH-host> | --fleet | --check" >&2; exit 2;
 }
 mode=$1
 check_tools=${2:-}
 rendered="$source_dir/../rendered"
-if [[ $mode == --local ]]; then
+if [[ $mode != --check ]]; then
   config_dir="$rendered/$(hostname -s)"
   [[ -f $config_dir/prometheus.yml ]] || { echo "Host is not an inventory monitoring backend" >&2; exit 2; }
 monitor_address=$(python3 -c 'import ipaddress,socket,sys; address=socket.gethostbyname(sys.argv[1]+".nb.ts.internal"); assert ipaddress.ip_address(address).is_private; print(address)' "$(hostname -s)")
 printf 'MONITOR_ADDRESS=%s\n' "$monitor_address" > "$config_dir/alertmanager.env"
 fi
-if [[ $mode == --local && $EUID != 0 ]]; then
+if [[ $mode != --check && $EUID != 0 ]]; then
   echo 'Remote installation requires sudo/root' >&2; exit 2
 fi
-if [[ $mode == --local ]]; then
+if [[ $mode != --check ]]; then
   if ! help_output=$(timeout --kill-after=1s 5s /usr/local/bin/ts-orch --help 2>&1) ||
     ! grep -Eq '^  alert-delivery[[:space:]]' <<<"$help_output"; then
     echo 'Install a ts-orch release supporting alert-delivery before installing monitoring' >&2
@@ -85,8 +110,9 @@ if [[ $mode == --local ]]; then
         exit 2
       fi
     done
-    if ! curl --fail --silent --show-error --max-time 5 "${discovery%/services}/orchestrator/metrics" --output /dev/null; then
-      echo "Upgrade host monitoring proxy: $discovery; no monitoring changes made" >&2
+    if ! topology=$(curl --fail --silent --show-error --max-time 5 "${discovery%/services}/orchestrator/metrics") ||
+      ! grep -q '^ts_orch_mesh_store_observed ' <<<"$topology"; then
+      echo "Host monitoring proxy or peer-topology exporter on 9097 unavailable: $discovery; no monitoring changes made" >&2
       exit 2
     fi
     checked=$((checked + 1))
@@ -98,6 +124,10 @@ if [[ $mode == --local ]]; then
     echo 'Installed ts-orch alert-delivery usage probe failed; no monitoring changes made' >&2
     exit 2
   fi
+fi
+if [[ $mode == --preflight ]]; then
+  if [[ -f /etc/systemd/system/ts-prometheus.service ]]; then echo existing; else echo new; fi
+  exit
 fi
 case $(uname -m) in
   x86_64) arch=amd64

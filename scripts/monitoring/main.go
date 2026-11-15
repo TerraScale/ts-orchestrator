@@ -46,7 +46,7 @@ type inventory struct {
 	Monitors []string
 }
 
-var fleetAlerts = []string{"ServiceReadinessFailed", "ProductionJourneyFailed", "ProductionJourneyTelemetryMissing", "CertificateExpirySoon", "AlertDeliveryHeartbeat", "AlertDeliveryProbeStale", "AlertDeliveryProbeMissing"}
+var fleetAlerts = []string{"ServiceReadinessFailed", "ProductionJourneyFailed", "ProductionJourneyTelemetryMissing", "CertificateExpirySoon", "AlertDeliveryHeartbeat", "AlertDeliveryProbeStale", "AlertDeliveryProbeMissing", "AlertmanagerClusterDegraded"}
 
 func main() {
 	if len(os.Args) < 2 || len(os.Args) > 3 {

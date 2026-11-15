@@ -40,3 +40,6 @@ inhibit_rules:
   - source_matchers: ['alertname="HostStorageCritical"']
     target_matchers: ['alertname="HostStorageWarning"']
     equal: [host, region, service]
+  - source_matchers: ['alertname=~"ServiceSLOBurn(Fast|Slow)Global"']
+    target_matchers: ['alertname=~"ServiceSLOBurn(Fast|Slow)"']
+    equal: [service, slo]

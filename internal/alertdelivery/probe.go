@@ -44,6 +44,8 @@ func readinessMetrics(client *http.Client, journey *journeyObservation, delivery
 		}
 		journey.write(w)
 		delivery.write(w)
+		_, _, valid := emailBudget()
+		fmt.Fprintf(w, "terrascale_alert_delivery_email_budget_valid %d\n", map[bool]int{false: 0, true: 1}[valid])
 	}
 }
 

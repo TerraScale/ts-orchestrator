@@ -15,3 +15,5 @@ terrabase_storage_running
 terrascale_slo_requests_total
 ts_auth_emails_total
 terrabase_backup_last_success_seconds
+alertmanager_cluster_members
+alertmanager_cluster_failed_peers

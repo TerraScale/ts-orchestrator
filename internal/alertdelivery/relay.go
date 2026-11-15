@@ -37,6 +37,7 @@ type relay struct {
 	pushEndpoint string
 	ledgerPath   string
 	probe        *deliveryProbe
+	capped       *cappedPushes
 	read         func(context.Context) (credentials, error)
 	readTopic    func(context.Context) (string, error)
 }
@@ -64,6 +65,7 @@ func Run(ctx context.Context, args []string) error {
 		slog.WarnContext(ctx, "Production journey state unavailable; alert delivery continues")
 		journey.unavailable = true
 	}
+	r.capped = &cappedPushes{sent: map[string]time.Time{}}
 	r.probe = &deliveryProbe{path: filepath.Join(filepath.Dir(r.ledgerPath), "delivery-probe.json"), pending: make(chan struct{}, 1)}
 	mux.HandleFunc("GET /metrics", readinessMetrics(client, journey, r.probe))
 	mux.HandleFunc("POST /alerts", r.deliver)
@@ -179,23 +181,31 @@ func (r relay) handle(w http.ResponseWriter, request *http.Request, digest bool)
 	if digest {
 		key, window, subject = digestKey, digestInterval, "TerraScale daily alert digest"
 	}
+	reason := ""
+	if notice.Status == "firing" {
+		reason = r.reserveEmail(ctx, key, window, time.Now())
+	}
+	capped := !digest && (reason == "hourly cap" || reason == "daily cap")
 	deliveries.Go(func() {
 		if notice.Status == "resolved" {
 			return
 		}
-		if reason := r.reserveEmail(ctx, key, window, time.Now()); reason != "" {
+		if reason != "" {
 			slog.WarnContext(ctx, "production alert email suppressed", "reason", reason)
 			return
 		}
 		emailErr = r.email(ctx, subject, lines)
 	})
-	if !digest {
+	if !digest && (!capped || r.capped == nil || r.capped.first(key, time.Now())) {
 		deliveries.Go(func() { pushErr = r.push(ctx, notice.Status) })
 	}
 	deliveries.Wait()
 	if pushErr != nil {
-		// Push is independent: never retry an accepted email because push failed.
 		slog.WarnContext(ctx, "production alert push failed", "status", notice.Status)
+	}
+	if capped {
+		http.Error(w, "alert email budget exhausted on this relay", http.StatusServiceUnavailable)
+		return
 	}
 	if emailErr != nil {
 		slog.WarnContext(ctx, "production alert channel rejected", "email_accepted", emailErr == nil, "push_accepted", pushErr == nil)

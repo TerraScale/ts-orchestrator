@@ -497,7 +497,9 @@ tests:
     values: 2+0x20
   - series: terrabase_backup_drills_total{service="terrabase",instance="old-member",result="failed"}
     values: 1+0x20
-  - series: ts_auth_emails_total{service="ts-auth",region="gru",outcome="provider_exhausted"}
+  - series: ts_auth_emails_total{service="ts-auth",region="gru",instance="old-member",outcome="provider_exhausted"}
+    values: 1+0x20
+  - series: up{job="application-slo",service="terrabase",instance="old-member"}
     values: 1+0x20
   alert_rule_test:
   - eval_time: 0m
@@ -591,3 +593,292 @@ tests:
   - eval_time: 15m
     alertname: AlertDeliveryProbeStale
     exp_alerts: []
+
+- interval: 1m
+  input_series:
+  - series: up{job="application-slo",service="terrabase",instance="db-task"}
+    values: 1+0x40
+  - series: up{job="application-slo",service="ts-auth",instance="auth-task"}
+    values: 1+0x40
+  - series: terrabase_backup_failures_total{service="terrabase",instance="db-task"}
+    values: _x8 1+0x30
+  - series: terrabase_backup_holes_recorded_total{service="terrabase",instance="db-task"}
+    values: _x8 1+0x30
+  - series: terrabase_backup_drills_total{service="terrabase",instance="db-task",result="failed"}
+    values: _x8 1+0x30
+  - series: terrabase_replica_verifications_total{service="terrabase",instance="db-task",result="diverged"}
+    values: _x16 1+0x22
+  - series: ts_auth_emails_total{service="ts-auth",region="gru",instance="auth-task",outcome="provider_exhausted"}
+    values: _x8 1+0x30
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: TerraBaseBackupFailed
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: TerraBaseBackupFailed
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        severity: "warning"
+      exp_annotations:
+        summary: "A TerraBase backup pass failed"
+  - eval_time: 12m
+    alertname: TerraBaseBackupFailed
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        severity: "warning"
+      exp_annotations:
+        summary: "A TerraBase backup pass failed"
+  - eval_time: 14m
+    alertname: TerraBaseBackupFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: TerraBaseBackupHoles
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        severity: "critical"
+      exp_annotations:
+        summary: "TerraBase backup contains holes"
+  - eval_time: 12m
+    alertname: TerraBaseBackupHoles
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        severity: "critical"
+      exp_annotations:
+        summary: "TerraBase backup contains holes"
+  - eval_time: 14m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        result: "failed"
+        severity: "critical"
+      exp_annotations:
+        summary: "TerraBase backup restore drill failed"
+  - eval_time: 12m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        result: "failed"
+        severity: "critical"
+      exp_annotations:
+        summary: "TerraBase backup restore drill failed"
+  - eval_time: 14m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 17m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        result: "diverged"
+        severity: "critical"
+      exp_annotations:
+        summary: "A TerraBase region replica diverged from its home"
+        description: "The replica was deleted and bootstrapped again. Read the replica node's error log for the database and range; repeated divergence points at an engine or sync bug."
+  - eval_time: 30m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        result: "diverged"
+        severity: "critical"
+      exp_annotations:
+        summary: "A TerraBase region replica diverged from its home"
+        description: "The replica was deleted and bootstrapped again. Read the replica node's error log for the database and range; repeated divergence points at an engine or sync bug."
+  - eval_time: 32m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts:
+    - exp_labels:
+        service: "ts-auth"
+        region: "gru"
+        severity: "critical"
+      exp_annotations:
+        summary: "Authentication email provider capacity exhausted"
+  - eval_time: 12m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts:
+    - exp_labels:
+        service: "ts-auth"
+        region: "gru"
+        severity: "critical"
+      exp_annotations:
+        summary: "Authentication email provider capacity exhausted"
+  - eval_time: 14m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts: []
+
+- interval: 1m
+  input_series:
+  - series: up{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 0+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 0+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 0+0x12
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: AlertmanagerClusterDegraded
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: AlertmanagerClusterDegraded
+    exp_alerts:
+    - exp_labels:
+        host: ts-sjc-1
+        severity: critical
+      exp_annotations:
+        summary: "Alertmanager on ts-sjc-1 sees fewer cluster members than reachable Alertmanagers"
+        description: "An Alertmanager whose gossip cluster is split or never formed delivers every notification independently, so each page arrives once per partition. Check NetBird UDP and TCP 9095 between the monitoring hosts and the cluster peers in /api/v2/status."
+    - exp_labels:
+        host: ts-fra-1
+        severity: critical
+      exp_annotations:
+        summary: "Alertmanager on ts-fra-1 sees fewer cluster members than reachable Alertmanagers"
+        description: "An Alertmanager whose gossip cluster is split or never formed delivers every notification independently, so each page arrives once per partition. Check NetBird UDP and TCP 9095 between the monitoring hosts and the cluster peers in /api/v2/status."
+    - exp_labels:
+        host: ts-gru-1
+        severity: critical
+      exp_annotations:
+        summary: "Alertmanager on ts-gru-1 sees fewer cluster members than reachable Alertmanagers"
+        description: "An Alertmanager whose gossip cluster is split or never formed delivers every notification independently, so each page arrives once per partition. Check NetBird UDP and TCP 9095 between the monitoring hosts and the cluster peers in /api/v2/status."
+
+- interval: 1m
+  input_series:
+  - series: up{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 2+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 2+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 1+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 0+0x12
+  alert_rule_test:
+  - eval_time: 12m
+    alertname: AlertmanagerClusterDegraded
+    exp_alerts: []
+
+- interval: 1m
+  input_series:
+  - series: up{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 3+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 3+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 0+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 3+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 0+0x12
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: AlertmanagerClusterDegraded
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: AlertmanagerClusterDegraded
+    exp_alerts:
+    - exp_labels:
+        host: ts-sjc-1
+        severity: critical
+      exp_annotations:
+        summary: "Alertmanager on ts-sjc-1 sees fewer cluster members than reachable Alertmanagers"
+        description: "An Alertmanager whose gossip cluster is split or never formed delivers every notification independently, so each page arrives once per partition. Check NetBird UDP and TCP 9095 between the monitoring hosts and the cluster peers in /api/v2/status."
+
+- interval: 15s
+  input_series:
+  - series: up{job="peer-topology",host="ts-fra-2",instance="ts-fra-2"}
+    values: 1 0 0 0 0 0 0 1+0x12 0+0x12
+  alert_rule_test:
+  - eval_time: 1m30s
+    alertname: PeerTopologyAttestationDown
+    exp_alerts: []
+  - eval_time: 4m30s
+    alertname: PeerTopologyAttestationDown
+    exp_alerts: []
+  - eval_time: 7m
+    alertname: PeerTopologyAttestationDown
+    exp_alerts:
+    - exp_labels:
+        job: "peer-topology"
+        host: "ts-fra-2"
+        instance: "ts-fra-2"
+        severity: "critical"
+      exp_annotations:
+        summary: "Peer topology attestation is unavailable"
+
+- interval: 1m
+  input_series:
+  - series: terrascale_alert_delivery_email_budget_valid{job="service-readiness",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 0+0x12
+  - series: terrascale_alert_delivery_email_budget_valid{job="service-readiness",host="ts-fra-1",instance="ts-fra-1"}
+    values: 1+0x12
+  alert_rule_test:
+  - eval_time: 9m
+    alertname: AlertDeliveryEmailBudgetInvalid
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: AlertDeliveryEmailBudgetInvalid
+    exp_alerts:
+    - exp_labels:
+        job: service-readiness
+        host: ts-sjc-1
+        instance: ts-sjc-1
+        severity: critical
+      exp_annotations:
+        summary: "The alert relay on ts-sjc-1 has no valid rendered email budget and sends with the single-relay share"
+        description: "The relay found /etc/ts-monitoring/production/email-budget.json missing or invalid, so it uses the whole fleet share of 12 emails per hour and 288 per day. With several relays the fleet can exceed that allowance. Reinstall monitoring on the host with install.sh."

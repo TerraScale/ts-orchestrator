@@ -17,7 +17,9 @@ processes = []
 servers = []
 regions = ("sjc", "fra", "gru")
 addresses = ("127.0.0.1", "127.0.0.2", "127.0.0.3")
-state = {"readiness": 1}
+state = {"readiness": 1, "burst": False}
+accepted = {}
+refused = []
 root = Path(__file__).resolve().parents[4]
 counter_alerts = {"TerraBaseBackupFailed", "TerraBaseBackupHoles", "TerraBaseBackupDrillFailed", "TerraBaseReplicaDiverged", "AuthEmailProviderExhausted"}
 
@@ -79,11 +81,12 @@ class Relay(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/application":
+            bump = int(state["burst"])
             text = (
                 'terrabase_backup_failures_total{service="terrabase"} 38\n'
-                'terrabase_backup_holes_recorded_total{service="terrabase"} 2\n'
-                'terrabase_backup_drills_total{service="terrabase",result="failed"} 1\n'
-                'terrabase_replica_verifications_total{service="terrabase",result="diverged"} 2\n'
+                f'terrabase_backup_holes_recorded_total{{service="terrabase"}} {2 + bump}\n'
+                f'terrabase_backup_drills_total{{service="terrabase",result="failed"}} {1 + bump}\n'
+                f'terrabase_replica_verifications_total{{service="terrabase",result="diverged"}} {2 + bump}\n'
                 'ts_auth_emails_total{service="ts-auth",outcome="provider_exhausted"} 1\n'
             )
         else:
@@ -96,14 +99,24 @@ class Relay(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        notices.append((self.server.server_address[0], body))
-        self.send_response(202)
+        address = self.server.server_address[0]
+        notices.append((address, body))
+        group = (body["alerts"][0]["labels"]["alertname"], body["alerts"][0]["labels"].get("region"))
+        status = 202
+        if self.path == "/alerts" and body["status"] == "firing" and group not in accepted.get(address, {}):
+            if len(accepted.setdefault(address, {})) >= budgets[address]:
+                status = 503
+                refused.append((address, group))
+            else:
+                accepted[address][group] = body
+        self.send_response(status)
         self.end_headers()
         events.put("notification")
 
 
 ready = set()
 stopped = set()
+budgets = {address: json.loads((tools / "rendered" / f"ts-{region}-1" / "email-budget.json").read_text())["hourly"] for region, address in zip(regions, addresses)}
 try:
     launch("metrics", [str(work / "metrics"), str(work / "mesh-state")])
     prometheuses, alertmanagers = [], []
@@ -159,17 +172,30 @@ try:
         process.wait(timeout=10)
     servers[2].shutdown()
     servers[2].server_close()
-    await_event("surviving regions deliver the real MonitoringBackendDown alert", lambda: bool(notices), seconds=190)
-    first_address, first = notices[0]
-    assert first_address != addresses[2], notices
-    assert {a["labels"]["alertname"] for a in first["alerts"]} == {"MonitoringBackendDown"}, first
-    assert {a["labels"]["region"] for a in first["alerts"]} == {"gru"}, first
-    assert len(first["alerts"]) == 3, first
+    state["burst"] = True
+    expected = {("MonitoringBackendDown", "gru")} | {(name, region) for name in ("TerraBaseBackupHoles", "TerraBaseBackupDrillFailed", "TerraBaseReplicaDiverged") for region in ("sjc", "fra")}
+    delivered = lambda: {group for groups in accepted.values() for group in groups}
+    await_event("the region-loss burst delivers every critical group through the surviving relays' shares", lambda: delivered() == expected, seconds=240)
+    assert addresses[2] not in accepted, accepted
+    assert all(len(groups) <= budgets[address] for address, groups in accepted.items()), accepted
+    assert sum(len(groups) for groups in accepted.values()) == len(expected) <= sum(budgets[a] for a in addresses[:2]) <= 12, accepted
+    assert refused and all(any(group in groups for address, groups in accepted.items() if address != refuser) for refuser, group in refused), (refused, accepted)
+    down = next(body for groups in accepted.values() for group, body in groups.items() if group[0] == "MonitoringBackendDown")
+    assert len(down["alerts"]) == 3, down
     timestamp = 'timestamp(up{job="monitoring-prometheus",region="sjc"})'
     baseline = [float(query(i, timestamp)[0]["value"][1]) for i in range(2)]
     await_event("both surviving backends scrape through a full failover window without duplicates", lambda: all(float(query(i, timestamp)[0]["value"][1]) >= baseline[i] + 45 for i in range(2)), seconds=65)
-    assert len(notices) == 1, notices
-    print("monitoring: real mesh exporter + 9108 proxy; old counters page nothing; 24 concurrent proxies; three Prometheus + gossip; GRU lost -> exactly one grouped notification")
+    assert delivered() == expected and sum(len(groups) for groups in accepted.values()) == len(expected), accepted
+    labels = {"service": "ts-dashboard", "slo": "availability", "severity": "critical"}
+    connection = http.client.HTTPConnection(addresses[0], 9093, timeout=5)
+    connection.request("POST", "/api/v2/alerts", json.dumps([{"labels": {**labels, "alertname": "ServiceSLOBurnFastGlobal", "region": "global"}}, {"labels": {**labels, "alertname": "ServiceSLOBurnFast", "region": "sjc"}}]), {"Content-Type": "application/json"})
+    response = connection.getresponse()
+    response.read()
+    connection.close()
+    assert response.status == 200, response.status
+    regional = lambda: json.loads(request(addresses[0], 9093, "/api/v2/alerts?" + urlencode({"filter": 'alertname="ServiceSLOBurnFast"'})))
+    await_event("a global fast burn inhibits the same service's regional fast burn", lambda: [a["status"]["state"] for a in regional()] == ["suppressed"] and regional()[0]["status"]["inhibitedBy"])
+    print("monitoring: real mesh exporter + 9108 proxy; old counters page nothing; 24 concurrent proxies; three Prometheus + gossip; GRU lost with a 7-group critical burst -> a capped relay answers 503, the next Alertmanager peer delivers through its own share, every group exactly once within the fleet budget; global burn inhibits the regional page")
 finally:
     for server in servers:
         server.shutdown()
