@@ -72,7 +72,7 @@ The single-host-region lane runs the real agent exactly as `deploy/m1/ts-orch.se
 | GitHub OIDC | `token.actions.githubusercontent.com/.well-known/jwks` with the lane's signing key, so the lane can open each host's pinned release listener with a signed token |
 | Container registry | `registry-1.docker.io` serving, by digest only, the workload image the lane fetched before it entered its private network |
 
-The lane boots the three founders first and the workers once Vault holds each region's join material, because a worker that finds no material waits a full join period. It does not yet install a pushed release: the release handler's recovery step links and starts a systemd timer and reads `ts-orch.service` through `systemctl`, which needs a real systemd per host.
+The lane boots the three founders first and the workers once Vault holds each region's join material, because a worker that finds no material waits a full join period. It applies the workload only once every manager's mesh is up and every region answers `ts-orch status` over it, because `ts-orch service apply` on a host whose mesh has not started yet applies to that host's swarm only, and the other regions' managers then never route anything. It does not yet install a pushed release: the release handler's recovery step links and starts a systemd timer and reads `ts-orch.service` through `systemctl`, which needs a real systemd per host.
 
 ## Credential isolation
 
