@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
@@ -43,12 +44,15 @@ func Run(ctx context.Context, state string) {
 	tick := time.NewTicker(checkEvery)
 	defer tick.Stop()
 	for {
-		report := check(ctx, state)
+		report := releaseDegraded(check(ctx, state), state)
 		report.Server = server
 		hosts, err := HostVersions(ctx, state, "")
 		report.Hosts = hosts
 		if err != nil {
 			report.HostError = "host revision inventory unavailable"
+		}
+		if err := report.readRollout(state); err != nil {
+			slog.WarnContext(ctx, "pull rollout record unreadable", "error", err)
 		}
 		latest.Store(&report)
 		if report.State != previous {
@@ -149,6 +153,9 @@ func write(output io.Writer, regions []string, reports map[string]Report) error 
 		if report.HostError != "" {
 			line += "\n  " + report.HostError
 		}
+		if report.Rollout != nil {
+			line += "\n  " + report.Rollout.String()
+		}
 		for _, host := range report.Hosts {
 			line += fmt.Sprintf("\n  host %s: revision %s", host.Host, host.Version)
 			if host.Refusal != nil {
@@ -183,10 +190,13 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 	}
 	conn, err := mesh.Connect(state)
 	if errors.Is(err, fs.ErrNotExist) {
-		report := check(ctx, state)
+		report := releaseDegraded(check(ctx, state), state)
 		report.Hosts, err = HostVersions(ctx, state, "")
 		if err != nil {
 			report.HostError = "host revision inventory unavailable"
+		}
+		if err := report.readRollout(state); err != nil {
+			report.Reasons = append(report.Reasons, err.Error())
 		}
 		return write(output, []string{"local"}, map[string]Report{"local": report})
 	}
@@ -200,6 +210,24 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 		return err
 	}
 	return write(output, regions, reports)
+}
+
+func releaseDegraded(report Report, state string) Report {
+	record, err := releasepush.ReadDegraded(state)
+	if err != nil {
+		report.Reasons = append(report.Reasons, "release degraded record unreadable: "+err.Error())
+		return report
+	}
+	if record == nil {
+		return report
+	}
+	for _, worker := range record.Skipped {
+		report.Reasons = append(report.Reasons, fmt.Sprintf("release %s run %s skipped down worker %s: %s", record.SHA, record.RunID, worker.Host, worker.Reason))
+	}
+	if len(record.Skipped) != 0 && report.State == StateOK {
+		report.State = StateDegraded
+	}
+	return report
 }
 
 func HostVersions(ctx context.Context, state, region string) ([]releasepush.HostVersion, error) {
@@ -223,4 +251,16 @@ func HostVersions(ctx context.Context, state, region string) ([]releasepush.Host
 		region, _, _ = strings.Cut(conn.ConnectedServerName(), ".")
 	}
 	return releasepush.ReadHostVersions(ctx, conn, region, listed.Nodes), nil
+}
+
+func (r *Report) readRollout(state string) error {
+	rollout, err := pullrelease.Read(state)
+	r.Rollout = rollout
+	if rollout != nil && rollout.Phase == pullrelease.PhaseStalled {
+		r.Reasons = append(r.Reasons, rollout.Reason)
+		if r.State == StateOK {
+			r.State = StateDegraded
+		}
+	}
+	return err
 }

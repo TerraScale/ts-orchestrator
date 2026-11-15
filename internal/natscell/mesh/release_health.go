@@ -19,6 +19,9 @@ const (
 func (n *Node) ReleaseHealth(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	if n.cfg.applier == nil {
+		return n.workerHealth()
+	}
 	if n.fabric == nil {
 		return errors.New("jetstream: fabric not started")
 	}
@@ -82,4 +85,19 @@ func (n *Node) streamsServing(ctx context.Context) error {
 			return errors.New("jetstream: empty stream list page")
 		}
 	}
+}
+
+func (n *Node) workerHealth() error {
+	if status := n.server.Healthz(&server.HealthzOptions{}); status.StatusCode != http.StatusOK {
+		return fmt.Errorf("mesh: %s", status.Error)
+	}
+	if !n.conn.IsConnected() {
+		return errors.New("mesh: orchestrator connection lost")
+	}
+	for _, route := range n.routes() {
+		if serverRegion(route.RemoteName) == n.cfg.region {
+			return nil
+		}
+	}
+	return fmt.Errorf("mesh: no route to a %s manager", n.cfg.region)
 }

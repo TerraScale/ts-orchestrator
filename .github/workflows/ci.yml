@@ -65,6 +65,9 @@ jobs:
           - {lane: rollout, entry: rollout.sh, timeout: 10}
           - {lane: single-host-region, entry: single-host-region.sh, timeout: 5, packages: "./test/e2e/m1/single-host-region"}
           - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
+          - {lane: pull-update, entry: pull-update.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
+          - {lane: pull-push, entry: pull-push.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
+          - {lane: pull-degraded, entry: pull-degraded.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
           - {lane: recovery, entry: recovery.sh, timeout: 5}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
           - {lane: data-volume, entry: data-volume.sh, timeout: 8, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
@@ -352,8 +355,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write
       id-token: write
+      attestations: write
     steps:
       - name: Check out the region list
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -385,6 +389,32 @@ jobs:
           jq -r '"| \(.region) | \(.state // "-") | \(.started_at // "-") | \(.connect_ms) | \(.accepted_ms) | \(.serving_ms) | \(.healthy_ms) | \(.health // "") | \(.error // "") |"' "${RUNNER_TEMP}/release-push.jsonl" \
             | { printf '| Region | State | Started | Connect ms | Accepted ms | Serving ms | Healthy ms | Health | Error |\n|---|---|---|---|---|---|---|---|---|\n'; cat; } >> "${GITHUB_STEP_SUMMARY}"
           exit "$status"
+
+      - name: Attest the pushed binaries
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/terrascale-orchestrator-linux-amd64
+            dist/terrascale-orchestrator-linux-arm64
+          show-summary: false
+
+      - name: Publish the attestation with the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          cp "$BUNDLE" dist/provenance.sigstore.json
+          gh release upload "ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}" dist/provenance.sigstore.json --repo "${GITHUB_REPOSITORY}" --clobber
+
+      - name: Nudge every region to pull the attested release
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist/terrascale-orchestrator-linux-amd64 release nudge | tee -a "${GITHUB_STEP_SUMMARY}"
+
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

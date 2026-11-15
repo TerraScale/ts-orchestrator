@@ -11,7 +11,11 @@ artifact contracts. They do not describe the current M1 app release path; see
 signed records keep their original identities.
 
 The current main-only `ci.yml` release-push job sends changed binary artifacts
-to the regions in `deploy/m1/regions.json`, authenticated with GitHub OIDC.
+to the regions in `deploy/m1/regions.json`, authenticated with GitHub OIDC,
+then attests them with GitHub build provenance and nudges every region. Each
+region's orchestrator then pulls the newest attested release on its own,
+verifies it and rolls it out one host at a time
+([pull-based self-update](delivery-pipeline.md#pull-based-self-update)).
 See [the delivery pipeline](delivery-pipeline.md) for the active GitHub
 workflow. The legacy cell-channel procedures below describe a separate
 signed-release adapter; [its inventory](deploy-pipeline.md) covers Vault

@@ -20,14 +20,20 @@ import (
 )
 
 // Connect opens the root CLI's connection to this host's mesh node.
-func Connect(state string) (*nats.Conn, error) {
+func Connect(state string) (*nats.Conn, error) { return connect(state, "client.token", orchUser) }
+
+func ConnectFabric(state string) (*nats.Conn, error) {
+	return connect(state, "fabric.token", fabricUser)
+}
+
+func connect(state, tokenFile, user string) (*nats.Conn, error) {
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		token, err := os.ReadFile(filepath.Join(state, "mesh", "client.token"))
+		token, err := os.ReadFile(filepath.Join(state, "mesh", tokenFile))
 		if err != nil {
 			return nil, fmt.Errorf("mesh is not running on this host: %w", err)
 		}
-		conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", LocalPort), nats.UserInfo(orchUser, strings.TrimSpace(string(token))))
+		conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", LocalPort), nats.UserInfo(user, strings.TrimSpace(string(token))))
 		// ts-orch may be restarting (a release install): wait for its listener.
 		if err == nil || time.Now().After(deadline) {
 			return conn, err
