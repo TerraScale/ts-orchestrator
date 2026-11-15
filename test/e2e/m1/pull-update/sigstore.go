@@ -16,9 +16,13 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/digitorus/timestamp"
+	ct "github.com/google/certificate-transparency-go"
+	cttls "github.com/google/certificate-transparency-go/tls"
+	ctx509 "github.com/google/certificate-transparency-go/x509"
 	"github.com/secure-systems-lab/go-securesystemslib/dsse"
 	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
 	protocommon "github.com/sigstore/protobuf-specs/gen/pb-go/common/v1"
@@ -42,12 +46,15 @@ type testSigstore struct {
 	tsaKey          *ecdsa.PrivateKey
 	rekorKey        *ecdsa.PrivateKey
 	logID           []byte
+	ctKey           *ecdsa.PrivateKey
+	ctLogID         []byte
 }
 
 type identity struct {
 	workflow string
 	ref      string
 	trigger  string
+	unlogged bool
 }
 
 var mainIdentity = identity{workflow: "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main", ref: "refs/heads/main", trigger: "push"}
@@ -76,7 +83,7 @@ func authority(name string, serial int64) *x509.Certificate {
 }
 
 func newSigstore() *testSigstore {
-	s := &testSigstore{intermediateKey: key(), tsaKey: key(), rekorKey: key()}
+	s := &testSigstore{intermediateKey: key(), tsaKey: key(), rekorKey: key(), ctKey: key()}
 	rootKey, tsaRootKey := key(), key()
 	s.fulcioRoot = certificate(authority("e2e fulcio root", 1), nil, &rootKey.PublicKey, rootKey)
 	intermediate := authority("e2e fulcio intermediate", 2)
@@ -93,6 +100,10 @@ func newSigstore() *testSigstore {
 	must(err)
 	sum := sha256.Sum256(public)
 	s.logID = sum[:]
+	public, err = x509.MarshalPKIXPublicKey(&s.ctKey.PublicKey)
+	must(err)
+	sum = sha256.Sum256(public)
+	s.ctLogID = sum[:]
 	return s
 }
 
@@ -104,8 +115,10 @@ func (s *testSigstore) trustedRoot() []byte {
 		ValidityPeriodStart: start, ValidityPeriodEnd: end}
 	logs := map[string]*root.TransparencyLog{hex.EncodeToString(s.logID): {BaseURL: "https://rekor.e2e.invalid", ID: s.logID,
 		ValidityPeriodStart: start, ValidityPeriodEnd: end, HashFunc: crypto.SHA256, PublicKey: &s.rekorKey.PublicKey, SignatureHashFunc: crypto.SHA256}}
+	ctlogs := map[string]*root.TransparencyLog{hex.EncodeToString(s.ctLogID): {BaseURL: "https://ctfe.e2e.invalid", ID: s.ctLogID,
+		ValidityPeriodStart: start, ValidityPeriodEnd: end, HashFunc: crypto.SHA256, PublicKey: &s.ctKey.PublicKey, SignatureHashFunc: crypto.SHA256}}
 	trusted, err := root.NewTrustedRoot(root.TrustedRootMediaType01, []root.CertificateAuthority{fulcio},
-		map[string]*root.TransparencyLog{}, []root.TimestampingAuthority{tsa}, logs)
+		ctlogs, []root.TimestampingAuthority{tsa}, logs)
 	must(err)
 	data, err := trusted.MarshalJSON()
 	must(err)
@@ -140,7 +153,36 @@ func (s *testSigstore) leaf(signing *ecdsa.PrivateKey, who identity, sha, run st
 			extension(21, repository+"/actions/runs/"+run+"/attempts/1"),
 		},
 	}
+	if who.unlogged {
+		return certificate(template, s.intermediate, &signing.PublicKey, s.intermediateKey)
+	}
+	logged := template.ExtraExtensions
+	template.ExtraExtensions = append(slices.Clone(logged), pkix.Extension{Id: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 3}, Critical: true, Value: asn1.NullBytes})
+	precertificate := certificate(template, s.intermediate, &signing.PublicKey, s.intermediateKey)
+	template.ExtraExtensions = append(logged, s.timestampList(precertificate, now))
 	return certificate(template, s.intermediate, &signing.PublicKey, s.intermediateKey)
+}
+
+func (s *testSigstore) timestampList(precertificate *x509.Certificate, now time.Time) pkix.Extension {
+	tbs, err := ctx509.BuildPrecertTBS(precertificate.RawTBSCertificate, nil)
+	must(err)
+	sct := ct.SignedCertificateTimestamp{SCTVersion: ct.V1, LogID: ct.LogID{KeyID: [32]byte(s.ctLogID)}, Timestamp: uint64(now.UnixMilli())}
+	leaf := ct.MerkleTreeLeaf{Version: ct.V1, LeafType: ct.TimestampedEntryLeafType, TimestampedEntry: &ct.TimestampedEntry{
+		Timestamp: sct.Timestamp, EntryType: ct.PrecertLogEntryType,
+		PrecertEntry: &ct.PreCert{IssuerKeyHash: sha256.Sum256(s.intermediate.RawSubjectPublicKeyInfo), TBSCertificate: tbs}}}
+	input, err := ct.SerializeSCTSignatureInput(sct, ct.LogEntry{Leaf: leaf})
+	must(err)
+	digest := sha256.Sum256(input)
+	signature, err := ecdsa.SignASN1(rand.Reader, s.ctKey, digest[:])
+	must(err)
+	sct.Signature = ct.DigitallySigned{Algorithm: cttls.SignatureAndHashAlgorithm{Hash: cttls.SHA256, Signature: cttls.ECDSA}, Signature: signature}
+	serialized, err := cttls.Marshal(sct)
+	must(err)
+	list, err := cttls.Marshal(ctx509.SignedCertificateTimestampList{SCTList: []ctx509.SerializedSCT{{Val: serialized}}})
+	must(err)
+	value, err := asn1.Marshal(list)
+	must(err)
+	return pkix.Extension{Id: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 2}, Value: value}
 }
 
 func (s *testSigstore) bundle(who identity, sha, run string, subjects map[string][]byte) []byte {

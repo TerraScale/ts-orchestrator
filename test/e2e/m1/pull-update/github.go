@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,7 +43,7 @@ type fakeGitHub struct {
 	mu       sync.Mutex
 	releases []githubRelease
 	files    map[string][]byte
-	compare  map[string]string
+	compare  map[string]comparison
 	version  int
 	token    string
 	listings int
@@ -51,7 +52,7 @@ type fakeGitHub struct {
 func newGitHub() *fakeGitHub {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	must(err)
-	g := &fakeGitHub{key: key, files: map[string][]byte{}, compare: map[string]string{}}
+	g := &fakeGitHub{key: key, files: map[string][]byte{}, compare: map[string]comparison{}}
 	g.server = httptest.NewServer(http.HandlerFunc(g.serve))
 	return g
 }
@@ -79,12 +80,18 @@ func (g *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", etag)
 		must(json.NewEncoder(w).Encode(g.releases))
 	case strings.HasPrefix(r.URL.Path, repositoryPath+"/compare/"):
-		status, ok := g.compare[strings.TrimPrefix(r.URL.Path, repositoryPath+"/compare/")]
-		if !ok {
+		found, ok := g.compare[strings.TrimPrefix(r.URL.Path, repositoryPath+"/compare/")]
+		page, err := strconv.Atoi(r.URL.Query().Get("page"))
+		if !ok || err != nil || r.URL.Query().Get("per_page") != "1" || page < 1 || page > max(1, len(found.commits)) {
 			http.NotFound(w, r)
 			return
 		}
-		must(json.NewEncoder(w).Encode(map[string]string{"status": status}))
+		commits := []map[string]string{}
+		if len(found.commits) != 0 {
+			commits = append(commits, map[string]string{"sha": found.commits[page-1]})
+		}
+		must(json.NewEncoder(w).Encode(map[string]any{"status": found.status, "ahead_by": len(found.commits),
+			"base_commit": map[string]string{"sha": found.base}, "merge_base_commit": map[string]string{"sha": found.mergeBase}, "commits": commits}))
 	default:
 		data, ok := g.files[r.URL.Path]
 		if !ok {
@@ -93,6 +100,13 @@ func (g *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = w.Write(data)
 	}
+}
+
+type comparison struct {
+	status    string
+	base      string
+	mergeBase string
+	commits   []string
 }
 
 type published struct {

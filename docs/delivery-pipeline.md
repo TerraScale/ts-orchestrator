@@ -95,8 +95,20 @@ pulled, so a push that failed a gate is not pulled either.
 
 ## Pull-based self-update
 
-Each region's SwarmKit manager runs the release updater
-(`internal/pullrelease`). The updater, not CI, decides what runs:
+Each region's SwarmKit managers run the release updater
+(`internal/pullrelease`), and exactly one of them acts. The updater, not CI,
+decides what runs:
+
+- **One owner per region.** The updaters share the replicated JetStream KV
+  bucket `TS_ORCH_PULL_ROLLOUT` on the mesh. Key `<region>.lease` names the
+  owner for 15 seconds; the owner renews it every 5 seconds and another manager
+  takes it only after it lapses. Key `<region>` is the rollout record. Every
+  write is compare-and-set on its revision, and a new owner first rewrites the
+  record under its own name, so a former owner's next write fails and it stops
+  before it installs anything. The new owner resumes the same rollout from the
+  record, starting with the host that was installing or gating. A nudge that
+  reaches a manager which is not the owner is passed on
+  `ts.mesh.pull.<region>.nudge`.
 
 - **Discovery.** It reads the public releases API without a token
   (`GET /repos/TerraScale/ts-orchestrator/releases`, with `If-None-Match`)
@@ -112,19 +124,22 @@ Each region's SwarmKit manager runs the release updater
   and the updater ignores what the nudge names.
 - **Verification.** The updater and then every host check the Sigstore bundle
   against the public-good trusted root with `sigstore-go`: a transparency-log
-  entry and an observer timestamp, certificate identity
+  entry, an observer timestamp and a Fulcio signed certificate timestamp,
+  certificate identity
   `https://github.com/TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main`
   from `https://token.actions.githubusercontent.com`, source repository
   `TerraScale/ts-orchestrator`, ref `refs/heads/main`, the release's commit,
   a `push` trigger, the release's run and SLSA provenance v1. The binary for
   the host's architecture must have the attested digest; the host checks the
   downloaded bytes against it, then the binary's own VCS revision. The release
-  commit must descend from the host's installed revision (the public compare
-  API: `ahead` or `identical`), and the run must not be older than the
+  commit must descend from the host's installed revision: the public compare
+  API must report `ahead` with the installed revision as both its base and its
+  merge base, and its last commit (read with `per_page=1` on page `ahead_by`)
+  must be the release commit. The run must not be older than the
   installed run. The host's existing preflight, commit point and probation
   apply unchanged.
-- **Rollout.** One host at a time per region, workers first and the manager
-  (the updater's own host) last. Before each host every other host must answer,
+- **Rollout.** One host at a time per region: a host already installing or
+  gating first, then the others by name, and the owner's own host last. Before each host every other host must answer,
   be out of probation and report health `ok`, and the region's release health
   must be `ok`. A host's restart goes through the same planned-stop gate
   (`PrepareStop`) as a pushed release. After the install the host must
@@ -132,15 +147,27 @@ Each region's SwarmKit manager runs the release updater
   with the region, for 15 uninterrupted seconds within three minutes.
 - **Rollback.** A candidate that never serves rolls itself back by probation.
   A candidate that serves but fails the gate is told to roll back: it records
-  the rollback, restarts, and its next start restores the previous binary. The
-  updater marks that release bad and does not retry it; the next newer release
-  rolls out normally.
-- **Restart and status.** The updater writes its progress to
-  `nats/pull-rollout.json` and publishes each change on
-  `ts.mesh.pull-progress.<region>`. After its own restart, including its own
-  update, it continues from that record; hosts already on the target are not
-  installed again. `ts-orch status` prints the rollout phase, its target, each
-  host's progress and version under the region.
+  the rollback, restarts, and its next start restores the previous binary.
+  Until the host answers on a revision other than the candidate, out of
+  probation and healthy, the rollout stays `rolling_back` with the host
+  `restoring`; a refused restore (for example `PrepareStop` refusing for
+  quorum) is asked again on the next pass. Only then does the updater mark the
+  release bad; it does not retry it, and the next newer release rolls out
+  normally.
+- **Push and pull share the region.** A pushed release first claims the
+  rollout record (`push`, held for at most 15 minutes). The claim is refused
+  while a pull rollout is `rolling`, `waiting` or `rolling_back`, and the owner
+  starts no pull install while a claim is open; it drops the claim once every
+  host answers healthy and out of probation and the claiming manager runs the
+  pushed binary. The manager relays the push to its workers first and restarts
+  itself only after each worker that installed it answers on the new binary,
+  out of probation and healthy (`releasepush.WorkerReadyWait`, three minutes);
+  otherwise it keeps its binary, refuses and drops the claim.
+- **Restart and status.** The owner publishes each change of the record on
+  `ts.mesh.pull-progress.<region>`, and every manager mirrors it to
+  `nats/pull-rollout.json` for its health report. `ts-orch status` prints the
+  rollout phase, its target, its owner, an open push claim, each host's
+  progress and version under the region.
 
 Regions update independently. The push job still runs first, so today the
 updater finds every host current, confirms each host's health and records

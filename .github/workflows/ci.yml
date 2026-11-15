@@ -63,7 +63,7 @@ jobs:
           - {lane: metadata-upgrade, entry: metadata-upgrade.sh, timeout: 8}
           - {lane: rollout, entry: rollout.sh, timeout: 10}
           - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
-          - {lane: pull-update, entry: pull-update.sh, timeout: 8, packages: "./test/e2e/m1/pull-update"}
+          - {lane: pull-update, entry: pull-update.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
           - {lane: recovery, entry: recovery.sh, timeout: 5}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
           - {lane: data-volume, entry: data-volume.sh, timeout: 8, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
