@@ -190,6 +190,9 @@ func newEdge(stateDir string) *Edge {
 			status := http.StatusBadGateway
 			if errors.Is(err, errNoReadyService) {
 				status = http.StatusServiceUnavailable
+				if r.Context().Value(edgeHopKey{}) != nil {
+					w.Header().Set(edgeUnavailableHeader, "1")
+				}
 			}
 			w.WriteHeader(status)
 		},
@@ -470,7 +473,12 @@ type roundTripper func(*http.Request) (*http.Response, error)
 // answers down before its source gives up; a held TerraBase fails over instead.
 const handoffWait = 20 * time.Second
 
+type localDialOnceKey struct{}
+
 func dialHandoff(ctx context.Context, network, address string) (net.Conn, error) {
+	if ctx.Value(localDialOnceKey{}) != nil {
+		return dialHandoffWithin(ctx, network, address, 0)
+	}
 	return dialHandoffWithin(ctx, network, address, handoffWait)
 }
 

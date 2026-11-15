@@ -13,8 +13,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
-const localProbeNow = 250 * time.Millisecond
-
 func (e *Edge) SetInventoryFollower() {
 	e.follower.Store(true)
 	e.inventoryMissing.Store(true)
@@ -31,6 +29,7 @@ func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeI
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	var nextProof time.Time
+	proofRef := ""
 	for {
 		current, ok := inventory()
 		e.inventoryMissing.Store(!ok)
@@ -38,7 +37,8 @@ func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeI
 			e.SetServiceRoutes(map[string]int{}, map[string]int{}, map[string]string{}, nil)
 			e.SetReadinessRoutes(nil)
 		} else {
-			if time.Now().After(nextProof) {
+			if time.Now().After(nextProof) || current.ProofRef != proofRef {
+				proofRef = current.ProofRef
 				proofCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 				if err := proof(proofCtx, current.ProofRef); err != nil {
 					slog.WarnContext(ctx, "edge request proof credential unavailable", "error", err)
@@ -61,8 +61,8 @@ func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeI
 	}
 }
 
-func probeLocal(ctx context.Context, route ReadinessRoute, within time.Duration) bool {
-	probeCtx, cancel := context.WithTimeout(ctx, within)
+func probeLocal(ctx context.Context, route ReadinessRoute) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(probeCtx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(route.Port))+route.Path, nil)
 	if err != nil {
@@ -89,7 +89,7 @@ func localReadyServices(ctx context.Context, routes []ReadinessRoute, services m
 			continue
 		}
 		probes.Go(func() {
-			if probeLocal(ctx, route, 2*time.Second) {
+			if probeLocal(ctx, route) {
 				mu.Lock()
 				ready = append(ready, service)
 				mu.Unlock()

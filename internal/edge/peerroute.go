@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
@@ -19,6 +21,7 @@ import (
 )
 
 const edgeHopHeader = "X-TerraScale-Edge-Hop"
+const edgeUnavailableHeader = "X-TerraScale-Edge-Unavailable"
 
 var errNoReadyService = errors.New("no ready service backend")
 
@@ -55,19 +58,6 @@ func (e *Edge) ReadyServices() []string {
 }
 
 func (e *Edge) SetPeerEdges(peers func() []mesh.WorkerPeer) { e.peerEdges.Store(&peers) }
-
-func (e *Edge) localReadyNow(ctx context.Context, routes *serviceRoutes, service string) bool {
-	for _, route := range *e.readyRoutes.Load() {
-		if routes.hosts[strings.ToLower(route.Host)] != service || !probeLocal(ctx, route, localProbeNow) {
-			continue
-		}
-		ready := maps.Clone(routes.ready)
-		ready[service] = true
-		e.serviceRoutes.CompareAndSwap(routes, &serviceRoutes{hosts: routes.hosts, ready: ready})
-		return true
-	}
-	return false
-}
 
 func (e *Edge) peerAdvertised(peer mesh.WorkerPeer) {
 	e.peerSeen.Store(peer.Address, time.Now())
@@ -142,15 +132,15 @@ func (e *Edge) routePeerEdge(r *http.Request, balance bool) *http.Request {
 	if service == "" {
 		return r
 	}
-	local := routes.ready[service] && !e.draining.Load()
+	held := handoff.Held(uint16(port))
+	ready := routes.ready[service] && !e.draining.Load()
 	if r.Context().Value(edgeHopKey{}) != nil {
-		if local || handoff.Held(uint16(port)) {
+		if ready || held {
 			return r
 		}
-		return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{}))
+		return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{addresses: []string{""}}))
 	}
-	held := handoff.Held(uint16(port))
-	if local && !held {
+	if ready && !held {
 		return r
 	}
 	addresses := []string{}
@@ -166,13 +156,8 @@ func (e *Edge) routePeerEdge(r *http.Request, balance bool) *http.Request {
 		start := int((value.(*atomic.Uint64).Add(1) - 1) % uint64(len(addresses)))
 		addresses = append(slices.Clone(addresses[start:]), addresses[:start]...)
 	}
-	if held {
-		addresses = append(addresses, "")
-	}
-	if len(addresses) == 0 && !e.draining.Load() && e.localReadyNow(r.Context(), routes, service) {
-		return r
-	}
-	if len(addresses) == 1 && addresses[0] == "" {
+	addresses = append(addresses, "")
+	if len(addresses) == 1 && held {
 		return r
 	}
 	return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{addresses: addresses}))
@@ -209,15 +194,22 @@ func (b peerResponseBody) Close() error {
 	return err
 }
 
-func idempotent(method string) bool {
-	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions || method == http.MethodPut || method == http.MethodDelete
+type peerUpgradeBody struct {
+	io.ReadWriteCloser
+	cancel context.CancelFunc
+}
+
+func (b peerUpgradeBody) Close() error {
+	err := b.ReadWriteCloser.Close()
+	b.cancel()
+	return err
+}
+
+func resendable(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions || method == http.MethodTrace
 }
 
 func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Response, error) {
-	if len(target.addresses) == 0 {
-		closeBody(r)
-		return nil, errNoReadyService
-	}
 	key := e.requestProofSecret.Load()
 	if key == nil {
 		closeBody(r)
@@ -242,7 +234,15 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 	var lastErr error
 	for _, address := range target.addresses {
 		if address == "" {
-			return e.local.RoundTrip(r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, nil)))
+			local := context.WithValue(r.Context(), edgeTargetKey{}, nil)
+			if port, err := strconv.ParseUint(r.URL.Port(), 10, 16); err == nil && !handoff.Held(uint16(port)) {
+				local = context.WithValue(local, localDialOnceKey{}, true)
+			}
+			response, err := e.local.RoundTrip(r.WithContext(local))
+			if errors.Is(err, syscall.ECONNREFUSED) {
+				err = errors.Join(errNoReadyService, err)
+			}
+			return response, err
 		}
 		attempt, cancel := context.WithCancel(r.Context())
 		connected, consumed := new(atomic.Bool), new(atomic.Bool)
@@ -260,8 +260,21 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 		go e.watchPeer(address, done, cancel)
 		response, err := value.(*http.Transport).RoundTrip(out)
 		close(done)
+		if err == nil && response.Header.Get(edgeUnavailableHeader) != "" {
+			response.Header.Del(edgeUnavailableHeader)
+			if !consumed.Load() {
+				response.Body.Close()
+				cancel()
+				lastErr = errNoReadyService
+				continue
+			}
+		}
 		if err == nil {
-			response.Body = peerResponseBody{ReadCloser: response.Body, cancel: cancel}
+			if upgraded, ok := response.Body.(io.ReadWriteCloser); ok && response.StatusCode == http.StatusSwitchingProtocols {
+				response.Body = peerUpgradeBody{ReadWriteCloser: upgraded, cancel: cancel}
+			} else {
+				response.Body = peerResponseBody{ReadCloser: response.Body, cancel: cancel}
+			}
 			return response, nil
 		}
 		cancel()
@@ -270,7 +283,7 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 			return nil, err
 		}
 		e.peerDown.Store(address, time.Now())
-		if consumed.Load() || connected.Load() && !hasBody && !idempotent(r.Method) {
+		if consumed.Load() || connected.Load() && !resendable(r.Method) {
 			closeBody(r)
 			return nil, err
 		}
