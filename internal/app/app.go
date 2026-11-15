@@ -118,11 +118,20 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 		}()
 	}
 	err = runSingleHost(ctx, *state, output, plan, probation, swarmReady, func(ctx context.Context, service string) releasepush.HealthResult {
-		result := releasepush.HealthResult{Service: regionhealth.Serving(ctx, *state, service)}
-		if node := meshNode.Load(); node != nil {
-			result.Mesh = node.ReleaseHealth(ctx)
-		} else {
+		admission, _, err := swarmruntime.StoredAdmission(*state)
+		if err != nil {
+			return releasepush.HealthResult{Service: err}
+		}
+		manager := admission.Role == "manager"
+		result := releasepush.HealthResult{}
+		if manager {
+			result.Service = regionhealth.Serving(ctx, *state, service)
+		}
+		switch node := meshNode.Load(); {
+		case node == nil:
 			result.Mesh = errors.New("mesh not started")
+		case manager:
+			result.Mesh = node.ReleaseHealth(ctx)
 		}
 		if public != nil {
 			readiness := public.Readiness(ctx)
