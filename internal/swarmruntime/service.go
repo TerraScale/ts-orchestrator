@@ -128,6 +128,7 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 		}
 	}
 	if i.Role == "ts-auth" {
+		spec.Task.Placement.Constraints = append(spec.Task.Placement.Constraints, "node.role==manager")
 		spec.Task.Placement.MaxReplicas = 1
 		// Three occupied controller domains leave no slot for start-first updates.
 		spec.Update.Order = api.UpdateConfig_STOP_FIRST
@@ -331,8 +332,10 @@ type ServiceMount struct {
 	Target string `json:"target"`
 }
 
-func (s ServiceSpec) Stateless() bool {
-	return len(s.Mounts) == 0 && s.Postgres == nil && len(s.Hostnames) != 0
+var everyNodeServices = []string{"whoami"}
+
+func (s ServiceSpec) EveryNode() bool {
+	return slices.Contains(everyNodeServices, s.Name)
 }
 
 // SwarmSpec maps the declaration to an upstream service; the executor
@@ -512,14 +515,12 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		Update:      &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(serviceUpdateMonitor), Order: api.UpdateConfig_STOP_FIRST},
 		Endpoint:    &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: ports},
 	}
+	spec.Task.Placement = &api.Placement{}
 	switch {
-	case s.Region != "" && len(s.Mounts) != 0 && s.Replicas > 1:
-		// One per node: the mesh counts only fully joined nodes in Replicas, each
-		// task names its own host as TS_NODE and reads that host's peers file.
-		spec.Task.Placement = &api.Placement{MaxReplicas: 1}
-	case s.Region != "" && s.Stateless():
+	case s.Region != "" && (s.EveryNode() || len(s.Mounts) != 0 && s.Replicas > 1):
+		spec.Task.Placement.MaxReplicas = 1
 	case s.Region != "":
-		spec.Task.Placement = &api.Placement{Constraints: []string{"node.role==manager"}}
+		spec.Task.Placement.Constraints = []string{"node.role==manager"}
 	}
 	if s.Name == "terrabase" {
 		// The candidate may have written a newer storage format. Fix forward.

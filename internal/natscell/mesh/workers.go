@@ -50,7 +50,7 @@ type workerNodes interface {
 var errWorkersSettling = errors.New("the founder has not heard its workers for a full announcement window since it started")
 
 func PerNode(spec *swarmruntime.ServiceSpec) bool {
-	return spec != nil && (spec.Stateless() || len(spec.Mounts) != 0 && regionalReplicas(spec) > 1)
+	return spec != nil && (spec.EveryNode() || len(spec.Mounts) != 0 && regionalReplicas(spec) > 1)
 }
 
 // regionalReplicas upgrades existing TerraBase declarations in place. R10's
@@ -255,7 +255,7 @@ func (a swarmApplier) Replicas(ctx context.Context, service string) (replicas ui
 	return replicas, err
 }
 
-func (n *Node) EdgePeers(ready func() []string) func() []WorkerPeer {
+func (n *Node) EdgePeers(ready func() []string, advertised func(WorkerPeer)) func() []WorkerPeer {
 	type observed struct {
 		peer WorkerPeer
 		at   time.Time
@@ -276,6 +276,7 @@ func (n *Node) EdgePeers(ready func() []string) func() []WorkerPeer {
 				mu.Lock()
 				peers[at.Node] = observed{peer: at, at: time.Now()}
 				mu.Unlock()
+				advertised(at)
 			})
 			if err == nil {
 				break

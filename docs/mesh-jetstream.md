@@ -145,8 +145,8 @@ second host exists: a new host whose hostname equals the join material's
   request on the mesh subject `ts.mesh.release.<region>`; the worker verifies
   the GitHub OIDC token itself and installs it. A worker that was down misses
   that relay and catches up on the next push.
-- A stateful mesh service without a data mount runs on the founder only
-  (`node.role==manager`). On 2026-11-04 SwarmKit put TerraBase on `ts-sjc-2`
+- A mesh service runs on the founder only (`node.role==manager`), because the
+  founder's edge serves it and worker edges reach it through that edge. On 2026-11-04 SwarmKit put TerraBase on `ts-sjc-2`
   before this rule; the task was rejected ("peers file is not written yet") and
   two TerraBase releases paused. The exceptions are per-node services (below).
 - Workers join the mesh before scheduling. Activate each worker with
@@ -156,10 +156,10 @@ second host exists: a new host whose hostname equals the join material's
 
 A mesh service with a data mount and `replicas` > 1 is per node: one task on
 each fully joined node of its region, each with its own host's data
-directory. A stateless web service (hostnames, no data mount, no Postgres
-listener) is per node too: its declared `replicas` is replaced by the number of
-fully joined nodes, with no manager constraint, and every worker keeps its peers
-file before the task starts. TerraBase always requests two nodes, including existing one-replica
+directory. A service declared to run on every node (`everyNodeServices` in
+`internal/swarmruntime/service.go`, today only `whoami`) is per node too: its
+`replicas` is the number of fully joined nodes, with `MaxReplicas: 1` and no
+manager constraint. TerraBase always requests two nodes, including existing one-replica
 declarations. R10 (terrascale `59c46e4ac`) makes the second peer a durable ack
 holder; it does not follow customer replicas or start a push stream. The founder
 remains the first peer and keeps its existing data and identity.

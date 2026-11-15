@@ -202,6 +202,10 @@ type Node struct {
 
 	regionalDrain atomic.Pointer[regionalDrainer]
 	edgeInventory atomic.Pointer[EdgeInventory]
+	edgePublishMu sync.Mutex
+	edgePublished *edgePublication
+	edgeFollowMu  sync.Mutex
+	edgeRefused   string
 	workerMu      sync.Mutex
 	announced     map[string]announcement // founder: worker node -> its last announcement
 	joined        []WorkerPeer            // founder: the fully joined workers, refreshed each peersEvery
@@ -953,7 +957,7 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 		// or half-joined worker is never a release target.
 		workers, settled := n.settledWorkers()
 		spec.Replicas = uint64(1 + len(workers))
-		if !spec.Stateless() {
+		if !spec.EveryNode() {
 			spec.Replicas = min(regionalReplicas(&spec), spec.Replicas)
 		}
 		if !settled {
