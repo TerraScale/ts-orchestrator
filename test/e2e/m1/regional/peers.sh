@@ -34,4 +34,4 @@ replace = {
 (work / "peers-overlay.json").write_text(json.dumps({"Replace": replace}))
 PY
 go -C "$repo" build -trimpath -overlay "$work/peers-overlay.json" -o "$work/regional-peers" ./test/e2e/m1/regional
-sudo env "PATH=$PATH" "SSL_CERT_FILE=$SSL_CERT_FILE" unshare -n sh -c 'ip link set lo up && exec "$0" "$@"' "$work/regional-peers" "$work"
+sudo env "PATH=$PATH" "SSL_CERT_FILE=${SSL_CERT_FILE:-}" unshare -n sh -c 'ip link set lo up && exec "$0" "$@"' "$work/regional-peers" "${@:2}" "$work"

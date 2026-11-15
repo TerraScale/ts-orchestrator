@@ -39,6 +39,10 @@ var fleetServices = map[string]string{"dash.e2e.test": "ts-dashboard", "auth.e2e
 
 const fleetWriter = "api.e2e.test"
 
+const fleetNetBirdPort = 18104
+
+const fleetSpoofHeader = "X-TerraScale-Edge-Unavailable"
+
 const fleetPostgres = "pg.e2e.test"
 
 func fleetAwait(ctx context.Context, ready func() bool) error {
@@ -68,10 +72,18 @@ func FleetHost(args []string) error {
 	if err != nil {
 		return err
 	}
-	var ready, slow atomic.Bool
+	var ready, slow, hang atomic.Bool
+	var deletes atomic.Int64
 	ready.Store(true)
 	app := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.Method == http.MethodDelete:
+			if marker := r.Header.Get(fleetSpoofHeader); marker != "" {
+				w.Header().Set(fleetSpoofHeader, marker)
+			}
+			fmt.Fprintf(w, "%s %d", name, deletes.Add(1))
+		case r.URL.Path == "/payload" && hang.Load():
+			<-r.Context().Done()
 		case r.URL.Path == "/readyz" && slow.Load():
 			<-r.Context().Done()
 		case r.URL.Path == "/readyz":
@@ -112,7 +124,7 @@ func FleetHost(args []string) error {
 		go servers[port].Serve(listener)
 		return nil
 	}
-	for _, port := range fleetWeb {
+	for _, port := range append(slices.Collect(maps.Values(fleetWeb)), fleetNetBirdPort) {
 		if err := serve(port); err != nil {
 			return err
 		}
@@ -172,7 +184,7 @@ func FleetHost(args []string) error {
 	if err := os.MkdirAll(filepath.Join(state, "edge-certs"), 0700); err != nil {
 		return err
 	}
-	for _, host := range append(slices.Sorted(maps.Keys(fleetWeb)), fleetPostgres, fleetWriter) {
+	for _, host := range append(slices.Sorted(maps.Keys(fleetWeb)), fleetPostgres, fleetWriter, netbirdHost) {
 		cert, err := os.ReadFile(filepath.Join(root, "regional", "edge-certs", host))
 		if err != nil {
 			return err
@@ -186,9 +198,14 @@ func FleetHost(args []string) error {
 		public.SetInventoryFollower()
 	}
 	authPort := fleetWeb["auth.e2e.test"]
-	entered := make(chan struct{}, 1)
+	dashPort := fleetWeb["dash.e2e.test"]
+	entered, restarting := make(chan struct{}, 1), make(chan struct{}, 1)
+	var restartArmed atomic.Bool
 	inner := public.local
 	public.local = roundTripper(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Port() == strconv.Itoa(dashPort) && r.URL.Path == "/payload" && restartArmed.CompareAndSwap(true, false) {
+			restarting <- struct{}{}
+		}
 		if r.URL.Port() == strconv.Itoa(authPort) && r.URL.Path == "/payload" && handoff.Held(uint16(authPort)) {
 			select {
 			case entered <- struct{}{}:
@@ -201,7 +218,10 @@ func FleetHost(args []string) error {
 	public.JoinMesh(node)
 	web := maps.Clone(fleetWeb)
 	web[fleetWriter] = 8080
-	inventory := mesh.EdgeInventory{Web: web, Postgres: map[string]int{fleetPostgres: 15432}, Services: fleetServices, ProofRef: "fleet"}
+	web[netbirdHost] = fleetNetBirdPort
+	services := maps.Clone(fleetServices)
+	services[netbirdHost] = "netbird-server"
+	inventory := mesh.EdgeInventory{Web: web, Postgres: map[string]int{fleetPostgres: 15432}, Services: services, ProofRef: "fleet"}
 	var published atomic.Pointer[mesh.EdgeInventory]
 	for host, port := range fleetWeb {
 		inventory.Readiness = append(inventory.Readiness, mesh.EdgeRoute{Host: host, Port: port, Path: "/readyz"})
@@ -279,6 +299,27 @@ func FleetHost(args []string) error {
 			}); err != nil {
 				return fmt.Errorf("%s still hears a ready peer: %w", name, err)
 			}
+		case "hang":
+			hang.Store(true)
+		case "unhang":
+			hang.Store(false)
+		case "deletes":
+			fmt.Println("deletes", deletes.Load())
+		case "drop-proof":
+			if err := public.SetRequestProofSecret(""); err != nil {
+				return err
+			}
+		case "restore-proof":
+			if err := public.SetRequestProofSecret(secret); err != nil {
+				return err
+			}
+		case "restart-dash":
+			servers[dashPort].Close()
+			restartArmed.Store(true)
+			go func() {
+				<-restarting
+				time.AfterFunc(300*time.Millisecond, func() { serve(dashPort) })
+			}()
 		case "slow":
 			slow.Store(true)
 		case "stop-app":
@@ -534,6 +575,26 @@ func (c fleetClient) websocket(ctx context.Context, through *fleetProcess, name 
 	}
 	line, err := reader.ReadString('\n')
 	return strings.TrimSpace(line), err
+}
+
+func (c fleetClient) request(ctx context.Context, host *fleetProcess, method, url string, header http.Header) (int, string, error) {
+	transport := &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{RootCAs: c.roots}, DisableKeepAlives: true}
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(host.address, "443"))
+	}
+	defer transport.CloseIdleConnections()
+	request, err := http.NewRequestWithContext(ctx, method, url, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	request.Header = header
+	response, err := (&http.Client{Transport: transport}).Do(request)
+	if err != nil {
+		return 0, "", err
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(response.Body)
+	return response.StatusCode, string(data), err
 }
 
 func (c fleetClient) do(ctx context.Context, host *fleetProcess, method, url string, body io.Reader) (int, string, error) {
@@ -818,16 +879,26 @@ func FleetEdgeJourney(root string) error {
 			if echo, err := client.websocket(ctx, founder, "dash.e2e.test"); err != nil || echo != worker.name+" ping" {
 				return fmt.Errorf("WebSocket through a peer edge: %q, %v", echo, err)
 			}
+			status, body, err := client.request(ctx, founder, http.MethodDelete, "https://dash.e2e.test/payload", http.Header{fleetSpoofHeader: {"1"}})
+			if err != nil || status != http.StatusOK || body != worker.name+" 1" {
+				return fmt.Errorf("a DELETE carrying a client marker through a peer: HTTP %d %q, %v", status, body, err)
+			}
+			if err := founder.query(ctx, "deletes", "deletes 0"); err != nil {
+				return fmt.Errorf("a DELETE answered by the peer ran again locally: %w", err)
+			}
 			if err := signal(worker, syscall.SIGSTOP); err != nil {
 				return err
 			}
 			began := time.Now()
-			status, _, err := client.do(ctx, founder, http.MethodDelete, "https://dash.e2e.test/payload", nil)
+			status, _, err = client.do(ctx, founder, http.MethodDelete, "https://dash.e2e.test/payload", nil)
 			if took := time.Since(began); err != nil || status != http.StatusBadGateway || took > 5*time.Second {
 				return fmt.Errorf("a DELETE sent on a connection to a stopped peer: HTTP %d after %s, %v, want 502 within its liveness and no resend", status, took, err)
 			}
+			if err := founder.query(ctx, "deletes", "deletes 0"); err != nil {
+				return fmt.Errorf("a DELETE that failed on the peer was resent locally: %w", err)
+			}
 			if status, body, err := client.get(ctx, founder, "dash.e2e.test"); err != nil || status != http.StatusOK || body != founder.name {
-				return fmt.Errorf("with its peer down the manager did not serve its running backend: HTTP %d %q, %v", status, body, err)
+				return fmt.Errorf("with its peer down the manager did not take main's local path: HTTP %d %q, %v", status, body, err)
 			}
 			if err := founder.command(ctx, "hold"); err != nil {
 				return err
@@ -854,6 +925,17 @@ func FleetEdgeJourney(root string) error {
 			if err := founder.command(ctx, "await-peer"); err != nil {
 				return err
 			}
+			if err := worker.command(ctx, "hang"); err != nil {
+				return err
+			}
+			began = time.Now()
+			status, _, err = client.get(ctx, founder, "dash.e2e.test")
+			if took := time.Since(began); err != nil || status != http.StatusBadGateway || took > peerLayerBudget+time.Second {
+				return fmt.Errorf("a peer that never answers: HTTP %d after %s, %v, want main's 502 within %s", status, took, err, peerLayerBudget)
+			}
+			if err := worker.command(ctx, "unhang"); err != nil {
+				return err
+			}
 			if err := worker.command(ctx, "unready"); err != nil {
 				return err
 			}
@@ -870,29 +952,36 @@ func FleetEdgeJourney(root string) error {
 				return err
 			}
 			if status, body, err := client.get(ctx, founder, "dash.e2e.test"); err != nil || status != http.StatusOK || body != founder.name {
-				return fmt.Errorf("a draining host with no ready peer did not serve its running backend: HTTP %d %q, %v", status, body, err)
+				return fmt.Errorf("a draining host with no ready peer did not take main's local path: HTTP %d %q, %v", status, body, err)
 			}
 			if status, _, body, err := client.hop(ctx, founder, "dash.e2e.test", hex.EncodeToString(secret)); err != nil || status != http.StatusOK || body != founder.name {
-				return fmt.Errorf("a peer hop to a draining host did not reach its running backend: HTTP %d %q, %v", status, body, err)
+				return fmt.Errorf("a peer hop to a draining host did not take main's local path: HTTP %d %q, %v", status, body, err)
+			}
+			if err := worker.command(ctx, "restart-dash"); err != nil {
+				return err
+			}
+			if status, body, err := client.get(ctx, worker, "dash.e2e.test"); err != nil || status != http.StatusOK || body != worker.name {
+				return fmt.Errorf("an unheld restarting backend did not get main's refused-dial wait: HTTP %d %q, %v", status, body, err)
+			}
+			if err := worker.command(ctx, "drop-proof"); err != nil {
+				return err
+			}
+			if status, body, err := client.get(ctx, worker, "dash.e2e.test"); err != nil || status != http.StatusOK || body != worker.name {
+				return fmt.Errorf("a host without a peer credential did not take main's local path: HTTP %d %q, %v", status, body, err)
+			}
+			if err := worker.command(ctx, "restore-proof"); err != nil {
+				return err
 			}
 			if err := worker.command(ctx, "slow"); err != nil {
 				return err
 			}
 			if status, body, err := client.get(ctx, worker, "dash.e2e.test"); err != nil || status != http.StatusOK || body != worker.name {
-				return fmt.Errorf("a host whose readiness probe hangs did not serve its running backend: HTTP %d %q, %v", status, body, err)
+				return fmt.Errorf("a host whose readiness probe hangs did not take main's local path: HTTP %d %q, %v", status, body, err)
 			}
-			if err := worker.command(ctx, "stop-app"); err != nil {
-				return err
+			if status, body, err := client.do(ctx, founder, http.MethodGet, "https://"+netbirdHost+"/", nil); err != nil || status != http.StatusServiceUnavailable || !strings.Contains(body, "NetBird dashboard is preparing") {
+				return fmt.Errorf("a draining host did not serve main's NetBird dashboard handler: HTTP %d %q, %v", status, body, err)
 			}
-			status, body, err := client.get(ctx, worker, "dash.e2e.test")
-			if err != nil || status != http.StatusServiceUnavailable || body != "" {
-				return fmt.Errorf("nothing running locally and no ready peer still answered: %d %q, %w", status, body, err)
-			}
-			status, header, _, err := client.hop(ctx, worker, "dash.e2e.test", hex.EncodeToString(secret))
-			if err != nil || status != http.StatusServiceUnavailable || header.Get(edgeUnavailableHeader) == "" {
-				return fmt.Errorf("a peer hop with nothing running locally: HTTP %d %v, %v, want 503 marked for the next candidate", status, header, err)
-			}
-			fmt.Printf("ok %s: an unready manager forwards HTTP and WebSockets to its peer; a stopped peer fails within its liveness (a connected DELETE is not resent; then requests go to the running local backend and a held stop-first port waits for its replacement); draining or a hanging readiness probe with no ready peer still serves the running backend; only nothing running locally answers 503\n", founder.name[3:6])
+			fmt.Printf("ok %s: with a ready peer an unready manager forwards HTTP and WebSockets, a client marker never causes a resend, a connected DELETE to a stopped peer is not resent, a held port waits for its replacement and a peer that never answers costs main's 502 at %s; with no ready peer draining, hop, NetBird dashboard, hung readiness, missing credential and an unheld restart all take main's path\n", founder.name[3:6], peerLayerBudget)
 		}
 	}
 	return nil

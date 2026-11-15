@@ -16,9 +16,12 @@ func main() {
 		}
 		return
 	}
-	if err := edge.FleetEdgeJourney(os.Args[1]); err != nil {
-		fmt.Fprintln(os.Stderr, "FAIL edge fleet:", err)
-		os.Exit(1)
+	if os.Args[1] == "fleet" {
+		if err := edge.FleetEdgeJourney(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, "FAIL edge fleet:", err)
+			os.Exit(1)
+		}
+		return
 	}
 	if err := mesh.RegionalPeersJourney(os.Args[1]); err != nil {
 		fmt.Fprintln(os.Stderr, "FAIL regional peers:", err)

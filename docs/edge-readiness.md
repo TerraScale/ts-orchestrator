@@ -24,29 +24,31 @@ bootstrap, ingress, backends) on every host. The one exception is a worker's
 the load balancer and still reports healthy to `ts.release.health`, so it never
 blocks a release.
 
-An ingress edge serves an HTTP request locally whenever its local service is
-ready and it is not draining, exactly as before. Draining, a failed readiness
-probe, or a port the executor holds for a stopping task only make peers
-preferred: the edge rotates the request over peer edges advertising the service
-as ready and keeps its own backend as the last candidate. With no ready peer, a
-running local backend serves the request as it always did, and a held port
-waits for its replacement. The edge answers 503 only when nothing local is
-running (the local dial is refused and the port is not held); readiness is never
-probed on the request path. An authenticated peer hop is served by the chosen
-host's own backend; when nothing runs there, that host answers 503 marked
-`X-TerraScale-Edge-Unavailable`, and the source edge tries its next candidate.
-WebSocket and other upgrades pass through a peer unchanged.
+Peer routing is a separate layer on top of main's request path. An ingress
+edge enters it only when the request's service has at least one ready peer and
+the local service is not preferable (not ready, draining, or its port held by
+the executor for a stopping task), and only when it holds the peer credential.
+In every other case, including every host without a ready peer, the request
+takes main's path unchanged: the same handler order (including the NetBird
+dashboard), the same refused-dial and handoff waits, the same errors. A peer
+hop is always served on main's path by the host it reaches.
 
-A request that fails on a peer before any response arrives moves to the next
-candidate only when resending is safe, as in Go's own transport: none of its
-body was read yet, and either the connection was never made or the method is
-GET, HEAD, OPTIONS or TRACE. The failing peer is marked down and gets no
-requests until it next advertises ready services. A peer that stops answering
-is detected by its own liveness: an attempt is abandoned once the peer has not
+Inside the layer the edge rotates the request over the ready peers and keeps
+its own backend as the last candidate, reached through main's local transport.
+A request moves to the next candidate only when a peer failed before
+answering and resending is safe, as in Go's own transport: none of its body was
+read yet, and either the connection was never made or the method is GET, HEAD,
+OPTIONS or TRACE. Any response from a peer, whatever its status or headers, is
+returned to the client. The failing peer is marked down and gets no requests
+until it next advertises ready services. A peer that stops answering is
+detected by its own liveness: an attempt is abandoned once the peer has not
 advertised for three advertisement intervals, the same window that keeps it
-listed as a peer (15 seconds in production), before the 30-second response
-header bound. Routes on port 8080 use the fenced regional writer router from
-every host, so SQL writes from any edge reach the region's writer.
+listed as a peer (15 seconds in production). The whole layer, fallback
+included, is bounded by main's 30-second response header bound, so a request
+never waits longer than it would have on main. WebSocket and other upgrades
+pass through a peer unchanged. Routes on port 8080 use the fenced regional
+writer router from every host, so SQL writes from any edge reach the region's
+writer.
 
 A malformed TerraBase secret-references label never clears the request-proof
 secret: the manager logs the error and keeps publishing the last good
@@ -120,14 +122,19 @@ manager serves its own running backend, and once the worker restarts cold and
 advertises ready the manager forwards to it again; SQL writes from the
 restarted worker reach the writer.
 
-In the third region the unready manager forwards HTTP and a WebSocket to its
-peer. With the peer stopped (SIGSTOP), a DELETE already sent on a connection is
-answered 502 within the peer's liveness bound and is not resent; the next GET is
-served by the manager's own running backend, and a request on a held stop-first
-port waits for its replacement. With the peer unready too, a draining manager
-and a peer hop to it still serve the running backend, and a host whose
-readiness probe hangs serves its backend. Only when nothing runs locally does a
-request answer 503, and a peer hop there carries the next-candidate marker.
+In the third region, with a ready peer, the unready manager forwards HTTP and
+a WebSocket to it. A DELETE answered by the peer is never sent again, even when
+the client or the backend sets a header the edge once used as a marker. With the
+peer stopped (SIGSTOP), a DELETE already sent on a connection is answered 502
+within the peer's liveness bound and is not resent, and a request on a held
+stop-first port waits for its replacement. A peer that accepts but never
+answers costs main's 502 at 30 seconds, not more. With no ready peer, a
+draining manager, a peer hop to it, an unheld backend that restarts while the
+request waits, a host without the peer credential, a host whose readiness probe
+hangs, and the NetBird dashboard all behave exactly as on main.
+
+The fleet runs in its own CI lane (`fleet.sh`); the regional lane keeps the
+SwarmKit, peer-file and metadata steps below.
 
 The same lane updates an existing manager-pinned `whoami` service through the
 real SwarmKit manager and a joined worker to one task per node, and checks that
