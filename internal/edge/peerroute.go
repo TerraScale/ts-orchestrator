@@ -3,17 +3,14 @@ package edge
 import (
 	"context"
 	"crypto/hmac"
-	"errors"
 	"io"
 	"maps"
 	"net"
 	"net/http"
 	"net/http/httptrace"
 	"slices"
-	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
@@ -21,9 +18,7 @@ import (
 )
 
 const edgeHopHeader = "X-TerraScale-Edge-Hop"
-const edgeUnavailableHeader = "X-TerraScale-Edge-Unavailable"
-
-var errNoReadyService = errors.New("no ready service backend")
+const peerLayerBudget = 30 * time.Second
 
 type edgeHopKey struct{}
 type edgeTargetKey struct{}
@@ -117,7 +112,7 @@ func (e *Edge) authorizeEdgeHop(w http.ResponseWriter, r *http.Request) bool {
 
 func (e *Edge) routePeerEdge(r *http.Request, balance bool) *http.Request {
 	port, _ := e.port(r.Host)
-	if port == 8080 {
+	if port == 8080 || r.Context().Value(edgeHopKey{}) != nil {
 		return r
 	}
 	host := r.Host
@@ -129,38 +124,26 @@ func (e *Edge) routePeerEdge(r *http.Request, balance bool) *http.Request {
 		return r
 	}
 	service := routes.hosts[strings.ToLower(host)]
-	if service == "" {
-		return r
-	}
-	held := handoff.Held(uint16(port))
-	ready := routes.ready[service] && !e.draining.Load()
-	if r.Context().Value(edgeHopKey{}) != nil {
-		if ready || held {
-			return r
-		}
-		return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{addresses: []string{""}}))
-	}
-	if ready && !held {
+	peers := e.peerEdges.Load()
+	preferLocal := routes.ready[service] && !e.draining.Load() && !handoff.Held(uint16(port))
+	if service == "" || preferLocal || peers == nil || e.requestProofSecret.Load() == nil {
 		return r
 	}
 	addresses := []string{}
-	if peers := e.peerEdges.Load(); peers != nil && e.requestProofSecret.Load() != nil {
-		for _, peer := range (*peers)() {
-			if _, down := e.peerDown.Load(peer.Address); !down && slices.Contains(peer.ReadyServices, service) {
-				addresses = append(addresses, peer.Address)
-			}
+	for _, peer := range (*peers)() {
+		if _, down := e.peerDown.Load(peer.Address); !down && slices.Contains(peer.ReadyServices, service) {
+			addresses = append(addresses, peer.Address)
 		}
+	}
+	if len(addresses) == 0 {
+		return r
 	}
 	if balance && len(addresses) > 1 {
 		value, _ := e.edgeNext.LoadOrStore(service, new(atomic.Uint64))
 		start := int((value.(*atomic.Uint64).Add(1) - 1) % uint64(len(addresses)))
 		addresses = append(slices.Clone(addresses[start:]), addresses[:start]...)
 	}
-	addresses = append(addresses, "")
-	if len(addresses) == 1 && held {
-		return r
-	}
-	return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{addresses: addresses}))
+	return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{addresses: append(addresses, "")}))
 }
 
 type edgeAttemptBody struct {
@@ -210,41 +193,66 @@ func resendable(method string) bool {
 }
 
 func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Response, error) {
-	key := e.requestProofSecret.Load()
-	if key == nil {
+	began := time.Now()
+	budget, endBudget := context.WithCancel(r.Context())
+	var answered atomic.Bool
+	timer := time.AfterFunc(peerLayerBudget, func() {
+		if !answered.Load() {
+			endBudget()
+		}
+	})
+	fail := func(err error) (*http.Response, error) {
+		timer.Stop()
+		endBudget()
 		closeBody(r)
-		return nil, errors.New("edge peer credential unavailable")
+		return nil, err
 	}
-	grpc := isGRPC(r)
-	value, ok := e.edgeTransports.Load(grpc)
-	if !ok {
-		transport := newPeerTransport(e)
-		if grpc {
-			transport.ResponseHeaderTimeout = 0
+	answer := func(response *http.Response, cancel context.CancelFunc) (*http.Response, error) {
+		answered.Store(true)
+		timer.Stop()
+		end := func() {
+			cancel()
+			endBudget()
 		}
-		transport.Protocols = new(http.Protocols)
-		transport.Protocols.SetHTTP1(true)
-		transport.Protocols.SetHTTP2(grpc)
-		value, ok = e.edgeTransports.LoadOrStore(grpc, transport)
-		if ok {
-			transport.CloseIdleConnections()
+		if upgraded, ok := response.Body.(io.ReadWriteCloser); ok && response.StatusCode == http.StatusSwitchingProtocols {
+			response.Body = peerUpgradeBody{ReadWriteCloser: upgraded, cancel: end}
+		} else {
+			response.Body = peerResponseBody{ReadCloser: response.Body, cancel: end}
 		}
+		return response, nil
 	}
 	hasBody := r.Body != nil && r.Body != http.NoBody
 	var lastErr error
 	for _, address := range target.addresses {
 		if address == "" {
-			local := context.WithValue(r.Context(), edgeTargetKey{}, nil)
-			if port, err := strconv.ParseUint(r.URL.Port(), 10, 16); err == nil && !handoff.Held(uint16(port)) {
-				local = context.WithValue(local, localDialOnceKey{}, true)
+			response, err := e.local.RoundTrip(r.WithContext(context.WithValue(budget, edgeTargetKey{}, nil)))
+			if err != nil {
+				timer.Stop()
+				endBudget()
+				return nil, err
 			}
-			response, err := e.local.RoundTrip(r.WithContext(local))
-			if errors.Is(err, syscall.ECONNREFUSED) {
-				err = errors.Join(errNoReadyService, err)
-			}
-			return response, err
+			return answer(response, func() {})
 		}
-		attempt, cancel := context.WithCancel(r.Context())
+		key := e.requestProofSecret.Load()
+		if key == nil {
+			continue
+		}
+		grpc := isGRPC(r)
+		value, ok := e.edgeTransports.Load(grpc)
+		if !ok {
+			transport := newPeerTransport(e)
+			if grpc {
+				transport.ResponseHeaderTimeout = 0
+			}
+			transport.Protocols = new(http.Protocols)
+			transport.Protocols.SetHTTP1(true)
+			transport.Protocols.SetHTTP2(grpc)
+			value, ok = e.edgeTransports.LoadOrStore(grpc, transport)
+			if ok {
+				transport.CloseIdleConnections()
+			}
+		}
+		attempt, cancel := context.WithCancel(budget)
 		connected, consumed := new(atomic.Bool), new(atomic.Bool)
 		out := r.Clone(httptrace.WithClientTrace(attempt, &httptrace.ClientTrace{
 			GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
@@ -260,35 +268,18 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 		go e.watchPeer(address, done, cancel)
 		response, err := value.(*http.Transport).RoundTrip(out)
 		close(done)
-		if err == nil && response.Header.Get(edgeUnavailableHeader) != "" {
-			response.Header.Del(edgeUnavailableHeader)
-			if !consumed.Load() {
-				response.Body.Close()
-				cancel()
-				lastErr = errNoReadyService
-				continue
-			}
-		}
 		if err == nil {
-			if upgraded, ok := response.Body.(io.ReadWriteCloser); ok && response.StatusCode == http.StatusSwitchingProtocols {
-				response.Body = peerUpgradeBody{ReadWriteCloser: upgraded, cancel: cancel}
-			} else {
-				response.Body = peerResponseBody{ReadCloser: response.Body, cancel: cancel}
-			}
-			return response, nil
+			return answer(response, cancel)
 		}
 		cancel()
-		if r.Context().Err() != nil {
-			closeBody(r)
-			return nil, err
+		if r.Context().Err() != nil || budget.Err() != nil || time.Since(began) >= peerLayerBudget {
+			return fail(err)
 		}
 		e.peerDown.Store(address, time.Now())
 		if consumed.Load() || connected.Load() && !resendable(r.Method) {
-			closeBody(r)
-			return nil, err
+			return fail(err)
 		}
 		lastErr = err
 	}
-	closeBody(r)
-	return nil, lastErr
+	return fail(lastErr)
 }
