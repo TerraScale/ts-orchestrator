@@ -83,32 +83,7 @@ func roles(fleet *oraclehost.Fleet) (managers, workers []*oraclehost.Host) {
 	return managers, workers
 }
 
-func ready(ctx context.Context, fleet *oraclehost.Fleet, want string) {
-	managers, workers := roles(fleet)
-	for _, host := range fleet.Hosts {
-		healthy(ctx, host, want)
-	}
-	step("release health ok with revision %s on %d managers and %d workers", want[:12], len(managers), len(workers))
-	for _, manager := range managers {
-		var output []byte
-		until(ctx, manager.Name+" ts-orch status", func() error {
-			var err error
-			output, err = manager.Exec(ctx, "/usr/local/bin/ts-orch", "status")
-			if err != nil {
-				return fmt.Errorf("%w: %s", err, output)
-			}
-			for _, region := range fleet.Regions {
-				if !bytes.Contains(output, []byte("\n"+region.Name+": ok;")) && !bytes.HasPrefix(output, []byte(region.Name+": ok;")) {
-					return fmt.Errorf("region %s not ok: %s", region.Name, output)
-				}
-			}
-			return nil
-		})
-		if manager == managers[0] {
-			fmt.Printf("%s", output)
-		}
-	}
-	step("ts-orch status reports every region ok from every manager")
+func meshRoutes(ctx context.Context, managers []*oraclehost.Host) {
 	for _, manager := range managers {
 		until(ctx, manager.Name+" mesh routes", func() error {
 			peers, err := manager.Established(ctx, 6222)
@@ -128,6 +103,61 @@ func ready(ctx context.Context, fleet *oraclehost.Fleet, want string) {
 			return nil
 		})
 	}
+}
+
+func statusLine(output []byte, region string) string {
+	for _, line := range strings.Split(string(output), "\n") {
+		if strings.HasPrefix(line, region+": ") {
+			return line
+		}
+	}
+	return ""
+}
+
+func meshUp(ctx context.Context, fleet *oraclehost.Fleet) {
+	managers, _ := roles(fleet)
+	meshRoutes(ctx, managers)
+	for _, manager := range managers {
+		until(ctx, manager.Name+" mesh answers", func() error {
+			output, _ := manager.Exec(ctx, "/usr/local/bin/ts-orch", "status")
+			for _, region := range fleet.Regions {
+				if line := statusLine(output, region.Name); line == "" || line == region.Name+": unreachable" {
+					return fmt.Errorf("region %s does not answer over the mesh: %s", region.Name, output)
+				}
+			}
+			return nil
+		})
+	}
+	step("every manager's mesh is up and every region answers ts-orch status over it")
+}
+
+func ready(ctx context.Context, fleet *oraclehost.Fleet, want string) {
+	managers, workers := roles(fleet)
+	for _, host := range fleet.Hosts {
+		healthy(ctx, host, want)
+	}
+	step("release health ok with revision %s on %d managers and %d workers", want[:12], len(managers), len(workers))
+	for _, manager := range managers {
+		var output []byte
+		until(ctx, manager.Name+" ts-orch status", func() error {
+			var err error
+			output, err = manager.Exec(ctx, "/usr/local/bin/ts-orch", "status")
+			if err != nil {
+				return fmt.Errorf("%w: %s", err, output)
+			}
+			for _, region := range fleet.Regions {
+				if !strings.HasPrefix(statusLine(output, region.Name), region.Name+": ok;") {
+					return fmt.Errorf("region %s not ok: %s", region.Name, output)
+				}
+			}
+			return nil
+		})
+		if manager == managers[0] {
+			fmt.Printf("%s", output)
+		}
+	}
+	step("ts-orch status reports every region ok from every manager")
+	meshRoutes(ctx, managers)
 	step("mesh routes: managers to each other over wt0, each worker to its manager over the VCN")
 	for _, host := range fleet.Hosts {
 		_, err := os.Stat(host.State("mesh/jetstream"))
@@ -194,12 +224,13 @@ func main() {
 		must(err)
 	}
 	step("workers joined from Vault join material and sent READY=1")
+	meshUp(ctx, fleet)
 	applied := filepath.Join(work, "workload.json")
 	data, err := json.Marshal(spec)
 	must(err)
 	must(os.WriteFile(applied, data, 0o644))
 	output, err := managers[0].Exec(ctx, "/usr/local/bin/ts-orch", "service", "apply", "-f", applied)
-	require(err == nil, "service apply on %s: %v: %s", managers[0].Name, err, output)
+	require(err == nil && !bytes.Contains(output, []byte("on this host only")), "service apply on %s did not go through the mesh: %v: %s", managers[0].Name, err, output)
 	step("applied %s on %s through the mesh: %s", spec["name"], managers[0].Name, bytes.TrimSpace(output))
 	ready(ctx, fleet, first)
 
