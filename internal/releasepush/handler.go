@@ -144,6 +144,9 @@ type Handler struct {
 	App                     func(ctx context.Context, service, image string, claims Claims, progress Progress) (json.RawMessage, error)
 	Mesh                    func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
 	Relay                   func(context.Context, []byte) []HostVersion
+	Claim                   func(ctx context.Context, release, sha string, digests map[string]string) error
+	Unclaim                 func(ctx context.Context, release string)
+	HostReady               func(ctx context.Context, host, sha string, digests map[string]string) error
 	Installed               chan struct{}
 	Attest                  releaseattest.Verifier
 	Source                  *releaseattest.Source
@@ -232,18 +235,97 @@ func (h *Handler) ServeWorker(conn *nats.Conn, subject, host string) error {
 }
 
 func (h *Handler) relayed(ctx context.Context, data []byte) Reply {
-	reply := h.orch(ctx, data)
 	host, _ := os.Hostname()
-	reply.Host = secretpreflight.Scrub(host)
-	if h.Relay != nil && (reply.State == "installed" || reply.State == "current" || reply.Refusal != nil && reply.Refusal.Preflight) {
-		reply.Workers = h.Relay(ctx, data)
-		for _, worker := range reply.Workers {
-			if worker.Error != "" {
-				slog.Warn("release worker relay incomplete", "host", worker.Host, "error", worker.Error)
-			}
+	if h.Relay == nil {
+		reply := h.orch(ctx, data)
+		reply.Host = secretpreflight.Scrub(host)
+		return reply
+	}
+	admitted, refused := h.admit(ctx, data)
+	if refused != nil {
+		refused.Host = secretpreflight.Scrub(host)
+		return *refused
+	}
+	workers := h.Relay(ctx, data)
+	for _, worker := range workers {
+		if worker.Error != "" {
+			slog.Warn("release worker relay incomplete", "host", worker.Host, "error", worker.Error)
+			continue
+		}
+		if worker.Refusal != nil || worker.ID == "" || h.HostReady == nil {
+			continue
+		}
+		if err := h.HostReady(ctx, worker.ID, admitted.release.SHA, admitted.digests); err != nil {
+			h.unclaim(ctx, admitted)
+			reply := refusalReply(RefusalHost, admitted.release.SHA, admitted.binary.SHA256, admitted.claims,
+				fmt.Errorf("worker %s is not ready on %s, so this manager keeps running its binary: %w", worker.Host, admitted.release.SHA, err))
+			reply.Host, reply.Workers = secretpreflight.Scrub(host), workers
+			return reply
 		}
 	}
+	reply := h.installAdmitted(ctx, admitted)
+	reply.Host, reply.Workers = secretpreflight.Scrub(host), workers
 	return reply
+}
+
+type admission struct {
+	release OrchRelease
+	binary  Binary
+	claims  Claims
+	tag     string
+	digests map[string]string
+}
+
+func (h *Handler) orch(ctx context.Context, data []byte) Reply {
+	admitted, refused := h.admit(ctx, data)
+	if refused != nil {
+		return *refused
+	}
+	return h.installAdmitted(ctx, admitted)
+}
+
+func (h *Handler) admit(ctx context.Context, data []byte) (admission, *Reply) {
+	var release OrchRelease
+	if err := protocol.DecodeStrict(data, &release, 64<<10); err != nil {
+		reply := integrityReply(release.SHA, Claims{}, err)
+		return admission{}, &reply
+	}
+	binary, claims, err := h.validateOrch(ctx, release)
+	if err != nil {
+		var host *hostError
+		reply := integrityReply(release.SHA, claims, err)
+		if errors.As(err, &host) {
+			reply = refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
+		}
+		return admission{}, &reply
+	}
+	admitted := admission{release: release, binary: binary, claims: claims, tag: ReleaseTag(release.SHA, claims.RunID), digests: map[string]string{}}
+	for arch, artifact := range release.Binaries {
+		admitted.digests[arch] = artifact.SHA256
+	}
+	if h.Claim != nil {
+		if err := h.Claim(ctx, admitted.tag, release.SHA, admitted.digests); err != nil {
+			reply := refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, fmt.Errorf("release push waits for the region: %w", err))
+			return admission{}, &reply
+		}
+	}
+	return admitted, nil
+}
+
+func (h *Handler) installAdmitted(ctx context.Context, admitted admission) Reply {
+	h.mu.Lock()
+	reply := h.installRelease(ctx, admitted.release.SHA, admitted.binary, admitted.claims)
+	h.mu.Unlock()
+	if reply.State != "installed" && reply.State != "current" {
+		h.unclaim(ctx, admitted)
+	}
+	return reply
+}
+
+func (h *Handler) unclaim(ctx context.Context, admitted admission) {
+	if h.Unclaim != nil {
+		h.Unclaim(ctx, admitted.tag)
+	}
 }
 
 func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Context, []byte) Reply) error {
@@ -327,24 +409,6 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 		reply.State, reply.Error = state, reason
 	}
 	return reply
-}
-
-func (h *Handler) orch(ctx context.Context, data []byte) (reply Reply) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	var release OrchRelease
-	if err := protocol.DecodeStrict(data, &release, 64<<10); err != nil {
-		return integrityReply(release.SHA, Claims{}, err)
-	}
-	binary, claims, err := h.validateOrch(ctx, release)
-	if err != nil {
-		var host *hostError
-		if errors.As(err, &host) {
-			return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
-		}
-		return integrityReply(release.SHA, claims, err)
-	}
-	return h.installRelease(ctx, release.SHA, binary, claims)
 }
 
 func (h *Handler) installRelease(ctx context.Context, sha string, binary Binary, claims Claims) (reply Reply) {

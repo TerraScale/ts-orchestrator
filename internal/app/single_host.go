@@ -99,6 +99,38 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	releases.Mesh = mesh.Bridge(state)
 	releases.App = mesh.Release(state)
 	if plan.region != "" {
+		releases.Claim = func(ctx context.Context, release, sha string, digests map[string]string) error {
+			if !node.IsManager() {
+				return nil
+			}
+			conn, err := mesh.Connect(state)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			return pullrelease.ClaimPush(ctx, conn, plan.region, pullrelease.PushClaim{Release: release, SHA: sha, Binaries: digests, Host: node.ID()})
+		}
+		releases.Unclaim = func(ctx context.Context, release string) {
+			if !node.IsManager() {
+				return
+			}
+			conn, err := mesh.Connect(state)
+			if err == nil {
+				defer conn.Close()
+				err = pullrelease.ReleasePush(ctx, conn, plan.region, release)
+			}
+			if err != nil {
+				slog.WarnContext(ctx, "release push claim not released; the region's updater drops it when it lapses", "release", release, "error", err)
+			}
+		}
+		releases.HostReady = func(ctx context.Context, host, sha string, digests map[string]string) error {
+			conn, err := mesh.Connect(state)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			return releasepush.AwaitReady(ctx, conn, plan.region, host, sha, digests)
+		}
 		releases.Relay = func(ctx context.Context, request []byte) []releasepush.HostVersion {
 			if node.IsManager() {
 				return relayRelease(ctx, state, plan.region, request)

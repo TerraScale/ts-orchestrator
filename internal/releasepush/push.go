@@ -367,7 +367,7 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	if err != nil {
 		return fail(err)
 	}
-	reply, err := request(ctx, conn, SubjectOrch, payload, 2*time.Minute+WorkerReplyWait)
+	reply, err := request(ctx, conn, SubjectOrch, payload, 2*time.Minute+WorkerReplyWait+WorkerReadyWait)
 	if err != nil {
 		return fail(fmt.Errorf("release: %w", err))
 	}

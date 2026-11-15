@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -50,7 +51,11 @@ type Updater struct {
 	HealthyFor time.Duration
 	Deadline   time.Duration
 
-	status Status
+	store    *Store
+	status   Status
+	revision uint64
+	leading  atomic.Bool
+	nudged   string
 }
 
 func New(region, self, state string, conn *nats.Conn, handler *releasepush.Handler, hosts func(context.Context) ([]Host, error)) *Updater {
@@ -66,15 +71,18 @@ func New(region, self, state string, conn *nats.Conn, handler *releasepush.Handl
 }
 
 func (u *Updater) Run(ctx context.Context) error {
-	loaded, err := Read(u.State)
+	nudges := make(chan string, 1)
+	subscription, err := u.Conn.Subscribe(nudgeSubject(u.Region), func(m *nats.Msg) {
+		select {
+		case nudges <- string(m.Data):
+		default:
+		}
+	})
 	if err != nil {
-		slog.WarnContext(ctx, "pull rollout record unreadable; starting from the hosts' versions", "error", err)
+		return err
 	}
-	u.status = Status{Phase: PhaseIdle}
-	if loaded != nil {
-		u.status = *loaded
-	}
-	u.status.Region = u.Region
+	defer func() { _ = subscription.Unsubscribe() }()
+	go u.lead(ctx)
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	for {
@@ -82,15 +90,98 @@ func (u *Updater) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case nudge := <-u.Nudges:
-			u.status.Nudged = releaseattest.Tag(nudge.SHA, nudge.RunID)
-			slog.InfoContext(ctx, "release nudge received; checking for a new release", "release", u.status.Nudged)
+			tag := releaseattest.Tag(nudge.SHA, nudge.RunID)
+			if err := u.Conn.Publish(nudgeSubject(u.Region), []byte(tag)); err != nil {
+				slog.WarnContext(ctx, "release nudge not passed to the region's updater", "error", err)
+			}
+			continue
+		case tag := <-nudges:
+			if !u.leading.Load() {
+				continue
+			}
+			u.nudged = tag
+			slog.InfoContext(ctx, "release nudge received; checking for a new release", "release", tag)
 		case <-timer.C:
 		}
-		timer.Reset(u.cycle(ctx))
+		timer.Reset(u.turn(ctx))
 	}
 }
 
+func nudgeSubject(region string) string { return protocol.MeshPullPrefix + region + ".nudge" }
+
+func (u *Updater) lead(ctx context.Context) {
+	tick := time.NewTicker(renewEvery)
+	defer tick.Stop()
+	for {
+		if u.store == nil {
+			store, err := Open(ctx, u.Conn, u.Region)
+			if err != nil {
+				slog.WarnContext(ctx, "pull rollout store unavailable", "error", err)
+			}
+			u.store = store
+		}
+		if u.store != nil {
+			leading, err := u.store.Lead(ctx, u.Self)
+			if err != nil {
+				slog.WarnContext(ctx, "pull rollout lease not renewed", "error", err)
+			}
+			if u.leading.Swap(leading) != leading {
+				slog.InfoContext(ctx, "pull rollout ownership changed", "region", u.Region, "owner", leading)
+			}
+			if !leading {
+				if status, _, err := u.store.Load(ctx); err == nil {
+					u.mirror(ctx, status)
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+func (u *Updater) turn(ctx context.Context) time.Duration {
+	if !u.leading.Load() {
+		return renewEvery
+	}
+	status, revision, err := u.store.Load(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "pull rollout record unreadable", "error", err)
+		return renewEvery
+	}
+	u.status, u.revision = status, revision
+	u.status.Region = u.Region
+	if u.nudged != "" {
+		u.status.Nudged, u.nudged = u.nudged, ""
+	}
+	if u.status.Owner != u.Self {
+		slog.InfoContext(ctx, "taking over the region's pull rollout", "region", u.Region, "from", u.status.Owner, "phase", u.status.Phase)
+		u.status.Owner = u.Self
+		if !u.save(ctx) {
+			return renewEvery
+		}
+	}
+	return u.cycle(ctx)
+}
+
 func (u *Updater) cycle(ctx context.Context) time.Duration {
+	if u.status.Phase == PhaseRollingBack && u.status.Target != nil {
+		return u.restore(ctx)
+	}
+	if u.status.Push != nil {
+		if reason := u.pushing(ctx); reason != "" {
+			u.status.Reason = reason
+			u.save(ctx)
+			return u.HealthyFor
+		}
+		slog.InfoContext(ctx, "release push finished in the region", "release", u.status.Push.Release)
+		u.status.Push, u.status.Reason = nil, ""
+		if !u.save(ctx) {
+			return renewEvery
+		}
+	}
 	u.status.Checked = time.Now().UTC()
 	discover, cancel := context.WithTimeout(ctx, discoverWait)
 	release, err := u.Source.Newest(discover)
@@ -129,8 +220,10 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			return u.Poll
 		}
 		slog.InfoContext(ctx, "attested release found; rolling it out", "release", attested.Tag())
-		u.status = Status{Region: u.Region, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Nudged: u.status.Nudged, Checked: u.status.Checked}
-		u.save(ctx)
+		u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Nudged: u.status.Nudged, Checked: u.status.Checked}
+		if !u.save(ctx) {
+			return renewEvery
+		}
 	}
 	return u.roll(ctx)
 }
@@ -142,7 +235,8 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		return u.wait(ctx, fmt.Sprintf("host inventory unavailable: %v", err))
 	}
 	slices.SortFunc(hosts, func(a, b Host) int {
-		return cmp.Or(cmp.Compare(boolRank(a.ID == u.Self), boolRank(b.ID == u.Self)), cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
+		return cmp.Or(cmp.Compare(boolRank(!u.inFlight(a.ID)), boolRank(!u.inFlight(b.ID))),
+			cmp.Compare(boolRank(a.ID == u.Self), boolRank(b.ID == u.Self)), cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
 	})
 	progress := make([]HostProgress, 0, len(hosts))
 	for _, host := range hosts {
@@ -157,6 +251,9 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		u.status.Phase = PhaseRolling
 	}
 	for _, host := range hosts {
+		if !u.leading.Load() {
+			return renewEvery
+		}
 		row := u.status.host(host.ID)
 		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
 		if err != nil {
@@ -172,14 +269,16 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			continue
 		}
 		if !onTarget && reply.Health != restartPending && row.State == HostGating {
-			return u.rolledBack(ctx, row, target, "rolled back by its own probation: "+reply.Error, false)
+			return u.rolledBack(ctx, row, "rolled back by its own probation: "+reply.Error)
 		}
 		if !onTarget && reply.Health != restartPending {
 			if reason := u.regionReady(ctx, host.ID); reason != "" {
 				return u.wait(ctx, reason)
 			}
 			row.State, row.Error = HostInstalling, ""
-			u.save(ctx)
+			if !u.save(ctx) {
+				return renewEvery
+			}
 			reply, err = u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullInstall, Release: target}, installWait)
 			if err != nil {
 				return u.wait(ctx, host.Name+" install has no answer: "+err.Error())
@@ -187,7 +286,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			switch {
 			case reply.State == "installed" || reply.State == "current":
 			case reply.State == "rolled_back":
-				return u.rolledBack(ctx, row, target, "this release was already rolled back: "+reply.Error, false)
+				return u.rolledBack(ctx, row, "this release was already rolled back: "+reply.Error)
 			case reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalIntegrity:
 				row.Error = reply.Refusal.Reason
 				u.refuse(ctx, target, host.Name+" refused the release: "+reply.Refusal.Reason)
@@ -204,8 +303,10 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			return u.Poll
 		}
 		if err := u.gate(ctx, host, target, want); err != nil {
-			var left *leftError
-			return u.rolledBack(ctx, row, target, err.Error(), !errors.As(err, &left))
+			if errors.Is(err, errChanged) {
+				return renewEvery
+			}
+			return u.rolledBack(ctx, row, err.Error())
 		}
 		row.State, row.Error, row.Version, row.SHA256 = HostDone, "", target.SHA, want.SHA256
 		u.save(ctx)
@@ -213,6 +314,11 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 	u.status.Phase, u.status.Reason = PhaseComplete, ""
 	u.save(ctx)
 	return u.Poll
+}
+
+func (u *Updater) inFlight(id string) bool {
+	row := u.status.host(id)
+	return row != nil && (row.State == HostInstalling || row.State == HostGating)
 }
 
 func boolRank(last bool) int {
@@ -269,7 +375,7 @@ func (u *Updater) gate(ctx context.Context, host Host, target releaseattest.Rele
 		case reply.Health == restartPending:
 			last = restartPending
 		case reply.Version != target.SHA || reply.SHA256 != want.SHA256:
-			return &leftError{fmt.Sprintf("%s left the release; it runs %s %s: %s", host.Name, reply.Version, reply.SHA256, reply.Error)}
+			return fmt.Errorf("%s left the release; it runs %s %s: %s", host.Name, reply.Version, reply.SHA256, reply.Error)
 		case reply.State != "":
 			last = "release " + reply.State
 		case reply.Health != "ok":
@@ -280,6 +386,9 @@ func (u *Updater) gate(ctx context.Context, host Host, target releaseattest.Rele
 			} else {
 				healthy = true
 			}
+		}
+		if !u.leading.Load() {
+			return errChanged
 		}
 		now := time.Now()
 		if !healthy {
@@ -301,24 +410,86 @@ func (u *Updater) gate(ctx context.Context, host Host, target releaseattest.Rele
 	}
 }
 
-type leftError struct{ reason string }
-
-func (e *leftError) Error() string { return e.reason }
-
-func (u *Updater) rolledBack(ctx context.Context, row *HostProgress, target releaseattest.Release, reason string, restore bool) time.Duration {
-	row.State, row.Error = HostRolledBack, reason
-	u.status.Phase, u.status.Reason = PhaseRolledBack, row.Host+": "+reason
-	u.status.markBad(target.Tag())
+func (u *Updater) rolledBack(ctx context.Context, row *HostProgress, reason string) time.Duration {
+	row.State, row.Error = HostRestoring, reason
+	u.status.Phase, u.status.Reason = PhaseRollingBack, row.Host+": "+reason
 	u.save(ctx)
-	slog.WarnContext(ctx, "release rolled back", "release", target.Tag(), "host", row.Host, "reason", reason)
-	if restore {
-		reply, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullRollback, Release: target, Reason: reason}, askWait)
-		if err != nil || reply.State != "restoring" {
-			row.Error = fmt.Sprintf("%s; restoring the previous binary failed: %v %s", reason, err, reply.Error)
-			u.save(ctx)
+	slog.WarnContext(ctx, "release failed on a host; restoring its previous binary", "release", u.status.Target.Tag(), "host", row.Host, "reason", reason)
+	return checkEvery
+}
+
+func (u *Updater) restore(ctx context.Context) time.Duration {
+	target := *u.status.Target
+	var row *HostProgress
+	for i := range u.status.Hosts {
+		if u.status.Hosts[i].State == HostRestoring {
+			row = &u.status.Hosts[i]
+			break
 		}
 	}
-	return u.HealthyFor
+	if row == nil {
+		u.status.Phase = PhaseRolledBack
+		u.status.markBad(target.Tag())
+		u.save(ctx)
+		return u.Poll
+	}
+	reply, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
+	if err != nil {
+		return u.restoring(ctx, row, "does not answer: "+err.Error())
+	}
+	row.Version, row.SHA256 = reply.Version, reply.SHA256
+	onTarget := reply.Version == target.SHA && reply.SHA256 == target.Binaries[reply.Arch].SHA256
+	switch {
+	case onTarget && reply.Health == restartPending:
+		return u.restoring(ctx, row, "restoring the previous binary")
+	case onTarget:
+		if !u.save(ctx) {
+			return renewEvery
+		}
+		restored, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullRollback, Release: target, Reason: row.Error}, askWait)
+		if err != nil || restored.State != "restoring" {
+			return u.restoring(ctx, row, fmt.Sprintf("restoring the previous binary failed: %v %s", err, restored.Error))
+		}
+		return u.restoring(ctx, row, "restoring the previous binary")
+	case reply.State != "" || reply.Health != "ok":
+		return u.restoring(ctx, row, "previous binary not healthy yet: "+cmp.Or(reply.State, reply.Health))
+	}
+	row.State = HostRolledBack
+	u.status.Phase, u.status.Reason = PhaseRolledBack, row.Host+": "+row.Error
+	u.status.markBad(target.Tag())
+	u.save(ctx)
+	slog.WarnContext(ctx, "release rolled back; the host runs its previous binary", "release", target.Tag(), "host", row.Host, "version", reply.Version)
+	return u.Poll
+}
+
+func (u *Updater) restoring(ctx context.Context, row *HostProgress, reason string) time.Duration {
+	u.status.Reason = row.Host + ": " + reason
+	u.save(ctx)
+	return checkEvery
+}
+
+func (u *Updater) pushing(ctx context.Context) string {
+	claim := u.status.Push
+	if time.Now().After(claim.Until) {
+		return ""
+	}
+	waiting := "release push " + claim.Release + " in progress"
+	hosts, err := u.Hosts(ctx)
+	if err != nil {
+		return waiting + "; host inventory unavailable: " + err.Error()
+	}
+	for _, host := range hosts {
+		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
+		switch {
+		case err != nil:
+			return waiting + "; " + host.Name + " does not answer"
+		case reply.State != "" || reply.Health != "ok":
+			return waiting + "; " + host.Name + " is " + cmp.Or(reply.State, reply.Health)
+		case host.ID == claim.Host && (reply.Version != claim.SHA || reply.SHA256 != claim.Binaries[reply.Arch]):
+			return waiting + "; " + host.Name + " does not run it yet"
+		}
+	}
+	return ""
 }
 
 func (u *Updater) refuse(ctx context.Context, release releaseattest.Release, reason string) {
@@ -361,16 +532,27 @@ func (u *Updater) ask(ctx context.Context, host string, request releasepush.Pull
 	return reply, nil
 }
 
-func (u *Updater) save(ctx context.Context) {
+func (u *Updater) save(ctx context.Context) bool {
 	u.status.Updated = time.Now().UTC()
-	if err := write(u.State, u.status); err != nil {
-		slog.WarnContext(ctx, "pull rollout record not saved", "error", err)
+	revision, err := u.store.Save(ctx, u.status, u.revision)
+	if err != nil {
+		slog.WarnContext(ctx, "pull rollout record not saved; this manager stops until it reads it again", "error", err)
+		return false
 	}
+	u.revision = revision
+	u.mirror(ctx, u.status)
 	data, err := json.Marshal(u.status)
 	if err == nil {
 		err = u.Conn.Publish(protocol.MeshPullProgressPrefix+u.Region, data)
 	}
 	if err != nil {
 		slog.WarnContext(ctx, "pull rollout progress not published", "error", err)
+	}
+	return true
+}
+
+func (u *Updater) mirror(ctx context.Context, status Status) {
+	if err := write(u.State, status); err != nil {
+		slog.WarnContext(ctx, "pull rollout record not mirrored for the host's health report", "error", err)
 	}
 }

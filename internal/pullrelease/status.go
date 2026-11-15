@@ -13,16 +13,18 @@ import (
 )
 
 const (
-	PhaseIdle       = "idle"
-	PhaseRolling    = "rolling"
-	PhaseComplete   = "complete"
-	PhaseRefused    = "refused"
-	PhaseRolledBack = "rolled_back"
-	PhaseWaiting    = "waiting"
+	PhaseIdle        = "idle"
+	PhaseRolling     = "rolling"
+	PhaseComplete    = "complete"
+	PhaseRefused     = "refused"
+	PhaseRollingBack = "rolling_back"
+	PhaseRolledBack  = "rolled_back"
+	PhaseWaiting     = "waiting"
 
 	HostPending    = "pending"
 	HostInstalling = "installing"
 	HostGating     = "gating"
+	HostRestoring  = "restoring"
 	HostDone       = "done"
 	HostRolledBack = "rolled_back"
 
@@ -40,12 +42,14 @@ type HostProgress struct {
 
 type Status struct {
 	Region  string                 `json:"region"`
+	Owner   string                 `json:"owner,omitempty"`
 	Phase   string                 `json:"phase"`
 	Target  *releaseattest.Release `json:"target,omitempty"`
 	Hosts   []HostProgress         `json:"hosts,omitempty"`
 	Reason  string                 `json:"reason,omitempty"`
 	Bad     []string               `json:"bad,omitempty"`
 	Nudged  string                 `json:"nudged,omitempty"`
+	Push    *PushClaim             `json:"push,omitempty"`
 	Checked time.Time              `json:"checked,omitzero"`
 	Updated time.Time              `json:"updated,omitzero"`
 }
@@ -88,6 +92,10 @@ func write(state string, status Status) error {
 	return os.Rename(file.Name(), path)
 }
 
+func (s Status) active() bool {
+	return s.Phase == PhaseRolling || s.Phase == PhaseWaiting || s.Phase == PhaseRollingBack
+}
+
 func (s *Status) bad(tag string) bool {
 	for _, known := range s.Bad {
 		if known == tag {
@@ -123,6 +131,12 @@ func (s Status) String() string {
 	}
 	if s.Reason != "" {
 		line += " (" + s.Reason + ")"
+	}
+	if s.Owner != "" {
+		line += " by " + s.Owner
+	}
+	if s.Push != nil {
+		line += "; push " + s.Push.Release + " holds the region until " + s.Push.Until.UTC().Format(time.RFC3339)
 	}
 	parts := []string{line}
 	for _, host := range s.Hosts {

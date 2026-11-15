@@ -2,6 +2,7 @@ package releasepush
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
@@ -17,9 +18,11 @@ const (
 	PullInstall  = "install"
 	PullRollback = "rollback"
 
-	stateRestoring = "restoring"
-	nudgeSpacing   = 10 * time.Second
-	bundleLimit    = 4 << 20
+	stateRestoring  = "restoring"
+	nudgeSpacing    = 10 * time.Second
+	readyCheck      = 2 * time.Second
+	WorkerReadyWait = 3 * time.Minute
+	bundleLimit     = 4 << 20
 )
 
 type Nudge struct {
@@ -165,4 +168,39 @@ func (h *Handler) rollbackPulled(ctx context.Context, release releaseattest.Rele
 	h.rolledBack.Store(&record)
 	h.pending = installed
 	return Reply{State: stateRestoring, Version: h.Revision, RolledBack: release.SHA, Error: reason}
+}
+
+func AwaitReady(ctx context.Context, conn *nats.Conn, region, host, sha string, digests map[string]string) error {
+	ctx, cancel := context.WithTimeout(ctx, WorkerReadyWait)
+	defer cancel()
+	request, err := json.Marshal(PullRequest{Op: PullStatus})
+	if err != nil {
+		return err
+	}
+	tick := time.NewTicker(readyCheck)
+	defer tick.Stop()
+	last := "no answer"
+	for {
+		asked, done := context.WithTimeout(ctx, readyCheck)
+		message, err := conn.RequestWithContext(asked, PullSubject(region, host), request)
+		done()
+		var reply Reply
+		switch {
+		case err != nil:
+			last = "no answer: " + err.Error()
+		case protocol.DecodeTolerant(message.Data, &reply, 64<<10) != nil:
+			last = "unreadable status"
+		case reply.Version != sha || reply.SHA256 != digests[reply.Arch]:
+			last = "runs " + reply.Version
+		case reply.State != "" || reply.Health != "ok":
+			last = "release " + reply.State + " " + reply.Health
+		default:
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("not ready within %s: %s", WorkerReadyWait, last)
+		case <-tick.C:
+		}
+	}
 }
