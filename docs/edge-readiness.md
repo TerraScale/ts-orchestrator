@@ -27,7 +27,10 @@ hop terminates at the chosen host without another balancing hop. A peer whose
 dial fails is skipped for 15 seconds, or until it next advertises ready
 services, whichever comes first. While the executor holds a local port for a
 stopping task, the edge sends new requests to a ready peer, and holds them for
-the replacement only when no peer is ready. Mesh announcement freshness bounds
+the replacement only when no peer is ready. When neither the local service nor a
+peer is marked ready, the edge probes the local readiness route once before
+answering 503, so a task that just became ready (for example after a rollback)
+is served before the next 5-second readiness refresh. Mesh announcement freshness bounds
 peer retention. Routes on port 8080 use the fenced regional writer router from
 every host, so SQL writes from any edge reach the region's writer.
 

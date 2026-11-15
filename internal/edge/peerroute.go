@@ -70,6 +70,19 @@ func (e *Edge) peerRecentlyFailed(address string) bool {
 	return false
 }
 
+func (e *Edge) localReadyNow(ctx context.Context, routes *serviceRoutes, service string) bool {
+	for _, route := range *e.readyRoutes.Load() {
+		if routes.hosts[strings.ToLower(route.Host)] != service || !probeLocal(ctx, route) {
+			continue
+		}
+		ready := maps.Clone(routes.ready)
+		ready[service] = true
+		e.serviceRoutes.CompareAndSwap(routes, &serviceRoutes{hosts: routes.hosts, ready: ready})
+		return true
+	}
+	return false
+}
+
 func (e *Edge) peerAdvertised(peer mesh.WorkerPeer) {
 	if len(peer.ReadyServices) != 0 {
 		e.peerDialFailed.Delete(peer.Address)
@@ -137,6 +150,9 @@ func (e *Edge) routePeerEdge(r *http.Request, balance bool) *http.Request {
 		}
 	}
 	if len(addresses) == 0 && held {
+		return r
+	}
+	if len(addresses) == 0 && !e.draining.Load() && e.localReadyNow(r.Context(), routes, service) {
 		return r
 	}
 	if len(addresses) == 0 {

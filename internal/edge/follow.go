@@ -52,10 +52,25 @@ func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeI
 	}
 }
 
-func localReadyServices(ctx context.Context, routes []ReadinessRoute, services map[string]string) []string {
+func probeLocal(ctx context.Context, route ReadinessRoute) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(probeCtx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(route.Port))+route.Path, nil)
+	if err != nil {
+		return false
+	}
+	request.Host = route.Host
 	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: time.Second}).DialContext, DisableKeepAlives: true, MaxResponseHeaderBytes: 8 << 10}
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := (&http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(request)
+	if err != nil {
+		return false
+	}
+	response.Body.Close()
+	return response.StatusCode == http.StatusOK
+}
+
+func localReadyServices(ctx context.Context, routes []ReadinessRoute, services map[string]string) []string {
 	var mu sync.Mutex
 	ready := []string{}
 	var probes sync.WaitGroup
@@ -65,19 +80,7 @@ func localReadyServices(ctx context.Context, routes []ReadinessRoute, services m
 			continue
 		}
 		probes.Go(func() {
-			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-			request, err := http.NewRequestWithContext(probeCtx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(route.Port))+route.Path, nil)
-			if err != nil {
-				return
-			}
-			request.Host = route.Host
-			response, err := client.Do(request)
-			if err != nil {
-				return
-			}
-			response.Body.Close()
-			if response.StatusCode == http.StatusOK {
+			if probeLocal(ctx, route) {
 				mu.Lock()
 				ready = append(ready, service)
 				mu.Unlock()
