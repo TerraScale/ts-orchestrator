@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -11,28 +13,35 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"math/big"
 	"net/url"
 	"time"
 
+	"github.com/digitorus/timestamp"
 	"github.com/secure-systems-lab/go-securesystemslib/dsse"
 	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
 	protocommon "github.com/sigstore/protobuf-specs/gen/pb-go/common/v1"
 	protodsse "github.com/sigstore/protobuf-specs/gen/pb-go/dsse"
 	protorekor "github.com/sigstore/protobuf-specs/gen/pb-go/rekor/v1"
+	"github.com/sigstore/rekor/pkg/types"
+	rekordsse "github.com/sigstore/rekor/pkg/types/dsse"
+	dssev001 "github.com/sigstore/rekor/pkg/types/dsse/v0.0.1"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/root"
-	"github.com/sigstore/sigstore-go/pkg/testing/ca"
-	"github.com/sigstore/sigstore-go/pkg/tlog"
 )
 
 const inTotoPayload = "application/vnd.in-toto+json"
 
 type testSigstore struct {
-	virtual         *ca.VirtualSigstore
-	root            *x509.Certificate
+	fulcioRoot      *x509.Certificate
 	intermediate    *x509.Certificate
 	intermediateKey *ecdsa.PrivateKey
+	tsaRoot         *x509.Certificate
+	tsaLeaf         *x509.Certificate
+	tsaKey          *ecdsa.PrivateKey
+	rekorKey        *ecdsa.PrivateKey
+	logID           []byte
 }
 
 type identity struct {
@@ -43,37 +52,64 @@ type identity struct {
 
 var mainIdentity = identity{workflow: "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main", ref: "refs/heads/main", trigger: "push"}
 
+func key() *ecdsa.PrivateKey {
+	generated, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	must(err)
+	return generated
+}
+
+func certificate(template, parent *x509.Certificate, public *ecdsa.PublicKey, signer *ecdsa.PrivateKey) *x509.Certificate {
+	if parent == nil {
+		parent = template
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, parent, public, signer)
+	must(err)
+	parsed, err := x509.ParseCertificate(der)
+	must(err)
+	return parsed
+}
+
+func authority(name string, serial int64) *x509.Certificate {
+	return &x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: name, Organization: []string{"e2e"}},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(2 * time.Hour),
+		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign, BasicConstraintsValid: true, IsCA: true}
+}
+
 func newSigstore() *testSigstore {
-	virtual, err := ca.NewVirtualSigstore()
+	s := &testSigstore{intermediateKey: key(), tsaKey: key(), rekorKey: key()}
+	rootKey, tsaRootKey := key(), key()
+	s.fulcioRoot = certificate(authority("e2e fulcio root", 1), nil, &rootKey.PublicKey, rootKey)
+	intermediate := authority("e2e fulcio intermediate", 2)
+	intermediate.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning}
+	s.intermediate = certificate(intermediate, s.fulcioRoot, &s.intermediateKey.PublicKey, rootKey)
+	s.tsaRoot = certificate(authority("e2e tsa root", 3), nil, &tsaRootKey.PublicKey, tsaRootKey)
+	usage, err := asn1.Marshal([]asn1.ObjectIdentifier{{1, 3, 6, 1, 5, 5, 7, 3, 8}})
 	must(err)
-	rootCert, rootKey, err := ca.GenerateRootCa()
+	s.tsaLeaf = certificate(&x509.Certificate{SerialNumber: big.NewInt(4), Subject: pkix.Name{CommonName: "e2e tsa"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(2 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature,
+		ExtraExtensions: []pkix.Extension{{Id: asn1.ObjectIdentifier{2, 5, 29, 37}, Critical: true, Value: usage}}},
+		s.tsaRoot, &s.tsaKey.PublicKey, tsaRootKey)
+	public, err := x509.MarshalPKIXPublicKey(&s.rekorKey.PublicKey)
 	must(err)
-	intermediate, intermediateKey, err := ca.GenerateFulcioIntermediate(rootCert, rootKey)
-	must(err)
-	return &testSigstore{virtual: virtual, root: rootCert, intermediate: intermediate, intermediateKey: intermediateKey}
+	sum := sha256.Sum256(public)
+	s.logID = sum[:]
+	return s
 }
 
 func (s *testSigstore) trustedRoot() []byte {
-	fulcio := &root.FulcioCertificateAuthority{Root: s.root, Intermediates: []*x509.Certificate{s.intermediate},
-		ValidityPeriodStart: time.Now().Add(-time.Hour), ValidityPeriodEnd: time.Now().Add(time.Hour), URI: "https://fulcio.e2e.invalid"}
+	start, end := time.Now().Add(-time.Hour), time.Now().Add(2*time.Hour)
+	fulcio := &root.FulcioCertificateAuthority{Root: s.fulcioRoot, Intermediates: []*x509.Certificate{s.intermediate},
+		ValidityPeriodStart: start, ValidityPeriodEnd: end, URI: "https://fulcio.e2e.invalid"}
+	tsa := &root.SigstoreTimestampingAuthority{Root: s.tsaRoot, Leaf: s.tsaLeaf, URI: "https://tsa.e2e.invalid",
+		ValidityPeriodStart: start, ValidityPeriodEnd: end}
+	logs := map[string]*root.TransparencyLog{hex.EncodeToString(s.logID): {BaseURL: "https://rekor.e2e.invalid", ID: s.logID,
+		ValidityPeriodStart: start, ValidityPeriodEnd: end, HashFunc: crypto.SHA256, PublicKey: &s.rekorKey.PublicKey, SignatureHashFunc: crypto.SHA256}}
 	trusted, err := root.NewTrustedRoot(root.TrustedRootMediaType01, []root.CertificateAuthority{fulcio},
-		rawLogIDs(s.virtual.CTLogs()), s.virtual.TimestampingAuthorities(), rawLogIDs(s.virtual.RekorLogs()))
+		map[string]*root.TransparencyLog{}, []root.TimestampingAuthority{tsa}, logs)
 	must(err)
 	data, err := trusted.MarshalJSON()
 	must(err)
 	return data
-}
-
-func rawLogIDs(logs map[string]*root.TransparencyLog) map[string]*root.TransparencyLog {
-	raw := map[string]*root.TransparencyLog{}
-	for id, log := range logs {
-		decoded, err := hex.DecodeString(id)
-		must(err)
-		copied := *log
-		copied.ID = decoded
-		raw[id] = &copied
-	}
-	return raw
 }
 
 func extension(oid int, value string) pkix.Extension {
@@ -82,7 +118,7 @@ func extension(oid int, value string) pkix.Extension {
 	return pkix.Extension{Id: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, oid}, Value: encoded}
 }
 
-func (s *testSigstore) leaf(key *ecdsa.PrivateKey, who identity, sha, run string, now time.Time) *x509.Certificate {
+func (s *testSigstore) leaf(signing *ecdsa.PrivateKey, who identity, sha, run string, now time.Time) *x509.Certificate {
 	signer, err := url.Parse("https://github.com/" + who.workflow)
 	must(err)
 	repository := "https://github.com/TerraScale/ts-orchestrator"
@@ -104,18 +140,13 @@ func (s *testSigstore) leaf(key *ecdsa.PrivateKey, who identity, sha, run string
 			extension(21, repository+"/actions/runs/"+run+"/attempts/1"),
 		},
 	}
-	der, err := x509.CreateCertificate(rand.Reader, template, s.intermediate, key.Public(), s.intermediateKey)
-	must(err)
-	certificate, err := x509.ParseCertificate(der)
-	must(err)
-	return certificate
+	return certificate(template, s.intermediate, &signing.PublicKey, s.intermediateKey)
 }
 
 func (s *testSigstore) bundle(who identity, sha, run string, subjects map[string][]byte) []byte {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	must(err)
+	signing := key()
 	now := time.Now()
-	leaf := s.leaf(key, who, sha, run, now)
+	leaf := s.leaf(signing, who, sha, run, now)
 	type subject struct {
 		Name   string            `json:"name"`
 		Digest map[string]string `json:"digest"`
@@ -134,29 +165,24 @@ func (s *testSigstore) bundle(who identity, sha, run string, subjects map[string
 	payload, err := json.Marshal(statement)
 	must(err)
 	digest := sha256.Sum256(dsse.PAE(inTotoPayload, payload))
-	signature, err := ecdsa.SignASN1(rand.Reader, key, digest[:])
+	signature, err := ecdsa.SignASN1(rand.Reader, signing, digest[:])
 	must(err)
-	envelope := &dsse.Envelope{PayloadType: inTotoPayload, Payload: base64.StdEncoding.EncodeToString(payload),
-		Signatures: []dsse.Signature{{Sig: base64.StdEncoding.EncodeToString(signature)}}}
-	entry, err := s.virtual.GenerateTlogEntry(leaf, envelope, signature, now.Unix(), true)
+	envelope, err := json.Marshal(dsse.Envelope{PayloadType: inTotoPayload, Payload: base64.StdEncoding.EncodeToString(payload),
+		Signatures: []dsse.Signature{{Sig: base64.StdEncoding.EncodeToString(signature)}}})
 	must(err)
-	logID, err := s.virtual.RekorLogID()
-	must(err)
-	logEntry := entry.TransparencyLogEntry()
-	set, err := s.virtual.RekorSignPayload(tlog.RekorPayload{Body: base64.StdEncoding.EncodeToString(logEntry.CanonicalizedBody),
-		IntegratedTime: now.Unix(), LogIndex: logEntry.LogIndex, LogID: logID})
-	must(err)
-	logEntry.InclusionPromise = &protorekor.InclusionPromise{SignedEntryTimestamp: set}
-	logEntry.KindVersion = &protorekor.KindVersion{Kind: "dsse", Version: "0.0.1"}
-	timestamp, err := s.virtual.TimestampResponse(signature)
-	must(err)
+	body := s.rekorBody(envelope, leaf)
+	set := s.signedEntryTimestamp(body, now.Unix())
 	built, err := bundle.NewBundle(&protobundle.Bundle{
-		MediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+		MediaType: "application/vnd.dev.sigstore.bundle+json;version=0.1",
 		VerificationMaterial: &protobundle.VerificationMaterial{
-			Content:     &protobundle.VerificationMaterial_Certificate{Certificate: &protocommon.X509Certificate{RawBytes: leaf.Raw}},
-			TlogEntries: []*protorekor.TransparencyLogEntry{logEntry},
+			Content: &protobundle.VerificationMaterial_X509CertificateChain{X509CertificateChain: &protocommon.X509CertificateChain{
+				Certificates: []*protocommon.X509Certificate{{RawBytes: leaf.Raw}}}},
+			TlogEntries: []*protorekor.TransparencyLogEntry{{
+				LogIndex: 0, LogId: &protocommon.LogId{KeyId: s.logID}, KindVersion: &protorekor.KindVersion{Kind: "dsse", Version: "0.0.1"},
+				IntegratedTime: now.Unix(), InclusionPromise: &protorekor.InclusionPromise{SignedEntryTimestamp: set}, CanonicalizedBody: body,
+			}},
 			TimestampVerificationData: &protobundle.TimestampVerificationData{
-				Rfc3161Timestamps: []*protocommon.RFC3161SignedTimestamp{{SignedTimestamp: timestamp}}},
+				Rfc3161Timestamps: []*protocommon.RFC3161SignedTimestamp{{SignedTimestamp: s.timestamp(signature, now)}}},
 		},
 		Content: &protobundle.Bundle_DsseEnvelope{DsseEnvelope: &protodsse.Envelope{Payload: payload, PayloadType: inTotoPayload,
 			Signatures: []*protodsse.Signature{{Sig: signature}}}},
@@ -165,4 +191,38 @@ func (s *testSigstore) bundle(who identity, sha, run string, subjects map[string
 	data, err := built.MarshalJSON()
 	must(err)
 	return data
+}
+
+func (s *testSigstore) rekorBody(envelope []byte, leaf *x509.Certificate) []byte {
+	ctx := context.Background()
+	proposed, err := types.NewProposedEntry(ctx, rekordsse.KIND, dssev001.APIVERSION, types.ArtifactProperties{
+		ArtifactBytes: envelope, PublicKeyBytes: [][]byte{pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})}, PKIFormat: "x509"})
+	must(err)
+	entry, err := types.CreateVersionedEntry(proposed)
+	must(err)
+	body, err := types.CanonicalizeEntry(ctx, entry)
+	must(err)
+	return body
+}
+
+func (s *testSigstore) signedEntryTimestamp(body []byte, integrated int64) []byte {
+	payload, err := json.Marshal(struct {
+		Body           string `json:"body"`
+		IntegratedTime int64  `json:"integratedTime"`
+		LogID          string `json:"logID"`
+		LogIndex       int64  `json:"logIndex"`
+	}{base64.StdEncoding.EncodeToString(body), integrated, hex.EncodeToString(s.logID), 0})
+	must(err)
+	digest := sha256.Sum256(payload)
+	set, err := ecdsa.SignASN1(rand.Reader, s.rekorKey, digest[:])
+	must(err)
+	return set
+}
+
+func (s *testSigstore) timestamp(signature []byte, now time.Time) []byte {
+	digest := sha256.Sum256(signature)
+	response, err := (&timestamp.Timestamp{HashAlgorithm: crypto.SHA256, HashedMessage: digest[:], Time: now,
+		Policy: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 2}}).CreateResponseWithOpts(s.tsaLeaf, s.tsaKey, crypto.SHA256)
+	must(err)
+	return response
 }
