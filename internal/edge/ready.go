@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,7 +13,6 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -30,14 +30,13 @@ type Readiness struct {
 	Missing      []string
 	MissingNames []string
 	NotDurable   []string
-	infra        []string
 }
 
-func (r Readiness) InfraErr() error {
-	if len(r.infra) == 0 {
-		return nil
+func (e *Edge) ListenerErr() error {
+	if e.listeners.Load() != 15 {
+		return errors.New("edge listeners unavailable")
 	}
-	return fmt.Errorf("edge not ready: %s", strings.Join(r.infra, ", "))
+	return nil
 }
 
 func (e *Edge) Readiness(ctx context.Context) Readiness {
@@ -55,7 +54,7 @@ func (e *Edge) report() Readiness {
 	infra := e.infrastructure()
 	pending, missingNames := e.certificateGaps()
 	missing := append(slices.Clone(infra), pending...)
-	return Readiness{Ready: len(missing) == 0 && len(missingNames) == 0, Missing: missing, MissingNames: missingNames, NotDurable: e.notDurable(), infra: infra}
+	return Readiness{Ready: len(missing) == 0 && len(missingNames) == 0, Missing: missing, MissingNames: missingNames, NotDurable: e.notDurable()}
 }
 
 func (e *Edge) SetReadinessRoutes(routes []ReadinessRoute) {
@@ -66,9 +65,8 @@ func listenerBit(protocol string) uint32 {
 	return map[string]uint32{"http": 1, "https": 2, "postgres": 4, "terrabase": 8}[protocol]
 }
 
-func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request) {
+func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request, detail bool) {
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -78,11 +76,16 @@ func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	readiness := e.Readiness(r.Context())
+	status := http.StatusServiceUnavailable
 	if readiness.Ready {
-		w.WriteHeader(http.StatusOK)
-	} else {
-		w.WriteHeader(http.StatusServiceUnavailable)
+		status = http.StatusOK
 	}
+	if !detail {
+		w.WriteHeader(status)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(struct {
 		Ready        bool     `json:"ready"`
 		Missing      []string `json:"missing"`

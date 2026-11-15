@@ -108,7 +108,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			syncEdgeInventory(ctx, *state, plan.region, func(current mesh.EdgeInventory) {
 				local.Store(&current)
 				if node := meshNode.Load(); node != nil {
-					if err := node.PublishEdgeInventory(current); err != nil {
+					if err := node.PublishEdgeInventory(*state, current); err != nil {
 						slog.WarnContext(ctx, "edge inventory publication failed", "error", err)
 					}
 				}
@@ -131,7 +131,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 					node.SetRegionalDrainer(public.DrainRegionalNode)
 					node.SetBootstrap(public.Bootstrap)
 				} else {
-					follow := node.FollowEdgeInventory()
+					follow := node.FollowEdgeInventory(*state)
 					inventory.Store(&follow)
 				}
 			})
@@ -145,8 +145,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 		} else {
 			result.Mesh = errors.New("mesh not started")
 		}
-		readiness := public.Readiness(ctx)
-		result.Edge = readiness.InfraErr()
+		result.Edge = public.ListenerErr()
 		return result
 	}, func(ctx context.Context) error {
 		if node := meshNode.Load(); node != nil {

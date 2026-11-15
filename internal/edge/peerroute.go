@@ -70,6 +70,12 @@ func (e *Edge) peerRecentlyFailed(address string) bool {
 	return false
 }
 
+func (e *Edge) peerAdvertised(peer mesh.WorkerPeer) {
+	if len(peer.ReadyServices) != 0 {
+		e.peerDialFailed.Delete(peer.Address)
+	}
+}
+
 func (e *Edge) authorizeEdgeHop(w http.ResponseWriter, r *http.Request) bool {
 	values := r.Header.Values(edgeHopHeader)
 	if len(values) == 0 {

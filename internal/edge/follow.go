@@ -14,7 +14,7 @@ import (
 )
 
 func (e *Edge) JoinMesh(node *mesh.Node) {
-	e.SetPeerEdges(node.EdgePeers(e.ReadyServices))
+	e.SetPeerEdges(node.EdgePeers(e.ReadyServices, e.peerAdvertised))
 	e.SetRegionalNodes(node.RegionalNodes)
 	e.SetMesh(node)
 }
@@ -24,7 +24,11 @@ func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeI
 	defer tick.Stop()
 	var nextProof time.Time
 	for {
-		if current, ok := inventory(); ok {
+		current, ok := inventory()
+		if !ok {
+			e.SetServiceRoutes(map[string]int{}, map[string]int{}, map[string]string{}, nil)
+			e.SetReadinessRoutes(nil)
+		} else {
 			if time.Now().After(nextProof) {
 				proofCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 				if err := proof(proofCtx, current.ProofRef); err != nil {

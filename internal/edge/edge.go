@@ -297,7 +297,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 			}
 			e.identify(w, r)
 			if r.URL.Path == "/edge/ready" {
-				e.serveReady(w, r)
+				e.serveReady(w, r, false)
 				return
 			}
 			// A Postgres hostname needs :80 only for its certificate's challenge.
@@ -355,7 +355,7 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	}
 	e.identify(w, r)
 	if r.URL.Path == "/edge/ready" {
-		e.serveReady(w, r)
+		e.serveReady(w, r, false)
 		return
 	}
 	if e.drainingHealth(w, r) {
