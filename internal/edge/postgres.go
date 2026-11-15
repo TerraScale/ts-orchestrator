@@ -13,7 +13,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // PostgresPort is the public Postgres port. Clients must use TLS (sslmode=require
@@ -59,59 +62,90 @@ func (e *Edge) servePostgresTLS(ln net.Listener, config *tls.Config) error {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		release, ok := e.admitPostgresHandshake(conn.RemoteAddr())
+		release, ok := e.admitPostgresHandshake(conn)
 		if !ok {
-			conn.Close()
 			continue
 		}
 		go e.postgresConn(conn, config, release)
 	}
 }
 
-func (e *Edge) admitPostgresHandshake(addr net.Addr) (func(), bool) {
+var (
+	postgresPreauthInFlight      atomic.Int64
+	postgresPreauthRefusedSource atomic.Uint64
+	postgresPreauthRefusedGlobal atomic.Uint64
+)
+
+func WritePostgresPreauthMetrics(w io.Writer) {
+	observability.WriteGauge(w, "ts_orch_edge_postgres_preauth_handshakes", float64(postgresPreauthInFlight.Load()))
+	observability.WriteCounter(w, observability.Series("ts_orch_edge_postgres_preauth_refusals_total", "reason", "source"), float64(postgresPreauthRefusedSource.Load()))
+	observability.WriteCounter(w, observability.Series("ts_orch_edge_postgres_preauth_refusals_total", "reason", "global"), float64(postgresPreauthRefusedGlobal.Load()))
+}
+
+func (e *Edge) admitPostgresHandshake(conn net.Conn) (func(), bool) {
+	source := postgresSource(conn.RemoteAddr())
+	e.pgHandshakeMu.Lock()
+	if e.pgHandshakeN[source] >= maxPostgresHandshakes {
+		e.pgHandshakeMu.Unlock()
+		e.refusePostgresPreauth(conn, false)
+		return nil, false
+	}
 	select {
 	case e.pgHandshakes <- struct{}{}:
 	default:
-		return nil, false
-	}
-	ip := postgresPeerIP(addr)
-	e.pgHandshakeMu.Lock()
-	if e.pgHandshakeN[ip] >= maxPostgresHandshakes {
 		e.pgHandshakeMu.Unlock()
-		<-e.pgHandshakes
+		e.refusePostgresPreauth(conn, true)
 		return nil, false
 	}
-	e.pgHandshakeN[ip]++
+	e.pgHandshakeN[source]++
+	postgresPreauthInFlight.Add(1)
 	e.pgHandshakeMu.Unlock()
 	return sync.OnceFunc(func() {
 		e.pgHandshakeMu.Lock()
-		e.pgHandshakeN[ip]--
-		if e.pgHandshakeN[ip] == 0 {
-			delete(e.pgHandshakeN, ip)
+		e.pgHandshakeN[source]--
+		if e.pgHandshakeN[source] == 0 {
+			delete(e.pgHandshakeN, source)
 		}
+		postgresPreauthInFlight.Add(-1)
 		e.pgHandshakeMu.Unlock()
 		<-e.pgHandshakes
 	}), true
 }
 
-func postgresPeerIP(addr net.Addr) string {
+func (e *Edge) refusePostgresPreauth(conn net.Conn, global bool) {
+	code, message := "08004", "too many connection attempts from your network; retry shortly"
+	if global {
+		postgresPreauthRefusedGlobal.Add(1)
+		message = "too many connection attempts; retry shortly"
+	} else {
+		postgresPreauthRefusedSource.Add(1)
+	}
+	_, _ = conn.Write(postgresError(code, message))
+	conn.Close()
+}
+
+func postgresSource(addr net.Addr) string {
+	if addr == nil {
+		return ""
+	}
 	var ip net.IP
 	if tcp, ok := addr.(*net.TCPAddr); ok {
 		ip = tcp.IP
-	} else {
-		host, _, err := net.SplitHostPort(addr.String())
-		if err != nil {
-			return addr.String()
-		}
+	} else if host, _, err := net.SplitHostPort(addr.String()); err == nil {
 		ip = net.ParseIP(host)
-		if ip == nil {
-			return host
-		}
+	}
+	if ip == nil {
+		return addr.String()
 	}
 	if v4 := ip.To4(); v4 != nil {
 		return v4.String()
 	}
-	return ip.String()
+	prefix := make(net.IP, net.IPv6len)
+	copy(prefix, ip.To16())
+	for i := net.IPv6len / 2; i < net.IPv6len; i++ {
+		prefix[i] = 0
+	}
+	return prefix.String()
 }
 
 // bufConn reads through r so bytes peeked before the TLS handshake are not lost.

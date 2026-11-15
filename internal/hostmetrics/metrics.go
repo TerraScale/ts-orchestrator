@@ -167,6 +167,7 @@ func Handler(region, address string, executor *swarmruntime.Executor) http.Handl
 		observability.WriteEdgeListenerMetrics(&body)
 		observability.WriteNodeFeatureMetrics(&body)
 		observability.WriteEdgeResponseMetrics(&body)
+		edge.WritePostgresPreauthMetrics(&body)
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		_, _ = w.Write(body.Bytes())
 	})

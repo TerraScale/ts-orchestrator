@@ -66,6 +66,7 @@ jobs:
           - {lane: recovery, entry: recovery.sh, timeout: 5}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
           - {lane: data-volume, entry: data-volume.sh, timeout: 8, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
+          - {lane: postgres-preauth, entry: postgres-preauth.sh, timeout: 3, packages: "./test/e2e/m1/postgres-preauth"}
     name: e2e-m1 / ${{ matrix.lane }}
     concurrency:
       group: e2e-m1-${{ matrix.lane }}-${{ github.ref }}
