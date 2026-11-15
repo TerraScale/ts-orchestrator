@@ -22,7 +22,11 @@ cleanup() {
  exit "$result"
 }
 trap cleanup EXIT
-previous="${CERTIFICATE_PREVIOUS_REF:-8bc71eb416af482823ec9165a4e799acd95330df}"
+if [[ -n ${CHANGE_BASE:-} && ${CHANGE_BASE:-} != 0000000000000000000000000000000000000000 ]]; then
+ previous=$CHANGE_BASE
+else
+ previous=main
+fi
 git fetch origin "$previous"
 mkdir "$work/main"
 git archive FETCH_HEAD | tar -x -C "$work/main"
