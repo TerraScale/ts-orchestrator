@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/oraclehost"
 )
@@ -137,6 +139,28 @@ func meshUp(ctx context.Context, fleet *oraclehost.Fleet) {
 		})
 	}
 	step("every manager's mesh is up and every region answers ts-orch status over it")
+}
+
+func installNodeList(fleet *oraclehost.Fleet) {
+	list := nodelist.List{Sequence: 1}
+	for index, host := range fleet.Hosts {
+		state := filepath.Join(host.Dir, "state")
+		keys, err := nodelist.ReadKeys(state)
+		must(err)
+		meshIP, err := nodelist.MeshIP(host.Name, host.Region.Name)
+		must(err)
+		list.Nodes = append(list.Nodes, nodelist.Node{
+			Name: host.Name, Region: host.Region.Name,
+			PublicIP: fmt.Sprintf("198.51.100.%d", index+1), PrivateIP: host.Address,
+			MeshIP: meshIP, WGPublicKey: keys.WGPublicKey, TLSSPKISHA256: keys.TLSSPKISHA256,
+		})
+	}
+	must(list.Validate())
+	wire, err := protocol.EncodeJSON(list)
+	must(err)
+	for _, host := range fleet.Hosts {
+		must(os.WriteFile(filepath.Join(host.Dir, "state", "node", "nodes.json"), wire, 0o600))
+	}
 }
 
 func installEdgeCert(fleet *oraclehost.Fleet) string {
@@ -316,6 +340,8 @@ func main() {
 	}
 	step("workers joined from Vault join material and sent READY=1")
 	meshUp(ctx, fleet)
+	installNodeList(fleet)
+	step("node list names every host so workers can verify their manager's edge inventory")
 	applied := filepath.Join(work, "workload.json")
 	data, err := json.Marshal(spec)
 	must(err)
