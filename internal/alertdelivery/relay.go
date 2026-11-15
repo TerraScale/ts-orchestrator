@@ -56,6 +56,7 @@ func Run(ctx context.Context, args []string) error {
 	noRedirect := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	pushTransport := http.DefaultTransport.(*http.Transport).Clone()
 	pushTransport.Proxy = nil
+	pushTransport.MaxConnsPerHost = 1
 	r := relay{budget: newEmailBudget(), client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: noRedirect}, pushClient: &http.Client{Timeout: notificationDeadline, Transport: pushTransport, CheckRedirect: noRedirect}, endpoint: emailEndpoint, pushEndpoint: pushEndpoint, read: readCredentials, readTopic: readPushTopic}
 	if len(args) == 1 {
 		return r.subscribe(ctx)
