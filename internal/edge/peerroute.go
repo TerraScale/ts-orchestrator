@@ -56,23 +56,9 @@ func (e *Edge) ReadyServices() []string {
 
 func (e *Edge) SetPeerEdges(peers func() []mesh.WorkerPeer) { e.peerEdges.Store(&peers) }
 
-const peerDialBackoff = 15 * time.Second
-
-func (e *Edge) peerRecentlyFailed(address string) bool {
-	failed, ok := e.peerDialFailed.Load(address)
-	if !ok {
-		return false
-	}
-	if time.Since(failed.(time.Time)) < peerDialBackoff {
-		return true
-	}
-	e.peerDialFailed.CompareAndDelete(address, failed)
-	return false
-}
-
 func (e *Edge) localReadyNow(ctx context.Context, routes *serviceRoutes, service string) bool {
 	for _, route := range *e.readyRoutes.Load() {
-		if routes.hosts[strings.ToLower(route.Host)] != service || !probeLocal(ctx, route) {
+		if routes.hosts[strings.ToLower(route.Host)] != service || !probeLocal(ctx, route, localProbeNow) {
 			continue
 		}
 		ready := maps.Clone(routes.ready)
@@ -84,8 +70,34 @@ func (e *Edge) localReadyNow(ctx context.Context, routes *serviceRoutes, service
 }
 
 func (e *Edge) peerAdvertised(peer mesh.WorkerPeer) {
+	e.peerSeen.Store(peer.Address, time.Now())
 	if len(peer.ReadyServices) != 0 {
-		e.peerDialFailed.Delete(peer.Address)
+		e.peerDown.Delete(peer.Address)
+	}
+}
+
+func (e *Edge) peerAlive(address string) bool {
+	seen, ok := e.peerSeen.Load(address)
+	return ok && time.Since(seen.(time.Time)) <= time.Duration(e.peerLiveness.Load())
+}
+
+func (e *Edge) watchPeer(address string, done <-chan struct{}, cancel context.CancelFunc) {
+	liveness := time.Duration(e.peerLiveness.Load())
+	if liveness <= 0 {
+		return
+	}
+	tick := time.NewTicker(liveness / 4)
+	defer tick.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-tick.C:
+			if !e.peerAlive(address) {
+				cancel()
+				return
+			}
+		}
 	}
 }
 
@@ -132,54 +144,73 @@ func (e *Edge) routePeerEdge(r *http.Request, balance bool) *http.Request {
 	}
 	local := routes.ready[service] && !e.draining.Load()
 	if r.Context().Value(edgeHopKey{}) != nil {
-		if local {
+		if local || handoff.Held(uint16(port)) {
 			return r
 		}
 		return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{}))
 	}
-	held := local && handoff.Held(uint16(port))
-	addresses := []string{}
+	held := handoff.Held(uint16(port))
 	if local && !held {
-		addresses = append(addresses, "")
+		return r
 	}
+	addresses := []string{}
 	if peers := e.peerEdges.Load(); peers != nil && e.requestProofSecret.Load() != nil {
 		for _, peer := range (*peers)() {
-			if slices.Contains(peer.ReadyServices, service) && !e.peerRecentlyFailed(peer.Address) {
+			if _, down := e.peerDown.Load(peer.Address); !down && slices.Contains(peer.ReadyServices, service) {
 				addresses = append(addresses, peer.Address)
 			}
 		}
 	}
-	if len(addresses) == 0 && held {
-		return r
+	if balance && len(addresses) > 1 {
+		value, _ := e.edgeNext.LoadOrStore(service, new(atomic.Uint64))
+		start := int((value.(*atomic.Uint64).Add(1) - 1) % uint64(len(addresses)))
+		addresses = append(slices.Clone(addresses[start:]), addresses[:start]...)
+	}
+	if held {
+		addresses = append(addresses, "")
 	}
 	if len(addresses) == 0 && !e.draining.Load() && e.localReadyNow(r.Context(), routes, service) {
 		return r
 	}
-	if len(addresses) == 0 {
-		return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{}))
-	}
 	if len(addresses) == 1 && addresses[0] == "" {
 		return r
 	}
-	start := 0
-	if balance {
-		value, _ := e.edgeNext.LoadOrStore(service, new(atomic.Uint64))
-		start = int((value.(*atomic.Uint64).Add(1) - 1) % uint64(len(addresses)))
-	}
-	addresses = append(slices.Clone(addresses[start:]), addresses[:start]...)
 	return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{addresses: addresses}))
 }
 
 type edgeAttemptBody struct {
 	io.ReadCloser
-	connected *atomic.Bool
+	consumed *atomic.Bool
+}
+
+func (b edgeAttemptBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 || err != nil {
+		b.consumed.Store(true)
+	}
+	return n, err
 }
 
 func (b edgeAttemptBody) Close() error {
-	if b.connected.Load() {
+	if b.consumed.Load() {
 		return b.ReadCloser.Close()
 	}
 	return nil
+}
+
+type peerResponseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b peerResponseBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}
+
+func idempotent(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions || method == http.MethodPut || method == http.MethodDelete
 }
 
 func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Response, error) {
@@ -207,32 +238,42 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 			transport.CloseIdleConnections()
 		}
 	}
+	hasBody := r.Body != nil && r.Body != http.NoBody
 	var lastErr error
 	for _, address := range target.addresses {
 		if address == "" {
 			return e.local.RoundTrip(r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, nil)))
 		}
-		connected := new(atomic.Bool)
-		out := r.Clone(httptrace.WithClientTrace(r.Context(), &httptrace.ClientTrace{
+		attempt, cancel := context.WithCancel(r.Context())
+		connected, consumed := new(atomic.Bool), new(atomic.Bool)
+		out := r.Clone(httptrace.WithClientTrace(attempt, &httptrace.ClientTrace{
 			GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
 		}))
 		out.URL.Scheme = "https"
 		out.URL.Host = net.JoinHostPort(address, "443")
 		out.Header.Set(peerCredentialHeader, string(*key))
 		out.Header.Set(edgeHopHeader, "1")
-		if r.Body != nil {
-			out.Body = edgeAttemptBody{ReadCloser: r.Body, connected: connected}
+		if hasBody {
+			out.Body = edgeAttemptBody{ReadCloser: r.Body, consumed: consumed}
 		}
+		done := make(chan struct{})
+		go e.watchPeer(address, done, cancel)
 		response, err := value.(*http.Transport).RoundTrip(out)
-		var dialErr *net.OpError
-		if err == nil || connected.Load() {
-			return response, err
+		close(done)
+		if err == nil {
+			response.Body = peerResponseBody{ReadCloser: response.Body, cancel: cancel}
+			return response, nil
 		}
-		if !errors.As(err, &dialErr) || dialErr.Op != "dial" || r.Context().Err() != nil {
+		cancel()
+		if r.Context().Err() != nil {
 			closeBody(r)
-			return response, err
+			return nil, err
 		}
-		e.peerDialFailed.Store(address, time.Now())
+		e.peerDown.Store(address, time.Now())
+		if consumed.Load() || connected.Load() && !hasBody && !idempotent(r.Method) {
+			closeBody(r)
+			return nil, err
+		}
 		lastErr = err
 	}
 	closeBody(r)

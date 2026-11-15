@@ -13,7 +13,15 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
+const localProbeNow = 250 * time.Millisecond
+
+func (e *Edge) SetInventoryFollower() {
+	e.follower.Store(true)
+	e.inventoryMissing.Store(true)
+}
+
 func (e *Edge) JoinMesh(node *mesh.Node) {
+	e.peerLiveness.Store(int64(3 * node.EdgeAdvertiseEvery()))
 	e.SetPeerEdges(node.EdgePeers(e.ReadyServices, e.peerAdvertised))
 	e.SetRegionalNodes(node.RegionalNodes)
 	e.SetMesh(node)
@@ -25,6 +33,7 @@ func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeI
 	var nextProof time.Time
 	for {
 		current, ok := inventory()
+		e.inventoryMissing.Store(!ok)
 		if !ok {
 			e.SetServiceRoutes(map[string]int{}, map[string]int{}, map[string]string{}, nil)
 			e.SetReadinessRoutes(nil)
@@ -52,8 +61,8 @@ func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeI
 	}
 }
 
-func probeLocal(ctx context.Context, route ReadinessRoute) bool {
-	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+func probeLocal(ctx context.Context, route ReadinessRoute, within time.Duration) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, within)
 	defer cancel()
 	request, err := http.NewRequestWithContext(probeCtx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(route.Port))+route.Path, nil)
 	if err != nil {
@@ -80,7 +89,7 @@ func localReadyServices(ctx context.Context, routes []ReadinessRoute, services m
 			continue
 		}
 		probes.Go(func() {
-			if probeLocal(ctx, route) {
+			if probeLocal(ctx, route, 2*time.Second) {
 				mu.Lock()
 				ready = append(ready, service)
 				mu.Unlock()
