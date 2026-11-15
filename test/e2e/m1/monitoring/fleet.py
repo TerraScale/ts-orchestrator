@@ -129,6 +129,7 @@ try:
         source = tools / "rendered" / f"ts-{region}-1"
         config = json.loads((source / "prometheus.yml").read_text())
         config["alerting"]["alertmanagers"][0]["static_configs"][0]["targets"] = [a + ":9093" for a in addresses]
+        config["global"].update(scrape_interval="5s", evaluation_interval="5s")
         config["scrape_configs"] = [
             {"job_name": "peer-topology", "metrics_path": "/orchestrator/metrics", "static_configs": [{"targets": ["127.0.0.1:9108"], "labels": {"region": "sjc"}}]},
         ]
