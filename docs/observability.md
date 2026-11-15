@@ -219,7 +219,7 @@ arrives, so a node that silently lost its server warns after about 3 minutes
 and turns critical after about 16. A daemon that polls less often than every
 ~3 minutes (chrony's default `maxpoll 10`) would raise false warnings; keep
 the poll interval near 64 s if the daemon changes. Insights show on the
-dashboard; no channel pushes them to a person yet (TS-625, ntfy).
+dashboard. The in-fleet relay pushes critical alerts to a person on ntfy.
 
 ## Logs and events
 
