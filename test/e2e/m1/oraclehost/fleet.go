@@ -458,6 +458,13 @@ func (f *Fleet) Close() {
 				_ = host.process.Process.Kill()
 			}
 		}
+		output, _ := exec.Command("ip", "netns", "pids", host.Namespace).Output()
+		for _, field := range strings.Fields(string(output)) {
+			var pid int
+			if _, err := fmt.Sscan(field, &pid); err == nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
 	}
 	f.standIn.close()
 }

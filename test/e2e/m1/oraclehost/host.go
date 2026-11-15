@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -240,10 +239,15 @@ func (s *supervisor) startContainerd() (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	reader, writer := io.Pipe()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
 	cmd := exec.Command(s.cfg.Containerd, "--address", "/run/containerd/containerd.sock", "--root", "/var/lib/containerd", "--state", "/run/containerd/state")
 	cmd.Stdout, cmd.Stderr = writer, writer
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	_ = writer.Close()
+	if err != nil {
 		return nil, err
 	}
 	booted := make(chan struct{})
@@ -261,7 +265,7 @@ func (s *supervisor) startContainerd() (*exec.Cmd, error) {
 		_ = logFile.Close()
 	}()
 	died := make(chan error, 1)
-	go func() { died <- cmd.Wait(); _ = writer.Close() }()
+	go func() { died <- cmd.Wait() }()
 	select {
 	case <-booted:
 		s.emit("containerd", "", "")
