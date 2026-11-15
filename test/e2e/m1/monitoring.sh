@@ -12,7 +12,12 @@ cat "$monitoring_tools/check.log"
 begin "task monitoring preserves service identity"
 python3 "$here/monitoring/policy.py"
 previous=$(mktemp -d)
-git -C "$repo" fetch --quiet --depth 1 origin main
+if [[ -n ${CHANGE_BASE:-} && ${CHANGE_BASE:-} != 0000000000000000000000000000000000000000 ]]; then
+ previous_ref=$CHANGE_BASE
+else
+ previous_ref=main
+fi
+git -C "$repo" fetch --quiet --depth 1 origin "$previous_ref"
 git -C "$repo" archive FETCH_HEAD deploy/observability test/e2e/m1/monitoring/rules.yml | tar -x -C "$previous"
 sudo nice -n 19 unshare --mount bash "$here/monitoring/remove.sh" "$repo/deploy/observability/production/install.sh" "$previous/deploy/observability/production/install.sh" "$bin" >"$monitoring_tools/remove.log" 2>&1 &
 monitoring_remove=$!
