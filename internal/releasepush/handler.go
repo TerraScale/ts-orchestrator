@@ -255,6 +255,9 @@ func (h *Handler) relayed(ctx context.Context, data []byte) Reply {
 		if worker.Error != "" {
 			slog.Warn("release worker relay incomplete", "host", worker.Host, "down", worker.Down, "error", worker.Error)
 		}
+		if h.HostReady == nil {
+			continue
+		}
 		var err error
 		switch {
 		case worker.Refusal != nil:
@@ -264,7 +267,7 @@ func (h *Handler) relayed(ctx context.Context, data []byte) Reply {
 			continue
 		case worker.Error != "":
 			err = fmt.Errorf("worker %s is up but did not answer, so this manager keeps running its binary: %s", worker.Host, worker.Error)
-		case h.HostReady != nil && worker.ID != "":
+		case worker.ID != "":
 			if err = h.HostReady(ctx, worker.ID, admitted.release.SHA, admitted.digests); err != nil {
 				err = fmt.Errorf("worker %s is not ready on %s, so this manager keeps running its binary: %w", worker.Host, admitted.release.SHA, err)
 			}
