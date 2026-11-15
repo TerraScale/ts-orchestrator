@@ -26,6 +26,7 @@ import sys
 repo, work = map(pathlib.Path, sys.argv[1:])
 source = repo / "test/e2e/m1/regional/_journey"
 replace = {
+    str(repo / "internal/app/release_health_journey.go"): str(source / "health.go"),
     str(repo / "internal/natscell/mesh/regional_journey.go"): str(source / "mesh.go"),
     str(repo / "internal/natscell/mesh/meta_journey.go"): str(source / "meta.go"),
     str(repo / "internal/edge/fleet_journey.go"): str(source / "fleet.go"),

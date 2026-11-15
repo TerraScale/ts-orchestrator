@@ -104,7 +104,7 @@ func FleetForgeEdgeInventory(node *Node, state string, older []byte) error {
 	return nil
 }
 
-func RegionalPeersJourney(root string) error {
+func RegionalPeersJourney(root string, health func(context.Context, string, *Node) error) error {
 	logrus.SetLevel(logrus.WarnLevel)
 	began := time.Now()
 	defer func() { fmt.Printf("regional peers lane elapsed: %s\n", time.Since(began).Round(time.Millisecond)) }()
@@ -234,6 +234,10 @@ func RegionalPeersJourney(root string) error {
 		ready, pending, membershipErr := peerCfg.applier.(swarmApplier).WorkerStates(context.Background())
 		return fmt.Errorf("two regions and a joined worker: %w (ready=%v pending=%v membership=%v routes=%d)", err, ready, pending, membershipErr, own.server.NumRoutes())
 	}
+	if err := health(ctx, workerState, workerAgent); err != nil {
+		return fmt.Errorf("joined worker release health differs from main: %w", err)
+	}
+	fmt.Println("ok regional peers: same as main, a real joined worker is release-healthy without a manager socket or JetStream; a missing mesh node blocks release")
 	if err := regionalPlacementJourney(ctx, control, founder); err != nil {
 		return err
 	}

@@ -90,6 +90,33 @@ func FleetHost(args []string) error {
 			if !ready.Load() {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}
+		case r.URL.Path == "/journey.Service/LongUnary":
+			timer := time.NewTimer(31 * time.Second)
+			defer timer.Stop()
+			select {
+			case <-r.Context().Done():
+				return
+			case <-timer.C:
+			}
+			w.Header().Set("Content-Type", "application/grpc")
+			w.Header().Set("Trailer", "Grpc-Status")
+			w.Header().Set("X-Journey-Host", name)
+			w.Write([]byte{0, 0, 0, 0, 0})
+			w.Header().Set("Grpc-Status", "0")
+		case r.URL.Path == "/half-close" && r.Header.Get("Upgrade") == "tcp":
+			conn, buffered, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			fmt.Fprint(buffered, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: tcp\r\nConnection: Upgrade\r\n\r\n")
+			if buffered.Flush() != nil {
+				return
+			}
+			data, err := io.ReadAll(buffered)
+			if err == nil {
+				fmt.Fprintf(conn, "%s received %s", name, data)
+			}
 		case r.URL.Path == "/ws" && r.Header.Get("Upgrade") == "websocket":
 			conn, buffered, err := http.NewResponseController(w).Hijack()
 			if err != nil {
@@ -120,7 +147,10 @@ func FleetHost(args []string) error {
 		if err != nil {
 			return err
 		}
-		servers[port] = &http.Server{Handler: app}
+		protocols := new(http.Protocols)
+		protocols.SetHTTP1(true)
+		protocols.SetUnencryptedHTTP2(true)
+		servers[port] = &http.Server{Handler: app, Protocols: protocols}
 		go servers[port].Serve(listener)
 		return nil
 	}
@@ -577,6 +607,76 @@ func (c fleetClient) websocket(ctx context.Context, through *fleetProcess, name 
 	return strings.TrimSpace(line), err
 }
 
+func (c fleetClient) halfClose(ctx context.Context, through *fleetProcess) (string, error) {
+	conn, err := (&tls.Dialer{Config: &tls.Config{RootCAs: c.roots, ServerName: "dash.e2e.test", NextProtos: []string{"http/1.1"}}}).DialContext(ctx, "tcp", net.JoinHostPort(through.address, "443"))
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		conn.SetDeadline(deadline)
+	}
+	fmt.Fprint(conn, "GET /half-close HTTP/1.1\r\nHost: dash.e2e.test\r\nUpgrade: tcp\r\nConnection: Upgrade\r\n\r\n")
+	reader := bufio.NewReader(conn)
+	response, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		return "", err
+	}
+	if response.StatusCode != http.StatusSwitchingProtocols {
+		return "", fmt.Errorf("upgrade via %s answered %s", through.name, response.Status)
+	}
+	if _, err := fmt.Fprint(conn, "upload"); err != nil {
+		return "", err
+	}
+	if err := conn.(*tls.Conn).CloseWrite(); err != nil {
+		return "", err
+	}
+	data, err := io.ReadAll(reader)
+	return string(data), err
+}
+
+func (c fleetClient) longGRPC(ctx context.Context, through, backend *fleetProcess) error {
+	transport := &http.Transport{ForceAttemptHTTP2: true, Proxy: nil, TLSClientConfig: &tls.Config{RootCAs: c.roots}}
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(through.address, "443"))
+	}
+	defer transport.CloseIdleConnections()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://dash.e2e.test/journey.Service/LongUnary", bytes.NewReader([]byte{0, 0, 0, 0, 0}))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/grpc")
+	response, err := (&http.Client{Transport: transport}).Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(response.Body)
+	if err != nil || response.ProtoMajor != 2 || response.StatusCode != http.StatusOK || !bytes.Equal(data, []byte{0, 0, 0, 0, 0}) || response.Trailer.Get("Grpc-Status") != "0" || response.Header.Get("X-Journey-Host") != backend.name {
+		return fmt.Errorf("31-second gRPC via %s: %s HTTP %d body %x trailer %q host %q, %v; want the same successful call as main from %s", through.name, response.Proto, response.StatusCode, data, response.Trailer.Get("Grpc-Status"), response.Header.Get("X-Journey-Host"), err, backend.name)
+	}
+	return nil
+}
+
+func (c fleetClient) sameAsMainStreams(ctx context.Context, ingress, backend *fleetProcess) error {
+	results := make(chan error, 2)
+	for _, through := range []*fleetProcess{backend, ingress} {
+		go func() { results <- c.longGRPC(ctx, through, backend) }()
+	}
+	var failures []error
+	for _, through := range []*fleetProcess{backend, ingress} {
+		if reply, err := c.halfClose(ctx, through); err != nil || reply != backend.name+" received upload" {
+			failures = append(failures, fmt.Errorf("client half-close via %s: %q, %v; want the same backend reply after EOF as main", through.name, reply, err))
+		}
+	}
+	for range 2 {
+		if err := <-results; err != nil {
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
+}
+
 func (c fleetClient) request(ctx context.Context, host *fleetProcess, method, url string, header http.Header) (int, string, error) {
 	transport := &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{RootCAs: c.roots}, DisableKeepAlives: true}
 	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
@@ -925,6 +1025,8 @@ func FleetEdgeJourney(root string) error {
 			if err := founder.command(ctx, "await-peer"); err != nil {
 				return err
 			}
+			streams := make(chan error, 1)
+			go func() { streams <- client.sameAsMainStreams(ctx, founder, worker) }()
 			if err := worker.command(ctx, "hang"); err != nil {
 				return err
 			}
@@ -933,6 +1035,10 @@ func FleetEdgeJourney(root string) error {
 			if took := time.Since(began); err != nil || status != http.StatusBadGateway || took > peerLayerBudget+time.Second {
 				return fmt.Errorf("a peer that never answers: HTTP %d after %s, %v, want main's 502 within %s", status, took, err, peerLayerBudget)
 			}
+			if err := <-streams; err != nil {
+				return err
+			}
+			fmt.Println("ok fleet: same as main, local and peer HTTP/2 gRPC calls return their frame and success trailer after 31 seconds; client half-close preserves the complete backend reply")
 			if err := worker.command(ctx, "unhang"); err != nil {
 				return err
 			}

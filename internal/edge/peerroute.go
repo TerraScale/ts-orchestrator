@@ -10,6 +10,7 @@ import (
 	"net/http/httptrace"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -188,28 +189,51 @@ func (b peerUpgradeBody) Close() error {
 	return err
 }
 
+func (b peerUpgradeBody) CloseWrite() error {
+	if writer, ok := b.ReadWriteCloser.(interface{ CloseWrite() error }); ok {
+		return writer.CloseWrite()
+	}
+	return http.ErrNotSupported
+}
+
 func resendable(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions || method == http.MethodTrace
 }
 
 func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Response, error) {
-	began := time.Now()
+	grpc := isGRPC(r)
 	budget, endBudget := context.WithCancel(r.Context())
-	var answered atomic.Bool
-	timer := time.AfterFunc(peerLayerBudget, func() {
-		if !answered.Load() {
-			endBudget()
-		}
+	var mu sync.Mutex
+	var timer *time.Timer
+	answered := false
+	budget = httptrace.WithClientTrace(budget, &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if grpc || info.Err != nil {
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if !answered && timer == nil {
+				timer = time.AfterFunc(peerLayerBudget, endBudget)
+			}
+		},
 	})
+	stopBudget := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		answered = true
+		if timer != nil {
+			timer.Stop()
+		}
+	}
 	fail := func(err error) (*http.Response, error) {
-		timer.Stop()
+		stopBudget()
 		endBudget()
 		closeBody(r)
 		return nil, err
 	}
 	answer := func(response *http.Response, cancel context.CancelFunc) (*http.Response, error) {
-		answered.Store(true)
-		timer.Stop()
+		stopBudget()
 		end := func() {
 			cancel()
 			endBudget()
@@ -227,7 +251,7 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 		if address == "" {
 			response, err := e.local.RoundTrip(r.WithContext(context.WithValue(budget, edgeTargetKey{}, nil)))
 			if err != nil {
-				timer.Stop()
+				stopBudget()
 				endBudget()
 				return nil, err
 			}
@@ -237,7 +261,6 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 		if key == nil {
 			continue
 		}
-		grpc := isGRPC(r)
 		value, ok := e.edgeTransports.Load(grpc)
 		if !ok {
 			transport := newPeerTransport(e)
@@ -272,7 +295,7 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 			return answer(response, cancel)
 		}
 		cancel()
-		if r.Context().Err() != nil || budget.Err() != nil || time.Since(began) >= peerLayerBudget {
+		if r.Context().Err() != nil || budget.Err() != nil {
 			return fail(err)
 		}
 		e.peerDown.Store(address, time.Now())

@@ -142,15 +142,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 		}()
 	}
 	err = runSingleHost(ctx, *state, output, plan, probation, swarmReady, func(ctx context.Context, service string) releasepush.HealthResult {
-		result := releasepush.HealthResult{Service: regionhealth.Serving(ctx, *state, service)}
-		if node := meshNode.Load(); node != nil {
-			result.Mesh = node.ReleaseHealth(ctx)
-		} else {
-			result.Mesh = errors.New("mesh not started")
-		}
-		readiness := public.Readiness(ctx)
-		result.Edge = readiness.InfraErr()
-		return result
+		return releaseHealth(ctx, *state, service, meshNode.Load(), public)
 	}, func(ctx context.Context) error {
 		if node := meshNode.Load(); node != nil {
 			return node.PrepareStop(ctx)
@@ -369,4 +361,26 @@ func decodePublicKey(encoded string) (ed25519.PublicKey, error) {
 		return nil, errors.New("expected a base64 Ed25519 public key")
 	}
 	return ed25519.PublicKey(decoded), nil
+}
+
+func releaseHealth(ctx context.Context, state, service string, node *mesh.Node, public *edge.Edge) releasepush.HealthResult {
+	admission, _, err := swarmruntime.StoredAdmission(state)
+	if err != nil {
+		return releasepush.HealthResult{Service: err}
+	}
+	manager := admission.Role == "manager"
+	result := releasepush.HealthResult{}
+	if manager {
+		result.Service = regionhealth.Serving(ctx, state, service)
+	}
+	switch {
+	case node == nil:
+		result.Mesh = errors.New("mesh not started")
+	case manager:
+		result.Mesh = node.ReleaseHealth(ctx)
+	}
+	if public != nil {
+		result.Edge = public.Readiness(ctx).InfraErr()
+	}
+	return result
 }
