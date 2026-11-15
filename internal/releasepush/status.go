@@ -61,6 +61,10 @@ func (h *Handler) ServeHostVersion(conn *nats.Conn, region, host string) error {
 	})
 }
 
+func AskVersion(ctx context.Context, conn *nats.Conn, region, host string) (Reply, error) {
+	return request(ctx, conn, hostVersionSubject(region, host), nil, 2*time.Second)
+}
+
 func hostVersionSubject(region, host string) string {
 	return protocol.ReleaseVersion + "." + region + "." + host
 }

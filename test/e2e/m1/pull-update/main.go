@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
@@ -32,9 +33,13 @@ import (
 )
 
 const (
-	asset      = releaseattest.AssetPrefix + runtime.GOARCH
-	healthyFor = 2 * time.Second
-	deadline   = 20 * time.Second
+	asset        = releaseattest.AssetPrefix + runtime.GOARCH
+	healthyFor   = 2 * time.Second
+	orchUser     = "orch"
+	orchSecret   = "e2e-orch-secret"
+	fabricUser   = "ts-orch"
+	fabricSecret = "e2e-fabric-secret"
+	deadline     = 20 * time.Second
 )
 
 func must(err error) {
@@ -69,8 +74,8 @@ func main() {
 		runHost(os.Args[2:])
 		return
 	}
-	require(len(os.Args) == 2, "usage: pull-update <ts-orch binary>")
-	journey(os.Args[1])
+	require(len(os.Args) == 3 && (os.Args[2] == "pull" || os.Args[2] == "push"), "usage: pull-update <ts-orch binary> pull|push")
+	journey(os.Args[1], os.Args[2])
 }
 
 func runHost(args []string) {
@@ -104,8 +109,11 @@ func runHost(args []string) {
 		}
 		return nil
 	}
-	conn, err := nats.Connect(natsURL)
+	conn, err := nats.Connect(natsURL, nats.UserInfo(orchUser, orchSecret))
 	must(err)
+	fabric, err := nats.Connect(natsURL, nats.UserInfo(fabricUser, fabricSecret))
+	must(err)
+	must(h.ServeHostVersion(conn, region, id))
 	must(h.ServePulled(conn, region, id))
 	if role == "worker" {
 		must(h.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region, id))
@@ -115,10 +123,10 @@ func runHost(args []string) {
 	}
 	if role == "manager" {
 		h.Claim = func(ctx context.Context, release, sha string, digests map[string]string) error {
-			return pullrelease.ClaimPush(ctx, conn, region, pullrelease.PushClaim{Release: release, SHA: sha, Binaries: digests, Host: id})
+			return pullrelease.ClaimPush(ctx, fabric, region, pullrelease.PushClaim{Release: release, SHA: sha, Binaries: digests, Host: id})
 		}
 		h.Unclaim = func(ctx context.Context, release string) {
-			must(pullrelease.ReleasePush(ctx, conn, region, release))
+			must(pullrelease.ReleasePush(ctx, fabric, region, release))
 		}
 		h.HostReady = func(ctx context.Context, host, sha string, digests map[string]string) error {
 			return releasepush.AwaitReady(ctx, conn, region, host, sha, digests)
@@ -144,7 +152,7 @@ func runHost(args []string) {
 		}
 		every, err := time.ParseDuration(poll)
 		must(err)
-		updater := &pullrelease.Updater{Region: region, Self: id, State: state, Conn: conn,
+		updater := &pullrelease.Updater{Region: region, Self: id, State: state, Conn: conn, Fabric: fabric,
 			Hosts: func(context.Context) ([]pullrelease.Host, error) {
 				hosts := []pullrelease.Host{}
 				for _, suffix := range []string{"-m", "-n", "-w"} {
@@ -279,20 +287,30 @@ func startMesh(work string) []*server.Server {
 	for i, port := range ports {
 		cluster, err := strconv.Atoi(port)
 		must(err)
-		mesh, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, NoSigs: true, NoLog: true, ServerName: "mesh-" + strconv.Itoa(i),
-			JetStream: true, StoreDir: filepath.Join(work, "mesh", strconv.Itoa(i)),
-			Cluster: server.ClusterOpts{Name: "e2e-mesh", Host: "127.0.0.1", Port: cluster}, Routes: server.RoutesFromStr(strings.Join(routes, ","))})
+		options := &server.Options{}
+		must(options.ProcessConfigString(mesh.AccountsConfig))
+		accounts := map[string]*server.Account{}
+		for _, account := range options.Accounts {
+			accounts[account.Name] = account
+		}
+		options.Users = []*server.User{{Username: orchUser, Password: orchSecret, Account: accounts[mesh.OrchAccount]},
+			{Username: fabricUser, Password: fabricSecret, Account: accounts[mesh.FabricAccount]}}
+		options.Host, options.Port, options.NoSigs, options.NoLog, options.ServerName = "127.0.0.1", -1, true, true, "mesh-"+strconv.Itoa(i)
+		options.JetStream, options.StoreDir = true, filepath.Join(work, "mesh", strconv.Itoa(i))
+		options.Cluster = server.ClusterOpts{Name: "e2e-mesh", Host: "127.0.0.1", Port: cluster, PinnedAccounts: []string{mesh.FabricAccount}}
+		options.Routes = server.RoutesFromStr(strings.Join(routes, ","))
+		node, err := server.NewServer(options)
 		must(err)
-		go mesh.Start()
-		servers = append(servers, mesh)
+		go node.Start()
+		servers = append(servers, node)
 	}
-	for _, mesh := range servers {
-		require(mesh.ReadyForConnections(10*time.Second), "the mesh must listen")
+	for _, node := range servers {
+		require(node.ReadyForConnections(10*time.Second), "the mesh must listen")
 	}
 	return servers
 }
 
-func journey(bin string) {
+func journey(bin, part string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	self, err := os.Executable()
@@ -332,7 +350,7 @@ func journey(bin string) {
 	for _, mesh := range meshes {
 		defer mesh.Shutdown()
 	}
-	l.conn, err = nats.Connect(meshes[0].ClientURL())
+	l.conn, err = nats.Connect(meshes[0].ClientURL(), nats.UserInfo(orchUser, orchSecret))
 	must(err)
 	defer l.conn.Close()
 	_, err = l.conn.Subscribe("e2e.>", func(m *nats.Msg) {
@@ -393,6 +411,15 @@ func journey(bin string) {
 	}
 	fmt.Println("cell up: gru and sjc on one JetStream mesh, two managers and a worker each, on the base binary")
 
+	if part == "push" {
+		l.pushes(ctx)
+		return
+	}
+	l.pulls(ctx)
+}
+
+func (l *lane) pulls(ctx context.Context) {
+	revision := l.revision
 	r1 := l.publishGood("101", "c101")
 	l.github.mint(revision, "101")
 	require(strings.Contains(l.nudge(ctx), "gru: nudged"), "the first nudge must be accepted")
@@ -480,26 +507,61 @@ func journey(bin string) {
 	}
 	fmt.Printf("unhealthy candidate -> previous binary confirmed running, then marked bad; no other host restarted\n%s\n", status)
 
-	starts = l.starts()
+	r11 := l.publishGood("111", "unhealthy")
+	gating = l.waitStatus(ctx, "sjc", "sjc gates its first host on the unhealthy "+r11.tag, gatingFirst(r11))
+	stuck := gating.Hosts[0].ID
+	must(os.WriteFile(filepath.Join(l.hosts[stuck].dir, "refuse-stop"), nil, 0o600))
+	stalled := l.waitStatus(ctx, "sjc", "sjc stops holding the region once the rollback of "+r11.tag+" passes its bound", func(s pullrelease.Status) bool {
+		return s.Phase == pullrelease.PhaseStalled && s.Target != nil && s.Target.Tag() == r11.tag
+	})
+	require(slices.Contains(stalled.Bad, r11.tag) && strings.HasPrefix(stalled.Reason, "critical: ") && strings.Contains(stalled.Reason, "quorum"),
+		"a stalled rollback must report a critical status and mark the release bad:\n%s", stalled)
+	still = l.ask(ctx, stuck, releasepush.PullRequest{Op: releasepush.PullStatus})
+	require(still.SHA256 == r11.digest, "%s must still run %s when the rollback stalls, runs %s", stuck, r11.tag, still.SHA256)
+	fmt.Printf("restore refused past the bound -> critical status, release marked bad, the region no longer held\n%s\n", stalled)
+	must(os.Remove(filepath.Join(l.hosts[stuck].dir, "refuse-stop")))
+	restored := l.ask(ctx, stuck, releasepush.PullRequest{Op: releasepush.PullRollback, Release: l.release(r11), Reason: "operator restores the stalled host"})
+	require(restored.State == "restoring", "the operator's rollback of %s must restore its previous binary, replied %+v", stuck, restored)
+	l.waitReady(ctx, "sjc."+stuck, r1.digest)
+}
+
+func (l *lane) pushes(ctx context.Context) {
+	revision := l.revision
 	r12 := l.publishGood("112", "c112")
 	l.github.mint(revision, "112")
 	require(strings.Contains(l.nudge(ctx), "gru: nudged"), "the nudge for %s must be accepted", r12.tag)
 	first := l.waitStatus(ctx, "gru", "gru gates its first host on "+r12.tag, gatingFirst(r12))
 	l.waitReady(ctx, "gru."+first.Hosts[0].ID, r12.digest)
+	r13 := l.publishGood("113", "c113")
 	reply := l.push(ctx, "113", l.candidate("c113"))
-	require(reply.Refusal != nil && strings.Contains(reply.Refusal.Reason, "pull rollout"), "a push during a pull rollout must be refused, replied %+v", reply)
-	fmt.Printf("push during the pull rollout -> refused: %s\n", reply.Refusal.Reason)
+	require(reply.State == "installed" && len(reply.Workers) == 1 && reply.Workers[0].Error == "" && reply.Workers[0].Refusal == nil,
+		"a push during a pull rollout must win, replied %+v", reply)
+	preempted := l.waitStatus(ctx, "gru", "gru records that the push of "+r13.tag+" preempted "+r12.tag, func(s pullrelease.Status) bool {
+		return s.Preempted == r12.tag
+	})
+	l.waitReady(ctx, "gru.gru-m", r13.digest)
+	gru := l.waitStatus(ctx, "gru", "gru restarts its pull from the pushed "+r13.tag, complete(r13))
+	l.waitStatus(ctx, "sjc", "sjc completes "+r13.tag, complete(r13))
+	l.requireVersions(ctx, r13.digest, l.region("gru", "sjc")...)
+	fmt.Printf("push during the pull rollout of %s -> the push installed, the pull recorded its preemption and restarted from the pushed release\n%s\n%s\n", r12.tag, preempted, gru)
+
+	starts := l.starts()
+	r14 := l.publishGood("114", "c114")
+	l.github.mint(revision, "114")
+	require(strings.Contains(l.nudge(ctx), "gru: nudged"), "the nudge for %s must be accepted", r14.tag)
+	first = l.waitStatus(ctx, "gru", "gru gates its first host on "+r14.tag, gatingFirst(r14))
+	l.waitReady(ctx, "gru."+first.Hosts[0].ID, r14.digest)
 	owner := first.Owner
 	l.hosts[owner].holdRestart()
 	l.hosts[owner].kill()
 	l.outages.mark("gru", owner, true)
-	handover := l.waitStatus(ctx, "gru", "the other gru manager takes over "+r12.tag, func(s pullrelease.Status) bool {
-		return s.Owner != owner && s.Target != nil && s.Target.Tag() == r12.tag
+	handover := l.waitStatus(ctx, "gru", "the other gru manager takes over "+r14.tag, func(s pullrelease.Status) bool {
+		return s.Owner != owner && s.Target != nil && s.Target.Tag() == r14.tag
 	})
 	l.hosts[owner].releaseRestart()
-	gru = l.waitStatus(ctx, "gru", "gru resumes and completes "+r12.tag, complete(r12))
-	l.waitStatus(ctx, "sjc", "sjc moves past the rolled-back release to "+r12.tag, complete(r12))
-	l.requireVersions(ctx, r12.digest, l.region("gru", "sjc")...)
+	gru = l.waitStatus(ctx, "gru", "gru resumes and completes "+r14.tag, complete(r14))
+	l.waitStatus(ctx, "sjc", "sjc completes "+r14.tag, complete(r14))
+	l.requireVersions(ctx, r14.digest, l.region("gru", "sjc")...)
 	for _, id := range l.region("gru") {
 		want := starts[id] + 1
 		if id == owner {
@@ -509,32 +571,32 @@ func journey(bin string) {
 	}
 	fmt.Printf("owner %s killed mid-rollout -> %s took over the same rollout; every host installed once\n%s\n%s\n", owner, handover.Owner, handover, gru)
 
-	r13 := l.publishGood("113", "c113")
+	r15 := l.publishGood("115", "c115")
 	l.hosts["gru-w"].holdRestart()
 	starts = l.starts()
 	pushed := make(chan releasepush.Reply, 1)
-	go func() { pushed <- l.push(ctx, "113", l.candidate("c113")) }()
+	go func() { pushed <- l.push(ctx, "115", l.candidate("c115")) }()
 	l.waitDown(ctx, "gru.gru-w")
-	r14 := l.publishGood("114", "c114")
-	l.github.mint(revision, "114")
-	require(strings.Contains(l.nudge(ctx), "gru: nudged"), "the nudge for %s must be accepted", r14.tag)
-	waiting := l.waitStatus(ctx, "gru", "gru waits for the push of "+r13.tag, func(s pullrelease.Status) bool {
-		return s.Push != nil && strings.Contains(s.Reason, "release push "+r13.tag+" in progress")
+	r16 := l.publishGood("116", "c116")
+	l.github.mint(revision, "116")
+	require(strings.Contains(l.nudge(ctx), "gru: nudged"), "the nudge for %s must be accepted", r16.tag)
+	waiting := l.waitStatus(ctx, "gru", "gru waits for the push of "+r15.tag, func(s pullrelease.Status) bool {
+		return s.Push != nil && strings.Contains(s.Reason, "release push "+r15.tag+" in progress")
 	})
-	require(waiting.Target != nil && waiting.Target.Tag() == r12.tag && waiting.Phase == pullrelease.PhaseComplete, "the pull must not start %s during the push:\n%s", r14.tag, waiting)
+	require(waiting.Target != nil && waiting.Target.Tag() == r14.tag && waiting.Phase == pullrelease.PhaseComplete, "the pull must not start %s during the push:\n%s", r16.tag, waiting)
 	manager := l.ask(ctx, "gru-m", releasepush.PullRequest{Op: releasepush.PullStatus})
-	require(manager.SHA256 == r12.digest && manager.Health == "ok" && l.hosts["gru-m"].starts.Load() == starts["gru-m"],
-		"gru-m must keep serving %s until its worker is ready, runs %s (%s)", r12.digest, manager.SHA256, manager.Health)
+	require(manager.SHA256 == r14.digest && manager.Health == "ok" && l.hosts["gru-m"].starts.Load() == starts["gru-m"],
+		"gru-m must keep serving %s until its worker is ready, runs %s (%s)", r14.digest, manager.SHA256, manager.Health)
 	fmt.Printf("push with its worker slow to come back -> the manager keeps running and the nudged pull waits\n%s\n", waiting)
 	l.hosts["gru-w"].releaseRestart()
 	reply = <-pushed
 	require(reply.State == "installed" && len(reply.Workers) == 1 && reply.Workers[0].Error == "" && reply.Workers[0].Refusal == nil,
 		"the push must install the worker, then gru-m, replied %+v", reply)
-	l.waitReady(ctx, "gru.gru-m", r13.digest)
-	gru = l.waitStatus(ctx, "gru", "gru pulls "+r14.tag+" once the push finished", complete(r14))
-	l.waitStatus(ctx, "sjc", "sjc completes "+r14.tag, complete(r14))
-	l.requireVersions(ctx, r14.digest, l.region("gru", "sjc")...)
-	fmt.Printf("worker ready -> manager installed the push; its claim dropped and the pull rolled %s out\n%s\n", r14.tag, gru)
+	l.waitReady(ctx, "gru.gru-m", r15.digest)
+	gru = l.waitStatus(ctx, "gru", "gru pulls "+r16.tag+" once the push finished", complete(r16))
+	l.waitStatus(ctx, "sjc", "sjc completes "+r16.tag, complete(r16))
+	l.requireVersions(ctx, r16.digest, l.region("gru", "sjc")...)
+	fmt.Printf("worker ready -> manager installed the push; its claim dropped and the pull rolled %s out\n%s\n", r16.tag, gru)
 }
 
 func (l *lane) waitDown(ctx context.Context, who string) {

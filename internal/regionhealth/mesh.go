@@ -51,7 +51,7 @@ func Run(ctx context.Context, state string) {
 		if err != nil {
 			report.HostError = "host revision inventory unavailable"
 		}
-		if report.Rollout, err = pullrelease.Read(state); err != nil {
+		if err := report.readRollout(state); err != nil {
 			slog.WarnContext(ctx, "pull rollout record unreadable", "error", err)
 		}
 		latest.Store(&report)
@@ -195,7 +195,7 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 		if err != nil {
 			report.HostError = "host revision inventory unavailable"
 		}
-		if report.Rollout, err = pullrelease.Read(state); err != nil {
+		if err := report.readRollout(state); err != nil {
 			report.Reasons = append(report.Reasons, err.Error())
 		}
 		return write(output, []string{"local"}, map[string]Report{"local": report})
@@ -233,4 +233,16 @@ func HostVersions(ctx context.Context, state, region string) ([]releasepush.Host
 		region, _, _ = strings.Cut(conn.ConnectedServerName(), ".")
 	}
 	return releasepush.ReadHostVersions(ctx, conn, region, listed.Nodes), nil
+}
+
+func (r *Report) readRollout(state string) error {
+	rollout, err := pullrelease.Read(state)
+	r.Rollout = rollout
+	if rollout != nil && rollout.Phase == pullrelease.PhaseStalled {
+		r.Reasons = append(r.Reasons, rollout.Reason)
+		if r.State == StateOK {
+			r.State = StateDegraded
+		}
+	}
+	return err
 }

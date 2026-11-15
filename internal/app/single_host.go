@@ -103,21 +103,25 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 			if !node.IsManager() {
 				return nil
 			}
-			conn, err := mesh.Connect(state)
+			fabric, err := mesh.ConnectFabric(state)
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
-			return pullrelease.ClaimPush(ctx, conn, plan.region, pullrelease.PushClaim{Release: release, SHA: sha, Binaries: digests, Host: node.ID()})
+			defer fabric.Close()
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			return pullrelease.ClaimPush(ctx, fabric, plan.region, pullrelease.PushClaim{Release: release, SHA: sha, Binaries: digests, Host: node.ID()})
 		}
 		releases.Unclaim = func(ctx context.Context, release string) {
 			if !node.IsManager() {
 				return
 			}
-			conn, err := mesh.Connect(state)
+			fabric, err := mesh.ConnectFabric(state)
 			if err == nil {
-				defer conn.Close()
-				err = pullrelease.ReleasePush(ctx, conn, plan.region, release)
+				defer fabric.Close()
+				ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel()
+				err = pullrelease.ReleasePush(ctx, fabric, plan.region, release)
 			}
 			if err != nil {
 				slog.WarnContext(ctx, "release push claim not released; the region's updater drops it when it lapses", "release", release, "error", err)
@@ -541,6 +545,12 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			continue
 		}
 		conn, err := mesh.Connect(state)
+		var fabric *nats.Conn
+		if err == nil {
+			if fabric, err = mesh.ConnectFabric(state); err != nil {
+				conn.Close()
+			}
+		}
 		if err != nil {
 			select {
 			case <-ctx.Done():
@@ -550,7 +560,7 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 		}
 		managing, stop := context.WithCancel(ctx)
 		go func() {
-			for managing.Err() == nil && node.IsManager() && !conn.IsClosed() {
+			for managing.Err() == nil && node.IsManager() && !conn.IsClosed() && !fabric.IsClosed() {
 				select {
 				case <-managing.Done():
 				case <-tick.C:
@@ -558,7 +568,7 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			}
 			stop()
 		}()
-		updater := pullrelease.New(region, node.ID(), state, conn, releases, func(ctx context.Context) ([]pullrelease.Host, error) {
+		updater := pullrelease.New(region, node.ID(), state, conn, fabric, releases, func(ctx context.Context) ([]pullrelease.Host, error) {
 			return regionHosts(ctx, state)
 		})
 		if err := updater.Run(managing); err != nil && ctx.Err() == nil && managing.Err() == nil {
@@ -566,6 +576,7 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 		}
 		stop()
 		conn.Close()
+		fabric.Close()
 	}
 }
 

@@ -38,8 +38,8 @@ type Store struct {
 	region string
 }
 
-func Open(ctx context.Context, conn *nats.Conn, region string) (*Store, error) {
-	js, err := jetstream.New(conn)
+func Open(ctx context.Context, fabric *nats.Conn, region string) (*Store, error) {
+	js, err := jetstream.New(fabric)
 	if err != nil {
 		return nil, err
 	}
@@ -107,8 +107,8 @@ func (s *Store) Lead(ctx context.Context, self string) (bool, error) {
 	return err == nil, err
 }
 
-func ClaimPush(ctx context.Context, conn *nats.Conn, region string, claim PushClaim) error {
-	store, err := Open(ctx, conn, region)
+func ClaimPush(ctx context.Context, fabric *nats.Conn, region string, claim PushClaim) error {
+	store, err := Open(ctx, fabric, region)
 	if err != nil {
 		return err
 	}
@@ -116,16 +116,6 @@ func ClaimPush(ctx context.Context, conn *nats.Conn, region string, claim PushCl
 		status, revision, err := store.Load(ctx)
 		if err != nil {
 			return err
-		}
-		if status.active() {
-			target := ""
-			if status.Target != nil {
-				target = status.Target.Tag()
-			}
-			return fmt.Errorf("region %s is in a pull rollout of %s (%s): %s", region, target, status.Phase, status.Reason)
-		}
-		if held := status.Push; held != nil && held.Release != claim.Release && time.Now().Before(held.Until) {
-			return fmt.Errorf("region %s is in the release push of %s", region, held.Release)
 		}
 		claim.Until = time.Now().Add(pushHold)
 		status.Region, status.Push = region, &claim
@@ -136,8 +126,8 @@ func ClaimPush(ctx context.Context, conn *nats.Conn, region string, claim PushCl
 	}
 }
 
-func ReleasePush(ctx context.Context, conn *nats.Conn, region, release string) error {
-	store, err := Open(ctx, conn, region)
+func ReleasePush(ctx context.Context, fabric *nats.Conn, region, release string) error {
+	store, err := Open(ctx, fabric, region)
 	if err != nil {
 		return err
 	}

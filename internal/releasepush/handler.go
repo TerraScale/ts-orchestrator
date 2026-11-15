@@ -250,12 +250,18 @@ func (h *Handler) relayed(ctx context.Context, data []byte) Reply {
 	for _, worker := range workers {
 		if worker.Error != "" {
 			slog.Warn("release worker relay incomplete", "host", worker.Host, "error", worker.Error)
+		}
+		if worker.Refusal != nil || h.HostReady == nil {
 			continue
 		}
-		if worker.Refusal != nil || worker.ID == "" || h.HostReady == nil {
-			continue
+		var err error
+		switch {
+		case worker.ID != "":
+			err = h.HostReady(ctx, worker.ID, admitted.release.SHA, admitted.digests)
+		case worker.Error != "":
+			err = errors.New(worker.Error)
 		}
-		if err := h.HostReady(ctx, worker.ID, admitted.release.SHA, admitted.digests); err != nil {
+		if err != nil {
 			h.unclaim(ctx, admitted)
 			reply := refusalReply(RefusalHost, admitted.release.SHA, admitted.binary.SHA256, admitted.claims,
 				fmt.Errorf("worker %s is not ready on %s, so this manager keeps running its binary: %w", worker.Host, admitted.release.SHA, err))
@@ -305,8 +311,7 @@ func (h *Handler) admit(ctx context.Context, data []byte) (admission, *Reply) {
 	}
 	if h.Claim != nil {
 		if err := h.Claim(ctx, admitted.tag, release.SHA, admitted.digests); err != nil {
-			reply := refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, fmt.Errorf("release push waits for the region: %w", err))
-			return admission{}, &reply
+			slog.Warn("release push proceeds without its region claim; the region's pull updater cannot see it", "release", admitted.tag, "error", err)
 		}
 	}
 	return admitted, nil

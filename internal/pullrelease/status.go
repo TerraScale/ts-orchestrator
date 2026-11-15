@@ -20,6 +20,7 @@ const (
 	PhaseRollingBack = "rolling_back"
 	PhaseRolledBack  = "rolled_back"
 	PhaseWaiting     = "waiting"
+	PhaseStalled     = "rollback_stalled"
 
 	HostPending    = "pending"
 	HostInstalling = "installing"
@@ -41,17 +42,19 @@ type HostProgress struct {
 }
 
 type Status struct {
-	Region  string                 `json:"region"`
-	Owner   string                 `json:"owner,omitempty"`
-	Phase   string                 `json:"phase"`
-	Target  *releaseattest.Release `json:"target,omitempty"`
-	Hosts   []HostProgress         `json:"hosts,omitempty"`
-	Reason  string                 `json:"reason,omitempty"`
-	Bad     []string               `json:"bad,omitempty"`
-	Nudged  string                 `json:"nudged,omitempty"`
-	Push    *PushClaim             `json:"push,omitempty"`
-	Checked time.Time              `json:"checked,omitzero"`
-	Updated time.Time              `json:"updated,omitzero"`
+	Region    string                 `json:"region"`
+	Owner     string                 `json:"owner,omitempty"`
+	Phase     string                 `json:"phase"`
+	Target    *releaseattest.Release `json:"target,omitempty"`
+	Hosts     []HostProgress         `json:"hosts,omitempty"`
+	Reason    string                 `json:"reason,omitempty"`
+	Bad       []string               `json:"bad,omitempty"`
+	Nudged    string                 `json:"nudged,omitempty"`
+	Push      *PushClaim             `json:"push,omitempty"`
+	Since     time.Time              `json:"since,omitzero"`
+	Preempted string                 `json:"preempted,omitempty"`
+	Checked   time.Time              `json:"checked,omitzero"`
+	Updated   time.Time              `json:"updated,omitzero"`
 }
 
 func statusFile(state string) string { return filepath.Join(state, "nats", "pull-rollout.json") }
