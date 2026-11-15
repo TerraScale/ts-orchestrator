@@ -19,9 +19,13 @@ for directory in /etc/systemd /etc/systemd/system; do
     mkdir "$directory"
   fi
 done
+hostname ts-gru-1
+sed -i 's/^hosts:.*/hosts: files dns/' /etc/nsswitch.conf
+sed -i '$a 10.0.0.1 ts-gru-1.nb.ts.internal' /etc/hosts
 mkdir -p "$work/bin" /etc/ts-monitoring/production /etc/systemd/system /usr/local/lib/ts-monitoring /var/lib/ts-alerts
 export MONITORING_REMOVAL_LOG="$work/systemctl"
 export MONITORING_HOSTS_LOG="$work/hosts"
+export MONITORING_SHIPPED="$work/shipped.tgz"
 cat > "$work/bin/systemctl" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$MONITORING_REMOVAL_LOG"
@@ -29,7 +33,11 @@ SH
 cat > "$work/bin/ssh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$1" >> "$MONITORING_HOSTS_LOG"
-bash -s -- --remove --local
+tee "$MONITORING_SHIPPED" | bash -c "$2"
+SH
+cat > "$work/bin/sudo" <<'SH'
+#!/usr/bin/env bash
+exec "$@"
 SH
 cat > "$work/bin/curl" <<SH
 #!/usr/bin/env bash
@@ -37,6 +45,7 @@ for argument; do [[ \$argument == http*://* ]] && url=\$argument; done
 case \$url in
   https://*) exec $real_curl "\$@" ;;
   */services) printf '[]\\n' ;;
+  */orchestrator/metrics) printf 'ts_orch_mesh_store_observed 1\\n' ;;
   */metrics) printf 'ts_host_service_tasks_expected{service="%s"} 1\\n' terrabase ts-auth ts-dashboard ;;
   http://127.0.0.1:909[034]/*) printf 'ok\\n' ;;
   *) exit 7 ;;
@@ -64,11 +73,16 @@ for host in ts-sjc-1 ts-fra-1 ts-gru-1; do
 done
 install -D -m 0755 "$agent" /usr/local/bin/ts-orch
 : > "$MONITORING_REMOVAL_LOG"
-bash "$previous" --local > "$work/previous.log" 2>&1 || { tail -20 "$work/previous.log"; exit 1; }
+bash "$previous" ts-gru-1 > "$work/previous.log" 2>&1 || { tail -20 "$work/previous.log"; exit 1; }
+[[ $(tail -n 1 "$MONITORING_HOSTS_LOG") == ts-gru-1 ]]
+mkdir "$work/shipped"
+tar -xzf "$MONITORING_SHIPPED" -C "$work/shipped"
 for unit in ts-prometheus ts-alertmanager ts-alert-delivery; do
-  cmp "$(dirname "$previous")/$unit.service" "/etc/systemd/system/$unit.service"
+  expected="$work/shipped/rendered/ts-gru-1/$unit.service"
+  [[ -f $expected ]] || expected="$(dirname "$previous")/$unit.service"
+  cmp "$expected" "/etc/systemd/system/$unit.service"
 done
-grep -Fxq "enable ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service" "$MONITORING_REMOVAL_LOG"
+grep -Eq "^enable ts-prometheus\.service ts-alertmanager\.service ts-alert-delivery\.service( |$)" "$MONITORING_REMOVAL_LOG"
 cmp "$(dirname "$previous")/alertmanager.yml" /etc/ts-monitoring/production/alertmanager.yml
 /usr/local/lib/ts-monitoring/prometheus --version > /dev/null
 grep -Fxq retained /var/lib/ts-alerts/email-ledger.json
