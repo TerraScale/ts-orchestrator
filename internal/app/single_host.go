@@ -396,7 +396,14 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 			}
 			managers, routes := []string{}, []string{}
 			for _, node := range listed.Nodes {
-				if node.Role != api.NodeRoleManager || node.ManagerStatus == nil || node.Status.State != api.NodeStatus_READY {
+				if node.Status.State != api.NodeStatus_READY {
+					continue
+				}
+				if node.Role != api.NodeRoleManager {
+					routes = append(routes, meshRoute(node.Status.Addr))
+					continue
+				}
+				if node.ManagerStatus == nil {
 					continue
 				}
 				managers = append(managers, node.ManagerStatus.Addr)

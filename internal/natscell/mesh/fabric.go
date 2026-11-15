@@ -73,6 +73,7 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 		options.Cluster = server.ClusterOpts{
 			Name: ClusterName, Host: cfg.clusterHost, Port: cfg.clusterPort, Advertise: cfg.clusterAdvertise,
 			TLSConfig: tlsConfig, TLSTimeout: 5, PinnedAccounts: []string{FabricAccount},
+			SolicitImplicitRoute: func(name string) bool { return serverRegion(name) != cfg.region },
 		}
 	}
 	if cfg.applier != nil && len(options.Routes) > 0 {

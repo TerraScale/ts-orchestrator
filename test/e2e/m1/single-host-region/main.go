@@ -83,21 +83,30 @@ func roles(fleet *oraclehost.Fleet) (managers, workers []*oraclehost.Host) {
 	return managers, workers
 }
 
-func meshRoutes(ctx context.Context, managers []*oraclehost.Host) {
-	for _, manager := range managers {
-		until(ctx, manager.Name+" mesh routes", func() error {
-			peers, err := manager.Established(ctx, 6222)
+func meshRoutes(ctx context.Context, fleet *oraclehost.Fleet) {
+	managers, _ := roles(fleet)
+	for _, host := range fleet.Hosts {
+		until(ctx, host.Name+" mesh routes", func() error {
+			peers, err := host.Established(ctx, 6222)
 			if err != nil {
 				return err
 			}
-			for _, other := range managers {
-				if other != manager && !slices.Contains(peers, other.NetBird) {
-					return fmt.Errorf("no NetBird route to %s (%s) in %v", other.Name, other.NetBird, peers)
+			if slices.Contains(managers, host) {
+				for _, other := range managers {
+					if other != host && !slices.Contains(peers, other.NetBird) {
+						return fmt.Errorf("no NetBird route to %s (%s) in %v", other.Name, other.NetBird, peers)
+					}
 				}
 			}
-			for _, worker := range manager.Region.Hosts[1:] {
-				if !slices.Contains(peers, worker.Address) {
-					return fmt.Errorf("no in-region route to worker %s (%s) in %v", worker.Name, worker.Address, peers)
+			for _, peer := range host.Region.Hosts {
+				if peer == host {
+					continue
+				}
+				if !slices.Contains(peers, peer.Address) {
+					return fmt.Errorf("no in-region VCN route to %s (%s) in %v", peer.Name, peer.Address, peers)
+				}
+				if slices.Contains(peers, peer.NetBird) {
+					return fmt.Errorf("in-region route to %s over NetBird (%s) in %v", peer.Name, peer.NetBird, peers)
 				}
 			}
 			return nil
@@ -115,8 +124,8 @@ func statusLine(output []byte, region string) string {
 }
 
 func meshUp(ctx context.Context, fleet *oraclehost.Fleet) {
+	meshRoutes(ctx, fleet)
 	managers, _ := roles(fleet)
-	meshRoutes(ctx, managers)
 	for _, manager := range managers {
 		until(ctx, manager.Name+" mesh answers", func() error {
 			output, _ := manager.Exec(ctx, "/usr/local/bin/ts-orch", "status")
@@ -157,8 +166,8 @@ func ready(ctx context.Context, fleet *oraclehost.Fleet, want string) {
 		}
 	}
 	step("ts-orch status reports every region ok from every manager")
-	meshRoutes(ctx, managers)
-	step("mesh routes: managers to each other over wt0, each worker to its manager over the VCN")
+	meshRoutes(ctx, fleet)
+	step("mesh routes: managers to each other over wt0, every in-region pair over the VCN and never over wt0")
 	for _, host := range fleet.Hosts {
 		_, err := os.Stat(host.State("mesh/jetstream"))
 		manager := slices.Contains(managers, host)

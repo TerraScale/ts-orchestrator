@@ -1081,6 +1081,9 @@ func (s *Server) processImplicitRoute(info *Info, routeNoPool bool) {
 	if s.hasThisRouteConfigured(info) {
 		return
 	}
+	if solicit := opts.Cluster.SolicitImplicitRoute; solicit != nil && !solicit(info.Name) {
+		return
+	}
 
 	// Initiate the connection, using info.IP instead of info.URL here...
 	r, err := url.Parse(info.IP)

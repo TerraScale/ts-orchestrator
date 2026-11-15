@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,10 +18,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"golang.org/x/sys/unix"
 )
+
+var netBirdMesh = netip.MustParsePrefix(networkplan.Mesh)
 
 const (
 	bridgeName     = "osh-br"
@@ -75,8 +79,10 @@ func New(ctx context.Context, work, binary string, registry string, regions []st
 		region := &Region{Name: name, OCIRegion: entry.OCIRegion}
 		for i := 1; i <= hostsPerRegion; i++ {
 			octet := 10*(r+1) + i
+			netBird := netBirdMesh.Addr().As4()
+			netBird[3] = byte(octet)
 			host := &Host{Name: fmt.Sprintf("ts-%s-%d", name, i), Region: region, Namespace: fmt.Sprintf("osh-%s-%d", name, i),
-				Address: fmt.Sprintf("10.204.0.%d", octet), NetBird: fmt.Sprintf("100.104.0.%d", octet),
+				Address: fmt.Sprintf("10.204.0.%d", octet), NetBird: netip.AddrFrom4(netBird).String(),
 				InstanceID: fmt.Sprintf("ocid1.instance.oc1.%s.singlehostregion%d", entry.OCIRegion, octet), fleet: f, changed: make(chan struct{})}
 			host.Dir = filepath.Join(work, host.Name)
 			region.Hosts = append(region.Hosts, host)
@@ -150,7 +156,7 @@ func (f *Fleet) network(ctx context.Context) error {
 			[]string{"-n", host.Namespace, "addr", "add", host.Address + "/24", "dev", "eth0"},
 			[]string{"-n", host.Namespace, "link", "set", "eth0", "up"},
 			[]string{"-n", host.Namespace, "link", "add", "wt0", "type", "dummy"},
-			[]string{"-n", host.Namespace, "addr", "add", host.NetBird + "/32", "dev", "wt0"},
+			[]string{"-n", host.Namespace, "addr", "add", netip.PrefixFrom(netip.MustParseAddr(host.NetBird), netBirdMesh.Bits()).String(), "dev", "wt0"},
 			[]string{"-n", host.Namespace, "link", "set", "wt0", "up"},
 			[]string{"-n", host.Namespace, "route", "add", "default", "via", gatewayAddress},
 		)

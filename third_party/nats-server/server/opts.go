@@ -88,6 +88,10 @@ type ClusterOpts struct {
 	WriteDeadline     time.Duration      `json:"-"`
 	WriteTimeout      WriteTimeoutPolicy `json:"-"`
 
+	// SolicitImplicitRoute, when set, reports whether this server dials a
+	// gossiped route to the named server. Configured routes are unaffected.
+	SolicitImplicitRoute func(serverName string) bool `json:"-"`
+
 	// Not exported (used in tests)
 	resolver netResolver
 	// Snapshot of configured TLS options.

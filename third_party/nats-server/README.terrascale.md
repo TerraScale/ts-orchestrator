@@ -90,6 +90,16 @@ placement, peer offline". A new server ID still starts without stats. The
 fabric lane's route-churn step creates R3 streams right after every route of a
 member is re-registered.
 
+`server/opts.go` adds `Cluster.SolicitImplicitRoute`, and `server/route.go`
+consults it before dialing a gossiped route. NATS forwards one advertised
+address per server to every peer, so ts-orch's in-region hosts, which reach
+each other over the VCN through configured routes, also learned each other's
+NetBird address from other regions and dialed it, and whichever connection
+filled a pool slot first won. The mesh returns false for a server of its own
+region: its in-region routes are only the configured VCN routes, and gossip
+still connects other regions over NetBird. The check only declines to dial; it
+never closes or replaces an established route. Unset, behavior is unchanged.
+
 Compare this directory with the upstream `v2.15.0` Go module archive before
 upgrading. Apart from this README,
 `server/server.go`, `server/accounts.go`, `server/leafnode.go`,
