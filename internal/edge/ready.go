@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -30,13 +30,16 @@ type Readiness struct {
 	Missing      []string
 	MissingNames []string
 	NotDurable   []string
+	infra        []string
 }
 
-func (e *Edge) ListenerErr() error {
-	if e.listeners.Load() != 15 {
-		return errors.New("edge listeners unavailable")
+const edgeInventoryUnavailable = "edge inventory unavailable"
+
+func (r Readiness) InfraErr() error {
+	if len(r.infra) == 0 {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("edge not ready: %s", strings.Join(r.infra, ", "))
 }
 
 func (e *Edge) Readiness(ctx context.Context) Readiness {
@@ -54,7 +57,8 @@ func (e *Edge) report() Readiness {
 	infra := e.infrastructure()
 	pending, missingNames := e.certificateGaps()
 	missing := append(slices.Clone(infra), pending...)
-	return Readiness{Ready: len(missing) == 0 && len(missingNames) == 0, Missing: missing, MissingNames: missingNames, NotDurable: e.notDurable()}
+	return Readiness{Ready: len(missing) == 0 && len(missingNames) == 0, Missing: missing, MissingNames: missingNames, NotDurable: e.notDurable(),
+		infra: slices.DeleteFunc(slices.Clone(infra), func(condition string) bool { return condition == edgeInventoryUnavailable })}
 }
 
 func (e *Edge) SetReadinessRoutes(routes []ReadinessRoute) {
@@ -177,9 +181,6 @@ func (e *Edge) certMissing(name string) bool {
 
 func (e *Edge) ready(ctx context.Context) ([]string, error) {
 	conditions := []string{}
-	if e.draining.Load() {
-		conditions = append(conditions, "node draining")
-	}
 	if e.listeners.Load() != 15 {
 		conditions = append(conditions, "listeners unavailable")
 	}
@@ -201,20 +202,33 @@ func (e *Edge) ready(ctx context.Context) ([]string, error) {
 		}
 	}
 	web, postgres := *e.routes.Load(), *e.postgres.Load()
-	if len(web)+len(postgres) == 0 {
-		conditions = append(conditions, "routes unavailable")
-	}
 	routes := *e.readyRoutes.Load()
-	if len(routes) == 0 {
-		conditions = append(conditions, "readiness routes unavailable")
+	if e.follower.Load() && e.inventoryMissing.Load() {
+		conditions = append(conditions, edgeInventoryUnavailable)
+	} else {
+		if len(web)+len(postgres) == 0 {
+			conditions = append(conditions, "routes unavailable")
+		}
+		if len(routes) == 0 {
+			conditions = append(conditions, "readiness routes unavailable")
+		}
 	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	for _, route := range routes {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(route.Port))+route.Path, nil)
 		if err != nil {
 			return conditions, err
 		}
 		req.Host = route.Host
-		resp, err := e.local.RoundTrip(e.routePeerEdge(req, false))
+		var resp *http.Response
+		if e.follower.Load() {
+			resp, err = e.local.RoundTrip(e.routePeerEdge(req, false))
+		} else {
+			resp, err = client.Do(req)
+		}
 		if err != nil {
 			conditions = append(conditions, "backend unavailable")
 			continue

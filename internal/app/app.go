@@ -90,6 +90,9 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	})
 	var meshNode atomic.Pointer[mesh.Node]
 	manager := plan.admission.Role == "manager"
+	if !manager {
+		public.SetInventoryFollower()
+	}
 	if manager {
 		var local atomic.Pointer[mesh.EdgeInventory]
 		source := func() (mesh.EdgeInventory, bool) {
@@ -145,7 +148,8 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 		} else {
 			result.Mesh = errors.New("mesh not started")
 		}
-		result.Edge = public.ListenerErr()
+		readiness := public.Readiness(ctx)
+		result.Edge = readiness.InfraErr()
 		return result
 	}, func(ctx context.Context) error {
 		if node := meshNode.Load(); node != nil {
