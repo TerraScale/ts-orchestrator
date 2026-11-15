@@ -2136,8 +2136,44 @@ const (
 	_EMPTY_ = ""
 )
 
+func routePeerIP(c *client) net.IP {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	nc := c.nc
+	c.mu.Unlock()
+	if nc == nil || nc.RemoteAddr() == nil {
+		return nil
+	}
+	host, _, err := net.SplitHostPort(nc.RemoteAddr().String())
+	if err != nil {
+		return nil
+	}
+	return net.ParseIP(host)
+}
+
+func privateRouteReplaces(existing, incoming *client) bool {
+	oldIP := routePeerIP(existing)
+	newIP := routePeerIP(incoming)
+	return oldIP != nil && newIP != nil && !oldIP.IsPrivate() && newIP.IsPrivate()
+}
+
+func (s *Server) detachPooledRoute(c *client, id string, idx int) {
+	c.setNoReconnect()
+	c.mu.Lock()
+	if c.route != nil {
+		c.route.poolIdx = -1
+	}
+	c.mu.Unlock()
+	if conns, ok := s.routes[id]; ok && idx >= 0 && idx < len(conns) && conns[idx] == c {
+		conns[idx] = nil
+	}
+}
+
 func (s *Server) addRoute(c *client, didSolicit, sendDelayedInfo bool, gossipMode byte, info *Info, accName string) bool {
 	id := info.ID
+	var replaced []*client
 
 	var acc *Account
 	if accName != _EMPTY_ {
@@ -2295,13 +2331,15 @@ func (s *Server) addRoute(c *client, didSolicit, sendDelayedInfo bool, gossipMod
 		if !didSolicit {
 			idx = info.RoutePoolIdx
 			if remote = conns[idx]; remote != nil {
-				handleDuplicateRoute(remote, c, false)
-				s.mu.Unlock()
-				return false
-			}
-			// Look if there is a solicited route in the pool. If there is one,
-			// they should all be, so stop at the first.
-			if url, rtype, hasSolicited := hasSolicitedRoute(conns); hasSolicited {
+				if privateRouteReplaces(remote, c) {
+					s.detachPooledRoute(remote, id, idx)
+					replaced = append(replaced, remote)
+				} else {
+					handleDuplicateRoute(remote, c, false)
+					s.mu.Unlock()
+					return false
+				}
+			} else if url, rtype, hasSolicited := hasSolicitedRoute(conns); hasSolicited {
 				upgradeRouteToSolicited(c, url, rtype)
 			}
 		} else {
@@ -2313,6 +2351,24 @@ func (s *Server) addRoute(c *client, didSolicit, sendDelayedInfo bool, gossipMod
 			c.mu.Unlock()
 			for _, r := range conns {
 				upgradeRouteToSolicited(r, url, rtype)
+			}
+			if rtype == Explicit {
+				full := true
+				for _, r := range conns {
+					if r == nil {
+						full = false
+						break
+					}
+				}
+				if full {
+					for i, r := range conns {
+						if privateRouteReplaces(r, c) {
+							s.detachPooledRoute(r, id, i)
+							replaced = append(replaced, r)
+							break
+						}
+					}
+				}
 			}
 		}
 		// For all cases (solicited and not) we need to count how many connections
@@ -2450,6 +2506,9 @@ func (s *Server) addRoute(c *client, didSolicit, sendDelayedInfo bool, gossipMod
 		}
 	}
 	s.mu.Unlock()
+	for _, old := range replaced {
+		old.closeConnection(DuplicateRoute)
+	}
 	if pool {
 		if idx == -1 {
 			// Was full, so need to close connection
