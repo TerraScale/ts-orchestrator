@@ -99,17 +99,25 @@ func run(ctx context.Context, w io.Writer) int {
 	for _, line := range client.scheduleLines(ctx, observed) {
 		fmt.Fprintln(w, line)
 	}
-	prior, kind := client.previousState(ctx)
+	prior, kind, prevAt := client.previousState(ctx)
 	fmt.Fprintf(w, "prior=%s\n", kind)
 	if kind == "ok" {
 		fmt.Fprintf(w, "prior_observed_unix=%d prior_open=%d\n", prior.Observed, len(prior.Open))
 	}
-	if kind == "unreadable" {
-		fmt.Fprintln(w, "down")
-		return 1
-	}
 	now := time.Now()
 	page, recover, next := decide(prior, kind == "ok", incidents, now)
+	if kind == "blind" {
+		page = forcePage(page, &next, incidents, now)
+	}
+	if staleAcrossRuns(newest, reason, observed, prevAt) {
+		var dead []incident
+		for _, item := range incidents {
+			if item.key == "deadman" {
+				dead = append(dead, item)
+			}
+		}
+		page = forcePage(page, &next, dead, now)
+	}
 	for _, item := range page {
 		fmt.Fprintf(w, "paging %s\n", item.key)
 	}
@@ -165,7 +173,7 @@ func run(ctx context.Context, w io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(w, "probe_state %s\n", encoded)
-	if len(incidents) > 0 || pageErr != nil || recoverErr != nil {
+	if len(incidents) > 0 || pageErr != nil || recoverErr != nil || kind == "unreadable" || kind == "blind" {
 		fmt.Fprintln(w, "down")
 		return 1
 	}
@@ -496,6 +504,37 @@ func decide(prior probeState, havePrior bool, current []incident, now time.Time)
 	return page, recover, next
 }
 
+func forcePage(page []incident, next *probeState, items []incident, now time.Time) []incident {
+	for _, item := range items {
+		if slices.ContainsFunc(page, func(candidate incident) bool { return candidate.key == item.key }) {
+			continue
+		}
+		page = append(page, item)
+		stamped := false
+		for i := range next.Open {
+			if next.Open[i].Key == item.key {
+				next.Open[i].Paged = now.Unix()
+				stamped = true
+			}
+		}
+		if !stamped {
+			next.Open = append(next.Open, tracked{Key: item.key, Paged: now.Unix()})
+		}
+	}
+	return page
+}
+
+func staleAcrossRuns(newest int64, reason string, observed, prevAt time.Time) bool {
+	if reason != "stale" || newest <= 0 {
+		return false
+	}
+	heartbeat := time.Unix(newest, 0)
+	if !prevAt.IsZero() {
+		return prevAt.Sub(heartbeat) >= deadmanLimit
+	}
+	return observed.Sub(heartbeat) >= deadmanLimit+5*time.Minute
+}
+
 func restorePaged(next *probeState, prior probeState, page []incident) {
 	prev := map[string]int64{}
 	for _, item := range prior.Open {
@@ -560,18 +599,20 @@ func (c client) scheduleLines(ctx context.Context, observed time.Time) []string 
 	return append(lines, fmt.Sprintf("schedule_gap_s=%d", int(current.CreatedAt.Sub(prev.CreatedAt).Seconds())))
 }
 
-func (c client) previousState(ctx context.Context) (probeState, string) {
+func (c client) previousState(ctx context.Context) (probeState, string, time.Time) {
 	owner, repo, runID, ok := actionsIdentity()
 	if !ok {
-		return probeState{}, "none"
+		return probeState{}, "none", time.Time{}
 	}
 	gctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	runs, err := c.scheduledRuns(gctx, owner, repo)
 	if err != nil {
-		return probeState{}, "unreadable"
+		return probeState{}, "unreadable", time.Time{}
 	}
+	misses := 0
 	seen := 0
+	var prevAt time.Time
 	for _, run := range runs {
 		if run.ID == runID || run.Status != "completed" || run.Event != "schedule" {
 			continue
@@ -580,15 +621,38 @@ func (c client) previousState(ctx context.Context) (probeState, string) {
 		if seen > 5 {
 			break
 		}
+		if prevAt.IsZero() {
+			prevAt = runTime(run)
+		}
 		state, kind := c.stateFromRun(gctx, owner, repo, run.ID)
 		switch kind {
 		case "ok":
-			return state, "ok"
-		case "invalid", "unreadable":
-			return probeState{}, "unreadable"
+			if misses == 0 {
+				return state, "ok", runTime(run)
+			}
+			return probeState{}, "unreadable", prevAt
+		case "none":
+			if misses > 0 {
+				return probeState{}, "unreadable", prevAt
+			}
+		default:
+			misses++
+			if misses >= 2 {
+				return probeState{}, "blind", prevAt
+			}
 		}
 	}
-	return probeState{}, "none"
+	if misses > 0 {
+		return probeState{}, "unreadable", prevAt
+	}
+	return probeState{}, "none", time.Time{}
+}
+
+func runTime(run ghRun) time.Time {
+	if !run.RunStartedAt.IsZero() {
+		return run.RunStartedAt
+	}
+	return run.CreatedAt
 }
 
 func actionsIdentity() (owner, repo string, runID int64, ok bool) {
