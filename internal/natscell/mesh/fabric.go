@@ -22,6 +22,8 @@ const (
 	FabricAccount = "TERRABASE"
 	orchAccount   = "ORCH"
 	orchUser      = "orch"
+	alertsAccount = "ALERTS"
+	AlertsUser    = "ts-alerts"
 	fabricUser    = "ts-orch"
 	terrabaseUser = "terrabase"
 	// TerraBaseSubjects is the TerraBase fabric's own subject space (PIVOT D25).
@@ -32,7 +34,7 @@ const (
 	jetStreamMaxStore  = 16 << 30
 )
 
-func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret string) (*server.Options, error) {
+func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, alertsSecret string) (*server.Options, error) {
 	if len(cfg.terrabaseToken) < 16 {
 		return nil, errors.New("mesh needs TerraBase's NATS token")
 	}
@@ -44,6 +46,7 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret s
 		users: map[string]credential{
 			orchUser:   {secret: orchSecret, account: orchAccount},
 			fabricUser: {secret: fabricSecret, account: FabricAccount},
+			AlertsUser: {secret: alertsSecret, account: alertsAccount},
 		},
 		terrabase: credential{secret: cfg.terrabaseToken, account: FabricAccount, permissions: &server.Permissions{
 			Publish:   &server.SubjectPermission{Allow: terrabasePublish},
@@ -95,8 +98,9 @@ var (
 var accountsConfig = fmt.Sprintf(`accounts {
   %s {}
   %s { jetstream: { max_memory: 1G, max_file: 36G, max_streams: 64, max_consumers: 4096 } }
+  %s { jetstream: { max_memory: 1M, max_file: 16M, max_streams: 1, max_consumers: 0 } }
 }
-`, orchAccount, FabricAccount)
+`, orchAccount, FabricAccount, alertsAccount)
 
 type credential struct {
 	secret, account string

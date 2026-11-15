@@ -23,7 +23,7 @@ route:
     - matchers: ['alertname=~"RuntimePeerTopologyMismatch|PeerTopologyAttestationDown"']
       receiver: local-relay
       group_wait: 5s
-      group_interval: 5s
+      group_interval: 2m
 receivers:
   - name: local-relay
     webhook_configs:
@@ -40,3 +40,6 @@ inhibit_rules:
   - source_matchers: ['alertname="HostStorageCritical"']
     target_matchers: ['alertname="HostStorageWarning"']
     equal: [host, region, service]
+  - source_matchers: ['alertname=~"ServiceSLOBurn(Fast|Slow)Global"']
+    target_matchers: ['alertname=~"ServiceSLOBurn(Fast|Slow)"']
+    equal: [service, slo]

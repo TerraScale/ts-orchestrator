@@ -77,7 +77,7 @@ func confirmSubscription(ctx context.Context, terminal io.ReadWriteCloser, topic
 	if _, err := bufio.NewReader(terminal).ReadString('\n'); err != nil || ctx.Err() != nil {
 		return errors.New("subscription confirmation canceled; no test sent")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://127.0.0.1:9094/alerts", strings.NewReader(`{"status":"firing","alerts":[{"status":"firing","labels":{"alertname":"SubscriptionTest","service":"ts-alerts","region":"gru","severity":"info"}}]}`))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+listenAddress+"/alerts", strings.NewReader(`{"status":"firing","alerts":[{"status":"firing","labels":{"alertname":"SubscriptionTest","service":"ts-alerts","region":"gru","severity":"info"}}]}`))
 	if err != nil {
 		return errors.New("subscription test request failed")
 	}

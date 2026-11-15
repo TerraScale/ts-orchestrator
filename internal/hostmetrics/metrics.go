@@ -131,6 +131,9 @@ func Handler(region, address string, executor *swarmruntime.Executor) http.Handl
 			edge.ServeLocal(w, r)
 			return
 		}
+		if serveMonitoring(w, r) {
+			return
+		}
 		if r.URL.Path == "/services" || strings.HasPrefix(r.URL.Path, "/services/") {
 			serveServices(w, r, region, address, executor)
 			return

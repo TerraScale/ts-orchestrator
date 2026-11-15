@@ -123,7 +123,7 @@ func GRU() Desired {
 			{Name: "operators-to-gru-servers-openssh",
 				Description: "Operators and operator automation → GRU servers: OpenSSH 22 on their NetBird addresses",
 				Protocol:    "tcp", Ports: []string{"22"}, Sources: []string{"operators", "ops-automation"}, Destinations: []string{"gru-servers"}},
-		}, serverAccessPolicies([]string{"gru-servers"}), []PolicySpec{meshRoutesPolicy([]string{"gru-servers"}), metricsScrapePolicy([]string{"gru-servers"})}),
+		}, serverAccessPolicies([]string{"gru-servers"}), []PolicySpec{meshRoutesPolicy([]string{"gru-servers"}), metricsScrapePolicy([]string{"gru-servers"}), monitoringGossipPolicy([]string{"gru-servers"})}),
 
 		NetworkRange:      networkplan.Mesh,
 		PeerDNSDomain:     "nb.ts.internal",
@@ -170,18 +170,22 @@ func (d Desired) withServerGroups(names []string) (Desired, error) {
 	}
 	slices.Sort(groups)
 	d.Policies = slices.DeleteFunc(d.Policies, func(policy PolicySpec) bool {
-		return policy.Name == meshRoutesPolicy(nil).Name || policy.Name == metricsScrapePolicy(nil).Name
+		return policy.Name == meshRoutesPolicy(nil).Name || policy.Name == metricsScrapePolicy(nil).Name || policy.Name == monitoringGossipPolicy(nil).Name
 	})
-	d.Policies = append(d.Policies, meshRoutesPolicy(groups), metricsScrapePolicy(groups))
+	d.Policies = append(d.Policies, meshRoutesPolicy(groups), metricsScrapePolicy(groups), monitoringGossipPolicy(groups))
 	return d, nil
 }
 
-const monitoringServers = "gru-servers"
-
 func metricsScrapePolicy(groups []string) PolicySpec {
-	return PolicySpec{Name: monitoringServers + "-to-servers-metrics",
-		Description: "GRU servers (Prometheus runs on ts-gru-1) → regional servers in every region: host exporter 9108 and TerraBase metrics 9091",
-		Protocol:    "tcp", Ports: []string{"9108", "9091"}, Sources: []string{monitoringServers}, Destinations: groups}
+	return PolicySpec{Name: "servers-to-servers-metrics", RenamedFrom: []string{"gru-servers-to-servers-metrics"},
+		Description: "Regional monitoring → servers in every region: host exporter 9108, TerraBase metrics 9091, Alertmanager HTTP 9093 and gossip TCP 9095",
+		Protocol:    "tcp", Ports: []string{"9108", "9091", "9093", "9095"}, Sources: groups, Destinations: groups}
+}
+
+func monitoringGossipPolicy(groups []string) PolicySpec {
+	return PolicySpec{Name: "servers-monitoring-gossip",
+		Description: "Regional Alertmanagers: memberlist gossip UDP 9095",
+		Protocol:    "udp", Ports: []string{"9095"}, Sources: groups, Destinations: groups}
 }
 
 func meshRoutesPolicy(groups []string) PolicySpec {

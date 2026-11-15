@@ -1,4 +1,3 @@
-# TS-714: provisional closed-beta availability policy; see slo.md.
 groups:
   - name: service-slo
     interval: 1m
@@ -20,9 +19,6 @@ groups:
           slo: availability
       - record: slo:error_budget:ratio
         expr: 1 - slo:objective
-      # Existing ASP.NET HTTP histogram counts, normalized per process before rate.
-      # Probe/internal routes and unclassified routes are excluded. Native dashboard
-      # counters already implement the contract and need no recording adapter.
       - record: terrascale_slo_requests_total
         expr: |
           (sum by (service, instance, region) (http_server_request_duration_seconds_count{service=~"terrabase|ts-auth",http_route!="",http_route!~"/(metrics|readyz|healthz|health|internal|admin|terrabase[.]v1[.].*)(/.*)?|/v1/[^/]+/deletions(/.*)?|/v1/admin(/.*)?|/v1/catalog-gate(/.*)?",http_response_status_code=~"[1-4]..",http_response_status_code!~"408|499",error_type=""}))
@@ -161,7 +157,7 @@ groups:
           description: 'Burn exceeds 1x in both 3d and 6h with at least 10000 eligible requests in 3d; inspect service failures before changing capacity or releases.'
       - alert: ServiceSLOTelemetryMissing
         expr: |
-          slo:objective unless on (service) sum by (service) (count_over_time(terrascale_slo_requests_total[5m]))
+          (slo:objective and on (service) (sum by (service) (ts_host_service_tasks_expected) > 0)) unless on (service) sum by (service) (count_over_time(terrascale_slo_requests_total[5m]))
         for: 10m
         labels:
           severity: warning

@@ -14,7 +14,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -35,8 +34,8 @@ type relay struct {
 	client       *http.Client
 	endpoint     string
 	pushEndpoint string
-	ledgerPath   string
 	probe        *deliveryProbe
+	budget       *emailBudget
 	read         func(context.Context) (credentials, error)
 	readTopic    func(context.Context) (string, error)
 }
@@ -50,7 +49,7 @@ func Run(ctx context.Context, args []string) error {
 	if len(args) != 0 && (len(args) != 1 || args[0] != "subscribe") {
 		return errors.New("usage: ts-orch alert-delivery")
 	}
-	r := relay{ledgerPath: "/var/lib/ts-alerts/email-ledger.json", client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, endpoint: "https://api.cloudflare.com/client/v4/accounts/", pushEndpoint: "https://ntfy.sh/", read: readCredentials, readTopic: readPushTopic}
+	r := relay{budget: &emailBudget{}, client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, endpoint: emailEndpoint, pushEndpoint: pushEndpoint, read: readCredentials, readTopic: readPushTopic}
 	if len(args) == 1 {
 		return r.subscribe(ctx)
 	}
@@ -59,13 +58,13 @@ func Run(ctx context.Context, args []string) error {
 	}
 	mux := http.NewServeMux()
 	client := newReadinessClient()
-	journey, err := openJourney(filepath.Join(filepath.Dir(r.ledgerPath), "journey.json"))
+	journey, err := openJourney(filepath.Join(stateDirectory, "journey.json"))
 	if err != nil {
 		slog.WarnContext(ctx, "Production journey state unavailable; alert delivery continues")
 		journey.unavailable = true
 	}
-	r.probe = &deliveryProbe{path: filepath.Join(filepath.Dir(r.ledgerPath), "delivery-probe.json"), pending: make(chan struct{}, 1)}
-	mux.HandleFunc("GET /metrics", readinessMetrics(client, journey, r.probe))
+	r.probe = &deliveryProbe{path: filepath.Join(stateDirectory, "delivery-probe.json"), pending: make(chan struct{}, 1)}
+	mux.HandleFunc("GET /metrics", readinessMetrics(client, journey, r.probe, r.budget))
 	mux.HandleFunc("POST /alerts", r.deliver)
 	mux.HandleFunc("POST /alerts/digest", r.digest)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, request *http.Request) {
@@ -75,7 +74,7 @@ func Run(ctx context.Context, args []string) error {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	listener, err := net.Listen("tcp", "127.0.0.1:9094")
+	listener, err := net.Listen("tcp", listenAddress)
 	if err != nil {
 		return err
 	}
@@ -171,39 +170,41 @@ func (r relay) handle(w http.ResponseWriter, request *http.Request, digest bool)
 	if notice.TruncatedAlerts > 0 {
 		lines = append(lines, fmt.Sprintf("%d additional alerts in this group; inspect Prometheus for every affected host", notice.TruncatedAlerts))
 	}
-	ctx, cancel := context.WithTimeout(request.Context(), 50*time.Second)
-	defer cancel()
-	var emailErr, pushErr error
-	var deliveries sync.WaitGroup
 	key, window, subject := notice.emailKey(), emailRepeatInterval, "TerraScale production alert: "+notice.Status
 	if digest {
 		key, window, subject = digestKey, digestInterval, "TerraScale daily alert digest"
 	}
-	deliveries.Go(func() {
-		if notice.Status == "resolved" {
-			return
-		}
-		if reason := r.reserveEmail(ctx, key, window, time.Now()); reason != "" {
-			slog.WarnContext(ctx, "production alert email suppressed", "reason", reason)
-			return
-		}
-		emailErr = r.email(ctx, subject, lines)
-	})
+	if notice.Status == "firing" {
+		go r.sendEmail(context.WithoutCancel(request.Context()), key, window, subject, lines)
+	}
+	var pushErr error
 	if !digest {
-		deliveries.Go(func() { pushErr = r.push(ctx, notice.Status) })
+		ctx, cancel := context.WithTimeout(request.Context(), 20*time.Second)
+		pushErr = r.push(ctx, notice.Status)
+		cancel()
 	}
-	deliveries.Wait()
+	slog.InfoContext(request.Context(), "production alert notification handled", "status", notice.Status, "alerts", len(notice.Alerts), "group", key, "alertname", notice.Alerts[0].Labels["alertname"], "region", notice.Alerts[0].Labels["region"], "push", !digest && pushErr == nil)
 	if pushErr != nil {
-		// Push is independent: never retry an accepted email because push failed.
-		slog.WarnContext(ctx, "production alert push failed", "status", notice.Status)
-	}
-	if emailErr != nil {
-		slog.WarnContext(ctx, "production alert channel rejected", "email_accepted", emailErr == nil, "push_accepted", pushErr == nil)
-		http.Error(w, "alert delivery incomplete", http.StatusBadGateway)
+		slog.WarnContext(request.Context(), "production alert push failed", "status", notice.Status)
+		http.Error(w, "alert push failed", http.StatusBadGateway)
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
-	slog.InfoContext(ctx, "production alert notification handled", "status", notice.Status, "alerts", len(notice.Alerts))
+}
+
+func (r relay) sendEmail(ctx context.Context, key string, window time.Duration, subject string, lines []string) {
+	ctx, cancel := context.WithTimeout(ctx, 50*time.Second)
+	defer cancel()
+	reason, err := r.budget.reserve(ctx, key, window)
+	if err != nil {
+		slog.WarnContext(ctx, "fleet alert email budget unreachable; email withheld", "error", err)
+	}
+	if reason == "" {
+		if err := r.email(ctx, subject, lines); err != nil {
+			reason = err.Error()
+		}
+	}
+	slog.InfoContext(ctx, "production alert email", "group", key, "sent", reason == "", "reason", reason)
 }
 
 func (r relay) email(ctx context.Context, subject string, lines []string) error {
@@ -213,9 +214,7 @@ func (r relay) email(ctx context.Context, subject string, lines []string) error 
 	}
 	sendBy, err := r.admit(ctx, secrets.token)
 	if err != nil {
-		// Suppression is handled, just like the local cap; push remains independent.
-		slog.WarnContext(ctx, "production alert email suppressed", "reason", "admission unavailable")
-		return nil
+		return err
 	}
 	ctx, cancel := context.WithDeadline(ctx, sendBy)
 	defer cancel()

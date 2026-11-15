@@ -6,7 +6,8 @@ Wants=network-online.target
 [Service]
 User=ts-alertmanager
 Group=ts-alertmanager
-ExecStart=/usr/local/lib/ts-monitoring/alertmanager --config.file=/etc/ts-monitoring/production/alertmanager.yml --storage.path=/var/lib/ts-alertmanager --web.listen-address=127.0.0.1:9093 --cluster.listen-address=
+EnvironmentFile=/etc/ts-monitoring/production/alertmanager.env
+ExecStart=/usr/local/lib/ts-monitoring/alertmanager --config.file=/etc/ts-monitoring/production/alertmanager.yml --storage.path=/var/lib/ts-alertmanager --web.listen-address=127.0.0.1:9093 --web.listen-address=${MONITOR_ADDRESS}:9093 --cluster.listen-address=${MONITOR_ADDRESS}:9095 --cluster.advertise-address=${MONITOR_ADDRESS}:9095 @peers@
 Restart=on-failure
 StateDirectory=ts-alertmanager
 NoNewPrivileges=true

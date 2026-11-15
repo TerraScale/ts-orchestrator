@@ -2,80 +2,6 @@ rule_files:
 - ../../../../deploy/observability/production/operational-rules.yml
 evaluation_interval: 15s
 tests:
-- interval: 1m
-  input_series:
-  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc",service="ts-dashboard"}
-    values: 0+0x20
-  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-2",region="sjc",service="ts-dashboard"}
-    values: 0+0x20
-  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-fra-1",region="fra",service="ts-dashboard"}
-    values: 0+0x20
-  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-fra-2",region="fra",service="ts-dashboard"}
-    values: 0+0x20
-  - series: ts_host_service_tasks_expected{job="host-storage",host="ts-gru-1",region="gru",service="ts-dashboard"}
-    values: 0+0x20
-  alert_rule_test:
-  - eval_time: 14m
-    alertname: HostServiceTaskInventoryMissing
-    exp_alerts: []
-  - eval_time: 15m
-    alertname: HostServiceTaskInventoryMissing
-    exp_alerts:
-    - exp_labels:
-        severity: critical
-        job: host-storage
-        host: ts-gru-2
-        region: gru
-      exp_annotations:
-        summary: Service task inventory is absent on ts-gru-2
-- interval: 1m
-  input_series: []
-  alert_rule_test:
-  - eval_time: 15m
-    alertname: HostServiceTaskInventoryMissing
-    exp_alerts:
-    - exp_labels:
-        severity: critical
-        job: host-storage
-        host: ts-sjc-1
-        region: sjc
-      exp_annotations:
-        summary: Service task inventory is absent on ts-sjc-1
-    - exp_labels:
-        severity: critical
-        job: host-storage
-        host: ts-sjc-2
-        region: sjc
-      exp_annotations:
-        summary: Service task inventory is absent on ts-sjc-2
-    - exp_labels:
-        severity: critical
-        job: host-storage
-        host: ts-fra-1
-        region: fra
-      exp_annotations:
-        summary: Service task inventory is absent on ts-fra-1
-    - exp_labels:
-        severity: critical
-        job: host-storage
-        host: ts-fra-2
-        region: fra
-      exp_annotations:
-        summary: Service task inventory is absent on ts-fra-2
-    - exp_labels:
-        severity: critical
-        job: host-storage
-        host: ts-gru-1
-        region: gru
-      exp_annotations:
-        summary: Service task inventory is absent on ts-gru-1
-    - exp_labels:
-        severity: critical
-        job: host-storage
-        host: ts-gru-2
-        region: gru
-      exp_annotations:
-        summary: Service task inventory is absent on ts-gru-2
 - interval: 15s
   input_series:
   - series: ts_host_service_tasks_expected{job="host-storage",host="ts-sjc-1",region="sjc",service="terrabase"}
@@ -560,108 +486,429 @@ tests:
         description: terrabase_backup_drills_total counts completed snapshot restore drills by result and drills run daily. No increase for twenty-six hours means no drill completed on the reporting member; a Prometheus with less than twenty-six hours of history truncates the window and can fire earlier. Failed drills page separately through TerraBaseBackupDrillFailed.
         runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/disaster-recovery.md#drill
 
-- interval: 15s
+
+- interval: 1m
   input_series:
-  - series: up{job="host-storage",host="ts-sjc-1",region="sjc",instance="ts-sjc-1"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-sjc-2",region="sjc",instance="ts-sjc-2"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-fra-1",region="fra",instance="ts-fra-1"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-fra-2",region="fra",instance="ts-fra-2"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-gru-1",region="gru",instance="ts-gru-1"}
-    values: 1+0x28
+  - series: terrabase_backup_failures_total{service="terrabase",instance="old-member"}
+    values: 38+0x20
+  - series: terrabase_backup_holes_recorded_total{service="terrabase",instance="old-member"}
+    values: 2+0x20
+  - series: terrabase_backup_holes_total{service="terrabase",instance="old-member"}
+    values: 1+0x20
+  - series: terrabase_replica_verifications_total{service="terrabase",instance="old-member",result="diverged"}
+    values: 2+0x20
+  - series: terrabase_backup_drills_total{service="terrabase",instance="old-member",result="failed"}
+    values: 1+0x20
+  - series: ts_auth_emails_total{service="ts-auth",region="gru",instance="old-member",outcome="provider_exhausted"}
+    values: 1+0x20
+  - series: up{job="application-slo",service="terrabase",instance="old-member"}
+    values: 1+0x20
   alert_rule_test:
-  - eval_time: 4m45s
-    alertname: ExpectedNodeAbsent
+  - eval_time: 0m
+    alertname: TerraBaseBackupFailed
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: TerraBaseBackupFailed
     exp_alerts: []
   - eval_time: 5m
-    alertname: ExpectedNodeAbsent
-    exp_alerts:
-    - exp_labels:
-        severity: critical
-        region: gru
-      exp_annotations:
-        summary: Expected node  has no host-storage heartbeat (gru)
-        description: 'Each region (gru, sjc, fra) runs two hosts and every host agent exports the host-storage heartbeat, so a healthy region sums up{job="host-storage"} to two. The region clause fires when a heartbeat is down or vanished; the absent clauses name the configured host whose series disappeared from discovery. Use node operations for drain, reboot and rebuild; a stopped ts-prometheus on ts-gru-1 also stops evaluation and delivery for every region.'
-        runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/node-operations.md
-    - exp_labels:
-        severity: critical
-        job: host-storage
-        host: ts-gru-2
-        region: gru
-      exp_annotations:
-        summary: Expected node ts-gru-2 has no host-storage heartbeat (gru)
-        description: 'Each region (gru, sjc, fra) runs two hosts and every host agent exports the host-storage heartbeat, so a healthy region sums up{job="host-storage"} to two. The region clause fires when a heartbeat is down or vanished; the absent clauses name the configured host whose series disappeared from discovery. Use node operations for drain, reboot and rebuild; a stopped ts-prometheus on ts-gru-1 also stops evaluation and delivery for every region.'
-        runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/node-operations.md
-
-- interval: 15s
-  input_series:
-  - series: up{job="host-storage",host="ts-sjc-1",region="sjc",instance="ts-sjc-1"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-sjc-2",region="sjc",instance="ts-sjc-2"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-fra-1",region="fra",instance="ts-fra-1"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-fra-2",region="fra",instance="ts-fra-2"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-gru-1",region="gru",instance="ts-gru-1"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-gru-2",region="gru",instance="ts-gru-2"}
-    values: 1 0 1 0 1+0x24
-  alert_rule_test:
-  - eval_time: 6m
-    alertname: ExpectedNodeAbsent
+    alertname: TerraBaseBackupFailed
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: TerraBaseBackupFailed
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: AuthEmailProviderExhausted
     exp_alerts: []
 
-- interval: 15s
+- interval: 1m
   input_series:
-  - series: up{job="host-storage",host="ts-sjc-1",region="sjc",instance="ts-sjc-1"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-sjc-2",region="sjc",instance="ts-sjc-2"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-fra-1",region="fra",instance="ts-fra-1"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-fra-2",region="fra",instance="ts-fra-2"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-gru-1",region="gru",instance="ts-gru-1"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-gru-2",region="gru",instance="ts-gru-2"}
-    values: 1 0+0x27
+  - series: terrabase_backup_failures_total{service="terrabase",instance="retrying"}
+    values: 0 1 2 3 4 5
   alert_rule_test:
   - eval_time: 5m
-    alertname: ExpectedNodeAbsent
-    exp_alerts: []
-  - eval_time: 6m
-    alertname: ExpectedNodeAbsent
+    alertname: TerraBaseBackupFailed
     exp_alerts:
     - exp_labels:
-        severity: critical
-        region: gru
+        service: terrabase
+        instance: retrying
+        severity: warning
       exp_annotations:
-        summary: Expected node  has no host-storage heartbeat (gru)
-        description: 'Each region (gru, sjc, fra) runs two hosts and every host agent exports the host-storage heartbeat, so a healthy region sums up{job="host-storage"} to two. The region clause fires when a heartbeat is down or vanished; the absent clauses name the configured host whose series disappeared from discovery. Use node operations for drain, reboot and rebuild; a stopped ts-prometheus on ts-gru-1 also stops evaluation and delivery for every region.'
-        runbook_url: https://github.com/TerraScale/ts-orchestrator/blob/main/docs/node-operations.md
+        summary: A TerraBase backup pass failed
+
+- interval: 1m
+  input_series:
+  - series: terrascale_alert_delivery_probe_completed_timestamp_seconds{host="ts-gru-1"}
+    values: 0+0x20
+  - series: terrascale_alert_delivery_probe_completed_timestamp_seconds{host="ts-sjc-1"}
+    values: 1+60x20
+  - series: terrascale_alert_delivery_probe_completed_timestamp_seconds{host="ts-fra-1"}
+    values: 0+0x20
+  alert_rule_test:
+  - eval_time: 15m
+    alertname: AlertDeliveryProbeMissing
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: AlertDeliveryProbeStale
+    exp_alerts: []
+
+- interval: 1m
+  input_series:
+  - series: up{job="application-slo",service="terrabase",instance="db-task"}
+    values: 1+0x40
+  - series: up{job="application-slo",service="ts-auth",instance="auth-task"}
+    values: 1+0x40
+  - series: terrabase_backup_failures_total{service="terrabase",instance="db-task"}
+    values: _x8 1+0x30
+  - series: terrabase_backup_holes_recorded_total{service="terrabase",instance="db-task"}
+    values: _x8 1+0x30
+  - series: terrabase_backup_drills_total{service="terrabase",instance="db-task",result="failed"}
+    values: _x8 1+0x30
+  - series: terrabase_replica_verifications_total{service="terrabase",instance="db-task",result="diverged"}
+    values: _x16 1+0x22
+  - series: ts_auth_emails_total{service="ts-auth",region="gru",instance="auth-task",outcome="provider_exhausted"}
+    values: _x8 1+0x30
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: TerraBaseBackupFailed
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: TerraBaseBackupFailed
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        severity: "warning"
+      exp_annotations:
+        summary: "A TerraBase backup pass failed"
+  - eval_time: 12m
+    alertname: TerraBaseBackupFailed
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        severity: "warning"
+      exp_annotations:
+        summary: "A TerraBase backup pass failed"
+  - eval_time: 14m
+    alertname: TerraBaseBackupFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: TerraBaseBackupHoles
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        severity: "critical"
+      exp_annotations:
+        summary: "TerraBase backup contains holes"
+  - eval_time: 12m
+    alertname: TerraBaseBackupHoles
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        severity: "critical"
+      exp_annotations:
+        summary: "TerraBase backup contains holes"
+  - eval_time: 14m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        result: "failed"
+        severity: "critical"
+      exp_annotations:
+        summary: "TerraBase backup restore drill failed"
+  - eval_time: 12m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        result: "failed"
+        severity: "critical"
+      exp_annotations:
+        summary: "TerraBase backup restore drill failed"
+  - eval_time: 14m
+    alertname: TerraBaseBackupDrillFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 17m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        result: "diverged"
+        severity: "critical"
+      exp_annotations:
+        summary: "A TerraBase region replica diverged from its home"
+        description: "The replica was deleted and bootstrapped again. Read the replica node's error log for the database and range; repeated divergence points at an engine or sync bug."
+  - eval_time: 30m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "db-task"
+        result: "diverged"
+        severity: "critical"
+      exp_annotations:
+        summary: "A TerraBase region replica diverged from its home"
+        description: "The replica was deleted and bootstrapped again. Read the replica node's error log for the database and range; repeated divergence points at an engine or sync bug."
+  - eval_time: 32m
+    alertname: TerraBaseReplicaDiverged
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts:
+    - exp_labels:
+        service: "ts-auth"
+        region: "gru"
+        severity: "critical"
+      exp_annotations:
+        summary: "Authentication email provider capacity exhausted"
+  - eval_time: 12m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts:
+    - exp_labels:
+        service: "ts-auth"
+        region: "gru"
+        severity: "critical"
+      exp_annotations:
+        summary: "Authentication email provider capacity exhausted"
+  - eval_time: 14m
+    alertname: AuthEmailProviderExhausted
+    exp_alerts: []
+
+- interval: 1m
+  input_series:
+  - series: up{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 0+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 0+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 0+0x12
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: AlertmanagerClusterDegraded
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: AlertmanagerClusterDegraded
+    exp_alerts:
+    - exp_labels:
+        host: ts-sjc-1
+        severity: critical
+      exp_annotations:
+        summary: "Alertmanager on ts-sjc-1 sees fewer cluster members than reachable Alertmanagers"
+        description: "An Alertmanager whose gossip cluster is split or never formed delivers every notification independently, so each page arrives once per partition. Check NetBird UDP and TCP 9095 between the monitoring hosts and the cluster peers in /api/v2/status."
+    - exp_labels:
+        host: ts-fra-1
+        severity: critical
+      exp_annotations:
+        summary: "Alertmanager on ts-fra-1 sees fewer cluster members than reachable Alertmanagers"
+        description: "An Alertmanager whose gossip cluster is split or never formed delivers every notification independently, so each page arrives once per partition. Check NetBird UDP and TCP 9095 between the monitoring hosts and the cluster peers in /api/v2/status."
+    - exp_labels:
+        host: ts-gru-1
+        severity: critical
+      exp_annotations:
+        summary: "Alertmanager on ts-gru-1 sees fewer cluster members than reachable Alertmanagers"
+        description: "An Alertmanager whose gossip cluster is split or never formed delivers every notification independently, so each page arrives once per partition. Check NetBird UDP and TCP 9095 between the monitoring hosts and the cluster peers in /api/v2/status."
+
+- interval: 1m
+  input_series:
+  - series: up{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 2+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 2+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 1+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 0+0x12
+  alert_rule_test:
+  - eval_time: 12m
+    alertname: AlertmanagerClusterDegraded
+    exp_alerts: []
+
+- interval: 1m
+  input_series:
+  - series: up{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 3+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 3+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-fra-1",instance="ts-fra-1"}
+    values: 0+0x12
+  - series: up{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 1+0x12
+  - series: alertmanager_cluster_members{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 3+0x12
+  - series: alertmanager_cluster_failed_peers{job="monitoring-alertmanager",host="ts-gru-1",instance="ts-gru-1"}
+    values: 0+0x12
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: AlertmanagerClusterDegraded
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: AlertmanagerClusterDegraded
+    exp_alerts:
+    - exp_labels:
+        host: ts-sjc-1
+        severity: critical
+      exp_annotations:
+        summary: "Alertmanager on ts-sjc-1 sees fewer cluster members than reachable Alertmanagers"
+        description: "An Alertmanager whose gossip cluster is split or never formed delivers every notification independently, so each page arrives once per partition. Check NetBird UDP and TCP 9095 between the monitoring hosts and the cluster peers in /api/v2/status."
 
 - interval: 15s
   input_series:
-  - series: up{job="host-storage",host="ts-sjc-1",region="sjc",instance="ts-sjc-1"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-sjc-2",region="sjc",instance="ts-sjc-2"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-fra-1",region="fra",instance="ts-fra-1"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-fra-2",region="fra",instance="ts-fra-2"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-gru-1",region="gru",instance="ts-gru-1"}
-    values: 1+0x28
-  - series: up{job="host-storage",host="ts-gru-2",region="gru",instance="ts-gru-2"}
-    values: 1+0x28
-  - series: up{job="other",host="ts-sjc-1",region="sjc"}
-    values: 1+0x28
+  - series: up{job="peer-topology",host="ts-fra-2",instance="ts-fra-2"}
+    values: 1 0 0 0 0 0 0 1+0x12 0+0x12
   alert_rule_test:
-  - eval_time: 6m
-    alertname: ExpectedNodeAbsent
+  - eval_time: 1m30s
+    alertname: PeerTopologyAttestationDown
     exp_alerts: []
+  - eval_time: 4m30s
+    alertname: PeerTopologyAttestationDown
+    exp_alerts: []
+  - eval_time: 7m
+    alertname: PeerTopologyAttestationDown
+    exp_alerts:
+    - exp_labels:
+        job: "peer-topology"
+        host: "ts-fra-2"
+        instance: "ts-fra-2"
+        severity: "critical"
+      exp_annotations:
+        summary: "Peer topology attestation is unavailable"
 
+- interval: 1m
+  input_series:
+  - series: terrascale_alert_delivery_email_withheld_total{job="service-readiness",host="ts-sjc-1",instance="ts-sjc-1",reason="budget_exhausted"}
+    values: 0+0x5 1+0x20
+  - series: terrascale_alert_delivery_email_withheld_total{job="service-readiness",host="ts-fra-1",instance="ts-fra-1",reason="budget_exhausted"}
+    values: 0+0x5 2+0x20
+  - series: terrascale_alert_delivery_email_withheld_total{job="service-readiness",host="ts-sjc-1",instance="ts-sjc-1",reason="budget_unavailable"}
+    values: 0+0x25
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: AlertDeliveryEmailBudgetExhausted
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: AlertDeliveryEmailBudgetExhausted
+    exp_alerts:
+    - exp_labels:
+        service: ts-alerts
+        severity: critical
+      exp_annotations:
+        summary: "The fleet alert email budget of 12 per hour and 288 per day is spent; alert email is withheld and push still pages"
+        description: "Every relay reserves alert email from one shared JetStream budget on the mesh. Read the withheld alerts in Alertmanager; email resumes as the rolling hour and day free up."
+  - eval_time: 22m
+    alertname: AlertDeliveryEmailBudgetExhausted
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: AlertDeliveryEmailBudgetUnavailable
+    exp_alerts: []
+- interval: 1m
+  input_series:
+  - series: up{job="application-slo",service="terrabase",instance="gru-db"}
+    values: 1+0x20
+  - series: terrabase_backup_holes_total{service="terrabase",instance="gru-db"}
+    values: 1+0x5 2+0x15
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: TerraBaseBackupHoles
+    exp_alerts:
+    - exp_labels:
+        service: "terrabase"
+        instance: "gru-db"
+        severity: "critical"
+      exp_annotations:
+        summary: "TerraBase backup contains holes"
+  - eval_time: 12m
+    alertname: TerraBaseBackupHoles
+    exp_alerts: []

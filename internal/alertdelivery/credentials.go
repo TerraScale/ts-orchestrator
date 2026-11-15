@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"os/user"
 	"strconv"
@@ -61,7 +62,13 @@ func prepareCredentials(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	token, err := os.ReadFile(meshAlertsToken)
+	if err != nil {
+		slog.WarnContext(ctx, "mesh alert budget token unavailable; alert email stays withheld until the mesh runs", "error", err)
+		return nil
+	}
+	defer clear(token)
+	return writeCredential(root, "TS_ALERTS_NATS_TOKEN_FILE", strings.TrimSpace(string(token)), gid)
 }
 
 func writeCredential(root *os.Root, key, value string, gid int) error {

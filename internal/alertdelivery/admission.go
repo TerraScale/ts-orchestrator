@@ -15,8 +15,6 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
-const admissionEndpoint = "https://auth.terrascale.tech/v1/terrascale/email/admission"
-
 // admit reserves one non-auth email attempt. Never retry: a lost response may
 // already have consumed capacity. The local ledger prevents webhook retries
 // from obtaining another admission for the same notification.

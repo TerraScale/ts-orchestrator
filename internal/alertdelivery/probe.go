@@ -20,7 +20,7 @@ func newReadinessClient() *http.Client {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
-func readinessMetrics(client *http.Client, journey *journeyObservation, delivery *deliveryProbe) http.HandlerFunc {
+func readinessMetrics(client *http.Client, journey *journeyObservation, delivery *deliveryProbe, budget *emailBudget) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		services := [...]string{"terrabase", "ts-auth", "ts-dashboard"}
 		values := [3]int{}
@@ -44,6 +44,7 @@ func readinessMetrics(client *http.Client, journey *journeyObservation, delivery
 		}
 		journey.write(w)
 		delivery.write(w)
+		budget.write(w)
 	}
 }
 
