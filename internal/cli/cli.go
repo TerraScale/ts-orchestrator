@@ -97,6 +97,7 @@ Operator tooling:
 
 Use ts-orch release --help to list its commands.
 ts-orch release push sends a main build one region at a time (sjc, fra, gru), waiting for JetStream and the region's services (CI only);
+ts-orch release nudge tells every region's orchestrator to look for a new attested release now; it carries no authority (CI only);
 ts-orch release pin --state /var/lib/ts-orch prints a host's listener pin for that file.
 ts-orch release app --service <name> --image <ref@sha256> releases an app image to every region (app image CI only);
 ts-orch release digests --out <file> records every mesh service's desired image (app-digests CI only);
@@ -197,6 +198,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		}
 		if len(args) > 1 && args[1] == "push" {
 			return releasepush.Push(ctx, args[2:], output)
+		}
+		if len(args) > 1 && args[1] == "nudge" {
+			return releasepush.SendNudge(ctx, args[2:], output)
 		}
 		if len(args) > 1 && args[1] == "app" {
 			return releasepush.PushApp(ctx, args[2:], output)

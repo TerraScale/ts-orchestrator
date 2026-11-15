@@ -40,7 +40,7 @@ func Verify(ctx context.Context, image, workflowRef, revision string, keychain a
 	if err != nil {
 		return err
 	}
-	trustedRoot, err := root.NewTrustedRootFromJSON([]byte(trustedRootJSON))
+	trustedRoot, err := PublicGoodRoot()
 	if err != nil {
 		return fmt.Errorf("image %s refused: attestation lookup failed: %w", image, err)
 	}
@@ -64,6 +64,10 @@ func Verify(ctx context.Context, image, workflowRef, revision string, keychain a
 		return nil
 	}
 	return fmt.Errorf("image %s refused: no provenance attestation signed by https://github.com/%s for commit %s", image, workflowRef, revision)
+}
+
+func PublicGoodRoot() (*root.TrustedRoot, error) {
+	return root.NewTrustedRootFromJSON([]byte(trustedRootJSON))
 }
 
 func digestBytes(digest name.Digest) []byte {

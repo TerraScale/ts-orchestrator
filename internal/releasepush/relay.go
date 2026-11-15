@@ -22,6 +22,7 @@ func RelayWorkers(ctx context.Context, conn *nats.Conn, subject string, data []b
 	}
 	rows := []HostVersion{}
 	pending := map[string]int{}
+	up := 0
 	for _, node := range nodes {
 		if node.Role != api.NodeRoleWorker {
 			continue
@@ -31,7 +32,11 @@ func RelayWorkers(ctx context.Context, conn *nats.Conn, subject string, data []b
 			name = node.Description.Hostname
 		}
 		pending[node.ID] = len(rows)
-		rows = append(rows, HostVersion{ID: node.ID, Host: secretpreflight.Scrub(name), Error: "no answer"})
+		down := node.Status.State == api.NodeStatus_DOWN || node.Status.State == api.NodeStatus_DISCONNECTED
+		if !down {
+			up++
+		}
+		rows = append(rows, HostVersion{ID: node.ID, Host: secretpreflight.Scrub(name), Error: "no answer", Down: down})
 	}
 	if nodes == nil {
 		rows = append(rows, HostVersion{Host: "worker inventory", Error: "no answer"})
@@ -46,7 +51,7 @@ func RelayWorkers(ctx context.Context, conn *nats.Conn, subject string, data []b
 		return rows
 	}
 	answered := map[string]bool{}
-	for len(pending) != 0 || nodes == nil {
+	for up != 0 || nodes == nil {
 		message, err := sub.NextMsgWithContext(ctx)
 		if err != nil {
 			break
@@ -75,7 +80,10 @@ func RelayWorkers(ctx context.Context, conn *nats.Conn, subject string, data []b
 		} else if reply.State != "installed" && reply.State != "current" {
 			continue
 		}
-		rows[index].Error = ""
+		if known && !rows[index].Down {
+			up--
+		}
+		rows[index].Error, rows[index].Down = "", false
 		rows[index].Version = reply.Version
 		delete(pending, reply.Host)
 		answered[reply.Host] = true

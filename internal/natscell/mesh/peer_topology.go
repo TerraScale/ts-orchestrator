@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
@@ -250,6 +251,7 @@ func (n *Node) servePeerMetrics(ctx context.Context) {
 				w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 				n.writePeerMetrics(w)
 				n.writeStoreMetrics(w)
+				releasepush.WriteReleaseMetrics(w, filepath.Dir(n.cfg.dir))
 			})}
 	}
 	tick := time.NewTicker(5 * time.Second)

@@ -17,6 +17,13 @@ groups:
           severity: critical
         annotations:
           summary: Peer topology attestation is unavailable
+      - alert: ReleaseWorkerSkipped
+        expr: ts_orch_release_worker_skipped > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: A release push installed a region's manager while one of its workers was down, so the region runs mixed releases until the worker is back and the next push reaches it
+
   - name: terrabase-operations
     rules:
       - alert: TerraBaseErasurePendingDay20

@@ -15,10 +15,12 @@ require (
 	github.com/containerd/containerd/v2 v2.4.2
 	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/platforms v1.0.0-rc.5
+	github.com/digitorus/timestamp v0.0.0-20231217203849-220c5c2851b7
 	github.com/distribution/reference v0.6.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gofrs/flock v0.10.0
 	github.com/gogo/protobuf v1.3.2
+	github.com/google/certificate-transparency-go v1.4.0
 	github.com/google/go-containerregistry v0.22.1
 	github.com/mattn/go-isatty v0.0.20
 	github.com/moby/swarmkit/v2 v2.1.2
@@ -33,6 +35,9 @@ require (
 	github.com/oracle/oci-go-sdk/v65 v65.126.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/common v0.72.0
+	github.com/secure-systems-lab/go-securesystemslib v0.11.1
+	github.com/sigstore/protobuf-specs v0.5.2
+	github.com/sigstore/rekor v1.5.5
 	github.com/sigstore/sigstore-go v1.4.0
 	github.com/sirupsen/logrus v1.10.2
 	github.com/starfederation/datastar-go v1.2.2
@@ -77,7 +82,6 @@ require (
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 // indirect
 	github.com/digitorus/pkcs7 v0.0.0-20260821105541-05f79448fa77 // indirect
-	github.com/digitorus/timestamp v0.0.0-20231217203849-220c5c2851b7 // indirect
 	github.com/docker/cli v29.7.2+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/docker/go-events v0.1.0 // indirect
@@ -109,7 +113,6 @@ require (
 	github.com/go-openapi/validate v1.0.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/google/certificate-transparency-go v1.4.0 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
@@ -137,10 +140,7 @@ require (
 	github.com/prometheus/client_golang v1.25.0 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
-	github.com/secure-systems-lab/go-securesystemslib v0.11.1 // indirect
 	github.com/shibumi/go-pathspec v1.3.0 // indirect
-	github.com/sigstore/protobuf-specs v0.5.2 // indirect
-	github.com/sigstore/rekor v1.5.5 // indirect
 	github.com/sigstore/rekor-tiles/v2 v2.4.0 // indirect
 	github.com/sigstore/sigstore v1.11.1 // indirect
 	github.com/sigstore/timestamp-authority/v2 v2.2.0 // indirect
