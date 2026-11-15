@@ -3,10 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"debug/buildinfo"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -131,7 +139,80 @@ func meshUp(ctx context.Context, fleet *oraclehost.Fleet) {
 	step("every manager's mesh is up and every region answers ts-orch status over it")
 }
 
-func ready(ctx context.Context, fleet *oraclehost.Fleet, want string) {
+func installEdgeCert(fleet *oraclehost.Fleet) string {
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	must(err)
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	must(err)
+	now := time.Now()
+	template := func(name string, ca bool, serial int64) *x509.Certificate {
+		return &x509.Certificate{
+			SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: name},
+			NotBefore: now.Add(-time.Hour), NotAfter: now.Add(90 * 24 * time.Hour),
+			IsCA: ca, BasicConstraintsValid: true,
+			KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		}
+	}
+	caTemplate := template("single-host whoami", true, 1)
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caKey.Public(), caKey)
+	must(err)
+	leafTemplate := template("whoami.e2e.test", false, 2)
+	leafTemplate.DNSNames = []string{"whoami.e2e.test"}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caTemplate, leafKey.Public(), caKey)
+	must(err)
+	keyDER, err := x509.MarshalPKCS8PrivateKey(leafKey)
+	must(err)
+	material := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})...)
+	caPath := filepath.Join(fleet.Work, "whoami-ca.pem")
+	must(os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), 0o644))
+	for _, host := range fleet.Hosts {
+		dir := host.State("edge-certs")
+		must(os.MkdirAll(dir, 0o700))
+		must(os.WriteFile(filepath.Join(dir, "whoami.e2e.test"), material, 0o600))
+	}
+	return caPath
+}
+
+func whoamiBody(ctx context.Context, host *oraclehost.Host, ca string) ([]byte, error) {
+	output, err := exec.CommandContext(ctx, "ip", "netns", "exec", host.Namespace, "curl", "-fsS", "--max-time", "5", "--cacert", ca, "--resolve", "whoami.e2e.test:443:127.0.0.1", "https://whoami.e2e.test/").CombinedOutput()
+	if err != nil {
+		return output, fmt.Errorf("%s: %w: %s", host.Name, err, output)
+	}
+	return output, nil
+}
+
+func whoamiBackend(ctx context.Context, host *oraclehost.Host, ca string) string {
+	var backend string
+	until(ctx, host.Name+" whoami via its edge", func() error {
+		seen := ""
+		for range 4 {
+			body, err := whoamiBody(ctx, host, ca)
+			if err != nil {
+				return err
+			}
+			line := ""
+			for _, row := range strings.Split(string(body), "\n") {
+				if strings.HasPrefix(row, "Hostname: ") {
+					line = row
+				}
+			}
+			if line == "" || !bytes.Contains(body, []byte("Host: whoami.e2e.test\n")) {
+				return fmt.Errorf("body %q", body)
+			}
+			if seen == "" {
+				seen = line
+			}
+			if line != seen {
+				return fmt.Errorf("one edge answered %q and %q", seen, line)
+			}
+		}
+		backend = seen
+		return nil
+	})
+	return backend
+}
+
+func ready(ctx context.Context, fleet *oraclehost.Fleet, want, ca string) {
 	managers, workers := roles(fleet)
 	for _, host := range fleet.Hosts {
 		healthy(ctx, host, want)
@@ -166,10 +247,18 @@ func ready(ctx context.Context, fleet *oraclehost.Fleet, want string) {
 		for _, port := range []int{80, 443} {
 			listening, err := host.Listening(ctx, port)
 			must(err)
-			require(listening == manager, "%s: edge :%d listening=%v, want %v", host.Name, port, listening, manager)
+			require(listening, "%s: edge :%d listening=%v, want true", host.Name, port, listening)
 		}
 	}
-	step("JetStream fabric and edge :80/:443 run on managers only")
+	backends := map[string]string{}
+	for _, manager := range managers {
+		backends[manager.Region.Name] = whoamiBackend(ctx, manager, ca)
+	}
+	for _, worker := range workers {
+		got := whoamiBackend(ctx, worker, ca)
+		require(got == backends[worker.Region.Name], "%s balanced whoami to %q, want its manager's backend %q", worker.Name, got, backends[worker.Region.Name])
+	}
+	step("JetStream on managers; every host's edge listens and each worker balances whoami to its manager's backend")
 }
 
 func main() {
@@ -188,6 +277,7 @@ func main() {
 	spec := workload(specFile, filepath.Join(os.Args[3], "..", "images.json"))
 	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, 2)
 	must(err)
+	ca := installEdgeCert(fleet)
 	defer fleet.Close()
 	defer func() {
 		if value := recover(); value != nil {
@@ -232,7 +322,7 @@ func main() {
 	output, err := managers[0].Exec(ctx, "/usr/local/bin/ts-orch", "service", "apply", "-f", applied)
 	require(err == nil && !bytes.Contains(output, []byte("on this host only")), "service apply on %s did not go through the mesh: %v: %s", managers[0].Name, err, output)
 	step("applied %s on %s through the mesh: %s", spec["name"], managers[0].Name, bytes.TrimSpace(output))
-	ready(ctx, fleet, first)
+	ready(ctx, fleet, first, ca)
 
 	for _, host := range fleet.Hosts {
 		before := host.LastRun()
@@ -242,7 +332,7 @@ func main() {
 		healthy(ctx, host, first)
 		step("%s restarted to READY and release health ok", host.Name)
 	}
-	ready(ctx, fleet, first)
+	ready(ctx, fleet, first, ca)
 	step("single-host-region lane passed in %s", time.Since(started).Round(time.Second))
 }
 

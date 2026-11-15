@@ -13,8 +13,8 @@ func WorkerReleaseJourney(ctx context.Context, state string, node *mesh.Node) er
 	if err != nil || !stored || admission.Role == "manager" {
 		return fmt.Errorf("worker admission: %+v, stored %t, %v", admission, stored, err)
 	}
-	if err := node.ReleaseHealth(ctx); err == nil {
-		return fmt.Errorf("the worker unexpectedly has a manager fabric")
+	if err := node.ReleaseHealth(ctx); err != nil {
+		return fmt.Errorf("joined worker release health: %w", err)
 	}
 	if result := releaseHealth(ctx, state, "ts-dashboard", node, nil); result.Err() != nil {
 		return result.Err()
