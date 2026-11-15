@@ -99,7 +99,7 @@ func (v Verifier) Subjects(data []byte, sha, run string) (map[string]string, err
 	if err != nil {
 		return nil, err
 	}
-	verifier, err := verify.NewVerifier(v.Root, verify.WithTransparencyLog(1), verify.WithObserverTimestamps(1))
+	verifier, err := verify.NewVerifier(v.Root, verify.WithSignedCertificateTimestamps(1), verify.WithTransparencyLog(1), verify.WithObserverTimestamps(1))
 	if err != nil {
 		return nil, err
 	}

@@ -138,20 +138,47 @@ func (s *Source) Descends(ctx context.Context, base, head string) error {
 	if now := s.Now(); now.Before(s.until) {
 		return &RateLimitedError{s.until}
 	}
-	_, data, err := s.get(ctx, apiBase+"/compare/"+base+"..."+head, nil, compareLimit)
+	first, err := s.compare(ctx, base, head, 1)
 	if err != nil {
 		return err
 	}
-	var comparison struct {
-		Status string `json:"status"`
+	if first.Status != "ahead" || first.AheadBy < 1 || first.Base.SHA != base || first.MergeBase.SHA != base {
+		return fmt.Errorf("%w: %s does not descend from the installed %s (%s; base %s, merge base %s)", ErrRefused, head, base, first.Status, first.Base.SHA, first.MergeBase.SHA)
 	}
-	if err := json.Unmarshal(data, &comparison); err != nil {
-		return fmt.Errorf("GitHub comparison unreadable: %w", err)
+	last := first
+	if first.AheadBy > 1 {
+		if last, err = s.compare(ctx, base, head, first.AheadBy); err != nil {
+			return err
+		}
 	}
-	if comparison.Status != "ahead" && comparison.Status != "identical" {
-		return fmt.Errorf("%w: %s does not descend from the installed %s (%s)", ErrRefused, head, base, comparison.Status)
+	if last.AheadBy != first.AheadBy || last.Base.SHA != base || last.MergeBase.SHA != base || len(last.Commits) != 1 || last.Commits[0].SHA != head {
+		return fmt.Errorf("%w: GitHub's comparison of the installed %s does not end at %s", ErrRefused, base, head)
 	}
 	return nil
+}
+
+type commitRef struct {
+	SHA string `json:"sha"`
+}
+
+type comparison struct {
+	Status    string      `json:"status"`
+	AheadBy   int         `json:"ahead_by"`
+	Base      commitRef   `json:"base_commit"`
+	MergeBase commitRef   `json:"merge_base_commit"`
+	Commits   []commitRef `json:"commits"`
+}
+
+func (s *Source) compare(ctx context.Context, base, head string, page int) (comparison, error) {
+	_, data, err := s.get(ctx, apiBase+"/compare/"+base+"..."+head+"?per_page=1&page="+strconv.Itoa(page), nil, compareLimit)
+	if err != nil {
+		return comparison{}, err
+	}
+	var result comparison
+	if err := json.Unmarshal(data, &result); err != nil {
+		return comparison{}, fmt.Errorf("GitHub comparison unreadable: %w", err)
+	}
+	return result, nil
 }
 
 func (s *Source) get(ctx context.Context, url string, headers map[string]string, limit int64) (*http.Response, []byte, error) {
