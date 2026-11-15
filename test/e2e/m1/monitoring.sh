@@ -9,6 +9,7 @@ cat "$monitoring_tools/check.log"
 
 begin "task monitoring preserves service identity"
 python3 "$here/monitoring/policy.py"
+sudo unshare --mount bash "$here/monitoring/remove.sh" "$repo/deploy/observability/production/install.sh"
 bash "$here/monitoring/fleet.sh" "$work" "$monitoring_tools"
 sudo swapoff --all
 sudo nice -n 19 unshare --mount --net --fork bash "$here/monitoring/relay.sh" "$bin" "$monitoring_tools/rendered"
