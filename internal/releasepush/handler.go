@@ -102,6 +102,7 @@ type Reply struct {
 	Host       string          `json:"host,omitempty"`
 	Workers    []HostVersion   `json:"workers,omitempty"`
 	Arch       string          `json:"arch,omitempty"`
+	Degraded   []string        `json:"degraded,omitempty"`
 }
 
 type HealthRequest struct {
@@ -154,6 +155,7 @@ type Handler struct {
 	lastNudge               atomic.Int64
 
 	RefusalFile   string
+	DegradedFile  string
 	mu            sync.Mutex
 	pending       releaseID
 	recoverAfter  time.Time
@@ -193,6 +195,7 @@ func NewHandler(state string) (*Handler, error) {
 	h.rolledBack.Store(rolledBack)
 	h.NodeList = nodelist.Open(state)
 	h.RefusalFile = filepath.Join(state, "nats", "release-attempt.json")
+	h.DegradedFile = degradedFile(state)
 	return h, nil
 }
 
@@ -247,30 +250,38 @@ func (h *Handler) relayed(ctx context.Context, data []byte) Reply {
 		return *refused
 	}
 	workers := h.Relay(ctx, data)
+	var skipped []HostVersion
 	for _, worker := range workers {
 		if worker.Error != "" {
-			slog.Warn("release worker relay incomplete", "host", worker.Host, "error", worker.Error)
-		}
-		if worker.Refusal != nil || h.HostReady == nil {
-			continue
+			slog.Warn("release worker relay incomplete", "host", worker.Host, "down", worker.Down, "error", worker.Error)
 		}
 		var err error
 		switch {
-		case worker.ID != "":
-			err = h.HostReady(ctx, worker.ID, admitted.release.SHA, admitted.digests)
+		case worker.Refusal != nil:
+			err = fmt.Errorf("worker %s refused %s, so this manager keeps running its binary: %s", worker.Host, admitted.release.SHA, worker.Refusal.Reason)
+		case worker.Error != "" && worker.Down:
+			skipped = append(skipped, worker)
+			continue
 		case worker.Error != "":
-			err = errors.New(worker.Error)
+			err = fmt.Errorf("worker %s is up but did not answer, so this manager keeps running its binary: %s", worker.Host, worker.Error)
+		case h.HostReady != nil && worker.ID != "":
+			if err = h.HostReady(ctx, worker.ID, admitted.release.SHA, admitted.digests); err != nil {
+				err = fmt.Errorf("worker %s is not ready on %s, so this manager keeps running its binary: %w", worker.Host, admitted.release.SHA, err)
+			}
 		}
 		if err != nil {
 			h.unclaim(ctx, admitted)
-			reply := refusalReply(RefusalHost, admitted.release.SHA, admitted.binary.SHA256, admitted.claims,
-				fmt.Errorf("worker %s is not ready on %s, so this manager keeps running its binary: %w", worker.Host, admitted.release.SHA, err))
+			reply := refusalReply(RefusalHost, admitted.release.SHA, admitted.binary.SHA256, admitted.claims, err)
 			reply.Host, reply.Workers = secretpreflight.Scrub(host), workers
 			return reply
 		}
 	}
+	h.recordDegraded(admitted, skipped)
 	reply := h.installAdmitted(ctx, admitted)
 	reply.Host, reply.Workers = secretpreflight.Scrub(host), workers
+	for _, worker := range skipped {
+		reply.Degraded = append(reply.Degraded, worker.Host)
+	}
 	return reply
 }
 

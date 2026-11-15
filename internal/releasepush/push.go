@@ -59,6 +59,7 @@ type Result struct {
 	HealthyMS    int64         `json:"healthy_ms"`
 	Health       string        `json:"health,omitempty"`
 	Workers      []HostVersion `json:"workers,omitempty"`
+	Degraded     []string      `json:"degraded,omitempty"`
 	Refusals     []HostVersion `json:"refusals,omitempty"`
 	Unconfirmed  string        `json:"unconfirmed,omitempty"`
 	Repair       string        `json:"repair,omitempty"`
@@ -372,7 +373,7 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 		return fail(fmt.Errorf("release: %w", err))
 	}
 	result.State, result.AcceptedMS = reply.State, since()
-	result.Workers = reply.Workers
+	result.Workers, result.Degraded = reply.Workers, reply.Degraded
 	for _, row := range reply.Workers {
 		if row.Refusal != nil {
 			if !hostSide(row.Refusal.Kind) {

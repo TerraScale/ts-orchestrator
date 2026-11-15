@@ -53,6 +53,7 @@ type HostVersion struct {
 	Version string   `json:"version,omitempty"`
 	Refusal *Refusal `json:"refusal,omitempty"`
 	Error   string   `json:"error,omitempty"`
+	Down    bool     `json:"down,omitempty"`
 }
 
 func (h *Handler) ServeHostVersion(conn *nats.Conn, region, host string) error {

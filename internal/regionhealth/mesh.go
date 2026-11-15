@@ -44,7 +44,7 @@ func Run(ctx context.Context, state string) {
 	tick := time.NewTicker(checkEvery)
 	defer tick.Stop()
 	for {
-		report := check(ctx, state)
+		report := releaseDegraded(check(ctx, state), state)
 		report.Server = server
 		hosts, err := HostVersions(ctx, state, "")
 		report.Hosts = hosts
@@ -190,7 +190,7 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 	}
 	conn, err := mesh.Connect(state)
 	if errors.Is(err, fs.ErrNotExist) {
-		report := check(ctx, state)
+		report := releaseDegraded(check(ctx, state), state)
 		report.Hosts, err = HostVersions(ctx, state, "")
 		if err != nil {
 			report.HostError = "host revision inventory unavailable"
@@ -210,6 +210,24 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 		return err
 	}
 	return write(output, regions, reports)
+}
+
+func releaseDegraded(report Report, state string) Report {
+	record, err := releasepush.ReadDegraded(state)
+	if err != nil {
+		report.Reasons = append(report.Reasons, "release degraded record unreadable: "+err.Error())
+		return report
+	}
+	if record == nil {
+		return report
+	}
+	for _, worker := range record.Skipped {
+		report.Reasons = append(report.Reasons, fmt.Sprintf("release %s run %s skipped down worker %s: %s", record.SHA, record.RunID, worker.Host, worker.Reason))
+	}
+	if len(record.Skipped) != 0 && report.State == StateOK {
+		report.State = StateDegraded
+	}
+	return report
 }
 
 func HostVersions(ctx context.Context, state, region string) ([]releasepush.HostVersion, error) {
