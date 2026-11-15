@@ -2,10 +2,11 @@ import http.client
 import json
 import os
 import pwd
+import queue
 import secrets
-import select
 import subprocess
 import sys
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -39,17 +40,29 @@ for key, value in {
     os.chown(path, 0, gid)
 process = subprocess.Popen([binary, "alert-delivery"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 lines = []
+events = queue.Queue()
+
+
+def read_logs():
+    for line in process.stderr:
+        text = line.decode()
+        lines.append(text)
+        events.put(text)
+    events.put(None)
+
+
+reader = threading.Thread(target=read_logs)
+reader.start()
 try:
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
-        ready, _, _ = select.select([process.stderr], [], [], max(0, deadline - time.monotonic()))
-        if not ready:
-            raise RuntimeError("relay listener did not open")
-        line = os.read(process.stderr.fileno(), 8192).decode()
-        if not line:
+        try:
+            line = events.get(timeout=max(0, deadline - time.monotonic()))
+        except queue.Empty as error:
+            raise RuntimeError("relay listener did not open") from error
+        if line is None:
             raise RuntimeError("relay exited before listener opened: " + "".join(lines)[-2000:])
-        lines.append(line)
-        if "Alert delivery listener ready" in "".join(lines):
+        if "Alert delivery listener ready" in line:
             break
     connection = http.client.HTTPConnection("127.0.0.1", 9094, timeout=10)
     connection.request("GET", "/metrics")
@@ -100,11 +113,12 @@ try:
 finally:
     process.terminate()
     try:
-        _, remaining = process.communicate(timeout=10)
+        process.wait(timeout=10)
     except subprocess.TimeoutExpired:
         process.kill()
-        _, remaining = process.communicate()
-    lines.append(remaining.decode())
+        process.wait()
+    reader.join(timeout=10)
+    assert not reader.is_alive()
 if "".join(lines).count("Production journey state unavailable; alert delivery continues") != 1:
     raise RuntimeError("malformed state was not logged exactly once")
 print("monitoring: malformed journey state -> real relay accepts alert, observation unknown, one log line; passed")

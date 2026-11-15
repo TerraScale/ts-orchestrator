@@ -205,7 +205,7 @@ groups:
         annotations:
           summary: 'The kernel killed a process on {{ $labels.host }} for lack of memory'
       - alert: CertificateExpirySoon
-        expr: terrascale_certificate_expiry_timestamp_seconds - time() < 1814400
+        expr: min by (service) (terrascale_certificate_expiry_timestamp_seconds) - time() < 1814400
         for: 5m
         labels:
           severity: critical
@@ -260,14 +260,14 @@ groups:
         annotations:
           summary: Scheduled alert delivery probe
       - alert: AlertDeliveryProbeStale
-        expr: (time() - terrascale_alert_delivery_probe_completed_timestamp_seconds >= 900) and (terrascale_alert_delivery_probe_completed_timestamp_seconds > 0)
+        expr: (time() - max(terrascale_alert_delivery_probe_completed_timestamp_seconds) >= 900) and (max(terrascale_alert_delivery_probe_completed_timestamp_seconds) > 0)
         for: 0s
         labels:
           severity: critical
         annotations:
           summary: No alert delivery probe completed in fifteen minutes
       - alert: AlertDeliveryProbeMissing
-        expr: terrascale_alert_delivery_probe_completed_timestamp_seconds == 0 or absent(terrascale_alert_delivery_probe_completed_timestamp_seconds)
+        expr: max(terrascale_alert_delivery_probe_completed_timestamp_seconds) == 0 or absent(terrascale_alert_delivery_probe_completed_timestamp_seconds)
         for: 15m
         labels:
           severity: critical

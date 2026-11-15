@@ -575,3 +575,19 @@ tests:
         severity: warning
       exp_annotations:
         summary: A TerraBase backup pass failed
+
+- interval: 1m
+  input_series:
+  - series: terrascale_alert_delivery_probe_completed_timestamp_seconds{host="ts-gru-1"}
+    values: 0+0x20
+  - series: terrascale_alert_delivery_probe_completed_timestamp_seconds{host="ts-sjc-1"}
+    values: 1+60x20
+  - series: terrascale_alert_delivery_probe_completed_timestamp_seconds{host="ts-fra-1"}
+    values: 0+0x20
+  alert_rule_test:
+  - eval_time: 15m
+    alertname: AlertDeliveryProbeMissing
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: AlertDeliveryProbeStale
+    exp_alerts: []

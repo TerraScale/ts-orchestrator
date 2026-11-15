@@ -46,6 +46,8 @@ type inventory struct {
 	Monitors []string
 }
 
+var fleetAlerts = []string{"ServiceReadinessFailed", "ProductionJourneyFailed", "ProductionJourneyTelemetryMissing", "CertificateExpirySoon", "AlertDeliveryHeartbeat", "AlertDeliveryProbeStale", "AlertDeliveryProbeMissing"}
+
 func main() {
 	if len(os.Args) < 2 || len(os.Args) > 3 {
 		fmt.Fprintln(os.Stderr, "usage: go run -C scripts/monitoring . <output-directory> <source-directory>")
@@ -107,7 +109,7 @@ func render(output string) error {
 		for _, g := range source.Groups {
 			target := group{Name: g.Name + "-global", Interval: g.Interval}
 			for _, r := range g.Rules {
-				fleet := slices.Contains([]string{"ServiceReadinessFailed", "ProductionJourneyFailed", "ProductionJourneyTelemetryMissing", "AlertDeliveryHeartbeat"}, r.Alert)
+				fleet := slices.Contains(fleetAlerts, r.Alert)
 				if g.Name != "service-slo" && !fleet || r.Alert == "ServiceSLOTelemetryMissing" || r.Record == "terrascale_slo_requests_total" {
 					continue
 				}
@@ -139,7 +141,7 @@ func render(output string) error {
 			for _, g := range source.Groups {
 				target := group{Name: g.Name + "-" + region, Interval: g.Interval}
 				for _, r := range g.Rules {
-					if slices.Contains([]string{"ServiceReadinessFailed", "ProductionJourneyFailed", "ProductionJourneyTelemetryMissing", "AlertDeliveryHeartbeat"}, r.Alert) {
+					if slices.Contains(fleetAlerts, r.Alert) {
 						continue
 					}
 					if _, pinned := r.Labels["region"]; pinned {
