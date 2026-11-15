@@ -54,7 +54,9 @@ func Run(ctx context.Context, args []string) error {
 		return errors.New("usage: ts-orch alert-delivery")
 	}
 	noRedirect := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	r := relay{budget: &emailBudget{}, client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: noRedirect}, pushClient: &http.Client{Timeout: notificationDeadline, CheckRedirect: noRedirect}, endpoint: emailEndpoint, pushEndpoint: pushEndpoint, read: readCredentials, readTopic: readPushTopic}
+	pushTransport := http.DefaultTransport.(*http.Transport).Clone()
+	pushTransport.Proxy = nil
+	r := relay{budget: newEmailBudget(), client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: noRedirect}, pushClient: &http.Client{Timeout: notificationDeadline, Transport: pushTransport, CheckRedirect: noRedirect}, endpoint: emailEndpoint, pushEndpoint: pushEndpoint, read: readCredentials, readTopic: readPushTopic}
 	if len(args) == 1 {
 		return r.subscribe(ctx)
 	}
@@ -178,14 +180,12 @@ func (r relay) handle(w http.ResponseWriter, request *http.Request, digest bool)
 	if digest {
 		key, window, subject = digestKey, digestInterval, "TerraScale daily alert digest"
 	}
-	if notice.Status == "firing" {
-		go r.sendEmail(context.WithoutCancel(request.Context()), key, window, subject, lines)
-	}
 	var pushErr error
 	if !digest {
-		ctx, cancel := context.WithTimeout(request.Context(), notificationDeadline)
-		pushErr = r.push(ctx, notice.Status)
-		cancel()
+		pushErr = r.pushIsolated(notice.Status)
+	}
+	if notice.Status == "firing" {
+		go r.sendEmail(context.WithoutCancel(request.Context()), key, window, subject, lines)
 	}
 	slog.InfoContext(request.Context(), "production alert notification handled", "status", notice.Status, "alerts", len(notice.Alerts), "group", key, "alertname", notice.Alerts[0].Labels["alertname"], "region", notice.Alerts[0].Labels["region"], "push", !digest && pushErr == nil)
 	if pushErr != nil {
@@ -255,6 +255,14 @@ func (r relay) email(ctx context.Context, subject string, lines []string) error 
 		return errors.New("alert delivery rejected by provider")
 	}
 	return nil
+}
+
+func (r relay) pushIsolated(status string) error {
+	r.budget.beginPush()
+	defer r.budget.endPush()
+	ctx, cancel := context.WithTimeout(context.Background(), notificationDeadline)
+	defer cancel()
+	return r.push(ctx, status)
 }
 
 func (r relay) push(ctx context.Context, status string) error {
