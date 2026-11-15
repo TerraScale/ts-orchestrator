@@ -203,6 +203,9 @@ func (h *host) supervise(ctx context.Context) {
 		h.cmd = cmd
 		err := cmd.Start()
 		h.mu.Unlock()
+		if ctx.Err() != nil {
+			return
+		}
 		must(err)
 		h.starts.Add(1)
 		_ = cmd.Wait()
@@ -322,6 +325,11 @@ func journey(bin, part string) {
 	work, err := os.MkdirTemp("", "pull-update-")
 	must(err)
 	defer os.RemoveAll(work)
+	var supervisors sync.WaitGroup
+	defer func() {
+		cancel()
+		supervisors.Wait()
+	}()
 	l := &lane{bin: bin, self: selfBytes, revision: revision, github: newGitHub(), sigstore: newSigstore(),
 		hosts: map[string]*host{}, outages: &outages{down: map[string]map[string]bool{}}, progress: map[string]chan pullrelease.Status{},
 		last: map[string]pullrelease.Status{}, ready: make(chan [2]string, 1024), downs: make(chan string, 1024)}
@@ -399,7 +407,7 @@ func journey(bin, part string) {
 	}
 	must(l.conn.Flush())
 	for _, h := range l.hosts {
-		go h.supervise(ctx)
+		supervisors.Go(func() { h.supervise(ctx) })
 	}
 	base := hex.EncodeToString(sha256Of(selfBytes))
 	for range l.hosts {
