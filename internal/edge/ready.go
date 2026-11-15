@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -43,6 +44,13 @@ func (r Readiness) InfraErr() error {
 }
 
 func (e *Edge) Readiness(ctx context.Context) Readiness {
+	if err := ctx.Err(); err != nil {
+		return Readiness{infra: []string{err.Error()}}
+	}
+	return e.report()
+}
+
+func (e *Edge) probeReadiness(ctx context.Context) {
 	bounded, cancel := context.WithTimeout(ctx, 3*time.Second)
 	conditions, err := e.ready(bounded)
 	cancel()
@@ -50,7 +58,6 @@ func (e *Edge) Readiness(ctx context.Context) Readiness {
 		conditions = append(conditions, err.Error())
 	}
 	e.readyStatus.Store(&readinessVerdict{len(conditions) == 0, time.Now(), conditions})
-	return e.report()
 }
 
 func (e *Edge) report() Readiness {
@@ -223,13 +230,11 @@ func (e *Edge) ready(ctx context.Context) ([]string, error) {
 			return conditions, err
 		}
 		req.Host = route.Host
-		var resp *http.Response
-		if e.follower.Load() {
-			resp, err = e.local.RoundTrip(e.routePeerEdge(req, false))
-		} else {
-			resp, err = client.Do(req)
-		}
+		resp, err := client.Do(req)
 		if err != nil {
+			if e.follower.Load() && dialFailed(err) {
+				continue
+			}
 			conditions = append(conditions, "backend unavailable")
 			continue
 		}
@@ -241,6 +246,9 @@ func (e *Edge) ready(ctx context.Context) ([]string, error) {
 	for _, port := range postgres {
 		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
+			if e.follower.Load() && dialFailed(err) {
+				continue
+			}
 			conditions = append(conditions, "postgres backend unavailable")
 			continue
 		}
@@ -255,12 +263,19 @@ type readinessVerdict struct {
 	conditions []string
 }
 
+func dialFailed(err error) bool {
+	var op *net.OpError
+	return errors.As(err, &op) && op.Op == "dial"
+}
+
 func (e *Edge) reconcileReadiness(ctx context.Context) {
 	tick := time.NewTicker(3 * time.Second)
 	defer tick.Stop()
 	var reported *bool
 	for {
-		if readiness := e.Readiness(ctx); reported == nil || *reported != readiness.Ready {
+		e.probeReadiness(ctx)
+		readiness := e.report()
+		if reported == nil || *reported != readiness.Ready {
 			slog.InfoContext(ctx, "edge readiness changed", "ready", readiness.Ready, "missing", readiness.Missing, "missing_names", readiness.MissingNames)
 			reported = &readiness.Ready
 		}
