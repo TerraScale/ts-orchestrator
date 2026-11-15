@@ -18,8 +18,8 @@ else
  previous_ref=main
 fi
 git -C "$repo" fetch --quiet --depth 1 origin "$previous_ref"
-git -C "$repo" archive FETCH_HEAD deploy/observability test/e2e/m1/monitoring/rules.yml | tar -x -C "$previous"
-sudo nice -n 19 unshare --mount bash "$here/monitoring/remove.sh" "$repo/deploy/observability/production/install.sh" "$previous/deploy/observability/production/install.sh" "$bin" >"$monitoring_tools/remove.log" 2>&1 &
+git -C "$repo" archive FETCH_HEAD deploy/observability internal scripts test/e2e/m1/monitoring/rules.yml | tar -x -C "$previous"
+sudo env "PATH=$PATH" "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" nice -n 19 unshare --mount --uts bash "$here/monitoring/remove.sh" "$repo/deploy/observability/production/install.sh" "$previous/deploy/observability/production/install.sh" "$bin" >"$monitoring_tools/remove.log" 2>&1 &
 monitoring_remove=$!
 sudo swapoff --all
 if ! wait "$monitoring_build"; then cat "$monitoring_tools/build.log"; exit 1; fi
