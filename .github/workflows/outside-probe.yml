@@ -11,6 +11,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   probe:
@@ -32,6 +33,7 @@ jobs:
         shell: bash
         env:
           TS_ALERTS_NTFY_TOPIC: ${{ secrets.TS_ALERTS_NTFY_TOPIC }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           go run ./scripts/ci/outsideprobe | tee -a "$GITHUB_STEP_SUMMARY"
