@@ -192,11 +192,12 @@ func whoamiBackend(ctx context.Context, host *oraclehost.Host, ca string) string
 			}
 			line := ""
 			for _, row := range strings.Split(string(body), "\n") {
+				row = strings.TrimRight(row, "\r")
 				if strings.HasPrefix(row, "Hostname: ") {
 					line = row
 				}
 			}
-			if line == "" || !bytes.Contains(body, []byte("Host: whoami.e2e.test\n")) {
+			if line == "" || !bytes.Contains(body, []byte("Host: whoami.e2e.test")) {
 				return fmt.Errorf("body %q", body)
 			}
 			if seen == "" {
