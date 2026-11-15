@@ -20,7 +20,7 @@ import (
 const (
 	ClusterName   = "terrascale"
 	FabricAccount = "TERRABASE"
-	orchAccount   = "ORCH"
+	OrchAccount   = "ORCH"
 	orchUser      = "orch"
 	alertsAccount = "ALERTS"
 	AlertsUser    = "ts-alerts"
@@ -39,12 +39,12 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 		return nil, errors.New("mesh needs TerraBase's NATS token")
 	}
 	options := &server.Options{}
-	if err := options.ProcessConfigString(accountsConfig); err != nil {
+	if err := options.ProcessConfigString(AccountsConfig); err != nil {
 		return nil, fmt.Errorf("mesh accounts: %w", err)
 	}
 	options.CustomClientAuthentication = &clientAuth{
 		users: map[string]credential{
-			orchUser:   {secret: orchSecret, account: orchAccount},
+			orchUser:   {secret: orchSecret, account: OrchAccount},
 			fabricUser: {secret: fabricSecret, account: FabricAccount},
 			AlertsUser: {secret: alertsSecret, account: alertsAccount},
 		},
@@ -95,12 +95,12 @@ var (
 	terrabaseSubscribe = []string{TerraBaseSubjects, "_INBOX.>"}
 )
 
-var accountsConfig = fmt.Sprintf(`accounts {
+var AccountsConfig = fmt.Sprintf(`accounts {
   %s {}
   %s { jetstream: { max_memory: 1G, max_file: 36G, max_streams: 64, max_consumers: 4096 } }
   %s { jetstream: { max_memory: 1M, max_file: 16M, max_streams: 1, max_consumers: 0 } }
 }
-`, orchAccount, FabricAccount, alertsAccount)
+`, OrchAccount, FabricAccount, alertsAccount)
 
 type credential struct {
 	secret, account string
