@@ -969,3 +969,50 @@ tests:
         service: ts-alerts
       exp_annotations:
         summary: Alert email was refused; push delivery is independent
+- interval: 15s
+  input_series:
+  - series: ts_orch_mesh_store_observed{host="ts-gru-1",instance="ts-gru-1"}
+    values: 0+0x20
+  - series: ts_orch_mesh_store_leader_available{host="ts-gru-1",instance="ts-gru-1"}
+    values: 0+0x20
+  - series: ts_orch_mesh_store_quorum_available{host="ts-gru-1",instance="ts-gru-1"}
+    values: 0+0x20
+  - series: ts_orch_mesh_store_expected{host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 1+0x4 stale _x15
+  - series: ts_orch_mesh_store_observed{host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 0+0x20
+  - series: ts_orch_mesh_store_leader_available{host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 0+0x20
+  - series: ts_orch_mesh_store_quorum_available{host="ts-sjc-1",instance="ts-sjc-1"}
+    values: 0+0x20
+  alert_rule_test:
+  - eval_time: 2m
+    alertname: MeshStoreLeaderUnavailable
+    exp_alerts:
+    - exp_labels:
+        host: ts-gru-1
+        instance: ts-gru-1
+        severity: critical
+      exp_annotations:
+        summary: The mesh store has no observed leader
+    - exp_labels:
+        host: ts-sjc-1
+        instance: ts-sjc-1
+        severity: critical
+      exp_annotations:
+        summary: The mesh store has no observed leader
+  - eval_time: 2m
+    alertname: MeshStoreQuorumUnavailable
+    exp_alerts:
+    - exp_labels:
+        host: ts-gru-1
+        instance: ts-gru-1
+        severity: critical
+      exp_annotations:
+        summary: The mesh store cannot reach its metadata quorum
+    - exp_labels:
+        host: ts-sjc-1
+        instance: ts-sjc-1
+        severity: critical
+      exp_annotations:
+        summary: The mesh store cannot reach its metadata quorum

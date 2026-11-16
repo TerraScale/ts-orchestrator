@@ -219,14 +219,14 @@ groups:
         annotations:
           summary: A public service certificate expires within twenty-one days or cannot be verified
       - alert: MeshStoreLeaderUnavailable
-        expr: (ts_orch_mesh_store_leader_available == 0 or ts_orch_mesh_store_observed == 0) and (ts_orch_mesh_store_expected == 1)
+        expr: (ts_orch_mesh_store_leader_available == 0 or ts_orch_mesh_store_observed == 0) unless on (host, instance) (ts_orch_mesh_store_expected == 0)
         for: 1m
         labels:
           severity: critical
         annotations:
           summary: The mesh store has no observed leader
       - alert: MeshStoreQuorumUnavailable
-        expr: (ts_orch_mesh_store_quorum_available == 0) and (ts_orch_mesh_store_expected == 1)
+        expr: (ts_orch_mesh_store_quorum_available == 0) unless on (host, instance) (ts_orch_mesh_store_expected == 0)
         for: 1m
         labels:
           severity: critical
