@@ -16,13 +16,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Check out
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-
       - name: Read the outside probe report
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error https://ts-orchestrator-outside-probe.mariogk.workers.dev/ | tee -a "$GITHUB_STEP_SUMMARY"
+          curl --fail --silent --show-error https://ts-orchestrator-outside-probe.terrascale.workers.dev/ | tee -a "$GITHUB_STEP_SUMMARY"
