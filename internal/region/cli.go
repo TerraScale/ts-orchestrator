@@ -32,6 +32,8 @@ const usage = `Usage: ts-orch region <command> [flags]
       where there is none; changes nothing.
   status
       The same comparison, one line per region.
+  validate
+      Load and validate the embedded fleet document; reads nothing else.
   derive  REGION --out FILE [--from PLAN]
       Derive the region's plan from another non-home region's reviewed plan
       (default deploy/oci-region/sjc-1-plan.json): names, addresses, the
@@ -62,7 +64,7 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	switch command {
 	case "create":
 		return provisionFromFile(ctx, args, out)
-	case "plan", "status":
+	case "plan", "status", "validate":
 		return compareFleet(ctx, command, args, out)
 	}
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
@@ -117,6 +119,10 @@ func compareFleet(ctx context.Context, command string, args []string, out io.Wri
 	}
 	document, err := fleet.Load()
 	if err != nil {
+		return err
+	}
+	if command == "validate" {
+		_, err := fmt.Fprintf(out, "fleet document valid: %d regions, zone %s\n", len(document.Regions), document.DNS.Zone)
 		return err
 	}
 	reports, err := fleet.Plan(ctx, document)

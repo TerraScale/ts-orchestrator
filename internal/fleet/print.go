@@ -38,8 +38,8 @@ func PrintStatus(w io.Writer, reports []Report) error {
 			counts[c.State]++
 			byState[c.State] = append(byState[c.State], c.Kind)
 		}
-		line := fmt.Sprintf("%-4s %-22s ok %d  foreign %d  differs %d  missing %d", report.Name, report.Scope, counts[Ok], counts[Foreign], counts[Differs], counts[Missing])
-		for _, state := range []State{Differs, Missing} {
+		line := fmt.Sprintf("%-4s %-22s ok %d  foreign %d  claimed %d  differs %d  missing %d", report.Name, report.Scope, counts[Ok], counts[Foreign], counts[Claimed], counts[Differs], counts[Missing])
+		for _, state := range []State{Claimed, Differs, Missing} {
 			if len(byState[state]) > 0 {
 				line += fmt.Sprintf("  %s: %s", state, strings.Join(byState[state], ", "))
 			}

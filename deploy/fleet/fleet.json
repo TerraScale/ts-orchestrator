@@ -1,6 +1,7 @@
 {
   "dns": {
     "zone": "edge.terrascale.tech",
+    "compartment_id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
     "steered_names": [
       "dash.edge.terrascale.tech",
       "auth.edge.terrascale.tech",
@@ -25,10 +26,13 @@
         "shape": "VM.Standard.A1.Flex",
         "ocpus": 2,
         "memory_gb": 12,
-        "boot_gb": 50
+        "boot_gb": 50,
+        "data_gb": 50,
+        "data_vpus_per_gb": 10
       },
-      "names": [
-        "gru.api.edge.terrascale.tech"
+      "geo_continents": [
+        "SA",
+        "AN"
       ]
     },
     {
@@ -44,10 +48,14 @@
         "shape": "VM.Standard.A1.Flex",
         "ocpus": 2,
         "memory_gb": 12,
-        "boot_gb": 50
+        "boot_gb": 50,
+        "data_gb": 50,
+        "data_vpus_per_gb": 10
       },
-      "names": [
-        "sjc.api.edge.terrascale.tech"
+      "geo_continents": [
+        "NA",
+        "OC",
+        "AS"
       ]
     },
     {
@@ -63,10 +71,13 @@
         "shape": "VM.Standard.A1.Flex",
         "ocpus": 2,
         "memory_gb": 12,
-        "boot_gb": 50
+        "boot_gb": 50,
+        "data_gb": 50,
+        "data_vpus_per_gb": 10
       },
-      "names": [
-        "fra.api.edge.terrascale.tech"
+      "geo_continents": [
+        "EU",
+        "AF"
       ]
     }
   ]

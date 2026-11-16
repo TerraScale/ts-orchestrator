@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 
 	document "github.com/TerraScale/ts-orchestrator/deploy/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 const (
@@ -23,6 +25,7 @@ type Fleet struct {
 
 type DNS struct {
 	Zone               string   `json:"zone"`
+	CompartmentID      string   `json:"compartment_id"`
 	SteeredNames       []string `json:"steered_names"`
 	SteeringTTLSeconds int      `json:"steering_ttl_seconds"`
 	HealthCheckPath    string   `json:"health_check_path"`
@@ -36,16 +39,38 @@ type Region struct {
 	PublicSubnetCIDR  string   `json:"public_subnet_cidr"`
 	PrivateSubnetCIDR string   `json:"private_subnet_cidr"`
 	Nodes             Nodes    `json:"nodes"`
-	Names             []string `json:"names"`
+	GeoContinents     []string `json:"geo_continents"`
+}
+
+var Continents = []string{"AF", "AN", "AS", "EU", "NA", "OC", "SA"}
+
+func (r Region) APIName(zone string) string {
+	return r.Label + ".api." + zone
+}
+
+func (r Region) Key(kind, name string) ociresource.Key {
+	entry, _ := catalog.LookupName(r.Label)
+	return ociresource.Key{Region: entry.Cell, Kind: kind, Name: name}
+}
+
+func (f Fleet) DNSRegion() (Region, bool) {
+	for _, region := range f.Regions {
+		if region.CompartmentID == f.DNS.CompartmentID {
+			return region, true
+		}
+	}
+	return Region{}, false
 }
 
 type Nodes struct {
-	Min      int     `json:"min"`
-	Max      int     `json:"max"`
-	Shape    string  `json:"shape"`
-	OCPUs    float32 `json:"ocpus"`
-	MemoryGB float32 `json:"memory_gb"`
-	BootGB   int64   `json:"boot_gb"`
+	Min           int     `json:"min"`
+	Max           int     `json:"max"`
+	Shape         string  `json:"shape"`
+	OCPUs         float32 `json:"ocpus"`
+	MemoryGB      float32 `json:"memory_gb"`
+	BootGB        int64   `json:"boot_gb"`
+	DataGB        int64   `json:"data_gb"`
+	DataVPUsPerGB int64   `json:"data_vpus_per_gb"`
 }
 
 func Load() (Fleet, error) {
@@ -82,6 +107,9 @@ func (f Fleet) Validate() error {
 	if f.DNS.SteeringTTLSeconds <= 0 {
 		errs = append(errs, fmt.Errorf("dns.steering_ttl_seconds %d must be positive", f.DNS.SteeringTTLSeconds))
 	}
+	if _, ok := f.DNSRegion(); !ok {
+		errs = append(errs, fmt.Errorf("dns.compartment_id %q is not the compartment of a region", f.DNS.CompartmentID))
+	}
 	if !strings.HasPrefix(f.DNS.HealthCheckPath, "/") {
 		errs = append(errs, fmt.Errorf("dns.health_check_path %q must start with /", f.DNS.HealthCheckPath))
 	}
@@ -89,6 +117,7 @@ func (f Fleet) Validate() error {
 		errs = append(errs, errors.New("regions is empty"))
 	}
 	labels := map[string]bool{}
+	continents := map[string]string{}
 	type labelled struct {
 		label  string
 		prefix netip.Prefix
@@ -111,8 +140,19 @@ func (f Fleet) Validate() error {
 			}
 			vcns = append(vcns, labelled{region.Label, vcn})
 		}
-		for j, name := range region.Names {
-			claim(fmt.Sprintf("%s.names[%d]", field, j), name)
+		claim(field+" api name", region.APIName(f.DNS.Zone))
+		for j, continent := range region.GeoContinents {
+			if !slices.Contains(Continents, continent) {
+				errs = append(errs, fmt.Errorf("%s.geo_continents[%d] %q is not one of %v", field, j, continent, Continents))
+			} else if other, ok := continents[continent]; ok {
+				errs = append(errs, fmt.Errorf("%s.geo_continents[%d] %s is already answered by regions[%s]", field, j, continent, other))
+			}
+			continents[continent] = region.Label
+		}
+	}
+	for _, continent := range Continents {
+		if _, ok := continents[continent]; !ok {
+			errs = append(errs, fmt.Errorf("geo_continents: no region answers %s", continent))
 		}
 	}
 	return errors.Join(errs...)
@@ -167,8 +207,11 @@ func (r Region) validate(field string) []error {
 	if n.BootGB < 50 {
 		errs = append(errs, fmt.Errorf("%s.nodes.boot_gb %d is below OCI's 50 GB minimum", field, n.BootGB))
 	}
-	if len(r.Names) == 0 {
-		errs = append(errs, fmt.Errorf("%s.names is empty", field))
+	if n.DataGB < 50 {
+		errs = append(errs, fmt.Errorf("%s.nodes.data_gb %d is below OCI's 50 GB minimum", field, n.DataGB))
+	}
+	if n.DataVPUsPerGB < 0 || n.DataVPUsPerGB > 120 || n.DataVPUsPerGB%10 != 0 {
+		errs = append(errs, fmt.Errorf("%s.nodes.data_vpus_per_gb %d is not one of OCI's 0-120 steps of 10", field, n.DataVPUsPerGB))
 	}
 	return errs
 }

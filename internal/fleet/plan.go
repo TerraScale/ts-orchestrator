@@ -5,23 +5,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/resourcesearch"
 )
 
+const Owner = "terrascale"
+
 type State string
 
 const (
 	Ok      State = "ok"
 	Foreign State = "foreign"
+	Claimed State = "claimed"
 	Differs State = "differs"
 	Missing State = "missing"
 )
+
+var severity = map[State]int{Ok: 0, Foreign: 1, Claimed: 2, Differs: 3, Missing: 4}
 
 type Check struct {
 	Kind    string
@@ -39,49 +46,55 @@ type item struct {
 	desc  string
 	tags  map[string]string
 	match bool
+	keys  []ociresource.Key
 }
 
-func documentMade(tags map[string]string) bool {
-	return tags["terrascale-managed-by"] == "ts-orchestrator" && tags["terrascale-owner"] != "" && tags["terrascale-resource-key"] != ""
-}
-
-func maker(tags map[string]string) string {
-	if documentMade(tags) {
-		return "document-made"
+func made(it item) (string, State) {
+	ownership := ociresource.Ownership{Owner: Owner}
+	tags := ociresource.Tags{Freeform: it.tags}
+	for _, key := range it.keys {
+		if ownership.Owns(key, tags) {
+			return "document-made", Ok
+		}
 	}
-	return "hand-made"
+	if ownership.Claimed(tags) {
+		return strings.TrimSpace("claimed by another owner as " + it.tags["terrascale-owner"] + " " + it.tags["terrascale-resource-key"]), Claimed
+	}
+	return "hand-made", Foreign
 }
 
 func check(kind string, items []item, many bool) Check {
 	result := Check{Kind: kind, State: Missing}
+	if len(items) == 0 {
+		return result
+	}
+	result.State = Ok
 	matched := 0
 	for _, it := range items {
-		result.Details = append(result.Details, it.desc+" "+maker(it.tags))
-		if !it.match {
-			result.State = Differs
-			continue
+		label, state := made(it)
+		result.Details = append(result.Details, it.desc+" "+label)
+		if it.match {
+			matched++
+		} else {
+			state = Differs
 		}
-		matched++
-		if result.State == Missing {
-			result.State = Ok
-		}
-		if !documentMade(it.tags) && result.State == Ok {
-			result.State = Foreign
+		if severity[state] > severity[result.State] {
+			result.State = state
 		}
 	}
-	if matched == 0 && len(items) > 0 || matched > 1 && !many {
+	if matched == 0 || matched > 1 && !many {
 		result.State = Differs
 	}
 	return result
 }
 
-func pages[T any](list func(page *string) ([]T, *string, error)) ([]T, error) {
+func list[T any](what string, call func(page *string) ([]T, *string, error)) ([]T, error) {
 	var all []T
 	var page *string
 	for {
-		items, next, err := list(page)
+		items, next, err := call(page)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", what, err)
 		}
 		all = append(all, items...)
 		if next == nil || *next == "" {
@@ -120,6 +133,16 @@ func gone(state string) bool {
 	return state == "TERMINATED" || state == "TERMINATING" || state == "DELETED" || state == "DELETING"
 }
 
+func collect[T any](values []T, view func(T) (item, string)) []item {
+	var items []item
+	for _, v := range values {
+		if it, state := view(v); !gone(state) {
+			items = append(items, it)
+		}
+	}
+	return items
+}
+
 func observeRegion(ctx context.Context, region Region) (Report, error) {
 	report := Report{Name: region.Label, Scope: region.OCIRegion}
 	f, err := factory(ctx, region.OCIRegion)
@@ -139,32 +162,41 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 		return report, err
 	}
 	compartment := common.String(region.CompartmentID)
-	vcns, err := pages(func(page *string) ([]core.Vcn, *string, error) {
+	key := func(kind string, names ...string) []ociresource.Key {
+		var keys []ociresource.Key
+		for _, name := range names {
+			keys = append(keys, region.Key(kind, name))
+		}
+		return keys
+	}
+	vcns, err := list("vcn", func(page *string) ([]core.Vcn, *string, error) {
 		r, err := network.ListVcns(ctx, core.ListVcnsRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return report, fmt.Errorf("vcn: %w", err)
+		return report, err
 	}
-	var vcnItems []item
-	for _, v := range vcns {
-		if !gone(string(v.LifecycleState)) {
-			vcnItems = append(vcnItems, item{fmt.Sprintf("%s %s", deref(v.DisplayName), deref(v.CidrBlock)), v.FreeformTags, deref(v.CidrBlock) == region.VCNCIDR})
+	vcn := ""
+	report.Checks = append(report.Checks, check("vcn", collect(vcns, func(v core.Vcn) (item, string) {
+		match := deref(v.CidrBlock) == region.VCNCIDR
+		if match && !gone(string(v.LifecycleState)) {
+			vcn = deref(v.Id)
 		}
-	}
-	report.Checks = append(report.Checks, check("vcn", vcnItems, false))
-	subnets, err := pages(func(page *string) ([]core.Subnet, *string, error) {
+		return item{deref(v.DisplayName) + " " + deref(v.CidrBlock), v.FreeformTags, match, key("vcn", "vcn")}, string(v.LifecycleState)
+	}), false))
+	inVCN := func(id *string) bool { return vcn != "" && deref(id) == vcn }
+	subnets, err := list("subnet", func(page *string) ([]core.Subnet, *string, error) {
 		r, err := network.ListSubnets(ctx, core.ListSubnetsRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return report, fmt.Errorf("subnet: %w", err)
+		return report, err
 	}
-	privateSubnet := ""
+	subnetIDs := map[bool]string{}
 	for _, want := range []struct {
-		kind, cidr, other string
-		private           bool
-	}{{"public subnet", region.PublicSubnetCIDR, region.PrivateSubnetCIDR, false}, {"private subnet", region.PrivateSubnetCIDR, region.PublicSubnetCIDR, true}} {
+		kind, cidr, other, name string
+		private                 bool
+	}{{"public subnet", region.PublicSubnetCIDR, region.PrivateSubnetCIDR, "host-subnet", false}, {"private subnet", region.PrivateSubnetCIDR, region.PublicSubnetCIDR, "private-subnet", true}} {
 		var items []item
 		for _, s := range subnets {
 			if gone(string(s.LifecycleState)) || deref(s.CidrBlock) == want.other {
@@ -175,67 +207,67 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 			if private {
 				access = "no public addresses"
 			}
-			match := deref(s.CidrBlock) == want.cidr && private == want.private
-			if match && want.private {
-				privateSubnet = deref(s.Id)
+			match := inVCN(s.VcnId) && deref(s.CidrBlock) == want.cidr && private == want.private
+			if match {
+				subnetIDs[want.private] = deref(s.Id)
 			}
-			items = append(items, item{fmt.Sprintf("%s %s %s", deref(s.DisplayName), deref(s.CidrBlock), access), s.FreeformTags, match})
+			items = append(items, item{fmt.Sprintf("%s %s %s", deref(s.DisplayName), deref(s.CidrBlock), access), s.FreeformTags, match, key("subnet", want.name)})
 		}
 		report.Checks = append(report.Checks, check(want.kind, items, false))
 	}
-	internet, err := pages(func(page *string) ([]core.InternetGateway, *string, error) {
+	internet, err := list("internet gateway", func(page *string) ([]core.InternetGateway, *string, error) {
 		r, err := network.ListInternetGateways(ctx, core.ListInternetGatewaysRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return report, fmt.Errorf("internet gateway: %w", err)
+		return report, err
 	}
-	report.Checks = append(report.Checks, check("internet gateway", collect(internet, func(g core.InternetGateway) (string, string, map[string]string) {
-		return deref(g.DisplayName), string(g.LifecycleState), g.FreeformTags
+	report.Checks = append(report.Checks, check("internet gateway", collect(internet, func(g core.InternetGateway) (item, string) {
+		return item{deref(g.DisplayName), g.FreeformTags, inVCN(g.VcnId), key("internet-gateway", "igw")}, string(g.LifecycleState)
 	}), false))
-	nat, err := pages(func(page *string) ([]core.NatGateway, *string, error) {
+	nat, err := list("nat gateway", func(page *string) ([]core.NatGateway, *string, error) {
 		r, err := network.ListNatGateways(ctx, core.ListNatGatewaysRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return report, fmt.Errorf("nat gateway: %w", err)
+		return report, err
 	}
-	report.Checks = append(report.Checks, check("nat gateway", collect(nat, func(g core.NatGateway) (string, string, map[string]string) {
-		return deref(g.DisplayName) + " " + deref(g.NatIp), string(g.LifecycleState), g.FreeformTags
+	report.Checks = append(report.Checks, check("nat gateway", collect(nat, func(g core.NatGateway) (item, string) {
+		return item{deref(g.DisplayName) + " " + deref(g.NatIp), g.FreeformTags, inVCN(g.VcnId), key("nat-gateway", "nat")}, string(g.LifecycleState)
 	}), false))
-	service, err := pages(func(page *string) ([]core.ServiceGateway, *string, error) {
+	service, err := list("service gateway", func(page *string) ([]core.ServiceGateway, *string, error) {
 		r, err := network.ListServiceGateways(ctx, core.ListServiceGatewaysRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return report, fmt.Errorf("service gateway: %w", err)
+		return report, err
 	}
-	report.Checks = append(report.Checks, check("service gateway", collect(service, func(g core.ServiceGateway) (string, string, map[string]string) {
-		return deref(g.DisplayName), string(g.LifecycleState), g.FreeformTags
+	report.Checks = append(report.Checks, check("service gateway", collect(service, func(g core.ServiceGateway) (item, string) {
+		return item{deref(g.DisplayName), g.FreeformTags, inVCN(g.VcnId), key("service-gateway", "sgw")}, string(g.LifecycleState)
 	}), false))
-	nsgs, err := pages(func(page *string) ([]core.NetworkSecurityGroup, *string, error) {
+	nsgs, err := list("nsg", func(page *string) ([]core.NetworkSecurityGroup, *string, error) {
 		r, err := network.ListNetworkSecurityGroups(ctx, core.ListNetworkSecurityGroupsRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return report, fmt.Errorf("nsg: %w", err)
+		return report, err
 	}
-	report.Checks = append(report.Checks, check("nsg", collect(nsgs, func(g core.NetworkSecurityGroup) (string, string, map[string]string) {
-		return deref(g.DisplayName), string(g.LifecycleState), g.FreeformTags
+	report.Checks = append(report.Checks, check("nsg", collect(nsgs, func(g core.NetworkSecurityGroup) (item, string) {
+		return item{deref(g.DisplayName), g.FreeformTags, inVCN(g.VcnId), key("nsg", "edge-nsg", "host-nsg")}, string(g.LifecycleState)
 	}), true))
-	instances, err := pages(func(page *string) ([]core.Instance, *string, error) {
+	instances, err := list("instance", func(page *string) ([]core.Instance, *string, error) {
 		r, err := compute.ListInstances(ctx, core.ListInstancesRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return report, fmt.Errorf("instance: %w", err)
+		return report, err
 	}
-	attachments, err := pages(func(page *string) ([]core.VnicAttachment, *string, error) {
+	attachments, err := list("vnic attachment", func(page *string) ([]core.VnicAttachment, *string, error) {
 		r, err := compute.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return report, fmt.Errorf("vnic attachment: %w", err)
+		return report, err
 	}
 	subnetOf := map[string]string{}
 	for _, a := range attachments {
@@ -243,65 +275,56 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 			subnetOf[deref(a.InstanceId)] = deref(a.SubnetId)
 		}
 	}
-	report.Checks = append(report.Checks, nodes(region, instances, subnetOf, privateSubnet))
-	nlbs, err := pages(func(page *string) ([]networkloadbalancer.NetworkLoadBalancerSummary, *string, error) {
+	var nodeNames []string
+	for n := 1; n <= region.Nodes.Max; n++ {
+		nodeNames = append(nodeNames, fmt.Sprintf("node-%d", n))
+	}
+	report.Checks = append(report.Checks, nodes(region, instances, subnetOf, subnetIDs[true], key("instance", nodeNames...)))
+	nlbs, err := list("nlb", func(page *string) ([]networkloadbalancer.NetworkLoadBalancerSummary, *string, error) {
 		r, err := balancers.ListNetworkLoadBalancers(ctx, networkloadbalancer.ListNetworkLoadBalancersRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return report, fmt.Errorf("nlb: %w", err)
+		return report, err
 	}
-	report.Checks = append(report.Checks, check("nlb", collect(nlbs, func(b networkloadbalancer.NetworkLoadBalancerSummary) (string, string, map[string]string) {
+	report.Checks = append(report.Checks, check("nlb", collect(nlbs, func(b networkloadbalancer.NetworkLoadBalancerSummary) (item, string) {
 		var public []string
 		for _, ip := range b.IpAddresses {
 			if ip.IsPublic != nil && *ip.IsPublic {
 				public = append(public, deref(ip.IpAddress))
 			}
 		}
-		return deref(b.DisplayName) + " " + strings.Join(public, ","), string(b.LifecycleState), b.FreeformTags
+		match := subnetIDs[false] != "" && deref(b.SubnetId) == subnetIDs[false] && len(public) > 0
+		return item{deref(b.DisplayName) + " " + strings.Join(public, ","), b.FreeformTags, match, key("network-load-balancer", "nlb")}, string(b.LifecycleState)
 	}), false))
-	reserved, err := pages(func(page *string) ([]core.PublicIp, *string, error) {
+	reserved, err := list("reserved address", func(page *string) ([]core.PublicIp, *string, error) {
 		r, err := network.ListPublicIps(ctx, core.ListPublicIpsRequest{Scope: core.ListPublicIpsScopeRegion, Lifetime: core.ListPublicIpsLifetimeReserved, CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return report, fmt.Errorf("reserved address: %w", err)
+		return report, err
 	}
-	report.Checks = append(report.Checks, check("reserved address", collect(reserved, func(ip core.PublicIp) (string, string, map[string]string) {
-		return deref(ip.DisplayName) + " " + deref(ip.IpAddress), string(ip.LifecycleState), ip.FreeformTags
+	report.Checks = append(report.Checks, check("reserved address", collect(reserved, func(ip core.PublicIp) (item, string) {
+		return item{deref(ip.DisplayName) + " " + deref(ip.IpAddress), ip.FreeformTags, true, key("public-ip", "nlb")}, string(ip.LifecycleState)
 	}), false))
 	return report, nil
 }
 
-func collect[T any](values []T, view func(T) (string, string, map[string]string)) []item {
-	var items []item
-	for _, v := range values {
-		desc, state, tags := view(v)
-		if !gone(state) {
-			items = append(items, item{desc, tags, true})
-		}
-	}
-	return items
-}
-
-func nodes(region Region, instances []core.Instance, subnetOf map[string]string, privateSubnet string) Check {
+func nodes(region Region, instances []core.Instance, subnetOf map[string]string, privateSubnet string, keys []ociresource.Key) Check {
 	want := region.Nodes
-	var items []item
-	for _, in := range instances {
-		if gone(string(in.LifecycleState)) {
-			continue
-		}
+	items := collect(instances, func(in core.Instance) (item, string) {
 		var ocpus, memory float32
 		if in.ShapeConfig != nil && in.ShapeConfig.Ocpus != nil && in.ShapeConfig.MemoryInGBs != nil {
 			ocpus, memory = *in.ShapeConfig.Ocpus, *in.ShapeConfig.MemoryInGBs
 		}
 		subnet := "private subnet"
-		if subnetOf[deref(in.Id)] != privateSubnet || privateSubnet == "" {
+		if privateSubnet == "" || subnetOf[deref(in.Id)] != privateSubnet {
 			subnet = "not in private subnet"
 		}
 		match := deref(in.Shape) == want.Shape && ocpus == want.OCPUs && memory == want.MemoryGB && subnet == "private subnet"
-		items = append(items, item{fmt.Sprintf("%s %s %g/%g %s %s", deref(in.DisplayName), deref(in.Shape), ocpus, memory, strings.ToLower(string(in.LifecycleState)), subnet), in.FreeformTags, match})
-	}
+		desc := fmt.Sprintf("%s %s %g/%g %s %s", deref(in.DisplayName), deref(in.Shape), ocpus, memory, strings.ToLower(string(in.LifecycleState)), subnet)
+		return item{desc, in.FreeformTags, match, keys}, string(in.LifecycleState)
+	})
 	result := check("instances", items, true)
 	count := fmt.Sprint(want.Min)
 	if want.Max != want.Min {
@@ -316,7 +339,8 @@ func nodes(region Region, instances []core.Instance, subnetOf map[string]string,
 
 func observeDNS(ctx context.Context, fleet Fleet) (Report, error) {
 	report := Report{Name: "dns", Scope: fleet.DNS.Zone}
-	f, err := factory(ctx, fleet.Regions[0].OCIRegion)
+	home, _ := fleet.DNSRegion()
+	f, err := factory(ctx, home.OCIRegion)
 	if err != nil {
 		return report, err
 	}
@@ -324,29 +348,40 @@ func observeDNS(ctx context.Context, fleet Fleet) (Report, error) {
 	if err != nil {
 		return report, err
 	}
-	find := func(query string) ([]resourcesearch.ResourceSummary, error) {
-		return pages(func(page *string) ([]resourcesearch.ResourceSummary, *string, error) {
+	find := func(what, query string) ([]resourcesearch.ResourceSummary, error) {
+		return list(what, func(page *string) ([]resourcesearch.ResourceSummary, *string, error) {
 			r, err := search.SearchResources(ctx, resourcesearch.SearchResourcesRequest{SearchDetails: resourcesearch.StructuredSearchDetails{Query: common.String(query)}, Page: page})
 			return r.Items, r.OpcNextPage, err
 		})
 	}
-	view := func(r resourcesearch.ResourceSummary) (string, string, map[string]string) {
-		return deref(r.DisplayName), deref(r.LifecycleState), r.FreeformTags
-	}
-	zones, err := find(fmt.Sprintf("query CustomerDnsZone resources where displayName = '%s'", fleet.DNS.Zone))
+	scope := fmt.Sprintf("compartmentId = '%s'", fleet.DNS.CompartmentID)
+	zones, err := find("zone", fmt.Sprintf("query CustomerDnsZone resources where displayName = '%s' && %s", fleet.DNS.Zone, scope))
 	if err != nil {
-		return report, fmt.Errorf("zone: %w", err)
+		return report, err
 	}
-	report.Checks = append(report.Checks, check("zone", collect(zones, view), false))
-	policies, err := find("query DnsPolicy resources")
+	report.Checks = append(report.Checks, check("zone", collect(zones, func(r resourcesearch.ResourceSummary) (item, string) {
+		return item{deref(r.DisplayName), r.FreeformTags, true, []ociresource.Key{home.Key("dns-zone", "zone")}}, deref(r.LifecycleState)
+	}), false))
+	policies, err := find("steering policy", "query DnsPolicy resources where "+scope)
 	if err != nil {
-		return report, fmt.Errorf("steering policy: %w", err)
+		return report, err
 	}
-	live := collect(policies, view)
+	live := collect(policies, func(r resourcesearch.ResourceSummary) (item, string) {
+		name := deref(r.DisplayName)
+		label, _, _ := strings.Cut(name, ".")
+		return item{name, r.FreeformTags, slices.Contains(fleet.DNS.SteeredNames, name), []ociresource.Key{home.Key("steering-policy", label)}}, deref(r.LifecycleState)
+	})
 	steering := check("steering policy", live, true)
-	steering.Details = append([]string{fmt.Sprintf("%d policies for %d steered names, ttl %ds, check https %s", len(live), len(fleet.DNS.SteeredNames), fleet.DNS.SteeringTTLSeconds, fleet.DNS.HealthCheckPath)}, steering.Details...)
-	if steering.State != Missing && len(live) != len(fleet.DNS.SteeredNames) {
+	var absent []string
+	for _, name := range fleet.DNS.SteeredNames {
+		if !slices.ContainsFunc(live, func(it item) bool { return it.desc == name }) {
+			absent = append(absent, name)
+		}
+	}
+	steering.Details = append([]string{fmt.Sprintf("%d of %d steered names have a policy, ttl %ds, check https %s", len(fleet.DNS.SteeredNames)-len(absent), len(fleet.DNS.SteeredNames), fleet.DNS.SteeringTTLSeconds, fleet.DNS.HealthCheckPath)}, steering.Details...)
+	if len(absent) > 0 && steering.State != Missing {
 		steering.State = Differs
+		steering.Details = append(steering.Details, "no policy for "+strings.Join(absent, ", "))
 	}
 	report.Checks = append(report.Checks, steering)
 	return report, nil

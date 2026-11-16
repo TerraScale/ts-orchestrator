@@ -124,7 +124,24 @@ label, OCI region, compartment, VCN, public subnet (load balancer only),
 private subnet (nodes), node count and shape, and the public names it serves.
 It also records the DNS zone, the steered names, their TTL and the
 health-check path. `internal/fleet` loads and validates it; the binary embeds
-it.
+it, and `make release-check` runs `ts-orch region validate` on the built
+binary so a bad document never ships.
+
+Per region the document holds: label, OCI region, compartment, VCN CIDR,
+public subnet CIDR (load balancer only), private subnet CIDR (nodes), nodes
+(min, max, shape, OCPUs, memory, boot GB, data volume GB and VPUs per GB,
+the data volume created apart from the launch), and the continents its
+geo-steering answers. Every continent is answered by exactly one region.
+Globally it holds the DNS zone and its compartment, the steered names, their
+TTL and the health-check path. A region's plain record is always
+`<label>.api.<zone>`, derived from the label.
+
+These live in code, not in the document: the node image (the release pins
+it), the spread of nodes across availability domains and then fault
+domains, NSG rules, and the network load balancer's reserved address, which
+the reconciler reserves. Today's public addresses are ephemeral instance
+addresses that OCI cannot turn into reserved ones; the move to the load
+balancer goes through DNS.
 
 The document is not signed separately. A change is a reviewed pull request;
 only a merged release, trusted through its GitHub build attestation, carries
@@ -136,9 +153,18 @@ CIDRs, a duplicate label and a name outside the zone.
 
 `ts-orch region plan` compares the document with what exists in OCI and
 changes nothing; `ts-orch region status` prints the same in one line per
-region. Resources carrying the ownership tags `terrascale-managed-by`,
-`terrascale-owner` and `terrascale-resource-key` are document-made; the rest
-are hand-made, reported as foreign and never changed.
+region. A resource is document-made when `ociresource.Ownership{Owner:
+"terrascale"}.Owns` accepts its tags for its key: `terrascale-managed-by`
+`ts-orchestrator`, `terrascale-owner` `terrascale` and
+`terrascale-resource-key` `<CELL>/<kind>/<name>`. The keys are `vcn/vcn`,
+`subnet/host-subnet` (public), `subnet/private-subnet`,
+`internet-gateway/igw`, `nat-gateway/nat`, `service-gateway/sgw`,
+`nsg/edge-nsg`, `nsg/host-nsg`, `instance/node-<n>`,
+`network-load-balancer/nlb`, `public-ip/nlb`, and in the DNS compartment's
+cell `dns-zone/zone` and `steering-policy/<first label>`, a steering policy
+being named after its steered name. A resource with any other ownership tag
+is claimed by another owner; one with none is hand-made (foreign). Neither
+is ever changed.
 
 A reconciler on the global leader creates and updates these resources:
 
