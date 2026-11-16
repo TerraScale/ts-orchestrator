@@ -9,7 +9,6 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 
-	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
@@ -67,14 +66,14 @@ func Apply(ctx context.Context, args []string, out io.Writer) error {
 		if _, err := fmt.Fprintf(out, "%s %s\n", region.Label, pass.Kind); err != nil {
 			return err
 		}
-		if err := pass.Apply(ctx, document, region, f, ociresource.Out{Same: out, Changed: out}); err != nil {
+		if err := pass.Apply(ctx, document, region, f, ociresource.Out{Same: out, Changed: out, Apply: true}); err != nil {
 			return fmt.Errorf("%s %s: %w", region.Label, pass.Kind, err)
 		}
 	}
 	return nil
 }
 
-func Reconciler(ctx context.Context, label string, fencer authority.Fencer) (*ociresource.Runner, error) {
+func ReconcilePasses(ctx context.Context, label string) ([]ociresource.Pass, error) {
 	document, err := Load()
 	if err != nil {
 		return nil, err
@@ -92,12 +91,12 @@ func Reconciler(ctx context.Context, label string, fencer authority.Fencer) (*oc
 	if err != nil {
 		return nil, err
 	}
-	runner := &ociresource.Runner{Region: label, Authority: fencer}
+	passes := []ociresource.Pass{}
 	for _, kind := range region.Reconcile {
 		pass := Passes[slices.IndexFunc(Passes, func(p Pass) bool { return p.Kind == kind })]
-		runner.Passes = append(runner.Passes, ociresource.Pass{Kind: kind, Run: func(ctx context.Context, out ociresource.Out) error {
+		passes = append(passes, ociresource.Pass{Kind: kind, Run: func(ctx context.Context, out ociresource.Out) error {
 			return pass.Apply(ctx, document, region, f, out)
 		}})
 	}
-	return runner, nil
+	return passes, nil
 }

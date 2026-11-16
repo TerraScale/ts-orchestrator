@@ -27,7 +27,10 @@ const (
 type Out struct {
 	Same    io.Writer
 	Changed io.Writer
+	Apply   bool
 }
+
+var ErrPlanWrites = errors.New("a reconcile plan sends no OCI write")
 
 type Pass struct {
 	Kind string
@@ -50,11 +53,13 @@ type KindStatus struct {
 type Runner struct {
 	Region    string
 	Authority authority.Fencer
-	Passes    []Pass
+	Build     func(ctx context.Context) ([]Pass, error)
 
-	mu     sync.Mutex
-	leader bool
-	kinds  map[string]*KindStatus
+	mu       sync.Mutex
+	leader   bool
+	passes   []Pass
+	buildErr error
+	kinds    map[string]*KindStatus
 }
 
 var runners sync.Map
@@ -76,13 +81,27 @@ func (r *Runner) Run(ctx context.Context) {
 
 func (r *Runner) tick(ctx context.Context) {
 	snapshot := r.Authority.Current()
+	leader := snapshot.Leader && snapshot.Ready && snapshot.Epoch != 0
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.leader = snapshot.Leader && snapshot.Ready && snapshot.Epoch != 0
-	if !r.leader {
+	r.leader = leader
+	built := r.passes != nil
+	r.mu.Unlock()
+	if !leader {
 		return
 	}
-	for _, pass := range r.Passes {
+	if !built {
+		passes, err := r.Build(ctx)
+		r.mu.Lock()
+		r.passes, r.buildErr = passes, err
+		r.mu.Unlock()
+		if err != nil {
+			slog.WarnContext(ctx, "OCI reconcile loop changes nothing this tick", "region", r.Region, "error", err)
+			return
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, pass := range r.passes {
 		status := r.status(pass.Kind)
 		if status.Running || status.Stopped {
 			continue
@@ -105,41 +124,42 @@ func (r *Runner) status(kind string) *KindStatus {
 }
 
 func (r *Runner) run(ctx context.Context, pass Pass, epoch uint64) {
-	var changes atomic.Int64
-	var fenced, limited atomic.Bool
+	var fenced atomic.Bool
 	guard := func(ctx context.Context) error {
 		if err := r.Authority.Guard(ctx, epoch); err != nil {
 			fenced.Store(true)
 			return fmt.Errorf("%w: %w", ErrFenced, err)
 		}
-		if changes.Load() >= MaxChangesPerTick {
-			limited.Store(true)
-			return fmt.Errorf("%s %s wants more than %d OCI changes in one tick", r.Region, pass.Kind, MaxChangesPerTick)
-		}
-		changes.Add(1)
 		return nil
 	}
+	refuse := func(context.Context) error { return ErrPlanWrites }
 	started := time.Now()
-	err := pass.Run(ociclient.WithAuthority(ctx, guard), Out{Same: io.Discard, Changed: changeLog{ctx: ctx, region: r.Region, kind: pass.Kind}})
+	plan := &lines{}
+	err := pass.Run(ociclient.WithAuthority(ctx, refuse), Out{Same: io.Discard, Changed: plan})
+	limited := err == nil && len(plan.all) > MaxChangesPerTick
+	applied := &lines{next: changeLog{ctx: ctx, region: r.Region, kind: pass.Kind}}
+	if err == nil && !limited && len(plan.all) > 0 {
+		err = pass.Run(ociclient.WithAuthority(ctx, guard), Out{Same: io.Discard, Changed: applied, Apply: true})
+	}
 	finished := time.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	status := r.status(pass.Kind)
 	status.Running = false
 	status.LastRun, status.Duration = started, finished.Sub(started)
-	status.Changes = int(changes.Load())
+	status.Changes = len(applied.all)
 	status.ChangesTotal += status.Changes
-	log := slog.With("region", r.Region, "kind", pass.Kind, "changes", status.Changes, "duration", status.Duration.Round(time.Millisecond))
+	log := slog.With("region", r.Region, "kind", pass.Kind, "planned", len(plan.all), "changes", status.Changes, "duration", status.Duration.Round(time.Millisecond))
 	var service common.ServiceError
 	switch {
+	case limited:
+		status.Errors++
+		status.Stopped = true
+		status.Result = fmt.Sprintf("stopped: plan has %d changes, more than %d", len(plan.all), MaxChangesPerTick)
+		log.ErrorContext(ctx, "OCI reconcile kind stopped before any write: its plan exceeds the change limit; it stays stopped until this leader restarts", "plan", strings.Join(plan.all, "; "))
 	case err == nil:
 		status.Result, status.LastSuccess = "ok", finished
 		log.DebugContext(ctx, "OCI reconcile pass in sync")
-	case limited.Load():
-		status.Errors++
-		status.Stopped = true
-		status.Result = fmt.Sprintf("stopped: more than %d changes in one tick", MaxChangesPerTick)
-		log.ErrorContext(ctx, "OCI reconcile kind stopped at its change limit; it stays stopped until this leader restarts", "error", err)
 	case fenced.Load() || ctx.Err() != nil:
 		status.Result = "fenced: leadership lost"
 		log.WarnContext(ctx, "OCI reconcile pass lost leadership", "error", err)
@@ -160,21 +180,22 @@ func (r *Runner) Leading() bool {
 	return r.leader
 }
 
-func (r *Runner) Status() []KindStatus {
+func (r *Runner) Status() ([]KindStatus, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var out []KindStatus
-	for _, pass := range r.Passes {
+	for _, pass := range r.passes {
 		out = append(out, *r.status(pass.Kind))
 	}
-	return out
+	return out, r.buildErr
 }
 
 func WriteMetrics(w io.Writer) {
 	runners.Range(func(_, value any) bool {
 		r := value.(*Runner)
 		observability.WriteGauge(w, observability.Series("ts_orch_oci_reconcile_leader", "region", r.Region), observability.Bool(r.Leading()))
-		for _, s := range r.Status() {
+		kinds, _ := r.Status()
+		for _, s := range kinds {
 			series := func(name string) string { return observability.Series(name, "region", r.Region, "kind", s.Kind) }
 			if !s.LastRun.IsZero() {
 				observability.WriteGauge(w, series("ts_orch_oci_reconcile_last_run_timestamp_seconds"), float64(s.LastRun.Unix()))
@@ -189,6 +210,23 @@ func WriteMetrics(w io.Writer) {
 		}
 		return true
 	})
+}
+
+type lines struct {
+	all  []string
+	next io.Writer
+}
+
+func (l *lines) Write(p []byte) (int, error) {
+	for line := range strings.SplitSeq(string(p), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			l.all = append(l.all, line)
+		}
+	}
+	if l.next != nil {
+		return l.next.Write(p)
+	}
+	return len(p), nil
 }
 
 type changeLog struct {

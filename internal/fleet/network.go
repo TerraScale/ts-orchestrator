@@ -282,6 +282,9 @@ func (n *network) natGateway(ctx context.Context) (string, error) {
 	}
 	key := n.region.Key("nat-gateway", "nat")
 	name := n.cell + "-nat"
+	if !n.out.Apply {
+		return "", n.print("create", "nat gateway", name)
+	}
 	tags, _, err := n.stamp(key, map[string]string{"vcn": deref(n.vcn), "name": name})
 	if err != nil {
 		return "", err
@@ -319,6 +322,17 @@ func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []cor
 		{Destination: "0.0.0.0/0", NetworkEntityID: nat, Description: "internet through the nat gateway"},
 		{Destination: servicesCIDR, DestinationType: routetable.DestinationService, NetworkEntityID: sgw, Description: "oracle services"},
 	}}
+	if table == nil && !n.out.Apply {
+		if err := n.print("create", "route table", name); err != nil {
+			return err
+		}
+		for _, route := range spec.Routes {
+			if err := n.print("add", "route", route.Destination+" "+route.Description); err != nil {
+				return err
+			}
+		}
+		return n.print("update", "subnet", "private-subnet routes through "+name)
+	}
 	if table == nil {
 		tags, _, err := n.stamp(key, map[string]string{"vcn": deref(n.vcn), "name": name})
 		if err != nil {
@@ -360,6 +374,9 @@ func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []cor
 	if deref(private.RouteTableId) == table.id {
 		return n.print("ok", "subnet", deref(private.DisplayName)+" routes through "+table.name)
 	}
+	if !n.out.Apply {
+		return n.print("update", "subnet", deref(private.DisplayName)+" routes through "+table.name)
+	}
 	current, err := n.client.GetSubnet(ctx, core.GetSubnetRequest{SubnetId: private.Id})
 	if err != nil {
 		return err
@@ -377,6 +394,18 @@ func (n *network) nodeNSG(ctx context.Context, groups []found) error {
 	group, err := n.owned(key.Kind, key.Name, groups)
 	if err != nil {
 		return err
+	}
+	rules := nodeRules(n.region)
+	if group == nil && !n.out.Apply {
+		if err := n.print("create", "nsg", name); err != nil {
+			return err
+		}
+		for _, rule := range rules {
+			if err := n.print("add-rule", "nsg", rule.Description); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	if group == nil {
 		tags, _, err := n.stamp(key, map[string]string{"vcn": deref(n.vcn), "name": name})
@@ -398,16 +427,6 @@ func (n *network) nodeNSG(ctx context.Context, groups []found) error {
 			return err
 		}
 	}
-	var rules []nsg.Rule
-	for _, port := range edgePorts {
-		rules = append(rules, nsg.Rule{Direction: nsg.DirectionIngress, Protocol: nsg.ProtocolTCP, Peer: "0.0.0.0/0",
-			PortMin: port, PortMax: port, Description: fmt.Sprintf("client tcp %d through the load balancer", port)})
-	}
-	for _, rule := range meshPorts {
-		rule.Direction, rule.Peer = nsg.DirectionIngress, n.region.VCNCIDR
-		rules = append(rules, rule)
-	}
-	rules = append(rules, nsg.Rule{Direction: nsg.DirectionEgress, Protocol: nsg.ProtocolAll, Peer: "0.0.0.0/0", Description: "all egress"})
 	return converge(ctx, n, "nsg", group.name, nsg.Reconciler{API: n.rules}, key, nsg.Spec{NSGID: group.id, Rules: rules, Exclusive: true})
 }
 
@@ -429,8 +448,28 @@ func converge[S, O any](ctx context.Context, n *network, kind, name string, reso
 	if plan.Empty() {
 		return n.print("ok", kind, name)
 	}
-	if err := resource.Apply(ctx, target, observed, ok, plan); err != nil {
-		return fmt.Errorf("%s %s: %w", kind, name, err)
+	if n.out.Apply {
+		if err := resource.Apply(ctx, target, observed, ok, plan); err != nil {
+			return fmt.Errorf("%s %s: %w", kind, name, err)
+		}
 	}
-	return n.print("updated", kind, name+": "+plan.String())
+	for _, change := range plan.Changes {
+		if err := n.print(change.Op, kind, name+": "+change.Detail); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func nodeRules(region Region) []nsg.Rule {
+	var rules []nsg.Rule
+	for _, port := range edgePorts {
+		rules = append(rules, nsg.Rule{Direction: nsg.DirectionIngress, Protocol: nsg.ProtocolTCP, Peer: "0.0.0.0/0",
+			PortMin: port, PortMax: port, Description: fmt.Sprintf("client tcp %d through the load balancer", port)})
+	}
+	for _, rule := range meshPorts {
+		rule.Direction, rule.Peer = nsg.DirectionIngress, region.VCNCIDR
+		rules = append(rules, rule)
+	}
+	return append(rules, nsg.Rule{Direction: nsg.DirectionEgress, Protocol: nsg.ProtocolAll, Peer: "0.0.0.0/0", Description: "all egress"})
 }

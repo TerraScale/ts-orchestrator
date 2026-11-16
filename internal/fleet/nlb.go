@@ -174,6 +174,10 @@ func (p nlbPass) reservedAddress(ctx context.Context) (core.PublicIp, error) {
 			return ip, nil
 		}
 	}
+	if !p.out.Apply {
+		p.say("create reserved address %s-1-nlb-ip", p.region.Label)
+		return core.PublicIp{}, nil
+	}
 	created, err := p.network.CreatePublicIp(ctx, core.CreatePublicIpRequest{CreatePublicIpDetails: core.CreatePublicIpDetails{
 		CompartmentId: compartment, Lifetime: core.CreatePublicIpDetailsLifetimeReserved,
 		DisplayName: common.String(p.region.Label + "-1-nlb-ip"), FreeformTags: p.region.ownedTags("public-ip", "nlb"),
@@ -274,6 +278,14 @@ func (p nlbPass) balancer(ctx context.Context, subnet string, groups []string, a
 		sets[backendSetName(port)] = backendSet(backends, port)
 		listeners[backendSetName(port)] = listener(port)
 	}
+	if !p.out.Apply {
+		p.say("create %s-1-nlb, backends %s", p.region.Label, strings.Join(names, ", "))
+		for _, port := range nlbPorts {
+			p.say("create backend set %s", backendSetName(port))
+			p.say("create listener %s", backendSetName(port))
+		}
+		return nil
+	}
 	created, err := p.balancers.CreateNetworkLoadBalancer(ctx, networkloadbalancer.CreateNetworkLoadBalancerRequest{CreateNetworkLoadBalancerDetails: networkloadbalancer.CreateNetworkLoadBalancerDetails{
 		CompartmentId: compartment, DisplayName: common.String(p.region.Label + "-1-nlb"), SubnetId: common.String(subnet), IsPrivate: common.Bool(false),
 		IsPreserveSourceDestination: common.Bool(false), NlbIpVersion: networkloadbalancer.NlbIpVersionIpv4, NetworkSecurityGroupIds: groups,
@@ -300,12 +312,13 @@ func (p nlbPass) converge(ctx context.Context, nlb networkloadbalancer.NetworkLo
 	}
 	changed := false
 	if have := slices.Sorted(slices.Values(nlb.NetworkSecurityGroupIds)); !slices.Equal(have, slices.Sorted(slices.Values(groups))) {
-		r, err := p.balancers.UpdateNetworkSecurityGroups(ctx, networkloadbalancer.UpdateNetworkSecurityGroupsRequest{NetworkLoadBalancerId: id,
-			UpdateNetworkSecurityGroupsDetails: networkloadbalancer.UpdateNetworkSecurityGroupsDetails{NetworkSecurityGroupIds: groups}})
-		if err := p.work(ctx, "nlb nsgs", r.OpcWorkRequestId, err); err != nil {
+		if err := p.write(ctx, "update nsgs", "updated nsgs", func() (*string, error) {
+			r, err := p.balancers.UpdateNetworkSecurityGroups(ctx, networkloadbalancer.UpdateNetworkSecurityGroupsRequest{NetworkLoadBalancerId: id,
+				UpdateNetworkSecurityGroupsDetails: networkloadbalancer.UpdateNetworkSecurityGroupsDetails{NetworkSecurityGroupIds: groups}})
+			return r.OpcWorkRequestId, err
+		}); err != nil {
 			return err
 		}
-		p.say("updated nsgs")
 		changed = true
 	}
 	for _, port := range nlbPorts {
@@ -313,47 +326,64 @@ func (p nlbPass) converge(ctx context.Context, nlb networkloadbalancer.NetworkLo
 		have, ok := nlb.BackendSets[name]
 		switch {
 		case !ok:
-			r, err := p.balancers.CreateBackendSet(ctx, networkloadbalancer.CreateBackendSetRequest{NetworkLoadBalancerId: id, CreateBackendSetDetails: networkloadbalancer.CreateBackendSetDetails{
-				Name: common.String(name), Policy: want.Policy, IsPreserveSource: want.IsPreserveSource, IsFailOpen: want.IsFailOpen,
-				IsInstantFailoverEnabled: want.IsInstantFailoverEnabled, HealthChecker: new(healthChecker()), Backends: backendDetails(backends, port)}})
-			if err := p.work(ctx, "create backend set "+name, r.OpcWorkRequestId, err); err != nil {
+			if err := p.write(ctx, "create backend set "+name, fmt.Sprintf("created backend set %s: %s", name, names), func() (*string, error) {
+				r, err := p.balancers.CreateBackendSet(ctx, networkloadbalancer.CreateBackendSetRequest{NetworkLoadBalancerId: id, CreateBackendSetDetails: networkloadbalancer.CreateBackendSetDetails{
+					Name: common.String(name), Policy: want.Policy, IsPreserveSource: want.IsPreserveSource, IsFailOpen: want.IsFailOpen,
+					IsInstantFailoverEnabled: want.IsInstantFailoverEnabled, HealthChecker: new(healthChecker()), Backends: backendDetails(backends, port)}})
+				return r.OpcWorkRequestId, err
+			}); err != nil {
 				return err
 			}
-			p.say("created backend set %s: %s", name, names)
 			changed = true
 		case !sameSet(have, want):
-			r, err := p.balancers.UpdateBackendSet(ctx, networkloadbalancer.UpdateBackendSetRequest{NetworkLoadBalancerId: id, BackendSetName: common.String(name),
-				UpdateBackendSetDetails: networkloadbalancer.UpdateBackendSetDetails{Policy: common.String(string(want.Policy)), IsPreserveSource: want.IsPreserveSource,
-					IsFailOpen: want.IsFailOpen, IsInstantFailoverEnabled: want.IsInstantFailoverEnabled, HealthChecker: new(healthChecker()), Backends: backendDetails(backends, port)}})
-			if err := p.work(ctx, "update backend set "+name, r.OpcWorkRequestId, err); err != nil {
+			if err := p.write(ctx, "update backend set "+name, fmt.Sprintf("updated backend set %s: %s -> %s", name, strings.Join(addresses(have.Backends), " "), names), func() (*string, error) {
+				r, err := p.balancers.UpdateBackendSet(ctx, networkloadbalancer.UpdateBackendSetRequest{NetworkLoadBalancerId: id, BackendSetName: common.String(name),
+					UpdateBackendSetDetails: networkloadbalancer.UpdateBackendSetDetails{Policy: common.String(string(want.Policy)), IsPreserveSource: want.IsPreserveSource,
+						IsFailOpen: want.IsFailOpen, IsInstantFailoverEnabled: want.IsInstantFailoverEnabled, HealthChecker: new(healthChecker()), Backends: backendDetails(backends, port)}})
+				return r.OpcWorkRequestId, err
+			}); err != nil {
 				return err
 			}
-			p.say("updated backend set %s: %s -> %s", name, strings.Join(addresses(have.Backends), " "), names)
 			changed = true
 		}
 		l, ok := nlb.Listeners[name]
 		switch want := listener(port); {
 		case !ok:
-			r, err := p.balancers.CreateListener(ctx, networkloadbalancer.CreateListenerRequest{NetworkLoadBalancerId: id, CreateListenerDetails: networkloadbalancer.CreateListenerDetails{
-				Name: want.Name, DefaultBackendSetName: want.DefaultBackendSetName, Port: want.Port, Protocol: want.Protocol}})
-			if err := p.work(ctx, "create listener "+name, r.OpcWorkRequestId, err); err != nil {
+			if err := p.write(ctx, "create listener "+name, "created listener "+name, func() (*string, error) {
+				r, err := p.balancers.CreateListener(ctx, networkloadbalancer.CreateListenerRequest{NetworkLoadBalancerId: id, CreateListenerDetails: networkloadbalancer.CreateListenerDetails{
+					Name: want.Name, DefaultBackendSetName: want.DefaultBackendSetName, Port: want.Port, Protocol: want.Protocol}})
+				return r.OpcWorkRequestId, err
+			}); err != nil {
 				return err
 			}
-			p.say("created listener %s", name)
 			changed = true
 		case deref(l.Port) != port || l.Protocol != want.Protocol || deref(l.DefaultBackendSetName) != name:
-			r, err := p.balancers.UpdateListener(ctx, networkloadbalancer.UpdateListenerRequest{NetworkLoadBalancerId: id, ListenerName: common.String(name),
-				UpdateListenerDetails: networkloadbalancer.UpdateListenerDetails{DefaultBackendSetName: want.DefaultBackendSetName, Port: want.Port, Protocol: want.Protocol}})
-			if err := p.work(ctx, "update listener "+name, r.OpcWorkRequestId, err); err != nil {
+			if err := p.write(ctx, "update listener "+name, "updated listener "+name, func() (*string, error) {
+				r, err := p.balancers.UpdateListener(ctx, networkloadbalancer.UpdateListenerRequest{NetworkLoadBalancerId: id, ListenerName: common.String(name),
+					UpdateListenerDetails: networkloadbalancer.UpdateListenerDetails{DefaultBackendSetName: want.DefaultBackendSetName, Port: want.Port, Protocol: want.Protocol}})
+				return r.OpcWorkRequestId, err
+			}); err != nil {
 				return err
 			}
-			p.say("updated listener %s", name)
 			changed = true
 		}
 	}
 	if !changed {
 		p.same("ok %s %s tcp %v, backends %s", deref(nlb.DisplayName), deref(address.IpAddress), nlbPorts, names)
 	}
+	return nil
+}
+
+func (p nlbPass) write(ctx context.Context, what, done string, call func() (*string, error)) error {
+	if !p.out.Apply {
+		p.say("%s", what)
+		return nil
+	}
+	id, err := call()
+	if err := p.work(ctx, what, id, err); err != nil {
+		return err
+	}
+	p.say("%s", done)
 	return nil
 }
 

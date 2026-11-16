@@ -3,12 +3,12 @@ package app
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
@@ -44,17 +44,16 @@ func (f *raftFencer) Guard(ctx context.Context, epoch uint64) error {
 }
 
 func runOCIReconcile(ctx context.Context, state, region string, node *swarmruntime.Node) {
-	fencer := &raftFencer{node: node}
-	runner, err := fleet.Reconciler(ctx, region, fencer)
-	if err != nil {
-		slog.ErrorContext(ctx, "OCI reconcile loop changes nothing", "region", region, "error", err)
-		go regionhealth.ServeReconcile(ctx, state, func() (regionhealth.Reconcile, bool) {
-			return regionhealth.Reconcile{Error: err.Error()}, fencer.Current().Leader
-		})
-		return
-	}
+	runner := &ociresource.Runner{Region: region, Authority: &raftFencer{node: node}, Build: func(ctx context.Context) ([]ociresource.Pass, error) {
+		return fleet.ReconcilePasses(ctx, region)
+	}}
 	go regionhealth.ServeReconcile(ctx, state, func() (regionhealth.Reconcile, bool) {
-		return regionhealth.Reconcile{Kinds: runner.Status()}, fencer.Current().Leader
+		kinds, err := runner.Status()
+		status := regionhealth.Reconcile{Kinds: kinds}
+		if err != nil {
+			status.Error = err.Error()
+		}
+		return status, runner.Leading()
 	})
 	runner.Run(ctx)
 }

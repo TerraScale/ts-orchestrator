@@ -238,30 +238,40 @@ by side; a kind whose pass from an earlier tick is still running is not
 started again. The CLI's `region apply <label> <kind>...` is unchanged and runs
 any registered kind once.
 
+- **Plan, then apply.** Each kind first runs as a plan: it reads OCI and
+  prints one line per logical change (a created resource, one NSG rule, one
+  route, one backend set) while every OCI write is refused
+  (`ociresource.ErrPlanWrites`). An empty plan ends the kind's tick with no
+  write. Otherwise the kind runs again with writes allowed. `compute` has no
+  plan mode yet, so its plan fails at its first write and it cannot join a
+  `reconcile` list until it gets one (C17).
 - **Fence.** Each tick reads the leader's Raft term and checks through the
-  SwarmKit control API that this node leads it. Every OCI write request of the
-  pass first checks that the term and leader are still the ones it started
-  with (`ociclient.WithAuthority`); after a leadership change the deposed
-  leader's pass gets `OCI resource mutation authority was fenced` on its next
-  write and the new leader runs the kind from its next tick.
-- **Change limit.** A kind may send at most 16 OCI write requests in one tick
+  SwarmKit control API that this node leads it. Every OCI write is checked
+  again at the final dispatch, after the request is signed and after any
+  instance-principal credential refresh (`ociclient.WithAuthority`, checked
+  in the client's dispatcher): the term and leader must still be the ones the
+  tick started with. After a leadership change the deposed leader's next
+  write fails with `OCI resource mutation authority was fenced` and the new
+  leader runs the kind from its next tick.
+- **Change limit.** A plan may hold at most 16 logical changes
   (`ociresource.MaxChangesPerTick`). Building a kind's part of a region from
-  nothing is the most it ever legitimately does: about 8 writes for `network`,
-  at most 8 for `nlb`, about 15 for `dns` at 3 regions (zone, monitor, five
-  steering policies and attachments, one A record per region) and 15 for
-  `compute` at the document's cap of 3 nodes (configuration, pool, and per
-  node a volume create, attach, tag and binding).
-  A steady state sends none and a hand-made drift a few. The 17th write is
-  refused, the kind stops on that
-  leader until ts-orch restarts there (a release or a leader change), and
+  nothing is the most it ever legitimately plans: 14 for `network` (NAT
+  gateway, route table and its 2 routes, subnet route, node NSG and its 8
+  rules), 8 for `nlb` (reserved address, balancer, 3 backend sets, 3
+  listeners) and about 15 for `dns` at 3 regions (zone, monitor, five
+  steering policies and attachments, one A record per region). A steady state
+  plans none and a hand-made drift a few. A larger plan writes nothing: the
+  kind stops on that leader until ts-orch restarts there (a release or a
+  leader change), the plan is logged with the error, and
   `ts_orch_oci_reconcile_stopped` raises the `OCIReconcileStopped` alert.
-  Find the cause in the leader's `OCI change` log lines before anything else.
 - **Throttling and outages.** The loop's OCI client does not retry. A 429 or
   5xx ends that kind's pass, is counted as an error and logged as
   `backed off until the next tick`; the other kinds keep running.
-- **Invalid document.** A document that does not load or validate, or has no
-  entry for the node's region, starts no pass; `ts-orch status` shows
-  `reconcile: changes nothing: <error>`.
+- **Invalid document or no credentials.** The leader builds its passes on its
+  first tick and again on every tick until that succeeds. A document that does
+  not load or validate, has no entry for the node's region, or an instance
+  principal that cannot be fetched yet starts no pass that tick;
+  `ts-orch status` shows the error.
 - **Visibility.** One `OCI change` log line per change, none for unchanged
   resources. On port 9108, per region and kind:
   `ts_orch_oci_reconcile_last_run_timestamp_seconds`,

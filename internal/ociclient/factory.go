@@ -319,13 +319,6 @@ func (f *Factory) Configure(client *common.BaseClient, service Service) {
 		if err := limiter.Wait(ctx); err != nil {
 			return fmt.Errorf("OCI %s rate limiter: %w", service, err)
 		}
-		if request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodOptions {
-			if guard, ok := ctx.Value(authorityKey{}).(func(context.Context) error); ok {
-				if err := guard(ctx); err != nil {
-					return fmt.Errorf("OCI %s write authority: %w", service, err)
-				}
-			}
-		}
 		if previous != nil {
 			return previous(request)
 		}

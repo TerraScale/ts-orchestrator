@@ -65,7 +65,7 @@ func applyDNS(ctx context.Context, fleet Fleet, region Region, f *ociclient.Fact
 	if err != nil {
 		return err
 	}
-	changes, err := client.Reconcile(ctx, cfg, true)
+	changes, err := client.Reconcile(ctx, cfg, out.Apply)
 	for _, change := range changes {
 		w := out.Changed
 		if change.Action == "ok" {
