@@ -289,7 +289,7 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 	select {
 	case router.requests <- struct{}{}:
 	default:
-		if !internal {
+		if !internal && !fromPeer(request) {
 			return nil, edgeRefusal{http.StatusServiceUnavailable, "regional_request_node"}
 		}
 		return nil, errors.New("regional ingress is full")

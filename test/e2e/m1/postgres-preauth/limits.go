@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -48,12 +49,16 @@ func (c edgeClient) open(source string, port int) (net.Conn, error) {
 }
 
 func (c edgeClient) request(source string, port int, headers string) (net.Conn, *http.Response, error) {
+	return c.requestPath(source, port, "/healthz", headers)
+}
+
+func (c edgeClient) requestPath(source string, port int, path, headers string) (net.Conn, *http.Response, error) {
 	conn, err := c.open(source, port)
 	if err != nil {
 		return nil, nil, err
 	}
 	_ = conn.SetDeadline(time.Now().Add(failAfter))
-	_, err = fmt.Fprintf(conn, "GET /healthz HTTP/1.1\r\nHost: %s\r\n%s\r\n", c.host, headers)
+	_, err = fmt.Fprintf(conn, "GET %s HTTP/1.1\r\nHost: %s\r\n%s\r\n", path, c.host, headers)
 	if err != nil {
 		conn.Close()
 		return nil, nil, err
@@ -97,7 +102,8 @@ func limitsMain() {
 	pgBackend, err := net.Listen("tcp", "127.0.0.1:0")
 	step("postgres backend", err)
 	go serveBackend(pgBackend)
-	entered, release := make(chan struct{}, 16), make(chan struct{})
+	entered, release := make(chan struct{}, 32), make(chan struct{})
+	streamRelease := make(chan struct{})
 	web, err := net.Listen("tcp", "127.0.0.1:0")
 	step("HTTP backend", err)
 	protocols := new(http.Protocols)
@@ -140,13 +146,26 @@ func limitsMain() {
 			io.Copy(streamFlush{w}, r.Body)
 			return
 		}
+		if r.URL.Path == "/backpressure" {
+			timer := time.NewTimer(12 * time.Second)
+			select {
+			case <-timer.C:
+			case <-r.Context().Done():
+				timer.Stop()
+				return
+			}
+		}
 		n, err := io.Copy(io.Discard, r.Body)
 		if err != nil {
 			return
 		}
-		if r.URL.Path == "/hold" {
+		if r.URL.Path == "/hold" || r.URL.Path == "/stream-hold" {
 			entered <- struct{}{}
-			<-release
+			if r.URL.Path == "/hold" {
+				<-release
+			} else {
+				<-streamRelease
+			}
 		}
 		fmt.Fprint(w, n)
 	})}).Serve(web)
@@ -187,18 +206,24 @@ func limitsMain() {
 	}
 	check("HTTPS public source and private peer", c.connectionCap(443, secret))
 	check("HTTP public source and private peer", c.connectionCap(80, secret))
+	check("sixteen capped sources leave readiness serving", c.sixteenSources())
 	check("node HTTP connection budget", c.nodeConnections())
 	check("Postgres source sessions", c.postgresSessions())
 	check("Postgres node sessions", c.postgresNode())
 	check("WebSocket source and node budgets", c.websockets())
-	check("replay body budget", c.spoolBudget(entered, release))
+	check("incremental chunked and fair replay budget", c.spoolBudget(entered, release))
+	check("oversized chunked bodies release their prefix", c.streamBodies(entered, streamRelease))
 	idle, err := connect(net.ParseIP("198.18.3.1"), host, roots)
 	check("Postgres idle session established", err)
 	idleResult := make(chan error, 1)
+	queryResult := make(chan error, 1)
+	copyResult := make(chan error, 1)
+	go func() { queryResult <- c.longPostgres(false) }()
+	go func() { copyResult <- c.longPostgres(true) }()
 	if idle != nil {
 		go func() {
 			defer idle.Close()
-			_ = idle.SetReadDeadline(time.Now().Add(120*time.Second + failAfter))
+			_ = idle.SetReadDeadline(time.Now().Add(10*time.Minute + failAfter))
 			var b [1]byte
 			_, err := idle.Read(b[:])
 			if err == nil {
@@ -216,10 +241,13 @@ func limitsMain() {
 	check("HTTPS slow body cut", c.slowBody(443))
 	check("HTTP slow body cut", c.slowBody(80))
 	check("HTTP/2 slow body cut", c.slowHTTP2())
-	check("30 MiB steady upload", c.steadyUpload())
+	check("30 MiB steady upload", c.steadyUpload("/upload", true))
+	check("backend backpressure does not spend client body time", c.steadyUpload("/backpressure", false))
 	if idle != nil {
 		check("Postgres idle cut", <-idleResult)
 	}
+	check("query beyond idle interval", <-queryResult)
+	check("COPY beyond idle interval", <-copyResult)
 	if ws != nil {
 		check("WebSocket after idle interval", echoSocket(ws))
 		ws.Close()
@@ -229,7 +257,7 @@ func limitsMain() {
 	}
 	var metrics strings.Builder
 	observability.WriteEdgeResponseMetrics(&metrics)
-	for _, reason := range []string{"connection_source", "connection_node", "postgres_source", "postgres_node", "postgres_idle", "websocket_source", "websocket_node", "spool_budget", "body_rate"} {
+	for _, reason := range []string{"connection_source", "connection_node", "postgres_source", "postgres_node", "postgres_idle", "websocket_source", "websocket_node", "spool_budget", "spool_source", "body_rate"} {
 		if !strings.Contains(metrics.String(), `reason="`+reason+`"`) {
 			check("refusal metric "+reason, errors.New("missing reason series"))
 		}
@@ -276,7 +304,7 @@ func (c edgeClient) latency() error {
 func (c edgeClient) connectionCap(port int, secret string) error {
 	var held []net.Conn
 	defer func() { closeAll(held) }()
-	for range 64 {
+	for range 128 {
 		conn, response, err := c.request("198.18.1.1", port, "")
 		if err != nil {
 			return err
@@ -311,7 +339,18 @@ func (c edgeClient) connectionCap(port int, secret string) error {
 	if err := c.served("10.80.1.1", port, "X-TerraScale-Edge-Hop: 1\r\nX-TerraBase-Peer-Credential: invalid\r\n", 403); err != nil {
 		return fmt.Errorf("private invalid credential: %w", err)
 	}
-	closeAll(held)
+	for _, conn := range held {
+		conn.SetDeadline(time.Now().Add(failAfter))
+		if err := conn.(interface{ CloseWrite() error }).CloseWrite(); err != nil {
+			return fmt.Errorf("close HTTP write: %w", err)
+		}
+	}
+	for _, conn := range held {
+		if _, err := io.Copy(io.Discard, conn); err != nil {
+			return fmt.Errorf("acknowledge HTTP close: %w", err)
+		}
+		conn.Close()
+	}
 	held = nil
 	return c.served("198.18.1.1", port, "", 200)
 }
@@ -319,8 +358,8 @@ func (c edgeClient) connectionCap(port int, secret string) error {
 func (c edgeClient) nodeConnections() error {
 	var held []net.Conn
 	defer func() { closeAll(held) }()
-	for range 1024 {
-		conn, response, err := c.request("10.80.1.1", 443, "")
+	for i := range 32768 {
+		conn, response, err := c.request(fmt.Sprintf("10.80.1.%d", i/16000+1), 80, "")
 		if err != nil {
 			return err
 		}
@@ -454,11 +493,9 @@ func (c edgeClient) client(source string) *http.Client {
 }
 
 func (c edgeClient) spoolBudget(entered <-chan struct{}, release chan<- struct{}) (result error) {
-	client := c.client("198.18.1.1")
-	defer client.CloseIdleConnections()
-	body := make([]byte, 8<<20)
 	var pending sync.WaitGroup
-	results := make(chan error, 8)
+	results := make(chan error, 24)
+	var clients []*http.Client
 	defer func() {
 		close(release)
 		pending.Wait()
@@ -466,10 +503,19 @@ func (c edgeClient) spoolBudget(entered <-chan struct{}, release chan<- struct{}
 		for err := range results {
 			result = errors.Join(result, err)
 		}
+		for _, client := range clients {
+			client.CloseIdleConnections()
+		}
 	}()
-	for range 8 {
+	hold := func(source string, payload []byte, chunked bool) error {
+		client := c.client(source)
+		clients = append(clients, client)
 		pending.Go(func() {
-			response, err := client.Post("https://"+c.host+"/hold", "application/octet-stream", bytes.NewReader(body))
+			var reader io.Reader = bytes.NewReader(payload)
+			if chunked {
+				reader = io.LimitReader(reader, int64(len(payload)))
+			}
+			response, err := client.Post("https://"+c.host+"/hold", "application/octet-stream", reader)
 			if err == nil {
 				io.Copy(io.Discard, response.Body)
 				response.Body.Close()
@@ -481,21 +527,179 @@ func (c edgeClient) spoolBudget(entered <-chan struct{}, release chan<- struct{}
 		})
 		select {
 		case <-entered:
+			return nil
 		case err := <-results:
 			return fmt.Errorf("hold: %v", err)
 		case <-time.After(failAfter):
 			return errors.New("body never reached backend")
 		}
 	}
-	response, err := client.Post("https://"+c.host+"/probe", "application/octet-stream", bytes.NewReader(body))
+	small := make([]byte, 64)
+	for range 16 {
+		if err := hold("198.18.8.1", small, true); err != nil {
+			return fmt.Errorf("16 small chunked mutations: %w", err)
+		}
+	}
+	large := make([]byte, 8<<20)
+	if err := hold("198.18.9.1", large, false); err != nil {
+		return err
+	}
+	probe := func(source string, status int) error {
+		client := c.client(source)
+		defer client.CloseIdleConnections()
+		response, err := client.Post("https://"+c.host+"/probe", "application/octet-stream", bytes.NewReader(small))
+		if err != nil {
+			return err
+		}
+		defer response.Body.Close()
+		if response.StatusCode != status || status == 503 && response.Header.Get("Retry-After") != "1" {
+			return fmt.Errorf("mutation status %d, want %d", response.StatusCode, status)
+		}
+		return nil
+	}
+	if err := probe("198.18.9.1", 503); err != nil {
+		return fmt.Errorf("source replay share: %w", err)
+	}
+	if err := probe("198.18.10.1", 200); err != nil {
+		return fmt.Errorf("second source mutation: %w", err)
+	}
+	for i := range 6 {
+		if err := hold(fmt.Sprintf("198.18.%d.1", i+11), large, false); err != nil {
+			return err
+		}
+	}
+	if err := hold("198.18.17.1", large[:len(large)-16*len(small)], false); err != nil {
+		return err
+	}
+	if err := probe("198.18.18.1", 503); err != nil {
+		return fmt.Errorf("node replay budget: %w", err)
+	}
+	return c.served("198.18.2.1", 443, "", 200)
+}
+
+func (c edgeClient) streamBodies(entered <-chan struct{}, release chan<- struct{}) (result error) {
+	var pending sync.WaitGroup
+	results := make(chan error, 16)
+	var clients []*http.Client
+	defer func() {
+		close(release)
+		pending.Wait()
+		close(results)
+		for err := range results {
+			result = errors.Join(result, err)
+		}
+		for _, client := range clients {
+			client.CloseIdleConnections()
+		}
+	}()
+	payload := make([]byte, (8<<20)+1)
+	for i := range 16 {
+		client := c.client(fmt.Sprintf("198.18.%d.1", i+40))
+		clients = append(clients, client)
+		pending.Go(func() {
+			response, err := client.Post("https://"+c.host+"/stream-hold", "application/octet-stream", io.LimitReader(bytes.NewReader(payload), int64(len(payload))))
+			if err == nil {
+				io.Copy(io.Discard, response.Body)
+				response.Body.Close()
+				if response.StatusCode != 200 {
+					err = fmt.Errorf("streamed body status %d", response.StatusCode)
+				}
+			}
+			results <- err
+		})
+		select {
+		case <-entered:
+		case err := <-results:
+			return fmt.Errorf("large chunked upload %d: %v", i+1, err)
+		case <-time.After(failAfter):
+			return errors.New("large chunked upload never reached backend")
+		}
+	}
+	client := c.client("198.18.60.1")
+	defer client.CloseIdleConnections()
+	response, err := client.Post("https://"+c.host+"/probe", "application/octet-stream", strings.NewReader("mutation"))
 	if err != nil {
 		return err
 	}
 	defer response.Body.Close()
-	if response.StatusCode != 503 || response.Header.Get("Retry-After") != "1" {
-		return fmt.Errorf("exhausted spool status %d", response.StatusCode)
+	if response.StatusCode != 200 {
+		return fmt.Errorf("mutation after streamed prefixes: %d", response.StatusCode)
 	}
-	return c.served("198.18.2.1", 443, "", 200)
+	return nil
+}
+
+func (c edgeClient) sixteenSources() error {
+	var held []net.Conn
+	defer func() { closeAll(held) }()
+	for i := range 16 {
+		for range 128 {
+			conn, response, err := c.request(fmt.Sprintf("198.18.100.%d", i+1), 443, "")
+			if err != nil {
+				return err
+			}
+			held = append(held, conn)
+			if response.StatusCode != 200 {
+				return fmt.Errorf("sixteen source connection %d: %d", len(held), response.StatusCode)
+			}
+		}
+	}
+	conn, response, err := c.requestPath("198.18.100.17", 80, "/readyz", "Connection: close\r\n")
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if response.StatusCode != 200 {
+		return fmt.Errorf("readiness after sixteen sources: %d", response.StatusCode)
+	}
+	return c.served("198.18.100.17", 443, "", 200)
+}
+
+func (c edgeClient) longPostgres(copyOutput bool) error {
+	conn, err := connect(net.ParseIP("198.18.4.1"), c.host, c.roots)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10*time.Minute + 2*failAfter))
+	sql := "SELECT edge_slow"
+	if copyOutput {
+		sql = "COPY edge_stream"
+	}
+	payload := append([]byte(sql), 0)
+	frame := append([]byte{'Q'}, binary.BigEndian.AppendUint32(nil, uint32(4+len(payload)))...)
+	if _, err := conn.Write(append(frame, payload...)); err != nil {
+		return err
+	}
+	started := time.Now()
+	copied := 0
+	for {
+		var header [5]byte
+		if _, err := io.ReadFull(conn, header[:]); err != nil {
+			return err
+		}
+		size := binary.BigEndian.Uint32(header[1:])
+		if size < 4 || size > 2<<20 {
+			return fmt.Errorf("long query frame size %d", size)
+		}
+		if _, err := io.CopyN(io.Discard, conn, int64(size-4)); err != nil {
+			return err
+		}
+		if header[0] == 'd' {
+			copied += int(size - 4)
+		}
+		if header[0] == 'Z' {
+			if time.Since(started) <= 10*time.Minute {
+				return errors.New("long backend operation ended before idle interval")
+			}
+			if copyOutput && copied <= 1<<20 {
+				return fmt.Errorf("COPY bytes %d", copied)
+			}
+			return nil
+		}
+		if header[0] == 'E' {
+			return errors.New("backend rejected long operation")
+		}
+	}
 }
 
 func (c edgeClient) slowHTTP2() error {
@@ -539,21 +743,23 @@ func (c edgeClient) slowBody(port int) error {
 	return nil
 }
 
-func (c edgeClient) steadyUpload() error {
+func (c edgeClient) steadyUpload(path string, paced bool) error {
 	conn, err := c.open("198.18.1.1", 443)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(25 * time.Second))
-	if _, err := fmt.Fprintf(conn, "POST /upload HTTP/1.1\r\nHost: %s\r\nContent-Length: %d\r\n\r\n", c.host, 30<<20); err != nil {
+	if _, err := fmt.Fprintf(conn, "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Length: %d\r\n\r\n", path, c.host, 30<<20); err != nil {
 		return err
 	}
 	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 	chunk := make([]byte, 1<<20)
 	for range 30 {
-		<-tick.C
+		if paced {
+			<-tick.C
+		}
 		if _, err := conn.Write(chunk); err != nil {
 			return err
 		}

@@ -24,6 +24,7 @@ type responseWriter struct {
 	started  bool
 	reason   string
 	body     progressBody
+	replay   replayBody
 }
 
 func (w *responseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }

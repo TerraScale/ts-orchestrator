@@ -450,11 +450,21 @@ func handleBackend(conn net.Conn) {
 		if n < 4 {
 			return
 		}
-		if _, err := io.CopyN(io.Discard, conn, int64(n-4)); err != nil {
+		payload := make([]byte, n-4)
+		if _, err := io.ReadFull(conn, payload); err != nil {
 			return
 		}
 		if head[0] != 'Q' {
 			return
+		}
+		if string(payload) == "SELECT edge_slow\x00" {
+			<-time.NewTimer(10*time.Minute + time.Second).C
+		}
+		if string(payload) == "COPY edge_stream\x00" {
+			if err := copyBackend(conn); err != nil {
+				return
+			}
+			continue
 		}
 		if _, err := conn.Write(queryResponse()); err != nil {
 			return
@@ -523,4 +533,41 @@ func queryResponse() []byte {
 	cc = append(cc, tag...)
 	ready := []byte{'Z', 0, 0, 0, 5, 'I'}
 	return append(append(append(rd, dr...), cc...), ready...)
+}
+
+func copyBackend(conn net.Conn) error {
+	frame := func(kind byte, body []byte) error {
+		header := append([]byte{kind}, binary.BigEndian.AppendUint32(nil, uint32(4+len(body)))...)
+		if _, err := conn.Write(header); err != nil {
+			return err
+		}
+		_, err := conn.Write(body)
+		return err
+	}
+	if err := frame('H', []byte{0, 0, 0}); err != nil {
+		return err
+	}
+	if err := frame('d', make([]byte, (1<<20)+1)); err != nil {
+		return err
+	}
+	tick := time.NewTicker(2 * time.Second)
+	defer tick.Stop()
+	finish := time.NewTimer(10*time.Minute + time.Second)
+	defer finish.Stop()
+	for {
+		select {
+		case <-tick.C:
+			if err := frame('d', []byte("copy")); err != nil {
+				return err
+			}
+		case <-finish.C:
+			if err := frame('c', nil); err != nil {
+				return err
+			}
+			if err := frame('C', []byte("COPY 1\x00")); err != nil {
+				return err
+			}
+			return frame('Z', []byte{'I'})
+		}
+	}
 }

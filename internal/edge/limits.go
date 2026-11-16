@@ -19,8 +19,9 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
-const maxPublicConnections = 1024
-const maxSourceConnections = maxPublicConnections / 16
+const maxPublicConnections = 65536 / 2
+const maxSourceConnections = 128
+const maxHTTPRefusals = 32
 const bodyProgressBytes = 64 << 10
 const bodyProgressWindow = 10 * time.Second
 
@@ -99,6 +100,13 @@ func (c *limitedConn) Close() error {
 	return err
 }
 
+func (c *limitedConn) CloseWrite() error {
+	if conn, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return conn.CloseWrite()
+	}
+	return errors.ErrUnsupported
+}
+
 type limitedListener struct {
 	net.Listener
 	edge     *Edge
@@ -165,10 +173,17 @@ type progressBody struct {
 	progress   int
 	timedOut   atomic.Bool
 	protocol   string
+	remaining  time.Duration
 }
 
 func (b *progressBody) Read(p []byte) (int, error) {
+	started := time.Now()
+	if err := b.controller.SetReadDeadline(started.Add(b.remaining)); err != nil {
+		return 0, err
+	}
 	n, err := b.ReadCloser.Read(p)
+	b.remaining -= time.Since(started)
+	clearErr := b.controller.SetReadDeadline(time.Time{})
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		b.timedOut.Store(true)
 	}
@@ -180,11 +195,19 @@ func (b *progressBody) Read(p []byte) (int, error) {
 		}
 	} else if b.progress >= bodyProgressBytes {
 		b.progress %= bodyProgressBytes
-		if deadlineErr := b.controller.SetReadDeadline(time.Now().Add(bodyProgressWindow)); err == nil {
-			err = deadlineErr
-		}
+		b.remaining = bodyProgressWindow
+	}
+	if err == nil {
+		err = clearErr
 	}
 	return n, err
+}
+
+func (b *progressBody) Close() error {
+	if err := b.controller.SetReadDeadline(time.Now().Add(bodyProgressWindow)); err != nil {
+		return err
+	}
+	return b.ReadCloser.Close()
 }
 
 func watchBody(w http.ResponseWriter, r *http.Request) error {
@@ -192,13 +215,13 @@ func watchBody(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 	response := countedResponse(w)
-	response.body = progressBody{ReadCloser: r.Body, controller: *http.NewResponseController(w), protocol: response.protocol}
+	response.body = progressBody{ReadCloser: r.Body, controller: *http.NewResponseController(w), protocol: response.protocol, remaining: bodyProgressWindow}
 	if response.protocol == "http" {
 		if err := response.body.controller.SetWriteDeadline(time.Time{}); err != nil {
 			return err
 		}
 	}
-	if err := response.body.controller.SetReadDeadline(time.Now().Add(bodyProgressWindow)); err != nil {
+	if err := response.body.controller.SetReadDeadline(time.Time{}); err != nil {
 		return err
 	}
 	r.Body = &response.body
@@ -215,6 +238,7 @@ func countedResponse(w http.ResponseWriter) *responseWriter {
 }
 
 func refuseHTTP(w http.ResponseWriter, r *http.Request, status int, reason string) {
+	http.NewResponseController(w).SetReadDeadline(time.Now().Add(time.Second))
 	countedResponse(w).reason = reason
 	r.Close = true
 	if r.ProtoMajor == 1 {

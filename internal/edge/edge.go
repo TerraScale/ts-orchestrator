@@ -54,6 +54,8 @@ type Edge struct {
 	websockets       sourceSlots
 	refusals         chan struct{}
 	spoolBytes       atomic.Int64
+	spoolMu          sync.Mutex
+	spoolSources     map[netip.Prefix]*replaySource
 	pgRelays         chan struct{}
 	pgControl        chan struct{}
 	serviceRoutes    atomic.Pointer[serviceRoutes]
@@ -89,7 +91,7 @@ func newEdge(stateDir string) *Edge {
 		listen:       net.Listen,
 		terrabase:    terrabaseInternal,
 		pgHandshakes: make(chan struct{}, maxPostgresHandshakeAll), pgHandshakeN: map[netip.Prefix]int{},
-		refusals:         make(chan struct{}, maxPostgresHandshakes),
+		refusals:         make(chan struct{}, maxHTTPRefusals),
 		peerAddr:         func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
 		spoolDir:         filepath.Join(stateDir, "edge-spool"),
 		netbirdDashboard: netbirddashboard.New(stateDir),
@@ -449,16 +451,13 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 			r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
 		}
 		if !peer && r.Header.Get("Upgrade") == "" {
-			reserved, ok := e.reserveReplayBody(r)
-			if !ok {
-				refuseHTTP(w, r, http.StatusServiceUnavailable, "spool_budget")
-				return
-			}
-			if reserved > 0 {
-				defer e.spoolBytes.Add(-reserved)
-			}
-			release, err := e.bufferBody(r)
-			if err != nil {
+			defer countedResponse(w).replay.release()
+			if err := e.bufferBody(w, r); err != nil {
+				var refusal edgeRefusal
+				if errors.As(err, &refusal) {
+					refuseHTTP(w, r, refusal.status, refusal.reason)
+					return
+				}
 				if errors.Is(err, errReplayStorage) {
 					refuseHTTP(w, r, http.StatusServiceUnavailable, "spool_storage")
 					return
@@ -471,7 +470,6 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "bad request body", http.StatusBadRequest)
 				return
 			}
-			defer release()
 		}
 	}
 	e.proxy.ServeHTTP(w, withBackendTrace(r))

@@ -28,6 +28,7 @@ const PostgresPort = 5432
 
 const (
 	postgresHandshake       = 10 * time.Second
+	postgresIdleTimeout     = 10 * time.Minute
 	maxPostgresHandshakes   = 32
 	maxPostgresHandshakeAll = 1024
 	maxPostgresConns        = 1024
@@ -213,6 +214,9 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool, rel
 		}
 		return
 	}
+	if length := binary.BigEndian.Uint32(head[:4]); length < 8 || length > 64<<10 {
+		return
+	}
 	source, exempt := edgeSource(conn.RemoteAddr())
 	if exempt {
 		source = netip.Prefix{}
@@ -256,7 +260,6 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool, rel
 	if _, err := backend.Write(head[:]); err != nil {
 		return
 	}
-	conn.SetDeadline(time.Time{})
 	done := make(chan struct{}, 2)
 	var release func()
 	defer func() {
@@ -264,36 +267,29 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool, rel
 			release()
 		}
 	}()
-	observer := &postgresStartup{key: func(key [8]byte) error {
+	activity := &postgresActivity{authenticated: func() { conn.SetDeadline(time.Time{}) }}
+	activity.pending.Store(1)
+	activity.idle = time.AfterFunc(postgresIdleTimeout, func() {
+		if activity.pending.Load() == 0 {
+			observability.RecordEdgeResponse("postgres", 53300, "postgres_idle")
+			backend.Close()
+			conn.Close()
+		}
+	})
+	activity.idle.Stop()
+	defer activity.idle.Stop()
+	observer := &postgresObserver{activity: activity, key: func(key [8]byte) error {
 		var err error
 		release, err = e.pgKeys.add(key, port)
 		return err
 	}}
-	idle := time.AfterFunc(clientIdleTimeout, func() {
-		observability.RecordEdgeResponse("postgres", 53300, "postgres_idle")
-		backend.Close()
-		conn.Close()
-	})
-	defer idle.Stop()
-	go func() { io.Copy(backend, postgresIdleReader{Reader: client, idle: idle}); done <- struct{}{} }()
+	input := &postgresInput{Reader: client, activity: activity, skip: binary.BigEndian.Uint32(head[:4]) - 8}
+	go func() { io.Copy(backend, input); done <- struct{}{} }()
 	go func() { io.Copy(client, io.TeeReader(backend, observer)); done <- struct{}{} }()
 	<-done
 	backend.Close()
 	client.Close()
-	<-done // Both copies finish before removing their backend key.
-}
-
-type postgresIdleReader struct {
-	io.Reader
-	idle *time.Timer
-}
-
-func (r postgresIdleReader) Read(p []byte) (int, error) {
-	n, err := r.Reader.Read(p)
-	if n > 0 {
-		r.idle.Reset(clientIdleTimeout)
-	}
-	return n, err
+	<-done
 }
 
 // proxyHeader is a PROXY protocol v2 header (HAProxy spec, section 2.2) for a
