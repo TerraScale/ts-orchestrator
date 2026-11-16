@@ -47,36 +47,44 @@ func loadNodeKey(dir string) (crypto.Signer, [][]byte, []*x509.Certificate, erro
 	if key == nil {
 		return nil, nil, nil, errors.New("unsupported upstream node private key")
 	}
-	certificateWire, err := os.ReadFile(filepath.Join(dir, "swarm-node.crt"))
+	chain, certificates, err := readNodeChain(dir)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	public, err := x509.MarshalPKIXPublicKey(key.Public())
+	if err != nil || !bytes.Equal(public, certificates[0].RawSubjectPublicKeyInfo) {
+		return nil, nil, nil, errors.New("upstream node signing key differs from certificate")
+	}
+	return key, chain, certificates, nil
+}
+
+func readNodeChain(dir string) ([][]byte, []*x509.Certificate, error) {
+	certificateWire, err := os.ReadFile(filepath.Join(dir, "swarm-node.crt"))
+	if err != nil {
+		return nil, nil, err
 	}
 	var chain [][]byte
 	var certificates []*x509.Certificate
 	for len(bytes.TrimSpace(certificateWire)) != 0 {
 		block, rest := pem.Decode(certificateWire)
 		if block == nil || block.Type != "CERTIFICATE" {
-			return nil, nil, nil, errors.New("invalid upstream node certificate chain")
+			return nil, nil, errors.New("invalid upstream node certificate chain")
 		}
 		certificate, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		chain = append(chain, bytes.Clone(block.Bytes))
 		certificates = append(certificates, certificate)
 		certificateWire = rest
 	}
 	if len(certificates) == 0 {
-		return nil, nil, nil, errors.New("upstream node certificate unavailable")
-	}
-	public, err := x509.MarshalPKIXPublicKey(key.Public())
-	if err != nil || !bytes.Equal(public, certificates[0].RawSubjectPublicKeyInfo) {
-		return nil, nil, nil, errors.New("upstream node signing key differs from certificate")
+		return nil, nil, errors.New("upstream node certificate unavailable")
 	}
 	if _, err := verifyRegionalChain(dir, chain); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	return key, chain, certificates, nil
+	return chain, certificates, nil
 }
 
 func verifyRegionalChain(dir string, chain [][]byte) (*x509.Certificate, error) {

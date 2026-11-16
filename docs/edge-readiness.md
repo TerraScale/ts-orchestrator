@@ -154,8 +154,9 @@ proxies to the local TerraBase task that runs on every node.
 ## Journey
 
 The regional E2E lane starts six host processes (two per region), each in its
-own network namespace on a shared bridge, with its own node identity and one
-node list naming all six. Each has its own loopback, mesh node, edge, stand-in
+own network namespace on a shared bridge, with its own node identity and a
+SwarmKit certificate from its region's CA: a manager certificate on
+`ts-<region>-1` and a worker certificate on `ts-<region>-2`. Each has its own loopback, mesh node, edge, stand-in
 applications for two public hostnames and Postgres, and a TerraBase stand-in on
 its internal port that answers the writer status and SQL writes only on
 `ts-<region>-1`. The worker of each region gets its routes only from the signed

@@ -51,7 +51,7 @@ func SignRegional(state string, message []byte) ([][]byte, []byte, error) {
 
 func VerifyRegionalManager(state string, chain [][]byte, message, signature []byte) (string, error) {
 	dir := NodeCertificates(state)
-	_, _, own, err := loadNodeKey(dir)
+	_, own, err := readNodeChain(dir)
 	if err != nil {
 		return "", err
 	}
