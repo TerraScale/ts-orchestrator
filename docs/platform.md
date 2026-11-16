@@ -197,15 +197,17 @@ It builds on this existing code:
 | --- | --- |
 | `internal/oci` | OCI package |
 | `internal/ociclient` | OCI client |
-| `internal/ociresource` | Reconcilers for lb, nlb, nsg, seclist, routetable and bucket |
+| `internal/ociresource` | Reconcilers for lb, nsg, seclist, routetable and bucket |
 | `internal/ociregion` | foundation, publicapi and peer |
 | `internal/edge/geodns` | GeoDNS |
 
 Today: OCI resources were created by operator commands with an API key;
 nothing in the cluster creates or changes them. The document and
-`region plan` exist; the reconcilers that act on it follow (C7 network, C8
-compute, C9 network load balancers, C10 geo-steering DNS, C12 node
-autoscaler).
+`region plan` exist. `ts-orch region apply <label> nlb` creates and keeps each
+region's network load balancer and its reserved address (docs/oci-reconcile.md,
+"Network load balancer"); gru, sjc and fra have one since 2026-11-16, not yet
+in DNS. The other reconcilers follow (C7 network, C8 compute, C10
+geo-steering DNS, C12 node autoscaler).
 
 ## Routing
 

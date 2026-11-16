@@ -299,7 +299,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 				return
 			}
 			e.identify(w, r)
-			if r.URL.Path == "/edge/ready" {
+			if r.URL.Path == "/edge/ready" || r.URL.Path == "/readyz" && addressHost(r.Host) {
 				e.serveReady(w, r, false)
 				return
 			}

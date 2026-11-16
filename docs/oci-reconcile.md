@@ -40,12 +40,54 @@ cannot extend an operation's original effect deadline.
 | `security-list-rules` | Signed `desired.security_lists` | Replaces rules under If-Match on an owned security list. |
 | `route-table-rules` | Signed `desired.route_tables` | Replaces static routes under If-Match; OCI `LOCAL` routes stay untouched. |
 | `bucket-protection` | Signed `desired.buckets` | Observes versioning and marked retention rules; property mutations require CAP admission. |
-| `nlb-backends` | Signed `public_nlb` plus observed placement | Converges one owned NLB backend set to RUNNING member hosts. |
 | `lb-backends` | Signed `public_lb` plus the TerraBase profile and drain records | Converges one owned L7 backend set while preserving the serving-health guard. |
 
 NSGs, security lists, route tables, buckets and load balancers themselves are
 never created or deleted by these amendment reconcilers. Member hosts and data
 volumes remain with the journaled regional fleet.
+
+## Network load balancer (`nlb` kind)
+
+`ts-orch region apply <label> nlb` reconciles one public network load balancer
+per region from the fleet document (`internal/fleet/nlb.go`). It needs the
+document-made public subnet (`subnet/host-subnet`) and both NSGs
+(`nsg/edge-nsg`, `nsg/host-nsg`) and refuses without them.
+
+| Resource | Key | Desired state |
+|---|---|---|
+| Reserved public IP `<label>-1-nlb-ip` | `<CELL>/public-ip/nlb` | Created once, owned by the reconciler, never released by it. |
+| Network load balancer `<label>-1-nlb` | `<CELL>/network-load-balancer/nlb` | Public, IPv4, in the public subnet, the reserved IP, NSGs edge and host, source/destination preservation off. |
+| Backend sets `tcp-80`, `tcp-443`, `tcp-5432` | inside the NLB | Five-tuple hash, source address preserved, fail-open, no instant failover. Backends are every RUNNING instance whose primary VNIC is in the region's VCN, on its private address and the same port, weight 1. |
+| Health check | each backend set | HTTP :80 `/readyz`, 200, every 10 s, 5 s timeout, 1 retry. |
+| Listeners `tcp-80`, `tcp-443`, `tcp-5432` | inside the NLB | TCP on the same port to the backend set of the same name. |
+
+Every resource carries `terrascale-managed-by`, `terrascale-owner` and
+`terrascale-resource-key`; a load balancer or address with other tags is never
+used or changed. A backend is referenced by its private address only, so a
+hand-made host is unchanged by joining. A second apply prints `ok` and changes
+nothing. Backend set, listener and NSG drift is corrected in place; a different
+subnet, address or source mode cannot be changed by OCI and is reported.
+
+The edge answers `/readyz` over :80 for an address Host (what the NLB checker
+sends: no SNI, no name) with its own readiness: 503 while draining or not
+ready, 200 when ready. A draining node leaves rotation within about 15 s, inside
+the edge's 20 s drain grace; existing connections finish on it. When every
+backend of a set is unhealthy, OCI's default (`isFailOpen` false) drops all
+traffic; the pass sets fail-open so the NLB keeps distributing to every backend
+and the region's DNS health check decides whether the region gets traffic.
+
+Undo, per region (nothing else references these resources until DNS steering
+points at the address):
+
+```sh
+oci nlb network-load-balancer delete --region <oci-region> --force \
+  --network-load-balancer-id <id of <label>-1-nlb> --wait-for-state SUCCEEDED
+oci network public-ip delete --region <oci-region> --force \
+  --public-ip-id <id of <label>-1-nlb-ip>
+```
+
+Deleting the load balancer leaves the hosts untouched; deleting the reserved IP
+gives its address back to OCI for good.
 
 ## Protected operations and observations
 

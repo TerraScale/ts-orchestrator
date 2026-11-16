@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -63,6 +64,14 @@ func (e *Edge) report() Readiness {
 
 func (e *Edge) SetReadinessRoutes(routes []ReadinessRoute) {
 	e.readyRoutes.Store(&routes)
+}
+
+func addressHost(host string) bool {
+	if name, _, err := net.SplitHostPort(host); err == nil {
+		host = name
+	}
+	_, err := netip.ParseAddr(strings.Trim(host, "[]"))
+	return host == "" || err == nil
 }
 
 func listenerBit(protocol string) uint32 {

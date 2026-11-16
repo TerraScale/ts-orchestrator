@@ -387,9 +387,10 @@ func observeDNS(ctx context.Context, fleet Fleet) (Report, error) {
 	return report, nil
 }
 
-func deref(s *string) string {
-	if s == nil {
-		return ""
+func deref[T any](p *T) T {
+	var zero T
+	if p == nil {
+		return zero
 	}
-	return *s
+	return *p
 }
