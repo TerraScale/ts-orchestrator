@@ -122,7 +122,9 @@ certificate, with no release. A node the region demotes or removes leaves the
 manager list: its inventories are refused from then on and the follower drops
 the ones it holds from that node at once, falling back to the newest inventory
 of a current manager. `ts_orch_mesh_edge_inventory_publisher{node="<id>"}` names
-the manager whose inventory the follower serves.
+the manager whose inventory the follower serves, and
+`ts_orch_mesh_edge_inventory_trusted{node="<id>"}` names every current manager
+whose inventory the follower holds.
 
 The follower writes the newest accepted signed inventory to
 `/var/lib/ts-orch/edge-inventory.json` and verifies it again after a restart

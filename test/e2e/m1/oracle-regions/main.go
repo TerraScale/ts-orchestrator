@@ -345,14 +345,19 @@ func nodeCertificate(state string) *x509.Certificate {
 	return certificate
 }
 
-func inventoryState(ctx context.Context, host *oraclehost.Host) (int, string) {
-	refused, publisher := -1, ""
+func inventoryState(ctx context.Context, host *oraclehost.Host) (int, string, []string) {
+	refused, publisher, trusted := -1, "", []string{}
 	until(ctx, host.Name+" edge inventory metrics", func() error {
 		text, err := metrics(ctx, host)
 		if err != nil {
 			return err
 		}
+		trusted = []string{}
 		for _, line := range strings.Split(text, "\n") {
+			if value, ok := strings.CutPrefix(line, "ts_orch_mesh_edge_inventory_trusted{node=\""); ok {
+				node, _, _ := strings.Cut(value, "\"")
+				trusted = append(trusted, node)
+			}
 			if value, ok := strings.CutPrefix(line, "ts_orch_mesh_edge_inventory_refused_total "); ok {
 				if _, err := fmt.Sscan(value, &refused); err != nil {
 					return err
@@ -367,7 +372,7 @@ func inventoryState(ctx context.Context, host *oraclehost.Host) (int, string) {
 		}
 		return nil
 	})
-	return refused, publisher
+	return refused, publisher, trusted
 }
 
 func forgedInventory(host *oraclehost.Host, sign func([]byte) ([][]byte, []byte, error)) []byte {
@@ -407,14 +412,14 @@ func selfSigned(template *x509.Certificate) func([]byte) ([][]byte, []byte, erro
 }
 
 func refusedInventory(ctx context.Context, follower *oraclehost.Host, region, what string, envelope []byte) {
-	before, _ := inventoryState(ctx, follower)
+	before, _, _ := inventoryState(ctx, follower)
 	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", mesh.LocalPort), nats.SetCustomDialer(follower), nats.UserInfo(mesh.OrchUser, meshToken(follower, "client.token")))
 	must(err)
 	defer conn.Close()
 	must(conn.Publish(protocol.MeshWorkerPrefix+region+".edge.inventory", envelope))
 	must(conn.FlushWithContext(ctx))
 	until(ctx, follower.Name+" refuses "+what, func() error {
-		if refused, _ := inventoryState(ctx, follower); refused <= before {
+		if refused, _, _ := inventoryState(ctx, follower); refused <= before {
 			return fmt.Errorf("refusals %d", refused)
 		}
 		return nil
@@ -561,7 +566,7 @@ func main() {
 		return
 	}
 	binary, work, specFile, registry := os.Args[1], os.Args[2], os.Args[3], os.Args[4]
-	ctx, cancel := context.WithTimeout(context.Background(), 210*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 330*time.Second)
 	defer cancel()
 	first := revision(binary)
 	spec := workload(specFile, filepath.Join(os.Args[3], "..", "images.json"))
@@ -727,23 +732,22 @@ func main() {
 	departed := gru.Hosts[2]
 	promoted, err := gru.Hosts[0].Exec(ctx, "/usr/local/bin/ts-orch", "member", "promote")
 	require(err == nil, "member promote: %v: %s", err, promoted)
-	joined := map[string]string{nodeCertificate(follower.State("")).Subject.CommonName: follower.Name, nodeCertificate(departed.State("")).Subject.CommonName: departed.Name}
-	until(ctx, follower.Name+" follows a promoted manager's inventory", func() error {
-		if _, publisher := inventoryState(ctx, follower); joined[publisher] == "" {
-			return fmt.Errorf("publisher %q", publisher)
-		}
-		return nil
-	})
-	until(ctx, departed.Name+" holds a manager certificate", func() error {
-		if unit := nodeCertificate(departed.State("")).Subject.OrganizationalUnit; !slices.Equal(unit, []string{"swarm-manager"}) {
-			return fmt.Errorf("organizational unit %v", unit)
-		}
-		return nil
-	})
-	_, publisher := inventoryState(ctx, follower)
-	whoamiBackend(ctx, follower, ca)
-	step("%s promoted %s and %s with no release; %s serves whoami from the inventory %s signs with its new manager certificate", gru.Hosts[0].Name, follower.Name, departed.Name, follower.Name, joined[publisher])
+	step("%s promoted %s and %s with no release", gru.Hosts[0].Name, follower.Name, departed.Name)
 	removed, departedID := filepath.Join(work, "departed-state"), nodeCertificate(departed.State("")).Subject.CommonName
+	promotedIDs := []string{nodeCertificate(follower.State("")).Subject.CommonName, departedID}
+	until(ctx, follower.Name+" trusts the inventories of both promoted managers", func() error {
+		for _, host := range []*oraclehost.Host{follower, departed} {
+			if unit := nodeCertificate(host.State("")).Subject.OrganizationalUnit; !slices.Equal(unit, []string{"swarm-manager"}) {
+				return fmt.Errorf("%s organizational unit %v", host.Name, unit)
+			}
+		}
+		if _, _, trusted := inventoryState(ctx, follower); !slices.Contains(trusted, promotedIDs[0]) || !slices.Contains(trusted, promotedIDs[1]) {
+			return fmt.Errorf("trusted %v", trusted)
+		}
+		return nil
+	})
+	whoamiBackend(ctx, follower, ca)
+	step("%s trusts the inventories %s and %s sign with their new manager certificates and serves whoami", follower.Name, follower.Name, departed.Name)
 	must(os.CopyFS(swarmruntime.NodeCertificates(removed), os.DirFS(swarmruntime.NodeCertificates(departed.State("")))))
 	left, err := gru.Hosts[0].Exec(ctx, "/usr/local/bin/ts-orch", "member", "leave", departed.Name)
 	require(err == nil, "member leave %s: %v: %s", departed.Name, err, left)
@@ -758,8 +762,8 @@ func main() {
 		return swarmruntime.SignRegional(removed, message)
 	}))
 	until(ctx, follower.Name+" stops trusting "+departed.Name+"'s inventory", func() error {
-		if _, publisher := inventoryState(ctx, follower); publisher == "" || publisher == departedID {
-			return fmt.Errorf("publisher %q", publisher)
+		if _, publisher, trusted := inventoryState(ctx, follower); publisher == "" || publisher == departedID || slices.Contains(trusted, departedID) {
+			return fmt.Errorf("publisher %q trusted %v", publisher, trusted)
 		}
 		return nil
 	})

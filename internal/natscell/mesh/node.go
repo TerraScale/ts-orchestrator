@@ -207,6 +207,7 @@ type Node struct {
 	regionalDrain   atomic.Pointer[regionalDrainer]
 	edgeInventory   atomic.Pointer[EdgeInventory]
 	edgePublisher   atomic.Pointer[string]
+	edgeTrusted     atomic.Pointer[[]string]
 	edgeRefusals    atomic.Int64
 	edgePublishMu   sync.Mutex
 	edgePublished   *edgePublication

@@ -205,14 +205,20 @@ func (n *Node) selectEdgeInventory(state string) (followedEdgeInventory, bool) {
 	managers := swarmruntime.RegionManagers(state)
 	var selected followedEdgeInventory
 	found := false
+	trusted := []string{}
 	for publisher, inventory := range n.edgeInventories {
 		if publisher != "" && !slices.Contains(managers, publisher) || time.Since(inventory.Issued) > edgeInventoryLifetime {
 			continue
+		}
+		if publisher != "" {
+			trusted = append(trusted, publisher)
 		}
 		if !found || inventory.Generation > selected.Generation {
 			selected, found = inventory, true
 		}
 	}
+	slices.Sort(trusted)
+	n.edgeTrusted.Store(&trusted)
 	if found {
 		n.edgeInventory.Store(&selected.EdgeInventory)
 		n.edgePublisher.Store(&selected.publisher)
@@ -256,5 +262,10 @@ func (n *Node) writeEdgeInventoryMetrics(w io.Writer) {
 	fmt.Fprintf(w, "ts_orch_mesh_edge_inventory_refused_total %d\n", n.edgeRefusals.Load())
 	if publisher := n.edgePublisher.Load(); publisher != nil {
 		fmt.Fprintf(w, "ts_orch_mesh_edge_inventory_publisher{node=%q} 1\n", *publisher)
+	}
+	if trusted := n.edgeTrusted.Load(); trusted != nil {
+		for _, publisher := range *trusted {
+			fmt.Fprintf(w, "ts_orch_mesh_edge_inventory_trusted{node=%q} 1\n", publisher)
+		}
 	}
 }
