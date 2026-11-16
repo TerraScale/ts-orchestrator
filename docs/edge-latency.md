@@ -29,6 +29,7 @@ exports `ts_orch_edge_request_duration_seconds` as a Prometheus histogram with
 inventory allocate series; unknown client Host values never become labels.
 Removed names disappear on the next scrape. A name retired across a scrape
 starts fresh counters if it is re-added. The same endpoint exports
+`ts_orch_edge_client_connections` for accepted active and idle client sockets,
 `ts_orch_edge_upstream_connections` (including establishing connections) and
 `ts_orch_edge_upstream_connection_limit` for the shared budget. Before mesh admission, region is
 `local`; admitted nodes use their discovered mesh region.
@@ -91,11 +92,15 @@ while fresh HTTPS requests still succeed, waits for shutdown after the real
 the held response finishes successfully.
 
 The same lane runs `edge-upstream.py` against an edge child with the production
-65,536 descriptor limit. Clients and backends run in the separate coordinator
-process. It warms one task with 512 concurrent requests, confirms 128 idle
+65,536 descriptor limit. Clients and backends run outside the edge process. Dedicated Go HTTP/2 load
+processes keep 128 requests on each explicitly owned connection, so TLS work
+cannot starve the Python backend event loop and the client population stays
+fixed during measurement. It warms one task with 512 concurrent requests, confirms 128 idle
 connections remain, then drives two busy tasks to the shared 16,384 connection
 budget. It fills one task with 8,192 HTTP/1.1 sockets and checks a concurrent h2c
 request to that task returns 503, then checks node overload responses and descriptor
-headroom with another 16,384 accepted client sockets parked at the edge.
+headroom with accepted client connections padded to 32,640. Parked clients
+complete HTTP requests first and then remain idle on keep-alive connections;
+they do not expire under the request-header deadline.
 The snapshot contains 16,256 active plus 128 idle upstream sockets; all active
 responses must finish successfully after release.

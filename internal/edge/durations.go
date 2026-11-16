@@ -117,6 +117,7 @@ func (b durationDuplex) CloseWrite() error {
 }
 
 func (e *Edge) WriteRequestMetrics(w io.Writer) {
+	observability.WriteGauge(w, "ts_orch_edge_client_connections", float64(e.httpConnections.count()))
 	observability.WriteGauge(w, "ts_orch_edge_upstream_connections", float64(e.upstreamSockets.count()))
 	observability.WriteGauge(w, "ts_orch_edge_upstream_connection_limit", maxUpstreamConnections)
 	e.requestDurations.Range(func(key, value any) bool {

@@ -92,3 +92,9 @@ func (e *Edge) dialBounded(ctx context.Context, network, address string, dial fu
 	}
 	return &upstreamConn{Conn: conn, release: release}, nil
 }
+
+func (s *sourceSlots) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.total
+}

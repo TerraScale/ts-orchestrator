@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import pathlib
 import resource
-import ssl
 import sys
 
 binary, state, ca = sys.argv[1:]
@@ -19,11 +18,10 @@ async def proof(log):
     failed = []
     clients = []
     tasks = []
+    loaders = []
     servers = []
     process = None
     slots = asyncio.Semaphore(512)
-    tls = ssl.create_default_context(cafile=ca)
-    tls.set_alpn_protocols(["http/1.1"])
 
     async def notify():
         async with changed:
@@ -51,21 +49,16 @@ async def proof(log):
             writer.close()
             await writer.wait_closed()
 
-    async def connect(index, source, secure=False):
-        async with slots:
-            return await asyncio.open_connection(
-                "127.0.0.1",
-                443 if secure else 80,
-                local_addr=(f"127.0.0.{source + index % 2}", 0),
-                ssl=tls if secure else None,
-                server_hostname="pg.e2e.test" if secure else None,
-            )
+    async def connect(index, source):
+        return await asyncio.open_connection(
+            "127.0.0.1", 80, local_addr=(f"127.0.0.{source + index % 2}", 0)
+        )
 
-    async def request(index, name, secure=None):
+    async def request(index, name):
         nonlocal refused
         writer = None
         try:
-            reader, writer = await connect(index, 2, name != "warm" if secure is None else secure)
+            reader, writer = await connect(index, 2)
             writer.write(
                 f"GET /healthz HTTP/1.1\r\nHost: {name}.e2e.test\r\nConnection: close\r\n\r\n".encode()
             )
@@ -95,8 +88,49 @@ async def proof(log):
             raise failed[0]
 
     async def park(index):
-        reader, writer = await connect(index, 4)
-        clients.append((reader, writer))
+        async with slots:
+            reader, writer = await connect(index, 4)
+            writer.write(b"GET / HTTP/1.1\r\nHost: idle.e2e.test\r\n\r\n")
+            await writer.drain()
+            header = await reader.readuntil(b"\r\n\r\n")
+            lines = header.split(b"\r\n")
+            assert int(lines[0].split(b" ", 2)[1]) == 404
+            headers = dict(line.lower().split(b":", 1) for line in lines[1:] if b":" in line)
+            await reader.readexactly(int(headers[b"content-length"]))
+            clients.append((reader, writer))
+
+    async def start_load(name, count):
+        loader = await asyncio.create_subprocess_exec(
+            binary, state, ca, "pg.e2e.test", "budget-load", name, str(count),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=log,
+        )
+        loaders.append(loader)
+        while True:
+            line = (await loader.stdout.readline()).decode()
+            assert line, f"load process exited: {await loader.wait()}"
+            if line.strip() == "load-ready":
+                return
+
+    async def snapshot(command):
+        process.stdin.write(command.encode() + b"\n")
+        await process.stdin.drain()
+        lines = []
+        while True:
+            line = (await process.stdout.readline()).decode()
+            assert line, "edge exited during descriptor snapshot"
+            if line.strip() == "budget-end":
+                return lines
+            lines.append(line)
+
+    def samples(lines):
+        values = {}
+        for line in lines:
+            fields = line.split()
+            if len(fields) == 2:
+                with contextlib.suppress(ValueError):
+                    values[fields[0]] = float(fields[1])
+        return values
 
     try:
         ports = []
@@ -125,57 +159,39 @@ async def proof(log):
         await asyncio.gather(*tasks)
         await reached(lambda: current["warm"] == 128)
         print("warm task: 512 concurrent requests, 128 retained upstreams")
-        tasks = [asyncio.create_task(request(i, "busy-0")) for i in range(8192)]
+        await start_load("busy-0", 8192)
         await reached(lambda: entered["busy"] == 8192)
-        process.stdin.write(b"task\n")
-        await process.stdin.drain()
-        task_metrics = []
-        while True:
-            line = (await process.stdout.readline()).decode()
-            assert line, "edge exited during shared task probe"
-            if line.strip() == "budget-end":
-                break
-            task_metrics.append(line)
+        task_metrics = await snapshot("task")
         assert any("ok shared task budget" in line for line in task_metrics)
         assert any('reason="upstream_task"' in line for line in task_metrics)
         print("task share: 8192 HTTP/1.1 sockets, concurrent h2c request refused with 503")
-        tasks.extend(
-            asyncio.create_task(request(i, "busy-1")) for i in range(8064)
-        )
+        await start_load("busy-1", 8064)
         await reached(lambda: entered["busy"] == 16256)
-        overload = [asyncio.create_task(request(i, "busy-1", False)) for i in range(128)]
+        overload = [asyncio.create_task(request(i, "busy-1")) for i in range(128)]
         await asyncio.gather(*overload)
         assert refused == 128, refused
-        await asyncio.gather(*(park(i) for i in range(16384)))
-        process.stdin.write(b"metrics\n")
-        await process.stdin.drain()
-        metrics = []
-        while True:
-            line = (await process.stdout.readline()).decode()
-            assert line, "edge exited during descriptor snapshot"
-            if line.strip() == "budget-end":
-                break
-            metrics.append(line)
-        values = {}
-        for line in metrics:
-            fields = line.split()
-            if len(fields) == 2:
-                with contextlib.suppress(ValueError):
-                    values[fields[0]] = float(fields[1])
+        before_park = samples(await snapshot("metrics"))
+        park_count = 32640 - int(before_park["ts_orch_edge_client_connections"])
+        await asyncio.gather(*(park(i) for i in range(park_count)))
+        metrics = await snapshot("metrics")
+        values = samples(metrics)
         assert values["limit"] == 65536, values
         assert values["ts_orch_edge_upstream_connections"] == 16384, values
         assert values["ts_orch_edge_upstream_connection_limit"] == 16384, values
         assert 48000 <= values["fds"] < 50000, values["fds"]
+        assert 32638 <= values["ts_orch_edge_client_connections"] <= 32640, values["ts_orch_edge_client_connections"]
         assert current["busy-0"] == 8192 and current["busy-1"] == 8064
         assert any('reason="upstream_node"' in line for line in metrics)
         print(
             f"mixed tasks: upstreams=16384, active={entered['busy']}, "
-            f"idle=128, refused={refused}, parked=16384, "
+            f"idle=128, refused={refused}, parked={park_count}, "
             f"edge_fds={int(values['fds'])}/65536, "
             f"descriptor_headroom={65536 - int(values['fds'])}"
         )
         busy_release.set()
-        await asyncio.gather(*tasks)
+        for loader in loaders:
+            assert (await loader.stdout.readline()).strip() == b"load-done"
+            assert await loader.wait() == 0
     finally:
         warm_release.set()
         busy_release.set()
@@ -188,6 +204,8 @@ async def proof(log):
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        for loader in loaders:
+            await loader.wait()
         if process is not None:
             process.stdin.close()
             await process.wait()
@@ -202,5 +220,10 @@ async def main(log):
 
 
 resource.setrlimit(resource.RLIMIT_NOFILE, (65536, 65536))
-with pathlib.Path(state, "upstream-edge.log").open("w") as log:
-    asyncio.run(main(log))
+with pathlib.Path(state, "upstream-edge.log").open("w+") as log:
+    try:
+        asyncio.run(main(log))
+    except BaseException:
+        log.seek(0)
+        print("".join(log.readlines()[-20:]), file=sys.stderr)
+        raise
