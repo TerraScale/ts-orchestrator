@@ -380,7 +380,7 @@ func operatorRelease(ctx context.Context, fleet *oraclehost.Fleet, binary, repo,
 	if err != nil {
 		return "", err
 	}
-	build := []string{"env", "PATH=" + filepath.Dir(goTool) + ":/usr/bin:/bin", "GOFLAGS=-overlay=" + overlay, "bash", filepath.Join(repo, "test", "e2e", "m1", "build.sh"), out}
+	build := []string{"env", "PATH=" + filepath.Dir(goTool) + ":/usr/bin:/bin", "GOFLAGS=-overlay=" + overlay, "bash", filepath.Join(repo, "test", "e2e", "m1", "build.sh"), out, "./cmd/terrascale-orchestrator"}
 	if uid := owner.Sys().(*syscall.Stat_t).Uid; uid != uint32(os.Geteuid()) {
 		build = append([]string{"sudo", "-H", "-u", fmt.Sprintf("#%d", uid)}, build...)
 	}
