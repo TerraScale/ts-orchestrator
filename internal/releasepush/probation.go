@@ -22,6 +22,7 @@ type trial struct {
 	RunID        string     `json:"run_id"`
 	Installed    time.Time  `json:"installed"`
 	RecoverAfter time.Time  `json:"recover_after,omitzero"`
+	InstalledBy  string     `json:"installed_by,omitempty"`
 	Starts       int        `json:"starts"`
 	Previous     *releaseID `json:"previous,omitempty"`
 	Failure      string     `json:"failure,omitempty"`

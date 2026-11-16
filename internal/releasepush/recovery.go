@@ -47,97 +47,107 @@ func recoveryCommand(ctx context.Context, name string, args ...string) error {
 	return nil
 }
 
-func (h *Handler) prepareRecovery(ctx context.Context) (time.Time, error) {
+type recoveryWindow struct {
+	after       time.Time
+	installedBy string
+}
+
+func (h *Handler) prepareRecovery(ctx context.Context) (recoveryWindow, error) {
 	if h.Binary != recoveryBinary || h.runningBinary != h.Binary || filepath.Dir(filepath.Dir(h.TrialFile)) != recoveryState {
-		return time.Time{}, nil
+		return recoveryWindow{}, nil
 	}
-	output, err := exec.CommandContext(ctx, "systemctl", "show", "ts-orch.service", "-p", "TimeoutStartUSec", "-p", "TimeoutStopUSec", "-p", "RestartUSec").Output()
+	output, err := exec.CommandContext(ctx, "systemctl", "show", "ts-orch.service", "-p", "TimeoutStartUSec", "-p", "TimeoutStopUSec", "-p", "RestartUSec", "-p", "InvocationID").Output()
 	if err != nil {
-		return time.Time{}, fmt.Errorf("recovery needs loaded service bounds: %w", err)
+		return recoveryWindow{}, fmt.Errorf("recovery needs loaded service bounds: %w", err)
 	}
 	bounds := map[string]time.Duration{}
+	invocation := ""
 	for line := range strings.SplitSeq(string(output), "\n") {
 		key, text, ok := strings.Cut(line, "=")
 		if !ok {
 			continue
 		}
+		if key == "InvocationID" {
+			invocation = text
+			continue
+		}
 		duration, err := time.ParseDuration(strings.ReplaceAll(strings.Join(strings.Fields(text), ""), "min", "m"))
 		if err != nil || duration < 0 {
-			return time.Time{}, fmt.Errorf("invalid recovery service bound %q", text)
+			return recoveryWindow{}, fmt.Errorf("invalid recovery service bound %q", text)
 		}
 		bounds[key] = duration
 	}
 	if len(bounds) != 3 {
-		return time.Time{}, errors.New("recovery needs three finite service bounds")
+		return recoveryWindow{}, errors.New("recovery needs three finite service bounds")
 	}
 	wait := bounds["TimeoutStopUSec"] + bounds["RestartUSec"] + max(bounds["TimeoutStartUSec"], 10*time.Minute) + probationWait + 30*time.Second
 	directory, err := os.MkdirTemp("", "release-recovery-")
 	if err != nil {
-		return time.Time{}, err
+		return recoveryWindow{}, err
 	}
 	defer os.RemoveAll(directory)
 	for name, text := range map[string]string{recoveryUnit: recoveryServiceText, recoveryTimer: recoveryTimerText} {
 		if err := os.WriteFile(filepath.Join(directory, name), []byte(text), 0644); err != nil {
-			return time.Time{}, err
+			return recoveryWindow{}, err
 		}
 	}
 	status, _ := h.probation.status()
 	_, recoveryErr := os.Stat(h.Binary + ".recovery")
 	if status != "" && recoveryErr == nil {
 		if err := recoveryCommand(ctx, "systemctl", "is-enabled", "--quiet", recoveryTimer); err != nil {
-			return time.Time{}, err
+			return recoveryWindow{}, err
 		}
 		if err := recoveryCommand(ctx, "systemctl", "start", recoveryTimer); err != nil {
-			return time.Time{}, err
+			return recoveryWindow{}, err
 		}
-		return time.Now().Add(wait), nil
+		return recoveryWindow{after: time.Now().Add(wait), installedBy: invocation}, nil
 	}
 	{
 		source, err := os.Open("/proc/self/exe")
 		if err != nil {
-			return time.Time{}, err
+			return recoveryWindow{}, err
 		}
 		defer source.Close()
 		next := h.Binary + ".recovery.next"
 		defer os.Remove(next)
 		target, err := os.OpenFile(next, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
 		if err != nil {
-			return time.Time{}, err
+			return recoveryWindow{}, err
 		}
 		_, err = io.Copy(target, source)
 		err = errors.Join(err, target.Chmod(0755), target.Sync(), target.Close())
 		if err != nil {
-			return time.Time{}, err
+			return recoveryWindow{}, err
 		}
 		if err := os.Rename(next, h.Binary+".recovery"); err != nil {
-			return time.Time{}, err
+			return recoveryWindow{}, err
 		}
 		if err := syncDirectory(filepath.Dir(h.Binary)); err != nil {
-			return time.Time{}, err
+			return recoveryWindow{}, err
 		}
 	}
 	if err := recoveryCommand(ctx, "systemd-analyze", "verify", "--man=no", filepath.Join(directory, recoveryUnit), filepath.Join(directory, recoveryTimer)); err != nil {
-		return time.Time{}, err
+		return recoveryWindow{}, err
 	}
 	units := filepath.Join(filepath.Dir(h.Binary), "ts-orch-release-recovery")
 	if err := os.MkdirAll(units, 0755); err != nil {
-		return time.Time{}, err
+		return recoveryWindow{}, err
 	}
 	for name, text := range map[string]string{recoveryUnit: recoveryServiceText, recoveryTimer: recoveryTimerText} {
 		if err := writeState(filepath.Join(units, name), []byte(text)); err != nil {
-			return time.Time{}, err
+			return recoveryWindow{}, err
 		}
 	}
 	if err := recoveryCommand(ctx, "systemctl", "link", filepath.Join(units, recoveryUnit), filepath.Join(units, recoveryTimer)); err != nil {
-		return time.Time{}, err
+		return recoveryWindow{}, err
 	}
 	if err := recoveryCommand(ctx, "systemctl", "daemon-reload"); err != nil {
-		return time.Time{}, err
+		return recoveryWindow{}, err
 	}
 	if err := recoveryCommand(ctx, "systemctl", "enable", "--now", recoveryTimer); err != nil {
-		return time.Time{}, err
+		return recoveryWindow{}, err
 	}
-	return time.Now().Add(wait), nil
+	return recoveryWindow{after: time.Now().Add(wait), installedBy: invocation}, nil
 }
 
 type recoveryRuntime struct {
@@ -165,7 +175,7 @@ func recoveryExpired(ctx context.Context, pending trial) (bool, error) {
 		return false, err
 	}
 	if !present || runtime.SHA != pending.SHA || runtime.SHA256 != pending.SHA256 || runtime.RunID != pending.RunID || runtime.BootID != strings.TrimSpace(string(boot)) {
-		output, err := exec.CommandContext(ctx, "systemctl", "show", "ts-orch.service", "-p", "ExecMainStartTimestampMonotonic", "-p", "MainPID").Output()
+		output, err := exec.CommandContext(ctx, "systemctl", "show", "ts-orch.service", "-p", "ExecMainStartTimestampMonotonic", "-p", "MainPID", "-p", "InvocationID").Output()
 		if err != nil {
 			return false, fmt.Errorf("candidate start time unavailable: %w", err)
 		}
@@ -175,6 +185,9 @@ func recoveryExpired(ctx context.Context, pending trial) (bool, error) {
 			if ok {
 				properties[key] = value
 			}
+		}
+		if properties["InvocationID"] == pending.InstalledBy {
+			return false, nil
 		}
 		started, err := strconv.ParseInt(properties["ExecMainStartTimestampMonotonic"], 10, 64)
 		if err != nil || started < 0 || started > now.Nano()/1000 {
