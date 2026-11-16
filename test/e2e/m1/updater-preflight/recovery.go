@@ -16,7 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func recoveryInstall(ctx context.Context) {
+func recoveryInstall(ctx context.Context, mode string) {
 	h, err := releasepush.NewHandler("/var/lib/ts-orch")
 	must(err)
 	conn, closeListener := listener(h)
@@ -24,7 +24,7 @@ func recoveryInstall(ctx context.Context) {
 	asset := "/opt/candidate"
 	binary, err := os.Executable()
 	must(err)
-	writeExecutable(asset, stamped(read(binary), shaC, "early-exit"))
+	writeExecutable(asset, stamped(read(binary), shaC, mode))
 	reply := installAsset(ctx, h, conn, asset, shaC, "20")
 	require(reply.State == "installed", fmt.Sprintf("signed repair must install: %+v", reply))
 }
@@ -73,7 +73,7 @@ func recoveryCase(ctx context.Context, binary string) {
 	}{
 		{"R8 sandbox signed install", func() {
 			writeExecutable(installed, original)
-			write("/etc/systemd/system/recovery-install.service", "[Service]\nType=oneshot\nProtectSystem=full\nReadWritePaths=/usr/local/bin\nExecStart=/usr/local/bin/terrascale-orchestrator recovery-install /var/lib/ts-orch\n")
+			write("/etc/systemd/system/recovery-install.service", "[Service]\nType=oneshot\nProtectSystem=full\nReadWritePaths=/usr/local/bin\nExecStart=/usr/local/bin/terrascale-orchestrator recovery-install early-exit\n")
 			must(run("daemon-reload"))
 			must(run("start", "recovery-install.service"))
 			require(bytes.Equal(read(installed+".recovery"), original), "recovery executable must retain installing updater bytes")
@@ -254,6 +254,36 @@ func recoveryCase(ctx context.Context, binary string) {
 			}
 			active()
 			require(bytes.Equal(read(installed), original) && record(trialPath+".staged") == nil && record(trialPath) == nil, "committed staging must promote and roll back")
+		}},
+		{"R13 tick in the restart gap after a pushed install waits for the candidate", func() {
+			writeExecutable(installed, original)
+			must(run("start", unit))
+			active()
+			write("/etc/systemd/system/recovery-push.service", "[Service]\nType=oneshot\nProtectSystem=full\nReadWritePaths=/usr/local/bin\nExecStart=/usr/local/bin/terrascale-orchestrator recovery-install hold\n")
+			must(run("daemon-reload"))
+			must(run("start", "recovery-push.service"))
+			must(run("stop", "ts-orch-release-recovery.timer"))
+			must(run("start", recoverUnit))
+			pushed := stamped(original, shaC, "hold")
+			require(bytes.Equal(read(installed), pushed), "the pushed candidate must be installed beside the running process")
+			invocation, err := exec.CommandContext(ctx, "systemctl", "show", unit, "-p", "InvocationID", "--value").Output()
+			must(err)
+			value := record(trialPath)
+			require(value["installed_by"] == strings.TrimSpace(string(invocation)), fmt.Sprintf("the trial must name the superseded service invocation: %v", value["installed_by"]))
+			installedAt, err := time.Parse(time.RFC3339Nano, value["installed"].(string))
+			must(err)
+			value["recover_after"] = installedAt.Add(time.Nanosecond)
+			data, err := json.Marshal(value)
+			must(err)
+			write(trialPath, string(data))
+			must(run("stop", unit))
+			must(run("start", recoverUnit))
+			require(bytes.Equal(read(installed), pushed) && record(marker) == nil && record(state+"/release-runtime") == nil, "a tick after the old process exits and before the candidate starts must not roll back a candidate that never ran")
+			must(run("start", unit))
+			active()
+			must(run("start", recoverUnit))
+			active()
+			require(bytes.Equal(read(installed), original) && record(trialPath) == nil && record(marker) == nil, "the started candidate's expired window must roll it back")
 		}},
 	}
 	failures := 0
