@@ -211,12 +211,9 @@ func operatorRelease(ctx context.Context, fleet *oraclehost.Fleet, binary, repo,
 
 func nodeListSequence(ctx context.Context, host *oraclehost.Host, want uint64) {
 	until(ctx, fmt.Sprintf("%s node list sequence %d", host.Name, want), func() error {
-		reply, err := host.Health(ctx)
-		if err != nil {
-			return err
-		}
-		if reply.NodeList.Sequence != want || reply.NodeList.Refused != "" {
-			return fmt.Errorf("node list %+v", reply.NodeList)
+		status := nodelist.StatusAt(filepath.Join(host.Dir, "state"))
+		if status.Sequence != want || status.Refused != "" {
+			return fmt.Errorf("%s", status)
 		}
 		return nil
 	})
