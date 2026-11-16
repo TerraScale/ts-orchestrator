@@ -55,13 +55,6 @@ func validOriginalKMSID(kind, region, id string) bool {
 	return len(id) <= 512 && originalKMSID.MatchString(id) && strings.HasPrefix(id, "ocid1."+kind+".oc1."+region+".")
 }
 
-func provisionOriginalFoundationVault(ctx context.Context, authority *HomeIAMAuthority) error {
-	if err := retainOriginalFoundationVault(ctx, authority); err != nil {
-		return err
-	}
-	return provisionOriginalFoundationActors(ctx, authority)
-}
-
 func retainOriginalFoundationVault(ctx context.Context, authority *HomeIAMAuthority) error {
 	record, etag, err := originalVaultPrerequisites(ctx, authority, true)
 	if err != nil {

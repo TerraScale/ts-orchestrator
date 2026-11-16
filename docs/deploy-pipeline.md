@@ -44,12 +44,6 @@ status object is authoritatively absent has not deployed a release; routing
 health never removes a serving region from deployment. The CLI rejects
 empty, unreadable, duplicate, unsupported or stale membership, rather
 than treating the entire supported-region catalog as a serving fleet.
-`release deploy`, `release service-deploy` and `release fleet-status` omit
-`--cell` to discover every serving cell. Native deploy commands omit
-`--environment` to use each region's admitted environment; orchestrator deploy
-also omits `--arch` to select each region's architectures. Scope reads and
-binary inspection happen inside independent region workers. An unreadable
-SJC inventory does not prevent GRU from deploying.
 
 The regional leader now includes `environment` and sorted `architectures` in
 `releases/orchestrator/status.json`. These come from its admitted trust
@@ -136,10 +130,8 @@ when a main build was published but not released within 30 minutes:
 
 The alert closes on the first run with no findings.
 
-Read every serving region with `ts-orch release fleet-status --namespace NS`.
-Require the expected full source revision, run number, `complete`,
-and fresh reports. Check the binary revision and services on every inventoried
-server as well; publishing a channel is not evidence of deployment.
+Check the binary revision and services on every inventoried server;
+publishing a release is not evidence of deployment.
 
 Merge a no-op Go source change to exercise the complete pipeline. Record the
 merge time, producing CI completion, regional publication and each server's

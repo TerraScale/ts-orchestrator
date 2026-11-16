@@ -1,9 +1,7 @@
 package region
 
 import (
-	"bytes"
 	"errors"
-	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -451,39 +449,4 @@ func poolChildRank(stage PoolChildStage) int {
 
 func capacityOCID(id, kind string) bool {
 	return strings.HasPrefix(id, "ocid1."+kind+".") && len(id) <= 512 && !strings.ContainsAny(id, "\r\n\t ")
-}
-
-func (r *FoundationRecord) cloneCapacity() {
-	if r.CapacityLedger != nil {
-		r.CapacityLedger = new(r.CapacityLedger.Clone())
-	}
-	r.CapacityCreates = maps.Clone(r.CapacityCreates)
-	r.CapacityPools = maps.Clone(r.CapacityPools)
-	for id, pool := range r.CapacityPools {
-		pool.Configurations = maps.Clone(pool.Configurations)
-		pool.ConfigurationUpdates = maps.Clone(pool.ConfigurationUpdates)
-		r.CapacityPools[id] = pool
-	}
-	r.PoolChildren = maps.Clone(r.PoolChildren)
-	for id, child := range r.PoolChildren {
-		child.PublicCAPEM, child.AvailabilityDomains = bytes.Clone(child.PublicCAPEM), slices.Clone(child.AvailabilityDomains)
-		child.Launch, child.Attach, child.Detach = clonePoolWire(child.Launch), clonePoolWire(child.Attach), clonePoolWire(child.Detach)
-		child.Terminate, child.DeleteBoot = clonePoolWire(child.Terminate), clonePoolWire(child.DeleteBoot)
-		if child.RetirementDrain != nil {
-			child.RetirementDrain = new(child.RetirementDrain.Clone())
-		}
-		r.PoolChildren[id] = child
-	}
-	r.PoolQuarantines = maps.Clone(r.PoolQuarantines)
-	for id, quarantine := range r.PoolQuarantines {
-		quarantine.Detach = clonePoolWire(quarantine.Detach)
-		r.PoolQuarantines[id] = quarantine
-	}
-}
-
-func clonePoolWire(wire *PoolWireRecord) *PoolWireRecord {
-	if wire == nil {
-		return nil
-	}
-	return new(*wire)
 }

@@ -3,32 +3,21 @@ package region
 import (
 	"bytes"
 	"context"
-	"crypto/hkdf"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
-	"maps"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/secrets"
-	"github.com/oracle/oci-go-sdk/v65/vault"
 )
 
 const netBirdMaterialDerivation = "netbird-manager-config-hkdf-sha256-v1"
-
-var netBirdMaterialPurposes = [4]string{"root", "NETBIRD_RELAY_AUTH_SECRET", "NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY", "NETBIRD_DATASTORE_ENCRYPTION_KEY"}
 
 type netBirdMaterialContext struct {
 	InstallationID     string                        `json:"installationId"`
@@ -196,52 +185,6 @@ func (next FoundationRecord) retainNetBirdMaterial(previous FoundationRecord) er
 	return nil
 }
 
-func (authority *HomeIAMAuthority) originalMaterialGrant() (FoundationGrant, error) {
-	if authority == nil || authority.operator == nil {
-		return FoundationGrant{}, errors.New("NetBird material requires authenticated original operator")
-	}
-	return decodeOriginalMaterialGrant(authority.operator.bundle)
-}
-
-func decodeOriginalMaterialGrant(bundle RetainedFoundation) (FoundationGrant, error) {
-	envelope, err := trust.DecodeEnvelope(bundle.GrantWire)
-	if err != nil {
-		return FoundationGrant{}, err
-	}
-	var grant FoundationGrant
-	if err := json.Unmarshal(envelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
-		return FoundationGrant{}, err
-	}
-	return grant, nil
-}
-
-func netBirdMaterialRequest(a NetBirdMaterialAuthority, index int, value []byte) vault.CreateSecretRequest {
-	details := vault.CreateSecretDetails{CompartmentId: new(a.Context.Target.CompartmentOCID), VaultId: new(a.Context.Target.VaultOCID), KeyId: new(a.Context.Target.KMSKeyOCID), SecretName: new(a.Names[index])}
-	if index == 0 {
-		// OCI requires this fixed vendor field to generate the root inside Vault.
-		details.EnableAutoGeneration = new(true)
-		details.SecretGenerationContext = vault.BytesGenerationContext{GenerationTemplate: vault.BytesGenerationContextGenerationTemplate512}
-	} else {
-		details.SecretContent = vault.Base64SecretContentDetails{Content: new(base64.StdEncoding.EncodeToString(value)), Stage: vault.SecretContentDetailsStageCurrent}
-	}
-	policy := common.NoRetryPolicy()
-	return vault.CreateSecretRequest{CreateSecretDetails: details, RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}}
-}
-
-func netBirdMaterialRequestSHA(request vault.CreateSecretRequest) (string, error) {
-	requestBody, err := request.HTTPRequest("POST", "/20180608/secrets", nil, nil)
-	if err != nil || requestBody.Body == nil {
-		return "", errors.New("NetBird material request cannot be serialized")
-	}
-	defer requestBody.Body.Close()
-	wire, err := io.ReadAll(io.LimitReader(requestBody.Body, 8193))
-	defer clear(wire)
-	if err != nil || len(wire) > 8192 {
-		return "", errors.New("NetBird material request exceeds fixed bound")
-	}
-	return netBirdMaterialSHA(wire), nil
-}
-
 func (authority *HomeIAMAuthority) netBirdMaterialScope(grant FoundationGrant) (NetBirdMaterialAuthority, FoundationIntent, error) {
 	if err := validateFoundationNetBirdMaterial(grant); err != nil {
 		return NetBirdMaterialAuthority{}, FoundationIntent{}, err
@@ -279,156 +222,6 @@ func (authority *HomeIAMAuthority) checkNetBirdMaterialBirth(record FoundationRe
 	return nil
 }
 
-func (authority *HomeIAMAuthority) reserveNetBirdMaterialBirth(ctx context.Context) error {
-	grant, err := authority.originalMaterialGrant()
-	if err != nil || grant.SchemaVersion != 3 {
-		return err
-	}
-	a, intent, err := authority.netBirdMaterialScope(grant)
-	if err != nil {
-		return err
-	}
-	ctx, releaseLease, err := authority.HomeWrite(ctx, 0)
-	if err != nil {
-		return err
-	}
-	defer releaseLease()
-	if err := authority.Guard(ctx, 0); err != nil {
-		return err
-	}
-	record, _, err := authority.resolver.Store.Load(ctx, "GRU")
-	if err == nil {
-		return authority.checkNetBirdMaterialBirth(record, grant, a, intent)
-	}
-	if !errors.Is(err, ErrFoundationMissing) {
-		return err
-	}
-	// Retained origins prove prior birth even when its mutable journal was lost.
-	for _, origin := range grant.WorkloadGenesis {
-		name, err := release.WorkloadGenesisObject(origin.TenancyID, origin.Cell, origin.Environment, origin.Role)
-		if err != nil {
-			return err
-		}
-		_, err = readDiscoveryObject(ctx, authority.operator.objects, authority.operator.domain.Namespace, name, 1<<20)
-		if service, missing := common.IsServiceError(err); missing && service.GetHTTPStatusCode() == 404 {
-			continue
-		}
-		return errors.New("retained original origins without material birth refuse regeneration; HOLD")
-	}
-	if len(grant.WorkloadGenesis) != 9 {
-		return errors.New("material birth requires all nine original origin keys")
-	}
-	wire, err := json.Marshal(authority.operator.bundle, json.Deterministic(true))
-	if err != nil {
-		return err
-	}
-	digest, err := FoundationIntentDigest(intent)
-	if err != nil {
-		return err
-	}
-	requestDigest, err := netBirdMaterialRequestSHA(netBirdMaterialRequest(a, 0, nil))
-	if err != nil {
-		return err
-	}
-	now := time.Now().UTC()
-	j := &NetBirdMaterialJournal{Authority: a, OriginalGrantSHA256: netBirdMaterialSHA(authority.operator.bundle.GrantWire), OriginalBundleSHA256: netBirdMaterialSHA(wire), BornAt: now}
-	for index, name := range a.Names {
-		j.Creates[index].Name = name
-	}
-	j.Creates[0].RequestSHA256 = requestDigest
-	j.Creates[0].RetryToken = BootstrapRetryToken(a.Context.ManagerOperationID+":"+a.Names[0], requestDigest)
-	record = FoundationRecord{NetBirdMaterial: j, SchemaVersion: 1, Cell: "GRU", OCIRegion: foundationHomeRegion, TenancyID: grant.TenancyID,
-		ParentCompartmentID: grant.ParentCompartmentID, SharedCompartmentID: grant.SharedCompartmentID, Generation: intent.Generation, IntentDigest: digest, GrantSHA256: j.OriginalGrantSHA256,
-		OperationID: entityid.Derive("regional-foundation", grant.TenancyID, "GRU", fmt.Sprint(intent.Generation)), Epoch: 1, Stage: "material", StartedAt: now, UpdatedAt: now,
-		ResourceIDs: map[string]string{}, AuxiliaryIDs: maps.Clone(authority.operator.buckets)}
-	if err := authority.Guard(ctx, 0); err != nil {
-		return err
-	}
-	_, err = authority.resolver.Store.CompareAndSwap(ctx, record, "")
-	return err
-}
-
-func (authority *HomeIAMAuthority) checkpointNetBirdMaterial(ctx context.Context, record *FoundationRecord, etag *string) error {
-	if err := authority.Guard(ctx, 0); err != nil {
-		return err
-	}
-	record.UpdatedAt = time.Now().UTC()
-	next, err := authority.resolver.Store.CompareAndSwap(ctx, *record, *etag)
-	if err == nil {
-		*etag = next
-	}
-	return err
-}
-
-func (authority *HomeIAMAuthority) produceNetBirdMaterial(ctx context.Context) error {
-	grant, err := authority.originalMaterialGrant()
-	if err != nil || grant.SchemaVersion != 3 {
-		return err
-	}
-	a, intent, err := authority.netBirdMaterialScope(grant)
-	if err != nil {
-		return err
-	}
-	ctx, releaseLease, err := authority.HomeWrite(ctx, 0)
-	if err != nil {
-		return err
-	}
-	defer releaseLease()
-	if err := authority.Guard(ctx, 0); err != nil {
-		return err
-	}
-	if err := authority.checkNetBirdMaterialOrigins(ctx, grant); err != nil {
-		return err
-	}
-	record, etag, err := authority.resolver.Store.Load(ctx, "GRU")
-	if err != nil {
-		return err
-	}
-	if err := authority.checkNetBirdMaterialBirth(record, grant, a, intent); err != nil {
-		return err
-	}
-	management, err := vault.NewVaultsClientWithConfigurationProvider(authority.factory.Provider())
-	if err != nil {
-		return errors.New("original material Vault client unavailable")
-	}
-	management.SetRegion(foundationHomeRegion)
-	authority.factory.Configure(&management.BaseClient, ociclient.ServiceKMS)
-	bundles, err := authority.factory.SecretsContext(ctx)
-	if err != nil {
-		return errors.New("original material bundle client unavailable")
-	}
-	root, err := authority.retainNetBirdMaterialSecret(ctx, &management, &bundles, &record, &etag, 0, nil)
-	if err != nil {
-		return err
-	}
-	defer clear(root)
-	for index := 1; index < len(a.Names); index++ {
-		derived, err := hkdf.Key(sha256.New, root, []byte(a.LineageSHA256), netBirdMaterialDerivation+":"+netBirdMaterialPurposes[index], 32)
-		if err != nil {
-			return errors.New("original material derivation failed")
-		}
-		value := []byte(base64.StdEncoding.EncodeToString(derived))
-		clear(derived)
-		observed, err := authority.retainNetBirdMaterialSecret(ctx, &management, &bundles, &record, &etag, index, value)
-		clear(value)
-		clear(observed)
-		if err != nil {
-			return err
-		}
-	}
-	if err := authority.Guard(ctx, 0); err != nil {
-		return err
-	}
-	if err := authority.checkNetBirdMaterialOrigins(ctx, grant); err != nil {
-		return err
-	}
-	if !record.NetBirdMaterial.Complete {
-		record.NetBirdMaterial.Complete = true
-		return authority.checkpointNetBirdMaterial(ctx, &record, &etag)
-	}
-	return nil
-}
-
 func (authority *HomeIAMAuthority) checkNetBirdMaterialOrigins(ctx context.Context, grant FoundationGrant) error {
 	expected, err := json.Marshal(authority.operator.bundle, json.Deterministic(true))
 	if err != nil || len(grant.WorkloadGenesis) != 9 {
@@ -448,126 +241,4 @@ func (authority *HomeIAMAuthority) checkNetBirdMaterialOrigins(ctx context.Conte
 		}
 	}
 	return nil
-}
-
-func (authority *HomeIAMAuthority) retainNetBirdMaterialSecret(ctx context.Context, management *vault.VaultsClient, bundles *secrets.SecretsClient, record *FoundationRecord, etag *string, index int, value []byte) ([]byte, error) {
-	a := record.NetBirdMaterial.Authority
-	create := &record.NetBirdMaterial.Creates[index]
-	if create.HoldReason != "" {
-		return nil, errors.New("original material create is permanently unresolved; HOLD")
-	}
-	request := netBirdMaterialRequest(a, index, value)
-	digest, err := netBirdMaterialRequestSHA(request)
-	if err != nil {
-		return nil, err
-	}
-	if create.RequestSHA256 == "" {
-		if record.NetBirdMaterial.Complete || record.Stage != "material" || record.NetBirdManager != nil {
-			return nil, errors.New("original launch or completed material refuses generation")
-		}
-		create.RequestSHA256, create.RetryToken = digest, BootstrapRetryToken(a.Context.ManagerOperationID+":"+a.Names[index], digest)
-		if err := authority.checkpointNetBirdMaterial(ctx, record, etag); err != nil {
-			return nil, err
-		}
-	}
-	if create.RequestSHA256 != digest || create.RetryToken != BootstrapRetryToken(a.Context.ManagerOperationID+":"+a.Names[index], digest) {
-		return nil, errors.New("original material request changed; HOLD")
-	}
-	if create.SecretID == "" {
-		if record.NetBirdMaterial.Complete || record.Stage != "material" || record.NetBirdManager != nil {
-			return nil, errors.New("original launch or completed material refuses regeneration")
-		}
-		if create.FirstDispatchedAt.IsZero() {
-			create.FirstDispatchedAt = time.Now().UTC()
-			if err := authority.checkpointNetBirdMaterial(ctx, record, etag); err != nil {
-				return nil, err
-			}
-		}
-		if time.Since(create.FirstDispatchedAt) >= 23*time.Hour || time.Now().Before(create.FirstDispatchedAt) {
-			create.HoldReason = "retry-expired"
-			if err := authority.checkpointNetBirdMaterial(ctx, record, etag); err != nil {
-				return nil, err
-			}
-			return nil, errors.New("unknown original material create is outside retry lifetime; HOLD")
-		}
-		request.OpcRetryToken = new(create.RetryToken)
-		if err := authority.Guard(ctx, 0); err != nil {
-			return nil, err
-		}
-		response, err := management.CreateSecret(ociclient.RequestContext(ctx), request)
-		if err != nil || response.Id == nil || !workerSecretPattern.MatchString(*response.Id) || !strings.HasPrefix(*response.Id, "ocid1.vaultsecret.oc1."+foundationHomeRegion+".") || len(*response.Id) > 512 {
-			if service, refused := common.IsServiceError(err); refused && service.GetHTTPStatusCode() >= 400 && service.GetHTTPStatusCode() < 500 {
-				create.HoldReason = "create-refused"
-				if err := authority.checkpointNetBirdMaterial(ctx, record, etag); err != nil {
-					return nil, err
-				}
-			}
-			return nil, errors.New("original material create unresolved; retain original body and token; HOLD")
-		}
-		create.SecretID = *response.Id
-		if err := authority.checkpointNetBirdMaterial(ctx, record, etag); err != nil {
-			return nil, err
-		}
-	}
-	if create.Version == 0 && time.Since(create.FirstDispatchedAt) >= 23*time.Hour {
-		create.HoldReason = "retry-expired"
-		if err := authority.checkpointNetBirdMaterial(ctx, record, etag); err != nil {
-			return nil, err
-		}
-		return nil, errors.New("unpinned original material exceeds safe lifetime; HOLD")
-	}
-	observed, err := readNetBirdMaterialSecret(ctx, management, bundles, a, index, *create)
-	if err != nil {
-		return nil, err
-	}
-	if index > 0 && !bytes.Equal(observed, value) {
-		clear(observed)
-		return nil, errors.New("original derived material content changed; HOLD")
-	}
-	contentDigest := netBirdMaterialSHA(observed)
-	if create.Version != 0 && (create.Version != 1 || create.ContentSHA256 != contentDigest) {
-		clear(observed)
-		return nil, errors.New("pinned original material content changed; HOLD")
-	}
-	if create.Version == 0 {
-		create.Version, create.ContentSHA256 = 1, contentDigest
-		if err := authority.checkpointNetBirdMaterial(ctx, record, etag); err != nil {
-			clear(observed)
-			return nil, err
-		}
-	}
-	return observed, nil
-}
-
-func readNetBirdMaterialSecret(ctx context.Context, management *vault.VaultsClient, bundles *secrets.SecretsClient, a NetBirdMaterialAuthority, index int, create NetBirdMaterialCreate) ([]byte, error) {
-	metadata, err := management.GetSecret(ociclient.RequestContext(ctx), vault.GetSecretRequest{SecretId: new(create.SecretID)})
-	if err != nil || deref(metadata.Id) != create.SecretID || deref(metadata.SecretName) != a.Names[index] || deref(metadata.CompartmentId) != a.Context.Target.CompartmentOCID ||
-		deref(metadata.VaultId) != a.Context.Target.VaultOCID || deref(metadata.KeyId) != a.Context.Target.KMSKeyOCID || metadata.LifecycleState != vault.SecretLifecycleStateActive ||
-		metadata.CurrentVersionNumber == nil || *metadata.CurrentVersionNumber != 1 || metadata.RotationConfig != nil || metadata.ReplicationConfig != nil || metadata.TimeOfDeletion != nil || metadata.LastRotationTime != nil || metadata.NextRotationTime != nil ||
-		metadata.TimeOfCurrentVersionExpiry != nil || len(metadata.SecretRules) != 0 || metadata.IsReplica != nil && *metadata.IsReplica {
-		return nil, errors.New("original material metadata differs from exact immutable target; HOLD")
-	}
-	if index == 0 {
-		generation, ok := metadata.SecretGenerationContext.(vault.BytesGenerationContext)
-		if !ok || generation.GenerationTemplate != vault.BytesGenerationContextGenerationTemplate512 || generation.SecretTemplate != nil || metadata.IsAutoGenerationEnabled == nil || !*metadata.IsAutoGenerationEnabled {
-			return nil, errors.New("original root generation context changed; HOLD")
-		}
-	} else if metadata.SecretGenerationContext != nil || metadata.IsAutoGenerationEnabled != nil && *metadata.IsAutoGenerationEnabled {
-		return nil, errors.New("original child material unexpectedly generates or rotates")
-	}
-	bundle, err := bundles.GetSecretBundle(ociclient.RequestContext(ctx), secrets.GetSecretBundleRequest{SecretId: new(create.SecretID), VersionNumber: new(int64(1)), Stage: secrets.GetSecretBundleStageCurrent})
-	if err != nil || deref(bundle.SecretId) != create.SecretID || bundle.VersionNumber == nil || *bundle.VersionNumber != 1 ||
-		!slices.Contains(bundle.Stages, secrets.SecretBundleStagesCurrent) || bundle.TimeOfDeletion != nil || bundle.TimeOfExpiry != nil {
-		return nil, errors.New("original material version1 CURRENT readback failed; HOLD")
-	}
-	content, ok := bundle.SecretBundleContent.(secrets.Base64SecretBundleContentDetails)
-	if !ok || content.Content == nil || len(*content.Content) > base64.StdEncoding.EncodedLen(1024) {
-		return nil, errors.New("original material bundle exceeds transport bound")
-	}
-	opaque, err := base64.StdEncoding.Strict().DecodeString(*content.Content)
-	if err != nil || base64.StdEncoding.EncodeToString(opaque) != *content.Content || index == 0 && (len(opaque) < 64 || len(opaque) > 1024) || index > 0 && len(opaque) != 44 {
-		clear(opaque)
-		return nil, errors.New("original material has invalid bounded transport content")
-	}
-	return opaque, nil
 }

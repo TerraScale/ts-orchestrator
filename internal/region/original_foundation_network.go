@@ -55,13 +55,6 @@ type OriginalFoundationNetworkRules struct {
 var originalNetworkKeys = [6]string{"vcn", "service_gateway", "route_table", "security_list", "subnet", "controller_nsg"}
 var originalNetworkID = regexp.MustCompile(`^ocid1\.(vcn|servicegateway|routetable|securitylist|subnet|networksecuritygroup)\.oc1\.[a-z0-9-]+\.[a-zA-Z0-9]+$`)
 
-func provisionOriginalFoundationNetwork(ctx context.Context, authority *HomeIAMAuthority) error {
-	if err := retainOriginalFoundationNetwork(ctx, authority); err != nil {
-		return err
-	}
-	return provisionOriginalFoundationVault(ctx, authority)
-}
-
 func retainOriginalFoundationNetwork(ctx context.Context, authority *HomeIAMAuthority) error {
 	expected, err := originalCompartmentScope(ctx, authority)
 	if err != nil {

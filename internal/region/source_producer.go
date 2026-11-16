@@ -261,13 +261,6 @@ type OriginalSourceProducerBirth struct {
 	OriginObjects           [9]string                    `json:"originObjects"`
 }
 
-func (operator *foundationOperator) originalSourceProducerBirth(grant FoundationGrant) ([3]OriginalSourceProducerBirth, error) {
-	if err := requireOriginalSourceProducerPurposes(grant); err != nil {
-		return [3]OriginalSourceProducerBirth{}, err
-	}
-	return operator.originalSourceProducerBirthFromPreparedGrant(grant)
-}
-
 // The caller must have required the complete original producer purposes on
 // this same local grant. This assembles immutable values without authority I/O.
 func (operator *foundationOperator) originalSourceProducerBirthFromPreparedGrant(grant FoundationGrant) ([3]OriginalSourceProducerBirth, error) {
@@ -376,17 +369,6 @@ func (next FoundationRecord) retainOriginalSourceProducers(previous FoundationRe
 		return errors.New("original source producer birth cannot be appended, removed or replaced; HOLD")
 	}
 	return nil
-}
-
-func (authority *HomeIAMAuthority) checkOriginalSourceProducerBirth(ctx context.Context) error {
-	grant, err := authority.originalMaterialGrant()
-	if err != nil || grant.SchemaVersion != 3 {
-		return err
-	}
-	if err := requireOriginalSourceProducerPurposes(grant); err != nil {
-		return err
-	}
-	return authority.checkOriginalSourceProducerBirthFromPreparedGrant(ctx, grant)
 }
 
 // The same local grant has already passed requireOriginalSourceProducerPurposes.

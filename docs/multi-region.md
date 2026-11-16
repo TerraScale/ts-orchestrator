@@ -308,7 +308,7 @@ credential rotation to acquire these grants. Global control runs automatically.
 ## Adding and removing regions
 
 Only the user adds or removes a region (user decision 2026-10-11). COS runs
-`ts-orch region create <region>` or `ts-orch region remove <region>` from an
+`ts-orch region add <region>` or `ts-orch region rm <region>` from an
 operator host; nothing in the controllers creates or retires a region. The
 design is in docs/capacity.md (TS-804). `internal/regionsuggest` computes an
 information-only suggestion every 10 minutes for the capacity page; nothing
@@ -316,9 +316,9 @@ acts on it.
 
 ## Not yet done
 
-- `ts-orch region create` with no manual step (secrets from Vault, the home
+- `ts-orch region add` with no manual step (secrets from Vault, the home
   plan from OCI, state in Object Storage, release artifacts only) and
-  `ts-orch region remove` (docs/capacity.md slices 8 and 9).
+  `ts-orch region rm` draining the region first (docs/capacity.md slices 8 and 9).
 - Appending interregion material's `ledgerDigest` to the OCI bootstrap
   ledger as its own record kind, and rendering controller configuration
   (cell/system JWT paths, listener, subtrees, topology, remotes) from the

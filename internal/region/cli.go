@@ -2,7 +2,6 @@ package region
 
 import (
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,7 +17,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 const usage = `Usage: ts-orch region <command> [flags]
@@ -40,10 +38,6 @@ const usage = `Usage: ts-orch region <command> [flags]
       availability domain and the service gateway of the new region, every
       resource ID unbound. Reads OCI; changes nothing. REGION is a cell
       token (fra) or an OCI region (eu-frankfurt-1).
-  create  BUNDLE
-      Provision the complete signed regional footprint through the same
-      operator path as bootstrap foundation provision BUNDLE. Resumes the
-      protected original launch and IAM records; discovery publishes last.
   backups CODE [--check|--apply]
       Inventory every live host's boot volume, policy and newest available
       backup. Read-only by default; --check fails for gaps or age over 8 days.
@@ -62,8 +56,6 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	}
 	command, args := args[0], args[1:]
 	switch command {
-	case "create":
-		return provisionFromFile(ctx, args, out)
 	case "plan", "status", "validate":
 		return compareFleet(ctx, command, args, out)
 	}
@@ -133,67 +125,6 @@ func compareFleet(ctx context.Context, command string, args []string, out io.Wri
 		return fleet.PrintStatus(out, reports)
 	}
 	return fleet.PrintPlan(out, reports)
-}
-
-func provisionFromFile(ctx context.Context, args []string, out io.Writer) error {
-	factory, roots, bundle, _, err := ReadOriginalFoundationProvision(ctx, args)
-	if err != nil {
-		return err
-	}
-	if err := ProvisionOriginalFoundationPrerequisites(ctx, factory, roots, bundle); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(out, "provisioned exact signed foundation footprint")
-	return err
-}
-
-// ReadOriginalFoundationProvision verifies the bounded retained bundle before
-// opening original operator credentials. Its schema is authenticated by that
-// same complete verification, never inferred from a provision result.
-func ReadOriginalFoundationProvision(ctx context.Context, args []string) (*ociclient.Factory, trust.Keyring, RetainedFoundation, int, error) {
-	var bundle RetainedFoundation
-	if len(args) != 1 || args[0] == "" || strings.HasPrefix(args[0], "-") {
-		return nil, nil, bundle, 0, errors.New("usage: ts-orch region create BUNDLE")
-	}
-	file, err := os.Open(args[0])
-	if err != nil {
-		return nil, nil, bundle, 0, err
-	}
-	defer file.Close()
-	const maximum = 3 << 20
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maximum {
-		return nil, nil, bundle, 0, errors.New("foundation bundle must be a bounded regular file")
-	}
-	wire, err := io.ReadAll(io.LimitReader(file, maximum+1))
-	if err != nil || len(wire) > maximum {
-		return nil, nil, bundle, 0, errors.Join(errors.New("foundation bundle exceeds its read bound"), err)
-	}
-	if err := json.Unmarshal(wire, &bundle, json.RejectUnknownMembers(true)); err != nil {
-		return nil, nil, bundle, 0, err
-	}
-	genesis, err := trust.DiscoveryGenesis()
-	if err != nil {
-		return nil, nil, bundle, 0, err
-	}
-	if err := VerifyFoundationProvisionBundle(ctx, genesis, bundle); err != nil {
-		return nil, nil, bundle, 0, err
-	}
-	grant, err := decodeOriginalMaterialGrant(bundle)
-	if err != nil {
-		return nil, nil, bundle, 0, err
-	}
-	factory, err := ociclient.OperatorConfig(foundationHomeRegion)
-	if err != nil {
-		return nil, nil, bundle, 0, err
-	}
-	return factory, genesis, bundle, grant.SchemaVersion, nil
-}
-
-// ProvisionOriginalFoundationPrerequisites preserves the lower original actor
-// stage and its truthful custody/runtime pending result.
-func ProvisionOriginalFoundationPrerequisites(ctx context.Context, factory *ociclient.Factory, roots trust.Keyring, bundle RetainedFoundation) error {
-	return provisionOriginalFoundationCompartments(ctx, factory, roots, bundle)
 }
 
 func isFlagSet(flags *flag.FlagSet, name string) bool {

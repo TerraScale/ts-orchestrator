@@ -63,7 +63,7 @@ of these hold:
 - `sequence` is higher than the one the node already has;
 - each binary's `sha256` matches the bytes at its `url`.
 
-CI, or `ts-orch release promote`, may call `POST /v1/release/hint`. The hint
+CI runs `ts-orch release nudge` to tell every region to look now. The nudge
 only shortens the wait. It carries no authority.
 
 Rollout order is fixed. One node updates first. Then the rest of its region.
@@ -313,14 +313,16 @@ started, so the binary has one runtime: `single-host`. It will be renamed
   and the `release` receipt, delegation, channel and cell commands
   (`release deploy`, `apply`, `sign-*`, `verify-binary`, `verify-image`,
   `verify-production`, `service-deploy`, `fleet-status`, `observed-digests`
-  and the rest of the old signed-receipt set);
+  and the rest of the old signed-receipt set), and `region create`, the
+  old founding path (C4b);
 - every package only those commands reached, among them the root OCI,
   root capacity, root secret, root release, managed material, container
   material, function worker, runtime-priority, rollout executor, host image
   and A/B self-update packages;
 - the managed-host systemd units and self-update drop-ins under
   `deploy/systemd`, the host image build scripts under `deploy/image`, the
-  udev rule, `make image` and the D15 probe publication in CI.
+  udev rule, `make image` and the D15 probe publication in CI;
+- the root-rotation runbook (C4b).
 
 Release recovery stays: a node pulls or receives a release, runs
 `release preflight` on the candidate and `release recover` from its recovery

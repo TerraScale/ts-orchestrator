@@ -45,7 +45,7 @@ naming scheme and who may read what.
 | `ts-orch region plan` | Compare every region of the fleet document (`deploy/fleet/fleet.json`) with OCI: network, gateways, NSGs, instances, network load balancer, reserved address, DNS zone and steering policies; reads OCI, changes nothing |
 | `ts-orch region status` | The same comparison, one line per region |
 | `ts-orch region derive LABEL --out FILE [--from PLAN]` | Derive a non-home region's plan from another region's reviewed plan; reads OCI, creates nothing ([new region](new-region.md)) |
-| `ts-orch region create LABEL OCI_REGION --state DIR --attempt-base FILE --home-plan FILE` | Bring the region up: foundation, private peering with gru-1, NetBird, founding attempt, edge, DNS, verify; resumable, prints each step's wall time |
+| `ts-orch region add CODE [--shape SHAPE] [--host NAME] [--dry-run]` / `region rm CODE [--host NAME] [--yes] [--dry-run]` | Give a region its host or remove it ([adding a region](m1-runbook.md#adding-a-region-ts-orch-region-add)) |
 | `ts-orch region verify LABEL --plan BOUND_PLAN [--wait D]` | Fail unless api and auth answer, the api answers the dashboard's browser ping (`Access-Control-Allow-Origin`, `Timing-Allow-Origin`, `Cache-Control: no-store` on `/healthz`) and every load balancer backend is healthy |
 
 ## Services

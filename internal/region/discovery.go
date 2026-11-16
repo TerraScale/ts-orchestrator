@@ -1,7 +1,6 @@
 package region
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -93,89 +91,4 @@ func readDiscoveryObject(ctx context.Context, client FoundationObjects, namespac
 		return nil, errors.New("signed discovery object is unreadable or oversized")
 	}
 	return wire, nil
-}
-
-// PublishFoundationBundle preserves the explicit canonical root lineage from
-// the offline ceremony. It never substitutes an empty chain after a rotation.
-func PublishFoundationBundle(ctx context.Context, factory *ociclient.Factory, genesis trust.Keyring, bundle RetainedFoundation) error {
-	client, tenancy, err := foundationHomeClient(factory)
-	if err != nil {
-		return err
-	}
-	if bundle.TenancyID != tenancy {
-		return errors.New("foundation publication differs from authenticated tenancy")
-	}
-	return publishFoundationBundle(ctx, client, tenancy, genesis, bundle)
-}
-
-func publishFoundationBundle(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring, bundle RetainedFoundation) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	envelope, err := trust.DecodeEnvelope(bundle.AnchorWire)
-	if err != nil {
-		return err
-	}
-	chain, err := trust.DecodeRootChain(bundle.RootChainWire)
-	if err != nil {
-		return err
-	}
-	verified, err := trust.VerifyRootChain(genesis, foundationChainIdentity(envelope.Scope.DeploymentID), chain)
-	if err != nil {
-		return err
-	}
-	if bundle.TenancyID != tenancy {
-		return errors.New("foundation bundle differs from authenticated tenancy")
-	}
-	if _, err := verifyDiscoveryAnchor(bundle.AnchorWire, verified.Current, tenancy, bundle.Namespace); err != nil {
-		return err
-	}
-	return publishFoundationDiscoveryChain(ctx, client, tenancy, verified.Current, bundle.AnchorWire, bundle.GrantWire, bundle.RootChainWire)
-}
-
-func publishFoundationDiscoveryChain(ctx context.Context, client foundationDiscoveryObjects, tenancy string, roots trust.Keyring, anchorWire, grantWire, chainWire []byte) error {
-	if len(roots) == 0 {
-		return errors.New("initial publication requires independent trusted roots")
-	}
-	namespace, err := discoveryNamespace(ctx, client, tenancy)
-	if err != nil {
-		return err
-	}
-	anchor, err := verifyDiscoveryAnchor(anchorWire, roots, tenancy, namespace)
-	if err != nil {
-		return err
-	}
-	reader, err := NewSignedFootprint(client, anchor, roots, tenancy)
-	if err != nil {
-		return err
-	}
-	if _, _, err := reader.verifyGrant(grantWire); err != nil {
-		return err
-	}
-	grantName := strings.TrimSuffix(reader.storage.Prefix, "/") + "/" + foundationGrantObject
-	for _, object := range []struct {
-		name string
-		wire []byte
-	}{{foundationRootChainObject, chainWire}, {grantName, grantWire}, {foundationDiscoveryObject, anchorWire}} {
-		if err := publishFoundationObject(ctx, client, namespace, object.name, object.wire); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func publishFoundationObject(ctx context.Context, client FoundationObjects, namespace, name string, wire []byte) error {
-	policy := common.NoRetryPolicy()
-	request := objectstorage.PutObjectRequest{NamespaceName: new(namespace), BucketName: new(foundationDiscoveryBucket), ObjectName: new(name), IfNoneMatch: new("*"), ContentType: new("application/json"), ContentLength: new(int64(len(wire))), PutObjectBody: io.NopCloser(bytes.NewReader(wire)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}}
-	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	_, writeErr := client.PutObject(ociclient.RequestContext(writeCtx), request)
-	cancel()
-	if writeErr == nil {
-		return nil
-	}
-	observed, readErr := readDiscoveryObject(ctx, client, namespace, name, int64(len(wire)))
-	if readErr != nil || !bytes.Equal(observed, wire) {
-		return fmt.Errorf("initial foundation publication did not establish the exact immutable object: %w", writeErr)
-	}
-	return nil
 }

@@ -2,21 +2,9 @@
 
 ## Deployment boundary
 
-The primary deployment contract is a signed bundle, independent of GitHub
-repository availability:
-
-```sh
-ts-orch release apply --dir BUNDLE --root-key TRUSTED_ROOT --namespace NS
-```
-
-`BUNDLE/GRU/channel.json` (and other region directories) holds existing
-root-delegated release channel proofs; `BUNDLE/binaries/<sha256>` holds exact
-binary bytes. Application verifies trust, scope, digests and ordering before
-publishing through the existing OCI path. It needs no `gh`, Git, source
-checkout, fleet discovery or signing secret. Signed bundle directories name
-the targets; regional preflight and rollout fail independently with fixed bounded
-concurrency. GitHub verification and signing remain producer
-adapter responsibilities; the combined `release deploy` flow is legacy.
+CI sends each main build with `ts-orch release push` and wakes regions with
+`ts-orch release nudge` ([releases](platform.md#releases)). A node accepts a
+release only on its Sigstore attestation.
 
 Webhooks may provide notification hints, never release authority. Consumers
 verify channels locally and poll to recover missed hints. No new webhook
@@ -37,10 +25,7 @@ All active workflows live under `.github/workflows/` on GitHub-hosted Ubuntu
 runners, with commit-pinned checkout/toolchain/artifact actions. The custom
 Forgejo client, its build/patch/cache and token profiles are removed.
 
-The GitHub producer adapter uses native `gh` for publication, promotion,
-service sync, legacy combined deployment, pruning and local image tools. `ts-orch release run-detail --repository OWNER/REPO --run-id ID`
-normalizes GitHub's completed/conclusion fields and reads paginated jobs from the
-observed run attempt. Consumers separately compare run ID, run number, source
+Consumers compare run ID, run number, source
 SHA, workflow, required jobs, and exact retained-manifest log markers.
 GitHub run numbers must never be passed as run IDs. Retained run proofs require
 main-branch push, schedule or workflow-dispatch events. An image dispatch may

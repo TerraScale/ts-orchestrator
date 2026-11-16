@@ -31,7 +31,7 @@ them).
 | --- | --- | --- |
 | How many nodes a region wants | the region's authority leader | it sees its own load and keeps scaling down and repairing when cut off from the home |
 | How many nodes a region may have (its allowance) | the home's global leader | one writer spends the one budget, so two regions can never both take the last headroom |
-| Which regions exist | the user, through one `ts-orch region create` or `remove` that COS runs | a region is a business decision; the root key and tenancy-wide rights stay with the operator, never with always-on controllers |
+| Which regions exist | the user, through one `ts-orch region add` or `rm` that COS runs | a region is a business decision; the root key and tenancy-wide rights stay with the operator, never with always-on controllers |
 | Launching, draining and removing a node | the region's authority leader | only it can drain its own TerraBase, NATS and workloads |
 
 A region grows only up to its allowance. A region that cannot read a fresh
@@ -251,13 +251,12 @@ switch and no threshold that starts a region change. COS runs one command on
 the user's order, from an operator host with the OCI operator profile:
 
 ```
-ts-orch region create <region>   # a cell token (fra) or an OCI region name (eu-frankfurt-1)
-ts-orch region remove <region>
+ts-orch region add <region>
+ts-orch region rm <region>
 ```
 
-`create` is the region tool that exists today (`internal/region`): plan,
-foundation, peer, NetBird, ts-auth secrets, found, edge certificate, edge,
-DNS and verify. To make it one call with no manual step, it:
+`add` launches the region's host ([adding a region](m1-runbook.md#adding-a-region-ts-orch-region-add)).
+To make it one call with no manual step, it:
 
 - subscribes the tenancy to the region first (moved from `regionops`);
 - reads every secret it needs from OCI Vault (Cloudflare token, NetBird admin
@@ -269,7 +268,7 @@ DNS and verify. To make it one call with no manual step, it:
 - finds before it creates at every step, so a rerun is safe.
 
 The new region joins the roster with its first heartbeat (TS-803). From then
-on it serves and autoscales like every region. `remove` drains the region,
+on it serves and autoscales like every region. `rm` drains the region,
 refuses while it homes a database partition (`globalcontrol.Directory`),
 unlinks it, terminates its nodes and deletes its foundation.
 
@@ -317,9 +316,9 @@ information only. Nothing acts on it and nothing journals it.
 7. Manual regions (user decision 2026-10-11): `regionlifecycle`, `regionops`
    and the planner's actions deleted; the planner's decision kept as an
    information-only suggestion on the capacity page.
-8. `ts-orch region create` as one call: subscribe, secrets from Vault, the
+8. `ts-orch region add` as one call: subscribe, secrets from Vault, the
    home plan from OCI, state in Object Storage, release artifacts only.
-9. `ts-orch region remove`: drain, unlink, terminate and teardown (with
+9. `ts-orch region rm`: drain, unlink, terminate and teardown (with
    TS-803).
 10. 20-region simulation.
 11. Deleted: `cellscale`, `hostpool`, the cell spec budget and old settings.

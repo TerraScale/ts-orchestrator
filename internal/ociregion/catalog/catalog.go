@@ -92,8 +92,6 @@ const Len = len(entries)
 // Entries returns a copy of the ordered catalog.
 func Entries() []Entry { return append([]Entry(nil), entries[:]...) }
 
-// Founded returns the regions with a reserved address plan
-// (docs/network/address-plan.md). ts-orch region create (TS-804) extends it.
 func Founded() []Entry { return append([]Entry(nil), entries[:foundedCount]...) }
 
 // Names returns the ordered lower-case cell tokens used in NATS subjects.

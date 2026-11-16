@@ -44,11 +44,6 @@ func NewSDKClient(region string) (*SDKClient, error) {
 	return &SDKClient{Region: region, reader: reader, creators: creators}, nil
 }
 
-// NewClientWithFactory shares the caller's authenticated OCI provider and rate limits.
-func NewClientWithFactory(factory *ociclient.Factory) *SDKClient {
-	return &SDKClient{Region: factory.Region(), reader: sdkcli.NewClient(factory, ""), creators: creators}
-}
-
 var creators = map[string]creator{
 	"network internet-gateway create": createInternetGateway,
 	"network route-table create":      createRouteTable,

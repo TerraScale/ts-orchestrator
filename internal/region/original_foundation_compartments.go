@@ -16,7 +16,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 )
@@ -65,70 +64,6 @@ type OriginalFoundationCompartment struct {
 	ReadbackSHA256 string                            `json:"readbackSha256,omitempty"`
 	VerifiedAt     time.Time                         `json:"verifiedAt,omitzero"`
 	HoldReason     string                            `json:"holdReason,omitempty"`
-}
-
-// provisionOriginalFoundationCompartments is the existing original operator's
-// automatic continuation. A successful material stage, not a startup error,
-// precedes the separately authenticated original full-plan create authority.
-func provisionOriginalFoundationCompartments(ctx context.Context, factory *ociclient.Factory, roots trust.Keyring, bundle RetainedFoundation) error {
-	version, err := decodeOriginalMaterialGrant(bundle)
-	if err != nil {
-		return err
-	}
-	if version.SchemaVersion != 3 {
-		return ProvisionFoundationBundle(ctx, factory, roots, bundle)
-	}
-	stage, err := provisionFoundationMaterial(ctx, factory, roots, bundle)
-	if err != nil {
-		return err
-	}
-	defer stage.cancel()
-	ctx, release, err := stage.authority.HomeWrite(stage.ctx, 0)
-	if err != nil {
-		return err
-	}
-	defer release()
-	if err := retainOriginalFoundationCompartments(ctx, stage.authority); err != nil {
-		return err
-	}
-	return provisionOriginalFoundationNetwork(ctx, stage.authority)
-}
-
-func retainOriginalFoundationCompartments(ctx context.Context, authority *HomeIAMAuthority) error {
-	expected, err := originalCompartmentScope(ctx, authority)
-	if err != nil {
-		return err
-	}
-	store, ok := authority.resolver.Store.(*ObjectFoundationStore)
-	if !ok {
-		return ErrOriginalSourceProducerHold
-	}
-	store.originalCompartmentScope = &expected
-	record, etag, err := store.Load(ctx, "GRU")
-	if err != nil {
-		return err
-	}
-	if record.OriginalFoundationCompartments == nil {
-		if record.Stage != "material" || !record.netBirdMaterialOnly() {
-			return ErrOriginalSourceProducerHold
-		}
-		initial := expected
-		record.OriginalFoundationCompartments = &initial
-		record.Stage = "original-foundation"
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	} else if !sameOriginalSourceValue(record.OriginalFoundationCompartments.scopeOnly(), expected) {
-		return ErrOriginalSourceProducerHold
-	}
-	for region := range expected.Regions {
-		for role := range expected.Regions[region].Compartments {
-			if err := provisionOriginalCompartment(ctx, authority, region, role); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func originalCompartmentScope(ctx context.Context, authority *HomeIAMAuthority) (OriginalFoundationCompartments, error) {

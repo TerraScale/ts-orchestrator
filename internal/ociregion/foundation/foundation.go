@@ -29,7 +29,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
-	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 const usage = `Usage: ts-orch oci-region foundation --plan PLAN --out BOUND_PLAN [--apply]
@@ -70,9 +69,7 @@ type Foundation struct {
 	ownership     map[string]string
 	expected      map[string]string
 	resourceKeys  map[string]string
-	tenancy       string
 	region        string
-	inspect       func(context.Context, Object, bootstrap.StorageDomain) error
 	// Check runs inspect-foundation's live checks on the bound plan.
 	Check        func(plan Object) error
 	Pause        func(context.Context, time.Duration) error
@@ -80,57 +77,6 @@ type Foundation struct {
 	Apply        bool
 	Out          io.Writer
 	planned      int
-}
-
-// New uses one authenticated provider for the regional and actual home-region
-// clients. It grants no write authority; the caller must supply the guards.
-func New(ctx context.Context, factory *ociclient.Factory, tenancy string) (*Foundation, error) {
-	if factory == nil {
-		return nil, errors.New("foundation requires an authenticated OCI factory")
-	}
-	providerTenancy, err := factory.Provider().TenancyOCID()
-	if err != nil || providerTenancy != tenancy {
-		return nil, errors.New("foundation tenancy differs from authenticated OCI identity")
-	}
-	homeRegion, err := factory.HomeRegion(ctx, tenancy)
-	if err != nil {
-		return nil, err
-	}
-	home, err := factory.ForRegion(homeRegion)
-	if err != nil {
-		return nil, err
-	}
-	inspect := func(ctx context.Context, plan Object, homeStorage bootstrap.StorageDomain) error {
-		engine := &ociregion.Engine{Context: ctx, HomeStorageDomain: homeStorage, Dependency: func(name string, args []any, kwargs Object) (any, error) {
-			if name != "oci" {
-				return nil, fmt.Errorf("foundation inspection dependency %s is unsupported", name)
-			}
-			selected := home
-			if region := text(kwargs["region"]); region != "" {
-				var err error
-				selected, err = factory.ForRegion(region)
-				if err != nil {
-					return nil, err
-				}
-			}
-			words := make([]string, len(args))
-			for i, arg := range args {
-				words[i] = fmt.Sprint(arg)
-			}
-			data, _, err := sdkcli.NewClient(selected, "").Call(ctx, words)
-			if err != nil {
-				return nil, err
-			}
-			var value any
-			if err := json.Unmarshal(data, &value); err != nil {
-				return nil, err
-			}
-			return value, nil
-		}}
-		return engine.CheckFoundation(plan)
-	}
-	return &Foundation{Region: publicapi.NewClientWithFactory(factory), Home: publicapi.NewClientWithFactory(home), Out: io.Discard,
-		Check: func(plan Object) error { return inspect(ctx, plan, bootstrap.StorageDomain{}) }, inspect: inspect, tenancy: tenancy, region: factory.Region()}, nil
 }
 
 // Run is `ts-orch oci-region foundation`.
@@ -194,42 +140,6 @@ func (f *Foundation) Run(ctx context.Context, plan Object, out string) error {
 		return fmt.Errorf("the bound foundation fails inspection: %w", err)
 	}
 	return write(out, plan, f.Out)
-}
-
-// Reconcile applies one authorized foundation without a CLI or file handoff.
-// The caller supplies durable authority and OCID checkpoints before NATS exists.
-func (f *Foundation) Reconcile(ctx context.Context, plan Object) (Object, error) {
-	if f.BeforeWrite == nil || f.Guard == nil || f.Checkpoint == nil || f.CheckpointAuxiliary == nil || f.PrepareCreate == nil || f.Check == nil || f.OperationID == "" || len(f.OperationID) > 256 {
-		return nil, errors.New("foundation reconciliation requires an operation ID, durable authority, checkpoints and live inspection")
-	}
-	working := *f
-	working.Apply = true
-	if working.Out == nil {
-		working.Out = io.Discard
-	}
-	bound, err := ociregion.ValidatePlan(plan)
-	if err != nil {
-		return nil, err
-	}
-	if f.tenancy != "" && bound["tenancy_id"] != f.tenancy || f.region != "" && bound["region"] != f.region {
-		return nil, errors.New("foundation plan differs from authenticated tenancy or regional client")
-	}
-	if _, err := ociregion.FoundationBucketKey(bound, obj(bound["resource_ids"]), "ledger", working.HomeStorageDomain); err != nil {
-		return nil, err
-	}
-	ctx = ociclient.WithAuthority(ociresource.WithOperation(ctx, f.OperationID), f.Guard)
-	if working.inspect != nil {
-		working.Check = func(plan Object) error { return working.inspect(ctx, plan, working.HomeStorageDomain) }
-	}
-	ids, err := working.bind(ctx, bound)
-	if err != nil {
-		return nil, err
-	}
-	bound["resource_ids"] = ids
-	if err := working.Check(bound); err != nil {
-		return nil, fmt.Errorf("the bound foundation fails inspection: %w", err)
-	}
-	return bound, nil
 }
 
 // write creates out, or accepts an identical one; it never replaces a

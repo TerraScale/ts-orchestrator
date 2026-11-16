@@ -224,7 +224,7 @@ release leaf, kept in OCI Vault (`gru-1-trust-*`, see [secrets](secrets.md)).
 3. The root signs an amendment that **widens authority** itself, without a
    delegation (`release sign-spec --root`), also for at most 24 hours.
 4. Production controllers verify specs with the cell's current roots (the
-   image's baked roots until a [root rotation](root-rotation.md)) and
+   image's baked roots) and
    deployment identity. A lab controller (`nats.lab: true`) uses
    `controller.spec_trust` instead. Signed production configs refuse that
    setting.

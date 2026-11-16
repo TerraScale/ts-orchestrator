@@ -69,30 +69,22 @@ nice -n 19 mise exec -- make release-linux
 
 `make lint` checks formatting, templ output, `go vet`, shell scripts and the repository policies; the only test here is the single-host E2E (`test/e2e/m1/run.sh`), and product behaviour is proven by the journey E2E in the terrascale repo.
 `make build` creates `dist/ts-orch` for the current host. The same executable runs
-the controller, host agent, and operator tooling:
+the `single-host` runtime and the operator tooling:
 
 ```bash
 dist/ts-orch --help
-dist/ts-orch bootstrap --help
 dist/ts-orch release --help
-dist/ts-orch image --help
+dist/ts-orch region --help
 dist/ts-orch oci-region --help
-dist/ts-orch qualification --help
-dist/ts-orch run --config controller.json
-dist/ts-orch operator hosts --config operator.json
 ```
 
-See [the unified CLI](docs/cli.md) for command migration and feature boundaries.
+See [the unified CLI](docs/cli.md) for the commands and feature boundaries.
 See [the network address plan](docs/network/address-plan.md) for dedicated
 mesh/region/bridge reservations, the live audit and
 `scripts/check-network-coexistence.sh` (exit 0 requires both meshes and DNS
 on PCs/user clients, and NetBird connectivity on regional servers).
 Change a cell's servers and load balancer backends only with `ts-orch node`
 ([node operations](docs/node-operations.md)), never with the `oci` CLI.
-
-The cell spec pins NetBird clients; ts-orch installs missing agents and rolls
-pin changes one node at a time. See [managed NetBird](docs/netbird-managed.md)
-for first adoption, verified artifacts and the pin-bump workflow.
 
 `make release-linux` creates static Linux amd64 and arm64 executables and
 requires no Go runtime on the target machine. GitHub CI repeats the checks

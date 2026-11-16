@@ -2,7 +2,6 @@ package region
 
 import (
 	"errors"
-	"maps"
 
 	"github.com/TerraScale/ts-orchestrator/internal/drainwire"
 )
@@ -45,11 +44,4 @@ func (r FoundationRecord) retainPoolDrains(previous FoundationRecord) error {
 		}
 	}
 	return nil
-}
-
-func (r *FoundationRecord) clonePoolDrains() {
-	r.PoolDrains = maps.Clone(r.PoolDrains)
-	for key, receipt := range r.PoolDrains {
-		r.PoolDrains[key] = receipt.Clone()
-	}
 }

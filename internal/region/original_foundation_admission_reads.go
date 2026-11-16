@@ -1,8 +1,6 @@
 package region
 
 import (
-	"bytes"
-	"context"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -12,9 +10,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
-	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 )
 
@@ -306,98 +302,6 @@ func originalAdmissionReadPolicy(scope OriginalFoundationAdmissionReads) identit
 		FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}
 }
 
-func originalAdmissionReadPrerequisites(ctx context.Context, authority *HomeIAMAuthority) (FoundationRecord, string, [3]OriginalFoundationAdmissionReads, time.Time, error) {
-	var scopes [3]OriginalFoundationAdmissionReads
-	record, etag, _, deadline, err := originalActorReadsPrerequisites(ctx, authority)
-	if err != nil || completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record) != nil {
-		return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	reader, ok := authority.resolver.Footprint.(*SignedFootprint)
-	if !ok {
-		return record, etag, scopes, time.Time{}, ErrOriginalSourceProducerHold
-	}
-	grant, _, err := reader.verifyOriginalDocument(authority.operator.bundle.GrantWire)
-	if err != nil || grant.OriginalActorAdmissionReads == nil || validateOriginalAdmissionReadIntents(grant, authority.domain) != nil {
-		return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	iam, err := authority.factory.Identity()
-	if err != nil {
-		return record, etag, scopes, time.Time{}, err
-	}
-	if err := completeOriginalSourceIAMActorsFromValidatedActors(record); err != nil {
-		return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	for index, regional := range record.OriginalFoundationCompartments.Regions {
-		// Reconstruct from independently verified signed material, not record fields.
-		material, err := originalActorMaterial(grant, regional.Cell)
-		if err != nil {
-			return record, etag, scopes, time.Time{}, err
-		}
-		actor, err := originalActorScopeFromPrerequisites(record, index, *material.Startup, material.Config)
-		if err != nil || !sameOriginalSourceValue(actor, regional.Actor.scopeOnly()) {
-			return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
-		}
-		source, err := originalSourceIAMScopeFromActors(record, index)
-		if err != nil || !sameOriginalSourceValue(source, regional.SourceIAM.scopeOnly()) {
-			return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
-		}
-		entry := regional.SourceIAM
-		response, err := iam.GetPolicy(ociclient.RequestContext(ctx), identity.GetPolicyRequest{PolicyId: new(entry.Provenance.ResourceID)})
-		if err != nil || deref(response.Id) != entry.Provenance.ResourceID || deref(response.CompartmentId) != deref(entry.Request.CompartmentId) ||
-			deref(response.Name) != deref(entry.Request.Name) || deref(response.Description) != deref(entry.Request.Description) ||
-			response.LifecycleState != identity.PolicyLifecycleStateActive || !slices.Equal(response.Statements, entry.Request.Statements) ||
-			!sameOriginalSourceValue(response.VersionDate, entry.Request.VersionDate) || !sameOriginalSourceValue(response.FreeformTags, entry.Request.FreeformTags) || !sameOriginalSourceValue(response.DefinedTags, entry.Request.DefinedTags) {
-			return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
-		}
-		scopes[index], err = originalAdmissionReadScopeFromPrerequisites(record, index, (*grant.OriginalActorAdmissionReads)[index])
-		if err != nil {
-			return record, etag, scopes, time.Time{}, err
-		}
-	}
-	if err := authority.Guard(ctx, 0); err != nil {
-		return record, etag, scopes, time.Time{}, err
-	}
-	return record, etag, scopes, deadline, nil
-}
-
-func provisionOriginalFoundationAdmissionReads(ctx context.Context, authority *HomeIAMAuthority) error {
-	record, etag, expected, _, err := originalAdmissionReadPrerequisites(ctx, authority)
-	if err != nil {
-		return err
-	}
-	changed := false
-	for index := range expected {
-		entry := record.OriginalFoundationCompartments.Regions[index].AdmissionReads
-		if entry == nil {
-			record.OriginalFoundationCompartments.Regions[index].AdmissionReads = &expected[index]
-			changed = true
-		} else if !sameOriginalSourceValue(entry.scopeOnly(), expected[index]) {
-			return ErrOriginalSourceProducerHold
-		}
-	}
-	if changed {
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	for index := range expected {
-		if err := provisionOriginalAdmissionRead(ctx, authority, index); err != nil {
-			return err
-		}
-	}
-	if err := retainOriginalFoundationPublication(ctx, authority); err != nil {
-		return err
-	}
-	grant, err := decodeOriginalMaterialGrant(authority.operator.bundle)
-	if err != nil {
-		return err
-	}
-	if grant.OriginalMaterialPublicationIAM == nil {
-		return ErrOriginalFoundationAdmissionReadsPending
-	}
-	return provisionOriginalFoundationMaterialIAM(ctx, authority)
-}
-
 func (entry OriginalFoundationAdmissionReads) scopeOnly() OriginalFoundationAdmissionReads {
 	entry.Pending, entry.Provenance = nil, nil
 	entry.ReadbackSHA256, entry.VerifiedAt, entry.HoldReason = "", time.Time{}, ""
@@ -429,115 +333,6 @@ func originalAdmissionReadback(entry OriginalFoundationAdmissionReads) (string, 
 	}
 	wire, err := json.Marshal([]string{entry.Provenance.ResourceID, digestSource(body), "ACTIVE"}, json.Deterministic(true))
 	return digestSource(wire), err
-}
-
-func provisionOriginalAdmissionRead(ctx context.Context, authority *HomeIAMAuthority, index int) error {
-	record, etag, scopes, _, err := originalAdmissionReadPrerequisites(ctx, authority)
-	if err != nil {
-		return err
-	}
-	regional := record.OriginalFoundationCompartments.Regions[index]
-	entry := regional.AdmissionReads
-	if entry == nil || entry.HoldReason != "" || !sameOriginalSourceValue(entry.scopeOnly(), scopes[index]) {
-		return ErrOriginalSourceProducerHold
-	}
-	body, err := foundationWriterPolicyBody(entry.Request)
-	if err != nil {
-		return err
-	}
-	digest := digestSource(body)
-	if entry.Pending == nil {
-		entry.Pending = &PendingFoundationCreate{OperationID: regional.OperationID, IntentDigest: regional.IntentSHA256,
-			FirstAttemptAt: time.Now().UTC(), Request: originalAdmissionReadCreateIdentity(regional, digest)}
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	if entry.Provenance == nil && !time.Now().Before(entry.Pending.FirstAttemptAt.Add(bootstrapRetryLifetime)) {
-		entry.HoldReason = "retry-expired"
-		return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-	}
-	guard := func(dispatchCtx context.Context) error {
-		saved, _, currentScopes, deadline, err := originalAdmissionReadPrerequisites(originalProviderCheckpointContext(dispatchCtx, ctx), authority)
-		if err != nil {
-			return err
-		}
-		current := saved.OriginalFoundationCompartments.Regions[index].AdmissionReads
-		if current == nil || current.HoldReason != "" || !sameOriginalSourceValue(current, entry) || !sameOriginalSourceValue(current.scopeOnly(), currentScopes[index]) ||
-			current.Pending == nil || current.Pending.Request != originalAdmissionReadCreateIdentity(regional, digest) {
-			return ErrOriginalSourceProducerHold
-		}
-		actual, err := foundationWriterPolicyBody(current.Request)
-		if err != nil || !bytes.Equal(actual, body) {
-			return errors.Join(ErrOriginalSourceProducerHold, err)
-		}
-		if current.Provenance == nil {
-			deadline = originalActorDeadline(deadline, current.Pending.FirstAttemptAt.Add(bootstrapRetryLifetime))
-		}
-		return ociclient.LimitAdmission(dispatchCtx, deadline)
-	}
-	if err := guard(ctx); err != nil {
-		return err
-	}
-	iam, err := authority.factory.Identity()
-	if err != nil {
-		return err
-	}
-	noRetry := common.NoRetryPolicy()
-	policyCtx := ociclient.WithRequestGuard(ociclient.WithAuthority(ctx, guard), guard)
-	if entry.Provenance == nil {
-		// HomeWrite remains advisory; provider revocation is not atomic with dispatch.
-		createCtx := ociclient.WithAdmission(policyCtx, func(dispatchCtx context.Context) (func(), error) {
-			if err := guard(dispatchCtx); err != nil {
-				return nil, err
-			}
-			return func() {}, nil
-		})
-		response, err := iam.CreatePolicy(ociclient.RequestContext(createCtx), identity.CreatePolicyRequest{CreatePolicyDetails: entry.Request,
-			OpcRetryToken: new(entry.Pending.Request.RetryToken), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
-		if err != nil {
-			if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() >= 400 && service.GetHTTPStatusCode() < 500 && service.GetHTTPStatusCode() != 408 && service.GetHTTPStatusCode() != 429 {
-				entry.HoldReason = "create-refused"
-				return errors.Join(err, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-			}
-			return err
-		}
-		id := deref(response.Id)
-		if !validAuxiliaryID("controller_usage_policy", id, "") || originalAdmissionReadDuplicate(record, index, id) {
-			entry.HoldReason = "create-unresolved"
-			return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-		}
-		entry.Provenance = &FoundationResourceProvenance{Create: *entry.Pending, ResourceID: id, Generation: regional.Generation, GrantSHA256: entry.GrantSHA256}
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	if err := guard(ctx); err != nil {
-		return err
-	}
-	response, err := iam.GetPolicy(ociclient.RequestContext(policyCtx), identity.GetPolicyRequest{PolicyId: new(entry.Provenance.ResourceID), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
-	if err != nil {
-		return err
-	}
-	if deref(response.Id) != entry.Provenance.ResourceID || deref(response.CompartmentId) != deref(entry.Request.CompartmentId) ||
-		deref(response.Name) != deref(entry.Request.Name) || deref(response.Description) != deref(entry.Request.Description) ||
-		response.LifecycleState != identity.PolicyLifecycleStateActive || !slices.Equal(response.Statements, entry.Request.Statements) ||
-		!sameOriginalSourceValue(response.VersionDate, entry.Request.VersionDate) || !sameOriginalSourceValue(response.FreeformTags, entry.Request.FreeformTags) || !sameOriginalSourceValue(response.DefinedTags, entry.Request.DefinedTags) {
-		entry.HoldReason = "readback-conflict"
-		return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-	}
-	readback, err := originalAdmissionReadback(*entry)
-	if err != nil || entry.ReadbackSHA256 != "" && entry.ReadbackSHA256 != readback {
-		return errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	if err := guard(ctx); err != nil {
-		return err
-	}
-	if entry.VerifiedAt.IsZero() {
-		entry.ReadbackSHA256, entry.VerifiedAt = readback, time.Now().UTC()
-		return checkpointOriginalCompartments(ctx, authority, &record, &etag)
-	}
-	return nil
 }
 
 func (record FoundationRecord) validateOriginalFoundationAdmissionReads() error {
