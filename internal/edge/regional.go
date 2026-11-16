@@ -67,6 +67,7 @@ type regionalStatus struct {
 func (e *Edge) SetRegionalNodes(nodes func() []mesh.WorkerPeer) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	e.configureUpstream(transport, transport.DialContext)
 	transport.Protocols = new(http.Protocols)
 	transport.Protocols.SetUnencryptedHTTP2(true)
 	transport.ResponseHeaderTimeout = 60 * time.Second
@@ -633,11 +634,13 @@ func (e *Edge) serveRegionalInternal(ln net.Listener) error {
 		}
 		r.URL.Host = address
 		if isExtendedConnect(r) {
-			return tunnelTransport{dial: dialTerraBase}.RoundTrip(r)
+			return tunnelTransport{dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				return e.dialBounded(ctx, network, address, dialTerraBase)
+			}}.RoundTrip(r)
 		}
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Protocols = protocols
-		transport.DialContext = dialTerraBase
+		e.configureUpstream(transport, dialTerraBase)
 		defer transport.CloseIdleConnections()
 		return transport.RoundTrip(r)
 	})
