@@ -1,5 +1,6 @@
 source "$(dirname "$0")/common.sh"
-begin "service replica autoscaling through the edge"
+mode=$2
+begin "$mode"
 source "$here/runtime.sh"
 restore_runtime
 if ! $cache_hit; then
@@ -19,5 +20,5 @@ for host in c11.e2e.test fixed.c11.e2e.test; do
 	cat "$host.key" "$host.pem" >"$root/c18a/edge-certs/$host"
 done
 sudo env "PATH=$PATH" unshare --mount --fork bash "$here/lifecycle/prepare.sh" "$work" "$tools" "$image"
-sudo env "PATH=$PATH" unshare --mount --net --fork bash "$here/lifecycle/run.sh" "$root" "$tools/lifecycle" "$image" "$work/busybox.tar" "$tools/server" autoscale
-end "service replica autoscaling through the edge"
+sudo env "PATH=$PATH" unshare --mount --net --fork bash "$here/lifecycle/run.sh" "$root" "$tools/lifecycle" "$image" "$work/busybox.tar" "$tools/server" "$mode"
+end "$mode"

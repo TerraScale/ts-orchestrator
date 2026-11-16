@@ -128,7 +128,8 @@ jobs:
           - {lane: fleet, entry: fleet.sh, timeout: 4, packages: "./test/e2e/m1/regional"}
           - {lane: nodelist, entry: nodelist.sh, timeout: 8, packages: "./test/e2e/m1/nodelist"}
           - {lane: restarts, entry: restarts.sh, timeout: 8, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
-          - {lane: autoscale, entry: autoscale.sh, timeout: 5, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+          - {lane: autoscale-up, entry: autoscale-up.sh, timeout: 5, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+          - {lane: autoscale-down, entry: autoscale-down.sh, timeout: 5, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
           - {lane: readiness, entry: readiness.sh, timeout: 10, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
           - {lane: rollback, entry: rollback.sh, timeout: 8}
           - {lane: host-logs, entry: host-logs.sh, timeout: 12}

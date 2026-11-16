@@ -27,7 +27,7 @@ import (
 	"github.com/moby/swarmkit/v2/manager/scheduler"
 )
 
-func (j *journey) autoscale(image string) error {
+func (j *journey) autoscaleUp(image string) error {
 	workloads, err := j.create(image, "c11-load", "10.231.0.2", 18089, false, 1, &autoscale.Bounds{Min: 1, Max: 2})
 	if err != nil {
 		return err
@@ -88,7 +88,6 @@ func (j *journey) autoscale(image string) error {
 	}
 	defer func() { stop(); requests.Wait() }()
 	var scaled []*workload
-	var scaledAt time.Time
 	var loadFailure error
 	if err := until(j.ctx, func() error {
 		response, err := j.control.GetService(j.ctx, &api.GetServiceRequest{ServiceID: initial.task.ServiceID})
@@ -106,10 +105,6 @@ func (j *journey) autoscale(image string) error {
 		}
 		if response.Service.Spec.GetReplicated().Replicas < 2 {
 			return errors.New("load has not increased service replicas: " + strconv.FormatUint(response.Service.Spec.GetReplicated().Replicas, 10))
-		}
-		scaledAt, err = types.TimestampFromProto(response.Service.Meta.UpdatedAt)
-		if err != nil {
-			return err
 		}
 		scaled, err = j.running(initial.task.ServiceID, initial.host, initial.runtime)
 		if err != nil {
@@ -150,43 +145,7 @@ func (j *journey) autoscale(image string) error {
 		return err
 	default:
 	}
-	removed := time.Now()
-	var premature error
-	if err := until(j.ctx, func() error {
-		response, err := j.control.GetService(j.ctx, &api.GetServiceRequest{ServiceID: initial.task.ServiceID})
-		if err != nil {
-			return err
-		}
-		if response.Service.Spec.GetReplicated().Replicas < uint64(len(scaled)) && time.Now().Before(scaledAt.Add(180*time.Second)) {
-			premature = errors.New("service scaled down before the cooldown")
-			return nil
-		}
-		if response.Service.Spec.GetReplicated().Replicas != 1 {
-			return errors.New("waiting for cooldown and scale down")
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	if premature != nil {
-		return premature
-	}
-	fmt.Printf("C11 removed load: replicas %d -> 1 in %.0fs; down cooldown 180s, stabilization 120s\n", len(scaled), time.Since(removed).Seconds())
-	var survivor []*workload
-	if err := until(j.ctx, func() error {
-		var err error
-		survivor, err = j.running(initial.task.ServiceID, initial.host, initial.runtime)
-		if err != nil {
-			return err
-		}
-		if len(survivor) != 1 {
-			return errors.New("waiting for one serving replica")
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	killed := survivor[0]
+	killed := scaled[0]
 	if err := killed.process.Kill(namespaces.WithNamespace(j.ctx, "terrascale"), syscall.SIGKILL, containerd.WithKillAll); err != nil {
 		return err
 	}
@@ -195,16 +154,87 @@ func (j *journey) autoscale(image string) error {
 		if err != nil {
 			return err
 		}
-		if len(current) != 1 || current[0].task.ID == killed.task.ID {
-			return errors.New("waiting for SwarmKit to replace the killed task")
+		if len(current) != 2 {
+			return errors.New("waiting for two serving replicas after task replacement")
 		}
-		fmt.Printf("C11 SwarmKit replacement: %s -> %s; replicas remain 1\n", killed.task.ID, current[0].task.ID)
+		var replacement *workload
+		for _, task := range current {
+			if task.task.ID == killed.task.ID {
+				return errors.New("waiting for SwarmKit to replace the killed task")
+			}
+			if task.task.ID != scaled[1].task.ID {
+				replacement = task
+			}
+		}
+		if replacement == nil {
+			return errors.New("waiting for a new task identity")
+		}
+		fmt.Printf("C11 SwarmKit replacement: %s -> %s; replicas remain 2\n", killed.task.ID, replacement.task.ID)
 		return nil
 	}); err != nil {
 		return err
 	}
 	if err := j.fixedService(fixed[0].task.ServiceID); err != nil {
 		return err
+	}
+	_, err = j.control.RemoveService(j.ctx, &api.RemoveServiceRequest{ServiceID: initial.task.ServiceID})
+	return err
+}
+
+func (j *journey) autoscaleDown(image string) error {
+	workloads, err := j.create(image, "c11-load", "10.231.0.2", 18089, false, 2, &autoscale.Bounds{Min: 1, Max: 2})
+	if err != nil {
+		return err
+	}
+	initial := workloads[0]
+	service, err := j.control.GetService(j.ctx, &api.GetServiceRequest{ServiceID: initial.task.ServiceID})
+	if err != nil {
+		return err
+	}
+	started, err := types.TimestampFromProto(service.Service.Meta.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	if service.Service.Spec.GetReplicated().Replicas != 2 {
+		return errors.New("idle service did not start with two replicas")
+	}
+	fmt.Println("C11 idle service: started at 2 replicas with bounds 1..2")
+	var violation error
+	if err := until(j.ctx, func() error {
+		response, err := j.control.GetService(j.ctx, &api.GetServiceRequest{ServiceID: initial.task.ServiceID})
+		if err != nil {
+			return err
+		}
+		replicas := response.Service.Spec.GetReplicated().Replicas
+		if replicas < 1 || replicas > 2 {
+			violation = errors.New("idle service exceeded its bounds")
+			return nil
+		}
+		if replicas == 2 {
+			return errors.New("waiting for idle cooldown and scale down")
+		}
+		changed, err := types.TimestampFromProto(response.Service.Meta.UpdatedAt)
+		if err != nil {
+			return err
+		}
+		if changed.Before(started.Add(180 * time.Second)) {
+			violation = errors.New("idle service scaled down before the 180-second cooldown")
+			return nil
+		}
+		current, err := j.running(initial.task.ServiceID, initial.host, initial.runtime)
+		if err != nil {
+			return err
+		}
+		if len(current) != 1 {
+			return errors.New("waiting for one serving idle replica")
+		}
+		fmt.Printf("C11 idle cooldown: held 2 replicas for %.0fs, then 2 -> 1; down cooldown 180s, stabilization 120s\n", changed.Sub(started).Seconds())
+		return nil
+	}); err != nil {
+		return err
+	}
+	if violation != nil {
+		return violation
 	}
 	_, err = j.control.RemoveService(j.ctx, &api.RemoveServiceRequest{ServiceID: initial.task.ServiceID})
 	return err

@@ -75,8 +75,11 @@ reason. The existing host metrics endpoint exposes:
 - `ts_orch_service_replica_decision{service=...,reason=...}`
 - `ts_orch_edge_service_requests_total{service=...}`
 
-Follower managers expose no autoscale decisions. The dedicated `e2e-m1 / autoscale`
-lane drives HTTPS load through the edge into the real runtime. It checks a service
-with explicit bounds scales up and down, an unbounded service stays pinned, live
-scheduler capacity excludes current replicas, and SwarmKit replaces a killed task.
-The 180-second down cooldown is unchanged in the journey.
+Follower managers expose no autoscale decisions. The dedicated
+`e2e-m1 / autoscale-up` lane drives HTTPS load through the edge into the real
+runtime, checks an unbounded service stays pinned while a bounded service grows
+from one to two replicas, checks live scheduler capacity excludes current replicas,
+and proves SwarmKit replaces a killed task at two replicas.
+`e2e-m1 / autoscale-down` starts an idle service at two replicas with bounds 1..2,
+asserts it holds through the full 180-second cooldown, then drops to one.
+Both jobs retain five-minute limits; the policy and cooldown are unchanged.

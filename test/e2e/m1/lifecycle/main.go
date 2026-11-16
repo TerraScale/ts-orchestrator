@@ -134,7 +134,7 @@ func node(ctx context.Context, root, name string) error {
 			return err
 		}
 	}
-	if name == "c18a" && len(os.Args) > 5 && os.Args[5] == "autoscale" {
+	if name == "c18a" && len(os.Args) > 5 && strings.HasPrefix(os.Args[5], "autoscale-") {
 		if err := startAutoscaleEdge(ctx, state); err != nil {
 			return err
 		}
@@ -506,8 +506,13 @@ func run(ctx context.Context, root, image string) error {
 			_ = w.runtime.Close()
 		}
 	}()
-	if len(os.Args) > 3 && os.Args[3] == "autoscale" {
-		return j.autoscale(image)
+	if len(os.Args) > 3 {
+		switch os.Args[3] {
+		case "autoscale-up":
+			return j.autoscaleUp(image)
+		case "autoscale-down":
+			return j.autoscaleDown(image)
+		}
 	}
 	ownerSet, err := j.create(image, "c18-data", "10.231.0.2", 18083, true, 1, nil)
 	if err != nil {
