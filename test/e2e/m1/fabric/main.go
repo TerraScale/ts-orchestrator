@@ -99,11 +99,12 @@ system_account: SYS
 			}
 		}
 		_ = json.NewEncoder(w).Encode(struct {
-			Groups  *server.RaftzStatus
-			Routes  map[string][]uint64
-			Health  string
-			Refusal *string
-		}{&groups, routes, text, last})
+			Groups     *server.RaftzStatus
+			Routes     map[string][]uint64
+			MetaLeader bool
+			Health     string
+			Refusal    *string
+		}{&groups, routes, s.JetStreamIsLeader(), text, last})
 	}
 	mux.HandleFunc("/status", serveStatus)
 	mux.HandleFunc("/groups", serveStatus)
@@ -189,10 +190,11 @@ func start(work string, i int) (*process, error) {
 }
 
 type status struct {
-	Groups  server.RaftzStatus
-	Routes  map[string][]uint64
-	Health  string
-	Refusal *string
+	Groups     server.RaftzStatus
+	Routes     map[string][]uint64
+	MetaLeader bool
+	Health     string
+	Refusal    *string
 }
 
 var client = &http.Client{Timeout: 5 * time.Second}
@@ -322,7 +324,7 @@ func place(i int, app, system *nats.Conn) error {
 			for _, account := range state.Groups {
 				for name, group := range account {
 					if strings.HasPrefix(name, api.group) && group.State == "LEADER" {
-						return true
+						return api.group != "_meta_" || state.MetaLeader
 					}
 				}
 			}
