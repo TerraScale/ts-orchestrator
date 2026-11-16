@@ -24,6 +24,33 @@ for name in sorted(set(current.splitlines()) | base_paths):
         if name in base_paths
         else f"package {original.parent.name}\n".encode()
     )
+    if name == "internal/edge/durations.go":
+        content = original.read_bytes()
+    if name == "internal/edge/edge.go":
+        source = content.decode()
+        source = source.replace(
+            "lastHealthProbe    atomic.Int64",
+            "lastHealthProbe    atomic.Int64\n\trequestDurations sync.Map",
+        )
+        source = source.replace(
+            "e.peers = newPeerTransport(e)",
+            "e.peers = durationTransport{newPeerTransport(e)}",
+        )
+        source = source.replace(
+            "\n\te.proxy = &httputil.ReverseProxy{",
+            "\n\te.local = durationTransport{e.local}\n\te.proxy = &httputil.ReverseProxy{",
+        )
+        source = source.replace(
+            'countResponses("http", http.HandlerFunc(',
+            'countResponses("http", e.measureRequests(http.HandlerFunc(',
+        ).replace(
+            "\n\t\t})),\n\t\tReadHeaderTimeout",
+            "\n\t\t}))),\n\t\tReadHeaderTimeout",
+        ).replace(
+            'countResponses("https", http.HandlerFunc(e.serveHTTPS))',
+            'countResponses("https", e.measureRequests(http.HandlerFunc(e.serveHTTPS)))',
+        )
+        content = source.encode()
     target = work / name
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(content)

@@ -17,14 +17,14 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
@@ -104,12 +104,20 @@ func limitsMain() {
 	go serveBackend(pgBackend)
 	entered, release := make(chan struct{}, 32), make(chan struct{})
 	streamRelease := make(chan struct{})
+	drainEntered, drainRelease := make(chan struct{}), make(chan struct{})
+	poolEntered := make(chan struct{}, 16)
+	poolRelease := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
+	var backendConnections atomic.Uint64
 	web, err := net.Listen("tcp", "127.0.0.1:0")
 	step("HTTP backend", err)
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
-	go (&http.Server{Protocols: protocols, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	go (&http.Server{Protocols: protocols, ConnState: func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			backendConnections.Add(1)
+		}
+	}, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
 			conn, _, err := http.NewResponseController(w).Hijack()
 			if err != nil {
@@ -146,6 +154,15 @@ func limitsMain() {
 			io.Copy(streamFlush{w}, r.Body)
 			return
 		}
+		if r.URL.Path == "/drain" {
+			close(drainEntered)
+			<-drainRelease
+		}
+		if r.URL.Path == "/pool" {
+			wave, _ := strconv.Atoi(r.URL.RawQuery)
+			poolEntered <- struct{}{}
+			<-poolRelease[wave]
+		}
 		if r.URL.Path == "/backpressure" {
 			timer := time.NewTimer(12 * time.Second)
 			select {
@@ -170,7 +187,12 @@ func limitsMain() {
 		fmt.Fprint(w, n)
 	})}).Serve(web)
 	public := edge.New(state)
-	public.SetServiceRoutes(map[string]int{host: web.Addr().(*net.TCPAddr).Port}, map[string]int{host: pgBackend.Addr().(*net.TCPAddr).Port}, nil, nil)
+	public.SetServiceRoutes(map[string]int{host: web.Addr().(*net.TCPAddr).Port}, map[string]int{host: pgBackend.Addr().(*net.TCPAddr).Port}, map[string]string{host: "latency"}, []string{"latency"})
+	var peerSelections atomic.Uint64
+	public.SetPeerEdges(func() []mesh.WorkerPeer {
+		peerSelections.Add(1)
+		return []mesh.WorkerPeer{{Address: "10.80.1.2", ReadyServices: []string{"latency"}}}
+	})
 	key := make([]byte, 32)
 	_, err = rand.Read(key)
 	step("peer credential", err)
@@ -199,8 +221,17 @@ func limitsMain() {
 			fmt.Printf("ok %s at %s\n", name, time.Since(started).Round(time.Millisecond))
 		}
 	}
-	check("request p50", c.latency())
-	if os.Args[4] == "latency" {
+	check("request first byte", c.latency())
+	if peerSelections.Load() != 0 {
+		check("local replica first", errors.New("local service consulted peer inventory"))
+	} else {
+		check("local replica first", nil)
+	}
+	check("TLS resumption and h2", c.resumption())
+	check("upstream pool", c.pool(poolEntered, poolRelease, &backendConnections, os.Args[4] != "baseline"))
+	check("edge duration histograms", c.latencyMetrics(public))
+	if os.Args[4] == "latency" || os.Args[4] == "baseline" {
+		check("drain in-flight request", c.drain(public, drainEntered, drainRelease))
 		step("latency lane", errors.Join(failures...))
 		return
 	}
@@ -262,43 +293,8 @@ func limitsMain() {
 			check("refusal metric "+reason, errors.New("missing reason series"))
 		}
 	}
+	check("drain in-flight request", c.drain(public, drainEntered, drainRelease))
 	step("edge abuse lane", errors.Join(failures...))
-}
-
-func (c edgeClient) latency() error {
-	conn, err := c.open("198.18.2.1", 443)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(failAfter))
-	reader := bufio.NewReader(conn)
-	for run := range 3 {
-		samples := make([]time.Duration, 250)
-		var before, after runtime.MemStats
-		runtime.ReadMemStats(&before)
-		for i := range samples {
-			start := time.Now()
-			if _, err := fmt.Fprintf(conn, "GET /healthz HTTP/1.1\r\nHost: %s\r\n\r\n", c.host); err != nil {
-				return err
-			}
-			response, err := http.ReadResponse(reader, nil)
-			if err != nil {
-				return err
-			}
-			_, err = io.Copy(io.Discard, response.Body)
-			response.Body.Close()
-			if err != nil || response.StatusCode != 200 {
-				return fmt.Errorf("status %d, read %v", response.StatusCode, err)
-			}
-			samples[i] = time.Since(start)
-		}
-		runtime.ReadMemStats(&after)
-		slices.Sort(samples)
-		fmt.Printf("request p50 run %d: %s (250 requests, TLS keepalive)\n", run+1, samples[len(samples)/2])
-		fmt.Printf("allocations/request run %d: %.2f (client, edge and backend)\n", run+1, float64(after.Mallocs-before.Mallocs)/float64(len(samples)))
-	}
-	return nil
 }
 
 func (c edgeClient) connectionCap(port int, secret string) error {

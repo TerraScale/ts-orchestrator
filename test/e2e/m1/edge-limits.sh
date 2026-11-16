@@ -18,7 +18,7 @@ ip link set lo up
 ip addr add 198.18.1.1/15 dev lo
 ip addr add 198.18.2.1/15 dev lo
 ip addr add 10.80.1.1/8 dev lo
-exec "$1" "$2" "$3" "$4" latency
+exec "$1" "$2" "$3" "$4" baseline
 ' sh "$work/edge-main" "$work/pg" "$work/ca.pem" pg.e2e.test
 echo "PR latency and limits"
 sudo unshare -n sh -c 'set -eu

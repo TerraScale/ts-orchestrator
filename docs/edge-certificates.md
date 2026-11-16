@@ -236,9 +236,11 @@ Observation requests never obtain a certificate.
 
 ## Graceful drain
 
-On SIGTERM the edge immediately answers 503 on `/healthz` and `/readyz` on ports 80 and 443.
-The edge waits 20 s before closing only when an external health checker probed it in the last minute.
-During that wait it keeps its listeners open and serves other requests.
+On SIGTERM the edge disables HTTP keep-alive and closes the HTTPS accept socket
+before withdrawing readiness. Active HTTP handlers finish through graceful shutdown.
+HTTP port 80 keeps answering health and readiness probes with 503 for 20 s when an
+external health checker probed it in the last minute, then shuts down gracefully.
+See [edge latency](edge-latency.md) for transport, TLS resumption and duration metrics.
 
 ## Readiness
 
