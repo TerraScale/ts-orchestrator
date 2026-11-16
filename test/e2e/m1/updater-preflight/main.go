@@ -194,7 +194,7 @@ func main() {
 			must(os.Mkdir("/usr/local/bin/terrascale-orchestrator.prev", 0755))
 			return
 		case "recovery-exited":
-			write(os.Args[2], "{}")
+			write(os.Args[2], "exited")
 			return
 		case "recovery-install":
 			recoveryInstall(ctx, os.Args[2])

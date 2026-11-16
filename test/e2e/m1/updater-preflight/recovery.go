@@ -287,7 +287,7 @@ func recoveryCase(ctx context.Context, binary string) {
 			must(run("kill", "--signal=SIGKILL", unit))
 			deadline, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			for record(exited) == nil {
+			for _, err := os.Stat(exited); err != nil; _, err = os.Stat(exited) {
 				select {
 				case <-watcher.Events:
 				case err := <-watcher.Errors:
