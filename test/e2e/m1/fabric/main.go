@@ -102,9 +102,10 @@ system_account: SYS
 			Groups     *server.RaftzStatus
 			Routes     map[string][]uint64
 			MetaLeader bool
+			Placeable  []string
 			Health     string
 			Refusal    *string
-		}{&groups, routes, s.JetStreamIsLeader(), text, last})
+		}{&groups, routes, s.JetStreamIsLeader(), s.JetStreamClusterPeers(), text, last})
 	}
 	mux.HandleFunc("/status", serveStatus)
 	mux.HandleFunc("/groups", serveStatus)
@@ -193,6 +194,7 @@ type status struct {
 	Groups     server.RaftzStatus
 	Routes     map[string][]uint64
 	MetaLeader bool
+	Placeable  []string
 	Health     string
 	Refusal    *string
 }
@@ -526,6 +528,7 @@ func run(work string) error {
 		processes[i] = p
 	}
 	healthy := func() bool {
+		placeable := false
 		for i := range names {
 			state, err := readStatus(i)
 			if err != nil || state.Health != "" {
@@ -534,8 +537,9 @@ func run(work string) error {
 			if len(state.Groups) == 0 {
 				return false
 			}
+			placeable = placeable || state.MetaLeader && len(state.Placeable) == len(names)
 		}
-		return true
+		return placeable
 	}
 	if err := bounded("three current metadata members", 20*time.Second, healthy); err != nil {
 		return err
