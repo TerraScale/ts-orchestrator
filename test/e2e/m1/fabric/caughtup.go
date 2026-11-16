@@ -24,7 +24,10 @@ func (l *transferLog) Debugf(format string, values ...any) {
 	message := fmt.Sprintf(format, values...)
 	if _, rest, ok := strings.Cut(message, "Selected \""); ok {
 		if peer, _, ok := strings.Cut(rest, "\" for new leader"); ok {
-			l.selected <- peer
+			select {
+			case l.selected <- peer:
+			default:
+			}
 		}
 	}
 	l.Logger.Debugf(format, values...)
