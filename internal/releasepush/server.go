@@ -220,7 +220,7 @@ func SPKIPin(der []byte) (string, error) {
 func Pin(args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("release pin", flag.ContinueOnError)
 	flags.SetOutput(output)
-	state := flags.String("state", "/var/lib/ts-orch", "single-host state directory")
+	state := flags.String("state", "/var/lib/ts-orch", "node state directory")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

@@ -119,7 +119,7 @@ func agent(ctx context.Context, state string) error {
 		return err
 	}
 	defer executor.Close()
-	node, err := swarmruntime.StartSingleHost(ctx, state, executor, swarmruntime.SingleHostAddress, swarmruntime.SingleHostAddress, swarmruntime.FounderAdmission())
+	node, err := swarmruntime.StartHost(ctx, state, executor, "127.0.0.1:4242", "127.0.0.1:4242", swarmruntime.FoundingAdmission("boot-order", "boot-order"))
 	if err != nil {
 		return err
 	}
@@ -238,7 +238,7 @@ func startAgent(ctx context.Context, state, executable string) (*process, error)
 		p.stop()
 		return nil, errors.New("agent did not become ready")
 	}
-	client, conn, err := swarmruntime.DialSingleHost(state)
+	client, conn, err := swarmruntime.DialControl(state)
 	if err != nil {
 		p.stop()
 		return nil, err

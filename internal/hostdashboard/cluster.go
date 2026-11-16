@@ -14,8 +14,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 )
 
-// Role is how the dashboard lists a single-host region's host: it runs the
-// region's controller.
 const Role = "controller"
 
 // meshCluster is the dashboard's whole-mesh view: this host's own snapshot

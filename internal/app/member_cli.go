@@ -29,7 +29,7 @@ const memberCLIUsage = `usage:
 // from its manager's control socket (root).
 func RunMemberCLI(ctx context.Context, args []string, output io.Writer) error {
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
-	return explain(runMemberCLI(ctx, args, output, singleHostState))
+	return explain(runMemberCLI(ctx, args, output, nodeState))
 }
 
 func runMemberCLI(ctx context.Context, args []string, output io.Writer, state string) error {
@@ -52,11 +52,11 @@ func runMemberCLI(ctx context.Context, args []string, output io.Writer, state st
 	case len(args) == 1 && args[0] == "promote":
 		membershipChange = true
 		run = func(ctx context.Context, client api.ControlClient) error {
-			nodeID, err := swarmruntime.SingleHostNodeID(ctx, state)
+			nodeID, err := swarmruntime.LocalNodeID(ctx, state)
 			if err != nil {
 				return err
 			}
-			watchClient, conn, err := swarmruntime.DialSingleHost(state)
+			watchClient, conn, err := swarmruntime.DialControl(state)
 			if err != nil {
 				return err
 			}
@@ -69,7 +69,7 @@ func runMemberCLI(ctx context.Context, args []string, output io.Writer, state st
 	case len(args) == 2 && args[0] == "leave":
 		membershipChange = true
 		run = func(ctx context.Context, client api.ControlClient) error {
-			nodeID, err := swarmruntime.SingleHostNodeID(ctx, state)
+			nodeID, err := swarmruntime.LocalNodeID(ctx, state)
 			if err != nil {
 				return err
 			}
@@ -113,7 +113,7 @@ func runMemberCLI(ctx context.Context, args []string, output io.Writer, state st
 		}
 		defer unix.Flock(int(lock.Fd()), unix.LOCK_UN)
 	}
-	client, conn, err := swarmruntime.DialSingleHost(state)
+	client, conn, err := swarmruntime.DialControl(state)
 	if err != nil {
 		return err
 	}

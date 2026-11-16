@@ -42,12 +42,12 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	f.SetOutput(out)
 	live := f.Bool("live", os.Getenv("TS_VERIFY_LIVE") == "1", "opt in to read-only production requests")
 	region := f.String("region", env("E2E_REGION", "gru"), "expected TerraBase region")
-	cell := f.String("cell", env("TS_VERIFY_CELL", "gru"), "expected single-host dashboard region")
+	cell := f.String("cell", env("TS_VERIFY_CELL", "gru"), "expected node dashboard region")
 	tb := f.String("terrabase-url", env("E2E_TERRABASE_URL", "https://gru.api.terrascale.tech"), "TerraBase origin")
 	auth := f.String("auth-url", env("E2E_AUTH_URL", "https://auth.terrascale.tech"), "ts-auth origin")
 	dash := f.String("dashboard-url", env("E2E_DASHBOARD_URL", "https://dash.terrascale.tech"), "dashboard origin")
 	status := f.String("status-url", env("E2E_STATUS_URL", "https://status.terrascale.tech"), "status origin")
-	orch := f.String("orchestrator-url", os.Getenv("TS_VERIFY_ORCHESTRATOR_URL"), "single-host dashboard origin (HTTPS or loopback tunnel)")
+	orch := f.String("orchestrator-url", os.Getenv("TS_VERIFY_ORCHESTRATOR_URL"), "node dashboard origin (HTTPS or loopback tunnel)")
 	timeout := f.Duration("timeout", 10*time.Second, "deadline per GET")
 	if err := f.Parse(args); errors.Is(err, flag.ErrHelp) {
 		return nil
@@ -67,7 +67,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	}
 	v := verifier{ctx: ctx, region: *region, cell: *cell, http: &http.Client{Timeout: *timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	if *orch == "" {
-		v.add("Single-host operator dashboard", "UNKNOWN", "single-host dashboard URL not supplied; use --orchestrator-url with its NetBird origin or loopback tunnel")
+		v.add("Node operator dashboard", "UNKNOWN", "node dashboard URL not supplied; use --orchestrator-url with its NetBird origin or loopback tunnel")
 	} else {
 		v.orchestrator(*orch)
 	}
@@ -214,9 +214,9 @@ func (v *verifier) orchestrator(origin string) {
 		}
 	} else if code != 200 || json.Unmarshal(body, &snapshot) != nil || snapshot.Version != observability.SnapshotVersion || snapshot.Cell != v.cell || snapshot.Role != "controller" || !snapshot.Ready || snapshot.BuildVersion == "" || snapshot.Member == "" || time.Since(snapshot.ObservedAt) > 30*time.Second || time.Until(snapshot.ObservedAt) > 5*time.Second {
 		state = "FAIL"
-		se += "; expected current ready single-host snapshot with region/build identity"
+		se += "; expected current ready node snapshot with region/build identity"
 	} else {
 		se += "; cell=" + snapshot.Cell + ", member=" + snapshot.Member + ", build=" + snapshot.BuildVersion
 	}
-	v.add("Single-host operator dashboard", state, he+"; "+re+"; "+se)
+	v.add("Node operator dashboard", state, he+"; "+re+"; "+se)
 }

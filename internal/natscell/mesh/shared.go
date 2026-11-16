@@ -23,10 +23,7 @@ const (
 )
 
 type Cluster struct {
-	// Routes returns the route URLs to dial (the founder's, for a worker).
 	Routes func(ctx context.Context, region string) ([]string, error)
 	VCN    netip.Prefix
-	// Worker is a SwarmKit worker: it has no control socket, so it answers
-	// no ping, state or apply and the region answers once, from its founder.
 	Worker bool
 }

@@ -46,4 +46,4 @@
 - CI rejects switch-style configuration; unavoidable third-party names need a narrow allowance and one-line reason.
 - Entry point: `cmd/terrascale-orchestrator`; features: `internal/`; deployment assets: `deploy/`; runbooks: `docs/`; vendored NATS: `third_party/nats-server` (go.mod replacement).
 - Build: `make build` produces `dist/ts-orch`; `make release-linux` builds Linux amd64/arm64. `make release-check` validates release binaries.
-- Checks: `make lint` and `make release-check`. The only test is the single-host E2E (`test/e2e/m1/run.sh`, CI job `e2e-m1`); product behaviour is proven by the journey E2E in the terrascale repo.
+- Checks: `make lint` and `make release-check`. The only test is the node E2E (`test/e2e/m1/run.sh`, CI job `e2e-m1`); product behaviour is proven by the journey E2E in the terrascale repo.

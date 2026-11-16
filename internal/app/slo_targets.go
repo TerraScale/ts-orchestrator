@@ -40,7 +40,7 @@ func syncSLOTargets(ctx context.Context, state, region string, executor *swarmru
 func refreshSLOTargets(ctx context.Context, state, region string, executor *swarmruntime.Executor) error {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	client, conn, err := swarmruntime.DialSingleHost(state)
+	client, conn, err := swarmruntime.DialControl(state)
 	if err != nil {
 		return err
 	}

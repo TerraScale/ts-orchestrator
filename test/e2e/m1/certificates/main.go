@@ -84,7 +84,7 @@ func run() error {
 		if err := syscall.Mount(cfg.Work+"/sys-"+os.Args[5], "/sys", "", syscall.MS_BIND, ""); err != nil {
 			return err
 		}
-		return syscall.Exec(os.Args[3], []string{os.Args[3], "single-host", "--state", cfg.Work + "/" + os.Args[4]}, os.Environ())
+		return syscall.Exec(os.Args[3], []string{os.Args[3], "node", "--state", cfg.Work + "/" + os.Args[4]}, os.Environ())
 	case "authority":
 		return authorityMain(ctx, cfg)
 	case "store":
@@ -293,7 +293,7 @@ func namespace(cfg configuration, node, address string) error {
 }
 
 func route(ctx context.Context, cfg configuration, node, service string, names []string) error {
-	client, conn, err := swarmruntime.DialSingleHost(cfg.Work + "/" + node)
+	client, conn, err := swarmruntime.DialControl(cfg.Work + "/" + node)
 	if err != nil {
 		return err
 	}
@@ -313,7 +313,7 @@ func route(ctx context.Context, cfg configuration, node, service string, names [
 }
 
 func removeRoute(ctx context.Context, cfg configuration, node, name string) error {
-	client, conn, err := swarmruntime.DialSingleHost(cfg.Work + "/" + node)
+	client, conn, err := swarmruntime.DialControl(cfg.Work + "/" + node)
 	if err != nil {
 		return err
 	}

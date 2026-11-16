@@ -26,7 +26,7 @@ type unit struct {
 }
 
 var acceptedKeys = map[string]bool{
-	"Type": true, "NotifyAccess": true, "TimeoutStartSec": true, "Restart": true, "KillMode": true,
+	"Type": true, "NotifyAccess": true, "TimeoutStartSec": true, "Restart": true, "KillMode": true, "ExecStartPre": true,
 	"ProtectKernelLogs": true, "ProtectClock": true, "ProtectHostname": true, "LockPersonality": true,
 	"RestrictRealtime": true, "RestrictSUIDSGID": true, "SystemCallArchitectures": true,
 }
@@ -87,7 +87,7 @@ func parseUnit(data []byte) (unit, error) {
 			u.NoNewPrivileges = value == "yes"
 		default:
 			if !acceptedKeys[key] {
-				return unit{}, fmt.Errorf("ts-orch.service sets %s, which the single-host harness does not reproduce", key)
+				return unit{}, fmt.Errorf("ts-orch.service sets %s, which the Oracle host harness does not reproduce", key)
 			}
 		}
 		if err != nil {

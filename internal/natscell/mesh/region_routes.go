@@ -160,7 +160,7 @@ func (n *Node) dialGossipedPeers() {
 func (n *Node) regionMembers(ctx context.Context) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	client, conn, err := swarmruntime.DialSingleHost(filepath.Dir(n.cfg.dir))
+	client, conn, err := swarmruntime.DialControl(filepath.Dir(n.cfg.dir))
 	if err != nil {
 		return nil, err
 	}

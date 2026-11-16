@@ -25,7 +25,6 @@ var instanceVault struct {
 	cell, vaultID string
 }
 
-// serviceKeyRE is a single-host service's secret key; it also names the file.
 var serviceKeyRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
 
 // sharedSecrets lists the Vault secrets, by purpose after <cell>-<n>-, that a
@@ -39,12 +38,6 @@ var sharedSecrets = map[string][]string{
 	"stripe-webhook-secret":           {"ts-dashboard"},
 }
 
-// ValidateServiceRefs binds a single-host service's secrets to one Vault of
-// cell (vaultID, or any one Vault in the cell's region when vaultID is ""):
-// each key is a *_FILE name, so a value never enters the task environment,
-// and each ref names <cell>-<n>-<service>-<purpose> or a secret sharedSecrets
-// lets the service read. A service named like an infrastructure family (or a
-// prefix of one, such as "ts") names no secrets.
 func ValidateServiceRefs(cell, vaultID, service string, refs map[string]Ref) error {
 	if len(refs) == 0 {
 		return nil

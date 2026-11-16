@@ -87,7 +87,7 @@ func (n *Node) stageBootstrap(action string, j rolloutmaintenance.Job) error {
 	ctx, cancel := context.WithTimeout(n.ctx, rolloutmaintenance.Budget)
 	defer cancel()
 	if n.cfg.maintenance == nil || n.cfg.applier == nil {
-		return errors.New("bootstrap staging requires the fenced regional founder")
+		return errors.New("bootstrap staging requires a fenced regional manager")
 	}
 	peers := n.RegionalNodes()
 	if len(peers) != 2 {

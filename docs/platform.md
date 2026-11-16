@@ -301,8 +301,8 @@ C2 deleted the old controller, the host agent, the cell spec and signed
 channel generation.
 
 C4 deleted the second runtime, the managed/root runtime that production never
-started, so the binary has one runtime: `single-host`. It will be renamed
-`ts-orch node` (C5). C4 removed:
+started, so the binary has one runtime, `ts-orch node` (renamed in C5). C4
+removed:
 
 - the commands `managed-host-start`, `managed-runtime-start`,
   `function-worker`, `root-oci-qualification`,
@@ -327,7 +327,7 @@ started, so the binary has one runtime: `single-host`. It will be renamed
 Release recovery stays: a node pulls or receives a release, runs
 `release preflight` on the candidate and `release recover` from its recovery
 unit. The node autoscaler and OCI reconciler packages stay for the next
-categories, which rebuild them on `single-host`.
+categories, which rebuild them on `ts-orch node`.
 
 ## Order of work
 

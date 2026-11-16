@@ -31,22 +31,18 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-// RunSingleHostServing runs this host's SwarmKit node (founder or joiner of
-// its region's cluster, planHost) together with the public HTTPS edge, which
-// routes each service's hostnames to its published loopback port, and the
-// cross-region mesh that applies services in every region.
-func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) error {
-	flags := flag.NewFlagSet("single-host", flag.ContinueOnError)
+func RunNode(ctx context.Context, args []string, output io.Writer) error {
+	flags := flag.NewFlagSet("node", flag.ContinueOnError)
 	flags.SetOutput(output)
 	state := flags.String("state", "/var/lib/ts-orch", "absolute state directory")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return errors.New("single-host accepts only --state")
+		return errors.New("node accepts only --state")
 	}
 	if os.Geteuid() != 0 {
-		return errors.New("single-host requires root")
+		return errors.New("node requires root")
 	}
 	startupErr := sdnotify.Process().ExtendStart(2 * hostMetadataWindow)
 	probation, err := releasepush.Probe(*state, output)
@@ -138,7 +134,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			close(meshDone)
 		}()
 	}
-	err = runSingleHost(ctx, *state, output, plan, probation, swarmReady, func(ctx context.Context, service string) releasepush.HealthResult {
+	err = serveNode(ctx, *state, output, plan, probation, swarmReady, func(ctx context.Context, service string) releasepush.HealthResult {
 		return releaseHealth(ctx, *state, service, meshNode.Load(), public)
 	}, func(ctx context.Context) error {
 		if node := meshNode.Load(); node != nil {
@@ -163,7 +159,7 @@ func syncEdgeInventory(ctx context.Context, state, region string, publish func(m
 	defer tick.Stop()
 	ref := ""
 	for {
-		if client, conn, err := swarmruntime.DialSingleHost(state); err == nil {
+		if client, conn, err := swarmruntime.DialControl(state); err == nil {
 			if list, err := client.ListServices(ctx, &api.ListServicesRequest{}); err == nil {
 				web, postgres, services := edgeRouteTables(list.Services, region)
 				ref, err = edge.RequestProofRef(list.Services, ref)

@@ -343,7 +343,7 @@ func lane(work string) {
 		if broken {
 			env = append(env, "NOTIFY_SOCKET="+filepath.Join(work, "missing.sock"))
 		}
-		return start("ready; advertise", env, executable, "single-host", "--state", state)
+		return start("ready; advertise", env, executable, "node", "--state", state)
 	}
 	current := launch(false)
 	defer func() {
@@ -374,7 +374,7 @@ func lane(work string) {
 	require(strings.Contains(baselineHealth, "edge not ready: routes unavailable"), "release health omitted edge readiness: "+baselineHealth)
 	require(baselineHealth != "", "release health reply missing")
 	serves := func() {
-		client, conn, err := swarmruntime.DialSingleHost(state)
+		client, conn, err := swarmruntime.DialControl(state)
 		must(err)
 		defer conn.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

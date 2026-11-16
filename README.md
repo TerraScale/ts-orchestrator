@@ -8,7 +8,7 @@ Current configuration paths described below are implementation limitations, not
 production activation instructions.
 
 TerraScale Orchestrator is a Go orchestrator distributed as one binary. Every
-node runs one runtime, `terrascale-orchestrator single-host`
+node runs one runtime, `terrascale-orchestrator node`
 ([`deploy/m1/ts-orch.service`](deploy/m1/ts-orch.service)): a SwarmKit manager
 and worker with containerd, the HTTPS edge and the embedded NATS mesh between
 regions. CI builds the static binaries; `ts-orch release push` and
@@ -67,7 +67,7 @@ nice -n 19 mise exec -- make build
 nice -n 19 mise exec -- make release-linux
 ```
 
-`make lint` checks formatting, templ output, `go vet`, shell scripts and the repository policies; the only test here is the single-host E2E (`test/e2e/m1/run.sh`), and product behaviour is proven by the journey E2E in the terrascale repo.
+`make lint` checks formatting, templ output, `go vet`, shell scripts and the repository policies; the only test here is the node E2E (`test/e2e/m1/run.sh`), and product behaviour is proven by the journey E2E in the terrascale repo.
 `make build` creates `dist/ts-orch` for the current host. The same executable runs
 the `single-host` runtime and the operator tooling:
 

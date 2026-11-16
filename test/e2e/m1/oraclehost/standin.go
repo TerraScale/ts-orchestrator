@@ -109,7 +109,7 @@ func newStandIn(f *Fleet) (*standIn, *tls.Certificate, error) {
 		return nil, nil, err
 	}
 	s := &standIn{fleet: f, names: names, caKey: caKey, secrets: map[string]*secret{}, pinned: map[string]int{}, changed: make(chan struct{}), requests: map[string]int{}}
-	ca := &x509.Certificate{Subject: pkix.Name{CommonName: "single-host-region stand-in CA"}, IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	ca := &x509.Certificate{Subject: pkix.Name{CommonName: "oracle-regions stand-in CA"}, IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
 	if s.caPEM, err = certificate(ca, nil, caKey.Public(), caKey); err != nil {
 		return nil, nil, err
 	}
@@ -138,7 +138,7 @@ func newStandIn(f *Fleet) (*standIn, *tls.Certificate, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	identity := &x509.Certificate{Subject: pkix.Name{CommonName: "instance", OrganizationalUnit: []string{"opc-tenant:ocid1.tenancy.oc1..singlehostregion", "opc-instance:ocid1.instance.oc1..singlehostregion"}}, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+	identity := &x509.Certificate{Subject: pkix.Name{CommonName: "instance", OrganizationalUnit: []string{"opc-tenant:ocid1.tenancy.oc1..oracleregions", "opc-instance:ocid1.instance.oc1..oracleregions"}}, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
 	if s.identity[0], err = certificate(identity, ca, identityKey.Public(), caKey); err != nil {
 		return nil, nil, err
 	}
@@ -248,7 +248,7 @@ func (s *standIn) metadata(w http.ResponseWriter, r *http.Request) {
 		"id": host.InstanceID, "displayName": host.Name, "hostname": host.Name,
 		"region": host.Region.OCIRegion, "canonicalRegionName": host.Region.OCIRegion,
 		"availabilityDomain": "stand-in:" + strings.ToUpper(host.Region.OCIRegion) + "-AD-1", "faultDomain": "FAULT-DOMAIN-1",
-		"compartmentId": "ocid1.compartment.oc1..singlehostregion", "shape": "VM.Standard.A1.Flex",
+		"compartmentId": "ocid1.compartment.oc1..oracleregions", "shape": "VM.Standard.A1.Flex",
 		"state": "Running", "metadata": map[string]string{}, "definedTags": map[string]any{}, "freeformTags": map[string]string{},
 	}
 	switch path {
@@ -305,7 +305,7 @@ func (s *standIn) federate(w http.ResponseWriter, r *http.Request) {
 		serviceError(w, http.StatusUnauthorized, "NotAuthenticated", "certificate is not the instance identity")
 		return
 	}
-	claims, _ := json.Marshal(map[string]any{"exp": time.Now().Add(time.Hour).Unix(), "opc-tenant": "ocid1.tenancy.oc1..singlehostregion", "opc-instance": "ocid1.instance.oc1..singlehostregion"})
+	claims, _ := json.Marshal(map[string]any{"exp": time.Now().Add(time.Hour).Unix(), "opc-tenant": "ocid1.tenancy.oc1..oracleregions", "opc-instance": "ocid1.instance.oc1..oracleregions"})
 	token := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256"}`)) + "." + base64.RawURLEncoding.EncodeToString(claims) + ".c3RhbmQtaW4"
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
@@ -317,8 +317,8 @@ func (s *standIn) notify() {
 
 func secretJSON(item *secret) map[string]any {
 	return map[string]any{
-		"id": item.ID, "secretName": item.Name, "vaultId": item.VaultID, "compartmentId": "ocid1.compartment.oc1..singlehostregion",
-		"keyId": "ocid1.key.oc1." + vaultRegion + ".singlehostregion", "lifecycleState": "ACTIVE",
+		"id": item.ID, "secretName": item.Name, "vaultId": item.VaultID, "compartmentId": "ocid1.compartment.oc1..oracleregions",
+		"keyId": "ocid1.key.oc1." + vaultRegion + ".oracleregions", "lifecycleState": "ACTIVE",
 		"currentVersionNumber": len(item.Versions), "timeCreated": time.Now().UTC().Format(time.RFC3339),
 	}
 }
@@ -427,7 +427,7 @@ func (s *standIn) management(w http.ResponseWriter, r *http.Request) {
 func (s *standIn) jwks(w http.ResponseWriter) {
 	public := s.signer.PublicKey
 	writeJSON(w, http.StatusOK, map[string]any{"keys": []map[string]string{{
-		"kty": "RSA", "alg": "RS256", "use": "sig", "kid": "single-host-region",
+		"kty": "RSA", "alg": "RS256", "use": "sig", "kid": "oracle-regions",
 		"n": base64.RawURLEncoding.EncodeToString(public.N.Bytes()),
 		"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(public.E)).Bytes()),
 	}}})
@@ -438,7 +438,7 @@ func (s *standIn) token(sha, run string) (string, error) {
 		data, err := json.Marshal(v)
 		return base64.RawURLEncoding.EncodeToString(data), err
 	}
-	header, err := encode(map[string]string{"alg": "RS256", "kid": "single-host-region", "typ": "JWT"})
+	header, err := encode(map[string]string{"alg": "RS256", "kid": "oracle-regions", "typ": "JWT"})
 	if err != nil {
 		return "", err
 	}

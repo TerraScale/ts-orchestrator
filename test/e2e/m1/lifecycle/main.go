@@ -86,7 +86,7 @@ func node(ctx context.Context, root, name string) error {
 	}
 	defer executor.Close()
 	address := "10.231.0.2:4242"
-	admission := swarmruntime.FounderAdmission()
+	admission := swarmruntime.FoundingAdmission("c18a", "c18a")
 	if name == "c18b" {
 		address = "10.231.0.3:4242"
 		var token []byte
@@ -97,9 +97,12 @@ func node(ctx context.Context, root, name string) error {
 		}); err != nil {
 			return err
 		}
-		admission = swarmruntime.JoinerAdmission(name, name, "10.231.0.2:4242", string(token))
+		admission, err = swarmruntime.JoiningAdmission(name, name, "10.231.0.2:4242", string(token))
+		if err != nil {
+			return err
+		}
 	}
-	node, err := swarmruntime.StartSingleHost(ctx, state, executor, address, address, admission)
+	node, err := swarmruntime.StartHost(ctx, state, executor, address, address, admission)
 	if err != nil {
 		return err
 	}
@@ -143,7 +146,7 @@ func node(ctx context.Context, root, name string) error {
 			}
 		case "/agent-start":
 			var err error
-			node, err = swarmruntime.StartSingleHost(ctx, state, executor, address, address, admission)
+			node, err = swarmruntime.StartHost(ctx, state, executor, address, address, admission)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
@@ -451,7 +454,7 @@ func run(ctx context.Context, root, image string) error {
 	}); err != nil {
 		return err
 	}
-	control, conn, err := swarmruntime.DialSingleHost(filepath.Join(root, "c18a"))
+	control, conn, err := swarmruntime.DialControl(filepath.Join(root, "c18a"))
 	if err != nil {
 		return err
 	}

@@ -212,7 +212,7 @@ func main() {
 	case "region":
 		runRegion(ctx, os.Args[2:])
 	case "inventory":
-		client, conn, err := swarmruntime.DialSingleHost(os.Args[2])
+		client, conn, err := swarmruntime.DialControl(os.Args[2])
 		must(err)
 		defer conn.Close()
 		rows, err := swarmruntime.ListServiceSpecs(ctx, client)
@@ -228,7 +228,7 @@ func main() {
 }
 
 func runSwarm(ctx context.Context, root string) {
-	child := exec.Command(filepath.Join(root, "..", "ts-orch"), "single-host", "--state", root)
+	child := exec.Command(filepath.Join(root, "..", "ts-orch"), "node", "--state", root)
 	output, err := child.StdoutPipe()
 	must(err)
 	child.Stderr = os.Stderr
@@ -240,7 +240,7 @@ func runSwarm(ctx context.Context, root string) {
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Println(line)
-			if strings.HasPrefix(line, "single-host manager ") && strings.Contains(line, " ready; advertise ") {
+			if strings.HasPrefix(line, "node manager ") && strings.Contains(line, " ready; advertise ") {
 				close(ready)
 			}
 		}
@@ -250,7 +250,7 @@ func runSwarm(ctx context.Context, root string) {
 	case <-ready:
 		fmt.Println("READY")
 	case err := <-done:
-		panic(fmt.Errorf("single-host exited before readiness: %v", err))
+		panic(fmt.Errorf("node exited before readiness: %v", err))
 	case <-ctx.Done():
 		_ = child.Process.Signal(syscall.SIGTERM)
 		<-done
@@ -336,7 +336,7 @@ func runRegion(ctx context.Context, args []string) {
 
 func control(ctx context.Context, args []string) {
 	root := args[0]
-	client, conn, err := swarmruntime.DialSingleHost(root)
+	client, conn, err := swarmruntime.DialControl(root)
 	must(err)
 	defer conn.Close()
 	var spec swarmruntime.ServiceSpec

@@ -37,7 +37,7 @@ func ServingService(ctx context.Context, client api.ControlClient, name string) 
 		if service.Spec.Annotations.Labels[LabelReadyPath] == "" {
 			return nil
 		}
-		if node.Description.Hostname == local || node.Description.Hostname == singleHostID {
+		if isLocalNode(ctx, client, node, local) {
 			return ProbeLocalTask(ctx, task)
 		}
 		address, err := netip.ParseAddr(node.Status.Addr)

@@ -35,13 +35,11 @@ func (n *Node) RegionalNodes() []WorkerPeer {
 	return nodes
 }
 
-// SetRegionalDrainer binds the founder's ingress drain implementation.
 func (n *Node) SetRegionalDrainer(drain func(context.Context, string) error) {
 	fn := regionalDrainer(drain)
 	n.regionalDrain.Store(&fn)
 }
 
-// DrainTask asks the region's founder to withdraw ingress before this task stops.
 func (n *Node) DrainTask(ctx context.Context, task string) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -117,7 +115,6 @@ func (n *Node) handleDrain(m *nats.Msg) {
 
 type bootstrapHook func(context.Context, string, rolloutmaintenance.Job) error
 
-// SetBootstrap binds only the founder's authenticated regional ingress endpoint.
 func (n *Node) SetBootstrap(call func(context.Context, string, rolloutmaintenance.Job) error) {
 	fn := bootstrapHook(call)
 	n.bootstrapHook.Store(&fn)

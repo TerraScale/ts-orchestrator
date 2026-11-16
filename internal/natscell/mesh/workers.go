@@ -17,16 +17,12 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// WorkerPeer is one fully joined worker of a region, as its founder reports
-// it in ping replies: the node name TerraBase sees as TS_NODE and its NetBird
-// IPv4.
 type WorkerPeer struct {
 	Node          string   `json:"node"`
 	Address       string   `json:"address"`
 	ReadyServices []string `json:"ready_services,omitempty"`
 }
 
-// announcement is a worker's last word to its founder.
 type announcement struct {
 	nodeID  string
 	address string
@@ -47,15 +43,12 @@ type workerNodes interface {
 	Replicas(ctx context.Context, service string) (uint64, error)
 }
 
-var errWorkersSettling = errors.New("the founder has not heard its workers for a full announcement window since it started")
+var errWorkersSettling = errors.New("this manager has not heard its workers for a full announcement window since it started")
 
 func PerNode(spec *swarmruntime.ServiceSpec) bool {
 	return spec != nil && (spec.EveryNode() || len(spec.Mounts) != 0 && regionalReplicas(spec) > 1)
 }
 
-// regionalReplicas upgrades existing TerraBase declarations in place. R10's
-// founder needs one durable in-region holder; a drained worker still does not
-// count toward the runtime replica count. Other services keep their declaration.
 func regionalReplicas(spec *swarmruntime.ServiceSpec) uint64 {
 	if spec.Name == "terrabase" {
 		return 2
@@ -63,8 +56,6 @@ func regionalReplicas(spec *swarmruntime.ServiceSpec) uint64 {
 	return spec.Replicas
 }
 
-// announce is a worker's loop: every peersEvery it tells its founder its node
-// name and NetBird address.
 func (n *Node) announce(ctx context.Context) {
 	for {
 		if address, err := n.cfg.address(); err == nil {
@@ -86,7 +77,6 @@ func (n *Node) announce(ctx context.Context) {
 	}
 }
 
-// recordWorker keeps a worker's announcement; only the founder subscribes.
 func (n *Node) recordWorker(m *nats.Msg) {
 	var at nodeAnnouncement
 	if protocol.DecodeStrict(m.Data, &at, maxWire) != nil || at.Node == n.cfg.server || !validPeer(n.cfg.region, peer{at.Node, at.Address}) {
@@ -100,9 +90,6 @@ func (n *Node) recordWorker(m *nats.Msg) {
 	n.announced[at.Node] = announcement{nodeID: at.NodeID, address: at.Address, at: time.Now()}
 }
 
-// refreshJoined is the founder's loop: a worker is fully joined while it
-// announces itself over the mesh (so NATS and its NetBird address work) and
-// SwarmKit has it READY and ACTIVE in this region's cluster.
 func (n *Node) refreshJoined(ctx context.Context) {
 	for {
 		n.setJoined(ctx)
@@ -145,7 +132,6 @@ func (n *Node) setJoined(ctx context.Context) {
 	}
 }
 
-// joinedWorkers is the founder's fully joined workers, sorted; nil on a worker.
 func (n *Node) joinedWorkers() []WorkerPeer {
 	n.workerMu.Lock()
 	defer n.workerMu.Unlock()
@@ -187,13 +173,10 @@ func (n *Node) awaitWorkers(ctx context.Context) error {
 	}
 }
 
-// trackWorkerServices keeps a worker's peers files for the per-node services
-// its region's founder desires, so their task here finds its file (listing
-// this worker once the founder counts it fully joined) before it starts.
 func (n *Node) trackWorkerServices(ctx context.Context) {
 	reply, ok := n.states(ctx)[n.cfg.region]
 	if !ok {
-		return // keep the files until the founder answers again
+		return
 	}
 	want := map[string]*swarmruntime.ServiceSpec{}
 	for name, state := range reply.Desired {

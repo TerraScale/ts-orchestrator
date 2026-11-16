@@ -109,9 +109,8 @@ type Reply struct {
 	// waits for regions that joined after its own node's seeds.
 	Regions      []string                   `json:"regions,omitempty"`
 	Attestations map[string]PeerAttestation `json:"attestations,omitempty"`
-	// Workers is the replying founder's fully joined workers (ping only).
-	Workers   []WorkerPeer `json:"workers,omitempty"`
-	StartedAt time.Time    `json:"startedAt,omitzero"`
+	Workers      []WorkerPeer               `json:"workers,omitempty"`
+	StartedAt    time.Time                  `json:"startedAt,omitzero"`
 }
 
 type stateReply struct {
@@ -212,8 +211,8 @@ type Node struct {
 	edgeFollowMu  sync.Mutex
 	edgeRefused   string
 	workerMu      sync.Mutex
-	announced     map[string]announcement // founder: worker node -> its last announcement
-	joined        []WorkerPeer            // founder: the fully joined workers, refreshed each peersEvery
+	announced     map[string]announcement
+	joined        []WorkerPeer
 	listening     time.Time
 	settled       chan struct{}
 }

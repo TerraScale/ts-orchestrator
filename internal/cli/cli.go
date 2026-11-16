@@ -54,7 +54,7 @@ const usage = `Usage: ts-orch <command> [flags]
 Runtime:
   alert-delivery         Deliver loopback Alertmanager notifications through Cloudflare Email Sending
   bootstrap-maintenance  Inspect or drive a finite pinned TerraBase bootstrap transaction (root, local socket)
-  single-host            Run one SwarmKit manager+worker with containerd and the HTTPS edge
+  node                   Run this host's SwarmKit node with containerd and the HTTPS edge (--state DIR)
 
 Operator tooling:
   observe                Inspect authenticated metrics, history, snapshots, cluster and events
@@ -65,13 +65,13 @@ Operator tooling:
   network                Check address and DNS coexistence of NetBird and Tailscale (read-only)
   verify                 Observe production health, persistence gaps and OIDC (read-only)
   log-scan               Count recent WARN and ERROR records per service and node (read-only)
-  events                 Print recent single-host task and service state changes; -f streams them (read-only)
+  events                 Print recent task and service state changes on this node; -f streams them (read-only)
   service                Apply and remove services in every region, list this host's (apply -f FILE | ls | rm NAME)
   member                 List this region's cluster hosts; drain and remove a worker (ls | leave HOSTNAME)
   mesh                   Show which regions answer on the cross-region mesh (ping)
   status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
   edge                   Inspect certificates (edge certificates inventory, repair) or apply GeoDNS (edge geodns)
-  node                   Inspect local public keys and build node lists
+  node keys|list         Inspect local public keys and build node lists
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources
   region                 Bring a new region up in one command; verify it serves
@@ -127,8 +127,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return alertdelivery.Run(ctx, args[1:])
 	case "bootstrap-maintenance":
 		return app.RunBootstrapMaintenance(ctx, args[1:], output)
-	case "single-host":
-		return app.RunSingleHostServing(ctx, args[1:], output)
 	case "service":
 		return app.RunServiceCLI(ctx, args[1:], output)
 	case "member":
@@ -164,7 +162,10 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "log-scan":
 		return logscan.Run(ctx, args[1:], output)
 	case "node":
-		return nodelist.Run(args[1:], output)
+		if len(args) > 1 && (args[1] == "keys" || args[1] == "list") {
+			return nodelist.Run(args[1:], output)
+		}
+		return app.RunNode(ctx, args[1:], output)
 	case "release":
 		if len(args) > 1 && args[1] == "recover" {
 			if len(args) != 2 {

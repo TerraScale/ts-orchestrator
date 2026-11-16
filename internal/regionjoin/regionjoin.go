@@ -22,18 +22,11 @@ import (
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
 
-// Material is the region's join material. It holds the SwarmKit worker join
-// token, so it is never logged or printed.
 type Material struct {
-	// Founder is the hostname of the host that founded the region's cluster.
-	Founder string `json:"founder"`
-	// Manager is the founder's SwarmKit remote API, <private VCN IP>:4242.
-	Manager     string `json:"manager,omitempty"`
-	WorkerToken string `json:"workerToken,omitempty"`
-	// Route is the founder's mesh NATS cluster route, nats://<private VCN IP>:6222.
-	Route    string   `json:"route,omitempty"`
-	Managers []string `json:"managers,omitempty"`
-	Routes   []string `json:"routes,omitempty"`
+	Founder     string   `json:"founder"`
+	WorkerToken string   `json:"workerToken,omitempty"`
+	Managers    []string `json:"managers,omitempty"`
+	Routes      []string `json:"routes,omitempty"`
 }
 
 // Read returns the region's current join material.

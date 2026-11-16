@@ -167,7 +167,7 @@ func main() {
 		must(command.Run())
 		return
 	}
-	if len(os.Args) >= 2 && os.Args[1] == "single-host" {
+	if len(os.Args) >= 2 && os.Args[1] == "node" {
 		if candidateMode() == "early-exit" {
 			os.Exit(17)
 		}

@@ -1,6 +1,6 @@
-# Milestone 1 runbook: ts-orch single host on ts-gru-1
+# Milestone 1 runbook: ts-orch node
 
-One process (`ts-orch single-host`) runs the SwarmKit manager and worker,
+One process (`ts-orch node`) runs the SwarmKit manager and worker,
 the containerd executor, a local control socket and the HTTPS edge (`:80`
 ACME HTTP-01 + redirect, `:443`). Services come from
 `deploy/m1/services/*.json`.
@@ -131,7 +131,7 @@ control socket; none changes state. Known failures end in `. Fix: <next step>`.
 | `ts-orch service inspect <svc>` | JSON: service ID, version, created/updated, image digest, and the declared spec. Secrets show env keys and OCI Vault refs only; values never enter the spec |
 | `ts-orch events [-f]` | Latest 100 task and service state records, oldest first; `-f` streams changes from the manager's watch API |
 
-Single-host's NATS carries only releases, so `events` reads SwarmKit's watch API.
+The release listener's NATS carries only releases, so `events` reads SwarmKit's watch API.
 
 Deploy check: `service apply -f x.json`, then `events -f` until the task shows
 `running`, then `service logs <svc>`.
@@ -176,7 +176,7 @@ cf dns records create -z terrascale.tech --body \
 ## Multi-region
 
 Three regions, one host each: ts-gru-1 (sa-saopaulo-1), ts-sjc-1
-(us-sanjose-1), ts-fra-1 (eu-frankfurt-1). Each runs `ts-orch single-host`
+(us-sanjose-1), ts-fra-1 (eu-frankfurt-1). Each runs `ts-orch node`
 with its own SwarmKit node and its own NATS cluster (`internal/natscell/mesh`).
 
 - DECISION: full-mesh NATS gateways (a supercluster of one-node regional
@@ -342,21 +342,21 @@ regions.json PR. The compartment and network stay (free).
 
 ## A second host in a region joins by itself
 
-`ts-orch single-host` decides at start (`internal/app/single_host.go` `planHost`):
+`ts-orch node` decides at start (`internal/app/node.go` `planHost`):
 
 1. A host with stored swarm state (`/var/lib/ts-orch/swarm/admission.json`) keeps its identity. Its admission role follows its verified SwarmKit certificate after promotion or demotion.
-2. Outside OCI (IMDS `/opc/v2/` does not answer, e.g. a CI runner), the host founds a loopback-only cluster at 127.0.0.1:4242, as before.
-3. A fresh OCI host reads the gru-vault secret `ts-orch-join-<region>` (JSON: `founder` hostname, `manager` address, `workerToken`, mesh `route`, `managers` and `routes` lists) with its instance principal. If the region has no such secret, the host creates it holding only `{"founder":"<hostname>"}`. OCI keeps secret names unique, so one claimer wins and founds the cluster. Every other host joins as a `container` worker using only `workerToken`, dialing the first reachable `managers` address (5 seconds each), then falling back to `manager`. Manager join tokens are never shared.
+2. Outside OCI (IMDS `/opc/v2/` does not answer, e.g. a CI runner), the host founds a loopback-only cluster at 127.0.0.1:4242 under its hostname.
+3. A fresh OCI host reads the gru-vault secret `ts-orch-join-<region>` (JSON: `founder` hostname, `workerToken`, `managers` and `routes` lists) with its instance principal. If the region has no such secret, the host creates it holding only `{"founder":"<hostname>"}`. OCI keeps secret names unique, so one claimer wins and founds the cluster under its hostname. Once the secret holds a `workerToken` and `managers`, every fresh host joins as a `container` worker through the first reachable `managers` address (5 seconds each), even one that reuses the founder's hostname, so a replaced node never founds a second cluster; with no manager reachable it waits and reads the secret again. Manager join tokens are never shared. Secrets written by earlier releases may still hold `manager` and `route`; nothing reads them.
 
 OCI nodes configure 0.0.0.0:4242 and advertise their private VCN address, including workers that may be promoted. Only managers bind SwarmKit's remote API. Restarted managers use that address too, including promoted workers. At every manager start its Raft member address is re-registered with the existing cluster.
 
 Every manager runs the regional health, dashboard and release relay services. A release preserves every existing role. Run `ts-orch member promote` explicitly on the Raft leader to grow a region to three managers. One manager needs two eligible workers; two managers need one. Only READY, active, accepted container workers are eligible, oldest first. Every existing manager must be READY and Raft-reachable with its role change complete before another promotion begins. Each promotion waits for the new manager's role and Raft reachability before advancing. A failed operation stops; an operator must resolve the failure before requesting another change. A region with one host keeps serving as before.
 
-The leader publishes sorted `managers` (`<private address>:4242`) and `routes` (`nats://<private address>:6222`) for READY managers while preserving `founder`, `manager`, `route` and `workerToken`. Role changes switch regional services and rebuild the local mesh with the corresponding manager or worker duties. Vault failures are logged and publication runs again after 30 seconds. On the leader, `ts-orch member leave <host>` refuses pending role changes, leader removal, and any demotion whose remaining READY, reachable managers cannot retain the original majority. Promote replacements before attempting an unsafe departure. A safe departure demotes and drains one manager, waits for its worker role, and removes it after its tasks stop. Operator membership commands serialize on the leader.
+The leader publishes sorted `managers` (`<private address>:4242`) and `routes` (`nats://<private address>:6222`) for READY managers while preserving `founder` and `workerToken`. Role changes switch regional services and rebuild the local mesh with the corresponding manager or worker duties. Vault failures are logged and publication runs again after 30 seconds. On the leader, `ts-orch member leave <host>` refuses pending role changes, leader removal, and any demotion whose remaining READY, reachable managers cannot retain the original majority. Promote replacements before attempting an unsafe departure. A safe departure demotes and drains one manager, waits for its worker role, and removes it after its tasks stop. Operator membership commands serialize on the leader.
 
-Every node dials all regional manager `routes`, falling back to `route` when the list is absent. Cross-region mesh seeds keep region names as keys, with URLs for `ts-<region>-1..3` as each value; region discovery still reports only real regions.
+Every node that joined dials all regional manager `routes`. Cross-region mesh seeds keep region names as keys, with URLs for `ts-<region>-1..3` as each value; region discovery still reports only real regions.
 
-A worker gets ts-orch releases from its founder, which relays every release
+A worker gets ts-orch releases from a manager, which relays every release
 CI pushes it on `ts.mesh.release.<region>`; the worker verifies the signed
 request itself ([mesh JetStream](mesh-jetstream.md#two-nodes-per-region)).
 
@@ -378,7 +378,7 @@ A removed host cannot rejoin with its old identity. Terminate it, or stop ts-orc
 Every green main push with a changed binary runs `deploy/release-push`
 (`.github/workflows/ci.yml`): it pushes the run's release over NATS to every
 region in `deploy/m1/regions.json` (TLS on :4222, listener key pinned, GitHub
-OIDC credential, see `docs/m1-single-host.md`), each host verifies, installs,
+OIDC credential, see `docs/node.md`), each host verifies, installs,
 exits and is restarted by systemd (`RestartSec=1s`), and the job polls each
 region's `ts.release.version` every 250 ms until it equals the SHA. No ssh, no
 manual step, no switch. A region failing never stops the others.

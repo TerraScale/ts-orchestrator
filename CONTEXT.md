@@ -124,7 +124,7 @@ does not prove that CI independently reproduced the build.
 **Repository build**
 
 The GitHub workflow checks out the exact source revision, runs lint (with
-`go vet`) and the single-host E2E, and builds static Linux amd64 and arm64
+`go vet`) and the node E2E, and builds static Linux amd64 and arm64
 binaries, printing their checksums. A main push that publishes retains both
 binaries and a qualification manifest as the GitHub prerelease
 `ci-<sha>-run-<id>`, from which `deploy/release-push` delivers them; the
