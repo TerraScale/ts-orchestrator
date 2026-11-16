@@ -250,7 +250,7 @@ It checks local HTTP backend readiness paths without following redirects and che
 
 ## Inventory
 
-Run ts-orch edge certificates inventory to read this node over its NetBird mesh address (the same as appending local). Append a node name to select one node, or all to read every node in the persisted node list over its mesh address. Fleet and named-node reads load the existing node list directly, without initializing or writing node state.
+Run ts-orch edge certificates inventory on a node to read that node over its NetBird mesh address.
 
 GET /edge/certificates on mesh port 9108 returns certificates, missing_names and errors arrays. This endpoint shares the mesh host telemetry listener and its network access boundary. It is not exposed through the public HTTPS router. Nodes with no edge return an empty inventory and fail readiness.
 

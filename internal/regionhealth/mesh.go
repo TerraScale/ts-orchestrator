@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
-	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -62,11 +61,7 @@ func Run(ctx context.Context, state string) {
 		if conn == nil || conn.IsClosed() {
 			// The mesh writes its token once it starts; until then this retries every tick.
 			if conn, _ = mesh.Connect(state); conn != nil {
-				if err := Serve(conn, func() Report {
-					report := *latest.Load()
-					report.NodeList = nodelist.StatusAt(state)
-					return report
-				}); err != nil {
+				if err := Serve(conn, func() Report { return *latest.Load() }); err != nil {
 					slog.WarnContext(ctx, "region health responder failed", "error", err)
 					conn.Close()
 					conn = nil
@@ -142,7 +137,7 @@ func write(output io.Writer, regions []string, reports map[string]Report) error 
 		line := region + ": unreachable"
 		report, ok := reports[region]
 		if ok {
-			line = region + ": " + report.State + "; " + report.NodeList.String()
+			line = region + ": " + report.State
 			if len(report.Reasons) != 0 {
 				line += " (" + strings.Join(report.Reasons, "; ") + ")"
 			}

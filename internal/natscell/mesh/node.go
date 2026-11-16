@@ -204,17 +204,20 @@ type Node struct {
 	topologyDesired      atomic.Pointer[map[string]Entry]
 	specInvalidPublished atomic.Pointer[map[string]error]
 
-	regionalDrain atomic.Pointer[regionalDrainer]
-	edgeInventory atomic.Pointer[EdgeInventory]
-	edgePublishMu sync.Mutex
-	edgePublished *edgePublication
-	edgeFollowMu  sync.Mutex
-	edgeRefused   string
-	workerMu      sync.Mutex
-	announced     map[string]announcement
-	joined        []WorkerPeer
-	listening     time.Time
-	settled       chan struct{}
+	regionalDrain   atomic.Pointer[regionalDrainer]
+	edgeInventory   atomic.Pointer[EdgeInventory]
+	edgePublisher   atomic.Pointer[string]
+	edgeRefusals    atomic.Int64
+	edgePublishMu   sync.Mutex
+	edgePublished   *edgePublication
+	edgeFollowMu    sync.Mutex
+	edgeRefused     string
+	edgeInventories map[string]followedEdgeInventory
+	workerMu        sync.Mutex
+	announced       map[string]announcement
+	joined          []WorkerPeer
+	listening       time.Time
+	settled         chan struct{}
 }
 
 func start(cfg config) (_ *Node, err error) {

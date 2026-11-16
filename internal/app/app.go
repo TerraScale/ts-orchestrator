@@ -23,7 +23,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
-	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -65,7 +64,6 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	if startupErr != nil {
 		return fmt.Errorf("extend host startup window: %w", startupErr)
 	}
-	nodelist.InitIdentity(*state)
 	plan, err := planHost(ctx, *state, output)
 	if err != nil {
 		return err
@@ -95,8 +93,8 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	if !manager {
 		public.SetInventoryFollower()
 	}
+	var local atomic.Pointer[mesh.EdgeInventory]
 	if manager {
-		var local atomic.Pointer[mesh.EdgeInventory]
 		source := func() (mesh.EdgeInventory, bool) {
 			if current := local.Load(); current != nil {
 				return *current, true
@@ -104,26 +102,28 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 			return mesh.EdgeInventory{}, false
 		}
 		inventory.Store(&source)
-		go func() {
-			select {
-			case <-ctx.Done():
-				return
-			case <-swarmReady:
-			}
-			syncEdgeInventory(ctx, *state, plan.region, func(current mesh.EdgeInventory) {
+	}
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-swarmReady:
+		}
+		syncEdgeInventory(ctx, *state, plan.region, func(current mesh.EdgeInventory) {
+			if manager {
 				local.Store(&current)
 				select {
 				case published <- struct{}{}:
 				default:
 				}
-				if node := meshNode.Load(); node != nil {
-					if err := node.PublishEdgeInventory(*state, current); err != nil {
-						slog.WarnContext(ctx, "edge inventory publication failed", "error", err)
-					}
+			}
+			if node := meshNode.Load(); node != nil {
+				if err := node.PublishEdgeInventory(*state, current); err != nil {
+					slog.WarnContext(ctx, "edge inventory publication failed", "error", err)
 				}
-			})
-		}()
-	}
+			}
+		})
+	}()
 	meshDone := make(chan struct{})
 	if plan.joiner() && plan.address == "" {
 		close(meshDone) // a worker without IMDS stays out of the region's NATS cluster
@@ -172,20 +172,8 @@ func syncEdgeInventory(ctx context.Context, state, region string, publish func(m
 	defer tick.Stop()
 	ref := ""
 	for {
-		if client, conn, err := swarmruntime.DialControl(state); err == nil {
-			if list, err := client.ListServices(ctx, &api.ListServicesRequest{}); err == nil {
-				web, postgres, services := edgeRouteTables(list.Services, region)
-				ref, err = edge.RequestProofRef(list.Services, ref)
-				if err != nil {
-					slog.WarnContext(ctx, "edge request proof reference invalid", "error", err)
-				}
-				publish(mesh.EdgeInventory{Web: web, Postgres: postgres, Services: services, Readiness: edgeReadinessRoutes(list.Services, region), ProofRef: ref})
-			} else {
-				slog.WarnContext(ctx, "edge route sync failed", "error", err)
-			}
-			_ = conn.Close()
-		} else {
-			slog.WarnContext(ctx, "edge control socket unavailable", "error", err)
+		if swarmruntime.HoldsManagerCertificate(state) {
+			ref = publishEdgeRoutes(ctx, state, region, ref, publish)
 		}
 		select {
 		case <-ctx.Done():
@@ -193,6 +181,27 @@ func syncEdgeInventory(ctx context.Context, state, region string, publish func(m
 		case <-tick.C:
 		}
 	}
+}
+
+func publishEdgeRoutes(ctx context.Context, state, region, ref string, publish func(mesh.EdgeInventory)) string {
+	client, conn, err := swarmruntime.DialControl(state)
+	if err != nil {
+		slog.WarnContext(ctx, "edge control socket unavailable", "error", err)
+		return ref
+	}
+	defer conn.Close()
+	list, err := client.ListServices(ctx, &api.ListServicesRequest{})
+	if err != nil {
+		slog.WarnContext(ctx, "edge route sync failed", "error", err)
+		return ref
+	}
+	web, postgres, services := edgeRouteTables(list.Services, region)
+	ref, err = edge.RequestProofRef(list.Services, ref)
+	if err != nil {
+		slog.WarnContext(ctx, "edge request proof reference invalid", "error", err)
+	}
+	publish(mesh.EdgeInventory{Web: web, Postgres: postgres, Services: services, Readiness: edgeReadinessRoutes(list.Services, region), ProofRef: ref})
+	return ref
 }
 
 func edgeRoutes(services []*api.Service, region string) (web, postgres map[string]int) {

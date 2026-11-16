@@ -30,7 +30,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/pathaudit"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 	"github.com/TerraScale/ts-orchestrator/internal/networkcheck"
-	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
@@ -70,7 +69,6 @@ Operator tooling:
   mesh                   Show which regions answer on the cross-region mesh (ping)
   status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
   edge                   Inspect certificates (edge certificates inventory, repair)
-  node keys|list         Inspect local public keys and build node lists
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources
   region                 Bring a new region up in one command; verify it serves
@@ -161,9 +159,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "log-scan":
 		return logscan.Run(ctx, args[1:], output)
 	case "node":
-		if len(args) > 1 && (args[1] == "keys" || args[1] == "list") {
-			return nodelist.Run(args[1:], output)
-		}
 		return app.RunNode(ctx, args[1:], output)
 	case "release":
 		if len(args) > 1 && args[1] == "recover" {
