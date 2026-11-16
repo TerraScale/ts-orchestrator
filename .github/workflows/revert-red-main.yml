@@ -1,0 +1,17 @@
+name: Revert red main
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+permissions: {}
+jobs:
+  revert:
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    uses: TerraScale/.github/.github/workflows/revert-red-main.yml@2cd4ec4afd8b623bf6e7d9da42d48399ce8cb201
+    with:
+      run-id: ${{ format('{0}', github.event.workflow_run.id) }}
+      head-sha: ${{ github.event.workflow_run.head_sha }}
+      workflow-name: ${{ github.event.workflow_run.name }}
