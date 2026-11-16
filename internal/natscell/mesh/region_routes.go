@@ -130,20 +130,20 @@ func (n *Node) dialGossipedPeers() {
 	if n.membershipLive() {
 		return
 	}
-	routed := map[string]bool{}
+	type peerAccount struct{ name, account string }
+	routed := map[peerAccount]bool{}
 	for _, route := range n.routes() {
-		routed[route.RemoteName] = true
+		routed[peerAccount{route.RemoteName, route.Account}] = true
 	}
 	n.gossip.mu.Lock()
 	peers := n.gossip.peers
 	n.gossip.peers = map[string][]gossipedRoute{}
 	n.gossip.mu.Unlock()
 	for name, routes := range peers {
-		if routed[name] {
-			continue
-		}
 		for _, gossiped := range routes {
-			n.server.ConnectImplicitRoute(gossiped.route, gossiped.account)
+			if !routed[peerAccount{name, gossiped.account}] {
+				n.server.ConnectImplicitRoute(gossiped.route, gossiped.account)
+			}
 		}
 	}
 }
