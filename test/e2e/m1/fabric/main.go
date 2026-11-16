@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -110,33 +109,45 @@ system_account: SYS
 	mux.HandleFunc("/status", serveStatus)
 	mux.HandleFunc("/groups", serveStatus)
 	mux.HandleFunc("/transfer-election", func(w http.ResponseWriter, r *http.Request) {
-		requested := make(chan error, 1)
-		go func() { requested <- request(monitor, "$JS.API.META.LEADER.STEPDOWN", names[i]) }()
-		for r.Context().Err() == nil {
-			for _, group := range s.RaftNodes() {
-				if group.Group() != "_meta_" || group.State() != server.Leader {
-					continue
-				}
-				s.TransferRaftLeaders()
-				if group.State() == server.Leader {
-					http.Error(w, "elected metadata leader was skipped during handoff", http.StatusConflict)
-					return
-				}
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			select {
-			case err := <-requested:
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusConflict)
-					return
-				}
-			case <-r.Context().Done():
-				return
-			default:
-				runtime.Gosched()
+		var group server.RaftNode
+		for _, candidate := range s.RaftNodes() {
+			if candidate.Group() == "_meta_" {
+				group = candidate
+				break
 			}
 		}
+		if group == nil {
+			http.Error(w, "metadata group missing", http.StatusConflict)
+			return
+		}
+		term := group.Term()
+		if err := request(monitor, "$JS.API.META.LEADER.STEPDOWN", names[i]); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		var elected string
+		transferred := false
+		if err := await(r.Context(), "metadata election outcome", func() bool {
+			if group.Term() <= term {
+				return false
+			}
+			if group.State() == server.Leader {
+				elected = group.ID()
+				s.TransferRaftLeaders()
+				transferred = group.State() != server.Leader
+				return true
+			}
+			elected = group.GroupLeader()
+			return elected != "" && elected != group.ID() && group.State() == server.Follower
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if elected == group.ID() && !transferred {
+			http.Error(w, "elected metadata leader was skipped during handoff", http.StatusConflict)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(electionOutcome{elected, group.ID(), group.Term(), term, transferred})
 	})
 	mux.HandleFunc("/prepare", func(w http.ResponseWriter, r *http.Request) {
 		if err := lifecycle.PrepareStop(r.Context()); err != nil {
@@ -161,6 +172,35 @@ system_account: SYS
 	case err := <-webDone:
 		return err
 	}
+}
+
+type electionOutcome struct {
+	Elected     string
+	Local       string
+	Term        uint64
+	Previous    uint64
+	Transferred bool
+}
+
+func transferElection() error {
+	response, err := client.Post("http://"+address(0)+":8090/transfer-election", "", nil)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		return fmt.Errorf("transfer-election: %s: %s", response.Status, body)
+	}
+	var outcome electionOutcome
+	if err := json.NewDecoder(response.Body).Decode(&outcome); err != nil {
+		return err
+	}
+	if outcome.Elected == "" || outcome.Term <= outcome.Previous || outcome.Transferred != (outcome.Elected == outcome.Local) {
+		return fmt.Errorf("invalid metadata election outcome: %+v", outcome)
+	}
+	fmt.Printf("ok metadata election: elected=%s local=%s term=%d transferred=%t\n", outcome.Elected, outcome.Local, outcome.Term, outcome.Transferred)
+	return nil
 }
 
 type process struct {
@@ -502,6 +542,9 @@ func metrics(leases []*lease) (int, time.Duration, int) {
 
 func run(work string) error {
 	started := time.Now()
+	if err := caughtUpHandoffs(work); err != nil {
+		return err
+	}
 	processes := make([]*process, 3)
 	defer func() {
 		for i, p := range processes {
@@ -587,13 +630,12 @@ func run(work string) error {
 	if err := place(1, app, system); err != nil {
 		return err
 	}
-	if err := post(0, "transfer-election"); err != nil {
+	if err := transferElection(); err != nil {
 		return err
 	}
 	if err := post(0, "abort"); err != nil {
 		return err
 	}
-	fmt.Println("ok elected metadata leader transfers immediately")
 	if err := place(0, app, system); err != nil {
 		return err
 	}

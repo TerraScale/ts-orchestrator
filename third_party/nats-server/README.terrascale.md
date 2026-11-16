@@ -64,12 +64,14 @@ integration passed five race-instrumented repeats after this change (76ae267d2).
 `RaftNode` handles) and `TransferRaftLeaders` (the lame-duck handoff step).
 The shared handoff puts local groups in observer mode and calls the existing
 `StepDown` for every elected Raft leader, including leaders whose initial
-entry has not yet reached the upper layer. `StepDown` selects a recently
-heard-from follower using the existing election logic. The upper-layer
-`Leader()` readiness flag and follower commit acknowledgments can still lag
-the election and must not gate this transfer. Embedders can check quorum and
-confirm successor leadership before closing listeners. Raft messages, membership, persistence, and election
-timeouts are unchanged; transfers work with unmodified v2.15.0 members in
+entry has not yet reached the upper layer. It prefers a current follower heard
+from within two heartbeats, excluding the local node. When none qualifies,
+`StepDown` selects a recently heard-from follower using its existing election
+logic. The upper-layer `Leader()` readiness flag and follower commit
+acknowledgments can still lag the election and must not gate this transfer.
+Embedders can check quorum and confirm successor leadership before closing
+listeners. Raft messages, membership, persistence, and election timeouts are
+unchanged; transfers work with unmodified v2.15.0 members in
 either direction. Current-replica observations use the existing RAFTZ system
 request, which is also available on unmodified members.
 

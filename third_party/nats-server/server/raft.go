@@ -943,7 +943,14 @@ func (s *Server) transferRaftLeaders() bool {
 	for _, node := range nodes {
 		node.SetObserver(true)
 		if node.State() == Leader {
-			if err := node.StepDown(); err == nil {
+			preferred := _EMPTY_
+			for _, peer := range node.Peers() {
+				if peer.ID != node.ID() && peer.Current && time.Since(peer.Last) < 2*hbInterval {
+					preferred = peer.ID
+					break
+				}
+			}
+			if err := node.StepDown(preferred); err == nil {
 				didTransfer = true
 			}
 		}
