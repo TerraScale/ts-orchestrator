@@ -65,14 +65,15 @@ func applyDNS(ctx context.Context, fleet Fleet, region Region, f *ociclient.Fact
 	if err != nil {
 		return err
 	}
-	changes, err := client.Reconcile(ctx, cfg, out.Apply)
+	changes, err := client.Reconcile(ctx, cfg, out.Apply, func(change geodns.Change) error {
+		_, err := fmt.Fprintf(out.Changed, "%s dns: %s %s %s\n", region.Label, change.Action, change.Kind, change.Name)
+		return err
+	})
 	for _, change := range changes {
-		w := out.Changed
 		if change.Action == "ok" {
-			w = out.Same
-		}
-		if _, writeErr := fmt.Fprintf(w, "%s dns: %s %s %s %s\n", region.Label, change.Action, change.Kind, change.Name, change.ID); writeErr != nil {
-			return writeErr
+			if _, writeErr := fmt.Fprintf(out.Same, "%s dns: ok %s %s %s\n", region.Label, change.Kind, change.Name, change.ID); writeErr != nil {
+				return writeErr
+			}
 		}
 	}
 	return err

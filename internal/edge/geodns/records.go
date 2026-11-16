@@ -47,7 +47,7 @@ func (c *Client) snapshot(ctx context.Context, zone string) ([]record, string, e
 	}
 }
 
-func (c *Client) records(ctx context.Context, cfg Config, zone string, apply bool) ([]Change, error) {
+func (c *Client) records(ctx context.Context, cfg Config, zone string, apply bool, admit func(Change) error) ([]Change, error) {
 	have, etag, err := c.snapshot(ctx, zone)
 	if err != nil {
 		return nil, err
@@ -98,6 +98,9 @@ func (c *Client) records(ctx context.Context, cfg Config, zone string, apply boo
 		if !apply {
 			verb = "differs"
 		}
+		if err := admit(Change{Action: "update", Kind: "dns-record", Name: domain}); err != nil {
+			return changes, err
+		}
 		changes = append(changes, Change{Action: verb, Kind: "dns-record", Name: domain})
 	}
 	for domain, r := range wanted {
@@ -110,6 +113,9 @@ func (c *Client) records(ctx context.Context, cfg Config, zone string, apply boo
 			verb := "missing"
 			if apply {
 				verb = "created"
+			}
+			if err := admit(Change{Action: "create", Kind: "dns-record", Name: domain}); err != nil {
+				return changes, err
 			}
 			changes = append(changes, Change{Action: verb, Kind: "dns-record", Name: domain})
 		}

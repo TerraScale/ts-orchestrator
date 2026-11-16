@@ -396,7 +396,7 @@ func observeDNS(ctx context.Context, fleet Fleet) (Report, error) {
 	if err != nil {
 		return report, err
 	}
-	changes, err := client.Reconcile(ctx, cfg, false)
+	changes, err := client.Reconcile(ctx, cfg, false, func(geodns.Change) error { return nil })
 	if err != nil {
 		return report, err
 	}

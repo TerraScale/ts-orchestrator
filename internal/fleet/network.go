@@ -150,14 +150,14 @@ func applyNetwork(ctx context.Context, _ Fleet, region Region, f *ociclient.Fact
 			return err
 		}
 	}
+	if err := n.nodeNSG(ctx, groupFound); err != nil {
+		return err
+	}
 	nat, err := n.natGateway(ctx)
-	if err != nil {
+	if err != nil || nat == "" {
 		return err
 	}
-	if err := n.privateRoutes(ctx, vcns[i], subnets, nat, sgw.id, servicesCIDR); err != nil {
-		return err
-	}
-	return n.nodeNSG(ctx, groupFound)
+	return n.privateRoutes(ctx, vcns[i], subnets, nat, sgw.id, servicesCIDR)
 }
 
 func collectFound[T any](values []T, view func(T) found) []found {
@@ -282,8 +282,8 @@ func (n *network) natGateway(ctx context.Context) (string, error) {
 	}
 	key := n.region.Key("nat-gateway", "nat")
 	name := n.cell + "-nat"
-	if !n.out.Apply {
-		return "", n.print("create", "nat gateway", name)
+	if err := n.print("create", "nat gateway", name); err != nil || !n.out.Apply {
+		return "", err
 	}
 	tags, _, err := n.stamp(key, map[string]string{"vcn": deref(n.vcn), "name": name})
 	if err != nil {
@@ -296,10 +296,7 @@ func (n *network) natGateway(ctx context.Context) (string, error) {
 	}
 	got, err := n.client.GetNatGateway(ctx, core.GetNatGatewayRequest{NatGatewayId: created.Id,
 		RequestMetadata: untilAvailable(func(r core.GetNatGatewayResponse) string { return string(r.LifecycleState) })})
-	if err := available("nat gateway", name, string(got.LifecycleState), err); err != nil {
-		return "", err
-	}
-	return deref(created.Id), n.print("created", "nat gateway", name+" "+deref(got.NatIp)+" "+deref(created.Id))
+	return "", available("nat gateway", name, string(got.LifecycleState), err)
 }
 
 func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []core.Subnet, nat, sgw, servicesCIDR string) error {
@@ -322,18 +319,10 @@ func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []cor
 		{Destination: "0.0.0.0/0", NetworkEntityID: nat, Description: "internet through the nat gateway"},
 		{Destination: servicesCIDR, DestinationType: routetable.DestinationService, NetworkEntityID: sgw, Description: "oracle services"},
 	}}
-	if table == nil && !n.out.Apply {
-		if err := n.print("create", "route table", name); err != nil {
+	if table == nil {
+		if err := n.print("create", "route table", name); err != nil || !n.out.Apply {
 			return err
 		}
-		for _, route := range spec.Routes {
-			if err := n.print("add", "route", route.Destination+" "+route.Description); err != nil {
-				return err
-			}
-		}
-		return n.print("update", "subnet", "private-subnet routes through "+name)
-	}
-	if table == nil {
 		tags, _, err := n.stamp(key, map[string]string{"vcn": deref(n.vcn), "name": name})
 		if err != nil {
 			return err
@@ -345,13 +334,7 @@ func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []cor
 		}
 		got, err := n.client.GetRouteTable(ctx, core.GetRouteTableRequest{RtId: created.Id,
 			RequestMetadata: untilAvailable(func(r core.GetRouteTableResponse) string { return string(r.LifecycleState) })})
-		if err := available("route table", name, string(got.LifecycleState), err); err != nil {
-			return err
-		}
-		table = &found{id: deref(created.Id), name: name}
-		if err := n.print("created", "route table", name+" "+table.id); err != nil {
-			return err
-		}
+		return available("route table", name, string(got.LifecycleState), err)
 	}
 	if table.id == deref(vcn.DefaultRouteTableId) {
 		return fmt.Errorf("route table %s is the VCN's default table; refusing to route the private subnet through it", table.name)
@@ -374,8 +357,8 @@ func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []cor
 	if deref(private.RouteTableId) == table.id {
 		return n.print("ok", "subnet", deref(private.DisplayName)+" routes through "+table.name)
 	}
-	if !n.out.Apply {
-		return n.print("update", "subnet", deref(private.DisplayName)+" routes through "+table.name)
+	if err := n.print("update", "subnet", deref(private.DisplayName)+" routes through "+table.name); err != nil || !n.out.Apply {
+		return err
 	}
 	current, err := n.client.GetSubnet(ctx, core.GetSubnetRequest{SubnetId: private.Id})
 	if err != nil {
@@ -385,7 +368,7 @@ func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []cor
 		UpdateSubnetDetails: core.UpdateSubnetDetails{RouteTableId: common.String(table.id)}}); err != nil {
 		return fmt.Errorf("attach route table %s to subnet %s: %w", table.name, deref(private.DisplayName), err)
 	}
-	return n.print("updated", "subnet", deref(private.DisplayName)+" routes through "+table.name)
+	return nil
 }
 
 func (n *network) nodeNSG(ctx context.Context, groups []found) error {
@@ -395,19 +378,10 @@ func (n *network) nodeNSG(ctx context.Context, groups []found) error {
 	if err != nil {
 		return err
 	}
-	rules := nodeRules(n.region)
-	if group == nil && !n.out.Apply {
-		if err := n.print("create", "nsg", name); err != nil {
+	if group == nil {
+		if err := n.print("create", "nsg", name); err != nil || !n.out.Apply {
 			return err
 		}
-		for _, rule := range rules {
-			if err := n.print("add-rule", "nsg", rule.Description); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if group == nil {
 		tags, _, err := n.stamp(key, map[string]string{"vcn": deref(n.vcn), "name": name})
 		if err != nil {
 			return err
@@ -419,15 +393,9 @@ func (n *network) nodeNSG(ctx context.Context, groups []found) error {
 		}
 		got, err := n.client.GetNetworkSecurityGroup(ctx, core.GetNetworkSecurityGroupRequest{NetworkSecurityGroupId: created.Id,
 			RequestMetadata: untilAvailable(func(r core.GetNetworkSecurityGroupResponse) string { return string(r.LifecycleState) })})
-		if err := available("nsg", name, string(got.LifecycleState), err); err != nil {
-			return err
-		}
-		group = &found{id: deref(created.Id), name: name}
-		if err := n.print("created", "nsg", name+" "+group.id); err != nil {
-			return err
-		}
+		return available("nsg", name, string(got.LifecycleState), err)
 	}
-	return converge(ctx, n, "nsg", group.name, nsg.Reconciler{API: n.rules}, key, nsg.Spec{NSGID: group.id, Rules: rules, Exclusive: true})
+	return converge(ctx, n, "nsg", group.name, nsg.Reconciler{API: n.rules}, key, nsg.Spec{NSGID: group.id, Rules: nodeRules(n.region), Exclusive: true})
 }
 
 func converge[S, O any](ctx context.Context, n *network, kind, name string, resource ociresource.Resource[S, O], key ociresource.Key, spec S) error {
@@ -448,15 +416,16 @@ func converge[S, O any](ctx context.Context, n *network, kind, name string, reso
 	if plan.Empty() {
 		return n.print("ok", kind, name)
 	}
-	if n.out.Apply {
-		if err := resource.Apply(ctx, target, observed, ok, plan); err != nil {
-			return fmt.Errorf("%s %s: %w", kind, name, err)
-		}
-	}
 	for _, change := range plan.Changes {
 		if err := n.print(change.Op, kind, name+": "+change.Detail); err != nil {
 			return err
 		}
+	}
+	if !n.out.Apply {
+		return nil
+	}
+	if err := resource.Apply(ctx, target, observed, ok, plan); err != nil {
+		return fmt.Errorf("%s %s: %w", kind, name, err)
 	}
 	return nil
 }

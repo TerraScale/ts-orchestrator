@@ -238,11 +238,19 @@ by side; a kind whose pass from an earlier tick is still running is not
 started again. The CLI's `region apply <label> <kind>...` is unchanged and runs
 any registered kind once.
 
-- **Plan, then apply.** Each kind first runs as a plan: it reads OCI and
-  prints one line per logical change (a created resource, one NSG rule, one
-  route, one backend set) while every OCI write is refused
+- **Plan, then apply exactly that plan.** Each kind first runs as a plan: it
+  reads OCI and prints one line per logical change (a created resource, one
+  NSG rule, one route, one backend set) while every OCI write is refused
   (`ociresource.ErrPlanWrites`). An empty plan ends the kind's tick with no
-  write. Otherwise the kind runs again with writes allowed. `compute` has no
+  write. Otherwise the kind runs again with writes allowed, and announces
+  each change before its write; a change that is not a still-unused line of
+  the checked plan ends the pass before that write (`ErrUnplanned`,
+  `replanning: OCI changed since the plan`) and the next tick plans again.
+  So a pass never writes a change its checked plan did not hold.
+  A resource created in a tick ends that branch for the tick: what depends on
+  its new ID (the NAT gateway's route, a new NSG's rules, a new route table's
+  routes and subnet, a new zone's records and attachments, the steering
+  policies of a new monitor) is planned on the next tick. `compute` has no
   plan mode yet, so its plan fails at its first write and it cannot join a
   `reconcile` list until it gets one (C17).
 - **Fence.** Each tick reads the leader's Raft term and checks through the
@@ -255,14 +263,14 @@ any registered kind once.
   leader runs the kind from its next tick.
 - **Change limit.** A plan may hold at most 16 logical changes
   (`ociresource.MaxChangesPerTick`). Building a kind's part of a region from
-  nothing is the most it ever legitimately plans: 14 for `network` (NAT
-  gateway, route table and its 2 routes, subnet route, node NSG and its 8
-  rules), 8 for `nlb` (reserved address, balancer, 3 backend sets, 3
-  listeners) and about 15 for `dns` at 3 regions (zone, monitor, five
-  steering policies and attachments, one A record per region). A steady state
-  plans none and a hand-made drift a few. A larger plan writes nothing: the
-  kind stops on that leader until ts-orch restarts there (a release or a
-  leader change), the plan is logged with the error, and
+  nothing is the most it ever legitimately plans in one tick: at most 10 for
+  `network` (second tick: the node NSG's 8 rules and ownership tag, and the
+  route table), 7 for
+  `nlb` (balancer, 3 backend sets, 3 listeners) and 8 for `dns` at 3 regions
+  (5 steering policies and one A record per region). A steady state plans
+  none and a hand-made drift a few. A larger plan writes nothing: the kind
+  stops on that leader until ts-orch restarts there (a release or a leader
+  change), the plan is logged with the error, and
   `ts_orch_oci_reconcile_stopped` raises the `OCIReconcileStopped` alert.
 - **Throttling and outages.** The loop's OCI client does not retry. A 429 or
   5xx ends that kind's pass, is counted as an error and logged as

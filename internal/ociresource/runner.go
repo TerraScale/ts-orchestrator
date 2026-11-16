@@ -30,7 +30,10 @@ type Out struct {
 	Apply   bool
 }
 
-var ErrPlanWrites = errors.New("a reconcile plan sends no OCI write")
+var (
+	ErrPlanWrites = errors.New("a reconcile plan sends no OCI write")
+	ErrUnplanned  = errors.New("OCI changed since the plan")
+)
 
 type Pass struct {
 	Kind string
@@ -137,7 +140,10 @@ func (r *Runner) run(ctx context.Context, pass Pass, epoch uint64) {
 	plan := &lines{}
 	err := pass.Run(ociclient.WithAuthority(ctx, refuse), Out{Same: io.Discard, Changed: plan})
 	limited := err == nil && len(plan.all) > MaxChangesPerTick
-	applied := &lines{next: changeLog{ctx: ctx, region: r.Region, kind: pass.Kind}}
+	applied := &admitted{planned: map[string]int{}, next: changeLog{ctx: ctx, region: r.Region, kind: pass.Kind}}
+	for _, line := range plan.all {
+		applied.planned[line]++
+	}
 	if err == nil && !limited && len(plan.all) > 0 {
 		err = pass.Run(ociclient.WithAuthority(ctx, guard), Out{Same: io.Discard, Changed: applied, Apply: true})
 	}
@@ -147,7 +153,7 @@ func (r *Runner) run(ctx context.Context, pass Pass, epoch uint64) {
 	status := r.status(pass.Kind)
 	status.Running = false
 	status.LastRun, status.Duration = started, finished.Sub(started)
-	status.Changes = len(applied.all)
+	status.Changes = applied.count
 	status.ChangesTotal += status.Changes
 	log := slog.With("region", r.Region, "kind", pass.Kind, "planned", len(plan.all), "changes", status.Changes, "duration", status.Duration.Round(time.Millisecond))
 	var service common.ServiceError
@@ -160,6 +166,9 @@ func (r *Runner) run(ctx context.Context, pass Pass, epoch uint64) {
 	case err == nil:
 		status.Result, status.LastSuccess = "ok", finished
 		log.DebugContext(ctx, "OCI reconcile pass in sync")
+	case errors.Is(err, ErrUnplanned):
+		status.Result = "replanning: " + err.Error()
+		log.WarnContext(ctx, "OCI changed between the plan and the apply; the kind stopped before its unplanned change and plans again next tick", "error", err)
 	case fenced.Load() || ctx.Err() != nil:
 		status.Result = "fenced: leadership lost"
 		log.WarnContext(ctx, "OCI reconcile pass lost leadership", "error", err)
@@ -213,8 +222,7 @@ func WriteMetrics(w io.Writer) {
 }
 
 type lines struct {
-	all  []string
-	next io.Writer
+	all []string
 }
 
 func (l *lines) Write(p []byte) (int, error) {
@@ -223,10 +231,27 @@ func (l *lines) Write(p []byte) (int, error) {
 			l.all = append(l.all, line)
 		}
 	}
-	if l.next != nil {
-		return l.next.Write(p)
-	}
 	return len(p), nil
+}
+
+type admitted struct {
+	planned map[string]int
+	count   int
+	next    io.Writer
+}
+
+func (a *admitted) Write(p []byte) (int, error) {
+	for line := range strings.SplitSeq(string(p), "\n") {
+		if line = strings.TrimSpace(line); line == "" {
+			continue
+		}
+		if a.planned[line] == 0 {
+			return 0, fmt.Errorf("%w: %s", ErrUnplanned, line)
+		}
+		a.planned[line]--
+		a.count++
+	}
+	return a.next.Write(p)
 }
 
 type changeLog struct {
