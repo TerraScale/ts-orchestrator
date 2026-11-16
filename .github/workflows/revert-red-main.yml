@@ -10,7 +10,7 @@ jobs:
       contents: write
       pull-requests: write
       actions: write
-    uses: TerraScale/.github/.github/workflows/revert-red-main.yml@2cd4ec4afd8b623bf6e7d9da42d48399ce8cb201
+    uses: TerraScale/.github/.github/workflows/revert-red-main.yml@a617bf5ca1de55464f761419574891b04d64d9c5
     with:
       run-id: ${{ format('{0}', github.event.workflow_run.id) }}
       head-sha: ${{ github.event.workflow_run.head_sha }}
