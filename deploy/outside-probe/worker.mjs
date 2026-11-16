@@ -29,7 +29,7 @@ async function body(response, limit) {
 }
 
 async function request(url, options = {}, limit = 65_536) {
-  const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5_000), ...options });
+  const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(20_000), ...options });
   const text = await body(response, limit);
   if (response.status !== 200) throw new Error(`status ${response.status}`);
   return text;
@@ -70,8 +70,9 @@ async function heartbeat(secret) {
     const messages = text.split("\n").filter(Boolean).map(line => JSON.parse(line));
     const newest = Math.max(0, ...messages.filter(m => m.event === "message" && m.topic === topic && m.time > 0).map(m => m.time * 1_000));
     return { key: "monitoring heartbeat", reason: newest === 0 ? "missing" : Date.now() - newest >= window ? "stale" : "", newest };
-  } catch {
-    return { key: "monitoring heartbeat", reason: "unreadable", newest: 0 };
+  } catch (error) {
+    const reason = error.name === "TimeoutError" ? "timeout" : /^status \d{3}$/.test(error.message) ? error.message : "unreadable";
+    return { key: "monitoring heartbeat", reason, newest: 0 };
   }
 }
 
@@ -90,6 +91,7 @@ export class Probe extends DurableObject {
     super(ctx, env);
     this.ctx = ctx;
     this.env = env;
+    this.queue = Promise.resolve();
     ctx.blockConcurrencyWhile(async () => {
       if (!await ctx.storage.get("state")) {
         const now = Date.now();
@@ -97,6 +99,18 @@ export class Probe extends DurableObject {
         await ctx.storage.setAlarm(now + window);
       }
     });
+  }
+
+  async serial(action) {
+    const previous = this.queue;
+    let release;
+    this.queue = new Promise(resolve => { release = resolve; });
+    await previous;
+    try {
+      return await action();
+    } finally {
+      release();
+    }
   }
 
   async notify(state, outcomes, now) {
@@ -128,7 +142,7 @@ export class Probe extends DurableObject {
   }
 
   async run(scheduled) {
-    return this.ctx.blockConcurrencyWhile(async () => {
+    return this.serial(async () => {
       const secret = this.env.TS_ALERTS_NTFY_TOPIC;
       if (!/^[A-Za-z0-9_-]{43,64}$/.test(secret ?? "")) throw new Error("TS_ALERTS_NTFY_TOPIC missing or invalid");
       const started = Date.now();
@@ -148,7 +162,7 @@ export class Probe extends DurableObject {
   }
 
   async alarm() {
-    await this.ctx.blockConcurrencyWhile(async () => {
+    await this.serial(async () => {
       const state = await this.ctx.storage.get("state");
       if (!state) throw new Error("probe state missing");
       const now = Date.now();
