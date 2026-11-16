@@ -297,6 +297,7 @@ func recoveryCase(ctx context.Context, binary string) {
 			}()
 			_ = run("stop", "ts-orch-release-recovery.timer", recoverUnit, unit)
 			must(os.RemoveAll("/etc/systemd/system/ts-orch.service.d"))
+			must(os.RemoveAll("/etc/systemd/system/ts-orch-release-recovery.timer.d"))
 			must(run("daemon-reload"))
 			_ = run("reset-failed", unit, recoverUnit, "recovery-install.service")
 			must(os.RemoveAll(state))
