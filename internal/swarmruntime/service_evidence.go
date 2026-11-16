@@ -124,7 +124,7 @@ func serviceSpecExact(ctx context.Context, client api.ControlClient, requested S
 		if err != nil {
 			return rollout, err
 		}
-		if len(requested.Mounts) != 0 && requested.Replicas > 1 && machines[machine] {
+		if requested.onePerNode() && machines[machine] {
 			return rollout, errors.New("per-node service repeats a machine")
 		}
 		machines[machine] = true
@@ -167,7 +167,7 @@ func serviceTaskHost(ctx context.Context, client api.ControlClient, requested Se
 			return machine, netip.AddrFrom4([4]byte{127, 0, 0, 1}), nil
 		}
 		address, parseErr := netip.ParseAddr(requested.WorkerAddresses[machine])
-		if len(requested.Mounts) != 0 && requested.Replicas > 1 && node.ID == task.NodeID &&
+		if requested.onePerNode() && node.ID == task.NodeID &&
 			node.Spec.DesiredRole == api.NodeRoleWorker && node.Spec.Availability == api.NodeAvailabilityActive &&
 			node.Status.State == api.NodeStatus_READY && parseErr == nil && address.Is4() && address.IsPrivate() {
 			return machine, address, nil
