@@ -47,8 +47,18 @@ services each interval (5 seconds in production) and again at once when they
 change, so a peer that becomes unready or starts draining is withdrawn
 immediately. A peer counts for new requests and for readiness only while its
 last advertisement is at most two intervals old, so a peer that falls silent
-stops counting one interval after it misses an advertisement. None of this
-touches a request already sent to a peer: it is bounded only as on main. Ordinary HTTP shares a 30-second
+stops counting one interval after it misses an advertisement. A peer also
+stops counting for a route as soon as this edge sees that route fail through
+it: a transport error or an expired response-header budget at the hop (the
+peer stops counting for every route), or a 502, 503 or 504 status from the hop
+(it stops counting for that route). It counts again only once an advertisement
+from it arrives after the failure. Only the status code is read: no response
+header is trusted, the response is still returned to the client unchanged, and
+nothing is resent because of it, so a backend's own 5xx can at most make this
+edge stop routing to that peer until its next advertisement. The known bound:
+a peer that dies silently with no request through it still counts for at most
+two advertisement intervals (10 seconds in production). None of this touches
+a request already sent to a peer: it is bounded only as on main. Ordinary HTTP shares a 30-second
 response-header budget across the layer and its local fallback, starting when
 the first request finishes writing. Request uploads and response bodies are
 not subject to this timer. As on main, gRPC has no response-header deadline.
@@ -148,7 +158,10 @@ application is down is ready only through its manager as a fresh ready peer.
 When the manager falls silent, the worker's readiness and release health turn to
 "backend unavailable" within three advertisement intervals, and a new request
 no longer reaches the manager. When the manager becomes unready, the same
-happens within one interval of its withdrawal. A peer that accepts but never
+happens within one interval of its withdrawal. When a request through the silent
+manager fails with 503, the worker reports "backend unavailable" on its very
+next readiness and health check, and the manager's next ready advertisement
+restores it. A peer that accepts but never
 answers costs main's 502 at 30 seconds, not more. With no ready peer, a
 draining manager, a peer hop to it, an unheld backend that restarts while the
 request waits, a host without the peer credential, a host whose readiness probe

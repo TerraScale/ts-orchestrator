@@ -74,10 +74,21 @@ func FleetHost(args []string) error {
 	}
 	var ready, slow, hang atomic.Bool
 	var inflight atomic.Int64
+	var failing atomic.Pointer[chan struct{}]
 	var deletes atomic.Int64
 	ready.Store(true)
 	app := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		held := failing.Load()
 		switch {
+		case r.URL.Path == "/payload" && held != nil:
+			inflight.Add(1)
+			defer inflight.Add(-1)
+			select {
+			case <-*held:
+			case <-r.Context().Done():
+				return
+			}
+			http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
 		case r.URL.Path == "/payload" && hang.Load():
 			inflight.Add(1)
 			defer inflight.Add(-1)
@@ -372,6 +383,13 @@ func FleetHost(args []string) error {
 			if err := fleetAwait(ctx, func() bool { return inflight.Load() >= 1 }); err != nil {
 				return fmt.Errorf("%s never held the in-flight request: %w", name, err)
 			}
+		case "fail-hold":
+			release := make(chan struct{})
+			failing.Store(&release)
+		case "fail-release":
+			close(*failing.Load())
+		case "fail-clear":
+			failing.Store(nil)
 		case "await-app-unready":
 			if err := fleetAwait(ctx, func() bool { return !slices.Contains(public.ReadyServices(), fleetServices["dash.e2e.test"]) }); err != nil {
 				return fmt.Errorf("%s kept advertising its stopped application: %w", name, err)
@@ -789,6 +807,35 @@ func (c fleetClient) stalePeer(ctx context.Context, founder, worker *fleetProces
 	}
 	if err := c.readyWithin(ctx, worker, http.StatusOK, 3*mesh.FleetAdvertiseEvery); err != nil {
 		return fmt.Errorf("a peer advertising again did not count within %s: %w", 3*mesh.FleetAdvertiseEvery, err)
+	}
+	if err := founder.command(ctx, "fail-hold"); err != nil {
+		return err
+	}
+	failed := make(chan error, 1)
+	go func() {
+		status, body, err := c.get(ctx, worker, "dash.e2e.test")
+		if err == nil && (status != http.StatusServiceUnavailable || body != "backend unavailable\n") {
+			err = fmt.Errorf("a request through a failing peer: HTTP %d %q, want its 503", status, body)
+		}
+		failed <- err
+	}()
+	if err := founder.command(ctx, "await-one-inflight"); err != nil {
+		return err
+	}
+	if err := errors.Join(founder.command(ctx, "mute"), founder.command(ctx, "fail-release"), <-failed); err != nil {
+		return err
+	}
+	if err := c.ready(ctx, worker, http.StatusServiceUnavailable); err != nil {
+		return fmt.Errorf("a worker that just saw its silent peer fail a request still counted it for readiness: %w", err)
+	}
+	if err := worker.query(ctx, "health", "health edge not ready: backend unavailable"); err != nil {
+		return err
+	}
+	if err := errors.Join(founder.command(ctx, "fail-clear"), founder.command(ctx, "unmute")); err != nil {
+		return err
+	}
+	if err := c.readyWithin(ctx, worker, http.StatusOK, 3*mesh.FleetAdvertiseEvery); err != nil {
+		return fmt.Errorf("a fresh ready advertisement after the failure did not restore the peer within %s: %w", 3*mesh.FleetAdvertiseEvery, err)
 	}
 	if err := founder.command(ctx, "unready"); err != nil {
 		return err
@@ -1241,7 +1288,7 @@ func FleetEdgeJourney(root string) error {
 			if status, body, err := client.do(ctx, founder, http.MethodGet, "https://"+netbirdHost+"/", nil); err != nil || status != http.StatusServiceUnavailable || !strings.Contains(body, "NetBird dashboard is preparing") {
 				return fmt.Errorf("a draining host did not serve main's NetBird dashboard handler: HTTP %d %q, %v", status, body, err)
 			}
-			fmt.Printf("ok %s: with a ready peer an unready manager forwards HTTP and WebSockets, a client marker never causes a resend, a connected DELETE to a stopped peer costs main's 502 and is not resent, a held port waits for its replacement and a peer that never answers costs main's 502 at %s; with no ready peer draining, hop, NetBird dashboard, hung readiness, missing credential and an unheld restart all take main's path, and a worker that can serve a route neither locally nor through a peer is not ready; in sjc a peer that falls silent or turns unready stops counting for a worker's readiness, health and new requests within its advertisement bound\n", founder.name[3:6], peerLayerBudget)
+			fmt.Printf("ok %s: with a ready peer an unready manager forwards HTTP and WebSockets, a client marker never causes a resend, a connected DELETE to a stopped peer costs main's 502 and is not resent, a held port waits for its replacement and a peer that never answers costs main's 502 at %s; with no ready peer draining, hop, NetBird dashboard, hung readiness, missing credential and an unheld restart all take main's path, and a worker that can serve a route neither locally nor through a peer is not ready; in sjc a peer that falls silent or turns unready stops counting for a worker's readiness, health and new requests within its advertisement bound, and at once after a request through it fails, until it advertises again\n", founder.name[3:6], peerLayerBudget)
 		}
 	}
 	return nil

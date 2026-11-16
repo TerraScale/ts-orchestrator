@@ -218,7 +218,7 @@ func (e *Edge) ready(ctx context.Context) ([]string, error) {
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	for _, route := range routes {
-		if e.follower.Load() && len(e.peerCandidates(route.Host, route.Port)) != 0 {
+		if _, peers := e.peerCandidates(route.Host, route.Port); e.follower.Load() && len(peers) != 0 {
 			continue
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(route.Port))+route.Path, nil)
