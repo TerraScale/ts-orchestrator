@@ -28,6 +28,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/moby/swarmkit/v2/api"
+
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
@@ -373,6 +375,30 @@ func inventoryState(ctx context.Context, host *oraclehost.Host) (int, string, []
 		return nil
 	})
 	return refused, publisher, trusted
+}
+
+func promoteManagers(ctx context.Context, leader *oraclehost.Host, hosts ...*oraclehost.Host) {
+	client, conn, err := swarmruntime.DialControl(leader.State(""))
+	must(err)
+	defer conn.Close()
+	for _, host := range hosts {
+		current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeCertificate(host.State("")).Subject.CommonName})
+		must(err)
+		spec := current.Node.Spec.Copy()
+		spec.DesiredRole = api.NodeRoleManager
+		_, err = client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: current.Node.ID, NodeVersion: &current.Node.Meta.Version, Spec: spec})
+		must(err)
+		until(ctx, host.Name+" is a Raft-reachable manager", func() error {
+			current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: current.Node.ID})
+			if err != nil {
+				return err
+			}
+			if node := current.Node; node.Role != api.NodeRoleManager || node.ManagerStatus == nil || node.ManagerStatus.Reachability != api.RaftMemberStatus_REACHABLE || node.Status.State != api.NodeStatus_READY {
+				return fmt.Errorf("role %v manager status %v state %v", node.Role, node.ManagerStatus, node.Status.State)
+			}
+			return nil
+		})
+	}
 }
 
 func forgedInventory(host *oraclehost.Host, sign func([]byte) ([][]byte, []byte, error)) []byte {
@@ -730,9 +756,8 @@ func main() {
 	step("%s went not READY and back: its route stayed configured, and after %d route sockets to %s were reset ORCH, TERRABASE and ALERTS deliver both ways over the VCN", flapped.Name, reset, survivor.Name)
 
 	departed := gru.Hosts[2]
-	promoted, err := gru.Hosts[0].Exec(ctx, "/usr/local/bin/ts-orch", "member", "promote")
-	require(err == nil, "member promote: %v: %s", err, promoted)
-	step("%s promoted %s and %s with no release", gru.Hosts[0].Name, follower.Name, departed.Name)
+	promoteManagers(ctx, gru.Hosts[0], follower, departed)
+	step("%s's SwarmKit managers promoted %s and %s with no release; both are Raft-reachable managers", gru.Name, follower.Name, departed.Name)
 	removed, departedID := filepath.Join(work, "departed-state"), nodeCertificate(departed.State("")).Subject.CommonName
 	promotedIDs := []string{nodeCertificate(follower.State("")).Subject.CommonName, departedID}
 	until(ctx, follower.Name+" trusts the inventories of both promoted managers", func() error {
