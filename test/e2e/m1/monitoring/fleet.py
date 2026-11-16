@@ -100,25 +100,6 @@ def burst_reserved(names):
     return True
 
 
-def await_burst(names):
-    progress = -1
-    stalled = time.monotonic()
-    while not burst_reserved(names):
-        for process in processes:
-            if process.poll() is not None and process not in stopped:
-                raise RuntimeError(f"twenty critical groups reserve under 400ms write latency: process exited {process.args}")
-        current = len(groups("firing", names)) + len([mail for entry in groups("firing", names) for mail in email_of(entry)])
-        if current != progress:
-            progress = current
-            stalled = time.monotonic()
-        elif time.monotonic() - stalled > 15:
-            raise RuntimeError("twenty critical groups reserve under 400ms write latency: reservations stopped")
-        try:
-            events.get(timeout=15)
-        except queue.Empty:
-            pass
-
-
 def await_event(description, predicate, seconds=45):
     deadline = time.monotonic() + seconds
     while not predicate():
@@ -355,7 +336,7 @@ try:
     budget_write_latency(True)
     try:
         post_alerts([{**incident, "alertname": name, "service": "ts-dashboard"} for name in sorted(names)])
-        await_burst(names)
+        await_event("twenty critical groups reserve under 400ms write latency", lambda: burst_reserved(names), seconds=60)
     finally:
         budget_write_latency(False)
     assert len([m for m in mailed() if m[3] == "budget unavailable"]) == unavailable
@@ -410,6 +391,23 @@ try:
     await_event("the old-layout relay keeps emailing from its own ledger", lambda: len(emails) == 13)
     ledger = json.loads((work / "gru-old" / "relay" / "email-ledger.json").read_text())
     assert len(ledger) == 1 and emails[-1]["text"].startswith("firing: OldLayoutIncident"), (ledger, emails[-1])
+    ledger_dir = work / "gru-old" / "relay"
+    kept = (ledger_dir / "email-ledger.json").read_bytes()
+    subprocess.run(["mount", "-t", "tmpfs", "-o", "size=8k", "tmpfs", str(ledger_dir)], check=True)
+    (ledger_dir / "email-ledger.json").write_bytes(kept)
+    subprocess.run(["dd", "if=/dev/zero", "of=" + str(ledger_dir / "fill"), "bs=4096"], stderr=subprocess.DEVNULL, check=False)
+    sent = len(emails)
+    full = {f"FullLedger{index}" for index in range(13)}
+    assert post_relay("127.0.0.4", "full-ledger-0", "FullLedger0") == 202
+    await_event("a ledger that cannot write still sends the first email", lambda: len(emails) == sent + 1)
+    assert post_relay("127.0.0.4", "full-ledger-0", "FullLedger0") == 202
+    for index in range(1, 13):
+        assert post_relay("127.0.0.4", f"full-ledger-{index}", f"FullLedger{index}") == 202
+    unconfirmed = lambda: sorted(m[3] for e in groups("firing", full) for m in email_of(e))
+    await_event("unconfirmed email stops at the budget, then is withheld as budget unavailable", lambda: len(unconfirmed()) == 14)
+    metrics = request("127.0.0.4", 9094, "/metrics").decode()
+    assert unconfirmed() == [""] * 11 + ["budget unavailable"] * 2 + ["duplicate"] and len(emails) == sent + 11, (unconfirmed(), len(emails) - sent)
+    assert (ledger_dir / "email-ledger.json").read_bytes() == kept and "terrascale_alert_delivery_email_unconfirmed_total 11" in metrics and 'reason="budget_unavailable"} 2' in metrics, metrics
     before = len(pushes())
     plan_push({"hold": notification_deadline - 0.2})
     post_alerts([{"alertname": "LaneSlowPush", "service": "ts-orch", "region": "global", "severity": "critical"}])
@@ -443,7 +441,7 @@ try:
     later = sum("production alert push failed" in line for relay in relays for line in relay.lines)
     late = groups("firing", {"LaneLatePush"})
     assert len(alive) == 2 and len(pushes()) == before + 2 and later == failed + 1 and [e[6] for e in late] == ["false", "true"] and len({e[0] for e in late}) == 1, (len(pushes()) - before, later - failed, late)
-    print(f"monitoring: scaled Alertmanager timings x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; a missing mesh token withholds email and pages, copy-token installs it without Vault; topology incident firing then resolved across the region loss -> one notification each; an HTTP/2 provider that answers just inside the deadline pushes once, and one that never answers is a single 502 that Alertmanager retries before the next peer sends, with both surviving Alertmanagers up; twenty groups at 400ms write latency reserve without a budget-unavailable page; fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; hung budget store + 13 concurrent notifications -> 13 pushes and 13 withheld emails; old-layout relay still emails from its ledger; passed")
+    print(f"monitoring: scaled Alertmanager timings x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; a missing mesh token withholds email and pages, copy-token installs it without Vault; topology incident firing then resolved across the region loss -> one notification each; an HTTP/2 provider that answers just inside the deadline pushes once, and one that never answers is a single 502 that Alertmanager retries before the next peer sends, with both surviving Alertmanagers up; twenty groups at 400ms write latency reserve without a budget-unavailable page; fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; hung budget store + 13 concurrent notifications -> 13 pushes and 13 withheld emails; old-layout relay still emails from its ledger, and when that ledger cannot write it sends 11 unconfirmed emails up to the hourly budget, dedupes the group and withholds the rest as budget unavailable; passed")
 finally:
     for server in servers:
         server.shutdown()

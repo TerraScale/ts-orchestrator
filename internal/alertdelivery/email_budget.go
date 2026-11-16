@@ -46,7 +46,10 @@ type emailBudget struct {
 	unconfirmed atomic.Uint64
 	mu          sync.Mutex
 	shared      *sharedStore
+	held        []emailReservation
 }
+
+var errHeldBudget = errors.New("unconfirmed alert emails fill the email budget")
 
 type emailReservation struct {
 	ID     string    `json:"id"`
@@ -145,27 +148,25 @@ func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.
 			return "", true, err
 		}
 		now := time.Now()
-		reservations = slices.DeleteFunc(reservations, func(v emailReservation) bool { return !v.Until.After(now) && !v.SendBy.Add(24*time.Hour).After(now) })
-		hourly, daily := 0, 0
-		for _, entry := range reservations {
-			if entry.Key == key && entry.Until.After(now) {
-				return "duplicate", true, nil
-			}
-			if entry.SendBy.Add(24 * time.Hour).After(now) {
-				daily++
-			}
-			if entry.SendBy.Add(time.Hour).After(now) {
-				hourly++
-			}
-		}
-		if hourly >= fleetHourlyEmails {
+		reservations = slices.DeleteFunc(reservations, func(v emailReservation) bool { return lapsed(v, now) })
+		b.held = slices.DeleteFunc(b.held, func(v emailReservation) bool {
+			return lapsed(v, now) || slices.ContainsFunc(reservations, func(entry emailReservation) bool { return entry.ID == v.ID })
+		})
+		duplicate, hourly, daily := tally(reservations, key, now)
+		heldDuplicate, heldHourly, heldDaily := tally(b.held, key, now)
+		switch {
+		case duplicate || heldDuplicate:
+			return "duplicate", true, nil
+		case hourly >= fleetHourlyEmails:
 			return "hourly cap", true, nil
-		}
-		if daily >= fleetDailyEmails {
+		case daily >= fleetDailyEmails:
 			return "daily cap", true, nil
+		case hourly+heldHourly >= fleetHourlyEmails || daily+heldDaily >= fleetDailyEmails:
+			return "", true, errHeldBudget
 		}
 		sendBy := now.Add(50 * time.Second)
-		data, err := json.Marshal(append(reservations, emailReservation{ID: id, Key: key, SendBy: sendBy, Until: sendBy.Add(window)}))
+		reservation := emailReservation{ID: id, Key: key, SendBy: sendBy, Until: sendBy.Add(window)}
+		data, err := json.Marshal(append(reservations, reservation))
 		if err != nil {
 			return "", true, err
 		}
@@ -175,12 +176,33 @@ func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.
 		if err != nil {
 			confirmed := committed(ctx, store, id)
 			b.dropShared(store)
+			if !confirmed {
+				b.held = append(b.held, reservation)
+			}
 			return "", confirmed, nil
 		}
 		if !conflict {
 			return "", true, nil
 		}
 	}
+}
+
+func lapsed(v emailReservation, now time.Time) bool {
+	return !v.Until.After(now) && !v.SendBy.Add(24*time.Hour).After(now)
+}
+
+func tally(entries []emailReservation, key string, now time.Time) (bool, int, int) {
+	duplicate, hourly, daily := false, 0, 0
+	for _, entry := range entries {
+		duplicate = duplicate || (entry.Key == key && entry.Until.After(now))
+		if entry.SendBy.Add(24 * time.Hour).After(now) {
+			daily++
+		}
+		if entry.SendBy.Add(time.Hour).After(now) {
+			hourly++
+		}
+	}
+	return duplicate, hourly, daily
 }
 
 func committed(ctx context.Context, store reservationStore, id string) bool {
