@@ -48,6 +48,8 @@ func main() {
 		})
 	case "node":
 		err = node(ctx, os.Args[2], os.Args[3])
+	case "every-node":
+		err = everyNode(ctx, os.Args[2], os.Args[3])
 	default:
 		err = run(ctx, os.Args[1], os.Args[2])
 	}
@@ -510,5 +512,8 @@ func run(ctx context.Context, root, image string) error {
 	if len(os.Args) > 3 && os.Args[3] == "quick" {
 		return j.quickContinuity(owner, keys)
 	}
-	return j.reporting(first, second, owner, twins)
+	if err := j.reporting(first, second, owner, twins); err != nil {
+		return err
+	}
+	return j.everyNodeFromManager(image)
 }
