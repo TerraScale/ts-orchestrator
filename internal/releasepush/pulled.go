@@ -18,6 +18,8 @@ const (
 	PullInstall  = "install"
 	PullRollback = "rollback"
 
+	StateNewer = "newer"
+
 	stateRestoring  = "restoring"
 	nudgeSpacing    = 10 * time.Second
 	readyCheck      = 2 * time.Second
@@ -100,6 +102,9 @@ func (h *Handler) installPulled(ctx context.Context, release releaseattest.Relea
 	defer h.mu.Unlock()
 	claims := Claims{SHA: release.SHA, RunID: release.RunID}
 	binary, err := h.verifyPulled(ctx, release)
+	if errors.Is(err, releaseattest.ErrOlder) {
+		return Reply{State: StateNewer, Version: h.Revision}
+	}
 	if err != nil {
 		if errors.Is(err, releaseattest.ErrRefused) {
 			return integrityReply(release.SHA, claims, err)
