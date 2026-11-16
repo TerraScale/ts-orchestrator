@@ -339,14 +339,14 @@ func main() {
 }
 
 func peerCredentialService(whoami map[string]any) map[string]any {
-	data, err := m1.Files.ReadFile("services/terrabase.json")
+	data, err := m1.Files.ReadFile("services/ts-auth.json")
 	must(err)
-	var terrabase struct {
+	var auth struct {
 		Secrets map[string]vaultsecret.Ref `json:"secrets"`
 	}
-	must(json.Unmarshal(data, &terrabase))
-	ref, ok := terrabase.Secrets[edge.RequestProofKey]
-	require(ok, "deploy/m1/services/terrabase.json has no %s", edge.RequestProofKey)
+	must(json.Unmarshal(data, &auth))
+	ref, ok := auth.Secrets[edge.RequestProofKey]
+	require(ok, "deploy/m1/services/ts-auth.json has no %s", edge.RequestProofKey)
 	return map[string]any{
 		"name":      "terrabase",
 		"image":     whoami["image"],
