@@ -16,7 +16,7 @@ require_host_logs() {
 }
 restart_serving() {
 	sudo systemctl restart ts-orch
-	wait_for 120 edge whoami.e2e.test /health
+	wait_for 4 edge whoami.e2e.test /health
 	wait_for 60 edge data.e2e.test /boots
 }
 warning_present() {

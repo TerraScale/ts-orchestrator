@@ -80,6 +80,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 		edgeDone <- err
 	}()
 	var inventory atomic.Pointer[func() (mesh.EdgeInventory, bool)]
+	published := make(chan struct{}, 1)
 	go public.FollowInventory(ctx, func() (mesh.EdgeInventory, bool) {
 		if source := inventory.Load(); source != nil {
 			return (*source)()
@@ -87,7 +88,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 		return mesh.EdgeInventory{}, false
 	}, func(ctx context.Context, ref string) error {
 		return refreshEdgeRequestProof(ctx, public, ref, vaultsecret.ReadInstanceSecrets)
-	})
+	}, published)
 	var meshNode atomic.Pointer[mesh.Node]
 	manager := plan.admission.Role == "manager"
 	if !manager {
@@ -110,6 +111,10 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			}
 			syncEdgeInventory(ctx, *state, plan.region, func(current mesh.EdgeInventory) {
 				local.Store(&current)
+				select {
+				case published <- struct{}{}:
+				default:
+				}
 				if node := meshNode.Load(); node != nil {
 					if err := node.PublishEdgeInventory(*state, current); err != nil {
 						slog.WarnContext(ctx, "edge inventory publication failed", "error", err)

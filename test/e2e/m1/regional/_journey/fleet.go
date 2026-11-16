@@ -308,7 +308,7 @@ func FleetHost(args []string) error {
 			return public.SetRequestProofSecret(secret)
 		}
 		return errors.New("unexpected request proof reference")
-	})
+	}, nil)
 	started, stop := context.WithTimeout(ctx, time.Minute)
 	defer stop()
 	err = fleetAwait(started, func() bool {

@@ -26,7 +26,7 @@ func (e *Edge) JoinMesh(node *mesh.Node) {
 	e.SetMesh(node)
 }
 
-func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeInventory, bool), proof func(context.Context, string) error) {
+func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeInventory, bool), proof func(context.Context, string) error, published <-chan struct{}) {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	var nextProof time.Time
@@ -58,6 +58,7 @@ func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeI
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+		case <-published:
 		}
 	}
 }
