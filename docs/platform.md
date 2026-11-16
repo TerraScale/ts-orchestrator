@@ -162,10 +162,12 @@ region. A resource is document-made when `ociresource.Ownership{Owner:
 `route-table/public-routes`, `route-table/private-routes`,
 `nsg/edge-nsg`, `nsg/host-nsg`, `nsg/node-nsg`, `instance/node`,
 `network-load-balancer/nlb`, `public-ip/nlb`, and in the DNS compartment's
-cell `dns-zone/zone` and `steering-policy/<first label>`, a steering policy
+cell `dns-zone/zone`, `http-monitor/edge`, `dns-record/<region label>`
+and `steering-policy/<first label>`, a steering policy
 being named after its steered name. A resource with any other ownership tag
 is claimed by another owner; one with none is hand-made (foreign). Neither
-is ever changed.
+is ever changed, except that the DNS pass can adopt an unclaimed zone by
+its immutable DNS name while preserving existing records.
 
 `ts-orch region apply <label> <kind>...` runs the named passes of the
 single list `fleet.Passes` once for one region; a bare apply refuses and
@@ -184,6 +186,18 @@ The pass refuses to change a route table that is the VCN's default or that
 any other subnet uses, so the public subnet's routes are never touched. The
 node NSG has no members until nodes join it. How to run and undo it is in
 `docs/oci-reconcile.md`.
+
+`ts-orch region apply gru dns` owns the global DNS pass. It uses the fleet
+DNS compartment, every region's owned NLB reserved address and the document's
+continent assignments. One shared HTTP monitor probes every NLB on :80
+`/readyz` every 10 seconds; all five managed OCI steering policies reference
+it. Healthy answers prefer the assigned region and then the nearest remaining
+region, with TTL 30. Region additions and removals update the monitor,
+policies and owned regional A records on the next apply. Public Cloudflare
+names become DNS-only CNAMEs into the OCI zone only after a separately gated
+cutover; until that gate passes their existing records remain in place.
+See [DNS reconciliation](oci-reconcile.md#fleet-dns-pass) and
+[the cutover procedure](network/geodns.md).
 
 A reconciler on the global leader creates and updates these resources:
 
@@ -224,9 +238,10 @@ Today: OCI resources were created by operator commands with an API key;
 nothing in the cluster creates or changes them. The document and
 `region plan` exist. `ts-orch region apply <label> nlb` creates and keeps each
 region's network load balancer and its reserved address (docs/oci-reconcile.md,
-"Network load balancer"); gru, sjc and fra have one since 2026-11-16, not yet
-in DNS. The other reconcilers follow (C7 network, C8 compute, C10
-geo-steering DNS, C12 node autoscaler).
+"Network load balancer"); gru, sjc and fra have one since 2026-11-16,
+referenced by the staged OCI DNS zone while public names still use nodes.
+The network and global DNS passes are implemented. Compute (C8) and the
+node autoscaler (C12) follow.
 
 ### Nodes: the compute kind
 
@@ -275,8 +290,11 @@ its record automatically.
 `api.terrascale.tech` uses GeoDNS too, for testing convenience only. SDKs do
 not use it except as the fallback when Atlas is unreachable.
 
-Today: every name points straight at node 1 of a region through
-Cloudflare DNS; there is no GeoDNS (C8).
+Today: the OCI zone is delegated, its five steering policies and shared
+monitor exist, and regional A records point to the reserved NLB addresses.
+The eight public names still point directly to node 1 through Cloudflare
+DNS. Address-Host readiness and TLS checks have not passed, so the public
+CNAME cutover is deferred to C10b. See [the cutover procedure](network/geodns.md).
 
 ## Atlas
 

@@ -330,3 +330,57 @@ oci iam policy delete --force \
 
 Deleting the policy restores the state from before 2026-11-16. No existing policy
 or dynamic group was changed.
+
+## Fleet DNS pass
+
+`ts-orch region apply gru dns` reconciles the global DNS resources in
+`Fleet.DNSRegion()`; another region label refuses this pass. It reads the
+embedded fleet document and discovers each region's reserved NLB address
+by `<CELL>/public-ip/nlb`, never by display name or public DNS. A missing
+or duplicate address stops the pass. `region plan` observes the same desired
+state through the DNS and Health Checks APIs, without Resource Search lag.
+
+| Resource | Key in the DNS compartment's cell | Desired state | Undo |
+|---|---|---|---|
+| Public primary zone | `dns-zone/zone` | The fleet zone; adopt only an unclaimed public primary zone with that exact DNS name, preserving its records | Remove delegation first; retain the zone if it contains any other owner's data. Delete a newly created, otherwise empty zone by its recorded OCID only. |
+| Shared HTTP monitor | `http-monitor/edge` | Every fleet region's owned NLB reserved address, HTTP GET :80 at the fleet health path (`/readyz`), every 10 seconds with a 10-second timeout; OCI chooses vantage points | Restore the prior monitor body, or delete the recorded monitor OCID after removing references from policies. |
+| Steering policy | `steering-policy/<first label>` | One policy for every fleet steered name; A answers for all regions, TTL 30, health filtering, continent priority, nearest other region, then remaining regions | Restore its prior body by OCID, or delete its attachment and then its policy by recorded OCID. |
+| Steering attachment | `steering-attachment/<first label>` | The owned policy attached to the exact name in the owned zone; ownership follows the zone and policy OCIDs, since OCI attachments have no tags | Delete only the recorded attachment OCID after verifying its zone and owned policy. |
+| Regional A record | `dns-record/<region label>` | `<label>.api.<zone>` to that region's NLB, TTL 30; an ownership TXT record at `_ts-orch.<name>` carries the key and last written address | Restore the saved A and ownership TXT together, or remove that exact pair under the zone-record ETag. |
+
+The zone, monitor and policies carry `terrascale-managed-by=ts-orchestrator`,
+`terrascale-owner=terrascale` and `terrascale-resource-key`. Discovery uses
+these tags, not display names, and rejects duplicate keys. The sole adoption
+exception uses the zone's immutable DNS name and refuses any prior claim.
+Attachments are accepted only with the owned zone and policy OCIDs; an
+existing A, AAAA or CNAME prevents attachment creation. An attachment of a
+different policy is never replaced.
+
+OCI accepts only one health-check monitor per steering policy. **An answer
+whose address is absent from that monitor's targets is assumed healthy.**
+Therefore all five policies share one owned monitor containing every NLB.
+Adding a region expands the monitor before updating any policy. Removing a
+region first removes its answers from every policy, then shrinks the monitor.
+No fixed list of regions or vantage points is kept in the pass.
+
+Continent assignments come from the document: GRU serves SA and AN, SJC
+serves NA, OC and AS, FRA serves EU and AF. Within a continent's case,
+the assigned region ranks first and the others rank by great-circle distance
+from it. An unmatched location uses document order. The HEALTH rule removes
+unhealthy answers while any healthy answer remains. OCI's steering rule
+processing retains the previous nonempty answer set when a rule would remove
+every answer; if all regions are unhealthy DNS still returns an NLB address,
+rather than NXDOMAIN or an empty answer. DNS cannot guarantee service when
+all regions are down.
+
+Records have no OCI tags. The ownership TXT stores both the key and the last
+written A value: a changed or extra A, AAAA or CNAME, a conflicting marker,
+or missing proof prevents replacement. A zone-record PATCH changes only
+specific owned A/TXT pairs and uses `If-Match`; it never replaces the zone's
+record collection. Removed regions' owned pairs are removed with the same
+proof. Unknown records remain untouched. Monitor, policy and zone updates
+also require current ownership and their read ETag; unrelated tags survive.
+
+Public delegation and cutover are separate from `region apply`. Follow
+[the DNS cutover procedure](network/geodns.md); a successful apply does not
+claim that TLS or application traffic is ready for public cutover.

@@ -19,6 +19,7 @@ var Passes = []Pass{
 	{Kind: "network", Apply: applyNetwork},
 	{Kind: "nlb", Apply: applyNLB},
 	{Kind: "compute", Apply: ApplyCompute},
+	{Kind: "dns", Apply: applyDNS},
 }
 
 func kinds() string {

@@ -9,129 +9,193 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
-
-	"github.com/oracle/oci-go-sdk/v65/common"
+	"slices"
+	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
-// compartmentID is gru-1-control, the compartment the mesh secret lives in
-// (internal/natscell/mesh/run.go); the global edge DNS objects live there too.
-const compartmentID = "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq"
-
-// Endpoints of the OCI DNS and Health Checks REST APIs; both serve global objects.
-var (
-	dnsAPI    = "https://dns." + catalog.OCIRegion(catalog.Bootstrap) + ".oci.oraclecloud.com/20180115"
-	healthAPI = "https://healthchecks." + catalog.OCIRegion(catalog.Bootstrap) + ".oci.oraclecloud.com/20180501"
-)
-
-// caller sends one signed OCI REST request and decodes the JSON answer into out.
-type caller func(ctx context.Context, method, endpoint string, body, out any) error
-
-// object is the part of every OCI list or get answer the apply reads.
-type object struct {
-	ID               string `json:"id"`
-	SteeringPolicyID string `json:"steeringPolicyId"`
-	Nameservers      []struct {
-		Hostname string `json:"hostname"`
-	} `json:"nameservers"`
+type Client struct {
+	client      common.BaseClient
+	dns, health string
 }
 
-// Change is one object the apply looked at.
+type object struct {
+	ID, Name, ZoneType, Scope, LifecycleState string
+	ZoneID, DomainName, SteeringPolicyID      string
+	FreeformTags                              map[string]string
+	Targets                                   []string
+	Nameservers                               []struct{ Hostname string }
+}
+
 type Change struct {
 	Action, Kind, Name, ID string
 }
 
-// apply creates what is missing and updates what differs; a second run with
-// the same plan changes nothing. It returns the changes and the zone's nameservers.
-func apply(ctx context.Context, call caller, plans []HostPlan) ([]Change, []string, error) {
-	var changes []Change
-	zoneQuery := url.Values{"compartmentId": {compartmentID}, "name": {Zone}, "lifecycleState": {"ACTIVE"}}
-	zone, action, err := ensure(ctx, call, dnsAPI+"/zones", zoneQuery,
-		map[string]any{"name": Zone, "zoneType": "PRIMARY", "compartmentId": compartmentID, "freeformTags": CostTags})
+func New(f *ociclient.Factory) (*Client, error) {
+	client, err := common.NewClientWithConfig(f.Provider())
 	if err != nil {
-		return nil, nil, fmt.Errorf("zone %s: %w", Zone, err)
+		return nil, err
 	}
-	changes = append(changes, Change{action, "zone", Zone, zone.ID})
-	for _, p := range plans {
-		named := url.Values{"compartmentId": {compartmentID}, "displayName": {p.Monitor.DisplayName}}
-		monitor, action, err := ensure(ctx, call, healthAPI+"/httpMonitors", named, p.Monitor)
-		if err != nil {
-			return nil, nil, fmt.Errorf("monitor %s: %w", p.Monitor.DisplayName, err)
-		}
-		changes = append(changes, Change{action, "monitor", p.Monitor.DisplayName, monitor.ID})
-		policy := p.Policy
-		policy.CompartmentID, policy.HealthCheckMonitorID = compartmentID, monitor.ID
-		named.Set("lifecycleState", "ACTIVE")
-		steering, action, err := ensure(ctx, call, dnsAPI+"/steeringPolicies", named, policy)
-		if err != nil {
-			return nil, nil, fmt.Errorf("policy %s: %w", policy.DisplayName, err)
-		}
-		changes = append(changes, Change{action, "policy", policy.DisplayName, steering.ID})
-		var attached []object
-		domain := url.Values{"compartmentId": {compartmentID}, "domain": {p.Attachment.DomainName}, "lifecycleState": {"ACTIVE"}}
-		if err := call(ctx, http.MethodGet, dnsAPI+"/steeringPolicyAttachments?"+domain.Encode(), nil, &attached); err != nil {
-			return nil, nil, fmt.Errorf("attachment %s: %w", p.Attachment.DomainName, err)
-		}
-		attachment := Change{"unchanged", "attachment", p.Attachment.DomainName, ""}
-		switch {
-		case len(attached) > 0 && attached[0].SteeringPolicyID != steering.ID:
-			return nil, nil, fmt.Errorf("attachment %s belongs to policy %s, not %s", p.Attachment.DomainName, attached[0].SteeringPolicyID, steering.ID)
-		case len(attached) > 0:
-			attachment.ID = attached[0].ID
-		default:
-			body := p.Attachment
-			body.SteeringPolicyID, body.ZoneID = steering.ID, zone.ID
-			var created object
-			if err := call(ctx, http.MethodPost, dnsAPI+"/steeringPolicyAttachments", body, &created); err != nil {
-				return nil, nil, fmt.Errorf("attachment %s: %w", p.Attachment.DomainName, err)
-			}
-			attachment.Action, attachment.ID = "created", created.ID
-		}
-		changes = append(changes, attachment)
-	}
-	var full object
-	if err := call(ctx, http.MethodGet, dnsAPI+"/zones/"+zone.ID, nil, &full); err != nil {
-		return nil, nil, fmt.Errorf("zone %s nameservers: %w", Zone, err)
-	}
-	var nameservers []string
-	for _, ns := range full.Nameservers {
-		nameservers = append(nameservers, ns.Hostname)
-	}
-	return changes, nameservers, nil
+	f.Configure(&client, ociclient.Service("dns"))
+	return &Client{client: client,
+		dns:    "https://dns." + f.Region() + ".oci.oraclecloud.com/20180115",
+		health: "https://healthchecks." + f.Region() + ".oci.oraclecloud.com/20180501"}, nil
 }
 
-// ensure finds the one object the query names under collection, creates it
-// from desired when absent and updates it when a desired field differs.
-func ensure(ctx context.Context, call caller, collection string, query url.Values, desired any) (object, string, error) {
-	var found []object
-	if err := call(ctx, http.MethodGet, collection+"?"+query.Encode(), nil, &found); err != nil {
-		return object{}, "", err
+func (c *Client) request(ctx context.Context, method, endpoint, etag string, body, out any) (http.Header, error) {
+	target, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, err
 	}
-	if len(found) == 0 {
-		var created object
-		err := call(ctx, http.MethodPost, collection, desired, &created)
-		return created, "created", err
+	request := common.MakeDefaultHTTPRequest(method, target.Path)
+	request.URL.RawQuery = target.RawQuery
+	if etag != "" {
+		request.Header.Set("If-Match", etag)
+	}
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		request.Body, request.ContentLength = io.NopCloser(bytes.NewReader(data)), int64(len(data))
+		request.Header.Set("Content-Type", "application/json")
+	}
+	local := c.client
+	local.Host = target.Scheme + "://" + target.Host
+	response, err := local.Call(ctx, &request)
+	if response != nil {
+		defer response.Body.Close()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if out != nil {
+		if err := json.NewDecoder(response.Body).Decode(out); err != nil {
+			return nil, err
+		}
+	}
+	return response.Header, nil
+}
+
+func (c *Client) objects(ctx context.Context, endpoint string, query url.Values) ([]object, error) {
+	var all []object
+	for {
+		var page []object
+		headers, err := c.request(ctx, http.MethodGet, endpoint+"?"+query.Encode(), "", nil, &page)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		next := headers.Get("opc-next-page")
+		if next == "" {
+			return all, nil
+		}
+		query.Set("page", next)
+	}
+}
+
+func (c *Client) ensure(ctx context.Context, cfg Config, collection string, key ociresource.Key, desired any, apply bool) (object, Change, error) {
+	change := Change{Kind: key.Kind, Name: key.Name}
+	query := url.Values{"compartmentId": {cfg.CompartmentID}}
+	if key.Kind == "dns-zone" {
+		query.Set("scope", "GLOBAL")
+	}
+	objects, err := c.objects(ctx, collection, query)
+	if err != nil {
+		return object{}, change, err
+	}
+	var found []object
+	for _, obj := range objects {
+		if obj.LifecycleState == "DELETED" || obj.LifecycleState == "DELETING" {
+			continue
+		}
+		if cfg.owns(key, obj.FreeformTags) {
+			found = append(found, obj)
+		}
+	}
+	adopt := false
+	if len(found) == 0 && key.Kind == "dns-zone" {
+		for _, obj := range objects {
+			if strings.EqualFold(obj.Name, cfg.Zone) && obj.LifecycleState != "DELETED" && obj.LifecycleState != "DELETING" {
+				if (ociresource.Ownership{Owner: cfg.Owner}).Claimed(ociresource.Tags{Freeform: obj.FreeformTags}) {
+					return object{}, change, fmt.Errorf("zone %s is claimed by another owner", cfg.Zone)
+				}
+				found, adopt = append(found, obj), true
+			}
+		}
 	}
 	if len(found) > 1 {
-		return object{}, "", fmt.Errorf("%d objects match %s; remove the extra ones", len(found), query.Encode())
+		return object{}, change, fmt.Errorf("duplicate resource key %s", key)
 	}
-	var want, have map[string]any
-	if err := roundTrip(desired, &want); err != nil {
-		return object{}, "", err
+	if len(found) == 0 {
+		change.Action = "missing"
+		if !apply {
+			return object{}, change, nil
+		}
+		var created object
+		_, err := c.request(ctx, http.MethodPost, collection, "", desired, &created)
+		change.Action, change.ID = "created", created.ID
+		return created, change, err
 	}
-	if err := call(ctx, http.MethodGet, collection+"/"+found[0].ID, nil, &have); err != nil {
-		return object{}, "", err
+	obj := found[0]
+	change.ID = obj.ID
+	var have, want map[string]any
+	headers, err := c.request(ctx, http.MethodGet, collection+"/"+obj.ID, "", nil, &have)
+	if err != nil {
+		return obj, change, err
 	}
-	delete(want, "compartmentId") // update bodies carry no compartment
+	data, err := json.Marshal(desired)
+	if err != nil {
+		return obj, change, err
+	}
+	if err := json.Unmarshal(data, &want); err != nil {
+		return obj, change, err
+	}
+	var current object
+	data, err = json.Marshal(have)
+	if err != nil {
+		return obj, change, err
+	}
+	if err := json.Unmarshal(data, &current); err != nil {
+		return obj, change, err
+	}
+	if adopt && (ociresource.Ownership{Owner: cfg.Owner}).Claimed(ociresource.Tags{Freeform: current.FreeformTags}) {
+		return obj, change, fmt.Errorf("zone ownership changed before adoption")
+	}
+	if !adopt && !cfg.owns(key, current.FreeformTags) {
+		return obj, change, fmt.Errorf("ownership changed for %s", key)
+	}
+	if key.Kind == "dns-zone" && (current.Name != cfg.Zone || current.ZoneType != "PRIMARY" || current.Scope != "GLOBAL") {
+		return obj, change, fmt.Errorf("owned zone %s is not the public primary zone %s", obj.ID, cfg.Zone)
+	}
+	delete(want, "compartmentId")
+	if key.Kind == "dns-zone" {
+		delete(want, "name")
+		delete(want, "zoneType")
+	}
+	change.Action = "ok"
 	if covers(have, want) {
-		return found[0], "unchanged", nil
+		return current, change, nil
 	}
-	return found[0], "updated", call(ctx, http.MethodPut, collection+"/"+found[0].ID, want, nil)
+	change.Action = "differs"
+	if !apply {
+		return current, change, nil
+	}
+	want["freeformTags"] = (ociresource.Tags{Freeform: current.FreeformTags}).Merge(ociresource.Tags{Freeform: cfg.tags(key.Kind, key.Name)}).Freeform
+	if headers.Get("etag") == "" {
+		return obj, change, fmt.Errorf("no etag for %s", key)
+	}
+	_, err = c.request(ctx, http.MethodPut, collection+"/"+obj.ID, headers.Get("etag"), want, nil)
+	change.Action = "updated"
+	if adopt {
+		change.Action = "adopted"
+	}
+	return current, change, err
 }
 
-// covers reports whether have holds every field of want; OCI adds fields of its own.
 func covers(have, want any) bool {
 	switch w := want.(type) {
 	case map[string]any:
@@ -160,51 +224,128 @@ func covers(have, want any) bool {
 	return reflect.DeepEqual(have, want)
 }
 
-func roundTrip(in, out any) error {
-	data, err := json.Marshal(in)
+func (c *Client) Reconcile(ctx context.Context, cfg Config, apply bool) ([]Change, error) {
+	var changes []Change
+	zone, change, err := c.ensure(ctx, cfg, c.dns+"/zones", cfg.key("dns-zone", "zone"), map[string]any{
+		"name": cfg.Zone, "zoneType": "PRIMARY", "compartmentId": cfg.CompartmentID, "freeformTags": cfg.tags("dns-zone", "zone")}, apply)
 	if err != nil {
-		return err
+		return changes, err
 	}
-	return json.Unmarshal(data, out)
+	changes = append(changes, change)
+	var targets []string
+	for _, region := range cfg.Regions {
+		targets = append(targets, region.IP)
+	}
+	slices.Sort(targets)
+	monitor := func(targets []string) map[string]any {
+		return map[string]any{"compartmentId": cfg.CompartmentID, "displayName": cfg.Zone,
+			"targets": targets, "protocol": "HTTP", "port": 80, "method": "GET", "path": cfg.HealthPath,
+			"intervalInSeconds": 10, "timeoutInSeconds": 10, "isEnabled": true, "freeformTags": cfg.tags("http-monitor", "edge")}
+	}
+	monitors, err := c.objects(ctx, c.health+"/httpMonitors", url.Values{"compartmentId": {cfg.CompartmentID}})
+	if err != nil {
+		return changes, err
+	}
+	union := slices.Clone(targets)
+	for _, m := range monitors {
+		if cfg.owns(cfg.key("http-monitor", "edge"), m.FreeformTags) {
+			var current object
+			if _, err := c.request(ctx, http.MethodGet, c.health+"/httpMonitors/"+m.ID, "", nil, &current); err != nil {
+				return changes, err
+			}
+			if !cfg.owns(cfg.key("http-monitor", "edge"), current.FreeformTags) {
+				return changes, fmt.Errorf("monitor ownership changed before reading targets")
+			}
+			union = append(union, current.Targets...)
+		}
+	}
+	slices.Sort(union)
+	union = slices.Compact(union)
+	initial := targets
+	if apply {
+		initial = union
+	}
+	m, change, err := c.ensure(ctx, cfg, c.health+"/httpMonitors", cfg.key("http-monitor", "edge"), monitor(initial), apply)
+	if err != nil {
+		return changes, err
+	}
+	changes = append(changes, change)
+	for _, name := range cfg.Names {
+		label := strings.SplitN(name, ".", 2)[0]
+		policy, change, err := c.ensure(ctx, cfg, c.dns+"/steeringPolicies", cfg.key("steering-policy", label), cfg.policy(name, m.ID), apply)
+		if err != nil {
+			return changes, err
+		}
+		changes = append(changes, change)
+		if zone.ID == "" || policy.ID == "" {
+			continue
+		}
+		change, err = c.attach(ctx, cfg, zone.ID, name, policy.ID, apply)
+		if err != nil {
+			return changes, err
+		}
+		changes = append(changes, change)
+	}
+	if zone.ID != "" {
+		records, err := c.records(ctx, cfg, zone.ID, apply)
+		if err != nil {
+			return changes, err
+		}
+		changes = append(changes, records...)
+	}
+	if apply && !slices.Equal(union, targets) {
+		_, change, err := c.ensure(ctx, cfg, c.health+"/httpMonitors", cfg.key("http-monitor", "edge"), monitor(targets), true)
+		if err != nil {
+			return changes, err
+		}
+		changes = append(changes, change)
+	}
+	for _, ns := range zone.Nameservers {
+		changes = append(changes, Change{Action: "ok", Kind: "nameserver", Name: ns.Hostname})
+	}
+	return changes, nil
 }
 
-// operatorCaller signs requests with the operator's OCI profile, like the
-// other operator commands (capacity, disaster-recovery).
-func operatorCaller() (caller, error) {
-	factory, err := ociclient.OperatorConfig(catalog.OCIRegion(catalog.Bootstrap))
+func (c *Client) attach(ctx context.Context, cfg Config, zone, domain, policy string, apply bool) (Change, error) {
+	change := Change{Action: "missing", Kind: "steering-attachment", Name: domain}
+	attachments, err := c.objects(ctx, c.dns+"/steeringPolicyAttachments", url.Values{"compartmentId": {cfg.CompartmentID}, "zoneId": {zone}, "domain": {domain}})
 	if err != nil {
-		return nil, err
+		return change, err
 	}
-	client, err := common.NewClientWithConfig(factory.Provider())
+	var found []object
+	for _, a := range attachments {
+		if a.ZoneID == zone && strings.EqualFold(a.DomainName, domain) && a.LifecycleState != "DELETED" && a.LifecycleState != "DELETING" {
+			found = append(found, a)
+		}
+	}
+	if len(found) > 1 {
+		return change, fmt.Errorf("multiple attachments at %s", domain)
+	}
+	if len(found) == 1 {
+		if found[0].SteeringPolicyID != policy {
+			return change, fmt.Errorf("foreign attachment at %s", domain)
+		}
+		change.Action, change.ID = "ok", found[0].ID
+		return change, nil
+	}
+	records, _, err := c.snapshot(ctx, zone)
 	if err != nil {
-		return nil, err
+		return change, err
 	}
-	factory.Configure(&client, ociclient.Service("dns"))
-	return func(ctx context.Context, method, endpoint string, body, out any) error {
-		target, err := url.Parse(endpoint)
-		if err != nil {
-			return err
+	for _, record := range records {
+		if record.Domain != domain {
+			continue
 		}
-		request := common.MakeDefaultHTTPRequest(method, target.Path)
-		request.URL.RawQuery = target.RawQuery
-		if body != nil {
-			data, err := json.Marshal(body)
-			if err != nil {
-				return err
-			}
-			request.Body, request.ContentLength = io.NopCloser(bytes.NewReader(data)), int64(len(data))
-			request.Header.Set("Content-Type", "application/json")
+		if record.Rtype == "A" || record.Rtype == "AAAA" || record.Rtype == "CNAME" {
+			return change, fmt.Errorf("foreign record at steering name %s", domain)
 		}
-		local := client
-		local.Host = target.Scheme + "://" + target.Host
-		response, err := local.Call(ctx, &request)
-		if err != nil {
-			return err
-		}
-		defer response.Body.Close()
-		if out == nil {
-			return nil
-		}
-		return json.NewDecoder(response.Body).Decode(out)
-	}, nil
+	}
+	if !apply {
+		return change, nil
+	}
+	var a object
+	_, err = c.request(ctx, http.MethodPost, c.dns+"/steeringPolicyAttachments", "", map[string]string{
+		"zoneId": zone, "domainName": domain, "steeringPolicyId": policy, "displayName": cfg.key("steering-attachment", strings.SplitN(domain, ".", 2)[0]).String()}, &a)
+	change.Action, change.ID = "created", a.ID
+	return change, err
 }

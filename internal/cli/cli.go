@@ -20,7 +20,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard/accesscheck"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
-	"github.com/TerraScale/ts-orchestrator/internal/edge/geodns"
 	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
 	"github.com/TerraScale/ts-orchestrator/internal/liveverify"
 	"github.com/TerraScale/ts-orchestrator/internal/logscan"
@@ -70,7 +69,7 @@ Operator tooling:
   member                 List this region's cluster hosts; drain and remove a worker (ls | leave HOSTNAME)
   mesh                   Show which regions answer on the cross-region mesh (ping)
   status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
-  edge                   Inspect certificates (edge certificates inventory, repair) or apply GeoDNS (edge geodns)
+  edge                   Inspect certificates (edge certificates inventory, repair)
   node keys|list         Inspect local public keys and build node lists
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources
@@ -138,7 +137,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 			}
 			return app.RunCertificateCLI(ctx, args[2:], output)
 		}
-		return geodns.Run(ctx, args[1:], output)
+		return errors.New("usage: ts-orch edge certificates <inventory|repair>")
 	case "mesh":
 		return mesh.RunCLI(ctx, args[1:], "/var/lib/ts-orch", output)
 	case "status":
