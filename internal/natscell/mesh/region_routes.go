@@ -88,8 +88,7 @@ func (n *Node) inRegion(members []string) bool {
 func (n *Node) regionRoutes() {
 	ticker := time.NewTicker(n.cfg.peersEvery)
 	defer ticker.Stop()
-	started := time.Now()
-	n.gossip.membership.Store(started.UnixNano())
+	n.gossip.membership.Store(time.Now().UnixNano())
 	reachedRegion := false
 	failure := ""
 	for {
@@ -115,7 +114,7 @@ func (n *Node) regionRoutes() {
 				failure = err.Error()
 			}
 		}
-		if reachedRegion || time.Since(started) >= time.Minute {
+		if reachedRegion {
 			n.dialGossipedPeers()
 		}
 		n.gossip.rounds.Add(1)
