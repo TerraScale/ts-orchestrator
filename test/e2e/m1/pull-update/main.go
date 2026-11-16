@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
@@ -441,6 +442,25 @@ func journey(bin, part string) {
 
 func (l *lane) pulls(ctx context.Context) {
 	revision := l.revision
+	older, base, before := strings.Repeat("1", 40), hex.EncodeToString(sha256Of(l.self)), l.starts()
+	l.github.mu.Lock()
+	l.github.compare[revision+"..."+older] = comparison{status: "behind", base: revision, mergeBase: older}
+	l.github.mu.Unlock()
+	c100 := l.candidate("c100")
+	r0 := l.github.publish(older, "100", asset, c100, c100, l.sigstore.bundle(mainIdentity, older, "100", map[string][]byte{asset: c100}))
+	newer := l.waitStatus(ctx, "sjc", "sjc finds every host already newer than "+r0.tag, func(s pullrelease.Status) bool {
+		return s.Phase == pullrelease.PhaseNewer && s.Target != nil && s.Target.Tag() == r0.tag
+	})
+	require(!slices.Contains(newer.Bad, r0.tag) && len(newer.Hosts) == 3 && !slices.ContainsFunc(newer.Hosts, func(h pullrelease.HostProgress) bool {
+		return h.State != pullrelease.HostNewer || h.Version != revision || h.Error != ""
+	}), "an older release must leave every host on its newer release, unrefused and not marked bad:\n%s", newer)
+	skipped := l.ask(ctx, "gru-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: l.release(r0)})
+	require(skipped.State == releasepush.StateNewer && skipped.Version == revision && skipped.Refusal == nil && skipped.Error == "",
+		"gru-w must skip the older release, replied %+v", skipped)
+	l.requireVersions(ctx, base, l.region("gru", "sjc")...)
+	require(maps.Equal(before, l.starts()), "no host may restart for an older release: %v -> %v", before, l.starts())
+	fmt.Printf("older release %s -> every host already descends from it: nothing installed, not refused, not marked bad\n%s\n", r0.tag, newer)
+
 	r1 := l.publishGood("101", "c101")
 	l.github.mint(revision, "101")
 	require(strings.Contains(l.nudge(ctx), "gru: nudged"), "the first nudge must be accepted")

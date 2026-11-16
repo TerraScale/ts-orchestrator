@@ -21,6 +21,7 @@ const (
 	PhaseRolledBack  = "rolled_back"
 	PhaseWaiting     = "waiting"
 	PhaseStalled     = "rollback_stalled"
+	PhaseNewer       = "newer"
 
 	HostPending    = "pending"
 	HostInstalling = "installing"
@@ -28,6 +29,7 @@ const (
 	HostRestoring  = "restoring"
 	HostDone       = "done"
 	HostRolledBack = "rolled_back"
+	HostNewer      = "newer"
 
 	badLimit = 16
 )
