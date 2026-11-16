@@ -37,13 +37,10 @@ func PoolBinding(volumeID, filesystem string, mayFormat bool) map[string]string 
 }
 
 const poolDataVolume = `metadata() { curl -fsS --max-time 8 -H 'Authorization: Bearer Oracle' "http://169.254.169.254/opc/v2/instance/metadata/$1"; }
-volume=
-for attempt in $(seq 120); do
-	volume=$(metadata terrascale-data-volume) && break
-	echo "waiting for region apply to bind a data volume ($attempt)"
+until volume=$(metadata terrascale-data-volume); do
+	echo "waiting for ts-orch region apply <label> compute to bind a data volume"
 	sleep 10
 done
-test -n "$volume" || { echo "no data volume was bound to this node within 20 minutes; run ts-orch region apply <label> compute" >&2; exit 1; }
 bash /usr/local/lib/ts-orch/data-volume.sh "$(metadata terrascale-data-may-format)" "$volume" "$(metadata terrascale-data-uuid)" ''
 `
 

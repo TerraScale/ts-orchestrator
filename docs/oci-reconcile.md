@@ -104,11 +104,12 @@ from the configuration's launch tags) and `<CELL>/volume/data-<n>`.
 | Instance configuration | Kept when shape, OCPUs, memory, boot size, subnet, NSG and no public address match; otherwise a new one is made, the pool switched to it for new nodes, and the old one deleted. Running nodes are not replaced. |
 | Pool | Created at `nodes.min` across every availability domain and its fault domains; raised to `nodes.min` when below. The pass waits up to 20 minutes for the pool to be `RUNNING` with every instance running before it changes anything, and stops with the pool's state otherwise. |
 | Scale-in | Only when the pool is above `nodes.max`: the newest owned node is detached from the pool (size decremented, not auto-terminated), soft-stopped, its data volume detached, then terminated with `preserveDataVolumesCreatedAtLaunch=true`. |
-| Data volumes | A node with an attached owned data volume keeps it. Otherwise it gets the lowest kept volume in its availability domain, or a new one (at most `nodes.max`). The volume records the node in `terrascale-data-instance`; the node's metadata gets `terrascale-data-volume`, `terrascale-data-may-format` (true only for a volume never bound before) and `terrascale-data-uuid`, the filesystem UUID chosen at volume creation. |
+| Data volumes | A node with an attached owned data volume keeps it. Otherwise it gets the lowest kept volume in its availability domain, or a new one (at most `nodes.max`). The volume records the node in `terrascale-data-instance`; the node's metadata gets `terrascale-data-volume`, `terrascale-data-may-format` (true only while `terrascale-data-instance` is empty or names this node) and `terrascale-data-uuid`, the filesystem UUID chosen at volume creation. |
 
-No step deletes a data volume; `VOLUME_DELETE` is not granted. A node that
-finds no bound volume within 20 minutes, or a volume that fails the
-`internal/nodeinit` checks, stops its first boot and installs nothing. A node
+No step deletes a data volume; `VOLUME_DELETE` is not granted. A node waits
+for its binding with no deadline, so a pool that settles late still mounts and
+joins on the next apply. A volume that fails the `internal/nodeinit` checks
+stops the first boot and installs nothing. A node
 whose join fails keeps ts-orch running and retries the Vault read every 30
 seconds, logging the error, until it joins or the pass scales it in.
 

@@ -252,11 +252,11 @@ a kept one from its availability domain, or a new one. Image and release
 are fixed when the configuration is made; a newer release reaches the nodes
 through the release self-pull, so a second apply changes nothing.
 
-A node's first boot needs no person (`internal/nodeinit`): it waits for the
-apply to record its data volume in the instance metadata, formats it only
-when the volume was never bound before, mounts it, installs the pinned
-release the way `deploy/m1/install.sh` does, and starts ts-orch. ts-orch
-reads `ts-orch-join-<region>` from the gru Vault (`internal/regionjoin`),
+A node's first boot needs no person (`internal/nodeinit`): it waits, with no
+deadline, for the apply to record its data volume in the instance metadata,
+formats it only when the volume was never bound to another node, mounts it,
+installs the pinned release the way `deploy/m1/install.sh` does, and starts
+ts-orch. ts-orch reads `ts-orch-join-<region>` from the gru Vault (`internal/regionjoin`),
 joins as a worker and is promoted until the region has three managers
 (`internal/swarmruntime/manager_promotion.go`).
 

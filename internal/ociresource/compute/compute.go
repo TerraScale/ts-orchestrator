@@ -469,7 +469,7 @@ func (p Pass) bind(ctx context.Context, instance core.Instance, chosen slot) err
 		p.say("unchanged", "volume", chosen.name, *chosen.volume.Id+" on "+deref(instance.DisplayName))
 		return nil
 	}
-	mayFormat := chosen.volume.FreeformTags[boundInstance] == ""
+	mayFormat := slices.Contains([]string{"", *instance.Id}, chosen.volume.FreeformTags[boundInstance])
 	tags := maps.Clone(chosen.volume.FreeformTags)
 	tags[boundInstance] = *instance.Id
 	if _, err := p.Storage.UpdateVolume(ctx, core.UpdateVolumeRequest{VolumeId: chosen.volume.Id, UpdateVolumeDetails: core.UpdateVolumeDetails{FreeformTags: tags}}); err != nil {
