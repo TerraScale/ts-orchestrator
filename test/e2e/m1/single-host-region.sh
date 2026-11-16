@@ -3,6 +3,7 @@ source "$(dirname "$0")/common.sh"
 source "$here/runtime.sh"
 cache_pins
 restore_runtime
+sudo swapoff --all
 lane="$(dirname "$bin")/single-host-region"
 begin "real single-host in Oracle mode: three regions of one manager and one worker"
 "$lane" fetch "$here/whoami.json" "$here/images.json" "$work/registry"
