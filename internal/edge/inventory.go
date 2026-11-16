@@ -196,7 +196,7 @@ func ServeLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/edge/ready" {
-		e.serveReady(w, r)
+		e.serveReady(w, r, true)
 		return
 	}
 	if r.URL.Path == "/edge/certificates/metrics" {

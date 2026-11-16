@@ -5,14 +5,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats-server/v2/server"
@@ -25,7 +30,93 @@ func stopNode(node *Node) {
 	}
 }
 
-func RegionalPeersJourney(root string) error {
+var fleetMuted atomic.Bool
+
+const FleetAdvertiseEvery = 250 * time.Millisecond
+
+func FleetMuteAnnouncements(muted bool) { fleetMuted.Store(muted) }
+
+func FleetHostNode(root, region, name, address, peer string, seed []byte) (*Node, error) {
+	ca, err := DeriveCA(seed)
+	if err != nil {
+		return nil, err
+	}
+	cfg := config{region: region, server: name, founder: true, dir: filepath.Join(root, name), ca: ca,
+		terrabaseToken: strings.Repeat("t", 32), clusterHost: address, clusterPort: 6222, clusterAdvertise: address + ":6222", localPort: 4222,
+		peersEvery: FleetAdvertiseEvery, peersDir: filepath.Join(root, name+"-peers"), address: func() (string, error) {
+			if fleetMuted.Load() {
+				return "", errors.New("fleet announcements muted")
+			}
+			return address, nil
+		}}
+	cfg.routes = []string{"nats://" + peer + ":6222"}
+	return start(cfg)
+}
+
+func FleetRefreshEdgeInventory(node *Node) {
+	node.edgePublishMu.Lock()
+	defer node.edgePublishMu.Unlock()
+	node.edgePublished = nil
+}
+
+func FleetEdgeInventoryGeneration(node *Node) uint64 {
+	if inventory := node.edgeInventory.Load(); inventory != nil {
+		return inventory.Generation
+	}
+	return 0
+}
+
+func FleetForgeEdgeInventory(node *Node, state string, older []byte) error {
+	current := node.edgeInventory.Load()
+	genuine, err := os.ReadFile(filepath.Join(state, edgeInventoryFile))
+	if err != nil || current == nil {
+		return fmt.Errorf("worker has no persisted inventory: %w", err)
+	}
+	forged := *current
+	forged.Web = maps.Clone(current.Web)
+	forged.Web["forged.e2e.test"] = 18101
+	forged.Generation, forged.Issued = current.Generation+1, time.Now().UTC()
+	payload, err := protocol.EncodeJSON(forged)
+	if err != nil {
+		return err
+	}
+	spki, signature, err := nodelist.Sign(state, payload)
+	if err != nil {
+		return err
+	}
+	var tampered signedEdgeInventory
+	if err := protocol.DecodeTolerant(genuine, &tampered, maxWire); err != nil {
+		return err
+	}
+	tampered.Inventory = payload
+	attempts := map[string]any{
+		"a route signed by a non-manager":           signedEdgeInventory{Publisher: node.cfg.server, SPKI: spki, Inventory: payload, Signature: signature},
+		"a non-manager claiming the manager's name": signedEdgeInventory{Publisher: EdgeInventoryPublisher(node.cfg.region), SPKI: spki, Inventory: payload, Signature: signature},
+		"the manager's envelope with a new route":   tampered,
+		"a replay of an older manager inventory":    older,
+	}
+	for attempt, envelope := range attempts {
+		data, ok := envelope.([]byte)
+		if !ok {
+			if data, err = protocol.EncodeJSON(envelope); err != nil {
+				return err
+			}
+		}
+		if err := node.conn.Publish(node.edgeInventorySubject(), data); err != nil {
+			return err
+		}
+		if err := node.acceptEdgeInventory(state, data); err == nil {
+			return fmt.Errorf("worker accepted %s", attempt)
+		}
+	}
+	after, err := os.ReadFile(filepath.Join(state, edgeInventoryFile))
+	if err != nil || !bytes.Equal(after, genuine) || node.edgeInventory.Load().Generation != current.Generation {
+		return fmt.Errorf("a refused inventory replaced the persisted one: %w", err)
+	}
+	return nil
+}
+
+func RegionalPeersJourney(root string, health func(context.Context, string, *Node) error) error {
 	logrus.SetLevel(logrus.WarnLevel)
 	began := time.Now()
 	defer func() { fmt.Printf("regional peers lane elapsed: %s\n", time.Since(began).Round(time.Millisecond)) }()
@@ -154,6 +245,13 @@ func RegionalPeersJourney(root string) error {
 	if err := regionalAwait(ctx, func() bool { return len(founder.joinedWorkers()) == 1 && own.server.NumRoutes() > 0 }); err != nil {
 		ready, pending, membershipErr := peerCfg.applier.(swarmApplier).WorkerStates(context.Background())
 		return fmt.Errorf("two regions and a joined worker: %w (ready=%v pending=%v membership=%v routes=%d)", err, ready, pending, membershipErr, own.server.NumRoutes())
+	}
+	if err := health(ctx, workerState, workerAgent); err != nil {
+		return fmt.Errorf("joined worker release health differs from main: %w", err)
+	}
+	fmt.Println("ok regional peers: same as main, a real joined worker is release-healthy without a manager socket or JetStream; a missing mesh node blocks release")
+	if err := regionalPlacementJourney(ctx, control, founder); err != nil {
+		return err
 	}
 	writerCfg := ownCfg
 	writerCfg.dir = filepath.Join(root, "writer-state")
@@ -351,6 +449,93 @@ func RegionalPeersJourney(root string) error {
 		}
 	}
 	fmt.Println("ok regional peers: removed worker retained for first omission and dropped on second")
+	return nil
+}
+
+func regionalServiceTasks(ctx context.Context, control api.ControlClient, name string) (*api.Service, []*api.Task, error) {
+	services, err := control.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{name}}})
+	if err != nil || len(services.Services) != 1 {
+		return nil, nil, fmt.Errorf("service %s: %v, %w", name, services, err)
+	}
+	tasks, err := control.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{services.Services[0].ID}}})
+	if err != nil {
+		return nil, nil, err
+	}
+	return services.Services[0], tasks.Tasks, nil
+}
+
+func regionalPlacementJourney(ctx context.Context, control api.ControlClient, founder *Node) error {
+	declare := func(name, host string) swarmruntime.ServiceSpec {
+		return swarmruntime.ServiceSpec{Name: name, Image: "docker.io/traefik/whoami@sha256:c2c89736959e8830c3db090e2f54500499ceb0460267f91dce494728d7327770",
+			Env: map[string]string{"WHOAMI_PORT_NUMBER": "8099"}, Port: 8099, ReadyPath: "/readyz", Hostnames: []string{host}, Replicas: 1, MilliCPU: 50, MemoryMiB: 32}
+	}
+	reconcile := func(spec swarmruntime.ServiceSpec, generation int64) error {
+		founder.mu.Lock()
+		defer founder.mu.Unlock()
+		_, err := founder.reconcile(ctx, spec.Name, desiredState{Operator: &Entry{Generation: generation, Spec: &spec}})
+		return err
+	}
+	whoami := declare("whoami", "sjc.mesh.e2e.test")
+	existing := whoami
+	existing.Generation, existing.Region, existing.Node = 1, "sjc", founder.cfg.server
+	rendered, err := existing.SwarmSpec()
+	if err != nil {
+		return err
+	}
+	rendered.Task.Placement = &api.Placement{Constraints: []string{"node.role==manager"}}
+	if _, err := control.CreateService(ctx, &api.CreateServiceRequest{Spec: rendered}); err != nil {
+		return err
+	}
+	if err := regionalAwait(ctx, func() bool {
+		_, tasks, err := regionalServiceTasks(ctx, control, "whoami")
+		return err == nil && slices.ContainsFunc(tasks, func(task *api.Task) bool { return task.NodeID != "" })
+	}); err != nil {
+		return fmt.Errorf("existing manager-pinned whoami task never placed: %w", err)
+	}
+	if err := reconcile(whoami, 2); err != nil {
+		return fmt.Errorf("whoami update over its manager-pinned task: %w", err)
+	}
+	placed, shared := map[string]bool{}, ""
+	if err := regionalAwait(ctx, func() bool {
+		service, tasks, err := regionalServiceTasks(ctx, control, "whoami")
+		if err != nil || service.Spec.GetReplicated() == nil || service.Spec.GetReplicated().Replicas != 2 || service.Spec.Task.Placement == nil || service.Spec.Task.Placement.MaxReplicas != 1 || len(service.Spec.Task.Placement.Constraints) != 0 {
+			return false
+		}
+		live := map[string]int{}
+		for _, task := range tasks {
+			if task.NodeID == "" {
+				continue
+			}
+			placed[task.NodeID] = true
+			if task.DesiredState <= api.TaskStateRunning {
+				if live[task.NodeID]++; live[task.NodeID] > 1 {
+					shared = task.NodeID
+				}
+			}
+		}
+		return len(placed) == 2 || shared != ""
+	}); err != nil {
+		return fmt.Errorf("updated whoami never placed a task on each node: %v, %w", placed, err)
+	}
+	if shared != "" {
+		return fmt.Errorf("two whoami replicas shared node %s", shared)
+	}
+	if err := reconcile(declare("ts-auth", "auth.sjc.e2e.test"), 1); err != nil {
+		return err
+	}
+	auth, _, err := regionalServiceTasks(ctx, control, "ts-auth")
+	if err != nil {
+		return err
+	}
+	if replicated := auth.Spec.GetReplicated(); replicated == nil || replicated.Replicas != 1 || auth.Spec.Task.Placement == nil || !slices.Equal(auth.Spec.Task.Placement.Constraints, []string{"node.role==manager"}) {
+		return fmt.Errorf("ts-auth rendered %v with placement %v, want 1 replica on the manager", replicated, auth.Spec.Task.Placement)
+	}
+	for _, name := range []string{"whoami", "ts-auth"} {
+		if err := swarmruntime.RemoveServiceSpec(ctx, control, name); err != nil {
+			return err
+		}
+	}
+	fmt.Println("ok regional placement: a manager-pinned whoami updated in place through SwarmKit to one task per node; ts-auth stays one replica on the manager")
 	return nil
 }
 

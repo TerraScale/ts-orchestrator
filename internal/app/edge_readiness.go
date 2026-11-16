@@ -3,14 +3,14 @@ package app
 import (
 	"strings"
 
-	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 )
 
-func edgeReadinessRoutes(services []*api.Service, region string) []edge.ReadinessRoute {
+func edgeReadinessRoutes(services []*api.Service, region string) []mesh.EdgeRoute {
 	web, _ := edgeRoutes(services, region)
-	routes := []edge.ReadinessRoute{}
+	routes := []mesh.EdgeRoute{}
 	seen := map[int]bool{}
 	for _, service := range services {
 		labels := service.Spec.Annotations.Labels
@@ -24,7 +24,7 @@ func edgeReadinessRoutes(services []*api.Service, region string) []edge.Readines
 				continue
 			}
 			seen[port] = true
-			routes = append(routes, edge.ReadinessRoute{Host: host, Port: port, Path: path})
+			routes = append(routes, mesh.EdgeRoute{Host: host, Port: port, Path: path})
 		}
 	}
 	return routes
