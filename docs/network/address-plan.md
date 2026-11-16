@@ -119,7 +119,7 @@ collision exclusions, not cluster dependencies or workloads to deploy.
 
 `ts-orch oci-region` validates each plan's VCN against its cell's dedicated
 `/16` before any OCI request. The existing nested-subnet and sibling-subnet
-checks still apply. `ts-orch region plan` derives its `/24` from the same stable
+checks still apply. `ts-orch region derive` derives its `/24` from the same stable
 reservation. NetBird desired-state validation rejects any account mesh range
 other than `10.200.0.0/16` and any routed cell subnet outside that cell's
 reservation before contacting the manager. Tests cover CGNAT, LANs, broad

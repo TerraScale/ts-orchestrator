@@ -73,7 +73,7 @@ Targets, not measured; the drill below measures them.
 1. `ts-orch mesh` — confirm the surviving regions still answer on the
    cross-region mesh; multi-region databases keep serving.
 2. `ts-orch status` — confirm degradation is limited to the lost region.
-3. Rebuild: `ts-orch region plan <region>` derives the region's plan,
+3. Rebuild: `ts-orch region derive <region>` derives the region's plan,
    `ts-orch region create BUNDLE` provisions the footprint,
    `ts-orch region verify LABEL --plan BOUND_PLAN` proves it serves.
 4. Single-region databases in the lost region lose at most 60 s of writes
