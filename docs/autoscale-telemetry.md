@@ -54,11 +54,12 @@ restart stabilization; they never substitute zero or move a service to minimum.
 | Working set / requested memory | 80% |
 | Edge requests / second | 100 |
 
-The latency source for C20 is the edge histogram
-`ts_orch_edge_request_duration_seconds{service=...}`. That histogram is absent on
-the C11 base, so latency is not yet a decision input. CPU, memory and request
-rate are active; latency must join the same complete-window and missing-signal
-rules when C20 supplies its observations.
+C20 exports the edge histogram
+`ts_orch_edge_request_duration_seconds{name=...,region=...,stage=...}`, keyed by
+hostname, with total and upstream stages. The current autoscaler does not ingest
+this histogram: CPU, memory and request rate remain its active inputs. Latency
+integration must map hostnames to services and use the same complete-window and
+missing-signal rules.
 
 The largest signal recommendation wins. A 10% tolerance band avoids small
 oscillations. Growth needs twenty seconds of sustained pressure, a twenty-second
