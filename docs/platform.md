@@ -238,9 +238,10 @@ Today: OCI resources were created by operator commands with an API key;
 nothing in the cluster creates or changes them. The document and
 `region plan` exist. `ts-orch region apply <label> nlb` creates and keeps each
 region's network load balancer and its reserved address (docs/oci-reconcile.md,
-"Network load balancer"); gru, sjc and fra have one since 2026-11-16, not yet
-in DNS. The other reconcilers follow (C7 network, C8 compute, C10
-geo-steering DNS, C12 node autoscaler).
+"Network load balancer"); gru, sjc and fra have one since 2026-11-16,
+referenced by the staged OCI DNS zone while public names still use nodes.
+The network and global DNS passes are implemented. Compute (C8) and the
+node autoscaler (C12) follow.
 
 ### Nodes: the compute kind
 
@@ -289,8 +290,11 @@ its record automatically.
 `api.terrascale.tech` uses GeoDNS too, for testing convenience only. SDKs do
 not use it except as the fallback when Atlas is unreachable.
 
-Today: every name points straight at node 1 of a region through
-Cloudflare DNS; there is no GeoDNS (C8).
+Today: the OCI zone is delegated, its five steering policies and shared
+monitor exist, and regional A records point to the reserved NLB addresses.
+The eight public names still point directly to node 1 through Cloudflare
+DNS. Address-Host readiness and TLS checks have not passed, so the public
+CNAME cutover is deferred to C10b. See [the cutover procedure](network/geodns.md).
 
 ## Atlas
 

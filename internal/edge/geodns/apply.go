@@ -249,7 +249,14 @@ func (c *Client) Reconcile(ctx context.Context, cfg Config, apply bool) ([]Chang
 	union := slices.Clone(targets)
 	for _, m := range monitors {
 		if cfg.owns(cfg.key("http-monitor", "edge"), m.FreeformTags) {
-			union = append(union, m.Targets...)
+			var current object
+			if _, err := c.request(ctx, http.MethodGet, c.health+"/httpMonitors/"+m.ID, "", nil, &current); err != nil {
+				return changes, err
+			}
+			if !cfg.owns(cfg.key("http-monitor", "edge"), current.FreeformTags) {
+				return changes, fmt.Errorf("monitor ownership changed before reading targets")
+			}
+			union = append(union, current.Targets...)
 		}
 	}
 	slices.Sort(union)
