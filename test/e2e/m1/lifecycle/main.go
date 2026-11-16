@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
@@ -34,6 +35,8 @@ func main() {
 	switch os.Args[1] {
 	case "member-server":
 		err = memberServer(ctx, os.Args[2])
+	case "capacity":
+		err = capacityProof(ctx, os.Args[2])
 	case "identity":
 		err = qualifiedIdentity(ctx)
 	case "runtime":
@@ -132,15 +135,43 @@ func node(ctx context.Context, root, name string) error {
 			return err
 		}
 	}
+	telemetry := &http.Server{Addr: ":9108", ReadHeaderTimeout: 5 * time.Second, Handler: hostmetrics.Handler("", "", executor)}
+	go func() {
+		if err := telemetry.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}()
+	defer telemetry.Close()
+	stopReplicas := func() {}
+	startReplicas := func() {
+		if name != "c18a" {
+			return
+		}
+		scaling, stop := context.WithCancel(ctx)
+		done := make(chan struct{})
+		current := node
+		go func() {
+			defer close(done)
+			if err := swarmruntime.RunReplicaAutoscaler(scaling, current, executor, func(remote *api.Node) (string, error) { return remote.Status.Addr, nil }); scaling.Err() == nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
+		}()
+		stopReplicas = func() { stop(); <-done }
+	}
+	startReplicas()
+	defer func() { stopReplicas() }()
+
 	server := &http.Server{Addr: ":19090", ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		switch r.URL.Path {
 		case "/metrics":
 			swarmruntime.ReadinessMetrics.WritePrometheus(w)
+			swarmruntime.WriteReplicaMetrics(w)
 		case "/binary":
 			http.ServeFile(w, r, os.Args[4])
 		case "/agent-stop":
+			stopReplicas()
 			if err := node.Stop(r.Context()); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
@@ -150,6 +181,7 @@ func node(ctx context.Context, root, name string) error {
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
+			startReplicas()
 		default:
 			http.NotFound(w, r)
 		}
@@ -508,7 +540,10 @@ func run(ctx context.Context, root, image string) error {
 	}
 	fmt.Printf("agent stop/start retained PIDs %d %d %d %d %d; all served while stopped and after start\n", owner.process.Pid(), first.process.Pid(), second.process.Pid(), twins[0].process.Pid(), twins[1].process.Pid())
 	if len(os.Args) > 3 && os.Args[3] == "quick" {
-		return j.quickContinuity(owner, keys)
+		if err := j.quickContinuity(owner, keys); err != nil {
+			return err
+		}
+		return j.autoscale(image)
 	}
 	return j.reporting(first, second, owner, twins)
 }

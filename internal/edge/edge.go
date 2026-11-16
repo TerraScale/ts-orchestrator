@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"log/slog"
 	"maps"
 	"net"
@@ -397,6 +398,17 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	peer := fromPeer(r) || r.Context().Value(edgeHopKey{}) != nil
+	if !peer {
+		if routes := e.serviceRoutes.Load(); routes != nil {
+			host := r.Host
+			if name, _, err := net.SplitHostPort(host); err == nil {
+				host = name
+			}
+			if service := routes.hosts[strings.ToLower(host)]; service != "" {
+				observability.RecordServiceRequest(service)
+			}
+		}
+	}
 	if !peer {
 		if err := watchBody(w, r); err != nil {
 			refuseHTTP(w, r, http.StatusServiceUnavailable, "body_deadline")

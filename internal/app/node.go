@@ -223,6 +223,20 @@ func serveManagerRole(ctx context.Context, state string, plan hostPlan, node *sw
 	serving, stop := context.WithCancel(ctx)
 	defer stop()
 	go regionhealth.Run(serving, state)
+	autoscaleDone := make(chan struct{})
+	go func() {
+		defer close(autoscaleDone)
+		if err := swarmruntime.RunReplicaAutoscaler(serving, node, executor, replicaTelemetryAddress); serving.Err() == nil {
+			select {
+			case failed <- errors.Join(errors.New("replica autoscaler stopped"), err):
+			case <-serving.Done():
+			}
+		}
+	}()
+	defer func() {
+		stop()
+		<-autoscaleDone
+	}()
 	targetsDone := make(chan struct{})
 	go func() {
 		defer close(targetsDone)
