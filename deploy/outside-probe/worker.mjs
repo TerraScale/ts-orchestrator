@@ -81,8 +81,11 @@ async function publish(secret, title, priority, message) {
     const text = await request(`https://ntfy.sh/${secret}`, { method: "POST", headers: { Title: title, Priority: priority }, body: message });
     const result = JSON.parse(text);
     if (!result.id || result.event !== "message" || result.topic !== secret || result.message !== message) throw new Error("push rejected");
-  } catch {
-    throw new Error("push delivery failed");
+  } catch (error) {
+    const reason = /^status \d{3}$/.test(error.message) ? error.message
+      : ["TimeoutError", "AbortError"].includes(error.name) ? "timeout"
+      : error.message === "push rejected" ? "invalid response" : "transport";
+    throw new Error(`push delivery failed (${reason})`);
   }
 }
 
@@ -154,10 +157,17 @@ export class Probe extends DurableObject {
       state.reported = completed;
       state.runs = [...state.runs, sample].slice(-24);
       await this.ctx.storage.put("state", state);
-      await this.notify(state, outcomes, completed);
+      console.log(JSON.stringify(sample));
+      try {
+        await this.notify(state, outcomes, completed);
+        delete state.notificationError;
+      } catch (error) {
+        state.notificationError = error.message;
+        await this.ctx.storage.put("state", state);
+        throw error;
+      }
       await this.ctx.storage.put("state", state);
       await this.ctx.storage.setAlarm(completed + window);
-      console.log(JSON.stringify(sample));
     });
   }
 
