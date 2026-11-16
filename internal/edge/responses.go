@@ -22,6 +22,8 @@ type responseWriter struct {
 	http.ResponseWriter
 	protocol string
 	started  bool
+	reason   string
+	body     progressBody
 }
 
 func (w *responseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
@@ -29,7 +31,7 @@ func (w *responseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter 
 func (w *responseWriter) record(code int) {
 	if !w.started && (code >= 200 || code == http.StatusSwitchingProtocols) {
 		w.started = true
-		observability.RecordEdgeResponse(w.protocol, code)
+		observability.RecordEdgeResponse(w.protocol, code, w.reason)
 	}
 }
 

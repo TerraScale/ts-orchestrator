@@ -43,8 +43,9 @@ const (
 	// maxReplayBody (TerraBase's 4 MiB import part with headroom) is spooled
 	// to an unlinked file under the state directory. A larger body streams
 	// through and is never replayed.
-	memReplayBody = 1 << 20
-	maxReplayBody = 8 << 20
+	memReplayBody  = 1 << 20
+	maxReplayBody  = 8 << 20
+	maxReplayBytes = maxRegionalSocketsPerAddress * memReplayBody
 )
 
 // Mesh is what replay needs from this host's mesh node.
@@ -128,11 +129,29 @@ func wroteBackend(r *http.Request) bool {
 	return ok && wrote.Load()
 }
 
-// bufferBody keeps a body of up to maxReplayBody so a replay can send it
-// again; GetBody marks the request replayable. The returned func releases the
-// spool file once the request is done.
-func bufferBody(r *http.Request, spoolDir string) (func(), error) {
-	if r.Body == nil || r.Body == http.NoBody {
+var errReplayStorage = errors.New("edge replay storage unavailable")
+
+func (e *Edge) reserveReplayBody(r *http.Request) (int64, bool) {
+	if r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0 {
+		return 0, true
+	}
+	reserved := r.ContentLength
+	if reserved <= 0 || reserved > maxReplayBody {
+		reserved = maxReplayBody + 1
+	}
+	for {
+		used := e.spoolBytes.Load()
+		if reserved > maxReplayBytes-used {
+			return 0, false
+		}
+		if e.spoolBytes.CompareAndSwap(used, used+reserved) {
+			return reserved, true
+		}
+	}
+}
+
+func (e *Edge) bufferBody(r *http.Request) (func(), error) {
+	if r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0 {
 		r.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
 		return func() {}, nil
 	}
@@ -145,14 +164,9 @@ func bufferBody(r *http.Request, spoolDir string) (func(), error) {
 		r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(head)), nil }
 		return func() {}, nil
 	}
-	file, err := spool(spoolDir)
+	file, err := spool(e.spoolDir)
 	if err != nil {
-		slog.WarnContext(r.Context(), "edge replay: body not spooled, streaming it", "request_id", r.Header.Get(requestIDHeader), "error", err)
-		r.Body = struct {
-			io.Reader
-			io.Closer
-		}{io.MultiReader(bytes.NewReader(head), r.Body), r.Body}
-		return func() {}, nil
+		return nil, fmt.Errorf("%w: %w", errReplayStorage, err)
 	}
 	release := func() { file.Close() }
 	n, err := file.Write(head)

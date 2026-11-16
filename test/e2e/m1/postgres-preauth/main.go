@@ -33,6 +33,10 @@ func step(name string, err error) {
 }
 
 func main() {
+	if len(os.Args) == 5 {
+		limitsMain()
+		return
+	}
 	state, caPath, host := os.Args[1], os.Args[2], os.Args[3]
 	pem, err := os.ReadFile(caPath)
 	roots := x509.NewCertPool()
@@ -49,10 +53,10 @@ func main() {
 	errCh := make(chan error, 1)
 	go func() { errCh <- public.Run(context.Background()) }()
 	step("edge postgres listener", waitListening(errCh))
-	attacker := net.ParseIP("10.80.1.1")
-	victim := net.ParseIP("10.80.2.1")
-	sessionIP := net.ParseIP("10.80.3.1")
-	otherV6 := net.ParseIP("fd00:c121::1")
+	attacker := net.ParseIP("198.18.1.1")
+	victim := net.ParseIP("198.18.2.1")
+	sessionIP := net.ParseIP("198.18.3.1")
+	otherV6 := net.ParseIP("2001:db8:121::1")
 	session, err := connect(sessionIP, host, roots)
 	step("authenticated session", err)
 	step("first query", query(session))
@@ -65,7 +69,7 @@ func main() {
 	step("200 from one address", runPhase("200 ipv4", attacker, 200, nil, 168, session, victim, otherV6, host, roots))
 	v6 := make([]net.IP, 200)
 	for i := range v6 {
-		v6[i] = net.ParseIP(fmt.Sprintf("fd00:c120::%x", i+1))
+		v6[i] = net.ParseIP(fmt.Sprintf("2001:db8:120::%x", i+1))
 	}
 	step("200 from one ipv6 prefix", runMany(v6, 168, session, victim, otherV6, host, roots))
 	step("session after the flood", query(session))
@@ -220,7 +224,7 @@ func refusedState(ip net.IP) error {
 	if err != nil {
 		return err
 	}
-	if state != "08004" {
+	if state != "53300" {
 		return fmt.Errorf("sqlstate %s", state)
 	}
 	return nil
@@ -253,10 +257,12 @@ func connect(ip net.IP, host string, roots *x509.CertPool) (*tls.Conn, error) {
 		conn.Close()
 		return nil, err
 	}
+	_ = conn.SetDeadline(time.Time{})
 	return conn, nil
 }
 
 func negotiateTLS(conn net.Conn, host string, roots *x509.CertPool) (*tls.Conn, error) {
+	_ = conn.SetDeadline(time.Now().Add(failAfter))
 	var req [8]byte
 	binary.BigEndian.PutUint32(req[:4], 8)
 	binary.BigEndian.PutUint32(req[4:], 80877103)

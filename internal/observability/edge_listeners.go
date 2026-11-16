@@ -26,15 +26,16 @@ func SetEdgeListenerReady(protocol string, ready bool) {
 type edgeResponseKey struct {
 	protocol string
 	code     int
+	reason   string
 }
 
 var edgeResponses sync.Map
 
-func RecordEdgeResponse(protocol string, code int) {
-	if (protocol != "http" && protocol != "https") || code < 100 || code > 999 {
+func RecordEdgeResponse(protocol string, code int, reason string) {
+	if protocol != "postgres" && ((protocol != "http" && protocol != "https") || code < 100 || code > 999) {
 		return
 	}
-	key := edgeResponseKey{protocol, code}
+	key := edgeResponseKey{protocol, code, reason}
 	counter, ok := edgeResponses.Load(key)
 	if !ok {
 		counter, _ = edgeResponses.LoadOrStore(key, new(atomic.Uint64))
@@ -45,7 +46,7 @@ func RecordEdgeResponse(protocol string, code int) {
 func WriteEdgeResponseMetrics(w io.Writer) {
 	edgeResponses.Range(func(key, value any) bool {
 		response := key.(edgeResponseKey)
-		WriteCounter(w, Series("ts_orch_edge_responses_total", "protocol", response.protocol, "code", strconv.Itoa(response.code)), float64(value.(*atomic.Uint64).Load()))
+		WriteCounter(w, Series("ts_orch_edge_responses_total", "protocol", response.protocol, "code", strconv.Itoa(response.code), "reason", response.reason), float64(value.(*atomic.Uint64).Load()))
 		return true
 	})
 }

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
 	"path"
 	"path/filepath"
@@ -47,8 +48,12 @@ type Edge struct {
 	pgKeys           postgresKeys
 	pgHandshakes     chan struct{}
 	pgHandshakeMu    sync.Mutex
-	pgHandshakeN     map[string]int
-	pgSessions       chan struct{}
+	pgHandshakeN     map[netip.Prefix]int
+	pgSessions       sourceSlots
+	httpConnections  sourceSlots
+	websockets       sourceSlots
+	refusals         chan struct{}
+	spoolBytes       atomic.Int64
 	pgRelays         chan struct{}
 	pgControl        chan struct{}
 	serviceRoutes    atomic.Pointer[serviceRoutes]
@@ -83,8 +88,8 @@ func newEdge(stateDir string) *Edge {
 		pgRelays: make(chan struct{}, 32), pgControl: make(chan struct{}, 32),
 		listen:       net.Listen,
 		terrabase:    terrabaseInternal,
-		pgHandshakes: make(chan struct{}, maxPostgresHandshakeAll), pgHandshakeN: map[string]int{},
-		pgSessions:       make(chan struct{}, maxPostgresConns),
+		pgHandshakes: make(chan struct{}, maxPostgresHandshakeAll), pgHandshakeN: map[netip.Prefix]int{},
+		refusals:         make(chan struct{}, maxPostgresHandshakes),
 		peerAddr:         func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
 		spoolDir:         filepath.Join(stateDir, "edge-spool"),
 		netbirdDashboard: netbirddashboard.New(stateDir),
@@ -179,6 +184,15 @@ func newEdge(stateDir string) *Edge {
 		},
 		Transport: e.local,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			var refusal edgeRefusal
+			if errors.As(err, &refusal) {
+				refuseHTTP(w, r, refusal.status, refusal.reason)
+				return
+			}
+			if countedResponse(w).body.timedOut.Load() {
+				refuseHTTP(w, r, http.StatusTooManyRequests, "body_rate")
+				return
+			}
 			slog.WarnContext(r.Context(), "edge proxy error", append([]any{"host", r.Host, "request_id", r.Header.Get(requestIDHeader), "error", err}, proxyErrorContext(r)...)...)
 			// A backend that never received the whole request did not run it,
 			// so the source edge may try the next region.
@@ -298,6 +312,12 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 			if !e.authorizeEdgeHop(w, r) {
 				return
 			}
+			if !fromPeer(r) && r.Context().Value(edgeHopKey{}) == nil {
+				if err := watchBody(w, r); err != nil {
+					refuseHTTP(w, r, http.StatusServiceUnavailable, "body_deadline")
+					return
+				}
+			}
 			e.identify(w, r)
 			if r.URL.Path == "/edge/ready" {
 				e.serveReady(w, r, false)
@@ -365,6 +385,25 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	peer := fromPeer(r) || r.Context().Value(edgeHopKey{}) != nil
+	if !peer {
+		if err := watchBody(w, r); err != nil {
+			refuseHTTP(w, r, http.StatusServiceUnavailable, "body_deadline")
+			return
+		}
+		if websocketHandshake(r) {
+			address, _ := netip.ParseAddrPort(r.RemoteAddr)
+			source, _ := addressSource(address.Addr())
+			if reason := e.websockets.take(source, maxRegionalSocketsPerAddress, maxRegionalSockets); reason != "" {
+				status := http.StatusTooManyRequests
+				if reason == "node" {
+					status = http.StatusServiceUnavailable
+				}
+				refuseHTTP(w, r, status, "websocket_"+reason)
+				return
+			}
+			defer e.websockets.release(source)
+		}
+	}
 	if strings.HasPrefix(r.URL.Path, postgresCancelPath) {
 		e.servePostgresCancel(w, r)
 		return
@@ -406,10 +445,29 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		r.Header.Del(replayFailedHeader)
 	}
 	if !isGRPC(r) {
-		r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
+		if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
+			r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
+		}
 		if !peer && r.Header.Get("Upgrade") == "" {
-			release, err := bufferBody(r, e.spoolDir)
+			reserved, ok := e.reserveReplayBody(r)
+			if !ok {
+				refuseHTTP(w, r, http.StatusServiceUnavailable, "spool_budget")
+				return
+			}
+			if reserved > 0 {
+				defer e.spoolBytes.Add(-reserved)
+			}
+			release, err := e.bufferBody(r)
 			if err != nil {
+				if errors.Is(err, errReplayStorage) {
+					refuseHTTP(w, r, http.StatusServiceUnavailable, "spool_storage")
+					return
+				}
+				var timeout net.Error
+				if errors.As(err, &timeout) && timeout.Timeout() {
+					refuseHTTP(w, r, http.StatusTooManyRequests, "body_rate")
+					return
+				}
 				http.Error(w, "bad request body", http.StatusBadRequest)
 				return
 			}

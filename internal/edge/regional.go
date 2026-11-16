@@ -289,6 +289,9 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 	select {
 	case router.requests <- struct{}{}:
 	default:
+		if !internal {
+			return nil, edgeRefusal{http.StatusServiceUnavailable, "regional_request_node"}
+		}
 		return nil, errors.New("regional ingress is full")
 	}
 	admitted, waited, paced, handedOff := false, false, false, false
@@ -374,6 +377,13 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		ctx, tunnel.cancel = context.WithCancel(ctx)
 		if status, message := router.openTunnel(tunnel); status != 0 {
 			tunnel.cancel()
+			if !internal {
+				reason := "regional_websocket_node"
+				if status == http.StatusTooManyRequests {
+					reason = "regional_websocket_source"
+				}
+				return nil, edgeRefusal{status, reason}
+			}
 			header := http.Header{"Content-Type": {"text/plain; charset=utf-8"}, "Content-Length": {strconv.Itoa(len(message))}, "Retry-After": {"1"}}
 			return &http.Response{Status: fmt.Sprintf("%d %s", status, http.StatusText(status)), StatusCode: status, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
 				Header: header, Body: io.NopCloser(strings.NewReader(message)), ContentLength: int64(len(message)), Request: request}, nil

@@ -51,10 +51,12 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 			plain, public := e.httpServers()
 			if protocol == "http" {
 				defer plain.Close()
-				served <- plain.Serve(ln)
+				served <- plain.Serve(limitedListener{Listener: ln, edge: e, protocol: protocol})
 			} else {
 				defer public.Close()
-				served <- public.ServeTLS(ln, "", "")
+				config := public.TLSConfig.Clone()
+				config.NextProtos = []string{"h2", "http/1.1"}
+				served <- public.ServeTLS(limitedListener{Listener: ln, edge: e, protocol: protocol, config: config}, "", "")
 			}
 		case "postgres":
 			served <- e.servePostgres(ln)
