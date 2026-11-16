@@ -14,7 +14,7 @@ base = subprocess.check_output(
 base_paths = set(base.splitlines())
 replacements = {}
 for name in sorted(set(current.splitlines()) | base_paths):
-    if not name.endswith(".go"):
+    if not name.endswith(".go") or pathlib.PurePosixPath(name).parent.as_posix() not in areas:
         continue
     original = repo / name
     content = (

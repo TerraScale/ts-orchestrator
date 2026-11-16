@@ -35,7 +35,7 @@ const usage = `Usage: ts-orch region <command> [flags]
   apply  LABEL KIND...
       Run the named reconcile passes once for one region of the fleet
       document. With no kind it refuses and lists the registered kinds
-      (network, nlb, dns). dns reconciles global steering in the DNS compartment;
+      (network, nlb, compute, dns). dns reconciles global steering in the DNS compartment;
       network adopts the document-made VCN, subnets, gateways
       and NSGs unchanged and creates or converges the NAT gateway, the
       private subnet's route table and the node NSG. Same credentials as
