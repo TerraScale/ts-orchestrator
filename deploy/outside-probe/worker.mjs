@@ -134,6 +134,8 @@ export class Probe extends DurableObject {
     for (const [key, entry] of Object.entries(state.open)) {
       if (checked.has(key) && !next[key] && entry.paged) recovered.push(key);
     }
+    state.open = { ...next, ...Object.fromEntries(recovered.map(key => [key, state.open[key]])) };
+    await this.ctx.storage.put("state", state);
     if (pages.length) {
       await publish(this.env.TS_ALERTS_NTFY_TOPIC, "TerraScale outside probe", "urgent", pages.map(item => `${item.key}: ${item.reason}`).join("\n"));
       for (const item of pages) next[item.key].paged = Date.now();
