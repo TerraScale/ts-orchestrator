@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -50,11 +51,8 @@ type nlbPass struct {
 	out       io.Writer
 }
 
-func ApplyNLB(ctx context.Context, region Region, out io.Writer) error {
-	f, err := factory(ctx, region.OCIRegion)
-	if err != nil {
-		return err
-	}
+func applyNLB(ctx context.Context, region Region, f *ociclient.Factory, out io.Writer) error {
+	var err error
 	p := nlbPass{region: region, out: out}
 	if p.network, err = f.Network(); err != nil {
 		return err
