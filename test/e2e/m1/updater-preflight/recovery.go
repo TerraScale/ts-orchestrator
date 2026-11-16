@@ -301,6 +301,7 @@ func recoveryCase(ctx context.Context, binary string) {
 			must(err)
 			require(strings.TrimSpace(string(substate)) == "auto-restart", fmt.Sprintf("the tick must run in the restart gap, not %s", substate))
 			require(bytes.Equal(read(installed), pushed) && record(marker) == nil && record(state+"/release-runtime") == nil, "a tick after the old process exits and before the candidate starts must not roll back a candidate that never ran")
+			must(run("stop", unit))
 			must(run("start", unit))
 			active()
 			must(run("start", recoverUnit))
