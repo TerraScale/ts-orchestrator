@@ -88,7 +88,8 @@ func (n *Node) inRegion(members []string) bool {
 func (n *Node) regionRoutes() {
 	ticker := time.NewTicker(n.cfg.peersEvery)
 	defer ticker.Stop()
-	n.gossip.membership.Store(time.Now().UnixNano())
+	started := time.Now()
+	n.gossip.membership.Store(started.UnixNano())
 	reachedRegion := false
 	failure := ""
 	for {
@@ -114,7 +115,7 @@ func (n *Node) regionRoutes() {
 				failure = err.Error()
 			}
 		}
-		if reachedRegion {
+		if reachedRegion || time.Since(started) >= time.Minute {
 			n.dialGossipedPeers()
 		}
 		n.gossip.rounds.Add(1)
@@ -131,12 +132,16 @@ func (n *Node) routedInRegion() bool {
 }
 
 func (n *Node) dialGossipedPeers() {
-	if n.membershipLive() {
+	routes := n.routes()
+	if n.membershipLive() && slices.ContainsFunc(routes, func(route *server.RouteInfo) bool {
+		ip, err := netip.ParseAddr(route.IP)
+		return err == nil && n.cfg.vcn.Contains(ip) && serverRegion(route.RemoteName) == n.cfg.region
+	}) {
 		return
 	}
 	type peerAccount struct{ name, account string }
 	routed := map[peerAccount]bool{}
-	for _, route := range n.routes() {
+	for _, route := range routes {
 		routed[peerAccount{route.RemoteName, route.Account}] = true
 	}
 	n.gossip.mu.Lock()

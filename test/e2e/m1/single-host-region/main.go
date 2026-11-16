@@ -533,6 +533,10 @@ func main() {
 		must(oraclehost.FetchImage(context.Background(), spec["image"].(string), os.Args[4]))
 		return
 	}
+	if os.Args[1] == "fallback" {
+		fallbackJourney(os.Args[2], os.Args[3])
+		return
+	}
 	binary, work, specFile, registry := os.Args[1], os.Args[2], os.Args[3], os.Args[4]
 	ctx, cancel := context.WithTimeout(context.Background(), 210*time.Second)
 	defer cancel()

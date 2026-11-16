@@ -51,8 +51,9 @@ func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeI
 			for _, route := range current.Readiness {
 				routes = append(routes, ReadinessRoute{Host: route.Host, Port: route.Port, Path: route.Path})
 			}
-			e.SetServiceRoutes(current.Web, current.Postgres, current.Services, localReadyServices(ctx, routes, current.Services))
+			e.SetServiceRoutes(current.Web, current.Postgres, current.Services, e.ReadyServices())
 			e.SetReadinessRoutes(routes)
+			e.SetServiceRoutes(current.Web, current.Postgres, current.Services, localReadyServices(ctx, routes, current.Services))
 		}
 		select {
 		case <-ctx.Done():
