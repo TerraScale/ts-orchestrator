@@ -333,24 +333,21 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-	bounds := autoscale.Bounds{Min: int(s.Replicas), Max: 8}
-	if len(s.Mounts) != 0 || s.EveryNode() || s.Postgres != nil {
-		bounds.Max = bounds.Min
-	}
+	labels := map[string]string{LabelServiceSpec: s.Name, LabelReadyPath: readyPath}
 	if s.ReplicaBounds != nil {
-		bounds = *s.ReplicaBounds
+		bounds := *s.ReplicaBounds
+		if err := bounds.Validate(); err != nil || bounds.Min < 1 || bounds.Max > 8 || int(s.Replicas) < bounds.Min || int(s.Replicas) > bounds.Max {
+			return nil, errors.New("replicaBounds must contain replicas within 1..8")
+		}
+		if (len(s.Mounts) != 0 || s.EveryNode() || s.Postgres != nil) && bounds.Min != bounds.Max {
+			return nil, errors.New("data owners and every-node services require pinned replica bounds")
+		}
+		encodedBounds, err := json.Marshal(bounds)
+		if err != nil {
+			return nil, err
+		}
+		labels[LabelReplicaBounds] = string(encodedBounds)
 	}
-	if err := bounds.Validate(); err != nil || bounds.Min < 1 || bounds.Max > 8 || int(s.Replicas) < bounds.Min || int(s.Replicas) > bounds.Max {
-		return nil, errors.New("replicaBounds must contain replicas within 1..8")
-	}
-	if (len(s.Mounts) != 0 || s.EveryNode() || s.Postgres != nil) && bounds.Min != bounds.Max {
-		return nil, errors.New("data owners and every-node services require pinned replica bounds")
-	}
-	encodedBounds, err := json.Marshal(bounds)
-	if err != nil {
-		return nil, err
-	}
-	labels := map[string]string{LabelServiceSpec: s.Name, LabelReadyPath: readyPath, LabelReplicaBounds: string(encodedBounds)}
 	if s.Dependencies != nil {
 		dependencies, err := json.Marshal(s.Dependencies)
 		if err != nil {
@@ -708,7 +705,7 @@ func applyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 		if err := admitServiceSpec(current.Spec.Annotations.Labels, s); err != nil {
 			return nil, err
 		}
-		if current.Spec.GetReplicated() != nil && spec.GetReplicated() != nil && current.Spec.Annotations.Labels[LabelReplicaBounds] == spec.Annotations.Labels[LabelReplicaBounds] {
+		if s.ReplicaBounds != nil && current.Spec.GetReplicated() != nil && spec.GetReplicated() != nil && current.Spec.Annotations.Labels[LabelReplicaBounds] == spec.Annotations.Labels[LabelReplicaBounds] {
 			spec.GetReplicated().Replicas = current.Spec.GetReplicated().Replicas
 		}
 		if proto.Equal(&current.Spec, spec) {

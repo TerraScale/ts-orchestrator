@@ -256,12 +256,6 @@ func (a *Autoscaler) scale(ctx context.Context, policy ScalePolicy, now time.Tim
 	if err := policy.Bounds.Validate(); err != nil {
 		return result, err
 	}
-	if err := json.Unmarshal([]byte(service.Spec.Annotations.Labels[LabelReplicaBounds]), &policy.Bounds); err != nil {
-		return result, err
-	}
-	if err := policy.Bounds.Validate(); err != nil {
-		return result, err
-	}
 	replicated := service.Spec.GetReplicated()
 	if replicated == nil || replicated.Replicas > autoscale.MaxReplicas {
 		return result, errors.New("autoscaling requires a replicated service within the product replica limit")

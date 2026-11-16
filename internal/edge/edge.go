@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"log/slog"
 	"maps"
 	"net"
@@ -28,6 +27,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	netbirddashboard "github.com/TerraScale/ts-orchestrator/internal/netbird/dashboard"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 )
 
@@ -399,17 +399,6 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	}
 	peer := fromPeer(r) || r.Context().Value(edgeHopKey{}) != nil
 	if !peer {
-		if routes := e.serviceRoutes.Load(); routes != nil {
-			host := r.Host
-			if name, _, err := net.SplitHostPort(host); err == nil {
-				host = name
-			}
-			if service := routes.hosts[strings.ToLower(host)]; service != "" {
-				observability.RecordServiceRequest(service)
-			}
-		}
-	}
-	if !peer {
 		if err := watchBody(w, r); err != nil {
 			refuseHTTP(w, r, http.StatusServiceUnavailable, "body_deadline")
 			return
@@ -491,6 +480,17 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 				}
 				http.Error(w, "bad request body", http.StatusBadRequest)
 				return
+			}
+		}
+	}
+	if !peer {
+		if routes := e.serviceRoutes.Load(); routes != nil {
+			host := r.Host
+			if name, _, err := net.SplitHostPort(host); err == nil {
+				host = name
+			}
+			if service := routes.hosts[strings.ToLower(host)]; service != "" {
+				observability.RecordServiceRequest(service)
 			}
 		}
 	}

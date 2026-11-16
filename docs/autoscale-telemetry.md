@@ -9,17 +9,18 @@ leadership. SwarmKit alone creates, places and replaces tasks.
 
 ## Service bounds and pinning
 
-Every service declaration carries `replicaBounds`, for example:
+Only a service declaration with explicit `replicaBounds` is autoscaled, for example:
 
 ```json
 {"replicas": 2, "replicaBounds": {"min": 1, "max": 4}}
 ```
 
-Bounds must contain the initial replica count and stay inside 1..8. When omitted,
-stateless services use the declared initial count as their minimum and 8 as their
-maximum. Data owners, Postgres services and every-node services pin their initial
-count. Their bounds must stay equal: data lifecycle is managed separately.
-Pin any service with equal bounds, for example `{"min": 2, "max": 2}`.
+Bounds must contain the initial replica count and stay inside 1..8. Omitting
+`replicaBounds` keeps the exact replica count declared in the service spec. The
+existing ts-auth, ts-dashboard and app-canary declarations remain pinned. Data
+owners, Postgres services and every-node services keep their declared count; any
+explicit bounds must be equal because their lifecycle is managed separately.
+Pin any service by omitting bounds or using equal bounds, such as `{"min": 2, "max": 2}`.
 Bounds travel with the service spec into SwarmKit labels. Reapplying an unchanged
 bound preserves its current scale, including through a release.
 
@@ -39,9 +40,10 @@ existing fresh NetBird discovery inventory and must return the expected SwarmKit
 node ID. Every desired task must be running and measured. CPU and memory are
 normalized by that task's resource requests, then averaged across replicas.
 
-The edge counts incoming requests per routed service, excluding forwarded peer
-requests. The leader sums regional counters and calculates requests per second
-per replica. Restarted counters, changed membership, missing tasks and stale
+The edge counts requests per routed service only after admission, including body
+and WebSocket checks, using per-service atomic counters. Rejected requests and
+forwarded peer requests do not count as demand. The leader sums regional counters
+and calculates requests per second per replica. Restarted counters, changed membership, missing tasks and stale
 collection invalidate the observation. One full minute of continuous observations
 is required before using the window. Missing metrics hold the current count and
 restart stabilization; they never substitute zero or move a service to minimum.
@@ -73,6 +75,8 @@ reason. The existing host metrics endpoint exposes:
 - `ts_orch_service_replica_decision{service=...,reason=...}`
 - `ts_orch_edge_service_requests_total{service=...}`
 
-Follower managers expose no autoscale decisions. The existing `e2e-m1 / restarts`
-lane extends its two-node lifecycle journey with a CPU load phase, scale-up and
-scale-down through the real runtime, and task-kill replacement.
+Follower managers expose no autoscale decisions. The dedicated `e2e-m1 / autoscale`
+lane drives HTTPS load through the edge into the real runtime. It checks a service
+with explicit bounds scales up and down, an unbounded service stays pinned, live
+scheduler capacity excludes current replicas, and SwarmKit replaces a killed task.
+The 180-second down cooldown is unchanged in the journey.

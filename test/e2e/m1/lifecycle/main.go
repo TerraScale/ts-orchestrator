@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -35,8 +36,6 @@ func main() {
 	switch os.Args[1] {
 	case "member-server":
 		err = memberServer(ctx, os.Args[2])
-	case "capacity":
-		err = capacityProof(ctx, os.Args[2])
 	case "identity":
 		err = qualifiedIdentity(ctx)
 	case "runtime":
@@ -132,6 +131,11 @@ func node(ctx context.Context, root, name string) error {
 			return errors.New("expected one regional cluster")
 		}
 		if err := os.WriteFile(filepath.Join(root, "join-token"), []byte(clusters.Clusters[0].RootCA.JoinTokens.Worker), 0600); err != nil {
+			return err
+		}
+	}
+	if name == "c18a" && len(os.Args) > 5 && os.Args[5] == "autoscale" {
+		if err := startAutoscaleEdge(ctx, state); err != nil {
 			return err
 		}
 	}
@@ -423,7 +427,7 @@ func (j *journey) running(service, host string, runtime *containerd.Client) ([]*
 	return result, nil
 }
 
-func (j *journey) create(image, name, host string, port int, owner bool, replicas uint64) ([]*workload, error) {
+func (j *journey) create(image, name, host string, port int, owner bool, replicas uint64, bounds *autoscale.Bounds) ([]*workload, error) {
 	nodeName := "c18a"
 	if host == "10.231.0.3" {
 		nodeName = "c18b"
@@ -434,7 +438,7 @@ func (j *journey) create(image, name, host string, port int, owner bool, replica
 	}
 	declaration := swarmruntime.ServiceSpec{Name: name, Image: image, Env: map[string]string{"PORT": swarmruntime.TaskPortEnv},
 		Args: []string{"sh", "-c", "wget -q -O /tmp/lifecycle http://127.0.0.1:19090/binary && chmod +x /tmp/lifecycle && exec /tmp/lifecycle serve"},
-		Port: uint32(port), ReadyPath: "/ready", Replicas: replicas}
+		Port: uint32(port), ReadyPath: "/ready", Replicas: replicas, ReplicaBounds: bounds}
 	if owner {
 		declaration.Env = map[string]string{"PORT": strconv.Itoa(port)}
 		declaration.Mounts = []swarmruntime.ServiceMount{{Source: "/var/lib/ts-data/c18", Target: "/tmp"}}
@@ -502,19 +506,22 @@ func run(ctx context.Context, root, image string) error {
 			_ = w.runtime.Close()
 		}
 	}()
-	ownerSet, err := j.create(image, "c18-data", "10.231.0.2", 18083, true, 1)
+	if len(os.Args) > 3 && os.Args[3] == "autoscale" {
+		return j.autoscale(image)
+	}
+	ownerSet, err := j.create(image, "c18-data", "10.231.0.2", 18083, true, 1, nil)
 	if err != nil {
 		return err
 	}
-	firstSet, err := j.create(image, "c18-first", "10.231.0.2", 18084, false, 1)
+	firstSet, err := j.create(image, "c18-first", "10.231.0.2", 18084, false, 1, nil)
 	if err != nil {
 		return err
 	}
-	secondSet, err := j.create(image, "c18-second", "10.231.0.2", 18085, false, 1)
+	secondSet, err := j.create(image, "c18-second", "10.231.0.2", 18085, false, 1, nil)
 	if err != nil {
 		return err
 	}
-	twins, err := j.create(image, "c18-twins", "10.231.0.3", 18086, false, 2)
+	twins, err := j.create(image, "c18-twins", "10.231.0.3", 18086, false, 2, nil)
 	if err != nil {
 		return err
 	}
@@ -540,10 +547,7 @@ func run(ctx context.Context, root, image string) error {
 	}
 	fmt.Printf("agent stop/start retained PIDs %d %d %d %d %d; all served while stopped and after start\n", owner.process.Pid(), first.process.Pid(), second.process.Pid(), twins[0].process.Pid(), twins[1].process.Pid())
 	if len(os.Args) > 3 && os.Args[3] == "quick" {
-		if err := j.quickContinuity(owner, keys); err != nil {
-			return err
-		}
-		return j.autoscale(image)
+		return j.quickContinuity(owner, keys)
 	}
 	return j.reporting(first, second, owner, twins)
 }

@@ -47,13 +47,14 @@ for name in c18a c18b; do
 	ip -n "$name" link set lo up
 	mkdir -p "$root/$name/data/c18"
 	install -m 0755 "$server" "$root/$name/data/c18/lifecycle"
-	ip netns exec "$name" unshare --mount --uts bash -s -- "$root" "$name" "$binary" "$archive" "$server" <<'SH' >"$root/$name/output" 2>&1 &
+	ip netns exec "$name" unshare --mount --uts bash -s -- "$root" "$name" "$binary" "$archive" "$server" "$mode" <<'SH' >"$root/$name/output" 2>&1 &
 set -euo pipefail
 root=$1
 name=$2
 binary=$3
 archive=$4
 server=$5
+mode=$6
 hostname "$name"
 mount --make-rprivate /
 mount --bind "$root/cgroup" /sys/fs/cgroup
@@ -70,7 +71,7 @@ trap 'kill "$daemon" 2>/dev/null || true; wait "$daemon" || true' EXIT
 ctr --address "$root/$name/containerd.sock" --timeout 30s version
 ctr --address "$root/$name/containerd.sock" --namespace terrascale images import "$archive"
 echo "$$" >"$root/$name/agent.pid"
-exec "$binary" node "$root" "$name" "$server"
+exec "$binary" node "$root" "$name" "$server" "$mode"
 SH
 done
 if ! "$binary" "$root" "$image" "$mode"; then

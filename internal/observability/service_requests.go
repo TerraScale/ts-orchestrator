@@ -1,36 +1,45 @@
 package observability
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
 
-var serviceRequests = struct {
-	sync.Mutex
-	counts map[string]uint64
-}{counts: make(map[string]uint64)}
+type serviceRequestSeries map[string]*atomic.Uint64
+
+var serviceRequests atomic.Pointer[serviceRequestSeries]
+var serviceRequestRoutes sync.Mutex
 
 func RecordServiceRequest(service string) {
-	serviceRequests.Lock()
-	defer serviceRequests.Unlock()
-	if _, exists := serviceRequests.counts[service]; exists {
-		serviceRequests.counts[service]++
+	if counts := serviceRequests.Load(); counts != nil {
+		if counter := (*counts)[service]; counter != nil {
+			counter.Add(1)
+		}
 	}
 }
 
 func ServiceRequestCounts() map[string]uint64 {
-	serviceRequests.Lock()
-	defer serviceRequests.Unlock()
-	result := make(map[string]uint64, len(serviceRequests.counts))
-	for service, count := range serviceRequests.counts {
-		result[service] = count
+	result := make(map[string]uint64)
+	if counts := serviceRequests.Load(); counts != nil {
+		for service, counter := range *counts {
+			result[service] = counter.Load()
+		}
 	}
 	return result
 }
 
 func SetServiceRequestRoutes(routes map[string]string) {
-	serviceRequests.Lock()
-	defer serviceRequests.Unlock()
-	counts := make(map[string]uint64, len(routes))
+	serviceRequestRoutes.Lock()
+	defer serviceRequestRoutes.Unlock()
+	previous := serviceRequests.Load()
+	counts := make(serviceRequestSeries, len(routes))
 	for _, service := range routes {
-		counts[service] = serviceRequests.counts[service]
+		if previous != nil {
+			counts[service] = (*previous)[service]
+		}
+		if counts[service] == nil {
+			counts[service] = new(atomic.Uint64)
+		}
 	}
-	serviceRequests.counts = counts
+	serviceRequests.Store(&counts)
 }

@@ -457,6 +457,7 @@ func (c edgeClient) websockets() error {
 			held = append(held, conn)
 		}
 		if source == 0 {
+			before := admittedEdgeRequests()
 			key := base64.StdEncoding.EncodeToString(make([]byte, 16))
 			conn, response, err := c.request(address, 443, "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: "+key+"\r\n")
 			if err != nil {
@@ -466,11 +467,15 @@ func (c edgeClient) websockets() error {
 			if response.StatusCode != 429 || response.Header.Get("Retry-After") != "1" {
 				sourceErr = fmt.Errorf("65th WebSocket: %d", response.StatusCode)
 			}
+			if admittedEdgeRequests() != before {
+				return errors.New("source-rejected WebSocket counted as autoscale demand")
+			}
 			if err := c.served("198.18.2.1", 443, "", 200); err != nil {
 				return err
 			}
 		}
 	}
+	before := admittedEdgeRequests()
 	key := base64.StdEncoding.EncodeToString(make([]byte, 16))
 	conn, response, err := c.request("10.80.1.9", 443, "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: "+key+"\r\n")
 	if err != nil {
@@ -479,6 +484,9 @@ func (c edgeClient) websockets() error {
 	conn.Close()
 	if response.StatusCode != 503 || response.Header.Get("Retry-After") != "1" {
 		return errors.Join(sourceErr, fmt.Errorf("513th WebSocket: %d", response.StatusCode))
+	}
+	if admittedEdgeRequests() != before {
+		return errors.New("node-rejected WebSocket counted as autoscale demand")
 	}
 	return errors.Join(sourceErr, echoSocket(held[0]))
 }
@@ -819,4 +827,19 @@ func (c edgeClient) grpcStream() (io.Closer, func() error, error) {
 		}
 		return nil
 	}, nil
+}
+
+func admittedEdgeRequests() uint64 {
+	var metrics strings.Builder
+	observability.WriteEdgeResponseMetrics(&metrics)
+	for line := range strings.SplitSeq(metrics.String(), "\n") {
+		if value, ok := strings.CutPrefix(line, "ts_orch_edge_service_requests_total{service=\"latency\"} "); ok {
+			count, err := strconv.ParseUint(value, 10, 64)
+			if err != nil {
+				panic(err)
+			}
+			return count
+		}
+	}
+	panic("missing admitted edge request metric")
 }
