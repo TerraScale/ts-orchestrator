@@ -102,7 +102,13 @@ current boot, using `ExecMainStartTimestampMonotonic` and `CLOCK_MONOTONIC`.
 It persists that start, boot identity, release identity and window in
 `nats/release-runtime` so repeated crashes do not reset the window. A new boot
 gives the candidate a full window; time powered off and wall-clock corrections
-do not consume it. Idle ticks read the trial records first and never open the
+do not consume it. The trial also stores, as `installed_by`, the
+`ts-orch.service` invocation the install superseded. While the unit still
+reports that invocation (the installer has exited and systemd has not started
+the candidate yet, the `auto-restart` gap), the main start time belongs to the
+installer, so the tick records nothing and leaves the candidate in place. The
+recovery executable is the installing updater's copy, so this holds from the
+first install an updater with `installed_by` makes. Idle ticks read the trial records first and never open the
 agent binary when neither a trial nor a recovery intent exists.
 
 After the window, recovery records a durable `nats/release-recovery` intent.
