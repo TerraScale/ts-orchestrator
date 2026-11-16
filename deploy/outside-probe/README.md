@@ -16,10 +16,10 @@ A SQLite Durable Object serializes runs and persists open incidents, their first
 observation and last accepted page. Endpoint failures need consecutive scheduled
 observations at least four minutes apart. A known monitoring heartbeat must be
 ten minutes old; a missing or unreadable heartbeat must persist for ten minutes.
-An open incident pages at most once every thirty minutes. A fresh report clears
+A validated accepted page suppresses repeats for thirty minutes. A fresh report clears
 the corresponding incident and sends one recovery for an incident that paged.
 Notification failure leaves the incident available to the next scheduled run.
-Provider acceptance followed by a process crash can still duplicate a page.
+Provider acceptance followed by a lost response or process crash can still duplicate a page.
 
 The Durable Object alarm watches completed probe reports independently of cron.
 Reading the initial report arms it even before the first cron invocation. Ten
