@@ -5,19 +5,21 @@ import (
 	"context"
 	"debug/buildinfo"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/oraclehost"
@@ -137,26 +139,99 @@ func meshUp(ctx context.Context, fleet *oraclehost.Fleet) {
 	step("every manager's mesh is up and every region answers ts-orch status over it")
 }
 
-func installNodeList(fleet *oraclehost.Fleet) {
-	list := nodelist.List{Sequence: 1}
+func operatorRelease(ctx context.Context, fleet *oraclehost.Fleet, binary, repo, dir string) (string, error) {
+	nodes := []nodelist.Node{}
 	for index, host := range fleet.Hosts {
-		state := filepath.Join(host.Dir, "state")
-		keys, err := nodelist.ReadKeys(state)
-		must(err)
-		meshIP, err := nodelist.MeshIP(host.Name, host.Region.Name)
-		must(err)
-		list.Nodes = append(list.Nodes, nodelist.Node{
-			Name: host.Name, Region: host.Region.Name,
-			PublicIP: fmt.Sprintf("198.51.100.%d", index+1), PrivateIP: host.Address,
-			MeshIP: meshIP, WGPublicKey: keys.WGPublicKey, TLSSPKISHA256: keys.TLSSPKISHA256,
-		})
+		output, err := host.Exec(ctx, "/usr/local/bin/ts-orch", "node", "keys")
+		if err != nil {
+			return "", fmt.Errorf("%s node keys: %w: %s", host.Name, err, output)
+		}
+		var keys nodelist.PublicKeys
+		if err := json.Unmarshal(output, &keys); err != nil {
+			return "", err
+		}
+		nodes = append(nodes, nodelist.Node{Name: host.Name, Region: host.Region.Name, PublicIP: fmt.Sprintf("198.51.100.%d", index+1), PrivateIP: host.Address,
+			WGPublicKey: keys.WGPublicKey, TLSSPKISHA256: keys.TLSSPKISHA256})
 	}
-	must(list.Validate())
-	wire, err := protocol.EncodeJSON(list)
-	must(err)
+	inventory, err := json.Marshal(nodes)
+	if err != nil {
+		return "", err
+	}
+	inventoryPath, listPath := filepath.Join(dir, "inventory.json"), filepath.Join(dir, "nodes.json")
+	if err := os.WriteFile(inventoryPath, inventory, 0o644); err != nil {
+		return "", err
+	}
+	if output, err := exec.CommandContext(ctx, binary, "node", "list", "build", "1", inventoryPath, listPath).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("ts-orch node list build: %w: %s", err, output)
+	}
+	list, err := os.ReadFile(listPath)
+	if err != nil {
+		return "", err
+	}
+	source := filepath.Join(repo, "deploy", "m1", "embed.go")
+	original, err := os.ReadFile(source)
+	if err != nil {
+		return "", err
+	}
+	embedded := regexp.MustCompile(`(?m)^const NodeList = .*$`).ReplaceAllLiteral(original, []byte("const NodeList = "+strconv.Quote(string(list))))
+	if bytes.Equal(embedded, original) {
+		return "", errors.New("deploy/m1/embed.go has no NodeList declaration")
+	}
+	overlaySource, overlay, release := filepath.Join(dir, "embed.go"), filepath.Join(dir, "overlay.json"), filepath.Join(dir, "release-with-node-list")
+	if err := os.WriteFile(overlaySource, embedded, 0o644); err != nil {
+		return "", err
+	}
+	replace, err := json.Marshal(map[string]map[string]string{"Replace": {source: overlaySource}})
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(overlay, replace, 0o644); err != nil {
+		return "", err
+	}
+	build := []string{"env", "PATH=" + os.Getenv("PATH"), "CGO_ENABLED=0", "go", "-C", repo, "build", "-trimpath", "-overlay", overlay, "-o", release, "./cmd/terrascale-orchestrator"}
+	if user := os.Getenv("SUDO_USER"); user != "" {
+		build = append([]string{"sudo", "-H", "-u", user}, build...)
+	}
+	if output, err := exec.CommandContext(ctx, build[0], build[1:]...).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("build the release that embeds node list sequence 1: %w: %s", err, output)
+	}
+	require(revision(release) == revision(binary), "the release embedding the node list has revision %s, want %s", revision(release), revision(binary))
+	return release, nil
+}
+
+func nodeListSequence(ctx context.Context, host *oraclehost.Host, want uint64) {
+	until(ctx, fmt.Sprintf("%s node list sequence %d", host.Name, want), func() error {
+		reply, err := host.Health(ctx)
+		if err != nil {
+			return err
+		}
+		if reply.NodeList.Sequence != want || reply.NodeList.Refused != "" {
+			return fmt.Errorf("node list %+v", reply.NodeList)
+		}
+		return nil
+	})
+}
+
+func edgeAnswer(ctx context.Context, host *oraclehost.Host, ca, url string) string {
+	output, _ := exec.CommandContext(ctx, "ip", "netns", "exec", host.Namespace, "curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", "--cacert", ca,
+		"--resolve", "whoami.e2e.test:443:127.0.0.1", url).CombinedOutput()
+	return string(output)
+}
+
+func unlisted(ctx context.Context, fleet *oraclehost.Fleet, want, ca string) {
+	managers, workers := roles(fleet)
 	for _, host := range fleet.Hosts {
-		must(os.WriteFile(filepath.Join(host.Dir, "state", "node", "nodes.json"), wire, 0o600))
+		healthy(ctx, host, want)
+		nodeListSequence(ctx, host, 0)
 	}
+	for _, manager := range managers {
+		whoamiBackend(ctx, manager, ca)
+	}
+	for _, worker := range workers {
+		ready, page := edgeAnswer(ctx, worker, ca, "http://127.0.0.1/edge/ready"), edgeAnswer(ctx, worker, ca, "https://whoami.e2e.test/")
+		require(ready == "503" && page == "404", "%s without a node list: edge readiness %s and whoami %s, want 503 and 404 (no route, no backend reached)", worker.Name, ready, page)
+	}
+	step("shipped node list (sequence 0, as production) on every host: release health ok everywhere, managers serve whoami as on main, workers' edges route nothing and stay release-healthy")
 }
 
 func installEdgeCert(fleet *oraclehost.Fleet) string {
@@ -313,8 +388,13 @@ func main() {
 	}
 	step("workers joined from Vault join material and sent READY=1")
 	meshUp(ctx, fleet)
-	installNodeList(fleet)
-	step("node list names every host so workers can verify their manager's edge inventory")
+	release := make(chan error, 1)
+	var released string
+	go func() {
+		var err error
+		released, err = operatorRelease(ctx, fleet, binary, filepath.Join(filepath.Dir(specFile), "..", "..", ".."), filepath.Dir(work))
+		release <- err
+	}()
 	for _, service := range []map[string]any{peerCredentialService(spec), spec} {
 		applied := filepath.Join(work, service["name"].(string)+".json")
 		data, err := json.Marshal(service)
@@ -324,15 +404,18 @@ func main() {
 		require(err == nil && !bytes.Contains(output, []byte("on this host only")), "service apply on %s did not go through the mesh: %v: %s", managers[0].Name, err, output)
 		step("applied %s on %s through the mesh: %s", service["name"], managers[0].Name, bytes.TrimSpace(output))
 	}
-	ready(ctx, fleet, first, ca)
-
+	unlisted(ctx, fleet, first, ca)
+	must(<-release)
+	step("operator built the release embedding node list sequence 1 from every host's ts-orch node keys and ts-orch node list build")
 	for _, host := range fleet.Hosts {
 		before := host.LastRun()
+		must(host.Install(released))
 		must(host.Restart())
 		_, err := host.WaitReady(ctx, before, first)
 		must(err)
 		healthy(ctx, host, first)
-		step("%s restarted to READY and release health ok", host.Name)
+		nodeListSequence(ctx, host, 1)
+		step("%s restarted on the release to READY, release health ok and node list sequence 1 adopted", host.Name)
 	}
 	ready(ctx, fleet, first, ca)
 	step("single-host-region lane passed in %s", time.Since(started).Round(time.Second))

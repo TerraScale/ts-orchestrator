@@ -343,6 +343,14 @@ func (h *Host) tail(name string) string {
 
 func (h *Host) Restart() error { return h.process.Process.Signal(syscall.SIGHUP) }
 
+func (h *Host) Install(binary string) error {
+	installed := filepath.Join(h.Dir, "bin", filepath.Base(installedPath))
+	if err := copyFile(binary, installed+".new", 0o755); err != nil {
+		return err
+	}
+	return os.Rename(installed+".new", installed)
+}
+
 func (h *Host) Exec(ctx context.Context, args ...string) ([]byte, error) {
 	command := append([]string{"-t", fmt.Sprint(h.process.Process.Pid), "-m", "-n", "-u", "--"}, args...)
 	return exec.CommandContext(ctx, "nsenter", command...).CombinedOutput()
