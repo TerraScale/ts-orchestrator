@@ -12,14 +12,24 @@ import (
 
 var firewallCIDRLog sync.Once
 
-func OpenFirewall(ctx context.Context, privateIP, vcnCIDR string) error {
-	vcn, err := netip.ParsePrefix(vcnCIDR)
-	ip, ipErr := netip.ParseAddr(privateIP)
-	if ipErr != nil || !ip.Is4() {
-		return fmt.Errorf("SwarmKit firewall requires a private IPv4 address: %s", privateIP)
+func VCNPrefix(privateIP, vcnCIDR string) (netip.Prefix, bool, error) {
+	ip, err := netip.ParseAddr(privateIP)
+	if err != nil || !ip.Is4() {
+		return netip.Prefix{}, false, fmt.Errorf("the VCN needs a private IPv4 address: %s", privateIP)
 	}
+	vcn, err := netip.ParsePrefix(vcnCIDR)
 	if err != nil || !vcn.Contains(ip) || vcn.Bits() == 0 {
-		vcn = netip.PrefixFrom(ip, 16).Masked()
+		return netip.PrefixFrom(ip, 16).Masked(), false, nil
+	}
+	return vcn.Masked(), true, nil
+}
+
+func OpenFirewall(ctx context.Context, privateIP, vcnCIDR string) error {
+	vcn, known, err := VCNPrefix(privateIP, vcnCIDR)
+	if err != nil {
+		return err
+	}
+	if !known {
 		firewallCIDRLog.Do(func() {
 			slog.InfoContext(ctx, "IMDS VCN CIDR unavailable; restricting SwarmKit to private address /16", "source", vcn.String())
 		})

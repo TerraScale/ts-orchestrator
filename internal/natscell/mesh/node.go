@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"maps"
 	"math"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -153,6 +154,8 @@ type config struct {
 	clusterPort, localPort int
 	seeds                  map[string][]string
 	routes                 []string
+	members                bool
+	vcn                    netip.Prefix
 	ca                     *CA
 	terrabaseToken         string  // TerraBase's client token, from Vault
 	applier                Applier // nil on a worker, which serves no region requests
@@ -173,6 +176,8 @@ type Node struct {
 	tls             *tls.Config
 	server          *server.Server
 	conn            *nats.Conn
+	authority       *atomic.Bool
+	rejectedRoutes  atomic.Int64
 	fabric          *nats.Conn
 	monitor         *nats.Conn
 	certificateConn *nats.Conn
@@ -244,7 +249,9 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
-	options, err := serverOptions(cfg, tlsConfig, secret, fabricSecret, alertsSecret)
+	authority := &atomic.Bool{}
+	authority.Store(cfg.applier != nil || cfg.members)
+	options, err := serverOptions(cfg, tlsConfig, secret, fabricSecret, alertsSecret, authority)
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +305,7 @@ func start(cfg config) (_ *Node, err error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
+	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, authority: authority, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
 		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{})}
 	if err := node.serveClockReports(); err != nil {
 		node.closeConns()
@@ -349,7 +356,9 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".fence"] = func(m *nats.Msg) { node.handleBootstrapFence(m) }
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".clear"] = func(m *nats.Msg) { node.handleBootstrapClear(m) }
-	handlers[regionRoutesSubject(cfg.region)] = node.receiveRegionRoutes
+	if cfg.applier == nil {
+		handlers[regionRoutesSubject(cfg.region)] = node.receiveRegionRoutes
+	}
 	for subject, handler := range handlers {
 		var err error
 		if subject == protocol.MeshWorkerPrefix+cfg.region || subject == regionRoutesSubject(cfg.region) {

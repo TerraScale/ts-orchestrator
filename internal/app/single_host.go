@@ -394,23 +394,27 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 			if !swarmruntime.IsLeader(listed.Nodes, nodeID) {
 				return nil
 			}
-			managers, routes := []string{}, []string{}
+			managers, members := []string{}, []string{}
 			for _, node := range listed.Nodes {
 				if node.Status.State != api.NodeStatus_READY {
 					continue
 				}
 				if node.Role != api.NodeRoleManager {
-					routes = append(routes, meshRoute(node.Status.Addr))
+					members = append(members, node.Status.Addr)
 					continue
 				}
 				if node.ManagerStatus == nil {
 					continue
 				}
 				managers = append(managers, node.ManagerStatus.Addr)
-				routes = append(routes, meshRoute(hostOf(node.ManagerStatus.Addr)))
+				members = append(members, hostOf(node.ManagerStatus.Addr))
 			}
 			slices.Sort(managers)
-			slices.Sort(routes)
+			slices.Sort(members)
+			routes := []string{}
+			for _, member := range members {
+				routes = append(routes, meshRoute(member))
+			}
 			stored, err := regionjoin.Read(ctx, plan.region)
 			if err != nil {
 				return err
@@ -428,7 +432,7 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 				}
 				stored.WorkerToken = clusters.Clusters[0].RootCA.JoinTokens.Worker
 			}
-			stored.Managers, stored.Routes = managers, routes
+			stored.Managers, stored.Routes, stored.Members = managers, routes, members
 			return regionjoin.Publish(ctx, plan.region, stored)
 		}()
 		if err != nil {
@@ -616,19 +620,20 @@ func meshRoute(address string) string {
 
 func meshCluster(plan hostPlan) mesh.Cluster {
 	cluster := mesh.Cluster{Worker: plan.admission.Role != "manager"}
+	cluster.VCN, _, _ = swarmruntime.VCNPrefix(plan.address, plan.vcnCIDR)
 	if plan.joiner() {
-		cluster.Routes = func(ctx context.Context, region string) ([]string, error) {
+		cluster.Routes = func(ctx context.Context, region string) ([]string, bool, error) {
 			material, err := regionjoin.Read(ctx, region)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			if len(material.Routes) != 0 {
-				return material.Routes, nil
+				return material.Routes, len(material.Members) != 0, nil
 			}
 			if material.Route == "" {
-				return nil, fmt.Errorf("%s names no mesh route yet", regionjoin.SecretName(region))
+				return nil, false, fmt.Errorf("%s names no mesh route yet", regionjoin.SecretName(region))
 			}
-			return []string{material.Route}, nil
+			return []string{material.Route}, len(material.Members) != 0, nil
 		}
 	}
 	return cluster

@@ -29,7 +29,7 @@ var netBirdMesh = netip.MustParsePrefix(networkplan.Mesh)
 
 const (
 	bridgeName     = "osh-br"
-	gatewayAddress = "10.204.0.1"
+	GatewayAddress = "10.204.0.1"
 	subnetCIDR     = "10.204.0.0/24"
 	metadataIP     = "169.254.169.254"
 )
@@ -108,7 +108,7 @@ func New(ctx context.Context, work, binary string, registry string, regions []st
 		return nil, err
 	}
 	standIn.serve(metadata, standIn.metadata)
-	cloud, err := listen(gatewayAddress + ":443")
+	cloud, err := listen(GatewayAddress + ":443")
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (f *Fleet) network(ctx context.Context) error {
 	steps := [][]string{
 		{"link", "set", "lo", "up"},
 		{"link", "add", bridgeName, "type", "bridge"},
-		{"addr", "add", gatewayAddress + "/24", "dev", bridgeName},
+		{"addr", "add", GatewayAddress + "/24", "dev", bridgeName},
 		{"addr", "add", metadataIP + "/32", "dev", bridgeName},
 		{"link", "set", bridgeName, "up"},
 	}
@@ -159,7 +159,7 @@ func (f *Fleet) network(ctx context.Context) error {
 			[]string{"-n", host.Namespace, "link", "add", "wt0", "type", "dummy"},
 			[]string{"-n", host.Namespace, "addr", "add", netip.PrefixFrom(netip.MustParseAddr(host.NetBird), netBirdMesh.Bits()).String(), "dev", "wt0"},
 			[]string{"-n", host.Namespace, "link", "set", "wt0", "up"},
-			[]string{"-n", host.Namespace, "route", "add", "default", "via", gatewayAddress},
+			[]string{"-n", host.Namespace, "route", "add", "default", "via", GatewayAddress},
 		)
 		for _, peer := range f.Hosts {
 			if peer != host {
@@ -181,7 +181,7 @@ func (f *Fleet) hosts(self *Host) string {
 	for _, host := range f.Hosts {
 		fmt.Fprintf(&b, "%s %s.nb.ts.internal\n", host.NetBird, host.Name)
 	}
-	fmt.Fprintf(&b, "%s %s\n", gatewayAddress, strings.Join(f.standIn.names, " "))
+	fmt.Fprintf(&b, "%s %s\n", GatewayAddress, strings.Join(f.standIn.names, " "))
 	return b.String()
 }
 
@@ -346,6 +346,21 @@ func (h *Host) tail(name string) string {
 	data, _ := os.ReadFile(filepath.Join(h.Dir, name))
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	return strings.Join(lines[max(0, len(lines)-40):], "\n")
+}
+
+func (h *Host) Kill() error {
+	output, err := exec.Command("ip", "netns", "pids", h.Namespace).Output()
+	if err != nil {
+		return err
+	}
+	for _, field := range strings.Fields(string(output)) {
+		var pid int
+		if _, err := fmt.Sscan(field, &pid); err == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
+	<-h.done
+	return nil
 }
 
 func (h *Host) Restart() error { return h.process.Process.Signal(syscall.SIGHUP) }

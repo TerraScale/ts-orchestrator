@@ -5,15 +5,21 @@ import (
 	"context"
 	"debug/buildinfo"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/oraclehost"
 	"github.com/nats-io/nats.go"
@@ -167,6 +173,73 @@ func delivered(ctx context.Context, fleet *oraclehost.Fleet, from, to *oraclehos
 	}
 }
 
+func refused(ctx context.Context, host *oraclehost.Host, region string, data []byte) {
+	violations := make(chan error, 1)
+	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", mesh.LocalPort), nats.SetCustomDialer(host),
+		nats.UserInfo(mesh.OrchUser, meshToken(host, "client.token")),
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			select {
+			case violations <- err:
+			default:
+			}
+		}))
+	must(err)
+	defer conn.Close()
+	must(conn.Publish(protocol.MeshWorkerPrefix+region+".routes", data))
+	must(conn.Flush())
+	select {
+	case err := <-violations:
+		require(strings.Contains(err.Error(), "Permissions Violation"), "%s publication of %s membership: %v", host.Name, region, err)
+	case <-ctx.Done():
+		panic(fmt.Errorf("%s published %s membership without a permissions violation", host.Name, region))
+	}
+}
+
+func publish(ctx context.Context, host *oraclehost.Host, region string, data []byte) {
+	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", mesh.LocalPort), nats.SetCustomDialer(host),
+		nats.UserInfo(mesh.OrchUser, meshToken(host, "client.token")))
+	must(err)
+	defer conn.Close()
+	must(conn.Publish(protocol.MeshWorkerPrefix+region+".routes", data))
+	must(conn.FlushWithContext(ctx))
+}
+
+func metrics(ctx context.Context, host *oraclehost.Host) (string, error) {
+	client := &http.Client{Transport: &http.Transport{DialContext: func(_ context.Context, network, address string) (net.Conn, error) {
+		return host.Dial(network, address)
+	}}}
+	defer client.CloseIdleConnections()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:9097/metrics", nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	return string(body), err
+}
+
+func rejected(ctx context.Context, host *oraclehost.Host) int {
+	var count int
+	until(ctx, host.Name+" metrics", func() error {
+		text, err := metrics(ctx, host)
+		if err != nil {
+			return err
+		}
+		for _, line := range strings.Split(text, "\n") {
+			if value, ok := strings.CutPrefix(line, "ts_orch_mesh_region_routes_rejected_total "); ok {
+				_, err := fmt.Sscan(value, &count)
+				return err
+			}
+		}
+		return errors.New("no rejected-routes counter")
+	})
+	return count
+}
+
 func statusLine(output []byte, region string) string {
 	for _, line := range strings.Split(string(output), "\n") {
 		if strings.HasPrefix(line, region+": ") {
@@ -248,7 +321,7 @@ func main() {
 	defer cancel()
 	first := revision(binary)
 	spec := workload(specFile, filepath.Join(os.Args[3], "..", "images.json"))
-	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{3, 2, 2})
+	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{4, 2, 2})
 	must(err)
 	defer fleet.Close()
 	defer func() {
@@ -261,6 +334,10 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	gru := fleet.Regions[0]
+	replacement := gru.Hosts[3]
+	gru.Hosts = gru.Hosts[:3]
+	fleet.Hosts = slices.DeleteFunc(fleet.Hosts, func(host *oraclehost.Host) bool { return host == replacement })
 	managers, workers := roles(fleet)
 	step("%d hosts in their own network namespaces; IMDS, OCI federation, Vault, GitHub OIDC key and registry stand-ins up", len(fleet.Hosts))
 	must(fleet.Boot(managers...))
@@ -280,7 +357,6 @@ func main() {
 		require(material.Founder == region.Hosts[0].Name && material.Manager == region.Hosts[0].Address+":4242", "%s join material names founder %s at %s", region.Name, material.Founder, material.Manager)
 	}
 	step("each founder claimed and published its region's join material in Vault")
-	gru := fleet.Regions[0]
 	var stale regionjoin.Material
 	must(json.Unmarshal([]byte(fleet.PinSecret(regionjoin.SecretName(gru.Name))), &stale))
 	for _, worker := range gru.Hosts[1:] {
@@ -298,6 +374,39 @@ func main() {
 	delivered(ctx, fleet, gru.Hosts[2], gru.Hosts[1])
 	fleet.UnpinSecret(regionjoin.SecretName(gru.Name))
 	step("%s and %s, joined from material that lists neither, route to each other over the VCN and deliver ORCH, TERRABASE and ALERTS both ways", gru.Hosts[1].Name, gru.Hosts[2].Name)
+	decoy, err := net.Listen("tcp", net.JoinHostPort(oraclehost.GatewayAddress, "6222"))
+	must(err)
+	defer decoy.Close()
+	var dialed atomic.Int64
+	go func() {
+		for {
+			conn, err := decoy.Accept()
+			if err != nil {
+				return
+			}
+			dialed.Add(1)
+			conn.Close()
+		}
+	}()
+	forged := []byte(`["` + oraclehost.GatewayAddress + `"]`)
+	refused(ctx, gru.Hosts[1], gru.Name, forged)
+	refused(ctx, fleet.Regions[1].Hosts[0], gru.Name, forged)
+	step("a %s worker and a %s manager may not publish %s membership: both publications refused", gru.Name, fleet.Regions[1].Name, gru.Name)
+	before := map[*oraclehost.Host]int{}
+	for _, worker := range gru.Hosts[1:] {
+		before[worker] = rejected(ctx, worker)
+	}
+	publish(ctx, gru.Hosts[0], gru.Name, []byte(`["`+oraclehost.GatewayAddress+`","192.0.2.1"]`))
+	for _, worker := range gru.Hosts[1:] {
+		until(ctx, worker.Name+" rejects membership outside the VCN", func() error {
+			if count := rejected(ctx, worker); count <= before[worker] {
+				return fmt.Errorf("rejected %d", count)
+			}
+			return nil
+		})
+	}
+	require(dialed.Load() == 0, "a host dialed the forged member %s %d times", oraclehost.GatewayAddress, dialed.Load())
+	step("%s workers drop and count membership naming an address outside the VCN; nobody dialed %s", gru.Name, oraclehost.GatewayAddress)
 	applied := filepath.Join(work, "workload.json")
 	data, err := json.Marshal(spec)
 	must(err)
@@ -316,6 +425,32 @@ func main() {
 		step("%s restarted to READY and release health ok", host.Name)
 	}
 	ready(ctx, fleet, first)
+
+	departed := gru.Hosts[2]
+	must(departed.Kill())
+	gru.Hosts = []*oraclehost.Host{gru.Hosts[0], gru.Hosts[1], replacement}
+	fleet.Hosts = append(slices.DeleteFunc(fleet.Hosts, func(host *oraclehost.Host) bool { return host == departed }), replacement)
+	must(fleet.Boot(replacement))
+	_, err = replacement.WaitReady(ctx, 0, first)
+	must(err)
+	meshRoutes(ctx, fleet)
+	for _, host := range gru.Hosts {
+		until(ctx, host.Name+" retires "+departed.Name+"'s route", func() error {
+			text, err := metrics(ctx, host)
+			if err != nil {
+				return err
+			}
+			if strings.Contains(text, fmt.Sprintf("ts_orch_mesh_region_route_configured{address=%q}", departed.Address)) {
+				return fmt.Errorf("%s still configured", departed.Address)
+			}
+			if !strings.Contains(text, fmt.Sprintf("ts_orch_mesh_region_route_configured{address=%q}", gru.Hosts[0].Address)) && host != gru.Hosts[0] {
+				return fmt.Errorf("%s not configured", gru.Hosts[0].Address)
+			}
+			return nil
+		})
+	}
+	require(dialed.Load() == 0, "a host dialed the forged member %s %d times", oraclehost.GatewayAddress, dialed.Load())
+	step("%s replaced by %s at %s: every %s host routes to it over the VCN and no longer configures %s", departed.Name, replacement.Name, replacement.Address, gru.Name, departed.Address)
 	step("single-host-region lane passed in %s", time.Since(started).Round(time.Second))
 }
 

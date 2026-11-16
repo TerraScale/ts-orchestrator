@@ -234,7 +234,7 @@ func (s *standIn) metadata(w http.ResponseWriter, r *http.Request) {
 	case "instance/id", "instance/displayName", "instance/hostname", "instance/region", "instance/canonicalRegionName", "instance/availabilityDomain", "instance/compartmentId":
 		_, _ = io.WriteString(w, fmt.Sprint(instance[strings.TrimPrefix(path, "instance/")]))
 	case "vnics/", "vnics":
-		writeJSON(w, http.StatusOK, []map[string]string{{"vnicId": "ocid1.vnic.oc1." + host.Region.OCIRegion + "." + host.Name, "privateIp": host.Address, "vlanTag": "0", "macAddr": "02:00:17:00:00:01", "virtualRouterIp": gatewayAddress, "subnetCidrBlock": subnetCIDR, "vcnCidrBlock": subnetCIDR}})
+		writeJSON(w, http.StatusOK, []map[string]string{{"vnicId": "ocid1.vnic.oc1." + host.Region.OCIRegion + "." + host.Name, "privateIp": host.Address, "vlanTag": "0", "macAddr": "02:00:17:00:00:01", "virtualRouterIp": GatewayAddress, "subnetCidrBlock": subnetCIDR, "vcnCidrBlock": subnetCIDR}})
 	case "identity/cert.pem":
 		_, _ = w.Write(s.identity[0])
 	case "identity/key.pem":

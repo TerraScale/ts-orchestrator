@@ -250,6 +250,7 @@ func (n *Node) servePeerMetrics(ctx context.Context) {
 				}
 				w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 				n.writePeerMetrics(w)
+				n.writeRouteMetrics(w)
 				n.writeStoreMetrics(w)
 				releasepush.WriteReleaseMetrics(w, filepath.Dir(n.cfg.dir))
 			})}

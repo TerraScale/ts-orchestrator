@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/nats-io/nats-server/v2/logger"
 	"github.com/nats-io/nats-server/v2/server"
@@ -34,7 +35,7 @@ const (
 	jetStreamMaxStore  = 16 << 30
 )
 
-func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, alertsSecret string) (*server.Options, error) {
+func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, alertsSecret string, authority *atomic.Bool) (*server.Options, error) {
 	if len(cfg.terrabaseToken) < 16 {
 		return nil, errors.New("mesh needs TerraBase's NATS token")
 	}
@@ -44,7 +45,7 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 	}
 	options.CustomClientAuthentication = &clientAuth{
 		users: map[string]credential{
-			OrchUser:   {secret: orchSecret, account: OrchAccount},
+			OrchUser:   {secret: orchSecret, account: OrchAccount, permissions: orchPermissions(cfg)},
 			fabricUser: {secret: fabricSecret, account: FabricAccount},
 			AlertsUser: {secret: alertsSecret, account: alertsAccount},
 		},
@@ -73,7 +74,7 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 		options.Cluster = server.ClusterOpts{
 			Name: ClusterName, Host: cfg.clusterHost, Port: cfg.clusterPort, Advertise: cfg.clusterAdvertise,
 			TLSConfig: tlsConfig, TLSTimeout: 5, PinnedAccounts: []string{FabricAccount},
-			SolicitImplicitRoute: func(name string) bool { return serverRegion(name) != cfg.region },
+			SolicitImplicitRoute: func(name string) bool { return serverRegion(name) != cfg.region || !authority.Load() },
 		}
 	}
 	if cfg.applier != nil && len(options.Routes) > 0 {
@@ -85,6 +86,22 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 		options.JetStreamMetaBootSize = len(cfg.founders())
 	}
 	return options, nil
+}
+
+func orchPermissions(cfg config) *server.Permissions {
+	denied := []string{regionRoutesSubject("*")}
+	if cfg.applier != nil {
+		denied = []string{}
+		for _, region := range Regions() {
+			if region != cfg.region {
+				denied = append(denied, regionRoutesSubject(region))
+			}
+		}
+	}
+	if len(denied) == 0 {
+		return nil
+	}
+	return &server.Permissions{Publish: &server.SubjectPermission{Deny: denied}}
 }
 
 // TerraBase publishes its own subjects and uses JetStream inside its own

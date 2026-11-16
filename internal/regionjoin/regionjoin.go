@@ -34,6 +34,7 @@ type Material struct {
 	Route    string   `json:"route,omitempty"`
 	Managers []string `json:"managers,omitempty"`
 	Routes   []string `json:"routes,omitempty"`
+	Members  []string `json:"members,omitempty"`
 }
 
 // Read returns the region's current join material.

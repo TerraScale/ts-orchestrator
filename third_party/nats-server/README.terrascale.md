@@ -103,9 +103,12 @@ never closes or replaces an established route. Unset, behavior is unchanged.
 `server/route.go` also adds `Server.AddRoutes`, which appends routes to the
 configured list and solicits them (with the pinned accounts) the way a config
 reload's added routes are, without touching any existing route or connection.
-The mesh calls it when a manager's live cluster membership names an in-region
-host it has no route to, so hosts that started from older join material still
-reach every in-region peer over the VCN.
+`Server.RetainRoutes` drops configured routes the embedder no longer wants, so
+the server stops soliciting them; it closes no connection, and a dropped route
+is not reconnected once its connection ends. The mesh adds and retires its
+in-region VCN routes with these two from its region's live cluster membership,
+so hosts that started from older join material reach every current in-region
+peer, and departed hosts' addresses are no longer dialed.
 
 Compare this directory with the upstream `v2.15.0` Go module archive before
 upgrading. Apart from this README,
