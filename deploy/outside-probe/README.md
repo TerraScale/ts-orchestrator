@@ -2,6 +2,7 @@
 
 Cloudflare invokes `ts-orchestrator-outside-probe` with `*/5 * * * *`, outside
 OCI. GitHub Actions has no schedule; its manual workflow reads the latest report.
+The region catalog is bundled into the Worker; redeploy after a catalog change.
 The Worker checks global api, dash, auth and pg names and every regional api and
 pg name in `deploy/m1/regions.json`. HTTP readiness bodies and regional identity
 are validated. PostgreSQL names require a verified direct TLS connection to port
