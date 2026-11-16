@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
@@ -177,7 +178,7 @@ func operatorRelease(ctx context.Context, fleet *oraclehost.Fleet, binary, repo,
 	if bytes.Equal(embedded, original) {
 		return "", errors.New("deploy/m1/embed.go has no NodeList declaration")
 	}
-	overlaySource, overlay, release := filepath.Join(dir, "embed.go"), filepath.Join(dir, "overlay.json"), filepath.Join(dir, "release-with-node-list")
+	overlaySource, overlay, out := filepath.Join(dir, "embed.go"), filepath.Join(dir, "overlay.json"), filepath.Join(dir, "release")
 	if err := os.WriteFile(overlaySource, embedded, 0o644); err != nil {
 		return "", err
 	}
@@ -188,13 +189,22 @@ func operatorRelease(ctx context.Context, fleet *oraclehost.Fleet, binary, repo,
 	if err := os.WriteFile(overlay, replace, 0o644); err != nil {
 		return "", err
 	}
-	build := []string{"env", "PATH=" + os.Getenv("PATH"), "CGO_ENABLED=0", "go", "-C", repo, "build", "-trimpath", "-overlay", overlay, "-o", release, "./cmd/terrascale-orchestrator"}
-	if user := os.Getenv("SUDO_USER"); user != "" {
-		build = append([]string{"sudo", "-H", "-u", user}, build...)
+	goTool, err := exec.LookPath("go")
+	if err != nil {
+		return "", err
+	}
+	owner, err := os.Stat(repo)
+	if err != nil {
+		return "", err
+	}
+	build := []string{"env", "PATH=" + filepath.Dir(goTool) + ":/usr/bin:/bin", "GOFLAGS=-overlay=" + overlay, "bash", filepath.Join(repo, "test", "e2e", "m1", "build.sh"), out}
+	if uid := owner.Sys().(*syscall.Stat_t).Uid; uid != uint32(os.Geteuid()) {
+		build = append([]string{"sudo", "-H", "-u", fmt.Sprintf("#%d", uid)}, build...)
 	}
 	if output, err := exec.CommandContext(ctx, build[0], build[1:]...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("build the release that embeds node list sequence 1: %w: %s", err, output)
 	}
+	release := filepath.Join(out, "terrascale-orchestrator")
 	require(revision(release) == revision(binary), "the release embedding the node list has revision %s, want %s", revision(release), revision(binary))
 	return release, nil
 }
@@ -214,7 +224,7 @@ func nodeListSequence(ctx context.Context, host *oraclehost.Host, want uint64) {
 
 func edgeAnswer(ctx context.Context, host *oraclehost.Host, ca, url string) string {
 	output, _ := exec.CommandContext(ctx, "ip", "netns", "exec", host.Namespace, "curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", "--cacert", ca,
-		"--resolve", "whoami.e2e.test:443:127.0.0.1", url).CombinedOutput()
+		"--resolve", "whoami.e2e.test:80:127.0.0.1", url).Output()
 	return string(output)
 }
 
@@ -228,8 +238,8 @@ func unlisted(ctx context.Context, fleet *oraclehost.Fleet, want, ca string) {
 		whoamiBackend(ctx, manager, ca)
 	}
 	for _, worker := range workers {
-		ready, page := edgeAnswer(ctx, worker, ca, "http://127.0.0.1/edge/ready"), edgeAnswer(ctx, worker, ca, "https://whoami.e2e.test/")
-		require(ready == "503" && page == "404", "%s without a node list: edge readiness %s and whoami %s, want 503 and 404 (no route, no backend reached)", worker.Name, ready, page)
+		ready, page := edgeAnswer(ctx, worker, ca, "http://127.0.0.1/edge/ready"), edgeAnswer(ctx, worker, ca, "http://whoami.e2e.test/")
+		require(ready == "503" && page == "404", "%s without a node list: edge readiness %s and whoami %s, want 503 and 404 (no route, so no backend reached)", worker.Name, ready, page)
 	}
 	step("shipped node list (sequence 0, as production) on every host: release health ok everywhere, managers serve whoami as on main, workers' edges route nothing and stay release-healthy")
 }
