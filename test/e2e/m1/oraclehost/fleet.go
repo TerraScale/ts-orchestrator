@@ -9,22 +9,27 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"golang.org/x/sys/unix"
 )
 
+var netBirdMesh = netip.MustParsePrefix(networkplan.Mesh)
+
 const (
 	bridgeName     = "osh-br"
-	gatewayAddress = "10.204.0.1"
+	GatewayAddress = "10.204.0.1"
 	subnetCIDR     = "10.204.0.0/24"
 	metadataIP     = "169.254.169.254"
 )
@@ -61,7 +66,7 @@ type Fleet struct {
 	run      int
 }
 
-func New(ctx context.Context, work, binary string, registry string, regions []string, hostsPerRegion int) (*Fleet, error) {
+func New(ctx context.Context, work, binary string, registry string, regions []string, hostsPerRegion []int) (*Fleet, error) {
 	unix.Umask(0o022)
 	f := &Fleet{Work: work, Binary: binary, Registry: registry}
 	if err := os.MkdirAll(work, 0o755); err != nil {
@@ -73,10 +78,12 @@ func New(ctx context.Context, work, binary string, registry string, regions []st
 			return nil, fmt.Errorf("%s is not a catalog region", name)
 		}
 		region := &Region{Name: name, OCIRegion: entry.OCIRegion}
-		for i := 1; i <= hostsPerRegion; i++ {
+		for i := 1; i <= hostsPerRegion[r]; i++ {
 			octet := 10*(r+1) + i
+			netBird := netBirdMesh.Addr().As4()
+			netBird[3] = byte(octet)
 			host := &Host{Name: fmt.Sprintf("ts-%s-%d", name, i), Region: region, Namespace: fmt.Sprintf("osh-%s-%d", name, i),
-				Address: fmt.Sprintf("10.204.0.%d", octet), NetBird: fmt.Sprintf("100.104.0.%d", octet),
+				Address: fmt.Sprintf("10.204.0.%d", octet), NetBird: netip.AddrFrom4(netBird).String(),
 				InstanceID: fmt.Sprintf("ocid1.instance.oc1.%s.singlehostregion%d", entry.OCIRegion, octet), fleet: f, changed: make(chan struct{})}
 			host.Dir = filepath.Join(work, host.Name)
 			region.Hosts = append(region.Hosts, host)
@@ -101,7 +108,7 @@ func New(ctx context.Context, work, binary string, registry string, regions []st
 		return nil, err
 	}
 	standIn.serve(metadata, standIn.metadata)
-	cloud, err := listen(gatewayAddress + ":443")
+	cloud, err := listen(GatewayAddress + ":443")
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +144,7 @@ func (f *Fleet) network(ctx context.Context) error {
 	steps := [][]string{
 		{"link", "set", "lo", "up"},
 		{"link", "add", bridgeName, "type", "bridge"},
-		{"addr", "add", gatewayAddress + "/24", "dev", bridgeName},
+		{"addr", "add", GatewayAddress + "/24", "dev", bridgeName},
 		{"addr", "add", metadataIP + "/32", "dev", bridgeName},
 		{"link", "set", bridgeName, "up"},
 	}
@@ -150,9 +157,9 @@ func (f *Fleet) network(ctx context.Context) error {
 			[]string{"-n", host.Namespace, "addr", "add", host.Address + "/24", "dev", "eth0"},
 			[]string{"-n", host.Namespace, "link", "set", "eth0", "up"},
 			[]string{"-n", host.Namespace, "link", "add", "wt0", "type", "dummy"},
-			[]string{"-n", host.Namespace, "addr", "add", host.NetBird + "/32", "dev", "wt0"},
+			[]string{"-n", host.Namespace, "addr", "add", netip.PrefixFrom(netip.MustParseAddr(host.NetBird), netBirdMesh.Bits()).String(), "dev", "wt0"},
 			[]string{"-n", host.Namespace, "link", "set", "wt0", "up"},
-			[]string{"-n", host.Namespace, "route", "add", "default", "via", gatewayAddress},
+			[]string{"-n", host.Namespace, "route", "add", "default", "via", GatewayAddress},
 		)
 		for _, peer := range f.Hosts {
 			if peer != host {
@@ -174,7 +181,7 @@ func (f *Fleet) hosts(self *Host) string {
 	for _, host := range f.Hosts {
 		fmt.Fprintf(&b, "%s %s.nb.ts.internal\n", host.NetBird, host.Name)
 	}
-	fmt.Fprintf(&b, "%s %s\n", gatewayAddress, strings.Join(f.standIn.names, " "))
+	fmt.Fprintf(&b, "%s %s\n", GatewayAddress, strings.Join(f.standIn.names, " "))
 	return b.String()
 }
 
@@ -341,6 +348,37 @@ func (h *Host) tail(name string) string {
 	return strings.Join(lines[max(0, len(lines)-40):], "\n")
 }
 
+func (h *Host) Signal(signal syscall.Signal) error {
+	output, err := exec.Command("ip", "netns", "pids", h.Namespace).Output()
+	if err != nil {
+		return err
+	}
+	for _, field := range strings.Fields(string(output)) {
+		var pid int
+		if _, err := fmt.Sscan(field, &pid); err == nil {
+			_ = syscall.Kill(pid, signal)
+		}
+	}
+	return nil
+}
+
+func (h *Host) Kill() error {
+	if err := h.Signal(syscall.SIGKILL); err != nil {
+		return err
+	}
+	<-h.done
+	return nil
+}
+
+func (h *Host) ResetRoutes(ctx context.Context, peer *Host, port int) (int, error) {
+	output, err := exec.CommandContext(ctx, "ip", "netns", "exec", h.Namespace, "ss", "-K", "-Htn", "state", "established", "dst", peer.Address,
+		"and", "(", "dport", "=", fmt.Sprintf(":%d", port), "or", "sport", "=", fmt.Sprintf(":%d", port), ")").CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("ss -K: %w: %s", err, output)
+	}
+	return len(strings.Fields(strings.TrimSpace(string(output)))) / 4, nil
+}
+
 func (h *Host) Restart() error { return h.process.Process.Signal(syscall.SIGHUP) }
 
 func (h *Host) Install(binary string) error {
@@ -375,6 +413,35 @@ func (h *Host) Established(ctx context.Context, port int) ([]string, error) {
 		}
 	}
 	return peers, nil
+}
+
+func (h *Host) Dial(network, address string) (net.Conn, error) {
+	runtime.LockOSThread()
+	own, err := os.Open("/proc/thread-self/ns/net")
+	if err != nil {
+		runtime.UnlockOSThread()
+		return nil, err
+	}
+	defer own.Close()
+	target, err := os.Open(filepath.Join("/run/netns", h.Namespace))
+	if err != nil {
+		runtime.UnlockOSThread()
+		return nil, err
+	}
+	defer target.Close()
+	if err := unix.Setns(int(target.Fd()), unix.CLONE_NEWNET); err != nil {
+		runtime.UnlockOSThread()
+		return nil, err
+	}
+	conn, dialErr := net.DialTimeout(network, address, 5*time.Second)
+	if err := unix.Setns(int(own.Fd()), unix.CLONE_NEWNET); err != nil {
+		if conn != nil {
+			conn.Close()
+		}
+		return nil, err
+	}
+	runtime.UnlockOSThread()
+	return conn, dialErr
 }
 
 func (h *Host) State(path string) string { return filepath.Join(h.Dir, "state", path) }
@@ -427,6 +494,20 @@ func (f *Fleet) Secret(name string) (string, int) {
 		return "", 0
 	}
 	return string(item.Versions[len(item.Versions)-1]), len(item.Versions)
+}
+
+func (f *Fleet) PinSecret(name string) string {
+	f.standIn.mu.Lock()
+	defer f.standIn.mu.Unlock()
+	item := f.standIn.secrets[name]
+	f.standIn.pinned[name] = len(item.Versions)
+	return string(item.Versions[len(item.Versions)-1])
+}
+
+func (f *Fleet) UnpinSecret(name string) {
+	f.standIn.mu.Lock()
+	defer f.standIn.mu.Unlock()
+	delete(f.standIn.pinned, name)
 }
 
 func (f *Fleet) WaitSecret(ctx context.Context, name string, match func(string) bool) (string, error) {

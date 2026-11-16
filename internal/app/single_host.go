@@ -394,16 +394,27 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 			if !swarmruntime.IsLeader(listed.Nodes, nodeID) {
 				return nil
 			}
-			managers, routes := []string{}, []string{}
+			managers, members := []string{}, []string{}
 			for _, node := range listed.Nodes {
-				if node.Role != api.NodeRoleManager || node.ManagerStatus == nil || node.Status.State != api.NodeStatus_READY {
+				if node.Status.State != api.NodeStatus_READY {
+					continue
+				}
+				if node.Role != api.NodeRoleManager {
+					members = append(members, node.Status.Addr)
+					continue
+				}
+				if node.ManagerStatus == nil {
 					continue
 				}
 				managers = append(managers, node.ManagerStatus.Addr)
-				routes = append(routes, meshRoute(hostOf(node.ManagerStatus.Addr)))
+				members = append(members, hostOf(node.ManagerStatus.Addr))
 			}
 			slices.Sort(managers)
-			slices.Sort(routes)
+			slices.Sort(members)
+			routes := []string{}
+			for _, member := range members {
+				routes = append(routes, meshRoute(member))
+			}
 			stored, err := regionjoin.Read(ctx, plan.region)
 			if err != nil {
 				return err
@@ -609,6 +620,7 @@ func meshRoute(address string) string {
 
 func meshCluster(plan hostPlan) mesh.Cluster {
 	cluster := mesh.Cluster{Worker: plan.admission.Role != "manager"}
+	cluster.VCN, _, _ = swarmruntime.VCNPrefix(plan.address, plan.vcnCIDR)
 	if plan.joiner() {
 		cluster.Routes = func(ctx context.Context, region string) ([]string, error) {
 			material, err := regionjoin.Read(ctx, region)
