@@ -63,27 +63,6 @@ func JSDomainAPIPrefix(domain string) string {
 	return "$JS." + token + ".API"
 }
 
-// InterRegionGlobalDeliverSubject is the fixed delivery subject of cell's
-// durable mirror consumer on the home region's global stream. The home region
-// sets it when it creates the consumer; a peer can never choose it.
-func InterRegionGlobalDeliverSubject(cell string) string {
-	token, err := RegionToken(cell)
-	if err != nil || token == GlobalScope {
-		return ""
-	}
-	return InterRegionRoot + "." + token + ".global"
-}
-
-// GlobalMirrorConsumer is the durable consumer on the home region's global
-// stream that feeds cell's read-only mirror.
-func GlobalMirrorConsumer(cell string) string {
-	token, err := RegionToken(cell)
-	if err != nil || token == GlobalScope {
-		return ""
-	}
-	return "global-mirror-" + token
-}
-
 // Well-known regional verbs below the regional root.
 const (
 	VerbHostRegister          = "host.register"
@@ -186,9 +165,6 @@ func DeliveryArtifactAdmitSubject(cell string) string {
 	return Regional(cell, VerbDeliveryArtifactAdmit)
 }
 
-// RegionHealthSubject is the signed regional heartbeat exported to peers.
-func RegionHealthSubject(cell string) string { return Regional(cell, VerbRegionHealth) }
-
 // RegionRollupGrant subscribes to every region's dashboard rollup.
 const RegionRollupGrant = SubjectRoot + ".*.region.rollup"
 
@@ -230,10 +206,6 @@ func InterRegionObservabilityLeaves() []string {
 	return []string{ObservabilityRegionLeaf, ObservabilityDecisionsLeaf}
 }
 
-// InterRegionObservabilitySubject is the exact subject of one exported
-// observability leaf of cell, for example ts.orch.v1.gru.obs.region.
-func InterRegionObservabilitySubject(cell, leaf string) string { return Regional(cell, "obs", leaf) }
-
 // AnyRegionObservabilitySubject is leaf's read-only service in every region, for role grants.
 func AnyRegionObservabilitySubject(leaf string) string {
 	return joinSubject(SubjectRoot, []string{"*", "obs", leaf})
@@ -256,9 +228,6 @@ func RoleQueryTemplates(cell, verb string) (publish, subscribe string) {
 func RoleObservationTemplate(cell, leaf string) string {
 	return SubjectRoot + "." + cell + ".obs." + leaf
 }
-
-// InboxPrefix is a user's private reply inbox prefix without the trailing ">".
-func InboxPrefix(cell, userKey string) string { return Regional(cell, "inbox", userKey) }
 
 // InboxGrant is the subscription grant for a user's private reply inbox.
 func InboxGrant(cell, userKey string) string { return Regional(cell, "inbox", userKey, ">") }

@@ -94,35 +94,6 @@ func RootSetDigest(roots Keyring) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// NextRotation builds the statement that replaces verified's current set
-// with roots.
-func NextRotation(verified VerifiedRoots, roots ...ed25519.PublicKey) (Rotation, error) {
-	keyring, err := ParseKeyring(roots...)
-	if err != nil {
-		return Rotation{}, err
-	}
-	if len(keyring) > MaxRootSet {
-		return Rotation{}, fmt.Errorf("%w: more than %d roots", ErrInvalid, MaxRootSet)
-	}
-	rotation := Rotation{Schema: RotationSchema, Sequence: verified.Sequence + 1, Previous: verified.Head}
-	for _, keyID := range slices.Sorted(maps.Keys(keyring)) {
-		rotation.Roots = append(rotation.Roots, base64.RawURLEncoding.EncodeToString(keyring[keyID]))
-	}
-	return rotation, nil
-}
-
-// SignRotation signs rotation with one old or new root.
-func SignRotation(rotation Rotation, id ChainIdentity, issuedAt, expiresAt time.Time, key ed25519.PrivateKey) (Envelope, error) {
-	if _, err := rotation.keyring(); err != nil {
-		return Envelope{}, err
-	}
-	payload, err := EncodePayload(rotation)
-	if err != nil {
-		return Envelope{}, err
-	}
-	return Sign(payload, RotationScope(id, rotation.Sequence), issuedAt, expiresAt, key)
-}
-
 // Payload returns the statement every signature covers.
 func (signed SignedRotation) Payload() (Rotation, error) {
 	payload, err := signed.payload()
@@ -211,22 +182,6 @@ func verifyRotation(signed SignedRotation, id ChainIdentity, previous VerifiedRo
 		}
 	}
 	return next, payload, nil
-}
-
-// RotationCurrent requires every signature of a statement to be within its
-// validity window at now, so a withheld statement cannot be applied late.
-// It does not verify signatures; verify the chain first.
-func RotationCurrent(signed SignedRotation, now time.Time) error {
-	policy := RotationPolicy()
-	for _, envelope := range signed.Signatures {
-		if envelope.IssuedAt.Sub(now) > policy.ClockSkew {
-			return ErrNotYetValid
-		}
-		if !now.Before(envelope.ExpiresAt) {
-			return ErrExpired
-		}
-	}
-	return nil
 }
 
 // Extends reports whether chain keeps every statement of prefix in order:

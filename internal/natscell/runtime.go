@@ -4,18 +4,14 @@ package natscell
 
 import (
 	"errors"
-	"regexp"
 	"sync"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
-
-var cellName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 // ErrUnavailable matches a Start failure to reach the regional brokers or
 // their JetStream API, which a retry can resolve. Configuration, credential
@@ -31,10 +27,6 @@ type TLSFiles struct {
 	CAFile   string `json:"ca_file"`
 	CertFile string `json:"cert_file"`
 	KeyFile  string `json:"key_file"`
-}
-
-func (f TLSFiles) complete() bool {
-	return f.CAFile != "" && f.CertFile != "" && f.KeyFile != ""
 }
 
 // Embedded configures the in-process regional NATS and JetStream server.
@@ -68,14 +60,6 @@ type Embedded struct {
 	// Link joins this region to the global home with one link signer. It
 	// replaces InterRegion; a configuration sets one or the other.
 	Link *Link `json:"link,omitempty"`
-}
-
-// StoreLimitBytes returns the effective per-node JetStream file-store limit.
-func (e Embedded) StoreLimitBytes() int64 {
-	if e.StoreMaxBytes == 0 {
-		return DefaultStoreMaxBytes
-	}
-	return e.StoreMaxBytes
 }
 
 // NKeyGrant binds a NATS user key to one regional role. A host grant is tied
@@ -131,8 +115,4 @@ type Runtime struct {
 	serverName      string
 	brokerNames     []string
 	once            sync.Once
-}
-
-func inboxPrefix(cell, publicKey string) string {
-	return protocol.InboxPrefix(cell, publicKey)
 }

@@ -31,7 +31,7 @@ func main() {
 
 func commandContext(args []string) (context.Context, context.CancelFunc) {
 	parent := context.Background()
-	if len(args) > 0 && (args[0] == "bootstrap" || args[0] == "release") {
+	if len(args) > 0 && args[0] == "release" {
 		// Operator commands initialize OCI credentials synchronously. Retain
 		// default signal termination because that work cannot observe cancellation.
 		return parent, func() {}

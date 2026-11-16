@@ -19,16 +19,6 @@ source_tree=$(git rev-parse 'HEAD^{tree}')
 go_version=$(go env GOVERSION)
 go_mod_sha256=$(sha256sum go.mod | awk '{print $1}')
 go_sum_sha256=$(sha256sum go.sum | awk '{print $1}')
-probe_name=terrascale-d15-qualify
-probe_source=dist/terrascale-orchestrator-linux-arm64
-probe_path="dist/$probe_name"
-[[ -s $probe_source && ! -L $probe_source ]] || { echo 'D15 probe source is missing or unsafe' >&2; exit 1; }
-cp -- "$probe_source" "$probe_path"
-chmod 0644 "$probe_path"
-cmp -- "$probe_source" "$probe_path"
-probe_bytes=$(stat -c '%s' "$probe_path")
-probe_sha256=$(sha256sum "$probe_path" | awk '{print $1}')
-[[ $probe_bytes -gt 0 && $probe_bytes -le 536870912 ]] || { echo 'D15 probe exceeds its bound' >&2; exit 1; }
 artifacts='[]'
 for architecture in amd64 arm64; do
     name="terrascale-orchestrator-linux-${architecture}"
@@ -40,19 +30,6 @@ for architecture in amd64 arm64; do
         --arg name "$name" --argjson bytes "$bytes" --arg sha256 "$sha256" \
         '$previous + [{architecture:$architecture,name:$name,bytes:$bytes,sha256:$sha256}]')
 done
-
-jq -cnS \
-    --arg schema 'terrascale.d15.probe-publication/v1' \
-    --arg repository 'TerraScale/ts-orchestrator' \
-    --arg source_revision "$GITHUB_SHA" --arg source_tree "$source_tree" \
-    --argjson run_id "$GITHUB_RUN_ID" --argjson run_number "$GITHUB_RUN_NUMBER" \
-    --arg name "$probe_name" --argjson bytes "$probe_bytes" --arg sha256 "$probe_sha256" \
-    '{schema:$schema,repository:$repository,source_revision:$source_revision,
-      source_tree:$source_tree,
-      verification:{workflow:"ci.yml",job:"verify/go + artifact/linux-amd64-arm64",
-        run_id:$run_id,run_number:$run_number},
-      probe:{name:$name,bytes:$bytes,sha256:$sha256}}' \
-    > dist/terrascale-d15-probe.json
 
 jq -cnS \
     --arg schema 'terrascale.release.qualification.v1' \
@@ -81,8 +58,8 @@ if ! gh release view "$tag" --repo "$repository" --json tagName,targetCommitish,
 fi
 jq -e --arg tag "$tag" '.tagName == $tag and .isPrerelease == true and
     (.assets | all(.name == "terrascale-orchestrator-linux-amd64" or
-      .name == "terrascale-orchestrator-linux-arm64" or .name == "terrascale-d15-qualify" or
-      .name == "terrascale-d15-probe.json" or .name == "qualification.json" or
+      .name == "terrascale-orchestrator-linux-arm64" or
+      .name == "qualification.json" or
       (.name | test("^production-[A-Z]{3}-(amd64|arm64)(-delegation)?\\.json$")) or
       (.name | test("^production-evidence-[0-9a-f]{64}$")) or
       (.name | test("^image-production-[0-9a-f]{64}-[A-Z]{3}-(amd64|arm64)(-delegation)?\\.json$")) or
@@ -116,7 +93,7 @@ retain() {
             break
         fi
         if [[ -f $readback ]]; then
-            printf 'D15 release asset readback mismatch name=%s attempt=%s bytes=%s sha256=%s\n' \
+            printf 'release asset readback mismatch name=%s attempt=%s bytes=%s sha256=%s\n' \
                 "$name" "$attempt" "$(stat -c '%s' "$readback")" \
                 "$(sha256sum "$readback" | awk '{print $1}')" >&2
         fi
@@ -126,26 +103,18 @@ retain() {
         sleep "$delay"
         delay=$((delay * 2))
     done
-    [[ $matched == true ]] || { echo "D15 release asset readback never matched: $name" >&2; exit 1; }
+    [[ $matched == true ]] || { echo "release asset readback never matched: $name" >&2; exit 1; }
 }
 retain terrascale-orchestrator-linux-amd64
 retain terrascale-orchestrator-linux-arm64
-retain "$probe_name"
-retain terrascale-d15-probe.json
 # The manifest is the completion marker. A partial upload cannot be admitted.
 retain qualification.json
-# Publish only after every binary, probe and completion manifest has been
-# uploaded and read back byte-for-byte. Public consumers never see an empty
-# release while the first binary is still uploading.
 if jq -e '.isDraft == true' "$work/view.json" >/dev/null; then
     gh release edit "$tag" --repo "$repository" --draft=false
 fi
 [[ $(gh api "repos/$repository/commits/$tag" --jq .sha) == "$GITHUB_SHA" ]] || {
     echo 'published release tag points to a different source revision' >&2; exit 1;
 }
-printf 'TS_D15_PROBE_PUBLICATION_V1 source_sha=%s run_id=%s run_number=%s probe_sha256=%s descriptor_sha256=%s\n' \
-    "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$probe_sha256" \
-    "$(sha256sum dist/terrascale-d15-probe.json | awk '{print $1}')"
 printf 'TS_RELEASE_QUALIFICATION_V1 source_sha=%s run_id=%s run_number=%s manifest_sha256=%s\n' \
     "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" \
     "$(sha256sum dist/qualification.json | awk '{print $1}')"

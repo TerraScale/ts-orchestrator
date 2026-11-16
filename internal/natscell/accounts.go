@@ -1,48 +1,11 @@
 package natscell
 
 import (
-	"errors"
-	"fmt"
-	"slices"
 	"sync"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
-	"github.com/nats-io/nkeys"
 )
-
-func credentialUserBytes(data []byte) (*jwt.UserClaims, string, error) {
-	raw, err := nkeys.ParseDecoratedJWT(data)
-	if err != nil {
-		return nil, "", err
-	}
-	claim, err := jwt.DecodeUserClaims(raw)
-	if err != nil {
-		return nil, "", err
-	}
-	pair, err := nkeys.ParseDecoratedUserNKey(data)
-	if err != nil {
-		return nil, "", err
-	}
-	defer pair.Wipe()
-	public, err := pair.PublicKey()
-	if err != nil || public != claim.Subject {
-		return nil, "", errors.New("regional credential seed and user JWT differ")
-	}
-	if claim.BearerToken || claim.ProxyRequired || len(claim.Src) != 0 ||
-		len(claim.AllowedConnectionTypes) != 0 && !claim.AllowedConnectionTypes.Contains(jwt.ConnectionTypeInProcess) {
-		return nil, "", errors.New("regional JWT depends on client metadata unavailable through the bridge")
-	}
-	return claim, public, nil
-}
-
-func credentialAccount(claim *jwt.UserClaims) string {
-	if claim.IssuerAccount != "" {
-		return claim.IssuerAccount
-	}
-	return claim.Issuer
-}
 
 // BrokerOperatorPublishPermissions is the exact operator publish surface used
 // by the embedded Lab broker, the production issuer, and credential validation.
@@ -119,72 +82,6 @@ func ControllerSubscriptions(cell string) []string {
 		// global view stays empty and the leader holds only its own rollup.
 		protocol.RegionRollupGrant,
 	}
-}
-
-// ValidateBrokerControllerCredentialBytes checks the same contract before a
-// root-signed material generation installs controller credentials.
-func ValidateBrokerControllerCredentialBytes(data []byte, cell, broker string) error {
-	if !cellName.MatchString(cell) || !cellName.MatchString(broker) {
-		return errors.New("broker controller credential cell or instance is invalid")
-	}
-	claim, public, err := credentialUserBytes(data)
-	if err != nil {
-		return fmt.Errorf("broker controller credentials: %w", err)
-	}
-	ticket := protocol.Broker(cell, "ticket", ">")
-	fencePublish := protocol.Broker(cell, "fence", ">")
-	fenceReceive := protocol.Broker(cell, "fence", broker)
-	if !slices.Contains(claim.Pub.Allow, ticket) || !slices.Contains(claim.Pub.Allow, fencePublish) ||
-		!slices.Contains(claim.Sub.Allow, ticket) || !slices.Contains(claim.Sub.Allow, fenceReceive) {
-		return errors.New("broker controller credentials lack ticket or instance-bound fence grants")
-	}
-	allowedSubscriptions := map[string]bool{
-		inboxPrefix(cell, public) + ".>": true,
-		ticket:                           true, fenceReceive: true,
-	}
-	for _, subject := range ControllerSubscriptions(cell) {
-		allowedSubscriptions[subject] = true
-	}
-	for _, subject := range GlobalControllerRequests() {
-		allowedSubscriptions[subject] = true
-	}
-	// Optional read-only member telemetry (observability snapshots). The
-	// issuer does not grant it today; it is accepted, not required.
-	allowedSubscriptions[protocol.ObservabilityGrant(cell)] = true
-	for _, grant := range claim.Sub.Allow {
-		if !allowedSubscriptions[grant] {
-			return fmt.Errorf("broker controller credentials have unscoped subscription %q", grant)
-		}
-	}
-	if !slices.Contains(claim.Sub.Allow, inboxPrefix(cell, public)+".>") ||
-		!slices.Contains(claim.Sub.Allow, protocol.BrokerClaimApplySubject(cell)) ||
-		!slices.Contains(claim.Sub.Allow, protocol.ManagedUpdatePrepareSubject(cell)) ||
-		!slices.Contains(claim.Sub.Allow, protocol.BackupOperationSubject(cell)) ||
-		!slices.Contains(claim.Sub.Allow, protocol.TerminalSubject(cell, ">")) ||
-		len(claim.Pub.Deny) != 0 || len(claim.Sub.Deny) != 0 ||
-		claim.Resp == nil || claim.Resp.MaxMsgs != 1 ||
-		claim.Resp.Expires <= 0 || claim.Resp.Expires > 5*time.Second {
-		return errors.New("broker controller credentials need a private inbox and one bounded response grant")
-	}
-	return nil
-}
-
-// ValidateSystemCredentials checks a system account credentials file's bytes:
-// a seed that matches its JWT, issued by systemAccount, with only the cell
-// claim-update and private reply grants.
-func ValidateSystemCredentials(data []byte, cell, cellAccount, systemAccount string) error {
-	claim, public, err := credentialUserBytes(data)
-	if err != nil {
-		return fmt.Errorf("system account credentials: %w", err)
-	}
-	if credentialAccount(claim) != systemAccount ||
-		len(claim.Pub.Allow) != 1 || claim.Pub.Allow[0] != "$SYS.REQ.ACCOUNT."+cellAccount+".CLAIMS.UPDATE" ||
-		len(claim.Pub.Deny) != 0 || len(claim.Sub.Allow) != 1 ||
-		claim.Sub.Allow[0] != inboxPrefix(cell, public)+".>" || len(claim.Sub.Deny) != 0 ||
-		claim.Resp != nil {
-		return errors.New("system account credentials must have only the cell claim-update and private reply grants")
-	}
-	return nil
 }
 
 type accountResolver struct {

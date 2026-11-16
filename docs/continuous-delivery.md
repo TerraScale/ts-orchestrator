@@ -60,7 +60,7 @@ binary-only self-update below replaces the executable, not the image):
   it is a bootstrap tool, not an upgrade tool.
 - The root-owned v1 accepted identity authorizes restart of the exact
   installed broker/store, config and qualified binary. Root-signed identity
-  re-key is a separate [in-place transaction](identity-rekey.md).
+  re-key is a separate in-place transaction.
 - Managed TerraBase placement holds a lost host without replacing it
   (`internal/placement/controller.go`). Image promotion or changing the
   image for future launches cannot upgrade existing hosts.
@@ -1279,7 +1279,7 @@ its configured image from that image's own root-delegated receipt (baked
 roots, cell environment, exact OCID, region and shape architecture), plus the
 existing OCI readback on every use. Changing `image_id` keeps hosts
 launched from the previous image in the fleet while the cell spec's
-`host_images` allow-list names it (see [image updates](image-updates.md)).
+`host_images` allow-list names it.
 
 ## Human decisions needed
 

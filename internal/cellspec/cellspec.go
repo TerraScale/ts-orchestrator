@@ -14,7 +14,6 @@ package cellspec
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -725,68 +724,6 @@ func Decode(encoded []byte) (Spec, error) {
 		return Spec{}, fmt.Errorf("%w: spec is not canonical JSON", ErrInvalid)
 	}
 	return spec, nil
-}
-
-// SignDelegation is the offline root operation: it lets leaf sign ordinary
-// amendments for one identity.
-func SignDelegation(leaf ed25519.PublicKey, id Identity, issuedAt, expiresAt time.Time,
-	root ed25519.PrivateKey,
-) (trust.Envelope, error) {
-	if err := id.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	if !expiresAt.After(issuedAt) || expiresAt.Sub(issuedAt) > MaxDelegationLifetime {
-		return trust.Envelope{}, fmt.Errorf("cell spec delegation must expire within %s", MaxDelegationLifetime)
-	}
-	keyID, err := trust.KeyID(leaf)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	encoded, err := trust.EncodeDelegatedPublicKey(leaf)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	scope := id.Scope()
-	return trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID,
-		SubjectPublicKey: encoded, Capabilities: []trust.Capability{{Domain: scope.Domain,
-			DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment,
-			Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, issuedAt, expiresAt, root)
-}
-
-// Sign signs a spec of generation one or later and checks the result as a
-// controller would, so a spec signed under a wrong or expired delegation, or
-// by a key that is not a root, fails here instead of on the cell. With a
-// delegation the signer is the release leaf; without one it is a root.
-func Sign(spec Spec, delegationWire []byte, roots trust.Keyring, now time.Time, validFor time.Duration,
-	signer ed25519.PrivateKey,
-) ([]byte, error) {
-	if spec.Generation == 0 {
-		return nil, fmt.Errorf("%w: generation 0 is the signed controller config's spec", ErrInvalid)
-	}
-	if validFor <= 0 || validFor > MaxSpecLifetime {
-		return nil, fmt.Errorf("cell spec validity must be positive and at most %s", MaxSpecLifetime)
-	}
-	payload, err := Encode(spec)
-	if err != nil {
-		return nil, err
-	}
-	issuedAt := now.Round(0).UTC().Truncate(time.Second)
-	envelope, err := trust.Sign(payload, spec.Identity.Scope(), issuedAt, issuedAt.Add(validFor), signer)
-	if err != nil {
-		return nil, err
-	}
-	specWire, err := trust.EncodeEnvelope(envelope)
-	if err != nil {
-		return nil, err
-	}
-	wire, err := protocol.EncodeJSON(Signed{Delegation: bytes.Clone(delegationWire), Spec: specWire})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := VerifyCurrent(wire, roots, spec.Identity, now); err != nil {
-		return nil, err
-	}
-	return wire, nil
 }
 
 // VerifyCurrent is the controller's admission check: currently valid

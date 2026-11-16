@@ -1,15 +1,10 @@
 package natscell
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
-	"github.com/nats-io/nkeys"
 )
 
 // LinkHome is the global home every other region dials. One correct value:
@@ -21,12 +16,6 @@ const LinkPort = 7422
 
 // LinkServerName is the verified DNS identity of the GRU leaf listener.
 const LinkServerName = "leaf.gru.interregion.terrascale.internal"
-
-// LinkHomeHosts are the admitted GRU controller slot names used by both
-// credential material and NetBird DNS; no observed peer can add a leaf parent.
-func LinkHomeHosts() []string {
-	return []string{"ts-gru-1.nb.ts.internal", "ts-gru-2.nb.ts.internal", "ts-gru-3.nb.ts.internal"}
-}
 
 // linkLeafConnections bounds the home's leaf connections: 32 regions with 5
 // brokers each.
@@ -94,92 +83,4 @@ func LinkScope(signer string) *jwt.UserScope {
 func ApplyLink(claim *jwt.AccountClaims, signer string) {
 	claim.SigningKeys.AddScopedSigner(LinkScope(signer))
 	claim.Limits.LeafNodeConn = linkLeafConnections
-}
-
-// Files lists the link's material: its TLS files and a spoke's credentials.
-func (l *Link) Files() []string {
-	if l == nil {
-		return nil
-	}
-	files := []string{l.TLS.CAFile, l.TLS.CertFile, l.TLS.KeyFile}
-	if l.CredentialsFile != "" {
-		files = append(files, l.CredentialsFile)
-	}
-	return files
-}
-
-// VerifyLinkScope requires the cell account to hold exactly one link signing
-// key whose template is LinkScope's, and the leaf limit of the link.
-func VerifyLinkScope(claim *jwt.AccountClaims) error {
-	if claim == nil {
-		return errors.New("home cell account claim is required")
-	}
-	var links []*jwt.UserScope
-	for key, scope := range claim.SigningKeys {
-		if user, ok := scope.(*jwt.UserScope); ok && user != nil && user.Role == linkRole {
-			if user.Key != key || key == claim.Subject || !nkeys.IsValidPublicAccountKey(key) {
-				return errors.New("home link signing key must be a scoped account key distinct from the cell account")
-			}
-			links = append(links, user)
-		}
-	}
-	if len(links) != 1 {
-		return errors.New("home cell account needs exactly one link signing key")
-	}
-	actual, err := json.Marshal(links[0].Template)
-	if err != nil {
-		return err
-	}
-	expected, err := json.Marshal(LinkScope(links[0].Key).Template)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(actual, expected) {
-		return errors.New("home link signing key template differs from the link template")
-	}
-	if claim.Limits.LeafNodeConn != linkLeafConnections {
-		return errors.New("home cell account leaf limit differs from the link")
-	}
-	return nil
-}
-
-// ValidateLinkCredentialBytes is validateLinkCredentials for the bytes a
-// material generation pins as link.creds.
-func ValidateLinkCredentialBytes(data []byte, cell string) error {
-	if token, err := protocol.RegionToken(cell); err != nil || token != cell || cell == protocol.GlobalScope || cell == LinkHome {
-		return errors.New("link credentials require a lowercase spoke region")
-	}
-	raw, err := nkeys.ParseDecoratedJWT(data)
-	if err != nil {
-		return err
-	}
-	claim, err := jwt.DecodeUserClaims(raw)
-	if err != nil {
-		return err
-	}
-	pair, err := nkeys.ParseDecoratedUserNKey(data)
-	if err != nil {
-		return err
-	}
-	defer pair.Wipe()
-	if public, err := pair.PublicKey(); err != nil || public != claim.Subject {
-		return errors.New("link credential seed and user JWT differ")
-	}
-	if !nkeys.IsValidPublicAccountKey(claim.IssuerAccount) || !nkeys.IsValidPublicAccountKey(claim.Issuer) ||
-		claim.Issuer == claim.IssuerAccount || claim.BearerToken || claim.ProxyRequired || len(claim.Src) != 0 {
-		return errors.New("link credentials must be issued for a home account and prove their key")
-	}
-	if len(claim.Tags) != 1 || claim.Tags[0] != "cell:"+cell {
-		return fmt.Errorf("link credentials must be tagged cell:%s alone", cell)
-	}
-	now := time.Now().Unix()
-	if claim.IssuedAt <= 0 || claim.IssuedAt > now || claim.NotBefore > now || claim.Expires <= now || claim.Expires <= claim.IssuedAt {
-		return errors.New("link credentials must be currently valid with an expiration after their issuance")
-	}
-	// The server applies a scoped key's template only to a user with no
-	// permissions, limits or allowed connection types of its own.
-	if !claim.HasEmptyPermissions() {
-		return errors.New("link credentials must not carry permissions or limits of their own")
-	}
-	return nil
 }

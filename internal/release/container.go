@@ -253,8 +253,6 @@ type HistoricalContainer struct{ value VerifiedContainer }
 
 func (c HistoricalContainer) Claim() ContainerClaim { return c.value.Claim() }
 
-func (c HistoricalContainer) ReleaseIdentity() string { return c.value.ReleaseIdentity() }
-
 // VerifyContainerHistorical authenticates an immutable channel floor, including expired
 // release/delegation intervals. Runtime consumers must use VerifyContainerCurrent.
 func VerifyContainerHistorical(bundle ContainerBundle, roots trust.Keyring, expected ContainerTarget) (HistoricalContainer, error) {

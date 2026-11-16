@@ -3,15 +3,12 @@ package bootstrapstart
 
 import (
 	"errors"
-	"fmt"
 	"net/netip"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
-	"golang.org/x/sys/unix"
 )
 
 const (
@@ -90,43 +87,4 @@ type MarkerStore struct {
 	directory            string
 	ownerUID             uint32
 	allowUnsafeAncestors bool
-}
-
-func NewMarkerStore() MarkerStore {
-	return MarkerStore{directory: MarkerDirectory, ownerUID: 0}
-}
-
-func (store MarkerStore) openDirectory() (int, error) {
-	if !filepath.IsAbs(store.directory) || filepath.Clean(store.directory) != store.directory {
-		return -1, ErrInvalidMarker
-	}
-	fd, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return -1, err
-	}
-	for _, component := range strings.Split(strings.TrimPrefix(store.directory, "/"), "/") {
-		if component == "" || component == "." || component == ".." {
-			unix.Close(fd)
-			return -1, ErrInvalidMarker
-		}
-		next, openErr := unix.Openat(fd, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		unix.Close(fd)
-		if openErr != nil {
-			return -1, fmt.Errorf("open accepted-install directory component: %w", openErr)
-		}
-		fd = next
-		var stat unix.Stat_t
-		if err := unix.Fstat(fd, &stat); err != nil ||
-			!store.allowUnsafeAncestors && (stat.Uid != 0 || stat.Mode&0o022 != 0) {
-			unix.Close(fd)
-			return -1, ErrInvalidMarker
-		}
-	}
-	var stat unix.Stat_t
-	if err := unix.Fstat(fd, &stat); err != nil || stat.Uid != store.ownerUID ||
-		stat.Gid != 0 && store.ownerUID == 0 || stat.Mode&0o777 != 0o755 {
-		unix.Close(fd)
-		return -1, ErrInvalidMarker
-	}
-	return fd, nil
 }

@@ -46,37 +46,6 @@ func (r FoundationResolver) GenericWorkloadGeneses(ctx context.Context, cell, en
 	return origins, nil
 }
 
-// VerifyOriginalWorkloadGenesisEvidence authenticates historical producer
-// evidence only. Producers also read back its fixed permanent home object and
-// independently verify their current delegation before allocating a sequence.
-func VerifyOriginalWorkloadGenesisEvidence(wire []byte, independentGenesis trust.Keyring, target release.ContainerTarget) (release.VerifiedWorkloadGenesis, error) {
-	var snapshot RetainedFoundation
-	if err := protocol.DecodeStrict(wire, &snapshot, MaxWorkloadGenesisEvidenceBytes); err != nil {
-		return release.VerifiedWorkloadGenesis{}, err
-	}
-	envelope, err := trust.DecodeEnvelope(snapshot.GrantWire)
-	if err != nil {
-		return release.VerifiedWorkloadGenesis{}, err
-	}
-	var grant FoundationGrant
-	if err := json.Unmarshal(envelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
-		return release.VerifiedWorkloadGenesis{}, err
-	}
-	for _, origin := range grant.WorkloadGenesis {
-		if origin.Cell == target.Cell && origin.Role == target.Role && origin.Environment == target.Environment {
-			verified, err := verifyWorkloadGenesisEvidence(wire, independentGenesis, origin)
-			if err != nil {
-				return release.VerifiedWorkloadGenesis{}, err
-			}
-			if !verified.Allows(target) {
-				return release.VerifiedWorkloadGenesis{}, trust.ErrScopeMismatch
-			}
-			return verified, nil
-		}
-	}
-	return release.VerifiedWorkloadGenesis{}, errors.New("original grant has no exact workload genesis target")
-}
-
 // WorkloadGenesis reads the permanent object selected by current root authority.
 // Historical origin conveys neither current admission nor producer permission.
 func (r FoundationResolver) WorkloadGenesis(ctx context.Context, cell, role, environment string) (release.VerifiedWorkloadGenesis, []byte, error) {

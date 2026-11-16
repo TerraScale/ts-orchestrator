@@ -27,7 +27,7 @@ These pages describe the current greenfield Go implementation.
 | [NATS fabric](nats-fabric.md) | Orchestrator-to-orchestrator transport: subject, stream and KV naming, which pattern to use, global documents |
 | [New region](new-region.md) | `ts-orch region create` brings a non-home region up in one command; `region verify` checks it serves |
 | [Manual regional bootstrap](region-bootstrap.md) | Legacy foundation/controller bootstrap inventory; automatic admission remains TS-796 |
-| [Local development](local-development.md) | Toolchain, build, test, and Firecracker qualification |
+| [Local development](local-development.md) | Toolchain, build and lint |
 | [Build and release](releases.md) | Exact-source CI checks and static Linux binaries |
 | [Deploy errors 2026-10-27](deploy-errors-20261027.md) | Every open deploy error, its evidence, root cause, fix and status |
 | [Monitoring rollout 2026-11-16](monitoring-rollout-20261116.md) | First regional monitoring install, its rollback on ts-gru-1, and what blocks the next attempt |
@@ -39,7 +39,6 @@ These pages describe the current greenfield Go implementation.
 | [Self-healing and automatic maintenance](self-healing.md) | TS-568 design and slices: credential expiry watch, `ts-orch doctor`, renewal, host repair, OS patching, drift and SLOs |
 | [Decision journal](decision-journal.md) | Recording decisions (call pattern for every slice), metric history, insights, summaries and the region view |
 | [Capacity](capacity.md) | TS-804 design: 3 to 12 nodes per region on load, the dashboard budget cap, and regions added or removed by one explicit call |
-| [Qualification status 2026-09-26](qualification-status-20260926.md) | Dated migration and qualification snapshot; not the current gate ledger |
 | [Production readiness checkpoint](production-readiness.md) | Checkpoint status and open areas |
 | [Production readiness plan](production-readiness-plan.md) | Dated readiness audit, historical canary, and open gate order |
 | [TerraBase runtime contract](terrabase-runtime-contract.md) | C# TerraBase binary: release assets, settings, member certificates, host launch, health gate and drain |
@@ -47,10 +46,8 @@ These pages describe the current greenfield Go implementation.
 | [Secrets in OCI Vault](secrets.md) | Automatic provisioning/delivery contract, least-privilege grants and remaining runtime gaps |
 | [Cell spec](cell-spec.md) | A running cell's signed desired state: `ts-orch get`, `diff` and `apply`, root-gated changes, binary levels; runbook "Add a service to a running region" |
 | [Apps and machines](apps-machines.md) | The shared orchestration model (apps, machines, regions, node pools) in `TS_APPS`, its invariants and the TS-563 slices |
-| [Material generations](material-generation.md) | TS-568 in-place renewal: root-signed generations that pin a cell's renewable material, and `ts-orch bootstrap sign-material-generation` |
 | [Settings in the cell spec](settings-in-cell-spec.md) | TS-569 design: raw config digest, versioned config and tolerant record decoding, and moving each mutable setting into a cell spec section |
 | [Machines API](machines-api.md) | The controllers' Machines REST API: ts-auth token verification, scopes and organization tenancy, endpoints, errors and the planned slices |
-| [Image updates in place](image-updates.md) | Host image allow-list and launch image in the cell spec; planned OS package and boot volume replacement slices |
 | [Root key rotation](root-rotation.md) | Baked roots as genesis of a KV root chain, the leaked-root threat model and the rotation runbook |
 | [Dedicated tenants](dedicated-tenants.md) | A tenant's own TerraBase cluster and ts-auth: model, lifecycle, isolation, endpoints, secrets, backups and metering |
 | [ts-auth deployment](ts-auth-deployment.md) | ts-auth on the gru-1 controllers: placement, Vault secret refs, TerraBase tenant, load balancer values and the live runbook |

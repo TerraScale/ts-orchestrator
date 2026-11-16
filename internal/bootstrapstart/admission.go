@@ -224,7 +224,3 @@ func digest(body []byte) string {
 	hash := sha256.Sum256(body)
 	return hex.EncodeToString(hash[:])
 }
-
-func coveredAt(issuedAt, expiresAt, acceptedAt time.Time) bool {
-	return !acceptedAt.Before(issuedAt) && acceptedAt.Before(expiresAt)
-}

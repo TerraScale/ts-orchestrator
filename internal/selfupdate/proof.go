@@ -1,16 +1,7 @@
 package selfupdate
 
 import (
-	"crypto/ed25519"
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
-
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 const (
@@ -31,72 +22,4 @@ type VersionProof struct {
 	BinarySHA256 string    `json:"binary_sha256"`
 	ProcessID    int64     `json:"process_id"`
 	ObservedAt   time.Time `json:"observed_at"`
-}
-
-func proofScope(activationID, digest string) trust.Scope {
-	return trust.Scope{
-		Domain: ProofDomain, DeploymentID: activationID, Cell: "local",
-		Environment: "node", Role: "version-proof", Slot: digest,
-	}
-}
-
-// VerifyVersionProof accepts only a currently valid proof, signed by
-// publicKey, for exactly this activation, unit and target digest, issued
-// after the activation moved the current link.
-func VerifyVersionProof(wire []byte, publicKey ed25519.PublicKey, activation Activation, now time.Time) (VersionProof, error) {
-	if err := activation.validate(); err != nil {
-		return VersionProof{}, err
-	}
-	keys, err := trust.ParseKeyring(publicKey)
-	if err != nil {
-		return VersionProof{}, err
-	}
-	envelope, err := trust.DecodeEnvelope(wire)
-	if err != nil {
-		return VersionProof{}, err
-	}
-	payload, err := trust.VerifyCurrent(envelope, proofScope(activation.ActivationID, activation.Target), keys, now,
-		trust.Policy{MaxLifetime: ProofLifetime, ClockSkew: proofClock})
-	if err != nil {
-		return VersionProof{}, err
-	}
-	var proof VersionProof
-	if err := protocol.DecodeStrict(payload, &proof, maxStateBytes); err != nil {
-		return VersionProof{}, err
-	}
-	if proof.Schema != ProofSchema || proof.ActivationID != activation.ActivationID || proof.Unit != activation.Unit ||
-		proof.BinarySHA256 != activation.Target || proof.ProcessID <= 0 ||
-		envelope.IssuedAt.Before(activation.ActivatedAt.Truncate(time.Second)) || proof.ObservedAt.Before(activation.ActivatedAt) {
-		return VersionProof{}, fmt.Errorf("%w: version proof is not fresh for this activation", ErrInvalid)
-	}
-	// A process that became ready only after its proof window must not be
-	// confirmed by a late check. A check after the deadline still accepts a
-	// proof produced in time.
-	if envelope.IssuedAt.After(activation.Deadline) || proof.ObservedAt.After(activation.Deadline) {
-		return VersionProof{}, fmt.Errorf("%w: version proof was produced after the activation deadline", ErrInvalid)
-	}
-	return proof, nil
-}
-
-// DefaultProofFile is the proof file of a unit whose config names none: its
-// systemd StateDirectory beside the release root, which the unit can write
-// and the root-run watchdog can read. For DefaultRoot that is
-// /var/lib/<unit name>/selfupdate-proof.json. The release root itself stays
-// writable only by root.
-func DefaultProofFile(root, unit string) string {
-	return filepath.Join(filepath.Dir(root), strings.TrimSuffix(unit, ".service"), "selfupdate-proof.json")
-}
-
-func readProof(path string) ([]byte, error) {
-	if path == "" {
-		return nil, os.ErrNotExist
-	}
-	wire, err := readBounded(path, trust.MaxEnvelopeBytes)
-	if err != nil {
-		return nil, err
-	}
-	if len(wire) == 0 {
-		return nil, errors.New("empty version proof")
-	}
-	return wire, nil
 }

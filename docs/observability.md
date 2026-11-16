@@ -310,7 +310,6 @@ Production controller credentials always carry the subscribe grant
 `ts.orch.v1.<cell>.obs.>`. Fresh material grants telemetry without a setting.
 For an existing installation, issue replacement controller credentials and pin
 all slots in a current-root signed material generation before serial installation.
-The accepted-identity transaction is documented in [identity-rekey.md](identity-rekey.md).
 
 ## Dashboard
 

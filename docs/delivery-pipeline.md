@@ -231,8 +231,7 @@ pull-based self-update follows the same rule: its nudge only wakes the
 updater, and the Sigstore attestation authorizes the binary.
 
 The signed channel sequence remains the `run_number` wire field, currently a
-CI counter. Changing producers must preserve monotonic ordering. See
-[release application](releases.md#apply-a-signed-release-bundle).
+CI counter. Changing producers must preserve monotonic ordering.
 
 ## Legacy standalone image and service adapters
 

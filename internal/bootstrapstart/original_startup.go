@@ -58,36 +58,6 @@ func (origin originalStartupOrigin) locator() originalStartupLocator {
 	return originalStartupLocator{SchemaVersion: 1, Cell: origin.Cell, GrantSHA256: digest(origin.GrantWire), HomeAnchorSHA256: digest(origin.AnchorWire)}
 }
 
-// Only HOME is an anchor. The regional installation identity is verified by
-// the concrete original template before it may admit or launch a controller.
-func (origin originalStartupOrigin) anchorInputs(genesis trust.Keyring) (trust.Envelope, bootstrap.BootstrapAnchorExpectation, trust.VerifiedRoots, error) {
-	envelope, err := trust.DecodeEnvelope(origin.AnchorWire)
-	if err != nil {
-		return trust.Envelope{}, bootstrap.BootstrapAnchorExpectation{}, trust.VerifiedRoots{}, err
-	}
-	var home bootstrap.BootstrapAnchor
-	if json.Unmarshal(envelope.Payload, &home) != nil || home.Cell != oci.RegionGRU {
-		return trust.Envelope{}, bootstrap.BootstrapAnchorExpectation{}, trust.VerifiedRoots{}, ErrOriginalStartup
-	}
-	chain, err := trust.DecodeRootChain(origin.RootChainWire)
-	if err != nil {
-		return trust.Envelope{}, bootstrap.BootstrapAnchorExpectation{}, trust.VerifiedRoots{}, err
-	}
-	// These untrusted identity fields select only the signature scope; the
-	// fixed genesis authenticates HOME before the signed regional projection.
-	roots, err := trust.VerifyRootChain(genesis, trust.ChainIdentity{DeploymentID: home.DeploymentID, Environment: home.Environment, Cell: strings.ToLower(string(oci.RegionGRU))}, chain)
-	return envelope, bootstrap.BootstrapAnchorExpectation{DeploymentID: home.DeploymentID, Environment: home.Environment, Cell: oci.RegionGRU}, roots, err
-}
-
-func (origin originalStartupOrigin) verifyAnchor(genesis trust.Keyring, at time.Time) (bootstrap.VerifiedBootstrapAnchor, trust.Keyring, error) {
-	envelope, expected, roots, err := origin.anchorInputs(genesis)
-	if err != nil {
-		return bootstrap.VerifiedBootstrapAnchor{}, nil, err
-	}
-	anchor, err := bootstrap.VerifyBootstrapAnchor(envelope, roots.Current, expected, at, bootstrap.BootstrapAnchorTrustPolicy())
-	return anchor, roots.Current, err
-}
-
 func cloneOriginRoots(roots trust.Keyring) trust.Keyring {
 	cloned := make(trust.Keyring, len(roots))
 	for id, key := range roots {

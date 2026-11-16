@@ -1,11 +1,5 @@
 package selfupdate
 
-import (
-	"errors"
-	"os"
-	"path/filepath"
-)
-
 const NetBirdAgentUnit = "terrascale-netbird-agent.service"
 
 // NetBirdAgentService is deploy/systemd's copy byte for byte. The worker
@@ -52,38 +46,3 @@ ExecStart=/bin/sh -c 'b=/var/lib/terrascale-orchestrator/current/terrascale-orch
 # A missing client is installed from the verified image fallback.
 ReadWritePaths=/usr/local/bin /var/lib/terrascale-orchestrator
 `
-
-// InstallNetBirdAgent adds the privileged worker only to managed hosts.
-func InstallNetBirdAgent(systemdDir string) (bool, error) {
-	if _, err := os.Stat(filepath.Join(systemdDir, HostSetupUnit)); errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-	managedRuntime, err := ManagedRuntimeInstalled(systemdDir, os.Geteuid())
-	if err != nil {
-		return false, err
-	}
-	changed := false
-	for relative, contents := range map[string]string{
-		NetBirdAgentUnit: NetBirdAgentService,
-		"terrascale-orchestrator-host.service.d/65-netbird-agent.conf": NetBirdAgentHostDropin,
-		"terrascale-netbird-enroll.service.d/zz-selfupdate.conf":       NetBirdEnrollDropin,
-	} {
-		if managedRuntime && relative == HostUnit+".d/65-netbird-agent.conf" {
-			continue
-		}
-		path := filepath.Join(systemdDir, relative)
-		if current, err := os.ReadFile(path); err == nil && string(current) == contents {
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return changed, err
-		}
-		if err := writeFileAtomic(path, []byte(contents), 0o644); err != nil {
-			return changed, err
-		}
-		changed = true
-	}
-	return changed, nil
-}

@@ -69,7 +69,7 @@ only shortens the wait. It carries no authority.
 Rollout order is fixed. One node updates first. Then the rest of its region.
 Then the next region. Two nodes of one region never update at once. A node
 that is not healthy within the probation window rolls back and marks the
-digest bad. That uses the existing probation and selfupdate code. The next
+digest bad. That uses the existing release probation and recovery code. The next
 pull request for this path is C3b.
 
 Later, a builder inside production rebuilds each commit and must produce
@@ -251,10 +251,35 @@ Today: the node does not start the replica or node autoscaler (C13).
 
 ## What was removed
 
-C2 deletes the old controller, the host agent, the cell spec and signed
-channel generation. `single-host` is the node runtime. It will be renamed `ts-orch node`.
+C2 deleted the old controller, the host agent, the cell spec and signed
+channel generation.
 
-Today: the deletion is in review (C2).
+C4 deleted the second runtime, the managed/root runtime that production never
+started, so the binary has one runtime: `single-host`. It will be renamed
+`ts-orch node` (C5). C4 removed:
+
+- the commands `managed-host-start`, `managed-runtime-start`,
+  `function-worker`, `root-oci-qualification`,
+  `root-oci-qualification-read`, `root-oci-qualification-probe`,
+  `bootstrap-credential-check`, `bootstrap-admit-initial`,
+  `bootstrap-admit-restart`, `identity-rekey-completion-check`,
+  `qualification real-caller`, `runtime-priority`, `image`, `selfupdate`
+  and the `release` receipt, delegation, channel and cell commands
+  (`release deploy`, `apply`, `sign-*`, `verify-binary`, `verify-image`,
+  `verify-production`, `service-deploy`, `fleet-status`, `observed-digests`
+  and the rest of the old signed-receipt set);
+- every package only those commands reached, among them the root OCI,
+  root capacity, root secret, root release, managed material, container
+  material, function worker, runtime-priority, rollout executor, host image
+  and A/B self-update packages;
+- the managed-host systemd units and self-update drop-ins under
+  `deploy/systemd`, the host image build scripts under `deploy/image`, the
+  udev rule, `make image` and the D15 probe publication in CI.
+
+Release recovery stays: a node pulls or receives a release, runs
+`release preflight` on the candidate and `release recover` from its recovery
+unit. The node autoscaler and OCI reconciler packages stay for the next
+categories, which rebuild them on `single-host`.
 
 ## Order of work
 

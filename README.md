@@ -7,25 +7,13 @@ Read the [required zero-configuration operating contract](docs/zero-configuratio
 Current configuration paths described below are implementation limitations, not
 production activation instructions.
 
-TerraScale Orchestrator is a Go control plane distributed as one binary. A
-regional controller embeds its NATS server and JetStream store; hosts connect
-to the regional cell to receive signed, digest-pinned desired state. GitHub
-Actions supplies the current source-verification and binary-build adapter. The orchestrator owns
-artifact admission and rollout authority. `ts-deploy` is not the build or
-rollout engine for this repository.
-
-Apply an already signed release bundle with:
-
-```sh
-ts-orch release apply --dir BUNDLE --root-key TRUSTED_ROOT --namespace NS
-```
-
-Application verifies per-region signed channels and digest-named binaries;
-it requires no particular Git repository or signing secret. GitHub remains a
-producer adapter. Notification hooks are nonauthoritative hints; existing
-polling recovers missed notifications. No new webhook endpoint or storage
-adapter is implemented. See [the signed-bundle contract](docs/releases.md#apply-a-signed-release-bundle)
-for layout, ordering limits and the current OCI application path.
+TerraScale Orchestrator is a Go orchestrator distributed as one binary. Every
+node runs one runtime, `terrascale-orchestrator single-host`
+([`deploy/m1/ts-orch.service`](deploy/m1/ts-orch.service)): a SwarmKit manager
+and worker with containerd, the HTTPS edge and the embedded NATS mesh between
+regions. CI builds the static binaries; `ts-orch release push` and
+`ts-orch release nudge` deliver them (see [platform design](docs/platform.md#releases)).
+`ts-deploy` is not the build or rollout engine for this repository.
 
 Use **`ts-orch` as the operational CLI**. Implement new deployment,
 provisioning, bootstrap, release, and inspection tooling as Go subcommands in

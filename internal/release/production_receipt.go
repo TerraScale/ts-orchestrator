@@ -1,7 +1,6 @@
 package release
 
 import (
-	"crypto/ed25519"
 	"encoding/json/jsontext"
 	"fmt"
 	"time"
@@ -62,41 +61,4 @@ func VerifyQualifiedBinaryUpdateCurrent(wire, delegationWire []byte, roots trust
 		}
 	}
 	return binary, nil
-}
-
-// AttachProductionQualification preserves source/run provenance and signs the
-// independent authority's exact candidate proof into the update receipt.
-func AttachProductionQualification(envelope trust.Envelope, proof ProductionProof, delegationWire []byte, roots trust.Keyring, private ed25519.PrivateKey, expected UpdateExpectation, now time.Time) (trust.Envelope, error) {
-	wire, err := trust.EncodeEnvelope(envelope)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	binary, err := VerifyBinaryUpdateCurrent(wire, delegationWire, roots, expected, now)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if _, err := VerifyProductionCurrent(proof.Qualification, proof.Delegation, roots, productionBinaryExpectation(binary.Receipt(), expected), now); err != nil {
-		return trust.Envelope{}, err
-	}
-	var receipt BinaryUpdateReceipt
-	if err := protocol.DecodeStrict(envelope.Payload, &receipt, trust.MaxPayloadBytes); err != nil {
-		return trust.Envelope{}, err
-	}
-	receipt.Production = &proof
-	payload, err := trust.EncodePayload(receipt)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	signed, err := trust.Sign(payload, envelope.Scope, envelope.IssuedAt, envelope.ExpiresAt, private)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	wire, err = trust.EncodeEnvelope(signed)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if _, err := VerifyQualifiedBinaryUpdateCurrent(wire, delegationWire, roots, expected, now); err != nil {
-		return trust.Envelope{}, err
-	}
-	return signed, nil
 }

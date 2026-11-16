@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -50,15 +49,6 @@ const (
 // delegated release key; DelegatedReleaseActor appends the key's identity, so
 // an actor names exactly one key and its delegation.
 const DelegatedReleaseActorPrefix = "release-"
-
-// DelegatedReleaseActor is the actor claims signed by publicKey carry.
-func DelegatedReleaseActor(publicKey ed25519.PublicKey) (string, error) {
-	keyID, err := trust.KeyID(publicKey)
-	if err != nil {
-		return "", err
-	}
-	return DelegatedReleaseActorPrefix + strings.TrimPrefix(keyID, "sha256:")[:16], nil
-}
 
 var (
 	ErrLineage = errors.New("release source lineage is not authorized")
@@ -208,23 +198,6 @@ func UpdateReceiptScope(receipt BinaryUpdateReceipt, environment string) trust.S
 	}
 }
 
-// SignUpdateDelegation is the offline root operation that issues a grant.
-func SignUpdateDelegation(delegation BinaryUpdateDelegation, issuedAt, expiresAt time.Time,
-	rootPrivateKey ed25519.PrivateKey,
-) (trust.Envelope, error) {
-	if err := delegation.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	if !expiresAt.After(issuedAt) || expiresAt.Sub(issuedAt) > MaxUpdateDelegationLifetime {
-		return trust.Envelope{}, fmt.Errorf("binary update delegation must expire within %s", MaxUpdateDelegationLifetime)
-	}
-	payload, err := trust.EncodePayload(delegation)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	return trust.Sign(payload, UpdateDelegationScope(delegation.Environment), issuedAt, expiresAt, rootPrivateKey)
-}
-
 type verifiedUpdateDelegation struct {
 	delegation BinaryUpdateDelegation
 	envelope   trust.Envelope
@@ -278,92 +251,6 @@ func (verified verifiedUpdateDelegation) authorize(receipt BinaryUpdateReceipt) 
 		return ErrLineage
 	}
 	return nil
-}
-
-// SignBinaryUpdateReceipt is the online leaf operation. It verifies the
-// current delegation, binds the receipt to the exact qualification manifest
-// and its successful ci.yml run, proves the source lineage with checker, and
-// re-verifies the signed result through the consumer policy.
-func SignBinaryUpdateReceipt(binary BinaryReceipt, qualification Qualification, qualificationSHA256, cell, environment string,
-	checker LineageChecker, delegationEnvelope trust.Envelope, roots trust.Keyring, privateKey ed25519.PrivateKey,
-	now time.Time, validFor time.Duration,
-) (trust.Envelope, error) {
-	return signBinaryUpdateReceipt(binary, qualification, qualificationSHA256, cell, environment, checker, delegationEnvelope, roots, privateKey, now, validFor, 0, "")
-}
-
-func signBinaryUpdateReceipt(binary BinaryReceipt, qualification Qualification, qualificationSHA256, cell, environment string,
-	checker LineageChecker, delegationEnvelope trust.Envelope, roots trust.Keyring, privateKey ed25519.PrivateKey,
-	now time.Time, validFor time.Duration, sequence uint64, migrationSHA256 string,
-) (trust.Envelope, error) {
-	if checker == nil {
-		return trust.Envelope{}, fmt.Errorf("%w: no lineage checker", ErrLineage)
-	}
-	if validFor <= 0 || validFor > MaxUpdateReceiptLifetime {
-		return trust.Envelope{}, fmt.Errorf("update receipt validity must be positive and no longer than %s", MaxUpdateReceiptLifetime)
-	}
-	if err := qualification.MatchBinary(binary, qualificationSHA256); err != nil {
-		return trust.Envelope{}, err
-	}
-	verified, err := verifyUpdateDelegation(delegationEnvelope, roots, environment, currentAt(now))
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if len(privateKey) != ed25519.PrivateKeySize {
-		return trust.Envelope{}, trust.ErrKeyMismatch
-	}
-	signerKeyID, err := trust.KeyID(privateKey.Public().(ed25519.PublicKey))
-	if err != nil || signerKeyID != verified.delegation.SubjectKeyID {
-		return trust.Envelope{}, trust.ErrKeyMismatch
-	}
-	if err := checker.CheckLineage(verified.delegation.LineageBase, binary.SourceRevision, verified.delegation.Ref); err != nil {
-		return trust.Envelope{}, fmt.Errorf("%w: %w", ErrLineage, err)
-	}
-	receipt := BinaryUpdateReceipt{
-		Schema: UpdateReceiptSchema, Binary: binary, Cell: cell, DelegationSHA256: verified.digest,
-		ReleaseSequence: sequence, SequenceMigrationSHA256: migrationSHA256,
-		Lineage: SourceLineage{
-			Repository: qualification.Repository, Workflow: qualification.Verification.Workflow, Ref: verified.delegation.Ref,
-			LineageBase: verified.delegation.LineageBase, QualificationRunID: qualification.Verification.RunID,
-			QualificationRunNum: qualification.Verification.RunNumber,
-		},
-	}
-	if err := receipt.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	if err := verified.authorize(receipt); err != nil {
-		return trust.Envelope{}, err
-	}
-	expiresAt := now.Add(validFor)
-	if delegationEnvelope.ExpiresAt.Before(expiresAt) {
-		// The receipt is capped at its delegation's expiry. Refuse a cap
-		// that would leave a receipt consumers reject almost at once.
-		if remaining := delegationEnvelope.ExpiresAt.Sub(now); remaining < min(validFor, MinUpdateReceiptValidity) {
-			return trust.Envelope{}, fmt.Errorf("update delegation expires in %s, less than the %s minimum receipt validity; renew the delegation",
-				remaining.Round(time.Second), min(validFor, MinUpdateReceiptValidity))
-		}
-		expiresAt = delegationEnvelope.ExpiresAt
-	}
-	payload, err := trust.EncodePayload(receipt)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	envelope, err := trust.Sign(payload, UpdateReceiptScope(receipt, environment), now, expiresAt, privateKey)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	envelopeWire, err := trust.EncodeEnvelope(envelope)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	delegationWire, err := trust.EncodeEnvelope(delegationEnvelope)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if _, err := VerifyBinaryUpdateCurrent(envelopeWire, delegationWire, roots,
-		UpdateExpectation{Environment: environment, Cell: cell, Architecture: binary.GOARCH}, now); err != nil {
-		return trust.Envelope{}, fmt.Errorf("signed update receipt fails consumer verification: %w", err)
-	}
-	return envelope, nil
 }
 
 // MinUpdateReceiptValidity is the shortest validity an update receipt is

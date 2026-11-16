@@ -4,7 +4,6 @@ package release
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"regexp"
@@ -200,80 +199,6 @@ func ImageScope(receipt ImageReceipt, environment string) trust.Scope {
 	}
 }
 
-// SignBinaryReceipt verifies a current root delegation, applies the release
-// signing lifetime limits, signs the canonical payload, and re-verifies the
-// result through the consumer policy before returning it.
-func SignBinaryReceipt(receipt BinaryReceipt, environment string, delegation trust.Envelope, roots trust.Keyring,
-	privateKey ed25519.PrivateKey, now time.Time, validFor time.Duration,
-) (trust.Envelope, error) {
-	if err := receipt.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	if err := validateEnvironment(environment); err != nil {
-		return trust.Envelope{}, err
-	}
-	return signReceipt(receipt, BinaryScope(receipt, environment), delegation, roots, privateKey, now, validFor)
-}
-
-// SignImageReceipt verifies a current root delegation, applies the release
-// signing lifetime limits, signs the canonical payload, and re-verifies the
-// result through the consumer policy before returning it.
-func SignImageReceipt(receipt ImageReceipt, environment string, delegation trust.Envelope, roots trust.Keyring,
-	privateKey ed25519.PrivateKey, now time.Time, validFor time.Duration,
-) (trust.Envelope, error) {
-	if err := receipt.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	if err := validateEnvironment(environment); err != nil {
-		return trust.Envelope{}, err
-	}
-	if validFor <= 0 || validFor > MaxReceiptLifetime {
-		return trust.Envelope{}, fmt.Errorf("receipt validity must be positive and at most %s", MaxReceiptLifetime)
-	}
-	productionExpiry, err := verifyImageProduction(receipt, environment, roots, now)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if validFor > 0 && productionExpiry.Before(now.Add(validFor)) {
-		validFor = productionExpiry.Sub(now)
-	}
-	return signReceipt(receipt, ImageScope(receipt, environment), delegation, roots, privateKey, now, validFor)
-}
-
-// VerifyBinaryCurrent verifies a canonical receipt wire, a currently valid
-// root-signed delegation, the exact signer capability, and the environment.
-func VerifyBinaryCurrent(envelopeWire, delegationWire []byte, roots trust.Keyring,
-	expected BinaryExpectation, now time.Time,
-) (VerifiedBinary, error) {
-	if err := validateEnvironment(expected.Environment); err != nil {
-		return VerifiedBinary{}, err
-	}
-	envelope, delegationEnvelope, err := decodeEnvelopePair(envelopeWire, delegationWire)
-	if err != nil {
-		return VerifiedBinary{}, err
-	}
-	receipt, err := decodeCanonicalPayload[BinaryReceipt](envelope.Payload)
-	if err != nil {
-		return VerifiedBinary{}, err
-	}
-	if err := receipt.Validate(); err != nil {
-		return VerifiedBinary{}, err
-	}
-	scope := BinaryScope(receipt, expected.Environment)
-	delegation, err := trust.VerifyDelegationCurrent(delegationEnvelope, roots, now, delegationPolicy())
-	if err != nil {
-		return VerifiedBinary{}, fmt.Errorf("verify current release delegation: %w", err)
-	}
-	if _, err := trust.VerifyDelegatedCurrent(envelope, scope, delegation, now, receiptPolicy()); err != nil {
-		return VerifiedBinary{}, fmt.Errorf("verify current signed binary receipt: %w", err)
-	}
-	proof, err := proofFor(envelope)
-	if err != nil {
-		return VerifiedBinary{}, err
-	}
-	return VerifiedBinary{receipt: receipt, proof: proof}, nil
-}
-
 // VerifyBinaryHistorical verifies that a binary receipt was authorized at
 // issuance. The distinct result type cannot be passed as current authority.
 func VerifyBinaryHistorical(envelopeWire, delegationWire []byte, roots trust.Keyring,
@@ -386,44 +311,9 @@ func ValidOCIImageIDForRegion(value, region string) bool {
 		parts[3] == oracleRegion(region) && imageIDPart.MatchString(parts[4])
 }
 
-// ValidKernelRelease reports whether value is a bounded, simple kernel release
-// token suitable for a signed image receipt.
-func ValidKernelRelease(value string) bool { return validKernelRelease(value) }
-
 // ValidSourceRevision reports whether value is a full lowercase Git SHA-1
 // revision accepted by binary and image release receipts.
 func ValidSourceRevision(value string) bool { return revisionPattern.MatchString(value) }
-
-func signReceipt(payload any, scope trust.Scope, delegationEnvelope trust.Envelope, roots trust.Keyring,
-	privateKey ed25519.PrivateKey, now time.Time, validFor time.Duration,
-) (trust.Envelope, error) {
-	if validFor <= 0 || validFor > MaxReceiptLifetime {
-		return trust.Envelope{}, fmt.Errorf("receipt validity must be positive and no longer than %s", MaxReceiptLifetime)
-	}
-	delegation, err := trust.VerifyDelegationCurrent(delegationEnvelope, roots, now, delegationPolicy())
-	if err != nil {
-		return trust.Envelope{}, fmt.Errorf("verify current release delegation: %w", err)
-	}
-	expiresAt := now.Add(validFor)
-	if delegationEnvelope.ExpiresAt.Before(expiresAt) {
-		expiresAt = delegationEnvelope.ExpiresAt
-	}
-	if !expiresAt.After(now) {
-		return trust.Envelope{}, trust.ErrExpired
-	}
-	encodedPayload, err := trust.EncodePayload(payload)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	envelope, err := trust.Sign(encodedPayload, scope, now, expiresAt, privateKey)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if _, err := trust.VerifyDelegatedCurrent(envelope, scope, delegation, now, receiptPolicy()); err != nil {
-		return trust.Envelope{}, fmt.Errorf("release signer is not delegated for this exact scope: %w", err)
-	}
-	return envelope, nil
-}
 
 func decodeEnvelopePair(envelopeWire, delegationWire []byte) (trust.Envelope, trust.Envelope, error) {
 	envelope, err := trust.DecodeEnvelope(envelopeWire)

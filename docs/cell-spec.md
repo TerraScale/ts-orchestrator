@@ -137,7 +137,7 @@ receipt and the root's image delegation that signs it, as exact canonical
 envelopes. At most four. A host launched from an allowed image stays a
 fleet member after the fleet's pinned image changes: the fleet observes it,
 placement keeps its seat and it can attach its retained volume. See
-[image updates](image-updates.md).
+image updates.
 
 `launch_image` names one of the host images; new managed TerraBase hosts
 boot it instead of the pinned image (node pool hosts keep their template

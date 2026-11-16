@@ -13,7 +13,7 @@ BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-w"
 CHANGE_BASE ?= $(shell git merge-base origin/main HEAD)
 LINT_CHECKS := format-check generate-check vet shellcheck netbird-backup-check retired-host-check zero-config-check observability-check go-pin-check
 
-.PHONY: lint retired-host-check zero-config-check go-pin-check format-check generate generate-check vet netbird-backup-check shellcheck observability-check build build-linux release-linux release-check image clean
+.PHONY: lint retired-host-check zero-config-check go-pin-check format-check generate generate-check vet netbird-backup-check shellcheck observability-check build build-linux release-linux release-check clean
 
 lint:
 	$(MAKE) --jobs --keep-going $(LINT_CHECKS)
@@ -86,12 +86,6 @@ dist/terrascale-orchestrator-linux-arm64:
 
 release-check: release-linux
 	GO="$(GO)" bash scripts/ci/check-release-binaries.sh
-
-# Build the host image for a CI-qualified main revision on this machine:
-# make image SOURCE=<full sha> [IMAGE_OUT=<directory>]
-image:
-	@test -n "$(SOURCE)" || { echo 'usage: make image SOURCE=<full sha> [IMAGE_OUT=<directory>]' >&2; exit 2; }
-	bash scripts/ci/build-image-local.sh $(SOURCE) $(IMAGE_OUT)
 
 clean:
 	rm -rf dist

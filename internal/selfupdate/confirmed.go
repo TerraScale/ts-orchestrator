@@ -60,23 +60,3 @@ func (layout Layout) ConfirmedReleases() ([]string, error) {
 	}
 	return slices.DeleteFunc(history.Releases, func(digest string) bool { return bad[digest] }), nil
 }
-
-// rememberConfirmed runs only after Watch verified a live process's proof.
-// The caller holds Lock and commits this before removing the activation.
-func (layout Layout) rememberConfirmed(digest string) error {
-	history, err := layout.ConfirmedReleases()
-	if err != nil {
-		return err
-	}
-	if err := layout.VerifyRelease(digest); err != nil {
-		return err
-	}
-	history = slices.DeleteFunc(history, func(previous string) bool { return previous == digest })
-	history = append([]string{digest}, history...)
-	history = history[:min(len(history), ConfirmedReleaseHistory)]
-	data, err := protocol.EncodeJSON(confirmedReleases{Schema: confirmedReleasesSchema, Releases: history})
-	if err != nil {
-		return err
-	}
-	return writeFileAtomic(filepath.Join(layout.Root, confirmedReleasesFile), data, 0o644)
-}

@@ -252,18 +252,6 @@ func VerifyHistorical(envelope Envelope, expected Scope, keys Keyring, policy Po
 	return bytesClone(envelope.Payload), nil
 }
 
-// SignDelegation signs root-controlled delegated key capabilities.
-func SignDelegation(delegation Delegation, issuedAt, expiresAt time.Time, rootPrivateKey ed25519.PrivateKey) (Envelope, error) {
-	if err := delegation.Validate(); err != nil {
-		return Envelope{}, err
-	}
-	payload, err := EncodePayload(delegation)
-	if err != nil {
-		return Envelope{}, err
-	}
-	return Sign(payload, delegationScope(), issuedAt, expiresAt, rootPrivateKey)
-}
-
 // VerifyDelegationCurrent verifies a root-signed delegation and requires it to
 // be currently valid before the key can authorize a current action.
 func VerifyDelegationCurrent(envelope Envelope, roots Keyring, now time.Time, policy Policy) (VerifiedDelegation, error) {
@@ -520,14 +508,6 @@ func decodeCanonicalSignature(encoded string) ([]byte, error) {
 }
 
 func bytesClone(value []byte) []byte { return append([]byte(nil), value...) }
-
-// EncodeDelegatedPublicKey uses the canonical unpadded URL-safe Base64 form.
-func EncodeDelegatedPublicKey(publicKey ed25519.PublicKey) (string, error) {
-	if len(publicKey) != ed25519.PublicKeySize {
-		return "", fmt.Errorf("%w: invalid Ed25519 public key", ErrInvalid)
-	}
-	return base64.RawURLEncoding.EncodeToString(publicKey), nil
-}
 
 // ParseKeyring validates baked-in root public keys and derives their full IDs.
 func ParseKeyring(publicKeys ...ed25519.PublicKey) (Keyring, error) {
