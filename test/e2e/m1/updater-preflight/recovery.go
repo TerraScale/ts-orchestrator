@@ -256,7 +256,10 @@ func recoveryCase(ctx context.Context, binary string) {
 			require(bytes.Equal(read(installed), original) && record(trialPath+".staged") == nil && record(trialPath) == nil, "committed staging must promote and roll back")
 		}},
 		{"R13 tick in the restart gap after a pushed install waits for the candidate", func() {
+			const exited = "/run/recovery-exited"
 			writeExecutable(installed, original)
+			write("/etc/systemd/system/ts-orch.service.d/lane.conf", "[Service]\nRestart=always\nRestartSec=1h\nExecStopPost=/opt/recovery-e2e recovery-exited "+exited+"\n")
+			must(run("daemon-reload"))
 			must(run("start", unit))
 			active()
 			write("/etc/systemd/system/recovery-push.service", "[Service]\nType=oneshot\nProtectSystem=full\nReadWritePaths=/usr/local/bin\nExecStart=/usr/local/bin/terrascale-orchestrator recovery-install hold\n")
@@ -276,8 +279,27 @@ func recoveryCase(ctx context.Context, binary string) {
 			data, err := json.Marshal(value)
 			must(err)
 			write(trialPath, string(data))
-			must(run("stop", unit))
+			_ = os.Remove(exited)
+			watcher, err := fsnotify.NewWatcher()
+			must(err)
+			defer watcher.Close()
+			must(watcher.Add("/run"))
+			must(run("kill", "--signal=SIGKILL", unit))
+			deadline, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			for record(exited) == nil {
+				select {
+				case <-watcher.Events:
+				case err := <-watcher.Errors:
+					must(err)
+				case <-deadline.Done():
+					panic("the old process exit was not reported")
+				}
+			}
 			must(run("start", recoverUnit))
+			substate, err := exec.CommandContext(ctx, "systemctl", "show", unit, "-p", "SubState", "--value").Output()
+			must(err)
+			require(strings.TrimSpace(string(substate)) == "auto-restart", fmt.Sprintf("the tick must run in the restart gap, not %s", substate))
 			require(bytes.Equal(read(installed), pushed) && record(marker) == nil && record(state+"/release-runtime") == nil, "a tick after the old process exits and before the candidate starts must not roll back a candidate that never ran")
 			must(run("start", unit))
 			active()
