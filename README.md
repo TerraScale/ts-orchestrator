@@ -69,7 +69,7 @@ nice -n 19 mise exec -- make release-linux
 
 `make lint` checks formatting, templ output, `go vet`, shell scripts and the repository policies; the only test here is the node E2E (`test/e2e/m1/run.sh`), and product behaviour is proven by the journey E2E in the terrascale repo.
 `make build` creates `dist/ts-orch` for the current host. The same executable runs
-the `single-host` runtime and the operator tooling:
+the `node` runtime and the operator tooling:
 
 ```bash
 dist/ts-orch --help
