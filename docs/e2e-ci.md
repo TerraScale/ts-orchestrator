@@ -53,7 +53,7 @@ Its binary argument is the lane's agent; sibling helper binaries are in the same
 For a disposable local host, build with:
 
 ~~~sh
-test/e2e/m1/build.sh /tmp/m1-bin
+test/e2e/m1/build.sh /tmp/m1-bin ./cmd/terrascale-orchestrator
 bash test/e2e/m1/run.sh /tmp/m1-bin/terrascale-orchestrator
 ~~~
 
