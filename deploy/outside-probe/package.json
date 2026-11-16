@@ -7,6 +7,8 @@
     "build": "node --check worker.mjs"
   },
   "devDependencies": {
-    "cf": "1.0.0-beta.14"
+    "@cloudflare/vite-plugin": "2.0.0-beta.v.17",
+    "cf": "1.0.0-beta.14",
+    "vite": "8.3.8"
   }
 }
