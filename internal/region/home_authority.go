@@ -66,66 +66,6 @@ type HomeIAMAuthority struct {
 	memo *foundationVerificationMemo
 }
 
-func (authority *HomeIAMAuthority) initialize(ctx context.Context, factory *ociclient.Factory, guarded context.Context, objects *objectstorage.ObjectStorageClient, principalErr error) (*HomeIAMAuthority, error) {
-	resolver := authority.resolver
-	err := principalErr
-	if err != nil || resolver.Footprint == nil || resolver.Store == nil {
-		return nil, errors.Join(bootstrapstart.ErrSourceFounder, err)
-	}
-	entry, ok := catalog.CellForOCIRegion(factory.Region())
-	if !ok {
-		return nil, bootstrapstart.ErrSourceFounder
-	}
-	var domain bootstrap.StorageDomain
-	if authority.operator != nil {
-		domain = authority.operator.domain
-	} else {
-		grant, err := resolver.BootstrapMaterial(ctx, entry.Cell)
-		if err != nil || !grant.IsVerified() || homeGrantDigest(grant.FoundationGrantWire()) != authority.grantDigest || grant.InstallationID() != authority.installationID || grant.Generation() != authority.grantGeneration {
-			return nil, errors.Join(bootstrapstart.ErrSourceFounder, err)
-		}
-		domain = grant.StorageDomain()
-		if authority.runtime.IsVerified() {
-			if domain != authority.runtime.FoundationScope().StorageDomain {
-				return nil, bootstrapstart.ErrSourceFounder
-			}
-			authority.planDigest = grant.PlanDigest()
-		} else if !authority.proof.IsVerified() || grant.PlanDigest() != authority.planDigest {
-			return nil, bootstrapstart.ErrSourceFounder
-		}
-	}
-	parts := strings.Split(domain.HeadKMSKeyOCID, ".")
-	if domain.Validate() != nil || len(parts) < 5 || !catalog.IsOCIRegion(parts[3]) {
-		return nil, errors.New("home IAM requires the signed regional storage key")
-	}
-	storage, err := factory.ForRegion(parts[3])
-	if err != nil {
-		return nil, err
-	}
-	if objects == nil {
-		client, err := storage.ObjectStorage()
-		if err != nil {
-			return nil, err
-		}
-		objects = &client
-	}
-	namespace, err := objects.GetNamespace(ociclient.RequestContext(guarded), objectstorage.GetNamespaceRequest{})
-	if err != nil || namespace.Value == nil || *namespace.Value != domain.Namespace {
-		return nil, errors.New("authenticated OCI namespace differs from signed home storage")
-	}
-	bucket, err := objects.GetBucket(ociclient.RequestContext(guarded), objectstorage.GetBucketRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket)})
-	if err != nil || bucket.Name == nil || *bucket.Name != domain.HeadBucket || bucket.Namespace == nil || *bucket.Namespace != domain.Namespace ||
-		bucket.KmsKeyId == nil || *bucket.KmsKeyId != domain.HeadKMSKeyOCID || bucket.CompartmentId == nil || !strings.HasPrefix(*bucket.CompartmentId, "ocid1.compartment.oc1..") || bucket.Id == nil || !validAuxiliaryID("head_bucket", *bucket.Id, parts[3]) {
-		return nil, errors.New("actual home bucket differs from signed encrypted storage")
-	}
-	authority.factory, authority.objects, authority.domain = factory, objects, domain
-	authority.ownerID, authority.bucketCompartment = entityid.New(), *bucket.CompartmentId
-	if err := authority.guardScope(ctx); err != nil {
-		return nil, err
-	}
-	return authority, nil
-}
-
 func (authority *HomeIAMAuthority) guardScope(ctx context.Context) error {
 	if authority == nil || authority.objects == nil || authority.resolver.Footprint == nil || authority.resolver.Store == nil {
 		return bootstrapstart.ErrSourceFounder
@@ -383,11 +323,6 @@ func (lease *homeIAMLease) release(parent, child context.Context) {
 		current.ReleasedAt, current.ExpiresAt = current.UpdatedAt, current.UpdatedAt
 		_, _ = lease.authority.put(parent, current, etag)
 	})
-}
-
-func homeGrantDigest(wire []byte) string {
-	sum := sha256.Sum256(wire)
-	return hex.EncodeToString(sum[:])
 }
 
 // GuardedFactory preserves the exact authenticated founder and checks the

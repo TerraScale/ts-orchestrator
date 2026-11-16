@@ -25,7 +25,7 @@ These pages describe the current greenfield Go implementation.
 | [NetBird control-plane path](network/netbird-control-plane.md) | TS-676 live root cause, private preferred policy prerequisites and read-only path audit |
 | [Clock discipline and TerraBase admission](clock-admission.md) | Chrony setup and bounded, replicated clock-skew reports |
 | [NATS fabric](nats-fabric.md) | Orchestrator-to-orchestrator transport: subject, stream and KV naming, which pattern to use, global documents |
-| [New region](new-region.md) | `ts-orch region create` brings a non-home region up in one command; `region verify` checks it serves |
+| [New region](new-region.md) | `ts-orch region add` gives a region its host; `region derive` derives its plan and `region verify` checks it serves |
 | [Manual regional bootstrap](region-bootstrap.md) | Legacy foundation/controller bootstrap inventory; automatic admission remains TS-796 |
 | [Local development](local-development.md) | Toolchain, build and lint |
 | [Build and release](releases.md) | Exact-source CI checks and static Linux binaries |
@@ -48,7 +48,6 @@ These pages describe the current greenfield Go implementation.
 | [Apps and machines](apps-machines.md) | The shared orchestration model (apps, machines, regions, node pools) in `TS_APPS`, its invariants and the TS-563 slices |
 | [Settings in the cell spec](settings-in-cell-spec.md) | TS-569 design: raw config digest, versioned config and tolerant record decoding, and moving each mutable setting into a cell spec section |
 | [Machines API](machines-api.md) | The controllers' Machines REST API: ts-auth token verification, scopes and organization tenancy, endpoints, errors and the planned slices |
-| [Root key rotation](root-rotation.md) | Baked roots as genesis of a KV root chain, the leaked-root threat model and the rotation runbook |
 | [Dedicated tenants](dedicated-tenants.md) | A tenant's own TerraBase cluster and ts-auth: model, lifecycle, isolation, endpoints, secrets, backups and metering |
 | [ts-auth deployment](ts-auth-deployment.md) | ts-auth on the gru-1 controllers: placement, Vault secret refs, TerraBase tenant, load balancer values and the live runbook |
 | [TerraBase serving lifecycle](terrabase-serving-lifecycle-plan.md) | Current health gate, drain and rollback; open replication, membership, serving proof and scale-in work |

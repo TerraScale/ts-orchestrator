@@ -41,7 +41,6 @@ side is [`internal/host/tsauth.go`](../internal/host/tsauth.go).
 | --- | --- | --- |
 | `ts-orch ouroboros bootstrap --plan FILE --client-url URL --admin-url URL --member NODE --member-ca FILE --dashboard-credential-file FILE [--management-listener client\|admin] [--owner-email EMAIL --ts-auth-instance SLUG --ts-auth-key-file FILE [--ts-auth-url URL]]` | operator host, SSH forward to `gru-1-db-1` | Finds or creates TerraScale's TerraBase organization and the ts-auth and ts-dashboard projects and databases; stores each project ID and, once, a new API key in the Vault. With `--owner-email` (needs `--management-listener admin`), makes that ts-auth user the organization's owner. |
 | `ts-orch ts-auth metadata-rules` | operator host, no OCI access | Renders the nftables metadata block installed on each controller in step 3. |
-| `ts-orch service add --role ts-auth --profile F --spec F --out F`, `release sign-spec`, `apply -f` | operator host | Adds ts-auth to a running cell with a signed cell spec; see [cell spec](cell-spec.md). |
 | `ts-orch bootstrap render-controller-config ... --ts-auth-profile F --ts-auth-profile-sha256 H --ts-auth-service F --ts-auth-service-sha256 H --out F` | operator host, before initial controller signing | Includes the reviewed ts-auth profile and service in canonical signed controller configuration. |
 | `ts-orch operator ts-auth-release --config FILE --binary F --sha256 F --source-checkout DIR --commit SHA --environment ENV --profile F [--wait 10m]` | operator host | Verifies, admits and rolls out one release; gates on readiness and rolls back a release that fails. |
 
@@ -185,11 +184,7 @@ cell's member CA:
   endpoints set, storage no longer uses it. A ts-auth release before TS-577
   ignores both settings and keeps storing through it.
 
-Change it in place: `ts-orch service update --role ts-auth` with the live
-profile (`ts-orch get`) plus the two settings, `release sign-spec --root`
-(the profile names Vault secrets), `diff`, `apply`, then `operator
-ts-auth-release` with that profile; the gate replaces one replica at a time.
-Roll back the same way without the two settings.
+
 
 ### OpenID Connect
 

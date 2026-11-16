@@ -1,7 +1,6 @@
 package region
 
 import (
-	"context"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -11,14 +10,10 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
-	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
-	"github.com/oracle/oci-go-sdk/v65/objectstorage"
-	"github.com/oracle/oci-go-sdk/v65/vault"
 )
 
 // OriginalFoundationSourceIAM is an original-operator effect, never a local
@@ -133,201 +128,6 @@ func originalSourceIAMRequestSHA(details identity.CreatePolicyDetails) (string, 
 
 func originalSourceIAMCreateIdentity(entry OriginalFoundationSourceIAM, digest string) foundation.CreateIdentity {
 	return foundation.CreateIdentity{Key: "original-source-policy", Region: foundationHomeRegion, RequestDigest: digest, RetryToken: BootstrapRetryToken(entry.OperationID, digest)}
-}
-
-func originalSourceIAMAuthority(ctx context.Context, authority *HomeIAMAuthority) (FoundationRecord, string, error) {
-	record, _, _, _, err := originalActorPrerequisites(ctx, authority, false)
-	if err != nil || completeOriginalSourceIAMActors(record) != nil {
-		return record, "", errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	for index := range 3 {
-		if err := retainOriginalActorReadback(ctx, authority, record, index); err != nil {
-			return record, "", err
-		}
-	}
-	bucket, err := authority.objects.GetBucket(ociclient.RequestContext(ctx), objectstorage.GetBucketRequest{NamespaceName: new(authority.domain.Namespace), BucketName: new(authority.domain.HeadBucket)})
-	if err != nil || deref(bucket.Id) != record.AuxiliaryIDs["head_bucket"] || deref(bucket.Name) != authority.domain.HeadBucket || deref(bucket.Namespace) != authority.domain.Namespace || deref(bucket.KmsKeyId) != authority.domain.HeadKMSKeyOCID || deref(bucket.CompartmentId) != authority.bucketCompartment || authority.bucketCompartment != (*record.OriginalSourceProducers)[0].Intent.Escrow.CompartmentOCID {
-		return record, "", errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	return authority.resolver.Store.Load(ctx, "GRU")
-}
-
-func originalSourceIAMAbsent(ctx context.Context, authority *HomeIAMAuthority, iam identity.IdentityClient, entry OriginalFoundationSourceIAM) error {
-	_, err := authority.objects.HeadObject(ociclient.RequestContext(ctx), objectstorage.HeadObjectRequest{NamespaceName: new(entry.Namespace), BucketName: new(entry.Bucket), ObjectName: new(entry.Object)})
-	service, absent := common.IsServiceError(err)
-	if !absent || service.GetHTTPStatusCode() != http.StatusNotFound {
-		return errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	client, err := vault.NewVaultsClientWithConfigurationProvider(authority.factory.Provider())
-	if err != nil {
-		return err
-	}
-	client.SetRegion(foundationHomeRegion)
-	authority.factory.Configure(&client.BaseClient, ociclient.ServiceKMS)
-	request := vault.ListSecretsRequest{CompartmentId: new(entry.Escrow.CompartmentOCID), VaultId: new(entry.Escrow.VaultOCID), Name: new(entry.SecretName), Limit: new(100)}
-	seen := map[string]bool{}
-	for range 32 {
-		response, err := client.ListSecrets(ociclient.RequestContext(ctx), request)
-		if err != nil {
-			return err
-		}
-		for _, item := range response.Items {
-			if deref(item.SecretName) == entry.SecretName {
-				return ErrOriginalSourceProducerHold
-			}
-		}
-		page := deref(response.OpcNextPage)
-		if page == "" {
-			return originalSourceIAMPolicyAbsent(ctx, iam, entry.Request)
-		}
-		if seen[page] {
-			return ErrOriginalSourceProducerHold
-		}
-		seen[page], request.Page = true, new(page)
-	}
-	return ErrOriginalSourceProducerHold
-}
-
-func originalSourceIAMPolicyAbsent(ctx context.Context, iam identity.IdentityClient, details identity.CreatePolicyDetails) error {
-	request := identity.ListPoliciesRequest{CompartmentId: details.CompartmentId, Name: details.Name, Limit: new(100)}
-	seen := map[string]bool{}
-	for range 32 {
-		response, err := iam.ListPolicies(ociclient.RequestContext(ctx), request)
-		if err != nil {
-			return err
-		}
-		for _, row := range response.Items {
-			if deref(row.Name) == deref(details.Name) {
-				return ErrOriginalSourceProducerHold
-			}
-		}
-		page := deref(response.OpcNextPage)
-		if page == "" {
-			return nil
-		}
-		if seen[page] {
-			return ErrOriginalSourceProducerHold
-		}
-		seen[page], request.Page = true, new(page)
-	}
-	return ErrOriginalSourceProducerHold
-}
-
-func retainOriginalSourceIAM(ctx context.Context, authority *HomeIAMAuthority, index int) error {
-	record, etag, err := originalSourceIAMAuthority(ctx, authority)
-	if err != nil {
-		return err
-	}
-	expected, err := originalSourceIAMScope(record, index)
-	if err != nil {
-		return err
-	}
-	iam, err := authority.factory.Identity()
-	if err != nil {
-		return err
-	}
-	entry := record.OriginalFoundationCompartments.Regions[index].SourceIAM
-	if entry == nil {
-		if err := originalSourceIAMAbsent(ctx, authority, iam, expected); err != nil {
-			return err
-		}
-		initial := expected
-		entry = &initial
-		record.OriginalFoundationCompartments.Regions[index].SourceIAM = entry
-	} else if !sameOriginalSourceValue(entry.scopeOnly(), expected) {
-		return ErrOriginalSourceProducerHold
-	}
-	if entry.HoldReason != "" {
-		return ErrOriginalSourceProducerHold
-	}
-	if entry.Provenance == nil {
-		digest, err := originalSourceIAMRequestSHA(entry.Request)
-		if err != nil {
-			return err
-		}
-		if entry.Pending == nil {
-			if err := originalSourceIAMAbsent(ctx, authority, iam, *entry); err != nil {
-				return err
-			}
-			entry.Pending = &PendingFoundationCreate{OperationID: entry.OperationID, IntentDigest: entry.IntentSHA256, FirstAttemptAt: time.Now().UTC(), Request: originalSourceIAMCreateIdentity(*entry, digest)}
-			if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-				return err
-			}
-		}
-		pending := *entry.Pending
-		if !time.Now().Before(pending.FirstAttemptAt.Add(bootstrapRetryLifetime)) {
-			entry.HoldReason = "retry-expired"
-			return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-		}
-		guard := func(sendCtx context.Context) error {
-			checkCtx := ociclient.CheckpointContext(sendCtx)
-			saved, currentETag, err := originalSourceIAMAuthority(checkCtx, authority)
-			if err != nil {
-				return err
-			}
-			current := saved.OriginalFoundationCompartments.Regions[index].SourceIAM
-			if currentETag != etag || current == nil || !sameOriginalSourceValue(current.scopeOnly(), expected) || !sameOriginalSourceValue(current.Pending, pending) || current.Provenance != nil || current.HoldReason != "" {
-				return ErrOriginalSourceProducerHold
-			}
-			if err := originalSourceIAMAbsent(checkCtx, authority, iam, *current); err != nil {
-				return err
-			}
-			if err := authority.Guard(checkCtx, 0); err != nil {
-				return err
-			}
-			lease, ok := checkCtx.Value(homeIAMLeaseKey{}).(*homeIAMLease)
-			if !ok || lease == nil || lease.authority != authority {
-				return ErrOriginalSourceProducerHold
-			}
-			lease.mu.Lock()
-			leaseExpiry := lease.record.ExpiresAt
-			lease.mu.Unlock()
-			for _, deadline := range []time.Time{authority.operator.deadline, pending.FirstAttemptAt.Add(bootstrapRetryLifetime), leaseExpiry} {
-				if err := ociclient.LimitAdmission(sendCtx, deadline); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-		if err := guard(ctx); err != nil {
-			return err
-		}
-		// HomeWrite is advisory; provider-side remote revocation is not atomic.
-		noRetry := common.NoRetryPolicy()
-		response, err := iam.CreatePolicy(ociclient.RequestContext(ociclient.WithAuthority(ctx, guard)), identity.CreatePolicyRequest{CreatePolicyDetails: entry.Request, OpcRetryToken: new(pending.Request.RetryToken), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
-		if err != nil {
-			if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() >= 400 && service.GetHTTPStatusCode() < 500 && service.GetHTTPStatusCode() != 408 && service.GetHTTPStatusCode() != 429 {
-				entry.HoldReason = "create-refused"
-				return errors.Join(err, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-			}
-			return err
-		}
-		id := deref(response.Id)
-		if !validAuxiliaryID("controller_usage_policy", id, "") {
-			entry.HoldReason = "create-unresolved"
-			return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-		}
-		entry.Provenance = &FoundationResourceProvenance{Create: pending, ResourceID: id, Generation: entry.Generation, GrantSHA256: entry.GrantSHA256}
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	response, err := iam.GetPolicy(ociclient.RequestContext(ctx), identity.GetPolicyRequest{PolicyId: new(entry.Provenance.ResourceID)})
-	if err != nil {
-		return err
-	}
-	if deref(response.Id) != entry.Provenance.ResourceID || deref(response.CompartmentId) != deref(entry.Request.CompartmentId) || deref(response.Name) != deref(entry.Request.Name) || deref(response.Description) != deref(entry.Request.Description) || response.LifecycleState != identity.PolicyLifecycleStateActive || !slices.Equal(response.Statements, entry.Request.Statements) || !sameOriginalSourceValue(response.VersionDate, entry.Request.VersionDate) || !sameOriginalSourceValue(response.FreeformTags, entry.Request.FreeformTags) || !sameOriginalSourceValue(response.DefinedTags, entry.Request.DefinedTags) {
-		return ErrOriginalSourceProducerHold
-	}
-	readback, err := originalSourceIAMReadback(*entry)
-	if err != nil || entry.ReadbackSHA256 != "" && entry.ReadbackSHA256 != readback {
-		return errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	if entry.VerifiedAt.IsZero() {
-		entry.ReadbackSHA256, entry.VerifiedAt = readback, time.Now().UTC()
-		return checkpointOriginalCompartments(ctx, authority, &record, &etag)
-	}
-	return nil
 }
 
 func originalSourceIAMReadback(entry OriginalFoundationSourceIAM) (string, error) {

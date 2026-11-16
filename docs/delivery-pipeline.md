@@ -213,19 +213,8 @@ App image workflows in the public
 [`app-digests.yml`](../.github/workflows/app-digests.yml) records the mesh's
 desired image digests on the `app-digests` branch.
 
-## Signed bundle boundary
+## Release hints
 
-An independently prepared signed bundle remains a supported deployment input:
-
-```sh
-ts-orch release apply --dir BUNDLE --root-key TRUSTED_ROOT --namespace NS
-```
-
-`BUNDLE/GRU/channel.json` and other region documents carry root-delegated
-release proofs; `BUNDLE/binaries/<sha256>` supplies the exact bytes.
-Application verifies trust, scope, digests and channel ordering, then publishes
-to existing OCI channels. Region consumers verify locally and poll for updates.
-Application needs no GitHub repository, `gh`, Git checkout or signing secret.
 A webhook can hint that data exists; it cannot authorize a release. The
 pull-based self-update follows the same rule: its nudge only wakes the
 updater, and the Sigstore attestation authorizes the binary.
@@ -244,8 +233,6 @@ Standalone `TerraScale/terrabase`, `TerraScale/ts-auth`, `TerraScale/ts-libs`
 and `TerraScale/ts-builder` have no GitHub copies. Fresh qualification for the
 legacy image/E2E adapters still requires reviewed source, pinned commits and
 release assets; monorepo outputs cannot silently replace their signed contracts.
-The retained `ts-orch image promote` and image-input tools are explicit legacy
-operator paths, not evidence of automatic image publication or serving readiness.
 
 `scripts/ci/pin-terrabase.sh` can open a data-only GitHub PR for an existing
 qualified standalone release. It uses `gh`, the GitHub Actions commit identity

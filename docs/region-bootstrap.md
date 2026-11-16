@@ -252,7 +252,7 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
 ## Second region
 
 SJC (`sjc-1`, `us-sanjose-1`, TS-640) is founded with the same tools as GRU.
-The next region runs them all with one command, `ts-orch region create`
+The next region gets its host with `ts-orch region add`
 ([new region](new-region.md)). What differs from GRU:
 
 - **Plan.** `deploy/oci-region/sjc-1-plan.json`: three colocated nodes
@@ -1284,10 +1284,9 @@ drift until the plans carry them.
    ```
 
    Do not launch controller A until the exact signed reservation is published.
-9. Start only controller A with the rendered launch input. Promote the image
-   with `ts-orch image promote` first, or use the bootstrap attempt image phase.
-   Both verify independent qualification for the exact final disk before import
-   and apply the UEFI firmware, paravirtualized-device and A1-only shape contract that an ARM
+9. Start only controller A with the rendered launch input. The bootstrap
+   attempt image phase verifies independent qualification for the exact final disk before import
+   and applies the UEFI firmware, paravirtualized-device and A1-only shape contract that an ARM
    instance needs to boot. An imported image without that capability schema
    launches with BIOS firmware and never boots.
 

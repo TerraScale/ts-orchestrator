@@ -487,21 +487,3 @@ func (actor *SourceFounder) authorizeHomeLink(ctx context.Context, key string) e
 	}
 	return actor.authorize(ctx, key, "ts-bootstrap-source-link-"+scope[:32], verify)
 }
-
-func cloneSourcePolicies(source map[string]SourcePolicyRecord) map[string]SourcePolicyRecord {
-	result := maps.Clone(source)
-	for key, value := range result {
-		value.Request.Statements = slices.Clone(value.Request.Statements)
-		if value.Request.CompartmentId != nil {
-			value.Request.CompartmentId = new(*value.Request.CompartmentId)
-		}
-		if value.Request.Name != nil {
-			value.Request.Name = new(*value.Request.Name)
-		}
-		if value.Request.Description != nil {
-			value.Request.Description = new(*value.Request.Description)
-		}
-		result[key] = value
-	}
-	return result
-}

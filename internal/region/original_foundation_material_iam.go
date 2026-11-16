@@ -1,8 +1,6 @@
 package region
 
 import (
-	"bytes"
-	"context"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -15,10 +13,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
-	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 )
 
@@ -385,74 +381,6 @@ func originalMaterialIAMPolicy(scope OriginalFoundationMaterialIAM) (identity.Cr
 	return identity.CreatePolicyDetails{CompartmentId: new(scope.Target.CompartmentOCID), Name: new("ts-original-material-iam-" + scope.IdentitySHA256[:32]), Description: new("Prospectively authorized finite original material publication"), Statements: statements, FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}, nil
 }
 
-func originalMaterialIAMPrerequisites(ctx context.Context, authority *HomeIAMAuthority) (FoundationRecord, string, [3]OriginalFoundationMaterialIAM, time.Time, error) {
-	var scopes [3]OriginalFoundationMaterialIAM
-	if ctx == nil || authority == nil || authority.operator == nil {
-		return FoundationRecord{}, "", scopes, time.Time{}, ErrOriginalSourceProducerHold
-	}
-	lease, ok := ctx.Value(homeIAMLeaseKey{}).(*homeIAMLease)
-	if !ok || lease == nil || lease.authority != authority || authority.Guard(ctx, 0) != nil {
-		return FoundationRecord{}, "", scopes, time.Time{}, ErrOriginalSourceProducerHold
-	}
-	record, etag, publication, deadline, err := originalPublicationAuthority(ctx, authority)
-	if err != nil || completeOriginalMaterialIAMPrerequisites(record) != nil || !sameOriginalSourceValue(record.OriginalFoundationCompartments.Publication.scopeOnly(), publication) {
-		return record, etag, scopes, deadline, errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	for index, wire := range [2][]byte{authority.operator.bundle.RootChainWire, authority.operator.bundle.GrantWire} {
-		readback, err := originalPublicationReadback(ctx, authority, publication.Intent.Objects[index], wire)
-		saved := (*record.OriginalFoundationCompartments.Publication.Readbacks)[index]
-		if err != nil || readback.ETag != saved.ETag || readback.ContentSHA256 != saved.ContentSHA256 {
-			return record, etag, scopes, deadline, errors.Join(ErrOriginalSourceProducerHold, err)
-		}
-	}
-	reader, ok := authority.resolver.Footprint.(*SignedFootprint)
-	if !ok {
-		return record, etag, scopes, deadline, ErrOriginalSourceProducerHold
-	}
-	grant, _, err := reader.verifyOriginalDocument(authority.operator.bundle.GrantWire)
-	if err != nil || grant.OriginalMaterialPublicationIAM == nil || validateOriginalMaterialIAMIntents(grant, authority.domain) != nil {
-		return record, etag, scopes, deadline, errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	for index := range scopes {
-		scopes[index], err = originalMaterialIAMScope(record, index, (*grant.OriginalMaterialPublicationIAM)[index])
-		if err != nil {
-			return record, etag, scopes, deadline, err
-		}
-	}
-	if err := authority.Guard(ctx, 0); err != nil {
-		return record, etag, scopes, deadline, err
-	}
-	return record, etag, scopes, deadline, nil
-}
-
-func provisionOriginalFoundationMaterialIAM(ctx context.Context, authority *HomeIAMAuthority) error {
-	record, etag, expected, _, err := originalMaterialIAMPrerequisites(ctx, authority)
-	if err != nil {
-		return err
-	}
-	changed := false
-	for index := range expected {
-		entry := record.OriginalFoundationCompartments.Regions[index].MaterialPublicationIAM
-		if entry == nil {
-			record.OriginalFoundationCompartments.Regions[index].MaterialPublicationIAM = &expected[index]
-			changed = true
-		} else if !sameOriginalSourceValue(entry.scopeOnly(), expected[index]) {
-			return ErrOriginalSourceProducerHold
-		}
-	}
-	if changed {
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	for index := range expected {
-		if err := provisionOriginalMaterialIAM(ctx, authority, index); err != nil {
-			return err
-		}
-	}
-	return ErrOriginalFoundationMaterialIAMPending
-}
-
 func (entry OriginalFoundationMaterialIAM) scopeOnly() OriginalFoundationMaterialIAM {
 	entry.Pending, entry.Provenance = nil, nil
 	entry.PolicyETag, entry.ReadbackSHA256, entry.VerifiedAt, entry.HoldReason = "", "", time.Time{}, ""
@@ -493,123 +421,6 @@ func originalMaterialPeerGroupReadback(group OriginalFoundationMaterialPeerGroup
 	return digestSource(wire), err
 }
 
-func verifyOriginalMaterialPeerGroup(ctx context.Context, iam identity.IdentityClient, group OriginalFoundationMaterialPeerGroup) (string, error) {
-	if group.Provenance == nil {
-		return "", ErrOriginalSourceProducerHold
-	}
-	noRetry := common.NoRetryPolicy()
-	response, err := iam.GetDynamicGroup(ociclient.RequestContext(ctx), identity.GetDynamicGroupRequest{DynamicGroupId: new(group.Provenance.ResourceID), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
-	if err != nil {
-		return "", err
-	}
-	if deref(response.Id) != group.Provenance.ResourceID || deref(response.CompartmentId) != deref(group.Request.CompartmentId) || deref(response.Name) != deref(group.Request.Name) || deref(response.Description) != deref(group.Request.Description) || deref(response.MatchingRule) != deref(group.Request.MatchingRule) || response.LifecycleState != identity.DynamicGroupLifecycleStateActive || !sameOriginalSourceValue(response.FreeformTags, group.Request.FreeformTags) || !sameOriginalSourceValue(response.DefinedTags, group.Request.DefinedTags) || !originalPublicationETag(deref(response.Etag)) || group.ETag != "" && group.ETag != deref(response.Etag) {
-		return "", ErrOriginalSourceProducerHold
-	}
-	return deref(response.Etag), nil
-}
-
-func provisionOriginalMaterialPeerGroup(ctx context.Context, authority *HomeIAMAuthority, index int) error {
-	record, etag, scopes, _, err := originalMaterialIAMPrerequisites(ctx, authority)
-	if err != nil {
-		return err
-	}
-	regional := record.OriginalFoundationCompartments.Regions[index]
-	entry := regional.MaterialPublicationIAM
-	if entry == nil || entry.HoldReason != "" || !sameOriginalSourceValue(entry.scopeOnly(), scopes[index]) {
-		return ErrOriginalSourceProducerHold
-	}
-	if entry.Recipe.Purpose != originalMaterialIAMPurposeV3 && entry.Recipe.Purpose != originalMaterialIAMPurposeV4 {
-		return nil
-	}
-	group := entry.PeerDynamicGroup
-	if group == nil || group.HoldReason != "" {
-		return ErrOriginalSourceProducerHold
-	}
-	request, err := originalMaterialPeerGroupIdentity(regional, *group)
-	if err != nil {
-		return err
-	}
-	if group.Pending == nil {
-		group.Pending = &PendingFoundationCreate{OperationID: regional.OperationID, IntentDigest: regional.IntentSHA256, FirstAttemptAt: time.Now().UTC(), Request: request}
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	if group.Provenance == nil && !time.Now().Before(group.Pending.FirstAttemptAt.Add(bootstrapRetryLifetime)) {
-		group.HoldReason = "retry-expired"
-		return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-	}
-	guard := func(dispatchCtx context.Context) error {
-		current, _, expected, deadline, err := originalMaterialIAMPrerequisites(originalProviderCheckpointContext(dispatchCtx, ctx), authority)
-		if err != nil {
-			return err
-		}
-		saved := current.OriginalFoundationCompartments.Regions[index].MaterialPublicationIAM
-		if saved == nil || saved.HoldReason != "" || !sameOriginalSourceValue(saved, entry) || !sameOriginalSourceValue(saved.scopeOnly(), expected[index]) || saved.PeerDynamicGroup == nil || saved.PeerDynamicGroup.Pending == nil || saved.PeerDynamicGroup.Pending.Request != request {
-			return ErrOriginalSourceProducerHold
-		}
-		if saved.PeerDynamicGroup.Provenance == nil {
-			deadline = originalActorDeadline(deadline, saved.PeerDynamicGroup.Pending.FirstAttemptAt.Add(bootstrapRetryLifetime))
-		}
-		return ociclient.LimitAdmission(dispatchCtx, deadline)
-	}
-	if err := guard(ctx); err != nil {
-		return err
-	}
-	iam, err := authority.factory.Identity()
-	if err != nil {
-		return err
-	}
-	noRetry := common.NoRetryPolicy()
-	groupCtx := ociclient.WithRequestGuard(ociclient.WithAuthority(ctx, guard), guard)
-	if group.Provenance == nil {
-		createCtx := ociclient.WithAdmission(groupCtx, func(dispatchCtx context.Context) (func(), error) {
-			if err := guard(dispatchCtx); err != nil {
-				return nil, err
-			}
-			return func() {}, nil
-		})
-		response, err := iam.CreateDynamicGroup(ociclient.RequestContext(createCtx), identity.CreateDynamicGroupRequest{CreateDynamicGroupDetails: group.Request, OpcRetryToken: new(group.Pending.Request.RetryToken), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
-		if err != nil {
-			if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() >= 400 && service.GetHTTPStatusCode() < 500 && service.GetHTTPStatusCode() != 408 && service.GetHTTPStatusCode() != 429 {
-				group.HoldReason = "create-refused"
-				return errors.Join(err, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-			}
-			return err
-		}
-		id := deref(response.Id)
-		if !originalMaterialPeerGroupID.MatchString(id) || len(id) > 255 || originalMaterialPeerGroupDuplicate(record, index, id) {
-			group.HoldReason = "create-unresolved"
-			return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-		}
-		group.Provenance = &FoundationResourceProvenance{Create: *group.Pending, ResourceID: id, Generation: regional.Generation, GrantSHA256: entry.GrantSHA256}
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	if err := guard(ctx); err != nil {
-		return err
-	}
-	groupETag, err := verifyOriginalMaterialPeerGroup(groupCtx, iam, *group)
-	if err != nil {
-		return err
-	}
-	observed := *group
-	observed.ETag = groupETag
-	readback, err := originalMaterialPeerGroupReadback(observed)
-	if err != nil || group.ReadbackSHA256 != "" && group.ReadbackSHA256 != readback {
-		return errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	if err := guard(ctx); err != nil {
-		return err
-	}
-	if group.VerifiedAt.IsZero() {
-		group.ETag, group.ReadbackSHA256, group.VerifiedAt = groupETag, readback, time.Now().UTC()
-		return checkpointOriginalCompartments(ctx, authority, &record, &etag)
-	}
-	return nil
-}
-
 func originalMaterialIAMDuplicate(record FoundationRecord, index int, id string) bool {
 	for other, regional := range record.OriginalFoundationCompartments.Regions {
 		if regional.SourceIAM != nil && regional.SourceIAM.Provenance != nil && regional.SourceIAM.Provenance.ResourceID == id ||
@@ -632,123 +443,6 @@ func originalMaterialIAMReadback(entry OriginalFoundationMaterialIAM) (string, e
 	}
 	wire, err := json.Marshal([]string{entry.Provenance.ResourceID, digestSource(body), entry.PolicyETag, "ACTIVE"}, json.Deterministic(true))
 	return digestSource(wire), err
-}
-func provisionOriginalMaterialIAM(ctx context.Context, authority *HomeIAMAuthority, index int) error {
-	if err := provisionOriginalMaterialPeerGroup(ctx, authority, index); err != nil {
-		return err
-	}
-	record, etag, scopes, _, err := originalMaterialIAMPrerequisites(ctx, authority)
-	if err != nil {
-		return err
-	}
-	regional := record.OriginalFoundationCompartments.Regions[index]
-	entry := regional.MaterialPublicationIAM
-	if entry == nil || entry.HoldReason != "" || !sameOriginalSourceValue(entry.scopeOnly(), scopes[index]) {
-		return ErrOriginalSourceProducerHold
-	}
-	body, err := foundationWriterPolicyBody(entry.Request)
-	if err != nil {
-		return err
-	}
-	digest := digestSource(body)
-	if entry.Pending == nil {
-		entry.Pending = &PendingFoundationCreate{OperationID: regional.OperationID, IntentDigest: regional.IntentSHA256,
-			FirstAttemptAt: time.Now().UTC(), Request: originalMaterialIAMCreateIdentity(regional, digest)}
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	if entry.Provenance == nil && !time.Now().Before(entry.Pending.FirstAttemptAt.Add(bootstrapRetryLifetime)) {
-		entry.HoldReason = "retry-expired"
-		return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-	}
-	guard := func(dispatchCtx context.Context) error {
-		saved, _, currentScopes, deadline, err := originalMaterialIAMPrerequisites(originalProviderCheckpointContext(dispatchCtx, ctx), authority)
-		if err != nil {
-			return err
-		}
-		current := saved.OriginalFoundationCompartments.Regions[index].MaterialPublicationIAM
-		if current == nil || current.HoldReason != "" || !sameOriginalSourceValue(current, entry) || !sameOriginalSourceValue(current.scopeOnly(), currentScopes[index]) ||
-			current.Pending == nil || current.Pending.Request != originalMaterialIAMCreateIdentity(regional, digest) {
-			return ErrOriginalSourceProducerHold
-		}
-		actual, err := foundationWriterPolicyBody(current.Request)
-		if err != nil || !bytes.Equal(actual, body) {
-			return errors.Join(ErrOriginalSourceProducerHold, err)
-		}
-		if current.Provenance == nil {
-			deadline = originalActorDeadline(deadline, current.Pending.FirstAttemptAt.Add(bootstrapRetryLifetime))
-		}
-		return ociclient.LimitAdmission(dispatchCtx, deadline)
-	}
-	if err := guard(ctx); err != nil {
-		return err
-	}
-	iam, err := authority.factory.Identity()
-	if err != nil {
-		return err
-	}
-	noRetry := common.NoRetryPolicy()
-	policyCtx := ociclient.WithRequestGuard(ociclient.WithAuthority(ctx, guard), guard)
-	if entry.Provenance == nil {
-		// HomeWrite remains advisory; provider revocation is not atomic with dispatch.
-		createCtx := ociclient.WithAdmission(policyCtx, func(dispatchCtx context.Context) (func(), error) {
-			if err := guard(dispatchCtx); err != nil {
-				return nil, err
-			}
-			return func() {}, nil
-		})
-		response, err := iam.CreatePolicy(ociclient.RequestContext(createCtx), identity.CreatePolicyRequest{CreatePolicyDetails: entry.Request,
-			OpcRetryToken: new(entry.Pending.Request.RetryToken), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
-		if err != nil {
-			if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() >= 400 && service.GetHTTPStatusCode() < 500 && service.GetHTTPStatusCode() != 408 && service.GetHTTPStatusCode() != 429 {
-				entry.HoldReason = "create-refused"
-				return errors.Join(err, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-			}
-			return err
-		}
-		id := deref(response.Id)
-		if !validAuxiliaryID("controller_usage_policy", id, "") || originalMaterialIAMDuplicate(record, index, id) {
-			entry.HoldReason = "create-unresolved"
-			return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-		}
-		entry.Provenance = &FoundationResourceProvenance{Create: *entry.Pending, ResourceID: id, Generation: regional.Generation, GrantSHA256: entry.GrantSHA256}
-		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
-			return err
-		}
-	}
-	if err := guard(ctx); err != nil {
-		return err
-	}
-	response, err := iam.GetPolicy(ociclient.RequestContext(policyCtx), identity.GetPolicyRequest{PolicyId: new(entry.Provenance.ResourceID), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
-	if err != nil {
-		return err
-	}
-	if deref(response.Id) != entry.Provenance.ResourceID || deref(response.CompartmentId) != deref(entry.Request.CompartmentId) ||
-		deref(response.Name) != deref(entry.Request.Name) || deref(response.Description) != deref(entry.Request.Description) ||
-		response.LifecycleState != identity.PolicyLifecycleStateActive || !slices.Equal(response.Statements, entry.Request.Statements) ||
-		!sameOriginalSourceValue(response.VersionDate, entry.Request.VersionDate) || !sameOriginalSourceValue(response.FreeformTags, entry.Request.FreeformTags) || !sameOriginalSourceValue(response.DefinedTags, entry.Request.DefinedTags) {
-		entry.HoldReason = "readback-conflict"
-		return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
-	}
-	policyETag := deref(response.Etag)
-	if !originalPublicationETag(policyETag) || entry.PolicyETag != "" && entry.PolicyETag != policyETag {
-		return ErrOriginalSourceProducerHold
-	}
-	observed := *entry
-	observed.PolicyETag = policyETag
-	readback, err := originalMaterialIAMReadback(observed)
-	if err != nil || entry.ReadbackSHA256 != "" && entry.ReadbackSHA256 != readback {
-		return errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	if err := guard(ctx); err != nil {
-		return err
-	}
-	if entry.VerifiedAt.IsZero() {
-		entry.PolicyETag, entry.ReadbackSHA256, entry.VerifiedAt = policyETag, readback, time.Now().UTC()
-		return checkpointOriginalCompartments(ctx, authority, &record, &etag)
-	}
-	return nil
 }
 
 func (record FoundationRecord) validateOriginalFoundationMaterialIAM() error {

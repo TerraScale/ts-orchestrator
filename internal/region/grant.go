@@ -358,13 +358,6 @@ type SignedFootprint struct {
 	memo *foundationVerificationMemo
 }
 
-func NewSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, tenancy string) (*SignedFootprint, error) {
-	if client == nil {
-		return nil, errors.New("foundation scope requires an authenticated object client")
-	}
-	return newSignedFootprint(client, anchor, roots, tenancy)
-}
-
 func newSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, tenancy string) (*SignedFootprint, error) {
 	if !anchor.IsVerified() || len(roots) == 0 {
 		return nil, errors.New("foundation scope requires verified bootstrap identity and roots")

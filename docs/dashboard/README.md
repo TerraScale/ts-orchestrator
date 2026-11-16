@@ -152,7 +152,7 @@ contract requires an explicit COS decision.
 The Capacity page (`/capacity`, Infrastructure) shows the monthly OCI budget,
 the capacity document with each region's nodes, wanted nodes, allowance and
 pressure, this region's node scaling status and the current region
-suggestion (information only: regions change only on `ts-orch region create|remove`). The budget is set there from the home region's dashboard: the form
+suggestion (information only: regions change only on `ts-orch region add|rm`). The budget is set there from the home region's dashboard: the form
 posts to `/capacity/budget`, and the home's global leader writes it to
 `TS_GLOBAL_CONTROL`. Other regions show the budget read-only and the suggestion
 note that it runs in the home region.
