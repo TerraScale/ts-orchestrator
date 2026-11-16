@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -548,7 +549,7 @@ func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims
 		return &integrityError{errors.New("downloaded binary sha256 differs")}
 	}
 	defer os.Remove(next)
-	if err := writeSynced(next, data); err != nil {
+	if err := writeFresh(next, data); err != nil {
 		return err
 	}
 	if err := preflight(ctx, next); err != nil {
@@ -649,8 +650,11 @@ func (p progress) Read(b []byte) (int, error) {
 	return n, err
 }
 
-func writeSynced(path string, data []byte) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+func writeFresh(path string, data []byte) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o755)
 	if err != nil {
 		return err
 	}
