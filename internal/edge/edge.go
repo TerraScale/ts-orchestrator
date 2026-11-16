@@ -56,8 +56,6 @@ type Edge struct {
 	edgeTransports   sync.Map
 	edgeNext         sync.Map
 	peerDown         sync.Map
-	peerSeen         sync.Map
-	peerLiveness     atomic.Int64
 	follower         atomic.Bool
 	inventoryMissing atomic.Bool
 	proxy            *httputil.ReverseProxy

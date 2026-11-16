@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
@@ -29,6 +30,10 @@ func stopNode(node *Node) {
 	}
 }
 
+var fleetMuted atomic.Bool
+
+func FleetMuteAnnouncements(muted bool) { fleetMuted.Store(muted) }
+
 func FleetHostNode(root, region, name, address, peer string, seed []byte) (*Node, error) {
 	ca, err := DeriveCA(seed)
 	if err != nil {
@@ -36,7 +41,12 @@ func FleetHostNode(root, region, name, address, peer string, seed []byte) (*Node
 	}
 	cfg := config{region: region, server: name, founder: true, dir: filepath.Join(root, name), ca: ca,
 		terrabaseToken: strings.Repeat("t", 32), clusterHost: address, clusterPort: 6222, clusterAdvertise: address + ":6222", localPort: 4222,
-		peersEvery: 250 * time.Millisecond, peersDir: filepath.Join(root, name+"-peers"), address: func() (string, error) { return address, nil }}
+		peersEvery: 250 * time.Millisecond, peersDir: filepath.Join(root, name+"-peers"), address: func() (string, error) {
+			if fleetMuted.Load() {
+				return "", errors.New("fleet announcements muted")
+			}
+			return address, nil
+		}}
 	cfg.routes = []string{"nats://" + peer + ":6222"}
 	return start(cfg)
 }

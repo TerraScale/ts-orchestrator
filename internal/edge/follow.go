@@ -19,7 +19,6 @@ func (e *Edge) SetInventoryFollower() {
 }
 
 func (e *Edge) JoinMesh(node *mesh.Node) {
-	e.peerLiveness.Store(int64(3 * node.EdgeAdvertiseEvery()))
 	e.SetPeerEdges(node.EdgePeers(e.ReadyServices, e.peerAdvertised))
 	e.SetRegionalNodes(node.RegionalNodes)
 	e.SetMesh(node)

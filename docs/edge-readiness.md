@@ -42,10 +42,10 @@ answering and resending is safe, as in Go's own transport: none of its body was
 read yet, and either the connection was never made or the method is GET, HEAD,
 OPTIONS or TRACE. Any response from a peer, whatever its status or headers, is
 returned to the client. The failing peer is marked down and gets no requests
-until it next advertises ready services. A peer that stops answering is
-detected by its own liveness: an attempt is abandoned once the peer has not
-advertised for three advertisement intervals, the same window that keeps it
-listed as a peer (15 seconds in production). Ordinary HTTP shares a 30-second
+until it next advertises ready services. A peer that stops advertising leaves
+the peer list after three advertisement intervals (15 seconds in production)
+and gets no new requests, but a request already sent to it is bounded only as
+on main. Ordinary HTTP shares a 30-second
 response-header budget across the layer and its local fallback, starting when
 the first request finishes writing. Request uploads and response bodies are
 not subject to this timer. As on main, gRPC has no response-header deadline.
@@ -95,7 +95,13 @@ its routes and answers 503. A worker outside the mesh, or whose node list does
 not list the manager yet, has no inventory and answers 503.
 
 Each host decides its own ready services by probing every readiness route on
-loopback. No host needs the manager control socket for readiness. The regional
+loopback. A worker's edge readiness and release health count a route as
+servable when the worker would send its requests to a ready peer, using the
+same choice as request routing (credential held, a listed peer advertising the
+service ready, and the local service not preferable); every other route is
+probed on loopback exactly as on main, so a worker that can serve a route
+neither locally nor through a peer reports "backend unavailable". Health never
+contacts a peer. No host needs the manager control socket for readiness. The regional
 writer router on a worker discovers the region's nodes from the inventory, so
 ownership-bound traffic still reaches its owner from any host. The Postgres front
 proxies to the local TerraBase task that runs on every node.
@@ -129,13 +135,15 @@ restarted worker reach the writer.
 In the third region, with a ready peer, the unready manager forwards HTTP and
 a WebSocket to it. A DELETE answered by the peer is never sent again, even when
 the client or the backend sets a header the edge once used as a marker. With the
-peer stopped (SIGSTOP), a DELETE already sent on a connection is answered 502
-within the peer's liveness bound and is not resent, and a request on a held
-stop-first port waits for its replacement. A peer that accepts but never
+peer stopped (SIGSTOP), a DELETE already sent on a connection is answered
+main's 502 at 30 seconds and is not resent, and a request on a held stop-first
+port waits for its replacement. A 31-second gRPC call through a peer whose
+announcements stop mid-call completes as on main. A peer that accepts but never
 answers costs main's 502 at 30 seconds, not more. With no ready peer, a
 draining manager, a peer hop to it, an unheld backend that restarts while the
 request waits, a host without the peer credential, a host whose readiness probe
-hangs, and the NetBird dashboard all behave exactly as on main.
+hangs, and the NetBird dashboard all behave exactly as on main, and a worker
+without the credential, a ready peer or its local backend is not ready.
 
 The fleet runs in its own CI lane (`fleet.sh`); the regional lane keeps the
 SwarmKit, peer-file and metadata steps below.

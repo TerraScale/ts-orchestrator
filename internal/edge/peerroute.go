@@ -56,34 +56,8 @@ func (e *Edge) ReadyServices() []string {
 func (e *Edge) SetPeerEdges(peers func() []mesh.WorkerPeer) { e.peerEdges.Store(&peers) }
 
 func (e *Edge) peerAdvertised(peer mesh.WorkerPeer) {
-	e.peerSeen.Store(peer.Address, time.Now())
 	if len(peer.ReadyServices) != 0 {
 		e.peerDown.Delete(peer.Address)
-	}
-}
-
-func (e *Edge) peerAlive(address string) bool {
-	seen, ok := e.peerSeen.Load(address)
-	return ok && time.Since(seen.(time.Time)) <= time.Duration(e.peerLiveness.Load())
-}
-
-func (e *Edge) watchPeer(address string, done <-chan struct{}, cancel context.CancelFunc) {
-	liveness := time.Duration(e.peerLiveness.Load())
-	if liveness <= 0 {
-		return
-	}
-	tick := time.NewTicker(liveness / 4)
-	defer tick.Stop()
-	for {
-		select {
-		case <-done:
-			return
-		case <-tick.C:
-			if !e.peerAlive(address) {
-				cancel()
-				return
-			}
-		}
 	}
 }
 
@@ -112,23 +86,36 @@ func (e *Edge) authorizeEdgeHop(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (e *Edge) routePeerEdge(r *http.Request, balance bool) *http.Request {
-	port, _ := e.port(r.Host)
-	if port == 8080 || r.Context().Value(edgeHopKey{}) != nil {
+	if r.Context().Value(edgeHopKey{}) != nil {
 		return r
 	}
+	port, _ := e.port(r.Host)
 	host := r.Host
 	if name, _, err := net.SplitHostPort(host); err == nil {
 		host = name
 	}
-	routes := e.serviceRoutes.Load()
-	if routes == nil {
+	addresses := e.peerCandidates(host, port)
+	if len(addresses) == 0 {
 		return r
 	}
-	service := routes.hosts[strings.ToLower(host)]
+	if balance && len(addresses) > 1 {
+		routes := e.serviceRoutes.Load()
+		value, _ := e.edgeNext.LoadOrStore(routes.hosts[strings.ToLower(host)], new(atomic.Uint64))
+		start := int((value.(*atomic.Uint64).Add(1) - 1) % uint64(len(addresses)))
+		addresses = append(slices.Clone(addresses[start:]), addresses[:start]...)
+	}
+	return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{addresses: append(addresses, "")}))
+}
+
+func (e *Edge) peerCandidates(host string, port int) []string {
+	routes := e.serviceRoutes.Load()
 	peers := e.peerEdges.Load()
-	preferLocal := routes.ready[service] && !e.draining.Load() && !handoff.Held(uint16(port))
-	if service == "" || preferLocal || peers == nil || e.requestProofSecret.Load() == nil {
-		return r
+	if port == 8080 || routes == nil || peers == nil || e.requestProofSecret.Load() == nil {
+		return nil
+	}
+	service := routes.hosts[strings.ToLower(host)]
+	if service == "" || routes.ready[service] && !e.draining.Load() && !handoff.Held(uint16(port)) {
+		return nil
 	}
 	addresses := []string{}
 	for _, peer := range (*peers)() {
@@ -136,15 +123,7 @@ func (e *Edge) routePeerEdge(r *http.Request, balance bool) *http.Request {
 			addresses = append(addresses, peer.Address)
 		}
 	}
-	if len(addresses) == 0 {
-		return r
-	}
-	if balance && len(addresses) > 1 {
-		value, _ := e.edgeNext.LoadOrStore(service, new(atomic.Uint64))
-		start := int((value.(*atomic.Uint64).Add(1) - 1) % uint64(len(addresses)))
-		addresses = append(slices.Clone(addresses[start:]), addresses[:start]...)
-	}
-	return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{addresses: append(addresses, "")}))
+	return addresses
 }
 
 type edgeAttemptBody struct {
@@ -287,10 +266,7 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 		if hasBody {
 			out.Body = edgeAttemptBody{ReadCloser: r.Body, consumed: consumed}
 		}
-		done := make(chan struct{})
-		go e.watchPeer(address, done, cancel)
 		response, err := value.(*http.Transport).RoundTrip(out)
-		close(done)
 		if err == nil {
 			return answer(response, cancel)
 		}

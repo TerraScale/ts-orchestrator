@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -219,6 +218,9 @@ func (e *Edge) ready(ctx context.Context) ([]string, error) {
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	for _, route := range routes {
+		if e.follower.Load() && len(e.peerCandidates(route.Host, route.Port)) != 0 {
+			continue
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(route.Port))+route.Path, nil)
 		if err != nil {
 			return conditions, err
@@ -226,9 +228,6 @@ func (e *Edge) ready(ctx context.Context) ([]string, error) {
 		req.Host = route.Host
 		resp, err := client.Do(req)
 		if err != nil {
-			if e.follower.Load() && dialFailed(err) {
-				continue
-			}
 			conditions = append(conditions, "backend unavailable")
 			continue
 		}
@@ -240,9 +239,6 @@ func (e *Edge) ready(ctx context.Context) ([]string, error) {
 	for _, port := range postgres {
 		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
-			if e.follower.Load() && dialFailed(err) {
-				continue
-			}
 			conditions = append(conditions, "postgres backend unavailable")
 			continue
 		}
@@ -255,11 +251,6 @@ type readinessVerdict struct {
 	ok         bool
 	at         time.Time
 	conditions []string
-}
-
-func dialFailed(err error) bool {
-	var op *net.OpError
-	return errors.As(err, &op) && op.Op == "dial"
 }
 
 func (e *Edge) reconcileReadiness(ctx context.Context) {

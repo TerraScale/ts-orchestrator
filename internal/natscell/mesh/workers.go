@@ -255,8 +255,6 @@ func (a swarmApplier) Replicas(ctx context.Context, service string) (replicas ui
 	return replicas, err
 }
 
-func (n *Node) EdgeAdvertiseEvery() time.Duration { return n.cfg.peersEvery }
-
 func (n *Node) EdgePeers(ready func() []string, advertised func(WorkerPeer)) func() []WorkerPeer {
 	type observed struct {
 		peer WorkerPeer
