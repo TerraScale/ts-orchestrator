@@ -179,6 +179,8 @@ if [[ $mode == --check ]]; then
   exit
 fi
 
+snapshot=$(bash "$source_dir/snapshot.sh")
+echo "monitoring: before-state $snapshot"
 for account in ts-prometheus ts-alertmanager ts-alerts; do
   if ! id "$account" >/dev/null 2>&1; then
     useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$account"

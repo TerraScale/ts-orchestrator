@@ -44,6 +44,7 @@ const (
 
 type emailBudget struct {
 	withheld [2]atomic.Uint64
+	refused  atomic.Uint64
 	mu       sync.Mutex
 	shared   *sharedStore
 }
@@ -75,6 +76,7 @@ func (n notification) emailKey() string {
 }
 
 func (b *emailBudget) write(w io.Writer) {
+	fmt.Fprintf(w, "terrascale_alert_delivery_email_refused_total %d\n", b.refused.Load())
 	fmt.Fprintln(w, "# HELP terrascale_alert_delivery_email_withheld_total Alert emails withheld because the fleet-wide email budget was exhausted or unreachable; push still delivered.")
 	fmt.Fprintln(w, "# TYPE terrascale_alert_delivery_email_withheld_total counter")
 	fmt.Fprintf(w, "terrascale_alert_delivery_email_withheld_total{reason=\"budget_exhausted\"} %d\n", b.withheld[budgetExhausted].Load())

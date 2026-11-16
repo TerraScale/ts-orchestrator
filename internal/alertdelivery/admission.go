@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -51,7 +52,7 @@ func (r relay) admit(ctx context.Context, token string) (time.Time, error) {
 	data, err := io.ReadAll(io.LimitReader(response.Body, 4097))
 	now := time.Now()
 	if err != nil || len(data) > 4096 || response.StatusCode != http.StatusOK || json.Unmarshal(data, &grant) != nil || grant.Status != "admitted" || !grant.SendBy.After(now) || grant.SendBy.After(now.Add(10*time.Second)) {
-		return time.Time{}, errors.New("email admission denied or invalid")
+		return time.Time{}, fmt.Errorf("%w by admission", errEmailRefused)
 	}
 	return grant.SendBy, nil
 }
