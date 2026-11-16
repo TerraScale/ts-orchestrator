@@ -76,9 +76,13 @@ async function heartbeat(secret) {
 }
 
 async function publish(secret, title, priority, message) {
-  const text = await request(`https://ntfy.sh/${secret}`, { method: "POST", headers: { Title: title, Priority: priority }, body: message });
-  const result = JSON.parse(text);
-  if (!result.id || result.event !== "message" || result.topic !== secret || result.message !== message) throw new Error("push rejected");
+  try {
+    const text = await request(`https://ntfy.sh/${secret}`, { method: "POST", headers: { Title: title, Priority: priority }, body: message });
+    const result = JSON.parse(text);
+    if (!result.id || result.event !== "message" || result.topic !== secret || result.message !== message) throw new Error("push rejected");
+  } catch {
+    throw new Error("push delivery failed");
+  }
 }
 
 export class Probe extends DurableObject {
