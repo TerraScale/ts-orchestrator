@@ -6,6 +6,7 @@ begin "public edge abuse limits"
 install -d -m 0700 "$work/pg/edge-certs"
 leaf pg.e2e.test "DNS:pg.e2e.test"
 cat pg.e2e.test.key pg.e2e.test.pem >"$work/pg/edge-certs/pg.e2e.test"
+git -C "$repo" -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --no-tags --depth=1 origin refs/heads/main:refs/remotes/origin/main
 git -C "$repo" log -1 --format="main-overlay baseline: %H" origin/main
 python3 "$here/edge-overlay.py" "$repo" "$work/main-overlay"
 CGO_ENABLED=0 go -C "$repo" build -trimpath -overlay "$work/main-overlay/overlay.json" -o "$work/edge-main" ./test/e2e/m1/postgres-preauth
