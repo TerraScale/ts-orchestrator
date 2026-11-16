@@ -89,6 +89,7 @@ func (n network) serviceGateway() (*string, *string, error) {
 // routeTable converges the table with id, or the one named name, to rules.
 func (n network) routeTable(key string, id *string, name string, rules []core.RouteRule) (*string, error) {
 	ctx := n.ctx
+	manageRules := rules != nil
 	var rt *core.RouteTable
 	if id != nil {
 		g, err := n.net.GetRouteTable(ctx, core.GetRouteTableRequest{RtId: id})
@@ -110,7 +111,7 @@ func (n network) routeTable(key string, id *string, name string, rules []core.Ro
 		return created, n.step("create route table "+name, func() error {
 			t, _ := n.tags("route-table", key, nil)
 			c, err := n.net.CreateRouteTable(ctx, core.CreateRouteTableRequest{CreateRouteTableDetails: core.CreateRouteTableDetails{
-				CompartmentId: &n.compartment, VcnId: n.vcn, RouteRules: rules, DisplayName: &name, FreeformTags: t}})
+				CompartmentId: &n.compartment, VcnId: n.vcn, RouteRules: append([]core.RouteRule{}, rules...), DisplayName: &name, FreeformTags: t}})
 			created = c.Id
 			return errors.Join(err, n.await(func() (string, error) {
 				g, err := n.net.GetRouteTable(ctx, core.GetRouteTableRequest{RtId: c.Id})
@@ -119,7 +120,7 @@ func (n network) routeTable(key string, id *string, name string, rules []core.Ro
 		})
 	}
 	t, err := n.tags("route-table", key, rt.FreeformTags)
-	if err != nil || t == nil && sameRoutes(rt.RouteRules, rules) {
+	if err != nil || t == nil && (!manageRules || sameRoutes(rt.RouteRules, rules)) {
 		return rt.Id, err
 	}
 	return rt.Id, n.step("converge route table "+deref(rt.DisplayName), func() error {

@@ -178,7 +178,7 @@ document-made. It owns three network kinds:
 |---|---|---|
 | NAT gateway | `nat-gateway/nat` | `<cell>-nat` in the VCN, not blocking traffic; created when missing |
 | Route table | `route-table/private-routes` | `<cell>-private-routes`, attached to the private subnet only, with exactly `0.0.0.0/0` to the NAT gateway and the region's Oracle services to the service gateway |
-| NSG | `nsg/node-nsg` | `<cell>-node-nsg` with exactly these rules: TCP 80, 443 and 5432 from the public subnet (the load balancer); TCP 4222 (NATS client), 6222 (NATS cluster), 7422 (NATS leafnode) and UDP 51820 (NetBird WireGuard) from the VCN; all egress |
+| NSG | `nsg/node-nsg` | `<cell>-node-nsg` with exactly these rules: TCP 80, 443 and 5432 from anywhere, since the network load balancer preserves the client source address; TCP 4222 (NATS client), 6222 (NATS cluster), 7422 (NATS leafnode) and UDP 51820 (NetBird WireGuard) from the VCN; all egress |
 
 The pass refuses to change a route table that is the VCN's default or that
 any other subnet uses, so the public subnet's routes are never touched. The

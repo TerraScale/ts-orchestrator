@@ -145,9 +145,10 @@ private route table (`created route table` in its output), detach it from the
 private subnet with `oci network subnet update --route-table-id` to the table
 it used before, then `oci network route-table delete --rt-id <id> --force`.
 
-`ts-orch oci-region network` also writes `<cell>-private-routes`, with only the
-services rule. Running it removes the NAT route until the next
-`region apply <label> network`.
+`ts-orch oci-region network` and `ts-orch region add` create
+`<cell>-private-routes` empty when it is missing and attach it to the private
+subnet, but never change its rules; `region apply <label> network` alone
+writes them.
 
 ## Reconciler IAM policy
 

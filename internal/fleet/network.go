@@ -397,8 +397,8 @@ func (n *network) nodeNSG(ctx context.Context, groups []found) error {
 	}
 	var rules []nsg.Rule
 	for _, port := range edgePorts {
-		rules = append(rules, nsg.Rule{Direction: nsg.DirectionIngress, Protocol: nsg.ProtocolTCP, Peer: n.region.PublicSubnetCIDR,
-			PortMin: port, PortMax: port, Description: fmt.Sprintf("load balancer tcp %d", port)})
+		rules = append(rules, nsg.Rule{Direction: nsg.DirectionIngress, Protocol: nsg.ProtocolTCP, Peer: "0.0.0.0/0",
+			PortMin: port, PortMax: port, Description: fmt.Sprintf("client tcp %d through the load balancer", port)})
 	}
 	for _, rule := range meshPorts {
 		rule.Direction, rule.Peer = nsg.DirectionIngress, n.region.VCNCIDR

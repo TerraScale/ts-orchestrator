@@ -20,7 +20,8 @@ import (
 const usage = `Usage: ts-orch oci-region network CELL [--apply]
 
 Converges CELL's static-host network: VCN, internet and service gateways,
-public and private route tables and subnets, empty subnet security lists and
+public and private route tables and subnets (the private table's rules
+belong to ts-orch region apply network), empty subnet security lists and
 the role NSGs on the host's VNIC. Same-named resources are adopted and
 tagged; missing ones are created. Without --apply it only prints the drift.
 `
@@ -226,8 +227,7 @@ func (r *reconciler) reconcile() error {
 	if err != nil {
 		return err
 	}
-	sgw, services, err := n.serviceGateway()
-	if err != nil {
+	if _, _, err := n.serviceGateway(); err != nil {
 		return err
 	}
 	publicRoutes, err := n.routeTable("public-routes", vcn.DefaultRouteTableId, "", []core.RouteRule{{Destination: new("0.0.0.0/0"),
@@ -235,8 +235,7 @@ func (r *reconciler) reconcile() error {
 	if err != nil {
 		return err
 	}
-	privateRoutes, err := n.routeTable("private-routes", nil, s.cell+"-private-routes", []core.RouteRule{{Destination: services,
-		DestinationType: core.RouteRuleDestinationTypeServiceCidrBlock, NetworkEntityId: sgw}})
+	privateRoutes, err := n.routeTable("private-routes", nil, s.cell+"-private-routes", nil)
 	if err != nil {
 		return err
 	}
