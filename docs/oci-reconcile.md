@@ -227,6 +227,51 @@ it used before, then `oci network route-table delete --rt-id <id> --force`.
 subnet, but never change its rules; `region apply <label> network` alone
 writes them.
 
+## Reconcile loop
+
+`ts-orch node` runs one loop per region (`fleet.Reconciler`, run by
+`ociresource.Runner`). Every minute, on the region's SwarmKit Raft leader only,
+it starts each kind listed in the region's `reconcile` field of
+`deploy/fleet/fleet.json` (production: `network` and `nlb`, and the global
+`dns` pass on gru, the DNS region; the document rejects `dns` anywhere else). The kinds run side
+by side; a kind whose pass from an earlier tick is still running is not
+started again. The CLI's `region apply <label> <kind>...` is unchanged and runs
+any registered kind once.
+
+- **Fence.** Each tick reads the leader's Raft term and checks through the
+  SwarmKit control API that this node leads it. Every OCI write request of the
+  pass first checks that the term and leader are still the ones it started
+  with (`ociclient.WithAuthority`); after a leadership change the deposed
+  leader's pass gets `OCI resource mutation authority was fenced` on its next
+  write and the new leader runs the kind from its next tick.
+- **Change limit.** A kind may send at most 16 OCI write requests in one tick
+  (`ociresource.MaxChangesPerTick`). Building a kind's part of a region from
+  nothing is the most it ever legitimately does: about 8 writes for `network`,
+  at most 8 for `nlb`, about 15 for `dns` at 3 regions (zone, monitor, five
+  steering policies and attachments, one A record per region) and 15 for
+  `compute` at the document's cap of 3 nodes (configuration, pool, and per
+  node a volume create, attach, tag and binding).
+  A steady state sends none and a hand-made drift a few. The 17th write is
+  refused, the kind stops on that
+  leader until ts-orch restarts there (a release or a leader change), and
+  `ts_orch_oci_reconcile_stopped` raises the `OCIReconcileStopped` alert.
+  Find the cause in the leader's `OCI change` log lines before anything else.
+- **Throttling and outages.** The loop's OCI client does not retry. A 429 or
+  5xx ends that kind's pass, is counted as an error and logged as
+  `backed off until the next tick`; the other kinds keep running.
+- **Invalid document.** A document that does not load or validate, or has no
+  entry for the node's region, starts no pass; `ts-orch status` shows
+  `reconcile: changes nothing: <error>`.
+- **Visibility.** One `OCI change` log line per change, none for unchanged
+  resources. On port 9108, per region and kind:
+  `ts_orch_oci_reconcile_last_run_timestamp_seconds`,
+  `ts_orch_oci_reconcile_last_success_timestamp_seconds`,
+  `ts_orch_oci_reconcile_duration_seconds`,
+  `ts_orch_oci_reconcile_changes_total`, `ts_orch_oci_reconcile_errors_total`
+  and `ts_orch_oci_reconcile_stopped`, plus `ts_orch_oci_reconcile_leader` per
+  region. `ts-orch status` and `ts-orch region status`, run on a node, print
+  each region leader's last result per kind.
+
 ## Reconciler IAM policy
 
 The ts-orch hosts call OCI with their instance principal (dynamic group

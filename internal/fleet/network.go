@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 	"time"
@@ -39,14 +38,14 @@ type network struct {
 	routes      routetable.API
 	rules       nsg.API
 	region      Region
-	out         io.Writer
+	out         ociresource.Out
 	cell        string
 	compartment *string
 	vcn         *string
 	ownership   ociresource.Ownership
 }
 
-func applyNetwork(ctx context.Context, region Region, f *ociclient.Factory, out io.Writer) error {
+func applyNetwork(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, out ociresource.Out) error {
 	client, err := f.Network()
 	if err != nil {
 		return err
@@ -200,7 +199,11 @@ func (n *network) adopt(kind, name string, items []found) (found, error) {
 }
 
 func (n *network) print(verb, kind, detail string) error {
-	_, err := fmt.Fprintf(n.out, "  %-8s %-17s %s\n", verb, kind, detail)
+	w := n.out.Changed
+	if verb == "ok" {
+		w = n.out.Same
+	}
+	_, err := fmt.Fprintf(w, "  %-8s %-17s %s\n", verb, kind, detail)
 	return err
 }
 

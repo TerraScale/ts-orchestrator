@@ -3,7 +3,6 @@ package fleet
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -22,7 +21,7 @@ import (
 
 const nodeNSG = "node-nsg"
 
-func ApplyCompute(ctx context.Context, region Region, f *ociclient.Factory, out io.Writer) error {
+func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, out ociresource.Out) error {
 	var err error
 	clients := compute.Clients{}
 	if clients.Compute, err = f.Compute(); err != nil {

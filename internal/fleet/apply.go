@@ -7,12 +7,16 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
+
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 type Pass struct {
 	Kind  string
-	Apply func(ctx context.Context, region Region, f *ociclient.Factory, out io.Writer) error
+	Apply func(ctx context.Context, document Fleet, region Region, f *ociclient.Factory, out ociresource.Out) error
 }
 
 var Passes = []Pass{
@@ -63,9 +67,37 @@ func Apply(ctx context.Context, args []string, out io.Writer) error {
 		if _, err := fmt.Fprintf(out, "%s %s\n", region.Label, pass.Kind); err != nil {
 			return err
 		}
-		if err := pass.Apply(ctx, region, f, out); err != nil {
+		if err := pass.Apply(ctx, document, region, f, ociresource.Out{Same: out, Changed: out}); err != nil {
 			return fmt.Errorf("%s %s: %w", region.Label, pass.Kind, err)
 		}
 	}
 	return nil
+}
+
+func Reconciler(ctx context.Context, label string, fencer authority.Fencer) (*ociresource.Runner, error) {
+	document, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(document.Regions, func(r Region) bool { return r.Label == label })
+	if i < 0 {
+		return nil, fmt.Errorf("region %q is not in the fleet document", label)
+	}
+	region := document.Regions[i]
+	provider, err := ociclient.InstancePrincipalProviderContext(ctx, common.Region(region.OCIRegion), nil)
+	if err != nil {
+		return nil, err
+	}
+	f, err := ociclient.New(provider, ociclient.Options{Region: region.OCIRegion, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+	if err != nil {
+		return nil, err
+	}
+	runner := &ociresource.Runner{Region: label, Authority: fencer}
+	for _, kind := range region.Reconcile {
+		pass := Passes[slices.IndexFunc(Passes, func(p Pass) bool { return p.Kind == kind })]
+		runner.Passes = append(runner.Passes, ociresource.Pass{Kind: kind, Run: func(ctx context.Context, out ociresource.Out) error {
+			return pass.Apply(ctx, document, region, f, out)
+		}})
+	}
+	return runner, nil
 }

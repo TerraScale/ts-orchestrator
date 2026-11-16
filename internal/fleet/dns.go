@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
+
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge/geodns"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -51,11 +52,7 @@ func dnsConfig(ctx context.Context, fleet Fleet, f *ociclient.Factory) (geodns.C
 	return cfg, nil
 }
 
-func applyDNS(ctx context.Context, region Region, f *ociclient.Factory, out io.Writer) error {
-	fleet, err := Load()
-	if err != nil {
-		return err
-	}
+func applyDNS(ctx context.Context, fleet Fleet, region Region, f *ociclient.Factory, out ociresource.Out) error {
 	home, _ := fleet.DNSRegion()
 	if region.Label != home.Label {
 		return fmt.Errorf("global dns pass belongs to %s, the fleet DNS compartment", home.Label)
@@ -70,7 +67,11 @@ func applyDNS(ctx context.Context, region Region, f *ociclient.Factory, out io.W
 	}
 	changes, err := client.Reconcile(ctx, cfg, true)
 	for _, change := range changes {
-		if _, writeErr := fmt.Fprintf(out, "%s dns: %s %s %s %s\n", region.Label, change.Action, change.Kind, change.Name, change.ID); writeErr != nil {
+		w := out.Changed
+		if change.Action == "ok" {
+			w = out.Same
+		}
+		if _, writeErr := fmt.Fprintf(w, "%s dns: %s %s %s %s\n", region.Label, change.Action, change.Kind, change.Name, change.ID); writeErr != nil {
 			return writeErr
 		}
 	}

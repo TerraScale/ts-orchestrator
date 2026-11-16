@@ -33,6 +33,11 @@
       "geo_continents": [
         "SA",
         "AN"
+      ],
+      "reconcile": [
+        "network",
+        "nlb",
+        "dns"
       ]
     },
     {
@@ -56,6 +61,10 @@
         "NA",
         "OC",
         "AS"
+      ],
+      "reconcile": [
+        "network",
+        "nlb"
       ]
     },
     {
@@ -78,6 +87,10 @@
       "geo_continents": [
         "EU",
         "AF"
+      ],
+      "reconcile": [
+        "network",
+        "nlb"
       ]
     }
   ]

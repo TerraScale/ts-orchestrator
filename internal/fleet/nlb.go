@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 	"time"
@@ -48,10 +47,10 @@ type nlbPass struct {
 	network   core.VirtualNetworkClient
 	compute   core.ComputeClient
 	balancers networkloadbalancer.NetworkLoadBalancerClient
-	out       io.Writer
+	out       ociresource.Out
 }
 
-func applyNLB(ctx context.Context, region Region, f *ociclient.Factory, out io.Writer) error {
+func applyNLB(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, out ociresource.Out) error {
 	var err error
 	p := nlbPass{region: region, out: out}
 	if p.network, err = f.Network(); err != nil {
@@ -67,7 +66,11 @@ func applyNLB(ctx context.Context, region Region, f *ociclient.Factory, out io.W
 }
 
 func (p nlbPass) say(format string, args ...any) {
-	fmt.Fprintf(p.out, "%s nlb: %s\n", p.region.Label, fmt.Sprintf(format, args...))
+	fmt.Fprintf(p.out.Changed, "%s nlb: %s\n", p.region.Label, fmt.Sprintf(format, args...))
+}
+
+func (p nlbPass) same(format string, args ...any) {
+	fmt.Fprintf(p.out.Same, "%s nlb: %s\n", p.region.Label, fmt.Sprintf(format, args...))
 }
 
 func (p nlbPass) apply(ctx context.Context) error {
@@ -167,7 +170,7 @@ func (p nlbPass) reservedAddress(ctx context.Context) (core.PublicIp, error) {
 	}
 	for _, ip := range reserved {
 		if !gone(string(ip.LifecycleState)) && p.region.owns("public-ip", "nlb", ip.FreeformTags) {
-			p.say("ok reserved address %s %s", deref(ip.DisplayName), deref(ip.IpAddress))
+			p.same("ok reserved address %s %s", deref(ip.DisplayName), deref(ip.IpAddress))
 			return ip, nil
 		}
 	}
@@ -349,7 +352,7 @@ func (p nlbPass) converge(ctx context.Context, nlb networkloadbalancer.NetworkLo
 		}
 	}
 	if !changed {
-		p.say("ok %s %s tcp %v, backends %s", deref(nlb.DisplayName), deref(address.IpAddress), nlbPorts, names)
+		p.same("ok %s %s tcp %v, backends %s", deref(nlb.DisplayName), deref(address.IpAddress), nlbPorts, names)
 	}
 	return nil
 }
