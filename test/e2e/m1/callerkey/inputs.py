@@ -45,37 +45,34 @@ def graph(root):
 
 
 os.environ.update(GOOS="linux", GOARCH="amd64", CGO_ENABLED="0")
-if os.environ["GITHUB_EVENT_NAME"] == "schedule":
-    changed = True
-else:
-    root = Path.cwd()
-    source = os.environ["SOURCE_SHA"]
-    base = os.environ.get("CHANGE_BASE", "")
-    if not base or set(base) == {"0"}:
-        base = command("git", "rev-parse", source + "^").strip()
-    directories, files = graph(root)
-    with tempfile.TemporaryDirectory() as temporary:
-        base_root = Path(temporary) / "base"
-        base_root.mkdir()
-        archive = Path(temporary) / "base.tar"
-        subprocess.run(["git", "archive", "--output", str(archive), base], check=True)
-        with tarfile.open(archive) as contents:
-            contents.extractall(base_root, filter="data")
-        base_directories, base_files = graph(base_root)
-    directories.update(base_directories)
-    directories.update(["test/e2e/m1/callerkey/", ".github/actions/go/"])
-    files.update(base_files)
-    files.update(["go.mod", "go.sum", ".github/workflows/ci.yml",
-                  "docs/caller-keys.md", "docs/e2e-ci.md"])
-    paths = command("git", "diff", "--name-only", "--no-renames", "-z", base, source).split("\0")
-    matches = sorted(path for path in paths if path and
-                     (path in files or any(path.startswith(directory) for directory in directories)))
-    changed = bool(matches)
-    for directory in sorted(directories):
-        print("input directory:", directory)
-    for path in sorted(files):
-        print("input file:", path)
-    for path in matches:
-        print("changed input:", path)
+root = Path.cwd()
+source = os.environ["SOURCE_SHA"]
+base = os.environ.get("CHANGE_BASE", "")
+if not base or set(base) == {"0"}:
+    base = command("git", "rev-parse", source + "^").strip()
+directories, files = graph(root)
+with tempfile.TemporaryDirectory() as temporary:
+    base_root = Path(temporary) / "base"
+    base_root.mkdir()
+    archive = Path(temporary) / "base.tar"
+    subprocess.run(["git", "archive", "--output", str(archive), base], check=True)
+    with tarfile.open(archive) as contents:
+        contents.extractall(base_root, filter="data")
+    base_directories, base_files = graph(base_root)
+directories.update(base_directories)
+directories.update(["test/e2e/m1/callerkey/", ".github/actions/go/"])
+files.update(base_files)
+files.update(["go.mod", "go.sum", ".github/workflows/ci.yml",
+              "docs/caller-keys.md", "docs/e2e-ci.md"])
+paths = command("git", "diff", "--name-only", "--no-renames", "-z", base, source).split("\0")
+matches = sorted(path for path in paths if path and
+                 (path in files or any(path.startswith(directory) for directory in directories)))
+changed = bool(matches)
+for directory in sorted(directories):
+    print("input directory:", directory)
+for path in sorted(files):
+    print("input file:", path)
+for path in matches:
+    print("changed input:", path)
 with open(os.environ["GITHUB_OUTPUT"], "a") as output:
     output.write(f"changed={str(changed).lower()}\n")
