@@ -49,11 +49,8 @@ type workerNodes interface {
 
 var errWorkersSettling = errors.New("the founder has not heard its workers for a full announcement window since it started")
 
-// PerNode reports whether spec runs one task on every fully joined node of
-// its region (a data owner such as TerraBase with replicas > 1) rather than
-// once, on the founder.
 func PerNode(spec *swarmruntime.ServiceSpec) bool {
-	return spec != nil && len(spec.Mounts) != 0 && regionalReplicas(spec) > 1
+	return spec != nil && (spec.EveryNode() || len(spec.Mounts) != 0 && regionalReplicas(spec) > 1)
 }
 
 // regionalReplicas upgrades existing TerraBase declarations in place. R10's
@@ -258,13 +255,14 @@ func (a swarmApplier) Replicas(ctx context.Context, service string) (replicas ui
 	return replicas, err
 }
 
-func (n *Node) EdgePeers(ready func() []string) func() []WorkerPeer {
+func (n *Node) EdgePeers(ready func() []string, advertised func(WorkerPeer)) (func() []WorkerPeer, func()) {
 	type observed struct {
 		peer WorkerPeer
 		at   time.Time
 	}
 	var mu sync.Mutex
 	peers := map[string]observed{}
+	changed := make(chan struct{}, 1)
 	subject := protocol.MeshWorkerPrefix + n.cfg.region + ".edge"
 	n.goWork(func() {
 		var subscription *nats.Subscription
@@ -279,6 +277,7 @@ func (n *Node) EdgePeers(ready func() []string) func() []WorkerPeer {
 				mu.Lock()
 				peers[at.Node] = observed{peer: at, at: time.Now()}
 				mu.Unlock()
+				advertised(at)
 			})
 			if err == nil {
 				break
@@ -308,13 +307,14 @@ func (n *Node) EdgePeers(ready func() []string) func() []WorkerPeer {
 			case <-n.ctx.Done():
 				return
 			case <-ticker.C:
+			case <-changed:
 			}
 		}
 	})
-	return func() []WorkerPeer {
+	listed := func() []WorkerPeer {
 		mu.Lock()
 		defer mu.Unlock()
-		fresh := max(workerFresh, 3*n.cfg.peersEvery)
+		fresh := 2 * n.cfg.peersEvery
 		result := []WorkerPeer{}
 		for node, item := range peers {
 			if time.Since(item.at) > fresh {
@@ -325,5 +325,11 @@ func (n *Node) EdgePeers(ready func() []string) func() []WorkerPeer {
 		}
 		slices.SortFunc(result, func(a, b WorkerPeer) int { return strings.Compare(a.Node, b.Node) })
 		return result
+	}
+	return listed, func() {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
 	}
 }

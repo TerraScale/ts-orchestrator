@@ -771,18 +771,22 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 		if err := ready(address); err != nil {
 			return err
 		}
-		for _, path := range []string{"/edge/ready", "/edge/certificates/metrics"} {
+		for path, want := range map[string]int{"/edge/ready": http.StatusOK, "/edge/certificates/metrics": http.StatusNotFound} {
 			response, err := (&http.Client{Timeout: 2 * time.Second}).Get("http://" + address + path)
 			if err != nil {
 				return err
 			}
+			body, err := io.ReadAll(response.Body)
 			response.Body.Close()
-			if response.StatusCode != http.StatusNotFound {
-				return fmt.Errorf("public %s%s: %s", address, path, response.Status)
+			if err != nil {
+				return err
+			}
+			if response.StatusCode != want || path == "/edge/ready" && len(body) != 0 {
+				return fmt.Errorf("public %s%s: %s with %q, want %d and no readiness detail", address, path, response.Status, body, want)
 			}
 		}
 	}
-	fmt.Println("PASS readiness and certificate metrics answer on the mesh port and not on public port 80")
+	fmt.Println("PASS readiness detail answers only on the mesh port; public port 80 answers host readiness as a bare status; certificate metrics only on the mesh port")
 	if err := store.cmd.Process.Signal(syscall.SIGSTOP); err != nil {
 		return err
 	}

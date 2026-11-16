@@ -11,17 +11,24 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/oraclehost"
 	"github.com/nats-io/nats.go"
 )
@@ -120,6 +127,45 @@ func meshRoutes(ctx context.Context, fleet *oraclehost.Fleet) {
 			}
 			return nil
 		})
+	}
+}
+
+func regionRouteFirewall(ctx context.Context, manager *oraclehost.Host, action string) {
+	for _, worker := range manager.Region.Hosts[1:] {
+		for _, direction := range []struct{ chain, address string }{{"INPUT", "-s"}, {"OUTPUT", "-d"}} {
+			output, err := exec.CommandContext(ctx, "ip", "netns", "exec", manager.Namespace, "iptables", action, direction.chain,
+				direction.address, worker.Address, "-p", "tcp", "--dport", "6222", "-j", "REJECT").CombinedOutput()
+			require(err == nil, "%s region route firewall: %v: %s", manager.Name, err, output)
+		}
+	}
+}
+
+func awaitIsolatedRoutes(ctx context.Context, region *oraclehost.Region) {
+	for _, worker := range region.Hosts[1:] {
+		until(ctx, worker.Name+" regional route rounds without its manager", func() error {
+			text, err := metrics(ctx, worker)
+			if err != nil {
+				return err
+			}
+			for _, line := range strings.Split(text, "\n") {
+				if value, ok := strings.CutPrefix(line, "ts_orch_mesh_region_routes_rounds_total "); ok {
+					rounds, err := strconv.Atoi(value)
+					if err == nil && rounds >= 5 {
+						return nil
+					}
+				}
+			}
+			return errors.New("regional route discovery has not completed five rounds")
+		})
+	}
+	for _, worker := range region.Hosts[1:] {
+		peers, err := worker.Established(ctx, 6222)
+		must(err)
+		for _, peer := range region.Hosts {
+			if peer != worker {
+				require(!slices.Contains(peers, peer.NetBird), "%s used NetBird to reach %s before its regional manager: %v", worker.Name, peer.Name, peers)
+			}
+		}
 	}
 }
 
@@ -277,7 +323,159 @@ func meshUp(ctx context.Context, fleet *oraclehost.Fleet) {
 	step("every manager's mesh is up and every region answers ts-orch status over it")
 }
 
-func ready(ctx context.Context, fleet *oraclehost.Fleet, want string) {
+func operatorRelease(ctx context.Context, fleet *oraclehost.Fleet, binary, repo, dir string) (string, error) {
+	nodes := []nodelist.Node{}
+	for index, host := range fleet.Hosts {
+		output, err := host.Exec(ctx, "/usr/local/bin/ts-orch", "node", "keys")
+		if err != nil {
+			return "", fmt.Errorf("%s node keys: %w: %s", host.Name, err, output)
+		}
+		var keys nodelist.PublicKeys
+		if err := json.Unmarshal(output, &keys); err != nil {
+			return "", err
+		}
+		nodes = append(nodes, nodelist.Node{Name: host.Name, Region: host.Region.Name, PublicIP: fmt.Sprintf("198.51.100.%d", index+1), PrivateIP: host.Address,
+			WGPublicKey: keys.WGPublicKey, TLSSPKISHA256: keys.TLSSPKISHA256})
+	}
+	inventory, err := json.Marshal(nodes)
+	if err != nil {
+		return "", err
+	}
+	inventoryPath, listPath := filepath.Join(dir, "inventory.json"), filepath.Join(dir, "nodes.json")
+	if err := os.WriteFile(inventoryPath, inventory, 0o644); err != nil {
+		return "", err
+	}
+	if output, err := exec.CommandContext(ctx, binary, "node", "list", "build", "1", inventoryPath, listPath).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("ts-orch node list build: %w: %s", err, output)
+	}
+	list, err := os.ReadFile(listPath)
+	if err != nil {
+		return "", err
+	}
+	source := filepath.Join(repo, "deploy", "m1", "embed.go")
+	original, err := os.ReadFile(source)
+	if err != nil {
+		return "", err
+	}
+	embedded := regexp.MustCompile(`(?m)^const NodeList = .*$`).ReplaceAllLiteral(original, []byte("const NodeList = "+strconv.Quote(string(list))))
+	if bytes.Equal(embedded, original) {
+		return "", errors.New("deploy/m1/embed.go has no NodeList declaration")
+	}
+	overlaySource, overlay, out := filepath.Join(dir, "embed.go"), filepath.Join(dir, "overlay.json"), filepath.Join(dir, "release")
+	if err := os.WriteFile(overlaySource, embedded, 0o644); err != nil {
+		return "", err
+	}
+	replace, err := json.Marshal(map[string]map[string]string{"Replace": {source: overlaySource}})
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(overlay, replace, 0o644); err != nil {
+		return "", err
+	}
+	goTool, err := exec.LookPath("go")
+	if err != nil {
+		return "", err
+	}
+	owner, err := os.Stat(repo)
+	if err != nil {
+		return "", err
+	}
+	build := []string{"env", "PATH=" + filepath.Dir(goTool) + ":/usr/bin:/bin", "GOFLAGS=-overlay=" + overlay, "bash", filepath.Join(repo, "test", "e2e", "m1", "build.sh"), out}
+	if uid := owner.Sys().(*syscall.Stat_t).Uid; uid != uint32(os.Geteuid()) {
+		build = append([]string{"sudo", "-H", "-u", fmt.Sprintf("#%d", uid)}, build...)
+	}
+	if output, err := exec.CommandContext(ctx, build[0], build[1:]...).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("build the release that embeds node list sequence 1: %w: %s", err, output)
+	}
+	release := filepath.Join(out, "terrascale-orchestrator")
+	require(revision(release) == revision(binary), "the release embedding the node list has revision %s, want %s", revision(release), revision(binary))
+	return release, nil
+}
+
+func nodeListSequence(ctx context.Context, host *oraclehost.Host, want uint64) {
+	until(ctx, fmt.Sprintf("%s node list sequence %d", host.Name, want), func() error {
+		status := nodelist.StatusAt(filepath.Join(host.Dir, "state"))
+		if status.Sequence != want || status.Refused != "" {
+			return fmt.Errorf("%s", status)
+		}
+		return nil
+	})
+}
+
+func edgeAnswer(ctx context.Context, host *oraclehost.Host, ca, url string) string {
+	output, _ := exec.CommandContext(ctx, "ip", "netns", "exec", host.Namespace, "curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", "--cacert", ca,
+		"--resolve", "whoami.e2e.test:80:127.0.0.1", url).Output()
+	return string(output)
+}
+
+func unlisted(ctx context.Context, fleet *oraclehost.Fleet, want, ca string) {
+	managers, workers := roles(fleet)
+	for _, host := range fleet.Hosts {
+		healthy(ctx, host, want)
+		nodeListSequence(ctx, host, 0)
+	}
+	for _, manager := range managers {
+		whoamiBackend(ctx, manager, ca)
+	}
+	for _, worker := range workers {
+		ready, page := edgeAnswer(ctx, worker, ca, "http://127.0.0.1/edge/ready"), edgeAnswer(ctx, worker, ca, "http://whoami.e2e.test/")
+		require(ready == "503" && page == "404", "%s without a node list: edge readiness %s and whoami %s, want 503 and 404 (no route, so no backend reached)", worker.Name, ready, page)
+	}
+	step("shipped node list (sequence 0, as production) on every host: release health ok everywhere, managers serve whoami as on main, workers' edges route nothing and stay release-healthy")
+}
+
+func installEdgeCert(fleet *oraclehost.Fleet) string {
+	material, err := fleet.EdgeMaterial("whoami.e2e.test")
+	must(err)
+	for _, host := range fleet.Hosts {
+		dir := host.State("edge-certs")
+		must(os.MkdirAll(dir, 0o700))
+		must(os.WriteFile(filepath.Join(dir, "whoami.e2e.test"), material, 0o600))
+	}
+	return filepath.Join(fleet.Work, "ca.pem")
+}
+
+func whoamiBody(ctx context.Context, host *oraclehost.Host, ca string) ([]byte, error) {
+	output, err := exec.CommandContext(ctx, "ip", "netns", "exec", host.Namespace, "curl", "-fsS", "--max-time", "5", "--cacert", ca, "--resolve", "whoami.e2e.test:443:127.0.0.1", "https://whoami.e2e.test/").CombinedOutput()
+	if err != nil {
+		return output, fmt.Errorf("%s: %w: %s", host.Name, err, output)
+	}
+	return output, nil
+}
+
+func whoamiBackend(ctx context.Context, host *oraclehost.Host, ca string) string {
+	var backend string
+	until(ctx, host.Name+" whoami via its edge", func() error {
+		seen := ""
+		for range 4 {
+			body, err := whoamiBody(ctx, host, ca)
+			if err != nil {
+				return err
+			}
+			line := ""
+			for _, row := range strings.Split(string(body), "\n") {
+				row = strings.TrimRight(row, "\r")
+				if strings.HasPrefix(row, "Hostname: ") {
+					line = row
+				}
+			}
+			if line == "" || !bytes.Contains(body, []byte("Host: whoami.e2e.test")) {
+				return fmt.Errorf("body %q", body)
+			}
+			if seen == "" {
+				seen = line
+			}
+			if line != seen {
+				return fmt.Errorf("one edge answered %q and %q", seen, line)
+			}
+		}
+		backend = seen
+		return nil
+	})
+	return backend
+}
+
+func ready(ctx context.Context, fleet *oraclehost.Fleet, want, ca string) {
 	managers, workers := roles(fleet)
 	for _, host := range fleet.Hosts {
 		healthy(ctx, host, want)
@@ -312,10 +510,18 @@ func ready(ctx context.Context, fleet *oraclehost.Fleet, want string) {
 		for _, port := range []int{80, 443} {
 			listening, err := host.Listening(ctx, port)
 			must(err)
-			require(listening == manager, "%s: edge :%d listening=%v, want %v", host.Name, port, listening, manager)
+			require(listening, "%s: edge :%d listening=%v, want true", host.Name, port, listening)
 		}
 	}
-	step("JetStream fabric and edge :80/:443 run on managers only")
+	backends := map[string]string{}
+	for _, manager := range managers {
+		backends[manager.Region.Name] = whoamiBackend(ctx, manager, ca)
+	}
+	for _, worker := range workers {
+		got := whoamiBackend(ctx, worker, ca)
+		require(got == backends[worker.Region.Name], "%s balanced whoami to %q, want its manager's backend %q", worker.Name, got, backends[worker.Region.Name])
+	}
+	step("JetStream on managers; every host's edge listens and each worker balances whoami to its manager's backend")
 }
 
 func main() {
@@ -334,6 +540,7 @@ func main() {
 	spec := workload(specFile, filepath.Join(os.Args[3], "..", "images.json"))
 	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{4, 2, 2})
 	must(err)
+	ca := installEdgeCert(fleet)
 	defer fleet.Close()
 	defer func() {
 		if value := recover(); value != nil {
@@ -378,12 +585,16 @@ func main() {
 		require(!strings.Contains(strings.Join(stale.Routes, " "), "//"+worker.Address+":"), "%s pinned join material lists %s: %v", gru.Name, worker.Name, stale.Routes)
 	}
 	step("%s join material pinned at a version that lists neither %s nor %s: %v", gru.Name, gru.Hosts[1].Name, gru.Hosts[2].Name, stale.Routes)
+	regionRouteFirewall(ctx, gru.Hosts[0], "-I")
 	must(fleet.Boot(workers...))
 	for _, worker := range workers {
 		_, err := worker.WaitReady(ctx, 0, first)
 		must(err)
 	}
 	step("workers joined from Vault join material and sent READY=1")
+	awaitIsolatedRoutes(ctx, gru)
+	step("%s workers completed five discovery rounds without their manager's route port and never dialed an in-region NetBird route", gru.Name)
+	regionRouteFirewall(ctx, gru.Hosts[0], "-D")
 	meshUp(ctx, fleet)
 	delivered(ctx, fleet, gru.Hosts[1], gru.Hosts[2])
 	delivered(ctx, fleet, gru.Hosts[2], gru.Hosts[1])
@@ -426,24 +637,49 @@ func main() {
 	}
 	require(dialed.Load() == 0, "a host dialed the forged member %s %d times", oraclehost.GatewayAddress, dialed.Load())
 	step("%s workers drop and count membership naming an address outside the VCN; nobody dialed %s", gru.Name, oraclehost.GatewayAddress)
-	applied := filepath.Join(work, "workload.json")
-	data, err := json.Marshal(spec)
-	must(err)
-	must(os.WriteFile(applied, data, 0o644))
-	output, err := managers[0].Exec(ctx, "/usr/local/bin/ts-orch", "service", "apply", "-f", applied)
-	require(err == nil && !bytes.Contains(output, []byte("on this host only")), "service apply on %s did not go through the mesh: %v: %s", managers[0].Name, err, output)
-	step("applied %s on %s through the mesh: %s", spec["name"], managers[0].Name, bytes.TrimSpace(output))
-	ready(ctx, fleet, first)
-
+	release := make(chan error, 1)
+	var released string
+	go func() {
+		var err error
+		released, err = operatorRelease(ctx, fleet, binary, filepath.Join(filepath.Dir(specFile), "..", "..", ".."), filepath.Dir(work))
+		release <- err
+	}()
+	applies := make(chan error, 2)
+	for _, service := range []map[string]any{peerCredentialService(spec), spec} {
+		go func() {
+			applied := filepath.Join(work, service["name"].(string)+".json")
+			data, err := json.Marshal(service)
+			if err == nil {
+				err = os.WriteFile(applied, data, 0o644)
+			}
+			if err != nil {
+				applies <- err
+				return
+			}
+			output, err := managers[0].Exec(ctx, "/usr/local/bin/ts-orch", "service", "apply", "-f", applied)
+			if err != nil || bytes.Contains(output, []byte("on this host only")) {
+				applies <- fmt.Errorf("service apply of %s on %s did not go through the mesh: %v: %s", service["name"], managers[0].Name, err, output)
+				return
+			}
+			step("applied %s on %s through the mesh: %s", service["name"], managers[0].Name, bytes.TrimSpace(output))
+			applies <- nil
+		}()
+	}
+	must(errors.Join(<-applies, <-applies))
+	unlisted(ctx, fleet, first, ca)
+	must(<-release)
+	step("operator built the release embedding node list sequence 1 from every host's ts-orch node keys and ts-orch node list build")
 	for _, host := range fleet.Hosts {
 		before := host.LastRun()
+		must(host.Install(released))
 		must(host.Restart())
 		_, err := host.WaitReady(ctx, before, first)
 		must(err)
 		healthy(ctx, host, first)
-		step("%s restarted to READY and release health ok", host.Name)
+		nodeListSequence(ctx, host, 1)
+		step("%s restarted on the release to READY, release health ok and node list sequence 1 adopted", host.Name)
 	}
-	ready(ctx, fleet, first)
+	ready(ctx, fleet, first, ca)
 
 	flapped, survivor := gru.Hosts[2], gru.Hosts[1]
 	configured := fmt.Sprintf("ts_orch_mesh_region_route_configured{address=%q}", flapped.Address)
@@ -502,6 +738,26 @@ func main() {
 	require(dialed.Load() == 0, "a host dialed the forged member %s %d times", oraclehost.GatewayAddress, dialed.Load())
 	step("%s left and was replaced by %s at %s: every %s host routes to it over the VCN and no longer configures %s", departed.Name, replacement.Name, replacement.Address, gru.Name, departed.Address)
 	step("single-host-region lane passed in %s", time.Since(started).Round(time.Second))
+}
+
+func peerCredentialService(whoami map[string]any) map[string]any {
+	data, err := m1.Files.ReadFile("services/ts-auth.json")
+	must(err)
+	var auth struct {
+		Secrets map[string]vaultsecret.Ref `json:"secrets"`
+	}
+	must(json.Unmarshal(data, &auth))
+	ref, ok := auth.Secrets[edge.RequestProofKey]
+	require(ok, "deploy/m1/services/ts-auth.json has no %s", edge.RequestProofKey)
+	return map[string]any{
+		"name":      "terrabase",
+		"image":     whoami["image"],
+		"args":      []string{"--port", "18082"},
+		"port":      18082,
+		"readyPath": "/health",
+		"replicas":  1,
+		"secrets":   map[string]vaultsecret.Ref{edge.RequestProofKey: ref},
+	}
 }
 
 func workload(specFile, imagesFile string) map[string]any {

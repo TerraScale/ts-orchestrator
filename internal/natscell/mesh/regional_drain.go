@@ -3,6 +3,7 @@ package mesh
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -25,6 +26,9 @@ type drainReply struct {
 // RegionalNodes returns only this region's authenticated, admitted serving nodes.
 func (n *Node) RegionalNodes() []WorkerPeer {
 	nodes := n.joinedWorkers()
+	if inventory := n.edgeInventory.Load(); n.cfg.applier == nil && inventory != nil {
+		nodes = slices.DeleteFunc(slices.Clone(inventory.Nodes), func(node WorkerPeer) bool { return node.Node == n.cfg.server })
+	}
 	if address, err := n.cfg.address(); err == nil {
 		nodes = append([]WorkerPeer{{Node: n.cfg.server, Address: address}}, nodes...)
 	}

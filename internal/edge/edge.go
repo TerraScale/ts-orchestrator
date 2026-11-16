@@ -55,6 +55,10 @@ type Edge struct {
 	peerEdges        atomic.Pointer[func() []mesh.WorkerPeer]
 	edgeTransports   sync.Map
 	edgeNext         sync.Map
+	peerDown         sync.Map
+	readyChanged     atomic.Pointer[func()]
+	follower         atomic.Bool
+	inventoryMissing atomic.Bool
 	proxy            *httputil.ReverseProxy
 	// challenges answers HTTP-01 for the tokens this edge holds.
 	challenges http.Handler
@@ -234,10 +238,14 @@ func (e *Edge) setRoutes(web, postgres map[string]int) {
 	}
 }
 
-func (e *Edge) Drain() { e.draining.Store(true) }
+func (e *Edge) Drain() {
+	if !e.draining.Swap(true) {
+		e.announceReady()
+	}
+}
 
 func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
-	if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
+	if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" && r.URL.Path != "/edge/ready" {
 		return false
 	}
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
@@ -291,6 +299,10 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 				return
 			}
 			e.identify(w, r)
+			if r.URL.Path == "/edge/ready" {
+				e.serveReady(w, r, false)
+				return
+			}
 			// A Postgres hostname needs :80 only for its certificate's challenge.
 			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
 				http.NotFound(w, r)
@@ -345,6 +357,10 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e.identify(w, r)
+	if r.URL.Path == "/edge/ready" {
+		e.serveReady(w, r, false)
+		return
+	}
 	if e.drainingHealth(w, r) {
 		return
 	}
@@ -377,7 +393,7 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	r = e.routePeerEdge(r)
+	r = e.routePeerEdge(r, true)
 	if strings.EqualFold(host, netbirdHost) && !netbirdBackend(r) && r.Context().Value(edgeTargetKey{}) == nil {
 		secureHeaders(w.Header())
 		e.netbirdDashboard.ServeHTTP(w, r)

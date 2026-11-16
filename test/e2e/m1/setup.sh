@@ -69,11 +69,11 @@ fi
 
 begin "service apply -> served through the edge"
 orch service apply -f "$here/whoami.json"
+wait_for 6 edge whoami.e2e.test /health
+end "apply -> e2e-whoami ready (edge 200 within one route sync)"
 orch service apply -f "$here/data.json"
-wait_for 180 edge whoami.e2e.test /health
-end "apply -> e2e-whoami ready (edge 200)"
-wait_for 60 edge data.e2e.test /boots
-end "apply -> e2e-data ready (edge 200)"
+wait_for 6 edge data.e2e.test /boots
+end "apply -> e2e-data ready (edge 200 within one route sync)"
 edge whoami.e2e.test / | grep -q '^Host: whoami.e2e.test'
 edge data.e2e.test /dns | grep -Eq '^Name:[[:space:]]+github.com' || { echo "container DNS lookup failed" >&2; edge data.e2e.test /dns; exit 1; }
 first=$(edge data.e2e.test /boots | head -1)

@@ -332,6 +332,12 @@ type ServiceMount struct {
 	Target string `json:"target"`
 }
 
+var everyNodeServices = []string{"whoami"}
+
+func (s ServiceSpec) EveryNode() bool {
+	return slices.Contains(everyNodeServices, s.Name)
+}
+
 // SwarmSpec maps the declaration to an upstream service; the executor
 // re-validates the container on every task.
 func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
@@ -509,16 +515,12 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		Update:      &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(serviceUpdateMonitor), Order: api.UpdateConfig_STOP_FIRST},
 		Endpoint:    &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: ports},
 	}
+	spec.Task.Placement = &api.Placement{}
 	switch {
-	case s.Region != "" && len(s.Mounts) != 0 && s.Replicas > 1:
-		// One per node: the mesh counts only fully joined nodes in Replicas, each
-		// task names its own host as TS_NODE and reads that host's peers file.
-		spec.Task.Placement = &api.Placement{MaxReplicas: 1}
+	case s.Region != "" && (s.EveryNode() || len(s.Mounts) != 0 && s.Replicas > 1):
+		spec.Task.Placement.MaxReplicas = 1
 	case s.Region != "":
-		// Every other mesh service runs on the founder (the region's manager):
-		// the founder's edge serves it on loopback, and a worker rejected such a
-		// task for want of its peers file (ts-sjc-2, 2026-11-04).
-		spec.Task.Placement = &api.Placement{Constraints: []string{"node.role==manager"}}
+		spec.Task.Placement.Constraints = []string{"node.role==manager"}
 	}
 	if s.Name == "terrabase" {
 		// The candidate may have written a newer storage format. Fix forward.

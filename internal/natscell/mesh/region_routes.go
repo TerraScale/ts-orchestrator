@@ -33,6 +33,7 @@ type inRegionGossip struct {
 	mu         sync.Mutex
 	peers      map[string][]gossipedRoute
 	membership atomic.Int64
+	rounds     atomic.Uint64
 }
 
 func newInRegionGossip(region string, now time.Time) *inRegionGossip {
@@ -113,7 +114,10 @@ func (n *Node) regionRoutes() {
 				failure = err.Error()
 			}
 		}
-		n.dialGossipedPeers()
+		if reachedRegion {
+			n.dialGossipedPeers()
+		}
+		n.gossip.rounds.Add(1)
 		select {
 		case <-n.ctx.Done():
 			return
@@ -208,6 +212,7 @@ func (n *Node) reconcileRegionRoutes(members []string) {
 
 func (n *Node) writeRouteMetrics(w io.Writer) {
 	fmt.Fprintf(w, "ts_orch_mesh_region_routes_rejected_total %d\n", n.rejectedRoutes.Load())
+	fmt.Fprintf(w, "ts_orch_mesh_region_routes_rounds_total %d\n", n.gossip.rounds.Load())
 	live := 0
 	if n.membershipLive() {
 		live = 1

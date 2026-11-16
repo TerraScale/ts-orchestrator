@@ -4,38 +4,25 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"log/slog"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
-	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
-	"github.com/moby/swarmkit/v2/api"
 )
 
-// refreshEdgeRequestProof reuses only the peer credential already admitted for
-// TerraBase. No extra Vault secret, service reference or environment is needed.
-func refreshEdgeRequestProof(ctx context.Context, public *edge.Edge, services []*api.Service,
+func refreshEdgeRequestProof(ctx context.Context, public *edge.Edge, encoded string,
 	read func(context.Context, string, map[string]vaultsecret.Ref) (map[string]string, error),
 ) error {
-	const key = "TERRABASE_PEER_SECRET_FILE"
-	for _, svc := range services {
-		labels := svc.Spec.Annotations.Labels
-		if labels[swarmruntime.LabelServiceSpec] != "terrabase" {
-			continue
-		}
-		var refs map[string]vaultsecret.Ref
-		if json.Unmarshal([]byte(labels[swarmruntime.LabelSecretRefs]), &refs) != nil {
-			return errors.New("invalid TerraBase secret references for request proof")
-		}
-		if ref, ok := refs[key]; ok {
-			values, readErr := read(ctx, "terrabase", map[string]vaultsecret.Ref{key: ref})
-			if readErr != nil || values[key] == "" {
-				slog.WarnContext(ctx, "edge request proof credential unavailable; the last good credential stays")
-				return errors.New("TerraBase request proof credential unavailable")
-			}
-			defer clear(values)
-			return public.SetRequestProofSecret(values[key])
-		}
+	if encoded == "" {
+		return public.SetRequestProofSecret("")
 	}
-	return public.SetRequestProofSecret("")
+	var ref vaultsecret.Ref
+	if json.Unmarshal([]byte(encoded), &ref) != nil {
+		return errors.New("invalid TerraBase request proof reference")
+	}
+	values, err := read(ctx, "terrabase", map[string]vaultsecret.Ref{edge.RequestProofKey: ref})
+	defer clear(values)
+	if err != nil || values[edge.RequestProofKey] == "" {
+		return errors.New("TerraBase request proof credential unavailable; the last good credential stays")
+	}
+	return public.SetRequestProofSecret(values[edge.RequestProofKey])
 }
