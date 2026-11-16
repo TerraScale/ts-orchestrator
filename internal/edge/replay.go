@@ -12,10 +12,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/netip"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -43,8 +45,9 @@ const (
 	// maxReplayBody (TerraBase's 4 MiB import part with headroom) is spooled
 	// to an unlinked file under the state directory. A larger body streams
 	// through and is never replayed.
-	memReplayBody = 1 << 20
-	maxReplayBody = 8 << 20
+	memReplayBody  = 1 << 20
+	maxReplayBody  = 8 << 20
+	maxReplayBytes = maxRegionalSocketsPerAddress * memReplayBody
 )
 
 // Mesh is what replay needs from this host's mesh node.
@@ -128,54 +131,179 @@ func wroteBackend(r *http.Request) bool {
 	return ok && wrote.Load()
 }
 
-// bufferBody keeps a body of up to maxReplayBody so a replay can send it
-// again; GetBody marks the request replayable. The returned func releases the
-// spool file once the request is done.
-func bufferBody(r *http.Request, spoolDir string) (func(), error) {
-	if r.Body == nil || r.Body == http.NoBody {
-		r.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
-		return func() {}, nil
+var errReplayStorage = errors.New("edge replay storage unavailable")
+
+type replaySource struct {
+	used atomic.Int64
+	refs int
+}
+
+type replayBody struct {
+	io.ReadCloser
+	edge   *Edge
+	source netip.Prefix
+	quota  *replaySource
+	held   atomic.Int64
+	once   sync.Once
+	file   *os.File
+	prefix io.Reader
+	left   int64
+	length int64
+	read   int64
+}
+
+func (e *Edge) replayBody(w http.ResponseWriter, r *http.Request) *replayBody {
+	address, _ := netip.ParseAddrPort(r.RemoteAddr)
+	source, _ := addressSource(address.Addr())
+	e.spoolMu.Lock()
+	if e.spoolSources == nil {
+		e.spoolSources = make(map[netip.Prefix]*replaySource)
 	}
-	head, err := io.ReadAll(io.LimitReader(r.Body, memReplayBody+1))
+	quota := e.spoolSources[source]
+	if quota == nil {
+		quota = &replaySource{}
+		e.spoolSources[source] = quota
+	}
+	quota.refs++
+	e.spoolMu.Unlock()
+	body := &countedResponse(w).replay
+	body.ReadCloser, body.edge, body.source, body.quota, body.length = r.Body, e, source, quota, r.ContentLength
+	return body
+}
+
+func (b *replayBody) reserve(want int) int {
+	for {
+		source := b.quota.used.Load()
+		node := b.edge.spoolBytes.Load()
+		n := min(int64(want), int64(32<<10), maxReplayBody+1-source, maxReplayBytes-node)
+		if n <= 0 {
+			return 0
+		}
+		if !b.quota.used.CompareAndSwap(source, source+n) {
+			continue
+		}
+		if !b.edge.spoolBytes.CompareAndSwap(node, node+n) {
+			b.quota.used.Add(-n)
+			continue
+		}
+		b.held.Add(n)
+		return int(n)
+	}
+}
+
+func (b *replayBody) deduct(n int64) {
+	for {
+		held := b.held.Load()
+		n = min(n, held)
+		if b.held.CompareAndSwap(held, held-n) {
+			b.edge.spoolBytes.Add(-n)
+			b.quota.used.Add(-n)
+			return
+		}
+	}
+}
+
+func (b *replayBody) release() {
+	if b.quota == nil {
+		return
+	}
+	b.once.Do(func() {
+		if b.file != nil {
+			b.file.Close()
+		}
+		b.deduct(b.held.Load())
+		b.edge.spoolMu.Lock()
+		b.quota.refs--
+		if b.quota.refs == 0 {
+			delete(b.edge.spoolSources, b.source)
+		}
+		b.edge.spoolMu.Unlock()
+	})
+}
+
+func (b *replayBody) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if b.prefix != nil {
+		if b.left > 0 {
+			n, err := b.prefix.Read(p)
+			b.left -= int64(n)
+			if b.left == 0 {
+				b.release()
+			}
+			return n, err
+		}
+		return b.ReadCloser.Read(p)
+	}
+	reserved := b.reserve(len(p))
+	if reserved == 0 {
+		if b.length >= 0 && b.read == b.length {
+			return 0, io.EOF
+		}
+		if b.held.Load() > 0 && b.length < 0 {
+			n, err := b.ReadCloser.Read(p[:1])
+			if n == 0 && err != nil {
+				return 0, err
+			}
+		}
+		reason := "spool_budget"
+		if b.quota.used.Load() >= maxReplayBody+1 {
+			reason = "spool_source"
+		}
+		return 0, edgeRefusal{http.StatusServiceUnavailable, reason}
+	}
+	n, err := b.ReadCloser.Read(p[:reserved])
+	b.read += int64(n)
+	b.deduct(int64(reserved - n))
+	return n, err
+}
+
+func (b *replayBody) Close() error {
+	defer b.release()
+	return b.ReadCloser.Close()
+}
+
+func (e *Edge) bufferBody(w http.ResponseWriter, r *http.Request) error {
+	if r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0 {
+		r.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
+		return nil
+	}
+	if r.ContentLength > maxReplayBody {
+		return nil
+	}
+	body := e.replayBody(w, r)
+	head, err := io.ReadAll(io.LimitReader(body, memReplayBody+1))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if len(head) <= memReplayBody {
 		r.Body = io.NopCloser(bytes.NewReader(head))
 		r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(head)), nil }
-		return func() {}, nil
+		return nil
 	}
-	file, err := spool(spoolDir)
+	body.file, err = spool(e.spoolDir)
 	if err != nil {
-		slog.WarnContext(r.Context(), "edge replay: body not spooled, streaming it", "request_id", r.Header.Get(requestIDHeader), "error", err)
-		r.Body = struct {
-			io.Reader
-			io.Closer
-		}{io.MultiReader(bytes.NewReader(head), r.Body), r.Body}
-		return func() {}, nil
+		return fmt.Errorf("%w: %w", errReplayStorage, err)
 	}
-	release := func() { file.Close() }
-	n, err := file.Write(head)
+	n, err := body.file.Write(head)
 	if err == nil {
 		var rest int64
-		rest, err = io.Copy(file, io.LimitReader(r.Body, maxReplayBody+1-int64(n)))
+		rest, err = io.Copy(body.file, io.LimitReader(body, maxReplayBody+1-int64(n)))
 		n += int(rest)
 	}
 	if err != nil {
-		release()
-		return nil, err
+		return err
 	}
-	spooled := func() io.Reader { return io.NewSectionReader(file, 0, int64(n)) }
+	spooled := func() io.Reader { return io.NewSectionReader(body.file, 0, int64(n)) }
 	if n > maxReplayBody {
-		r.Body = struct {
-			io.Reader
-			io.Closer
-		}{io.MultiReader(spooled(), r.Body), r.Body}
-		return release, nil
+		body.prefix, body.left = spooled(), int64(n)
+		r.Body = body
+		return nil
 	}
 	r.Body = io.NopCloser(spooled())
 	r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(spooled()), nil }
-	return release, nil
+	return nil
 }
 
 // spool opens a file under dir that is already unlinked, so it is gone once

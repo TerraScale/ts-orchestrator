@@ -384,7 +384,7 @@ func main() {
 	var metrics strings.Builder
 	observability.WriteEdgeResponseMetrics(&metrics)
 	for _, check := range []struct{ protocol, code, count string }{{"http", "404", "1"}, {"https", "200", "3"}, {"https", "101", "2"}, {"https", "404", "1"}, {"https", "502", "1"}, {"https", "503", "1"}} {
-		series := observability.Series("ts_orch_edge_responses_total", "protocol", check.protocol, "code", check.code) + " " + check.count + "\n"
+		series := observability.Series("ts_orch_edge_responses_total", "protocol", check.protocol, "code", check.code, "reason", "") + " " + check.count + "\n"
 		if !strings.Contains(metrics.String(), series) {
 			step("edge response counters", fmt.Errorf("missing %s in %s", series, metrics.String()))
 		}

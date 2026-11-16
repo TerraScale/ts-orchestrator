@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,9 +28,11 @@ const PostgresPort = 5432
 
 const (
 	postgresHandshake       = 10 * time.Second
+	postgresIdleTimeout     = 10 * time.Minute
 	maxPostgresHandshakes   = 32
 	maxPostgresHandshakeAll = 1024
 	maxPostgresConns        = 1024
+	maxPostgresSourceConns  = maxPostgresConns / 16
 	postgresALPN            = "postgresql"
 	// Startup-family request codes (Postgres protocol, "Message Formats").
 	cancelRequest = 80877102
@@ -83,9 +86,9 @@ func WritePostgresPreauthMetrics(w io.Writer) {
 }
 
 func (e *Edge) admitPostgresHandshake(conn net.Conn) (func(), bool) {
-	source := postgresSource(conn.RemoteAddr())
+	source, exempt := edgeSource(conn.RemoteAddr())
 	e.pgHandshakeMu.Lock()
-	if e.pgHandshakeN[source] >= maxPostgresHandshakes {
+	if !exempt && e.pgHandshakeN[source] >= maxPostgresHandshakes {
 		e.pgHandshakeMu.Unlock()
 		e.refusePostgresPreauth(conn, false)
 		return nil, false
@@ -113,39 +116,19 @@ func (e *Edge) admitPostgresHandshake(conn net.Conn) (func(), bool) {
 }
 
 func (e *Edge) refusePostgresPreauth(conn net.Conn, global bool) {
-	code, message := "08004", "too many connection attempts from your network; retry shortly"
+	code, message := "53300", "too many connection attempts from your network; retry shortly"
+	reason := "postgres_handshake_source"
 	if global {
+		reason = "postgres_handshake_node"
 		postgresPreauthRefusedGlobal.Add(1)
 		message = "too many connection attempts; retry shortly"
 	} else {
 		postgresPreauthRefusedSource.Add(1)
 	}
+	observability.RecordEdgeResponse("postgres", 53300, reason)
+	conn.SetWriteDeadline(time.Now().Add(time.Second))
 	_, _ = conn.Write(postgresError(code, message))
 	conn.Close()
-}
-
-func postgresSource(addr net.Addr) string {
-	if addr == nil {
-		return ""
-	}
-	var ip net.IP
-	if tcp, ok := addr.(*net.TCPAddr); ok {
-		ip = tcp.IP
-	} else if host, _, err := net.SplitHostPort(addr.String()); err == nil {
-		ip = net.ParseIP(host)
-	}
-	if ip == nil {
-		return addr.String()
-	}
-	if v4 := ip.To4(); v4 != nil {
-		return v4.String()
-	}
-	prefix := make(net.IP, net.IPv6len)
-	copy(prefix, ip.To16())
-	for i := net.IPv6len / 2; i < net.IPv6len; i++ {
-		prefix[i] = 0
-	}
-	return prefix.String()
 }
 
 // bufConn reads through r so bytes peeked before the TLS handshake are not lost.
@@ -231,14 +214,21 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool, rel
 		}
 		return
 	}
-	select {
-	case e.pgSessions <- struct{}{}:
+	if length := binary.BigEndian.Uint32(head[:4]); length < 8 || length > 64<<10 {
+		return
+	}
+	source, exempt := edgeSource(conn.RemoteAddr())
+	if exempt {
+		source = netip.Prefix{}
+	}
+	if reason := e.pgSessions.take(source, maxPostgresSourceConns, maxPostgresConns); reason == "" {
 		defer func() {
-			conn.Close() // Close the socket before making its session reservation reusable.
-			<-e.pgSessions
+			conn.Close()
+			e.pgSessions.release(source)
 		}()
 		releaseHandshake()
-	default:
+	} else {
+		observability.RecordEdgeResponse("postgres", 53300, "postgres_"+reason)
 		length := binary.BigEndian.Uint32(head[:4])
 		if length < 8 || length > 64<<10 {
 			return
@@ -249,8 +239,6 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool, rel
 		if err := client.CloseWrite(); err != nil {
 			return
 		}
-		// Keep the handshake permit and original read deadline through cleanup.
-		// Drain startup across TLS records before closing a socket with unread input.
 		if _, err := io.CopyN(io.Discard, client, int64(length)-8); err == nil {
 			io.Copy(io.Discard, io.LimitReader(client, (64<<10)-int64(length)))
 		}
@@ -272,7 +260,6 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool, rel
 	if _, err := backend.Write(head[:]); err != nil {
 		return
 	}
-	conn.SetDeadline(time.Time{})
 	done := make(chan struct{}, 2)
 	var release func()
 	defer func() {
@@ -280,17 +267,29 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool, rel
 			release()
 		}
 	}()
-	observer := &postgresStartup{key: func(key [8]byte) error {
+	activity := &postgresActivity{authenticated: func() { conn.SetDeadline(time.Time{}) }}
+	activity.pending.Store(1)
+	activity.idle = time.AfterFunc(postgresIdleTimeout, func() {
+		if activity.pending.Load() == 0 {
+			observability.RecordEdgeResponse("postgres", 53300, "postgres_idle")
+			backend.Close()
+			conn.Close()
+		}
+	})
+	activity.idle.Stop()
+	defer activity.idle.Stop()
+	observer := &postgresObserver{activity: activity, key: func(key [8]byte) error {
 		var err error
 		release, err = e.pgKeys.add(key, port)
 		return err
 	}}
-	go func() { io.Copy(backend, client); done <- struct{}{} }()
+	input := &postgresInput{Reader: client, activity: activity, skip: binary.BigEndian.Uint32(head[:4]) - 8}
+	go func() { io.Copy(backend, input); done <- struct{}{} }()
 	go func() { io.Copy(client, io.TeeReader(backend, observer)); done <- struct{}{} }()
 	<-done
 	backend.Close()
 	client.Close()
-	<-done // Both copies finish before removing their backend key.
+	<-done
 }
 
 // proxyHeader is a PROXY protocol v2 header (HAProxy spec, section 2.2) for a

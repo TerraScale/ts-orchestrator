@@ -5,7 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"io"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // postgresKeys retains at most one key per admitted connection. Each owner is
@@ -85,21 +88,38 @@ func (k *postgresKeys) resolve(key [8]byte, id [16]byte) (int, bool) {
 	return 0, false
 }
 
-// postgresStartup observes framing without retaining payloads. TeeReader invokes
-// it before forwarding bytes, so the key is registered before a client can cancel.
-// Only the fixed eight-byte BackendKeyData body is retained, never auth messages.
-type postgresStartup struct {
-	head [5]byte
-	key  func([8]byte) error
-	data [8]byte
-	n    int
-	left uint32
-	done bool
+type postgresActivity struct {
+	pending       atomic.Int64
+	idle          *time.Timer
+	authenticated func()
 }
 
-func (s *postgresStartup) Write(p []byte) (int, error) {
+func (a *postgresActivity) ready() {
+	if a.authenticated != nil {
+		a.authenticated()
+		a.authenticated = nil
+	}
+	if a.pending.Add(-1) == 0 {
+		a.idle.Reset(postgresIdleTimeout)
+	}
+}
+
+type postgresObserver struct {
+	head     [5]byte
+	key      func([8]byte) error
+	activity *postgresActivity
+	data     [8]byte
+	n        int
+	left     uint32
+	keyed    bool
+}
+
+func (s *postgresObserver) Write(p []byte) (int, error) {
 	length := len(p)
-	for len(p) > 0 && !s.done {
+	if length > 0 && s.activity.pending.Load() == 0 {
+		s.activity.idle.Reset(postgresIdleTimeout)
+	}
+	for len(p) > 0 {
 		if s.n < len(s.head) {
 			n := copy(s.head[s.n:], p)
 			s.n += n
@@ -108,8 +128,8 @@ func (s *postgresStartup) Write(p []byte) (int, error) {
 				continue
 			}
 			frame := binary.BigEndian.Uint32(s.head[1:])
-			if frame < 4 || frame > 1<<20 {
-				return 0, errors.New("edge: invalid postgres startup frame")
+			if frame < 4 || frame > 1<<31-1 {
+				return 0, errors.New("edge: invalid postgres frame")
 			}
 			s.left = frame - 4
 		}
@@ -121,14 +141,80 @@ func (s *postgresStartup) Write(p []byte) (int, error) {
 		p = p[n:]
 		if s.left == 0 {
 			if s.head[0] == 'K' && binary.BigEndian.Uint32(s.head[1:]) == 12 {
+				if s.keyed {
+					return 0, errors.New("edge: duplicate postgres backend key")
+				}
 				if err := s.key(s.data); err != nil {
 					return 0, err
 				}
-				s.done = true
+				s.keyed = true
 			}
-			s.done = s.done || s.head[0] == 'Z'
+			if s.head[0] == 'Z' {
+				if binary.BigEndian.Uint32(s.head[1:]) != 5 {
+					return 0, errors.New("edge: invalid postgres ready frame")
+				}
+				s.activity.ready()
+			}
 			s.n = 0
 		}
 	}
 	return length, nil
+}
+
+type postgresInput struct {
+	io.Reader
+	activity *postgresActivity
+	skip     uint32
+	head     [5]byte
+	n        int
+	left     uint32
+	extended bool
+}
+
+func (r *postgresInput) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if n == 0 {
+		return n, err
+	}
+	r.activity.idle.Stop()
+	data := p[:n]
+	skipped := min(int(r.skip), len(data))
+	r.skip -= uint32(skipped)
+	data = data[skipped:]
+	for len(data) > 0 {
+		if r.n < len(r.head) {
+			copied := copy(r.head[r.n:], data)
+			r.n += copied
+			data = data[copied:]
+			if r.n < len(r.head) {
+				continue
+			}
+			length := binary.BigEndian.Uint32(r.head[1:])
+			if length < 4 || length > 1<<31-1 {
+				return 0, errors.New("edge: invalid postgres frontend frame")
+			}
+			r.left = length - 4
+			switch r.head[0] {
+			case 'Q', 'F':
+				r.activity.pending.Add(1)
+			case 'S':
+				if !r.extended {
+					r.activity.pending.Add(1)
+				}
+				r.extended = false
+			case 'P', 'B', 'D', 'E', 'C', 'H':
+				if !r.extended {
+					r.activity.pending.Add(1)
+					r.extended = true
+				}
+			}
+		}
+		consumed := min(len(data), int(r.left))
+		r.left -= uint32(consumed)
+		data = data[consumed:]
+		if r.left == 0 {
+			r.n = 0
+		}
+	}
+	return n, err
 }

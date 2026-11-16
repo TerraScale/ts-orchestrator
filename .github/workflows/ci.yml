@@ -148,6 +148,7 @@ jobs:
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
           - {lane: data-volume, entry: data-volume.sh, timeout: 8, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
           - {lane: postgres-preauth, entry: postgres-preauth.sh, timeout: 3, packages: "./test/e2e/m1/postgres-preauth"}
+          - {lane: edge-limits, entry: edge-limits.sh, timeout: 15, packages: "./test/e2e/m1/postgres-preauth"}
     name: e2e-m1 / ${{ matrix.lane }}
     concurrency:
       group: e2e-m1-${{ matrix.lane }}-${{ github.event_name }}-${{ github.ref }}
