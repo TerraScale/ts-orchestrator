@@ -77,11 +77,10 @@ bash "$previous" ts-gru-1 > "$work/previous.log" 2>&1 || { tail -20 "$work/previ
 [[ $(tail -n 1 "$MONITORING_HOSTS_LOG") == ts-gru-1 ]]
 mkdir "$work/shipped"
 tar -xzf "$MONITORING_SHIPPED" -C "$work/shipped"
-for unit in ts-prometheus ts-alertmanager ts-alert-delivery; do
-  expected="$work/shipped/rendered/ts-gru-1/$unit.service"
-  [[ -f $expected ]] || expected="$(dirname "$previous")/$unit.service"
-  cmp "$expected" "/etc/systemd/system/$unit.service"
+for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service ts-alert-delivery-token.path ts-alert-delivery-token.service; do
+  cmp "$work/shipped/production/$unit" "/etc/systemd/system/$unit"
 done
+[[ ! -e /etc/ts-monitoring/production/alertmanager.env ]]
 grep -Eq "^enable ts-prometheus\.service ts-alertmanager\.service ts-alert-delivery\.service( |$)" "$MONITORING_REMOVAL_LOG"
 cmp "$(dirname "$previous")/alertmanager.yml" /etc/ts-monitoring/production/alertmanager.yml
 /usr/local/lib/ts-monitoring/prometheus --version > /dev/null
