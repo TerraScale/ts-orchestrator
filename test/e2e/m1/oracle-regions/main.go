@@ -345,7 +345,7 @@ func operatorRelease(ctx context.Context, fleet *oraclehost.Fleet, binary, repo,
 	if err := os.WriteFile(inventoryPath, inventory, 0o644); err != nil {
 		return "", err
 	}
-	if output, err := exec.CommandContext(ctx, binary, "node", "list", "build", "1", inventoryPath, listPath).CombinedOutput(); err != nil {
+	if output, err := exec.CommandContext(ctx, binary, "node", "list", "build", strconv.FormatUint(nodelist.StatusAt(fleet.Hosts[0].State("")).Sequence+1, 10), inventoryPath, listPath).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("ts-orch node list build: %w: %s", err, output)
 	}
 	list, err := os.ReadFile(listPath)
@@ -385,7 +385,7 @@ func operatorRelease(ctx context.Context, fleet *oraclehost.Fleet, binary, repo,
 		build = append([]string{"sudo", "-H", "-u", fmt.Sprintf("#%d", uid)}, build...)
 	}
 	if output, err := exec.CommandContext(ctx, build[0], build[1:]...).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build the release that embeds node list sequence 1: %w: %s", err, output)
+		return "", fmt.Errorf("build the release that embeds the enrolled node list: %w: %s", err, output)
 	}
 	release := filepath.Join(out, "terrascale-orchestrator")
 	require(revision(release) == revision(binary), "the release embedding the node list has revision %s, want %s", revision(release), revision(binary))
@@ -409,30 +409,54 @@ func edgeAnswer(ctx context.Context, host *oraclehost.Host, ca, url string) stri
 }
 
 func unlisted(ctx context.Context, fleet *oraclehost.Fleet, want, ca string) {
+	shipped, err := nodelist.Decode([]byte(m1.NodeList))
+	must(err)
 	managers, workers := roles(fleet)
 	for _, host := range fleet.Hosts {
 		healthy(ctx, host, want)
-		nodeListSequence(ctx, host, 0)
+		nodeListSequence(ctx, host, shipped.Sequence)
 	}
 	for _, manager := range managers {
 		whoamiBackend(ctx, manager, ca)
 	}
 	for _, worker := range workers {
 		ready, page := edgeAnswer(ctx, worker, ca, "http://127.0.0.1/edge/ready"), edgeAnswer(ctx, worker, ca, "http://whoami.e2e.test/")
-		require(ready == "503" && page == "404", "%s without a node list: edge readiness %s and whoami %s, want 503 and 404 (no route, so no backend reached)", worker.Name, ready, page)
+		require(ready == "503" && page == "404", "%s without an enrolled publisher: edge readiness %s and whoami %s, want 503 and 404 (no route, so no backend reached)", worker.Name, ready, page)
 	}
-	step("shipped node list (sequence 0, as production) on every host: release health ok everywhere, managers serve whoami as on main, workers' edges route nothing and stay release-healthy")
+	step("shipped node list on every host: release health ok everywhere, managers serve whoami, unenrolled publishers leave workers with readiness 503 and routes 404")
 }
 
 func installEdgeCert(fleet *oraclehost.Fleet) string {
-	material, err := fleet.EdgeMaterial("whoami.e2e.test")
-	must(err)
-	for _, host := range fleet.Hosts {
-		dir := host.State("edge-certs")
-		must(os.MkdirAll(dir, 0o700))
-		must(os.WriteFile(filepath.Join(dir, "whoami.e2e.test"), material, 0o600))
+	names := []string{"whoami.e2e.test", "api.terrascale.tech", "dash.terrascale.tech", "auth.terrascale.tech"}
+	for _, region := range fleet.Regions {
+		names = append(names, region.Name+".api.terrascale.tech")
+	}
+	for _, name := range names {
+		material, err := fleet.EdgeMaterial(name)
+		must(err)
+		for _, host := range fleet.Hosts {
+			dir := host.State("edge-certs")
+			must(os.MkdirAll(dir, 0o700))
+			must(os.WriteFile(filepath.Join(dir, name), material, 0o600))
+		}
 	}
 	return filepath.Join(fleet.Work, "ca.pem")
+}
+
+func publicNames(ctx context.Context, fleet *oraclehost.Fleet, ca string) {
+	for _, host := range fleet.Hosts {
+		status := edgeAnswer(ctx, host, ca, "http://127.0.0.1/edge/ready")
+		output, err := exec.CommandContext(ctx, "ip", "netns", "exec", host.Namespace, "curl", "--noproxy", "*", "-sS", "--max-time", "5", "http://"+host.NetBird+":9108/edge/ready").CombinedOutput()
+		must(err)
+		step("%s /edge/ready=%s inventory=%s", host.Name, status, bytes.TrimSpace(output))
+		require(status == "200", "%s edge readiness %s: %s", host.Name, status, output)
+		for _, name := range []string{"api.terrascale.tech", host.Region.Name + ".api.terrascale.tech", "dash.terrascale.tech", "auth.terrascale.tech"} {
+			output, err := exec.CommandContext(ctx, "ip", "netns", "exec", host.Namespace, "curl", "-fsS", "--max-time", "5", "--cacert", ca, "--resolve", name+":443:127.0.0.1", "https://"+name+"/").CombinedOutput()
+			must(err)
+			require(bytes.Contains(output, []byte("Host: "+name+"\r\n")) || bytes.Contains(output, []byte("Host: "+name+"\n")), "%s TLS %s returned %s", host.Name, name, output)
+			step("%s TLS %s -> 200, Host echoed by backend", host.Name, name)
+		}
+	}
 }
 
 func whoamiBody(ctx context.Context, host *oraclehost.Host, ca string) ([]byte, error) {
@@ -522,6 +546,7 @@ func ready(ctx context.Context, fleet *oraclehost.Fleet, want, ca string) {
 		require(got == backends[worker.Region.Name], "%s balanced whoami to %q, want its manager's backend %q", worker.Name, got, backends[worker.Region.Name])
 	}
 	step("JetStream on managers; every host's edge listens and each worker balances whoami to its manager's backend")
+	publicNames(ctx, fleet, ca)
 }
 
 func main() {
@@ -672,7 +697,8 @@ func main() {
 	must(errors.Join(<-applies, <-applies))
 	unlisted(ctx, fleet, first, ca)
 	must(<-release)
-	step("operator built the release embedding node list sequence 1 from every host's ts-orch node keys and ts-orch node list build")
+	enrolledSequence := nodelist.StatusAt(fleet.Hosts[0].State("")).Sequence + 1
+	step("operator built the release enrolling every host with ts-orch node keys and ts-orch node list build")
 	for _, host := range fleet.Hosts {
 		before := host.LastRun()
 		must(host.Install(released))
@@ -680,8 +706,8 @@ func main() {
 		_, err := host.WaitReady(ctx, before, first)
 		must(err)
 		healthy(ctx, host, first)
-		nodeListSequence(ctx, host, 1)
-		step("%s restarted on the release to READY, release health ok and node list sequence 1 adopted", host.Name)
+		nodeListSequence(ctx, host, enrolledSequence)
+		step("%s restarted on the release to READY, release health ok and enrolled node list adopted", host.Name)
 	}
 	ready(ctx, fleet, first, ca)
 
@@ -774,6 +800,7 @@ func workload(specFile, imagesFile string) map[string]any {
 	must(err)
 	must(json.Unmarshal(data, &images))
 	spec["image"] = images[spec["name"].(string)][runtime.GOARCH]
+	spec["hostnames"] = []string{"whoami.e2e.test", "api.terrascale.tech", "dash.terrascale.tech", "auth.terrascale.tech"}
 	return spec
 }
 

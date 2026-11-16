@@ -24,7 +24,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -196,14 +195,6 @@ func syncEdgeInventory(ctx context.Context, state, region string, publish func(m
 	}
 }
 
-// edgeRoutes maps every hostname a service declares to its published port,
-// and every postgres hostname to its postgres port. The oldest service keeps
-// a hostname another service also claims, so a later spec cannot take over
-// traffic (apply refuses that too). On a host in region, every declared web
-// or postgres hostname H also routes <region>.H, so each region's edge serves its own
-// regional names with no per-region spec; a declared hostname wins over a
-// derived one, and H whose first label already names a catalog region
-// derives nothing.
 func edgeRoutes(services []*api.Service, region string) (web, postgres map[string]int) {
 	web, postgres, _ = edgeRouteTables(services, region)
 	return web, postgres
@@ -219,8 +210,7 @@ func edgeRouteTables(services []*api.Service, region string) (web, postgres map[
 	owners, derivedOwners := map[string]string{}, map[string]string{}
 	derived, derivedPG := map[string]int{}, map[string]int{}
 	derive := func(table map[string]int, host string, port int) {
-		first, _, _ := strings.Cut(host, ".")
-		if _, regional := catalog.LookupName(strings.ToLower(first)); region != "" && !regional {
+		if region != "" && (host == "api.terrascale.tech" || host == "pg.terrascale.tech") {
 			if _, owned := table[region+"."+host]; !owned {
 				table[region+"."+host] = port
 			}
@@ -232,7 +222,7 @@ func edgeRouteTables(services []*api.Service, region string) (web, postgres map[
 		if svc.Spec.Endpoint != nil {
 			ports = svc.Spec.Endpoint.Ports
 		}
-		port, _ := strconv.Atoi(labels[swarmruntime.LabelPort]) // a spec using ${PORT} publishes none
+		port, _ := strconv.Atoi(labels[swarmruntime.LabelPort])
 		if len(ports) != 0 {
 			port = int(ports[0].PublishedPort)
 		}
