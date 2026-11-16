@@ -332,15 +332,18 @@ try:
     post_alerts([incident])
     await_event("a firing topology incident reaches exactly one relay", lambda: len(groups("firing", {"RuntimePeerTopologyMismatch"})) == 1, seconds=20)
     post_alerts([incident], ends=datetime.now(UTC).isoformat())
-    proxy = launch("ack-proxy", [str(work / "metrics"), "ackdrop", "127.0.0.5:4223", addresses[0] + ":4223"])
-    await_event("the budget proxy that loses one write acknowledgement is ready", lambda: any("ack proxy ready" in line for line in proxy.lines))
-    lost = relay_process("relay-lost-ack", "127.0.0.5", work / "lost-ack" / "relay", work / "sjc" / "alertmanager.env")
-    relays.append(lost)
-    await_event("a fleet relay behind that proxy starts", lambda: "relay-lost-ack" in ready)
-    sent = len(emails)
-    assert post_relay("127.0.0.5", "lost-ack", "LostAck") == 202
-    await_event("a reservation whose write acknowledgement is lost is read back and emailed once", lambda: [m[2:] for m in mailed() if m[0] == "127.0.0.5"] == [("true", "")], seconds=15)
-    assert len(emails) == sent + 1 and any("dropped publish ack" in line for line in proxy.lines), (len(emails) - sent, proxy.lines)
+    for mode, address, description in (
+        ("lose-ack", "127.0.0.5", "a reservation whose write acknowledgement is lost is read back and emailed once"),
+        ("slow-read", "127.0.0.6", "a budget store that answers the ledger read after 2.5s still emails"),
+    ):
+        proxy = launch("budget-proxy-" + mode, [str(work / "metrics"), "budget-proxy", mode, address + ":4223", addresses[0] + ":4223"])
+        await_event(f"the {mode} budget proxy is ready", lambda: any("budget proxy ready" in line for line in proxy.lines))
+        relays.append(relay_process("relay-" + mode, address, work / mode / "relay", work / "sjc" / "alertmanager.env"))
+        await_event(f"a fleet relay behind the {mode} proxy starts", lambda: "relay-" + mode in ready)
+        sent = len(emails)
+        assert post_relay(address, mode, "Budget" + mode.title().replace("-", "")) == 202
+        await_event(description, lambda: [m[2:] for m in mailed() if m[0] == address] == [("true", "")], seconds=15)
+        assert len(emails) == sent + 1 and any(("dropped publish ack" if mode == "lose-ack" else "delayed ledger read") in line for line in proxy.lines), (len(emails) - sent, proxy.lines)
     names = {f"JourneyBudget{index}" for index in range(20)}
     unavailable = len([m for m in mailed() if m[3] == "budget unavailable"])
     budget_write_latency(True)
@@ -448,7 +451,7 @@ try:
     later = sum("production alert push failed" in line for relay in relays for line in relay.lines)
     late = groups("firing", {"LaneLatePush"})
     assert len(alive) == 2 and len(pushes()) == before + 2 and later == failed + 1 and [e[6] for e in late] == ["false", "true"] and len({e[0] for e in late}) == 1, (len(pushes()) - before, later - failed, late)
-    print(f"monitoring: scaled Alertmanager timings x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; a missing mesh token withholds email and pages, copy-token installs it without Vault; topology incident firing then resolved across the region loss -> one notification each; an HTTP/2 provider that answers just inside the deadline pushes once, and one that never answers is a single 502 that Alertmanager retries before the next peer sends, with both surviving Alertmanagers up; twenty groups at 400ms write latency reserve without a budget-unavailable page; fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; hung budget store + 13 concurrent notifications -> 13 pushes and 13 withheld emails; old-layout relay still emails from its ledger, and when that ledger cannot write it withholds every email as budget unavailable; a reservation whose write acknowledgement is lost is read back and emailed once; passed")
+    print(f"monitoring: scaled Alertmanager timings x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; a missing mesh token withholds email and pages, copy-token installs it without Vault; topology incident firing then resolved across the region loss -> one notification each; an HTTP/2 provider that answers just inside the deadline pushes once, and one that never answers is a single 502 that Alertmanager retries before the next peer sends, with both surviving Alertmanagers up; twenty groups at 400ms write latency reserve without a budget-unavailable page; fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; hung budget store + 13 concurrent notifications -> 13 pushes and 13 withheld emails; old-layout relay still emails from its ledger, and when that ledger cannot write it withholds every email as budget unavailable; a reservation whose write acknowledgement is lost is read back and emailed once, and a ledger read answered after 2.5s still emails; passed")
 finally:
     for server in servers:
         server.shutdown()

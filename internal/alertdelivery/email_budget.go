@@ -32,6 +32,7 @@ const (
 	budgetKey           = "ledger"
 	digestKey           = "daily-digest"
 	budgetDial          = 2 * time.Second
+	budgetDeadline      = 5 * time.Second
 )
 
 type withheld int
@@ -121,8 +122,8 @@ func (b *emailBudget) openStore(ctx context.Context) (reservationStore, error) {
 	return shared, nil
 }
 
-func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.Duration) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+func (b *emailBudget) reserveEmail(parent context.Context, key string, window time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, budgetDeadline)
 	defer cancel()
 	store, err := b.openStore(ctx)
 	if err != nil {
@@ -131,9 +132,7 @@ func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.
 	defer store.close()
 	id := rand.Text()
 	for {
-		call, stop := context.WithTimeout(ctx, budgetDial)
-		reservations, revision, err := store.load(call)
-		stop()
+		reservations, revision, err := store.load(ctx)
 		if err != nil {
 			b.dropShared(store)
 			return "", err
@@ -163,11 +162,9 @@ func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.
 		if err != nil {
 			return "", err
 		}
-		call, stop = context.WithTimeout(ctx, budgetDial)
-		conflict, err := store.save(call, data, revision)
-		stop()
+		conflict, err := store.save(ctx, data, revision)
 		if err != nil {
-			landed := committed(ctx, store, id)
+			landed := committed(parent, store, id)
 			b.dropShared(store)
 			if landed {
 				return "", nil
@@ -180,10 +177,10 @@ func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.
 	}
 }
 
-func committed(ctx context.Context, store reservationStore, id string) bool {
-	call, stop := context.WithTimeout(ctx, budgetDial)
-	defer stop()
-	reservations, _, err := store.load(call)
+func committed(parent context.Context, store reservationStore, id string) bool {
+	ctx, cancel := context.WithTimeout(parent, budgetDeadline)
+	defer cancel()
+	reservations, _, err := store.load(ctx)
 	return err == nil && slices.ContainsFunc(reservations, func(entry emailReservation) bool { return entry.ID == id })
 }
 

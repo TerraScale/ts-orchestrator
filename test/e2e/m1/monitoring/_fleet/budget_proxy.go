@@ -10,19 +10,23 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
-var publishAck = []byte(`{"stream":"KV_ts-alert-email","seq":`)
+var (
+	publishAck = []byte(`{"stream":"KV_ts-alert-email","seq":`)
+	ledgerRead = []byte("Nats-Subject: $KV.ts-alert-email.ledger")
+)
 
-func dropFirstAck(ctx context.Context, listen, upstream string) error {
+func budgetProxy(ctx context.Context, mode, listen, upstream string) error {
 	listener, err := net.Listen("tcp", listen)
 	if err != nil {
 		return err
 	}
 	stop := context.AfterFunc(ctx, func() { _ = listener.Close() })
 	defer stop()
-	var dropped atomic.Bool
-	fmt.Println("ack proxy ready")
+	var fired atomic.Bool
+	fmt.Println("budget proxy ready")
 	for {
 		client, err := listener.Accept()
 		if err != nil {
@@ -41,13 +45,13 @@ func dropFirstAck(ctx context.Context, listen, upstream string) error {
 			_ = server.Close()
 		}()
 		go func() {
-			forwardServer(client, server, &dropped)
+			forwardServer(client, server, mode, &fired)
 			_ = client.Close()
 		}()
 	}
 }
 
-func forwardServer(client io.Writer, server io.Reader, dropped *atomic.Bool) {
+func forwardServer(client io.Writer, server io.Reader, mode string, fired *atomic.Bool) {
 	reader := bufio.NewReader(server)
 	for {
 		line, err := reader.ReadBytes('\n')
@@ -64,9 +68,13 @@ func forwardServer(client io.Writer, server io.Reader, dropped *atomic.Bool) {
 			if _, err := io.ReadFull(reader, payload); err != nil {
 				return
 			}
-			if bytes.Contains(payload, publishAck) && dropped.CompareAndSwap(false, true) {
+			switch {
+			case mode == "lose-ack" && bytes.Contains(payload, publishAck) && fired.CompareAndSwap(false, true):
 				fmt.Println("dropped publish ack")
 				continue
+			case mode == "slow-read" && bytes.Contains(payload, ledgerRead) && fired.CompareAndSwap(false, true):
+				<-time.After(2500 * time.Millisecond)
+				fmt.Println("delayed ledger read 2.5s")
 			}
 			line = append(line, payload...)
 		}
