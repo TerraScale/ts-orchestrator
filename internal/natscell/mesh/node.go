@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"maps"
 	"math"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -153,6 +154,7 @@ type config struct {
 	clusterPort, localPort int
 	seeds                  map[string][]string
 	routes                 []string
+	vcn                    netip.Prefix
 	ca                     *CA
 	terrabaseToken         string  // TerraBase's client token, from Vault
 	applier                Applier // nil on a worker, which serves no region requests
@@ -173,6 +175,9 @@ type Node struct {
 	tls             *tls.Config
 	server          *server.Server
 	conn            *nats.Conn
+	membershipConn  *nats.Conn
+	gossip          *inRegionGossip
+	rejectedRoutes  atomic.Int64
 	fabric          *nats.Conn
 	monitor         *nats.Conn
 	certificateConn *nats.Conn
@@ -244,7 +249,14 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
-	options, err := serverOptions(cfg, tlsConfig, secret, fabricSecret, alertsSecret)
+	membershipSecret := ""
+	if cfg.applier != nil {
+		if membershipSecret, err = persistentToken(cfg.dir, "membership.token"); err != nil {
+			return nil, err
+		}
+	}
+	gossip := newInRegionGossip(cfg.region, time.Now())
+	options, err := serverOptions(cfg, tlsConfig, secret, fabricSecret, alertsSecret, membershipSecret, gossip)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +282,7 @@ func start(cfg config) (_ *Node, err error) {
 	if !embedded.ReadyForConnections(10 * time.Second) {
 		return nil, log.failure()
 	}
-	conn, err := dialLocal(cfg.localPort, orchUser, secret)
+	conn, err := dialLocal(cfg.localPort, OrchUser, secret)
 	if err != nil {
 		return nil, err
 	}
@@ -297,8 +309,20 @@ func start(cfg config) (_ *Node, err error) {
 			return nil, err
 		}
 	}
+	var membershipConn *nats.Conn
+	if cfg.applier != nil {
+		membershipConn, err = dialLocal(cfg.localPort, membershipUser, membershipSecret)
+		if err != nil {
+			conn.Close()
+			fabric.Close()
+			if monitor != nil {
+				monitor.Close()
+			}
+			return nil, err
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
+	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, membershipConn: membershipConn, gossip: gossip, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
 		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{})}
 	if err := node.serveClockReports(); err != nil {
 		node.closeConns()
@@ -349,9 +373,12 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".fence"] = func(m *nats.Msg) { node.handleBootstrapFence(m) }
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".clear"] = func(m *nats.Msg) { node.handleBootstrapClear(m) }
+	if cfg.applier == nil {
+		handlers[regionRoutesSubject(cfg.region)] = node.receiveRegionRoutes
+	}
 	for subject, handler := range handlers {
 		var err error
-		if subject == protocol.MeshWorkerPrefix+cfg.region {
+		if subject == protocol.MeshWorkerPrefix+cfg.region || subject == regionRoutesSubject(cfg.region) {
 			_, err = conn.Subscribe(subject, handler)
 		} else {
 			_, err = conn.QueueSubscribe(subject, cfg.region, handler)
@@ -372,6 +399,7 @@ func start(cfg config) (_ *Node, err error) {
 	if cfg.applier != nil {
 		node.goWork(func() { node.refreshJoined(ctx) })
 	}
+	node.goWork(node.regionRoutes)
 	return node, nil
 }
 

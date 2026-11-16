@@ -157,7 +157,7 @@ func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseTok
 		slog.WarnContext(ctx, "mesh cluster advertises no NetBird address", "error", err)
 	}
 	return StartRegionalHost(RegionalHost{State: state, Region: region, Server: name, CA: ca,
-		TerraBaseToken: terrabaseToken, Seeds: seeds, Routes: routes,
+		TerraBaseToken: terrabaseToken, Seeds: seeds, Routes: routes, VCN: cluster.VCN,
 		ClusterAddress: advertise, Address: NetBirdAddress, Worker: cluster.Worker})
 }
 
