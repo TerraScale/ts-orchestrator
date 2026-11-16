@@ -28,7 +28,7 @@ root = Path(__file__).resolve().parents[4]
 counter_alerts = {"TerraBaseBackupFailed", "TerraBaseBackupHoles", "TerraBaseBackupDrillFailed", "TerraBaseReplicaDiverged", "AuthEmailProviderExhausted"}
 budget_alerts = {"AlertDeliveryEmailBudgetExhausted", "AlertDeliveryEmailBudgetUnavailable"}
 handled_line = re.compile(r'production alert notification handled status=(\w+) alerts=(\d+) group=(\w+) alertname=(\S+) region=(\S*) push=(\w+)')
-email_line = re.compile(r'production alert email group=(\w+) sent=(\w+) reason="?([^"]*)"?$')
+email_line = re.compile(r'production alert email group=(\w+) sent=(\w+) reason="?([^"\n]*)"?$')
 peer_timeout = 6.0
 notification_deadline = 4.0
 push_line = re.compile(r'^push received proto=(\S+) body=')
