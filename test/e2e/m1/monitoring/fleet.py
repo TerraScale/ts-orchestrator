@@ -29,13 +29,14 @@ counter_alerts = {"TerraBaseBackupFailed", "TerraBaseBackupHoles", "TerraBaseBac
 budget_alerts = {"AlertDeliveryEmailBudgetExhausted", "AlertDeliveryEmailBudgetUnavailable"}
 handled_line = re.compile(r'production alert notification handled status=(\w+) alerts=(\d+) group=(\w+) alertname=(\S+) region=(\S*) push=(\w+)')
 email_line = re.compile(r'production alert email group=(\w+) sent=(\w+) reason="?([^"\n]*)"?$')
-peer_timeout = 6.0
-notification_deadline = 4.0
+peer_timeout = 15.0
+notification_deadline = 10.0
+scale = {"group_wait": 10, "group_interval": 2.5, "repeat_interval": 2.5}
 push_line = re.compile(r'^push received proto=(\S+) body=')
 
 
-def format_scaled(amount, unit):
-    seconds = amount * {"ms": 0.001, "s": 1, "m": 60, "h": 3600}[unit] / 10
+def format_scaled(amount, unit, divisor):
+    seconds = amount * {"ms": 0.001, "s": 1, "m": 60, "h": 3600}[unit] / divisor
     if seconds == 0:
         return "0s"
     if seconds < 1:
@@ -54,7 +55,7 @@ def format_scaled(amount, unit):
 def scale_alertmanager(text):
     return re.sub(
         r"(group_wait|group_interval|repeat_interval): (\d+)(ms|s|m|h)",
-        lambda match: f"{match.group(1)}: {format_scaled(int(match.group(2)), match.group(3))}",
+        lambda match: f"{match.group(1)}: {format_scaled(int(match.group(2)), match.group(3), scale[match.group(1)])}",
         text,
     )
 
@@ -296,7 +297,7 @@ try:
         (directory / "prometheus.yml").write_text(json.dumps(config))
         (directory / "rules.yml").write_text(json.dumps(generated))
         (directory / "alertmanager.yml").write_text(scale_alertmanager((root / "deploy/observability/production/alertmanager.yml").read_text().replace("127.0.0.1:9094", address + ":9094")))
-        command = [str(tools / "alertmanager"), "--config.file=" + str(directory / "alertmanager.yml"), "--storage.path=" + str(directory / "alerts"), "--web.listen-address=" + address + ":9093", "--cluster.listen-address=" + address + ":9095", "--cluster.advertise-address=" + address + ":9095", "--cluster.peer-timeout=6s"]
+        command = [str(tools / "alertmanager"), "--config.file=" + str(directory / "alertmanager.yml"), "--storage.path=" + str(directory / "alerts"), "--web.listen-address=" + address + ":9093", "--cluster.listen-address=" + address + ":9095", "--cluster.advertise-address=" + address + ":9095", "--cluster.peer-timeout=15s"]
         command.extend("--cluster.peer=" + a + ":9095" for a in addresses if a != address)
         alertmanagers.append(launch("alertmanager-" + region, command))
         prometheuses.append(launch("prometheus-" + region, [str(tools / "prometheus"), "--config.file=" + str(directory / "prometheus.yml"), "--storage.tsdb.path=" + str(directory / "data"), "--web.listen-address=" + address + ":9090"], directory))
@@ -411,8 +412,8 @@ try:
     before = len(pushes())
     plan_push({"hold": notification_deadline - 0.2})
     post_alerts([{"alertname": "LaneSlowPush", "service": "ts-orch", "region": "global", "severity": "critical"}])
-    await_event("a provider that replies just inside the deadline yields one notification", lambda: len(pushes()) == before + 1 and len(groups("firing", {"LaneSlowPush"})) == 1, seconds=20)
-    quiet_until = time.monotonic() + peer_timeout * 2
+    await_event("a provider that replies just inside the deadline yields one notification", lambda: len(pushes()) == before + 1 and len(groups("firing", {"LaneSlowPush"})) == 1, seconds=notification_deadline + peer_timeout)
+    quiet_until = time.monotonic() + peer_timeout + 2
     while time.monotonic() < quiet_until:
         if len(pushes()) != before + 1:
             raise RuntimeError(f"slow push duplicated: {len(pushes()) - before}")
@@ -429,8 +430,8 @@ try:
     failed = sum("production alert push failed" in line for relay in relays for line in relay.lines)
     plan_push({"hang": True})
     post_alerts([{"alertname": "LaneLatePush", "service": "ts-orch", "region": "global", "severity": "critical"}])
-    await_event("a page whose push outlives the deadline is a 502 that Alertmanager retries before the next peer sends", lambda: len([e for e in groups("firing", {"LaneLatePush"}) if e[6] == "true"]) == 1 and len(pushes()) == before + 2, seconds=20)
-    quiet_until = time.monotonic() + peer_timeout * 2
+    await_event("a page whose push outlives the deadline is a 502 that Alertmanager retries before the next peer sends", lambda: len([e for e in groups("firing", {"LaneLatePush"}) if e[6] == "true"]) == 1 and len(pushes()) == before + 2, seconds=notification_deadline + peer_timeout)
+    quiet_until = time.monotonic() + peer_timeout + 2
     while time.monotonic() < quiet_until:
         if len(pushes()) != before + 2:
             raise RuntimeError(f"late push duplicated: {len(pushes()) - before}")

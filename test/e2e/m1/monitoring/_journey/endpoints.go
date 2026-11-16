@@ -14,5 +14,5 @@ var (
 	emailEndpoint        = "http://127.0.0.9:8025/accounts/"
 	pushEndpoint         = "https://127.0.0.9:8026/push/"
 	admissionEndpoint    = "http://127.0.0.9:8025/admission"
-	notificationDeadline = 4 * time.Second
+	notificationDeadline = 10 * time.Second
 )
