@@ -1,8 +1,6 @@
 name: Outside probe
 
 on:
-  schedule:
-    - cron: '3,8,13,18,23,28,33,38,43,48,53,58 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -11,7 +9,6 @@ concurrency:
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
   probe:
@@ -19,21 +16,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Check out
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-
-      - name: Install the pinned Go toolchain
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
-        with:
-          go-version-file: go.mod
-
-      - name: Probe public endpoints and the monitoring heartbeat
+      - name: Read the outside probe report
         shell: bash
-        env:
-          TS_ALERTS_NTFY_TOPIC: ${{ secrets.TS_ALERTS_NTFY_TOPIC }}
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          go run ./scripts/ci/outsideprobe | tee -a "$GITHUB_STEP_SUMMARY"
+          curl --fail --silent --show-error https://ts-orchestrator-outside-probe.terrascale.workers.dev/ | tee -a "$GITHUB_STEP_SUMMARY"
