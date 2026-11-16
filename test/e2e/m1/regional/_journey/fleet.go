@@ -31,6 +31,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 )
 
 var fleetWeb = map[string]int{"dash.e2e.test": 18101, "auth.e2e.test": 18103}
@@ -784,6 +786,170 @@ func (c fleetClient) stoppedPeer(ctx context.Context, founder, worker *fleetProc
 	return signal(worker, syscall.SIGCONT)
 }
 
+func (c fleetClient) rawConn(host *fleetProcess, proto string) (*tls.Conn, error) {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", net.JoinHostPort(host.address, "443"), &tls.Config{RootCAs: c.roots, ServerName: "dash.e2e.test", NextProtos: []string{proto}})
+	if err != nil {
+		return nil, err
+	}
+	return conn, conn.SetDeadline(time.Now().Add(10 * time.Second))
+}
+
+func (c fleetClient) shortGRPC(ctx context.Context, through *fleetProcess) (string, error) {
+	transport := &http.Transport{ForceAttemptHTTP2: true, Proxy: nil, TLSClientConfig: &tls.Config{RootCAs: c.roots}}
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(through.address, "443"))
+	}
+	defer transport.CloseIdleConnections()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://dash.e2e.test/journey.Service/Short", bytes.NewReader([]byte{0, 0, 0, 0, 0}))
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Content-Type", "application/grpc")
+	response, err := (&http.Client{Transport: transport}).Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || response.ProtoMajor != 2 || response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%s HTTP %d %q, %v", response.Proto, response.StatusCode, body, err)
+	}
+	return string(body), nil
+}
+
+func (c fleetClient) rawGRPC(host *fleetProcess, extra func(limit uint32, used uint32) []hpack.HeaderField) (string, error) {
+	conn, err := c.rawConn(host, "h2")
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	if _, err := io.WriteString(conn, http2.ClientPreface); err != nil {
+		return "", err
+	}
+	framer := http2.NewFramer(conn, conn)
+	framer.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
+	if err := framer.WriteSettings(); err != nil {
+		return "", err
+	}
+	limit := uint32(0)
+	for limit == 0 {
+		frame, err := framer.ReadFrame()
+		if err != nil {
+			return "", err
+		}
+		if settings, ok := frame.(*http2.SettingsFrame); ok && !settings.IsAck() {
+			value, ok := settings.Value(http2.SettingMaxHeaderListSize)
+			if !ok {
+				return "", errors.New("the edge advertised no header list limit")
+			}
+			limit = value
+			if err := framer.WriteSettingsAck(); err != nil {
+				return "", err
+			}
+		}
+	}
+	fields := []hpack.HeaderField{{Name: ":method", Value: "POST"}, {Name: ":scheme", Value: "https"}, {Name: ":authority", Value: "dash.e2e.test"},
+		{Name: ":path", Value: "/journey.Service/LongUnary"}, {Name: "content-type", Value: "application/grpc"}, {Name: "te", Value: "trailers"}}
+	used := uint32(0)
+	for _, field := range fields {
+		used += field.Size()
+	}
+	fields = append(fields, extra(limit, used)...)
+	var block bytes.Buffer
+	encoder := hpack.NewEncoder(&block)
+	for _, field := range fields {
+		if err := encoder.WriteField(field); err != nil {
+			return "", err
+		}
+	}
+	fragments := slices.Collect(slices.Chunk(block.Bytes(), 16384))
+	if err := framer.WriteHeaders(http2.HeadersFrameParam{StreamID: 1, BlockFragment: fragments[0], EndHeaders: len(fragments) == 1}); err != nil {
+		return "", err
+	}
+	for index, fragment := range fragments[1:] {
+		if err := framer.WriteContinuation(1, index == len(fragments)-2, fragment); err != nil {
+			return "", err
+		}
+	}
+	if err := framer.WriteData(1, true, []byte{0, 0, 0, 0, 0}); err != nil {
+		return "", err
+	}
+	for {
+		frame, err := framer.ReadFrame()
+		if err != nil {
+			return "", err
+		}
+		switch frame := frame.(type) {
+		case *http2.MetaHeadersFrame:
+			if frame.StreamID == 1 {
+				return frame.PseudoValue("status"), nil
+			}
+		case *http2.RSTStreamFrame:
+			if frame.StreamID == 1 {
+				return "", fmt.Errorf("stream reset: %v", frame.ErrCode)
+			}
+		case *http2.GoAwayFrame:
+			return "", fmt.Errorf("goaway: %v", frame.ErrCode)
+		}
+	}
+}
+
+func (c fleetClient) malformedUpgrade(host *fleetProcess) (string, error) {
+	conn, err := c.rawConn(host, "http/1.1")
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	if _, err := io.WriteString(conn, "POST /payload HTTP/1.1\r\nHost: dash.e2e.test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n"); err != nil {
+		return "", err
+	}
+	response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		return "", err
+	}
+	response.Body.Close()
+	return strconv.Itoa(response.StatusCode), nil
+}
+
+func (c fleetClient) clientShaped(ctx context.Context, worker, peer *fleetProcess) error {
+	cases := []struct {
+		name string
+		send func() (string, error)
+	}{
+		{"a gRPC request declaring 10 body bytes that sends 5", func() (string, error) {
+			return c.rawGRPC(worker, func(uint32, uint32) []hpack.HeaderField {
+				return []hpack.HeaderField{{Name: "content-length", Value: "10"}}
+			})
+		}},
+		{"an Upgrade request with a malformed chunked body", func() (string, error) { return c.malformedUpgrade(worker) }},
+		{"a gRPC request whose headers fill the ingress limit and overflow the peer's once forwarded", func() (string, error) {
+			return c.rawGRPC(worker, func(limit, used uint32) []hpack.HeaderField {
+				pad := hpack.HeaderField{Name: "x-journey-pad"}
+				pad.Value = strings.Repeat("p", int(limit-used-pad.Size()))
+				return []hpack.HeaderField{pad}
+			})
+		}},
+	}
+	if body, err := c.shortGRPC(ctx, worker); err != nil || body != peer.name {
+		return fmt.Errorf("a short gRPC call through %s did not reach its peer %s: %q, %v", worker.name, peer.name, body, err)
+	}
+	for _, shaped := range cases {
+		if status, err := shaped.send(); err != nil || status != "502" {
+			return fmt.Errorf("%s through %s: status %q, %v, want main's 502", shaped.name, worker.name, status, err)
+		}
+		if err := worker.query(ctx, "peer-down", "peer-down 0"); err != nil {
+			return fmt.Errorf("%s excluded the healthy peer %s: %w", shaped.name, peer.name, err)
+		}
+		if status, body, err := c.get(ctx, worker, "dash.e2e.test"); err != nil || status != http.StatusOK || body != peer.name {
+			return fmt.Errorf("after %s the next request did not reach the peer: HTTP %d %q, %v", shaped.name, status, body, err)
+		}
+		if err := c.ready(ctx, worker, http.StatusOK); err != nil {
+			return fmt.Errorf("after %s: %w", shaped.name, err)
+		}
+	}
+	return worker.query(ctx, "health", "health ok")
+}
+
 func (c fleetClient) readyWithin(ctx context.Context, host *fleetProcess, want int, within time.Duration) error {
 	deadline := time.Now().Add(within)
 	for {
@@ -835,6 +1001,9 @@ func (c fleetClient) stalePeer(ctx context.Context, founder, worker *fleetProces
 	}
 	if err := c.readyWithin(ctx, worker, http.StatusOK, 3*mesh.FleetAdvertiseEvery); err != nil {
 		return fmt.Errorf("a peer advertising again did not count within %s: %w", 3*mesh.FleetAdvertiseEvery, err)
+	}
+	if err := c.clientShaped(ctx, worker, founder); err != nil {
+		return err
 	}
 	if status, body, err := c.do(ctx, worker, http.MethodGet, "https://dash.e2e.test/client503", nil); err != nil || status != http.StatusServiceUnavailable || body != "request-specific failure\n" {
 		return fmt.Errorf("a request-specific 503 through a healthy peer: HTTP %d %q, %v", status, body, err)
@@ -1331,7 +1500,7 @@ func FleetEdgeJourney(root string) error {
 			if status, body, err := client.do(ctx, founder, http.MethodGet, "https://"+netbirdHost+"/", nil); err != nil || status != http.StatusServiceUnavailable || !strings.Contains(body, "NetBird dashboard is preparing") {
 				return fmt.Errorf("a draining host did not serve main's NetBird dashboard handler: HTTP %d %q, %v", status, body, err)
 			}
-			fmt.Printf("ok %s: with a ready peer an unready manager forwards HTTP and WebSockets, a client marker never causes a resend, a DELETE to a peer that never answers costs main's 502 and is not resent, a held port waits for its replacement and a peer that never answers costs main's 502 at %s; with no ready peer draining, hop, NetBird dashboard, hung readiness, missing credential and an unheld restart all take main's path, and a worker that can serve a route neither locally nor through a peer is not ready; in sjc a peer that falls silent or turns unready stops counting for a worker's readiness, health and new requests within its advertisement bound; a request-specific 503 or a request that outlives the header budget never excludes a healthy peer, while a peer edge that refuses connections is excluded until its next advertisement\n", founder.name[3:6], peerLayerBudget)
+			fmt.Printf("ok %s: with a ready peer an unready manager forwards HTTP and WebSockets, a client marker never causes a resend, a DELETE to a peer that never answers costs main's 502 and is not resent, a held port waits for its replacement and a peer that never answers costs main's 502 at %s; with no ready peer draining, hop, NetBird dashboard, hung readiness, missing credential and an unheld restart all take main's path, and a worker that can serve a route neither locally nor through a peer is not ready; in sjc a peer that falls silent or turns unready stops counting for a worker's readiness, health and new requests within its advertisement bound; a request-specific 503, a request that outlives the header budget, or a client's short, malformed or oversized request never excludes a healthy peer, while a peer edge that refuses connections is excluded until its next advertisement\n", founder.name[3:6], peerLayerBudget)
 		}
 	}
 	return nil

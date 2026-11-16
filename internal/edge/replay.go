@@ -96,7 +96,11 @@ func newPeerTransport(e *Edge) *http.Transport {
 		if transport.Protocols != nil && transport.Protocols.HTTP2() {
 			config.NextProtos = []string{"h2", "http/1.1"}
 		}
-		return (&tls.Dialer{NetDialer: &net.Dialer{Timeout: 2 * time.Second}, Config: config}).DialContext(ctx, network, addr)
+		conn, err := (&tls.Dialer{NetDialer: &net.Dialer{Timeout: 2 * time.Second}, Config: config}).DialContext(ctx, network, addr)
+		if unreachable, ok := ctx.Value(peerUnreachableKey{}).(*atomic.Bool); ok && err != nil {
+			unreachable.Store(true)
+		}
+		return conn, err
 	}
 	return transport
 }

@@ -47,10 +47,14 @@ services each interval (5 seconds in production) and again at once when they
 change, so a peer that becomes unready or starts draining is withdrawn
 immediately. A peer counts for new requests and for readiness only while its
 last advertisement is at most two intervals old, so a peer that falls silent
-stops counting one interval after it misses an advertisement. A peer that
-this edge cannot reach at all (the connection to its edge is refused, cannot
-be made, or is reset before any response) stops counting for every route until
-an advertisement from it arrives after the failure. HTTP status codes and slow
+stops counting one interval after it misses an advertisement. A peer whose
+edge this edge cannot connect to (the dial is refused, unreachable or times
+out, or the TLS handshake fails or is reset) stops counting for every route
+until an advertisement from it arrives after the failure. Once a connection
+to the peer exists, nothing that follows counts against the peer: a client's
+request body that is shorter than declared or malformed, headers the
+connection refuses to carry, and any error after request bytes were written
+cost that client main's 502 and leave the peer counting. HTTP status codes and slow
 responses never change whether a peer counts: a 503 from a backend through a
 healthy peer is returned unchanged and the peer keeps receiving requests, and
 a request that outlives the 30-second header budget costs main's 502 without
@@ -166,7 +170,10 @@ unready within the freshness bound, and the manager's next ready advertisement
 restores it. While a DELETE waits on a peer that never answers, a request whose
 peer edge refuses the connection falls back to main's local path and the peer
 stays excluded until its next advertisement; once the DELETE gets main's 502 at
-30 seconds, the peer still serves other routes. A peer that accepts but never
+30 seconds, the peer still serves other routes. A gRPC request that declares more body than it
+sends, an Upgrade request with a malformed chunked body, and a gRPC request
+whose headers fill the ingress's limit and overflow the peer's once forwarded
+each get 502, and the worker keeps forwarding to its manager and stays ready. A peer that accepts but never
 answers costs main's 502 at 30 seconds, not more. With no ready peer, a
 draining manager, a peer hop to it, an unheld backend that restarts while the
 request waits, a host without the peer credential, a host whose readiness probe

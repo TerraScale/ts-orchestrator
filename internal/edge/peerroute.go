@@ -22,6 +22,7 @@ const edgeHopHeader = "X-TerraScale-Edge-Hop"
 const peerLayerBudget = 30 * time.Second
 
 type edgeHopKey struct{}
+type peerUnreachableKey struct{}
 type edgeTargetKey struct{}
 
 type edgeTarget struct {
@@ -264,8 +265,8 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 			}
 		}
 		attempt, cancel := context.WithCancel(budget)
-		connected, consumed := new(atomic.Bool), new(atomic.Bool)
-		out := r.Clone(httptrace.WithClientTrace(attempt, &httptrace.ClientTrace{
+		connected, consumed, unreachable := new(atomic.Bool), new(atomic.Bool), new(atomic.Bool)
+		out := r.Clone(httptrace.WithClientTrace(context.WithValue(attempt, peerUnreachableKey{}, unreachable), &httptrace.ClientTrace{
 			GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
 		}))
 		out.URL.Scheme = "https"
@@ -283,7 +284,9 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 		if r.Context().Err() != nil || budget.Err() != nil {
 			return fail(err)
 		}
-		e.peerDown.Store(address, time.Now())
+		if unreachable.Load() && !connected.Load() {
+			e.peerDown.Store(address, time.Now())
+		}
 		if consumed.Load() || connected.Load() && !resendable(r.Method) {
 			return fail(err)
 		}
