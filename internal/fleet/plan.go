@@ -2,18 +2,19 @@ package fleet
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/TerraScale/ts-orchestrator/internal/edge/geodns"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
-	"github.com/oracle/oci-go-sdk/v65/resourcesearch"
 )
 
 const Owner = "terrascale"
@@ -383,46 +384,29 @@ func observeDNS(ctx context.Context, fleet Fleet) (Report, error) {
 	if err != nil {
 		return report, err
 	}
-	search, err := f.Search()
+	cfg, err := dnsConfig(ctx, fleet, f)
+	if err != nil && !errors.Is(err, errDNSNLB) {
+		return report, err
+	}
+	if err != nil {
+		report.Checks = append(report.Checks, Check{Kind: "dns prerequisites", State: Missing, Details: []string{err.Error()}})
+		return report, nil
+	}
+	client, err := geodns.New(f)
 	if err != nil {
 		return report, err
 	}
-	find := func(what, query string) ([]resourcesearch.ResourceSummary, error) {
-		return list(what, func(page *string) ([]resourcesearch.ResourceSummary, *string, error) {
-			r, err := search.SearchResources(ctx, resourcesearch.SearchResourcesRequest{SearchDetails: resourcesearch.StructuredSearchDetails{Query: common.String(query)}, Page: page})
-			return r.Items, r.OpcNextPage, err
-		})
-	}
-	scope := fmt.Sprintf("compartmentId = '%s'", fleet.DNS.CompartmentID)
-	zones, err := find("zone", fmt.Sprintf("query CustomerDnsZone resources where displayName = '%s' && %s", fleet.DNS.Zone, scope))
+	changes, err := client.Reconcile(ctx, cfg, false)
 	if err != nil {
 		return report, err
 	}
-	report.Checks = append(report.Checks, check("zone", collect(zones, func(r resourcesearch.ResourceSummary) (item, string) {
-		return item{deref(r.DisplayName), r.FreeformTags, true, []ociresource.Key{home.Key("dns-zone", "zone")}}, deref(r.LifecycleState)
-	}), false))
-	policies, err := find("steering policy", "query DnsPolicy resources where "+scope)
-	if err != nil {
-		return report, err
-	}
-	live := collect(policies, func(r resourcesearch.ResourceSummary) (item, string) {
-		name := deref(r.DisplayName)
-		label, _, _ := strings.Cut(name, ".")
-		return item{name, r.FreeformTags, slices.Contains(fleet.DNS.SteeredNames, name), []ociresource.Key{home.Key("steering-policy", label)}}, deref(r.LifecycleState)
-	})
-	steering := check("steering policy", live, true)
-	var absent []string
-	for _, name := range fleet.DNS.SteeredNames {
-		if !slices.ContainsFunc(live, func(it item) bool { return it.desc == name }) {
-			absent = append(absent, name)
+	for _, change := range changes {
+		state := State(change.Action)
+		if state == "" {
+			state = Differs
 		}
+		report.Checks = append(report.Checks, Check{Kind: change.Kind, State: state, Details: []string{change.Name + " " + change.ID}})
 	}
-	steering.Details = append([]string{fmt.Sprintf("%d of %d steered names have a policy, ttl %ds, check https %s", len(fleet.DNS.SteeredNames)-len(absent), len(fleet.DNS.SteeredNames), fleet.DNS.SteeringTTLSeconds, fleet.DNS.HealthCheckPath)}, steering.Details...)
-	if len(absent) > 0 && steering.State != Missing {
-		steering.State = Differs
-		steering.Details = append(steering.Details, "no policy for "+strings.Join(absent, ", "))
-	}
-	report.Checks = append(report.Checks, steering)
 	return report, nil
 }
 

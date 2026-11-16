@@ -88,12 +88,11 @@ it does not claim a production rollout was performed.
 
 ## GeoDNS scope
 
-`ts-orch edge geodns [--plan]` steers the hostnames of every embedded
-first-party declaration that names no regions (`geodns.Hosts`): today
-`dash.terrascale.tech`, `mcp.terrascale.tech` and `platform.terrascale.tech`.
-`auth.terrascale.tech` stays a gru record while ts-auth is confined to gru, and
-`api.terrascale.tech` keeps its TerraBase routing. Each hostname's monitor
-probes `:80/healthz` with its service's first hostname (dash): liveness, because
-the dashboard's `/readyz` includes gru's ts-auth and would drop every region at
-once, and mcp's own paths answer 401. Switch a hostname's Cloudflare record to
-its `<label>.edge.terrascale.tech` CNAME only after every region serves it.
+`ts-orch region apply gru dns` reconciles the fleet document's five global
+names in `edge.terrascale.tech`: dash, auth, api, mcp and platform. One shared
+HTTP monitor probes each region's owned NLB reserved address at :80/readyz
+every 10 seconds. The document's continent assignments determine the first
+choice, with healthy failover to the next nearest region. Public Cloudflare
+names move to DNS-only CNAMEs only after the end-to-end gate passes for every
+hostname and NLB. See [DNS ownership](../oci-reconcile.md#fleet-dns-pass) and
+[the cutover procedure](../network/geodns.md).

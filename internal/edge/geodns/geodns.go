@@ -1,99 +1,39 @@
-// Package geodns plans the OCI DNS traffic-management steering policy that
-// sends each user to the nearest healthy region edge. It only plans: the
-// field names match the OCI DNS and Health Checks REST bodies
-// (CreateSteeringPolicy, CreateHttpMonitor, CreateSteeringPolicyAttachment)
-// so the live apply can send them unchanged.
 package geodns
 
 import (
 	"cmp"
-	"encoding/json"
-	"fmt"
-	"io/fs"
 	"math"
 	"slices"
 	"strings"
 
-	"github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
-// CostTags mark every billed GeoDNS object (zone, health monitors, steering
-// policies) so OCI cost analysis can group them.
-var CostTags = map[string]string{"ts-cost": "edge-geodns"}
-
-// HealthPath is the liveness path every region's edge answers on :80.
-const HealthPath = "/healthz"
-
-// Zone is the subzone delegated from Cloudflare to OCI DNS.
-const Zone = "edge.terrascale.tech"
-
-// Host is a public hostname every region serves and the hostname its health
-// monitor probes: the first hostname of the same service, whose liveness
-// stands for all of them (mcp's own paths answer 401 without a key).
-type Host struct{ Name, Probe string }
-
-// Hosts are the public hostnames every region serves: those of the embedded
-// first-party service declarations that name no regions. A service confined
-// to some regions (ts-auth in gru) keeps its own DNS record.
-func Hosts() ([]Host, error) {
-	files, err := fs.Glob(m1.Files, "services/*.json")
-	if err != nil {
-		return nil, err
-	}
-	var hosts []Host
-	for _, name := range files {
-		data, err := m1.Files.ReadFile(name)
-		if err != nil {
-			return nil, err
-		}
-		var declared struct {
-			Hostnames []string `json:"hostnames"`
-			Regions   []string `json:"regions"`
-		}
-		if err := json.Unmarshal(data, &declared); err != nil {
-			return nil, fmt.Errorf("%s: %w", name, err)
-		}
-		if len(declared.Regions) == 0 {
-			for _, host := range declared.Hostnames {
-				hosts = append(hosts, Host{Name: host, Probe: declared.Hostnames[0]})
-			}
-		}
-	}
-	slices.SortFunc(hosts, func(a, b Host) int { return cmp.Compare(a.Name, b.Name) })
-	return slices.CompactFunc(hosts, func(a, b Host) bool { return a.Name == b.Name }), nil
-}
-
-// Region is one serving region edge.
 type Region struct {
-	Name                string
-	IP                  string
+	Label, IP, APIName  string
+	Continents          []string
 	Latitude, Longitude float64
 }
 
-// area is a GeoNames geoKey with a point that stands for where its users are.
-type area struct {
-	Name     string
-	GeoKey   string
-	Lat, Lng float64
+type Config struct {
+	Zone, CompartmentID, Cell, Owner, HealthPath string
+	Names                                        []string
+	TTL                                          int
+	Regions                                      []Region
 }
 
-// areas lists countries before continents: the first matching case wins, so
-// South and West Asia are not sent the East Asia way.
-var areas = []area{
-	{"India", "1269750", 19.08, 72.88},
-	{"United Arab Emirates", "290557", 25.20, 55.27},
-	{"Saudi Arabia", "102358", 24.71, 46.68},
-	{"Israel", "294640", 31.77, 35.21},
-	{"Turkey", "298795", 41.01, 28.98},
-	{"Africa", "6255146", 2.0, 20.0},
-	{"Asia", "6255147", 35.68, 139.69},
-	{"Europe", "6255148", 50.0, 10.0},
-	{"North America", "6255149", 40.0, -95.0},
-	{"South America", "6255150", -15.0, -55.0},
-	{"Oceania", "6255151", -33.87, 151.21},
+func (c Config) key(kind, name string) ociresource.Key {
+	return ociresource.Key{Region: c.Cell, Kind: kind, Name: name}
 }
 
-// Answer is dns.SteeringPolicyAnswer.
+func (c Config) tags(kind, name string) map[string]string {
+	return ociresource.Ownership{Owner: c.Owner}.Stamp(c.key(kind, name), 1, "").Freeform
+}
+
+func (c Config) owns(key ociresource.Key, tags map[string]string) bool {
+	return ociresource.Ownership{Owner: c.Owner}.Owns(key, ociresource.Tags{Freeform: tags})
+}
+
 type Answer struct {
 	Name  string `json:"name"`
 	Rtype string `json:"rtype"`
@@ -101,29 +41,24 @@ type Answer struct {
 	Pool  string `json:"pool"`
 }
 
-// AnswerData is dns.SteeringPolicy{Filter,Priority}AnswerData.
 type AnswerData struct {
 	AnswerCondition string `json:"answerCondition"`
 	ShouldKeep      *bool  `json:"shouldKeep,omitempty"`
 	Value           *int   `json:"value,omitempty"`
 }
 
-// Case is one dns.SteeringPolicy*RuleCase.
 type Case struct {
-	CaseCondition string       `json:"caseCondition"`
+	CaseCondition string       `json:"caseCondition,omitempty"`
 	AnswerData    []AnswerData `json:"answerData"`
 }
 
-// Rule is one dns.SteeringPolicyRule.
 type Rule struct {
 	RuleType          string       `json:"ruleType"`
-	Description       string       `json:"description,omitempty"`
 	Cases             []Case       `json:"cases,omitempty"`
 	DefaultAnswerData []AnswerData `json:"defaultAnswerData,omitempty"`
 	DefaultCount      *int         `json:"defaultCount,omitempty"`
 }
 
-// Policy is dns.CreateSteeringPolicyDetails.
 type Policy struct {
 	CompartmentID        string            `json:"compartmentId"`
 	DisplayName          string            `json:"displayName"`
@@ -135,115 +70,48 @@ type Policy struct {
 	FreeformTags         map[string]string `json:"freeformTags"`
 }
 
-// Monitor is healthchecks.CreateHttpMonitorDetails.
-type Monitor struct {
-	CompartmentID     string            `json:"compartmentId"`
-	DisplayName       string            `json:"displayName"`
-	Targets           []string          `json:"targets"`
-	Protocol          string            `json:"protocol"`
-	Port              int               `json:"port"`
-	Method            string            `json:"method"`
-	Path              string            `json:"path"`
-	Headers           map[string]string `json:"headers"`
-	IntervalInSeconds int               `json:"intervalInSeconds"`
-	TimeoutInSeconds  int               `json:"timeoutInSeconds"`
-	FreeformTags      map[string]string `json:"freeformTags"`
-}
-
-// Attachment is dns.CreateSteeringPolicyAttachmentDetails.
-type Attachment struct {
-	SteeringPolicyID string `json:"steeringPolicyId"`
-	ZoneID           string `json:"zoneId"`
-	DomainName       string `json:"domainName"`
-	DisplayName      string `json:"displayName"`
-}
-
-// HostPlan is everything one public hostname needs.
-type HostPlan struct {
-	Host       string     `json:"host"`
-	Monitor    Monitor    `json:"monitor"`
-	Policy     Policy     `json:"policy"`
-	Attachment Attachment `json:"attachment"`
-	// Nearest maps each geo area to its first-choice region, for the table.
-	Nearest map[string]string `json:"-"`
-}
-
-// Placeholders stand for IDs that exist only once the live apply creates them.
-const compartment = "<ts-orch compartment OCID>"
-
-// Build plans one steering policy per host over every region; regions keep
-// their order, which is also the order of the no-geo-match fallback.
-func Build(regions []Region, hosts []Host) []HostPlan {
-	label := func(host string) string { return strings.SplitN(host, ".", 2)[0] }
-	answers := make([]Answer, 0, len(regions))
-	targets := make([]string, 0, len(regions))
-	for _, r := range regions {
-		answers = append(answers, Answer{Name: r.Name, Rtype: "A", Rdata: r.IP, Pool: r.Name})
-		targets = append(targets, r.IP)
-	}
-	keep, one := true, 1
+func (c Config) policy(name, monitor string) Policy {
+	var answers []Answer
 	var cases []Case
-	nearest := map[string]string{}
-	for _, a := range areas {
-		ranked := slices.Clone(regions)
-		slices.SortStableFunc(ranked, func(x, y Region) int {
-			return cmp.Compare(km(a.Lat, a.Lng, x.Latitude, x.Longitude), km(a.Lat, a.Lng, y.Latitude, y.Longitude))
+	for _, region := range c.Regions {
+		answers = append(answers, Answer{Name: region.Label, Rtype: "A", Rdata: region.IP, Pool: region.Label})
+		ranked := slices.Clone(c.Regions)
+		slices.SortStableFunc(ranked, func(a, b Region) int {
+			return cmp.Compare(distance(region, a), distance(region, b))
 		})
-		cases = append(cases, Case{CaseCondition: "query.client.geoKey in (geoKey '" + a.GeoKey + "')", AnswerData: priorities(ranked)})
-		nearest[a.Name] = ranked[0].Name
+		for _, continent := range region.Continents {
+			cases = append(cases, Case{CaseCondition: "query.client.geoKey in (geoKey '" + continentKeys[continent] + "')", AnswerData: priorities(ranked)})
+		}
 	}
-	plans := make([]HostPlan, 0, len(hosts))
-	for _, h := range hosts {
-		host := h.Name
-		name := "ts-edge-" + label(host)
-		plans = append(plans, HostPlan{
-			Host: host,
-			Monitor: Monitor{
-				CompartmentID: compartment, DisplayName: name, Targets: targets,
-				// :80 answers /healthz unredirected: a probe of a bare IP has no SNI for
-				// HTTPS. Liveness, not /readyz: the dashboard's readiness includes
-				// gru's ts-auth, which would take every region out of DNS at once.
-				Protocol: "HTTP", Port: 80, Method: "GET", Path: HealthPath,
-				Headers:           map[string]string{"Host": h.Probe},
-				IntervalInSeconds: 30, TimeoutInSeconds: 10,
-				FreeformTags: CostTags,
-			},
-			Policy: Policy{
-				CompartmentID: compartment, DisplayName: name, Template: "ROUTE_BY_GEO", TTL: 30,
-				HealthCheckMonitorID: "<monitor " + name + " OCID>",
-				Answers:              answers,
-				FreeformTags:         CostTags,
-				Rules: []Rule{
-					{RuleType: "FILTER", Description: "drop disabled answers", DefaultAnswerData: []AnswerData{{AnswerCondition: "answer.isDisabled != true", ShouldKeep: &keep}}},
-					{RuleType: "HEALTH", Description: "drop regions failing " + HealthPath},
-					{RuleType: "PRIORITY", Description: "nearest region first, then next nearest", Cases: cases, DefaultAnswerData: priorities(regions)},
-					{RuleType: "LIMIT", Description: "answer with one region", DefaultCount: &one},
-				},
-			},
-			Attachment: Attachment{
-				SteeringPolicyID: "<policy " + name + " OCID>", ZoneID: "<zone " + Zone + " OCID>",
-				DomainName: label(host) + "." + Zone, DisplayName: name,
-			},
-			Nearest: nearest,
-		})
+	cases = append(cases, Case{AnswerData: priorities(c.Regions)})
+	keep, one := true, 1
+	return Policy{
+		CompartmentID: c.CompartmentID, DisplayName: name, Template: "ROUTE_BY_GEO", TTL: c.TTL,
+		HealthCheckMonitorID: monitor, Answers: answers, FreeformTags: c.tags("steering-policy", strings.SplitN(name, ".", 2)[0]),
+		Rules: []Rule{
+			{RuleType: "FILTER", DefaultAnswerData: []AnswerData{{AnswerCondition: "answer.isDisabled != true", ShouldKeep: &keep}}},
+			{RuleType: "HEALTH"},
+			{RuleType: "PRIORITY", Cases: cases},
+			{RuleType: "LIMIT", DefaultCount: &one},
+		},
 	}
-	return plans
 }
 
-// priorities ranks regions 1..n in the given order.
-func priorities(ranked []Region) []AnswerData {
-	data := make([]AnswerData, len(ranked))
-	for i, r := range ranked {
+var continentKeys = map[string]string{
+	"AF": "6255146", "AN": "6255152", "AS": "6255147", "EU": "6255148", "NA": "6255149", "OC": "6255151", "SA": "6255150",
+}
+
+func priorities(regions []Region) []AnswerData {
+	data := make([]AnswerData, len(regions))
+	for i, r := range regions {
 		value := i + 1
-		data[i] = AnswerData{AnswerCondition: "answer.pool == '" + r.Name + "'", Value: &value}
+		data[i] = AnswerData{AnswerCondition: "answer.pool == '" + r.Label + "'", Value: &value}
 	}
 	return data
 }
 
-// km is the great-circle distance between two points.
-func km(lat1, lng1, lat2, lng2 float64) float64 {
+func distance(a, b Region) float64 {
 	rad := math.Pi / 180
-	dLat, dLng := (lat2-lat1)*rad, (lng2-lng1)*rad
-	h := math.Pow(math.Sin(dLat/2), 2) + math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Pow(math.Sin(dLng/2), 2)
+	h := math.Pow(math.Sin((a.Latitude-b.Latitude)*rad/2), 2) + math.Cos(a.Latitude*rad)*math.Cos(b.Latitude*rad)*math.Pow(math.Sin((a.Longitude-b.Longitude)*rad/2), 2)
 	return 2 * 6371 * math.Asin(math.Sqrt(h))
 }

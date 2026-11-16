@@ -162,10 +162,12 @@ region. A resource is document-made when `ociresource.Ownership{Owner:
 `route-table/public-routes`, `route-table/private-routes`,
 `nsg/edge-nsg`, `nsg/host-nsg`, `nsg/node-nsg`, `instance/node`,
 `network-load-balancer/nlb`, `public-ip/nlb`, and in the DNS compartment's
-cell `dns-zone/zone` and `steering-policy/<first label>`, a steering policy
+cell `dns-zone/zone`, `http-monitor/edge`, `dns-record/<region label>`
+and `steering-policy/<first label>`, a steering policy
 being named after its steered name. A resource with any other ownership tag
 is claimed by another owner; one with none is hand-made (foreign). Neither
-is ever changed.
+is ever changed, except that the DNS pass can adopt an unclaimed zone by
+its immutable DNS name while preserving existing records.
 
 `ts-orch region apply <label> <kind>...` runs the named passes of the
 single list `fleet.Passes` once for one region; a bare apply refuses and
@@ -184,6 +186,18 @@ The pass refuses to change a route table that is the VCN's default or that
 any other subnet uses, so the public subnet's routes are never touched. The
 node NSG has no members until nodes join it. How to run and undo it is in
 `docs/oci-reconcile.md`.
+
+`ts-orch region apply gru dns` owns the global DNS pass. It uses the fleet
+DNS compartment, every region's owned NLB reserved address and the document's
+continent assignments. One shared HTTP monitor probes every NLB on :80
+`/readyz` every 10 seconds; all five managed OCI steering policies reference
+it. Healthy answers prefer the assigned region and then the nearest remaining
+region, with TTL 30. Region additions and removals update the monitor,
+policies and owned regional A records on the next apply. Public Cloudflare
+names become DNS-only CNAMEs into the OCI zone only after a separately gated
+cutover; until that gate passes their existing records remain in place.
+See [DNS reconciliation](oci-reconcile.md#fleet-dns-pass) and
+[the cutover procedure](network/geodns.md).
 
 A reconciler on the global leader creates and updates these resources:
 
