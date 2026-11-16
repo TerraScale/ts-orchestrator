@@ -8,6 +8,10 @@ reopens the node it ran before. Runs as root. Entry point:
 `app.RunNode(ctx, args, output)`, dispatched by `case "node"` in
 `internal/cli/cli.go` (`ts-orch node keys|list` stay the node-list tools).
 
+See the [host service inventory](host-service-inventory.md) for what stays
+outside SwarmKit, why it stays there, and which workloads already run as
+services.
+
 Image pulls from `ghcr.io` authenticate as `MarioGK` with the OCI Vault secret
 `gru-1-ghcr-pull-token`, read at pull time from gru-vault with the instance
 principal (every region, cross-region); blob downloads follow GHCR's redirect to
