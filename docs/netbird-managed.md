@@ -292,7 +292,7 @@ authority-ticket gate as the OCI listener; OCI remains available during
 enrollment and upgrades. Enrollment and address changes rebind this listener
 automatically, without a NetBird rollout pin. Losing the local
 mesh address closes it until NetBird reconnects. Managed same-cell
-policies allow TCP 4222, 8080 and 9465 for NATS, ts-auth and TerraBase health;
+policies allow TCP 4222, 8080, 8099 and 9465 for NATS, ts-auth, whoami and TerraBase health;
 sync these policies before applying the pin. Interregion port 7422 uses the
 leaf protocol and separate credentials and cannot replace this probe. Verify
 every target's mesh services and independent OCI SSH recovery path first.

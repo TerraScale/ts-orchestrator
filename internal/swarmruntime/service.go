@@ -239,6 +239,10 @@ func (s ServiceSpec) EveryNode() bool {
 	return slices.Contains(everyNodeServices, s.Name)
 }
 
+func (s ServiceSpec) onePerNode() bool {
+	return s.EveryNode() || len(s.Mounts) != 0 && s.Replicas > 1
+}
+
 // SwarmSpec maps the declaration to an upstream service; the executor
 // re-validates the container on every task.
 func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
@@ -418,7 +422,7 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	spec.Task.Placement = &api.Placement{}
 	switch {
-	case s.Region != "" && (s.EveryNode() || len(s.Mounts) != 0 && s.Replicas > 1):
+	case s.Region != "" && s.onePerNode():
 		spec.Task.Placement.MaxReplicas = 1
 	case s.Region != "":
 		spec.Task.Placement.Constraints = []string{"node.role==manager"}

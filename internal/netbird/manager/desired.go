@@ -207,8 +207,8 @@ func serverAccessPolicies(groups []string) []PolicySpec {
 				Description: cell + " servers → same-region servers: ICMP diagnostics and peer DNS visibility",
 				Protocol:    "icmp", Sources: []string{group}, Destinations: []string{group}},
 			PolicySpec{Name: group + "-to-" + group + "-service-health",
-				Description: cell + " servers → same-region servers: NATS client 4222, ts-auth readiness 8080, TerraBase readiness 9465",
-				Protocol:    "tcp", Ports: []string{"4222", "8080", "9465"}, Sources: []string{group}, Destinations: []string{group}},
+				Description: cell + " servers → same-region servers: NATS client 4222, ts-auth readiness 8080, whoami readiness 8099, TerraBase readiness 9465",
+				Protocol:    "tcp", Ports: []string{"4222", "8080", "8099", "9465"}, Sources: []string{group}, Destinations: []string{group}},
 			PolicySpec{Name: group + "-to-" + group + "-terrabase-peers",
 				Description: "TerraBase internal listener between servers",
 				Protocol:    "tcp", Ports: []string{"8081"}, Sources: []string{group}, Destinations: []string{group}})
