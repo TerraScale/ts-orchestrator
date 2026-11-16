@@ -1,17 +1,14 @@
 package selfupdate
 
 import (
-	"context"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
 	"regexp"
-	"slices"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -119,87 +116,6 @@ func decodeActivation(data []byte) (Activation, error) {
 	return activation, nil
 }
 
-// Activate records a pending activation of a staged release and flips the
-// current link to it. The caller restarts unit afterwards. A second
-// activation is refused while one is pending, unless it is the same target.
-// The caller holds Layout.Lock.
-func Activate(layout Layout, digest, unit string, now time.Time, window time.Duration) (Activation, error) {
-	if window < MinProofWindow || window > MaxProofWindow || !unitRE.MatchString(unit) || now.IsZero() {
-		return Activation{}, fmt.Errorf("%w: activation unit or proof window", ErrInvalid)
-	}
-	// An interrupted rollout restore is finished before the selection
-	// changes again, so its recovery can never overwrite this activation.
-	if err := layout.finishRestores(); err != nil {
-		return Activation{}, err
-	}
-	if pending, exists, err := layout.Pending(); err != nil {
-		return Activation{}, err
-	} else if exists {
-		if pending.Target == digest && pending.Unit == unit {
-			// A retry passes the same gates as a fresh activation: a crash
-			// after a rollback marked the target known bad must not
-			// re-activate it, and unverified bytes never become current.
-			if !now.Before(pending.Deadline) {
-				return Activation{}, fmt.Errorf("%w: activation %s passed its deadline; the watchdog resolves it", ErrInvalid, pending.ActivationID)
-			}
-			if knownBad, err := layout.KnownBad(); err != nil {
-				return Activation{}, err
-			} else if knownBad[digest] {
-				return Activation{}, ErrKnownBad
-			}
-			if err := layout.VerifyRelease(digest); err != nil {
-				return Activation{}, err
-			}
-			if err := secretpreflight.Check(context.Background(), layout.BinaryPath(digest)); err != nil {
-				return Activation{}, err
-			}
-			return pending, layout.flipCurrent(digest)
-		}
-		return Activation{}, fmt.Errorf("%w: activation %s is still pending", ErrInvalid, pending.ActivationID)
-	}
-	if knownBad, err := layout.KnownBad(); err != nil {
-		return Activation{}, err
-	} else if knownBad[digest] {
-		return Activation{}, ErrKnownBad
-	}
-	previous, err := layout.Current()
-	if err != nil {
-		return Activation{}, err
-	}
-	if previous == "" {
-		return Activation{}, fmt.Errorf("%w: seed the baked release before activating another", ErrInvalid)
-	}
-	if previous == digest {
-		return Activation{}, fmt.Errorf("%w: release is already current", ErrInvalid)
-	}
-	for _, release := range []string{previous, digest} {
-		if err := layout.VerifyRelease(release); err != nil {
-			return Activation{}, err
-		}
-	}
-
-	if err := secretpreflight.Check(context.Background(), layout.BinaryPath(digest)); err != nil {
-		return Activation{}, err
-	}
-
-	activation := Activation{
-		Schema: ActivationSchema, ActivationID: entityid.NewAt(now), Unit: unit,
-		Target: digest, Previous: previous, ActivatedAt: now.UTC(), Deadline: now.UTC().Add(window),
-	}
-	encoded, err := protocol.EncodeJSON(activation)
-	if err != nil {
-		return Activation{}, err
-	}
-	if err := writeFileAtomic(layout.activationPath(), encoded, 0o644); err != nil {
-		return Activation{}, err
-	}
-	if err := layout.flipCurrent(digest); err != nil {
-		return activation, err
-	}
-	recordActivation(activation)
-	return activation, nil
-}
-
 type knownBadState struct {
 	Digests []string `json:"digests"`
 }
@@ -226,30 +142,4 @@ func (layout Layout) KnownBad() (map[string]bool, error) {
 		known[digest] = true
 	}
 	return known, nil
-}
-
-func (layout Layout) markKnownBad(digest string) error {
-	data, err := readBounded(layout.knownBadPath(), maxStateBytes)
-	var state knownBadState
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-	case err != nil:
-		return err
-	default:
-		if err := protocol.DecodeStrict(data, &state, maxStateBytes); err != nil {
-			return err
-		}
-	}
-	if slices.Contains(state.Digests, digest) {
-		return nil
-	}
-	state.Digests = append(state.Digests, digest)
-	if len(state.Digests) > maxKnownBad {
-		state.Digests = state.Digests[len(state.Digests)-maxKnownBad:]
-	}
-	encoded, err := protocol.EncodeJSON(state)
-	if err != nil {
-		return err
-	}
-	return writeFileAtomic(layout.knownBadPath(), encoded, 0o644)
 }

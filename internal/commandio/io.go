@@ -2,8 +2,6 @@
 package commandio
 
 import (
-	"context"
-	"errors"
 	"io"
 )
 
@@ -31,26 +29,3 @@ func (writer *Writer) Write(contents []byte) (int, error) {
 }
 
 func (writer *Writer) Err() error { return writer.err }
-
-// Reader checks cancellation around every read, including the final read.
-// Wrapping the source prevents io.Copy from bypassing these checks through a
-// source's WriterTo implementation.
-func Reader(ctx context.Context, source io.Reader) io.Reader {
-	return reader{ctx: ctx, source: source}
-}
-
-type reader struct {
-	ctx    context.Context
-	source io.Reader
-}
-
-func (reader reader) Read(contents []byte) (int, error) {
-	if err := reader.ctx.Err(); err != nil {
-		return 0, err
-	}
-	read, err := reader.source.Read(contents)
-	if canceled := reader.ctx.Err(); canceled != nil {
-		return read, errors.Join(err, canceled)
-	}
-	return read, err
-}

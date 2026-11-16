@@ -16,14 +16,11 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/benchmark"
 	"github.com/TerraScale/ts-orchestrator/internal/callerkey"
 	"github.com/TerraScale/ts-orchestrator/internal/capacity"
-	"github.com/TerraScale/ts-orchestrator/internal/ci/realcaller"
 	"github.com/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard/accesscheck"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/edge/geodns"
-	"github.com/TerraScale/ts-orchestrator/internal/functions"
-	"github.com/TerraScale/ts-orchestrator/internal/image"
 	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
 	"github.com/TerraScale/ts-orchestrator/internal/liveverify"
 	"github.com/TerraScale/ts-orchestrator/internal/logscan"
@@ -44,11 +41,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
-	releasecli "github.com/TerraScale/ts-orchestrator/internal/release/cli"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepreflight"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
-	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
-	selfupdatecli "github.com/TerraScale/ts-orchestrator/internal/selfupdate/cli"
 	"github.com/TerraScale/ts-orchestrator/internal/signedrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
@@ -61,9 +55,6 @@ Runtime:
   alert-delivery         Deliver loopback Alertmanager notifications through Cloudflare Email Sending
   bootstrap-maintenance  Inspect or drive a finite pinned TerraBase bootstrap transaction (root, local socket)
   single-host            Run one SwarmKit manager+worker with containerd and the HTTPS edge
-  managed-runtime-start  Run the admitted root Swarm runtime
-  function-worker        Run one admitted function revision
-  selfupdate             Stage, activate and watch binary-only A/B updates
 
 Operator tooling:
   observe                Inspect authenticated metrics, history, snapshots, cluster and events
@@ -84,18 +75,19 @@ Operator tooling:
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources
   region                 Bring a new region up in one command; verify it serves
-  image                  Validate inputs, build, inspect, and promote images
   netbird                Install clients; manage policies and operator DNS; browserless SSH; audit control-plane paths
-  qualification          Run source-backed operational qualification
   source-digest          Compute the versioned TerraBase source-tree digest
   terrabase              C# TerraBase member CA and member data volumes
   ts-auth                Provision ts-auth's Vault secrets and host firewall
   caller-key             Add, activate, retire, recover and list regional caller keys
   vault                  Store secrets in OCI Vault once; render host files from them
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
-  runtime-priority       Qualify runtime resources and run bounded pressure
 
 Use ts-orch release --help to list its commands.
+`
+
+const releaseUsage = `Usage: ts-orch release <command> [flags]
+
 ts-orch release push sends a main build one region at a time (sjc, fra, gru), waiting for JetStream and the region's services (CI only);
 ts-orch release nudge tells every region's orchestrator to look for a new attested release now; it carries no authority (CI only);
 ts-orch release pin --state /var/lib/ts-orch prints a host's listener pin for that file.
@@ -105,6 +97,9 @@ ts-orch release mesh-check re-proves mesh ping, service apply and HTTPS in every
 ts-orch release manifest --sha <sha> --sequence <n> --out <file> builds a signed-release manifest from a CI release's binaries;
 ts-orch release sign --manifest <file> --key <keyfile> signs a manifest with an SSH key (namespace ts-orch-release);
 ts-orch release verify --manifest <file> [--sig <file>] [--allowed <file>] verifies a manifest against the allowed SSH keys.
+ts-orch release verify-provenance --image <ref@sha256> --workflow <path@ref> --revision <sha> verifies an image's provenance attestation;
+ts-orch release preflight [secrets] reads this host's service secrets with a candidate binary before it is accepted;
+ts-orch release recover finishes or rolls back this host's pending release trial (run by its recovery unit).
 `
 
 // Run dispatches CLI commands before runtime configuration or NATS startup.
@@ -130,16 +125,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	switch args[0] {
 	case "alert-delivery":
 		return alertdelivery.Run(ctx, args[1:])
-	case "managed-host-start":
-		return app.RunAutomaticBootstrap(ctx, args[1:])
-	case "managed-runtime-start":
-		return app.RunManagedRuntime(ctx, args[1:], output)
-	case "function-worker":
-		return functions.Run(ctx, args[1:], output)
-	case "root-oci-qualification":
-		return app.RunRootOCIQualification(ctx, args[1:], os.Stdin, output)
-	case "root-oci-qualification-read", "root-oci-qualification-probe":
-		return app.RunRootOCIQualificationReader(ctx, args[0], args[1:], os.Stdin, output)
 	case "bootstrap-maintenance":
 		return app.RunBootstrapMaintenance(ctx, args[1:], output)
 	case "single-host":
@@ -220,9 +205,11 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		if len(args) > 1 && args[1] == "pin" {
 			return releasepush.Pin(args[2:], output)
 		}
-		return releasecli.Run(ctx, args[1:], output)
-	case "selfupdate":
-		return selfupdatecli.Run(ctx, args[1:], commandio.NewWriter(output))
+		if len(args) == 1 || args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
+			_, err := io.WriteString(output, releaseUsage)
+			return err
+		}
+		return fmt.Errorf("unknown release command %q; use ts-orch release --help", args[1])
 	case "oci-region":
 		return runOCIRegion(ctx, args[1:], commandio.NewWriter(output))
 	case "region":
@@ -230,17 +217,17 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 			return regionhost.Run(ctx, args[1:], output)
 		}
 		return region.Run(ctx, args[1:], commandio.NewWriter(output), os.Stderr)
-	case "image", "netbird":
-		if args[0] == "netbird" && len(args) > 1 && args[1] == "dns" {
+	case "netbird":
+		if len(args) > 1 && args[1] == "dns" {
 			return netbirddns.Run(ctx, args[2:], commandio.NewWriter(output))
 		}
-		if args[0] == "netbird" && len(args) > 1 && args[1] == "path-audit" {
+		if len(args) > 1 && args[1] == "path-audit" {
 			return pathaudit.Run(ctx, args[2:], commandio.NewWriter(output))
 		}
-		if args[0] == "netbird" && len(args) > 1 && slices.Contains(netbirdmanager.Commands, args[1]) {
+		if len(args) > 1 && slices.Contains(netbirdmanager.Commands, args[1]) {
 			return netbirdmanager.Run(ctx, args[1:], commandio.NewWriter(output))
 		}
-		if args[0] == "netbird" && len(args) > 1 && args[1] == "ssh" {
+		if len(args) > 1 && args[1] == "ssh" {
 			return sshlogin.Run(ctx, args[2:], commandio.NewWriter(output))
 		}
 		root, err := os.Getwd()
@@ -248,12 +235,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 			return err
 		}
 		var diagnostics bytes.Buffer
-		var code int
-		if args[0] == "image" {
-			code = image.Run(ctx, root, args[1:], commandio.NewWriter(output), &diagnostics)
-		} else {
-			code = netbirdclient.Run(ctx, root, args[1:], commandio.NewWriter(output), &diagnostics)
-		}
+		code := netbirdclient.Run(ctx, root, args[1:], commandio.NewWriter(output), &diagnostics)
 		return commandStatus(ctx, code, &diagnostics)
 	case "terrabase":
 		return terrabase.Run(ctx, args[1:], commandio.NewWriter(output))
@@ -268,16 +250,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "source-digest":
 		var diagnostics bytes.Buffer
 		return commandStatus(ctx, sourcedigest.Run(ctx, args[1:], commandio.NewWriter(output), &diagnostics), &diagnostics)
-	case "qualification":
-		return runQualification(ctx, args[1:], commandio.NewWriter(output))
-	case "runtime-priority":
-		if len(args) == 1 || args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
-			_, err := io.WriteString(output, "Usage: ts-orch runtime-priority <qualify|pressure|probe-admission|adapter|remote> [flags]\n")
-			return err
-		}
-		return runtimepriority.Run(ctx, args[1:], commandio.NewWriter(output))
-	case "bootstrap-credential-check", "bootstrap-admit-initial", "bootstrap-admit-restart", "identity-rekey-completion-check":
-		return app.RunChild(ctx, args, output)
 	default:
 		return fmt.Errorf("unknown command %q; use ts-orch --help", args[0])
 	}
@@ -322,18 +294,4 @@ func commandStatus(ctx context.Context, code int, diagnostics *bytes.Buffer) err
 		message = fmt.Sprintf("command failed with exit code %d", code)
 	}
 	return fmt.Errorf("%s", message)
-}
-
-func runQualification(ctx context.Context, args []string, out io.Writer) error {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "help" || args[0] == "-h" {
-		_, err := io.WriteString(out, "Usage: ts-orch qualification <command> [flags]\n\n  real-caller    Qualify admitted real OCI callers\n")
-		return err
-	}
-	var diagnostics bytes.Buffer
-	switch args[0] {
-	case "real-caller":
-		return commandStatus(ctx, realcaller.Run(ctx, args[1:], out, &diagnostics), &diagnostics)
-	default:
-		return fmt.Errorf("unknown qualification command %q", args[0])
-	}
 }

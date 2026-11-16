@@ -466,9 +466,6 @@ func controllerStatements(plan, ids Object, prefix string, ledgerKey ...string) 
 	r = append(r, fmt.Sprintf("Allow dynamic-group %s to read secret-bundles in compartment %s where target.secret.name != /ts-bootstrap-source-*/", dg, str(names["control"])))
 	return append(r, storageStatements(plan, ids, prefix, ledgerKey...)...)
 }
-func RequiredControllerStatements(plan, ids Object, prefix string) ([]string, error) {
-	return capture(func() []string { return controllerStatements(plan, ids, prefix) })
-}
 
 // BootstrapSourceStatements scopes a create-once source archive to one founder.
 // The caller must prove this exact founder through the accepted root seed and

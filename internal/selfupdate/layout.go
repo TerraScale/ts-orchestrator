@@ -201,22 +201,6 @@ func (layout Layout) VerifyRelease(digest string) error {
 	return nil
 }
 
-// flipCurrent atomically repoints the current link at digest.
-func (layout Layout) flipCurrent(digest string) error { return layout.flipLink(currentLink, digest) }
-
-func (layout Layout) flipLink(name, digest string) error {
-	temporary := filepath.Join(layout.Root, "."+name+"-"+digest[:16])
-	_ = os.Remove(temporary)
-	if err := os.Symlink(releasesDir+"/"+digest, temporary); err != nil {
-		return err
-	}
-	if err := os.Rename(temporary, filepath.Join(layout.Root, name)); err != nil {
-		_ = os.Remove(temporary)
-		return err
-	}
-	return syncDir(layout.Root)
-}
-
 func hashFile(path string) (string, int64, error) {
 	file, err := os.Open(path)
 	if err != nil {

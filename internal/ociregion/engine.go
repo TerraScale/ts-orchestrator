@@ -8,7 +8,6 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
-	"golang.org/x/sys/unix"
 	"io"
 	"maps"
 	"math"
@@ -23,6 +22,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
@@ -488,10 +489,7 @@ func capture[T any](fn func() T) (v T, err error) {
 	}()
 	return fn(), nil
 }
-func ReadJSON(path string, limit int, label string) (Object, error) {
-	return capture(func() Object { return readJSON(path, limit, label) })
-}
-func SHA256(path string) (string, error) { return capture(func() string { return fileSHA(path) }) }
+
 func writeJSON(path string, value any) {
 	must(true, os.MkdirAll(filepath.Dir(path), 0755))
 	wire := must(json.Marshal(value, json.Deterministic(true), jsontext.Multiline(true), json.FormatNilMapAsNull(true)))

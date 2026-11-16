@@ -4,7 +4,6 @@ package swarmruntime
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"time"
 
@@ -14,8 +13,6 @@ import (
 	"github.com/moby/swarmkit/v2/manager/state/store"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -161,75 +158,11 @@ func (s *ManagementObservationStream) Recv() (ManagementObservationMessage, erro
 	return result, nil
 }
 
-type guardedManagementStream struct {
-	grpc.ServerStream
-	validate func(context.Context) error
-}
-
-func (s guardedManagementStream) SendMsg(message any) error {
-	if err := s.validate(s.Context()); err != nil {
-		return err
-	}
-	if err := s.ServerStream.SendMsg(message); err != nil {
-		return err
-	}
-	return s.validate(s.Context())
-}
-
-func (s guardedManagementStream) RecvMsg(message any) error {
-	if err := s.validate(s.Context()); err != nil {
-		return err
-	}
-	if err := s.ServerStream.RecvMsg(message); err != nil {
-		return err
-	}
-	return s.validate(s.Context())
-}
-
-func managementStreamInterceptor(uid uint32, cgroup, binding string, refresh func(context.Context) error) grpc.StreamServerInterceptor {
-	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		validate := func(ctx context.Context) error {
-			remote, ok := peer.FromContext(ctx)
-			if !ok {
-				return denied()
-			}
-			identity, ok := remote.AuthInfo.(unixPeer)
-			incoming, _ := metadata.FromIncomingContext(ctx)
-			if !ok || verifyPeer(identity, uid, cgroup) != nil || len(incoming.Get(managementBinding)) != 1 || incoming.Get(managementBinding)[0] != binding || refresh(ctx) != nil {
-				return denied()
-			}
-			return nil
-		}
-		if info.FullMethod != managementObservationMethod {
-			return denied()
-		}
-		if err := validate(stream.Context()); err != nil {
-			return err
-		}
-		if err := handler(srv, guardedManagementStream{stream, validate}); err != nil {
-			return status.Error(status.Code(err), "management observation unavailable")
-		}
-		return nil
-	}
-}
-
 type managementObservationServer struct {
 	node  *Node
 	scope *managementServer
 	epoch string
 }
-
-func registerManagementObservation(server *grpc.Server, node *Node, scope *managementServer) {
-	server.RegisterService(&grpc.ServiceDesc{
-		ServiceName: "terrascale.swarmruntime.ManagementObservation",
-		HandlerType: (*interface{ observationService() })(nil),
-		Streams: []grpc.StreamDesc{{StreamName: "Observe", ServerStreams: true, Handler: func(srv any, stream grpc.ServerStream) error {
-			return srv.(*managementObservationServer).observe(stream)
-		}}},
-	}, &managementObservationServer{node: node, scope: scope, epoch: rand.Text()})
-}
-
-func (*managementObservationServer) observationService() {}
 
 func (s *managementObservationServer) visible(object *api.Object) bool {
 	if object == nil {
@@ -244,22 +177,6 @@ func (s *managementObservationServer) visible(object *api.Object) bool {
 		return s.scope.floor(&object.GetConfig().Spec)
 	}
 	return false
-}
-
-func (s *managementObservationServer) observe(stream grpc.ServerStream) error {
-	guard, ok := stream.(guardedManagementStream)
-	if !ok {
-		return denied()
-	}
-	var input wrapperspb.BytesValue
-	if err := stream.RecvMsg(&input); err != nil {
-		return err
-	}
-	var request observationRequest
-	if err := protocol.DecodeStrict(input.Value, &request, 64<<10); err != nil {
-		return denied()
-	}
-	return s.observeSource(stream.Context(), request, guard.validate, func(message *wrapperspb.BytesValue) error { return stream.SendMsg(message) })
 }
 
 func (s *managementObservationServer) observeSource(ctx context.Context, request observationRequest, refresh func(context.Context) error, transmit func(*wrapperspb.BytesValue) error) error {

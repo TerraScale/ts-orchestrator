@@ -64,7 +64,7 @@ and what is still missing.
    controller credentials under the accepted deployment and broker identity.
    Restart uses the root-owned accepted identity and current generation, not
    initial manifest expiry or a founder continuity proof. Existing cells are
-   preserved. [In-place identity re-key](identity-rekey.md) separately replaces
+   preserved. In-place identity re-key separately replaces
    retired deployment/cluster identities and installs current grants.
    Renewal uses these steps:
    1. **NATS TLS hot reload (done).** `natscell.ReloadingTLS` serves the

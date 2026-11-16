@@ -3,8 +3,6 @@ package hostload
 import (
 	"errors"
 	"time"
-
-	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 )
 
 const (
@@ -42,15 +40,4 @@ type NodeLoad struct {
 	Origin Origin    `json:"origin"`
 	At     time.Time `json:"at"`
 	Report Report    `json:"report"`
-}
-
-// StatelessSignal reports whether host telemetry produces the signal for a
-// generic (non-TerraBase) role.
-func StatelessSignal(name autoscale.SignalName) bool {
-	switch name {
-	case autoscale.SignalCPUUtilization, autoscale.SignalMemoryUtilization, autoscale.SignalDiskUtilization:
-		return true
-	default:
-		return false
-	}
 }

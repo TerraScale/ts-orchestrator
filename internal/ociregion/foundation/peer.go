@@ -75,42 +75,6 @@ func RunPeer(ctx context.Context, args []string, out io.Writer) error {
 	return p.Run(ctx, intent, plans, *outPath, *apply)
 }
 
-// peerIDs are the resource OCIDs a pair intent binds per cell.
-var peerIDs = []string{"drg_id", "vcn_attachment_id", "rpc_id", "rpc_attachment_id", "vcn_drg_route_table_id", "rpc_drg_route_table_id",
-	"vcn_import_distribution_id", "rpc_import_distribution_id"}
-
-// DraftPeerIntent is the pair intent `peer` binds for two bound plans: each
-// plan's SHA-256 as inspect-private-peer computes it, the left plan's
-// tenancy and realm, a monthly cross-region egress of 10 GB or the plan's
-// smaller priced egress reserve, and every resource OCID null.
-func DraftPeerIntent(left, right string, ports []int) (Object, error) {
-	cells, tenancy := Object{}, ""
-	for _, path := range []string{left, right} {
-		plan, err := ociregion.LoadPlan(path)
-		if err != nil {
-			return nil, err
-		}
-		sum, err := ociregion.SHA256(path)
-		if err != nil {
-			return nil, err
-		}
-		reserve, err := strconv.ParseFloat(fmt.Sprint(obj(plan["budget"])["egress_gb_max"]), 64)
-		if err != nil {
-			return nil, fmt.Errorf("%s prices no egress reserve: %w", path, err)
-		}
-		row := Object{"plan_sha256": sum, "monthly_cross_region_egress_gb": min(10, reserve)}
-		for _, key := range peerIDs {
-			row[key] = nil
-		}
-		cells[text(plan["cell"])] = row
-		if tenancy == "" {
-			tenancy = text(plan["tenancy_id"])
-		}
-	}
-	realm, _, _ := strings.Cut(strings.TrimPrefix(tenancy, "ocid1.tenancy."), ".")
-	return Object{"schema_version": 1, "tenancy_id": tenancy, "realm": realm, "allowed_tcp_ports": ports, "cells": cells}, nil
-}
-
 // Peer creates the private peering of a validated pair intent (TS-668).
 // Each resource is found by its static name first, so a rerun creates
 // nothing and an interrupted run resumes. A same-named resource or a rule

@@ -2,16 +2,12 @@
 package netbird
 
 import (
-	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 	"net/netip"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
-	"syscall"
 
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
 )
@@ -73,55 +69,10 @@ func ValidatePeerNames(names map[string]string) error {
 	return nil
 }
 
-// LoadConfig rejects unknown fields, symlinks and writable public config.
-func LoadConfig(path string) (Config, error) {
-	return loadConfig(path, false)
-}
-
-// LoadControllerConfig reads the public configuration from an unprivileged
-// controller. The file must still be a regular file owned by root or the
-// caller without group or other write access. A missing file reports
-// os.ErrNotExist so callers can leave NetBird management off.
-func LoadControllerConfig(path string) (Config, error) {
-	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		return Config{}, os.ErrNotExist
-	}
-	return loadConfig(path, true)
-}
-
 // Validate checks public enrollment settings without reading OCI Vault.
 func (cfg Config) Validate() error {
 	_, err := cfg.normalized()
 	return err
-}
-
-func loadConfig(path string, rootOwned bool) (Config, error) {
-	if path == "" || !strings.HasPrefix(path, "/") {
-		return Config{}, errors.New("netbird-enroll requires an absolute --config path")
-	}
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return Config{}, errors.New("cannot open NetBird enrollment configuration")
-	}
-	file := os.NewFile(uintptr(fd), path)
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !(ownedRegular(info, 0o022) || rootOwned && rootOwnedRegular(info, 0o022)) || info.Size() > maxConfigBytes {
-		owner := "root"
-		if rootOwned {
-			owner = "root or the caller"
-		}
-		return Config{}, fmt.Errorf("NetBird configuration must be a regular file owned by %s, without group or other write access, and at most %d bytes", owner, maxConfigBytes)
-	}
-	wire, err := io.ReadAll(io.LimitReader(file, maxConfigBytes+1))
-	if err != nil || len(wire) > maxConfigBytes {
-		return Config{}, errors.New("cannot read bounded NetBird enrollment configuration")
-	}
-	var cfg Config
-	if err := json.Unmarshal(wire, &cfg, json.RejectUnknownMembers(true)); err != nil {
-		return Config{}, errors.New("invalid NetBird enrollment configuration JSON")
-	}
-	return cfg.normalized()
 }
 
 func (cfg Config) normalized() (Config, error) {
@@ -163,20 +114,4 @@ func normalizeManagerURL(value string) (string, error) {
 		return "", errors.New("NetBird management_url must be https://netbird.terrascale.tech")
 	}
 	return DefaultManagementURL, nil
-}
-
-func rootOwnedRegular(info os.FileInfo, forbidden os.FileMode) bool {
-	if info == nil || !info.Mode().IsRegular() || info.Mode().Perm()&forbidden != 0 {
-		return false
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	return ok && stat.Uid == 0
-}
-
-func ownedRegular(info os.FileInfo, forbidden os.FileMode) bool {
-	if info == nil || !info.Mode().IsRegular() || info.Mode().Perm()&forbidden != 0 {
-		return false
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	return ok && stat.Uid == uint32(os.Geteuid())
 }

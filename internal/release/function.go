@@ -2,8 +2,6 @@ package release
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"slices"
 	"time"
@@ -75,48 +73,6 @@ func FunctionScope(claim FunctionClaim) trust.Scope {
 		Domain: FunctionDomain, DeploymentID: claim.TenantID, Cell: claim.Cell,
 		Environment: claim.Environment, Role: "function-worker", Slot: claim.FunctionID,
 	}
-}
-
-// VerifyFunctionCurrent admits portable bytes only after checking the trusted
-// roots, exact signing grant, validity, expected identity, sequence and digest.
-func VerifyFunctionCurrent(envelopeWire, delegationWire, module []byte, roots trust.Keyring,
-	expected FunctionExpectation, now time.Time,
-) (VerifiedFunction, error) {
-	if err := expected.validate(); err != nil {
-		return VerifiedFunction{}, err
-	}
-	if len(module) == 0 || len(module) > MaxFunctionModuleBytes {
-		return VerifiedFunction{}, fmt.Errorf("%w: function module size", ErrInvalidReceipt)
-	}
-	claim, envelope, err := verifyFunctionReceipt(envelopeWire, delegationWire, roots, expected, now)
-	if err != nil {
-		return VerifiedFunction{}, err
-	}
-	// Retain the copy whose digest is checked, so callers cannot mutate admitted bytes.
-	admitted := bytes.Clone(module)
-	if err := claim.validateModule(admitted); err != nil {
-		return VerifiedFunction{}, err
-	}
-	proof, err := proofFor(envelope)
-	if err != nil {
-		return VerifiedFunction{}, err
-	}
-	return VerifiedFunction{claim: claim, module: admitted, envelope: bytes.Clone(envelopeWire),
-		delegation: bytes.Clone(delegationWire), proof: proof}, nil
-}
-
-func (claim FunctionClaim) validateModule(module []byte) error {
-	if err := claim.Validate(); err != nil {
-		return err
-	}
-	if int64(len(module)) != claim.Bytes {
-		return fmt.Errorf("%w: function module size mismatch", ErrInvalidReceipt)
-	}
-	digest := sha256.Sum256(module)
-	if hex.EncodeToString(digest[:]) != claim.Digest {
-		return fmt.Errorf("%w: function module digest mismatch", ErrInvalidReceipt)
-	}
-	return nil
 }
 
 // Valid rejects both forged zero values and authority that expired after admission.

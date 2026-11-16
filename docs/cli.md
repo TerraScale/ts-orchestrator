@@ -10,62 +10,11 @@ This is current command inventory, not a per-region setup or tuning recipe.
 Runtime input removal and automatic Vault delivery remain TS-796; read-only
 verification and explicit destructive-operation safeguards still apply.
 
-TerraScale Orchestrator ships one Go executable for controller, host, and
-operator operations. `make build` writes `dist/ts-orch`. Published Linux artifacts and guest
-installation paths retain their existing `terrascale-orchestrator` names;
-these executables expose the same commands. Release receipt artifact identities
-and systemd service commands therefore keep their existing names.
-
-## Command migration
-
-| Previous invocation | Unified invocation |
-| --- | --- |
-| `ts-bootstrap <command> [flags]` | `ts-orch bootstrap <command> [flags]` |
-| `ts-release <command> [flags]` | `ts-orch release <command> [flags]` |
-| `terrascale-orchestrator run --config FILE` | `ts-orch run --config FILE` |
-| `terrascale-orchestrator host --config FILE` | `ts-orch host --config FILE` |
-| `terrascale-orchestrator operator ...` | `ts-orch operator ...` |
-| `python3 deploy/image/image-inputs.py ...` | `ts-orch image inputs ...` |
-| `python3 deploy/image/offline-guestfs.py ...` | `ts-orch image guestfs ...` |
-| `python3 deploy/image/promote-image.py ...` | `ts-orch image promote ...` |
-| `python3 deploy/netbird/client.py ...` | `ts-orch netbird client ...` |
-| `python3 deploy/netbird/install-client.py ...` | `ts-orch netbird install ...` |
-| `python3 deploy/oci-region/preview.py ...` | `ts-orch oci-region preview ...` |
-| `python3 deploy/oci-region/attempt.py ...` | `ts-orch oci-region attempt ...` |
-| `python3 deploy/oci-region/import-image.py ...` | `ts-orch image promote ...` (requires independent final-disk qualification) |
-| `python3 deploy/oci-region/public-api.py ...` | `ts-orch oci-region public-api ...` |
-| `python3 scripts/ci/m0_oci_real_caller.py ...` | `ts-orch qualification real-caller ...` |
-| `python3 scripts/ci/terrabase-source-digest-v1.py ...` | `ts-orch source-digest ...` |
-
-The standalone `cmd/ts-bootstrap` and `cmd/ts-release` entry points have been
-removed. Build operator tooling with `go build ./cmd/terrascale-orchestrator`
-or `make build`. Existing subcommand flags, signed object formats, validation,
-file permissions, and overwrite checks are preserved. Group help is available
-through `ts-orch bootstrap --help` and `ts-orch release --help`.
-
-The deployment scripts' `--bootstrap-tool` and `--release-tool` arguments
-default to the unified interface; both may point to the same executable.
-For historical standalone tools, `ts-orch oci-region preview` requires explicit
-`--legacy-bootstrap-tool` and `--legacy-release-tool` flags for their respective
-arguments. Regional bootstrap attempts inspect their retained, pinned source
-layout when building tools and on resume: sources containing
-`cmd/ts-bootstrap/main.go` keep standalone `ts-bootstrap` and `ts-release`
-tools and pass those explicit preview flags. Current sources build one
-`ts-orch` and use the `bootstrap` and `release` namespaces. Image promotion
-also builds the source-specific standalone release tool when promoting a
-pinned image from a revision predating this migration. Historical qualification
-records retain the names and hashes of the binaries actually tested.
-
-The M0 OCI real-caller qualification script accepts the unified executable as
-`--bootstrap`, with a retained local-build receipt identifying `ts-orch`,
-`terrascale-orchestrator`, or `terrascale-orchestrator-linux-amd64`. It invokes
-`bootstrap open-customer-material`. Historical receipts identifying
-`ts-bootstrap` retain the standalone invocation. The verified receipt identity
-selects the interface, so renaming the executable does not change it. Both
-interfaces require the receipt and binary to match the qualified operator's
-exact source revision and tree, module hashes, clean build metadata, and
-retained build/test command and log hashes. A historical bootstrap tool cannot
-be paired with an operator qualified from a newer source revision.
+TerraScale Orchestrator ships one Go executable. It has one runtime,
+`single-host`, which every production node runs from `deploy/m1/ts-orch.service`;
+every other command is operator or CI tooling. `make build` writes
+`dist/ts-orch`. Published Linux artifacts and the installed binary keep the
+`terrascale-orchestrator` name.
 
 ## NetBird configuration
 
@@ -99,17 +48,13 @@ naming scheme and who may read what.
 | `ts-orch region create LABEL OCI_REGION --state DIR --attempt-base FILE --home-plan FILE` | Bring the region up: foundation, private peering with gru-1, NetBird, founding attempt, edge, DNS, verify; resumable, prints each step's wall time |
 | `ts-orch region verify LABEL --plan BOUND_PLAN [--wait D]` | Fail unless api and auth answer, the api answers the dashboard's browser ping (`Access-Control-Allow-Origin`, `Timing-Allow-Origin`, `Cache-Control: no-store` on `/healthz`) and every load balancer backend is healthy |
 
-## Cell spec
+## Services
 
-`ts-orch get`, `diff` and `apply` read and amend a running cell's signed
-desired state; `ts-orch service` applies and removes services in every
-region and inspects this host's. See
-[cell spec](cell-spec.md) for the model, trust chain and runbook.
+`ts-orch service` applies and removes services in every region and inspects
+this host's.
 
 | Command | Purpose |
 | --- | --- |
-| `ts-orch get --config OPERATOR_JSON` | Print the cell's current spec |
-| `ts-orch diff --config F -f FILE` | Plan a candidate or signed spec on the leader: changes, `root_required`, `requires_binary` |
 | `ts-orch service apply -f <spec.json> [--hold-after <region>]` | Apply a service spec in every ordered region over this host's mesh; without a mesh node it applies on this host only; `--hold-after` stops the rollout once that region is done |
 | `ts-orch service resume <name>` | Continue a rollout held with `--hold-after`; needs this host's mesh |
 | `ts-orch service ls` | List this host's services: name, running replicas, image |
@@ -117,21 +62,14 @@ region and inspects this host's. See
 | `ts-orch service ps <name>` | Print the service's tasks on this host |
 | `ts-orch service logs [-f \| --previous] <name>` | Print the service's task logs on this host; `-f` follows the current task, `--previous` prints the ended task's snapshot |
 | `ts-orch service inspect <name>` | Print the service's live spec and state as JSON |
-| `ts-orch release sign-spec-delegation ... --out F` | Offline: the root lets the release leaf sign ordinary amendments |
-| `ts-orch release sign-spec --candidate F (--delegation F \| --root) --root-key F --signing-key F --out F` | Offline: the leaf, or for a widening change the root, signs a candidate |
-| `ts-orch apply --config F -f SIGNED` | Apply a signed spec on the authority leader |
 
 ## Fleet deployment
 
-CI runs `ts-orch release deploy` for every `main` merge; see
-[automatic fleet deployment](continuous-delivery.md#automatic-fleet-deployment-ts-557-part-1).
+CI runs `ts-orch release push` and `ts-orch release nudge` for every `main`
+merge; see [platform design](platform.md#releases).
 
 | Command | Purpose |
 | --- | --- |
-| `ts-orch release deploy --dir D --source-revision SHA --update-delegation F` (or `--update-delegation-secret NAME`) `--root-key F --signing-key-secret NAME --vault-id OCID --environment E --source-checkout DIR --namespace NS --cell C... --arch A...` | Sign the release for every cell, then publish it to each region in order, the first being the canary, and wait for each to complete |
-| `ts-orch release service-deploy --role R --binary F --repository URL --commit SHA --source-checkout DIR --environment ENV --actor A --signing-key-secret S --vault-id V --namespace NS --cell C...` | CI: release a native service (TerraBase, ts-auth) to every region, canary first, through its service release channel ([automatic service releases](continuous-delivery.md#automatic-service-releases-ts-610)) |
-| `ts-orch release fleet-status --namespace NS [--cell C...] [--role R...]` | Print every region's release channel and rollout status as JSON lines; with `--role`, each named service role's release status instead |
-| `ts-orch release observed-digests --namespace NS [--cell C...] [--role R...]` | Read-only: for each region and native service role (default `terrabase` and `ts-auth`), print the admitted digest and, per replica, the digest its host observes running, when it was observed and whether they match |
 | `ts-orch release push --dir D --sha SHA [--regions F]` | CI only: send a main build one region at a time, waiting for JetStream and the region's services |
 | `ts-orch release app --service NAME --image REF@SHA256 [--regions F]` | CI only (app image): release an app image to every region over the mesh |
 | `ts-orch release digests --out F [--regions F]` | CI only (app digests): record every mesh service's desired image to a file |
@@ -141,6 +79,8 @@ CI runs `ts-orch release deploy` for every `main` merge; see
 | `ts-orch release manifest --sha SHA --sequence N --out FILE` | Operator: build a production release manifest from a CI release's Linux binaries, hashing each download |
 | `ts-orch release sign --manifest FILE --key KEYFILE` | Operator: sign a manifest with `ssh-keygen -Y sign` (namespace `ts-orch-release`, works with ssh-agent and hardware keys); writes `FILE.sig` |
 | `ts-orch release verify --manifest FILE [--sig FILE.sig] [--allowed FILE]` | Verify a manifest's signature against the embedded allowed SSH keys (or a test list with `--allowed`) |
+| `ts-orch release preflight [secrets]` | Run by a host on a candidate binary before it accepts it: reads the host's service secrets |
+| `ts-orch release recover` | Run by the host's recovery unit: finish or roll back the pending release trial |
 
 ## Signed release manifests
 
@@ -153,30 +93,6 @@ release role, printing ok sequence=<n> sha=<sha> signer=<name> on success.
 The embedded deploy/m1/allowed-keys.json is initially empty; supply --allowed FILE
 until release keys are enrolled. The file has the shape
 {"keys":[{"name":"operator","key":"<authorized_keys line>","roles":["release"]}]}.
-
-## Orchestrator rollouts
-
-`ts-orch rollout` sets the cell's desired orchestrator release, which the
-authority leader rolls out to the controllers; see
-[continuous delivery](continuous-delivery.md#leader-run-controller-self-update).
-Every command prints the leader's JSON reply.
-
-| Command | Purpose |
-| --- | --- |
-| `ts-orch rollout status --config OPERATOR_JSON` | Desired release, the last ten generations, the leader's rollout status and its newest release channel report |
-| `ts-orch rollout publish --config F --receipt F [--delegation F]` | Make a signed release the next generation (upload the binary with `operator artifact-push` first) |
-| `ts-orch rollout rollback --config F --to GEN` | Publish generation GEN again as a new generation and stop the rollout in flight |
-
-## Root key rotation
-
-`ts-orch operator trust-roots` and `trust-rotate` rotate the cell's root keys
-without a rebuild; see [root rotation](root-rotation.md).
-
-| Command | Purpose |
-| --- | --- |
-| `ts-orch operator trust-roots --config F [--out CHAIN]` | Print the current roots; `--out` writes the chain to extend |
-| `ts-orch release sign-root-rotation --genesis-root F --chain F ... --new-root F --signing-key F [--signed F] --out F` | Offline: an old or new root adds its signature |
-| `ts-orch operator trust-rotate --config F --file SIGNED` | Apply a complete rotation on the authority leader |
 
 ## Feature boundaries
 
@@ -193,42 +109,16 @@ executables. CI and operator automation should invoke those commands. Keep
 business logic, validation, and provider effects in Go; use thin wrappers only
 for environment setup and invocation. See [contributing](../AGENTS.md).
 
-`internal/cli` dispatches commands. Runtime composition stays in `internal/app`;
-bootstrap commands live in `internal/bootstrap/cli`, and release
-commands live in `internal/release/cli`. Domain verification and
-provider code remain in their existing feature packages. CLI command packages
-receive cancellation and output from the executable without changing global
-process output or starting NATS.
-
-Bootstrap and release commands retain normal SIGINT/SIGTERM termination in the
-executable, including during synchronous OCI credential setup. Their Go `Run`
-APIs accept caller cancellation and return cancellation and output-write errors.
-
-Local signing and verification need no runtime role configuration. Publishing
-and provisioning commands retain their explicit OCI credentials and reviewed
-input requirements. Offline root keys are supplied only to the commands that
-need them; controller and host startup do not load them.
+`internal/cli` dispatches commands. The runtime and its local commands live in
+`internal/app`; domain and provider code stay in their feature packages. CLI
+command packages receive cancellation and output from the executable without
+changing global process output or starting NATS. Release commands keep normal
+SIGINT/SIGTERM termination.
 
 ## Operational dependencies
 
 `ts-orch verify --live` runs opt-in, read-only production observations; see
 [live verification](live-verification.md) for evidence requirements and gaps.
-
-Regional inventory, cost admission, bootstrap attempts, image import, image
-coordination, runtime-pressure tools, and Firecracker qualification drivers
-are native Go features in the same executable. CI and image shell entry points
-invoke those commands. OCI image import is internal to proof-verified image
-promotion and bootstrap attempts; there is no standalone import command.
-Image operations run from the source checkout when
-they need its manifests, unit files, or pinned build inputs. Image building
-still uses external QEMU/libguestfs tools; live qualification still needs its
-reviewed guest artifacts and host privileges.
-
-The runtime-priority probe is the source-matched ARM64 `ts-orch` executable,
-published as `terrascale-d15-qualify`; invoke its `runtime-priority qualify`
-namespace. Probe admission binds that executable's exact bytes to its
-publication evidence. Historical qualification records retain the paths,
-hashes, and interpreter commands actually used at their recorded revision.
 
 Operations against an established cell should use the authenticated operator
 path and controller-owned reconciliation. Initial bootstrap must support direct

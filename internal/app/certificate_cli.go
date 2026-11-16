@@ -20,20 +20,24 @@ func RunCertificateCLI(ctx context.Context, args []string, output io.Writer) err
 	if len(args) < 1 || args[0] != "inventory" || len(args) > 2 {
 		return errors.New("usage: ts-orch edge certificates inventory [local|node|all]")
 	}
+	scope := "local"
+	if len(args) == 2 {
+		scope = args[1]
+	}
 	targets := map[string]string{}
 	var nodes []nodelist.Node
-	if len(args) == 1 || args[1] != "local" {
+	if scope != "local" {
 		list, err := nodelist.Read("/var/lib/ts-orch")
 		if err != nil {
 			return fmt.Errorf("certificate inventory node list: %w", err)
 		}
 		nodes = list.Nodes
 	}
-	if len(args) == 1 || args[1] == "all" {
+	if scope == "all" {
 		for _, node := range nodes {
 			targets[node.Name] = node.MeshIP
 		}
-	} else if args[1] == "local" {
+	} else if scope == "local" {
 		iface, err := net.InterfaceByName("wt0")
 		if err != nil {
 			return err
@@ -54,7 +58,7 @@ func RunCertificateCLI(ctx context.Context, args []string, output io.Writer) err
 		}
 	} else {
 		for _, node := range nodes {
-			if node.Name == args[1] {
+			if node.Name == scope {
 				targets[node.Name] = node.MeshIP
 			}
 		}

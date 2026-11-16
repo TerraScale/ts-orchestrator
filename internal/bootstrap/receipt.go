@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"crypto/ed25519"
 	"fmt"
 	"slices"
 	"time"
@@ -67,12 +66,6 @@ type VerifiedReceipt struct {
 // Receipt returns a value copy of the verified receipt.
 func (verified VerifiedReceipt) Receipt() Receipt { return verified.receipt }
 
-// InstanceOCID returns the exact verified instance identity.
-func (verified VerifiedReceipt) InstanceOCID() string { return verified.receipt.InstanceOCID }
-
-// Slot returns the exact verified controller slot.
-func (verified VerifiedReceipt) Slot() string { return verified.receipt.Slot }
-
 // NewReceipt constructs a receipt only when launch, manifest, and observed
 // instance facts agree exactly. The observed profile must include the exact
 // network attachments observed from OCI, not only launch-request fields.
@@ -81,21 +74,6 @@ func NewReceipt(manifest StartupAuthority, facts InstanceFacts) (Receipt, error)
 		return Receipt{}, err
 	}
 	return receiptForManifest(manifest.Manifest(), manifest.Digest(), facts)
-}
-
-// SignSeedReceipt creates a root-signed receipt for the exact seed instance.
-func SignSeedReceipt(manifest VerifiedManifest, facts InstanceFacts, issuedAt, expiresAt time.Time, rootPrivateKey ed25519.PrivateKey) (trust.Envelope, error) {
-	receipt, err := NewReceipt(manifest, facts)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	if receipt.Slot != manifest.manifest.SeedSlot {
-		return trust.Envelope{}, fmt.Errorf("%w: seed receipt is not for the manifest seed slot", ErrReceiptInvalid)
-	}
-	if !receiptIntervalWithinManifest(manifest, issuedAt, expiresAt) {
-		return trust.Envelope{}, fmt.Errorf("%w: receipt validity exceeds its signed manifest", ErrReceiptInvalid)
-	}
-	return signReceipt(receipt, seedReceiptDomain, issuedAt, expiresAt, rootPrivateKey)
 }
 
 // VerifySeedReceipt verifies root authorization and exact seed instance facts.
@@ -165,21 +143,6 @@ func ReceiptPayload(payload []byte) (Receipt, error) {
 		return Receipt{}, err
 	}
 	return receipt, nil
-}
-
-func signReceipt(receipt Receipt, domain string, issuedAt, expiresAt time.Time, privateKey ed25519.PrivateKey) (trust.Envelope, error) {
-	if err := receipt.validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	payload, err := trust.EncodePayload(receipt)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	scope := trust.Scope{
-		Domain: domain, DeploymentID: receipt.DeploymentID, Cell: string(receipt.Cell),
-		Environment: receipt.Environment, Role: receipt.Role, Slot: receipt.Slot,
-	}
-	return trust.Sign(payload, scope, issuedAt, expiresAt, privateKey)
 }
 
 func verifyReceipt(envelope trust.Envelope, manifest VerifiedManifest, roots trust.Keyring, facts InstanceFacts, domain string, now time.Time, policy trust.Policy) (VerifiedReceipt, error) {
@@ -379,8 +342,4 @@ func launchProfileDigest(profile LaunchProfile) (string, error) {
 		return "", err
 	}
 	return digestBytes(encoded), nil
-}
-
-func receiptIntervalWithinManifest(manifest VerifiedManifest, issuedAt, expiresAt time.Time) bool {
-	return manifest.verified && !issuedAt.Before(manifest.issuedAt) && !expiresAt.After(manifest.expiresAt) && expiresAt.After(issuedAt)
 }

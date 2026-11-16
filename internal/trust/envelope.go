@@ -49,10 +49,10 @@ var (
 	ErrCapabilityDenied = errors.New("delegated signing capability is insufficient")
 	ErrDelegationTime   = errors.New("delegation does not cover the signed document interval")
 	domainRE            = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
-	identityRE          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
-	cellRE              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-	tokenRE             = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
-	slotRE              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)
+
+	cellRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	tokenRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
+	slotRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)
 )
 
 // Scope names the exact purpose and deployment target authorized by a
@@ -250,18 +250,6 @@ func VerifyHistorical(envelope Envelope, expected Scope, keys Keyring, policy Po
 		return nil, err
 	}
 	return bytesClone(envelope.Payload), nil
-}
-
-// SignDelegation signs root-controlled delegated key capabilities.
-func SignDelegation(delegation Delegation, issuedAt, expiresAt time.Time, rootPrivateKey ed25519.PrivateKey) (Envelope, error) {
-	if err := delegation.Validate(); err != nil {
-		return Envelope{}, err
-	}
-	payload, err := EncodePayload(delegation)
-	if err != nil {
-		return Envelope{}, err
-	}
-	return Sign(payload, delegationScope(), issuedAt, expiresAt, rootPrivateKey)
 }
 
 // VerifyDelegationCurrent verifies a root-signed delegation and requires it to
@@ -520,19 +508,6 @@ func decodeCanonicalSignature(encoded string) ([]byte, error) {
 }
 
 func bytesClone(value []byte) []byte { return append([]byte(nil), value...) }
-
-// DelegatedKeyID creates the key ID stored alongside a delegated public key.
-func DelegatedKeyID(publicKey ed25519.PublicKey) (string, error) {
-	return KeyID(publicKey)
-}
-
-// EncodeDelegatedPublicKey uses the canonical unpadded URL-safe Base64 form.
-func EncodeDelegatedPublicKey(publicKey ed25519.PublicKey) (string, error) {
-	if len(publicKey) != ed25519.PublicKeySize {
-		return "", fmt.Errorf("%w: invalid Ed25519 public key", ErrInvalid)
-	}
-	return base64.RawURLEncoding.EncodeToString(publicKey), nil
-}
 
 // ParseKeyring validates baked-in root public keys and derives their full IDs.
 func ParseKeyring(publicKeys ...ed25519.PublicKey) (Keyring, error) {

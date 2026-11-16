@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
@@ -44,8 +42,6 @@ type record struct {
 	Payload    []byte `json:"payload"`
 }
 
-func subject(kind Kind, key string) string { return protocol.GlobalState(string(kind), key) }
-
 // Reader serves global records from the home stream or a regional mirror.
 type Reader struct {
 	stream jetstream.Stream
@@ -57,37 +53,15 @@ type Reader struct {
 	mirror bool
 }
 
-// Roster returns the current region roster and its stream sequence.
-func (r *Reader) Roster(ctx context.Context) (Roster, uint64, error) {
-	var roster Roster
-	entry, sequence, err := r.read(ctx, KindRoster, RosterKey)
-	if err != nil {
-		return Roster{}, 0, err
-	}
-	if err := protocol.DecodeStrict(entry.Payload, &roster, maxRecordBytes); err != nil ||
-		roster.Validate() != nil || roster.Generation != entry.Generation {
-		return Roster{}, 0, ErrRecordCorrupt
-	}
-	return roster, sequence, nil
-}
+const EpochHeader = "Ts-Global-Epoch"
 
-// Directory returns a database partition's directory entry.
-func (r *Reader) Directory(ctx context.Context, databaseID, partitionID string) (DirectoryEntry, uint64, error) {
-	var directory DirectoryEntry
-	if !entityid.Valid(databaseID) || !entityid.Valid(partitionID) {
-		return DirectoryEntry{}, 0, errors.New("directory database and partition must be canonical ULIDs")
-	}
-	key := DirectoryKey(databaseID, partitionID)
-	entry, sequence, err := r.read(ctx, KindDirectory, key)
-	if err != nil {
-		return DirectoryEntry{}, 0, err
-	}
-	if err := protocol.DecodeStrict(entry.Payload, &directory, maxRecordBytes); err != nil ||
-		directory.Validate() != nil || directory.Generation != entry.Generation ||
-		directory.DatabaseID != databaseID || directory.PartitionID != partitionID {
-		return DirectoryEntry{}, 0, ErrRecordCorrupt
-	}
-	return directory, sequence, nil
+type Writer struct {
+	Reader
+	home          string
+	fencer        authority.Fencer
+	replicas      int
+	mu            sync.Mutex
+	beforePublish func()
 }
 
 func (r *Reader) read(ctx context.Context, kind Kind, key string) (record, uint64, error) {
@@ -122,6 +96,8 @@ func (r *Reader) read(ctx context.Context, kind Kind, key string) (record, uint6
 	return stored, message.Sequence, nil
 }
 
+func subject(kind Kind, key string) string { return protocol.GlobalState(string(kind), key) }
+
 // checkMirrorGapFree requires the mirror to hold every home sequence from 1
 // to its last one. Skipped sequences show up as deleted messages or as a
 // first sequence beyond 1.
@@ -147,97 +123,16 @@ func (r *Reader) checkMirrorGapFree(ctx context.Context) error {
 	return nil
 }
 
-// info is the stream's current info, read without touching r.stream.
-func (r *Reader) info(ctx context.Context) (*jetstream.StreamInfo, error) {
-	stream, err := r.js.Stream(ctx, r.stream.CachedInfo().Config.Name)
-	if err != nil {
-		return nil, err
-	}
-	return stream.CachedInfo(), nil
-}
-
-// EpochHeader carries the global authority epoch of every record the writer
-// appends, term barriers included. It must equal the epoch in the record
-// body; a reader treats a mismatch as corruption.
-const EpochHeader = "Ts-Global-Epoch"
-
-// termKey is the single key of the term barrier record.
-const termKey = "current"
-
 // epochHeaderMatches accepts a record whose epoch header equals its body. A
 // record without the header was not appended by a Writer.
 func epochHeaderMatches(header nats.Header, epoch uint64) bool {
 	return header.Get(EpochHeader) == strconv.FormatUint(epoch, 10)
 }
 
-// term is the payload of the barrier record a new global leader appends to
-// TS_GLOBAL_CONTROL before its first write.
-type term struct {
-	Epoch uint64 `json:"epoch"`
-}
-
-// Writer appends global records in the home region.
-//
-// Fencing is enforced by the server, not only by the pre-publish lease
-// Guard: the global stream and the authority lease live in different streams,
-// so a Guard alone cannot order a write against a newer term. The writer
-// therefore keeps a term barrier inside TS_GLOBAL_CONTROL itself
-// (ts.global.v1.term.current). A writer whose lease epoch is newer than the
-// stored term first appends a barrier for its epoch (per-subject CAS on the
-// term subject, and only right after a successful lease Guard), and every
-// record append is a whole-stream compare-and-set on the last sequence at
-// which the writer saw its own epoch as the current term, plus the
-// per-subject CAS on the record. Once a new leader appends its barrier, every
-// in-flight append of an older leader fails with a wrong-last-sequence error,
-// and its retry observes the newer term and returns authority.ErrFenced. An
-// old leader that commits before the new barrier is ordered before the new
-// term, which reads every record after its own barrier.
-type Writer struct {
-	Reader
-	home   string
-	fencer authority.Fencer
-	// replicas is the replica count OpenHome verified; every append
-	// re-verifies the stream against it, so later drift is detected.
-	replicas int
-	mu       sync.Mutex
-	// beforePublish runs between the fenced reads and the conditional
-	// append; tests use it to interleave a new term.
-	beforePublish func()
-}
-
-// Term returns the epoch of the latest term barrier, or 0 before the first.
-func (r *Reader) Term(ctx context.Context) (uint64, error) {
-	if r == nil || r.stream == nil {
-		return 0, errors.New("global control reader is not open")
-	}
-	readCtx, cancel := context.WithTimeout(ctx, apiTimeout)
-	defer cancel()
-	epoch, _, err := readTerm(readCtx, r.stream)
-	if err == nil && r.mirror {
-		// Like every mirror read: a mirror missing home records may also
-		// miss a newer barrier, so it fails closed.
-		if gapErr := r.checkMirrorGapFree(readCtx); gapErr != nil {
-			return 0, gapErr
-		}
-	}
-	return epoch, err
-}
-
-func readTerm(ctx context.Context, stream jetstream.Stream) (uint64, uint64, error) {
-	message, err := stream.GetLastMsgForSubject(ctx, subject(KindTerm, termKey))
-	if errors.Is(err, jetstream.ErrMsgNotFound) {
-		return 0, 0, nil
-	}
+func (r *Reader) info(ctx context.Context) (*jetstream.StreamInfo, error) {
+	stream, err := r.js.Stream(ctx, r.stream.CachedInfo().Config.Name)
 	if err != nil {
-		return 0, 0, err
+		return nil, err
 	}
-	var stored record
-	var barrier term
-	if err := protocol.DecodeStrict(message.Data, &stored, maxMessageBytes); err != nil ||
-		stored.Version != recordVersion || stored.Kind != KindTerm || stored.Key != termKey ||
-		stored.Epoch == 0 || stored.Generation != stored.Epoch || !epochHeaderMatches(message.Header, stored.Epoch) ||
-		protocol.DecodeStrict(stored.Payload, &barrier, 1024) != nil || barrier.Epoch != stored.Epoch {
-		return 0, 0, ErrRecordCorrupt
-	}
-	return stored.Epoch, message.Sequence, nil
+	return stream.CachedInfo(), nil
 }

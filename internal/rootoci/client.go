@@ -75,8 +75,6 @@ func (client *Client) Close() error {
 	return nil
 }
 
-func NewClient(expected Expectations) *Client { return &Client{expected: expected} }
-
 func (client *Client) Inventory(ctx context.Context) (InventoryObservation, error) {
 	var result InventoryObservation
 	err := client.invoke(ctx, OperationInventory, struct{}{}, &result)

@@ -2,8 +2,6 @@ package protocol
 
 import (
 	"strings"
-
-	"github.com/nats-io/nkeys"
 )
 
 // Subject roots. Every NATS subject the orchestrator publishes, subscribes to,
@@ -65,27 +63,6 @@ func JSDomainAPIPrefix(domain string) string {
 	return "$JS." + token + ".API"
 }
 
-// InterRegionGlobalDeliverSubject is the fixed delivery subject of cell's
-// durable mirror consumer on the home region's global stream. The home region
-// sets it when it creates the consumer; a peer can never choose it.
-func InterRegionGlobalDeliverSubject(cell string) string {
-	token, err := RegionToken(cell)
-	if err != nil || token == GlobalScope {
-		return ""
-	}
-	return InterRegionRoot + "." + token + ".global"
-}
-
-// GlobalMirrorConsumer is the durable consumer on the home region's global
-// stream that feeds cell's read-only mirror.
-func GlobalMirrorConsumer(cell string) string {
-	token, err := RegionToken(cell)
-	if err != nil || token == GlobalScope {
-		return ""
-	}
-	return "global-mirror-" + token
-}
-
 // Well-known regional verbs below the regional root.
 const (
 	VerbHostRegister          = "host.register"
@@ -138,14 +115,6 @@ func Broker(cell string, tokens ...string) string {
 // GlobalState joins the global control stream root and tokens.
 func GlobalState(tokens ...string) string { return joinSubject(GlobalStateRoot, tokens) }
 
-// GlobalStateStreamSubject is the single subject filter of TS_GLOBAL_CONTROL.
-func GlobalStateStreamSubject() string { return GlobalStateRoot + ".>" }
-
-// FunctionQueueSubject names one function revision's queue; callers validate the manifest scope.
-func FunctionQueueSubject(tenantID, functionID, revision string) string {
-	return "ts.functions." + tenantID + "." + functionID + "." + revision
-}
-
 // GlobalControlRequest is the global-authority mutation request subject.
 func GlobalControlRequest(action string) string {
 	subject, err := GlobalControlSubject(action)
@@ -159,32 +128,6 @@ func GlobalControlRequest(action string) string {
 // leader to set the monthly budget. It sits outside the control and global
 // state streams, which would acknowledge the request before the leader answers.
 func GlobalBudgetSetSubject() string { return GlobalControlRequest("budget-set") }
-
-// CapacityReservationSubject names one source region's spending-authority RPC.
-// No wildcard or other action can become an authority grant.
-func CapacityReservationSubject(cell, action string) string {
-	if token, err := RegionToken(cell); err != nil || token == GlobalScope {
-		return ""
-	}
-	switch action {
-	case "reserve", "revalidate", "observe":
-		return Regional(cell, "capacity", action)
-	default:
-		return ""
-	}
-}
-
-// CapacityReservationReplySubject keeps spending replies outside the legacy
-// inbox namespaces which region-link credentials may publish to.
-func CapacityReservationReplySubject(cell, userKey, nonce string) string {
-	if !nkeys.IsValidPublicUserKey(userKey) || !validFamilyToken(nonce, false) || strings.ContainsAny(nonce, ".*>{}") {
-		return ""
-	}
-	if token, err := RegionToken(cell); err != nil || token == GlobalScope {
-		return ""
-	}
-	return Regional(cell, "capacity-reply", userKey, nonce)
-}
 
 // HostRegisterSubject is the controller host registration request subject.
 func HostRegisterSubject(cell string) string { return Regional(cell, VerbHostRegister) }
@@ -222,9 +165,6 @@ func DeliveryArtifactAdmitSubject(cell string) string {
 	return Regional(cell, VerbDeliveryArtifactAdmit)
 }
 
-// RegionHealthSubject is the signed regional heartbeat exported to peers.
-func RegionHealthSubject(cell string) string { return Regional(cell, VerbRegionHealth) }
-
 // RegionRollupGrant subscribes to every region's dashboard rollup.
 const RegionRollupGrant = SubjectRoot + ".*.region.rollup"
 
@@ -237,9 +177,6 @@ func AnyRegionHealthSubject() string { return SubjectRoot + ".*." + VerbRegionHe
 // (rolloutexec.StepKey). Unit identities are hashed so caller-controlled
 // names never become subject tokens.
 const rolloutFamily = "rollout"
-
-// RolloutStatusSubject is the leader's rollout status publication subject.
-func RolloutStatusSubject(cell string) string { return Regional(cell, rolloutFamily, "status") }
 
 // RolloutProofSubject is one unit's signed version/health proof subject. An
 // empty unit yields the subscribe grant for every unit's proofs.
@@ -269,10 +206,6 @@ func InterRegionObservabilityLeaves() []string {
 	return []string{ObservabilityRegionLeaf, ObservabilityDecisionsLeaf}
 }
 
-// InterRegionObservabilitySubject is the exact subject of one exported
-// observability leaf of cell, for example ts.orch.v1.gru.obs.region.
-func InterRegionObservabilitySubject(cell, leaf string) string { return Regional(cell, "obs", leaf) }
-
 // AnyRegionObservabilitySubject is leaf's read-only service in every region, for role grants.
 func AnyRegionObservabilitySubject(leaf string) string {
 	return joinSubject(SubjectRoot, []string{"*", "obs", leaf})
@@ -295,9 +228,6 @@ func RoleQueryTemplates(cell, verb string) (publish, subscribe string) {
 func RoleObservationTemplate(cell, leaf string) string {
 	return SubjectRoot + "." + cell + ".obs." + leaf
 }
-
-// InboxPrefix is a user's private reply inbox prefix without the trailing ">".
-func InboxPrefix(cell, userKey string) string { return Regional(cell, "inbox", userKey) }
 
 // InboxGrant is the subscription grant for a user's private reply inbox.
 func InboxGrant(cell, userKey string) string { return Regional(cell, "inbox", userKey, ">") }

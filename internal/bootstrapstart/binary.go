@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 
 	"github.com/TerraScale/ts-orchestrator/internal/identityrekey"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
@@ -35,32 +34,6 @@ func VerifyCurrentRunningBinary(image release.VerifiedImage) (RunningBinary, err
 // VerifyAcceptedRunningBinary measures the accepted executable baseline.
 func VerifyAcceptedRunningBinary(pin identityrekey.BinaryPin) (RunningBinary, error) {
 	return verifyAcceptedBinaryFile("/proc/self/exe", pin)
-}
-
-// VerifyRestartProcessBinary applies ordinary restart admission to the executable
-// of a kernel-pinned process. The caller must verify its process witness before
-// and after this measurement; a PID alone does not authenticate a caller.
-func VerifyRestartProcessBinary(pid int, accepted AcceptedIdentity, layout selfupdate.Layout, roots trust.Keyring) error {
-	if os.Geteuid() != 0 || pid <= 0 || accepted.Validate() != nil {
-		return ErrAdmission
-	}
-	gate := Gate{Binary: processBinaryChecker{pid: pid}, SelfUpdate: layout}
-	return gate.verifyRestartBinary(accepted, roots)
-}
-
-type processBinaryChecker struct {
-	executableBinaryChecker
-	pid int
-}
-
-func (checker processBinaryChecker) VerifyAccepted(pin identityrekey.BinaryPin) (RunningBinary, error) {
-	return verifyAcceptedBinaryFile("/proc/"+strconv.Itoa(checker.pid)+"/exe", pin)
-}
-
-func (checker processBinaryChecker) VerifySelfUpdated(layout selfupdate.Layout, roots trust.Keyring,
-	expected release.UpdateExpectation,
-) (RunningBinary, error) {
-	return verifySelfUpdatedBinary("/proc/"+strconv.Itoa(checker.pid)+"/exe", layout, roots, expected)
 }
 
 func verifyAcceptedBinaryFile(path string, pin identityrekey.BinaryPin) (RunningBinary, error) {
@@ -120,76 +93,6 @@ func verifySelfUpdatedBinary(path string, layout selfupdate.Layout, roots trust.
 	}
 	return verifyBinaryFile(path, release.ImageReceipt{BinaryBytes: receipt.Bytes, BinarySHA256: receipt.SHA256,
 		Architecture: receipt.GOARCH})
-}
-
-// verifyRecoveryPredecessor never authorizes a runtime start or target confirmation.
-func verifyRecoveryPredecessor(path string, layout selfupdate.Layout, roots trust.Keyring, accepted AcceptedIdentity) (RunningBinary, error) {
-	activation, pending, err := layout.Pending()
-	if errors.Is(err, selfupdate.ErrUnreadableActivation) {
-		activation, err = layout.RecoveryActivation()
-		pending = err == nil
-	}
-	if err != nil {
-		return RunningBinary{}, errors.Join(ErrRunningBinaryMismatch, err)
-	}
-	if !pending {
-		intents, err := layout.PendingRestores()
-		if err != nil {
-			return RunningBinary{}, errors.Join(ErrRunningBinaryMismatch, err)
-		}
-		for _, intent := range intents {
-			if intent.Unit == selfupdate.ControllerUnit {
-				return verifyRecoveryRelease(path, layout, intent.Target, roots, accepted)
-			}
-		}
-		return RunningBinary{}, ErrRunningBinaryMismatch
-	}
-	if activation.Unit != selfupdate.ControllerUnit {
-		return RunningBinary{}, ErrRunningBinaryMismatch
-	}
-	current, err := layout.Current()
-	if err != nil || current != activation.Target {
-		return RunningBinary{}, errors.Join(ErrRunningBinaryMismatch, err)
-	}
-	bad, err := layout.KnownBad()
-	if err != nil || bad[activation.Previous] {
-		return RunningBinary{}, errors.Join(ErrRunningBinaryMismatch, err)
-	}
-	return verifyRecoveryRelease(path, layout, activation.Previous, roots, accepted)
-}
-
-func verifyRecoveryRelease(path string, layout selfupdate.Layout, digest string, roots trust.Keyring, accepted AcceptedIdentity) (RunningBinary, error) {
-	if err := layout.VerifyRelease(digest); err != nil {
-		return RunningBinary{}, err
-	}
-	if digest == accepted.Binary.SHA256 {
-		return verifyAcceptedBinaryFile(path, accepted.Binary)
-	}
-	receiptWire, delegationWire, err := layout.ReleaseReceipt(digest)
-	if err != nil {
-		return RunningBinary{}, err
-	}
-	envelope, err := trust.DecodeEnvelope(receiptWire)
-	if err != nil {
-		return RunningBinary{}, err
-	}
-	var verified release.HistoricalBinary
-	switch envelope.Scope.Domain {
-	case release.BinaryDomain:
-		verified, err = release.VerifyBinaryHistorical(receiptWire, delegationWire, roots, release.BinaryExpectation{Environment: accepted.Environment})
-	case release.UpdateReceiptDomain:
-		verified, err = release.VerifyBinaryUpdateHistorical(receiptWire, delegationWire, roots, release.UpdateExpectation{Environment: accepted.Environment, Cell: accepted.Cell, Architecture: accepted.Binary.Architecture})
-	default:
-		return RunningBinary{}, ErrRunningBinaryMismatch
-	}
-	if err != nil {
-		return RunningBinary{}, err
-	}
-	receipt := verified.Receipt()
-	if !verified.IsVerified() || receipt.SHA256 != digest || receipt.GOARCH != accepted.Binary.Architecture {
-		return RunningBinary{}, ErrRunningBinaryMismatch
-	}
-	return verifyBinaryFile(path, release.ImageReceipt{BinaryBytes: receipt.Bytes, BinarySHA256: receipt.SHA256, Architecture: receipt.GOARCH})
 }
 
 func verifyBinaryFile(path string, receipt release.ImageReceipt) (RunningBinary, error) {

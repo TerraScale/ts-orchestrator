@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,7 +24,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
-	"github.com/nats-io/nkeys"
 )
 
 const sessionExecutionReserve = 5 * time.Second
@@ -91,164 +89,6 @@ type Agent struct {
 type pendingCycle struct {
 	query        cycleQuery
 	outcomeReady bool
-}
-
-func NewAgent(cfg AgentConfig) (*Agent, error) {
-	for name, value := range map[string]string{"cell": cfg.Cell, "node": cfg.Node, "environment": cfg.Environment} {
-		if err := validateToken(value, name); err != nil {
-			return nil, err
-		}
-	}
-	if cfg.TSAuthPort != 0 && (cfg.TSAuthPort < 1 || cfg.TSAuthPort > 65535) {
-		return nil, errors.New("ts-auth port must be between 1 and 65535")
-	}
-	if cfg.Conn == nil || len(cfg.Identity) != ed25519.PrivateKeySize || len(cfg.ControllerPublicKey) != ed25519.PublicKeySize {
-		return nil, errors.New("agent requires NATS connection, Ed25519 identity and pinned controller public key")
-	}
-	if !nkeys.IsValidPublicUserKey(cfg.NATSUserPublicKey) {
-		return nil, errors.New("agent requires its authenticated NATS user public key")
-	}
-	if cfg.ClockCheck == nil {
-		return nil, errors.New("agent requires a fresh host clock health check")
-	}
-	if len(cfg.Roles) == 0 || len(cfg.Roles) > 32 {
-		return nil, errors.New("agent requires roles")
-	}
-	for i, role := range cfg.Roles {
-		if err := validateToken(role, "role"); err != nil {
-			return nil, err
-		}
-		if slices.Contains(cfg.Roles[:i], role) {
-			return nil, errors.New("duplicate agent role")
-		}
-	}
-	if err := ValidateWorkloadPaths(cfg.InstallRoot, cfg.StateRoot, cfg.WorkloadIdentity); err != nil {
-		return nil, err
-	}
-	if err := ValidatePrivateHostState(cfg.StateRoot, cfg.Cell, cfg.Node); err != nil {
-		return nil, err
-	}
-	if cfg.ManagedRuntimeRoot != "" {
-		if !filepath.IsAbs(cfg.ManagedRuntimeRoot) || filepath.Clean(cfg.ManagedRuntimeRoot) != cfg.ManagedRuntimeRoot ||
-			cfg.ManagedRuntimeRoot == cfg.InstallRoot || cfg.ManagedRuntimeRoot == cfg.StateRoot ||
-			strings.HasPrefix(cfg.ManagedRuntimeRoot, cfg.InstallRoot+string(filepath.Separator)) ||
-			strings.HasPrefix(cfg.ManagedRuntimeRoot, cfg.StateRoot+string(filepath.Separator)) ||
-			strings.HasPrefix(cfg.InstallRoot, cfg.ManagedRuntimeRoot+string(filepath.Separator)) ||
-			strings.HasPrefix(cfg.StateRoot, cfg.ManagedRuntimeRoot+string(filepath.Separator)) {
-			return nil, errors.New("managed runtime root must be clean, absolute and separate from host roots")
-		}
-	}
-	if cfg.TerraBaseRoot != "" {
-		if err := validateTerraBaseRoot(cfg.TerraBaseRoot, cfg.InstallRoot, cfg.StateRoot, cfg.WorkloadIdentity); err != nil {
-			return nil, err
-		}
-	}
-	if cfg.TSAuthRoot != "" {
-		if err := validateWorkloadRoot("ts-auth", cfg.TSAuthRoot, cfg.WorkloadIdentity, cfg.InstallRoot, cfg.StateRoot,
-			cfg.TerraBaseRoot); err != nil {
-			return nil, err
-		}
-	}
-	for role, limit := range cfg.RoleMemoryMaxBytes {
-		if !slices.Contains(cfg.Roles, role) || limit == 0 || validateCgroupMemoryMax(limit) != nil {
-			return nil, fmt.Errorf("role %q memory cap must name a host role and be a nonzero page-aligned byte count", role)
-		}
-	}
-	if cfg.TerraBaseDataVolume && cfg.TerraBaseRoot == "" {
-		return nil, errors.New("a terrabase data volume needs a terrabase root")
-	}
-	if cfg.TerraBaseDataVolume && !strings.HasPrefix(cfg.TerraBaseDataVolumeID, "ocid1.volume.") {
-		return nil, errors.New("a terrabase data volume needs its recorded volume OCID")
-	}
-	if cfg.PollInterval == 0 {
-		cfg.PollInterval = 5 * time.Second
-	}
-	if cfg.PollInterval < 100*time.Millisecond {
-		return nil, errors.New("agent poll interval is too short")
-	}
-	runner := cfg.Runner
-	if runner == nil {
-		runner = NewProcessRunner(filepath.Join(cfg.StateRoot, cfg.Cell, cfg.Node), cfg.WorkloadIdentity, cfg.Cell, cfg.Node)
-	}
-	id, err := randomID()
-	if err != nil {
-		return nil, err
-	}
-	return &Agent{cfg: cfg, runner: runner, processID: id, pending: make(map[string]pendingCycle),
-		terraBase: make(map[string]terraBaseMember), nativeRoots: make(map[string]*managedNativeRoot)}, nil
-}
-
-// ValidateWorkloadPaths rejects roots that could expose supervisor state or
-// prevent the dedicated workload identity from reaching installed artifacts.
-// It does not change unrelated ancestors of the install root.
-func ValidateWorkloadPaths(installRoot, stateRoot string, identity WorkloadIdentity) error {
-	if identity.UID == 0 || identity.GID == 0 {
-		return errors.New("host workload_uid and workload_gid must be nonzero")
-	}
-	if !filepath.IsAbs(installRoot) || !filepath.IsAbs(stateRoot) ||
-		filepath.Clean(installRoot) != installRoot || filepath.Clean(stateRoot) != stateRoot {
-		return errors.New("agent installation and state roots must be clean absolute paths")
-	}
-	if installRoot == string(filepath.Separator) || stateRoot == string(filepath.Separator) {
-		return errors.New("agent installation and state roots cannot be the filesystem root")
-	}
-	if installRoot == stateRoot || strings.HasPrefix(installRoot, stateRoot+string(filepath.Separator)) ||
-		strings.HasPrefix(stateRoot, installRoot+string(filepath.Separator)) {
-		return errors.New("agent installation and state roots must not overlap")
-	}
-	if err := inspectWorkloadPath(filepath.Dir(installRoot), identity, true, false, false); err != nil {
-		return fmt.Errorf("install root parent: %w", err)
-	}
-	if err := inspectWorkloadPath(installRoot, identity, false, true, false); err != nil {
-		return fmt.Errorf("install root: %w", err)
-	}
-	if info, err := os.Lstat(installRoot); err == nil {
-		owner, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || owner.Uid != uint32(os.Geteuid()) || info.Mode().Perm()&0022 != 0 {
-			return errors.New("install root must be supervisor-owned and not tenant-writable")
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect install root: %w", err)
-	}
-	if err := inspectWorkloadPath(stateRoot, identity, false, true, true); err != nil {
-		return fmt.Errorf("state root: %w", err)
-	}
-	if err := inspectPrivateStateDirectory(stateRoot); err != nil {
-		return err
-	}
-	return nil
-}
-
-// ValidatePrivateHostState checks the host-owned state subtree before the
-// runtime probe. Missing descendants are created privately by the runner.
-func ValidatePrivateHostState(stateRoot, cell, node string) error {
-	for name, value := range map[string]string{"cell": cell, "node": node} {
-		if err := validateToken(value, name); err != nil {
-			return err
-		}
-	}
-	for _, path := range []string{stateRoot, filepath.Join(stateRoot, cell), filepath.Join(stateRoot, cell, node)} {
-		if err := inspectPrivateStateDirectory(path); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func inspectPrivateStateDirectory(path string) error {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("inspect state directory: %w", err)
-	}
-	owner, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 ||
-		owner.Uid != uint32(os.Geteuid()) || info.Mode().Perm()&0077 != 0 {
-		return fmt.Errorf("state directory %s must be private and supervisor-owned", path)
-	}
-	return nil
 }
 
 func inspectWorkloadPath(path string, identity WorkloadIdentity, tenantTraverse, allowMissing, privateState bool) error {

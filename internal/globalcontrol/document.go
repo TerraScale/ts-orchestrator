@@ -3,12 +3,8 @@ package globalcontrol
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 // Document is a document the home region relays to every region. A
@@ -30,16 +26,6 @@ type Document struct {
 
 var errDocumentKey = errors.New("global document needs a document kind and a matching cell")
 
-func validDocument(kind Kind, cell string) bool {
-	switch kind {
-	case KindCellSpec:
-		return cellToken.MatchString(cell) && cell != protocol.GlobalScope
-	case KindBudget, KindCapacity:
-		return cell == protocol.GlobalScope
-	}
-	return false
-}
-
 // Document returns kind's current document for cell.
 func (r *Reader) Document(ctx context.Context, kind Kind, cell string) (Document, error) {
 	if !validDocument(kind, cell) {
@@ -55,90 +41,12 @@ func (r *Reader) Document(ctx context.Context, kind Kind, cell string) (Document
 	return Document{Payload: stored.Payload, Generation: stored.Generation, Epoch: stored.Epoch, Sequence: sequence}, nil
 }
 
-// Follow offers kind's current document for cell to apply when Follow
-// starts, each time the record changes and every recheck, so apply must be
-// idempotent: a document the caller cannot act on yet, on a follower or
-// after a transient error, is simply offered again. A watch on the local
-// stream (the home stream or this region's mirror) makes changes immediate;
-// every read is still the verified read, so a mirror missing home records
-// offers nothing. Failures are logged once each. Follow returns when ctx
-// ends.
-func (r *Reader) Follow(ctx context.Context, kind Kind, cell string, recheck time.Duration,
-	apply func(context.Context, Document),
-) error {
-	if !validDocument(kind, cell) {
-		return errDocumentKey
+func validDocument(kind Kind, cell string) bool {
+	switch kind {
+	case KindCellSpec:
+		return cellToken.MatchString(cell) && cell != protocol.GlobalScope
+	case KindBudget, KindCapacity:
+		return cell == protocol.GlobalScope
 	}
-	if recheck <= 0 {
-		return errors.New("global document recheck must be positive")
-	}
-	changed := make(chan struct{}, 1)
-	var watch jetstream.ConsumeContext
-	defer func() {
-		if watch != nil {
-			watch.Stop()
-		}
-	}()
-	ticker := time.NewTicker(recheck)
-	defer ticker.Stop()
-	var failure string
-	var offeredSequence uint64
-	force := true
-	for {
-		var watchErr error
-		if watch == nil {
-			watch, watchErr = r.watch(ctx, subject(kind, cell), changed)
-		}
-		document, err := r.Document(ctx, kind, cell)
-		switch {
-		case err == nil:
-			// The watch's initial delivery can arrive after the initial read
-			// (or a later read already covering it). Only actual changes or an
-			// explicit periodic recheck should repeat an offer.
-			if force || document.Sequence != offeredSequence {
-				apply(ctx, document)
-				offeredSequence = document.Sequence
-			}
-		case errors.Is(err, ErrNotFound):
-			err = nil
-		}
-		if err = errors.Join(watchErr, err); err != nil && err.Error() != failure && ctx.Err() == nil {
-			slog.WarnContext(ctx, "global document unavailable", observability.ComponentKey, "globalcontrol",
-				"kind", kind, "cell", cell, "error", err)
-		}
-		failure = ""
-		if err != nil {
-			failure = err.Error()
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-changed:
-			force = false
-		case <-ticker.C:
-			force = true
-		}
-	}
-}
-
-// watch signals changed for every record stored on subject, starting with
-// the current one, through an ordered consumer on the local stream.
-func (r *Reader) watch(ctx context.Context, subject string, changed chan<- struct{}) (jetstream.ConsumeContext, error) {
-	if r == nil || r.stream == nil {
-		return nil, errors.New("global control reader is not open")
-	}
-	createCtx, cancel := context.WithTimeout(ctx, apiTimeout)
-	defer cancel()
-	consumer, err := r.stream.OrderedConsumer(createCtx, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{subject}, DeliverPolicy: jetstream.DeliverLastPerSubjectPolicy,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return consumer.Consume(func(jetstream.Msg) {
-		select {
-		case changed <- struct{}{}:
-		default:
-		}
-	})
+	return false
 }

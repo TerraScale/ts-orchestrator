@@ -1,9 +1,6 @@
 package delivery
 
 import (
-	"sync/atomic"
-	"time"
-
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/VictoriaMetrics/metrics"
 )
@@ -18,10 +15,4 @@ var (
 	intentsDeferred = Metrics.NewCounter(observability.Series(
 		observability.MetricPrefix+"delivery_intents_total", "result", "deferred"))
 	transportRetries = Metrics.NewCounter(observability.MetricPrefix + "delivery_transport_retries_total")
-	lastAcknowledged atomic.Int64
 )
-
-func recordAcknowledged() {
-	intentsAcknowledged.Inc()
-	lastAcknowledged.Store(time.Now().UnixNano())
-}

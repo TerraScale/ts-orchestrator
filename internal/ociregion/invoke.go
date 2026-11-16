@@ -1,7 +1,6 @@
 package ociregion
 
 import (
-	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -11,73 +10,6 @@ import (
 // Path is a file argument. It remains distinguishable from a textual argument for injected dependencies.
 type Path string
 
-// DecodeInvocation converts tagged contract values to the native API argument types.
-func DecodeInvocation(v any) any {
-	switch v := v.(type) {
-	case []any:
-		r := make([]any, len(v))
-		for i, x := range v {
-			r[i] = DecodeInvocation(x)
-		}
-		return r
-	case Object:
-		if p, ok := v["$path"]; ok {
-			return Path(text(p))
-		}
-		if b, ok := v["$bytes"]; ok {
-			return must(base64.StdEncoding.DecodeString(text(b)))
-		}
-		if d, ok := v["$decimal"]; ok {
-			return rat(d)
-		}
-		if d, ok := v["$datetime"]; ok {
-			t, _ := parseTime(d)
-			return t
-		}
-		if n, ok := v["$namespace"]; ok {
-			return DecodeInvocation(n)
-		}
-		if n, ok := v["$process"]; ok {
-			return DecodeInvocation(n)
-		}
-		r := Object{}
-		for k, x := range v {
-			r[k] = DecodeInvocation(x)
-		}
-		return r
-	}
-	return v
-}
-func EncodeInvocation(v any) any {
-	switch v := v.(type) {
-	case Path:
-		return Object{"$path": string(v)}
-	case []byte:
-		return Object{"$bytes": base64.StdEncoding.EncodeToString(v)}
-	case time.Time:
-		return Object{"$datetime": pythonTime(v)}
-	case Object:
-		r := Object{}
-		for k, x := range v {
-			r[k] = EncodeInvocation(x)
-		}
-		return r
-	case []any:
-		r := make([]any, len(v))
-		for i, x := range v {
-			r[i] = EncodeInvocation(x)
-		}
-		return r
-	case []string:
-		return arr(v)
-	}
-	return v
-}
-
-// Invoke is the same native API used by the command dispatcher, with optional injected dependencies.
-func (e *Engine) Invoke(name string, args []any, kwargs Object) (any, error) {
-	return capture(func() any { return e.invoke(name, args, kwargs) })
-}
 func (e *Engine) invoke(name string, args []any, kw Object) any {
 	arg := func(i int) any {
 		if i < len(args) {

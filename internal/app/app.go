@@ -4,8 +4,6 @@ package app
 import (
 	"cmp"
 	"context"
-	"crypto/ed25519"
-	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,25 +14,19 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/moby/swarmkit/v2/api"
 
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
-	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
-	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
@@ -269,103 +261,6 @@ func edgeRouteTables(services []*api.Service, region string) (web, postgres map[
 		}
 	}
 	return web, postgres, owners
-}
-
-func RunChild(ctx context.Context, args []string, output io.Writer) error {
-	if len(args) == 0 {
-		return errors.New("usage: terrascale-orchestrator child command")
-	}
-	command := args[0]
-	if command == "bootstrap-credential-check" {
-		if len(args) != 1 {
-			return errors.New("bootstrap credential check accepts no arguments")
-		}
-		return bootstrapstart.RunCredentialValidationChild(os.Stdin, func(request bootstrapstart.CredentialChildRequest) error {
-			if _, err := readPrivateKey(request.ResponseKeyFile); err != nil {
-				return fmt.Errorf("controller response key: %w", err)
-			}
-			cfg := Config{NATS: request.Config, Controller: ControllerConfig{BrokerTicketKeyFile: request.BrokerTicketKeyFile}}
-			_, _, err := brokerTicketKeys(cfg)
-			return err
-		})
-	}
-	if command == "bootstrap-admit-initial" || command == "bootstrap-admit-restart" {
-		if len(args) != 1 {
-			return errors.New("bootstrap admission child accepts no arguments")
-		}
-		return runControllerAdmissionChild(ctx, command, os.Stdin)
-	}
-	flags := flag.NewFlagSet(command, flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	configPath := flags.String("config", "", "JSON role configuration")
-	if err := flags.Parse(args[1:]); err != nil {
-		return err
-	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("%s does not accept positional arguments", command)
-	}
-	cfg, err := LoadConfig(*configPath)
-	if err != nil {
-		return err
-	}
-	if command == "identity-rekey-completion-check" {
-		return checkControllerIdentityRekeyCompletion(ctx, cfg)
-	}
-	return fmt.Errorf("unknown command %q", command)
-}
-
-var hostClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
-
-func readPrivateKey(path string) (ed25519.PrivateKey, error) {
-	if path == "" {
-		return nil, errors.New("private identity key file is required")
-	}
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return nil, fmt.Errorf("open private key: %w", err)
-	}
-	file := os.NewFile(uintptr(fd), path)
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("stat private key: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-		return nil, errors.New("private key must be a regular file readable only by its owner")
-	}
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Uid != uint32(os.Getuid()) {
-		return nil, errors.New("private key must be owned by this process user")
-	}
-	data, err := io.ReadAll(io.LimitReader(file, 128))
-	if err != nil {
-		return nil, fmt.Errorf("read private key: %w", err)
-	}
-	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(data)))
-	if err != nil {
-		return nil, fmt.Errorf("decode private key: %w", err)
-	}
-	if len(decoded) != ed25519.PrivateKeySize {
-		return nil, errors.New("private key must contain 64 Ed25519 bytes")
-	}
-	return ed25519.PrivateKey(decoded), nil
-}
-
-// hostRollouts makes a production host agent take part in the cell's
-// orchestrator rollouts; the node's self-update watchdog applies the steps
-// it spools, with the same rule (selfupdate/cli).
-func hostRollouts(cfg Config, identity ed25519.PrivateKey, controller ed25519.PublicKey,
-) func(context.Context, host.RolloutSession) {
-	return followHostRollouts(hostRollout{cell: cfg.NATS.Cell, node: cfg.Host.Node, identity: identity,
-		controller: controller, spool: rolloutexec.HostSpoolDir, stateRoot: cfg.Host.StateRoot,
-		layout: selfupdate.NewLayout(cmp.Or(cfg.Host.SelfUpdateRoot, selfupdate.DefaultRoot))})
-}
-
-func decodePublicKey(encoded string) (ed25519.PublicKey, error) {
-	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
-	if err != nil || len(decoded) != ed25519.PublicKeySize {
-		return nil, errors.New("expected a base64 Ed25519 public key")
-	}
-	return ed25519.PublicKey(decoded), nil
 }
 
 func releaseHealth(ctx context.Context, state, service string, node *mesh.Node, public *edge.Edge) releasepush.HealthResult {

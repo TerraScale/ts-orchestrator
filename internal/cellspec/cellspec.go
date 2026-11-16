@@ -14,9 +14,6 @@ package cellspec
 
 import (
 	"bytes"
-	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -25,7 +22,6 @@ import (
 	"net/netip"
 	"net/url"
 	"path"
-	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -604,32 +600,6 @@ func (s Spec) HostImage(imageID string) (HostImage, bool) {
 	return s.HostImages[index], true
 }
 
-// VerifyHostImages checks that a root qualified host images for the spec's
-// environment and cell: each receipt names exactly its image and is signed
-// under a root's image delegation. Without now, it checks every image as of
-// its signatures' issue. With now, it checks only the images that previous
-// lacks or holds with other bytes, and a newly chosen launch image, with
-// current signatures, so an amendment can add, change or launch only an
-// image that is qualified today, while an accepted image stays allowed after
-// its receipt expires.
-func VerifyHostImages(previous, next Spec, roots trust.Keyring, now *time.Time) error {
-	for _, image := range next.HostImages {
-		expected := release.ImageExpectation{Environment: next.Environment,
-			LogicalRegion: next.logicalRegion(), OCIImageOCID: image.ImageID}
-		var err error
-		if now == nil {
-			_, err = release.VerifyImageHistorical(image.Receipt, image.Delegation, roots, expected)
-		} else if before, kept := previous.HostImage(image.ImageID); !kept || !reflect.DeepEqual(before, image) ||
-			image.ImageID == next.LaunchImage && next.LaunchImage != previous.LaunchImage {
-			_, err = release.VerifyImageCurrent(image.Receipt, image.Delegation, roots, expected, *now)
-		}
-		if err != nil {
-			return fmt.Errorf("host image %s is not qualified: %w", image.ImageID, err)
-		}
-	}
-	return nil
-}
-
 // Grant returns the host grant of node.
 func (s Spec) Grant(node string) (HostGrant, bool) {
 	index := slices.IndexFunc(s.HostGrants, func(grant HostGrant) bool { return grant.Node == node })
@@ -756,89 +726,10 @@ func Decode(encoded []byte) (Spec, error) {
 	return spec, nil
 }
 
-// Digest is the SHA-256 of the spec's canonical payload.
-func Digest(spec Spec) (string, error) {
-	encoded, err := Encode(spec)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(encoded)
-	return hex.EncodeToString(sum[:]), nil
-}
-
-// SignDelegation is the offline root operation: it lets leaf sign ordinary
-// amendments for one identity.
-func SignDelegation(leaf ed25519.PublicKey, id Identity, issuedAt, expiresAt time.Time,
-	root ed25519.PrivateKey,
-) (trust.Envelope, error) {
-	if err := id.Validate(); err != nil {
-		return trust.Envelope{}, err
-	}
-	if !expiresAt.After(issuedAt) || expiresAt.Sub(issuedAt) > MaxDelegationLifetime {
-		return trust.Envelope{}, fmt.Errorf("cell spec delegation must expire within %s", MaxDelegationLifetime)
-	}
-	keyID, err := trust.KeyID(leaf)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	encoded, err := trust.EncodeDelegatedPublicKey(leaf)
-	if err != nil {
-		return trust.Envelope{}, err
-	}
-	scope := id.Scope()
-	return trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID,
-		SubjectPublicKey: encoded, Capabilities: []trust.Capability{{Domain: scope.Domain,
-			DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment,
-			Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, issuedAt, expiresAt, root)
-}
-
-// Sign signs a spec of generation one or later and checks the result as a
-// controller would, so a spec signed under a wrong or expired delegation, or
-// by a key that is not a root, fails here instead of on the cell. With a
-// delegation the signer is the release leaf; without one it is a root.
-func Sign(spec Spec, delegationWire []byte, roots trust.Keyring, now time.Time, validFor time.Duration,
-	signer ed25519.PrivateKey,
-) ([]byte, error) {
-	if spec.Generation == 0 {
-		return nil, fmt.Errorf("%w: generation 0 is the signed controller config's spec", ErrInvalid)
-	}
-	if validFor <= 0 || validFor > MaxSpecLifetime {
-		return nil, fmt.Errorf("cell spec validity must be positive and at most %s", MaxSpecLifetime)
-	}
-	payload, err := Encode(spec)
-	if err != nil {
-		return nil, err
-	}
-	issuedAt := now.Round(0).UTC().Truncate(time.Second)
-	envelope, err := trust.Sign(payload, spec.Identity.Scope(), issuedAt, issuedAt.Add(validFor), signer)
-	if err != nil {
-		return nil, err
-	}
-	specWire, err := trust.EncodeEnvelope(envelope)
-	if err != nil {
-		return nil, err
-	}
-	wire, err := protocol.EncodeJSON(Signed{Delegation: bytes.Clone(delegationWire), Spec: specWire})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := VerifyCurrent(wire, roots, spec.Identity, now); err != nil {
-		return nil, err
-	}
-	return wire, nil
-}
-
 // VerifyCurrent is the controller's admission check: currently valid
 // signatures for exactly id and a valid spec of generation one or later.
 func VerifyCurrent(wire []byte, roots trust.Keyring, id Identity, now time.Time) (Verified, error) {
 	return verify(wire, roots, id, &now)
-}
-
-// VerifyHistorical re-checks an accepted spec without expiry: a controller
-// reloads it after the signatures' validity ended. Removing the root from
-// the image still revokes it.
-func VerifyHistorical(wire []byte, roots trust.Keyring, id Identity) (Verified, error) {
-	return verify(wire, roots, id, nil)
 }
 
 func verify(wire []byte, roots trust.Keyring, id Identity, now *time.Time) (Verified, error) {
@@ -942,14 +833,6 @@ type Plan struct {
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
-}
-
-// Empty reports whether the plan changes nothing.
-func (p Plan) Empty() bool {
-	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 &&
-		p.OCIDesired == "" && len(p.Signers) == 0 &&
-		p.LaunchImage == "" && p.ArtifactStore == "" && p.ReleaseFence == "" && p.MachinesAPI == "" &&
-		p.Dashboard == "" && p.NetBird == ""
 }
 
 // Validate checks each entry's spec and the prune delay. The

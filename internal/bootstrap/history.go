@@ -32,10 +32,6 @@ type HistoricalStartupAuthority interface {
 	verifyHistoricalStartupAuthority() error
 }
 
-func (verified HistoricalManifest) verifyHistoricalStartupAuthority() error {
-	return validateHistoricalManifest(verified)
-}
-
 // Manifest returns a defensive copy of the historically verified manifest.
 func (verified HistoricalManifest) Manifest() Manifest { return cloneManifest(verified.manifest) }
 
@@ -117,3 +113,7 @@ type HistoricalReceipt struct {
 
 // Receipt returns a value copy of the historically verified receipt.
 func (verified HistoricalReceipt) Receipt() Receipt { return verified.receipt }
+
+func (verified HistoricalManifest) verifyHistoricalStartupAuthority() error {
+	return validateHistoricalManifest(verified)
+}

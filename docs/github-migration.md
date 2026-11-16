@@ -23,7 +23,7 @@ verify channels locally and poll to recover missed hints. No new webhook
 endpoint or provider storage adapter is implemented. The `run_number` channel
 field still carries a CI counter: preserving monotonic ordering across
 producers is required, and provider-independent sequence allocation remains
-unresolved. See [release application](releases.md#apply-a-signed-release-bundle).
+unresolved.
 
 OCI is the current storage implementation. OCI versus Tigris cost and storage
 research remains pending; this change does not select a new backend or claim

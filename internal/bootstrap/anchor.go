@@ -291,34 +291,9 @@ func (verified HistoricalBootstrapAnchor) Anchor() BootstrapAnchor {
 // IsVerified reports whether this value came from VerifyHistoricalBootstrapAnchor.
 func (verified HistoricalBootstrapAnchor) IsVerified() bool { return verified.verified }
 
-// InitialRegionIntent returns the region authorization carried by this
-// historical proof. It is evidence only and cannot authorize current actions.
-func (verified HistoricalBootstrapAnchor) InitialRegionIntent() oci.RegionIntent {
-	intent := verified.intent
-	intent.Regions = slices.Clone(verified.intent.Regions)
-	return intent
-}
-
 // Wire returns the exact canonical envelope bytes proven by the historical
 // verification.
 func (verified HistoricalBootstrapAnchor) Wire() []byte { return bytes.Clone(verified.wire) }
-
-// Digest returns the historical envelope's canonical SHA-256 fingerprint.
-func (verified HistoricalBootstrapAnchor) Digest() string { return verified.digest }
-
-// AcceptedAt returns the caller-supplied accepted-install time covered by the
-// anchor's signed interval.
-func (verified HistoricalBootstrapAnchor) AcceptedAt() time.Time { return verified.acceptedAt }
-
-// HistoricalLedgerDelegation returns grant evidence validated against the
-// current root set and the accepted anchor interval. The result is for reading
-// historical ledger records only; it does not authorize present-day actions.
-func (verified HistoricalBootstrapAnchor) HistoricalLedgerDelegation() (trust.VerifiedDelegation, error) {
-	if !verified.verified || len(verified.anchor.LedgerDelegationWire) == 0 {
-		return trust.VerifiedDelegation{}, fmt.Errorf("%w: historical anchor verification is absent", ErrBootstrapAnchorInvalid)
-	}
-	return verified.ledgerDelegation, nil
-}
 
 // BootstrapAnchorTrustPolicy is the shared current-verification policy for
 // root-signed baked anchors.

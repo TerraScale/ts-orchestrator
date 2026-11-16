@@ -164,14 +164,6 @@ func Allowed() ([]AllowedKey, error) {
 	return parseAllowed(data)
 }
 
-func Verify(manifest, signature []byte) (Manifest, string, error) {
-	keys, err := Allowed()
-	if err != nil {
-		return Manifest{}, "", err
-	}
-	return verifyWith(manifest, signature, keys)
-}
-
 func decodeStrict(data []byte, value any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()

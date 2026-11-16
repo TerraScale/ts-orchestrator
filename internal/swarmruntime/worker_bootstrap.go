@@ -3,14 +3,10 @@ package swarmruntime
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
-	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,14 +14,10 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
-	"github.com/moby/swarmkit/v2/agent/exec"
-	"github.com/moby/swarmkit/v2/ca"
 	"github.com/oracle/oci-go-sdk/v65/secrets"
 
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 )
-
-const workerStateDirectory = "/var/lib/terrascale-orchestrator-host/swarm-worker"
 
 // WorkerBundleClient reads only the exact secret/version pinned by enrollment.
 type WorkerBundleClient interface {
@@ -44,86 +36,6 @@ func workerMaterialMatches(material workerJoinMaterial, signed hostenroll.SwarmW
 		material.Environment == signed.Environment && strings.EqualFold(material.Region, signed.Region) && material.FounderID == signed.FounderID &&
 		material.RegistrationID == signed.RegistrationID && material.InstanceID == signed.InstanceID && material.Role == signed.Role &&
 		material.Architecture == signed.Architecture && material.SwarmID == signed.SwarmID && material.CAPEM == signed.CAPEM && material.ManagerAddress == signed.ManagerAddress
-}
-
-// StartAcceptedWorker consumes the existing signed recipient enrollment. The
-// worker token's pinned version cannot grant manager or founder authority.
-func StartAcceptedWorker(ctx context.Context, accepted hostenroll.VerifiedSwarmWorker, bundles WorkerBundleClient, executor exec.Executor) (*Node, error) {
-	return startAcceptedWorkerAt(ctx, workerStateDirectory, accepted, bundles, executor)
-}
-
-func startAcceptedWorkerAt(ctx context.Context, directory string, accepted hostenroll.VerifiedSwarmWorker, bundles WorkerBundleClient, executor exec.Executor) (*Node, error) {
-	signed := accepted.Worker()
-	if err := signed.Validate(time.Now().UTC()); err != nil {
-		return nil, err
-	}
-	if signed.Architecture != runtime.GOARCH || len(accepted.Wire()) == 0 || bundles == nil || executor == nil {
-		return nil, errors.New("worker requires signed native architecture, Vault and executor")
-	}
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return nil, err
-	}
-	lock := flock.New(filepath.Join(directory, "bootstrap.lock"))
-	locked, err := lock.TryLock()
-	if err != nil || !locked {
-		return nil, errors.New("worker bootstrap state is already in use")
-	}
-	defer lock.Unlock()
-	if err := persistWorkerEnrollment(directory, accepted); err != nil {
-		return nil, err
-	}
-	response, err := bundles.GetSecretBundle(ctx, secrets.GetSecretBundleRequest{SecretId: new(signed.SecretID), VersionNumber: new(signed.SecretVersion)})
-	if err != nil {
-		return nil, errors.New("read exact admitted worker Vault material failed")
-	}
-	var encoded *string
-	switch content := response.SecretBundleContent.(type) {
-	case secrets.Base64SecretBundleContentDetails:
-		encoded = content.Content
-	case *secrets.Base64SecretBundleContentDetails:
-		if content != nil {
-			encoded = content.Content
-		}
-	}
-	if encoded == nil || response.SecretId == nil || *response.SecretId != signed.SecretID || response.VersionNumber == nil || *response.VersionNumber != signed.SecretVersion {
-		return nil, errors.New("worker Vault bundle differs from signed version")
-	}
-	wire, err := base64.StdEncoding.DecodeString(*encoded)
-	if err != nil || len(wire) == 0 || len(wire) > 16384 {
-		return nil, errors.New("invalid worker Vault material")
-	}
-	defer clear(wire)
-	digest := sha256.Sum256(wire)
-	if hex.EncodeToString(digest[:]) != signed.SecretSHA256 {
-		return nil, errors.New("worker Vault bytes differ from signed digest")
-	}
-	var material workerJoinMaterial
-	if json.Unmarshal(wire, &material, json.RejectUnknownMembers(true)) != nil || !workerMaterialMatches(material, signed) {
-		return nil, errors.New("worker Vault material differs from signed recipient scope")
-	}
-	if _, err := ca.ParseJoinToken(material.WorkerToken); err != nil {
-		return nil, errors.New("invalid upstream worker token")
-	}
-	nodeDirectory := filepath.Join(directory, "node")
-	n, err := StartNode(ctx, NodeConfig{StateDir: nodeDirectory, ListenAddress: net.JoinHostPort(signed.PrivateIP, swarmManagerPort), AdvertiseAddress: net.JoinHostPort(signed.PrivateIP, swarmManagerPort),
-		Admission: Admission{Region: signed.Region, HostID: signed.RegistrationID, InstanceID: signed.InstanceID, FounderID: signed.FounderID, Role: signed.Role, ManagerAddress: signed.ManagerAddress, JoinToken: material.WorkerToken}}, executor)
-	if err != nil {
-		return nil, err
-	}
-	certWire, err := os.ReadFile(filepath.Join(nodeDirectory, "certificates", "swarm-node.crt"))
-	rootWire, rootErr := os.ReadFile(filepath.Join(nodeDirectory, "certificates", "swarm-root-ca.crt"))
-	block, _ := pem.Decode(certWire)
-	if err == nil && block != nil {
-		cert, certErr := x509.ParseCertificate(block.Bytes)
-		if certErr == nil && rootErr == nil && string(rootWire) == signed.CAPEM && len(cert.Subject.Organization) == 1 && cert.Subject.Organization[0] == signed.SwarmID && signed.Validate(time.Now().UTC()) == nil {
-			n.workerDirectory = directory
-			return n, nil
-		}
-	}
-	stopCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	_ = n.Stop(stopCtx)
-	return nil, errors.New("joined worker certificate differs from signed upstream cluster")
 }
 
 func persistWorkerEnrollment(directory string, accepted hostenroll.VerifiedSwarmWorker) error {

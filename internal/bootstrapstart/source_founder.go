@@ -12,7 +12,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
@@ -27,74 +26,6 @@ type VerifiedSourceFounder struct {
 	observer InstanceObserver
 	instance string
 	tenancy  string
-}
-
-// VerifySourceFounder uses fixed local metadata and authenticated OCI endpoints.
-// Matching an IMDS slot or a mutable instance tag alone grants no authority.
-func VerifySourceFounder(ctx context.Context, factory *ociclient.Factory, template bootstrap.VerifiedStartupTemplate) (VerifiedSourceFounder, error) {
-	if _, err := template.OriginalLaunch(); err == nil {
-		return VerifiedSourceFounder{}, ErrSourceFounder
-	}
-	if factory == nil {
-		return VerifiedSourceFounder{}, ErrSourceFounder
-	}
-	if err := template.VerifyCurrentContext(ctx, time.Now().UTC()); err != nil {
-		return VerifiedSourceFounder{}, errors.Join(ErrSourceFounder, err)
-	}
-	manifest, err := template.ManifestFor(template.Template().SeedSlot, nil)
-	if err != nil || factory.Region() != manifest.OCIRegion {
-		return VerifiedSourceFounder{}, ErrSourceFounder
-	}
-	var grant struct {
-		TenancyID string `json:"tenancyId"`
-	}
-	envelope, err := trust.DecodeEnvelope(template.GrantWire())
-	if err != nil || json.Unmarshal(envelope.Payload, &grant) != nil || grant.TenancyID == "" {
-		return VerifiedSourceFounder{}, ErrSourceFounder
-	}
-	tenancy, err := factory.Provider().TenancyOCID()
-	if err != nil || tenancy != grant.TenancyID {
-		return VerifiedSourceFounder{}, ErrSourceFounder
-	}
-	observer, err := NewOCIInstanceObserver(manifest.Cell, factory.Provider())
-	if err != nil {
-		return VerifiedSourceFounder{}, err
-	}
-	return verifySourceFounderWithSources(ctx, factory, template, NewIMDSClient(), observer)
-}
-
-func verifySourceFounderWithSources(ctx context.Context, factory *ociclient.Factory, template bootstrap.VerifiedStartupTemplate, imds DescriptorSource, observer InstanceObserver) (VerifiedSourceFounder, error) {
-	if _, err := template.OriginalLaunch(); err == nil {
-		return VerifiedSourceFounder{}, ErrSourceFounder
-	}
-	if factory == nil || imds == nil || observer == nil {
-		return VerifiedSourceFounder{}, ErrSourceFounder
-	}
-	if err := template.VerifyCurrentContext(ctx, time.Now().UTC()); err != nil {
-		return VerifiedSourceFounder{}, errors.Join(ErrSourceFounder, err)
-	}
-	manifest, err := template.ManifestFor(template.Template().SeedSlot, nil)
-	if err != nil || factory.Region() != manifest.OCIRegion {
-		return VerifiedSourceFounder{}, ErrSourceFounder
-	}
-	var grant struct {
-		TenancyID string `json:"tenancyId"`
-	}
-	envelope, err := trust.DecodeEnvelope(template.GrantWire())
-	if err != nil || json.Unmarshal(envelope.Payload, &grant) != nil || grant.TenancyID == "" {
-		return VerifiedSourceFounder{}, ErrSourceFounder
-	}
-	tenancy, err := factory.Provider().TenancyOCID()
-	if err != nil || tenancy != grant.TenancyID {
-		return VerifiedSourceFounder{}, ErrSourceFounder
-	}
-	proof := VerifiedSourceFounder{template: template, factory: factory, imds: imds, observer: observer, tenancy: tenancy}
-	observed, err := proof.observe(ctx)
-	if err != nil {
-		return VerifiedSourceFounder{}, err
-	}
-	proof.instance = observed.InstanceOCID
-	return proof, nil
 }
 
 func (proof VerifiedSourceFounder) IsVerified() bool {

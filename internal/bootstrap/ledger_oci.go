@@ -49,31 +49,6 @@ func NewInstancePrincipalLedger(region oci.Region, config LedgerConfig) (*Ledger
 	)
 }
 
-// NewHistoricalInstancePrincipalLedger creates a read-only Object Storage
-// reader for historically verified anchors with all five ledger grants.
-func NewHistoricalInstancePrincipalLedger(region oci.Region, config LedgerConfig) (*Ledger, error) {
-	return newHistoricalInstancePrincipalLedger(
-		region,
-		config,
-		ociclient.InstancePrincipalProvider,
-	)
-}
-
-// NewInstancePrincipalLedgerWithProvider builds a hardened Object Storage
-// ledger client from an already-created OCI provider. The provider must be
-// pinned to the OCI region corresponding to the anchor-bound config cell.
-func NewInstancePrincipalLedgerWithProvider(region oci.Region, config LedgerConfig, provider common.ConfigurationProvider) (*Ledger, error) {
-	return newInstancePrincipalLedgerWithProviderMode(region, config, provider, false)
-}
-
-// NewHistoricalInstancePrincipalLedgerWithProvider creates an evidence-only
-// reader for historically verified anchors with all five ledger grants.
-func NewHistoricalInstancePrincipalLedgerWithProvider(region oci.Region, config LedgerConfig,
-	provider common.ConfigurationProvider,
-) (*Ledger, error) {
-	return newInstancePrincipalLedgerWithProviderMode(region, config, provider, true)
-}
-
 // NewInstancePrincipalConfigurationProvider creates the hardened OCI
 // Instance Principal provider shared by bootstrap observers. It validates the
 // anchored ledger scope before SDK metadata access and bounds that access with
@@ -86,26 +61,6 @@ func NewInstancePrincipalConfigurationProvider(region oci.Region, config LedgerC
 		config,
 		ociclient.InstancePrincipalProvider,
 	)
-}
-
-// NewRegionalInstancePrincipalConfigurationProvider authenticates a region
-// selected by accepted installation identity, without reopening launch history.
-func NewRegionalInstancePrincipalConfigurationProvider(region oci.Region) (common.ConfigurationProvider, error) {
-	ociRegion, err := region.OCIRegion()
-	if err != nil {
-		return nil, err
-	}
-	if err := validateInstancePrincipalSDKOverrides(); err != nil {
-		return nil, err
-	}
-	provider, err := ociclient.InstancePrincipalProvider(common.Region(ociRegion), BoundInstancePrincipalDispatcher)
-	if err != nil {
-		return nil, fmt.Errorf("create accepted regional Instance Principal provider: %w", err)
-	}
-	if provider == nil {
-		return nil, errors.New("accepted regional Instance Principal provider is nil")
-	}
-	return provider, nil
 }
 
 // NewInstancePrincipalSDKHTTPClient returns the hardened HTTP client to assign
@@ -124,18 +79,6 @@ func newInstancePrincipalLedger(
 		return nil, err
 	}
 	return newInstancePrincipalLedgerWithProviderMode(region, config, provider, false)
-}
-
-func newHistoricalInstancePrincipalLedger(
-	region oci.Region,
-	config LedgerConfig,
-	newProvider instancePrincipalProviderFactory,
-) (*Ledger, error) {
-	provider, err := newInstancePrincipalConfigurationProvider(region, config, newProvider)
-	if err != nil {
-		return nil, err
-	}
-	return newInstancePrincipalLedgerWithProviderMode(region, config, provider, true)
 }
 
 func newInstancePrincipalLedgerWithProviderMode(

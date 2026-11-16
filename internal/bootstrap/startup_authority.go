@@ -399,23 +399,6 @@ func verifyStartupTemplateForIdentityBindings(wire []byte, roots trust.Keyring, 
 	return VerifiedStartupTemplate{}, ErrManifestInvalid
 }
 
-// VerifyBoundStartupTemplate independently checks schema-2 startup against the
-// exact original grant, create provenance and current OCI resource facts.
-func VerifyBoundStartupTemplate(ctx context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, now time.Time) (VerifiedStartupTemplate, error) {
-	bindings, err := verifyStartupBindings(ctx, factory, wire, roots, anchor, string(anchor.Anchor().Cell), now)
-	if err != nil {
-		return VerifiedStartupTemplate{}, err
-	}
-	verified, err := verifyStartupTemplateForIdentityBindings(wire, roots, anchor, anchor.Anchor(), bindings, now)
-	if err != nil {
-		return VerifiedStartupTemplate{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return VerifiedStartupTemplate{}, err
-	}
-	return verified, nil
-}
-
 func verifyStartupBindings(ctx context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, cell string, now time.Time) (*startupBindings, error) {
 	identity := anchor.Anchor()
 	envelope, err := trust.DecodeEnvelope(anchor.Wire())

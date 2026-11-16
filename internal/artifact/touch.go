@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -57,30 +56,6 @@ func liveMeta(ctx context.Context, js nats.JetStreamContext, bucket, subject, na
 		return nil, jetstream.ErrObjectNotFound
 	}
 	return meta, nil
-}
-
-// DeleteIfUnchanged deletes the object whose metadata is meta, as nats.go
-// does, but only while meta is still the subject's last message: a Touch
-// since then refuses it with ErrChanged. It then purges the object's chunks.
-func DeleteIfUnchanged(ctx context.Context, js nats.JetStreamContext, bucket string, meta *nats.RawStreamMsg) error {
-	var info jetstream.ObjectInfo
-	if meta == nil || json.Unmarshal(meta.Data, &info) != nil || info.NUID == "" || info.Deleted ||
-		meta.Subject != metaSubject(bucket, info.Name) {
-		return fmt.Errorf("%w: artifact object metadata", ErrInvalid)
-	}
-	info.Deleted = true
-	info.Size, info.Chunks, info.Digest, info.ModTime = 0, 0, "", time.Time{}
-	data, err := json.Marshal(info)
-	if err != nil {
-		return err
-	}
-	if err := publishMeta(ctx, js, meta.Subject, data, meta.Sequence); err != nil {
-		return err
-	}
-	if err := js.PurgeStream("OBJ_"+bucket, &nats.StreamPurgeRequest{Subject: "$O." + bucket + ".C." + info.NUID}, nats.Context(ctx)); err != nil {
-		return fmt.Errorf("purge deleted artifact chunks: %w", err)
-	}
-	return nil
 }
 
 func metaSubject(bucket, name string) string {

@@ -369,24 +369,6 @@ func derivedReceiptDomain(seed bool) string {
 	return "terrascale.bootstrap.derived-peer-receipt"
 }
 
-// SignDerivedReceipt uses the registered source signer. It cannot mint a
-// legacy root seed receipt or a fabricated root delegation.
-func SignDerivedReceipt(authority DerivedStartupAuthority, facts InstanceFacts, issuedAt, expiresAt time.Time, key ed25519.PrivateKey) (trust.Envelope, error) {
-	receipt, err := NewReceipt(authority, facts)
-	if err != nil || len(key) != ed25519.PrivateKeySize || issuedAt.Before(authority.IssuedAt()) || expiresAt.After(authority.ExpiresAt()) {
-		return trust.Envelope{}, ErrReceiptInvalid
-	}
-	seed := facts.Slot == authority.binding.Manifest.SeedSlot
-	wantKey := authority.peerKey
-	if seed {
-		wantKey = authority.ledgerKey
-	}
-	if !bytes.Equal(key.Public().(ed25519.PublicKey), wantKey) {
-		return trust.Envelope{}, ErrReceiptInvalid
-	}
-	return signReceipt(receipt, derivedReceiptDomain(seed), issuedAt, expiresAt, key)
-}
-
 func verifyDerivedReceipt(envelope trust.Envelope, authority DerivedStartupAuthority, facts InstanceFacts, seed bool, now time.Time, policy trust.Policy) (VerifiedReceipt, error) {
 	if authority.verifyStartupAuthority() != nil || seed != (facts.Slot == authority.binding.Manifest.SeedSlot) || validateFactsAgainstManifest(authority.binding.Manifest, facts) != nil || envelope.IssuedAt.Before(authority.IssuedAt()) || envelope.ExpiresAt.After(authority.ExpiresAt()) {
 		return VerifiedReceipt{}, ErrReceiptInvalid
@@ -497,14 +479,4 @@ func (authority DerivedStartupAuthority) VerifyLedgerEnvelope(envelope trust.Env
 }
 func (authority DerivedStartupAuthority) TemplateDigest() string {
 	return authority.template.TemplateDigest()
-}
-
-// RestoreBoundDerivedStartupAuthority reconstructs schema-2 provenance after a
-// process handoff using fresh protected grant and OCI binding observations.
-func RestoreBoundDerivedStartupAuthority(ctx context.Context, factory *ociclient.Factory, grantWire []byte, anchor VerifiedBootstrapAnchor, roots trust.Keyring, client ObjectStorageClient, wire []byte, now time.Time) (DerivedStartupAuthority, error) {
-	template, err := VerifyBoundStartupTemplate(ctx, factory, grantWire, roots, anchor, now)
-	if err != nil {
-		return DerivedStartupAuthority{}, err
-	}
-	return VerifyDerivedStartupAuthority(ctx, template, client, wire, now)
 }

@@ -261,7 +261,6 @@ reports why in its running report.
 The process runs as the workload user (`terrascale-workload`, uid/gid 2000 on
 the image) in its own cgroup under the host agent. There is no per-member
 systemd unit: the host agent
-([`terrascale-orchestrator-host.service`](../deploy/systemd/terrascale-orchestrator-host.service))
 is the supervisor, and the member's stdout and stderr go to that unit's
 journal.
 

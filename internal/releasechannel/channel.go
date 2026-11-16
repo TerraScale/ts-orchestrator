@@ -14,7 +14,6 @@
 package releasechannel
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json/jsontext"
@@ -26,7 +25,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 
@@ -67,10 +65,6 @@ const (
 	MaxValueBytes = 1 << 20
 )
 
-// ChannelKey and StatusKey are a cell's keys in Bucket; cell is the logical
-// cell, e.g. GRU.
-func ChannelKey(cell string) string { return "orchestrator.channel." + cell }
-
 var (
 	ErrInvalid = errors.New("invalid release channel")
 	// ErrConflict reports a conditional write that lost to another writer.
@@ -96,9 +90,6 @@ type Channel struct {
 	Delegation jsontext.Value   `json:"delegation"`
 	Receipts   []jsontext.Value `json:"receipts"`
 }
-
-// BinaryObject is the object name of the binary with digest sha256.
-func BinaryObject(sha256 string) string { return BinaryPrefix + sha256 }
 
 // BucketName is the head bucket of the cell's region, e.g. gru-1-head.
 func BucketName(cell string) (string, error) {
@@ -244,111 +235,6 @@ type Location struct {
 	Bucket    string
 }
 
-// Publish CAS-publishes an already verified channel. Migrated channels use
-// signer-owned sequence order; legacy channels retain their historical run floor.
-// A malformed current channel stops publication for inspection.
-func Publish(ctx context.Context, location Location, channel Channel) error {
-	wire, err := json.Marshal(channel, json.Deterministic(true))
-	if err != nil {
-		return err
-	}
-	for range 3 {
-		current, etag, found, err := location.get(ctx, ChannelObject, MaxChannelBytes)
-		if err != nil {
-			return err
-		}
-		if found {
-			var existing Channel
-			if err := json.Unmarshal(current, &existing); err != nil {
-				return fmt.Errorf("decode the current release channel: %w", err)
-			}
-			if err := compareChannelOrder(existing, channel); err != nil {
-				return err
-			}
-		}
-		if err := location.put(ctx, ChannelObject, wire, etag); !errors.Is(err, ErrConflict) {
-			return err
-		}
-	}
-	return ErrConflict
-}
-
-// ReadChannel returns the region's channel; found is false when it has none.
-func ReadChannel(ctx context.Context, location Location) (Channel, bool, error) {
-	var channel Channel
-	found, err := location.read(ctx, ChannelObject, MaxChannelBytes, &channel)
-	return channel, found, err
-}
-
-// ReadStatus returns the region's status; found is false when it has none.
-// Unknown fields are ignored: a region may run an older or newer binary.
-func ReadStatus(ctx context.Context, location Location) (Status, bool, error) {
-	var status Status
-	found, err := location.read(ctx, StatusObject, maxStatusBytes, &status)
-	return status, found, err
-}
-
-// Await polls the region's status every poll until it reports channel's
-// release complete. It fails when the region reports the release failed or
-// moved past it, or when deadline passes. Each status change is written to
-// progress.
-func Await(ctx context.Context, location Location, channel Channel, poll time.Duration, deadline time.Time,
-	progress io.Writer,
-) error {
-	var last string
-	for {
-		status, found, err := ReadStatus(ctx, location)
-		line := "waiting for the region to report"
-		switch {
-		case err != nil:
-			line = "status read failed: " + err.Error()
-		case !found || channel.ReleaseSequence > 0 && status.ReleaseSequence < channel.ReleaseSequence || channel.ReleaseSequence == 0 && status.ReleaseSequence == 0 && status.RunNumber < channel.RunNumber:
-		case status.ReleaseSequence > channel.ReleaseSequence || channel.ReleaseSequence == 0 && status.RunNumber > channel.RunNumber:
-			return fmt.Errorf("%w: %s moved on to run %d", ErrFailed, channel.Cell, status.RunNumber)
-		case status.Cell != channel.Cell || status.SourceRevision != channel.SourceRevision:
-			return fmt.Errorf("%w: %s reports run %d for %s %s", ErrFailed, channel.Cell, status.RunNumber,
-				Clip(status.Cell), Clip(status.SourceRevision))
-		case status.State == StateComplete:
-			fmt.Fprintf(progress, "%s complete: run %d %s\n", channel.Cell, channel.RunNumber, channel.SourceRevision)
-			return nil
-		case status.State == StateFailed:
-			return fmt.Errorf("%w: %s rolled back run %d: %s", ErrFailed, channel.Cell, channel.RunNumber, Clip(status.Reason))
-		default:
-			line = Clip(string(status.State) + " " + status.Reason)
-		}
-		if line != last {
-			fmt.Fprintf(progress, "%s %s\n", channel.Cell, line)
-			last = line
-		}
-		if !time.Now().Before(deadline) {
-			return fmt.Errorf("%w: %s did not complete run %d in time (%s)", ErrFailed, channel.Cell, channel.RunNumber, line)
-		}
-		select {
-		case <-ctx.Done():
-			if !time.Now().Before(deadline) {
-				return fmt.Errorf("%w: %s did not complete run %d in time (%s)", ErrFailed, channel.Cell, channel.RunNumber, line)
-			}
-			return ctx.Err()
-		case <-time.After(min(poll, time.Until(deadline))):
-		}
-	}
-}
-
-// Clip makes region-written text safe for a CI log: one line, no control
-// or bidirectional formatting characters, at most maxReason characters.
-func Clip(text string) string {
-	runes := []rune(text)
-	if len(runes) > maxReason {
-		runes = append(runes[:maxReason], []rune("...")...)
-	}
-	for index, r := range runes {
-		if unicode.IsControl(r) || unicode.In(r, unicode.Bidi_Control, unicode.Zl, unicode.Zp) {
-			runes[index] = ' '
-		}
-	}
-	return string(runes)
-}
-
 func (location Location) read(ctx context.Context, name string, limit int64, value any) (bool, error) {
 	data, _, found, err := location.get(ctx, name, limit)
 	if err != nil || !found {
@@ -382,29 +268,6 @@ func (location Location) get(ctx context.Context, name string, limit int64) ([]b
 		return nil, "", false, fmt.Errorf("read %s/%s: no ETag", location.Bucket, name)
 	}
 	return data, *response.ETag, true, nil
-}
-
-// put writes data only if the object still has etag, or does not exist when
-// etag is empty.
-func (location Location) put(ctx context.Context, name string, data []byte, etag string) error {
-	request := objectstorage.PutObjectRequest{
-		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
-		ContentLength: new(int64(len(data))), PutObjectBody: io.NopCloser(bytes.NewReader(data)),
-		ContentType: new("application/json"),
-	}
-	if etag == "" {
-		request.IfNoneMatch = new("*")
-	} else {
-		request.IfMatch = &etag
-	}
-	_, err := location.Client.PutObject(ctx, request)
-	if httpStatus(err) == http.StatusPreconditionFailed {
-		return ErrConflict
-	}
-	if err != nil {
-		return fmt.Errorf("write %s/%s: %w", location.Bucket, name, err)
-	}
-	return nil
 }
 
 func httpStatus(err error) int {

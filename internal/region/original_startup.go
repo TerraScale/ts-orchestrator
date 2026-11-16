@@ -1,15 +1,11 @@
 package region
 
 import (
-	"context"
 	"errors"
 	"strings"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 func validOriginalStartupRetentionID(ruleID string) bool {
@@ -50,33 +46,4 @@ func validateOriginalStartupAdmissions(grant FoundationGrant) error {
 		return ErrOriginalSourceProducerHold
 	}
 	return nil
-}
-
-// OriginalStartupTemplate rechecks the genuine actor and its prospective IAM
-// before crossing the bootstrap verifier's independent-genesis trust boundary.
-func (v VerifiedOriginalSourceActor) OriginalStartupTemplate(ctx context.Context) (bootstrap.VerifiedStartupTemplate, error) {
-	if ctx == nil || !v.IsVerified() || v.proof.attestor.source == nil || v.proof.materialPublication == nil || (v.proof.materialPublication.Recipe.Purpose != originalMaterialIAMPurposeV3 && v.proof.materialPublication.Recipe.Purpose != originalMaterialIAMPurposeV4) {
-		return bootstrap.VerifiedStartupTemplate{}, ErrOriginalSourceActorHold
-	}
-	_, factory, guarded, err := v.MaterialPublication(ctx)
-	if err != nil {
-		return bootstrap.VerifiedStartupTemplate{}, err
-	}
-	genesis, err := trust.DiscoveryGenesis()
-	if err != nil {
-		return bootstrap.VerifiedStartupTemplate{}, err
-	}
-	source := v.proof.attestor.source
-	wire, err := source.readGrant(guarded)
-	if err != nil {
-		return bootstrap.VerifiedStartupTemplate{}, err
-	}
-	verified, err := bootstrap.VerifyBoundOriginalStartupTemplate(guarded, factory, wire, genesis, source.bootstrapAnchor, oci.Region(v.proof.scope.Cell), time.Now())
-	if err != nil || !verified.IsVerified() || verified.ExpiresAt().After(v.proof.scope.Deadline) {
-		return bootstrap.VerifiedStartupTemplate{}, errors.Join(ErrOriginalSourceActorHold, err)
-	}
-	if err := v.Guard(ctx); err != nil {
-		return bootstrap.VerifiedStartupTemplate{}, err
-	}
-	return verified, nil
 }

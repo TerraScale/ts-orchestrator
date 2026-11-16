@@ -17,7 +17,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
@@ -53,36 +52,6 @@ type SourceFounder struct {
 	resolver  FoundationResolver
 	iam       identity.IdentityClient
 	cell      string
-}
-
-func NewSourceFounder(ctx context.Context, resolver FoundationResolver, authority *HomeIAMAuthority) (*SourceFounder, error) {
-	if authority == nil || !authority.proof.IsVerified() || resolver.Footprint == nil || resolver.Store == nil {
-		return nil, bootstrapstart.ErrSourceFounder
-	}
-	if err := authority.Guard(ctx, 0); err != nil {
-		return nil, err
-	}
-	entry, ok := catalog.CellForOCIRegion(authority.factory.Region())
-	if !ok {
-		return nil, bootstrapstart.ErrSourceFounder
-	}
-	home, err := authority.factory.HomeRegion(ctx, authority.proof.TenancyID())
-	if err != nil {
-		return nil, err
-	}
-	factory, err := authority.factory.ForRegion(home)
-	if err != nil {
-		return nil, err
-	}
-	iam, err := factory.Identity()
-	if err != nil {
-		return nil, err
-	}
-	actor := &SourceFounder{authority: authority, resolver: resolver, iam: iam, cell: entry.Cell}
-	if err := actor.Guard(ctx); err != nil {
-		return nil, err
-	}
-	return actor, nil
 }
 
 func (actor *SourceFounder) Founder() bootstrapstart.VerifiedSourceFounder {

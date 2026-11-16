@@ -1,15 +1,10 @@
 package bootstrapstart
 
 import (
-	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/netip"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -21,9 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nkeys"
-	"golang.org/x/sys/unix"
 )
 
 // MaxAcceptedIdentityBytes permits complete public three-controller inventories.
@@ -258,29 +251,6 @@ func validateAcceptedReferences(identity AcceptedIdentity) error {
 	return nil
 }
 
-func EncodeAcceptedIdentity(identity AcceptedIdentity) ([]byte, error) {
-	if err := identity.Validate(); err != nil {
-		return nil, err
-	}
-	wire, err := protocol.EncodeJSON(identity)
-	if err != nil || len(wire) > MaxAcceptedIdentityBytes {
-		return nil, ErrAcceptedIdentity
-	}
-	return wire, nil
-}
-
-func DecodeAcceptedIdentity(wire []byte) (AcceptedIdentity, error) {
-	var identity AcceptedIdentity
-	if err := protocol.DecodeStrict(wire, &identity, MaxAcceptedIdentityBytes); err != nil {
-		return AcceptedIdentity{}, fmt.Errorf("%w: %v", ErrAcceptedIdentity, err)
-	}
-	canonical, err := EncodeAcceptedIdentity(identity)
-	if err != nil || !bytes.Equal(wire, canonical) {
-		return AcceptedIdentity{}, ErrAcceptedIdentity
-	}
-	return identity, nil
-}
-
 // AcceptanceSHA256 matches the checkpoint's acyclic per-slot projection.
 func (identity AcceptedIdentity) AcceptanceSHA256() (string, error) {
 	if err := identity.Validate(); err != nil {
@@ -313,42 +283,6 @@ func (identity AcceptedIdentity) AcceptanceSHA256() (string, error) {
 	return digest(append([]byte("terrascale.identity-rekey.slot-acceptance.v1\x00"), wire...)), nil
 }
 
-func AcceptedIdentityFromCheckpoint(verified identityrekey.VerifiedIdentityCheckpoint, slot string, acceptedAt time.Time) (AcceptedIdentity, error) {
-	if !verified.IsVerified() || verified.Slot() != slot || acceptedAt.IsZero() || acceptedAt.Location() != time.UTC ||
-		!acceptedAt.Before(verified.ExpiresAt()) {
-		return AcceptedIdentity{}, ErrAcceptedIdentity
-	}
-	envelope, err := trust.DecodeEnvelope(verified.Wire())
-	if err != nil || !coveredAt(envelope.IssuedAt, envelope.ExpiresAt, acceptedAt) {
-		return AcceptedIdentity{}, ErrAcceptedIdentity
-	}
-	checkpoint := verified.Checkpoint()
-	if err := checkpoint.Validate(); err != nil {
-		return AcceptedIdentity{}, err
-	}
-	identity := AcceptedIdentity{SchemaVersion: 1, Origin: identityrekey.AcceptanceOriginRekey, OperationID: checkpoint.OperationID, DeploymentID: checkpoint.DeploymentID,
-		ClusterID: checkpoint.ClusterID, Environment: checkpoint.Environment, Cell: checkpoint.Cell, Slot: slot,
-		SeedSlot: checkpoint.SeedSlot, ControllerSlots: []string{"controller-a", "controller-b", "controller-c"},
-		Broker: checkpoint.Broker, MaterialGenerationSHA256: checkpoint.MaterialGenerationSHA256,
-		ManagedMaterial: checkpoint.ManagedMaterial, AcceptedAt: acceptedAt}
-	for _, binding := range checkpoint.Slots {
-		identity.ControllerBindings = append(identity.ControllerBindings, ControllerBinding{Slot: binding.Slot,
-			InstanceOCID: binding.InstanceOCID, ImageOCID: binding.ImageOCID, PrimaryVNICOCID: binding.PrimaryVNICOCID,
-			PrimaryPrivateIP: binding.PrimaryPrivateIP, Binary: binding.Binary, Store: binding.Store})
-		if binding.Slot == slot {
-			identity.InstanceOCID, identity.ImageOCID = binding.InstanceOCID, binding.ImageOCID
-			identity.PrimaryVNICOCID, identity.PrimaryPrivateIP = binding.PrimaryVNICOCID, binding.PrimaryPrivateIP
-			identity.Binary, identity.Store = binding.Binary, binding.Store
-			identity.ConfigSHA256, identity.MaterialReferences = binding.ConfigSHA256, binding.MaterialReferences
-			identity.LaunchMaterialSHA256 = binding.LaunchMaterialSHA256
-		}
-	}
-	if err := identity.Validate(); err != nil {
-		return AcceptedIdentity{}, err
-	}
-	return identity.Clone(), nil
-}
-
 // InitialAcceptedIdentityInputs are current first-install proofs and independent
 // physical/prepared broker facts. VerifyCurrent rechecks their common boundary.
 type InitialAcceptedIdentityInputs struct {
@@ -366,270 +300,6 @@ type InitialAcceptedIdentityInputs struct {
 	VerifyCurrent        CurrentProofVerifier
 }
 
-func AcceptedIdentityFromInitial(inputs InitialAcceptedIdentityInputs) (AcceptedIdentity, error) {
-	if inputs.VerifyCurrent == nil || !inputs.Image.IsVerified() || inputs.AcceptedAt.IsZero() ||
-		inputs.AcceptedAt.Location() != time.UTC || !coveredAt(inputs.Image.IssuedAt(), inputs.Image.ExpiresAt(), inputs.AcceptedAt) {
-		return AcceptedIdentity{}, ErrAcceptedIdentity
-	}
-	if err := inputs.VerifyCurrent(inputs.AcceptedAt); err != nil {
-		return AcceptedIdentity{}, err
-	}
-	payload := inputs.Manifest.Manifest()
-	wantReceipt, err := bootstrap.NewReceipt(inputs.Manifest, inputs.Observed.Facts)
-	if err != nil || wantReceipt != inputs.Receipt.Receipt() || !inputs.Observed.PrimaryVNIC ||
-		inputs.Observed.InstanceOCID != wantReceipt.InstanceOCID || inputs.Observed.ImageOCID != wantReceipt.ImageOCID ||
-		payload.Slot != wantReceipt.Slot || inputs.Observed.LifecycleState != "RUNNING" {
-		return AcceptedIdentity{}, ErrAcceptedIdentity
-	}
-	image := inputs.Image.Receipt()
-	if image.OCIImageOCID != payload.ImageOCID || image.OCIRegion != string(payload.Cell) ||
-		inputs.Binary.SHA256 != image.BinarySHA256 || inputs.Binary.Bytes != image.BinaryBytes ||
-		inputs.Binary.Architecture != image.Architecture {
-		return AcceptedIdentity{}, ErrAcceptedIdentity
-	}
-	identity := AcceptedIdentity{SchemaVersion: 1, Origin: identityrekey.AcceptanceOriginInitial, OperationID: inputs.OperationID, DeploymentID: payload.DeploymentID,
-		ClusterID: payload.ClusterID, Environment: payload.Environment, Cell: string(payload.Cell), Slot: payload.Slot,
-		SeedSlot: payload.SeedSlot, ControllerSlots: payload.ControllerSlots, ControllerBindings: inputs.ControllerBindings,
-		InstanceOCID: inputs.Observed.InstanceOCID, ImageOCID: inputs.Observed.ImageOCID,
-		PrimaryVNICOCID: inputs.Observed.PrimaryVNICOCID, PrimaryPrivateIP: inputs.Observed.PrimaryPrivateIP,
-		Binary: identityrekey.BinaryPin{SHA256: inputs.Binary.SHA256, Size: inputs.Binary.Bytes, Architecture: inputs.Binary.Architecture},
-		Broker: inputs.Broker, Store: inputs.Store, ConfigSHA256: map[string]string{"controller.json": payload.ControllerConfigSHA256},
-		LaunchMaterialSHA256: inputs.LaunchMaterialSHA256, ManagedMaterial: payload.ManagedMaterial, AcceptedAt: inputs.AcceptedAt}
-	identity = identity.Clone()
-	for _, file := range payload.ControllerFiles {
-		identity.ConfigSHA256[file.Name] = file.SHA256
-	}
-	for _, reference := range payload.Secrets {
-		if reference.Slot == "" || reference.Slot == payload.Slot {
-			identity.MaterialReferences = append(identity.MaterialReferences, reference)
-		}
-	}
-	if !slices.ContainsFunc(identity.ControllerBindings, func(binding ControllerBinding) bool { return binding.Slot == identity.Slot }) {
-		identity.ControllerBindings = append(identity.ControllerBindings, identity.localBinding())
-	}
-	slices.SortFunc(identity.ControllerBindings, func(a, b ControllerBinding) int { return strings.Compare(a.Slot, b.Slot) })
-	if err := identity.Validate(); err != nil {
-		return AcceptedIdentity{}, err
-	}
-	return identity, nil
-}
-
 // IdentityObservation must use the exact natscell preparation checks. Accepted
 // pins or configuration declarations alone are not an independent observation.
 type IdentityObservation func(AcceptedIdentity) (identityrekey.BrokerIdentity, identityrekey.StoreIdentity, error)
-
-// VerifyAcceptedLocalIdentity refuses absent/changed stores before observation;
-// observers must not initialize stores or replace broker identities.
-func VerifyAcceptedLocalIdentity(identity AcceptedIdentity, observe IdentityObservation) error {
-	if identity.Validate() != nil || observe == nil {
-		return ErrAcceptedIdentity
-	}
-	if err := verifyAcceptedStoreFiles(identity.Store); err != nil {
-		return err
-	}
-	broker, store, err := observe(identity.Clone())
-	if err != nil {
-		return err
-	}
-	if broker != identity.Broker || store != identity.Store {
-		return ErrAcceptedIdentity
-	}
-	return verifyAcceptedStoreFiles(identity.Store)
-}
-
-func verifyAcceptedStoreFiles(store identityrekey.StoreIdentity) error {
-	return verifyAcceptedStorePins(store, map[string]string{"server-name": store.ServerNameSHA256, "node-identity.json": store.NodeIdentitySHA256})
-}
-
-func verifyAcceptedStorePins(store identityrekey.StoreIdentity, pins map[string]string) error {
-	fd, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return err
-	}
-	for component := range strings.SplitSeq(strings.TrimPrefix(store.Directory, "/"), "/") {
-		next, err := unix.Openat(fd, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		unix.Close(fd)
-		if err != nil {
-			return err
-		}
-		fd = next
-	}
-	defer unix.Close(fd)
-	for name, want := range pins {
-		fileFD, err := unix.Openat(fd, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
-		if err != nil {
-			return err
-		}
-		file := os.NewFile(uintptr(fileFD), name)
-		var stat unix.Stat_t
-		if err := unix.Fstat(fileFD, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG ||
-			stat.Mode&0o7777 != 0o600 || stat.Nlink != 1 || stat.Size <= 0 || stat.Size > 4096 {
-			file.Close()
-			return ErrAcceptedIdentity
-		}
-		wire, err := io.ReadAll(io.LimitReader(file, 4097))
-		var current unix.Stat_t
-		pathErr := unix.Fstatat(fd, name, &current, unix.AT_SYMLINK_NOFOLLOW)
-		file.Close()
-		if err != nil || len(wire) > 4096 || digest(wire) != want || pathErr != nil ||
-			current.Dev != stat.Dev || current.Ino != stat.Ino || current.Mode != stat.Mode || current.Nlink != 1 || current.Size != stat.Size {
-			return ErrAcceptedIdentity
-		}
-	}
-	return nil
-}
-
-func (store MarkerStore) ReadIdentity() (AcceptedIdentity, error) {
-	dir, err := store.openDirectory()
-	if err != nil {
-		return AcceptedIdentity{}, err
-	}
-	defer unix.Close(dir)
-	wire, err := store.readIdentityBytes(dir, markerName)
-	if err != nil {
-		return AcceptedIdentity{}, err
-	}
-	return DecodeAcceptedIdentity(wire)
-}
-
-func (store MarkerStore) readIdentityBytes(dir int, name string) ([]byte, error) {
-	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
-	if err != nil {
-		return nil, err
-	}
-	file := os.NewFile(uintptr(fd), name)
-	defer file.Close()
-	var stat unix.Stat_t
-	if err := unix.Fstat(fd, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG ||
-		stat.Uid != store.ownerUID || store.ownerUID == 0 && stat.Gid != 0 || stat.Mode&0o7777 != 0o644 ||
-		stat.Nlink != 1 || stat.Size <= 0 || stat.Size > MaxAcceptedIdentityBytes {
-		return nil, ErrAcceptedIdentity
-	}
-	wire, err := io.ReadAll(io.LimitReader(file, MaxAcceptedIdentityBytes+1))
-	if err != nil || len(wire) == 0 || len(wire) > MaxAcceptedIdentityBytes {
-		return nil, ErrAcceptedIdentity
-	}
-	return wire, nil
-}
-
-func (store MarkerStore) WriteNewIdentity(identity AcceptedIdentity, observe IdentityObservation) error {
-	return store.publishIdentity(identity.Clone(), "", observe)
-}
-
-// ReplaceIdentity never interprets the predecessor as an identity document.
-func (store MarkerStore) ReplaceIdentity(verified identityrekey.VerifiedIdentityCheckpoint, slot string,
-	acceptedAt time.Time, observe IdentityObservation,
-) error {
-	identity, err := AcceptedIdentityFromCheckpoint(verified, slot, acceptedAt)
-	if err != nil {
-		return err
-	}
-	for _, binding := range verified.Checkpoint().Slots {
-		if binding.Slot == slot {
-			return store.publishIdentity(identity, binding.PreviousAcceptanceSHA256, observe)
-		}
-	}
-	return ErrAcceptedIdentity
-}
-
-func (store MarkerStore) publishIdentity(identity AcceptedIdentity, predecessor string, observe IdentityObservation) error {
-	return store.publishIdentityAt(identity, predecessor, observe, markerName)
-}
-
-func (store MarkerStore) publishIdentityAt(identity AcceptedIdentity, predecessor string, observe IdentityObservation, name string) error {
-	wire, err := EncodeAcceptedIdentity(identity)
-	if err != nil {
-		return err
-	}
-	if err := VerifyAcceptedLocalIdentity(identity, observe); err != nil {
-		return err
-	}
-	dir, err := store.openDirectory()
-	if err != nil {
-		return err
-	}
-	defer unix.Close(dir)
-	lock, err := unix.Openat(dir, ".accepted-identity.lock", unix.O_RDWR|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0o644)
-	created := err == nil
-	if errors.Is(err, unix.EEXIST) {
-		lock, err = unix.Openat(dir, ".accepted-identity.lock", unix.O_RDWR|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
-	}
-	if err != nil {
-		return err
-	}
-	defer unix.Close(lock)
-	var stat unix.Stat_t
-	if err := unix.Fstat(lock, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG ||
-		stat.Uid != store.ownerUID || store.ownerUID == 0 && stat.Gid != 0 || stat.Nlink != 1 {
-		return ErrAcceptedIdentity
-	}
-	if created {
-		if err := unix.Fchmod(lock, 0o644); err != nil {
-			return err
-		}
-	} else if stat.Mode&0o7777 != 0o644 {
-		return ErrAcceptedIdentity
-	}
-	if err := unix.Flock(lock, unix.LOCK_EX); err != nil {
-		return err
-	}
-	defer unix.Flock(lock, unix.LOCK_UN)
-	if predecessor != "" {
-		old, err := store.readIdentityBytes(dir, markerName)
-		if err != nil {
-			return err
-		}
-		if digest(old) != predecessor {
-			return ErrAcceptancePredecessor
-		}
-	}
-	var nonce [12]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return err
-	}
-	temporary := ".accepted-install." + hex.EncodeToString(nonce[:])
-	fd, err := unix.Openat(dir, temporary, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o644)
-	if err != nil {
-		return err
-	}
-	defer unix.Unlinkat(dir, temporary, 0)
-	file := os.NewFile(uintptr(fd), temporary)
-	defer file.Close()
-	if err := unix.Fchmod(fd, 0o644); err != nil {
-		return err
-	}
-	if err := unix.Fstat(fd, &stat); err != nil || stat.Uid != store.ownerUID || store.ownerUID == 0 && stat.Gid != 0 ||
-		stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1 {
-		return ErrAcceptedIdentity
-	}
-	if count, err := file.Write(wire); err != nil {
-		return err
-	} else if count != len(wire) {
-		return io.ErrShortWrite
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	if err := VerifyAcceptedLocalIdentity(identity, observe); err != nil {
-		return err
-	}
-	if predecessor == "" {
-		err = unix.Renameat2(dir, temporary, dir, name, unix.RENAME_NOREPLACE)
-	} else {
-		old, readErr := store.readIdentityBytes(dir, markerName)
-		if readErr != nil {
-			return readErr
-		}
-		if digest(old) != predecessor {
-			return ErrAcceptancePredecessor
-		}
-		err = unix.Renameat(dir, temporary, dir, markerName)
-	}
-	if err != nil {
-		return err
-	}
-	return unix.Fsync(dir)
-}

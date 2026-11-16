@@ -66,41 +66,6 @@ type HomeIAMAuthority struct {
 	memo *foundationVerificationMemo
 }
 
-func NewHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourceFounder, resolver FoundationResolver) (*HomeIAMAuthority, error) {
-	genesis, err := trust.DiscoveryGenesis()
-	if err != nil {
-		return nil, err
-	}
-	return newHomeIAMAuthority(ctx, proof, resolver, nil, genesis)
-}
-
-func newHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourceFounder, resolver FoundationResolver, objects *objectstorage.ObjectStorageClient, genesis trust.Keyring) (*HomeIAMAuthority, error) {
-	authority := &HomeIAMAuthority{proof: proof, resolver: resolver, currentGenesis: genesis, memo: newFoundationVerificationMemo(),
-		instanceID: proof.InstanceID(), tenancyID: proof.TenancyID(), installationID: proof.InstallationID(),
-		grantDigest: proof.GrantDigest(), grantGeneration: proof.Generation(), planDigest: proof.PlanDigest()}
-	factory, guarded, err := proof.GuardedFactory(ctx)
-	return authority.initialize(ctx, factory, guarded, objects, err)
-}
-
-// NewRuntimeHomeIAMAuthority admits an installed controller using its current
-// signed selection and its own independently observed instance principal.
-func NewRuntimeHomeIAMAuthority(ctx context.Context, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity, resolver FoundationResolver) (*HomeIAMAuthority, error) {
-	proof, err := bootstrapstart.VerifyRuntimeIAM(ctx, reader, accepted)
-	if err != nil {
-		return nil, err
-	}
-	genesis, err := trust.DiscoveryGenesis()
-	if err != nil {
-		return nil, err
-	}
-	scope := proof.FoundationScope()
-	authority := &HomeIAMAuthority{runtime: proof, resolver: resolver, currentGenesis: genesis, memo: newFoundationVerificationMemo(),
-		instanceID: proof.InstanceID(), tenancyID: scope.TenancyID, installationID: scope.InstallationID,
-		grantDigest: scope.GrantSHA256, grantGeneration: scope.GrantGeneration}
-	factory, guarded, err := proof.GuardedFactory(ctx)
-	return authority.initialize(ctx, factory, guarded, nil, err)
-}
-
 func (authority *HomeIAMAuthority) initialize(ctx context.Context, factory *ociclient.Factory, guarded context.Context, objects *objectstorage.ObjectStorageClient, principalErr error) (*HomeIAMAuthority, error) {
 	resolver := authority.resolver
 	err := principalErr

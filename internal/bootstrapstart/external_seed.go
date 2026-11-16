@@ -2,72 +2,11 @@ package bootstrapstart
 
 import (
 	"errors"
-	"slices"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 )
 
 var ErrExternalSeedObservation = errors.New("external seed OCI observation differs from signed authority")
-
-// VerifyExternalSeedObservation compares a fresh GetInstance/VNIC observation
-// with the first signed external intent and current signed seed manifest. The
-// create key is an additional OCI readback check, never a source of authority.
-func VerifyExternalSeedObservation(anchor bootstrap.VerifiedBootstrapAnchor,
-	manifest bootstrap.StartupAuthority, state bootstrap.SlotState,
-	observed InstanceObservation, expectedPrivateIP string,
-) (bootstrap.InstanceFacts, error) {
-	identity, original, err := externalSeedIdentity(manifest, anchor)
-	if err != nil {
-		return bootstrap.InstanceFacts{}, err
-	}
-	validCreate := observed.BootstrapCreateKey == state.Intent.CreateKey
-	validSchema := state.Intent.SchemaVersion == 1 && state.Intent.OriginalLaunch == nil
-	if original != nil {
-		create, err := bootstrap.OriginalLaunchCreateKey(*original)
-		if err != nil {
-			return bootstrap.InstanceFacts{}, ErrExternalSeedObservation
-		}
-		validCreate = state.Intent.CreateKey == create && observed.InstanceOCID == original.InstanceOCID
-		validSchema = state.Intent.SchemaVersion == 2 && state.Intent.OriginalLaunch != nil && *state.Intent.OriginalLaunch == *original
-	}
-	if manifest == nil || !anchor.IsVerified() || manifest.Digest() == "" || state.IntentRecord.SHA256 == "" ||
-		state.Intent.Mode != bootstrap.IntentModeExternalSeed || !validSchema ||
-		state.Intent.Attempt != 1 || state.Intent.Generation != 1 ||
-		state.Head.Attempt != 1 || state.Head.Generation != 1 ||
-		state.Head.IntentDigest != state.IntentRecord.SHA256 ||
-		state.Intent.ManifestDigest != manifest.Digest() ||
-		state.Intent.Slot != manifest.Manifest().SeedSlot ||
-		state.Intent.DeploymentID != identity.DeploymentID ||
-		state.Intent.Cell != string(identity.Cell) ||
-		state.Intent.Environment != identity.Environment {
-		return bootstrap.InstanceFacts{}, ErrExternalSeedObservation
-	}
-	intent := state.Intent
-	profile, ok := manifest.Profile(intent.Slot)
-	if !ok || profile.CompartmentOCID != intent.CompartmentOCID ||
-		profile.AvailabilityDomain != intent.AvailabilityDomain ||
-		profile.FaultDomain != intent.FaultDomain || profile.SubnetOCID != intent.SubnetOCID ||
-		profile.Shape != intent.Shape || !sameOCIDSet(profile.NetworkSecurityGroupOCIDs, intent.NetworkSecurityGroupIDs) ||
-		observed.InstanceOCID == "" || !validCreate ||
-		observed.CompartmentOCID != intent.CompartmentOCID || observed.ImageOCID != intent.ImageOCID ||
-		observed.AvailabilityDomain != intent.AvailabilityDomain || observed.FaultDomain != intent.FaultDomain ||
-		observed.Shape != intent.Shape || observed.SubnetOCID != intent.SubnetOCID ||
-		!sameOCIDSet(observed.NSGOCIDs, intent.NetworkSecurityGroupIDs) ||
-		!observed.PrimaryVNIC || observed.PrimaryVNICOCID == "" ||
-		observed.PrimaryPrivateIP != expectedPrivateIP || observed.ETag == "" ||
-		observed.LifecycleState != "RUNNING" {
-		return bootstrap.InstanceFacts{}, ErrExternalSeedObservation
-	}
-	profile.NetworkSecurityGroupOCIDs = slices.Clone(profile.NetworkSecurityGroupOCIDs)
-	return bootstrap.InstanceFacts{
-		DeploymentID: intent.DeploymentID, Environment: intent.Environment,
-		ClusterID: identity.ClusterID, Cell: identity.Cell,
-		OCIRegion: intent.OCIRegion, Role: intent.Role, Slot: intent.Slot,
-		InstanceOCID: observed.InstanceOCID, CompartmentOCID: observed.CompartmentOCID,
-		ImageOCID: observed.ImageOCID, CreateKey: intent.CreateKey,
-		IntentSHA256: state.IntentRecord.SHA256, Profile: profile,
-	}, nil
-}
 
 // Regional original identity is data from the sealed template, not a forged anchor.
 func externalSeedIdentity(authority bootstrap.StartupAuthority, anchor bootstrap.VerifiedBootstrapAnchor) (bootstrap.BootstrapAnchor, *bootstrap.OriginalLaunchIdentity, error) {

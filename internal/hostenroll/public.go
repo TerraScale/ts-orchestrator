@@ -12,16 +12,12 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"golang.org/x/sys/unix"
-	"io"
 	"net"
 	"net/netip"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 
 	"github.com/nats-io/nkeys"
 
@@ -64,79 +60,6 @@ func ParsePublicBundle(wire []byte) (PublicBundle, error) {
 		return PublicBundle{}, err
 	}
 	return bundle, nil
-}
-
-// InstallPublicBundle installs the bundle delivered in launch metadata at
-// path unless it is already present, then reads it back through the same
-// root-ownership checks as an installed bundle.
-func InstallPublicBundle(path string, wire []byte) (PublicBundle, error) {
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return PublicBundle{}, errors.New("public bundle path must be clean and absolute")
-	}
-	if _, err := os.Lstat(path); err == nil {
-		return ReadPublicBundle(path)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return PublicBundle{}, err
-	}
-	bundle, err := ParsePublicBundle(wire)
-	if err != nil {
-		return PublicBundle{}, err
-	}
-	if err := bundle.MatchesImageLayout(); err != nil {
-		return PublicBundle{}, err
-	}
-	temporary := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp")
-	_ = os.Remove(temporary)
-	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o400)
-	if err != nil {
-		return PublicBundle{}, err
-	}
-	_, err = file.Write(wire)
-	if err == nil {
-		err = file.Chmod(0o444)
-	}
-	if err == nil {
-		err = file.Sync()
-	}
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = unix.Renameat2(unix.AT_FDCWD, temporary, unix.AT_FDCWD, path, unix.RENAME_NOREPLACE)
-	}
-	if err != nil {
-		_ = os.Remove(temporary)
-		return PublicBundle{}, fmt.Errorf("install host enrollment public bundle: %w", err)
-	}
-	return ReadPublicBundle(path)
-}
-
-func ReadPublicBundle(path string) (PublicBundle, error) {
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return PublicBundle{}, errors.New("public bundle path must be clean and absolute")
-	}
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return PublicBundle{}, err
-	}
-	file := os.NewFile(uintptr(fd), path)
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return PublicBundle{}, err
-	}
-	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > MaxPublicBundleBytes {
-		return PublicBundle{}, errors.New("host enrollment public bundle is not a bounded regular file")
-	}
-	owner, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || owner.Uid != 0 || info.Mode().Perm()&0o022 != 0 {
-		return PublicBundle{}, errors.New("host enrollment public bundle must be root-owned and not writable by group or others")
-	}
-	wire := make([]byte, info.Size())
-	if _, err := io.ReadFull(file, wire); err != nil {
-		return PublicBundle{}, err
-	}
-	return ParsePublicBundle(wire)
 }
 
 // Image workload layout provisioned by every qualified image. A bundle

@@ -22,15 +22,15 @@ gain in isolation. The time Docker costs is in CI: Docker-based test steps take
 | Production runtime | `ts-orch` runs under systemd with embedded SwarmKit (forked in `third_party/swarmkit`) and a containerd executor: digest pull, runc, read-only rootfs, no capabilities, default seccomp, a PID limit of 256 and host networking. | `internal/swarmruntime/controller.go:210,257`, about 14k non-test lines in `internal/swarmruntime` |
 | Host runtime install | containerd 2.4.2 and runc 1.5.2 are installed from checksum-pinned upstream releases into `/usr/local` on stock Ubuntu 24.04. | `deploy/m1/host-runtime.sh`, `deploy/m1/install.sh` |
 | Hosts | One A1 (arm64) host each in gru, sjc and fra, running stock Ubuntu 24.04, not a custom image. | `deploy/m1/regions.json`, `REFACTOR.md` |
-| Legacy host image | A qcow2 image built on the Ubuntu noble arm64 cloud image (containerd, NetBird and units), imported as an OCI custom image. Marked "WORKS, heavy" and not needed for M1. | `deploy/image/`, `internal/image`, `internal/ociregion/imageimport` |
+| Legacy host image | A qcow2 image built on the Ubuntu noble arm64 cloud image (containerd, NetBird and units), imported as an OCI custom image. Marked "WORKS, heavy" and not needed for M1. | Deleted in C4 |
 | App artifacts | `ghcr.io/terrascale/{terrabase,ts-auth,ts-dashboard,app-canary}@sha256`, plus third-party `docker.io/netbirdio/netbird-server`. | `deploy/m1/services/*.json` |
 | Image build | `docker buildx` in GitHub Actions builds amd64 and arm64 and pushes to GHCR. The release step deploys the arm64 child digest. | terrascale `.github/workflows/ci.yml`, ts-dashboard `images-ghcr.yml`, this repo's `app-canary.yml` |
 | Image contents | TerraBase and ts-auth are self-contained .NET apphosts on `runtime-deps:11.0-resolute-chiseled`; ts-dashboard is on `aspnet:10.0-noble-chiseled` and copies a prebuilt publish output. | terrascale `Dockerfile`, ts-dashboard `scripts/ci/Dockerfile.runtime` |
 | CI tests | Auth Fast and every Slow area run as `docker build --target test-*` stages. libs and TerraBase Fast already run natively. Turso and router-parser native libraries are built in Rust Dockerfiles. | terrascale `Dockerfile`, `ci.yml`, `scripts/vendor/` |
 | Tests in this repo | Real-containerd integration tests (`-containerd-socket`). Everything else uses fakes. | `internal/swarmruntime/*_integration_test.go` |
 | Local dev | No compose files, devcontainers or Testcontainers. Podman is used only for manual import-adapter acceptance recipes and as a fallback for the Turso build. | terrascale `tools/import-adapters/*/acceptance` |
-| Tenant isolation | Dedicated tenants get dedicated OCI hosts, a per-tenant NSG and a per-tenant member CA. Containers are not the tenant boundary. Functions use Wasm. | `docs/dedicated-tenants.md`, `docs/functions.md` |
-| Firecracker | Used only in local four-VM qualification labs, never in production. | `internal/qualification/firecracker` |
+| Tenant isolation | Dedicated tenants get dedicated OCI hosts, a per-tenant NSG and a per-tenant member CA. Containers are not the tenant boundary. Functions use Wasm. | `docs/dedicated-tenants.md` |
+| Firecracker | Used only in local four-VM qualification labs, never in production. | Deleted in C4 |
 | Nix | delta, mariogk-dev and beta run NixOS (the homelab fleet modules). The only Nix files in the repos are two pins under `ts-js/scripts/ci`. There is no flake. | `docs/netbird-m1.md`, `ts-js/scripts/ci/*.nix` |
 
 ## 2. What the measurements show

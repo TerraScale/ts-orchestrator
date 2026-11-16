@@ -135,13 +135,6 @@ func Addresses(ctx context.Context, netbird string) (map[string]PeerAddress, err
 	return allPeerAddresses(status), nil
 }
 
-// peerAddresses maps every peer in "netbird status --json" to its NetBird
-// IP, by DNS name (gru-1-ctl-1.nb.ts.internal) and by peer name
-// (gru-1-ctl-1). Devices that keep NetBird DNS off cannot resolve them.
-func peerAddresses(status []byte) map[string]string {
-	return ipv4Addresses(allPeerAddresses(status))
-}
-
 func ipv4Addresses(peers map[string]PeerAddress) map[string]string {
 	addresses := make(map[string]string, len(peers))
 	for name, peer := range peers {

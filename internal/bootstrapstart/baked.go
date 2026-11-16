@@ -3,24 +3,15 @@ package bootstrapstart
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"golang.org/x/sys/unix"
 )
@@ -40,7 +31,6 @@ const (
 
 var (
 	ErrBakedInputs = errors.New("baked bootstrap inputs are invalid")
-	rootFilenameRE = regexp.MustCompile(`^[0-9]{3}\.pem$`)
 )
 
 // BakedIdentity is root-owned image content. It is an independent local
@@ -80,195 +70,12 @@ type BakedInputs struct {
 	originRoots    trust.Keyring
 }
 
-// LoadBakedInputs reads only the fixed production paths. Tests use the private
-// bakedStore seam to exercise modes and symlink handling in temporary trees.
-func LoadBakedInputs() (BakedInputs, error) {
-	return bakedStore{directory: BakedDirectory, chainFile: RootChainFile, ownerUID: 0, ownerGID: 0}.load()
-}
-
-// LoadImageRoots reads only the existing fixed root-owned image root inventory.
-// Finite qualification verifies its own signed purpose without a production identity.
-func LoadImageRoots() (trust.Keyring, error) {
-	return bakedStore{directory: BakedDirectory, ownerUID: 0, ownerGID: 0}.loadRoots()
-}
-
-// BakedInputsPresent is a routing check, not validation. Any object at the
-// fixed path, including an invalid file or symlink, requires production
-// admission and therefore fails through LoadBakedInputs. Only an absent path
-// permits an explicitly configured lab runtime.
-func BakedInputsPresent() (bool, error) {
-	_, err := os.Lstat(BakedDirectory)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	return false, err
-}
-
 type bakedStore struct {
 	directory            string
 	chainFile            string
 	ownerUID             uint32
 	ownerGID             uint32
 	allowUnsafeAncestors bool
-}
-
-func (store bakedStore) load() (BakedInputs, error) {
-	dir, err := store.openDirectory(store.directory)
-	if err != nil {
-		return BakedInputs{}, fmt.Errorf("open baked bootstrap directory: %w", err)
-	}
-	defer unix.Close(dir)
-	identityWire, err := store.readFile(dir, identityFilename, maxIdentity)
-	if err != nil {
-		return BakedInputs{}, fmt.Errorf("read baked identity: %w", err)
-	}
-	identity, err := parseBakedIdentity(identityWire)
-	if err != nil {
-		return BakedInputs{}, err
-	}
-	anchorWire, err := store.readFile(dir, anchorFilename, bootstrap.MaxBootstrapAnchorBytes)
-	if err != nil {
-		return BakedInputs{}, fmt.Errorf("read baked anchor: %w", err)
-	}
-	if _, err := trust.DecodeEnvelope(anchorWire); err != nil {
-		return BakedInputs{}, fmt.Errorf("decode baked anchor: %w", err)
-	}
-	genesis, err := store.loadRoots()
-	if err != nil {
-		return BakedInputs{}, err
-	}
-	chain, err := readRootChain(store.chainFile)
-	if err != nil {
-		return BakedInputs{}, err
-	}
-	verified, err := trust.VerifyRootChain(genesis, identity.ChainIdentity(), chain)
-	if err != nil {
-		return BakedInputs{}, fmt.Errorf("verify adopted root chain: %w", err)
-	}
-	inputs := BakedInputs{Identity: identity, Genesis: genesis, Chain: chain, Roots: verified.Historical, AnchorWire: anchorWire}
-	originWire, err := store.readFile(dir, OriginalStartupOriginFilename, maxOriginalStartupOriginBytes)
-	if errors.Is(err, unix.ENOENT) {
-		return inputs, nil
-	}
-	if err != nil {
-		return BakedInputs{}, err
-	}
-	origin, err := parseOriginalStartupOrigin(originWire)
-	if err != nil || !bytes.Equal(origin.AnchorWire, anchorWire) {
-		return BakedInputs{}, ErrOriginalStartup
-	}
-	discoveryGenesis, err := trust.DiscoveryGenesis()
-	if err != nil {
-		return BakedInputs{}, err
-	}
-	_, originRoots, err := origin.verifyAnchor(discoveryGenesis, time.Now().UTC())
-	if err != nil {
-		return BakedInputs{}, err
-	}
-	inputs.originalOrigin, inputs.originRoots = bytes.Clone(originWire), cloneOriginRoots(originRoots)
-	return inputs, nil
-}
-
-// readRootChain reads the adopted chain; a controller that never adopted
-// one has no file. The chain verifies from the baked genesis, so the file
-// needs no ownership pin, but a damaged file fails closed rather than
-// falling back to the genesis roots.
-func readRootChain(path string) (trust.RootChain, error) {
-	if path == "" {
-		return trust.RootChain{Version: 1}, nil
-	}
-	// O_NONBLOCK keeps a FIFO from hanging the open; it is refused below.
-	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
-	if errors.Is(err, os.ErrNotExist) {
-		return trust.RootChain{Version: 1}, nil
-	}
-	if err != nil {
-		return trust.RootChain{}, fmt.Errorf("open adopted root chain: %w", err)
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return trust.RootChain{}, fmt.Errorf("stat adopted root chain %s: %w", path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return trust.RootChain{}, fmt.Errorf("adopted root chain %s is not a regular file", path)
-	}
-	wire, err := io.ReadAll(io.LimitReader(file, trust.MaxRootChainBytes+1))
-	if err != nil {
-		return trust.RootChain{}, fmt.Errorf("read adopted root chain: %w", err)
-	}
-	return trust.DecodeRootChain(wire)
-}
-
-// parseBakedIdentity accepts only the canonical encoding, so the installed
-// bytes and every digest over them stay unambiguous.
-func parseBakedIdentity(wire []byte) (BakedIdentity, error) {
-	var identity BakedIdentity
-	if err := protocol.DecodeStrict(wire, &identity, maxIdentity); err != nil ||
-		identity.SchemaVersion != 1 || !entityid.Valid(identity.DeploymentID) ||
-		identity.Environment != "production" && identity.Environment != "canary" {
-		return BakedIdentity{}, ErrBakedInputs
-	}
-	if _, err := identity.Cell.OCIRegion(); err != nil {
-		return BakedIdentity{}, ErrBakedInputs
-	}
-	canonical, err := protocol.EncodeJSON(identity)
-	if err != nil || !bytes.Equal(wire, canonical) {
-		return BakedIdentity{}, ErrBakedInputs
-	}
-	return identity, nil
-}
-
-// loadRoots reads the image's trust roots, the only bootstrap authority the
-// image itself carries.
-func (store bakedStore) loadRoots() (trust.Keyring, error) {
-	rootsDir, err := store.openDirectory(filepath.Join(store.directory, "trust-roots"))
-	if err != nil {
-		return nil, fmt.Errorf("open baked trust roots: %w", err)
-	}
-	file := os.NewFile(uintptr(rootsDir), "trust-roots")
-	defer file.Close()
-	names, err := file.Readdirnames(-1)
-	if err != nil {
-		return nil, fmt.Errorf("read baked root entries: %w", err)
-	}
-	if len(names) == 0 || len(names) > MaxRootFiles {
-		return nil, ErrBakedInputs
-	}
-	sort.Strings(names)
-	keys := make([]ed25519.PublicKey, 0, len(names))
-	total := 0
-	for _, name := range names {
-		if !rootFilenameRE.MatchString(name) || name == "000.pem" {
-			return nil, ErrBakedInputs
-		}
-		wire, err := store.readFile(rootsDir, name, MaxRootBytes)
-		if err != nil {
-			return nil, fmt.Errorf("read baked root %s: %w", name, err)
-		}
-		total += len(wire)
-		if total > MaxRootsTotal {
-			return nil, ErrBakedInputs
-		}
-		block, rest := pem.Decode(wire)
-		if block == nil || block.Type != "PUBLIC KEY" || len(block.Headers) != 0 || len(bytes.TrimSpace(rest)) != 0 {
-			return nil, ErrBakedInputs
-		}
-		publicKey, err := x509.ParsePKIXPublicKey(block.Bytes)
-		key, ok := publicKey.(ed25519.PublicKey)
-		if err != nil || !ok || len(key) != ed25519.PublicKeySize {
-			return nil, ErrBakedInputs
-		}
-		keys = append(keys, key)
-	}
-	roots, err := trust.ParseKeyring(keys...)
-	if err != nil {
-		return nil, fmt.Errorf("assemble unambiguous root key IDs: %w", err)
-	}
-	return roots, nil
 }
 
 func (store bakedStore) openDirectory(path string) (int, error) {
@@ -371,30 +178,4 @@ func (baked BakedInputs) originalAuthority(ctx context.Context, now time.Time) (
 		return bootstrap.DerivedStartupAuthority{}, ErrOriginalStartup
 	}
 	return authority, nil
-}
-
-func (baked BakedInputs) verifyHistoricalOriginAnchor(ctx context.Context, acceptedAt time.Time) (bootstrap.HistoricalBootstrapAnchor, error) {
-	if len(baked.originalOrigin) != 0 {
-		if _, err := baked.originalAuthority(ctx, time.Now().UTC()); err != nil {
-			return bootstrap.HistoricalBootstrapAnchor{}, err
-		}
-		origin, err := parseOriginalStartupOrigin(baked.originalOrigin)
-		if err != nil {
-			return bootstrap.HistoricalBootstrapAnchor{}, err
-		}
-		genesis, err := trust.DiscoveryGenesis()
-		if err != nil {
-			return bootstrap.HistoricalBootstrapAnchor{}, err
-		}
-		envelope, expected, roots, err := origin.anchorInputs(genesis)
-		if err != nil {
-			return bootstrap.HistoricalBootstrapAnchor{}, err
-		}
-		return bootstrap.VerifyHistoricalBootstrapAnchor(envelope, roots.Historical, expected, acceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
-	}
-	envelope, err := trust.DecodeEnvelope(baked.AnchorWire)
-	if err != nil {
-		return bootstrap.HistoricalBootstrapAnchor{}, err
-	}
-	return bootstrap.VerifyHistoricalBootstrapAnchor(envelope, baked.Roots, baked.Identity.AnchorExpectation(), acceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
 }

@@ -86,10 +86,6 @@ type processRunner struct {
 	commands  map[string]*exec.Cmd
 }
 
-func NewProcessRunner(stateRoot string, identity WorkloadIdentity, cell, node string) Runner {
-	return &processRunner{root: stateRoot, cell: cell, node: node, identity: identity, closing: make(chan struct{}), records: make(map[string]processRecord), commands: make(map[string]*exec.Cmd)}
-}
-
 func nativeCgroupName(stateRoot string) string {
 	hash := sha256.Sum256([]byte(stateRoot))
 	return "terrascale-host-" + hex.EncodeToString(hash[:8])

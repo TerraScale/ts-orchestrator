@@ -46,42 +46,6 @@ func withCredentialFloorSession(ctx context.Context, controller *Controller, reg
 		registration: wire, node: registration.Node, session: current, deadline: containerMaterialDeadline(deadline, current.ExpiresAt)}), nil
 }
 
-// GuardCredentialFloorSession checks only the privately retained original host
-// session. It grants no material authority and never calls the floor reader.
-func GuardCredentialFloorSession(ctx context.Context) error {
-	if ctx == nil {
-		return errors.New("credential floor original session is unavailable")
-	}
-	source, ok := ctx.Value(credentialFloorSessionKey{}).(*credentialFloorSession)
-	if !ok || source == nil || source.controller == nil || source.original == nil || ctx.Err() != nil ||
-		source.original.Err() != nil || !time.Now().Before(source.deadline) {
-		return errors.New("credential floor original session expired or is unavailable")
-	}
-	ctx, cancel := context.WithDeadline(ctx, source.deadline)
-	stop := context.AfterFunc(source.original, cancel)
-	defer cancel()
-	defer stop()
-	registration, err := source.controller.registration(ctx, source.node)
-	if err != nil {
-		return err
-	}
-	wire, err := protocol.EncodeJSON(registration)
-	if err != nil || !bytes.Equal(wire, source.registration) {
-		return errors.New("credential floor original registration changed")
-	}
-	retired, _, err := source.controller.readRetirement(ctx, source.node)
-	if err != nil || retired.Retired {
-		return errors.New("credential floor original host is retired or unavailable")
-	}
-	current, _, exists, err := source.controller.sessionSnapshot(ctx, sessionKey(source.controller.cell, source.node))
-	if err != nil || !exists || current.RegistrationGeneration != source.session.RegistrationGeneration ||
-		current.SessionID != source.session.SessionID || current.Epoch != source.session.Epoch ||
-		!time.Now().Before(current.ExpiresAt) || !time.Now().Before(source.deadline) || source.original.Err() != nil || ctx.Err() != nil {
-		return errors.New("credential floor original session is no longer current")
-	}
-	return nil
-}
-
 func (s *ContainerGenerationSession) Deadline() time.Time { return s.deadline }
 
 func (s *ContainerGenerationSession) Registration() (Registration, error) {
