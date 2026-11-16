@@ -2,8 +2,10 @@ package edge
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
+	"net/http"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
@@ -20,7 +22,7 @@ func (e *Edge) runListener(ctx context.Context, protocol string) {
 		if err == nil {
 			err = e.serveListener(ctx, protocol, ln)
 		}
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || e.draining.Load() && protocol == "https" {
 			return
 		}
 		level := slog.LevelWarn
@@ -44,20 +46,32 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 	e.listeners.Or(bit)
 	defer e.listeners.And(^bit)
 	observability.SetEdgeListenerReady(protocol, true)
+	var server *http.Server
+	if protocol == "http" || protocol == "https" {
+		plain, public := e.httpServers()
+		server = plain
+		if protocol == "https" {
+			server = public
+			e.publicMu.Lock()
+			if e.draining.Load() {
+				e.publicMu.Unlock()
+				ln.Close()
+				return net.ErrClosed
+			}
+			e.publicListener, e.publicServer = ln, server
+			e.publicMu.Unlock()
+		}
+		defer server.Shutdown(context.Background())
+	}
 	served := make(chan error, 1)
 	go func() {
 		switch protocol {
-		case "http", "https":
-			plain, public := e.httpServers()
-			if protocol == "http" {
-				defer plain.Close()
-				served <- plain.Serve(limitedListener{Listener: ln, edge: e, protocol: protocol})
-			} else {
-				defer public.Close()
-				config := public.TLSConfig.Clone()
-				config.NextProtos = []string{"h2", "http/1.1"}
-				served <- public.ServeTLS(limitedListener{Listener: ln, edge: e, protocol: protocol, config: config}, "", "")
-			}
+		case "http":
+			served <- server.Serve(limitedListener{Listener: ln, edge: e, protocol: protocol})
+		case "https":
+			config := server.TLSConfig.Clone()
+			config.NextProtos = []string{"h2", "http/1.1"}
+			served <- server.ServeTLS(limitedListener{Listener: ln, edge: e, protocol: protocol, config: config}, "", "")
 		case "postgres":
 			served <- e.servePostgres(ln)
 		case "terrabase":
@@ -71,6 +85,9 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 		return ctx.Err()
 	case err := <-served:
 		ln.Close()
+		if errors.Is(err, net.ErrClosed) && e.draining.Load() {
+			return nil
+		}
 		return err
 	}
 }

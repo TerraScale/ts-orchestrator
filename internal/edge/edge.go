@@ -81,6 +81,10 @@ type Edge struct {
 	netbirdDashboard   *netbirddashboard.Handler
 	draining           atomic.Bool
 	lastHealthProbe    atomic.Int64
+	publicMu           sync.Mutex
+	publicListener     net.Listener
+	publicServer       *http.Server
+	requestDurations   sync.Map
 }
 
 func New(stateDir string) *Edge { return newEdge(stateDir) }
@@ -97,7 +101,7 @@ func newEdge(stateDir string) *Edge {
 		netbirdDashboard: netbirddashboard.New(stateDir),
 	}
 	e.bootstrap, e.bootstrapErr = rolloutmaintenance.Open(stateDir)
-	e.peers = newPeerTransport(e)
+	e.peers = durationTransport{newPeerTransport(e)}
 	e.routes.Store(&map[string]int{})
 	e.postgres.Store(&map[string]int{})
 	e.certRoutes = make(chan struct{}, 1)
@@ -108,6 +112,9 @@ func newEdge(stateDir string) *Edge {
 	http1 := http.DefaultTransport.(*http.Transport).Clone()
 	http1.Proxy = nil
 	http1.DialContext = dialHandoff
+	http1.MaxIdleConns = maxPublicConnections
+	http1.MaxIdleConnsPerHost = maxPublicConnections
+	http1.IdleConnTimeout = 90 * time.Second
 	h2c := http1.Clone()
 	h2c.Protocols = new(http.Protocols)
 	h2c.Protocols.SetUnencryptedHTTP2(true)
@@ -137,6 +144,7 @@ func newEdge(stateDir string) *Edge {
 		}
 		return http1.RoundTrip(r)
 	})
+	e.local = durationTransport{e.local}
 	e.proxy = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			port, _ := e.port(pr.In.Host)
@@ -255,9 +263,20 @@ func (e *Edge) setRoutes(web, postgres map[string]int) {
 }
 
 func (e *Edge) Drain() {
-	if !e.draining.Swap(true) {
-		e.announceReady()
+	e.publicMu.Lock()
+	if e.draining.Load() {
+		e.publicMu.Unlock()
+		return
 	}
+	if e.publicServer != nil {
+		e.publicServer.SetKeepAlivesEnabled(false)
+	}
+	if e.publicListener != nil {
+		e.publicListener.Close()
+	}
+	e.draining.Store(true)
+	e.publicMu.Unlock()
+	e.announceReady()
 }
 
 func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
@@ -310,7 +329,7 @@ const clientIdleTimeout = 120 * time.Second
 func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
 	plain := &http.Server{
-		Handler: countResponses("http", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Handler: countResponses("http", e.measureRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !e.authorizeEdgeHop(w, r) {
 				return
 			}
@@ -344,7 +363,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 				return
 			}
 			e.challenges.ServeHTTP(w, r)
-		})),
+		}))),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -356,7 +375,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	tlsConfig := e.certificateTLSConfig()
 	tlsConfig.GetConfigForClient = e.meshTLS
 	public := &http.Server{
-		Handler:           countResponses("https", http.HandlerFunc(e.serveHTTPS)),
+		Handler:           countResponses("https", e.measureRequests(http.HandlerFunc(e.serveHTTPS))),
 		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       clientIdleTimeout,

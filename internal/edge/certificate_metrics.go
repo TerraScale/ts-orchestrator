@@ -31,6 +31,7 @@ func (t orderTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 func WriteLocalCertificateMetrics(ctx context.Context, w io.Writer) {
 	if e := localEdge.Load(); e != nil {
 		e.WriteCertificateMetrics(ctx, w)
+		e.WriteRequestMetrics(w)
 	}
 }
 
