@@ -253,6 +253,17 @@ def post_relay(address, key, name):
     return response.status
 
 
+def budget_proxy_case(mode, address, description, fault):
+    proxy = launch("budget-proxy-" + mode, [str(work / "metrics"), "budget-proxy", mode, address + ":4223", addresses[0] + ":4223"])
+    await_event(f"the {mode} budget proxy is ready", lambda: any("budget proxy ready" in line for line in proxy.lines))
+    relays.append(relay_process("relay-" + mode, address, work / mode / "relay", work / "sjc" / "alertmanager.env"))
+    await_event(f"a fleet relay behind the {mode} proxy starts", lambda: "relay-" + mode in ready)
+    sent = len(emails)
+    assert post_relay(address, mode, "Budget" + mode.title().replace("-", "")) == 202
+    await_event(description, lambda: [m[2:] for m in mailed() if m[0] == address] == [("true", "")], seconds=15)
+    assert len(emails) == sent + 1 and any(fault in line for line in proxy.lines), (len(emails) - sent, proxy.lines)
+
+
 try:
     providers = ThreadingHTTPServer(("127.0.0.9", 8025), Providers)
     servers.append(providers)
@@ -332,18 +343,8 @@ try:
     post_alerts([incident])
     await_event("a firing topology incident reaches exactly one relay", lambda: len(groups("firing", {"RuntimePeerTopologyMismatch"})) == 1, seconds=20)
     post_alerts([incident], ends=datetime.now(UTC).isoformat())
-    for mode, address, description in (
-        ("lose-ack", "127.0.0.5", "a reservation whose write acknowledgement is lost is read back and emailed once"),
-        ("slow-read", "127.0.0.6", "a budget store that answers the ledger read after 2.5s still emails"),
-    ):
-        proxy = launch("budget-proxy-" + mode, [str(work / "metrics"), "budget-proxy", mode, address + ":4223", addresses[0] + ":4223"])
-        await_event(f"the {mode} budget proxy is ready", lambda: any("budget proxy ready" in line for line in proxy.lines))
-        relays.append(relay_process("relay-" + mode, address, work / mode / "relay", work / "sjc" / "alertmanager.env"))
-        await_event(f"a fleet relay behind the {mode} proxy starts", lambda: "relay-" + mode in ready)
-        sent = len(emails)
-        assert post_relay(address, mode, "Budget" + mode.title().replace("-", "")) == 202
-        await_event(description, lambda: [m[2:] for m in mailed() if m[0] == address] == [("true", "")], seconds=15)
-        assert len(emails) == sent + 1 and any(("dropped publish ack" if mode == "lose-ack" else "delayed ledger read") in line for line in proxy.lines), (len(emails) - sent, proxy.lines)
+    budget_proxy_case("lose-ack", "127.0.0.5", "a reservation whose write acknowledgement is lost is read back and emailed once", "dropped publish ack")
+    budget_proxy_case("slow-read", "127.0.0.6", "a budget store that answers the ledger read after 2.5s still emails", "delayed ledger read")
     names = {f"JourneyBudget{index}" for index in range(20)}
     unavailable = len([m for m in mailed() if m[3] == "budget unavailable"])
     budget_write_latency(True)
