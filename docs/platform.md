@@ -160,7 +160,7 @@ region. A resource is document-made when `ociresource.Ownership{Owner:
 `subnet/host-subnet` (public), `subnet/private-subnet`,
 `internet-gateway/igw`, `nat-gateway/nat`, `service-gateway/sgw`,
 `route-table/public-routes`, `route-table/private-routes`,
-`nsg/edge-nsg`, `nsg/host-nsg`, `nsg/node-nsg`, `instance/node-<n>`,
+`nsg/edge-nsg`, `nsg/host-nsg`, `nsg/node-nsg`, `instance/node`,
 `network-load-balancer/nlb`, `public-ip/nlb`, and in the DNS compartment's
 cell `dns-zone/zone` and `steering-policy/<first label>`, a steering policy
 being named after its steered name. A resource with any other ownership tag
@@ -227,6 +227,39 @@ region's network load balancer and its reserved address (docs/oci-reconcile.md,
 "Network load balancer"); gru, sjc and fra have one since 2026-11-16, not yet
 in DNS. The other reconcilers follow (C7 network, C8 compute, C10
 geo-steering DNS, C12 node autoscaler).
+
+### Nodes: the compute kind
+
+`ts-orch region apply <label> compute` runs `fleet.ApplyCompute`
+(`internal/fleet/compute.go`, resources in `internal/ociresource/compute`).
+It needs the document-made private subnet and the node NSG `nsg/node-nsg`
+and makes, in the region's compartment:
+
+| Key | Resource |
+| --- | --- |
+| `instance-configuration/node` | Shape, OCPUs, memory and boot size from the document; the newest Canonical Ubuntu 24.04 image for the shape; the private subnet, the node NSG and no public address; the first-boot script with the newest attested release. |
+| `instance-pool/nodes` | One pool, created at `nodes.min`, one placement per availability domain with all its fault domains. Its instances carry `instance/node`. |
+| `volume/data-<n>` | One data volume per node, `n` up to `nodes.max`, `data_gb` and `data_vpus_per_gb`, made with `CreateVolume` and `AttachVolume`, never at launch. |
+
+The ts-orch-hosts dynamic group matches every instance in the three region
+compartments, so a pool node has the instance principal the join needs.
+
+A pool size below `nodes.min` is raised; one above `nodes.max` is scaled
+in: the newest node leaves the pool, is stopped, its data volume is
+detached and kept, and it is terminated with
+`preserveDataVolumesCreatedAtLaunch=true`. A node without a data volume gets
+a kept one from its availability domain, or a new one. Image and release
+are fixed when the configuration is made; a newer release reaches the nodes
+through the release self-pull, so a second apply changes nothing.
+
+A node's first boot needs no person (`internal/nodeinit`): it waits, with no
+deadline, for the apply to record its data volume in the instance metadata,
+formats it only when the volume was never bound to another node, mounts it,
+installs the pinned release the way `deploy/m1/install.sh` does, and starts
+ts-orch. ts-orch reads `ts-orch-join-<region>` from the gru Vault (`internal/regionjoin`),
+joins as a worker and is promoted until the region has three managers
+(`internal/swarmruntime/manager_promotion.go`).
+
 
 ## Routing
 

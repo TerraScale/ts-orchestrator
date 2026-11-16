@@ -18,6 +18,7 @@ type Pass struct {
 var Passes = []Pass{
 	{Kind: "network", Apply: applyNetwork},
 	{Kind: "nlb", Apply: applyNLB},
+	{Kind: "compute", Apply: ApplyCompute},
 }
 
 func kinds() string {

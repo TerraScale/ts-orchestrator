@@ -318,11 +318,7 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 			subnetOf[deref(a.InstanceId)] = deref(a.SubnetId)
 		}
 	}
-	var nodeNames []string
-	for n := 1; n <= region.Nodes.Max; n++ {
-		nodeNames = append(nodeNames, fmt.Sprintf("node-%d", n))
-	}
-	report.Checks = append(report.Checks, nodes(region, instances, subnetOf, subnetIDs[true], key("instance", nodeNames...)))
+	report.Checks = append(report.Checks, nodes(region, instances, subnetOf, subnetIDs[true], key("instance", "node")))
 	nlbs, err := list("nlb", func(page *string) ([]networkloadbalancer.NetworkLoadBalancerSummary, *string, error) {
 		r, err := balancers.ListNetworkLoadBalancers(ctx, networkloadbalancer.ListNetworkLoadBalancersRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err

@@ -89,6 +89,41 @@ oci network public-ip delete --region <oci-region> --force \
 Deleting the load balancer leaves the hosts untouched; deleting the reserved IP
 gives its address back to OCI for good.
 
+## Compute pass
+
+`ts-orch region apply <label> compute` reconciles a region's nodes from the
+fleet document with the operator's `~/.oci/config` (or the instance
+principal). It reads the document-made private subnet
+(`subnet/private-subnet`) and node NSG (`nsg/node-nsg`) and refuses to run
+without them. Keys are `<CELL>/instance-configuration/node`,
+`<CELL>/instance-pool/nodes`, `<CELL>/instance/node` (every pool instance,
+from the configuration's launch tags) and `<CELL>/volume/data-<n>`.
+
+| Step | Effect |
+| --- | --- |
+| Instance configuration | Kept when shape, OCPUs, memory, boot size, subnet, NSG and no public address match; otherwise a new one is made, the pool switched to it for new nodes, and the old one deleted. Running nodes are not replaced. |
+| Pool | Created at `nodes.min` across every availability domain and its fault domains; raised to `nodes.min` when below. The pass waits up to 20 minutes for the pool to be `RUNNING` with every instance running before it changes anything, and stops with the pool's state otherwise. |
+| Scale-in | Only when the pool is above `nodes.max`: the newest owned node is detached from the pool (size decremented, not auto-terminated), soft-stopped, its data volume detached, then terminated with `preserveDataVolumesCreatedAtLaunch=true`. |
+| Data volumes | A node with an attached owned data volume keeps it. Otherwise it gets the lowest kept volume in its availability domain, or a new one (at most `nodes.max`). The volume records the node in `terrascale-data-instance`; the node's metadata gets `terrascale-data-volume`, `terrascale-data-may-format` (true only while `terrascale-data-instance` is empty or names this node) and `terrascale-data-uuid`, the filesystem UUID chosen at volume creation. |
+
+No step deletes a data volume; `VOLUME_DELETE` is not granted. A node waits
+for its binding with no deadline, so a pool that settles late still mounts and
+joins on the next apply. A volume that fails the `internal/nodeinit` checks
+stops the first boot and installs nothing. A node
+whose join fails keeps ts-orch running and retries the Vault read every 30
+seconds, logging the error, until it joins or the pass scales it in.
+
+Undo a region's nodes (operator credentials; data volumes stay):
+
+```sh
+oci compute-management instance-pool list -c <compartment> --query "data[?\"freeform-tags\".\"terrascale-resource-key\"=='<CELL>/instance-pool/nodes'].id"
+oci compute volume-attachment list -c <compartment> --instance-id <node>   # detach each data volume first
+oci compute volume-attachment detach --volume-attachment-id <attachment> --force
+oci compute-management instance-pool terminate --instance-pool-id <pool> --force
+oci compute-management instance-configuration delete --instance-configuration-id <configuration> --force
+```
+
+
 ## Protected operations and observations
 
 Amendment desired state and operation history live in `OCIResources` inside the

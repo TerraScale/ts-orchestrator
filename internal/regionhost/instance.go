@@ -13,6 +13,7 @@ import (
 	"time"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/nodeinit"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 )
@@ -110,7 +111,7 @@ func (r *run) ensureInstance(host, shape string) (*core.Instance, *core.Volume, 
 		if err != nil {
 			return nil, nil, err
 		}
-		if found.Metadata[dataFormatTag] == "true" && (volume == nil || found.Metadata[dataVolumeTag] != deref(volume.Id) || volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag])) {
+		if found.Metadata[dataFormatTag] == "true" && (volume == nil || found.Metadata[dataVolumeTag] != deref(volume.Id) || volume.FreeformTags[dataFormattedTag] != "yes" || !nodeinit.FilesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag])) {
 			if r.dry {
 				return nil, nil, fmt.Errorf("unfinished formatting instance %s must be terminated and replaced", deref(found.Id))
 			}
@@ -137,7 +138,7 @@ func (r *run) ensureInstance(host, shape string) (*core.Instance, *core.Volume, 
 		if volume == nil || found.Metadata[dataVolumeTag] != deref(volume.Id) {
 			return nil, nil, fmt.Errorf("instance %s launched for volume %s; refusing discovered volume %s", deref(found.Id), found.Metadata[dataVolumeTag], volumeID(volume))
 		}
-		if volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag]) {
+		if volume.FreeformTags[dataFormattedTag] != "yes" || !nodeinit.FilesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag]) {
 			return nil, nil, fmt.Errorf("existing volume %s requires the terrascale-data-formatted tag and terrascale-data-uuid after inspection", deref(volume.Id))
 		}
 		if deref(volume.AvailabilityDomain) != deref(found.AvailabilityDomain) {
@@ -254,7 +255,7 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 			return nil, nil, err
 		}
 	} else {
-		if volume.FreeformTags[dataFormattedTag] != "yes" || !filesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag]) {
+		if volume.FreeformTags[dataFormattedTag] != "yes" || !nodeinit.FilesystemUUID.MatchString(volume.FreeformTags[dataUUIDTag]) {
 			return nil, nil, errors.New("existing data volume requires the terrascale-data-formatted tag and terrascale-data-uuid before attachment; verify restored or interrupted provisioning data first")
 		}
 		ad = deref(volume.AvailabilityDomain)
@@ -304,7 +305,7 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 			continue
 		}
 		mayFormat := r.createdVolumes[deref(volume.Id)]
-		script, scriptErr := CloudInit(m1.Files, url, sum, deref(volume.Id), volume.FreeformTags[dataUUIDTag], volume.FreeformTags[dataSerialTag], mayFormat)
+		script, scriptErr := nodeinit.CloudInit(m1.Files, url, sum, deref(volume.Id), volume.FreeformTags[dataUUIDTag], volume.FreeformTags[dataSerialTag], mayFormat)
 		if scriptErr != nil {
 			return nil, nil, scriptErr
 		}
