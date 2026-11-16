@@ -112,6 +112,15 @@ restart. An inventory issued more than 24 hours ago is stale: the worker drops
 its routes and answers 503. A worker outside the mesh, or whose node list does
 not list the manager yet, has no inventory and answers 503.
 
+Replacing a publisher's `tls.key` requires enrolling its new public identity
+through [node enrolment](node-enrolment.md) and delivering that list to its
+followers in a confirmed release before cutover. The region-roll plan must
+include that dependency: a promoted `ts-<region>-2` cannot publish as
+`ts-<region>-1`, and a rebuilt publisher's new key does not match the old pin.
+Persisted inventories remain usable only until their 24-hour lifetime expires.
+Changing publisher identity or the source of inventory trust requires a
+separate design change.
+
 Each host decides its own ready services by probing every readiness route on
 loopback. A worker's edge readiness and release health count a route as
 servable when the worker would send its requests to a ready peer, using the

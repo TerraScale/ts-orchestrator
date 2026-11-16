@@ -688,7 +688,8 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 		return err
 	}
 	for _, node := range []string{"a", "b"} {
-		if err := route(ctx, cfg, node, "shared", []string{"shared.e2e.test"}); err != nil {
+		region := map[string]string{"a": "gru", "b": "sjc"}[node]
+		if err := route(ctx, cfg, node, "shared", []string{"shared.e2e.test", region + ".shared.e2e.test"}); err != nil {
 			return err
 		}
 	}

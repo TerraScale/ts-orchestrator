@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
@@ -568,7 +569,11 @@ func (p *fleetProcess) awaitReady(ctx context.Context, root string) error {
 }
 
 func fleetNodeList(root string, regions []string) error {
-	list := nodelist.List{Sequence: 1}
+	shipped, err := nodelist.Decode([]byte(m1.NodeList))
+	if err != nil {
+		return err
+	}
+	list := nodelist.List{Sequence: shipped.Sequence + 1}
 	for index, region := range regions {
 		name := fleetHostName(index, region)
 		keys, err := nodelist.Keys(filepath.Join(root, "state-"+name))
