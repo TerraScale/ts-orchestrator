@@ -56,7 +56,6 @@ type Edge struct {
 	edgeTransports   sync.Map
 	edgeNext         sync.Map
 	peerDown         sync.Map
-	peerFailed       sync.Map
 	readyChanged     atomic.Pointer[func()]
 	follower         atomic.Bool
 	inventoryMissing atomic.Bool

@@ -25,13 +25,7 @@ type edgeHopKey struct{}
 type edgeTargetKey struct{}
 
 type edgeTarget struct {
-	service   string
 	addresses []string
-}
-
-type peerRoute struct {
-	address string
-	service string
 }
 
 type serviceRoutes struct {
@@ -75,16 +69,6 @@ func (e *Edge) peerAdvertised(peer mesh.WorkerPeer) {
 	if len(peer.ReadyServices) != 0 {
 		e.peerDown.Delete(peer.Address)
 	}
-	e.peerFailed.Range(func(key, _ any) bool {
-		if key.(peerRoute).address == peer.Address {
-			e.peerFailed.Delete(key)
-		}
-		return true
-	})
-}
-
-func peerUnavailable(status int) bool {
-	return status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
 }
 
 func (e *Edge) authorizeEdgeHop(w http.ResponseWriter, r *http.Request) bool {
@@ -129,7 +113,7 @@ func (e *Edge) routePeerEdge(r *http.Request, balance bool) *http.Request {
 		start := int((value.(*atomic.Uint64).Add(1) - 1) % uint64(len(addresses)))
 		addresses = append(slices.Clone(addresses[start:]), addresses[:start]...)
 	}
-	return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{service: service, addresses: append(addresses, "")}))
+	return r.WithContext(context.WithValue(r.Context(), edgeTargetKey{}, edgeTarget{addresses: append(addresses, "")}))
 }
 
 func (e *Edge) peerCandidates(host string, port int) (string, []string) {
@@ -144,9 +128,7 @@ func (e *Edge) peerCandidates(host string, port int) (string, []string) {
 	}
 	addresses := []string{}
 	for _, peer := range (*peers)() {
-		_, down := e.peerDown.Load(peer.Address)
-		_, failed := e.peerFailed.Load(peerRoute{peer.Address, service})
-		if !down && !failed && slices.Contains(peer.ReadyServices, service) {
+		if _, down := e.peerDown.Load(peer.Address); !down && slices.Contains(peer.ReadyServices, service) {
 			addresses = append(addresses, peer.Address)
 		}
 	}
@@ -295,18 +277,13 @@ func (e *Edge) peerEdgeRoundTrip(r *http.Request, target edgeTarget) (*http.Resp
 		}
 		response, err := value.(*http.Transport).RoundTrip(out)
 		if err == nil {
-			if peerUnavailable(response.StatusCode) {
-				e.peerFailed.Store(peerRoute{address, target.service}, struct{}{})
-			}
 			return answer(response, cancel)
 		}
 		cancel()
-		if r.Context().Err() == nil {
-			e.peerDown.Store(address, time.Now())
-		}
 		if r.Context().Err() != nil || budget.Err() != nil {
 			return fail(err)
 		}
+		e.peerDown.Store(address, time.Now())
 		if consumed.Load() || connected.Load() && !resendable(r.Method) {
 			return fail(err)
 		}

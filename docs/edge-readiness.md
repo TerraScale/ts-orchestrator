@@ -47,17 +47,18 @@ services each interval (5 seconds in production) and again at once when they
 change, so a peer that becomes unready or starts draining is withdrawn
 immediately. A peer counts for new requests and for readiness only while its
 last advertisement is at most two intervals old, so a peer that falls silent
-stops counting one interval after it misses an advertisement. A peer also
-stops counting for a route as soon as this edge sees that route fail through
-it: a transport error or an expired response-header budget at the hop (the
-peer stops counting for every route), or a 502, 503 or 504 status from the hop
-(it stops counting for that route). It counts again only once an advertisement
-from it arrives after the failure. Only the status code is read: no response
-header is trusted, the response is still returned to the client unchanged, and
-nothing is resent because of it, so a backend's own 5xx can at most make this
-edge stop routing to that peer until its next advertisement. The known bound:
-a peer that dies silently with no request through it still counts for at most
-two advertisement intervals (10 seconds in production). None of this touches
+stops counting one interval after it misses an advertisement. A peer that
+this edge cannot reach at all (the connection to its edge is refused, cannot
+be made, or is reset before any response) stops counting for every route until
+an advertisement from it arrives after the failure. HTTP status codes and slow
+responses never change whether a peer counts: a 503 from a backend through a
+healthy peer is returned unchanged and the peer keeps receiving requests, and
+a request that outlives the 30-second header budget costs main's 502 without
+excluding the peer. A peer's backend health reaches other edges only through
+its own advertisements, which it repeats at once when its ready services
+change. The accepted bound: a peer that stops advertising while its backend
+fails still counts for at most two advertisement intervals (10 seconds in
+production). None of this touches
 a request already sent to a peer: it is bounded only as on main. Ordinary HTTP shares a 30-second
 response-header budget across the layer and its local fallback, starting when
 the first request finishes writing. Request uploads and response bodies are
@@ -148,7 +149,7 @@ restarted worker reach the writer.
 In the third region, with a ready peer, the unready manager forwards HTTP and
 a WebSocket to it. A DELETE answered by the peer is never sent again, even when
 the client or the backend sets a header the edge once used as a marker. With the
-peer stopped (SIGSTOP), a DELETE already sent on a connection is answered
+peer that never answers, a DELETE already sent on a connection is answered
 main's 502 at 30 seconds and is not resent, and a request on a held stop-first
 port waits for its replacement. A 31-second gRPC call through a peer whose
 announcements stop mid-call completes as on main.
@@ -158,10 +159,14 @@ application is down is ready only through its manager as a fresh ready peer.
 When the manager falls silent, the worker's readiness and release health turn to
 "backend unavailable" within three advertisement intervals, and a new request
 no longer reaches the manager. When the manager becomes unready, the same
-happens within one interval of its withdrawal. When a request through the silent
-manager fails with 503, the worker reports "backend unavailable" on its very
-next readiness and health check, and the manager's next ready advertisement
-restores it. A peer that accepts but never
+happens within one interval of its withdrawal. A request-specific 503 through a healthy
+manager leaves the worker ready and the next request reaches the same manager.
+When the manager falls silent while its application fails, the worker turns
+unready within the freshness bound, and the manager's next ready advertisement
+restores it. While a DELETE waits on a peer that never answers, a request whose
+peer edge refuses the connection falls back to main's local path and the peer
+stays excluded until its next advertisement; once the DELETE gets main's 502 at
+30 seconds, the peer still serves other routes. A peer that accepts but never
 answers costs main's 502 at 30 seconds, not more. With no ready peer, a
 draining manager, a peer hop to it, an unheld backend that restarts while the
 request waits, a host without the peer credential, a host whose readiness probe
