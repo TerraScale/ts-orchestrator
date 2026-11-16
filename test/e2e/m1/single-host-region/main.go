@@ -340,6 +340,10 @@ func main() {
 			fmt.Printf("FAIL: %v\nstand-in requests: %v\n", value, fleet.Requests())
 			for _, host := range fleet.Hosts {
 				fmt.Printf("--- %s journal\n%s\n", host.Name, tail(filepath.Join(host.Dir, "journal.log"), 25))
+				fmt.Printf("--- %s mesh\n%s\n", host.Name, meshLines(filepath.Join(host.Dir, "journal.log"), 20))
+				if text, err := metrics(context.Background(), host); err == nil {
+					fmt.Printf("--- %s mesh metrics\n%s\n", host.Name, meshMetrics(text))
+				}
 			}
 			fleet.Close()
 			os.Exit(1)
@@ -511,6 +515,27 @@ func workload(specFile, imagesFile string) map[string]any {
 	must(json.Unmarshal(data, &images))
 	spec["image"] = images[spec["name"].(string)][runtime.GOARCH]
 	return spec
+}
+
+func meshLines(path string, lines int) string {
+	data, _ := os.ReadFile(path)
+	matched := []string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "mesh") && !strings.Contains(line, "module=grpc") {
+			matched = append(matched, line)
+		}
+	}
+	return strings.Join(matched[max(0, len(matched)-lines):], "\n")
+}
+
+func meshMetrics(text string) string {
+	matched := []string{}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "ts_orch_mesh_region") {
+			matched = append(matched, line)
+		}
+	}
+	return strings.Join(matched, "\n")
 }
 
 func tail(path string, lines int) string {

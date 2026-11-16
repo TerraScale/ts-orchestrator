@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -86,8 +87,14 @@ func (n *Node) inRegion(members []string) bool {
 func (n *Node) regionRoutes() {
 	ticker := time.NewTicker(n.cfg.peersEvery)
 	defer ticker.Stop()
+	n.gossip.membership.Store(time.Now().UnixNano())
+	reachedRegion := false
 	failure := ""
 	for {
+		if !reachedRegion && n.routedInRegion() {
+			reachedRegion = true
+			n.gossip.membership.Store(max(n.gossip.membership.Load(), time.Now().UnixNano()))
+		}
 		if n.membershipConn != nil {
 			members, err := n.regionMembers(n.ctx)
 			if err == nil {
@@ -113,6 +120,10 @@ func (n *Node) regionRoutes() {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (n *Node) routedInRegion() bool {
+	return slices.ContainsFunc(n.routes(), func(route *server.RouteInfo) bool { return serverRegion(route.RemoteName) == n.cfg.region })
 }
 
 func (n *Node) dialGossipedPeers() {
