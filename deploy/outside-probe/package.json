@@ -1,0 +1,12 @@
+{
+  "name": "ts-orchestrator-outside-probe",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "node --check worker.mjs",
+    "build": "node --check worker.mjs"
+  },
+  "devDependencies": {
+    "cf": "1.0.0-beta.14"
+  }
+}
