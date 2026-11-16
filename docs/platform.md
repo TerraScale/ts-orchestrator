@@ -159,12 +159,31 @@ region. A resource is document-made when `ociresource.Ownership{Owner:
 `terrascale-resource-key` `<CELL>/<kind>/<name>`. The keys are `vcn/vcn`,
 `subnet/host-subnet` (public), `subnet/private-subnet`,
 `internet-gateway/igw`, `nat-gateway/nat`, `service-gateway/sgw`,
-`nsg/edge-nsg`, `nsg/host-nsg`, `instance/node-<n>`,
+`route-table/public-routes`, `route-table/private-routes`,
+`nsg/edge-nsg`, `nsg/host-nsg`, `nsg/node-nsg`, `instance/node-<n>`,
 `network-load-balancer/nlb`, `public-ip/nlb`, and in the DNS compartment's
 cell `dns-zone/zone` and `steering-policy/<first label>`, a steering policy
 being named after its steered name. A resource with any other ownership tag
 is claimed by another owner; one with none is hand-made (foreign). Neither
 is ever changed.
+
+`ts-orch region apply <label> <kind>...` runs the named passes of the
+single list `fleet.Passes` once for one region; a bare apply refuses and
+lists the kinds. The `network` pass reads, and never changes, the VCN, both
+subnets, the internet and service gateways and `nsg/edge-nsg` and
+`nsg/host-nsg`; it stops if one of them is missing, duplicated or not
+document-made. It owns three network kinds:
+
+| Kind | Key | What the pass keeps |
+|---|---|---|
+| NAT gateway | `nat-gateway/nat` | `<cell>-nat` in the VCN, not blocking traffic; created when missing |
+| Route table | `route-table/private-routes` | `<cell>-private-routes`, attached to the private subnet only, with exactly `0.0.0.0/0` to the NAT gateway and the region's Oracle services to the service gateway |
+| NSG | `nsg/node-nsg` | `<cell>-node-nsg` with exactly these rules: TCP 80, 443 and 5432 from anywhere, since the network load balancer preserves the client source address; TCP 4222 (NATS client), 6222 (NATS cluster), 7422 (NATS leafnode) and UDP 51820 (NetBird WireGuard) from the VCN; all egress |
+
+The pass refuses to change a route table that is the VCN's default or that
+any other subnet uses, so the public subnet's routes are never touched. The
+node NSG has no members until nodes join it. How to run and undo it is in
+`docs/oci-reconcile.md`.
 
 A reconciler on the global leader creates and updates these resources:
 

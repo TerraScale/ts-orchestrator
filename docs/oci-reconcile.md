@@ -136,6 +136,62 @@ property mutations fail closed. Source fixtures do not qualify the full real
 root-IPC and OCI-SDK amendment path. That end-to-end qualification remains
 **OPEN** until the integrated candidate passes its leased QA run.
 
+## Region apply
+
+`ts-orch region apply <label> <kind>...` is an operator command that runs the
+named passes once for one region of the fleet document, in the order of
+`fleet.Passes`. A bare `ts-orch region apply <label>` refuses and lists the
+registered kinds. It uses the operator's `~/.oci/config` when that file exists
+and the instance principal otherwise, like `region plan`. Run `region plan`
+before and after:
+
+```sh
+ts-orch region plan
+ts-orch region apply gru network
+ts-orch region apply gru network
+ts-orch region plan
+```
+
+Each line of the output is `ok`, `created` or `updated` with the resource. A
+second apply prints only `ok` lines.
+
+The `network` pass changes only resources carrying its own keys
+(`docs/platform.md`, "OCI ownership"): it creates the NAT gateway and the node
+NSG when missing, sets the private route table's rules and attaches that table
+to the private subnet. It stops before changing anything if the VCN, a subnet,
+the internet or service gateway, the edge or host NSG is missing or not
+document-made, if a NAT gateway without its key is in the VCN, if two live
+resources carry the same key, or if the private route table is the VCN default
+or used by another subnet. Every step can be run again: a half-failed apply
+leaves only finished steps behind, and the next apply continues from there.
+
+Two applies at once: OCI allows one NAT gateway per VCN and answers the second
+create with 409 Conflict. The route table update carries its `If-Match` ETag,
+so one of two writers fails with 412. Two node NSGs can be created; the next
+apply then stops with `2 live resources carry <key>` and the extra one is
+deleted by hand. Duplicate NSG rules are removed by the next apply.
+
+Undo, newest first, with the IDs the apply printed:
+
+```sh
+oci network nsg delete --nsg-id <node-nsg id> --force
+oci network route-table update --rt-id <private-routes id> --force \
+  --route-rules '[{"destination":"<all-<label>-services-in-oracle-services-network>","destinationType":"SERVICE_CIDR_BLOCK","networkEntityId":"<service gateway id>"}]'
+oci network nat-gateway delete --nat-gateway-id <nat id> --force
+```
+
+The node NSG must have no members to be deleted. The route-table update puts
+back the services-only rule set it had before the first apply; the NAT gateway
+can be deleted only after no rule targets it. When the apply created the
+private route table (`created route table` in its output), detach it from the
+private subnet with `oci network subnet update --route-table-id` to the table
+it used before, then `oci network route-table delete --rt-id <id> --force`.
+
+`ts-orch oci-region network` and `ts-orch region add` create
+`<cell>-private-routes` empty when it is missing and attach it to the private
+subnet, but never change its rules; `region apply <label> network` alone
+writes them.
+
 ## Reconciler IAM policy
 
 The ts-orch hosts call OCI with their instance principal (dynamic group

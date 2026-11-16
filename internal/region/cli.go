@@ -32,6 +32,13 @@ const usage = `Usage: ts-orch region <command> [flags]
       The same comparison, one line per region.
   validate
       Load and validate the embedded fleet document; reads nothing else.
+  apply  LABEL KIND...
+      Run the named reconcile passes once for one region of the fleet
+      document. With no kind it refuses and lists the registered kinds
+      (network). network adopts the document-made VCN, subnets, gateways
+      and NSGs unchanged and creates or converges the NAT gateway, the
+      private subnet's route table and the node NSG. Same credentials as
+      plan.
   derive  REGION --out FILE [--from PLAN]
       Derive the region's plan from another non-home region's reviewed plan
       (default deploy/oci-region/sjc-1-plan.json): names, addresses, the
@@ -58,6 +65,8 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	switch command {
 	case "plan", "status", "validate":
 		return compareFleet(ctx, command, args, out)
+	case "apply":
+		return fleet.Apply(ctx, args, out)
 	}
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return fmt.Errorf("usage: ts-orch region %s needs a region argument; see ts-orch region --help", command)
