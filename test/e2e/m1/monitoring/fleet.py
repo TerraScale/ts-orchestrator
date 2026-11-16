@@ -403,7 +403,7 @@ try:
     assert post_relay("127.0.0.4", "full-ledger-0", "FullLedger0") == 202
     for index in range(1, 13):
         assert post_relay("127.0.0.4", f"full-ledger-{index}", f"FullLedger{index}") == 202
-    unconfirmed = lambda: sorted(m[3] for e in groups("firing", full) for m in email_of(e))
+    unconfirmed = lambda: sorted(m[3] for m in mailed() if m[1] in {e[3] for e in groups("firing", full)})
     await_event("unconfirmed email stops at the budget, then is withheld as budget unavailable", lambda: len(unconfirmed()) == 14)
     metrics = request("127.0.0.4", 9094, "/metrics").decode()
     assert unconfirmed() == [""] * 11 + ["budget unavailable"] * 2 + ["duplicate"] and len(emails) == sent + 11, (unconfirmed(), len(emails) - sent)
