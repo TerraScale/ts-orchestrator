@@ -40,7 +40,7 @@ if [[ $# == 1 && $1 == --fleet ]]; then
     esac
   done
   for host in "${existing[@]}" "${added[@]}"; do
-    bash "$source_dir/install.sh" "$host"
+    bash "$source_dir/install.sh" --fleet-host "$host"
   done
   for host in "${monitors[@]}"; do
     members=$(ssh "$host" 'curl --fail --silent --show-error --max-time 5 http://127.0.0.1:9093/api/v2/status' | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["cluster"]["peers"]))')
@@ -52,11 +52,15 @@ if [[ $# == 1 && $1 == --fleet ]]; then
   exit
 fi
 remote_mode=--local
+if [[ $# == 2 && $1 == --fleet-host ]]; then
+  remote_mode=--local-fleet
+  shift
+fi
 if [[ $# == 2 && $1 == --preflight ]]; then
   remote_mode=--preflight
   shift
 fi
-if [[ $# == 1 && $1 != --local && $1 != --check && $1 != --preflight ]]; then
+if [[ $# == 1 && $1 != --local && $1 != --local-fleet && $1 != --check && $1 != --preflight ]]; then
   [[ $1 != -* && $1 =~ ^[a-zA-Z0-9_.@-]+$ ]] || { echo 'Invalid SSH host' >&2; exit 2; }
   rendered=$(mktemp -d)
   trap 'rm -rf -- "$rendered"' EXIT
@@ -71,7 +75,7 @@ if [[ $# == 1 && $1 != --local && $1 != --check && $1 != --preflight ]]; then
   '
   exit
 fi
-[[ ( $# == 1 && ( $1 == --local || $1 == --preflight ) ) || ( $# -ge 1 && $# -le 2 && $1 == --check ) ]] || {
+[[ ( $# == 1 && ( $1 == --local || $1 == --local-fleet || $1 == --preflight ) ) || ( $# -ge 1 && $# -le 2 && $1 == --check ) ]] || {
   echo "Usage: $0 <SSH-host> | --preflight <SSH-host> | --fleet | --check" >&2; exit 2;
 }
 mode=$1
@@ -80,8 +84,10 @@ rendered="$source_dir/../rendered"
 if [[ $mode != --check ]]; then
   config_dir="$rendered/$(hostname -s)"
   [[ -f $config_dir/prometheus.yml ]] || { echo "Host is not an inventory monitoring backend" >&2; exit 2; }
-monitor_address=$(python3 -c 'import ipaddress,socket,sys; address=socket.gethostbyname(sys.argv[1]+".nb.ts.internal"); assert ipaddress.ip_address(address).is_private; print(address)' "$(hostname -s)")
-printf 'MONITOR_ADDRESS=%s\n' "$monitor_address" > "$config_dir/alertmanager.env"
+fi
+if [[ $mode == --local-fleet ]]; then
+  monitor_address=$(python3 -c 'import ipaddress,socket,sys; address=socket.gethostbyname(sys.argv[1]+".nb.ts.internal"); assert ipaddress.ip_address(address).is_private; print(address)' "$(hostname -s)")
+  printf 'MONITOR_ADDRESS=%s\n' "$monitor_address" > "$config_dir/alertmanager.env"
 fi
 if [[ $mode != --check && $EUID != 0 ]]; then
   echo 'Remote installation requires sudo/root' >&2; exit 2
@@ -190,13 +196,19 @@ put "$prom_dir/prometheus" /usr/local/lib/ts-monitoring/prometheus 0755
 put "$prom_dir/promtool" /usr/local/lib/ts-monitoring/promtool 0755
 put "$alert_dir/alertmanager" /usr/local/lib/ts-monitoring/alertmanager 0755
 put "$alert_dir/amtool" /usr/local/lib/ts-monitoring/amtool 0755
-for config in prometheus.yml rules.yml alertmanager.env; do
+for config in prometheus.yml rules.yml; do
   put "$config_dir/$config" "/etc/ts-monitoring/production/$config" 0644
 done
+if [[ $mode == --local-fleet ]]; then
+  put "$config_dir/alertmanager.env" "/etc/ts-monitoring/production/alertmanager.env" 0644
+elif [[ -e /etc/ts-monitoring/production/alertmanager.env ]]; then
+  rm -f /etc/ts-monitoring/production/alertmanager.env
+  changed=1
+fi
 put "$source_dir/alertmanager.yml" /etc/ts-monitoring/production/alertmanager.yml 0644
 for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service ts-alert-delivery-token.path ts-alert-delivery-token.service; do
   unit_source="$source_dir/$unit"
-  if [[ $unit == ts-alertmanager.service ]]; then unit_source="$config_dir/$unit"; fi
+  if [[ $unit == ts-alertmanager.service && $mode == --local-fleet ]]; then unit_source="$config_dir/$unit"; fi
   put "$unit_source" "/etc/systemd/system/$unit" 0644
 done
 systemctl daemon-reload
