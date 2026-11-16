@@ -62,11 +62,20 @@ integration passed five race-instrumented repeats after this change (76ae267d2).
 
 `server/raft.go` exports `RaftNodes` (a copied slice of the existing public
 `RaftNode` handles) and `TransferRaftLeaders` (the lame-duck handoff step).
-The shared handoff selects a current, recently heard-from follower before
-calling the existing preferred-peer `StepDown` and puts local groups in
-observer mode. Embedders can check quorum and confirm successor leadership
-before closing listeners. Raft messages, membership, persistence, and election
-timeouts are unchanged; transfers work with unmodified v2.15.0 members in
+For every elected Raft leader, including one whose initial entry has not yet
+reached the upper layer, the handoff names a follower that has stored every
+entry the leader stored (`li >= pindex`), was heard from within two heartbeats
+and is not offline, excluding the local node. Under the Raft lock it sends that
+follower the existing leader-transfer entry, marks the local group an observer
+and steps down. The named follower receives the transfer in order and starts
+its election at once. When no follower qualifies, the leader keeps leading and
+stays electable, so `jetstream_cluster.go`'s observer step-down never hands the
+metadata group to an arbitrary peer; callers call the handoff again until a
+follower qualifies or their stop budget ends. Non-leaders become observers so
+they cannot be elected. `StepDown` and its other callers are unchanged.
+Embedders can check quorum and confirm successor leadership before closing
+listeners. Raft messages, membership, persistence, and election timeouts are
+unchanged; transfers work with unmodified v2.15.0 members in
 either direction. Current-replica observations use the existing RAFTZ system
 request, which is also available on unmodified members.
 

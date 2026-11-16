@@ -308,7 +308,7 @@ try:
         (directory / "prometheus.yml").write_text(json.dumps(config))
         (directory / "rules.yml").write_text(json.dumps(generated))
         (directory / "alertmanager.yml").write_text(scale_alertmanager((root / "deploy/observability/production/alertmanager.yml").read_text().replace("127.0.0.1:9094", address + ":9094")))
-        command = [str(tools / "alertmanager"), "--config.file=" + str(directory / "alertmanager.yml"), "--storage.path=" + str(directory / "alerts"), "--web.listen-address=" + address + ":9093", "--cluster.listen-address=" + address + ":9095", "--cluster.advertise-address=" + address + ":9095", "--cluster.peer-timeout=15s"]
+        command = [str(tools / "alertmanager"), "--config.file=" + str(directory / "alertmanager.yml"), "--storage.path=" + str(directory / "alerts"), "--web.listen-address=" + address + ":9093", "--cluster.listen-address=" + address + ":9095", "--cluster.advertise-address=" + address + ":9095", "--cluster.peer-timeout=15s", "--cluster.pushpull-interval=5s"]
         command.extend("--cluster.peer=" + a + ":9095" for a in addresses if a != address)
         alertmanagers.append(launch("alertmanager-" + region, command))
         prometheuses.append(launch("prometheus-" + region, [str(tools / "prometheus"), "--config.file=" + str(directory / "prometheus.yml"), "--storage.tsdb.path=" + str(directory / "data"), "--web.listen-address=" + address + ":9090"], directory))

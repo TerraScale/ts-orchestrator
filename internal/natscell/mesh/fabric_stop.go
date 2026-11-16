@@ -110,7 +110,7 @@ type raftGroup struct {
 func (n *FabricLifecycle) raftGroups() []raftGroup {
 	groups := make([]raftGroup, 0)
 	for _, node := range n.server.RaftNodes() {
-		group := raftGroup{Group: node.Group(), ID: node.ID(), Leader: node.Leader(), Term: node.Term(),
+		group := raftGroup{Group: node.Group(), ID: node.ID(), Leader: node.State() == server.Leader, Term: node.Term(),
 			Members: node.VotingPeerNames(), Quorum: node.QuorumNeeded(), Size: node.ClusterSize(), Changing: node.MembershipChangeInProgress()}
 		groups = append(groups, group)
 	}
@@ -294,9 +294,9 @@ func (n *FabricLifecycle) PrepareStop(ctx context.Context) error {
 			led[group.Group] = group.Term
 		}
 	}
-	n.server.TransferRaftLeaders()
 	var remaining []string
 	for {
+		n.server.TransferRaftLeaders()
 		groups := n.raftGroups()
 		observation, done := context.WithTimeout(ctx, time.Second)
 		leaders, _ := n.groupLeaders(observation, groups)

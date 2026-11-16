@@ -259,7 +259,10 @@ func regionalExpression(text, region string, catalog map[string]bool) (string, e
 	return expr.String(), nil
 }
 
-const alertmanagerPeerTimeout = 15 * time.Second
+const (
+	alertmanagerPeerTimeout      = 15 * time.Second
+	alertmanagerPushPullInterval = 5 * time.Second
+)
 
 type notificationRoute struct {
 	GroupInterval string              `yaml:"group_interval"`
@@ -275,6 +278,9 @@ func checkNotificationTiming(path string, peers int) error {
 		return fmt.Errorf("notification deadline %s must be well under the %s peer timeout", deadline, alertmanagerPeerTimeout)
 	}
 	if err := checkLaneTimingRatio(deadline); err != nil {
+		return err
+	}
+	if err := checkGossipConvergence(); err != nil {
 		return err
 	}
 	data, err := os.ReadFile(path)
@@ -347,6 +353,26 @@ func readNamedDuration(path, name string) (time.Duration, error) {
 	}
 	unit := map[string]time.Duration{"Millisecond": time.Millisecond, "Second": time.Second, "Minute": time.Minute}[string(match[2])]
 	return time.Duration(value) * unit, nil
+}
+
+func checkGossipConvergence() error {
+	if 2*alertmanagerPushPullInterval >= alertmanagerPeerTimeout {
+		return fmt.Errorf("alertmanager push-pull interval %s must be under half the %s peer timeout, or a peer that missed a notification-log gossip entry resends it", alertmanagerPushPullInterval, alertmanagerPeerTimeout)
+	}
+	flag := "--cluster.pushpull-interval=" + alertmanagerPushPullInterval.String()
+	for _, path := range []string{"deploy/observability/production/ts-alertmanager.service", "test/e2e/m1/monitoring/fleet.py"} {
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) && strings.HasPrefix(path, "test/") {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(data), flag) {
+			return fmt.Errorf("%s must run alertmanager with %s", path, flag)
+		}
+	}
+	return nil
 }
 
 func checkLaneTimingRatio(deadline time.Duration) error {

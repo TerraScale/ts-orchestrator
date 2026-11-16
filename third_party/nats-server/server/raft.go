@@ -941,20 +941,41 @@ func (s *Server) transferRaftLeaders() bool {
 
 	var didTransfer bool
 	for _, node := range nodes {
-		node.SetObserver(true)
-		if !node.Leader() {
-			continue
-		}
-		for _, peer := range node.Peers() {
-			if peer.ID != node.ID() && peer.Current && time.Since(peer.Last) < hbInterval*2 {
-				if err := node.StepDown(peer.ID); err == nil {
-					didTransfer = true
-				}
-				break
-			}
+		if n, ok := node.(*raft); ok && n.transferToCaughtUpFollower() {
+			didTransfer = true
 		}
 	}
 	return didTransfer
+}
+
+func (n *raft) transferToCaughtUpFollower() bool {
+	n.Lock()
+	defer n.Unlock()
+	if n.State() != Leader {
+		n.setObserverLocked(true, extUndetermined)
+		return false
+	}
+	successor := noLeader
+	for peer, ps := range n.peers {
+		if peer == n.id || ps.li < n.pindex || time.Since(ps.ts) >= 2*hbInterval {
+			continue
+		}
+		if si, ok := n.s.nodeToInfo.Load(peer); !ok || si.(nodeInfo).offline {
+			continue
+		}
+		successor = peer
+		break
+	}
+	if successor == noLeader {
+		return false
+	}
+	n.debug("Selected %q for new leader, stepping down due to leadership transfer", successor)
+	if err := n.sendAppendEntryLocked([]*Entry{newEntry(EntryLeaderTransfer, []byte(successor))}, true); err != nil {
+		return false
+	}
+	n.setObserverLocked(true, extUndetermined)
+	n.stepdownLocked(noLeader)
+	return true
 }
 
 // checkFastPathLimits reports whether the proposal queue exceeds a fixed
