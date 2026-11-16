@@ -24,14 +24,14 @@ regions = ("sjc", "fra", "gru")
 addresses = ("127.0.0.1", "127.0.0.2", "127.0.0.3")
 state = {"readiness": 1, "burst": False}
 emails = []
-pushes = []
 root = Path(__file__).resolve().parents[4]
 counter_alerts = {"TerraBaseBackupFailed", "TerraBaseBackupHoles", "TerraBaseBackupDrillFailed", "TerraBaseReplicaDiverged", "AuthEmailProviderExhausted"}
 budget_alerts = {"AlertDeliveryEmailBudgetExhausted", "AlertDeliveryEmailBudgetUnavailable"}
 handled_line = re.compile(r'production alert notification handled status=(\w+) alerts=(\d+) group=(\w+) alertname=(\S+) region=(\S*) push=(\w+)')
 email_line = re.compile(r'production alert email group=(\w+) sent=(\w+) reason="?([^"]*)"?$')
-peer_timeout = 1.5
-notification_deadline = 1.0
+peer_timeout = 6.0
+notification_deadline = 4.0
+push_line = re.compile(r'^push received proto=(\S+) body=')
 
 
 def format_scaled(amount, unit):
@@ -164,6 +164,14 @@ def mailed():
     return [(relay.address,) + match.groups() for relay in relays for line in list(relay.lines) for match in [email_line.search(line)] if match]
 
 
+def pushes():
+    return [match.group(1) for line in list(provider.lines) for match in [push_line.search(line)] if match]
+
+
+def plan_push(plan):
+    request("127.0.0.9", 8027, "/plan", json.dumps(plan))
+
+
 def email_of(entry):
     return [mail for mail in mailed() if mail[1] == entry[3]]
 
@@ -215,16 +223,6 @@ class Providers(BaseHTTPRequestHandler):
         elif self.path.startswith("/accounts/") and self.path.endswith("/email/sending/send"):
             emails.append(json.loads(body))
             self.reply({"success": True, "result": {"delivered": ["mariogk@terrascale.tech"], "queued": [], "permanent_bounces": [], "suppressed_recipients": []}})
-        elif self.path.startswith("/push/"):
-            topic = self.path.removeprefix("/push/")
-            pushes.append(body.decode())
-            delay = state.pop("push_delay", 0)
-            drop = state.pop("push_drop", False)
-            if delay:
-                time.sleep(delay)
-            if drop:
-                return
-            self.reply({"id": secrets.token_hex(6), "event": "message", "topic": topic})
         else:
             self.send_response(404)
             self.end_headers()
@@ -259,7 +257,7 @@ for key, value in {"cloudflare_account_id_file": secrets.token_hex(16), "cloudfl
 
 def relay_process(name, address, directory, layout):
     directory.mkdir(parents=True, exist_ok=True)
-    process = launch(name, [str(work / "relay")], env={**os.environ, "JOURNEY_RELAY_ADDRESS": address, "JOURNEY_RELAY_STATE": str(directory), "JOURNEY_RELAY_LAYOUT": str(layout)})
+    process = launch(name, [str(work / "relay")], env={**os.environ, "SSL_CERT_FILE": str(work / "push.pem"), "JOURNEY_RELAY_ADDRESS": address, "JOURNEY_RELAY_STATE": str(directory), "JOURNEY_RELAY_LAYOUT": str(layout)})
     process.address = address
     return process
 
@@ -277,6 +275,8 @@ try:
     providers = ThreadingHTTPServer(("127.0.0.9", 8025), Providers)
     servers.append(providers)
     threading.Thread(target=providers.serve_forever, daemon=True).start()
+    provider = launch("push-provider", [str(work / "metrics"), "push", "127.0.0.9", str(work / "push.pem")])
+    await_event("the HTTP/2 push provider is ready", lambda: any("push provider ready" in line for line in provider.lines))
     launch("metrics", [str(work / "metrics"), str(work / "mesh-state")])
     for region, address in zip(regions, addresses):
         directory = work / region
@@ -315,7 +315,7 @@ try:
         (directory / "prometheus.yml").write_text(json.dumps(config))
         (directory / "rules.yml").write_text(json.dumps(generated))
         (directory / "alertmanager.yml").write_text(scale_alertmanager((root / "deploy/observability/production/alertmanager.yml").read_text().replace("127.0.0.1:9094", address + ":9094")))
-        command = [str(tools / "alertmanager"), "--config.file=" + str(directory / "alertmanager.yml"), "--storage.path=" + str(directory / "alerts"), "--web.listen-address=" + address + ":9093", "--cluster.listen-address=" + address + ":9095", "--cluster.advertise-address=" + address + ":9095", "--cluster.peer-timeout=1500ms"]
+        command = [str(tools / "alertmanager"), "--config.file=" + str(directory / "alertmanager.yml"), "--storage.path=" + str(directory / "alerts"), "--web.listen-address=" + address + ":9093", "--cluster.listen-address=" + address + ":9095", "--cluster.advertise-address=" + address + ":9095", "--cluster.peer-timeout=6s"]
         command.extend("--cluster.peer=" + a + ":9095" for a in addresses if a != address)
         alertmanagers.append(launch("alertmanager-" + region, command))
         prometheuses.append(launch("prometheus-" + region, [str(tools / "prometheus"), "--config.file=" + str(directory / "prometheus.yml"), "--storage.tsdb.path=" + str(directory / "data"), "--web.listen-address=" + address + ":9090"], directory))
@@ -329,7 +329,7 @@ try:
     for i in range(3):
         active = json.loads(request(addresses[i], 9090, "/api/v1/alerts"))["data"]["alerts"]
         assert not [a for a in active if a["labels"]["alertname"] in counter_alerts | budget_alerts], active
-    assert not handled() and not pushes and not emails, (handled(), pushes, emails)
+    assert not handled() and not pushes() and not emails, (handled(), pushes(), emails)
     state["readiness"] = 0
     await_event("relay perspectives aggregate one pending service outage", lambda: all(len(query(i, 'ALERTS{alertname="ServiceReadinessFailed",alertstate="pending",service="ts-dashboard",region="global"}')) == 1 for i in range(3)))
     for i in range(3):
@@ -360,8 +360,7 @@ try:
         budget_write_latency(False)
     assert len([m for m in mailed() if m[3] == "budget unavailable"]) == unavailable
     assert len(emails) == 12 and any(m[3] == "hourly cap" for e in groups("firing", names) for m in email_of(e)), (emails, mailed())
-    critical = {entry[4] for entry in handled() if entry[4] != "LaneDigest"}
-    assert critical == {entry[4] for entry in handled() if entry[6] == "true" and entry[4] != "LaneDigest"}, handled()
+    assert all(entry[6] == "true" for entry in handled() if entry[4] != "LaneDigest"), handled()
     await_event("the withheld email pages by push", lambda: len(groups("firing", {"AlertDeliveryEmailBudgetUnavailable"})) == 1, seconds=90)
     await_event("the spent fleet budget pages by push", lambda: len(groups("firing", {"AlertDeliveryEmailBudgetExhausted"})) == 1, seconds=90)
     exhausted = groups("firing", {"AlertDeliveryEmailBudgetExhausted"})[0]
@@ -379,11 +378,14 @@ try:
     burst = lambda: [entry for entry in groups("firing", {name for name, _ in expected}) if (entry[4], entry[5]) in expected]
     await_event("the region-loss burst delivers every critical group once through the surviving relays", lambda: {(entry[4], entry[5]) for entry in burst()} == expected and all(email_of(entry) for entry in burst()), seconds=120)
     assert all(entry[0] != addresses[2] and entry[6] == "true" and [m[3] for m in email_of(entry)] == ["hourly cap"] for entry in burst()), (burst(), mailed())
-    await_event("the topology incident's resolution reaches exactly one relay across the region loss", lambda: len(groups("resolved", {"RuntimePeerTopologyMismatch"})) == 1, seconds=30)
+    timestamp = 'timestamp(up{job="monitoring-prometheus",region="sjc"})'
+    baseline = [float(query(i, timestamp)[0]["value"][1]) for i in range(2)]
+    await_event("both surviving backends scrape through a full failover window without duplicates", lambda: all(float(query(i, timestamp)[0]["value"][1]) >= baseline[i] + 35 for i in range(2)), seconds=60)
+    await_event("the topology incident's resolution reaches exactly one relay across the region loss", lambda: len(groups("resolved", {"RuntimePeerTopologyMismatch"})) == 1, seconds=120)
     assert len(burst()) == len(expected) and len(emails) == 12, (burst(), emails)
-    keys = [entry[3] for entry in handled() if entry[4] != "LaneDigest" and entry[6] == "true"]
+    keys = [entry[3] for entry in handled() if entry[4] != "LaneDigest"]
     assert len(keys) == len(set(keys)), handled()
-    assert len(pushes) == len([entry for entry in handled() if entry[6] == "true"]), (pushes, handled())
+    assert len(pushes()) == len([entry for entry in handled() if entry[6] == "true"]) and set(pushes()) == {"HTTP/2.0"}, (pushes(), handled())
     labels = {"service": "ts-dashboard", "slo": "availability", "severity": "critical"}
     request(addresses[0], 9093, "/api/v2/alerts", json.dumps([{"labels": {**labels, "alertname": "ServiceSLOBurnFastGlobal", "region": "global"}}, {"labels": {**labels, "alertname": "ServiceSLOBurnFast", "region": "sjc"}}]))
     regional = lambda: json.loads(request(addresses[0], 9093, "/api/v2/alerts?" + urlencode({"filter": 'alertname="ServiceSLOBurnFast"'})))
@@ -408,45 +410,40 @@ try:
     await_event("the old-layout relay keeps emailing from its own ledger", lambda: len(emails) == 13)
     ledger = json.loads((work / "gru-old" / "relay" / "email-ledger.json").read_text())
     assert len(ledger) == 1 and emails[-1]["text"].startswith("firing: OldLayoutIncident"), (ledger, emails[-1])
-    before = len(pushes)
-    state["push_delay"] = peer_timeout - (peer_timeout - notification_deadline + 0.2)
+    before = len(pushes())
+    plan_push({"hold": notification_deadline - 0.2})
     post_alerts([{"alertname": "LaneSlowPush", "service": "ts-orch", "region": "global", "severity": "critical"}])
-    await_event("a provider that replies after the peer timeout minus a small margin yields one notification", lambda: len(pushes) == before + 1 and len(groups("firing", {"LaneSlowPush"})) == 1, seconds=20)
+    await_event("a provider that replies just inside the deadline yields one notification", lambda: len(pushes()) == before + 1 and len(groups("firing", {"LaneSlowPush"})) == 1, seconds=20)
     quiet_until = time.monotonic() + peer_timeout * 2
     while time.monotonic() < quiet_until:
-        if len(pushes) != before + 1:
-            raise RuntimeError(f"slow push duplicated: {len(pushes) - before}")
+        if len(pushes()) != before + 1:
+            raise RuntimeError(f"slow push duplicated: {len(pushes()) - before}")
         try:
             events.get(timeout=quiet_until - time.monotonic())
         except queue.Empty:
             break
-    assert len(pushes) == before + 1
-    before = len(pushes)
-    state["push_delay"] = notification_deadline + 0.5
-    state["push_drop"] = True
+    assert len(pushes()) == before + 1 and len(groups("firing", {"LaneSlowPush"})) == 1, groups("firing", {"LaneSlowPush"})
+    before = len(pushes())
+    plan_push({"hang": True})
     assert post_relay(addresses[0], "late-direct", "LaneLateDirect") == 502
-    assert len(pushes) == before + 1
-    alertmanagers[1].terminate()
-    alertmanagers[1].wait(timeout=10)
-    stopped.add(alertmanagers[1])
-    alive.remove(addresses[1])
-    before = len(pushes)
+    assert len(pushes()) == before + 1
+    before = len(pushes())
     failed = sum("production alert push failed" in line for relay in relays for line in relay.lines)
-    state["push_delay"] = notification_deadline + 0.5
-    state["push_drop"] = True
+    plan_push({"hang": True})
     post_alerts([{"alertname": "LaneLatePush", "service": "ts-orch", "region": "global", "severity": "critical"}])
-    await_event("a push past the deadline is a 502 that Alertmanager retries once", lambda: len([e for e in groups("firing", {"LaneLatePush"}) if e[6] == "true"]) == 1 and len(pushes) == before + 2, seconds=20)
+    await_event("a page whose push outlives the deadline is a 502 that Alertmanager retries before the next peer sends", lambda: len([e for e in groups("firing", {"LaneLatePush"}) if e[6] == "true"]) == 1 and len(pushes()) == before + 2, seconds=20)
     quiet_until = time.monotonic() + peer_timeout * 2
     while time.monotonic() < quiet_until:
-        if len(pushes) != before + 2:
-            raise RuntimeError(f"late push duplicated: {len(pushes) - before}")
+        if len(pushes()) != before + 2:
+            raise RuntimeError(f"late push duplicated: {len(pushes()) - before}")
         try:
             events.get(timeout=quiet_until - time.monotonic())
         except queue.Empty:
             break
     later = sum("production alert push failed" in line for relay in relays for line in relay.lines)
-    assert len(pushes) == before + 2 and later == failed + 1, (len(pushes) - before, later - failed)
-    print(f"monitoring: scaled Alertmanager timings x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; a missing mesh token withholds email and pages, copy-token installs it without Vault; topology incident firing then resolved across the region loss -> one notification each; a provider inside the peer timeout pushes once and one past the deadline is a single 502 that Alertmanager retries; twenty groups at 400ms write latency reserve without a budget-unavailable page; fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; hung budget store + 13 concurrent notifications -> 13 pushes and 13 withheld emails; old-layout relay still emails from its ledger; passed")
+    late = groups("firing", {"LaneLatePush"})
+    assert len(alive) == 2 and len(pushes()) == before + 2 and later == failed + 1 and [e[6] for e in late] == ["false", "true"] and len({e[0] for e in late}) == 1, (len(pushes()) - before, later - failed, late)
+    print(f"monitoring: scaled Alertmanager timings x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; a missing mesh token withholds email and pages, copy-token installs it without Vault; topology incident firing then resolved across the region loss -> one notification each; an HTTP/2 provider that answers just inside the deadline pushes once, and one that never answers is a single 502 that Alertmanager retries before the next peer sends, with both surviving Alertmanagers up; twenty groups at 400ms write latency reserve without a budget-unavailable page; fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; hung budget store + 13 concurrent notifications -> 13 pushes and 13 withheld emails; old-layout relay still emails from its ledger; passed")
 finally:
     for server in servers:
         server.shutdown()

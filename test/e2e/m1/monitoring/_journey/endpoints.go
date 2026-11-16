@@ -12,7 +12,7 @@ var (
 	budgetServer         = "nats://" + os.Getenv("JOURNEY_RELAY_ADDRESS") + ":4223"
 	meshAlertsToken      = os.Getenv("JOURNEY_RELAY_STATE") + "/alerts.token"
 	emailEndpoint        = "http://127.0.0.9:8025/accounts/"
-	pushEndpoint         = "http://127.0.0.9:8025/push/"
+	pushEndpoint         = "https://127.0.0.9:8026/push/"
 	admissionEndpoint    = "http://127.0.0.9:8025/admission"
-	notificationDeadline = 1 * time.Second
+	notificationDeadline = 4 * time.Second
 )

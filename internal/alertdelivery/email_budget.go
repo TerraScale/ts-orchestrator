@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,122 +41,11 @@ const (
 	budgetUnavailable
 )
 
-var errPushInFlight = errors.New("push in flight")
-var errSaveUncertain = errors.New("reservation save uncertain")
-
 type emailBudget struct {
 	withheld    [2]atomic.Uint64
+	unconfirmed atomic.Uint64
 	mu          sync.Mutex
-	sched       sync.Mutex
-	idle        *sync.Cond
-	inflight    int
-	live        net.Conn
-	cancelDial  context.CancelFunc
-	interrupted bool
 	shared      *sharedStore
-}
-
-func newEmailBudget() *emailBudget {
-	b := &emailBudget{}
-	b.idle = sync.NewCond(&b.sched)
-	return b
-}
-
-func (b *emailBudget) beginPush() {
-	b.sched.Lock()
-	b.inflight++
-	cancel := b.cancelDial
-	conn := b.live
-	b.cancelDial = nil
-	b.live = nil
-	if cancel != nil || conn != nil {
-		b.interrupted = true
-	}
-	b.sched.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	if conn != nil {
-		go func() { _ = conn.Close() }()
-	}
-}
-
-func (b *emailBudget) endPush() {
-	b.sched.Lock()
-	b.inflight--
-	if b.inflight == 0 {
-		b.idle.Broadcast()
-	}
-	b.sched.Unlock()
-}
-
-func (b *emailBudget) waitIdle(ctx context.Context) error {
-	stop := context.AfterFunc(ctx, func() {
-		b.sched.Lock()
-		b.idle.Broadcast()
-		b.sched.Unlock()
-	})
-	defer stop()
-	b.sched.Lock()
-	defer b.sched.Unlock()
-	for b.inflight > 0 {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		b.idle.Wait()
-	}
-	return nil
-}
-
-func (b *emailBudget) consumeInterrupt() bool {
-	b.sched.Lock()
-	defer b.sched.Unlock()
-	hit := b.interrupted
-	b.interrupted = false
-	return hit
-}
-
-type budgetDialer struct {
-	budget *emailBudget
-	raw    net.Conn
-}
-
-func (d *budgetDialer) Dial(network, address string) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), budgetDial)
-	d.budget.sched.Lock()
-	if d.budget.inflight > 0 {
-		d.budget.interrupted = true
-		d.budget.sched.Unlock()
-		cancel()
-		return nil, errPushInFlight
-	}
-	d.budget.cancelDial = cancel
-	d.budget.sched.Unlock()
-	raw, err := (&net.Dialer{}).DialContext(ctx, network, address)
-	d.budget.sched.Lock()
-	pushed := d.budget.inflight > 0
-	if d.budget.cancelDial != nil {
-		d.budget.cancelDial = nil
-	}
-	if err != nil || pushed {
-		if pushed {
-			d.budget.interrupted = true
-		}
-		d.budget.sched.Unlock()
-		cancel()
-		if raw != nil {
-			_ = raw.Close()
-		}
-		if err == nil {
-			err = errPushInFlight
-		}
-		return nil, err
-	}
-	d.raw = raw
-	d.budget.live = raw
-	d.budget.sched.Unlock()
-	cancel()
-	return raw, nil
 }
 
 type emailReservation struct {
@@ -166,17 +54,6 @@ type emailReservation struct {
 	SendBy time.Time `json:"send_by"`
 	Until  time.Time `json:"until"`
 }
-
-func newReservationID() string {
-	var buf [8]byte
-	_, _ = rand.Read(buf[:])
-	n := reservationSeq.Add(1)
-	buf[0] ^= byte(n)
-	buf[1] ^= byte(n >> 8)
-	return hex.EncodeToString(buf[:])
-}
-
-var reservationSeq atomic.Uint64
 
 func (n notification) emailKey() string {
 	identity := n.GroupKey
@@ -202,35 +79,21 @@ func (b *emailBudget) write(w io.Writer) {
 	fmt.Fprintln(w, "# TYPE terrascale_alert_delivery_email_withheld_total counter")
 	fmt.Fprintf(w, "terrascale_alert_delivery_email_withheld_total{reason=\"budget_exhausted\"} %d\n", b.withheld[budgetExhausted].Load())
 	fmt.Fprintf(w, "terrascale_alert_delivery_email_withheld_total{reason=\"budget_unavailable\"} %d\n", b.withheld[budgetUnavailable].Load())
+	fmt.Fprintln(w, "# HELP terrascale_alert_delivery_email_unconfirmed_total Alert emails sent although the fleet-wide email budget could not confirm their reservation.")
+	fmt.Fprintln(w, "# TYPE terrascale_alert_delivery_email_unconfirmed_total counter")
+	fmt.Fprintf(w, "terrascale_alert_delivery_email_unconfirmed_total %d\n", b.unconfirmed.Load())
 }
 
 func (b *emailBudget) reserve(ctx context.Context, key string, window time.Duration) (string, error) {
-	id := newReservationID()
-	var reason string
-	var err error
-	uncertain := false
-	for {
-		if err = b.waitIdle(ctx); err != nil {
-			break
-		}
-		b.mu.Lock()
-		reason, err = b.reserveEmail(ctx, key, window, id)
-		b.mu.Unlock()
-		interrupted := b.consumeInterrupt()
-		switch {
-		case err == nil:
-		case errors.Is(err, errSaveUncertain) && !uncertain && ctx.Err() == nil:
-			uncertain = true
-			continue
-		case ctx.Err() == nil && (errors.Is(err, errPushInFlight) || interrupted):
-			continue
-		}
-		break
-	}
+	b.mu.Lock()
+	reason, confirmed, err := b.reserveEmail(ctx, key, window)
+	b.mu.Unlock()
 	switch {
 	case err != nil:
 		b.withheld[budgetUnavailable].Add(1)
 		return "budget unavailable", err
+	case !confirmed:
+		b.unconfirmed.Add(1)
 	case reason == "hourly cap" || reason == "daily cap":
 		b.withheld[budgetExhausted].Add(1)
 	}
@@ -264,37 +127,29 @@ func (b *emailBudget) openStore(ctx context.Context) (reservationStore, error) {
 	return shared, nil
 }
 
-func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.Duration, id string) (string, error) {
-	defer b.clearLive()
+func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.Duration) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	store, err := b.openStore(ctx)
 	if err != nil {
-		return "", err
-	}
-	if shared, ok := store.(*sharedStore); ok {
-		if err := b.track(shared.raw); err != nil {
-			return "", err
-		}
+		return "", true, err
 	}
 	defer store.close()
+	id := rand.Text()
 	for {
 		call, stop := context.WithTimeout(ctx, budgetDial)
 		reservations, revision, err := store.load(call)
 		stop()
 		if err != nil {
 			b.dropShared(store)
-			return "", err
+			return "", true, err
 		}
 		now := time.Now()
 		reservations = slices.DeleteFunc(reservations, func(v emailReservation) bool { return !v.Until.After(now) && !v.SendBy.Add(24*time.Hour).After(now) })
 		hourly, daily := 0, 0
 		for _, entry := range reservations {
 			if entry.Key == key && entry.Until.After(now) {
-				if entry.ID == id {
-					return "", nil
-				}
-				return "duplicate", nil
+				return "duplicate", true, nil
 			}
 			if entry.SendBy.Add(24 * time.Hour).After(now) {
 				daily++
@@ -304,47 +159,40 @@ func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.
 			}
 		}
 		if hourly >= fleetHourlyEmails {
-			return "hourly cap", nil
+			return "hourly cap", true, nil
 		}
 		if daily >= fleetDailyEmails {
-			return "daily cap", nil
+			return "daily cap", true, nil
 		}
 		sendBy := now.Add(50 * time.Second)
 		data, err := json.Marshal(append(reservations, emailReservation{ID: id, Key: key, SendBy: sendBy, Until: sendBy.Add(window)}))
 		if err != nil {
-			return "", err
+			return "", true, err
 		}
 		call, stop = context.WithTimeout(ctx, budgetDial)
 		conflict, err := store.save(call, data, revision)
 		stop()
 		if err != nil {
+			confirmed := committed(ctx, store, id)
 			b.dropShared(store)
-			if ctx.Err() == nil {
-				return "", errSaveUncertain
-			}
-			return "", err
+			return "", confirmed, nil
 		}
 		if !conflict {
-			return "", nil
+			return "", true, nil
 		}
 	}
+}
+
+func committed(ctx context.Context, store reservationStore, id string) bool {
+	call, stop := context.WithTimeout(ctx, budgetDial)
+	defer stop()
+	reservations, _, err := store.load(call)
+	return err == nil && slices.ContainsFunc(reservations, func(entry emailReservation) bool { return entry.ID == id })
 }
 
 type sharedStore struct {
 	conn   *nats.Conn
-	raw    net.Conn
 	bucket jetstream.KeyValue
-}
-
-func (b *emailBudget) track(conn net.Conn) error {
-	b.sched.Lock()
-	defer b.sched.Unlock()
-	if b.inflight > 0 {
-		b.interrupted = true
-		return errPushInFlight
-	}
-	b.live = conn
-	return nil
 }
 
 func (b *emailBudget) openShared(ctx context.Context) (*sharedStore, error) {
@@ -352,8 +200,7 @@ func (b *emailBudget) openShared(ctx context.Context) (*sharedStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	dialer := &budgetDialer{budget: b}
-	conn, err := nats.Connect(budgetServer, nats.UserInfo(mesh.AlertsUser, strings.TrimSpace(values["TS_ALERTS_NATS_TOKEN_FILE"])), nats.Name("ts-alerts"), nats.Timeout(budgetDial), nats.NoReconnect(), nats.SetCustomDialer(dialer))
+	conn, err := nats.Connect(budgetServer, nats.UserInfo(mesh.AlertsUser, strings.TrimSpace(values["TS_ALERTS_NATS_TOKEN_FILE"])), nats.Name("ts-alerts"), nats.Timeout(budgetDial), nats.NoReconnect())
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +217,7 @@ func (b *emailBudget) openShared(ctx context.Context) (*sharedStore, error) {
 		conn.Close()
 		return nil, err
 	}
-	return &sharedStore{conn, dialer.raw, bucket}, nil
+	return &sharedStore{conn, bucket}, nil
 }
 
 func (s *sharedStore) load(ctx context.Context) ([]emailReservation, uint64, error) {
@@ -395,12 +242,6 @@ func (s *sharedStore) save(ctx context.Context, data []byte, revision uint64) (b
 }
 
 func (s *sharedStore) close() {}
-
-func (b *emailBudget) clearLive() {
-	b.sched.Lock()
-	b.live = nil
-	b.sched.Unlock()
-}
 
 func (b *emailBudget) dropShared(store reservationStore) {
 	shared, ok := store.(*sharedStore)
