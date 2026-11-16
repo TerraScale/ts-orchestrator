@@ -130,6 +130,45 @@ func meshRoutes(ctx context.Context, fleet *oraclehost.Fleet) {
 	}
 }
 
+func regionRouteFirewall(ctx context.Context, manager *oraclehost.Host, action string) {
+	for _, worker := range manager.Region.Hosts[1:] {
+		for _, direction := range []struct{ chain, address string }{{"INPUT", "-s"}, {"OUTPUT", "-d"}} {
+			output, err := exec.CommandContext(ctx, "ip", "netns", "exec", manager.Namespace, "iptables", action, direction.chain,
+				direction.address, worker.Address, "-p", "tcp", "--dport", "6222", "-j", "REJECT").CombinedOutput()
+			require(err == nil, "%s region route firewall: %v: %s", manager.Name, err, output)
+		}
+	}
+}
+
+func awaitIsolatedRoutes(ctx context.Context, region *oraclehost.Region) {
+	for _, worker := range region.Hosts[1:] {
+		until(ctx, worker.Name+" regional route rounds without its manager", func() error {
+			text, err := metrics(ctx, worker)
+			if err != nil {
+				return err
+			}
+			for _, line := range strings.Split(text, "\n") {
+				if value, ok := strings.CutPrefix(line, "ts_orch_mesh_region_routes_rounds_total "); ok {
+					rounds, err := strconv.Atoi(value)
+					if err == nil && rounds >= 5 {
+						return nil
+					}
+				}
+			}
+			return errors.New("regional route discovery has not completed five rounds")
+		})
+	}
+	for _, worker := range region.Hosts[1:] {
+		peers, err := worker.Established(ctx, 6222)
+		must(err)
+		for _, peer := range region.Hosts {
+			if peer != worker {
+				require(!slices.Contains(peers, peer.NetBird), "%s used NetBird to reach %s before its regional manager: %v", worker.Name, peer.Name, peers)
+			}
+		}
+	}
+}
+
 func meshToken(host *oraclehost.Host, name string) string {
 	data, err := os.ReadFile(host.State("mesh/" + name))
 	must(err)
@@ -546,12 +585,16 @@ func main() {
 		require(!strings.Contains(strings.Join(stale.Routes, " "), "//"+worker.Address+":"), "%s pinned join material lists %s: %v", gru.Name, worker.Name, stale.Routes)
 	}
 	step("%s join material pinned at a version that lists neither %s nor %s: %v", gru.Name, gru.Hosts[1].Name, gru.Hosts[2].Name, stale.Routes)
+	regionRouteFirewall(ctx, gru.Hosts[0], "-I")
 	must(fleet.Boot(workers...))
 	for _, worker := range workers {
 		_, err := worker.WaitReady(ctx, 0, first)
 		must(err)
 	}
 	step("workers joined from Vault join material and sent READY=1")
+	awaitIsolatedRoutes(ctx, gru)
+	step("%s workers completed five discovery rounds without their manager's route port and never dialed an in-region NetBird route", gru.Name)
+	regionRouteFirewall(ctx, gru.Hosts[0], "-D")
 	meshUp(ctx, fleet)
 	delivered(ctx, fleet, gru.Hosts[1], gru.Hosts[2])
 	delivered(ctx, fleet, gru.Hosts[2], gru.Hosts[1])
