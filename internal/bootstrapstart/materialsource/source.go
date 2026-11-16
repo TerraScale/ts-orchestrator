@@ -13,8 +13,6 @@ import (
 
 var ErrMaterialSource = errors.New("regional bootstrap source unavailable or conflicts with authorized installation")
 
-// ColdStartMaterial retains the one CAS revision authorizing source escrow and
-// host publication. Only the founder-only Vault contains the signing source.
 type ColdStartMaterial struct {
 	grant                     region.VerifiedBootstrapMaterial
 	actor                     *region.SourceFounder
@@ -33,8 +31,6 @@ type EscrowClient interface {
 	GetSecretBundleByName(context.Context, ocisecrets.GetSecretBundleByNameRequest) (ocisecrets.GetSecretBundleByNameResponse, error)
 }
 
-// VerifiedColdStartMaterial exposes only source-verified rendering inputs.
-// Host identity, role, artifacts, regional Vault ownership and admission remain the installer's checks.
 type VerifiedColdStartMaterial struct {
 	source      *ColdStartMaterial
 	etag        string

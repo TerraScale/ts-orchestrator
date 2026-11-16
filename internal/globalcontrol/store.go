@@ -53,37 +53,14 @@ type Reader struct {
 	mirror bool
 }
 
-// EpochHeader carries the global authority epoch of every record the writer
-// appends, term barriers included. It must equal the epoch in the record
-// body; a reader treats a mismatch as corruption.
 const EpochHeader = "Ts-Global-Epoch"
 
-// Writer appends global records in the home region.
-//
-// Fencing is enforced by the server, not only by the pre-publish lease
-// Guard: the global stream and the authority lease live in different streams,
-// so a Guard alone cannot order a write against a newer term. The writer
-// therefore keeps a term barrier inside TS_GLOBAL_CONTROL itself
-// (ts.global.v1.term.current). A writer whose lease epoch is newer than the
-// stored term first appends a barrier for its epoch (per-subject CAS on the
-// term subject, and only right after a successful lease Guard), and every
-// record append is a whole-stream compare-and-set on the last sequence at
-// which the writer saw its own epoch as the current term, plus the
-// per-subject CAS on the record. Once a new leader appends its barrier, every
-// in-flight append of an older leader fails with a wrong-last-sequence error,
-// and its retry observes the newer term and returns authority.ErrFenced. An
-// old leader that commits before the new barrier is ordered before the new
-// term, which reads every record after its own barrier.
 type Writer struct {
 	Reader
-	home   string
-	fencer authority.Fencer
-	// replicas is the replica count OpenHome verified; every append
-	// re-verifies the stream against it, so later drift is detected.
-	replicas int
-	mu       sync.Mutex
-	// beforePublish runs between the fenced reads and the conditional
-	// append; tests use it to interleave a new term.
+	home          string
+	fencer        authority.Fencer
+	replicas      int
+	mu            sync.Mutex
 	beforePublish func()
 }
 
@@ -152,7 +129,6 @@ func epochHeaderMatches(header nats.Header, epoch uint64) bool {
 	return header.Get(EpochHeader) == strconv.FormatUint(epoch, 10)
 }
 
-// info is the stream's current info, read without touching r.stream.
 func (r *Reader) info(ctx context.Context) (*jetstream.StreamInfo, error) {
 	stream, err := r.js.Stream(ctx, r.stream.CachedInfo().Config.Name)
 	if err != nil {

@@ -188,15 +188,12 @@ func ValidateSystemCredentials(data []byte, cell, cellAccount, systemAccount str
 }
 
 type accountResolver struct {
-	mu     sync.RWMutex
-	system string
-	cell   string
-	claims map[string]string
-	// contract, when set, binds every cell claim replacement to the
-	// interregion subject contract and the cell leafnode prohibition.
+	mu          sync.RWMutex
+	system      string
+	cell        string
+	claims      map[string]string
 	contract    *InterRegionContract
 	interregion string
 	links       int
-	// linkCell pins the simplified link boundary across cell claim updates.
-	linkCell string
+	linkCell    string
 }

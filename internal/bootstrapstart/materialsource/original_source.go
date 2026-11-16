@@ -8,8 +8,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
 
-// VerifiedOriginalSourceArchive proves only the original archive selection.
-// It is never a normal founder, startup template, installation or publication.
 type VerifiedOriginalSourceArchive struct {
 	actor           region.VerifiedOriginalSourceActor
 	inputs          originalSourceInputs
