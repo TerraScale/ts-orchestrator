@@ -96,7 +96,7 @@ func observationJourney(cfg configuration) error {
 		}
 	}
 	for _, node := range []string{"a", "b"} {
-		cmd := exec.Command("ip", "netns", "exec", "cert-"+node, cfg.Binary, "edge", "certificates", "inventory", "local")
+		cmd := exec.Command("ip", "netns", "exec", "cert-"+node, cfg.Binary, "edge", "certificates", "inventory")
 		data, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("inventory CLI %s: %v output=%s", node, err, data)
