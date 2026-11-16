@@ -30,6 +30,7 @@ import (
 	"syscall"
 	"time"
 
+	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
@@ -84,7 +85,7 @@ func run() error {
 		if err := syscall.Mount(cfg.Work+"/sys-"+os.Args[5], "/sys", "", syscall.MS_BIND, ""); err != nil {
 			return err
 		}
-		return syscall.Exec(os.Args[3], []string{os.Args[3], "single-host", "--state", cfg.Work + "/" + os.Args[4]}, os.Environ())
+		return syscall.Exec(os.Args[3], []string{os.Args[3], os.Args[6], "--state", cfg.Work + "/" + os.Args[4]}, os.Environ())
 	case "authority":
 		return authorityMain(ctx, cfg)
 	case "store":
@@ -293,7 +294,7 @@ func namespace(cfg configuration, node, address string) error {
 }
 
 func route(ctx context.Context, cfg configuration, node, service string, names []string) error {
-	client, conn, err := swarmruntime.DialSingleHost(cfg.Work + "/" + node)
+	client, conn, err := swarmruntime.DialControl(cfg.Work + "/" + node)
 	if err != nil {
 		return err
 	}
@@ -313,7 +314,7 @@ func route(ctx context.Context, cfg configuration, node, service string, names [
 }
 
 func removeRoute(ctx context.Context, cfg configuration, node, name string) error {
-	client, conn, err := swarmruntime.DialSingleHost(cfg.Work + "/" + node)
+	client, conn, err := swarmruntime.DialControl(cfg.Work + "/" + node)
 	if err != nil {
 		return err
 	}
@@ -541,7 +542,11 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 	}
 	env := []string{"JOURNAL_STREAM=", "HTTPS_PROXY=http://10.77.0.1:8089", "GOMAXPROCS=2", "NO_PROXY=169.254.169.254,127.0.0.1,10.77.0.0/24,acme-v02.api.letsencrypt.org", "SSL_CERT_FILE=" + cfg.Work + "/ca.pem"}
 	startNode := func(node, binary, log, platform string) (*process, error) {
-		p, err := launch(ctx, cfg.Work+"/"+log, env, "ip", "netns", "exec", "cert-"+node, "unshare", "--uts", self, "node", os.Args[2], binary, node, platform)
+		command, err := runtimeCommand(cfg, binary)
+		if err != nil {
+			return nil, err
+		}
+		p, err := launch(ctx, cfg.Work+"/"+log, env, "ip", "netns", "exec", "cert-"+node, "unshare", "--uts", self, "node", os.Args[2], binary, node, platform, command)
 		if err != nil {
 			return nil, err
 		}
@@ -841,4 +846,22 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 		}
 	}
 	return rollbackJourney(ctx, cfg, current, store, startNode)
+}
+
+func runtimeCommand(cfg configuration, binary string) (string, error) {
+	unit, err := m1.Files.ReadFile("ts-orch.service")
+	if binary == cfg.MainBinary {
+		unit, err = os.ReadFile(cfg.Work + "/main/deploy/m1/ts-orch.service")
+	}
+	if err != nil {
+		return "", err
+	}
+	for line := range strings.SplitSeq(string(unit), "\n") {
+		if start, ok := strings.CutPrefix(line, "ExecStart="); ok {
+			if fields := strings.Fields(start); len(fields) > 1 {
+				return fields[1], nil
+			}
+		}
+	}
+	return "", fmt.Errorf("%s has no ExecStart command", binary)
 }

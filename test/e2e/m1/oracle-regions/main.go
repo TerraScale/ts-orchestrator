@@ -580,7 +580,7 @@ func main() {
 		must(err)
 		var material regionjoin.Material
 		must(json.Unmarshal([]byte(value), &material))
-		require(material.Founder == region.Hosts[0].Name && material.Manager == region.Hosts[0].Address+":4242", "%s join material names founder %s at %s", region.Name, material.Founder, material.Manager)
+		require(material.Founder == region.Hosts[0].Name && slices.Contains(material.Managers, region.Hosts[0].Address+":4242"), "%s join material names founder %s with managers %v", region.Name, material.Founder, material.Managers)
 	}
 	step("each founder claimed and published its region's join material in Vault")
 	var stale regionjoin.Material
@@ -741,7 +741,7 @@ func main() {
 	}
 	require(dialed.Load() == 0, "a host dialed the forged member %s %d times", oraclehost.GatewayAddress, dialed.Load())
 	step("%s left and was replaced by %s at %s: every %s host routes to it over the VCN and no longer configures %s", departed.Name, replacement.Name, replacement.Address, gru.Name, departed.Address)
-	step("single-host-region lane passed in %s", time.Since(started).Round(time.Second))
+	step("oracle-regions lane passed in %s", time.Since(started).Round(time.Second))
 }
 
 func peerCredentialService(whoami map[string]any) map[string]any {

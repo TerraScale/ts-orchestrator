@@ -54,7 +54,7 @@ end "pinned packages: cache hit $cache_hit (a miss leaves the downloads to insta
 
 begin "install.sh (containerd 2.4.2, runc, NetBird client, ts-orch)"
 sudo install -d -o 65532 -g 65532 -m 0755 /var/lib/ts-data "$data"
-"$repo/deploy/m1/install.sh" ts-e2e https://localhost:8443/terrascale-orchestrator-linux-arm64 \
+"${2:-$repo/deploy/m1}/install.sh" ts-e2e https://localhost:8443/terrascale-orchestrator-linux-arm64 \
 	"$(sha256sum "$bin" | cut -d' ' -f1)"
 /usr/local/bin/containerd --version | grep -q ' v2.4.2 '
 end "install -> ts-orch active (cache hit $cache_hit)"

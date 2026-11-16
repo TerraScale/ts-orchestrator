@@ -26,7 +26,7 @@ const serverUsage = `Usage: ts-orch netbird server --vault-id OCID --key-id OCID
 
 On every M1 host, as root, with the instance principal, keep the pinned NetBird
 client installed, running and enrolled with the servers' setup key. On the host
-whose single-host node declares the netbird-server service, also create the
+whose node declares the netbird-server service, also create the
 server's generated secrets in Vault once, write DIR/config.yaml (mode 0600, owned by the
 container user) for the netbird-server service, wait for it on ` + ServerURL + `, claim the owner and
 keep the admin PAT and setup keys in Vault, then re-sync GRU() every 10 minutes.
@@ -115,8 +115,6 @@ func serveOnce(ctx context.Context, vault ServerVault, dir string) error {
 	return enrollHost(ctx, vault)
 }
 
-// admissionFile is the single-host node's stored SwarmKit admission
-// (swarmruntime.StoredAdmission; manager cannot import swarmruntime).
 const admissionFile = "/var/lib/ts-orch/swarm/admission.json"
 
 // regionWorker reports whether this host joined its region's cluster as a
@@ -130,8 +128,6 @@ func regionWorker(path string) bool {
 	return json.Unmarshal(data, &admission) == nil && admission.HostID != "" && admission.HostID != admission.FounderID
 }
 
-// runsServer reports whether this host's single-host node declares the
-// netbird-server service (deploy/m1/services/netbird-server.json).
 func runsServer(ctx context.Context) (bool, error) {
 	self, err := os.Executable()
 	if err != nil {
@@ -246,8 +242,6 @@ func enrollHost(ctx context.Context, vault ServerVault) error {
 	return nil
 }
 
-// containerUser is the uid:gid every single-host service runs as
-// (swarmruntime.ServiceSpec).
 const containerUser = 65532
 
 // writePrivate replaces dir/name atomically with a 0600 file of the container

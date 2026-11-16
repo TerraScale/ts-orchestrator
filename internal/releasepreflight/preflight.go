@@ -7,7 +7,10 @@ import (
 )
 
 func Run(ctx context.Context) error {
-	return vaultsecret.CheckServiceSecrets(ctx)
+	if err := vaultsecret.CheckServiceSecrets(ctx); err != nil {
+		return err
+	}
+	return pairUnit(ctx)
 }
 
 func Secrets(ctx context.Context) error {

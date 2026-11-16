@@ -1,20 +1,14 @@
 package protocol
 
-// Mesh subjects cross every region's gateway on the single-host mesh
-// (internal/natscell/mesh). Each is a request that collects one reply per region.
 const (
 	// MeshApplySubject merges one service desired-state entry and reconciles it.
 	MeshApplySubject = "ts.svc.apply"
 	// MeshStateSubject returns a region's whole desired-state map for anti-entropy.
 	MeshStateSubject = "ts.svc.state"
 	// MeshPingSubject answers with the region and server name.
-	MeshPingSubject = "ts.mesh.ping"
-	// MeshWorkerReleasePrefix + region carries a founder's accepted ts-orch
-	// release request to its region's workers, which CI never reaches.
+	MeshPingSubject         = "ts.mesh.ping"
 	MeshWorkerReleasePrefix = "ts.mesh.release."
-	// MeshWorkerPrefix + region carries each worker's announcement (its node
-	// name and NetBird address) to its region's founder.
-	MeshWorkerPrefix = "ts.mesh.worker."
+	MeshWorkerPrefix        = "ts.mesh.worker."
 	// MeshDrainPrefix + region asks its ingress to drain a TerraBase task.
 	MeshDrainPrefix = "ts.mesh.drain."
 	// MeshHealthSubject answers with the region's host and SwarmKit health

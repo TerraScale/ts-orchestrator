@@ -225,7 +225,6 @@ func loadSecret(ctx context.Context, secretName, description string) ([]byte, er
 	return secret, nil
 }
 
-// swarmApplier drives the single-host SwarmKit node in state.
 type swarmApplier struct {
 	state    string
 	region   string
@@ -237,7 +236,7 @@ func (a swarmApplier) control() (api.ControlClient, func(), error) {
 	if a.client != nil {
 		return a.client, func() {}, nil
 	}
-	client, conn, err := swarmruntime.DialSingleHost(a.state)
+	client, conn, err := swarmruntime.DialControl(a.state)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -328,7 +327,6 @@ func (a swarmApplier) PrePull(ctx context.Context, spec swarmruntime.ServiceSpec
 		return err
 	}
 	defer executor.Close()
-	// The same pull authority `ts-orch single-host` installs for its tasks.
 	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(vaultsecret.ReadGHCRPullToken)); err != nil {
 		return err
 	}

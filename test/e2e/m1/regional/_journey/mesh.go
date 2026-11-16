@@ -157,12 +157,12 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 		return err
 	}
 	defer executor.Close()
-	manager, err := swarmruntime.StartSingleHost(ctx, managerState, executor, "127.0.0.1:4242", "127.0.0.1:4242", swarmruntime.FounderAdmission())
+	manager, err := swarmruntime.StartHost(ctx, managerState, executor, "127.0.0.1:4242", "127.0.0.1:4242", swarmruntime.FoundingAdmission("manager", "manager"))
 	if err != nil {
 		return err
 	}
 	defer manager.Stop(context.Background())
-	control, conn, err := swarmruntime.DialSingleHost(managerState)
+	control, conn, err := swarmruntime.DialControl(managerState)
 	if err != nil {
 		return err
 	}
@@ -181,8 +181,11 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 		return err
 	}
 	defer workerExecutor.Close()
-	worker, err := swarmruntime.StartSingleHost(ctx, workerState, workerExecutor, "127.0.0.1:0", "127.0.0.1:0",
-		swarmruntime.JoinerAdmission("regional-worker", "regional-worker", address, clusters.Clusters[0].RootCA.JoinTokens.Worker))
+	joining, err := swarmruntime.JoiningAdmission("regional-worker", "regional-worker", address, clusters.Clusters[0].RootCA.JoinTokens.Worker)
+	if err != nil {
+		return err
+	}
+	worker, err := swarmruntime.StartHost(ctx, workerState, workerExecutor, "127.0.0.1:0", "127.0.0.1:0", joining)
 	if err != nil {
 		return err
 	}

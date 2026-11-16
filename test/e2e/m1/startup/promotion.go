@@ -18,7 +18,7 @@ import (
 func promotionJourney(ctx context.Context, state string, manager *swarmruntime.Node) error {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	client, conn, err := swarmruntime.DialSingleHost(filepath.Join(state, "manager"))
+	client, conn, err := swarmruntime.DialControl(filepath.Join(state, "manager"))
 	if err != nil {
 		return err
 	}
@@ -34,7 +34,7 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	command := func(args ...string) ([]byte, error) {
 		return exec.CommandContext(ctx, os.Args[3], append([]string{"member"}, args...)...).CombinedOutput()
 	}
-	if output, err := command("leave", "single-host"); err == nil || !strings.Contains(string(output), "cannot remove") {
+	if output, err := command("leave", "manager"); err == nil || !strings.Contains(string(output), "cannot remove") {
 		return fmt.Errorf("last manager removal was not refused: %s: %v", output, err)
 	}
 	clusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
@@ -55,8 +55,11 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 		}
 		defer executor.Close()
 		address := fmt.Sprintf("127.0.0.1:%d", 4243+i)
-		worker, err := swarmruntime.StartSingleHost(ctx, workerState, executor, address, address,
-			swarmruntime.JoinerAdmission(fmt.Sprintf("worker-%d", i), fmt.Sprintf("instance-%d", i), "127.0.0.1:4242", clusters.Clusters[0].RootCA.JoinTokens.Worker))
+		joining, err := swarmruntime.JoiningAdmission(fmt.Sprintf("worker-%d", i), fmt.Sprintf("instance-%d", i), "127.0.0.1:4242", clusters.Clusters[0].RootCA.JoinTokens.Worker)
+		if err != nil {
+			return err
+		}
+		worker, err := swarmruntime.StartHost(ctx, workerState, executor, address, address, joining)
 		if err != nil {
 			return err
 		}
@@ -64,8 +67,7 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 		if err := awaitPromotionReady(ctx, client, watcher, len(workers)+1, 1); err != nil {
 			return err
 		}
-		admission := swarmruntime.JoinerAdmission(fmt.Sprintf("worker-%d", i), fmt.Sprintf("instance-%d", i), "", "")
-		admission.Region = "sa-saopaulo-1"
+		admission := swarmruntime.Admission{Region: "sa-saopaulo-1", HostID: fmt.Sprintf("worker-%d", i), InstanceID: fmt.Sprintf("instance-%d", i), FounderID: joining.FounderID, Role: "container"}
 		if _, err := swarmruntime.AdmitNode(ctx, client, worker.ID(), admission); err != nil {
 			return err
 		}

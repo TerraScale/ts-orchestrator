@@ -67,7 +67,7 @@ StartLimitIntervalSec=0
 [Service]
 Type=notify
 NotifyAccess=all
-ExecStart=/usr/local/bin/terrascale-orchestrator single-host
+ExecStart=/usr/local/bin/terrascale-orchestrator node
 TimeoutStartSec=30s
 TimeoutStopSec=5s
 UNIT

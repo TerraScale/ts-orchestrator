@@ -35,7 +35,6 @@ const logSegmentBytes = 1 << 20
 // snapshot copies the whole rootfs per layer and per container.
 const imageSnapshotter = "overlayfs"
 
-// HostContainerdSocket is the host containerd a single host executes on.
 const HostContainerdSocket = "/run/containerd/containerd.sock"
 
 // Executor translates upstream SwarmKit tasks directly into containerd objects.
@@ -225,9 +224,6 @@ func (e *Executor) PrePull(ctx context.Context, imageRef string, labels map[stri
 	if registry == nil {
 		registry = publicRegistryResolver
 	}
-	// Registry authority is per task; a pre-pull presents only the image. A
-	// per-image resolver (single-host GHCR) answers it, a task-admitting one
-	// refuses it and the task pulls in Prepare instead.
 	runtime, err := ContainerRuntime(&api.ContainerSpec{Image: imageRef, User: "65532:65532"})
 	if err != nil {
 		return err

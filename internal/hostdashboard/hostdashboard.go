@@ -1,8 +1,3 @@
-// Package hostdashboard serves a single-host region's operator dashboard on
-// the host's NetBird address (wt0) at TCP 9463, behind the region's token in
-// gru-vault, which the first host to need it creates. Nothing turns it on:
-// every region host serves it. The pages read this host's snapshot and every
-// region's health over the cross-region mesh; they never change state.
 package hostdashboard
 
 import (

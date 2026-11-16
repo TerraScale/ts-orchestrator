@@ -11,7 +11,7 @@ Runtime input removal and automatic Vault delivery remain TS-796; read-only
 verification and explicit destructive-operation safeguards still apply.
 
 TerraScale Orchestrator ships one Go executable. It has one runtime,
-`single-host`, which every production node runs from `deploy/m1/ts-orch.service`;
+`node`, which every production node runs from `deploy/m1/ts-orch.service`;
 every other command is operator or CI tooling. `make build` writes
 `dist/ts-orch`. Published Linux artifacts and the installed binary keep the
 `terrascale-orchestrator` name.
@@ -75,7 +75,7 @@ merge; see [platform design](platform.md#releases).
 | `ts-orch release digests --out F [--regions F]` | CI only (app digests): record every mesh service's desired image to a file |
 | `ts-orch release mesh-check [--spec F] [--regions F]` | CI only: re-prove mesh ping, `service apply` and HTTPS in every region after a fleet push |
 | `ts-orch release verify-provenance --image REF@SHA256 --workflow OWNER/REPO/.github/workflows/W.yml@refs/heads/main --revision SHA` | Operators: verify the image's Sigstore provenance attestation is signed by that workflow for that commit (prints `ok`) |
-| `ts-orch release pin [--state DIR]` | Print the SPKI pin of the single-host listener certificate in a state directory |
+| `ts-orch release pin [--state DIR]` | Print the SPKI pin of the node's release listener certificate in a state directory |
 | `ts-orch release manifest --sha SHA --sequence N --out FILE` | Operator: build a production release manifest from a CI release's Linux binaries, hashing each download |
 | `ts-orch release sign --manifest FILE --key KEYFILE` | Operator: sign a manifest with `ssh-keygen -Y sign` (namespace `ts-orch-release`, works with ssh-agent and hardware keys); writes `FILE.sig` |
 | `ts-orch release verify --manifest FILE [--sig FILE.sig] [--allowed FILE]` | Verify a manifest's signature against the embedded allowed SSH keys (or a test list with `--allowed`) |

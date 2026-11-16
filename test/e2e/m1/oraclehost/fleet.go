@@ -84,7 +84,7 @@ func New(ctx context.Context, work, binary string, registry string, regions []st
 			netBird[3] = byte(octet)
 			host := &Host{Name: fmt.Sprintf("ts-%s-%d", name, i), Region: region, Namespace: fmt.Sprintf("osh-%s-%d", name, i),
 				Address: fmt.Sprintf("10.204.0.%d", octet), NetBird: netip.AddrFrom4(netBird).String(),
-				InstanceID: fmt.Sprintf("ocid1.instance.oc1.%s.singlehostregion%d", entry.OCIRegion, octet), fleet: f, changed: make(chan struct{})}
+				InstanceID: fmt.Sprintf("ocid1.instance.oc1.%s.oracleregions%d", entry.OCIRegion, octet), fleet: f, changed: make(chan struct{})}
 			host.Dir = filepath.Join(work, host.Name)
 			region.Hosts = append(region.Hosts, host)
 			f.Hosts = append(f.Hosts, host)

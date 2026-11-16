@@ -194,13 +194,13 @@ def run_case(binary, seed_binary, root, case):
                                     "Region": "local",
                                     "HostID": "worker",
                                     "InstanceID": "instance",
-                                    "FounderID": "single-host",
+                                    "FounderID": "founder",
                                     "Role": "container",
                                 }
                             )
                         )
                 result = subprocess.run(
-                    [binary, "single-host", "--state", str(local)],
+                    [binary, "node", "--state", str(local)],
                     check=False,
                     capture_output=True,
                     timeout=5,
@@ -216,7 +216,7 @@ def run_case(binary, seed_binary, root, case):
                     f"accepted contradictory {retained} state",
                 )
             process = subprocess.Popen(
-                [binary, "single-host", "--state", str(state)],
+                [binary, "node", "--state", str(state)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
             )
@@ -224,7 +224,7 @@ def run_case(binary, seed_binary, root, case):
             output = read_until(process, b"ready; advertise", 30)
             require(
                 re.search(
-                    r"single-host manager \w+ ready; advertise 127\.0\.0\.1:4242",
+                    r"node manager \w+ ready; advertise 127\.0\.0\.1:4242",
                     output,
                 ),
                 "local host did not serve on loopback",
@@ -248,7 +248,7 @@ def run_case(binary, seed_binary, root, case):
             record_events = record_watch(state)
         began = time.monotonic()
         process = subprocess.Popen(
-            [binary, "single-host", "--state", str(state)],
+            [binary, "node", "--state", str(state)],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             env=environment,
@@ -295,7 +295,7 @@ def run_case(binary, seed_binary, root, case):
             )
             require(
                 re.search(
-                    rf"single-host {role} \w+ ready; advertise {re.escape(address)}",
+                    rf"node {role} \w+ ready; advertise {re.escape(address)}",
                     output,
                 ),
                 f"wrong recovered role or address: {output[-1000:]}",

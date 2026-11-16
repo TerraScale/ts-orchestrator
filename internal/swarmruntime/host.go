@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/moby/swarmkit/v2/agent/exec"
@@ -23,34 +24,34 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// singleHostID is fixed so a hostname change never alters the stored admission.
-const singleHostID = "single-host"
-
-// SingleHostAddress serves a host outside OCI, where no other node joins. An
-// OCI founder listens on SwarmPort of every interface and advertises its
-// private VCN address.
-const SingleHostAddress = "127.0.0.1:4242"
-
-// SwarmPort is the manager's remote API; the host NSG admits it inside the VCN only.
 const SwarmPort = 4242
 
-// FounderAdmission is the fixed identity of the host that founds its region's
-// cluster; a hostname change never alters the stored admission.
-func FounderAdmission() Admission {
-	return Admission{Region: "local", HostID: singleHostID, InstanceID: singleHostID, FounderID: singleHostID, Role: "manager"}
+func FoundingAdmission(hostname, instanceID string) Admission {
+	return Admission{Region: "local", HostID: hostname, InstanceID: instanceID, FounderID: hostname, Role: "manager"}
 }
 
-// JoinerAdmission is a container worker that joins the founder's cluster with
-// Vault-delivered join material.
-func JoinerAdmission(hostname, instanceID, manager, token string) Admission {
-	return Admission{Region: "local", HostID: hostname, InstanceID: instanceID, FounderID: singleHostID, Role: "container",
-		ManagerAddress: manager, JoinToken: token}
+func JoiningAdmission(hostname, instanceID, manager, token string) (Admission, error) {
+	parsed, err := ca.ParseJoinToken(token)
+	if err != nil {
+		return Admission{}, fmt.Errorf("join token: %w", err)
+	}
+	return Admission{Region: "local", HostID: hostname, InstanceID: instanceID, FounderID: parsed.RootDigest.String(), Role: "container",
+		ManagerAddress: manager, JoinToken: token}, nil
+}
+
+func SwarmAddresses(privateIP string) (listen, advertise string) {
+	port := strconv.Itoa(SwarmPort)
+	if privateIP == "" {
+		loopback := net.JoinHostPort("127.0.0.1", port)
+		return loopback, loopback
+	}
+	return net.JoinHostPort("0.0.0.0", port), net.JoinHostPort(privateIP, port)
 }
 
 // StoredAdmission returns the admission the host started with before, so a
 // restart keeps its role and identity without Vault.
 func StoredAdmission(stateDir string) (Admission, bool, error) {
-	data, err := os.ReadFile(filepath.Join(SingleHostSwarmDir(stateDir), "admission.json"))
+	data, err := os.ReadFile(filepath.Join(SwarmDir(stateDir), "admission.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return Admission{}, false, nil
 	}
@@ -61,34 +62,27 @@ func StoredAdmission(stateDir string) (Admission, bool, error) {
 	if err := json.Unmarshal(data, &stored); err != nil {
 		return Admission{}, false, fmt.Errorf("read swarm admission: %w", err)
 	}
-	if err := reconcileAdmissionRole(context.Background(), SingleHostSwarmDir(stateDir), &stored); err != nil {
+	if err := reconcileAdmissionRole(context.Background(), SwarmDir(stateDir), &stored); err != nil {
 		return Admission{}, false, err
 	}
 	return Admission{Region: stored.Region, HostID: stored.HostID, InstanceID: stored.InstanceID, FounderID: stored.FounderID, Role: stored.Role}, true, nil
 }
 
-// SingleHostSwarmDir holds the certificates, Raft log and control socket.
-func SingleHostSwarmDir(stateDir string) string { return filepath.Join(stateDir, "swarm") }
+func SwarmDir(stateDir string) string { return filepath.Join(stateDir, "swarm") }
 
-// SingleHostSocket is the root-only SwarmKit control API (api.ControlClient).
-// It links to the upstream socket inside the 0700 swarm directory.
-func SingleHostSocket(stateDir string) string { return filepath.Join(stateDir, "control.sock") }
+func ControlSocket(stateDir string) string { return filepath.Join(stateDir, "control.sock") }
 
-// StartSingleHost founds (or reopens) the region's cluster, whose manager is
-// also an Active worker, or joins it as a worker (a JoinerAdmission). A
-// founder that advertised another address before moves its Raft member
-// address to advertise, so workers reach it there.
-func StartSingleHost(ctx context.Context, stateDir string, executor exec.Executor, listen, advertise string, admission Admission) (*Node, error) {
+func StartHost(ctx context.Context, stateDir string, executor exec.Executor, listen, advertise string, admission Admission) (*Node, error) {
 	if !filepath.IsAbs(stateDir) {
-		return nil, errors.New("single-host state directory must be absolute")
+		return nil, errors.New("node state directory must be absolute")
 	}
 	node, err := StartNode(ctx, NodeConfig{
-		StateDir: SingleHostSwarmDir(stateDir), ListenAddress: listen, AdvertiseAddress: advertise, Admission: admission,
+		StateDir: SwarmDir(stateDir), ListenAddress: listen, AdvertiseAddress: advertise, Admission: admission,
 	}, executor)
 	if err != nil {
 		return nil, err
 	}
-	link := SingleHostSocket(stateDir)
+	link := ControlSocket(stateDir)
 	if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, errors.Join(err, node.Stop(context.WithoutCancel(ctx)))
 	}
@@ -116,7 +110,7 @@ func StartSingleHost(ctx context.Context, stateDir string, executor exec.Executo
 // its own address change as a no-op until a snapshot holds it, so every
 // start re-checks.
 func moveRaftAddress(ctx context.Context, stateDir, nodeID, advertise string) error {
-	client, conn, err := DialSingleHost(stateDir)
+	client, conn, err := DialControl(stateDir)
 	if err != nil {
 		return err
 	}
@@ -128,7 +122,7 @@ func moveRaftAddress(ctx context.Context, stateDir, nodeID, advertise string) er
 	if self.Node.ManagerStatus == nil || self.Node.ManagerStatus.Addr == advertise {
 		return nil
 	}
-	paths := ca.NewConfigPaths(filepath.Join(SingleHostSwarmDir(stateDir), "certificates"))
+	paths := ca.NewConfigPaths(filepath.Join(SwarmDir(stateDir), "certificates"))
 	root, err := ca.GetLocalRootCA(paths.RootCA)
 	if err != nil {
 		return err
@@ -155,7 +149,7 @@ func moveRaftAddress(ctx context.Context, stateDir, nodeID, advertise string) er
 // every fresh cluster. The inert allocator cannot attach the node to it and
 // logs a failure on every node update; services here use the host network.
 func removeIngressNetwork(ctx context.Context, stateDir string) error {
-	client, conn, err := DialSingleHost(stateDir)
+	client, conn, err := DialControl(stateDir)
 	if err != nil {
 		return err
 	}
@@ -175,22 +169,20 @@ func removeIngressNetwork(ctx context.Context, stateDir string) error {
 	return nil
 }
 
-// DialSingleHost connects to a single host's control socket over TLS pinned to
-// the node's stored root CA. Callers close the returned connection.
-func DialSingleHost(stateDir string) (api.ControlClient, *grpc.ClientConn, error) {
-	root, err := os.ReadFile(ca.NewConfigPaths(filepath.Join(SingleHostSwarmDir(stateDir), "certificates")).RootCA.Cert)
+func DialControl(stateDir string) (api.ControlClient, *grpc.ClientConn, error) {
+	root, err := os.ReadFile(ca.NewConfigPaths(filepath.Join(SwarmDir(stateDir), "certificates")).RootCA.Cert)
 	if err != nil {
 		return nil, nil, err
 	}
-	return DialSingleHostWithCA(stateDir, root)
+	return DialControlWithCA(stateDir, root)
 }
 
-func DialSingleHostWithCA(stateDir string, root []byte) (api.ControlClient, *grpc.ClientConn, error) {
+func DialControlWithCA(stateDir string, root []byte) (api.ControlClient, *grpc.ClientConn, error) {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(root) {
-		return nil, nil, errors.New("single-host root CA is not PEM")
+		return nil, nil, errors.New("node root CA is not PEM")
 	}
-	socket := SingleHostSocket(stateDir)
+	socket := ControlSocket(stateDir)
 	creds := credentials.NewTLS(&tls.Config{RootCAs: pool, ServerName: ca.ManagerRole, MinVersion: tls.VersionTLS12})
 	conn, err := grpc.NewClient("passthrough:///swarm-control", grpc.WithTransportCredentials(creds),
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
@@ -199,11 +191,11 @@ func DialSingleHostWithCA(stateDir string, root []byte) (api.ControlClient, *grp
 	if err != nil {
 		return nil, nil, err
 	}
-	return singleHostControl{ControlClient: api.NewControlClient(conn), state: stateDir}, conn, nil
+	return localControl{ControlClient: api.NewControlClient(conn), state: stateDir}, conn, nil
 }
 
-func SingleHostNodeID(ctx context.Context, stateDir string) (string, error) {
-	certificate, err := nodeCertificate(ctx, SingleHostSwarmDir(stateDir))
+func LocalNodeID(ctx context.Context, stateDir string) (string, error) {
+	certificate, err := nodeCertificate(ctx, SwarmDir(stateDir))
 	if err != nil {
 		return "", err
 	}

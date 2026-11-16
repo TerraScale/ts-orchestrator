@@ -233,7 +233,7 @@ func releaseDegraded(report Report, state string) Report {
 func HostVersions(ctx context.Context, state, region string) ([]releasepush.HostVersion, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	control, close, err := swarmruntime.DialSingleHost(state)
+	control, close, err := swarmruntime.DialControl(state)
 	if err != nil {
 		return nil, err
 	}

@@ -1,10 +1,12 @@
-# M1 single-host node (W2)
+# ts-orch node
 
-`ts-orch single-host --state /var/lib/ts-orch` runs one SwarmKit manager that
-is also its only Active worker, with the containerd executor
-(`/run/containerd/containerd.sock`). No OCI, Vault, NetBird, NATS or admission.
-Runs as root. Entry point: `app.RunSingleHost(ctx, args, output)` (W6 registers
-`case "single-host"` in `internal/cli/cli.go`).
+`ts-orch node --state /var/lib/ts-orch` is the one production runtime. It runs
+this host's SwarmKit node with the containerd executor
+(`/run/containerd/containerd.sock`), the HTTPS edge and the cross-region mesh.
+It founds its region's cluster, joins it through any reachable manager, or
+reopens the node it ran before. Runs as root. Entry point:
+`app.RunNode(ctx, args, output)`, dispatched by `case "node"` in
+`internal/cli/cli.go` (`ts-orch node keys|list` stay the node-list tools).
 
 Image pulls from `ghcr.io` authenticate as `MarioGK` with the OCI Vault secret
 `gru-1-ghcr-pull-token`, read at pull time from gru-vault with the instance
@@ -16,6 +18,7 @@ pull anonymously.
 
 | Path | Content |
 |---|---|
+| `<state>/runtime.lock` | Held by the running `ts-orch node` from before release probation; a second `ts-orch node` on the same state exits without touching release state |
 | `<state>/swarm/` | SwarmKit certificates, Raft log, `admission.json`, `node.lock` |
 | `<state>/control.sock` | Control socket (below); symlink to the upstream `<state>/swarm/control.sock` |
 | `<state>/runtime-logs/` | Container logs written by the executor |
@@ -24,7 +27,7 @@ Restart reopens the same node ID and Raft state. A missing certificate or Raft
 directory with existing state is refused, never re-founded. Other features
 (edge certs, ...) use their own `<state>/<name>/` directory.
 
-## Control socket contract (for W3 `service` CLI and W6)
+## Control socket contract
 
 - Transport: gRPC over the unix socket `<state>/control.sock` (default `/var/lib/ts-orch/control.sock`).
 - Security: TLS pinned to the node's root CA (`<state>/swarm/certificates/swarm-root-ca.crt`),
@@ -32,24 +35,32 @@ directory with existing state is refused, never re-founded. Other features
 - API: upstream SwarmKit `api.ControlClient`
   (`github.com/moby/swarmkit/v2/api`): `CreateService`, `UpdateService`,
   `ListServices`, `GetService`, `RemoveService`, `ListTasks`, `ListNodes`, ...
-- Client: `swarmruntime.DialSingleHost(stateDir) (api.ControlClient, *grpc.ClientConn, error)`;
-  the caller closes the connection. Path helpers: `swarmruntime.SingleHostSocket(stateDir)`,
-  `swarmruntime.SingleHostSwarmDir(stateDir)`.
-- Fixed values: node hostname `single-host`, remote API `127.0.0.1:4242`
-  (loopback only; nothing joins).
+- Client: `swarmruntime.DialControl(stateDir) (api.ControlClient, *grpc.ClientConn, error)`;
+  the caller closes the connection. Path helpers: `swarmruntime.ControlSocket(stateDir)`,
+  `swarmruntime.SwarmDir(stateDir)`.
+- Identity: a new node is admitted under its hostname (`swarmruntime.FoundingAdmission`,
+  `swarmruntime.JoiningAdmission`). A joining node's `FounderID` is the root CA
+  digest of the cluster it joins, read from its join token, so no joiner names a
+  single founder and a replacement may reuse any hostname. A node keeps the admission it stored in
+  `<state>/swarm/admission.json`; values written by earlier releases (for example
+  the host ID and node hostname `single-host` of the hosts that founded their
+  regions) are read as they are and never rewritten.
+- Remote API: `swarmruntime.SwarmAddresses(privateIP)`: on OCI, listen on
+  `0.0.0.0:4242` and advertise `<private VCN IP>:4242`; outside OCI, where no
+  other node joins, `127.0.0.1:4242`.
 
 Example (`service ls`):
 
 ```go
-client, conn, err := swarmruntime.DialSingleHost("/var/lib/ts-orch")
+client, conn, err := swarmruntime.DialControl("/var/lib/ts-orch")
 if err != nil { return err }
 defer conn.Close()
 services, err := client.ListServices(ctx, &api.ListServicesRequest{})
 ```
 
-## Release push over NATS (W14)
+## Release push over NATS
 
-`single-host` also runs a minimal embedded NATS server (`internal/releasepush`):
+`ts-orch node` also runs a minimal embedded NATS server (`internal/releasepush`):
 one TLS client listener on `0.0.0.0:4222`, 64 KiB max payload, at most 256
 connections and 64 subscriptions each, 5 s auth timeout, no JetStream, cluster,
 gateway or leaf. ts-orch adds an iptables `INPUT` ACCEPT for tcp/4222 above
@@ -187,6 +198,47 @@ job writes to its summary:
 ```
 
 It exits non-zero if any region failed; one region's failure never stops the others.
+
+## The unit follows the binary
+
+`deploy/m1/ts-orch.service` is embedded in the binary that runs it. Every
+`release preflight` (run by `install.sh`, a pushed release and a pulled release
+on the candidate before the swap) records the candidate's own unit as
+`/var/lib/ts-orch/units/<sha256 of the binary>.service`. It also records the
+installed unit under the installed binary's digest when no pair exists for
+it yet, and keeps only the pairs of the candidate, the installed binary and
+`terrascale-orchestrator.prev`.
+
+The unit's first `ExecStartPre` runs outside the sandbox at every start: it
+hashes `/usr/local/bin/terrascale-orchestrator`, and when a pair exists for it
+that differs from `/etc/systemd/system/ts-orch.service`, it moves the pair over
+the unit atomically, reloads systemd and fails that start, so `Restart=always`
+starts the binary under its own unit a second later. A binary without a pair
+starts under the installed unit.
+
+So every swap of the binary, forward or back, carries its unit:
+
+- An installer whose unit has no pairing step (a release before this one)
+  runs the candidate's preflight, which adds the same `ExecStartPre` as the
+  runtime drop-in `/run/systemd/system/ts-orch.service.d/ts-orch-unit.conf` and
+  reloads systemd. The restart after the swap then installs the candidate's
+  unit; the step removes the drop-in.
+- An install that stops between preflight and the swap leaves the old binary,
+  whose pair is the unit it already runs.
+- A rollback, by probation, by the recovery timer or by a release, restores
+  `.prev`; its next start installs the unit recorded for it. After a
+  recovery-timer rollback the first start fails by design, so that recovery
+  run reports a failure and keeps its marker; its next run finds the service
+  active and clears it.
+- When the step cannot move the pair (`cp`, `mv` or `daemon-reload` fails), or
+  a reboot between preflight and the swap drops the `/run` drop-in, the new
+  binary starts under the old `single-host` command and exits before release
+  probation. The host then recovers through the recovery timer, which restores
+  `.prev` after about 12 minutes.
+
+The `node-upgrade` e2e lane installs the production release with its own
+`deploy/m1`, upgrades it the way that release's installer does, rolls back the
+way its recovery unit does, and upgrades again.
 
 ## Operator commands
 

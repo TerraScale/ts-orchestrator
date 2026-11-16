@@ -305,7 +305,7 @@ for start in 2 3; do
 	count_is rotations 1
 	unchanged_config
 done
-python3 - "$repo/internal/app/single_host.go" <<'RECOVERY'
+python3 - "$repo/internal/app/node.go" <<'RECOVERY'
 import re
 import sys
 from pathlib import Path

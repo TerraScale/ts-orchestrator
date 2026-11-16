@@ -68,9 +68,6 @@ const TaskSecretDirectory = "/run/ts-orch/task-secrets"
 // checking that the service may read them. Errors name keys or secrets, never values.
 type SecretResolver func(ctx context.Context, service string, refs map[string]vaultsecret.Ref) (map[string]string, error)
 
-// BindVaultSecrets makes every task start read the secrets its service spec
-// names, so a rotated secret reaches the next start. It replaces signed
-// container material and is meant for the single host.
 func (e *Executor) BindVaultSecrets(resolve SecretResolver) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

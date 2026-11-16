@@ -13,7 +13,7 @@ All CI runs on GitHub-hosted runners in one workflow,
 [`ci.yml`](../.github/workflows/ci.yml) (`CI`). A pull request runs two jobs in
 parallel: `lint` (`make lint`, `make release-check` for both release binaries
 and the dependency audit of the source graphs and of both binaries) and
-`e2e-m1`, the single-host E2E
+`e2e-m1`, the node E2E
 (`test/e2e/m1/run.sh`) on a disposable GitHub-hosted ARM64 runner. The last
 job, `all-green`, is the one required check; it fails when any job failed or
 was cancelled. `gh pr merge --auto --squash` merges once it passes; the branch

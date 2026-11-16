@@ -20,8 +20,7 @@ import (
 	"google.golang.org/grpc/grpclog"
 )
 
-// singleHostState is the `ts-orch single-host` state directory.
-const singleHostState = "/var/lib/ts-orch"
+const nodeState = "/var/lib/ts-orch"
 
 const serviceCLIUsage = `usage:
   ts-orch service apply -f <spec.json> [--hold-after <region>]
@@ -38,7 +37,7 @@ const serviceCLIUsage = `usage:
 func RunServiceCLI(ctx context.Context, args []string, output io.Writer) error {
 	// SwarmKit routes gRPC transport chatter to stderr; RPC errors are returned.
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
-	return explain(runServiceCLI(ctx, args, output, singleHostState))
+	return explain(runServiceCLI(ctx, args, output, nodeState))
 }
 
 func runServiceCLI(ctx context.Context, args []string, output io.Writer, state string) error {
@@ -121,7 +120,7 @@ func runServiceCLI(ctx context.Context, args []string, output io.Writer, state s
 		}
 		return errors.Join(err, errors.New("unknown service command"))
 	}
-	client, conn, err := swarmruntime.DialSingleHost(state)
+	client, conn, err := swarmruntime.DialControl(state)
 	if err != nil {
 		return err
 	}

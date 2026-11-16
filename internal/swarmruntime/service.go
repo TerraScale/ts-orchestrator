@@ -144,8 +144,6 @@ func checkIntentGeneration(labels map[string]string, intent ServiceIntent) error
 	return nil
 }
 
-// Labels the single-host edge (hostnames) and secret injection (secrets) read
-// from a spec-owned service; the probe reads LabelReadyPath.
 const (
 	LabelServiceSpec  = "terrascale.service-spec"
 	LabelDependencies = "terrascale.dependencies"
@@ -182,7 +180,6 @@ var (
 	hostname = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 )
 
-// ServiceSpec is one operator-declared single-host service, `deploy/m1/services/*.json`.
 type ServiceSpec struct {
 	Name         string                     `json:"name"`
 	Image        string                     `json:"image"`

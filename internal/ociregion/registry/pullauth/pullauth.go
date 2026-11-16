@@ -49,11 +49,3 @@ type PullSecrets struct {
 	client ocisecrets.SecretsClient
 	region string
 }
-
-// PullCredentials is memory-only. Formatting and JSON never include values;
-// keep it only for the synchronous pull, never in task/container metadata.
-type PullCredentials struct {
-	host     string
-	username string
-	password string
-}

@@ -9,14 +9,26 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-type singleHostControl struct {
+type localControl struct {
 	api.ControlClient
 	state string
 }
 
+func isLocalNode(ctx context.Context, client api.ControlClient, node *api.Node, hostname string) bool {
+	if node.Description.Hostname == hostname {
+		return true
+	}
+	local, ok := client.(localControl)
+	if !ok {
+		return false
+	}
+	id, err := LocalNodeID(ctx, local.state)
+	return err == nil && id == node.ID
+}
+
 // All CLI and mesh writers lock the same root, including hostname claims.
 func lockServiceSpecs(ctx context.Context, client api.ControlClient) (func(), error) {
-	local, ok := client.(singleHostControl)
+	local, ok := client.(localControl)
 	if !ok {
 		return func() {}, nil
 	}

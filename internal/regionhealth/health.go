@@ -1,7 +1,3 @@
-// Package regionhealth reports each region's host memory and disk pressure
-// and SwarmKit state before tasks get OOM-killed: single-host checks every
-// 10 s, logs every state change and answers protocol.MeshHealthSubject on the
-// cross-region mesh, which `ts-orch status` asks.
 package regionhealth
 
 import (
@@ -109,7 +105,7 @@ func Serving(ctx context.Context, state, service string) error {
 	if health != nil || service == "" {
 		return health
 	}
-	client, conn, err := swarmruntime.DialSingleHostWithCA(state, in.rootCA)
+	client, conn, err := swarmruntime.DialControlWithCA(state, in.rootCA)
 	if err != nil {
 		return err
 	}
@@ -152,7 +148,7 @@ func read(ctx context.Context, state string) Input {
 	}()
 	go func() {
 		part := Input{}
-		client, conn, err := swarmruntime.DialSingleHostWithCA(state, host.rootCA)
+		client, conn, err := swarmruntime.DialControlWithCA(state, host.rootCA)
 		if err != nil {
 			part.Node = "swarm node unreachable"
 			results <- reading{check: "swarm node unreachable", input: part}
@@ -174,7 +170,7 @@ func read(ctx context.Context, state string) Input {
 	}()
 	go func() {
 		part := Input{}
-		client, conn, err := swarmruntime.DialSingleHostWithCA(state, host.rootCA)
+		client, conn, err := swarmruntime.DialControlWithCA(state, host.rootCA)
 		if err != nil {
 			part.Failures = []string{"services unreadable"}
 			results <- reading{check: "services unreadable", input: part}
@@ -260,7 +256,7 @@ func sampleHost(ctx context.Context, state string) Input {
 		go func() {
 			system, sampleErr := observability.ReadSystem([]observability.FilesystemRole{{Role: "containerd", Path: containerdRoot}, {Role: "state", Path: state}})
 			part := Input{System: system}
-			root, err := os.ReadFile(ca.NewConfigPaths(filepath.Join(swarmruntime.SingleHostSwarmDir(state), "certificates")).RootCA.Cert)
+			root, err := os.ReadFile(ca.NewConfigPaths(filepath.Join(swarmruntime.SwarmDir(state), "certificates")).RootCA.Cert)
 			part.rootCA = root
 			if err != nil {
 				part.Failures = append(part.Failures, "swarm root CA unreadable")

@@ -13,7 +13,7 @@ providers; it never changes control-plane state.
 
 ## NetBird access
 
-Every region host (`ts-orch single-host`) serves the dashboard on its NetBird
+Every region host (`ts-orch node`) serves the dashboard on its NetBird
 address (`wt0`) at TCP 9463, with nothing to turn on
 (`internal/hostdashboard`). The first host of a region that needs a token
 creates a random one in gru-vault as `<region>-1-orch-dashboard-token`

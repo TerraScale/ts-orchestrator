@@ -152,8 +152,6 @@ func serviceSpecExact(ctx context.Context, client api.ControlClient, requested S
 	return rollout, nil
 }
 
-// serviceTaskHost accepts only this founder or a currently admitted per-node
-// worker. Readiness uses that worker's mesh address, never the founder's port.
 func serviceTaskHost(ctx context.Context, client api.ControlClient, requested ServiceSpec, task *api.Task) (string, netip.Addr, error) {
 	response, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
 	if err != nil {
@@ -162,7 +160,7 @@ func serviceTaskHost(ctx context.Context, client api.ControlClient, requested Se
 	node := response.Node
 	if node != nil && node.Description != nil {
 		machine := node.Description.Hostname
-		if machine == singleHostID {
+		if isLocalNode(ctx, client, node, requested.Node) {
 			machine = requested.Node
 		}
 		if machine == requested.Node {

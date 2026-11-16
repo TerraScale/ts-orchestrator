@@ -74,7 +74,7 @@ it; use it only to push a fix for a health error that a release caused.
 
 ## Independent recovery
 
-The single-host updater retains its own executable as
+The node's updater retains its own executable as
 `/usr/local/bin/terrascale-orchestrator.recovery` before staging a replacement.
 It writes and verifies the recovery service and timer under their actual unit
 names in the writable binary directory, then asks the service manager to link
@@ -89,6 +89,14 @@ that failure never advances the startup counter or starts its in-process timer.
 The independent timer closes that gap. Recovery is installed by this updater
 before the replacements it accepts; an older installing updater cannot provide
 this protection for its first upgrade to this version.
+
+Every release swaps the systemd unit together with the binary: the
+candidate's preflight records its unit by digest, and the unit's pairing
+step installs the recorded unit of whichever binary is about to start, so a
+recovery or probation rollback to `.prev` also restores that binary's unit.
+If the step cannot install the candidate's unit, the candidate exits before
+`Probe` and the recovery timer restores `.prev` after about 12 minutes.
+See [node.md](node.md#the-unit-follows-the-binary).
 
 Each new trial stores a recovery window through its `installed` and
 `recover_after` fields before the binary rename. The window includes the
@@ -496,7 +504,7 @@ The GitHub verification workflow checks out the event's exact Git revision and
 requires a clean tree. Its producing job audits the package graphs and builds
 and checks both static release binaries (`make release-check`). Pull requests
 run `make lint` (formatting, templ output, `go vet`, shellcheck and policy
-checks) and the single-host E2E (job `e2e-m1`), which every main push runs
+checks) and the node E2E (job `e2e-m1`), which every main push runs
 again before `release-push`. The workflow installs the Go version in the `go`
 line of `go.mod` with `actions/setup-go`, and `.mise.toml` pins the same version
 for local development; `make lint` fails when `go.mod`, `.mise.toml` and

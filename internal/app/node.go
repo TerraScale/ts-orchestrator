@@ -32,11 +32,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-// runSingleHost runs this host's SwarmKit node (plan) with the containerd
-// executor and the release NATS listener (:4222) CI pushes releases to.
-// Outside OCI it needs no Vault, NetBird or admission. Serving the release
-// subjects ends a pushed binary's probation.
-func runSingleHost(ctx context.Context, state string, output io.Writer, plan hostPlan, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
+func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -53,7 +49,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 			fmt.Fprintf(output, "swarm firewall: %v\n", err)
 		}
 	}
-	node, err := swarmruntime.StartSingleHost(ctx, state, executor, plan.listen, plan.advertise, plan.admission)
+	node, err := swarmruntime.StartHost(ctx, state, executor, plan.listen, plan.advertise, plan.admission)
 	if err != nil {
 		return err
 	}
@@ -156,14 +152,14 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		go runPullUpdates(ctx, state, plan.region, node, releases)
 	}
 	notifier := sdnotify.Process()
-	if err := notifier.Ready("single-host node ready"); err != nil {
+	if err := notifier.Ready("node ready"); err != nil {
 		return err
 	}
 	if probation.Served() {
 		releases.NodeList.AdoptEmbedded()
 	}
 	defer func() { _ = notifier.Stopping() }()
-	if _, err := fmt.Fprintf(output, "single-host %s %s ready; advertise %s\n", plan.admission.Role, node.ID(), plan.advertise); err != nil {
+	if _, err := fmt.Fprintf(output, "node %s %s ready; advertise %s\n", plan.admission.Role, node.ID(), plan.advertise); err != nil {
 		return err
 	}
 	waited := make(chan error, 1)
@@ -184,7 +180,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	case <-ctx.Done():
 		return ctx.Err()
 	case err := <-failed:
-		slog.ErrorContext(ctx, "single-host background service failed", "error", err)
+		slog.ErrorContext(ctx, "node background service failed", "error", err)
 		return err
 	case err := <-waited:
 		if err != nil && ctx.Err() == nil {
@@ -258,19 +254,15 @@ func serveManagerRole(ctx context.Context, state string, plan hostPlan, node *sw
 	}
 }
 
-// hostPlan is how this host takes part in its region's SwarmKit cluster.
 type hostPlan struct {
-	listen, advertise string
-	admission         swarmruntime.Admission
-	// region is the OCI region token and address the private VCN IP; both
-	// are "" outside OCI, where no host joins.
+	listen, advertise        string
+	admission                swarmruntime.Admission
 	region, address, vcnCIDR string
 }
 
 func (p hostPlan) joiner() bool { return p.admission.HostID != p.admission.FounderID }
 
 func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, error) {
-	loopback := hostPlan{listen: swarmruntime.SingleHostAddress, advertise: swarmruntime.SingleHostAddress, admission: swarmruntime.FounderAdmission()}
 	stored, restarted, err := swarmruntime.StoredAdmission(state)
 	if err != nil {
 		return hostPlan{}, err
@@ -290,21 +282,27 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 		}
 	}
 	if !restarted {
-		if _, err := os.Stat(swarmruntime.SingleHostSwarmDir(state)); err == nil {
+		if _, err := os.Stat(swarmruntime.SwarmDir(state)); err == nil {
 			return hostPlan{}, errors.New("cluster state exists without stored admission")
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return hostPlan{}, err
 		}
 	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return hostPlan{}, err
+	}
 	if !oracle {
+		local := hostPlan{admission: swarmruntime.FoundingAdmission(hostname, hostname)}
+		local.listen, local.advertise = swarmruntime.SwarmAddresses("")
 		if restarted {
 			if stored.HostID != stored.FounderID {
 				return hostPlan{}, errors.New("host platform is not Oracle but stored mesh worker admission exists")
 			}
-			loopback.admission = stored
+			local.admission = stored
 		}
 		fmt.Fprintln(output, "local host; using a loopback-only cluster")
-		return loopback, nil
+		return local, nil
 	}
 	instance, metadataErr := readHostMetadata(ctx, output)
 	if err := ctx.Err(); err != nil {
@@ -333,40 +331,38 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 			return hostPlan{}, fmt.Errorf("persist host metadata: %w", err)
 		}
 	}
-	if restarted && stored.Role != "manager" {
-		worker := hostPlan{listen: loopback.listen, advertise: loopback.advertise, admission: stored,
-			region: instance.Region, address: instance.PrivateIP, vcnCIDR: instance.VCNCIDR}
-		if instance.PrivateIP != "" {
-			worker.listen = net.JoinHostPort("0.0.0.0", strconv.Itoa(swarmruntime.SwarmPort))
-			worker.advertise = net.JoinHostPort(instance.PrivateIP, strconv.Itoa(swarmruntime.SwarmPort))
-		}
-		return worker, nil
-	}
-	port := strconv.Itoa(swarmruntime.SwarmPort)
-	founder := hostPlan{listen: net.JoinHostPort("0.0.0.0", port), advertise: net.JoinHostPort(instance.PrivateIP, port),
-		admission: loopback.admission, region: instance.Region, address: instance.PrivateIP, vcnCIDR: instance.VCNCIDR}
+	plan := hostPlan{region: instance.Region, address: instance.PrivateIP, vcnCIDR: instance.VCNCIDR}
+	plan.listen, plan.advertise = swarmruntime.SwarmAddresses(instance.PrivateIP)
 	if restarted {
-		founder.admission = stored
-		return founder, nil
-	}
-	hostname, err := os.Hostname()
-	if err != nil {
-		return hostPlan{}, err
+		plan.admission = stored
+		return plan, nil
 	}
 	for {
 		material, err := regionjoin.Claim(ctx, instance.Region, hostname)
 		switch {
 		case err != nil:
 			fmt.Fprintf(output, "region join: %v; retrying\n", err)
-		case material.Founder == hostname:
-			return founder, nil
-		case material.Manager != "" && material.WorkerToken != "":
-			join := founder
-			join.admission = swarmruntime.JoinerAdmission(hostname, instance.ID, managerAddress(ctx, material), material.WorkerToken)
-			fmt.Fprintf(output, "joining %s at %s as a worker\n", material.Founder, join.admission.ManagerAddress)
-			return join, nil
 		default:
-			fmt.Fprintf(output, "waiting for founder %s to publish %s\n", material.Founder, regionjoin.SecretName(instance.Region))
+			manager, joinable := "", false
+			if material.WorkerToken != "" {
+				manager, joinable = reachableManager(ctx, material.Managers)
+			}
+			switch {
+			case joinable:
+				plan.admission, err = swarmruntime.JoiningAdmission(hostname, instance.ID, manager, material.WorkerToken)
+				if err != nil {
+					return hostPlan{}, err
+				}
+				fmt.Fprintf(output, "joining %s at %s as a worker\n", regionjoin.SecretName(instance.Region), manager)
+				return plan, nil
+			case material.Founder == hostname:
+				plan.admission = swarmruntime.FoundingAdmission(hostname, instance.ID)
+				return plan, nil
+			case material.WorkerToken != "":
+				fmt.Fprintf(output, "no manager in %s answers yet\n", regionjoin.SecretName(instance.Region))
+			default:
+				fmt.Fprintf(output, "waiting for founder %s to publish %s\n", material.Founder, regionjoin.SecretName(instance.Region))
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -376,13 +372,10 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 	}
 }
 
-// publishJoin keeps the region's join material current in Vault. A denial
-// (hosts not yet allowed to manage the secret) is logged and retried; the
-// founder keeps serving.
 func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string) {
 	for {
 		err := func() error {
-			client, conn, err := swarmruntime.DialSingleHost(state)
+			client, conn, err := swarmruntime.DialControl(state)
 			if err != nil {
 				return err
 			}
@@ -419,12 +412,6 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 			if err != nil {
 				return err
 			}
-			if stored.Manager == "" {
-				stored.Manager = plan.advertise
-			}
-			if stored.Route == "" {
-				stored.Route = meshRoute(plan.address)
-			}
 			if stored.WorkerToken == "" {
 				clusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
 				if err != nil || len(clusters.Clusters) != 1 {
@@ -446,17 +433,17 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 	}
 }
 
-func managerAddress(ctx context.Context, material regionjoin.Material) string {
-	for _, manager := range material.Managers {
+func reachableManager(ctx context.Context, managers []string) (string, bool) {
+	for _, manager := range managers {
 		dial, cancel := context.WithTimeout(ctx, 5*time.Second)
 		conn, err := (&net.Dialer{}).DialContext(dial, "tcp", manager)
 		cancel()
 		if err == nil {
 			_ = conn.Close()
-			return manager
+			return manager, true
 		}
 	}
-	return material.Manager
+	return "", false
 }
 
 func hostOf(address string) string {
@@ -469,7 +456,7 @@ func hostOf(address string) string {
 
 func relayRelease(ctx context.Context, state, region string, request []byte) []releasepush.HostVersion {
 	var nodes []*api.Node
-	control, closer, err := swarmruntime.DialSingleHost(state)
+	control, closer, err := swarmruntime.DialControl(state)
 	if err == nil {
 		defer closer.Close()
 		inventoryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -592,7 +579,7 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 }
 
 func regionHosts(ctx context.Context, state string) ([]pullrelease.Host, error) {
-	control, closer, err := swarmruntime.DialSingleHost(state)
+	control, closer, err := swarmruntime.DialControl(state)
 	if err != nil {
 		return nil, err
 	}
@@ -627,13 +614,10 @@ func meshCluster(plan hostPlan) mesh.Cluster {
 			if err != nil {
 				return nil, err
 			}
-			if len(material.Routes) != 0 {
-				return material.Routes, nil
-			}
-			if material.Route == "" {
+			if len(material.Routes) == 0 {
 				return nil, fmt.Errorf("%s names no mesh route yet", regionjoin.SecretName(region))
 			}
-			return []string{material.Route}, nil
+			return material.Routes, nil
 		}
 	}
 	return cluster

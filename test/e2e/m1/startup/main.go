@@ -23,8 +23,8 @@ func seed() error {
 		return err
 	}
 	defer executor.Close()
-	manager, err := swarmruntime.StartSingleHost(ctx, filepath.Join(state, "manager"), executor,
-		"127.0.0.1:4242", "127.0.0.1:4242", swarmruntime.FounderAdmission())
+	manager, err := swarmruntime.StartHost(ctx, filepath.Join(state, "manager"), executor,
+		"127.0.0.1:4242", "127.0.0.1:4242", swarmruntime.FoundingAdmission("manager", "manager"))
 	if err != nil {
 		return err
 	}
@@ -37,7 +37,7 @@ func seed() error {
 		return promotionJourney(ctx, state, manager)
 	}
 	if os.Args[2] == "worker" {
-		client, conn, err := swarmruntime.DialSingleHost(filepath.Join(state, "manager"))
+		client, conn, err := swarmruntime.DialControl(filepath.Join(state, "manager"))
 		if err != nil {
 			return err
 		}
@@ -46,8 +46,11 @@ func seed() error {
 		if err != nil {
 			return err
 		}
-		worker, err := swarmruntime.StartSingleHost(ctx, filepath.Join(state, "worker"), executor,
-			"127.0.0.1:4243", "127.0.0.1:4243", swarmruntime.JoinerAdmission("worker", "instance", "127.0.0.1:4242", clusters.Clusters[0].RootCA.JoinTokens.Worker))
+		joining, err := swarmruntime.JoiningAdmission("worker", "instance", "127.0.0.1:4242", clusters.Clusters[0].RootCA.JoinTokens.Worker)
+		if err != nil {
+			return err
+		}
+		worker, err := swarmruntime.StartHost(ctx, filepath.Join(state, "worker"), executor, "127.0.0.1:4243", "127.0.0.1:4243", joining)
 		if err != nil {
 			return err
 		}

@@ -1,28 +1,21 @@
 [Unit]
-Description=TerraScale Orchestrator single host (milestone 1)
+Description=TerraScale Orchestrator node
 Wants=network-online.target containerd.service
 After=network-online.target containerd.service
 StartLimitIntervalSec=0
 
 [Service]
-# READY=1 once the node is up, so systemctl is-active means serving.
 Type=notify
 NotifyAccess=main
 TimeoutStartSec=5min
-# Root: the containerd executor, the :80/:443 edge, the :4222 firewall rule and data-dir chown need it.
-ExecStart=/usr/local/bin/terrascale-orchestrator single-host --state /var/lib/ts-orch
+ExecStartPre=+/bin/sh -c 'p=/var/lib/ts-orch/units/$$(sha256sum /usr/local/bin/terrascale-orchestrator | cut -c1-64).service; rm -f /run/systemd/system/ts-orch.service.d/ts-orch-unit.conf; [ -f "$$p" ] || exit 0; cmp -s "$$p" /etc/systemd/system/ts-orch.service && exit 0; cp "$$p" /etc/systemd/system/ts-orch.service.next && chmod 0644 /etc/systemd/system/ts-orch.service.next && mv -f /etc/systemd/system/ts-orch.service.next /etc/systemd/system/ts-orch.service && systemctl daemon-reload && exit 1; exit 0'
+ExecStart=/usr/local/bin/terrascale-orchestrator node --state /var/lib/ts-orch
 Restart=always
-# A pushed release exits ts-orch; restart the new binary at once.
 RestartSec=1s
-# Above the 120s SIGTERM grace a data task (TerraBase) gets, so a stop or
-# reboot never cuts ts-orch off while it waits for that task to flush.
 TimeoutStopSec=180s
 KillMode=mixed
 LimitNOFILE=65536
 UMask=0077
-# Sandbox what root does not need. No ProtectSystem=strict or
-# ProtectControlGroups: tasks need /run/ts-orch, /var/lib and the terrascale
-# cgroup, and a pushed release replaces /usr/local/bin/terrascale-orchestrator.
 NoNewPrivileges=yes
 ProtectSystem=full
 ReadWritePaths=/usr/local/bin
