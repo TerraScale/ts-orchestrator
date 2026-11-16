@@ -42,14 +42,10 @@ const (
 )
 
 type emailBudget struct {
-	withheld    [2]atomic.Uint64
-	unconfirmed atomic.Uint64
-	mu          sync.Mutex
-	shared      *sharedStore
-	held        []emailReservation
+	withheld [2]atomic.Uint64
+	mu       sync.Mutex
+	shared   *sharedStore
 }
-
-var errHeldBudget = errors.New("unconfirmed alert emails fill the email budget")
 
 type emailReservation struct {
 	ID     string    `json:"id"`
@@ -82,21 +78,16 @@ func (b *emailBudget) write(w io.Writer) {
 	fmt.Fprintln(w, "# TYPE terrascale_alert_delivery_email_withheld_total counter")
 	fmt.Fprintf(w, "terrascale_alert_delivery_email_withheld_total{reason=\"budget_exhausted\"} %d\n", b.withheld[budgetExhausted].Load())
 	fmt.Fprintf(w, "terrascale_alert_delivery_email_withheld_total{reason=\"budget_unavailable\"} %d\n", b.withheld[budgetUnavailable].Load())
-	fmt.Fprintln(w, "# HELP terrascale_alert_delivery_email_unconfirmed_total Alert emails sent although the fleet-wide email budget could not confirm their reservation.")
-	fmt.Fprintln(w, "# TYPE terrascale_alert_delivery_email_unconfirmed_total counter")
-	fmt.Fprintf(w, "terrascale_alert_delivery_email_unconfirmed_total %d\n", b.unconfirmed.Load())
 }
 
 func (b *emailBudget) reserve(ctx context.Context, key string, window time.Duration) (string, error) {
 	b.mu.Lock()
-	reason, confirmed, err := b.reserveEmail(ctx, key, window)
+	reason, err := b.reserveEmail(ctx, key, window)
 	b.mu.Unlock()
 	switch {
 	case err != nil:
 		b.withheld[budgetUnavailable].Add(1)
 		return "budget unavailable", err
-	case !confirmed:
-		b.unconfirmed.Add(1)
 	case reason == "hourly cap" || reason == "daily cap":
 		b.withheld[budgetExhausted].Add(1)
 	}
@@ -130,12 +121,12 @@ func (b *emailBudget) openStore(ctx context.Context) (reservationStore, error) {
 	return shared, nil
 }
 
-func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.Duration) (string, bool, error) {
+func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.Duration) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	store, err := b.openStore(ctx)
 	if err != nil {
-		return "", true, err
+		return "", err
 	}
 	defer store.close()
 	id := rand.Text()
@@ -145,64 +136,48 @@ func (b *emailBudget) reserveEmail(ctx context.Context, key string, window time.
 		stop()
 		if err != nil {
 			b.dropShared(store)
-			return "", true, err
+			return "", err
 		}
 		now := time.Now()
-		reservations = slices.DeleteFunc(reservations, func(v emailReservation) bool { return lapsed(v, now) })
-		b.held = slices.DeleteFunc(b.held, func(v emailReservation) bool {
-			return lapsed(v, now) || slices.ContainsFunc(reservations, func(entry emailReservation) bool { return entry.ID == v.ID })
-		})
-		duplicate, hourly, daily := tally(reservations, key, now)
-		heldDuplicate, heldHourly, heldDaily := tally(b.held, key, now)
-		switch {
-		case duplicate || heldDuplicate:
-			return "duplicate", true, nil
-		case hourly >= fleetHourlyEmails:
-			return "hourly cap", true, nil
-		case daily >= fleetDailyEmails:
-			return "daily cap", true, nil
-		case hourly+heldHourly >= fleetHourlyEmails || daily+heldDaily >= fleetDailyEmails:
-			return "", true, errHeldBudget
+		reservations = slices.DeleteFunc(reservations, func(v emailReservation) bool { return !v.Until.After(now) && !v.SendBy.Add(24*time.Hour).After(now) })
+		hourly, daily := 0, 0
+		for _, entry := range reservations {
+			if entry.Key == key && entry.Until.After(now) {
+				return "duplicate", nil
+			}
+			if entry.SendBy.Add(24 * time.Hour).After(now) {
+				daily++
+			}
+			if entry.SendBy.Add(time.Hour).After(now) {
+				hourly++
+			}
+		}
+		if hourly >= fleetHourlyEmails {
+			return "hourly cap", nil
+		}
+		if daily >= fleetDailyEmails {
+			return "daily cap", nil
 		}
 		sendBy := now.Add(50 * time.Second)
-		reservation := emailReservation{ID: id, Key: key, SendBy: sendBy, Until: sendBy.Add(window)}
-		data, err := json.Marshal(append(reservations, reservation))
+		data, err := json.Marshal(append(reservations, emailReservation{ID: id, Key: key, SendBy: sendBy, Until: sendBy.Add(window)}))
 		if err != nil {
-			return "", true, err
+			return "", err
 		}
 		call, stop = context.WithTimeout(ctx, budgetDial)
 		conflict, err := store.save(call, data, revision)
 		stop()
 		if err != nil {
-			confirmed := committed(ctx, store, id)
+			landed := committed(ctx, store, id)
 			b.dropShared(store)
-			if !confirmed {
-				b.held = append(b.held, reservation)
+			if landed {
+				return "", nil
 			}
-			return "", confirmed, nil
+			return "", err
 		}
 		if !conflict {
-			return "", true, nil
+			return "", nil
 		}
 	}
-}
-
-func lapsed(v emailReservation, now time.Time) bool {
-	return !v.Until.After(now) && !v.SendBy.Add(24*time.Hour).After(now)
-}
-
-func tally(entries []emailReservation, key string, now time.Time) (bool, int, int) {
-	duplicate, hourly, daily := false, 0, 0
-	for _, entry := range entries {
-		duplicate = duplicate || (entry.Key == key && entry.Until.After(now))
-		if entry.SendBy.Add(24 * time.Hour).After(now) {
-			daily++
-		}
-		if entry.SendBy.Add(time.Hour).After(now) {
-			hourly++
-		}
-	}
-	return duplicate, hourly, daily
 }
 
 func committed(ctx context.Context, store reservationStore, id string) bool {
