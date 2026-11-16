@@ -5,6 +5,7 @@ const worker = defineWorker({
   compatibilityDate: "2026-11-16",
   entrypoint: "./worker.mjs",
   workersDev: true,
+  observability: { enabled: true, headSamplingRate: 1, logs: { enabled: true } },
   triggers: [triggers.scheduled({ schedule: "*/5 * * * *" })],
   env: {
     PROBE: bindings.durableObject({ worker: "ts-orchestrator-outside-probe", exportName: "Probe" }),

@@ -33,6 +33,7 @@ The read-only Worker root returns the last 24 scheduled runs with scheduled,
 started and completed Unix millisecond timestamps, sanitized outcomes, and open
 incident timestamps. It exposes neither the topic nor credentials. HTTP requests
 cannot start a probe or publish a notification. Responses are not cached.
+Cloudflare's fixed `observability.enabled` and `logs.enabled` settings retain every scheduled run for diagnosis.
 
 ## Deploy and verify
 
