@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
@@ -22,7 +23,18 @@ import (
 
 const usage = `Usage: ts-orch region <command> [flags]
 
-  plan    REGION --out FILE [--from PLAN]
+  plan
+      Compare every region of the fleet document (deploy/fleet/fleet.json)
+      with what exists in OCI: network, gateways, NSGs, instances, network
+      load balancer, reserved address, DNS zone and steering policies.
+      Document-made resources carry the ownership tags; others are hand-made.
+      Reads OCI with the operator's ~/.oci/config, or the instance principal
+      where there is none; changes nothing.
+  status
+      The same comparison, one line per region.
+  validate
+      Load and validate the embedded fleet document; reads nothing else.
+  derive  REGION --out FILE [--from PLAN]
       Derive the region's plan from another non-home region's reviewed plan
       (default deploy/oci-region/sjc-1-plan.json): names, addresses, the
       availability domain and the service gateway of the new region, every
@@ -49,8 +61,11 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		return err
 	}
 	command, args := args[0], args[1:]
-	if command == "create" {
+	switch command {
+	case "create":
 		return provisionFromFile(ctx, args, out)
+	case "plan", "status", "validate":
+		return compareFleet(ctx, command, args, out)
 	}
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return fmt.Errorf("usage: ts-orch region %s needs a region argument; see ts-orch region --help", command)
@@ -69,12 +84,12 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		return errors.New("unexpected region arguments")
 	}
 	switch command {
-	case "plan":
+	case "derive":
 		if *output == "" {
-			return errors.New("plan requires --out")
+			return errors.New("derive requires --out")
 		}
 		if _, err := os.Stat(*output); err == nil {
-			return fmt.Errorf("%s exists; plan never overwrites a plan", *output)
+			return fmt.Errorf("%s exists; derive never overwrites a plan", *output)
 		}
 		entry, err := ResolveRegion(label)
 		if err != nil {
@@ -96,6 +111,28 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	default:
 		return fmt.Errorf("unknown region command %q; use ts-orch region --help", command)
 	}
+}
+
+func compareFleet(ctx context.Context, command string, args []string, out io.Writer) error {
+	if len(args) != 0 {
+		return fmt.Errorf("ts-orch region %s takes no arguments", command)
+	}
+	document, err := fleet.Load()
+	if err != nil {
+		return err
+	}
+	if command == "validate" {
+		_, err := fmt.Fprintf(out, "fleet document valid: %d regions, zone %s\n", len(document.Regions), document.DNS.Zone)
+		return err
+	}
+	reports, err := fleet.Plan(ctx, document)
+	if err != nil {
+		return err
+	}
+	if command == "status" {
+		return fleet.PrintStatus(out, reports)
+	}
+	return fleet.PrintPlan(out, reports)
 }
 
 func provisionFromFile(ctx context.Context, args []string, out io.Writer) error {

@@ -119,9 +119,52 @@ changes the servers.
 
 ## OCI ownership
 
-One fleet document records the regions, the node count and shape, the load
-balancer, DNS and the scaling limits. It is signed like a release, by a key
-with role `fleet`.
+One fleet document, `deploy/fleet/fleet.json`, records every region: its
+label, OCI region, compartment, VCN, public subnet (load balancer only),
+private subnet (nodes), node count and shape, and the public names it serves.
+It also records the DNS zone, the steered names, their TTL and the
+health-check path. `internal/fleet` loads and validates it; the binary embeds
+it, and `make release-check` runs `ts-orch region validate` on the built
+binary so a bad document never ships.
+
+Per region the document holds: label, OCI region, compartment, VCN CIDR,
+public subnet CIDR (load balancer only), private subnet CIDR (nodes), nodes
+(min, max, shape, OCPUs, memory, boot GB, data volume GB and VPUs per GB,
+the data volume created apart from the launch), and the continents its
+geo-steering answers. Every continent is answered by exactly one region.
+Globally it holds the DNS zone and its compartment, the steered names, their
+TTL and the health-check path. A region's plain record is always
+`<label>.api.<zone>`, derived from the label.
+
+These live in code, not in the document: the node image (the release pins
+it), the spread of nodes across availability domains and then fault
+domains, NSG rules, and the network load balancer's reserved address, which
+the reconciler reserves. Today's public addresses are ephemeral instance
+addresses that OCI cannot turn into reserved ones; the move to the load
+balancer goes through DNS.
+
+The document is not signed separately. A change is a reviewed pull request;
+only a merged release, trusted through its GitHub build attestation, carries
+it to the nodes.
+
+A region has at least 3 nodes and, for now, at most 3. Validation refuses a
+minimum below 3, a maximum below the minimum, a maximum above 3, overlapping
+CIDRs, a duplicate label and a name outside the zone.
+
+`ts-orch region plan` compares the document with what exists in OCI and
+changes nothing; `ts-orch region status` prints the same in one line per
+region. A resource is document-made when `ociresource.Ownership{Owner:
+"terrascale"}.Owns` accepts its tags for its key: `terrascale-managed-by`
+`ts-orchestrator`, `terrascale-owner` `terrascale` and
+`terrascale-resource-key` `<CELL>/<kind>/<name>`. The keys are `vcn/vcn`,
+`subnet/host-subnet` (public), `subnet/private-subnet`,
+`internet-gateway/igw`, `nat-gateway/nat`, `service-gateway/sgw`,
+`nsg/edge-nsg`, `nsg/host-nsg`, `instance/node-<n>`,
+`network-load-balancer/nlb`, `public-ip/nlb`, and in the DNS compartment's
+cell `dns-zone/zone` and `steering-policy/<first label>`, a steering policy
+being named after its steered name. A resource with any other ownership tag
+is claimed by another owner; one with none is hand-made (foreign). Neither
+is ever changed.
 
 A reconciler on the global leader creates and updates these resources:
 
@@ -159,7 +202,10 @@ It builds on this existing code:
 | `internal/edge/geodns` | GeoDNS |
 
 Today: OCI resources were created by operator commands with an API key;
-nothing in the cluster creates or changes them (C6).
+nothing in the cluster creates or changes them. The document and
+`region plan` exist; the reconcilers that act on it follow (C7 network, C8
+compute, C9 network load balancers, C10 geo-steering DNS, C12 node
+autoscaler).
 
 ## Routing
 
@@ -264,7 +310,7 @@ Today: the deletion is in review (C2).
 | 1 | Purge | C2 has deleted the old controller, host agent, cell spec and signed channel generation |
 | 2 | Signed pull releases and the SSH CLI | Nodes accept only a signed manifest with a higher sequence, and the remote CLI signs a challenge (C3, C3b, C4) |
 | 3 | Three managers and the edge everywhere | Join material, the one edge hop and shared edge certificates match Cluster shape (C5a, C5b, C5c) |
-| 4 | Fleet document, reconciler, load balancers, private subnets | A signed fleet document reconciles those resources, and a region's only public address is its network load balancer |
+| 4 | Fleet document, reconciler, load balancers, private subnets | The fleet document reconciles those resources, and a region's only public address is its network load balancer |
 | 5 | New fleet from bootstrap, data restored, DNS switched, old servers deleted | `ts-orch region bootstrap` has founded the fleet, data is restored, DNS points at it and the old servers are gone |
 | 6 | GeoDNS, regional names, Atlas, SDK resolvers, ts-auth step 1 | Routing, Atlas, the SDKs and ts-auth step 1 match this document |
 | 7 | Autoscaling of replicas, nodes and regions, ts-auth step 2 | Scaling and self-healing and ts-auth step 2 match this document |

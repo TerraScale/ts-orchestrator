@@ -46,7 +46,7 @@ region's evidence PR.
    OCI, creates nothing):
 
    ```sh
-   ts-orch region plan fra eu-frankfurt-1 --out /tmp/fra-1-plan.json
+   ts-orch region derive fra --out /tmp/fra-1-plan.json
    ```
 
 ## What create runs

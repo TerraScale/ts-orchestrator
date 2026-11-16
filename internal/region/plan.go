@@ -127,7 +127,7 @@ func deriveFoundation(template map[string]any, label, ociRegion string, live Liv
 	}
 	rename(plan)
 	plan["cell"], plan["region"], plan["availability_domain"] = entry.Cell, ociRegion, live.AvailabilityDomain
-	plan["purpose"] = toCell + " founding plan derived by ts-orch region plan from " + fromCell + "; ts-orch oci-region foundation binds the resource IDs"
+	plan["purpose"] = toCell + " founding plan derived by ts-orch region derive from " + fromCell + "; ts-orch oci-region foundation binds the resource IDs"
 	plan["network_security"].(map[string]any)["service_gateway_service_id"] = live.ServiceID
 	var unbind func(v any) any
 	unbind = func(v any) any {

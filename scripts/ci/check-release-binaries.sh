@@ -34,5 +34,6 @@ for pair in "linux-amd64:Advanced Micro Devices X86-64" "linux-arm64:AArch64"; d
 		"$executable" "$machine" "$(stat -c '%s' "$executable")" \
 		"$(sha256sum "$executable" | awk '{print $1}')" "$source_sha"
 done
+"dist/terrascale-orchestrator-linux-$($GO env GOHOSTARCH)" region validate
 (cd dist && sha256sum terrascale-orchestrator-linux-amd64 terrascale-orchestrator-linux-arm64) > dist/SHA256SUMS
 cat dist/SHA256SUMS

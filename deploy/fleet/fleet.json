@@ -1,0 +1,84 @@
+{
+  "dns": {
+    "zone": "edge.terrascale.tech",
+    "compartment_id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+    "steered_names": [
+      "dash.edge.terrascale.tech",
+      "auth.edge.terrascale.tech",
+      "api.edge.terrascale.tech",
+      "mcp.edge.terrascale.tech",
+      "platform.edge.terrascale.tech"
+    ],
+    "steering_ttl_seconds": 30,
+    "health_check_path": "/readyz"
+  },
+  "regions": [
+    {
+      "label": "gru",
+      "oci_region": "sa-saopaulo-1",
+      "compartment_id": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+      "vcn_cidr": "10.251.0.0/24",
+      "public_subnet_cidr": "10.251.0.0/25",
+      "private_subnet_cidr": "10.251.0.192/26",
+      "nodes": {
+        "min": 3,
+        "max": 3,
+        "shape": "VM.Standard.A1.Flex",
+        "ocpus": 2,
+        "memory_gb": 12,
+        "boot_gb": 50,
+        "data_gb": 50,
+        "data_vpus_per_gb": 10
+      },
+      "geo_continents": [
+        "SA",
+        "AN"
+      ]
+    },
+    {
+      "label": "sjc",
+      "oci_region": "us-sanjose-1",
+      "compartment_id": "ocid1.compartment.oc1..aaaaaaaaysxjvhdqptflhspi7tqb2c44yhqifcjgfewxjhc2skelpiyugqva",
+      "vcn_cidr": "10.252.0.0/24",
+      "public_subnet_cidr": "10.252.0.0/25",
+      "private_subnet_cidr": "10.252.0.192/26",
+      "nodes": {
+        "min": 3,
+        "max": 3,
+        "shape": "VM.Standard.A1.Flex",
+        "ocpus": 2,
+        "memory_gb": 12,
+        "boot_gb": 50,
+        "data_gb": 50,
+        "data_vpus_per_gb": 10
+      },
+      "geo_continents": [
+        "NA",
+        "OC",
+        "AS"
+      ]
+    },
+    {
+      "label": "fra",
+      "oci_region": "eu-frankfurt-1",
+      "compartment_id": "ocid1.compartment.oc1..aaaaaaaavvrkl4p77rj3e2sigkf2vvpal45h5bnw7v4vlrphkwmqjabzbnca",
+      "vcn_cidr": "10.253.0.0/24",
+      "public_subnet_cidr": "10.253.0.0/25",
+      "private_subnet_cidr": "10.253.0.192/26",
+      "nodes": {
+        "min": 3,
+        "max": 3,
+        "shape": "VM.Standard.A1.Flex",
+        "ocpus": 2,
+        "memory_gb": 12,
+        "boot_gb": 50,
+        "data_gb": 50,
+        "data_vpus_per_gb": 10
+      },
+      "geo_continents": [
+        "EU",
+        "AF"
+      ]
+    }
+  ]
+}
