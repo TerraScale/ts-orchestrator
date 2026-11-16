@@ -16,6 +16,20 @@ import (
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 	defer cancel()
+	if os.Args[1] == "push" {
+		if err := servePush(ctx, os.Args[2], os.Args[3]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if os.Args[1] == "budget-proxy" {
+		if err := budgetProxy(ctx, os.Args[2], os.Args[3], os.Args[4]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if os.Args[1] == "budget" {
 		if err := mesh.JourneyAlertBudget(ctx, os.Args[2], os.Args[3], os.Args[4], os.Args[5:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)

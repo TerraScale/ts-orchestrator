@@ -108,6 +108,9 @@ func render(output string) error {
 	if err := checkNotificationTiming("deploy/observability/production/alertmanager.yml", len(inv.Monitors)); err != nil {
 		return err
 	}
+	if err := checkFleetInstall(); err != nil {
+		return err
+	}
 	for _, monitor := range inv.Monitors {
 		var generated rules
 		for _, g := range source.Groups {
@@ -171,17 +174,10 @@ func render(output string) error {
 		if err := writeJSON(filepath.Join(dir, "rules.yml"), generated); err != nil {
 			return err
 		}
-		unit, err := os.ReadFile("deploy/observability/production/ts-alertmanager.service")
+		unit, err := fleetAlertmanagerUnit(inv.Monitors, monitor)
 		if err != nil {
 			return err
 		}
-		var peers []string
-		for _, peer := range inv.Monitors {
-			if peer != monitor {
-				peers = append(peers, "--cluster.peer="+peer+".nb.ts.internal:9095")
-			}
-		}
-		unit = []byte(strings.ReplaceAll(string(unit), "@peers@", strings.Join(peers, " ")))
 		if err := os.WriteFile(filepath.Join(dir, "ts-alertmanager.service"), unit, 0644); err != nil {
 			return err
 		}
@@ -271,6 +267,16 @@ type notificationRoute struct {
 }
 
 func checkNotificationTiming(path string, peers int) error {
+	deadline, err := readNamedDuration("internal/alertdelivery/endpoints.go", "notificationDeadline")
+	if err != nil {
+		return err
+	}
+	if deadline >= alertmanagerPeerTimeout {
+		return fmt.Errorf("notification deadline %s must be well under the %s peer timeout", deadline, alertmanagerPeerTimeout)
+	}
+	if err := checkLaneTimingRatio(deadline); err != nil {
+		return err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -292,7 +298,7 @@ func checkNotificationTiming(path string, peers int) error {
 			interval = parsed
 		}
 		if interval <= time.Duration(peers)*alertmanagerPeerTimeout {
-			return fmt.Errorf("alertmanager group_interval %s must exceed %d peers x %s peer timeout, or a peer resends a stale notification", interval, peers, alertmanagerPeerTimeout)
+			return fmt.Errorf("alertmanager group_interval %s must exceed %d peers x %s peer timeout while the notification deadline is %s, or a peer resends a stale notification", interval, peers, alertmanagerPeerTimeout, deadline)
 		}
 		for _, child := range route.Routes {
 			if err := walk(child, interval); err != nil {
@@ -302,6 +308,139 @@ func checkNotificationTiming(path string, peers int) error {
 		return nil
 	}
 	return walk(config.Route, 5*time.Minute)
+}
+
+func fleetAlertmanagerUnit(monitors []string, monitor string) ([]byte, error) {
+	unit, err := os.ReadFile("deploy/observability/production/ts-alertmanager.service")
+	if err != nil {
+		return nil, err
+	}
+	text := string(unit)
+	const lone = "--cluster.listen-address="
+	if !strings.Contains(text, lone) || strings.Contains(text, "EnvironmentFile") || strings.Contains(text, "MONITOR_ADDRESS") {
+		return nil, errors.New("alertmanager unit must be the loopback form; the renderer adds the fleet address")
+	}
+	var peers []string
+	for _, peer := range monitors {
+		if peer != monitor {
+			peers = append(peers, "--cluster.peer="+peer+".nb.ts.internal:9095")
+		}
+	}
+	fleet := "--web.listen-address=${MONITOR_ADDRESS}:9093 --cluster.listen-address=${MONITOR_ADDRESS}:9095 --cluster.advertise-address=${MONITOR_ADDRESS}:9095 " + strings.Join(peers, " ")
+	text = strings.Replace(text, lone, fleet, 1)
+	text = strings.Replace(text, "[Service]\n", "[Service]\nEnvironmentFile=/etc/ts-monitoring/production/alertmanager.env\n", 1)
+	return []byte(text), nil
+}
+
+func readNamedDuration(path, name string) (time.Duration, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	match := regexp.MustCompile(name + `\s*=\s*(\d+)\s*\*\s*time\.(Millisecond|Second|Minute)`).FindSubmatch(data)
+	if match == nil {
+		return 0, fmt.Errorf("%s missing from %s", name, path)
+	}
+	value, err := strconv.Atoi(string(match[1]))
+	if err != nil {
+		return 0, err
+	}
+	unit := map[string]time.Duration{"Millisecond": time.Millisecond, "Second": time.Second, "Minute": time.Minute}[string(match[2])]
+	return time.Duration(value) * unit, nil
+}
+
+func checkLaneTimingRatio(deadline time.Duration) error {
+	if _, err := os.Stat("test/e2e/m1/monitoring/fleet.py"); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	laneDeadline, err := readNamedDuration("test/e2e/m1/monitoring/_journey/endpoints.go", "notificationDeadline")
+	if err != nil {
+		return err
+	}
+	lane, err := os.ReadFile("test/e2e/m1/monitoring/fleet.py")
+	if err != nil {
+		return err
+	}
+	match := regexp.MustCompile(`--cluster\.peer-timeout=([0-9]+(?:\.[0-9]+)?)(ms|s)`).FindSubmatch(lane)
+	if match == nil {
+		return errors.New("monitoring lane must set --cluster.peer-timeout")
+	}
+	value, err := strconv.Atoi(string(match[1]))
+	if err != nil {
+		return err
+	}
+	lanePeer := time.Duration(value) * time.Millisecond
+	if string(match[2]) == "s" {
+		lanePeer = time.Duration(value) * time.Second
+	}
+	if laneDeadline.Milliseconds()*alertmanagerPeerTimeout.Milliseconds() != deadline.Milliseconds()*lanePeer.Milliseconds() {
+		return fmt.Errorf("lane deadline %s and peer timeout %s must keep the production ratio %s/%s", laneDeadline, lanePeer, deadline, alertmanagerPeerTimeout)
+	}
+	return nil
+}
+
+func checkFleetInstall() error {
+	script, err := os.ReadFile("deploy/observability/production/install.sh")
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(script), "\n")
+	writeLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, "printf") && strings.Contains(line, "MONITOR_ADDRESS") && strings.Contains(line, "alertmanager.env") {
+			writeLine = i
+		}
+	}
+	if writeLine < 0 {
+		return errors.New("fleet install does not write alertmanager.env")
+	}
+	window := strings.Join(lines[max(0, writeLine-8):writeLine+1], "\n")
+	if !strings.Contains(window, "--local-fleet") {
+		return errors.New("alertmanager.env is written outside the fleet install")
+	}
+	if !strings.Contains(string(script), "rm -f /etc/ts-monitoring/production/alertmanager.env") {
+		return errors.New("a non-fleet install must remove alertmanager.env")
+	}
+	unit, err := os.ReadFile("deploy/observability/production/ts-alert-delivery-token.service")
+	if err != nil {
+		return err
+	}
+	text := string(unit)
+	if !strings.Contains(text, "Type=oneshot") || !strings.Contains(text, "Restart=on-failure") || !strings.Contains(text, "ExecStart=/usr/local/bin/ts-orch alert-delivery copy-token") || strings.Contains(text, "prepare") {
+		return errors.New("token unit must be a oneshot that restarts on failure and only copies the mesh token")
+	}
+	source, err := os.ReadFile("internal/alertdelivery/credentials.go")
+	if err != nil {
+		return err
+	}
+	body, err := functionBody(string(source), "copyMeshToken")
+	if err != nil {
+		return err
+	}
+	if strings.Contains(body, "ReadInstanceSecrets") {
+		return errors.New("mesh token copy must not read Vault")
+	}
+	prepare, err := functionBody(string(source), "prepareCredentials")
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(prepare, "ReadInstanceSecrets") || !strings.Contains(prepare, "writeMeshToken") {
+		return errors.New("prepare must read Vault and copy the mesh token separately")
+	}
+	return nil
+}
+
+func functionBody(source, name string) (string, error) {
+	start := strings.Index(source, "func "+name)
+	if start < 0 {
+		return "", fmt.Errorf("missing %s", name)
+	}
+	rest := source[start:]
+	next := strings.Index(rest[1:], "\nfunc ")
+	if next < 0 {
+		return rest, nil
+	}
+	return rest[:next+1], nil
 }
 
 func metricCatalog() (map[string]bool, error) {

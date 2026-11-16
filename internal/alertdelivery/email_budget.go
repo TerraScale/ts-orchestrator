@@ -2,6 +2,7 @@ package alertdelivery
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,6 +31,8 @@ const (
 	budgetBucket        = "ts-alert-email"
 	budgetKey           = "ledger"
 	digestKey           = "daily-digest"
+	budgetDial          = 2 * time.Second
+	budgetDeadline      = 5 * time.Second
 )
 
 type withheld int
@@ -40,9 +44,12 @@ const (
 
 type emailBudget struct {
 	withheld [2]atomic.Uint64
+	mu       sync.Mutex
+	shared   *sharedStore
 }
 
 type emailReservation struct {
+	ID     string    `json:"id"`
 	Key    string    `json:"key"`
 	SendBy time.Time `json:"send_by"`
 	Until  time.Time `json:"until"`
@@ -75,7 +82,9 @@ func (b *emailBudget) write(w io.Writer) {
 }
 
 func (b *emailBudget) reserve(ctx context.Context, key string, window time.Duration) (string, error) {
-	reason, err := reserveEmail(ctx, key, window)
+	b.mu.Lock()
+	reason, err := b.reserveEmail(ctx, key, window)
+	b.mu.Unlock()
 	switch {
 	case err != nil:
 		b.withheld[budgetUnavailable].Add(1)
@@ -92,26 +101,40 @@ type reservationStore interface {
 	close()
 }
 
-func openStore(ctx context.Context) (reservationStore, error) {
+func (b *emailBudget) openStore(ctx context.Context) (reservationStore, error) {
 	if _, err := os.Stat(fleetLayout); errors.Is(err, os.ErrNotExist) {
 		return openLedger(ctx, filepath.Join(stateDirectory, "email-ledger.json"))
 	} else if err != nil {
 		return nil, err
 	}
-	return openShared(ctx)
+	if b.shared != nil && !b.shared.conn.IsConnected() {
+		b.shared.conn.Close()
+		b.shared = nil
+	}
+	if b.shared != nil {
+		return b.shared, nil
+	}
+	shared, err := b.openShared(ctx)
+	if err != nil {
+		return nil, err
+	}
+	b.shared = shared
+	return shared, nil
 }
 
-func reserveEmail(ctx context.Context, key string, window time.Duration) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+func (b *emailBudget) reserveEmail(parent context.Context, key string, window time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, budgetDeadline)
 	defer cancel()
-	store, err := openStore(ctx)
+	store, err := b.openStore(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer store.close()
+	id := rand.Text()
 	for {
 		reservations, revision, err := store.load(ctx)
 		if err != nil {
+			b.dropShared(store)
 			return "", err
 		}
 		now := time.Now()
@@ -135,15 +158,30 @@ func reserveEmail(ctx context.Context, key string, window time.Duration) (string
 			return "daily cap", nil
 		}
 		sendBy := now.Add(50 * time.Second)
-		data, err := json.Marshal(append(reservations, emailReservation{Key: key, SendBy: sendBy, Until: sendBy.Add(window)}))
+		data, err := json.Marshal(append(reservations, emailReservation{ID: id, Key: key, SendBy: sendBy, Until: sendBy.Add(window)}))
 		if err != nil {
 			return "", err
 		}
 		conflict, err := store.save(ctx, data, revision)
-		if !conflict {
+		if err != nil {
+			landed := committed(parent, store, id)
+			b.dropShared(store)
+			if landed {
+				return "", nil
+			}
 			return "", err
 		}
+		if !conflict {
+			return "", nil
+		}
 	}
+}
+
+func committed(parent context.Context, store reservationStore, id string) bool {
+	ctx, cancel := context.WithTimeout(parent, budgetDeadline)
+	defer cancel()
+	reservations, _, err := store.load(ctx)
+	return err == nil && slices.ContainsFunc(reservations, func(entry emailReservation) bool { return entry.ID == id })
 }
 
 type sharedStore struct {
@@ -151,12 +189,12 @@ type sharedStore struct {
 	bucket jetstream.KeyValue
 }
 
-func openShared(ctx context.Context) (reservationStore, error) {
+func (b *emailBudget) openShared(ctx context.Context) (*sharedStore, error) {
 	values, err := readCredentialFiles("TS_ALERTS_NATS_TOKEN_FILE")
 	if err != nil {
 		return nil, err
 	}
-	conn, err := nats.Connect(budgetServer, nats.UserInfo(mesh.AlertsUser, strings.TrimSpace(values["TS_ALERTS_NATS_TOKEN_FILE"])), nats.Name("ts-alerts"), nats.Timeout(2*time.Second), nats.NoReconnect())
+	conn, err := nats.Connect(budgetServer, nats.UserInfo(mesh.AlertsUser, strings.TrimSpace(values["TS_ALERTS_NATS_TOKEN_FILE"])), nats.Name("ts-alerts"), nats.Timeout(budgetDial), nats.NoReconnect())
 	if err != nil {
 		return nil, err
 	}
@@ -173,10 +211,10 @@ func openShared(ctx context.Context) (reservationStore, error) {
 		conn.Close()
 		return nil, err
 	}
-	return sharedStore{conn, bucket}, nil
+	return &sharedStore{conn, bucket}, nil
 }
 
-func (s sharedStore) load(ctx context.Context) ([]emailReservation, uint64, error) {
+func (s *sharedStore) load(ctx context.Context) ([]emailReservation, uint64, error) {
 	entry, err := s.bucket.Get(ctx, budgetKey)
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		return nil, 0, nil
@@ -188,7 +226,7 @@ func (s sharedStore) load(ctx context.Context) ([]emailReservation, uint64, erro
 	return reservations, entry.Revision(), json.Unmarshal(entry.Value(), &reservations)
 }
 
-func (s sharedStore) save(ctx context.Context, data []byte, revision uint64) (bool, error) {
+func (s *sharedStore) save(ctx context.Context, data []byte, revision uint64) (bool, error) {
 	_, err := s.bucket.Update(ctx, budgetKey, data, revision)
 	var conflict *jetstream.APIError
 	if errors.As(err, &conflict) && (conflict.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence || conflict.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant) {
@@ -197,7 +235,16 @@ func (s sharedStore) save(ctx context.Context, data []byte, revision uint64) (bo
 	return false, err
 }
 
-func (s sharedStore) close() { s.conn.Close() }
+func (s *sharedStore) close() {}
+
+func (b *emailBudget) dropShared(store reservationStore) {
+	shared, ok := store.(*sharedStore)
+	if !ok || b.shared != shared {
+		return
+	}
+	shared.conn.Close()
+	b.shared = nil
+}
 
 type ledgerStore struct {
 	path string

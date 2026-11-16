@@ -1,5 +1,7 @@
 package alertdelivery
 
+import "time"
+
 const (
 	listenAddress     = "127.0.0.1:9094"
 	stateDirectory    = "/var/lib/ts-alerts"
@@ -10,3 +12,5 @@ const (
 	pushEndpoint      = "https://ntfy.sh/"
 	admissionEndpoint = "https://auth.terrascale.tech/v1/terrascale/email/admission"
 )
+
+var notificationDeadline = 10 * time.Second

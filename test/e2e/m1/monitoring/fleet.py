@@ -24,12 +24,49 @@ regions = ("sjc", "fra", "gru")
 addresses = ("127.0.0.1", "127.0.0.2", "127.0.0.3")
 state = {"readiness": 1, "burst": False}
 emails = []
-pushes = []
 root = Path(__file__).resolve().parents[4]
 counter_alerts = {"TerraBaseBackupFailed", "TerraBaseBackupHoles", "TerraBaseBackupDrillFailed", "TerraBaseReplicaDiverged", "AuthEmailProviderExhausted"}
 budget_alerts = {"AlertDeliveryEmailBudgetExhausted", "AlertDeliveryEmailBudgetUnavailable"}
 handled_line = re.compile(r'production alert notification handled status=(\w+) alerts=(\d+) group=(\w+) alertname=(\S+) region=(\S*) push=(\w+)')
-email_line = re.compile(r'production alert email group=(\w+) sent=(\w+) reason="?([^"]*)"?$')
+email_line = re.compile(r'production alert email group=(\w+) sent=(\w+) reason="?([^"\n]*)"?$')
+peer_timeout = 15.0
+notification_deadline = 10.0
+scale = {"group_wait": 10, "group_interval": 2.5, "repeat_interval": 2.5}
+push_line = re.compile(r'^push received proto=(\S+) body=')
+
+
+def format_scaled(amount, unit, divisor):
+    seconds = amount * {"ms": 0.001, "s": 1, "m": 60, "h": 3600}[unit] / divisor
+    if seconds == 0:
+        return "0s"
+    if seconds < 1:
+        return f"{round(seconds * 1000):.0f}ms"
+    if seconds < 60 and abs(seconds - round(seconds)) < 1e-6:
+        return f"{round(seconds):.0f}s"
+    minutes = seconds / 60
+    if abs(minutes - round(minutes)) < 1e-6:
+        whole = round(minutes)
+        if whole % 60 == 0:
+            return f"{whole // 60:.0f}h"
+        return f"{whole:.0f}m"
+    return f"{seconds:g}s"
+
+
+def scale_alertmanager(text):
+    return re.sub(
+        r"(group_wait|group_interval|repeat_interval): (\d+)(ms|s|m|h)",
+        lambda match: f"{match.group(1)}: {format_scaled(int(match.group(2)), match.group(3), scale[match.group(1)])}",
+        text,
+    )
+
+
+def budget_write_latency(enable):
+    if enable:
+        subprocess.run(["tc", "qdisc", "add", "dev", "lo", "root", "handle", "1:", "prio"], check=True)
+        subprocess.run(["tc", "qdisc", "add", "dev", "lo", "parent", "1:3", "handle", "30:", "netem", "delay", "400ms"], check=True)
+        subprocess.run(["tc", "filter", "add", "dev", "lo", "protocol", "ip", "parent", "1:0", "prio", "3", "u32", "match", "ip", "dport", "4223", "0xffff", "flowid", "1:3"], check=True)
+    else:
+        subprocess.run(["tc", "qdisc", "del", "dev", "lo", "root"], check=False)
 
 
 def request(address, port, path, body=None):
@@ -47,6 +84,21 @@ def query(index, expression):
     result = json.loads(request(addresses[index], 9090, "/api/v1/query?" + urlencode({"query": expression})))
     assert result["status"] == "success", result
     return result["data"]["result"]
+
+
+def burst_reserved(names):
+    delivered = {}
+    for entry in groups("firing", names):
+        if entry[6] != "true":
+            continue
+        delivered.setdefault(entry[4], []).append(entry)
+    if set(delivered) != names:
+        return False
+    for entries in delivered.values():
+        mails = [mail for entry in entries for mail in email_of(entry)]
+        if not mails or any(mail[3] == "budget unavailable" for mail in mails):
+            return False
+    return True
 
 
 def await_event(description, predicate, seconds=45):
@@ -92,6 +144,14 @@ def handled():
 
 def mailed():
     return [(relay.address,) + match.groups() for relay in relays for line in list(relay.lines) for match in [email_line.search(line)] if match]
+
+
+def pushes():
+    return [match.group(1) for line in list(provider.lines) for match in [push_line.search(line)] if match]
+
+
+def plan_push(plan):
+    request("127.0.0.9", 8027, "/plan", json.dumps(plan))
 
 
 def email_of(entry):
@@ -145,10 +205,6 @@ class Providers(BaseHTTPRequestHandler):
         elif self.path.startswith("/accounts/") and self.path.endswith("/email/sending/send"):
             emails.append(json.loads(body))
             self.reply({"success": True, "result": {"delivered": ["mariogk@terrascale.tech"], "queued": [], "permanent_bounces": [], "suppressed_recipients": []}})
-        elif self.path.startswith("/push/"):
-            topic = self.path.removeprefix("/push/")
-            pushes.append(body.decode())
-            self.reply({"id": secrets.token_hex(6), "event": "message", "topic": topic})
         else:
             self.send_response(404)
             self.end_headers()
@@ -183,7 +239,7 @@ for key, value in {"cloudflare_account_id_file": secrets.token_hex(16), "cloudfl
 
 def relay_process(name, address, directory, layout):
     directory.mkdir(parents=True, exist_ok=True)
-    process = launch(name, [str(work / "relay")], env={**os.environ, "JOURNEY_RELAY_ADDRESS": address, "JOURNEY_RELAY_STATE": str(directory), "JOURNEY_RELAY_LAYOUT": str(layout)})
+    process = launch(name, [str(work / "relay")], env={**os.environ, "SSL_CERT_FILE": str(work / "push.pem"), "JOURNEY_RELAY_ADDRESS": address, "JOURNEY_RELAY_STATE": str(directory), "JOURNEY_RELAY_LAYOUT": str(layout)})
     process.address = address
     return process
 
@@ -197,10 +253,23 @@ def post_relay(address, key, name):
     return response.status
 
 
+def budget_proxy_case(mode, address, description, fault):
+    proxy = launch("budget-proxy-" + mode, [str(work / "metrics"), "budget-proxy", mode, address + ":4223", addresses[0] + ":4223"])
+    await_event(f"the {mode} budget proxy is ready", lambda: any("budget proxy ready" in line for line in proxy.lines))
+    relays.append(relay_process("relay-" + mode, address, work / mode / "relay", work / "sjc" / "alertmanager.env"))
+    await_event(f"a fleet relay behind the {mode} proxy starts", lambda: "relay-" + mode in ready)
+    sent = len(emails)
+    assert post_relay(address, mode, "Budget" + mode.title().replace("-", "")) == 202
+    await_event(description, lambda: [m[2:] for m in mailed() if m[0] == address] == [("true", "")], seconds=15)
+    assert len(emails) == sent + 1 and any(fault in line for line in proxy.lines), (len(emails) - sent, proxy.lines)
+
+
 try:
     providers = ThreadingHTTPServer(("127.0.0.9", 8025), Providers)
     servers.append(providers)
     threading.Thread(target=providers.serve_forever, daemon=True).start()
+    provider = launch("push-provider", [str(work / "metrics"), "push", "127.0.0.9", str(work / "push.pem")])
+    await_event("the HTTP/2 push provider is ready", lambda: any("push provider ready" in line for line in provider.lines))
     launch("metrics", [str(work / "metrics"), str(work / "mesh-state")])
     for region, address in zip(regions, addresses):
         directory = work / region
@@ -238,8 +307,8 @@ try:
         generated["groups"] = [group for group in generated["groups"] if group["rules"]]
         (directory / "prometheus.yml").write_text(json.dumps(config))
         (directory / "rules.yml").write_text(json.dumps(generated))
-        (directory / "alertmanager.yml").write_text((root / "deploy/observability/production/alertmanager.yml").read_text().replace("127.0.0.1:9094", address + ":9094"))
-        command = [str(tools / "alertmanager"), "--config.file=" + str(directory / "alertmanager.yml"), "--storage.path=" + str(directory / "alerts"), "--web.listen-address=" + address + ":9093", "--cluster.listen-address=" + address + ":9095", "--cluster.advertise-address=" + address + ":9095"]
+        (directory / "alertmanager.yml").write_text(scale_alertmanager((root / "deploy/observability/production/alertmanager.yml").read_text().replace("127.0.0.1:9094", address + ":9094")))
+        command = [str(tools / "alertmanager"), "--config.file=" + str(directory / "alertmanager.yml"), "--storage.path=" + str(directory / "alerts"), "--web.listen-address=" + address + ":9093", "--cluster.listen-address=" + address + ":9095", "--cluster.advertise-address=" + address + ":9095", "--cluster.peer-timeout=15s"]
         command.extend("--cluster.peer=" + a + ":9095" for a in addresses if a != address)
         alertmanagers.append(launch("alertmanager-" + region, command))
         prometheuses.append(launch("prometheus-" + region, [str(tools / "prometheus"), "--config.file=" + str(directory / "prometheus.yml"), "--storage.tsdb.path=" + str(directory / "data"), "--web.listen-address=" + address + ":9090"], directory))
@@ -253,7 +322,7 @@ try:
     for i in range(3):
         active = json.loads(request(addresses[i], 9090, "/api/v1/alerts"))["data"]["alerts"]
         assert not [a for a in active if a["labels"]["alertname"] in counter_alerts | budget_alerts], active
-    assert not handled() and not pushes and not emails, (handled(), pushes, emails)
+    assert not handled() and not pushes() and not emails, (handled(), pushes(), emails)
     state["readiness"] = 0
     await_event("relay perspectives aggregate one pending service outage", lambda: all(len(query(i, 'ALERTS{alertname="ServiceReadinessFailed",alertstate="pending",service="ts-dashboard",region="global"}')) == 1 for i in range(3)))
     for i in range(3):
@@ -265,17 +334,26 @@ try:
     digest = json.dumps({"status": "firing", "alerts": [{"status": "firing", "labels": {"alertname": "LaneDigest", "severity": "warning"}}]})
     request(addresses[1], 9094, "/alerts/digest", digest)
     await_event("before the mesh token exists a digest is withheld as budget unavailable", lambda: [m[2:] for m in mailed()] == [("false", 'budget unavailable')])
-    credential("ts_alerts_nats_token_file", token)
+    subprocess.run([str(work / "relay"), "copy-token"], env={**os.environ, "JOURNEY_RELAY_STATE": str(work / "sjc" / "budget")}, check=True)
+    assert (credentials / "ts_alerts_nats_token_file").read_text() == token
     request(addresses[1], 9094, "/alerts/digest", digest)
     await_event("once the token appears the running relay emails the digest, without a restart, and never pushes", lambda: len(emails) == 1)
     assert emails[0]["subject"] == "TerraScale daily alert digest" and all(entry[6] == "false" for entry in groups("firing", {"LaneDigest"})), (emails, handled())
     incident = {"alertname": "RuntimePeerTopologyMismatch", "service": "ts-orch", "region": "global", "severity": "critical"}
     post_alerts([incident])
-    await_event("a firing topology incident reaches exactly one relay with production timings", lambda: len(groups("firing", {"RuntimePeerTopologyMismatch"})) == 1, seconds=40)
+    await_event("a firing topology incident reaches exactly one relay", lambda: len(groups("firing", {"RuntimePeerTopologyMismatch"})) == 1, seconds=20)
     post_alerts([incident], ends=datetime.now(UTC).isoformat())
-    names = {f"JourneyBudget{index}" for index in range(12)}
-    post_alerts([{**incident, "alertname": name, "service": "ts-dashboard"} for name in sorted(names)])
-    await_event("twelve more critical groups push once each", lambda: len(groups("firing", names)) == 12 and len([m for e in groups("firing", names) for m in email_of(e)]) == 12, seconds=60)
+    budget_proxy_case("lose-ack", "127.0.0.5", "a reservation whose write acknowledgement is lost is read back and emailed once", "dropped publish ack")
+    budget_proxy_case("slow-read", "127.0.0.6", "a budget store that answers the ledger read after 2.5s still emails", "delayed ledger read")
+    names = {f"JourneyBudget{index}" for index in range(20)}
+    unavailable = len([m for m in mailed() if m[3] == "budget unavailable"])
+    budget_write_latency(True)
+    try:
+        post_alerts([{**incident, "alertname": name, "service": "ts-dashboard"} for name in sorted(names)])
+        await_event("twenty critical groups reserve under 400ms write latency", lambda: burst_reserved(names), seconds=60)
+    finally:
+        budget_write_latency(False)
+    assert len([m for m in mailed() if m[3] == "budget unavailable"]) == unavailable
     assert len(emails) == 12 and any(m[3] == "hourly cap" for e in groups("firing", names) for m in email_of(e)), (emails, mailed())
     assert all(entry[6] == "true" for entry in handled() if entry[4] != "LaneDigest"), handled()
     await_event("the withheld email pages by push", lambda: len(groups("firing", {"AlertDeliveryEmailBudgetUnavailable"})) == 1, seconds=90)
@@ -302,7 +380,7 @@ try:
     assert len(burst()) == len(expected) and len(emails) == 12, (burst(), emails)
     keys = [entry[3] for entry in handled() if entry[4] != "LaneDigest"]
     assert len(keys) == len(set(keys)), handled()
-    assert len(pushes) == len([entry for entry in handled() if entry[6] == "true"]), (pushes, handled())
+    assert len(pushes()) == len([entry for entry in handled() if entry[6] == "true"]) and set(pushes()) == {"HTTP/2.0"}, (pushes(), handled())
     labels = {"service": "ts-dashboard", "slo": "availability", "severity": "critical"}
     request(addresses[0], 9093, "/api/v2/alerts", json.dumps([{"labels": {**labels, "alertname": "ServiceSLOBurnFastGlobal", "region": "global"}}, {"labels": {**labels, "alertname": "ServiceSLOBurnFast", "region": "sjc"}}]))
     regional = lambda: json.loads(request(addresses[0], 9093, "/api/v2/alerts?" + urlencode({"filter": 'alertname="ServiceSLOBurnFast"'})))
@@ -327,7 +405,54 @@ try:
     await_event("the old-layout relay keeps emailing from its own ledger", lambda: len(emails) == 13)
     ledger = json.loads((work / "gru-old" / "relay" / "email-ledger.json").read_text())
     assert len(ledger) == 1 and emails[-1]["text"].startswith("firing: OldLayoutIncident"), (ledger, emails[-1])
-    print(f"monitoring: production Alertmanager 0.34.1 timings x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; a missing mesh token withholds email and pages, the token appearing later is used without a restart; topology incident firing then resolved across the region loss -> one notification each; fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; hung budget store + 13 concurrent notifications -> 13 pushes and 13 withheld emails; old-layout relay still emails from its ledger; passed")
+    ledger_dir = work / "gru-old" / "relay"
+    kept = (ledger_dir / "email-ledger.json").read_bytes()
+    subprocess.run(["mount", "-t", "tmpfs", "-o", "size=8k", "tmpfs", str(ledger_dir)], check=True)
+    (ledger_dir / "email-ledger.json").write_bytes(kept)
+    subprocess.run(["dd", "if=/dev/zero", "of=" + str(ledger_dir / "fill"), "bs=4096"], stderr=subprocess.DEVNULL, check=False)
+    sent = len(emails)
+    full = {f"FullLedger{index}" for index in range(3)}
+    for index in range(3):
+        assert post_relay("127.0.0.4", f"full-ledger-{index}", f"FullLedger{index}") == 202
+    decisions = lambda: sorted(m[3] for m in mailed() if m[1] in {e[3] for e in groups("firing", full)})
+    await_event("a ledger that cannot write withholds every email as budget unavailable", lambda: len(decisions()) == 3)
+    metrics = request("127.0.0.4", 9094, "/metrics").decode()
+    assert decisions() == ["budget unavailable"] * 3 and len(emails) == sent, (decisions(), len(emails) - sent)
+    assert (ledger_dir / "email-ledger.json").read_bytes() == kept and 'reason="budget_unavailable"} 3' in metrics, metrics
+    before = len(pushes())
+    plan_push({"hold": notification_deadline - 0.2})
+    post_alerts([{"alertname": "LaneSlowPush", "service": "ts-orch", "region": "global", "severity": "critical"}])
+    await_event("a provider that replies just inside the deadline yields one notification", lambda: len(pushes()) == before + 1 and len(groups("firing", {"LaneSlowPush"})) == 1, seconds=notification_deadline + peer_timeout)
+    quiet_until = time.monotonic() + peer_timeout + 2
+    while time.monotonic() < quiet_until:
+        if len(pushes()) != before + 1:
+            raise RuntimeError(f"slow push duplicated: {len(pushes()) - before}")
+        try:
+            events.get(timeout=quiet_until - time.monotonic())
+        except queue.Empty:
+            break
+    assert len(pushes()) == before + 1 and len(groups("firing", {"LaneSlowPush"})) == 1, groups("firing", {"LaneSlowPush"})
+    before = len(pushes())
+    plan_push({"hang": True})
+    assert post_relay(addresses[0], "late-direct", "LaneLateDirect") == 502
+    assert len(pushes()) == before + 1
+    before = len(pushes())
+    failed = sum("production alert push failed" in line for relay in relays for line in relay.lines)
+    plan_push({"hang": True})
+    post_alerts([{"alertname": "LaneLatePush", "service": "ts-orch", "region": "global", "severity": "critical"}])
+    await_event("a page whose push outlives the deadline is a 502 that Alertmanager retries before the next peer sends", lambda: len([e for e in groups("firing", {"LaneLatePush"}) if e[6] == "true"]) == 1 and len(pushes()) == before + 2, seconds=notification_deadline + peer_timeout)
+    quiet_until = time.monotonic() + peer_timeout + 2
+    while time.monotonic() < quiet_until:
+        if len(pushes()) != before + 2:
+            raise RuntimeError(f"late push duplicated: {len(pushes()) - before}")
+        try:
+            events.get(timeout=quiet_until - time.monotonic())
+        except queue.Empty:
+            break
+    later = sum("production alert push failed" in line for relay in relays for line in relay.lines)
+    late = groups("firing", {"LaneLatePush"})
+    assert len(alive) == 2 and len(pushes()) == before + 2 and later == failed + 1 and [e[6] for e in late] == ["false", "true"] and len({e[0] for e in late}) == 1, (len(pushes()) - before, later - failed, late)
+    print(f"monitoring: scaled Alertmanager timings x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; a missing mesh token withholds email and pages, copy-token installs it without Vault; topology incident firing then resolved across the region loss -> one notification each; an HTTP/2 provider that answers just inside the deadline pushes once, and one that never answers is a single 502 that Alertmanager retries before the next peer sends, with both surviving Alertmanagers up; twenty groups at 400ms write latency reserve without a budget-unavailable page; fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; hung budget store + 13 concurrent notifications -> 13 pushes and 13 withheld emails; old-layout relay still emails from its ledger, and when that ledger cannot write it withholds every email as budget unavailable; a reservation whose write acknowledgement is lost is read back and emailed once, and a ledger read answered after 2.5s still emails; passed")
 finally:
     for server in servers:
         server.shutdown()
