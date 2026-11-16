@@ -270,7 +270,7 @@ func start(cfg config) (_ *Node, err error) {
 	if !embedded.ReadyForConnections(10 * time.Second) {
 		return nil, log.failure()
 	}
-	conn, err := dialLocal(cfg.localPort, orchUser, secret)
+	conn, err := dialLocal(cfg.localPort, OrchUser, secret)
 	if err != nil {
 		return nil, err
 	}
@@ -349,9 +349,10 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".fence"] = func(m *nats.Msg) { node.handleBootstrapFence(m) }
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".clear"] = func(m *nats.Msg) { node.handleBootstrapClear(m) }
+	handlers[regionRoutesSubject(cfg.region)] = node.receiveRegionRoutes
 	for subject, handler := range handlers {
 		var err error
-		if subject == protocol.MeshWorkerPrefix+cfg.region {
+		if subject == protocol.MeshWorkerPrefix+cfg.region || subject == regionRoutesSubject(cfg.region) {
 			_, err = conn.Subscribe(subject, handler)
 		} else {
 			_, err = conn.QueueSubscribe(subject, cfg.region, handler)
@@ -371,6 +372,7 @@ func start(cfg config) (_ *Node, err error) {
 	node.goWork(func() { node.announce(ctx) })
 	if cfg.applier != nil {
 		node.goWork(func() { node.refreshJoined(ctx) })
+		node.goWork(node.shareRegionRoutes)
 	}
 	return node, nil
 }

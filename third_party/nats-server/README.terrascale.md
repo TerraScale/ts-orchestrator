@@ -100,6 +100,13 @@ region: its in-region routes are only the configured VCN routes, and gossip
 still connects other regions over NetBird. The check only declines to dial; it
 never closes or replaces an established route. Unset, behavior is unchanged.
 
+`server/route.go` also adds `Server.AddRoutes`, which appends routes to the
+configured list and solicits them (with the pinned accounts) the way a config
+reload's added routes are, without touching any existing route or connection.
+The mesh calls it when a manager's live cluster membership names an in-region
+host it has no route to, so hosts that started from older join material still
+reach every in-region peer over the VCN.
+
 Compare this directory with the upstream `v2.15.0` Go module archive before
 upgrading. Apart from this README,
 `server/server.go`, `server/accounts.go`, `server/leafnode.go`,

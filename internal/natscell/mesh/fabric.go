@@ -21,7 +21,7 @@ const (
 	ClusterName   = "terrascale"
 	FabricAccount = "TERRABASE"
 	OrchAccount   = "ORCH"
-	orchUser      = "orch"
+	OrchUser      = "orch"
 	alertsAccount = "ALERTS"
 	AlertsUser    = "ts-alerts"
 	fabricUser    = "ts-orch"
@@ -44,7 +44,7 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 	}
 	options.CustomClientAuthentication = &clientAuth{
 		users: map[string]credential{
-			orchUser:   {secret: orchSecret, account: OrchAccount},
+			OrchUser:   {secret: orchSecret, account: OrchAccount},
 			fabricUser: {secret: fabricSecret, account: FabricAccount},
 			AlertsUser: {secret: alertsSecret, account: alertsAccount},
 		},

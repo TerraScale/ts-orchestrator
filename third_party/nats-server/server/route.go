@@ -3058,6 +3058,36 @@ func (s *Server) solicitRoutes(routes []*url.URL, accounts []string) {
 	}
 }
 
+// AddRoutes configures and solicits the given routes, skipping those already
+// configured. Existing routes and their connections are left untouched.
+func (s *Server) AddRoutes(routes []*url.URL) {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	opts := s.getOpts().Clone()
+	var added []*url.URL
+	for _, route := range routes {
+		configured := false
+		for _, existing := range opts.Routes {
+			if urlsAreEqual(existing, route) {
+				configured = true
+				break
+			}
+		}
+		if !configured {
+			opts.Routes = append(opts.Routes, route)
+			added = append(added, route)
+		}
+	}
+	if len(added) == 0 {
+		return
+	}
+	s.setOpts(opts)
+	s.mu.Lock()
+	s.varzUpdateRouteURLs = true
+	s.solicitRoutes(added, opts.Cluster.PinnedAccounts)
+	s.mu.Unlock()
+}
+
 func (c *client) processRouteConnect(srv *Server, arg []byte, lang string) error {
 	// Way to detect clients that incorrectly connect to the route listen
 	// port. Client provide Lang in the CONNECT protocol while ROUTEs don't.

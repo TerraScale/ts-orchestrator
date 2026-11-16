@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -65,7 +66,7 @@ type Fleet struct {
 	run      int
 }
 
-func New(ctx context.Context, work, binary string, registry string, regions []string, hostsPerRegion int) (*Fleet, error) {
+func New(ctx context.Context, work, binary string, registry string, regions []string, hostsPerRegion []int) (*Fleet, error) {
 	unix.Umask(0o022)
 	f := &Fleet{Work: work, Binary: binary, Registry: registry}
 	if err := os.MkdirAll(work, 0o755); err != nil {
@@ -77,7 +78,7 @@ func New(ctx context.Context, work, binary string, registry string, regions []st
 			return nil, fmt.Errorf("%s is not a catalog region", name)
 		}
 		region := &Region{Name: name, OCIRegion: entry.OCIRegion}
-		for i := 1; i <= hostsPerRegion; i++ {
+		for i := 1; i <= hostsPerRegion[r]; i++ {
 			octet := 10*(r+1) + i
 			netBird := netBirdMesh.Addr().As4()
 			netBird[3] = byte(octet)
@@ -375,6 +376,35 @@ func (h *Host) Established(ctx context.Context, port int) ([]string, error) {
 	return peers, nil
 }
 
+func (h *Host) Dial(network, address string) (net.Conn, error) {
+	runtime.LockOSThread()
+	own, err := os.Open("/proc/thread-self/ns/net")
+	if err != nil {
+		runtime.UnlockOSThread()
+		return nil, err
+	}
+	defer own.Close()
+	target, err := os.Open(filepath.Join("/run/netns", h.Namespace))
+	if err != nil {
+		runtime.UnlockOSThread()
+		return nil, err
+	}
+	defer target.Close()
+	if err := unix.Setns(int(target.Fd()), unix.CLONE_NEWNET); err != nil {
+		runtime.UnlockOSThread()
+		return nil, err
+	}
+	conn, dialErr := net.DialTimeout(network, address, 5*time.Second)
+	if err := unix.Setns(int(own.Fd()), unix.CLONE_NEWNET); err != nil {
+		if conn != nil {
+			conn.Close()
+		}
+		return nil, err
+	}
+	runtime.UnlockOSThread()
+	return conn, dialErr
+}
+
 func (h *Host) State(path string) string { return filepath.Join(h.Dir, "state", path) }
 
 func (h *Host) ReleaseRegion() (releasepush.Region, error) {
@@ -425,6 +455,20 @@ func (f *Fleet) Secret(name string) (string, int) {
 		return "", 0
 	}
 	return string(item.Versions[len(item.Versions)-1]), len(item.Versions)
+}
+
+func (f *Fleet) PinSecret(name string) string {
+	f.standIn.mu.Lock()
+	defer f.standIn.mu.Unlock()
+	item := f.standIn.secrets[name]
+	f.standIn.pinned[name] = len(item.Versions)
+	return string(item.Versions[len(item.Versions)-1])
+}
+
+func (f *Fleet) UnpinSecret(name string) {
+	f.standIn.mu.Lock()
+	defer f.standIn.mu.Unlock()
+	delete(f.standIn.pinned, name)
 }
 
 func (f *Fleet) WaitSecret(ctx context.Context, name string, match func(string) bool) (string, error) {

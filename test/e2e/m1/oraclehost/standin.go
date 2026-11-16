@@ -58,6 +58,7 @@ type standIn struct {
 	signer   *rsa.PrivateKey
 	mu       sync.Mutex
 	secrets  map[string]*secret
+	pinned   map[string]int
 	changed  chan struct{}
 	requests map[string]int
 	servers  []*http.Server
@@ -85,7 +86,7 @@ func newStandIn(f *Fleet) (*standIn, *tls.Certificate, error) {
 	for _, region := range f.Regions {
 		names = append(names, "auth."+region.OCIRegion+".oraclecloud.com")
 	}
-	s := &standIn{fleet: f, names: names, secrets: map[string]*secret{}, changed: make(chan struct{}), requests: map[string]int{}}
+	s := &standIn{fleet: f, names: names, secrets: map[string]*secret{}, pinned: map[string]int{}, changed: make(chan struct{}), requests: map[string]int{}}
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
@@ -308,10 +309,14 @@ func (s *standIn) bundle(w http.ResponseWriter, r *http.Request) {
 		serviceError(w, http.StatusNotFound, "NotAuthorizedOrNotFound", "secret not found")
 		return
 	}
+	version := len(item.Versions)
+	if pinned := s.pinned[item.Name]; pinned != 0 {
+		version = pinned
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"secretId": item.ID, "versionNumber": len(item.Versions), "stages": []string{"CURRENT", "LATEST"},
+		"secretId": item.ID, "versionNumber": version, "stages": []string{"CURRENT", "LATEST"},
 		"timeCreated":         time.Now().UTC().Format(time.RFC3339),
-		"secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString(item.Versions[len(item.Versions)-1])},
+		"secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString(item.Versions[version-1])},
 	})
 }
 

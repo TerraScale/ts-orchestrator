@@ -13,8 +13,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/oraclehost"
+	"github.com/nats-io/nats.go"
 )
 
 var started = time.Now()
@@ -114,6 +116,57 @@ func meshRoutes(ctx context.Context, fleet *oraclehost.Fleet) {
 	}
 }
 
+func meshToken(host *oraclehost.Host, name string) string {
+	data, err := os.ReadFile(host.State("mesh/" + name))
+	must(err)
+	return strings.TrimSpace(string(data))
+}
+
+func delivered(ctx context.Context, fleet *oraclehost.Fleet, from, to *oraclehost.Host) {
+	terrabase, _ := fleet.Secret(mesh.TerraBaseTokenSecret)
+	accounts := []struct {
+		name       string
+		credential func(*oraclehost.Host) nats.Option
+	}{
+		{mesh.OrchAccount, func(host *oraclehost.Host) nats.Option {
+			return nats.UserInfo(mesh.OrchUser, meshToken(host, "client.token"))
+		}},
+		{mesh.FabricAccount, func(*oraclehost.Host) nats.Option { return nats.Token(strings.ToLower(strings.TrimSpace(terrabase))) }},
+		{"ALERTS", func(host *oraclehost.Host) nats.Option {
+			return nats.UserInfo(mesh.AlertsUser, meshToken(host, "alerts.token"))
+		}},
+	}
+	address := fmt.Sprintf("nats://127.0.0.1:%d", mesh.LocalPort)
+	for _, account := range accounts {
+		subject := "terrabase.e2e." + from.Name + "." + to.Name
+		receiver, err := nats.Connect(address, nats.SetCustomDialer(to), account.credential(to))
+		must(err)
+		subscription, err := receiver.SubscribeSync(subject)
+		must(err)
+		must(receiver.Flush())
+		sender, err := nats.Connect(address, nats.SetCustomDialer(from), account.credential(from))
+		must(err)
+		until(ctx, fmt.Sprintf("%s delivery %s -> %s", account.name, from.Name, to.Name), func() error {
+			if err := sender.Publish(subject, []byte(from.Name)); err != nil {
+				return err
+			}
+			if err := sender.Flush(); err != nil {
+				return err
+			}
+			message, err := subscription.NextMsg(time.Second)
+			if err != nil {
+				return err
+			}
+			if string(message.Data) != from.Name {
+				return fmt.Errorf("received %q", message.Data)
+			}
+			return nil
+		})
+		sender.Close()
+		receiver.Close()
+	}
+}
+
 func statusLine(output []byte, region string) string {
 	for _, line := range strings.Split(string(output), "\n") {
 		if strings.HasPrefix(line, region+": ") {
@@ -195,7 +248,7 @@ func main() {
 	defer cancel()
 	first := revision(binary)
 	spec := workload(specFile, filepath.Join(os.Args[3], "..", "images.json"))
-	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, 2)
+	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{3, 2, 2})
 	must(err)
 	defer fleet.Close()
 	defer func() {
@@ -227,6 +280,13 @@ func main() {
 		require(material.Founder == region.Hosts[0].Name && material.Manager == region.Hosts[0].Address+":4242", "%s join material names founder %s at %s", region.Name, material.Founder, material.Manager)
 	}
 	step("each founder claimed and published its region's join material in Vault")
+	gru := fleet.Regions[0]
+	var stale regionjoin.Material
+	must(json.Unmarshal([]byte(fleet.PinSecret(regionjoin.SecretName(gru.Name))), &stale))
+	for _, worker := range gru.Hosts[1:] {
+		require(!strings.Contains(strings.Join(stale.Routes, " "), "//"+worker.Address+":"), "%s pinned join material lists %s: %v", gru.Name, worker.Name, stale.Routes)
+	}
+	step("%s join material pinned at a version that lists neither %s nor %s: %v", gru.Name, gru.Hosts[1].Name, gru.Hosts[2].Name, stale.Routes)
 	must(fleet.Boot(workers...))
 	for _, worker := range workers {
 		_, err := worker.WaitReady(ctx, 0, first)
@@ -234,6 +294,10 @@ func main() {
 	}
 	step("workers joined from Vault join material and sent READY=1")
 	meshUp(ctx, fleet)
+	delivered(ctx, fleet, gru.Hosts[1], gru.Hosts[2])
+	delivered(ctx, fleet, gru.Hosts[2], gru.Hosts[1])
+	fleet.UnpinSecret(regionjoin.SecretName(gru.Name))
+	step("%s and %s, joined from material that lists neither, route to each other over the VCN and deliver ORCH, TERRABASE and ALERTS both ways", gru.Hosts[1].Name, gru.Hosts[2].Name)
 	applied := filepath.Join(work, "workload.json")
 	data, err := json.Marshal(spec)
 	must(err)
