@@ -1,4 +1,4 @@
-package regionhost
+package nodeinit
 
 import (
 	"encoding/base64"
@@ -9,18 +9,47 @@ import (
 
 var (
 	sha256Hex      = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	filesystemUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	FilesystemUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	volumeIdentity = regexp.MustCompile(`^ocid1\.volume\.oc[0-9]+\.[a-z0-9-]+\.[a-zA-Z0-9]+$`)
-	diskSerial     = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+	DiskSerial     = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
 	plainURL       = regexp.MustCompile(`^https://[A-Za-z0-9./_:%-]+$`)
 )
 
 func CloudInit(files fs.FS, binaryURL, sum, volumeID, expectedUUID, expectedSerial string, mayFormat bool) (string, error) {
+	if !volumeIdentity.MatchString(volumeID) || (expectedUUID != "" && !FilesystemUUID.MatchString(expectedUUID)) || (!mayFormat && expectedUUID == "") || (expectedSerial != "" && !DiskSerial.MatchString(expectedSerial)) || (mayFormat && (expectedUUID != "" || expectedSerial != "")) {
+		return "", fmt.Errorf("data volume requires an identity and an expected UUID unless created in this run")
+	}
+	return hostScript(files, binaryURL, sum, fmt.Sprintf("bash /usr/local/lib/ts-orch/data-volume.sh %t '%s' '%s' '%s'\n", mayFormat, volumeID, expectedUUID, expectedSerial))
+}
+
+func PoolCloudInit(files fs.FS, binaryURL, sum string) (string, error) {
+	return hostScript(files, binaryURL, sum, poolDataVolume)
+}
+
+const (
+	VolumeKey = "terrascale-data-volume"
+	FormatKey = "terrascale-data-may-format"
+	UUIDKey   = "terrascale-data-uuid"
+)
+
+func PoolBinding(volumeID, filesystem string, mayFormat bool) map[string]string {
+	return map[string]string{VolumeKey: volumeID, FormatKey: fmt.Sprint(mayFormat), UUIDKey: filesystem}
+}
+
+const poolDataVolume = `metadata() { curl -fsS --max-time 8 -H 'Authorization: Bearer Oracle' "http://169.254.169.254/opc/v2/instance/metadata/$1"; }
+volume=
+for attempt in $(seq 120); do
+	volume=$(metadata terrascale-data-volume) && break
+	echo "waiting for region apply to bind a data volume ($attempt)"
+	sleep 10
+done
+test -n "$volume" || { echo "no data volume was bound to this node within 20 minutes; run ts-orch region apply <label> compute" >&2; exit 1; }
+bash /usr/local/lib/ts-orch/data-volume.sh "$(metadata terrascale-data-may-format)" "$volume" "$(metadata terrascale-data-uuid)" ''
+`
+
+func hostScript(files fs.FS, binaryURL, sum, dataVolume string) (string, error) {
 	if !sha256Hex.MatchString(sum) || !plainURL.MatchString(binaryURL) {
 		return "", fmt.Errorf("release asset needs a plain https URL and a lowercase sha256")
-	}
-	if !volumeIdentity.MatchString(volumeID) || (expectedUUID != "" && !filesystemUUID.MatchString(expectedUUID)) || (!mayFormat && expectedUUID == "") || (expectedSerial != "" && !diskSerial.MatchString(expectedSerial)) || (mayFormat && (expectedUUID != "" || expectedSerial != "")) {
-		return "", fmt.Errorf("data volume requires an identity and an expected UUID unless created in this run")
 	}
 	runtime, err := fs.ReadFile(files, "host-runtime.sh")
 	if err != nil {
@@ -38,8 +67,7 @@ func CloudInit(files fs.FS, binaryURL, sum, volumeID, expectedUUID, expectedSeri
 set -euo pipefail
 install -d -m 0755 /usr/local/lib/ts-orch
 echo '%s' | base64 -d > /usr/local/lib/ts-orch/data-volume.sh
-bash /usr/local/lib/ts-orch/data-volume.sh %t '%s' '%s' '%s'
-echo '%s' | base64 -d | bash
+%secho '%s' | base64 -d | bash
 if ! command -v netbird >/dev/null; then
 	curl -fsSL https://pkgs.netbird.io/debian/public.key | gpg --dearmor --yes -o /usr/share/keyrings/netbird-archive-keyring.gpg
 	echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' > /etc/apt/sources.list.d/netbird.list
@@ -66,7 +94,7 @@ systemctl daemon-reload
 systemctl enable ts-orch.service netbird-server.service terrascale-ts-auth-metadata.service
 systemctl start terrascale-ts-auth-metadata.service
 systemctl restart ts-orch.service netbird-server.service
-`, base64.StdEncoding.EncodeToString([]byte(dataVolumeSetup)), mayFormat, volumeID, expectedUUID, expectedSerial, base64.StdEncoding.EncodeToString(runtime), binaryURL, sum, base64.StdEncoding.EncodeToString(unit),
+`, base64.StdEncoding.EncodeToString([]byte(dataVolumeSetup)), dataVolume, base64.StdEncoding.EncodeToString(runtime), binaryURL, sum, base64.StdEncoding.EncodeToString(unit),
 		base64.StdEncoding.EncodeToString(companion)), nil
 }
 
@@ -85,7 +113,7 @@ if test -n "$expected_serial"; then
  [[ $expected_serial =~ ^[0-9a-fA-F]{32}$ ]] || exit 1
 fi
 if test "$may_format" = true; then
- test -z "$expected_uuid" && test -z "$expected_serial" || exit 1
+ test -z "$expected_serial" || exit 1
 else
  test -n "$expected_uuid" || exit 1
 fi
@@ -118,7 +146,7 @@ mounts=$(printf '%s' "$mounts" | tr -d '[:space:]') || probe_failed lsblk-mounts
 test -z "$mounts" || probe_failed lsblk-mounts
 size=$(timeout 10 blockdev --getsize64 "$device" 2>&1) || probe_failed blockdev-size
 [[ $size =~ ^[0-9]+$ ]] || probe_failed blockdev-size
-if test "$may_format" = true && test -z "$expected_uuid"; then
+if test "$may_format" = true; then
  test ! -e "$record" || probe_failed permission-consumed
  instance=$(timeout 10 curl -fsS --max-time 8 -H 'Authorization: Bearer Oracle' http://169.254.169.254/opc/v2/instance/) || probe_failed instance-binding
  printf '%s' "$instance" | timeout 10 python3 -c '
@@ -169,7 +197,11 @@ if bound_volume != volume or bound_permission != permission:
  (set -o noclobber; printf 'volume=%s\nserial=%s\nsize=%s\ntime=%s\n' "$expected_volume" "$serial" "$size" "$consumed_at" > "$record") || probe_failed permission-consumed
  sync -f "$record" || probe_failed durable-permission
  sync -f /var/lib/ts-orch-bootstrap || probe_failed durable-directory
- mkfs.ext4 -q "$device"
+ if test -n "$expected_uuid"; then
+  mkfs.ext4 -q -U "$expected_uuid" "$device"
+ else
+  mkfs.ext4 -q "$device"
+ fi
 fi
 fstype=$(timeout 10 blkid -p -s TYPE -o value "$device" 2>&1) || probe_failed blkid-type
 test -n "$fstype" && test "$fstype" = ext4 || probe_failed filesystem-type

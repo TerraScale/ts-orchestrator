@@ -8,6 +8,7 @@ import (
 	"maps"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/nodeinit"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/nats-io/nats.go"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -17,9 +18,9 @@ const dataDevice = "/dev/oracleoci/oraclevdb"
 const dataPolicy = "ts-host-data-daily-7d"
 const dataFormattedTag = "terrascale-data-formatted"
 const dataSerialTag = "terrascale-data-serial"
-const dataUUIDTag = "terrascale-data-uuid"
-const dataVolumeTag = "terrascale-data-volume"
-const dataFormatTag = "terrascale-data-may-format"
+const dataUUIDTag = nodeinit.UUIDKey
+const dataVolumeTag = nodeinit.VolumeKey
+const dataFormatTag = nodeinit.FormatKey
 const dataInstanceTag = "terrascale-data-instance"
 
 func volumeTags(host string) map[string]string {
@@ -323,7 +324,7 @@ func (r *run) confirmDataMounted(host string, instance *core.Instance, volume *c
 	if err != nil {
 		return err
 	}
-	if mount.MountPoint != "/var/lib/ts-data" || mount.Device != dataDevice || mount.FilesystemType != "ext4" || !filesystemUUID.MatchString(mount.UUID) || !diskSerial.MatchString(mount.Serial) {
+	if mount.MountPoint != "/var/lib/ts-data" || mount.Device != dataDevice || mount.FilesystemType != "ext4" || !nodeinit.FilesystemUUID.MatchString(mount.UUID) || !nodeinit.DiskSerial.MatchString(mount.Serial) {
 		return fmt.Errorf("host %s data mount identity mismatch: got %+v; want /var/lib/ts-data on %s, ext4, a filesystem UUID and a disk serial", host, mount, dataDevice)
 	}
 	expectedSize := deref(read.SizeInGBs) * 1024 * 1024 * 1024
