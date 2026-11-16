@@ -263,6 +263,9 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		if err != nil {
 			return u.wait(ctx, host.Name+" does not answer: "+err.Error())
 		}
+		if row.State == HostNewer && row.Version == reply.Version {
+			continue
+		}
 		row.Version, row.SHA256 = reply.Version, reply.SHA256
 		want, ok := target.Binaries[reply.Arch]
 		if !ok {
@@ -292,6 +295,9 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			}
 			switch {
 			case reply.State == "installed" || reply.State == "current":
+			case reply.State == releasepush.StateNewer:
+				row.State = HostNewer
+				continue
 			case reply.State == "rolled_back":
 				return u.rolledBack(ctx, row, "this release was already rolled back: "+reply.Error)
 			case reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalIntegrity:
@@ -319,6 +325,9 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		u.save(ctx)
 	}
 	u.status.Phase, u.status.Reason = PhaseComplete, ""
+	if !slices.ContainsFunc(u.status.Hosts, func(row HostProgress) bool { return row.State != HostNewer }) {
+		u.status.Phase, u.status.Reason = PhaseNewer, "every host already runs a release that descends from "+target.Tag()
+	}
 	u.save(ctx)
 	return u.Poll
 }

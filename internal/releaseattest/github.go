@@ -54,7 +54,10 @@ type githubRelease struct {
 	} `json:"assets"`
 }
 
-var ErrNoRelease = errors.New("no attested ts-orch release is published")
+var (
+	ErrNoRelease = errors.New("no attested ts-orch release is published")
+	ErrOlder     = errors.New("release is older than the installed one")
+)
 
 func (s *Source) Newest(ctx context.Context) (Release, error) {
 	s.mu.Lock()
@@ -141,6 +144,9 @@ func (s *Source) Descends(ctx context.Context, base, head string) error {
 	first, err := s.compare(ctx, base, head, 1)
 	if err != nil {
 		return err
+	}
+	if first.Status == "behind" && first.AheadBy == 0 && first.Base.SHA == base && first.MergeBase.SHA == head {
+		return fmt.Errorf("%w: the installed %s already descends from %s", ErrOlder, base, head)
 	}
 	if first.Status != "ahead" || first.AheadBy < 1 || first.Base.SHA != base || first.MergeBase.SHA != base {
 		return fmt.Errorf("%w: %s does not descend from the installed %s (%s; base %s, merge base %s)", ErrRefused, head, base, first.Status, first.Base.SHA, first.MergeBase.SHA)
