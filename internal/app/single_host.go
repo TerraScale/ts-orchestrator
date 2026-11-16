@@ -432,7 +432,7 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 				}
 				stored.WorkerToken = clusters.Clusters[0].RootCA.JoinTokens.Worker
 			}
-			stored.Managers, stored.Routes, stored.Members = managers, routes, members
+			stored.Managers, stored.Routes = managers, routes
 			return regionjoin.Publish(ctx, plan.region, stored)
 		}()
 		if err != nil {
@@ -622,18 +622,18 @@ func meshCluster(plan hostPlan) mesh.Cluster {
 	cluster := mesh.Cluster{Worker: plan.admission.Role != "manager"}
 	cluster.VCN, _, _ = swarmruntime.VCNPrefix(plan.address, plan.vcnCIDR)
 	if plan.joiner() {
-		cluster.Routes = func(ctx context.Context, region string) ([]string, bool, error) {
+		cluster.Routes = func(ctx context.Context, region string) ([]string, error) {
 			material, err := regionjoin.Read(ctx, region)
 			if err != nil {
-				return nil, false, err
+				return nil, err
 			}
 			if len(material.Routes) != 0 {
-				return material.Routes, len(material.Members) != 0, nil
+				return material.Routes, nil
 			}
 			if material.Route == "" {
-				return nil, false, fmt.Errorf("%s names no mesh route yet", regionjoin.SecretName(region))
+				return nil, fmt.Errorf("%s names no mesh route yet", regionjoin.SecretName(region))
 			}
-			return []string{material.Route}, len(material.Members) != 0, nil
+			return []string{material.Route}, nil
 		}
 	}
 	return cluster

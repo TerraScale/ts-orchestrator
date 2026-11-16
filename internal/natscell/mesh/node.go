@@ -154,7 +154,6 @@ type config struct {
 	clusterPort, localPort int
 	seeds                  map[string][]string
 	routes                 []string
-	members                bool
 	vcn                    netip.Prefix
 	ca                     *CA
 	terrabaseToken         string  // TerraBase's client token, from Vault
@@ -176,7 +175,8 @@ type Node struct {
 	tls             *tls.Config
 	server          *server.Server
 	conn            *nats.Conn
-	authority       *atomic.Bool
+	membershipConn  *nats.Conn
+	gossip          *inRegionGossip
 	rejectedRoutes  atomic.Int64
 	fabric          *nats.Conn
 	monitor         *nats.Conn
@@ -249,9 +249,14 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
-	authority := &atomic.Bool{}
-	authority.Store(cfg.applier != nil || cfg.members)
-	options, err := serverOptions(cfg, tlsConfig, secret, fabricSecret, alertsSecret, authority)
+	membershipSecret := ""
+	if cfg.applier != nil {
+		if membershipSecret, err = persistentToken(cfg.dir, "membership.token"); err != nil {
+			return nil, err
+		}
+	}
+	gossip := newInRegionGossip(cfg.region, time.Now())
+	options, err := serverOptions(cfg, tlsConfig, secret, fabricSecret, alertsSecret, membershipSecret, gossip)
 	if err != nil {
 		return nil, err
 	}
@@ -304,8 +309,20 @@ func start(cfg config) (_ *Node, err error) {
 			return nil, err
 		}
 	}
+	var membershipConn *nats.Conn
+	if cfg.applier != nil {
+		membershipConn, err = dialLocal(cfg.localPort, membershipUser, membershipSecret)
+		if err != nil {
+			conn.Close()
+			fabric.Close()
+			if monitor != nil {
+				monitor.Close()
+			}
+			return nil, err
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, authority: authority, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
+	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, membershipConn: membershipConn, gossip: gossip, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
 		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{})}
 	if err := node.serveClockReports(); err != nil {
 		node.closeConns()
@@ -381,8 +398,8 @@ func start(cfg config) (_ *Node, err error) {
 	node.goWork(func() { node.announce(ctx) })
 	if cfg.applier != nil {
 		node.goWork(func() { node.refreshJoined(ctx) })
-		node.goWork(node.shareRegionRoutes)
 	}
+	node.goWork(node.regionRoutes)
 	return node, nil
 }
 

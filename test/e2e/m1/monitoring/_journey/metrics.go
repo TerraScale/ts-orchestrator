@@ -5,7 +5,6 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
@@ -43,7 +42,7 @@ func JourneyAlertBudget(ctx context.Context, state, region, address string, peer
 	if err != nil {
 		return err
 	}
-	options, err := serverOptions(cfg, nil, orch, orch, alerts, &atomic.Bool{})
+	options, err := serverOptions(cfg, nil, orch, orch, alerts, orch, newInRegionGossip(cfg.region, time.Now()))
 	if err != nil {
 		return err
 	}

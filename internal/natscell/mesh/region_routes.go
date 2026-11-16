@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -20,8 +22,41 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
+type gossipedRoute struct {
+	route   *url.URL
+	account string
+}
+
+type inRegionGossip struct {
+	region     string
+	mu         sync.Mutex
+	peers      map[string][]gossipedRoute
+	membership atomic.Int64
+}
+
+func newInRegionGossip(region string, now time.Time) *inRegionGossip {
+	gossip := &inRegionGossip{region: region, peers: map[string][]gossipedRoute{}}
+	gossip.membership.Store(now.UnixNano())
+	return gossip
+}
+
+func (g *inRegionGossip) solicit(name string, route *url.URL, account string) bool {
+	if serverRegion(name) != g.region {
+		return true
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	routes := slices.DeleteFunc(g.peers[name], func(known gossipedRoute) bool { return known.account == account })
+	g.peers[name] = append(routes, gossipedRoute{route: route, account: account})
+	return false
+}
+
 func regionRoutesSubject(region string) string {
 	return protocol.MeshWorkerPrefix + region + ".routes"
+}
+
+func (n *Node) membershipLive() bool {
+	return time.Since(time.Unix(0, n.gossip.membership.Load())) < 3*n.cfg.peersEvery
 }
 
 func (n *Node) receiveRegionRoutes(m *nats.Msg) {
@@ -31,7 +66,7 @@ func (n *Node) receiveRegionRoutes(m *nats.Msg) {
 		slog.WarnContext(n.ctx, "region routes rejected", "subject", m.Subject, "members", len(members))
 		return
 	}
-	n.authority.Store(true)
+	n.gossip.membership.Store(time.Now().UnixNano())
 	n.reconcileRegionRoutes(members)
 }
 
@@ -48,30 +83,56 @@ func (n *Node) inRegion(members []string) bool {
 	return true
 }
 
-func (n *Node) shareRegionRoutes() {
+func (n *Node) regionRoutes() {
 	ticker := time.NewTicker(n.cfg.peersEvery)
 	defer ticker.Stop()
 	failure := ""
 	for {
-		members, err := n.regionMembers(n.ctx)
-		if err == nil {
-			n.reconcileRegionRoutes(members)
-			var data []byte
-			if data, err = protocol.EncodeJSON(members); err == nil {
-				err = n.conn.Publish(regionRoutesSubject(n.cfg.region), data)
+		if n.membershipConn != nil {
+			members, err := n.regionMembers(n.ctx)
+			if err == nil {
+				n.gossip.membership.Store(time.Now().UnixNano())
+				n.reconcileRegionRoutes(members)
+				var data []byte
+				if data, err = protocol.EncodeJSON(members); err == nil {
+					err = n.membershipConn.Publish(regionRoutesSubject(n.cfg.region), data)
+				}
+			}
+			if err != nil && err.Error() != failure {
+				slog.WarnContext(n.ctx, "region routes not shared", "error", err)
+			}
+			failure = ""
+			if err != nil {
+				failure = err.Error()
 			}
 		}
-		if err != nil && err.Error() != failure {
-			slog.WarnContext(n.ctx, "region routes not shared", "error", err)
-		}
-		failure = ""
-		if err != nil {
-			failure = err.Error()
-		}
+		n.dialGossipedPeers()
 		select {
 		case <-n.ctx.Done():
 			return
 		case <-ticker.C:
+		}
+	}
+}
+
+func (n *Node) dialGossipedPeers() {
+	if n.membershipLive() {
+		return
+	}
+	routed := map[string]bool{}
+	for _, route := range n.routes() {
+		routed[route.RemoteName] = true
+	}
+	n.gossip.mu.Lock()
+	peers := n.gossip.peers
+	n.gossip.peers = map[string][]gossipedRoute{}
+	n.gossip.mu.Unlock()
+	for name, routes := range peers {
+		if routed[name] {
+			continue
+		}
+		for _, gossiped := range routes {
+			n.server.ConnectImplicitRoute(gossiped.route, gossiped.account)
 		}
 	}
 }
@@ -88,19 +149,26 @@ func (n *Node) regionMembers(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	ready := map[string]bool{}
+	for _, member := range listed {
+		if member.State == "READY" {
+			ready[member.Hostname] = true
+		}
+	}
 	members := []string{}
 	for _, member := range listed {
-		if member.State != "READY" {
+		if member.State != "READY" && ready[member.Hostname] {
 			continue
 		}
 		host, _, err := net.SplitHostPort(member.Address)
 		if err != nil {
 			host = member.Address
 		}
-		if ip, err := netip.ParseAddr(host); err == nil && ip.Is4() && (!n.cfg.vcn.IsValid() || n.cfg.vcn.Contains(ip)) {
+		if ip, err := netip.ParseAddr(host); err == nil && ip.Is4() && (!n.cfg.vcn.IsValid() || n.cfg.vcn.Contains(ip)) && !slices.Contains(members, ip.String()) {
 			members = append(members, ip.String())
 		}
 	}
+	slices.Sort(members)
 	return members, nil
 }
 
@@ -115,32 +183,25 @@ func (n *Node) reconcileRegionRoutes(members []string) {
 			return !n.inRegionRoute(route) || slices.Contains(members, route.Hostname())
 		})
 	}
-	connected := map[string]bool{}
-	for _, route := range n.routes() {
-		connected[route.IP] = true
-	}
-	missing := []*url.URL{}
+	routes := []*url.URL{}
 	for _, member := range members {
-		if connected[member] {
-			continue
-		}
 		route, err := url.Parse("nats://" + net.JoinHostPort(member, strconv.Itoa(n.cfg.clusterPort)))
 		if err == nil {
-			missing = append(missing, route)
+			routes = append(routes, route)
 		}
 	}
-	if len(missing) != 0 {
-		n.server.AddRoutes(missing)
+	if len(routes) != 0 {
+		n.server.AddRoutes(routes)
 	}
 }
 
 func (n *Node) writeRouteMetrics(w io.Writer) {
 	fmt.Fprintf(w, "ts_orch_mesh_region_routes_rejected_total %d\n", n.rejectedRoutes.Load())
-	authoritative := 0
-	if n.authority.Load() {
-		authoritative = 1
+	live := 0
+	if n.membershipLive() {
+		live = 1
 	}
-	fmt.Fprintf(w, "ts_orch_mesh_region_membership_authoritative %d\n", authoritative)
+	fmt.Fprintf(w, "ts_orch_mesh_region_membership_live %d\n", live)
 	varz, err := n.server.Varz(nil)
 	if err != nil {
 		return

@@ -89,8 +89,9 @@ type ClusterOpts struct {
 	WriteTimeout      WriteTimeoutPolicy `json:"-"`
 
 	// SolicitImplicitRoute, when set, reports whether this server dials a
-	// gossiped route to the named server. Configured routes are unaffected.
-	SolicitImplicitRoute func(serverName string) bool `json:"-"`
+	// gossiped route to the named server at route, for the pinned account or
+	// the pool when account is empty. Configured routes are unaffected.
+	SolicitImplicitRoute func(serverName string, route *url.URL, account string) bool `json:"-"`
 
 	// Not exported (used in tests)
 	resolver netResolver

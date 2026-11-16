@@ -1081,9 +1081,6 @@ func (s *Server) processImplicitRoute(info *Info, routeNoPool bool) {
 	if s.hasThisRouteConfigured(info) {
 		return
 	}
-	if solicit := opts.Cluster.SolicitImplicitRoute; solicit != nil && !solicit(info.Name) {
-		return
-	}
 
 	// Initiate the connection, using info.IP instead of info.URL here...
 	r, err := url.Parse(info.IP)
@@ -1094,6 +1091,9 @@ func (s *Server) processImplicitRoute(info *Info, routeNoPool bool) {
 
 	if info.AuthRequired {
 		r.User = url.UserPassword(opts.Cluster.Username, opts.Cluster.Password)
+	}
+	if solicit := opts.Cluster.SolicitImplicitRoute; solicit != nil && !solicit(info.Name, r, info.RouteAccount) {
+		return
 	}
 	s.startGoRoutine(func() { s.connectToRoute(r, Implicit, true, info.GossipMode, info.RouteAccount) })
 	// If we are processing an implicit route from a route that does not
@@ -3056,6 +3056,12 @@ func (s *Server) solicitRoutes(routes []*url.URL, accounts []string) {
 			s.startGoRoutine(func() { s.connectToRoute(route, Explicit, true, gossipDefault, accName) })
 		}
 	}
+}
+
+// ConnectImplicitRoute dials a route learned through gossip, for the given
+// pinned account or the pool when account is empty, as gossip itself does.
+func (s *Server) ConnectImplicitRoute(route *url.URL, account string) {
+	s.startGoRoutine(func() { s.connectToRoute(route, Implicit, true, gossipDefault, account) })
 }
 
 // AddRoutes configures and solicits the given routes, skipping those already

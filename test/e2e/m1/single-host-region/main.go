@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
@@ -173,10 +174,20 @@ func delivered(ctx context.Context, fleet *oraclehost.Fleet, from, to *oraclehos
 	}
 }
 
-func refused(ctx context.Context, host *oraclehost.Host, region string, data []byte) {
+func memberState(ctx context.Context, manager *oraclehost.Host, hostname string) string {
+	output, _ := manager.Exec(ctx, "/usr/local/bin/ts-orch", "member", "ls")
+	for _, line := range strings.Split(string(output), "\n") {
+		if fields := strings.Fields(line); len(fields) >= 3 && fields[0] == hostname {
+			return fields[2]
+		}
+	}
+	return "absent"
+}
+
+func refused(ctx context.Context, host *oraclehost.Host, user, token, region string, data []byte) {
 	violations := make(chan error, 1)
 	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", mesh.LocalPort), nats.SetCustomDialer(host),
-		nats.UserInfo(mesh.OrchUser, meshToken(host, "client.token")),
+		nats.UserInfo(user, meshToken(host, token)),
 		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
 			select {
 			case violations <- err:
@@ -189,15 +200,15 @@ func refused(ctx context.Context, host *oraclehost.Host, region string, data []b
 	must(conn.Flush())
 	select {
 	case err := <-violations:
-		require(strings.Contains(err.Error(), "Permissions Violation"), "%s publication of %s membership: %v", host.Name, region, err)
+		require(strings.Contains(err.Error(), "Permissions Violation"), "%s %s publication of %s membership: %v", host.Name, user, region, err)
 	case <-ctx.Done():
-		panic(fmt.Errorf("%s published %s membership without a permissions violation", host.Name, region))
+		panic(fmt.Errorf("%s %s published %s membership without a permissions violation", host.Name, user, region))
 	}
 }
 
 func publish(ctx context.Context, host *oraclehost.Host, region string, data []byte) {
 	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", mesh.LocalPort), nats.SetCustomDialer(host),
-		nats.UserInfo(mesh.OrchUser, meshToken(host, "client.token")))
+		nats.UserInfo("membership", meshToken(host, "membership.token")))
 	must(err)
 	defer conn.Close()
 	must(conn.Publish(protocol.MeshWorkerPrefix+region+".routes", data))
@@ -389,9 +400,13 @@ func main() {
 		}
 	}()
 	forged := []byte(`["` + oraclehost.GatewayAddress + `"]`)
-	refused(ctx, gru.Hosts[1], gru.Name, forged)
-	refused(ctx, fleet.Regions[1].Hosts[0], gru.Name, forged)
-	step("a %s worker and a %s manager may not publish %s membership: both publications refused", gru.Name, fleet.Regions[1].Name, gru.Name)
+	sjc := fleet.Regions[1]
+	refused(ctx, gru.Hosts[1], mesh.OrchUser, "client.token", gru.Name, forged)
+	refused(ctx, gru.Hosts[0], mesh.OrchUser, "client.token", gru.Name, forged)
+	refused(ctx, sjc.Hosts[0], mesh.OrchUser, "client.token", gru.Name, forged)
+	refused(ctx, sjc.Hosts[0], "membership", "membership.token", gru.Name, forged)
+	refused(ctx, gru.Hosts[0], "membership", "membership.token", "ams", forged)
+	step("only %s's membership publisher may publish %s membership: %s worker and manager ORCH, %s manager ORCH and membership, and %s's membership publisher for ams are all refused", gru.Name, gru.Name, gru.Name, sjc.Name, gru.Name)
 	before := map[*oraclehost.Host]int{}
 	for _, worker := range gru.Hosts[1:] {
 		before[worker] = rejected(ctx, worker)
@@ -426,7 +441,38 @@ func main() {
 	}
 	ready(ctx, fleet, first)
 
+	flapped, survivor := gru.Hosts[2], gru.Hosts[1]
+	configured := fmt.Sprintf("ts_orch_mesh_region_route_configured{address=%q}", flapped.Address)
+	must(flapped.Signal(syscall.SIGSTOP))
+	until(ctx, flapped.Name+" not READY", func() error {
+		if state := memberState(ctx, gru.Hosts[0], flapped.Name); state == "READY" {
+			return errors.New(state)
+		}
+		return nil
+	})
+	for _, host := range []*oraclehost.Host{gru.Hosts[0], survivor} {
+		text, err := metrics(ctx, host)
+		must(err)
+		require(strings.Contains(text, configured), "%s retired %s's route while it was only not READY", host.Name, flapped.Name)
+	}
+	must(flapped.Signal(syscall.SIGCONT))
+	until(ctx, flapped.Name+" READY again", func() error {
+		if state := memberState(ctx, gru.Hosts[0], flapped.Name); state != "READY" {
+			return errors.New(state)
+		}
+		return nil
+	})
+	reset, err := survivor.ResetRoutes(ctx, flapped, 6222)
+	must(err)
+	require(reset > 0, "no route sockets between %s and %s to reset", survivor.Name, flapped.Name)
+	delivered(ctx, fleet, survivor, flapped)
+	delivered(ctx, fleet, flapped, survivor)
+	meshRoutes(ctx, fleet)
+	step("%s went not READY and back: its route stayed configured, and after %d route sockets to %s were reset ORCH, TERRABASE and ALERTS deliver both ways over the VCN", flapped.Name, reset, survivor.Name)
+
 	departed := gru.Hosts[2]
+	left, err := gru.Hosts[0].Exec(ctx, "/usr/local/bin/ts-orch", "member", "leave", departed.Name)
+	require(err == nil, "member leave %s: %v: %s", departed.Name, err, left)
 	must(departed.Kill())
 	gru.Hosts = []*oraclehost.Host{gru.Hosts[0], gru.Hosts[1], replacement}
 	fleet.Hosts = append(slices.DeleteFunc(fleet.Hosts, func(host *oraclehost.Host) bool { return host == departed }), replacement)
@@ -450,7 +496,7 @@ func main() {
 		})
 	}
 	require(dialed.Load() == 0, "a host dialed the forged member %s %d times", oraclehost.GatewayAddress, dialed.Load())
-	step("%s replaced by %s at %s: every %s host routes to it over the VCN and no longer configures %s", departed.Name, replacement.Name, replacement.Address, gru.Name, departed.Address)
+	step("%s left and was replaced by %s at %s: every %s host routes to it over the VCN and no longer configures %s", departed.Name, replacement.Name, replacement.Address, gru.Name, departed.Address)
 	step("single-host-region lane passed in %s", time.Since(started).Round(time.Second))
 }
 

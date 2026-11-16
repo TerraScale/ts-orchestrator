@@ -135,10 +135,9 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 
 func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseToken string, cluster Cluster) (*Node, error) {
 	var routes []string
-	var members bool
 	var err error
 	if cluster.Routes != nil {
-		if routes, members, err = cluster.Routes(ctx, region); err != nil {
+		if routes, err = cluster.Routes(ctx, region); err != nil {
 			return nil, err
 		}
 	}
@@ -158,7 +157,7 @@ func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseTok
 		slog.WarnContext(ctx, "mesh cluster advertises no NetBird address", "error", err)
 	}
 	return StartRegionalHost(RegionalHost{State: state, Region: region, Server: name, CA: ca,
-		TerraBaseToken: terrabaseToken, Seeds: seeds, Routes: routes, Members: members, VCN: cluster.VCN,
+		TerraBaseToken: terrabaseToken, Seeds: seeds, Routes: routes, VCN: cluster.VCN,
 		ClusterAddress: advertise, Address: NetBirdAddress, Worker: cluster.Worker})
 }
 

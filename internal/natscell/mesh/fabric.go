@@ -12,21 +12,21 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"sync/atomic"
 
 	"github.com/nats-io/nats-server/v2/logger"
 	"github.com/nats-io/nats-server/v2/server"
 )
 
 const (
-	ClusterName   = "terrascale"
-	FabricAccount = "TERRABASE"
-	OrchAccount   = "ORCH"
-	OrchUser      = "orch"
-	alertsAccount = "ALERTS"
-	AlertsUser    = "ts-alerts"
-	fabricUser    = "ts-orch"
-	terrabaseUser = "terrabase"
+	ClusterName    = "terrascale"
+	FabricAccount  = "TERRABASE"
+	OrchAccount    = "ORCH"
+	OrchUser       = "orch"
+	membershipUser = "membership"
+	alertsAccount  = "ALERTS"
+	AlertsUser     = "ts-alerts"
+	fabricUser     = "ts-orch"
+	terrabaseUser  = "terrabase"
 	// TerraBaseSubjects is the TerraBase fabric's own subject space (PIVOT D25).
 	TerraBaseSubjects = "terrabase.>"
 	regionTag         = "region:"
@@ -35,7 +35,7 @@ const (
 	jetStreamMaxStore  = 16 << 30
 )
 
-func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, alertsSecret string, authority *atomic.Bool) (*server.Options, error) {
+func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, alertsSecret, membershipSecret string, gossip *inRegionGossip) (*server.Options, error) {
 	if len(cfg.terrabaseToken) < 16 {
 		return nil, errors.New("mesh needs TerraBase's NATS token")
 	}
@@ -43,12 +43,19 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 	if err := options.ProcessConfigString(AccountsConfig); err != nil {
 		return nil, fmt.Errorf("mesh accounts: %w", err)
 	}
+	users := map[string]credential{
+		OrchUser:   {secret: orchSecret, account: OrchAccount, permissions: &server.Permissions{Publish: &server.SubjectPermission{Deny: []string{regionRoutesSubject("*")}}}},
+		fabricUser: {secret: fabricSecret, account: FabricAccount},
+		AlertsUser: {secret: alertsSecret, account: alertsAccount},
+	}
+	if cfg.applier != nil {
+		users[membershipUser] = credential{secret: membershipSecret, account: OrchAccount, permissions: &server.Permissions{
+			Publish:   &server.SubjectPermission{Allow: []string{regionRoutesSubject(cfg.region)}},
+			Subscribe: &server.SubjectPermission{Deny: []string{">"}},
+		}}
+	}
 	options.CustomClientAuthentication = &clientAuth{
-		users: map[string]credential{
-			OrchUser:   {secret: orchSecret, account: OrchAccount, permissions: orchPermissions(cfg)},
-			fabricUser: {secret: fabricSecret, account: FabricAccount},
-			AlertsUser: {secret: alertsSecret, account: alertsAccount},
-		},
+		users: users,
 		terrabase: credential{secret: cfg.terrabaseToken, account: FabricAccount, permissions: &server.Permissions{
 			Publish:   &server.SubjectPermission{Allow: terrabasePublish},
 			Subscribe: &server.SubjectPermission{Allow: terrabaseSubscribe},
@@ -74,7 +81,7 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 		options.Cluster = server.ClusterOpts{
 			Name: ClusterName, Host: cfg.clusterHost, Port: cfg.clusterPort, Advertise: cfg.clusterAdvertise,
 			TLSConfig: tlsConfig, TLSTimeout: 5, PinnedAccounts: []string{FabricAccount},
-			SolicitImplicitRoute: func(name string) bool { return serverRegion(name) != cfg.region || !authority.Load() },
+			SolicitImplicitRoute: gossip.solicit,
 		}
 	}
 	if cfg.applier != nil && len(options.Routes) > 0 {
@@ -86,22 +93,6 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 		options.JetStreamMetaBootSize = len(cfg.founders())
 	}
 	return options, nil
-}
-
-func orchPermissions(cfg config) *server.Permissions {
-	denied := []string{regionRoutesSubject("*")}
-	if cfg.applier != nil {
-		denied = []string{}
-		for _, region := range Regions() {
-			if region != cfg.region {
-				denied = append(denied, regionRoutesSubject(region))
-			}
-		}
-	}
-	if len(denied) == 0 {
-		return nil
-	}
-	return &server.Permissions{Publish: &server.SubjectPermission{Deny: denied}}
 }
 
 // TerraBase publishes its own subjects and uses JetStream inside its own
@@ -193,6 +184,9 @@ func (n *Node) closeConns() {
 		n.monitor.Close()
 	}
 	n.conn.Close()
+	if n.membershipConn != nil {
+		n.membershipConn.Close()
+	}
 	if n.certificateConn != nil {
 		n.certificateConn.Close()
 	}

@@ -19,7 +19,6 @@ type RegionalHost struct {
 	TerraBaseToken        string
 	Seeds                 map[string][]string
 	Routes                []string
-	Members               bool
 	VCN                   netip.Prefix
 	ClusterAddress        string
 	Address               func() (string, error)
@@ -52,7 +51,7 @@ func StartRegionalHost(host RegionalHost) (*Node, error) {
 		nodeID: nodeID, founder: admission.HostID == admission.FounderID,
 		region: host.Region, server: host.Server, dir: filepath.Join(host.State, "mesh"),
 		clusterHost: "0.0.0.0", clusterAdvertise: host.ClusterAddress, clusterPort: ClusterPort, localPort: LocalPort,
-		seeds: host.Seeds, routes: host.Routes, members: host.Members, vcn: host.VCN, ca: host.CA, terrabaseToken: host.TerraBaseToken,
+		seeds: host.Seeds, routes: host.Routes, vcn: host.VCN, ca: host.CA, terrabaseToken: host.TerraBaseToken,
 		applier: applier, every: antiEntropyEvery,
 		peersDir: swarmruntime.PeersDirectory, peersEvery: peersEvery, address: host.Address,
 	})

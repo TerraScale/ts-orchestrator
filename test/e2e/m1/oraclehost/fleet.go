@@ -348,7 +348,7 @@ func (h *Host) tail(name string) string {
 	return strings.Join(lines[max(0, len(lines)-40):], "\n")
 }
 
-func (h *Host) Kill() error {
+func (h *Host) Signal(signal syscall.Signal) error {
 	output, err := exec.Command("ip", "netns", "pids", h.Namespace).Output()
 	if err != nil {
 		return err
@@ -356,11 +356,27 @@ func (h *Host) Kill() error {
 	for _, field := range strings.Fields(string(output)) {
 		var pid int
 		if _, err := fmt.Sscan(field, &pid); err == nil {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
+			_ = syscall.Kill(pid, signal)
 		}
+	}
+	return nil
+}
+
+func (h *Host) Kill() error {
+	if err := h.Signal(syscall.SIGKILL); err != nil {
+		return err
 	}
 	<-h.done
 	return nil
+}
+
+func (h *Host) ResetRoutes(ctx context.Context, peer *Host, port int) (int, error) {
+	output, err := exec.CommandContext(ctx, "ip", "netns", "exec", h.Namespace, "ss", "-K", "-Htn", "state", "established", "dst", peer.Address,
+		"and", "(", "dport", "=", fmt.Sprintf(":%d", port), "or", "sport", "=", fmt.Sprintf(":%d", port), ")").CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("ss -K: %w: %s", err, output)
+	}
+	return len(strings.Fields(strings.TrimSpace(string(output)))) / 4, nil
 }
 
 func (h *Host) Restart() error { return h.process.Process.Signal(syscall.SIGHUP) }
