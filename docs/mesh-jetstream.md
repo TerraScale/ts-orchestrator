@@ -46,11 +46,14 @@ membership, or insufficient current replicas refuse the stop and name the
 Raft group. Unreplicated groups do not have a remote handoff.
 
 The agent uses NATS's lame-duck leadership transfer step while keeping
-listeners and clients open. It transfers every elected Raft leader using
-NATS's follower selection, prevents local reelection, and confirms successor
-leadership before stopping the server. An elected leader still applying its
-initial entry must also transfer: its serving-readiness flag can remain false
-while it already holds the Raft leadership.
+listeners and clients open. Every 20 ms it hands each elected Raft leader to
+a named follower that holds every entry the leader stored, prevents local
+reelection, and confirms successor leadership before stopping the server. A
+leader with no such follower keeps leading until one catches up; if none does
+within the budget, the stop is refused with every group still led. An elected
+leader still applying its initial entry must also transfer: its
+serving-readiness flag can remain false while it already holds the Raft
+leadership.
 Admission waits for recently active replicas to catch up within the same
 five-second budget as the handoff. Stale replicas refuse admission. Any other
 refusal (no current leader observation, changing membership, too few current

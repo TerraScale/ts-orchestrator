@@ -131,11 +131,10 @@ system_account: SYS
 			if group.Term() <= term {
 				return false
 			}
-			if group.State() == server.Leader {
+			if elected == group.ID() || group.State() == server.Leader {
 				elected = group.ID()
-				s.TransferRaftLeaders()
-				transferred = group.State() != server.Leader
-				return true
+				transferred = s.TransferRaftLeaders() && group.State() != server.Leader
+				return transferred
 			}
 			elected = group.GroupLeader()
 			return elected != "" && elected != group.ID() && group.State() == server.Follower

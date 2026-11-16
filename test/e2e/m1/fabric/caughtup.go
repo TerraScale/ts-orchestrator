@@ -177,5 +177,80 @@ func caughtUpHandoffs(work string) error {
 		}
 		metadata(servers[leader]).SetObserver(false)
 	}
+	return noCaughtUpFollower(servers, logs, currentLeader)
+}
+
+func noCaughtUpFollower(servers []*server.Server, logs []*transferLog, currentLeader func() int) error {
+	leader := -1
+	if err := bounded("five current metadata voters", 10*time.Second, func() bool {
+		leader = currentLeader()
+		return leader >= 0
+	}); err != nil {
+		return err
+	}
+	node := metadata(servers[leader])
+	conn, err := nats.Connect(servers[leader].ClientURL())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	js, err := conn.JetStream()
+	if err != nil {
+		return err
+	}
+	var held []sync.Locker
+	for i, s := range servers {
+		if i != leader {
+			lock := metadata(s).(sync.Locker)
+			lock.Lock()
+			held = append(held, lock)
+		}
+	}
+	release := sync.OnceFunc(func() {
+		for _, lock := range held {
+			lock.Unlock()
+		}
+	})
+	defer release()
+	before, _, _ := node.Progress()
+	added := make(chan error, 1)
+	go func() {
+		_, err := js.AddStream(&nats.StreamConfig{Name: "behind", Replicas: 1, Placement: &nats.Placement{Tags: []string{servers[leader].Name()}}})
+		added <- err
+	}()
+	stored := before
+	if err := bounded("metadata change stored only on the leader", time.Second, func() bool {
+		stored, _, _ = node.Progress()
+		return stored > before
+	}); err != nil {
+		return err
+	}
+	if servers[leader].TransferRaftLeaders() || node.State() != server.Leader {
+		return fmt.Errorf("five-voter leader stepped down at index %d while all four followers held at most %d", stored, before)
+	}
+	select {
+	case selected := <-logs[leader].selected:
+		return fmt.Errorf("five-voter leader selected %s while no follower held index %d", selected, stored)
+	default:
+	}
+	release()
+	if err := <-added; err != nil {
+		return err
+	}
+	if err := bounded("handoff once a follower holds every entry", 5*time.Second, func() bool {
+		return servers[leader].TransferRaftLeaders()
+	}); err != nil {
+		return err
+	}
+	selected := <-logs[leader].selected
+	successor := -1
+	if err := bounded("caught-up successor elected", 5*time.Second, func() bool {
+		successor = currentLeader()
+		return successor >= 0 && metadata(servers[successor]).ID() == selected
+	}); err != nil {
+		return err
+	}
+	node.SetObserver(false)
+	fmt.Printf("ok five-voter no caught-up follower: leader kept leading at index %d with four followers at %d, then handed off to %s\n", stored, before, selected)
 	return nil
 }

@@ -294,9 +294,9 @@ func (n *FabricLifecycle) PrepareStop(ctx context.Context) error {
 			led[group.Group] = group.Term
 		}
 	}
-	n.server.TransferRaftLeaders()
 	var remaining []string
 	for {
+		n.server.TransferRaftLeaders()
 		groups := n.raftGroups()
 		observation, done := context.WithTimeout(ctx, time.Second)
 		leaders, _ := n.groupLeaders(observation, groups)
