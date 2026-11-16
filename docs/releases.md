@@ -94,6 +94,8 @@ Every release swaps the systemd unit together with the binary: the
 candidate's preflight records its unit by digest, and the unit's pairing
 step installs the recorded unit of whichever binary is about to start, so a
 recovery or probation rollback to `.prev` also restores that binary's unit.
+If the step cannot install the candidate's unit, the candidate exits before
+`Probe` and the recovery timer restores `.prev` after about 12 minutes.
 See [node.md](node.md#the-unit-follows-the-binary).
 
 Each new trial stores a recovery window through its `installed` and

@@ -10,12 +10,14 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/moby/swarmkit/v2/api"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
@@ -44,6 +46,18 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	if os.Geteuid() != 0 {
 		return errors.New("node requires root")
 	}
+	if err := os.MkdirAll(*state, 0o700); err != nil {
+		return err
+	}
+	stateLock := flock.New(filepath.Join(*state, "runtime.lock"))
+	locked, err := stateLock.TryLock()
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return fmt.Errorf("another ts-orch node already runs on %s", *state)
+	}
+	defer stateLock.Unlock()
 	startupErr := sdnotify.Process().ExtendStart(2 * hostMetadataWindow)
 	probation, err := releasepush.Probe(*state, output)
 	if err != nil {

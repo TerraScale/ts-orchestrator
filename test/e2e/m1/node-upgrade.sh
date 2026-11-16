@@ -5,7 +5,7 @@ candidate=$(realpath "$1")
 production=3f3f17eaaca84fd73d2c95683171df2a924a68da
 production_digest=8300a1f6fccb137ab77a56adc565132579dcb5c15b1c435419c34be66f316917
 previous=$(mktemp -d)
-curl -fsSL --retry 3 -o "$previous/terrascale-orchestrator" \
+curl -fsSL -o "$previous/terrascale-orchestrator" \
 	"https://github.com/TerraScale/ts-orchestrator/releases/download/ci-$production-run-43936422160/terrascale-orchestrator-linux-arm64"
 echo "$production_digest  $previous/terrascale-orchestrator" | sha256sum -c --quiet
 chmod 0755 "$previous/terrascale-orchestrator"

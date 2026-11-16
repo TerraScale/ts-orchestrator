@@ -342,21 +342,27 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 		switch {
 		case err != nil:
 			fmt.Fprintf(output, "region join: %v; retrying\n", err)
-		case material.WorkerToken != "" && len(material.Managers) != 0:
-			if manager, ok := reachableManager(ctx, material.Managers); ok {
+		default:
+			manager, joinable := "", false
+			if material.WorkerToken != "" {
+				manager, joinable = reachableManager(ctx, material.Managers)
+			}
+			switch {
+			case joinable:
 				plan.admission, err = swarmruntime.JoiningAdmission(hostname, instance.ID, manager, material.WorkerToken)
 				if err != nil {
 					return hostPlan{}, err
 				}
 				fmt.Fprintf(output, "joining %s at %s as a worker\n", regionjoin.SecretName(instance.Region), manager)
 				return plan, nil
+			case material.Founder == hostname:
+				plan.admission = swarmruntime.FoundingAdmission(hostname, instance.ID)
+				return plan, nil
+			case material.WorkerToken != "":
+				fmt.Fprintf(output, "no manager in %s answers yet\n", regionjoin.SecretName(instance.Region))
+			default:
+				fmt.Fprintf(output, "waiting for founder %s to publish %s\n", material.Founder, regionjoin.SecretName(instance.Region))
 			}
-			fmt.Fprintf(output, "no manager in %s answers yet\n", regionjoin.SecretName(instance.Region))
-		case material.Founder == hostname:
-			plan.admission = swarmruntime.FoundingAdmission(hostname, instance.ID)
-			return plan, nil
-		default:
-			fmt.Fprintf(output, "waiting for founder %s to publish %s\n", material.Founder, regionjoin.SecretName(instance.Region))
 		}
 		select {
 		case <-ctx.Done():

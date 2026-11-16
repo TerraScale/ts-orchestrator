@@ -18,6 +18,7 @@ pull anonymously.
 
 | Path | Content |
 |---|---|
+| `<state>/runtime.lock` | Held by the running `ts-orch node` from before release probation; a second `ts-orch node` on the same state exits without touching release state |
 | `<state>/swarm/` | SwarmKit certificates, Raft log, `admission.json`, `node.lock` |
 | `<state>/control.sock` | Control socket (below); symlink to the upstream `<state>/swarm/control.sock` |
 | `<state>/runtime-logs/` | Container logs written by the executor |
@@ -225,7 +226,15 @@ So every swap of the binary, forward or back, carries its unit:
 - An install that stops between preflight and the swap leaves the old binary,
   whose pair is the unit it already runs.
 - A rollback, by probation, by the recovery timer or by a release, restores
-  `.prev`; its next start installs the unit recorded for it.
+  `.prev`; its next start installs the unit recorded for it. After a
+  recovery-timer rollback the first start fails by design, so that recovery
+  run reports a failure and keeps its marker; its next run finds the service
+  active and clears it.
+- When the step cannot move the pair (`cp`, `mv` or `daemon-reload` fails), or
+  a reboot between preflight and the swap drops the `/run` drop-in, the new
+  binary starts under the old `single-host` command and exits before release
+  probation. The host then recovers through the recovery timer, which restores
+  `.prev` after about 12 minutes.
 
 The `node-upgrade` e2e lane installs the production release with its own
 `deploy/m1`, upgrades it the way that release's installer does, rolls back the
