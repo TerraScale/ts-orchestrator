@@ -22,8 +22,55 @@ env:
   CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
 
 jobs:
+  paths:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      runtime: ${{ steps.paths.outputs.runtime }}
+      certificates: ${{ steps.paths.outputs.certificates }}
+      caller: ${{ steps.paths.outputs.caller }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          runtime = certificates = caller = True
+          if os.environ["EVENT"] == "pull_request":
+              base = os.environ["CHANGE_BASE"]
+              paths = subprocess.check_output([
+                  "git", "diff", "--name-only", "--no-renames", "-z", base + "...HEAD"
+              ], text=True).split("\0")
+              paths = [path for path in paths if path]
+              shared = any(path.startswith((".github/", "test/e2e/")) or path in {
+                  "go.mod", "go.sum", "Makefile", "mise.toml", ".mise.toml"
+              } for path in paths)
+              runtime = shared or any(not (
+                  path.startswith(("docs/", "ops-notes/")) or
+                  path.endswith((".md", ".mdx", ".rst")) or path in {"LICENSE", "CODEOWNERS"}
+              ) for path in paths)
+              certificates = shared or any(re.match(
+                  r"^(cmd/|internal/(app/|edge/|natscell/mesh/|cli/)|deploy/|third_party/|docs/edge-certificates\.md$)", path
+              ) for path in paths)
+              caller = runtime or any(path in {"docs/caller-keys.md", "docs/e2e-ci.md"} for path in paths)
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              for name, value in {"runtime": runtime, "certificates": certificates, "caller": caller}.items():
+                  output.write(f"{name}={str(value).lower()}\n")
+          PYTHON
+
   lint:
-    if: ${{ github.event_name == 'pull_request' }}
+    needs: paths
+    if: ${{ github.event_name == 'pull_request' && needs.paths.outputs.runtime == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -40,8 +87,30 @@ jobs:
       - run: bash scripts/ci/audit-dependencies.sh source
       - run: bash scripts/ci/audit-dependencies.sh release
 
+  e2e-build:
+    needs: paths
+    if: ${{ github.event_name == 'pull_request' && needs.paths.outputs.runtime == 'true' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - uses: ./.github/actions/go
+        with:
+          cache: e2e-arm64
+      - name: Build the PR agent once
+        run: test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" ./cmd/terrascale-orchestrator
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e2e-m1-bin
+          path: ${{ runner.temp }}/m1-bin/terrascale-orchestrator
+          retention-days: 1
+
   e2e-lane:
-    if: ${{ github.event_name != 'schedule' }}
+    needs: [paths, e2e-build]
+    if: ${{ !cancelled() && !failure() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.paths.outputs.runtime == 'true') }}
     strategy:
       fail-fast: false
       matrix:
@@ -88,12 +157,27 @@ jobs:
         uses: ./.github/actions/go
         with:
           cache: e2e-arm64
-      - name: Build the agent and journey entry points from the warm cache
+      - if: ${{ github.event_name != 'pull_request' }}
+        name: Build the agent and journey entry points from the warm cache
         env:
           M1_PACKAGES: ${{ matrix.packages }}
         run: |
           read -r -a packages <<< "$M1_PACKAGES"
-          test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" "${packages[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" ./cmd/terrascale-orchestrator "${packages[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - if: ${{ github.event_name == 'pull_request' && matrix.packages != '' }}
+        name: Build this lane's journey entry points
+        env:
+          M1_PACKAGES: ${{ matrix.packages }}
+        run: |
+          read -r -a packages <<< "$M1_PACKAGES"
+          test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" "${packages[@]}"
+      - if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: e2e-m1-bin
+          path: ${{ runner.temp }}/m1-bin
+      - if: ${{ github.event_name == 'pull_request' }}
+        run: chmod +x "$RUNNER_TEMP/m1-bin/"*
       - name: Pinned runtime packages
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -110,8 +194,8 @@ jobs:
           key: ${{ steps.go.outputs.cache-key }}
 
   e2e-m1:
-    if: ${{ always() && github.event_name != 'schedule' }}
-    needs: e2e-lane
+    if: ${{ always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.paths.outputs.runtime == 'true') }}
+    needs: [paths, e2e-lane]
     concurrency:
       group: e2e-m1-${{ github.ref }}
       cancel-in-progress: true
@@ -123,50 +207,43 @@ jobs:
         run: test "$LANES" = success
 
   certificate-paths:
+    needs: paths
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
-      changed: ${{ steps.paths.outputs.changed }}
+      changed: ${{ needs.paths.outputs.certificates }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: ${{ env.SOURCE_SHA }}
-          fetch-depth: 0
-          persist-credentials: false
-      - id: paths
-        env:
-          EVENT: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT" != pull_request ]; then
-            echo 'changed=true' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          changed=$(git diff --name-only "${CHANGE_BASE:-HEAD^}" HEAD)
-          if grep -Eq '^(internal/edge/|internal/natscell/mesh/|internal/cli/|test/e2e/m1/certificates/|docs/edge-certificates\.md$|go\.mod$|go\.sum$|\.github/)' <<< "$changed"; then
-            echo 'changed=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'changed=false' >> "$GITHUB_OUTPUT"
-          fi
+      - run: test -n "${{ needs.paths.outputs.certificates }}"
 
   caller-key-changes:
+    needs: paths
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       changed: ${{ steps.paths.outputs.changed }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - if: ${{ github.event_name != 'pull_request' }}
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-      - id: go
+      - if: ${{ github.event_name != 'pull_request' }}
+        id: go
         uses: ./.github/actions/go
         with:
           cache: caller-key-changes
           modules-only: 'true'
       - id: paths
-        run: python3 test/e2e/m1/callerkey/inputs.py
+        env:
+          EVENT: ${{ github.event_name }}
+          CALLER_INPUTS: ${{ needs.paths.outputs.caller }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            echo "changed=$CALLER_INPUTS" >> "$GITHUB_OUTPUT"
+          else
+            python3 test/e2e/m1/callerkey/inputs.py
+          fi
       - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -426,7 +503,7 @@ jobs:
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [lint, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-push]
+    needs: [paths, lint, e2e-build, e2e-lane, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-push]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
