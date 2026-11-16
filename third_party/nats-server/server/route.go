@@ -1092,6 +1092,9 @@ func (s *Server) processImplicitRoute(info *Info, routeNoPool bool) {
 	if info.AuthRequired {
 		r.User = url.UserPassword(opts.Cluster.Username, opts.Cluster.Password)
 	}
+	if solicit := opts.Cluster.SolicitImplicitRoute; solicit != nil && !solicit(info.Name, r, info.RouteAccount) {
+		return
+	}
 	s.startGoRoutine(func() { s.connectToRoute(r, Implicit, true, info.GossipMode, info.RouteAccount) })
 	// If we are processing an implicit route from a route that does not
 	// support pooling/pinned-accounts, we won't receive an INFO for each of
@@ -3053,6 +3056,65 @@ func (s *Server) solicitRoutes(routes []*url.URL, accounts []string) {
 			s.startGoRoutine(func() { s.connectToRoute(route, Explicit, true, gossipDefault, accName) })
 		}
 	}
+}
+
+// ConnectImplicitRoute dials a route learned through gossip, for the given
+// pinned account or the pool when account is empty, as gossip itself does.
+func (s *Server) ConnectImplicitRoute(route *url.URL, account string) {
+	s.startGoRoutine(func() { s.connectToRoute(route, Implicit, true, gossipDefault, account) })
+}
+
+// AddRoutes configures and solicits the given routes, skipping those already
+// configured. Existing routes and their connections are left untouched.
+func (s *Server) AddRoutes(routes []*url.URL) {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	opts := s.getOpts().Clone()
+	var added []*url.URL
+	for _, route := range routes {
+		configured := false
+		for _, existing := range opts.Routes {
+			if urlsAreEqual(existing, route) {
+				configured = true
+				break
+			}
+		}
+		if !configured {
+			opts.Routes = append(opts.Routes, route)
+			added = append(added, route)
+		}
+	}
+	if len(added) == 0 {
+		return
+	}
+	s.setOpts(opts)
+	s.mu.Lock()
+	s.varzUpdateRouteURLs = true
+	s.solicitRoutes(added, opts.Cluster.PinnedAccounts)
+	s.mu.Unlock()
+}
+
+// RetainRoutes removes from the configured routes every route for which keep
+// returns false, so the server stops soliciting it. Established connections
+// are left open; a removed route is not reconnected once its connection closes.
+func (s *Server) RetainRoutes(keep func(*url.URL) bool) {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	opts := s.getOpts().Clone()
+	routes := opts.Routes[:0]
+	for _, route := range opts.Routes {
+		if keep(route) {
+			routes = append(routes, route)
+		}
+	}
+	if len(routes) == len(opts.Routes) {
+		return
+	}
+	opts.Routes = routes
+	s.setOpts(opts)
+	s.mu.Lock()
+	s.varzUpdateRouteURLs = true
+	s.mu.Unlock()
 }
 
 func (c *client) processRouteConnect(srv *Server, arg []byte, lang string) error {

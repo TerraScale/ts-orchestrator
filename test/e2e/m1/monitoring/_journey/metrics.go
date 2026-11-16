@@ -42,7 +42,7 @@ func JourneyAlertBudget(ctx context.Context, state, region, address string, peer
 	if err != nil {
 		return err
 	}
-	options, err := serverOptions(cfg, nil, orch, orch, alerts)
+	options, err := serverOptions(cfg, nil, orch, orch, alerts, orch, newInRegionGossip(cfg.region, time.Now()))
 	if err != nil {
 		return err
 	}
