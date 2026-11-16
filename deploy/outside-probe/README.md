@@ -52,7 +52,7 @@ the cron trigger and provisions the SQLite Durable Object namespace.
 
 Read the returned workers.dev URL once to arm the initial watchdog. After six
 scheduled runs, retrieve its report and record each UTC start and completion
-time in the PR. Consecutive scheduled timestamps must differ by 300 seconds;
+time in the PR. Consecutive scheduled minutes must be five minutes apart;
 consecutive actual starts and completions must be at most 360 seconds apart.
 The six observations must come from the deployed revision, with no intervening
 deployment. Inspect every outcome, the latest heartbeat age and open incidents.
