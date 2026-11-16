@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -106,6 +107,35 @@ system_account: SYS
 	}
 	mux.HandleFunc("/status", serveStatus)
 	mux.HandleFunc("/groups", serveStatus)
+	mux.HandleFunc("/transfer-election", func(w http.ResponseWriter, r *http.Request) {
+		requested := make(chan error, 1)
+		go func() { requested <- request(monitor, "$JS.API.META.LEADER.STEPDOWN", names[i]) }()
+		for r.Context().Err() == nil {
+			for _, group := range s.RaftNodes() {
+				if group.Group() != "_meta_" || group.State() != server.Leader {
+					continue
+				}
+				s.TransferRaftLeaders()
+				if group.State() == server.Leader {
+					http.Error(w, "elected metadata leader was skipped during handoff", http.StatusConflict)
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			select {
+			case err := <-requested:
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusConflict)
+					return
+				}
+			case <-r.Context().Done():
+				return
+			default:
+				runtime.Gosched()
+			}
+		}
+	})
 	mux.HandleFunc("/prepare", func(w http.ResponseWriter, r *http.Request) {
 		if err := lifecycle.PrepareStop(r.Context()); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -548,6 +578,16 @@ func run(work string) error {
 			return err
 		}
 	}
+	if err := place(1, app, system); err != nil {
+		return err
+	}
+	if err := post(0, "transfer-election"); err != nil {
+		return err
+	}
+	if err := post(0, "abort"); err != nil {
+		return err
+	}
+	fmt.Println("ok elected metadata leader transfers immediately")
 	if err := place(0, app, system); err != nil {
 		return err
 	}
