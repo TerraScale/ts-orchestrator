@@ -8,11 +8,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
-	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nkeys"
 )
 
@@ -680,111 +678,4 @@ func sameImports(actual, expected jwt.Imports) bool {
 		}
 	}
 	return true
-}
-
-// interRegionServerOptions admits the interregion account and applies the
-// leafnode listener and remotes.
-func interRegionServerOptions(cfg Config, options *server.Options, resolver *accountResolver,
-	operator *jwt.OperatorClaims,
-) error {
-	ir := cfg.Embedded.InterRegion
-	raw, err := readSignedJWT(ir.AccountJWTFile)
-	if err != nil {
-		return fmt.Errorf("read interregion account JWT: %w", err)
-	}
-	claim, err := jwt.DecodeAccountClaims(raw)
-	if err != nil || !nkeys.IsValidPublicAccountKey(claim.Subject) || !operator.DidSign(claim) ||
-		claim.Subject == resolver.system || claim.Subject == resolver.cell {
-		return errors.New("interregion account JWT is invalid")
-	}
-	systemClaim, err := jwt.DecodeAccountClaims(resolver.claims[resolver.system])
-	if err != nil {
-		return err
-	}
-	cellClaim, err := jwt.DecodeAccountClaims(resolver.claims[resolver.cell])
-	if err != nil {
-		return err
-	}
-	contract, links, err := ir.Contract(cfg.Cell)
-	if err != nil {
-		return err
-	}
-	if err := contract.verify(systemClaim, cellClaim, claim, links); err != nil {
-		return err
-	}
-	resolver.admitInterRegion(claim.Subject, raw, contract, links)
-	options.LeafNode.NoAdvertise = true
-	// Leafnodes have no ping knob of their own. With these, a silently
-	// dropped path is closed after 3 unanswered pings and the remote fails
-	// over to its next URL within about 40 s, not the default 2 minutes and
-	// 2 pings. Routes (otherwise 30 s and 2 pings) and bridged clients get
-	// the same faster stale detection.
-	options.PingInterval, options.MaxPingsOut = 10*time.Second, 3
-	if ir.Listen != nil {
-		listenTLS, err := loadTLS(ir.Listen.TLS, true)
-		if err != nil {
-			return fmt.Errorf("interregion leaf listener TLS: %w", err)
-		}
-		options.LeafNode.Host = ir.Listen.Host
-		options.LeafNode.Port = ir.Listen.Port
-		options.LeafNode.TLSConfig = listenTLS
-		options.LeafNode.TLSTimeout = 5
-	}
-	for _, remote := range ir.Remotes {
-		if err := validateLeafCredentials(remote.CredentialsFile, remote.PeerAccount); err != nil {
-			return fmt.Errorf("interregion remote %q: %w", remote.Peer, err)
-		}
-		remoteTLS, err := loadTLS(remote.TLS, false)
-		if err != nil {
-			return fmt.Errorf("interregion remote %q TLS: %w", remote.Peer, err)
-		}
-		// NATS otherwise names the TLS server after the first non-IP URL,
-		// or each IP itself.
-		remoteTLS.ServerName = remote.ServerName
-		leaf := &server.RemoteLeafOpts{
-			LocalAccount: claim.Subject, Credentials: remote.CredentialsFile,
-			TLS: true, TLSConfig: remoteTLS, TLSTimeout: 5, NoRandomize: true,
-		}
-		for _, raw := range remote.URLs {
-			parsed, err := url.Parse(raw)
-			if err != nil {
-				return err
-			}
-			leaf.URLs = append(leaf.URLs, parsed)
-		}
-		options.LeafNode.Remotes = append(options.LeafNode.Remotes, leaf)
-	}
-	return nil
-}
-
-// validateLeafCredentials requires a leaf-only user of the pinned peer
-// interregion account without permissions of its own, so the peer account's
-// deny-by-default contract permissions are the ones that apply. The peer's
-// server verifies the operator chain.
-func validateLeafCredentials(path, peerAccount string) error {
-	data, err := readPrivateFile(path, 64<<10)
-	if err != nil {
-		return err
-	}
-	defer clear(data)
-	raw, err := nkeys.ParseDecoratedJWT(data)
-	if err != nil {
-		return err
-	}
-	claim, err := jwt.DecodeUserClaims(raw)
-	if err != nil {
-		return err
-	}
-	// The peer binds a child's leaf users to that child's permissions only
-	// through the child's scoped signing key, whose template (leafnode-only)
-	// replaces anything in the user JWT; the server refuses a scoped user
-	// that carries permissions or limits of its own. A user signed by the
-	// account identity key would get the account's deny-all defaults.
-	if claim.IssuerAccount != peerAccount || claim.Issuer == peerAccount {
-		return errors.New("leaf credentials must be issued by a scoped child signing key of the pinned peer interregion account")
-	}
-	if !claim.HasEmptyPermissions() {
-		return errors.New("leaf credentials must not carry permissions or limits that override the child template")
-	}
-	return nil
 }

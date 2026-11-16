@@ -443,11 +443,6 @@ func (e *Engine) inspectPrivatePeerSide(c, peer *privatePeerContext, ports []any
 	return Object{"cell": p["cell"], "region": region, "vcn_id": ids["vcn"], "vcn_cidr": c.network.String(), "subnet_id": ids["subnet"], "subnet_cidr": c.subnet.String(), "subnet_route_table_id": ids["route_table"], "subnet_routes": routes, "drg": Object{"id": drgID, "compartment_id": compartment, "lifecycle_state": drg["lifecycle-state"]}, "vcn_attachment": Object{"id": vcnAttachmentID, "vcn_id": ids["vcn"], "route_table_id": intent["vcn_drg_route_table_id"]}, "rpc": Object{"id": rpcID, "peer_id": rpc["peer-id"], "peer_region": rpc["peer-region-name"], "peering_status": rpc["peering-status"], "lifecycle_state": rpc["lifecycle-state"]}, "rpc_attachment": Object{"id": rpcAttachmentID, "rpc_id": rpcID, "route_table_id": intent["rpc_drg_route_table_id"]}, "drg_route_tables": tables, "nsg_id": ids["network_security_group"], "nsg_rules": nsgRules, "security_list_id": ids["security_list"], "security_list_ingress_rules": ingress, "security_list_egress_rules": egress}
 }
 
-// InspectPrivatePeer reads back the exact reciprocal network intent without claiming budget or dataplane readiness.
-func (e *Engine) InspectPrivatePeer(paths ...string) (Object, error) {
-	return capture(func() Object { return e.inspectPrivatePeer(paths) })
-}
-
 func readPeerIntent(path string) (Object, string) {
 	wire := readBytes(path, 64*1024, "private peer intent")
 	value, err := decodeJSON(wire)

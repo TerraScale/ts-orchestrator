@@ -184,22 +184,6 @@ func (r *regionList) Set(value string) error {
 // ClientFactory builds the API for one OCI region.
 type ClientFactory func(region string) (API, error)
 
-func Run(ctx context.Context, args []string, out io.Writer) error {
-	return RunWith(ctx, args, out, NewSDKClient)
-}
-
-// RunWith parses the operator command and imports into every requested
-// region through clients built by factory.
-func RunWith(ctx context.Context, args []string, out io.Writer, factory ClientFactory) error {
-	return RunImporters(ctx, args, out, func(region string) (Importer, error) {
-		client, err := factory(region)
-		if err != nil {
-			return Importer{}, err
-		}
-		return Importer{Client: client}, nil
-	})
-}
-
 // ImporterFactory builds the Importer for one OCI region, including its
 // client and poll bounds.
 type ImporterFactory func(region string) (Importer, error)
@@ -585,17 +569,6 @@ func writeImportCheckpoint(path string, record map[string]any) error {
 	}
 	defer dir.Close()
 	return dir.Sync()
-}
-
-// Import imports into this importer's single region.
-func (i Importer) Import(ctx context.Context, o Options, out io.Writer) (map[string]any, error) {
-	if len(o.Regions) == 0 {
-		o.Regions = []string{catalog.OCIRegion(catalog.Bootstrap)}
-	}
-	if len(o.Regions) != 1 {
-		return nil, errors.New("Importer.Import serves exactly one region; use ImportRegions")
-	}
-	return ImportRegions(ctx, o, out, func(string) (Importer, error) { return i, nil })
 }
 
 func (i Importer) importVerified(ctx context.Context, o Options, logf func(string, ...any)) (map[string]any, error) {

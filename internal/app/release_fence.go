@@ -2,17 +2,14 @@ package app
 
 import (
 	"context"
-	"strconv"
 	"sync"
 	"time"
-
-	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
-	"github.com/TerraScale/ts-orchestrator/internal/workload"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // A release fence (TS-610, the cell spec's release_fence) restarts a
@@ -32,51 +29,8 @@ import (
 // node's record names its holders: release, rollout and maintenance. Its
 // backends return only when the last holder lets go.
 
-func sequencedKey(role string, release uint64) string {
-	return "fence." + role + "." + strconv.FormatUint(release, 10)
-}
-
-func fencedKey(node string) string { return "fenced." + node }
-
 // Holders of a node's fence.
 
-// releaseOf is the release a desired or report generation belongs to: a
-// reconciled role's release-scoped generation, or the generation itself.
-func releaseOf(generation uint64) uint64 {
-	if release := workload.ReleaseOf(generation); release > 0 {
-		return release
-	}
-	return generation
-}
-
-// fencedBackend is one backend a fence takes out of rotation.
-type fencedBackend struct {
-	// LoadBalancerID is the load balancer the backend was taken from; it
-	// returns there whatever the cell spec names since.
-	LoadBalancerID string `json:"load_balancer_id"`
-	Set            string `json:"set"`
-	IP             string `json:"ip"`
-	Port           int    `json:"port"`
-	// Weight and Backup are the backend's own, restored with it.
-	Weight int  `json:"weight,omitzero"`
-	Backup bool `json:"backup,omitzero"`
-	// Offline is set once the backend is out of rotation.
-	Offline bool `json:"offline,omitzero"`
-	// Keep the admitted quorum when the live spec is changed or removed.
-	Minimum int `json:"min_serving,omitempty"`
-}
-
-// fenceRecord is a node's fence, recorded before the load balancer
-// changes: every backend taken, or being taken, out of rotation, and who
-// holds it out.
-type fenceRecord struct {
-	Backends []fencedBackend `json:"backends"`
-	Holders  []string        `json:"holders,omitempty"`
-}
-
-// releaseFence is the leader's side of a release fence. Every change it
-// makes is guarded by the authority epoch it started under, so a deposed
-// leader stops.
 type releaseFence struct {
 	kv     jetstream.KeyValue
 	hosts  seatrollout.Hosts

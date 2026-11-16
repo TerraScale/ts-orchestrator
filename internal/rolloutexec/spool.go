@@ -1,10 +1,7 @@
 package rolloutexec
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,113 +62,6 @@ type Relay struct {
 	Now      func() time.Time
 
 	relayed []byte
-}
-
-// Spool hands a current step to the agent, after the binary it names, so
-// the agent rarely sees a step whose release is still downloading. A failed
-// download still spools the step: the agent's retry reply tells the leader
-// why nothing moves.
-func (r *Relay) Spool(ctx context.Context, wire []byte) error {
-	command, _, err := VerifyStepCommand(wire, r.Cell, r.Unit, r.Leaders, r.now())
-	if err != nil {
-		// Expired, or not this unit's: the leader posts a fresh one.
-		return nil
-	}
-	path := filepath.Join(r.Dir, spoolStep)
-	if current, err := os.ReadFile(path); err == nil && bytes.Equal(current, wire) {
-		return nil
-	}
-	fetchErr := r.fetch(ctx, command.Digest)
-	return errors.Join(fetchErr, writeFileAtomic(path, wire, 0o600))
-}
-
-// fetch spools the binary of digest unless the node already staged it, and
-// removes every other spooled binary.
-func (r *Relay) fetch(ctx context.Context, digest string) error {
-	entries, err := os.ReadDir(r.Dir)
-	if err != nil {
-		return err
-	}
-	name := spoolReleasePrefix + digest
-	for _, entry := range entries {
-		if entry.Name() != name && (strings.HasPrefix(entry.Name(), spoolReleasePrefix) || strings.HasPrefix(entry.Name(), ".")) {
-			_ = os.Remove(filepath.Join(r.Dir, entry.Name()))
-		}
-	}
-	if _, err := os.Stat(r.Layout.BinaryPath(digest)); err == nil {
-		return nil
-	}
-	if _, err := os.Stat(filepath.Join(r.Dir, name)); err == nil || len(r.Sources) == 0 {
-		return nil
-	}
-	var failures []error
-	for _, source := range r.Sources {
-		err := writeVerified(ctx, filepath.Join(r.Dir, name), digest, source)
-		if err == nil {
-			return nil
-		}
-		failures = append(failures, err)
-	}
-	return fmt.Errorf("fetch release %s: %w", short(digest), errors.Join(failures...))
-}
-
-// Reply returns the agent's newest reply for the unit, nil when it has
-// none.
-func (r *Relay) Reply() ([]byte, error) {
-	data, err := os.ReadFile(filepath.Join(r.Layout.Root, ReplyFile(r.SystemdUnit)))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var reply StepReply
-	if len(data) > maxReplyBytes || json.Unmarshal(data, &reply) != nil || reply.Unit != r.Unit {
-		return nil, fmt.Errorf("%w: rollout step reply", ErrInvalid)
-	}
-	return data, nil
-}
-
-func (r *Relay) now() time.Time {
-	if r.Now != nil {
-		return r.Now().UTC()
-	}
-	return time.Now().UTC()
-}
-
-// writeVerified writes the binary of digest from source to path, keeping it
-// only when its bytes hash to digest.
-func writeVerified(ctx context.Context, path, digest string, source BinarySource) error {
-	file, err := os.CreateTemp(filepath.Dir(path), ".download-")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	defer file.Close()
-	hash := sha256.New()
-	if err := source(ctx, digest, &limitWriter{w: io.MultiWriter(file, hash), left: selfupdate.MaxBinaryBytes}); err != nil {
-		return err
-	}
-	if hex.EncodeToString(hash.Sum(nil)) != digest {
-		return fmt.Errorf("%w: fetched bytes differ from release %s", ErrInvalid, short(digest))
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), path)
-}
-
-type limitWriter struct {
-	w    io.Writer
-	left int64
-}
-
-func (l *limitWriter) Write(p []byte) (int, error) {
-	if int64(len(p)) > l.left {
-		return 0, fmt.Errorf("%w: release exceeds %d bytes", ErrInvalid, selfupdate.MaxBinaryBytes)
-	}
-	l.left -= int64(len(p))
-	return l.w.Write(p)
 }
 
 // ApplySpooled is the node's root step agent. The self-update watchdog runs

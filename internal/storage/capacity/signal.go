@@ -6,7 +6,6 @@
 package capacity
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -32,18 +31,6 @@ type VolumeUsage struct {
 	ObservedAt    time.Time `json:"observed_at"`
 }
 
-// Validate rejects incomplete or inconsistent measurements.
-func (usage VolumeUsage) Validate() error {
-	if usage.Cell == "" || usage.Node == "" || !usage.Role.Valid() || usage.MountPath == "" || usage.ObservedAt.IsZero() {
-		return errors.New("storage usage record is incomplete")
-	}
-	if usage.TotalBytes == 0 || usage.UsedBytes > usage.TotalBytes || usage.AvailBytes > usage.TotalBytes ||
-		usage.InodesFree > usage.InodesTotal {
-		return errors.New("storage usage record is inconsistent")
-	}
-	return nil
-}
-
 // Utilization is the used fraction of space visible to unprivileged writers
 // (used / (used + avail)), which is what statfs-based tools report as Use%.
 func (usage VolumeUsage) Utilization() float64 {
@@ -66,21 +53,6 @@ const (
 	// LevelCritical means new writes or placements must be refused.
 	LevelCritical
 )
-
-func (level Level) String() string {
-	switch level {
-	case LevelOK:
-		return "ok"
-	case LevelWarn:
-		return "warn"
-	case LevelScaleOut:
-		return "scale-out"
-	case LevelCritical:
-		return "critical"
-	default:
-		return fmt.Sprintf("level(%d)", int(level))
-	}
-}
 
 // Policy holds utilization thresholds in percent and an absolute free-space
 // floor. Zero fields use DefaultPolicy values.
@@ -117,16 +89,6 @@ func (policy Policy) WithDefaults() Policy {
 		policy.MinFreeInodes = defaults.MinFreeInodes
 	}
 	return policy
-}
-
-// Validate requires strictly increasing thresholds within (0, 100].
-func (policy Policy) Validate() error {
-	policy = policy.WithDefaults()
-	if policy.WarnPercent <= 0 || policy.WarnPercent >= policy.ScaleOutPercent ||
-		policy.ScaleOutPercent >= policy.RefusePercent || policy.RefusePercent > 100 {
-		return errors.New("storage capacity thresholds must increase strictly within (0, 100]")
-	}
-	return nil
 }
 
 // Signal is the consumable pressure verdict for one measured volume.

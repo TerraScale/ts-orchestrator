@@ -149,8 +149,3 @@ type StepReply struct {
 // because the controller runs unprivileged and the agent, the root-run
 // self-update watchdog, has no NATS connection. Every controller credential
 // already writes and reads KV, so no grant changes.
-
-// StepKey and ReplyKey are one unit's keys in rollout.Bucket. Unit
-// identities are hashed so caller-controlled names never become key tokens.
-func StepKey(unit string) string  { return entityid.Derive("rollout-step", unit) }
-func ReplyKey(unit string) string { return entityid.Derive("rollout-step-reply", unit) }

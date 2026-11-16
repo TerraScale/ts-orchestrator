@@ -6,6 +6,3 @@ package workload
 // a reconciled role needs a fresh generation; keeping the release in the high
 // bits lets the next signed release supersede every reconciled step.
 const ReleaseShift = 24
-
-// ReleaseOf returns the release part of a desired generation.
-func ReleaseOf(generation uint64) uint64 { return generation >> ReleaseShift }

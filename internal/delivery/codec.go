@@ -55,50 +55,6 @@ func (c Ed25519Codec) policy() (protocol.VerifyPolicy, error) {
 	return protocol.VerifyPolicy{MaxLifetime: c.MaxLifetime, ClockSkew: c.ClockSkew}, nil
 }
 
-func (c Ed25519Codec) Sign(ctx context.Context, payload []byte) ([]byte, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if c.Lifetime <= 0 || c.Lifetime > c.MaxLifetime || len(c.PrivateKey) != ed25519.PrivateKeySize || c.Actor == "" {
-		return nil, ErrInvalid
-	}
-	i, err := DecodeIntent(payload)
-	if err != nil {
-		return nil, err
-	}
-	if i.Cell != c.Cell {
-		return nil, ErrInvalid
-	}
-	issued := c.clock().UTC()
-	e, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: i.Cell, Kind: intentKind, Actor: c.Actor, OperationID: i.OperationID, Generation: i.Generation, Epoch: i.AuthorityEpoch}, issued, issued.Add(c.Lifetime), c.PrivateKey)
-	if err != nil {
-		return nil, err
-	}
-	return protocol.EncodeJSON(e)
-}
-
-func (c Ed25519Codec) Verify(ctx context.Context, wire []byte) (VerifiedEnvelope, error) {
-	if err := ctx.Err(); err != nil {
-		return VerifiedEnvelope{}, err
-	}
-	var e protocol.Envelope
-	if err := protocol.DecodeStrict(wire, &e, MaxIntentBytes+8192); err != nil {
-		return VerifiedEnvelope{}, err
-	}
-	i, err := DecodeIntent(e.Payload)
-	if err != nil {
-		return VerifiedEnvelope{}, err
-	}
-	if i.Cell != c.Cell {
-		return VerifiedEnvelope{}, ErrInvalid
-	}
-	trusted, err := c.verifyScopeAt(e, protocol.EnvelopeScope{Region: i.Cell, Kind: intentKind, OperationID: i.OperationID, Generation: i.Generation, Epoch: i.AuthorityEpoch}, c.clock().UTC())
-	if err != nil {
-		return VerifiedEnvelope{}, err
-	}
-	return VerifiedEnvelope{Payload: e.Payload, Actor: trusted.Actor}, nil
-}
-
 func (c Ed25519Codec) SignArtifact(ctx context.Context, record ArtifactRecord) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -122,10 +78,6 @@ func (c Ed25519Codec) SignArtifact(ctx context.Context, record ArtifactRecord) (
 		return nil, err
 	}
 	return protocol.EncodeJSON(e)
-}
-
-func (c Ed25519Codec) VerifyArtifact(ctx context.Context, wire []byte) (ArtifactRecord, string, error) {
-	return c.verifyArtifactAt(ctx, wire, c.clock().UTC())
 }
 
 // VerifyArchivedArtifact validates an already admitted signed claim at its

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
-	"os"
 	"reflect"
 	"time"
 
@@ -32,16 +31,6 @@ type Backends struct {
 }
 
 type Service struct{ backends Backends }
-
-func NewService(backends Backends) (*Service, error) {
-	if os.Geteuid() != 0 {
-		return nil, ErrUnauthorized
-	}
-	if !validBackends(backends) {
-		return nil, ErrInvalid
-	}
-	return &Service{backends: backends}, nil
-}
 
 func validBackends(backends Backends) bool {
 	for _, backend := range []any{backends.Readers, backends.Foundations, backends.Credentials, backends.Capacity, backends.NetBird, backends.Releases, backends.Volumes, backends.Workloads, backends.Backups, backends.ContainerMaterial} {

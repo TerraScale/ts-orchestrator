@@ -295,15 +295,6 @@ func validReadyPath(p string) bool {
 	return true
 }
 
-// ContainerTaskFingerprint identifies the immutable executable task and its
-// function proof selectors; the fingerprint itself grants no authority.
-func ContainerTaskFingerprint(t *api.Task) (string, error) {
-	if _, err := DecodeContainer(t); err != nil {
-		return "", err
-	}
-	return taskFingerprint(t), nil
-}
-
 func taskFingerprint(t *api.Task) string {
 	h := sha256.New()
 	h.Write(t.Spec.GetGeneric().Payload.Value)

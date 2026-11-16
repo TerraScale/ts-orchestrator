@@ -156,18 +156,3 @@ func (s ServiceSpec) Validate() error {
 	}
 	return nil
 }
-
-// ValidateSpecs checks a spec set and rejects two specs for one role.
-func ValidateSpecs(specs []ServiceSpec) error {
-	seen := make(map[string]struct{}, len(specs))
-	for _, spec := range specs {
-		if err := spec.Validate(); err != nil {
-			return fmt.Errorf("service %q: %w", spec.Role, err)
-		}
-		if _, exists := seen[spec.Role]; exists {
-			return fmt.Errorf("%w: repeated role %q", ErrInvalidSpec, spec.Role)
-		}
-		seen[spec.Role] = struct{}{}
-	}
-	return nil
-}

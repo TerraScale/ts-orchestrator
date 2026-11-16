@@ -22,16 +22,6 @@ const (
 	RoleBoot          VolumeRole = "boot"
 )
 
-// Valid reports whether role is one of the known roles.
-func (role VolumeRole) Valid() bool {
-	switch role {
-	case RoleTerraBaseData, RoleJetStream, RoleBoot:
-		return true
-	default:
-		return false
-	}
-}
-
 // Supported managed filesystems. Both are accepted as signed pins.
 const (
 	FileSystemExt4 = "ext4"

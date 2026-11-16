@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
@@ -29,54 +28,6 @@ type VerifiedRuntimeIAM struct {
 	imds     IMDSClient
 	scope    bootstrap.FoundationScope
 	anchor   string
-}
-
-func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader, accepted AcceptedIdentity) (VerifiedRuntimeIAM, error) {
-	current, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
-	if err != nil {
-		return VerifiedRuntimeIAM{}, err
-	}
-	scope, err := current.Anchor().FoundationScope()
-	if err != nil || scope.Validate() != nil {
-		return VerifiedRuntimeIAM{}, errors.Join(ErrSourceFounder, err)
-	}
-	var factory *ociclient.Factory
-	var observer *OCIInstanceObserver
-	original := false
-	if current.derived != nil {
-		_, err := current.derived.SeedAuthority().OriginalLaunch()
-		original = err == nil
-	}
-	if original {
-		factory, err = ociclient.InstancePrincipalContext(ctx, current.Identity().OCIRegion)
-		if err != nil {
-			return VerifiedRuntimeIAM{}, err
-		}
-		observer, err = NewOCIInstanceObserverWithFactory(oci.Region(current.Identity().Cell), factory)
-	} else {
-		config, configErr := currentLedgerConfig(current.Anchor(), reader.baked.Roots)
-		if configErr != nil {
-			return VerifiedRuntimeIAM{}, configErr
-		}
-		provider, providerErr := newOCIAdmissionProvider(config)
-		if providerErr != nil {
-			return VerifiedRuntimeIAM{}, providerErr
-		}
-		factory, err = ociclient.New(provider, ociclient.Options{Region: current.Identity().OCIRegion})
-		if err != nil {
-			return VerifiedRuntimeIAM{}, err
-		}
-		observer, err = NewOCIInstanceObserver(config.Cell, provider)
-	}
-	if err != nil {
-		return VerifiedRuntimeIAM{}, err
-	}
-	proof := VerifiedRuntimeIAM{reader: reader, accepted: accepted.Clone(), factory: factory,
-		observer: observer, imds: NewIMDSClient(), scope: scope, anchor: current.Anchor().Digest()}
-	if err := proof.VerifyCurrent(ctx); err != nil {
-		return VerifiedRuntimeIAM{}, err
-	}
-	return proof, nil
 }
 
 func (proof VerifiedRuntimeIAM) IsVerified() bool {

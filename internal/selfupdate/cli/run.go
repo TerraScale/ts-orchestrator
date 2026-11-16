@@ -981,41 +981,6 @@ func checkAcceptedBinaryContract(ctx context.Context, binary string, accepted bo
 	return nil
 }
 
-// VerifyIdentityRekeyBinaries checks every fixed-layout release a proposed
-// acceptance can run, before publication and without shared-completion authority.
-func VerifyIdentityRekeyBinaries(ctx context.Context, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs) error {
-	return verifyIdentityRekeyBinaries(ctx, accepted, inputs, selfupdate.NewLayout(selfupdate.DefaultRoot))
-}
-
-func verifyIdentityRekeyBinaries(ctx context.Context, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs, layout selfupdate.Layout) error {
-	if err := accepted.Validate(); err != nil {
-		return err
-	}
-	identity := trust.ChainIdentity{DeploymentID: accepted.DeploymentID, Environment: accepted.Environment, Cell: strings.ToLower(accepted.Cell)}
-	if inputs.ChainIdentity != identity {
-		return errors.New("identity rekey binary roots belong to another accepted identity")
-	}
-	roots, err := trust.VerifyRootChain(inputs.Genesis, identity, inputs.Chain)
-	if err != nil {
-		return err
-	}
-	inputs.Roots = roots
-	c := command{ctx: ctx}
-	for _, read := range []func() (string, error){layout.Current, layout.KnownGood} {
-		digest, err := read()
-		if err != nil {
-			return err
-		}
-		if digest == "" {
-			return errors.New("identity rekey requires compatible current and known-good releases")
-		}
-		if err := c.checkControllerRelease(layout, digest, accepted, inputs); err != nil {
-			return err
-		}
-	}
-	return c.checkControllerTransitions(layout, accepted, inputs, false, "")
-}
-
 func (c command) checkControllerRelease(layout selfupdate.Layout, digest string, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs) error {
 	bad, err := layout.KnownBad()
 	if err != nil {

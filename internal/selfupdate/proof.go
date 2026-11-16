@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -40,23 +38,6 @@ func proofScope(activationID, digest string) trust.Scope {
 		Domain: ProofDomain, DeploymentID: activationID, Cell: "local",
 		Environment: "node", Role: "version-proof", Slot: digest,
 	}
-}
-
-// SignVersionProof signs proof with the process's own identity key.
-func SignVersionProof(proof VersionProof, privateKey ed25519.PrivateKey, now time.Time) ([]byte, error) {
-	if proof.Schema != ProofSchema || !entityid.Valid(proof.ActivationID) || !unitRE.MatchString(proof.Unit) ||
-		!digestRE.MatchString(proof.BinarySHA256) || proof.ProcessID <= 0 || proof.ObservedAt.IsZero() {
-		return nil, fmt.Errorf("%w: version proof", ErrInvalid)
-	}
-	payload, err := trust.EncodePayload(proof)
-	if err != nil {
-		return nil, err
-	}
-	envelope, err := trust.Sign(payload, proofScope(proof.ActivationID, proof.BinarySHA256), now, now.Add(ProofLifetime), privateKey)
-	if err != nil {
-		return nil, err
-	}
-	return trust.EncodeEnvelope(envelope)
 }
 
 // VerifyVersionProof accepts only a currently valid proof, signed by
@@ -104,41 +85,6 @@ func VerifyVersionProof(wire []byte, publicKey ed25519.PublicKey, activation Act
 // writable only by root.
 func DefaultProofFile(root, unit string) string {
 	return filepath.Join(filepath.Dir(root), strings.TrimSuffix(unit, ".service"), "selfupdate-proof.json")
-}
-
-// EmitProof is called by a healthy process. When an activation for unit is
-// pending and this process runs its target, it writes a signed proof to
-// proofFile. It returns false when there is nothing to confirm.
-func EmitProof(layout Layout, unit, proofFile string, privateKey ed25519.PrivateKey, now time.Time) (bool, error) {
-	if !filepath.IsAbs(proofFile) {
-		return false, fmt.Errorf("%w: proof file must be absolute", ErrInvalid)
-	}
-	if err := layout.validate(); err != nil {
-		return false, err
-	}
-	activation, pending, err := layout.Pending()
-	if err != nil || !pending || activation.Unit != unit {
-		return false, err
-	}
-	executable, err := os.Readlink("/proc/self/exe")
-	if err != nil {
-		return false, err
-	}
-	digest, _, err := hashFile(executable)
-	if err != nil {
-		return false, err
-	}
-	if digest != activation.Target {
-		return false, nil
-	}
-	wire, err := SignVersionProof(VersionProof{
-		Schema: ProofSchema, ActivationID: activation.ActivationID, Unit: unit,
-		BinarySHA256: digest, ProcessID: int64(os.Getpid()), ObservedAt: now.UTC(),
-	}, privateKey, now)
-	if err != nil {
-		return false, err
-	}
-	return true, writeFileAtomic(proofFile, wire, 0o644)
 }
 
 func readProof(path string) ([]byte, error) {

@@ -554,7 +554,3 @@ func (e *Engine) estimate(plan, inventory Object, path string, now time.Time, ma
 	}
 	return Object{"currency": "USD", "items": formatted, "total": fixed(total, 2), "limit": str(budget["monthly_limit"]), "headroom": fixed(sub(budget["monthly_limit"], total), 2), "assumptions": Object{"a1_free_ocpu_hours": 1500, "a1_free_memory_gb_hours": 9000, "free_block_gb": 200, "free_object_gb": 10, "object_growth_reserve_gb": str(budget["object_storage_gb_max"]), "object_staging_reserve_gb": str(budget["staging_object_storage_gb_max"]), "backup_reserve_pricing": "350 GB at block capacity rate; provisional", "custom_image_storage_rate": str(rates["object_gb_month"]), "custom_image_size_source": "OCI billableSizeInGBs for scoped custom images"}}
 }
-func Estimate(plan, inventory Object, planPath string) (Object, error) {
-	e := &Engine{PlanPath: planPath}
-	return capture(func() Object { return e.estimate(plan, inventory, planPath, e.now(), 15) })
-}

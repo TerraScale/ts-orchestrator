@@ -384,22 +384,6 @@ func VerifyBinaryUpdateCurrent(envelopeWire, delegationWire []byte, roots trust.
 	return VerifiedBinary{receipt: receipt, proof: proof}, nil
 }
 
-// VerifyReleaseDelegationCurrent verifies the root-signed update delegation for
-// the consumer's environment against a currently valid root. It returns the
-// delegation, the leaf key it authorizes and when the grant expires.
-func VerifyReleaseDelegationCurrent(delegationWire []byte, roots trust.Keyring, environment string, now time.Time,
-) (BinaryUpdateDelegation, ed25519.PublicKey, time.Time, error) {
-	envelope, err := trust.DecodeEnvelope(delegationWire)
-	if err != nil {
-		return BinaryUpdateDelegation{}, nil, time.Time{}, err
-	}
-	verified, err := verifyUpdateDelegation(envelope, roots, environment, currentAt(now))
-	if err != nil {
-		return BinaryUpdateDelegation{}, nil, time.Time{}, err
-	}
-	return verified.delegation, verified.publicKey, envelope.ExpiresAt, nil
-}
-
 // VerifyBinaryUpdateHistorical verifies that an update receipt was signed
 // within its root delegation for the consumer's environment, cell and
 // architecture, without requiring either to be valid now. It proves the

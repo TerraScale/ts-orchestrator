@@ -882,29 +882,6 @@ type Reader struct {
 	mu     sync.Mutex
 }
 
-// OpenReader opens an existing control log without creating it or claiming a
-// lease. It is suitable for operator and follower read paths.
-func OpenReader(ctx context.Context, js jetstream.JetStream, scope string) (*Reader, error) {
-	if js == nil {
-		return nil, errors.New("JetStream is required")
-	}
-	if !natsToken.MatchString(scope) {
-		return nil, errors.New("authority scope must be a canonical ULID")
-	}
-	stream, err := js.Stream(ctx, ControlStreamName)
-	if err != nil {
-		return nil, err
-	}
-	info, err := stream.Info(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := verifyControlStreamConfig(info.Config, info.Config.Replicas); err != nil {
-		return nil, err
-	}
-	return &Reader{stream: stream, scope: scope}, nil
-}
-
 func (r *Reader) CommitHostMutation(context.Context, uint64, HostMutationKind, string, string, uint64, []byte) (uint64, error) {
 	return 0, ErrNotLeader
 }

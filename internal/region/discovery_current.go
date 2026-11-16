@@ -64,10 +64,6 @@ func discoverCurrentFoundationWith(ctx context.Context, client foundationDiscove
 	return resolver, err
 }
 
-func resolveCurrentFoundation(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring, retained *RetainedFoundation) (FoundationResolver, RetainedFoundation, error) {
-	return resolveCurrentFoundationWith(ctx, client, tenancy, genesis, retained, nil)
-}
-
 // resolveCurrentFoundationWith shares one authority's verification memo with
 // the reader it builds. It still reads, verifies the lineage and checks the
 // durable floor on every call.

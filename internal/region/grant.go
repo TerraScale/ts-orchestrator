@@ -555,39 +555,3 @@ func (s *SignedFootprint) verifyOriginalDocument(wire []byte) (FoundationGrant, 
 	}
 	return grant, envelope.ExpiresAt, nil
 }
-
-// NewFoundationDiscovery supplies a concrete pre-overlay record reader using
-// instance-principal clients and the existing verified bootstrap trust/storage
-// scope. Missing grants remain blocked; this constructor performs no writes.
-func NewFoundationDiscovery(factory *ociclient.Factory, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring) (FoundationResolver, error) {
-	if factory == nil || !anchor.IsVerified() || factory.Region() != anchor.Anchor().OCIRegion {
-		return FoundationResolver{}, errors.New("foundation discovery requires the verified local-region OCI client")
-	}
-	tenancy, err := factory.Provider().TenancyOCID()
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	home, err := anchor.FoundationScope()
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	homeFactory, err := factory.ForRegion(home.OCIRegion)
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	client, err := homeFactory.ObjectStorage()
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	footprint, err := NewSignedFootprint(&client, anchor, roots, tenancy)
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	domain := home.StorageDomain
-	store, err := NewObjectFoundationStore(&client, domain.Namespace, domain.HeadBucket)
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	footprint.factory = factory
-	return FoundationResolver{Footprint: footprint, Store: store}, nil
-}

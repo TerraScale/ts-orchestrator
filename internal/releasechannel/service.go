@@ -46,9 +46,6 @@ func ServiceBinaryObject(role, sha256 string) string {
 // one as the channel's ordering floor.
 const ClaimClockSkew = 5 * time.Minute
 
-// ServiceStatusKey is the leader's state of a role's release in Bucket.
-func ServiceStatusKey(cell, role string) string { return "service." + role + "." + cell }
-
 // ServiceStatus is the region leader's report on a role's release: the
 // release is the claim's digest and issuance instant.
 type ServiceStatus struct {
@@ -176,13 +173,6 @@ func publishService(ctx context.Context, location Location, role string, claim [
 		}
 	}
 	return ErrConflict
-}
-
-// ReadServiceClaim returns role's release.json; found is false when the
-// role has none.
-func ReadServiceClaim(ctx context.Context, location Location, role string) ([]byte, bool, error) {
-	data, _, found, err := location.get(ctx, ServiceReleaseObject(role), MaxServiceClaimBytes)
-	return data, found, err
 }
 
 // ReadServiceStatus returns role's status; found is false when it has none.

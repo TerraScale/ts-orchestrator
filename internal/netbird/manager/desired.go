@@ -252,43 +252,10 @@ func (d Desired) PeerName(slot Slot) string {
 	return d.Cell + "-" + slot.Name
 }
 
-// PeerNames maps every slot's private IP to its stable peer name. It is the
-// historical private address plan, independent of enrolled peer discovery.
-func (d Desired) PeerNames() map[string]string {
-	names := make(map[string]string, len(d.Slots))
-	for _, slot := range d.Slots {
-		names[slot.IP] = d.PeerName(slot)
-	}
-	return names
-}
-
 // Record is one desired A record in the cell zone.
 type Record struct {
 	Name    string // fully qualified, e.g. ctl-1.gru.ts.internal
 	Content string
-}
-
-// Records lists the cell zone's A records: one per slot and one per slot of
-// each role alias, sorted.
-func (d Desired) Records() []Record {
-	var records []Record
-	for _, slot := range d.Slots {
-		records = append(records, Record{slot.Name + "." + d.Zone.Domain, slot.IP})
-	}
-	for _, alias := range slices.Sorted(maps.Keys(d.RoleAliases)) {
-		for _, slot := range d.Slots {
-			if slot.Role == d.RoleAliases[alias] {
-				records = append(records, Record{alias + "." + d.Zone.Domain, slot.IP})
-			}
-		}
-	}
-	slices.SortFunc(records, func(a, b Record) int {
-		if a.Name != b.Name {
-			return strings.Compare(a.Name, b.Name)
-		}
-		return strings.Compare(a.Content, b.Content)
-	})
-	return records
 }
 
 // Validate checks internal consistency: referenced groups exist, slots are

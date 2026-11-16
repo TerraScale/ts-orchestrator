@@ -61,21 +61,6 @@ type GenerationTarget struct {
 	ControllerConfigSHA256   string
 }
 
-// AcceptedGenerationTarget reads the target from the root-owned
-// accepted-install record.
-func AcceptedGenerationTarget() (GenerationTarget, error) {
-	accepted, err := NewMarkerStore().ReadIdentity()
-	if err != nil {
-		return GenerationTarget{}, fmt.Errorf("read accepted installation: %w", err)
-	}
-	return generationTarget(accepted)
-}
-
-// GenerationTargetFromAccepted derives the slot's acyclic acceptance binding.
-func GenerationTargetFromAccepted(accepted AcceptedIdentity) (GenerationTarget, error) {
-	return generationTarget(accepted)
-}
-
 func generationTarget(accepted AcceptedIdentity) (GenerationTarget, error) {
 	acceptance, err := accepted.AcceptanceSHA256()
 	if err != nil {

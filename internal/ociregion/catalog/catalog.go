@@ -168,12 +168,3 @@ func MatchesName(name, cell string) bool {
 	entry, ok := Lookup(cell)
 	return ok && entry.Name() == name
 }
-
-// Map returns a fresh cell to OCI region map.
-func Map() map[string]string {
-	result := make(map[string]string, Len)
-	for _, entry := range entries {
-		result[entry.Cell] = entry.OCIRegion
-	}
-	return result
-}

@@ -3,161 +3,14 @@ package natscell
 import (
 	"errors"
 	"fmt"
-	"os"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
-	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nkeys"
 )
-
-// accountResolver admits exactly the configured system and cell accounts, plus
-// the interregion account when leafnodes are enabled. In particular, routed
-// account-claim gossip cannot cause an unrelated account to be fetched.
-type accountResolver struct {
-	mu     sync.RWMutex
-	system string
-	cell   string
-	claims map[string]string
-	// contract, when set, binds every cell claim replacement to the
-	// interregion subject contract and the cell leafnode prohibition.
-	contract    *InterRegionContract
-	interregion string
-	links       int
-	// linkCell pins the simplified link boundary across cell claim updates.
-	linkCell string
-}
-
-// admitInterRegion is called once during server option construction, before
-// the server starts, after the interregion claim has been verified.
-func (r *accountResolver) admitInterRegion(account, raw string, contract InterRegionContract, links int) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.claims[account] = raw
-	r.interregion, r.contract, r.links = account, &contract, links
-}
-
-func newAccountResolver(system, systemJWT, cell, cellJWT string) *accountResolver {
-	return &accountResolver{system: system, cell: cell,
-		claims: map[string]string{system: systemJWT, cell: cellJWT}}
-}
-
-func (r *accountResolver) Fetch(name string) (string, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if raw, ok := r.claims[name]; ok {
-		return raw, nil
-	}
-	return "", server.ErrMissingAccount
-}
-
-func (r *accountResolver) Store(name, raw string) error {
-	if name != r.cell {
-		return server.ErrMissingAccount
-	}
-	claim, err := jwt.DecodeAccountClaims(raw)
-	if err != nil || claim.Subject != name {
-		return errors.New("replacement broker account JWT is invalid")
-	}
-	r.mu.Lock()
-	if r.linkCell != "" {
-		if err := verifyLinkAccount(claim, r.linkCell); err != nil {
-			r.mu.Unlock()
-			return fmt.Errorf("replacement cell account JWT widens the link contract: %w", err)
-		}
-	}
-	if r.contract != nil {
-		system, systemErr := jwt.DecodeAccountClaims(r.claims[r.system])
-		interregion, interregionErr := jwt.DecodeAccountClaims(r.claims[r.interregion])
-		if systemErr != nil || interregionErr != nil ||
-			r.contract.verify(system, claim, interregion, r.links) != nil {
-			r.mu.Unlock()
-			return errors.New("replacement cell account JWT widens the interregion contract")
-		}
-	}
-	if prior := r.claims[name]; prior != raw {
-		old, oldErr := jwt.DecodeAccountClaims(prior)
-		if oldErr != nil || claim.IssuedAt <= old.IssuedAt {
-			r.mu.Unlock()
-			return errors.New("replacement broker account JWT issued-at must strictly increase")
-		}
-	}
-	r.claims[name] = raw
-	r.mu.Unlock()
-	return nil
-}
-
-func (*accountResolver) IsReadOnly() bool { return false }
-
-// IsTrackingUpdate reports true so the server never subscribes to
-// $SYS.REQ.ACCOUNT.*.CLAIMS.UPDATE. That handler installs a pushed claim
-// without calling Store, so a routed or client-sent operator-signed claim
-// would skip the interregion contract check. Every broker instead applies its
-// own validated claim from the durable claim store (Runtime.ApplyCellClaim).
-func (*accountResolver) IsTrackingUpdate() bool     { return true }
-func (*accountResolver) Start(*server.Server) error { return nil }
-func (*accountResolver) Reload() error              { return nil }
-func (*accountResolver) Close()                     {}
-
-func readSignedJWT(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	if len(data) == 0 || len(data) > 64<<10 {
-		return "", errors.New("signed JWT file has invalid size")
-	}
-	raw := strings.TrimSpace(string(data))
-	for _, c := range raw {
-		if c <= ' ' || c > '~' {
-			return "", errors.New("signed JWT must be one ASCII token")
-		}
-	}
-	return raw, nil
-}
-
-func loadOperatorAccounts(e *Embedded) (*jwt.OperatorClaims, string, string, string, string, error) {
-	operatorRaw, err := readSignedJWT(e.OperatorJWTFile)
-	if err != nil {
-		return nil, "", "", "", "", fmt.Errorf("read regional operator JWT: %w", err)
-	}
-	operator, err := jwt.DecodeOperatorClaims(operatorRaw)
-	if err != nil || !nkeys.IsValidPublicOperatorKey(operator.Subject) ||
-		!nkeys.IsValidPublicAccountKey(operator.SystemAccount) {
-		return nil, "", "", "", "", errors.New("regional operator JWT is invalid")
-	}
-	systemRaw, err := readSignedJWT(e.SystemJWTFile)
-	if err != nil {
-		return nil, "", "", "", "", fmt.Errorf("read regional system JWT: %w", err)
-	}
-	system, err := jwt.DecodeAccountClaims(systemRaw)
-	if err != nil || system.Subject != operator.SystemAccount || !operator.DidSign(system) {
-		return nil, "", "", "", "", errors.New("regional system account JWT is invalid")
-	}
-	cellRaw, err := readSignedJWT(e.CellJWTFile)
-	if err != nil {
-		return nil, "", "", "", "", fmt.Errorf("read regional cell JWT: %w", err)
-	}
-	cell, err := jwt.DecodeAccountClaims(cellRaw)
-	if err != nil || !nkeys.IsValidPublicAccountKey(cell.Subject) ||
-		cell.Subject == system.Subject || !operator.DidSign(cell) {
-		return nil, "", "", "", "", errors.New("regional cell account JWT is invalid")
-	}
-	return operator, systemRaw, cellRaw, system.Subject, cell.Subject, nil
-}
-
-func credentialUser(path string) (*jwt.UserClaims, string, error) {
-	data, err := readPrivateFile(path, 64<<10)
-	if err != nil {
-		return nil, "", err
-	}
-	defer clear(data)
-	return credentialUserBytes(data)
-}
 
 func credentialUserBytes(data []byte) (*jwt.UserClaims, string, error) {
 	raw, err := nkeys.ParseDecoratedJWT(data)
@@ -268,20 +121,6 @@ func ControllerSubscriptions(cell string) []string {
 	}
 }
 
-// ValidateBrokerControllerCredentials enforces the production issuer contract
-// for ephemeral ticket/fence RPCs and signed claim-apply admission. These
-// subjects are outside the durable control stream, and NATS grants one
-// short-lived response only after a request arrives on an allowed subscription.
-// The issuer must also grant the controller's private reply inbox.
-func ValidateBrokerControllerCredentials(path, cell, broker string) error {
-	data, err := readPrivateFile(path, 64<<10)
-	if err != nil {
-		return fmt.Errorf("broker controller credentials: %w", err)
-	}
-	defer clear(data)
-	return ValidateBrokerControllerCredentialBytes(data, cell, broker)
-}
-
 // ValidateBrokerControllerCredentialBytes checks the same contract before a
 // root-signed material generation installs controller credentials.
 func ValidateBrokerControllerCredentialBytes(data []byte, cell, broker string) error {
@@ -330,15 +169,6 @@ func ValidateBrokerControllerCredentialBytes(data []byte, cell, broker string) e
 	return nil
 }
 
-func validateSystemCredentials(path, cell, cellAccount, systemAccount string) error {
-	data, err := readPrivateFile(path, 64<<10)
-	if err != nil {
-		return fmt.Errorf("system account credentials: %w", err)
-	}
-	defer clear(data)
-	return ValidateSystemCredentials(data, cell, cellAccount, systemAccount)
-}
-
 // ValidateSystemCredentials checks a system account credentials file's bytes:
 // a seed that matches its JWT, issued by systemAccount, with only the cell
 // claim-update and private reply grants.
@@ -355,4 +185,18 @@ func ValidateSystemCredentials(data []byte, cell, cellAccount, systemAccount str
 		return errors.New("system account credentials must have only the cell claim-update and private reply grants")
 	}
 	return nil
+}
+
+type accountResolver struct {
+	mu     sync.RWMutex
+	system string
+	cell   string
+	claims map[string]string
+	// contract, when set, binds every cell claim replacement to the
+	// interregion subject contract and the cell leafnode prohibition.
+	contract    *InterRegionContract
+	interregion string
+	links       int
+	// linkCell pins the simplified link boundary across cell claim updates.
+	linkCell string
 }

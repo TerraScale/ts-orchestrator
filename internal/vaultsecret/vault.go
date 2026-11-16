@@ -230,25 +230,6 @@ func decodeBundle(bundle ocisecrets.SecretBundle, name string) (string, error) {
 	return string(value), nil
 }
 
-// ReadRefVersioned resolves one versioned secret with the instance principal.
-func ReadRefVersioned(ctx context.Context, ref Ref) (VersionedValue, error) {
-	if err := safeEnv(); err != nil {
-		return VersionedValue{}, err
-	}
-	if ref.region() == "" {
-		return VersionedValue{}, fmt.Errorf("Vault secret %s names no regional Vault", ref.Name)
-	}
-	factory, err := ociclient.InstancePrincipal(ref.region())
-	if err != nil {
-		return VersionedValue{}, err
-	}
-	client, err := SecretsClient(factory)
-	if err != nil {
-		return VersionedValue{}, err
-	}
-	return ReadVersioned(ctx, client, ref.Vault, ref.Name)
-}
-
 // ReadBack reads a secret that may have been created a moment ago: a new
 // secret can take some seconds to become readable.
 func ReadBack(ctx context.Context, client BundleClient, vaultID, name string, created bool) (string, error) {

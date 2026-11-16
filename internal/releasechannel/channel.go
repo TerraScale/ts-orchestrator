@@ -67,10 +67,6 @@ const (
 	MaxValueBytes = 1 << 20
 )
 
-// ChannelKey and StatusKey are a cell's keys in Bucket; cell is the logical
-// cell, e.g. GRU.
-func ChannelKey(cell string) string { return "orchestrator.channel." + cell }
-
 var (
 	ErrInvalid = errors.New("invalid release channel")
 	// ErrConflict reports a conditional write that lost to another writer.
@@ -271,13 +267,6 @@ func Publish(ctx context.Context, location Location, channel Channel) error {
 		}
 	}
 	return ErrConflict
-}
-
-// ReadChannel returns the region's channel; found is false when it has none.
-func ReadChannel(ctx context.Context, location Location) (Channel, bool, error) {
-	var channel Channel
-	found, err := location.read(ctx, ChannelObject, MaxChannelBytes, &channel)
-	return channel, found, err
 }
 
 // ReadStatus returns the region's status; found is false when it has none.

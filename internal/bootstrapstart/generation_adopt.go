@@ -3,13 +3,14 @@ package bootstrapstart
 import (
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"io"
 	"maps"
 	"os"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 
 	"golang.org/x/sys/unix"
 

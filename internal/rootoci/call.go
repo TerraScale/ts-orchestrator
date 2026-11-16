@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -219,9 +218,4 @@ func RootCall(ctx context.Context) (Call, error) {
 		return Call{}, err
 	}
 	return call, nil
-}
-
-func sessionBinding(witness *ProcessWitness, lease Lease) string {
-	digest := sha256.Sum256([]byte(witness.Binding() + "\x00" + lease.Binding + "\x00" + lease.RuntimeID + "\x00" + lease.Deadline.UTC().Format(time.RFC3339Nano) + "\x00" + fmt.Sprintf("%p", lease.Context.Done())))
-	return hex.EncodeToString(digest[:])
 }

@@ -3,14 +3,10 @@ package bootstrapstart
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -76,31 +72,6 @@ type VerifiedIdentityRekey struct {
 	committedMarkers MarkerStore
 }
 
-func (verified VerifiedIdentityRekey) IsVerified() bool { return verified.verified }
-func (verified VerifiedIdentityRekey) Wire() []byte     { return bytes.Clone(verified.wire) }
-func (verified VerifiedIdentityRekey) AcceptedRoots() trust.Keyring {
-	roots := maps.Clone(verified.roots.Current)
-	for key, value := range roots {
-		roots[key] = bytes.Clone(value)
-	}
-	return roots
-}
-func (verified VerifiedIdentityRekey) Accepted() AcceptedIdentity { return verified.accepted.Clone() }
-func (verified VerifiedIdentityRekey) Checkpoint() identityrekey.VerifiedIdentityCheckpoint {
-	return verified.checkpoint
-}
-func (verified VerifiedIdentityRekey) HostPlan() identityrekey.VerifiedHostStateHandoffPlan {
-	return verified.hostPlan
-}
-func (verified VerifiedIdentityRekey) Reset() authority.IdentityReset {
-	reset := verified.reset
-	reset.Records = slices.Clone(reset.Records)
-	if reset.GlobalLease != nil {
-		pin := *reset.GlobalLease
-		reset.GlobalLease = &pin
-	}
-	return reset
-}
 func (verified VerifiedIdentityRekey) ResetTarget() authority.IdentityResetTarget {
 	if !verified.verified {
 		return authority.IdentityResetTarget{}
@@ -110,65 +81,6 @@ func (verified VerifiedIdentityRekey) ResetTarget() authority.IdentityResetTarge
 		ClusterID: a.ClusterID, Scope: strings.ToLower(a.Cell), Environment: a.Environment,
 		CheckpointSHA256: verified.checkpoint.Fingerprint(), HostStatePlanSHA256: verified.hostPlan.Fingerprint(),
 		Replicas: verified.journal.Replicas}
-}
-func (verified VerifiedIdentityRekey) ResetEnvelope() (trust.Envelope, error) {
-	if !verified.verified {
-		return trust.Envelope{}, ErrIdentityRekeyJournal
-	}
-	return trust.DecodeEnvelope(verified.journal.ResetWire)
-}
-func (verified VerifiedIdentityRekey) Values() [][]byte {
-	if !verified.verified {
-		return nil
-	}
-	values := slices.Clone(verified.journal.Values)
-	for i := range values {
-		values[i] = bytes.Clone(values[i])
-	}
-	return values
-}
-
-// VerifyCurrent requires current proposal authority or independently rechecks
-// the durable journal and authenticated commitment for exact installation replay.
-func (verified VerifiedIdentityRekey) VerifyCurrent(inputs TrustInputs, now time.Time) (VerifiedIdentityRekey, error) {
-	if !verified.verified {
-		return VerifiedIdentityRekey{}, ErrIdentityRekeyJournal
-	}
-	if verified.committedJS != nil {
-		current, err := verifyIdentityRekeyJournal(verified.journal, inputs, verified.accepted.AcceptedAt, true)
-		if err != nil {
-			return VerifiedIdentityRekey{}, err
-		}
-		if _, _, err := verifyIdentityRekeyInstallPredecessor(verified.committedMarkers, current.journal, current, inputs, true); err != nil {
-			return VerifiedIdentityRekey{}, err
-		}
-		envelope, err := current.ResetEnvelope()
-		if err != nil {
-			return VerifiedIdentityRekey{}, err
-		}
-		if _, err := authority.VerifyCommittedIdentityReset(verified.committedContext, verified.committedJS, envelope, inputs.Roots.Historical, current.ResetTarget()); err != nil {
-			return VerifiedIdentityRekey{}, err
-		}
-		current.committedJS, current.committedContext, current.committedMarkers = verified.committedJS, verified.committedContext, verified.committedMarkers
-		return current, nil
-	}
-	return verifyIdentityRekeyJournal(verified.journal, inputs, now, false)
-}
-
-// InstallationTime binds replayed material authorization to the independently
-// committed transaction; uncommitted installation still needs current grants.
-func (verified VerifiedIdentityRekey) InstallationTime(now time.Time) time.Time {
-	if verified.verified && verified.committedJS != nil {
-		return verified.accepted.AcceptedAt
-	}
-	return now
-}
-
-func (verified VerifiedIdentityRekey) InstallationRoots(inputs TrustInputs) trust.Keyring {
-	if verified.verified && verified.committedJS != nil {
-		return verified.AcceptedRoots()
-	}
-	return inputs.Roots.Current
 }
 
 func identityRekeyExpectation(journal IdentityRekeyJournal, accepted AcceptedIdentity) identityrekey.CheckpointExpectation {
@@ -415,122 +327,4 @@ func CheckIdentityRekeyPrestart(accepted AcceptedIdentity) error {
 	}
 	_, err = store.verifiedIdentityRekey(accepted, inputs)
 	return err
-}
-
-// WriteIdentityRekeyJournal publishes a verified, create-only recovery plan
-// before installation. An exact retry succeeds; a different plan never replaces it.
-func (store MarkerStore) WriteIdentityRekeyJournal(journal IdentityRekeyJournal, inputs TrustInputs,
-	observe IdentityObservation, now time.Time,
-) error {
-	verified, err := verifyIdentityRekeyJournal(journal, inputs, now, false)
-	if err != nil {
-		return err
-	}
-	if _, err := verifyIdentityRekeyJournal(journal, inputs, verified.Accepted().AcceptedAt, true); err != nil {
-		return err
-	}
-	if err := VerifyIdentityRekeyStagingLocalIdentity(verified, observe); err != nil {
-		return err
-	}
-	wire, err := encodeIdentityRekeyJournal(journal)
-	if err != nil {
-		return err
-	}
-	dir, err := store.openDirectory()
-	if err != nil {
-		return err
-	}
-	defer unix.Close(dir)
-	old, err := store.readIdentityBytes(dir, markerName)
-	if err != nil {
-		return err
-	}
-	if digest(old) != journal.PreviousAcceptanceSHA256 && !bytes.Equal(old, journal.AcceptedWire) {
-		return ErrAcceptancePredecessor
-	}
-	var nonce [12]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return err
-	}
-	temporary := ".identity-rekey." + hex.EncodeToString(nonce[:])
-	fd, err := unix.Openat(dir, temporary, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o644)
-	if err != nil {
-		return err
-	}
-	defer unix.Unlinkat(dir, temporary, 0)
-	file := os.NewFile(uintptr(fd), temporary)
-	defer file.Close()
-	if err := unix.Fchmod(fd, 0o644); err != nil {
-		return err
-	}
-	var stat unix.Stat_t
-	if err := unix.Fstat(fd, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Uid != store.ownerUID ||
-		store.ownerUID == 0 && stat.Gid != 0 || stat.Nlink != 1 {
-		return ErrIdentityRekeyJournal
-	}
-	if count, err := file.Write(wire); err != nil {
-		return err
-	} else if count != len(wire) {
-		return io.ErrShortWrite
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	if err := VerifyIdentityRekeyStagingLocalIdentity(verified, observe); err != nil {
-		return err
-	}
-	old, err = store.readIdentityBytes(dir, markerName)
-	if err != nil {
-		return err
-	}
-	if digest(old) != journal.PreviousAcceptanceSHA256 && !bytes.Equal(old, journal.AcceptedWire) {
-		return ErrAcceptancePredecessor
-	}
-	if err := unix.Renameat2(dir, temporary, dir, identityRekeyJournalName, unix.RENAME_NOREPLACE); err != nil {
-		if !errors.Is(err, unix.EEXIST) {
-			return err
-		}
-		existing, err := store.readIdentityRekeyJournal()
-		if err != nil {
-			return err
-		}
-		existingWire, err := encodeIdentityRekeyJournal(existing)
-		if err != nil || !bytes.Equal(existingWire, wire) {
-			return ErrIdentityRekeyJournal
-		}
-	}
-	return unix.Fsync(dir)
-}
-
-// VerifyIdentityRekeyStagingLocalIdentity permits an absent node pin only while
-// independently observing the store authorized by a verified root checkpoint.
-func VerifyIdentityRekeyStagingLocalIdentity(verified VerifiedIdentityRekey, observe IdentityObservation) error {
-	if !verified.IsVerified() || observe == nil {
-		return ErrIdentityRekeyJournal
-	}
-	accepted := verified.Accepted()
-	check := func() error {
-		if err := verifyAcceptedStorePins(accepted.Store, map[string]string{"server-name": accepted.Store.ServerNameSHA256}); err != nil {
-			return err
-		}
-		err := verifyAcceptedStorePins(accepted.Store, map[string]string{"node-identity.json": accepted.Store.NodeIdentitySHA256})
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-	if err := check(); err != nil {
-		return err
-	}
-	broker, store, err := observe(accepted)
-	if err != nil {
-		return err
-	}
-	if broker != accepted.Broker || store != accepted.Store {
-		return ErrAcceptedIdentity
-	}
-	return check()
 }

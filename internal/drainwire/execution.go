@@ -2,7 +2,6 @@
 package drainwire
 
 import (
-	"encoding/json/v2"
 	"errors"
 	"strings"
 	"time"
@@ -103,16 +102,6 @@ func (c DrainStopChallenge) Validate(now time.Time) error {
 		return errors.New("drain stop challenge has no exact current bounded authority")
 	}
 	return nil
-}
-
-func HoldSigningBytes(h ExecutionHold) ([]byte, error) {
-	wire, err := json.Marshal(h, json.Deterministic(true))
-	return append([]byte("TS-GENERIC-EXECUTION-HOLD-V1\x00"), wire...), err
-}
-
-func StopSigningBytes(p StopPayload) ([]byte, error) {
-	wire, err := json.Marshal(p, json.Deterministic(true))
-	return append([]byte("TS-POOL-DRAIN-STOP-V1\x00"), wire...), err
 }
 
 func digest(value string) bool {

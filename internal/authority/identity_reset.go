@@ -2,7 +2,6 @@ package authority
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -13,7 +12,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 const identityResetDomain = "terrascale.authority.identity-reset"
@@ -185,59 +183,7 @@ func VerifyIdentityReset(envelope trust.Envelope, roots trust.Keyring, target Id
 	return reset, nil
 }
 
-// VerifyIdentityResetUncommittable proves the original global CAS slot is
-// permanently occupied by another non-barrier message. Errors prove nothing.
-func VerifyIdentityResetUncommittable(ctx context.Context, js jetstream.JetStream, envelope trust.Envelope,
-	roots trust.Keyring, target IdentityResetTarget, evidenceTime time.Time,
-) error {
-	reset, err := VerifyIdentityReset(envelope, roots, target, evidenceTime)
-	if err != nil {
-		return err
-	}
-	if js == nil {
-		return ErrConflict
-	}
-	bounded, cancel := context.WithTimeout(ctx, authorityAPITimeout)
-	defer cancel()
-	stream, err := js.Stream(bounded, ControlStreamName)
-	if err != nil {
-		return err
-	}
-	info, err := stream.Info(bounded)
-	if err != nil {
-		return err
-	}
-	if err := verifyControlStreamConfig(info.Config, target.Replicas); err != nil {
-		return err
-	}
-	if info.State.LastSeq <= reset.LastSequence {
-		return ErrConflict
-	}
-	occupied, err := stream.GetMsg(bounded, reset.LastSequence+1)
-	if err != nil {
-		return err
-	}
-	barrier, err := identityResetLease(reset, resetDigest(envelope.Payload))
-	if err != nil {
-		return err
-	}
-	if occupied.Sequence != reset.LastSequence+1 || bytes.Equal(occupied.Data, barrier) {
-		return ErrConflict
-	}
-	if lease, err := decodeLease(occupied.Data); err == nil && lease.IdentityResetSHA256 != "" {
-		return ErrConflict
-	}
-	return nil
-}
-
 func resetDigest(data []byte) string {
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:])
-}
-
-func identityResetLease(reset IdentityReset, pinID string) ([]byte, error) {
-	return jsonMarshal(leaseRecord{Version: 1, Scope: reset.Scope, DeploymentID: reset.DeploymentID,
-		CandidateID: reset.OperationID, OwnerID: reset.OperationID, TransitionID: reset.OperationID,
-		Epoch: reset.Epoch, LeaseDuration: int64(defaultLeaseDuration), Released: true,
-		IdentityResetSHA256: pinID})
 }

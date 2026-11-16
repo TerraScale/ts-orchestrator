@@ -8,16 +8,8 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
-	"slices"
-	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
-
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
-	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const (
@@ -25,9 +17,6 @@ const (
 	MaxIntentBytes               = 32 << 10
 	MaxArtifactBytes             = 512 << 20
 	DefaultArtifactStoreMaxBytes = int64(2 << 30)
-	// maxReplicas bounds intent and shaped replica counts. It is the
-	// autoscaler's own bound, so shaped plans can never exceed it.
-	maxReplicas = autoscale.MaxReplicas
 )
 
 var (
@@ -157,83 +146,4 @@ type Intent struct {
 	DesiredReplicas int                      `json:"desiredReplicas"`
 	ConfigDigest    string                   `json:"configDigest"`
 	AuthorityEpoch  uint64                   `json:"authorityEpoch"`
-}
-
-func (i Intent) Validate() error {
-	if i.SchemaVersion != SchemaVersion || !entityid.Valid(i.OperationID) || !nameRE.MatchString(i.Cell) || !nameRE.MatchString(i.Role) || !nameRE.MatchString(i.Environment) || !sha256RE.MatchString(i.ConfigDigest) || i.Generation == 0 || i.AuthorityEpoch == 0 || i.DesiredReplicas < 0 || i.DesiredReplicas > maxReplicas {
-		return fmt.Errorf("%w: delivery intent", ErrInvalid)
-	}
-	if err := i.Source.validate(); err != nil {
-		return err
-	}
-	if i.Container == nil {
-		if !sha256RE.MatchString(i.ArtifactDigest) || !sha256RE.MatchString(i.ManifestDigest) {
-			return fmt.Errorf("%w: native artifact digests", ErrInvalid)
-		}
-		return nil
-	}
-	if i.ArtifactDigest != "" || i.ManifestDigest != "" {
-		return fmt.Errorf("%w: container and native artifact are mutually exclusive", ErrInvalid)
-	}
-	envelope, err := trust.DecodeEnvelope(i.Container.Claim)
-	if err != nil {
-		return fmt.Errorf("%w: container envelope: %v", ErrInvalid, err)
-	}
-	var claim release.ContainerClaim
-	if err := protocol.DecodeStrict(envelope.Payload, &claim, trust.MaxPayloadBytes); err != nil {
-		return fmt.Errorf("%w: container claim: %v", ErrInvalid, err)
-	}
-	if err := claim.Validate(); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalid, err)
-	}
-	if strings.ToLower(claim.Cell) != i.Cell || claim.Environment != i.Environment || claim.Role != i.Role || claim.SourceRevision != i.Source.Commit || claim.SourceRepository != i.Source.Repository || claim.SourceTreeSHA256 != i.Source.TreeDigest {
-		return fmt.Errorf("%w: container source or target differs from intent", ErrInvalid)
-	}
-	return nil
-}
-
-func (i Intent) fingerprint() (string, error) {
-	b, err := json.Marshal(i)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:]), nil
-}
-
-// Fingerprint is the stable request identity callers should retain with the
-// operation ID and compare with the eventual receipt.
-func (i Intent) Fingerprint() (string, error) {
-	if err := i.Validate(); err != nil {
-		return "", err
-	}
-	return i.fingerprint()
-}
-
-// DecodeIntent stays strict: an intent is signed, so a controller must not
-// act on one whose members it cannot read. A newer member is omitted while
-// unset, and setting it is a new schemaVersion.
-func DecodeIntent(b []byte) (Intent, error) {
-	if len(b) == 0 || len(b) > MaxIntentBytes {
-		return Intent{}, fmt.Errorf("%w: intent size", ErrInvalid)
-	}
-	var i Intent
-	if err := protocol.DecodeStrict(b, &i, MaxIntentBytes); err != nil {
-		return Intent{}, fmt.Errorf("%w: decode intent: %v", ErrInvalid, err)
-	}
-	return i, i.Validate()
-}
-
-// Clone retains the exact admitted OCI bytes across callback boundaries.
-func (i Intent) Clone() Intent {
-	if i.Container != nil {
-		bundle := *i.Container
-		bundle.Claim = slices.Clone(bundle.Claim)
-		bundle.Delegation = slices.Clone(bundle.Delegation)
-		bundle.Migration = slices.Clone(bundle.Migration)
-		bundle.Index = slices.Clone(bundle.Index)
-		bundle.Sequence = slices.Clone(bundle.Sequence)
-		i.Container = &bundle
-	}
-	return i
 }

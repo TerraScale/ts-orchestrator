@@ -3,17 +3,13 @@ package bootstrapstart
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
 	"maps"
 	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
-	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -176,153 +172,6 @@ func LoadOriginalStartupAuthority(ctx context.Context, now time.Time) (bootstrap
 	return authority, nil
 }
 
-func originalOriginWire(authority bootstrap.DerivedStartupAuthority) ([]byte, error) {
-	if _, err := authority.OriginalLaunch(); err != nil {
-		return nil, err
-	}
-	template := authority.Template()
-	wire, err := protocol.EncodeJSON(originalStartupOrigin{SchemaVersion: 1, Cell: authority.Manifest().Cell,
-		AnchorWire: template.OriginAnchor().Wire(), RootChainWire: template.OriginRootChainWire(), GrantWire: template.GrantWire(), AuthorityWire: authority.Wire()})
-	if err != nil || len(wire) > maxOriginalStartupOriginBytes {
-		return nil, ErrOriginalStartup
-	}
-	return wire, nil
-}
-
-// InstallOriginalLaunchMaterial derives public enrollment from the exact signed
-// source inventory and Vault CA; no operator SSH material exists in this path.
-func InstallOriginalLaunchMaterial(ctx context.Context, authority bootstrap.DerivedStartupAuthority) error {
-	manifest := authority.Manifest()
-	if _, err := authority.OriginalLaunch(); err != nil || !authority.IsVerified() {
-		return ErrOriginalStartup
-	}
-	authority, factory, err := productionOriginalAuthority(ctx, authority, time.Now().UTC())
-	if err != nil {
-		return err
-	}
-	host := originalStartupHost{authority: authority, factory: factory}
-	if _, err := host.observeCurrent(ctx); err != nil {
-		return err
-	}
-	vault, err := bootstrap.NewInstancePrincipalVault(manifest.Cell, factory.Provider())
-	if err != nil {
-		return err
-	}
-	var record bootstrapmaterial.Record
-	if json.Unmarshal(authority.MaterialRecord(), &record) != nil || record.SchemaVersion != 1 ||
-		record.Config.DeploymentID != manifest.DeploymentID || record.Config.ClusterID != manifest.ClusterID ||
-		record.Config.Cell != strings.ToLower(string(manifest.Cell)) || record.Config.Environment != manifest.Environment {
-		return ErrOriginalStartup
-	}
-	var ca []byte
-	for _, reference := range manifest.Secrets {
-		if reference.TargetFile == "ca.pem" {
-			if ca != nil || reference.Slot != "" || reference.Purpose != bootstrap.SecretRegionalShared {
-				return ErrOriginalStartup
-			}
-			ca, err = vault.ReadGenerationSecret(ctx, reference)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	if len(ca) == 0 {
-		return ErrOriginalStartup
-	}
-	caFound := false
-	for _, file := range record.Files {
-		if file.Name == "ca.pem" {
-			if caFound || file.Purpose != bootstrap.SecretRegionalShared || file.Slot != "" || file.MaxBytes != int64(len(ca)) || file.SHA256 != digest(ca) {
-				return ErrOriginalStartup
-			}
-			caFound = true
-		}
-	}
-	if !caFound {
-		return ErrOriginalStartup
-	}
-	bundle := hostenroll.PublicBundle{SchemaVersion: 1, Cell: record.Config.Cell, Region: string(manifest.Cell), Environment: manifest.Environment,
-		CAPEM: string(ca), ControllerResponsePublicKey: record.Public.ControllerResponsePublicKey, CellAccountNKey: record.Public.CellAccountNKey,
-		InstallRoot: hostenroll.ImageInstallRoot, StateRoot: hostenroll.ImageStateRoot, ManagedRuntimeRoot: hostenroll.ImageManagedRuntimeRoot,
-		WorkloadUID: hostenroll.ImageWorkloadUID, WorkloadGID: hostenroll.ImageWorkloadGID}
-	for index, slot := range record.Config.Slots {
-		if slot.Name != fmt.Sprintf("controller-%c", 'a'+index) {
-			return ErrOriginalStartup
-		}
-		bundle.ControllerEndpoints = append(bundle.ControllerEndpoints, slot.PrivateIP+":8443")
-		bundle.NATSURLs = append(bundle.NATSURLs, "tls://"+slot.PrivateIP+":4222")
-	}
-	if err := bundle.Validate(); err != nil {
-		return err
-	}
-	enrollment, err := protocol.EncodeJSON(bundle)
-	if err != nil {
-		return err
-	}
-	identity, err := protocol.EncodeJSON(BakedIdentity{SchemaVersion: 1, DeploymentID: manifest.DeploymentID, Environment: manifest.Environment, Cell: manifest.Cell})
-	if err != nil {
-		return err
-	}
-	origin, err := originalOriginWire(authority)
-	if err != nil {
-		return err
-	}
-	material := LaunchMaterial{Identity: identity, Anchor: authority.Template().OriginAnchor().Wire(), OriginalOrigin: origin, HostEnrollment: enrollment,
-		ManagedHostImageReceipt: manifest.ReleaseImageReceiptWire, ManagedHostImageDelegation: manifest.ReleaseDelegationWire}
-	store := bakedStore{directory: BakedDirectory}
-	if err := store.verifyOriginalLaunchMaterial(ctx, material, authority, time.Now().UTC()); err != nil {
-		return err
-	}
-	dir, err := store.openDirectory(store.directory)
-	if err != nil {
-		return err
-	}
-	defer unix.Close(dir)
-	if err := rejectOriginalSSH(dir); err != nil {
-		return err
-	}
-	if _, err := host.observeCurrent(ctx); err != nil {
-		return err
-	}
-	for index, name := range material.fileNames() {
-		if err := store.writeOnce(dir, name, material.wiresForInstall()[index]); err != nil {
-			return err
-		}
-	}
-	return unix.Fsync(dir)
-}
-
-func rejectOriginalSSH(dir int) error {
-	var stat unix.Stat_t
-	err := unix.Fstatat(dir, operatorSSHKeyFilename, &stat, unix.AT_SYMLINK_NOFOLLOW)
-	if !errors.Is(err, unix.ENOENT) {
-		return errors.Join(ErrOriginalStartup, err)
-	}
-	return nil
-}
-
-func (store bakedStore) verifyOriginalLaunchMaterial(ctx context.Context, material LaunchMaterial, authority bootstrap.DerivedStartupAuthority, now time.Time) error {
-	if len(material.OperatorSSHKey) != 0 || authority.VerifyCurrent(ctx, now) != nil {
-		return ErrOriginalStartup
-	}
-	origin, err := originalOriginWire(authority)
-	if err != nil || !bytes.Equal(origin, material.OriginalOrigin) || !bytes.Equal(material.Anchor, authority.Template().OriginAnchor().Wire()) {
-		return ErrOriginalStartup
-	}
-	identity, err := parseBakedIdentity(material.Identity)
-	manifest := authority.Manifest()
-	if err != nil || identity.DeploymentID != manifest.DeploymentID || identity.Cell != manifest.Cell || identity.Environment != manifest.Environment {
-		return ErrOriginalStartup
-	}
-	if err := validateHostEnrollment(material.HostEnrollment, string(manifest.Cell), manifest.Environment); err != nil {
-		return err
-	}
-	if !bytes.Equal(material.ManagedHostImageReceipt, manifest.ReleaseImageReceiptWire) || !bytes.Equal(material.ManagedHostImageDelegation, manifest.ReleaseDelegationWire) {
-		return ErrOriginalStartup
-	}
-	return nil
-}
-
 // originalStartupHost is local implementation state, never a startup capability
 // or a conversion to the ordinary source-founder proof.
 type originalStartupHost struct {
@@ -449,37 +298,6 @@ func (host originalStartupHost) verifyRetainedLaunch(ctx context.Context, observ
 	return nil
 }
 
-// EnsureOriginalSeed requires concrete original provenance and independently
-// observes the retained launch before entering the ordinary ledger transaction.
-func EnsureOriginalSeed(ctx context.Context, authority bootstrap.DerivedStartupAuthority, ledgerPrivate ed25519.PrivateKey, journal DerivedSeedJournal) (bootstrap.SlotState, error) {
-	manifest := authority.Manifest()
-	launch, err := authority.OriginalLaunch()
-	if err != nil || journal == nil || manifest.Slot != manifest.SeedSlot || authority.VerifyLedgerKey(ledgerPrivatePublic(ledgerPrivate)) != nil {
-		return bootstrap.SlotState{}, ErrOriginalStartup
-	}
-	createKey, err := bootstrap.OriginalLaunchCreateKey(launch)
-	if err != nil {
-		return bootstrap.SlotState{}, err
-	}
-	authority, factory, err := productionOriginalAuthority(ctx, authority, time.Now().UTC())
-	if err != nil {
-		return bootstrap.SlotState{}, err
-	}
-	host := originalStartupHost{authority: authority, factory: factory}
-	observed, err := host.observeCurrent(ctx)
-	if err != nil {
-		return bootstrap.SlotState{}, err
-	}
-	verifyCurrent := func(ctx context.Context) error { _, err := host.observeCurrent(ctx); return err }
-	ctx = ociclient.WithAuthority(ctx, verifyCurrent)
-	ip, err := authority.Template().SlotPrivateIP(manifest.SeedSlot)
-	if err != nil {
-		return bootstrap.SlotState{}, err
-	}
-	return ensureObservedSeed(ctx, authority.Template().Roots(), authority.Template().OriginAnchor(), authority, factory, observed,
-		createKey, ip, launch.InstanceOCID, host.observeCurrent, verifyCurrent, ledgerPrivate, journal)
-}
-
 func originalHomeFactory(authority bootstrap.DerivedStartupAuthority, factory *ociclient.Factory) (*ociclient.Factory, error) {
 	if _, err := authority.OriginalLaunch(); err != nil {
 		return nil, err
@@ -489,57 +307,6 @@ func originalHomeFactory(authority bootstrap.DerivedStartupAuthority, factory *o
 		return nil, err
 	}
 	return factory.ForRegion(home.OCIRegion)
-}
-
-func verifyAcceptedOriginalOrigin(ctx context.Context, accepted AcceptedIdentity, wire []byte, now time.Time) error {
-	if digest(wire) != accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename] {
-		return ErrOriginalStartup
-	}
-	origin, err := parseOriginalStartupOrigin(wire)
-	if err != nil || string(origin.Cell) != accepted.Cell {
-		return ErrOriginalStartup
-	}
-	genesis, err := trust.DiscoveryGenesis()
-	if err != nil {
-		return err
-	}
-	anchor, _, err := origin.verifyAnchor(genesis, now)
-	if err != nil {
-		return err
-	}
-	region, err := origin.Cell.OCIRegion()
-	if err != nil {
-		return err
-	}
-	factory, err := ociclient.InstancePrincipalContext(ctx, region)
-	if err != nil {
-		return err
-	}
-	home, err := anchor.FoundationScope()
-	if err != nil {
-		return err
-	}
-	homeFactory, err := factory.ForRegion(home.OCIRegion)
-	if err != nil {
-		return err
-	}
-	objects, err := homeFactory.ObjectStorage()
-	if err != nil {
-		return err
-	}
-	authority, err := bootstrap.RestoreBoundOriginalDerivedStartupAuthority(ctx, factory, origin.GrantWire, genesis, anchor, origin.Cell, &objects, origin.AuthorityWire, now)
-	if err != nil {
-		return err
-	}
-	if _, err := authority.OriginalLaunch(); err != nil {
-		return err
-	}
-	manifest := authority.Manifest()
-	if manifest.DeploymentID != accepted.DeploymentID || manifest.ClusterID != accepted.ClusterID || manifest.Environment != accepted.Environment ||
-		string(manifest.Cell) != accepted.Cell || manifest.Slot != accepted.Slot {
-		return ErrOriginalStartup
-	}
-	return nil
 }
 
 // Geometry comes from authenticated provider reads, never instance tags or IMDS.
@@ -615,53 +382,4 @@ func (host originalStartupHost) verifyResources(ctx context.Context, observed In
 		return errors.New("authenticated founder boot volume differs from its signed fixed size and performance tier")
 	}
 	return nil
-}
-
-// Production effects independently reopen the exact capability from the fixed
-// discovery genesis; a caller-selected fixture root cannot become authority.
-func productionOriginalAuthority(ctx context.Context, authority bootstrap.DerivedStartupAuthority, now time.Time) (bootstrap.DerivedStartupAuthority, *ociclient.Factory, error) {
-	wire, err := originalOriginWire(authority)
-	if err != nil {
-		return bootstrap.DerivedStartupAuthority{}, nil, err
-	}
-	origin, err := parseOriginalStartupOrigin(wire)
-	if err != nil {
-		return bootstrap.DerivedStartupAuthority{}, nil, err
-	}
-	genesis, err := trust.DiscoveryGenesis()
-	if err != nil {
-		return bootstrap.DerivedStartupAuthority{}, nil, err
-	}
-	anchor, _, err := origin.verifyAnchor(genesis, now)
-	if err != nil {
-		return bootstrap.DerivedStartupAuthority{}, nil, err
-	}
-	region, err := origin.Cell.OCIRegion()
-	if err != nil {
-		return bootstrap.DerivedStartupAuthority{}, nil, err
-	}
-	factory, err := ociclient.InstancePrincipalContext(ctx, region)
-	if err != nil {
-		return bootstrap.DerivedStartupAuthority{}, nil, err
-	}
-	home, err := anchor.FoundationScope()
-	if err != nil {
-		return bootstrap.DerivedStartupAuthority{}, nil, err
-	}
-	homeFactory, err := factory.ForRegion(home.OCIRegion)
-	if err != nil {
-		return bootstrap.DerivedStartupAuthority{}, nil, err
-	}
-	objects, err := homeFactory.ObjectStorage()
-	if err != nil {
-		return bootstrap.DerivedStartupAuthority{}, nil, err
-	}
-	current, err := bootstrap.RestoreBoundOriginalDerivedStartupAuthority(ctx, factory, origin.GrantWire, genesis, anchor, origin.Cell, &objects, origin.AuthorityWire, now)
-	if err != nil {
-		return bootstrap.DerivedStartupAuthority{}, nil, err
-	}
-	if current.Digest() != authority.Digest() {
-		return bootstrap.DerivedStartupAuthority{}, nil, ErrOriginalStartup
-	}
-	return current, factory, nil
 }

@@ -2,7 +2,6 @@ package swarmruntime
 
 import (
 	"context"
-	"crypto/sha256"
 	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"errors"
@@ -15,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
@@ -55,85 +52,6 @@ type ServiceIntent struct {
 	releaseSequence                                          uint64
 	releaseFingerprint                                       string
 	intentFingerprint                                        string
-}
-
-func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
-	if !entityid.Valid(i.ID) || i.OperationID != "" && !entityid.Valid(i.OperationID) {
-		return nil, errors.New("service intent requires a canonical entity ID")
-	}
-	if i.Replicas > autoscale.MaxReplicas {
-		return nil, errors.New("service replicas exceed the platform limit")
-	}
-	if i.Role == "ts-auth" && i.Replicas > 3 {
-		return nil, errors.New("TSAuth replicas exceed its three controller failure domains")
-	}
-	for _, value := range []string{i.Role, i.Region, i.Environment} {
-		if !intentName.MatchString(value) {
-			return nil, errors.New("invalid service intent identity or scope")
-		}
-	}
-	if i.Architecture != "arm64" && i.Architecture != "amd64" {
-		return nil, errors.New("unsupported container architecture")
-	}
-	// shortcut: one application endpoint is qualified, extend after multiport routing and collision scenarios.
-	if len(i.Ports) > 1 {
-		return nil, errors.New("container service supports one qualified application endpoint")
-	}
-	seenPorts := map[uint32]bool{}
-	for _, port := range i.Ports {
-		if port == nil || port.PublishMode != api.PublishModeHost || port.Protocol != api.ProtocolTCP || port.TargetPort != port.PublishedPort || port.PublishedPort < 1024 || port.PublishedPort > 65535 || seenPorts[port.PublishedPort] {
-			return nil, errors.New("service ports require unique TCP host ports with equal target and published ports in 1024..65535")
-		}
-		seenPorts[port.PublishedPort] = true
-	}
-	runtime, err := ContainerRuntime(i.Container)
-	if err != nil {
-		return nil, err
-	}
-	task := api.TaskSpec{Runtime: runtime, Resources: i.Resources.Copy()}
-	if _, err := DecodeContainer(&api.Task{ID: "validation", ServiceID: "validation", Spec: task, ServiceAnnotations: api.Annotations{Labels: map[string]string{LabelRole: i.Role}}}); err != nil {
-		return nil, err
-	}
-	task.Restart = &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(5 * time.Second)}
-	task.Placement = &api.Placement{
-		Constraints: []string{"node.labels." + LabelRegion + "==" + i.Region, "node.labels." + LabelExecutionScope + "==platform"},
-		Platforms:   []*api.Platform{{OS: "linux", Architecture: i.Architecture}},
-	}
-	identity := sha256.Sum256([]byte(i.Environment + "/" + i.Region + "/" + i.ID))
-	spec := &api.ServiceSpec{
-		Annotations: api.Annotations{Name: fmt.Sprintf("ts-%x", identity[:16]), Labels: map[string]string{
-			LabelIntentID: i.ID, LabelRole: i.Role, LabelRegion: i.Region, LabelEnvironment: i.Environment,
-		}},
-		Task:     task,
-		Mode:     &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: i.Replicas}},
-		Update:   &api.UpdateConfig{Parallelism: 1, Delay: 5 * time.Second, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_START_FIRST},
-		Rollback: &api.UpdateConfig{Parallelism: 1, Delay: 5 * time.Second, FailureAction: api.UpdateConfig_PAUSE, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_STOP_FIRST},
-	}
-	if i.OperationID != "" {
-		spec.Annotations.Labels[LabelOperationID] = i.OperationID
-	}
-	if i.Generation != 0 {
-		spec.Annotations.Labels[LabelIntentGeneration] = strconv.FormatUint(i.Generation, 10)
-		spec.Annotations.Labels[labelIntentFingerprint] = i.intentFingerprint
-	}
-	if i.releaseSequence != 0 {
-		spec.Annotations.Labels[labelReleaseSequence] = strconv.FormatUint(i.releaseSequence, 10)
-		spec.Annotations.Labels[labelReleaseFingerprint] = i.releaseFingerprint
-	}
-	if len(i.Ports) != 0 {
-		spec.Update.Order = api.UpdateConfig_STOP_FIRST
-		spec.Endpoint = &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin}
-		for _, port := range i.Ports {
-			spec.Endpoint.Ports = append(spec.Endpoint.Ports, port.Copy())
-		}
-	}
-	if i.Role == "ts-auth" {
-		spec.Task.Placement.Constraints = append(spec.Task.Placement.Constraints, "node.role==manager")
-		spec.Task.Placement.MaxReplicas = 1
-		// Three occupied controller domains leave no slot for start-first updates.
-		spec.Update.Order = api.UpdateConfig_STOP_FIRST
-	}
-	return spec, nil
 }
 
 // ServiceObservation contains no container specification or environment values.
@@ -224,20 +142,6 @@ func checkIntentGeneration(labels map[string]string, intent ServiceIntent) error
 		return errors.New("service intent generation cannot move backward or equivocate")
 	}
 	return nil
-}
-
-func serviceIntentFingerprint(spec *api.ServiceSpec) (string, error) {
-	spec = spec.Copy()
-	// Autoscaling and an operation locator do not change the admitted workload.
-	spec.Mode = nil
-	spec.Task.ForceUpdate = 0
-	delete(spec.Annotations.Labels, LabelOperationID)
-	delete(spec.Annotations.Labels, labelIntentFingerprint)
-	wire, err := json.Marshal(spec, json.Deterministic(true), jsonv1.FormatDurationAsNano(true))
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x", sha256.Sum256(wire)), nil
 }
 
 // Labels the single-host edge (hostnames) and secret injection (secrets) read

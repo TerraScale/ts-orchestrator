@@ -67,17 +67,6 @@ func verifyManagedMountPair(left, right managedMount) error {
 	return verifyManagedDeviceWitness(right)
 }
 
-// ManagedMaterialPath is the exact host-owned directory for one signed member
-// attempt. Preparation uses this path so client configuration cannot redirect
-// a host to operator-chosen material.
-func ManagedMaterialPath(root string, member ManagedMemberBinding) (string, error) {
-	paths, err := runtimePaths(root, ManagedMemberLaunch{Member: member})
-	if err != nil {
-		return "", err
-	}
-	return paths.material, nil
-}
-
 func runtimePaths(root string, launch ManagedMemberLaunch) (managedRuntimePaths, error) {
 	if !filepath.IsAbs(root) || filepath.Clean(root) != root || root == "/" {
 		return managedRuntimePaths{}, errors.New("managed runtime root must be a clean absolute directory")

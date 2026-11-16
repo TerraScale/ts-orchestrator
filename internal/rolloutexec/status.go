@@ -1,12 +1,10 @@
 package rolloutexec
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 )
 
@@ -53,14 +51,4 @@ type Status struct {
 type NATSStatus struct {
 	Conn *nats.Conn
 	Cell string
-}
-
-// PublishStatus implements StatusSink. Publication is best effort.
-func (sink NATSStatus) PublishStatus(status Status) {
-	if sink.Conn == nil {
-		return
-	}
-	if data, err := json.Marshal(status); err == nil {
-		_ = sink.Conn.Publish(protocol.RolloutStatusSubject(sink.Cell), data)
-	}
 }

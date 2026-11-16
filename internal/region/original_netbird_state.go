@@ -39,21 +39,6 @@ func (s originalNetBirdState) regionalTarget() vaultsecret.Target {
 	return vaultsecret.Target{CompartmentID: v.ControlCompartmentID, VaultID: originalVaultID(v.Vault.OriginalFoundationKMSCreate), KeyID: originalVaultID(v.Key.OriginalFoundationKMSCreate)}
 }
 
-func (s *SignedFootprint) originalNetBirdGrant(ctx context.Context) (bool, error) {
-	if s == nil || ctx == nil {
-		return false, ErrOriginalSourceProducerHold
-	}
-	wire, err := s.readGrant(ctx)
-	if err != nil {
-		return false, err
-	}
-	grant, _, err := s.verifyOriginalDocument(wire)
-	if err != nil {
-		return false, err
-	}
-	return grant.SchemaVersion == 3, nil
-}
-
 func (s *SignedFootprint) originalNetBirdState(ctx context.Context, resolver FoundationResolver) (originalNetBirdState, error) {
 	if s == nil || ctx == nil || s.retainedGrant != nil {
 		return originalNetBirdState{}, ErrOriginalSourceProducerHold
@@ -89,42 +74,6 @@ type originalNetBirdStateMemo struct {
 	state    originalNetBirdState
 	verified bool
 	checked  map[*byte]bool
-}
-
-// originalNetBirdChecked reports whether this operation already passed the
-// check identified by id; markOriginalNetBirdChecked records a pass.
-func originalNetBirdChecked(ctx context.Context, id *byte) bool {
-	memo, _ := ctx.Value(originalNetBirdStateMemoKey{}).(*originalNetBirdStateMemo)
-	if memo == nil {
-		return false
-	}
-	memo.mu.Lock()
-	defer memo.mu.Unlock()
-	return memo.checked[id]
-}
-
-func markOriginalNetBirdChecked(ctx context.Context, id *byte) {
-	if memo, _ := ctx.Value(originalNetBirdStateMemoKey{}).(*originalNetBirdStateMemo); memo != nil {
-		memo.mu.Lock()
-		defer memo.mu.Unlock()
-		if memo.checked == nil {
-			memo.checked = map[*byte]bool{}
-		}
-		memo.checked[id] = true
-	}
-}
-
-// withOriginalNetBirdStateMemo scopes one operation; nested scopes share it.
-func withOriginalNetBirdStateMemo(ctx context.Context) context.Context {
-	if memo, _ := ctx.Value(originalNetBirdStateMemoKey{}).(*originalNetBirdStateMemo); memo != nil {
-		return ctx
-	}
-	return context.WithValue(ctx, originalNetBirdStateMemoKey{}, &originalNetBirdStateMemo{})
-}
-
-// withoutOriginalNetBirdStateMemo detaches an operation that writes the state it reads.
-func withoutOriginalNetBirdStateMemo(ctx context.Context) context.Context {
-	return context.WithValue(ctx, originalNetBirdStateMemoKey{}, (*originalNetBirdStateMemo)(nil))
 }
 
 func (s *SignedFootprint) readOriginalNetBirdState(ctx context.Context, resolver FoundationResolver) (originalNetBirdState, error) {

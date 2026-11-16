@@ -126,7 +126,6 @@ type VerifiedHostStateHandoffPlan struct {
 	verified    bool
 }
 
-func (verified VerifiedHostStateHandoffPlan) IsVerified() bool    { return verified.verified }
 func (verified VerifiedHostStateHandoffPlan) Fingerprint() string { return verified.fingerprint }
 
 // MatchIdentityReset binds these additional pins to the parent's transaction.
@@ -169,14 +168,6 @@ func (verified VerifiedHostStateHandoffPlan) IdentityResetRecords() []authority.
 		pins = append(pins, record.Pin)
 	}
 	return pins
-}
-
-func (verified VerifiedHostStateHandoffPlan) Values() [][]byte {
-	var values [][]byte
-	for _, record := range verified.Records() {
-		values = append(values, record.Value)
-	}
-	return values
 }
 
 // BuildHostStateHandoffPlan derives all destinations and bytes from typed facts.

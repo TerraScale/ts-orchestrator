@@ -27,13 +27,12 @@ const (
 )
 
 var (
-	ErrInvalid        = errors.New("invalid function invocation")
-	ErrScope          = errors.New("function tenant or revision scope mismatch")
-	ErrBusy           = errors.New("function worker concurrency exhausted")
-	ErrOutputLimit    = errors.New("function output limit exceeded")
-	ErrClosed         = errors.New("function worker closed")
-	namePattern       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	invocationPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
+	ErrInvalid     = errors.New("invalid function invocation")
+	ErrScope       = errors.New("function tenant or revision scope mismatch")
+	ErrBusy        = errors.New("function worker concurrency exhausted")
+	ErrOutputLimit = errors.New("function output limit exceeded")
+	ErrClosed      = errors.New("function worker closed")
+	namePattern    = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 )
 
 // Manifest must arrive through signed release admission, never through a guest request.
@@ -82,30 +81,6 @@ func (m Manifest) Validate() error {
 	}
 	if len(m.Capabilities) != 0 {
 		return fmt.Errorf("%w: unsupported host capabilities", ErrInvalid)
-	}
-	return nil
-}
-
-func (a Artifact) Validate() error {
-	if err := a.Manifest.Validate(); err != nil {
-		return err
-	}
-	if len(a.Module) == 0 || len(a.Module) > MaxModuleBytes {
-		return fmt.Errorf("%w: module size", ErrInvalid)
-	}
-	sum := sha256.Sum256(a.Module)
-	if hex.EncodeToString(sum[:]) != a.Manifest.Digest {
-		return fmt.Errorf("%w: module digest mismatch", ErrInvalid)
-	}
-	return nil
-}
-
-func (in Invocation) Validate(m Manifest) error {
-	if in.TenantID != m.TenantID || in.FunctionID != m.FunctionID || in.Revision != m.Revision {
-		return ErrScope
-	}
-	if !invocationPattern.MatchString(in.ID) || (in.Trigger != "http" && in.Trigger != "queue") || len(in.Payload) > MaxPayloadBytes {
-		return fmt.Errorf("%w: id, trigger or payload size", ErrInvalid)
 	}
 	return nil
 }

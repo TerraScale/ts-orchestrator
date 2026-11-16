@@ -2,8 +2,9 @@ package bootstrapstart
 
 import (
 	"context"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 )
 
 // PublicSource reads this exact founder's public source inventory through the

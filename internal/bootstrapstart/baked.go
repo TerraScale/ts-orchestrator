@@ -86,27 +86,6 @@ func LoadBakedInputs() (BakedInputs, error) {
 	return bakedStore{directory: BakedDirectory, chainFile: RootChainFile, ownerUID: 0, ownerGID: 0}.load()
 }
 
-// LoadImageRoots reads only the existing fixed root-owned image root inventory.
-// Finite qualification verifies its own signed purpose without a production identity.
-func LoadImageRoots() (trust.Keyring, error) {
-	return bakedStore{directory: BakedDirectory, ownerUID: 0, ownerGID: 0}.loadRoots()
-}
-
-// BakedInputsPresent is a routing check, not validation. Any object at the
-// fixed path, including an invalid file or symlink, requires production
-// admission and therefore fails through LoadBakedInputs. Only an absent path
-// permits an explicitly configured lab runtime.
-func BakedInputsPresent() (bool, error) {
-	_, err := os.Lstat(BakedDirectory)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	return false, err
-}
-
 type bakedStore struct {
 	directory            string
 	chainFile            string
@@ -371,30 +350,4 @@ func (baked BakedInputs) originalAuthority(ctx context.Context, now time.Time) (
 		return bootstrap.DerivedStartupAuthority{}, ErrOriginalStartup
 	}
 	return authority, nil
-}
-
-func (baked BakedInputs) verifyHistoricalOriginAnchor(ctx context.Context, acceptedAt time.Time) (bootstrap.HistoricalBootstrapAnchor, error) {
-	if len(baked.originalOrigin) != 0 {
-		if _, err := baked.originalAuthority(ctx, time.Now().UTC()); err != nil {
-			return bootstrap.HistoricalBootstrapAnchor{}, err
-		}
-		origin, err := parseOriginalStartupOrigin(baked.originalOrigin)
-		if err != nil {
-			return bootstrap.HistoricalBootstrapAnchor{}, err
-		}
-		genesis, err := trust.DiscoveryGenesis()
-		if err != nil {
-			return bootstrap.HistoricalBootstrapAnchor{}, err
-		}
-		envelope, expected, roots, err := origin.anchorInputs(genesis)
-		if err != nil {
-			return bootstrap.HistoricalBootstrapAnchor{}, err
-		}
-		return bootstrap.VerifyHistoricalBootstrapAnchor(envelope, roots.Historical, expected, acceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
-	}
-	envelope, err := trust.DecodeEnvelope(baked.AnchorWire)
-	if err != nil {
-		return bootstrap.HistoricalBootstrapAnchor{}, err
-	}
-	return bootstrap.VerifyHistoricalBootstrapAnchor(envelope, baked.Roots, baked.Identity.AnchorExpectation(), acceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
 }

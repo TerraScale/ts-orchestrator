@@ -1,14 +1,6 @@
 package bootstrapmaterial
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
-	"encoding/pem"
-	"math/big"
-	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -49,61 +41,12 @@ const (
 	interRegionDomain       = "interregion.terrascale.internal"
 )
 
-// InterRegionLeafName is the DNS name of cell's interregion leaf
-// certificates, the server_name its children pin.
-func InterRegionLeafName(cell string) string { return "leaf." + cell + "." + interRegionDomain }
-
 // PrivatePeerReceiptKind and PrivatePeerReceiptPass identify the reviewed
 // private-peer foundation readback (ociregion InspectPrivatePeer).
-
-// nested reports whether path is parent or inside it.
-func nested(parent, path string) bool {
-	relative, err := filepath.Rel(filepath.Clean(parent), filepath.Clean(path))
-	return err == nil && (relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
-}
-
-func metadataDigest(directory string) (string, error) {
-	metadata, err := readOwnedFile(filepath.Join(directory, metadataName), 1<<20)
-	if err != nil {
-		return "", ErrMaterial
-	}
-	return digest(metadata), nil
-}
 
 func minTime(a, b time.Time) time.Time {
 	if a.Before(b) {
 		return a
 	}
 	return b
-}
-
-// interRegionCertificate issues template for a new P-256 key, signed by
-// parent's key, or by its own when parent is nil.
-func interRegionCertificate(template, parent *x509.Certificate, parentKey *ecdsa.PrivateKey,
-) ([]byte, []byte, *x509.Certificate, *ecdsa.PrivateKey, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	if template.SerialNumber, err = rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128)); err != nil {
-		return nil, nil, nil, nil, err
-	}
-	if parent == nil {
-		parent, parentKey = template, key
-	}
-	der, err := x509.CreateCertificate(rand.Reader, template, parent, &key.PublicKey, parentKey)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	cert, err := x509.ParseCertificate(der)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	keyDER, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	defer clear(keyDER)
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
-		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), cert, key, nil
 }

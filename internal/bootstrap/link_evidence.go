@@ -34,12 +34,6 @@ type VerifiedStartupLink struct {
 	evidence RegionalLinkEvidence
 }
 
-func (link VerifiedStartupLink) IsVerified() bool {
-	return link.client != nil && link.template.IsVerified() && link.evidence.SourceObjectKey != ""
-}
-func (link VerifiedStartupLink) MaterialRecord() []byte {
-	return bytes.Clone(link.evidence.MaterialRecord)
-}
 func (link VerifiedStartupLink) References() []SecretReference {
 	return slices.Clone(link.evidence.References)
 }
@@ -50,13 +44,6 @@ func (link VerifiedStartupLink) Evidence() RegionalLinkEvidence {
 	e.Delivery = bytes.Clone(e.Delivery)
 	e.References = slices.Clone(e.References)
 	return e
-}
-func (link VerifiedStartupLink) VerifyCurrent(ctx context.Context, now time.Time) error {
-	if !link.IsVerified() {
-		return ErrManifestInvalid
-	}
-	_, err := VerifyStartupLink(ctx, link.template, link.client, link.evidence, now)
-	return err
 }
 
 // LinkDeliveryPayload excludes its own signature from the exact signed payload.

@@ -352,43 +352,6 @@ func VerifyImageCurrent(envelopeWire, delegationWire []byte, roots trust.Keyring
 	return VerifiedImage{receipt: receipt, proof: proof}, nil
 }
 
-// VerifyImageHistorical verifies an image receipt's signature, issuance-time
-// delegation, scope, and identity. Its distinct result is audit evidence only.
-func VerifyImageHistorical(envelopeWire, delegationWire []byte, roots trust.Keyring,
-	expected ImageExpectation,
-) (HistoricalImage, error) {
-	if err := validateImageExpectation(expected); err != nil {
-		return HistoricalImage{}, err
-	}
-	envelope, delegationEnvelope, err := decodeEnvelopePair(envelopeWire, delegationWire)
-	if err != nil {
-		return HistoricalImage{}, err
-	}
-	receipt, err := decodeCanonicalPayload[ImageReceipt](envelope.Payload)
-	if err != nil {
-		return HistoricalImage{}, err
-	}
-	if err := receipt.Validate(); err != nil {
-		return HistoricalImage{}, err
-	}
-	if err := matchImageExpectation(receipt, expected); err != nil {
-		return HistoricalImage{}, err
-	}
-	scope := ImageScope(receipt, expected.Environment)
-	delegation, err := trust.VerifyDelegationHistorical(delegationEnvelope, roots, delegationPolicy())
-	if err != nil {
-		return HistoricalImage{}, fmt.Errorf("verify historical release delegation: %w", err)
-	}
-	if _, err := trust.VerifyDelegatedHistorical(envelope, scope, delegation, receiptPolicy()); err != nil {
-		return HistoricalImage{}, fmt.Errorf("verify historical signed image receipt: %w", err)
-	}
-	proof, err := proofFor(envelope)
-	if err != nil {
-		return HistoricalImage{}, err
-	}
-	return HistoricalImage{receipt: receipt, proof: proof}, nil
-}
-
 func (verified VerifiedBinary) IsVerified() bool       { return verified.proof.verified }
 func (verified VerifiedBinary) Receipt() BinaryReceipt { return verified.receipt }
 func (verified VerifiedBinary) EnvelopeSHA256() string { return verified.proof.envelopeSHA256 }
@@ -405,10 +368,6 @@ func (verified VerifiedImage) EnvelopeSHA256() string { return verified.proof.en
 func (verified VerifiedImage) KeyID() string          { return verified.proof.keyID }
 func (verified VerifiedImage) IssuedAt() time.Time    { return verified.proof.issuedAt }
 func (verified VerifiedImage) ExpiresAt() time.Time   { return verified.proof.expiresAt }
-
-func (historical HistoricalImage) Receipt() ImageReceipt {
-	return cloneImageReceipt(historical.receipt)
-}
 
 // ValidEnvironment reports whether value names a supported release environment.
 func ValidEnvironment(value string) bool { return value == "production" || value == "canary" }

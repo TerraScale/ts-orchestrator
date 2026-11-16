@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	ociregistry "github.com/TerraScale/ts-orchestrator/internal/ociregion/registry"
 	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
@@ -32,62 +31,6 @@ type RegistryAdmission struct {
 	Deadline                       time.Time
 	// VerifyCurrent rechecks the captured task and authority before each Vault dispatch and afterward.
 	VerifyCurrent func(context.Context) error
-}
-
-// NewOCIRegistryResolver reads admitted private credentials automatically for
-// each pull. lookup verifies current signed release admission and root ownership.
-func NewOCIRegistryResolver(factory *ociclient.Factory, lookup func(context.Context, *api.Task) (*RegistryAdmission, error)) (RegistryResolver, error) {
-	if lookup == nil {
-		return nil, errors.New("registry requires authenticated release admission")
-	}
-	secrets, err := ociregistry.NewPullSecrets(factory)
-	if err != nil {
-		return nil, err
-	}
-	return func(ctx context.Context, task *api.Task, node *api.Node) (remotes.Resolver, error) {
-		spec, err := DecodeContainer(task)
-		if err != nil {
-			return nil, err
-		}
-		admitted, err := lookup(ctx, task.Copy())
-		if err != nil {
-			return nil, errors.New("registry release admission unavailable")
-		}
-		if admitted == nil {
-			return nil, errors.New("private OCI registry release admission is unavailable")
-		}
-		approved := *admitted
-		admitted = &approved
-		if admitted.VerifyCurrent == nil || node == nil || node.ID == "" || task.NodeID != node.ID || admitted.ServiceID != task.ServiceID ||
-			admitted.Environment == "" || admitted.Region == "" ||
-			node.Spec.Annotations.Labels[LabelRegion] != admitted.Region ||
-			task.ServiceAnnotations.Labels[LabelEnvironment] != admitted.Environment ||
-			task.ServiceAnnotations.Labels[LabelRegion] != admitted.Region ||
-			task.ServiceAnnotations.Labels[LabelIntentID] != admitted.Scope.TaskPrincipal ||
-			spec.Image != admitted.Scope.RegistryHost+"/"+admitted.Scope.Repository+"@"+admitted.Scope.Digest {
-			return nil, errors.New("registry release does not match current task and admitted node")
-		}
-		if admitted.Deadline.IsZero() || !time.Now().Before(admitted.Deadline) {
-			return nil, errors.New("registry release admission expired")
-		}
-		ctx, cancel := context.WithDeadline(ctx, admitted.Deadline)
-		defer cancel()
-		if err := admitted.VerifyCurrent(ctx); err != nil {
-			return nil, err
-		}
-		ctx = ociclient.WithRequestGuard(ctx, admitted.VerifyCurrent)
-		credentials, err := secrets.Resolve(ctx, admitted.Claim, admitted.Scope, admitted.Secret)
-		if err != nil {
-			return nil, errors.New("registry Vault credential unavailable")
-		}
-		if err := admitted.VerifyCurrent(ctx); err != nil {
-			return nil, err
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		return privateRegistryResolver(spec.Image, admitted.Scope.RegistryHost, credentials.ForHost, nil), nil
-	}, nil
 }
 
 const ghcrHost = "ghcr.io"

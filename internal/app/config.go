@@ -1,19 +1,12 @@
 package app
 
 import (
-	"errors"
-	"fmt"
-	"os"
-
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/machinesapi"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/roleconfig"
 )
-
-const maxConfigBytes = 1 << 20
 
 // ConfigVersion is the only supported role-config contract.
 // Legacy configs require newly produced and signed desired state before rollout.
@@ -140,60 +133,4 @@ type HostConfig struct {
 	// a controller, so neither can push the controller's NATS into the OOM
 	// killer. A role without an entry keeps the unlimited default.
 	RoleMemoryMaxBytes map[string]uint64 `json:"role_memory_max_bytes,omitempty"`
-}
-
-func LoadConfig(path string) (Config, error) {
-	if path == "" {
-		return Config{}, errors.New("--config is required")
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return Config{}, fmt.Errorf("stat config: %w", err)
-	}
-	if info.Size() > maxConfigBytes {
-		return Config{}, errors.New("config is too large")
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Config{}, fmt.Errorf("read config: %w", err)
-	}
-	cfg, err := decodeConfig(data)
-	if err != nil {
-		return Config{}, fmt.Errorf("parse config: %w", err)
-	}
-	if err := cfg.Observability.Validate(); err != nil {
-		return Config{}, fmt.Errorf("observability config: %w", err)
-	}
-	if api := cfg.Controller.MachinesAPI; api != nil {
-		if err := api.Validate(); err != nil {
-			return Config{}, err
-		}
-	}
-	return cfg, nil
-}
-
-// decodeConfig strictly decodes config bytes and keeps them as the config's wire.
-func decodeConfig(data []byte) (Config, error) {
-	var cfg Config
-	if err := protocol.DecodeStrict(data, &cfg, maxConfigBytes); err != nil {
-		return Config{}, err
-	}
-	if cfg.Version != ConfigVersion {
-		return Config{}, fmt.Errorf("config version must be %d, got %d", ConfigVersion, cfg.Version)
-	}
-	cfg.wire = data
-	return cfg, nil
-}
-
-// signedWire returns the exact bytes the config was read from, or its
-// canonical encoding when code built it.
-func (c Config) signedWire() ([]byte, error) {
-	if c.wire != nil {
-		return c.wire, nil
-	}
-	if c.Version != 0 && c.Version != ConfigVersion {
-		return nil, fmt.Errorf("unsupported config version %d; want %d", c.Version, ConfigVersion)
-	}
-	c.Version = ConfigVersion
-	return protocol.EncodeJSON(c)
 }

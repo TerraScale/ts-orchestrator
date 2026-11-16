@@ -7,39 +7,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
-	"net"
-	"os"
-	"os/user"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
-	"syscall"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/gofrs/flock"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
-	"golang.org/x/sys/unix"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
-
-const managementSocket = "/var/lib/terrascale-orchestrator-host/swarm-management.sock"
-const managementBinding = "terrascale-accepted-identity"
-const managementNodeID = "terrascale-manager-node-id"
-const controllerCgroup = "/system.slice/terrascale-orchestrator-controller.service"
 
 // StatefulServiceAuthorizer derives the exact current signed service in root.
 // The unprivileged socket caller cannot supply its readers or a cached seal.
@@ -48,235 +27,11 @@ type StatefulServiceAuthorizer interface {
 	WithStatefulService(context.Context, *api.ServiceSpec, func(context.Context) error) error
 }
 
-// ManagementPeerPID returns the kernel-authenticated Unix peer for root's exact
-// process witness. RPC payloads cannot construct this private credential type.
-func ManagementPeerPID(ctx context.Context) (int32, error) {
-	if admitted, _ := ctx.Value(managementAdmission{}).(bool); !admitted {
-		return 0, denied()
-	}
-	remote, ok := peer.FromContext(ctx)
-	if !ok {
-		return 0, denied()
-	}
-	identity, ok := remote.AuthInfo.(unixPeer)
-	if !ok || identity.pid <= 0 {
-		return 0, denied()
-	}
-	return identity.pid, nil
-}
-
-type managementAdmission struct{}
-
-// StartManagementServer exposes only controller operations beside the root-owned
-// manager. The private upstream control and containerd sockets remain root-only.
-func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity, stateful StatefulServiceAuthorizer) (io.Closer, error) {
-	if os.Geteuid() != 0 || node == nil || reader == nil || stateful == nil {
-		return nil, errors.New("management requires the root-owned admitted manager")
-	}
-	authority, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
-	if err != nil {
-		return nil, err
-	}
-	identity := authority.Identity()
-	region := authority.Anchor().Anchor().OCIRegion
-	account, err := user.Lookup("terrascale-orchestrator")
-	if err != nil {
-		return nil, err
-	}
-	uid, uidErr := strconv.ParseUint(account.Uid, 10, 32)
-	gid, gidErr := strconv.ParseUint(account.Gid, 10, 32)
-	if uidErr != nil || gidErr != nil || uid == 0 || gid == 0 {
-		return nil, errors.New("invalid controller service identity")
-	}
-	binding, err := acceptedBinding(accepted)
-	if err != nil {
-		return nil, err
-	}
-	client, err := node.ControlClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	observed, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: node.ID()})
-	if err != nil || observed.Node == nil || observed.Node.Spec.Annotations.Name != identity.Slot || observed.Node.Spec.Annotations.Labels[LabelInstanceID] != identity.InstanceID || observed.Node.Spec.Annotations.Labels[LabelRegion] != region || observed.Node.Spec.Annotations.Labels[LabelHostRole] != "manager" {
-		return nil, errors.New("management node differs from accepted controller")
-	}
-	refresh := func(ctx context.Context) error {
-		current, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
-		if err != nil || current.Identity() != identity || current.Anchor().Anchor().OCIRegion != region {
-			return errors.New("current controller authority unavailable")
-		}
-		return nil
-	}
-	return startManagementAt(ctx, managementSocket, uint32(uid), uint32(gid), controllerCgroup, binding, node, region, identity.Environment, client, refresh, stateful)
-}
-
-func acceptedBinding(accepted bootstrapstart.AcceptedIdentity) (string, error) {
-	wire, err := bootstrapstart.EncodeAcceptedIdentity(accepted)
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(wire)
-	return hex.EncodeToString(digest[:]), nil
-}
-
-type unixPeer struct {
-	credentials.CommonAuthInfo
-	uid uint32
-	pid int32
-}
-
-func (unixPeer) AuthType() string { return "unix-peer" }
-
-type unixCredentials struct{ serverUID uint32 }
-
-func (c unixCredentials) Info() credentials.ProtocolInfo {
-	return credentials.ProtocolInfo{SecurityProtocol: "unix-peer"}
-}
-func (c unixCredentials) Clone() credentials.TransportCredentials { return c }
-func (unixCredentials) OverrideServerName(string) error           { return nil }
-func (c unixCredentials) ServerHandshake(conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
-	identity, err := socketPeer(conn)
-	return conn, identity, err
-}
-func (c unixCredentials) ClientHandshake(ctx context.Context, _ string, conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
-	identity, err := socketPeer(conn)
-	if err == nil && (identity.uid != c.serverUID || identity.pid <= 0) {
-		err = errors.New("management server identity denied")
-	}
-	return conn, identity, err
-}
-func socketPeer(conn net.Conn) (unixPeer, error) {
-	socket, ok := conn.(*net.UnixConn)
-	if !ok {
-		return unixPeer{}, errors.New("management requires Unix transport")
-	}
-	raw, err := socket.SyscallConn()
-	if err != nil {
-		return unixPeer{}, err
-	}
-	var cred *unix.Ucred
-	var readErr error
-	err = raw.Control(func(fd uintptr) { cred, readErr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED) })
-	if err = errors.Join(err, readErr); err != nil {
-		return unixPeer{}, err
-	}
-	return unixPeer{SecurityLevel: credentials.PrivacyAndIntegrity, uid: cred.Uid, pid: cred.Pid}, nil
-}
-func verifyPeer(identity unixPeer, uid uint32, cgroup string) error {
-	if identity.uid != uid || identity.pid <= 0 {
-		return errors.New("management peer identity denied")
-	}
-	if cgroup != "" {
-		wire, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", identity.pid))
-		if err != nil {
-			return err
-		}
-		admitted := false
-		for line := range strings.SplitSeq(strings.TrimSpace(string(wire)), "\n") {
-			if strings.HasSuffix(line, ":"+cgroup) {
-				admitted = true
-			}
-		}
-		if !admitted {
-			return errors.New("management peer service denied")
-		}
-	}
-	return nil
-}
-
 type managementServer struct {
 	api.UnimplementedControlServer
 	client              api.ControlClient
 	region, environment string
 	stateful            StatefulServiceAuthorizer
-}
-type managementListener struct{ close func() }
-
-func (s *managementListener) Close() error { s.close(); return nil }
-func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup, binding string, node *Node, region, environment string, client api.ControlClient, refresh func(context.Context) error, stateful StatefulServiceAuthorizer) (io.Closer, error) {
-	parent, err := os.Lstat(filepath.Dir(path))
-	if err != nil {
-		return nil, err
-	}
-	stat, ok := parent.Sys().(*syscall.Stat_t)
-	// The caller owns the parent; never replace an existing path or follow a link.
-	if !ok || stat.Uid != uint32(os.Geteuid()) || !parent.IsDir() || parent.Mode().Perm()&0o022 != 0 {
-		return nil, errors.New("management socket parent is writable by another identity")
-	}
-	lock := flock.New(path + ".lock")
-	locked, err := lock.TryLock()
-	if err != nil || !locked {
-		return nil, errors.New("management socket is already in use")
-	}
-	ready := false
-	defer func() {
-		if !ready {
-			_ = lock.Unlock()
-		}
-	}()
-	if old, err := os.Lstat(path); err == nil {
-		owner, ok := old.Sys().(*syscall.Stat_t)
-		if !ok || owner.Uid != uint32(os.Geteuid()) || old.Mode()&os.ModeSocket == 0 {
-			return nil, errors.New("management socket path has unexpected ownership or type")
-		}
-		if err := os.Remove(path); err != nil {
-			return nil, err
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	listener, err := net.Listen("unix", path)
-	if err != nil {
-		return nil, err
-	}
-	fail := func(err error) (io.Closer, error) { _ = listener.Close(); return nil, err }
-	if os.Geteuid() == 0 {
-		if err := os.Chown(path, 0, int(gid)); err != nil {
-			return fail(err)
-		}
-	}
-	if err := os.Chmod(path, 0o660); err != nil {
-		return fail(err)
-	}
-	server := grpc.NewServer(grpc.Creds(unixCredentials{}), grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		p, ok := peer.FromContext(ctx)
-		if !ok {
-			return nil, status.Error(codes.Unauthenticated, "management peer required")
-		}
-		identity, ok := p.AuthInfo.(unixPeer)
-		incoming, _ := metadata.FromIncomingContext(ctx)
-		if !ok || verifyPeer(identity, uid, cgroup) != nil || len(incoming.Get(managementBinding)) != 1 || incoming.Get(managementBinding)[0] != binding {
-			return nil, status.Error(codes.PermissionDenied, "management identity denied")
-		}
-		if err := refresh(ctx); err != nil {
-			return nil, status.Error(codes.PermissionDenied, "current controller authority unavailable")
-		}
-		if err := grpc.SetHeader(ctx, metadata.Pairs(managementNodeID, node.ID())); err != nil {
-			return nil, err
-		}
-		switch info.FullMethod {
-		case "/docker.swarmkit.v1.Control/ListClusters", workerPrepareMethod, workerAdmitMethod, workerAuditMethod, workerReadMembershipMethod, "/docker.swarmkit.v1.Control/GetNode", "/docker.swarmkit.v1.Control/ListNodes", "/docker.swarmkit.v1.Control/UpdateNode", "/docker.swarmkit.v1.Control/GetTask", "/docker.swarmkit.v1.Control/ListTasks", "/docker.swarmkit.v1.Control/GetService", "/docker.swarmkit.v1.Control/ListServices", "/docker.swarmkit.v1.Control/CreateService", "/docker.swarmkit.v1.Control/UpdateService", "/docker.swarmkit.v1.Control/RemoveService", "/docker.swarmkit.v1.Control/GetConfig", "/docker.swarmkit.v1.Control/ListConfigs", "/docker.swarmkit.v1.Control/CreateConfig", "/docker.swarmkit.v1.Control/UpdateConfig":
-		default:
-			return nil, denied()
-		}
-		result, err := handler(context.WithValue(ctx, managementAdmission{}, true), req)
-		if err != nil {
-			return nil, status.Error(status.Code(err), "management operation failed")
-		}
-		if err := refresh(ctx); err != nil {
-			return nil, status.Error(codes.PermissionDenied, "current controller authority changed")
-		}
-		return result, nil
-	}), grpc.StreamInterceptor(managementStreamInterceptor(uid, cgroup, binding, refresh)))
-	scope := &managementServer{client: client, region: region, environment: environment, stateful: stateful}
-	api.RegisterControlServer(server, scope)
-	registerManagementObservation(server, node, scope)
-	registerWorkerManagement(server, node)
-	stop := context.AfterFunc(ctx, func() { server.Stop(); _ = listener.Close(); _ = lock.Unlock() })
-	serving := &managementListener{close: sync.OnceFunc(func() { stop(); server.Stop(); _ = listener.Close(); _ = lock.Unlock() })}
-	ready = true
-	go func() { _ = server.Serve(listener) }()
-	return serving, nil
 }
 
 func (s *managementServer) scoped(a api.Annotations) bool {

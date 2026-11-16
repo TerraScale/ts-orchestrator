@@ -30,21 +30,6 @@ func ContainerEvidenceObject(role, digest string) string {
 	return servicePrefix + role + "/containers/objects/" + digest
 }
 
-func ReadContainerBundle(ctx context.Context, location Location, role, architecture string) (release.ContainerBundle, bool, error) {
-	if !containerRole.MatchString(role) || architecture != "amd64" && architecture != "arm64" {
-		return release.ContainerBundle{}, false, ErrInvalid
-	}
-	wire, _, found, err := location.get(ctx, ContainerReleaseObject(role, architecture), MaxContainerBundleBytes)
-	if err != nil || !found {
-		return release.ContainerBundle{}, found, err
-	}
-	var bundle release.ContainerBundle
-	if err := protocol.DecodeStrict(wire, &bundle, MaxContainerBundleBytes); err != nil {
-		return release.ContainerBundle{}, true, err
-	}
-	return bundle, true, nil
-}
-
 // ReadContainerEvidence streams immutable bytes; VerifyContainerCurrent checks
 // their signed size and SHA-256 before allowing a runtime mutation.
 func ReadContainerEvidence(ctx context.Context, location Location, role, digest string) (io.ReadCloser, error) {
@@ -158,27 +143,4 @@ func ReadContainerStatus(ctx context.Context, location Location, role, architect
 	}
 	found, err := location.read(ctx, ContainerStatusObject(role, architecture), maxStatusBytes, &status)
 	return status, found, err
-}
-func WriteContainerStatus(ctx context.Context, location Location, status ContainerStatus) error {
-	if !containerRole.MatchString(status.Role) || status.Architecture != "amd64" && status.Architecture != "arm64" {
-		return ErrInvalid
-	}
-	status.Schema = ContainerStatusSchema
-	status.Reason = Clip(status.Reason)
-	wire, err := json.Marshal(status, json.Deterministic(true))
-	if err != nil {
-		return err
-	}
-	// Telemetry may be overwritten; the authenticated release is the admission record.
-	name := ContainerStatusObject(status.Role, status.Architecture)
-	for range 3 {
-		_, etag, _, err := location.get(ctx, name, maxStatusBytes)
-		if err != nil {
-			return err
-		}
-		if err := location.put(ctx, name, wire, etag); !errors.Is(err, ErrConflict) {
-			return err
-		}
-	}
-	return ErrConflict
 }

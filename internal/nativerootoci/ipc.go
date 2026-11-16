@@ -166,9 +166,6 @@ func peerCredential(connection *net.UnixConn) (Peer, error) {
 	return rootociwire.PeerCredential(connection)
 }
 
-// PeerCredential reads the connected socket's authenticated kernel identity.
-func PeerCredential(connection *net.UnixConn) (Peer, error) { return peerCredential(connection) }
-
 func readFrame(reader io.Reader) ([]byte, error) { return ReadBoundedFrame(reader, MaxFrameBytes) }
 
 // ReadBoundedFrame reads one fixed-limit length-prefixed message.

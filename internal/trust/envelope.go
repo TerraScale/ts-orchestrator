@@ -49,10 +49,10 @@ var (
 	ErrCapabilityDenied = errors.New("delegated signing capability is insufficient")
 	ErrDelegationTime   = errors.New("delegation does not cover the signed document interval")
 	domainRE            = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
-	identityRE          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
-	cellRE              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-	tokenRE             = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
-	slotRE              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)
+
+	cellRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	tokenRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
+	slotRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)
 )
 
 // Scope names the exact purpose and deployment target authorized by a
@@ -520,11 +520,6 @@ func decodeCanonicalSignature(encoded string) ([]byte, error) {
 }
 
 func bytesClone(value []byte) []byte { return append([]byte(nil), value...) }
-
-// DelegatedKeyID creates the key ID stored alongside a delegated public key.
-func DelegatedKeyID(publicKey ed25519.PublicKey) (string, error) {
-	return KeyID(publicKey)
-}
 
 // EncodeDelegatedPublicKey uses the canonical unpadded URL-safe Base64 form.
 func EncodeDelegatedPublicKey(publicKey ed25519.PublicKey) (string, error) {

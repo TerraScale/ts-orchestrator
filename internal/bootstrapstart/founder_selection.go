@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 	"time"
 
@@ -92,80 +91,6 @@ type CurrentFounderAuthorityReader struct {
 	derived           *bootstrap.DerivedStartupAuthority
 }
 
-func NewCurrentFounderAuthorityReader(baked BakedInputs, accepted AcceptedInstall,
-	objects FounderSelectionObjectReader, floor *FounderSelectionFloorStore,
-) (*CurrentFounderAuthorityReader, error) {
-	if objects == nil || floor == nil || accepted.validate() != nil ||
-		accepted.DeploymentID != baked.Identity.DeploymentID || accepted.Cell != string(baked.Identity.Cell) ||
-		len(baked.Roots) == 0 {
-		return nil, ErrFounderSelection
-	}
-	envelope, err := trust.DecodeEnvelope(baked.AnchorWire)
-	if err != nil {
-		return nil, fmt.Errorf("%w: decode baked anchor: %v", ErrFounderSelection, err)
-	}
-	anchor, err := bootstrap.VerifyHistoricalBootstrapAnchor(envelope, baked.Roots,
-		baked.Identity.AnchorExpectation(), accepted.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
-	if err != nil || anchor.Digest() != accepted.AnchorSHA256 ||
-		!slices.Contains(anchor.Anchor().ControllerSlots, accepted.Slot) {
-		return nil, fmt.Errorf("%w: accepted seed does not match baked anchor: %v", ErrFounderSelection, err)
-	}
-	roots := make(trust.Keyring, len(baked.Roots))
-	for keyID, public := range baked.Roots {
-		roots[keyID] = bytes.Clone(public)
-	}
-	baked.Roots = roots
-	baked.AnchorWire = bytes.Clone(baked.AnchorWire)
-	return &CurrentFounderAuthorityReader{
-		baked: baked, accepted: accepted, acceptedClusterID: anchor.Anchor().ClusterID,
-		acceptedSlots: slices.Clone(anchor.Anchor().ControllerSlots),
-		domain:        anchor.Anchor().StorageDomain,
-		objects:       objects, floor: floor,
-	}, nil
-}
-
-// NewOCICurrentFounderAuthorityReader creates the production exact-key reader
-// with the same pinned instance-principal transport as admission. Constructing
-// it does not read a founder selector or authorize a cloud mutation.
-func NewOCICurrentFounderAuthorityReader(baked BakedInputs, accepted AcceptedInstall,
-	floor *FounderSelectionFloorStore,
-) (*CurrentFounderAuthorityReader, error) {
-	if floor == nil || accepted.validate() != nil {
-		return nil, ErrFounderSelection
-	}
-	envelope, err := trust.DecodeEnvelope(baked.AnchorWire)
-	if err != nil {
-		return nil, err
-	}
-	historical, err := bootstrap.VerifyHistoricalBootstrapAnchor(envelope, baked.Roots,
-		baked.Identity.AnchorExpectation(), accepted.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
-	if err != nil || historical.Digest() != accepted.AnchorSHA256 {
-		return nil, ErrFounderSelection
-	}
-	config, err := historicalLedgerConfig(historical, baked.Roots)
-	if err != nil {
-		return nil, err
-	}
-	provider, err := newOCIAdmissionProvider(config)
-	if err != nil {
-		return nil, err
-	}
-	region, err := config.Cell.OCIRegion()
-	if err != nil {
-		return nil, err
-	}
-	client, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(provider)
-	if err != nil {
-		return nil, err
-	}
-	client.SetRegion(region)
-	client.HTTPClient, err = bootstrap.NewInstancePrincipalSDKHTTPClient()
-	if err != nil {
-		return nil, err
-	}
-	return NewCurrentFounderAuthorityReader(baked, accepted, &client, floor)
-}
-
 // FounderSelectionObjectName is the only mutable selector key. The scope hash
 // follows the ledger's stable hashed-key pattern without exposing slot names.
 func FounderSelectionObjectName(domain bootstrap.StorageDomain, deploymentID, cell, environment string) string {
@@ -193,15 +118,6 @@ func (reader *CurrentFounderAuthorityReader) ReadCurrent(ctx context.Context, no
 		return reader.readDerivedCurrent(ctx, now, true)
 	}
 	return reader.readCurrent(ctx, now, true)
-}
-
-// The peer paths share current signature and exact-key verification with the
-// seed reader. Initial peer admission establishes its floor after this read.
-func (reader *CurrentFounderAuthorityReader) readCurrentPeerInitial(ctx context.Context, now time.Time) (currentFounderPeerSelection, error) {
-	if reader != nil && reader.derived != nil {
-		return reader.readDerivedCompletedPeer(ctx, now, false)
-	}
-	return reader.readCurrentCompletedPeer(ctx, now, false)
 }
 
 func (reader *CurrentFounderAuthorityReader) readCurrent(ctx context.Context, now time.Time,
@@ -438,35 +354,6 @@ func (reader *CurrentFounderAuthorityReader) confirmCurrentPeerSelection(ctx con
 		trust.Policy{MaxLifetime: 24 * time.Hour, ClockSkew: bootstrap.ManifestClockSkew})
 	if err != nil || plan.Digest() != selected.Plan.Digest() || plan.SeedSlot() != reader.accepted.SeedSlot ||
 		ctx.Err() != nil {
-		return ErrFounderSelection
-	}
-	return nil
-}
-
-func (reader *CurrentFounderAuthorityReader) confirmCurrentSelection(ctx context.Context,
-	selected CurrentFounderAuthority, now time.Time,
-) error {
-	if reader == nil || selected.SelectionGeneration == 0 || !validFounderDigest(selected.SelectionSHA256) ||
-		now.IsZero() || now.Location() != time.UTC {
-		return ErrFounderSelection
-	}
-	if reader.derived != nil {
-		current, err := reader.readDerivedCurrent(ctx, now, false)
-		if err != nil || current.SelectionGeneration != selected.SelectionGeneration || current.SelectionSHA256 != selected.SelectionSHA256 {
-			return ErrFounderSelection
-		}
-		return nil
-	}
-	key := FounderSelectionObjectName(reader.domain, reader.baked.Identity.DeploymentID,
-		string(reader.baked.Identity.Cell), reader.baked.Identity.Environment)
-	wire, _, err := reader.getExact(ctx, reader.domain.HeadBucket, key, founderSelectionMaxBytes)
-	if err != nil {
-		return err
-	}
-	selection, digest, expiresAt, err := reader.verifySelection(wire, now)
-	if err != nil || digest != selected.SelectionSHA256 || selection.Generation != selected.SelectionGeneration ||
-		selection.PlanSHA256 != selected.Plan.Digest() || selection.AnchorSHA256 != selected.Anchor.Digest() ||
-		!now.Before(expiresAt) {
 		return ErrFounderSelection
 	}
 	return nil

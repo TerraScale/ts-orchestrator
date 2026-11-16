@@ -16,19 +16,3 @@ type Resources struct {
 	MemoryBytes int64 `json:"memory_bytes"`
 	DiskBytes   int64 `json:"disk_bytes"`
 }
-
-func validToken(value string) bool {
-	if len(value) == 0 || len(value) > 63 || !isLowerAlphaNumeric(value[0]) || !isLowerAlphaNumeric(value[len(value)-1]) {
-		return false
-	}
-	for i := 1; i < len(value)-1; i++ {
-		if !isLowerAlphaNumeric(value[i]) && value[i] != '-' {
-			return false
-		}
-	}
-	return true
-}
-
-func isLowerAlphaNumeric(value byte) bool {
-	return value >= 'a' && value <= 'z' || value >= '0' && value <= '9'
-}

@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
-	"strings"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
@@ -122,26 +120,6 @@ func (r FoundationResolver) WorkloadGenesis(ctx context.Context, cell, role, env
 		return release.VerifiedWorkloadGenesis{}, nil, err
 	}
 	return verified, original, nil
-}
-
-// VerifyWorkloadGenesisEvidence binds transported original proof to the current
-// independently admitted installation. It never constructs runtime authority.
-func VerifyWorkloadGenesisEvidence(wire []byte, independentGenesis trust.Keyring, current bootstrap.VerifiedBootstrapAnchor, cell, role, environment string) (release.VerifiedWorkloadGenesis, error) {
-	if !current.IsVerified() || !time.Now().Before(current.ExpiresAt()) {
-		return release.VerifiedWorkloadGenesis{}, errors.New("workload genesis requires a current admitted bootstrap anchor")
-	}
-	home, err := current.FoundationScope()
-	if err != nil {
-		return release.VerifiedWorkloadGenesis{}, err
-	}
-	local := current.Anchor()
-	if !strings.EqualFold(string(local.Cell), cell) || local.Environment != environment {
-		return release.VerifiedWorkloadGenesis{}, trust.ErrScopeMismatch
-	}
-	expected := release.WorkloadGenesis{Schema: release.WorkloadGenesisSchema, TenancyID: home.TenancyID, InstallationID: home.InstallationID,
-		DeploymentID: local.DeploymentID, ClusterID: local.ClusterID, Cell: cell, Environment: environment, Role: role,
-		Namespace: home.StorageDomain.Namespace, Bucket: home.StorageDomain.HeadBucket}
-	return verifyWorkloadGenesisEvidence(wire, independentGenesis, expected)
 }
 
 func verifyWorkloadGenesisEvidence(wire []byte, independentGenesis trust.Keyring, expected release.WorkloadGenesis) (release.VerifiedWorkloadGenesis, error) {

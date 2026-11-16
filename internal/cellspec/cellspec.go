@@ -15,8 +15,6 @@ package cellspec
 import (
 	"bytes"
 	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -25,7 +23,6 @@ import (
 	"net/netip"
 	"net/url"
 	"path"
-	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -604,32 +601,6 @@ func (s Spec) HostImage(imageID string) (HostImage, bool) {
 	return s.HostImages[index], true
 }
 
-// VerifyHostImages checks that a root qualified host images for the spec's
-// environment and cell: each receipt names exactly its image and is signed
-// under a root's image delegation. Without now, it checks every image as of
-// its signatures' issue. With now, it checks only the images that previous
-// lacks or holds with other bytes, and a newly chosen launch image, with
-// current signatures, so an amendment can add, change or launch only an
-// image that is qualified today, while an accepted image stays allowed after
-// its receipt expires.
-func VerifyHostImages(previous, next Spec, roots trust.Keyring, now *time.Time) error {
-	for _, image := range next.HostImages {
-		expected := release.ImageExpectation{Environment: next.Environment,
-			LogicalRegion: next.logicalRegion(), OCIImageOCID: image.ImageID}
-		var err error
-		if now == nil {
-			_, err = release.VerifyImageHistorical(image.Receipt, image.Delegation, roots, expected)
-		} else if before, kept := previous.HostImage(image.ImageID); !kept || !reflect.DeepEqual(before, image) ||
-			image.ImageID == next.LaunchImage && next.LaunchImage != previous.LaunchImage {
-			_, err = release.VerifyImageCurrent(image.Receipt, image.Delegation, roots, expected, *now)
-		}
-		if err != nil {
-			return fmt.Errorf("host image %s is not qualified: %w", image.ImageID, err)
-		}
-	}
-	return nil
-}
-
 // Grant returns the host grant of node.
 func (s Spec) Grant(node string) (HostGrant, bool) {
 	index := slices.IndexFunc(s.HostGrants, func(grant HostGrant) bool { return grant.Node == node })
@@ -756,16 +727,6 @@ func Decode(encoded []byte) (Spec, error) {
 	return spec, nil
 }
 
-// Digest is the SHA-256 of the spec's canonical payload.
-func Digest(spec Spec) (string, error) {
-	encoded, err := Encode(spec)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(encoded)
-	return hex.EncodeToString(sum[:]), nil
-}
-
 // SignDelegation is the offline root operation: it lets leaf sign ordinary
 // amendments for one identity.
 func SignDelegation(leaf ed25519.PublicKey, id Identity, issuedAt, expiresAt time.Time,
@@ -832,13 +793,6 @@ func Sign(spec Spec, delegationWire []byte, roots trust.Keyring, now time.Time, 
 // signatures for exactly id and a valid spec of generation one or later.
 func VerifyCurrent(wire []byte, roots trust.Keyring, id Identity, now time.Time) (Verified, error) {
 	return verify(wire, roots, id, &now)
-}
-
-// VerifyHistorical re-checks an accepted spec without expiry: a controller
-// reloads it after the signatures' validity ended. Removing the root from
-// the image still revokes it.
-func VerifyHistorical(wire []byte, roots trust.Keyring, id Identity) (Verified, error) {
-	return verify(wire, roots, id, nil)
 }
 
 func verify(wire []byte, roots trust.Keyring, id Identity, now *time.Time) (Verified, error) {
@@ -942,14 +896,6 @@ type Plan struct {
 	// RootRequired lists the authority-widening changes; the amendment
 	// applies only when a root signed it.
 	RootRequired []string `json:"root_required,omitempty"`
-}
-
-// Empty reports whether the plan changes nothing.
-func (p Plan) Empty() bool {
-	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 &&
-		p.OCIDesired == "" && len(p.Signers) == 0 &&
-		p.LaunchImage == "" && p.ArtifactStore == "" && p.ReleaseFence == "" && p.MachinesAPI == "" &&
-		p.Dashboard == "" && p.NetBird == ""
 }
 
 // Validate checks each entry's spec and the prune delay. The

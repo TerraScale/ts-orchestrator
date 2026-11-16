@@ -45,9 +45,32 @@ type Snapshot struct {
 	seal                  [32]byte
 }
 
-func (s Snapshot) digest() [32]byte {
-	wire, _ := json.Marshal(s, json.Deterministic(true))
-	return sha256.Sum256(wire)
+func (s Scope) validate(now time.Time) error {
+	if !now.Before(s.ExpiresAt) {
+		return errors.New("infrastructure spend authority expired")
+	}
+	return s.validateIdentity()
+}
+
+func (s Scope) validateIdentity() error {
+	digest, err := hex.DecodeString(s.SHA256)
+	if err != nil || len(digest) != 32 || s.TenancyID == "" || (s.Currency != "USD" && s.Currency != "BRL") || len(s.Regions) == 0 {
+		return errors.New("verified infrastructure scope is absent, expired or incomplete")
+	}
+	seen := map[string]bool{}
+	for _, region := range s.Regions {
+		if region.Cell == "" || region.OCIRegion == "" || len(region.CompartmentIDs) == 0 {
+			return errors.New("infrastructure scope lacks a regional compartment")
+		}
+		for _, compartment := range region.CompartmentIDs {
+			key := region.Cell + "/" + compartment
+			if compartment == "" || seen[key] {
+				return fmt.Errorf("infrastructure scope repeats or omits a compartment: %s", key)
+			}
+			seen[key] = true
+		}
+	}
+	return nil
 }
 
 func (s Snapshot) Validate(scope Scope, now time.Time) error {
@@ -86,30 +109,7 @@ func (s Snapshot) ValidateOwned(scope Scope, now time.Time) error {
 	return nil
 }
 
-func (s Scope) validate(now time.Time) error {
-	if !now.Before(s.ExpiresAt) {
-		return errors.New("infrastructure spend authority expired")
-	}
-	return s.validateIdentity()
-}
-
-func (s Scope) validateIdentity() error {
-	digest, err := hex.DecodeString(s.SHA256)
-	if err != nil || len(digest) != 32 || s.TenancyID == "" || (s.Currency != "USD" && s.Currency != "BRL") || len(s.Regions) == 0 {
-		return errors.New("verified infrastructure scope is absent, expired or incomplete")
-	}
-	seen := map[string]bool{}
-	for _, region := range s.Regions {
-		if region.Cell == "" || region.OCIRegion == "" || len(region.CompartmentIDs) == 0 {
-			return errors.New("infrastructure scope lacks a regional compartment")
-		}
-		for _, compartment := range region.CompartmentIDs {
-			key := region.Cell + "/" + compartment
-			if compartment == "" || seen[key] {
-				return fmt.Errorf("infrastructure scope repeats or omits a compartment: %s", key)
-			}
-			seen[key] = true
-		}
-	}
-	return nil
+func (s Snapshot) digest() [32]byte {
+	wire, _ := json.Marshal(s, json.Deterministic(true))
+	return sha256.Sum256(wire)
 }
