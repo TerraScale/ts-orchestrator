@@ -193,6 +193,7 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 		return report, err
 	}
 	subnetIDs := map[bool]string{}
+	privateRoutes := ""
 	for _, want := range []struct {
 		kind, cidr, other, name string
 		private                 bool
@@ -210,6 +211,9 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 			match := inVCN(s.VcnId) && deref(s.CidrBlock) == want.cidr && private == want.private
 			if match {
 				subnetIDs[want.private] = deref(s.Id)
+				if want.private {
+					privateRoutes = deref(s.RouteTableId)
+				}
 			}
 			items = append(items, item{fmt.Sprintf("%s %s %s", deref(s.DisplayName), deref(s.CidrBlock), access), s.FreeformTags, match, key("subnet", want.name)})
 		}
@@ -232,8 +236,13 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 	if err != nil {
 		return report, err
 	}
+	natID := ""
 	report.Checks = append(report.Checks, check("nat gateway", collect(nat, func(g core.NatGateway) (item, string) {
-		return item{deref(g.DisplayName) + " " + deref(g.NatIp), g.FreeformTags, inVCN(g.VcnId), key("nat-gateway", "nat")}, string(g.LifecycleState)
+		match := inVCN(g.VcnId) && (g.BlockTraffic == nil || !*g.BlockTraffic)
+		if match && !gone(string(g.LifecycleState)) {
+			natID = deref(g.Id)
+		}
+		return item{deref(g.DisplayName) + " " + deref(g.NatIp), g.FreeformTags, match, key("nat-gateway", "nat")}, string(g.LifecycleState)
 	}), false))
 	service, err := list("service gateway", func(page *string) ([]core.ServiceGateway, *string, error) {
 		r, err := network.ListServiceGateways(ctx, core.ListServiceGatewaysRequest{CompartmentId: compartment, Page: page})
@@ -242,8 +251,42 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 	if err != nil {
 		return report, err
 	}
+	sgwID := ""
 	report.Checks = append(report.Checks, check("service gateway", collect(service, func(g core.ServiceGateway) (item, string) {
+		if inVCN(g.VcnId) && !gone(string(g.LifecycleState)) {
+			sgwID = deref(g.Id)
+		}
 		return item{deref(g.DisplayName), g.FreeformTags, inVCN(g.VcnId), key("service-gateway", "sgw")}, string(g.LifecycleState)
+	}), false))
+	tables, err := list("route table", func(page *string) ([]core.RouteTable, *string, error) {
+		r, err := network.ListRouteTables(ctx, core.ListRouteTablesRequest{CompartmentId: compartment, Page: page})
+		return r.Items, r.OpcNextPage, err
+	})
+	if err != nil {
+		return report, err
+	}
+	var routeTables []core.RouteTable
+	for _, t := range tables {
+		if deref(t.Id) == privateRoutes {
+			routeTables = append(routeTables, t)
+		}
+	}
+	report.Checks = append(report.Checks, check("private routes", collect(routeTables, func(t core.RouteTable) (item, string) {
+		var routes []string
+		for _, r := range t.RouteRules {
+			switch deref(r.NetworkEntityId) {
+			case natID:
+				routes = append(routes, deref(r.Destination)+" nat")
+			case sgwID:
+				routes = append(routes, deref(r.Destination)+" sgw")
+			default:
+				routes = append(routes, deref(r.Destination)+" other")
+			}
+		}
+		slices.Sort(routes)
+		match := inVCN(t.VcnId) && natID != "" && sgwID != "" && len(t.RouteRules) == 2 && slices.Contains(routes, "0.0.0.0/0 nat") &&
+			slices.ContainsFunc(routes, func(r string) bool { return strings.HasSuffix(r, " sgw") })
+		return item{deref(t.DisplayName) + " " + strings.Join(routes, ", "), t.FreeformTags, match, key("route-table", "private-routes")}, string(t.LifecycleState)
 	}), false))
 	nsgs, err := list("nsg", func(page *string) ([]core.NetworkSecurityGroup, *string, error) {
 		r, err := network.ListNetworkSecurityGroups(ctx, core.ListNetworkSecurityGroupsRequest{CompartmentId: compartment, Page: page})
@@ -253,7 +296,7 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 		return report, err
 	}
 	report.Checks = append(report.Checks, check("nsg", collect(nsgs, func(g core.NetworkSecurityGroup) (item, string) {
-		return item{deref(g.DisplayName), g.FreeformTags, inVCN(g.VcnId), key("nsg", "edge-nsg", "host-nsg")}, string(g.LifecycleState)
+		return item{deref(g.DisplayName), g.FreeformTags, inVCN(g.VcnId), key("nsg", "edge-nsg", "host-nsg", "node-nsg")}, string(g.LifecycleState)
 	}), true))
 	instances, err := list("instance", func(page *string) ([]core.Instance, *string, error) {
 		r, err := compute.ListInstances(ctx, core.ListInstancesRequest{CompartmentId: compartment, Page: page})
