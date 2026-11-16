@@ -33,6 +33,10 @@ func step(name string, err error) {
 }
 
 func main() {
+	if len(os.Args) == 8 && os.Args[4] == "budget" {
+		budgetEdge()
+		return
+	}
 	if len(os.Args) == 5 {
 		limitsMain()
 		return

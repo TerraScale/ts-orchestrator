@@ -81,10 +81,9 @@ type Edge struct {
 	netbirdDashboard   *netbirddashboard.Handler
 	draining           atomic.Bool
 	lastHealthProbe    atomic.Int64
-	publicMu           sync.Mutex
-	publicListener     net.Listener
-	publicServer       *http.Server
+	drainStarted       atomic.Pointer[time.Time]
 	requestDurations   sync.Map
+	upstreamSockets    upstreamBudget
 }
 
 func New(stateDir string) *Edge { return newEdge(stateDir) }
@@ -111,10 +110,7 @@ func newEdge(stateDir string) *Edge {
 	localEdge.Store(e)
 	http1 := http.DefaultTransport.(*http.Transport).Clone()
 	http1.Proxy = nil
-	http1.DialContext = dialHandoff
-	http1.MaxIdleConns = maxPublicConnections
-	http1.MaxIdleConnsPerHost = maxPublicConnections
-	http1.IdleConnTimeout = 90 * time.Second
+	e.configureUpstream(http1, dialHandoff)
 	h2c := http1.Clone()
 	h2c.Protocols = new(http.Protocols)
 	h2c.Protocols.SetUnencryptedHTTP2(true)
@@ -263,20 +259,11 @@ func (e *Edge) setRoutes(web, postgres map[string]int) {
 }
 
 func (e *Edge) Drain() {
-	e.publicMu.Lock()
-	if e.draining.Load() {
-		e.publicMu.Unlock()
-		return
+	if !e.draining.Swap(true) {
+		started := time.Now()
+		e.drainStarted.Store(&started)
+		e.announceReady()
 	}
-	if e.publicServer != nil {
-		e.publicServer.SetKeepAlivesEnabled(false)
-	}
-	if e.publicListener != nil {
-		e.publicListener.Close()
-	}
-	e.draining.Store(true)
-	e.publicMu.Unlock()
-	e.announceReady()
 }
 
 func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
@@ -312,7 +299,11 @@ func (e *Edge) Run(ctx context.Context) error {
 	<-ctx.Done()
 	e.Drain()
 	if time.Since(time.Unix(0, e.lastHealthProbe.Load())) < time.Minute {
-		timer := time.NewTimer(drainGrace)
+		remaining := drainGrace
+		if started := e.drainStarted.Load(); started != nil {
+			remaining -= time.Since(*started)
+		}
+		timer := time.NewTimer(remaining)
 		defer timer.Stop()
 		<-timer.C
 	}

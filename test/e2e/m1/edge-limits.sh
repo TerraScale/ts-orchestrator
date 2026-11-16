@@ -20,6 +20,13 @@ ip addr add 198.18.2.1/15 dev lo
 ip addr add 10.80.1.1/8 dev lo
 exec "$1" "$2" "$3" "$4" baseline
 ' sh "$work/edge-main" "$work/pg" "$work/ca.pem" pg.e2e.test
+echo "PR mixed-task upstream descriptor budget"
+journey_python=$(python3 -c 'import sys; print(sys.executable)')
+sudo unshare -n sh -c 'set -eu
+ulimit -n 131072
+ip link set lo up
+exec "$1" "$2" "$3" "$4" "$5"
+' sh "$journey_python" "$here/edge-upstream.py" "$work/edge-limits" "$work/pg" "$work/ca.pem"
 echo "PR latency and limits"
 sudo unshare -n sh -c 'set -eu
 ulimit -n 131072

@@ -2,7 +2,6 @@ package edge
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -22,7 +21,7 @@ func (e *Edge) runListener(ctx context.Context, protocol string) {
 		if err == nil {
 			err = e.serveListener(ctx, protocol, ln)
 		}
-		if ctx.Err() != nil || e.draining.Load() && protocol == "https" {
+		if ctx.Err() != nil {
 			return
 		}
 		level := slog.LevelWarn
@@ -52,16 +51,11 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 		server = plain
 		if protocol == "https" {
 			server = public
-			e.publicMu.Lock()
-			if e.draining.Load() {
-				e.publicMu.Unlock()
-				ln.Close()
-				return net.ErrClosed
-			}
-			e.publicListener, e.publicServer = ln, server
-			e.publicMu.Unlock()
 		}
-		defer server.Shutdown(context.Background())
+		defer func() {
+			observability.SetEdgeListenerReady(protocol, false)
+			server.Shutdown(context.Background())
+		}()
 	}
 	served := make(chan error, 1)
 	go func() {
@@ -85,9 +79,6 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 		return ctx.Err()
 	case err := <-served:
 		ln.Close()
-		if errors.Is(err, net.ErrClosed) && e.draining.Load() {
-			return nil
-		}
 		return err
 	}
 }

@@ -89,6 +89,7 @@ func newPeerTransport(e *Edge) *http.Transport {
 		ResponseHeaderTimeout: 30 * time.Second,
 		IdleConnTimeout:       90 * time.Second,
 	}
+	e.configureUpstream(transport, (&net.Dialer{Timeout: 2 * time.Second}).DialContext)
 	transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		m := e.meshNode()
 		if m == nil {
@@ -99,7 +100,22 @@ func newPeerTransport(e *Edge) *http.Transport {
 		if transport.Protocols != nil && transport.Protocols.HTTP2() {
 			config.NextProtos = []string{"h2", "http/1.1"}
 		}
-		conn, err := (&tls.Dialer{NetDialer: &net.Dialer{Timeout: 2 * time.Second}, Config: config}).DialContext(ctx, network, addr)
+		budget, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		conn, err := transport.DialContext(budget, network, addr)
+		if err == nil {
+			secure := tls.Client(conn, config)
+			err = secure.HandshakeContext(budget)
+			if err != nil {
+				conn.Close()
+			} else {
+				conn = secure
+			}
+		}
+		var refusal edgeRefusal
+		if errors.As(err, &refusal) {
+			return nil, err
+		}
 		if unreachable, ok := ctx.Value(peerUnreachableKey{}).(*atomic.Bool); ok && err != nil {
 			unreachable.Store(true)
 		}

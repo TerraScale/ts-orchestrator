@@ -2,6 +2,7 @@ package edge
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -108,7 +109,16 @@ type durationDuplex struct {
 	io.Writer
 }
 
+func (b durationDuplex) CloseWrite() error {
+	if writer, ok := b.ReadCloser.(interface{ CloseWrite() error }); ok {
+		return writer.CloseWrite()
+	}
+	return errors.ErrUnsupported
+}
+
 func (e *Edge) WriteRequestMetrics(w io.Writer) {
+	observability.WriteGauge(w, "ts_orch_edge_upstream_connections", float64(e.upstreamSockets.count()))
+	observability.WriteGauge(w, "ts_orch_edge_upstream_connection_limit", maxUpstreamConnections)
 	e.requestDurations.Range(func(key, value any) bool {
 		if _, served := (*e.routes.Load())[key.(durationLabels).name]; !served {
 			e.requestDurations.Delete(key)

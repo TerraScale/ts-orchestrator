@@ -199,7 +199,9 @@ func limitsMain() {
 	secret := hex.EncodeToString(key)
 	step("peer proof", public.SetRequestProofSecret(secret))
 	errCh := make(chan error, 1)
-	go func() { errCh <- public.Run(context.Background()) }()
+	runCtx, stopEdge := context.WithCancel(context.Background())
+	defer stopEdge()
+	go func() { errCh <- public.Run(runCtx) }()
 	step("edge listeners", waitListening(errCh))
 	for deadline := time.Now().Add(failAfter); ; {
 		var metrics strings.Builder
@@ -231,7 +233,7 @@ func limitsMain() {
 	check("upstream pool", c.pool(poolEntered, poolRelease, &backendConnections, os.Args[4] != "baseline"))
 	check("edge duration histograms", c.latencyMetrics(public))
 	if os.Args[4] == "latency" || os.Args[4] == "baseline" {
-		check("drain in-flight request", c.drain(public, drainEntered, drainRelease))
+		check("drain in-flight request", c.drain(public, stopEdge, errCh, drainEntered, drainRelease))
 		step("latency lane", errors.Join(failures...))
 		return
 	}
@@ -293,7 +295,7 @@ func limitsMain() {
 			check("refusal metric "+reason, errors.New("missing reason series"))
 		}
 	}
-	check("drain in-flight request", c.drain(public, drainEntered, drainRelease))
+	check("drain in-flight request", c.drain(public, stopEdge, errCh, drainEntered, drainRelease))
 	step("edge abuse lane", errors.Join(failures...))
 }
 

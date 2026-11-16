@@ -236,10 +236,11 @@ Observation requests never obtain a certificate.
 
 ## Graceful drain
 
-On SIGTERM the edge disables HTTP keep-alive and closes the HTTPS accept socket
-before withdrawing readiness. Active HTTP handlers finish through graceful shutdown.
-HTTP port 80 keeps answering health and readiness probes with 503 for 20 s when an
-external health checker probed it in the last minute, then shuts down gracefully.
+On SIGTERM the edge withdraws readiness first. When an external health checker
+probed it in the last minute, listeners continue accepting and serving requests
+for the existing 20-second health-propagation grace while health and readiness
+answer 503. Listeners then close admission and active HTTP handlers finish
+through graceful shutdown; idle keep-alive connections close at shutdown.
 See [edge latency](edge-latency.md) for transport, TLS resumption and duration metrics.
 
 ## Readiness

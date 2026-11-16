@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
 func (c edgeClient) latency() error {
@@ -205,36 +206,43 @@ func (c edgeClient) latencyMetrics(public *edge.Edge) error {
 	return nil
 }
 
-func (c edgeClient) drain(public *edge.Edge, entered <-chan struct{}, release chan struct{}) error {
+func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error, entered <-chan struct{}, release chan struct{}) error {
 	if os.Args[4] == "baseline" {
 		return nil
 	}
+	public.SetPeerEdges(func() []mesh.WorkerPeer { return nil })
+	if err := c.served("198.18.2.1", 80, "", http.StatusOK); err != nil {
+		return err
+	}
 	result := make(chan error, 1)
 	go func() {
-		conn, response, err := c.requestPath("198.18.2.1", 443, "/drain", "")
-		if conn != nil {
-			conn.Close()
+		conn, err := c.open("198.18.2.1", 443)
+		if err != nil {
+			result <- err
+			return
 		}
-		if err == nil && response.StatusCode != 200 {
-			err = fmt.Errorf("in-flight HTTP %d", response.StatusCode)
+		defer conn.Close()
+		fmt.Fprintf(conn, "GET /drain HTTP/1.1\r\nHost: %s\r\n\r\n", c.host)
+		response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		if err == nil {
+			_, err = io.Copy(io.Discard, response.Body)
+			response.Body.Close()
+			if response.StatusCode != 200 {
+				err = fmt.Errorf("in-flight HTTP %d", response.StatusCode)
+			}
 		}
 		result <- err
 	}()
 	defer close(release)
-	deadline := time.NewTimer(failAfter)
-	defer deadline.Stop()
 	select {
 	case <-entered:
-	case <-deadline.C:
+	case <-time.After(failAfter):
 		return errors.New("drain request did not reach backend")
 	}
+	started := time.Now()
 	public.Drain()
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:443", failAfter)
-	if err == nil {
-		conn.Close()
-		return errors.New("draining edge accepted a new connection")
-	}
-	health, response, err := c.request("198.18.2.1", 80, "Connection: close\r\n")
+	stop()
+	health, response, err := c.requestPath("198.18.2.1", 80, "/readyz", "Connection: close\r\n")
 	if health != nil {
 		health.Close()
 	}
@@ -244,11 +252,41 @@ func (c edgeClient) drain(public *edge.Edge, entered <-chan struct{}, release ch
 	if response.StatusCode != http.StatusServiceUnavailable {
 		return fmt.Errorf("drain health HTTP %d", response.StatusCode)
 	}
+	propagating, response, err := c.requestPath("198.18.2.1", 443, "/during-drain", "")
+	if err != nil {
+		return err
+	}
+	defer propagating.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("propagation HTTP %d", response.StatusCode)
+	}
+	propagating.SetReadDeadline(started.Add(30 * time.Second))
+	var probe [1]byte
+	_, err = propagating.Read(probe[:])
+	if !errors.Is(err, io.EOF) {
+		return fmt.Errorf("propagation connection close: %w", err)
+	}
+	if elapsed := time.Since(started); elapsed < 20*time.Second {
+		return fmt.Errorf("HTTPS admission stopped before NLB propagation: %s", elapsed)
+	}
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:443", failAfter)
+	if err == nil {
+		conn.Close()
+		return errors.New("HTTPS admission continued after propagation")
+	}
 	release <- struct{}{}
 	select {
 	case err := <-result:
-		return err
-	case <-deadline.C:
+		if err != nil {
+			return err
+		}
+	case <-time.After(failAfter):
 		return errors.New("in-flight request did not finish")
+	}
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(failAfter):
+		return errors.New("edge did not finish graceful shutdown")
 	}
 }

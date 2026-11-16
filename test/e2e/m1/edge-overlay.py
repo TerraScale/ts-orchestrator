@@ -24,13 +24,13 @@ for name in sorted(set(current.splitlines()) | base_paths):
         if name in base_paths
         else f"package {original.parent.name}\n".encode()
     )
-    if name == "internal/edge/durations.go":
+    if name in {"internal/edge/durations.go", "internal/edge/upstream.go"}:
         content = original.read_bytes()
     if name == "internal/edge/edge.go":
         source = content.decode()
         source = source.replace(
             "lastHealthProbe    atomic.Int64",
-            "lastHealthProbe    atomic.Int64\n\trequestDurations sync.Map",
+            "lastHealthProbe    atomic.Int64\n\trequestDurations sync.Map\n\tupstreamSockets upstreamBudget",
         )
         source = source.replace(
             "e.peers = newPeerTransport(e)",
