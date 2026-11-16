@@ -10,7 +10,9 @@ var serviceRequests = struct {
 func RecordServiceRequest(service string) {
 	serviceRequests.Lock()
 	defer serviceRequests.Unlock()
-	serviceRequests.counts[service]++
+	if _, exists := serviceRequests.counts[service]; exists {
+		serviceRequests.counts[service]++
+	}
 }
 
 func ServiceRequestCounts() map[string]uint64 {
@@ -21,4 +23,14 @@ func ServiceRequestCounts() map[string]uint64 {
 		result[service] = count
 	}
 	return result
+}
+
+func SetServiceRequestRoutes(routes map[string]string) {
+	serviceRequests.Lock()
+	defer serviceRequests.Unlock()
+	counts := make(map[string]uint64, len(routes))
+	for _, service := range routes {
+		counts[service] = serviceRequests.counts[service]
+	}
+	serviceRequests.counts = counts
 }

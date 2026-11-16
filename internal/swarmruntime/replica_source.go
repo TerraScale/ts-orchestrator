@@ -28,7 +28,7 @@ type replicaSource struct {
 	local     string
 	address   func(*api.Node) (string, error)
 	executor  *Executor
-	windows   *autoscale.WindowStore
+	windows   map[autoscale.Target]*autoscale.WindowStore
 	previous  map[string]replicaCounter
 	available map[autoscale.Target]bool
 	loads     map[string]ReplicaTelemetry
@@ -36,7 +36,7 @@ type replicaSource struct {
 }
 
 func (s *replicaSource) Reset() {
-	s.windows = autoscale.NewWindowStore(time.Minute, 64)
+	s.windows = make(map[autoscale.Target]*autoscale.WindowStore)
 	s.previous = make(map[string]replicaCounter)
 	s.available = make(map[autoscale.Target]bool)
 	s.loads = nil
@@ -107,7 +107,10 @@ func (s *replicaSource) Observe(ctx context.Context, service *api.Service, targe
 	}
 	rate := float64(requests-previous.count) / now.Sub(previous.at).Seconds() / float64(count)
 	for signal, value := range map[autoscale.SignalName]float64{autoscale.SignalCPUUtilization: cpu / float64(count), autoscale.SignalMemoryUtilization: memory / float64(count), autoscale.SignalRequestRatePerReplica: rate} {
-		s.windows.Record(target, signal, autoscale.Sample{At: now, Value: value})
+		if s.windows[target] == nil {
+			s.windows[target] = autoscale.NewWindowStore(time.Minute, 64)
+		}
+		s.windows[target].Record(target, signal, autoscale.Sample{At: now, Value: value})
 	}
 	if s.warm[target].IsZero() {
 		s.warm[target] = now
@@ -120,7 +123,7 @@ func (s *replicaSource) Read(ctx context.Context, target autoscale.Target, signa
 	if !s.available[target] || now.Sub(s.warm[target]) < time.Minute {
 		return autoscale.Reading{}, nil
 	}
-	reading, err := s.windows.Read(ctx, target, signal, now)
+	reading, err := s.windows[target].Read(ctx, target, signal, now)
 	if reading.Samples < 4 {
 		return autoscale.Reading{}, err
 	}
@@ -150,4 +153,19 @@ func readReplicaLoad(ctx context.Context, host string) (ReplicaTelemetry, error)
 	}
 	err = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result)
 	return result, err
+}
+
+func (s *replicaSource) retain(active map[autoscale.Target]bool, services map[string]bool) {
+	for target := range s.available {
+		if !active[target] {
+			delete(s.windows, target)
+			delete(s.warm, target)
+			delete(s.available, target)
+		}
+	}
+	for id := range s.previous {
+		if !services[id] {
+			delete(s.previous, id)
+		}
+	}
 }

@@ -188,6 +188,7 @@ func (a *Autoscaler) Tick(ctx context.Context) error {
 	a.source.(*replicaSource).loads = nil
 	a.policies = nil
 	active := make(map[autoscale.Target]bool)
+	serviceIDs := make(map[string]bool)
 	for _, service := range listed.Services {
 		encoded := service.Spec.Annotations.Labels[LabelReplicaBounds]
 		if encoded == "" || service.Spec.GetReplicated() == nil {
@@ -202,6 +203,7 @@ func (a *Autoscaler) Tick(ctx context.Context) error {
 		}
 		target := autoscale.Target{Cell: a.node.admission.Region, Environment: service.Spec.Annotations.Labels[LabelEnvironment], Role: service.Spec.Annotations.Name}
 		active[target] = true
+		serviceIDs[service.ID] = true
 		a.policies = append(a.policies, ScalePolicy{Target: target, Bounds: bounds, Policy: replicaPolicy()})
 	}
 	for target := range a.last {
@@ -210,6 +212,12 @@ func (a *Autoscaler) Tick(ctx context.Context) error {
 			delete(a.history, target)
 		}
 	}
+	for target := range a.history {
+		if !active[target] {
+			delete(a.history, target)
+		}
+	}
+	a.source.(*replicaSource).retain(active, serviceIDs)
 	var failures []error
 	for _, policy := range a.policies {
 		result, err := a.scale(ctx, policy, time.Now())
