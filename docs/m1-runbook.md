@@ -103,8 +103,13 @@ outage remains owned by FR1 and must recover before that proof can pass.
 A spec's `"postgres": {"port": 6432, "hostname": "pg.terrascale.tech"}`
 publishes a second loopback port; the edge serves it on public `:5432` over TLS
 only (`sslmode=require`, or PG17 `sslnegotiation=direct` with ALPN
-`postgresql`), with the same Let's Encrypt certificates as `:443`. Like web
-hostnames, each region's edge also serves `<region>.pg.terrascale.tech`
+`postgresql`), with the same Let's Encrypt certificates as `:443`. Regional
+aliases are derived only for `api.terrascale.tech` and `pg.terrascale.tech`.
+Every other hostname must be declared explicitly in its service spec; regional
+auth, dash, mcp, platform and netbird aliases are not derived. Current auth and
+dashboard names remain `auth.terrascale.tech` and `dash.terrascale.tech`.
+
+Each region's edge also serves `<region>.pg.terrascale.tech`
 (`gru.pg`, `sjc.pg`, ...) with its own certificate; Cloudflare holds one
 DNS-only A record per serving region pointing at that region's edge. A plaintext
 startup gets `FATAL 28000` and never reaches TerraBase. CancelRequests go in
