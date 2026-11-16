@@ -133,6 +133,7 @@ jobs:
           - {lane: metadata-upgrade, entry: metadata-upgrade.sh, timeout: 8}
           - {lane: rollout, entry: rollout.sh, timeout: 10}
           - {lane: single-host-region, entry: single-host-region.sh, timeout: 5, packages: "./test/e2e/m1/single-host-region"}
+          - {lane: region-fallback, entry: region-fallback.sh, timeout: 4, packages: "./test/e2e/m1/single-host-region"}
           - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
           - {lane: pull-update, entry: pull-update.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
           - {lane: pull-push, entry: pull-push.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
