@@ -73,17 +73,20 @@ func FleetHost(args []string) error {
 		return err
 	}
 	var ready, slow, hang atomic.Bool
+	var inflight atomic.Int64
 	var deletes atomic.Int64
 	ready.Store(true)
 	app := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/payload" && hang.Load():
+			inflight.Add(1)
+			defer inflight.Add(-1)
+			<-r.Context().Done()
 		case r.Method == http.MethodDelete:
 			if marker := r.Header.Get(fleetSpoofHeader); marker != "" {
 				w.Header().Set(fleetSpoofHeader, marker)
 			}
 			fmt.Fprintf(w, "%s %d", name, deletes.Add(1))
-		case r.URL.Path == "/payload" && hang.Load():
-			<-r.Context().Done()
 		case r.URL.Path == "/readyz" && slow.Load():
 			<-r.Context().Done()
 		case r.URL.Path == "/readyz":
@@ -91,6 +94,8 @@ func FleetHost(args []string) error {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}
 		case r.URL.Path == "/journey.Service/LongUnary":
+			inflight.Add(1)
+			defer inflight.Add(-1)
 			timer := time.NewTimer(31 * time.Second)
 			defer timer.Stop()
 			select {
@@ -359,6 +364,18 @@ func FleetHost(args []string) error {
 			slow.Store(true)
 		case "stop-app":
 			servers[fleetWeb["dash.e2e.test"]].Close()
+		case "await-inflight":
+			if err := fleetAwait(ctx, func() bool { return inflight.Load() >= 3 }); err != nil {
+				return fmt.Errorf("%s never held the journey's three in-flight requests: %w", name, err)
+			}
+		case "await-one-inflight":
+			if err := fleetAwait(ctx, func() bool { return inflight.Load() >= 1 }); err != nil {
+				return fmt.Errorf("%s never held the in-flight request: %w", name, err)
+			}
+		case "await-app-unready":
+			if err := fleetAwait(ctx, func() bool { return !slices.Contains(public.ReadyServices(), fleetServices["dash.e2e.test"]) }); err != nil {
+				return fmt.Errorf("%s kept advertising its stopped application: %w", name, err)
+			}
 		case "start-app":
 			if err := serve(dashPort); err != nil {
 				return err
@@ -672,13 +689,26 @@ func (c fleetClient) longGRPC(ctx context.Context, through, backend *fleetProces
 }
 
 func (c fleetClient) stoppedPeer(ctx context.Context, founder, worker *fleetProcess, signal func(*fleetProcess, syscall.Signal) error) error {
+	if err := worker.command(ctx, "hang"); err != nil {
+		return err
+	}
+	deleted := make(chan error, 1)
+	go func() {
+		began := time.Now()
+		status, _, err := c.do(ctx, founder, http.MethodDelete, "https://dash.e2e.test/payload", nil)
+		if took := time.Since(began); err != nil || status != http.StatusBadGateway || took > peerLayerBudget+time.Second {
+			err = fmt.Errorf("a DELETE sent on a connection to a stopped peer: HTTP %d after %s, %v, want main's 502 within %s and no resend", status, took, err, peerLayerBudget)
+		}
+		deleted <- err
+	}()
+	if err := worker.command(ctx, "await-one-inflight"); err != nil {
+		return err
+	}
 	if err := signal(worker, syscall.SIGSTOP); err != nil {
 		return err
 	}
-	began := time.Now()
-	status, _, err := c.do(ctx, founder, http.MethodDelete, "https://dash.e2e.test/payload", nil)
-	if took := time.Since(began); err != nil || status != http.StatusBadGateway || took > peerLayerBudget+time.Second {
-		return fmt.Errorf("a DELETE sent on a connection to a stopped peer: HTTP %d after %s, %v, want main's 502 within %s and no resend", status, took, err, peerLayerBudget)
+	if err := <-deleted; err != nil {
+		return err
 	}
 	if err := founder.query(ctx, "deletes", "deletes 0"); err != nil {
 		return fmt.Errorf("a DELETE that failed on the peer was resent locally: %w", err)
@@ -702,10 +732,80 @@ func (c fleetClient) stoppedPeer(ctx context.Context, founder, worker *fleetProc
 	if err := errors.Join(<-answered, <-released); err != nil {
 		return err
 	}
-	return signal(worker, syscall.SIGCONT)
+	if err := signal(worker, syscall.SIGCONT); err != nil {
+		return err
+	}
+	return worker.command(ctx, "unhang")
 }
 
-func (c fleetClient) sameAsMainStreams(ctx context.Context, ingress, backend *fleetProcess) error {
+func (c fleetClient) readyWithin(ctx context.Context, host *fleetProcess, want int, within time.Duration) error {
+	deadline := time.Now().Add(within)
+	for {
+		err := c.ready(ctx, host, want)
+		if err == nil || time.Now().After(deadline) {
+			return err
+		}
+	}
+}
+
+func (c fleetClient) unservedVia(ctx context.Context, worker, peer *fleetProcess) error {
+	if err := worker.query(ctx, "health", "health edge not ready: backend unavailable"); err != nil {
+		return err
+	}
+	bounded, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	if status, body, err := c.do(bounded, worker, http.MethodDelete, "https://dash.e2e.test/payload", nil); err == nil && status == http.StatusOK {
+		return fmt.Errorf("a new DELETE through %s was answered %q after its peer stopped counting", worker.name, body)
+	}
+	if err := peer.query(ctx, "deletes", "deletes 0"); err != nil {
+		return fmt.Errorf("a new request reached %s after it stopped counting as a peer: %w", peer.name, err)
+	}
+	return nil
+}
+
+func (c fleetClient) stalePeer(ctx context.Context, founder, worker *fleetProcess) error {
+	prepared := make(chan error, 1)
+	go func() { prepared <- founder.command(ctx, "ready") }()
+	if err := errors.Join(worker.command(ctx, "stop-app"), worker.command(ctx, "await-app-unready"), <-prepared); err != nil {
+		return err
+	}
+	if err := c.ready(ctx, worker, http.StatusOK); err != nil {
+		return fmt.Errorf("a worker whose application is down but whose manager is a fresh ready peer: %w", err)
+	}
+	if status, body, err := c.get(ctx, worker, "dash.e2e.test"); err != nil || status != http.StatusOK || body != founder.name {
+		return fmt.Errorf("a worker with a fresh ready peer did not forward to it: HTTP %d %q, %v", status, body, err)
+	}
+	if err := founder.command(ctx, "mute"); err != nil {
+		return err
+	}
+	if err := c.readyWithin(ctx, worker, http.StatusServiceUnavailable, 3*mesh.FleetAdvertiseEvery); err != nil {
+		return fmt.Errorf("a silent peer still counted for readiness %s after it stopped advertising: %w", 3*mesh.FleetAdvertiseEvery, err)
+	}
+	if err := c.unservedVia(ctx, worker, founder); err != nil {
+		return err
+	}
+	if err := founder.command(ctx, "unmute"); err != nil {
+		return err
+	}
+	if err := c.readyWithin(ctx, worker, http.StatusOK, 3*mesh.FleetAdvertiseEvery); err != nil {
+		return fmt.Errorf("a peer advertising again did not count within %s: %w", 3*mesh.FleetAdvertiseEvery, err)
+	}
+	if err := founder.command(ctx, "unready"); err != nil {
+		return err
+	}
+	if err := c.readyWithin(ctx, worker, http.StatusServiceUnavailable, mesh.FleetAdvertiseEvery); err != nil {
+		return fmt.Errorf("a peer that became unready still counted %s later: %w", mesh.FleetAdvertiseEvery, err)
+	}
+	if err := c.unservedVia(ctx, worker, founder); err != nil {
+		return err
+	}
+	if err := errors.Join(worker.command(ctx, "start-app"), worker.command(ctx, "ready")); err != nil {
+		return err
+	}
+	return founder.command(ctx, "await-peer")
+}
+
+func (c fleetClient) sameAsMainStreams(ctx context.Context, ingress, backend *fleetProcess, inFlight func() error) error {
 	results := make(chan error, 2)
 	for _, through := range []*fleetProcess{backend, ingress} {
 		go func() { results <- c.longGRPC(ctx, through, backend) }()
@@ -715,6 +815,9 @@ func (c fleetClient) sameAsMainStreams(ctx context.Context, ingress, backend *fl
 		if reply, err := c.halfClose(ctx, through); err != nil || reply != backend.name+" received upload" {
 			failures = append(failures, fmt.Errorf("client half-close via %s: %q, %v; want the same backend reply after EOF as main", through.name, reply, err))
 		}
+	}
+	if err := inFlight(); err != nil {
+		failures = append(failures, err)
 	}
 	for range 2 {
 		if err := <-results; err != nil {
@@ -1015,7 +1118,13 @@ func FleetEdgeJourney(root string) error {
 			fmt.Printf("ok %s: an unready manager forwards to its worker and is release-unhealthy; after the worker is lost and cold-restarts it forwards again as soon as it re-advertises ready, and SQL writes from it reach the writer\n", founder.name[3:6])
 		case 2:
 			stopped := make(chan error, 1)
-			go func() { stopped <- client.stoppedPeer(ctx, hosts[2], hosts[3], signal) }()
+			go func() {
+				if err := client.stalePeer(ctx, hosts[2], hosts[3]); err != nil {
+					stopped <- err
+					return
+				}
+				stopped <- client.stoppedPeer(ctx, hosts[2], hosts[3], signal)
+			}()
 			if err := founder.command(ctx, "unready"); err != nil {
 				return err
 			}
@@ -1038,21 +1147,25 @@ func FleetEdgeJourney(root string) error {
 			if err := founder.command(ctx, "await-peer"); err != nil {
 				return err
 			}
-			streams := make(chan error, 1)
-			go func() { streams <- client.sameAsMainStreams(ctx, founder, worker) }()
-			if err := worker.command(ctx, "mute"); err != nil {
-				return err
-			}
 			if err := worker.command(ctx, "hang"); err != nil {
 				return err
 			}
-			began := time.Now()
-			status, _, err = client.get(ctx, founder, "dash.e2e.test")
-			var headerErr error
-			if took := time.Since(began); err != nil || status != http.StatusBadGateway || took > peerLayerBudget+time.Second {
-				headerErr = fmt.Errorf("a peer that never answers: HTTP %d after %s, %v, want main's 502 within %s", status, took, err, peerLayerBudget)
-			}
-			if err := errors.Join(headerErr, <-streams); err != nil {
+			hung := make(chan error, 1)
+			go func() {
+				began := time.Now()
+				status, _, err := client.get(ctx, founder, "dash.e2e.test")
+				if took := time.Since(began); err != nil || status != http.StatusBadGateway || took > peerLayerBudget+time.Second {
+					err = fmt.Errorf("a peer that never answers: HTTP %d after %s, %v, want main's 502 within %s", status, took, err, peerLayerBudget)
+				}
+				hung <- err
+			}()
+			streams := client.sameAsMainStreams(ctx, founder, worker, func() error {
+				if err := worker.command(ctx, "await-inflight"); err != nil {
+					return err
+				}
+				return worker.command(ctx, "mute")
+			})
+			if err := errors.Join(<-hung, streams); err != nil {
 				return err
 			}
 			fmt.Println("ok fleet: same as main, local and peer HTTP/2 gRPC calls return their frame and success trailer after 31 seconds while the peer's announcements have stopped; client half-close preserves the complete backend reply")
@@ -1128,7 +1241,7 @@ func FleetEdgeJourney(root string) error {
 			if status, body, err := client.do(ctx, founder, http.MethodGet, "https://"+netbirdHost+"/", nil); err != nil || status != http.StatusServiceUnavailable || !strings.Contains(body, "NetBird dashboard is preparing") {
 				return fmt.Errorf("a draining host did not serve main's NetBird dashboard handler: HTTP %d %q, %v", status, body, err)
 			}
-			fmt.Printf("ok %s: with a ready peer an unready manager forwards HTTP and WebSockets, a client marker never causes a resend, a connected DELETE to a stopped peer costs main's 502 and is not resent, a held port waits for its replacement and a peer that never answers costs main's 502 at %s; with no ready peer draining, hop, NetBird dashboard, hung readiness, missing credential and an unheld restart all take main's path, and a worker that can serve a route neither locally nor through a peer is not ready\n", founder.name[3:6], peerLayerBudget)
+			fmt.Printf("ok %s: with a ready peer an unready manager forwards HTTP and WebSockets, a client marker never causes a resend, a connected DELETE to a stopped peer costs main's 502 and is not resent, a held port waits for its replacement and a peer that never answers costs main's 502 at %s; with no ready peer draining, hop, NetBird dashboard, hung readiness, missing credential and an unheld restart all take main's path, and a worker that can serve a route neither locally nor through a peer is not ready; in sjc a peer that falls silent or turns unready stops counting for a worker's readiness, health and new requests within its advertisement bound\n", founder.name[3:6], peerLayerBudget)
 		}
 	}
 	return nil

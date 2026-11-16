@@ -19,7 +19,9 @@ func (e *Edge) SetInventoryFollower() {
 }
 
 func (e *Edge) JoinMesh(node *mesh.Node) {
-	e.SetPeerEdges(node.EdgePeers(e.ReadyServices, e.peerAdvertised))
+	peers, changed := node.EdgePeers(e.ReadyServices, e.peerAdvertised)
+	e.readyChanged.Store(&changed)
+	e.SetPeerEdges(peers)
 	e.SetRegionalNodes(node.RegionalNodes)
 	e.SetMesh(node)
 }

@@ -32,6 +32,8 @@ func stopNode(node *Node) {
 
 var fleetMuted atomic.Bool
 
+const FleetAdvertiseEvery = 250 * time.Millisecond
+
 func FleetMuteAnnouncements(muted bool) { fleetMuted.Store(muted) }
 
 func FleetHostNode(root, region, name, address, peer string, seed []byte) (*Node, error) {
@@ -41,7 +43,7 @@ func FleetHostNode(root, region, name, address, peer string, seed []byte) (*Node
 	}
 	cfg := config{region: region, server: name, founder: true, dir: filepath.Join(root, name), ca: ca,
 		terrabaseToken: strings.Repeat("t", 32), clusterHost: address, clusterPort: 6222, clusterAdvertise: address + ":6222", localPort: 4222,
-		peersEvery: 250 * time.Millisecond, peersDir: filepath.Join(root, name+"-peers"), address: func() (string, error) {
+		peersEvery: FleetAdvertiseEvery, peersDir: filepath.Join(root, name+"-peers"), address: func() (string, error) {
 			if fleetMuted.Load() {
 				return "", errors.New("fleet announcements muted")
 			}

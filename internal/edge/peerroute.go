@@ -41,8 +41,18 @@ func (e *Edge) SetServiceRoutes(web, postgres map[string]int, hosts map[string]s
 	for _, service := range ready {
 		routes.ready[service] = true
 	}
+	before := e.ReadyServices()
 	e.serviceRoutes.Store(routes)
 	e.setRoutes(web, postgres)
+	if !slices.Equal(before, e.ReadyServices()) {
+		e.announceReady()
+	}
+}
+
+func (e *Edge) announceReady() {
+	if changed := e.readyChanged.Load(); changed != nil {
+		(*changed)()
+	}
 }
 
 func (e *Edge) ReadyServices() []string {

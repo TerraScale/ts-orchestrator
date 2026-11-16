@@ -56,6 +56,7 @@ type Edge struct {
 	edgeTransports   sync.Map
 	edgeNext         sync.Map
 	peerDown         sync.Map
+	readyChanged     atomic.Pointer[func()]
 	follower         atomic.Bool
 	inventoryMissing atomic.Bool
 	proxy            *httputil.ReverseProxy
@@ -237,7 +238,11 @@ func (e *Edge) setRoutes(web, postgres map[string]int) {
 	}
 }
 
-func (e *Edge) Drain() { e.draining.Store(true) }
+func (e *Edge) Drain() {
+	if !e.draining.Swap(true) {
+		e.announceReady()
+	}
+}
 
 func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
 	if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" && r.URL.Path != "/edge/ready" {

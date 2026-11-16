@@ -42,10 +42,13 @@ answering and resending is safe, as in Go's own transport: none of its body was
 read yet, and either the connection was never made or the method is GET, HEAD,
 OPTIONS or TRACE. Any response from a peer, whatever its status or headers, is
 returned to the client. The failing peer is marked down and gets no requests
-until it next advertises ready services. A peer that stops advertising leaves
-the peer list after three advertisement intervals (15 seconds in production)
-and gets no new requests, but a request already sent to it is bounded only as
-on main. Ordinary HTTP shares a 30-second
+until it next advertises ready services. Every edge advertises its ready
+services each interval (5 seconds in production) and again at once when they
+change, so a peer that becomes unready or starts draining is withdrawn
+immediately. A peer counts for new requests and for readiness only while its
+last advertisement is at most two intervals old, so a peer that falls silent
+stops counting one interval after it misses an advertisement. None of this
+touches a request already sent to a peer: it is bounded only as on main. Ordinary HTTP shares a 30-second
 response-header budget across the layer and its local fallback, starting when
 the first request finishes writing. Request uploads and response bodies are
 not subject to this timer. As on main, gRPC has no response-header deadline.
@@ -138,7 +141,14 @@ the client or the backend sets a header the edge once used as a marker. With the
 peer stopped (SIGSTOP), a DELETE already sent on a connection is answered
 main's 502 at 30 seconds and is not resent, and a request on a held stop-first
 port waits for its replacement. A 31-second gRPC call through a peer whose
-announcements stop mid-call completes as on main. A peer that accepts but never
+announcements stop mid-call completes as on main.
+
+In the second region, while the third runs its long calls, a worker whose own
+application is down is ready only through its manager as a fresh ready peer.
+When the manager falls silent, the worker's readiness and release health turn to
+"backend unavailable" within three advertisement intervals, and a new request
+no longer reaches the manager. When the manager becomes unready, the same
+happens within one interval of its withdrawal. A peer that accepts but never
 answers costs main's 502 at 30 seconds, not more. With no ready peer, a
 draining manager, a peer hop to it, an unheld backend that restarts while the
 request waits, a host without the peer credential, a host whose readiness probe
