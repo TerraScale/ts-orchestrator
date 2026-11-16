@@ -213,7 +213,7 @@ tests:
     - exp_labels:
         severity: critical
       exp_annotations:
-        summary: No alert delivery probe completed in fifteen minutes
+        summary: No push delivery probe completed in fifteen minutes
 - interval: 15s
   input_series:
   - series: terrascale_alert_delivery_probe_completed_timestamp_seconds
@@ -228,7 +228,7 @@ tests:
     - exp_labels:
         severity: critical
       exp_annotations:
-        summary: No completed alert delivery probe is observable
+        summary: No completed push delivery probe is observable
 - interval: 15s
   input_series:
   - series: up{job="application-slo",service="ts-auth",host="ts-gru-1",region="gru",instance="auth-task"}
@@ -912,3 +912,60 @@ tests:
   - eval_time: 12m
     alertname: TerraBaseBackupHoles
     exp_alerts: []
+- interval: 15s
+  input_series:
+  - series: ts_orch_mesh_store_expected{host="ts-gru-1"}
+    values: 1+0x20
+  - series: ts_orch_mesh_store_observed{host="ts-gru-1"}
+    values: 1+0x8 0+0x12
+  - series: ts_orch_mesh_store_leader_available{host="ts-gru-1"}
+    values: 1+0x8 0+0x12
+  - series: ts_orch_mesh_store_quorum_available{host="ts-gru-1"}
+    values: 1+0x8 0+0x12
+  - series: ts_orch_mesh_store_expected{host="ts-gru-2"}
+    values: 0+0x20
+  - series: ts_orch_mesh_store_observed{host="ts-gru-2"}
+    values: 0+0x20
+  - series: ts_orch_mesh_store_leader_available{host="ts-gru-2"}
+    values: 0+0x20
+  - series: ts_orch_mesh_store_quorum_available{host="ts-gru-2"}
+    values: 0+0x20
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: MeshStoreLeaderUnavailable
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: MeshStoreQuorumUnavailable
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: MeshStoreLeaderUnavailable
+    exp_alerts:
+    - exp_labels:
+        host: ts-gru-1
+        severity: critical
+      exp_annotations:
+        summary: The mesh store has no observed leader
+  - eval_time: 4m
+    alertname: MeshStoreQuorumUnavailable
+    exp_alerts:
+    - exp_labels:
+        host: ts-gru-1
+        severity: critical
+      exp_annotations:
+        summary: The mesh store cannot reach its metadata quorum
+- interval: 15s
+  input_series:
+  - series: terrascale_alert_delivery_email_refused_total
+    values: 0 1+0x4
+  alert_rule_test:
+  - eval_time: 0s
+    alertname: AlertDeliveryEmailRefused
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: AlertDeliveryEmailRefused
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        service: ts-alerts
+      exp_annotations:
+        summary: Alert email was refused; push delivery is independent

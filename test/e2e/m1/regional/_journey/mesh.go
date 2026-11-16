@@ -250,6 +250,13 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 		return fmt.Errorf("joined worker release health differs from main: %w", err)
 	}
 	fmt.Println("ok regional peers: same as main, a real joined worker is release-healthy without a manager socket or JetStream; a missing mesh node blocks release")
+	for node, expected := range map[*Node]int{own: 1, founder: 1, workerAgent: 0} {
+		var metrics bytes.Buffer
+		node.writeStoreMetrics(&metrics)
+		if !strings.Contains(metrics.String(), fmt.Sprintf("ts_orch_mesh_store_expected %d\n", expected)) {
+			return fmt.Errorf("mesh store role differs from the regional applier: %s", metrics.String())
+		}
+	}
 	if err := regionalPlacementJourney(ctx, control, founder); err != nil {
 		return err
 	}

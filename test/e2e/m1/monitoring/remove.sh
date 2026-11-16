@@ -12,7 +12,7 @@ for tree in etc local var; do
 done
 mount -t overlay -o "lowerdir=/etc,upperdir=$work/etc-upper,workdir=$work/etc-work" overlay /etc
 mount -t overlay -o "lowerdir=/usr/local,upperdir=$work/local-upper,workdir=$work/local-work" overlay /usr/local
-mount -t overlay -o "lowerdir=/var/lib,upperdir=$work/var-upper,workdir=$work/var-work" overlay /var/lib
+mount -t overlay -o "lowerdir=/var,upperdir=$work/var-upper,workdir=$work/var-work" overlay /var
 for directory in /etc/systemd /etc/systemd/system; do
   if [[ -L $directory ]]; then
     rm "$directory"
@@ -29,6 +29,18 @@ export MONITORING_SHIPPED="$work/shipped.tgz"
 cat > "$work/bin/systemctl" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$MONITORING_REMOVAL_LOG"
+if [[ $1 == show ]]; then
+  unit=${*: -1}
+  if [[ -e /etc/systemd/system/$unit ]]; then
+    printf 'LoadState=loaded\n'
+    case $unit in
+      *token*) printf 'ActiveState=inactive\nUnitFileState=disabled\n' ;;
+      *) printf 'ActiveState=active\nUnitFileState=enabled\n' ;;
+    esac
+  else
+    printf 'LoadState=not-found\nActiveState=inactive\nUnitFileState=\n'
+  fi
+fi
 SH
 cat > "$work/bin/ssh" <<'SH'
 #!/usr/bin/env bash
@@ -85,4 +97,40 @@ grep -Eq "^enable ts-prometheus\.service ts-alertmanager\.service ts-alert-deliv
 cmp "$(dirname "$previous")/alertmanager.yml" /etc/ts-monitoring/production/alertmanager.yml
 /usr/local/lib/ts-monitoring/prometheus --version > /dev/null
 grep -Fxq retained /var/lib/ts-alerts/email-ledger.json
+source_dir=$(dirname "$installer")
+cp "$source_dir/ts-alert-delivery.service" /etc/systemd/system/ts-alert-delivery.service
+printf '\n' >> /etc/ts-monitoring/production/alertmanager.yml
+rm -f /etc/systemd/system/ts-alert-delivery-token.path
+snapshot=$(bash "$source_dir/snapshot.sh")
+mkdir "$work/before"
+tar -C "$work/before" -xzf "$snapshot/files.tgz"
+printf 'forward\n' > /etc/ts-monitoring/production/alertmanager.env
+printf 'forward\n' > /etc/systemd/system/ts-alert-delivery-token.path
+printf 'forward\n' > /etc/ts-monitoring/production/alertmanager.yml
+: > "$MONITORING_REMOVAL_LOG"
+bash "$source_dir/restore.sh" "$snapshot"
+diff -r "$work/before/etc/ts-monitoring" /etc/ts-monitoring
+diff -r "$work/before/usr/local/lib/ts-monitoring" /usr/local/lib/ts-monitoring
+for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service; do
+  cmp "$work/before/etc/systemd/system/$unit" "/etc/systemd/system/$unit"
+  grep -Fxq "enable $unit" "$MONITORING_REMOVAL_LOG"
+  grep -Fxq "start $unit" "$MONITORING_REMOVAL_LOG"
+done
+[[ ! -e /etc/systemd/system/ts-alert-delivery-token.path && ! -e /etc/ts-monitoring/production/alertmanager.env ]]
+! grep -Fxq 'start ts-alert-delivery-token.path' "$MONITORING_REMOVAL_LOG"
+cmp "$work/before/etc/systemd/system/ts-alert-delivery-token.service" /etc/systemd/system/ts-alert-delivery-token.service
+! grep -Eq '^(start|enable) ts-alert-delivery-token.service$' "$MONITORING_REMOVAL_LOG"
+grep -Fxq retained /var/lib/ts-alerts/email-ledger.json
+printf 'monitoring: mixed-revision snapshot restored every file and prior enabled/active states, removed forward-only files and retained delivery state\n'
+bash "$installer" --remove --local
+rmdir /etc/ts-monitoring
+snapshot=$(bash "$source_dir/snapshot.sh")
+mkdir -p /etc/ts-monitoring/production /usr/local/lib/ts-monitoring
+printf 'forward\n' > /etc/systemd/system/ts-prometheus.service
+: > "$MONITORING_REMOVAL_LOG"
+bash "$source_dir/restore.sh" "$snapshot"
+[[ ! -e /etc/ts-monitoring && ! -e /usr/local/lib/ts-monitoring && ! -e /etc/systemd/system/ts-prometheus.service ]]
+! grep -Eq '^(start|enable) ' "$MONITORING_REMOVAL_LOG"
+grep -Fxq retained /var/lib/ts-alerts/email-ledger.json
+printf 'monitoring: restoring a previously uninstalled host removes the forward install and retains delivery state\n'
 printf 'monitoring: real installer removes local/fleet units and assets, supports SSH stdin, preserves the ledger and is idempotent; the previous revision installs over the kept state\n'

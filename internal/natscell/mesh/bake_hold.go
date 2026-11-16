@@ -30,6 +30,9 @@ func (n *Node) heldBakeGeneration(name string) int64 {
 }
 
 func (n *Node) checkBakeAdmission(name string, entry Entry) error {
+	if entry.Spec == nil {
+		return nil
+	}
 	held := n.heldBakeGeneration(name)
 	if held == 0 {
 		return nil
@@ -68,6 +71,9 @@ func (n *Node) checkBakeAdmission(name string, entry Entry) error {
 }
 
 func (n *Node) acceptBakeReplacement(name string, entry Entry) error {
+	if entry.Spec == nil {
+		return nil
+	}
 	if err := n.checkBakeAdmission(name, entry); err != nil {
 		return err
 	}

@@ -219,14 +219,14 @@ groups:
         annotations:
           summary: A public service certificate expires within twenty-one days or cannot be verified
       - alert: MeshStoreLeaderUnavailable
-        expr: ts_orch_mesh_store_leader_available == 0 or ts_orch_mesh_store_observed == 0
+        expr: (ts_orch_mesh_store_leader_available == 0 or ts_orch_mesh_store_observed == 0) and (ts_orch_mesh_store_expected == 1)
         for: 1m
         labels:
           severity: critical
         annotations:
           summary: The mesh store has no observed leader
       - alert: MeshStoreQuorumUnavailable
-        expr: ts_orch_mesh_store_quorum_available == 0
+        expr: (ts_orch_mesh_store_quorum_available == 0) and (ts_orch_mesh_store_expected == 1)
         for: 1m
         labels:
           severity: critical
@@ -272,7 +272,14 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: No alert delivery probe completed in fifteen minutes
+          summary: No push delivery probe completed in fifteen minutes
+      - alert: AlertDeliveryEmailRefused
+        expr: sum(increase(terrascale_alert_delivery_email_refused_total[15m])) > 0
+        labels:
+          severity: critical
+          service: ts-alerts
+        annotations:
+          summary: Alert email was refused; push delivery is independent
       - alert: AlertDeliveryEmailBudgetExhausted
         expr: sum by (service) (increase(terrascale_alert_delivery_email_withheld_total{job="service-readiness",reason="budget_exhausted"}[15m])) > 0
         labels:
@@ -303,7 +310,7 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: No completed alert delivery probe is observable
+          summary: No completed push delivery probe is observable
 
   - name: edge-certificates
     rules:

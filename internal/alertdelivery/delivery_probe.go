@@ -40,7 +40,7 @@ func (p *deliveryProbe) start(ctx context.Context, r relay) {
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	if err := p.complete(ctx, r); err != nil {
-		slog.WarnContext(ctx, "Alert delivery probe incomplete")
+		slog.WarnContext(ctx, "Alert delivery probe incomplete", "result", "push_failed", "error", err)
 	}
 }
 

@@ -201,8 +201,11 @@ class Providers(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
         if self.path == "/admission":
-            self.reply({"status": "admitted", "sendBy": (datetime.now(UTC) + timedelta(seconds=5)).isoformat()})
+            self.reply({"status": "refused"} if state.get("email_refused") == "admission" else {"status": "admitted", "sendBy": (datetime.now(UTC) + timedelta(seconds=5)).isoformat()})
         elif self.path.startswith("/accounts/") and self.path.endswith("/email/sending/send"):
+            if state.get("email_refused") == "provider":
+                self.reply({"success": False})
+                return
             emails.append(json.loads(body))
             self.reply({"success": True, "result": {"delivered": ["mariogk@terrascale.tech"], "queued": [], "permanent_bounces": [], "suppressed_recipients": []}})
         else:
@@ -452,6 +455,18 @@ try:
     later = sum("production alert push failed" in line for relay in relays for line in relay.lines)
     late = groups("firing", {"LaneLatePush"})
     assert len(alive) == 2 and len(pushes()) == before + 2 and later == failed + 1 and [e[6] for e in late] == ["false", "true"] and len({e[0] for e in late}) == 1, (len(pushes()) - before, later - failed, late)
+    relays.append(relay_process("relay-refused", "127.0.0.7", work / "refused" / "relay", work / "refused" / "alertmanager.env"))
+    await_event("the refusal diagnostic relay starts", lambda: "relay-refused" in ready)
+    for count, reason in enumerate(("admission", "provider"), 1):
+        state["email_refused"] = reason
+        assert post_relay("127.0.0.7", "refused-" + reason, "RefusedEmail") == 202
+        await_event("email refusal identifies " + reason, lambda reason=reason: any(m[0] == "127.0.0.7" and m[3] == "email refused by " + reason for m in mailed()))
+        metrics = request("127.0.0.7", 9094, "/metrics").decode()
+        assert f"terrascale_alert_delivery_email_refused_total {count}\n" in metrics, metrics
+        assert "terrascale_alert_delivery_probe_completed_timestamp_seconds 0\n" in metrics, metrics
+    request("127.0.0.7", 9094, "/alerts", json.dumps({"status": "firing", "alerts": [{"status": "firing", "labels": {"delivery_probe": "heartbeat"}}]}))
+    await_event("an incomplete push probe names its failing stage", lambda: any("result=push_failed" in line and "probe publish rejected" in line for line in relays[-1].lines))
+    print("monitoring: admission and provider email refusals are counted separately from the missing push probe, while push still delivers")
     print(f"monitoring: scaled Alertmanager timings x3 + real relay x3 + JetStream budget x3: malformed journey state logged once; a missing mesh token withholds email and pages, copy-token installs it without Vault; topology incident firing then resolved across the region loss -> one notification each; an HTTP/2 provider that answers just inside the deadline pushes once, and one that never answers is a single 502 that Alertmanager retries before the next peer sends, with both surviving Alertmanagers up; twenty groups at 400ms write latency reserve without a budget-unavailable page; fleet email stops at 12 and the exhausted budget pages by push; GRU lost -> {len(expected)} groups once each, push only; hung budget store + 13 concurrent notifications -> 13 pushes and 13 withheld emails; old-layout relay still emails from its ledger, and when that ledger cannot write it withholds every email as budget unavailable; a reservation whose write acknowledgement is lost is read back and emailed once, and a ledger read answered after 2.5s still emails; passed")
 finally:
     for server in servers:

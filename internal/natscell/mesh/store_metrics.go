@@ -6,6 +6,11 @@ import (
 )
 
 func (n *Node) writeStoreMetrics(w io.Writer) {
+	expected := 0
+	if n.cfg.applier != nil {
+		expected = 1
+	}
+	fmt.Fprintf(w, "ts_orch_mesh_store_expected %d\n", expected)
 	leader, quorum, observed := 0, 0, 0
 	view, err := n.server.Varz(nil)
 	if err == nil && view.JetStream.Meta != nil {

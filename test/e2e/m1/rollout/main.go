@@ -792,6 +792,31 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	replacement := replaced.ReplacedBy
 	require(replacement.Generation == generation && replacement.Release.Repository == "TerraScale/terrascale" && replacement.Release.RunID == "101" && replacement.Release.RunAttempt == 1 && replacement.Release.Revision == revision && replacement.Release.Image == spec.Image, "replacement journal omitted release identity")
 	logStep("release journals the local held generation and deployment; restart retains it and every region completes")
+	signedRelease(ctx, releases, key, spec.Image, "102")
+	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > generation })
+	held = newGeneration(states(ctx, conn), order[0])
+	evidence(ctx, roots[0], held, func(r receipt) bool { return r.Bake.Samples >= 1 })
+	setHealth(ctx, addresses[0], 18085, "503")
+	evidence(ctx, roots[0], held, func(r receipt) bool { return r.Bake.Reason != "" })
+	output, err := serviceCLI(ctx, names[0], launcher, roots[0], "rm", spec.Name)
+	require(err == nil, fmt.Sprintf("remove a service held at failed bake: %v %s", err, output))
+	observe(ctx, conn, func(s map[string]state) bool {
+		for _, region := range order {
+			var entry mesh.Entry
+			must(json.Unmarshal(s[region].Desired[spec.Name], &entry))
+			if entry.Generation <= held || entry.Spec != nil {
+				return false
+			}
+		}
+		return true
+	})
+	for _, root := range roots {
+		_, err := os.Stat(filepath.Join(root, "peers", spec.Name, "peers"))
+		require(errors.Is(err, os.ErrNotExist), "removed service retained its peers file")
+	}
+	retained = evidence(ctx, roots[0], held, func(r receipt) bool { return r.Bake.Reason != "" })
+	require(retained.ReplacedBy == nil, "removal rewrote the failed bake as a replacement release")
+	logStep("a failed bake accepts service removal across every region, removes peers files and retains failure evidence")
 
 	fmt.Println("rollout journey passed")
 }

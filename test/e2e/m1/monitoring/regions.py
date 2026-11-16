@@ -25,6 +25,9 @@ for monitor in monitors:
         if {t["labels"]["host"] for t in jobs[name]["static_configs"]} != set(monitors):
             raise SystemExit(f"monitoring: {name} misses a monitoring backend")
     generated = json.loads((rendered / monitor / "rules.yml").read_text())
+    refused = [rule for group in generated["groups"] for rule in group["rules"] if rule.get("alert") == "AlertDeliveryEmailRefused"]
+    if len(refused) != 1 or refused[0]["labels"]["region"] != "global":
+        raise SystemExit("monitoring: email refusal must page once for the fleet")
     coverage = {}
     for group in generated["groups"]:
         for rule in group["rules"]:

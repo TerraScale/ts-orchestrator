@@ -43,6 +43,8 @@ type relay struct {
 
 const recipient = "mariogk@terrascale.tech"
 
+var errEmailRefused = errors.New("email refused")
+
 func Run(ctx context.Context, args []string) error {
 	if len(args) == 1 && args[0] == "prepare" {
 		return prepareCredentials(ctx)
@@ -209,6 +211,9 @@ func (r relay) sendEmail(ctx context.Context, key string, window time.Duration, 
 	if reason == "" {
 		if err := r.email(ctx, subject, lines); err != nil {
 			reason = err.Error()
+			if errors.Is(err, errEmailRefused) {
+				r.budget.refused.Add(1)
+			}
 		}
 	}
 	slog.InfoContext(ctx, "production alert email", "group", key, "sent", reason == "", "reason", reason)
@@ -255,7 +260,7 @@ func (r relay) email(ctx context.Context, subject string, lines []string) error 
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, 64<<10+1))
 	if response.StatusCode < 200 || response.StatusCode >= 300 || err != nil || len(data) > 64<<10 || json.Unmarshal(data, &result) != nil || !result.Success || len(result.Result.PermanentBounces) > 0 || len(result.Result.Suppressed) > 0 || (!slices.Contains(result.Result.Delivered, recipient) && !slices.Contains(result.Result.Queued, recipient)) {
-		return errors.New("alert delivery rejected by provider")
+		return fmt.Errorf("%w by provider", errEmailRefused)
 	}
 	return nil
 }
