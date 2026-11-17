@@ -1,4 +1,4 @@
-package main
+package sigstore
 
 import (
 	"context"
@@ -17,6 +17,7 @@ import (
 	"math/big"
 	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/digitorus/timestamp"
@@ -37,7 +38,7 @@ import (
 
 const inTotoPayload = "application/vnd.in-toto+json"
 
-type testSigstore struct {
+type Authority struct {
 	fulcioRoot      *x509.Certificate
 	intermediate    *x509.Certificate
 	intermediateKey *ecdsa.PrivateKey
@@ -50,14 +51,14 @@ type testSigstore struct {
 	ctLogID         []byte
 }
 
-type identity struct {
-	workflow string
-	ref      string
-	trigger  string
-	unlogged bool
+type Identity struct {
+	Workflow string
+	Ref      string
+	Trigger  string
+	Unlogged bool
 }
 
-var mainIdentity = identity{workflow: "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main", ref: "refs/heads/main", trigger: "push"}
+var MainIdentity = Identity{Workflow: "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main", Ref: "refs/heads/main", Trigger: "push"}
 
 func key() *ecdsa.PrivateKey {
 	generated, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -82,8 +83,8 @@ func authority(name string, serial int64) *x509.Certificate {
 		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign, BasicConstraintsValid: true, IsCA: true}
 }
 
-func newSigstore() *testSigstore {
-	s := &testSigstore{intermediateKey: key(), tsaKey: key(), rekorKey: key(), ctKey: key()}
+func New() *Authority {
+	s := &Authority{intermediateKey: key(), tsaKey: key(), rekorKey: key(), ctKey: key()}
 	rootKey, tsaRootKey := key(), key()
 	s.fulcioRoot = certificate(authority("e2e fulcio root", 1), nil, &rootKey.PublicKey, rootKey)
 	intermediate := authority("e2e fulcio intermediate", 2)
@@ -107,7 +108,7 @@ func newSigstore() *testSigstore {
 	return s
 }
 
-func (s *testSigstore) trustedRoot() []byte {
+func (s *Authority) TrustedRoot() []byte {
 	start, end := time.Now().Add(-time.Hour), time.Now().Add(2*time.Hour)
 	fulcio := &root.FulcioCertificateAuthority{Root: s.fulcioRoot, Intermediates: []*x509.Certificate{s.intermediate},
 		ValidityPeriodStart: start, ValidityPeriodEnd: end, URI: "https://fulcio.e2e.invalid"}
@@ -131,10 +132,10 @@ func extension(oid int, value string) pkix.Extension {
 	return pkix.Extension{Id: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, oid}, Value: encoded}
 }
 
-func (s *testSigstore) leaf(signing *ecdsa.PrivateKey, who identity, sha, run string, now time.Time) *x509.Certificate {
-	signer, err := url.Parse("https://github.com/" + who.workflow)
+func (s *Authority) leaf(signing *ecdsa.PrivateKey, who Identity, sha, run string, now time.Time) *x509.Certificate {
+	signer, err := url.Parse("https://github.com/" + who.Workflow)
 	must(err)
-	repository := "https://github.com/TerraScale/ts-orchestrator"
+	repository := "https://github.com/" + strings.Split(who.Workflow, "/.github/")[0]
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(now.UnixNano()),
 		NotBefore:    now.Add(-time.Minute),
@@ -147,13 +148,13 @@ func (s *testSigstore) leaf(signing *ecdsa.PrivateKey, who identity, sha, run st
 			extension(9, signer.String()),
 			extension(12, repository),
 			extension(13, sha),
-			extension(14, who.ref),
+			extension(14, who.Ref),
 			extension(18, signer.String()),
-			extension(20, who.trigger),
+			extension(20, who.Trigger),
 			extension(21, repository+"/actions/runs/"+run+"/attempts/1"),
 		},
 	}
-	if who.unlogged {
+	if who.Unlogged {
 		return certificate(template, s.intermediate, &signing.PublicKey, s.intermediateKey)
 	}
 	logged := template.ExtraExtensions
@@ -163,7 +164,7 @@ func (s *testSigstore) leaf(signing *ecdsa.PrivateKey, who identity, sha, run st
 	return certificate(template, s.intermediate, &signing.PublicKey, s.intermediateKey)
 }
 
-func (s *testSigstore) timestampList(precertificate *x509.Certificate, now time.Time) pkix.Extension {
+func (s *Authority) timestampList(precertificate *x509.Certificate, now time.Time) pkix.Extension {
 	tbs, err := ctx509.BuildPrecertTBS(precertificate.RawTBSCertificate, nil)
 	must(err)
 	sct := ct.SignedCertificateTimestamp{SCTVersion: ct.V1, LogID: ct.LogID{KeyID: [32]byte(s.ctLogID)}, Timestamp: uint64(now.UnixMilli())}
@@ -185,7 +186,15 @@ func (s *testSigstore) timestampList(precertificate *x509.Certificate, now time.
 	return pkix.Extension{Id: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 2}, Value: value}
 }
 
-func (s *testSigstore) bundle(who identity, sha, run string, subjects map[string][]byte) []byte {
+func (s *Authority) Bundle(who Identity, sha, run string, subjects map[string][]byte) []byte {
+	return s.attest(who, sha, run, subjects, "https://slsa.dev/provenance/v1", map[string]any{"buildDefinition": map[string]any{"buildType": "https://actions.github.io/buildtypes/workflow/v1"}})
+}
+
+func (s *Authority) Selection(who Identity, sha, run, service string, subjects map[string][]byte) []byte {
+	return s.attest(who, sha, run, subjects, "https://terrascale.tech/attestations/release-selection/v1", map[string]string{"service": service, "revision": sha})
+}
+
+func (s *Authority) attest(who Identity, sha, run string, subjects map[string][]byte, predicateType string, predicate any) []byte {
 	signing := key()
 	now := time.Now()
 	leaf := s.leaf(signing, who, sha, run, now)
@@ -198,8 +207,7 @@ func (s *testSigstore) bundle(who identity, sha, run string, subjects map[string
 		Subject       []subject `json:"subject"`
 		PredicateType string    `json:"predicateType"`
 		Predicate     any       `json:"predicate"`
-	}{Type: "https://in-toto.io/Statement/v1", PredicateType: "https://slsa.dev/provenance/v1",
-		Predicate: map[string]any{"buildDefinition": map[string]any{"buildType": "https://actions.github.io/buildtypes/workflow/v1"}}}
+	}{Type: "https://in-toto.io/Statement/v1", PredicateType: predicateType, Predicate: predicate}
 	for name, data := range subjects {
 		sum := sha256.Sum256(data)
 		statement.Subject = append(statement.Subject, subject{Name: name, Digest: map[string]string{"sha256": hex.EncodeToString(sum[:])}})
@@ -235,7 +243,7 @@ func (s *testSigstore) bundle(who identity, sha, run string, subjects map[string
 	return data
 }
 
-func (s *testSigstore) rekorBody(envelope []byte, leaf *x509.Certificate) []byte {
+func (s *Authority) rekorBody(envelope []byte, leaf *x509.Certificate) []byte {
 	ctx := context.Background()
 	proposed, err := types.NewProposedEntry(ctx, rekordsse.KIND, dssev001.APIVERSION, types.ArtifactProperties{
 		ArtifactBytes: envelope, PublicKeyBytes: [][]byte{pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})}, PKIFormat: "x509"})
@@ -247,7 +255,7 @@ func (s *testSigstore) rekorBody(envelope []byte, leaf *x509.Certificate) []byte
 	return body
 }
 
-func (s *testSigstore) signedEntryTimestamp(body []byte, integrated int64) []byte {
+func (s *Authority) signedEntryTimestamp(body []byte, integrated int64) []byte {
 	payload, err := json.Marshal(struct {
 		Body           string `json:"body"`
 		IntegratedTime int64  `json:"integratedTime"`
@@ -261,10 +269,16 @@ func (s *testSigstore) signedEntryTimestamp(body []byte, integrated int64) []byt
 	return set
 }
 
-func (s *testSigstore) timestamp(signature []byte, now time.Time) []byte {
+func (s *Authority) timestamp(signature []byte, now time.Time) []byte {
 	digest := sha256.Sum256(signature)
 	response, err := (&timestamp.Timestamp{HashAlgorithm: crypto.SHA256, HashedMessage: digest[:], Time: now,
 		Policy: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 2}}).CreateResponseWithOpts(s.tsaLeaf, s.tsaKey, crypto.SHA256)
 	must(err)
 	return response
+}
+
+func must(err error) {
+	if err != nil {
+		panic(err)
+	}
 }

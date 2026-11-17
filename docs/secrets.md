@@ -500,7 +500,7 @@ not yet active; repair preparation or file validation, restart and recheck deliv
 A failed step-7 host must return to the verified step-6 state as described above.
 
 
-Before switching the host binary, release push, self-update and the M1 installer
+Before switching the host binary, the private pull installer and the M1 installer
 execute the candidate's `release preflight`. A's hook only established the
 updater contract. B checks the installed relay unit's effective privileged
 preparation command and reads every secret referenced by its regional service

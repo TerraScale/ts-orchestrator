@@ -44,19 +44,18 @@ type HostProgress struct {
 }
 
 type Status struct {
-	Region    string                 `json:"region"`
-	Owner     string                 `json:"owner,omitempty"`
-	Phase     string                 `json:"phase"`
-	Target    *releaseattest.Release `json:"target,omitempty"`
-	Hosts     []HostProgress         `json:"hosts,omitempty"`
-	Reason    string                 `json:"reason,omitempty"`
-	Bad       []string               `json:"bad,omitempty"`
-	Nudged    string                 `json:"nudged,omitempty"`
-	Push      *PushClaim             `json:"push,omitempty"`
-	Since     time.Time              `json:"since,omitzero"`
-	Preempted string                 `json:"preempted,omitempty"`
-	Checked   time.Time              `json:"checked,omitzero"`
-	Updated   time.Time              `json:"updated,omitzero"`
+	Region  string                 `json:"region"`
+	Owner   string                 `json:"owner,omitempty"`
+	Phase   string                 `json:"phase"`
+	Target  *releaseattest.Release `json:"target,omitempty"`
+	Hosts   []HostProgress         `json:"hosts,omitempty"`
+	Reason  string                 `json:"reason,omitempty"`
+	Bad     []string               `json:"bad,omitempty"`
+	Since   time.Time              `json:"since,omitzero"`
+	Baked   time.Time              `json:"baked,omitzero"`
+	Done    time.Time              `json:"done,omitzero"`
+	Checked time.Time              `json:"checked,omitzero"`
+	Updated time.Time              `json:"updated,omitzero"`
 }
 
 func statusFile(state string) string { return filepath.Join(state, "nats", "pull-rollout.json") }
@@ -139,9 +138,6 @@ func (s Status) String() string {
 	}
 	if s.Owner != "" {
 		line += " by " + s.Owner
-	}
-	if s.Push != nil {
-		line += "; push " + s.Push.Release + " holds the region until " + s.Push.Until.UTC().Format(time.RFC3339)
 	}
 	parts := []string{line}
 	for _, host := range s.Hosts {

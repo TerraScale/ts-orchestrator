@@ -1,27 +1,19 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode"
@@ -29,8 +21,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
-	"github.com/moby/swarmkit/v2/api"
-	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"golang.org/x/sys/unix"
 )
@@ -76,10 +66,8 @@ func run(ctx context.Context, binary, previous string) {
 		watchdogCase(ctx, binary)
 		close(watchdogDone)
 	}()
-	rolloutCases(ctx, data)
 	replacementCase(ctx)
 	rebuildCase(ctx)
-	oldHostCase(ctx)
 	<-preflightDone
 	<-probationDone
 	<-watchdogDone
@@ -98,10 +86,10 @@ func preflightCases(ctx context.Context, work string, h *releasepush.Handler, co
 		start := time.Now()
 		reply := installRequest(ctx, h, conn, work, shaB, fmt.Sprint(i+2))
 		require(reply.State == "rejected" && reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalHost && reply.Refusal.Preflight, "candidate preflight failure must be a structured host refusal")
-		require(reply.Refusal.SHA256 == digest(candidate) && reply.Refusal.RunAttempt == "1", "refusal must name candidate digest and attempt")
+		require(reply.Refusal.SHA256 == digest(candidate) && reply.Refusal.RunID != "", "refusal must name candidate digest and attempt")
 		require(bytes.Equal(read(h.Binary), original) && record(h.TrialFile) == nil && string(read(h.Binary+".prev")) == "superseded", "preflight refusal must stage nothing")
 		require(fence(work) == "1", "refusal must preserve the run fence")
-		reported := request(ctx, conn, releasepush.SubjectVersion, nil).Refusal
+		reported := request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil).Refusal
 		require(reported != nil && reported.SHA256 == digest(candidate), "the installed binary must report its refusal")
 		require(len(reply.Refusal.Reason) <= secretpreflight.MaxOutputBytes && utf8.ValidString(reply.Refusal.Reason) && !strings.ContainsFunc(reply.Refusal.Reason, unicode.IsControl), "diagnostic must be bounded valid text")
 		if mode == "hang" {
@@ -160,13 +148,12 @@ func networkCases(ctx context.Context, work string, h *releasepush.Handler, conn
 	writeExecutable(filepath.Join(work, "asset"), stamped(data, strings.Repeat("b", 40), "pass"))
 	release, verifier, client, closeProvider := signedRelease(ctx, filepath.Join(work, "asset"), strings.Repeat("b", 40), "20", "1")
 	defer closeProvider()
-	payload, err := json.Marshal(release)
-	must(err)
+	payload := pulledPayload(release, "20")
 	fresh := releasepush.NewVerifier()
 	fresh.Client = &http.Client{Transport: failTransport{}}
-	h.Verifier, h.Client = fresh, client
-	reply := request(ctx, conn, releasepush.SubjectOrch, payload)
-	require(reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalHost, "unavailable signing keys must be host prerequisite")
+	h.Verifier, h.Client = fresh, &http.Client{Transport: failTransport{}}
+	reply := request(ctx, conn, releasepush.PullSubject("e2e", "host"), payload)
+	require(reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalHost, "unavailable attestation must be host prerequisite")
 	h.Verifier = verifier
 	for _, entry := range []struct {
 		name      string
@@ -178,176 +165,20 @@ func networkCases(ctx context.Context, work string, h *releasepush.Handler, conn
 		{"fully received digest mismatch", corruptTransport{client.Transport}, releasepush.RefusalIntegrity},
 	} {
 		h.Client = &http.Client{Transport: entry.transport}
-		reply = request(ctx, conn, releasepush.SubjectOrch, payload)
+		reply = request(ctx, conn, releasepush.PullSubject("e2e", "host"), payload)
 		require(reply.Refusal != nil && reply.Refusal.Kind == entry.kind, entry.name+" refusal must classify proven evidence")
 		fmt.Println("ok classification:", entry.name, "->", entry.kind)
 	}
-	fmt.Println("ok classification: unavailable JWKS -> host_prerequisite")
+	fmt.Println("ok classification: unavailable attestation -> host_prerequisite")
 	candidate := filepath.Join(work, "noisy")
 	writeExecutable(candidate, stamped(data, strings.Repeat("b", 40), "noise"))
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	err = secretpreflight.Check(ctx, candidate)
+	err := secretpreflight.Check(ctx, candidate)
 	runtime.ReadMemStats(&after)
 	require(err != nil && strings.Contains(err.Error(), "[truncated]") && after.TotalAlloc-before.TotalAlloc < 1<<20, "10 MiB output must drain with less than 1 MiB allocation")
 	fmt.Println("ok output: 10 MiB drained with less than 1 MiB allocated")
-}
-
-func rolloutCases(ctx context.Context, data []byte) {
-	work, cleanup := temporary("rollout-preflight-")
-	defer cleanup()
-	worker, _, _ := preparedHost(work)
-	writeExecutable(filepath.Join(work, "asset"), stamped(data, shaB, "refuse"))
-	accepted := filepath.Join(work, "accepted")
-	writeExecutable(accepted, stamped(data, shaB, "refuse"))
-	release, verifier, client, closeProvider := signedRelease(ctx, filepath.Join(work, "asset"), strings.Repeat("b", 40), "100", "1")
-	defer closeProvider()
-	worker.Verifier, worker.Client = verifier, client
-	workerConn, closeWorker := listener(worker)
-	defer closeWorker()
-	must(worker.ServeWorker(workerConn, "lane.workers", "worker-one"))
-	_, err := workerConn.Subscribe("lane.no-worker", func(*nats.Msg) {})
-	must(err)
-	must(workerConn.Flush())
-	founder, err := releasepush.NewHandler(work)
-	must(err)
-	later, err := releasepush.NewHandler(work)
-	must(err)
-	founder.Binary, founder.Revision, founder.Verifier = accepted, release.SHA, verifier
-	later.Binary, later.Revision, later.Verifier = accepted, release.SHA, verifier
-	founder.Digest = release.Binaries[runtime.GOARCH].SHA256
-	later.Digest = founder.Digest
-	var broken, laterBroken atomic.Bool
-	founder.Health = func(_ context.Context, _ string) releasepush.HealthResult {
-		if broken.Load() {
-			return releasepush.HealthResult{Service: errors.New("candidate health broken")}
-		}
-		return releasepush.HealthResult{}
-	}
-	later.Health = func(_ context.Context, _ string) releasepush.HealthResult {
-		if laterBroken.Load() {
-			return releasepush.HealthResult{Service: errors.New("services unreadable")}
-		}
-		return releasepush.HealthResult{}
-	}
-	var visited atomic.Bool
-	later.Relay = func(context.Context, []byte) []releasepush.HostVersion { visited.Store(true); return nil }
-	regions := []releasepush.Region{}
-	for i, handler := range []*releasepush.Handler{founder, later} {
-		options, err := releasepush.Options(work, nil)
-		must(err)
-		options.Host, options.Port, options.CustomClientAuthentication = "127.0.0.1", -1, nil
-		srv, err := server.NewServer(options)
-		must(err)
-		go srv.Start()
-		require(srv.ReadyForConnections(5*time.Second), "regional listener must listen")
-		defer srv.Shutdown()
-		conn, err := nats.Connect(srv.ClientURL(), nats.Secure(&tls.Config{InsecureSkipVerify: true}))
-		must(err)
-		defer conn.Close()
-		must(handler.Serve(conn))
-		certificate, err := x509.ParseCertificate(options.TLSConfig.Certificates[0].Certificate[0])
-		must(err)
-		pin := sha256.Sum256(certificate.RawSubjectPublicKeyInfo)
-		regions = append(regions, releasepush.Region{Region: []string{"sjc", "gru"}[i], NATS: srv.ClientURL(), SPKISHA256: hex.EncodeToString(pin[:])})
-	}
-	regionBytes, err := json.Marshal(regions)
-	must(err)
-	write(filepath.Join(work, "regions.json"), string(regionBytes))
-	assets := filepath.Join(work, "assets")
-	must(os.Mkdir(assets, 0o700))
-	writeExecutable(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), stamped(data, release.SHA, "refuse"))
-	endpoint := strings.TrimSuffix(client.Transport.(providerTransport).url, "/binary") + "/token?"
-	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", endpoint))
-	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "lane"))
-	nodes := []*api.Node{{ID: "worker-one", Role: api.NodeRoleWorker}}
-	for _, mode := range []string{"worker-integrity", "first-integrity", "unknown-kind", "absent-kind", "host-refusal", "all-preflight", "refusal-silence", "unhealthy-refusal", "unhealthy-fleet", "repair-unhealthy-fleet"} {
-		visited.Store(false)
-		broken.Store(strings.HasSuffix(mode, "unhealthy-fleet"))
-		laterBroken.Store(strings.HasSuffix(mode, "unhealthy-fleet"))
-		worker.Client = client
-		founder.Revision = release.SHA
-		founder.Client = client
-		if mode == "worker-integrity" {
-			worker.Client = &http.Client{Transport: corruptTransport{client.Transport}}
-		}
-		founder.Relay = func(ctx context.Context, payload []byte) []releasepush.HostVersion {
-			switch mode {
-			case "unknown-kind":
-				return []releasepush.HostVersion{{Host: "worker-one", Refusal: &releasepush.Refusal{Kind: "unrecognized", SHA: release.SHA, Reason: "unknown refusal"}}}
-			case "absent-kind":
-				return []releasepush.HostVersion{{Host: "worker-one", Refusal: &releasepush.Refusal{SHA: release.SHA, Reason: "older agent refusal"}}}
-			case "refusal-silence":
-				return releasepush.RelayWorkers(ctx, workerConn, "lane.no-worker", payload, nodes)
-			case "unhealthy-refusal":
-				broken.Store(true)
-			case "unhealthy-fleet", "repair-unhealthy-fleet":
-				return nil
-			}
-			return releasepush.RelayWorkers(ctx, workerConn, "lane.workers", payload, nodes)
-		}
-		if mode == "first-integrity" || mode == "all-preflight" || mode == "refusal-silence" {
-			founder.Revision = strings.Repeat("a", 40)
-			if mode == "first-integrity" {
-				founder.Client = &http.Client{Transport: corruptTransport{client.Transport}}
-			}
-		}
-		var output bytes.Buffer
-		pushCtx, cancelPush := context.WithCancel(ctx)
-		if mode == "unhealthy-refusal" {
-			pushCtx, cancelPush = context.WithTimeout(ctx, 45*time.Second)
-		}
-		if mode == "repair-unhealthy-fleet" {
-			pushCtx, cancelPush = context.WithTimeout(ctx, 20*time.Second)
-		}
-		args := []string{"--sha", release.SHA, "--dir", assets, "--regions", filepath.Join(work, "regions.json")}
-		if mode == "repair-unhealthy-fleet" {
-			args = append(args, "--repair-unhealthy-fleet")
-		}
-		err := releasepush.Push(pushCtx, args, &output)
-		cancelPush()
-		results, skipped := []releasepush.Result{}, []releasepush.Result{}
-		scanner := bufio.NewScanner(&output)
-		for scanner.Scan() {
-			var result releasepush.Result
-			must(json.Unmarshal(scanner.Bytes(), &result))
-			if result.State == "repair_skipped_health" {
-				require(len(results) == 0, "skipped hosts must be printed before any region is pushed: "+output.String())
-				skipped = append(skipped, result)
-				continue
-			}
-			results = append(results, result)
-		}
-		require(len(results) == 2, fmt.Sprintf("both regional outcomes must be reported: %s", output.String()))
-		require((len(skipped) == 2) == (mode == "repair-unhealthy-fleet"), "only a repair push skips the initial health check: "+output.String())
-		if mode == "unhealthy-fleet" {
-			require(results[0].State == "failed" && strings.Contains(results[0].Error, "candidate health broken") && results[0].ConnectMS == 0, "an ordinary push refuses a fleet whose first host reports a health error: "+output.String())
-		}
-		if mode == "repair-unhealthy-fleet" {
-			require(skipped[0].Region == "sjc" && skipped[0].Health == `"candidate health broken"` && skipped[1].Region == "gru" && skipped[1].Health == `"services unreadable"`, "each skipped host is printed with its health: "+output.String())
-			require(results[0].State == "current" && results[0].Repair == `"candidate health broken"` && strings.Contains(results[0].Error, "health of") && results[0].Health == "candidate health broken", "a repair push reaches the unhealthy first host and still waits for its health: "+output.String())
-		}
-		fatal := mode != "host-refusal" && mode != "refusal-silence"
-		if fatal {
-			require(err != nil && !visited.Load() && results[1].State == "skipped", "fatal refusal must stop later regions: "+mode)
-			if mode == "all-preflight" {
-				require(strings.Contains(results[0].Error, "every host in the first region"), "uniform preflight must explain rollout stop")
-			}
-			if mode == "unhealthy-refusal" {
-				require(results[0].Health == "candidate health broken" && strings.Contains(results[0].Error, "health of") && strings.HasPrefix(results[0].State, "refused on"), "an accepted first host with broken health must stop the rollout despite a refusing worker: "+output.String())
-			}
-		} else {
-			require(visited.Load() && results[1].Error == "" && err != nil, "a host refusal fails at the end and allows the next region: "+mode)
-			if mode == "host-refusal" {
-				require(results[0].Health == "ok" && results[0].HealthyMS > 0, "an accepted first host is health-checked even when a worker refuses")
-			}
-			if mode == "refusal-silence" {
-				require(!strings.Contains(results[0].Error, "every host") && len(results[0].Workers) == 1 && results[0].Workers[0].Error == "no answer" && results[0].Workers[0].Refusal == nil, "a silent worker is not a refusal: "+output.String())
-			}
-		}
-		fmt.Println("ok rollout", mode, ": regional outcomes verified")
-	}
 }
 
 func stagedCandidate(ctx context.Context, prefix string) (string, func(), []byte, []byte) {
@@ -381,53 +212,6 @@ func rollbackCases(ctx context.Context) {
 	fmt.Println("ok probation wrong-previous: another build at .prev is never restored; candidate serves unconfirmed")
 }
 
-func freePort() int {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	must(err)
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
-}
-
-func serveRegion(ctx context.Context, args []string) {
-	work, port, jwks, binaryURL := args[0], args[1], args[2], args[3]
-	mode := candidateMode()
-	probation, err := releasepush.Probe(work, os.Stdout)
-	if err != nil {
-		fmt.Println("START", err)
-		return
-	}
-	if mode == "crash" {
-		os.Exit(3)
-	}
-	h, err := releasepush.NewHandler(work)
-	must(err)
-	h.Verifier.JWKSURL = jwks
-	h.Client = &http.Client{Transport: providerTransport{binaryURL}}
-	h.Health = func(context.Context, string) releasepush.HealthResult { return releasepush.HealthResult{} }
-	options, err := releasepush.Options(work, nil)
-	must(err)
-	options.Host, options.CustomClientAuthentication = "127.0.0.1", nil
-	fmt.Sscan(port, &options.Port)
-	srv, err := server.NewServer(options)
-	must(err)
-	go srv.Start()
-	require(srv.ReadyForConnections(5*time.Second), "region listener must listen")
-	conn, err := nats.Connect(srv.ClientURL(), nats.Secure(&tls.Config{InsecureSkipVerify: true}))
-	must(err)
-	must(h.Serve(conn))
-	fmt.Println("SERVING", probation.Served())
-	select {
-	case <-h.Installed:
-		if mode == "stuck" {
-			<-ctx.Done()
-		}
-		conn.Close()
-		srv.Shutdown()
-		srv.WaitForShutdown()
-	case <-ctx.Done():
-	}
-}
-
 func replacementCase(ctx context.Context) {
 	work, cleanup, _, candidate := stagedCandidate(ctx, "replacement-")
 	defer cleanup()
@@ -438,48 +222,20 @@ func replacementCase(ctx context.Context) {
 	require(record(filepath.Join(work, "nats/release-rolled-back")) == nil && record(filepath.Join(work, "nats/release-trial"))["failure"] != nil, "an impossible rollback keeps the trial with its failure and records no rollback")
 	again := startInstalled(ctx, work, "serve")
 	require(again.State == "unconfirmed" && record(filepath.Join(work, "nats/release-trial"))["starts"] == float64(3), "an unconfirmed candidate is not counted again")
-	asset := otherAsset(work, shaC)
-	release, verifier, client, closeProvider := signedRelease(ctx, asset, shaC, "3", "1")
-	defer closeProvider()
-	port := freePort()
-	provider := strings.TrimSuffix(client.Transport.(providerTransport).url, "/binary")
-	region := func() *exec.Cmd {
-		return exec.CommandContext(ctx, filepath.Join(work, "installed"), "serve-region", work, fmt.Sprint(port), verifier.JWKSURL, provider+"/binary")
-	}
-	unconfirmed := region()
-	ready(unconfirmed, "SERVING false")
-	restarted := make(chan *exec.Cmd, 1)
-	go func() {
-		_ = unconfirmed.Wait()
-		next := region()
-		ready(next, "SERVING true")
-		restarted <- next
-	}()
-	options, err := releasepush.Options(work, nil)
+	h, err := releasepush.NewHandler(work)
 	must(err)
-	certificate, err := x509.ParseCertificate(options.TLSConfig.Certificates[0].Certificate[0])
-	must(err)
-	pin := sha256.Sum256(certificate.RawSubjectPublicKeyInfo)
-	regions, err := json.Marshal([]releasepush.Region{{Region: "sjc", NATS: fmt.Sprintf("nats://127.0.0.1:%d", port), SPKISHA256: hex.EncodeToString(pin[:])}})
-	must(err)
-	write(filepath.Join(work, "replacement-regions.json"), string(regions))
-	assets := filepath.Join(work, "replacement-assets")
-	must(os.Mkdir(assets, 0o700))
-	writeExecutable(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), read(asset))
-	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", provider+"/token?"))
-	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "lane"))
-	var output bytes.Buffer
-	err = releasepush.Push(ctx, []string{"--sha", release.SHA, "--dir", assets, "--regions", filepath.Join(work, "replacement-regions.json")}, &output)
-	require(err == nil, fmt.Sprintf("a replacement must reach an unconfirmed host: %v %s", err, output.String()))
-	var result releasepush.Result
-	must(json.Unmarshal(bytes.TrimSpace(output.Bytes()), &result))
-	require(result.State == "installed" && result.Health == "ok" && strings.Contains(result.Unconfirmed, "rollback unavailable"), "the unconfirmed candidate stays visible in the rollout output: "+output.String())
-	require(bytes.Equal(read(filepath.Join(work, "installed")), read(asset)) && bytes.Equal(read(filepath.Join(work, "installed.prev")), candidate), "the replacement must install with the unconfirmed candidate as previous")
-	stop(<-restarted)
-	fmt.Println("ok replacement: unconfirmed candidate admitted, replaced by run 3 and reported:", result.Unconfirmed)
+	h.Binary, h.Revision = filepath.Join(work, "installed"), shaB
+	conn, closeListener := listener(h)
+	defer closeListener()
+	reply := installAsset(ctx, h, conn, otherAsset(work, shaC), shaC, "3")
+	require(reply.State == "installed", fmt.Sprintf("a pulled replacement must reach an unconfirmed host: %+v", reply))
+	require(bytes.Equal(read(filepath.Join(work, "installed.prev")), candidate), "replacement lost the unconfirmed previous binary")
+	replaced := startInstalled(ctx, work, "serve")
+	require(replaced.Revision == shaC && replaced.Served, "pulled replacement did not confirm its probation")
+	fmt.Println("ok replacement: an unconfirmed host accepts a verified pull and confirms its replacement")
 }
 
-func payloadFile(work, name string, release releasepush.OrchRelease) string {
+func payloadFile(work, name string, release releaseFixture) string {
 	data, err := json.Marshal(release)
 	must(err)
 	path := filepath.Join(work, name)
@@ -578,17 +334,18 @@ func selfUpdate(ctx context.Context, work, mode string) {
 	conn, closeListener := listener(h)
 	defer closeListener()
 	if mode == "postcommit-failures" {
-		h.Relay = func(context.Context, []byte) []releasepush.HostVersion {
-			conn.Close()
-			return []releasepush.HostVersion{{Host: "worker", Error: "relay network unavailable"}}
-		}
-		release, verifier, client, closeProvider := signedRelease(ctx, filepath.Join(work, "asset"), strings.Repeat("b", 40), "2", "1")
+		release, verifier, client, closeProvider := signedRelease(ctx, filepath.Join(work, "asset"), shaB, "2", "1")
 		defer closeProvider()
 		h.Verifier, h.Client = verifier, client
-		payload, err := json.Marshal(release)
+		h.PrepareStop = func(context.Context) error {
+			conn.Close()
+			return nil
+		}
+		observer, err := nats.Connect(conn.ConnectedUrl())
 		must(err)
-		must(conn.Publish(releasepush.SubjectOrch, payload))
-		must(conn.Flush())
+		must(observer.PublishRequest(releasepush.PullSubject("e2e", "host"), nats.NewInbox(), pulledPayload(release, "2")))
+		must(observer.Flush())
+		observer.Close()
 		select {
 		case <-h.Installed:
 		case <-ctx.Done():
@@ -599,6 +356,10 @@ func selfUpdate(ctx context.Context, work, mode string) {
 	reply := installRequest(ctx, h, conn, work, strings.Repeat("b", 40), "2")
 	require(reply.State == "installed", "self update must return installed")
 	fmt.Println("installed reply collected")
+	if mode == "watchdog" {
+		<-ctx.Done()
+		return
+	}
 	select {
 	case <-h.Installed:
 	case <-ctx.Done():
@@ -627,7 +388,7 @@ func fenceCase(ctx context.Context) {
 		write(h.RunIDFile, content)
 		reply = installRequest(ctx, h, conn, work, shaB, "9")
 		require(reply.State == "rejected" && reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalFence && strings.Contains(reply.Error, "run fence damaged"), fmt.Sprintf("a damaged fence must refuse every run as its own kind: %+v", reply))
-		reported := request(ctx, conn, releasepush.SubjectVersion, nil).Refusal
+		reported := request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil).Refusal
 		require(reported != nil && reported.Kind == releasepush.RefusalFence && record(h.RefusalFile)["kind"] == releasepush.RefusalFence, fmt.Sprintf("a damaged fence refusal must be saved and reported: %+v", reported))
 		require(fence(work) == content && bytes.Equal(read(h.Binary), original), "a damaged fence must never be overwritten")
 	}
@@ -727,135 +488,35 @@ func confirmRaceCase(ctx context.Context) {
 	fmt.Println("ok probation confirmation race: replacement staged before Served keeps its trial and starts on probation")
 }
 
-func keepServing(ctx context.Context, start func() *exec.Cmd) func() {
-	var mu sync.Mutex
-	var current *exec.Cmd
-	stopped := false
-	up, done := make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(done)
-		for first := true; ctx.Err() == nil; first = false {
-			mu.Lock()
-			if stopped {
-				mu.Unlock()
-				return
-			}
-			current = start()
-			if first {
-				ready(current, "SERVING true")
-				close(up)
-			} else {
-				must(current.Start())
-			}
-			command := current
-			mu.Unlock()
-			_ = command.Wait()
-		}
-	}()
-	<-up
-	return func() {
-		mu.Lock()
-		stopped = true
-		_ = current.Process.Kill()
-		mu.Unlock()
-		<-done
-	}
-}
-
-func regionFile(work, name, address string) string {
-	options, err := releasepush.Options(work, nil)
-	must(err)
-	certificate, err := x509.ParseCertificate(options.TLSConfig.Certificates[0].Certificate[0])
-	must(err)
-	pin := sha256.Sum256(certificate.RawSubjectPublicKeyInfo)
-	regions, err := json.Marshal([]releasepush.Region{{Region: "sjc", NATS: address, SPKISHA256: hex.EncodeToString(pin[:])}})
-	must(err)
-	path := filepath.Join(work, name)
-	write(path, string(regions))
-	return path
-}
-
-func pushOne(ctx context.Context, work, name string, asset []byte, release releasepush.OrchRelease, provider, regions string) (releasepush.Result, error) {
-	assets := filepath.Join(work, name)
-	must(os.Mkdir(assets, 0o700))
-	writeExecutable(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), asset)
-	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", provider+"/token?"))
-	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "lane"))
-	var output bytes.Buffer
-	err := releasepush.Push(ctx, []string{"--sha", release.SHA, "--dir", assets, "--regions", regions}, &output)
-	var result releasepush.Result
-	must(json.Unmarshal(bytes.TrimSpace(output.Bytes()), &result))
-	return result, err
-}
-
 func rebuildCase(ctx context.Context) {
 	work, cleanup := temporary("rebuild-")
 	defer cleanup()
-	must(os.Mkdir(filepath.Join(work, "nats"), 0o700))
+	h, _, _ := preparedHost(work)
 	helper, err := os.Executable()
 	must(err)
-	data := read(helper)
-	installed := filepath.Join(work, "installed")
-	first := stamped(data, shaB, "original")
-	writeExecutable(installed, first)
-	port := freePort()
-	regions := regionFile(work, "regions.json", fmt.Sprintf("nats://127.0.0.1:%d", port))
-	push := func(mode, run string) (releasepush.Result, []byte, error) {
-		build := stamped(data, shaB, mode)
-		asset := filepath.Join(work, "asset-"+mode)
-		writeExecutable(asset, build)
-		release, verifier, client, closeProvider := signedRelease(ctx, asset, shaB, run, "1")
-		defer closeProvider()
-		provider := strings.TrimSuffix(client.Transport.(providerTransport).url, "/binary")
-		stopRegion := keepServing(ctx, func() *exec.Cmd {
-			return exec.CommandContext(ctx, installed, "serve-region", work, fmt.Sprint(port), verifier.JWKSURL, provider+"/binary")
-		})
-		defer stopRegion()
-		result, err := pushOne(ctx, work, "assets-"+mode, build, release, provider, regions)
-		return result, build, err
+	first := stamped(read(helper), shaB, "original")
+	writeExecutable(h.Binary, first)
+	h.Revision = shaB
+	conn, closeListener := listener(h)
+	reply := installRequest(ctx, h, conn, work, shaB, "10")
+	require(reply.State == "installed", "another digest of the installed commit was treated as current")
+	closeListener()
+	for starts := 1; starts <= 2; starts++ {
+		state := startInstalled(ctx, work, "hold")
+		require(state.State == "probation" && !state.Served && record(h.TrialFile)["starts"] == float64(starts), "an unserved rebuild must count every start")
 	}
-	crashed, _, err := push("crash", "10")
-	require(err != nil && crashed.State == "rolled_back" && bytes.Equal(read(installed), first), fmt.Sprintf("a rebuild of the same commit that rolls back to the first build is not serving: %v %+v", err, crashed))
-	rebuilt, build, err := push("pass", "11")
-	require(err == nil && rebuilt.State == "installed" && rebuilt.Health == "ok" && rebuilt.RevisionOnly == "" && bytes.Equal(read(installed), build), fmt.Sprintf("another build of the installed commit installs and serves: %v %+v", err, rebuilt))
-	fmt.Println("ok rebuild: same commit, other digest installs; its rollback to the first build is reported rolled_back, not serving")
-}
-
-func oldHostCase(ctx context.Context) {
-	work, cleanup := temporary("old-host-")
-	defer cleanup()
-	must(os.Mkdir(filepath.Join(work, "nats"), 0o700))
-	helper, err := os.Executable()
+	failed := startInstalled(ctx, work, "hold")
+	require(failed.RolledBack == shaB && bytes.Equal(read(h.Binary), first), "an unserved rebuild did not restore the exact previous digest")
+	next, err := releasepush.NewHandler(work)
 	must(err)
-	build := stamped(read(helper), shaB, "pass")
-	asset := filepath.Join(work, "asset")
-	writeExecutable(asset, build)
-	release, _, client, closeProvider := signedRelease(ctx, asset, shaB, "5", "1")
-	defer closeProvider()
-	options, err := releasepush.Options(work, nil)
-	must(err)
-	options.Host, options.Port, options.CustomClientAuthentication = "127.0.0.1", -1, nil
-	srv, err := server.NewServer(options)
-	must(err)
-	go srv.Start()
-	require(srv.ReadyForConnections(5*time.Second), "old host listener must listen")
-	defer srv.Shutdown()
-	conn, err := nats.Connect(srv.ClientURL(), nats.Secure(&tls.Config{InsecureSkipVerify: true}))
-	must(err)
-	defer conn.Close()
-	answers := map[string]string{
-		releasepush.SubjectVersion: `{"version":"` + shaB + `"}`,
-		releasepush.SubjectHealth:  `{"version":"` + shaB + `","health":"ok"}`,
-		releasepush.SubjectOrch:    `{"state":"current","version":"` + shaB + `"}`,
-	}
-	for subject, answer := range answers {
-		_, err := conn.Subscribe(subject, func(m *nats.Msg) { must(m.Respond([]byte(answer))) })
-		must(err)
-	}
-	must(conn.Flush())
-	result, err := pushOne(ctx, work, "assets", build, release, strings.TrimSuffix(client.Transport.(providerTransport).url, "/binary"), regionFile(work, "regions.json", srv.ClientURL()))
-	require(err == nil && result.State == "current" && result.Health == "ok" && strings.Contains(result.RevisionOnly, "revision only"), fmt.Sprintf("a host without a digest in its version answer is confirmed by revision and says so: %v %+v", err, result))
-	fmt.Println("ok old host: no digest in the version answer; serving confirmed by revision only and reported")
+	next.Binary, next.Revision = h.Binary, shaB
+	conn, closeListener = listener(next)
+	defer closeListener()
+	reply = installAsset(ctx, next, conn, otherAsset(work, shaB), shaB, "11")
+	require(reply.State == "installed", "a newer rebuild did not install after rollback")
+	served := startInstalled(ctx, work, "serve")
+	require(served.Served, "the new rebuild did not confirm its probation")
+	fmt.Println("ok rebuild: the same commit with another digest installs, rolls back by digest, and accepts a newer signed rebuild")
 }
 
 func mainFormatCase(ctx context.Context) {
@@ -890,36 +551,14 @@ func staleRecordCase(ctx context.Context) {
 	fmt.Println("ok probation stale record: rollback record of run 1, run 2 installed and confirmed, restart keeps it")
 }
 
-func watchdogCase(ctx context.Context, pusher string) {
+func watchdogCase(ctx context.Context, _ string) {
 	work, cleanup := temporary("watchdog-")
 	defer cleanup()
-	must(os.Mkdir(filepath.Join(work, "nats"), 0o700))
-	helper, err := os.Executable()
-	must(err)
-	data := read(helper)
-	installed := filepath.Join(work, "installed")
-	writeExecutable(installed, stamped(data, shaA, "stuck"))
-	port := freePort()
-	regions := regionFile(work, "regions.json", fmt.Sprintf("nats://127.0.0.1:%d", port))
-	build := stamped(data, shaB, "pass")
-	asset := filepath.Join(work, "asset")
-	writeExecutable(asset, build)
-	release, verifier, client, closeProvider := signedRelease(ctx, asset, shaB, "2", "1")
-	defer closeProvider()
-	provider := strings.TrimSuffix(client.Transport.(providerTransport).url, "/binary")
-	stopRegion := keepServing(ctx, func() *exec.Cmd {
-		return exec.CommandContext(ctx, installed, "serve-region", work, fmt.Sprint(port), verifier.JWKSURL, provider+"/binary")
-	})
-	defer stopRegion()
-	assets := filepath.Join(work, "assets")
-	must(os.Mkdir(assets, 0o700))
-	writeExecutable(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), build)
-	push := exec.CommandContext(ctx, pusher, "release", "push", "--sha", release.SHA, "--dir", assets, "--regions", regions)
-	push.Env = append(os.Environ(), "ACTIONS_ID_TOKEN_REQUEST_URL="+provider+"/token?", "ACTIONS_ID_TOKEN_REQUEST_TOKEN=lane")
-	output, err := push.Output()
-	var result releasepush.Result
-	must(json.Unmarshal(bytes.TrimSpace(output), &result))
-	waited := time.Duration(result.ServingMS-result.AcceptedMS) * time.Millisecond
-	require(err == nil && result.State == "installed" && bytes.Equal(read(installed), build) && waited >= 45*time.Second && waited <= 2*time.Minute, fmt.Sprintf("a shutdown stuck until the watchdog ends with the new binary serving early enough to leave a whole probation inside the pusher's wait: %v %+v", err, result))
-	fmt.Println("ok watchdog: stuck shutdown ended by the watchdog; new binary serving", waited.Round(time.Second), "after the reply")
+	h, _, _ := preparedHost(work)
+	started := time.Now()
+	output, err := exec.CommandContext(ctx, h.Binary, "self-update", work, "watchdog").CombinedOutput()
+	require(err == nil && time.Since(started) >= 40*time.Second && strings.Contains(string(output), "installed reply collected"), fmt.Sprintf("the installed host must exit by its shutdown watchdog: %v %s", err, output))
+	served := startInstalled(ctx, work, "serve")
+	require(served.Served && served.Revision == shaB, "the watchdog replacement did not start and serve")
+	fmt.Println("ok watchdog: stuck shutdown exits after install and the verified replacement serves")
 }

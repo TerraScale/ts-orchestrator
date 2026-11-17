@@ -201,8 +201,8 @@ with its own SwarmKit node and its own NATS cluster (`internal/natscell/mesh`).
   last-writer-wins map in `<state>/mesh/desired.json` and pulls the other
   regions' maps at start and every 30 s (`ts.svc.state`), so a region that
   was down catches up by itself. `regions` in a spec limits it (M1 specs: `["gru"]`).
-- Auto-deploy: ci.yml `deploy/release-push` (W14) pushes each green main
-  release to every region in `deploy/m1/regions.json` over TLS :4222.
+- Auto-deploy: ci.yml deploy/release-publish publishes attested binaries. Hosts
+  pull in sjc, fra, gru order after predecessor completion and regional bake.
 - Live check: `.github/workflows/multi-region.yml` (every 6 h, after main CI,
   or `gh workflow run multi-region.yml --ref main`) runs `ts-orch release
   mesh-check`: ping matrix, one apply to all regions, HTTPS per region.
@@ -220,7 +220,7 @@ Created 2026-10-21 with deploy/m1/oci-host.sh and oci-iam.sh, since replaced by 
 | IGW | ocid1.internetgateway.oc1.us-sanjose-1.aaaaaaaaddd4a6hq7b6v77soerldw6zzwxqt4rsqnpniofzuvktacyhsp4rq | ocid1.internetgateway.oc1.eu-frankfurt-1.aaaaaaaa7vsowzuoaxljsz5redfolyr62gms5kwsrkylrrzfzpriclcwf42a |
 | host SL (empty) | ocid1.securitylist.oc1.us-sanjose-1.aaaaaaaaddq24dkx4eamns6tmcblbkvgwwg3k4c6vqz2kpcybi24hn2bxqaa | ocid1.securitylist.oc1.eu-frankfurt-1.aaaaaaaatcqoyzhokjwu547x7vhj7237ds63iiaelgocbuud56p3zi7i5ryq |
 | host NSG | ocid1.networksecuritygroup.oc1.us-sanjose-1.aaaaaaaaqfbxtxwngr3eonyzqvbsieh3n32lsb3xwpbrjzj744roxcu667ra | ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaaaaaaxbbsta4gnjup72xtxj75assgn6udapyf2bqs7knooi2hcf76wrwa |
-| edge NSG (80, 443, 4222/tcp, 3478, 51820/udp world) | ocid1.networksecuritygroup.oc1.us-sanjose-1.aaaaaaaa6ouqqcuv4jdje62cwdvrvvzn7g7tgg5gszl2dilqrmwj2tzgwafa | ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaaaaaa2skml3t4xbcrus4wjyaiogg3wr4al3uhztpwgr7j5rqcxvah5qhq |
+| edge NSG (historical public 4222 allowance; C19b removal in network.md) | ocid1.networksecuritygroup.oc1.us-sanjose-1.aaaaaaaa6ouqqcuv4jdje62cwdvrvvzn7g7tgg5gszl2dilqrmwj2tzgwafa | ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaaaaaa2skml3t4xbcrus4wjyaiogg3wr4al3uhztpwgr7j5rqcxvah5qhq |
 | operator SSH NSG (22 from 179.124.206.245/32) | ocid1.networksecuritygroup.oc1.us-sanjose-1.aaaaaaaauyuwubdjesqh7jcnowpvtkv2kzzp552sfoecwncusfjskpphjcyq | ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaaaaaadcrfy44zny5tu2rtmdsjkaqa2g7hwipdzwsqmopq3x2r3hsmcz5q |
 | instance (A1 2 OCPU/12 GB, 50 GB, Ubuntu 24.04 aarch64 2026.09.18) | `ts-sjc-1` ocid1.instance.oc1.us-sanjose-1.anzwuljrppuhpdqc7opmuobxfqj7xwwoms6eufmjesl4i56ejyayfkhzqkda, AD-1 | `ts-fra-1` ocid1.instance.oc1.eu-frankfurt-1.antheljtppuhpdqchc25czozfaofnepsli2no3yw6ydyyxkyi7ka5mnanl2q, AD-1 |
 | public IP | 163.192.54.17 | 130.162.238.198 |
@@ -232,7 +232,8 @@ DNS (terrascale.tech, DNS only): `gru.mesh` 163.176.124.12 id `1f12e527d20e86d81
 
 Mesh ports (ts-orch's `oci-region network <cell> --apply`, 2026-10-22): edge
 NSG ingress tcp/7222 and host NSG egress tcp/7222 on gru-1, sjc-1, fra-1.
-ts-orch adds the matching iptables ACCEPTs (7222, 4222, 80, 443) at every start.
+Current listener and network rules are documented in [network.md](network.md).
+The public release listener has been removed; C19b closes its historical NSG allowance.
 
 ### Proof, 2026-10-22 (PR #62 build on all three hosts)
 
@@ -334,8 +335,8 @@ install, DNS and pin steps. In order, it creates or adopts:
    statements plus one `manage secret-family` per region for its join secret
    `ts-orch-join-<region>`;
 5. region host only: DNS-only A `<code>.mesh.terrascale.tech` to its public
-   IP, and its release-listener pin (read from the TLS handshake on :4222)
-   in `deploy/m1/regions.json` through PR `region-<code>-pin` (auto-merge).
+   IP, with the regional label in deploy/m1/regions.json for authenticated
+   HTTPS observation. No release-listener certificate or pin is installed.
 
 Output is one line per resource, `unchanged|created|updated KIND NAME ID`.
 A second run changes nothing and prints only `unchanged`.
@@ -361,9 +362,9 @@ The leader publishes sorted `managers` (`<private address>:4242`) and `routes` (
 
 Every node that joined dials all regional manager `routes`. Cross-region mesh seeds keep region names as keys, with URLs for `ts-<region>-1..3` as each value; region discovery still reports only real regions.
 
-A worker gets ts-orch releases from a manager, which relays every release
-CI pushes it on `ts.mesh.release.<region>`; the worker verifies the signed
-request itself ([mesh JetStream](mesh-jetstream.md#two-nodes-per-region)).
+A regional pull leader discovers an attested binary release and requests each
+host to install it over its private pull subject. Workers download and verify
+the attested bytes themselves; no CI runner delivers a release over NATS.
 
 The host NSG admits VCN traffic and the edge NSG opens neither 4242/tcp (SwarmKit) nor 6222/tcp (NATS cluster). The SwarmKit iptables ACCEPT includes the VCN source CIDR from IMDS VNIC metadata; if that field is unavailable, it uses the private IP's /16 and logs the choice. Existing unrestricted SwarmKit ACCEPT rules are removed. A worker has no control socket or edge. `ts-orch service ls` and `member` work on the manager only.
 
@@ -380,18 +381,13 @@ A removed host cannot rejoin with its old identity. Terminate it, or stop ts-orc
 
 ### ts-orch itself: green main -> live on every region
 
-Every green main push with a changed binary runs `deploy/release-push`
-(`.github/workflows/ci.yml`): it pushes the run's release over NATS to every
-region in `deploy/m1/regions.json` (TLS on :4222, listener key pinned, GitHub
-OIDC credential, see `docs/node.md`), each host verifies, installs,
-exits and is restarted by systemd (`RestartSec=1s`), and the job polls each
-region's `ts.release.version` every 250 ms until it equals the SHA. No ssh, no
-manual step, no switch. A region failing never stops the others.
+Every green main push with a changed binary publishes an attested release.
+Hosts discover and verify it, then update one host at a time and one region
+at a time after the predecessor's completion and five-minute bake. CI observes
+through authenticated HTTPS. See [delivery-pipeline.md](delivery-pipeline.md).
 
-"Green" = the last lint/race job finished; "live" = the push job finished with
-every region serving the SHA. Per region: ms from connect to accepted
-(download + verify + install) and to serving (restarted, answering with the
-new version).
+The following measurements are historical results of the retired delivery path.
+They do not describe current rollout latency or authority.
 
 | Main SHA | Run | Build | Green -> live | gru accepted / serving | sjc | fra |
 |---|---|---|---|---|---|---|

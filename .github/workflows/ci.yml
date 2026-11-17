@@ -13,8 +13,6 @@ on:
         type: boolean # zero-config: input name and type fixed by the shared revert-red-main dispatch; every dispatch runs the PR gate
         default: false
 
-# Builds may overlap an admitted release. A newer revision replaces obsolete
-# build work; release-push below always lets the active rollout finish.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -144,7 +142,7 @@ jobs:
           - {lane: region-fallback, entry: region-fallback.sh, timeout: 4, packages: "./test/e2e/m1/oracle-regions"}
           - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
           - {lane: pull-update, entry: pull-update.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
-          - {lane: pull-push, entry: pull-push.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
+          - {lane: pull-handover, entry: pull-handover.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
           - {lane: pull-degraded, entry: pull-degraded.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
           - {lane: recovery, entry: recovery.sh, timeout: 5}
           - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
@@ -430,13 +428,10 @@ jobs:
           path: ${{ steps.go.outputs.cache-paths }}
           key: ${{ steps.go.outputs.cache-key }}
 
-  # Push the retained release to every region's ts-orch over NATS
-  # (deploy/m1/regions.json); fails when any region does not serve it. Only
-  # this job can mint the GitHub OIDC token that is the push credential.
-  release-push:
+  release-publish:
     needs: [build, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key]
     if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' && needs.e2e-m1.result == 'success' && needs.certificate-paths.result == 'success' && (needs.e2e-certificates.result == 'success' || (needs.e2e-certificates.result == 'skipped' && needs.certificate-paths.outputs.changed == 'false')) && needs.caller-key-changes.result == 'success' && (needs.caller-key.result == 'success' || needs.caller-key.result == 'skipped') }}
-    name: deploy/release-push
+    name: deploy/release-publish
     concurrency:
       group: production-ts-orch
       cancel-in-progress: false
@@ -466,19 +461,7 @@ jobs:
             --pattern terrascale-orchestrator-linux-amd64 --pattern terrascale-orchestrator-linux-arm64
           chmod +x dist/terrascale-orchestrator-linux-amd64
 
-      - name: Push the release one region at a time
-        shell: bash
-        run: |
-          set -euo pipefail
-          status=0
-          dist/terrascale-orchestrator-linux-amd64 release push --sha "${GITHUB_SHA}" --dir dist \
-            > "${RUNNER_TEMP}/release-push.jsonl" || status=$?
-          cat "${RUNNER_TEMP}/release-push.jsonl"
-          jq -r '"| \(.region) | \(.state // "-") | \(.started_at // "-") | \(.connect_ms) | \(.accepted_ms) | \(.serving_ms) | \(.healthy_ms) | \(.health // "") | \(.error // "") |"' "${RUNNER_TEMP}/release-push.jsonl" \
-            | { printf '| Region | State | Started | Connect ms | Accepted ms | Serving ms | Healthy ms | Health | Error |\n|---|---|---|---|---|---|---|---|---|\n'; cat; } >> "${GITHUB_STEP_SUMMARY}"
-          exit "$status"
-
-      - name: Attest the pushed binaries
+      - name: Attest the published binaries
         id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -497,24 +480,11 @@ jobs:
           cp "$BUNDLE" dist/provenance.sigstore.json
           gh release upload "ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}" dist/provenance.sigstore.json --repo "${GITHUB_REPOSITORY}" --clobber
 
-      - name: Nudge every region to pull the attested release
-        shell: bash
-        run: |
-          set -euo pipefail
-          dist/terrascale-orchestrator-linux-amd64 release nudge | tee -a "${GITHUB_STEP_SUMMARY}"
-
-      - if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-push-${{ github.sha }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/release-push.jsonl
-          if-no-files-found: ignore
-          retention-days: 30
 
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [paths, lint, e2e-build, e2e-lane, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-push]
+    needs: [paths, lint, e2e-build, e2e-lane, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
@@ -524,4 +494,4 @@ jobs:
           test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false
           test "${{ needs.certificate-paths.result == 'success' && (needs.e2e-certificates.result == 'success' || needs.certificate-paths.outputs.changed == 'false') }}" = true
           test "${{ needs.caller-key-changes.result == 'success' && (needs.caller-key.result == 'success' || needs.caller-key.result == 'skipped') }}" = true
-          test "${{ github.event_name != 'workflow_dispatch' || (needs.lint.result == 'success' && needs.e2e-m1.result == 'success' && needs.e2e-certificates.result == 'success' && needs.caller-key.result == 'success' && needs.build.result == 'skipped' && needs.release-push.result == 'skipped') }}" = true
+          test "${{ github.event_name != 'workflow_dispatch' || (needs.lint.result == 'success' && needs.e2e-m1.result == 'success' && needs.e2e-certificates.result == 'success' && needs.caller-key.result == 'success' && needs.build.result == 'skipped' && needs.release-publish.result == 'skipped') }}" = true

@@ -27,7 +27,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
-	"github.com/moby/swarmkit/v2/api"
+	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/sigstore/sigstore-go/pkg/root"
@@ -75,12 +75,12 @@ func main() {
 		runHost(os.Args[2:])
 		return
 	}
-	require(len(os.Args) == 3 && (os.Args[2] == "pull" || os.Args[2] == "push" || os.Args[2] == "degraded"), "usage: pull-update <ts-orch binary> pull|push|degraded")
+	require(len(os.Args) == 3 && (os.Args[2] == "pull" || os.Args[2] == "handover" || os.Args[2] == "degraded"), "usage: pull-update <ts-orch binary> pull|handover|degraded")
 	journey(os.Args[1], os.Args[2])
 }
 
 func runHost(args []string) {
-	dir, region, id, role, natsURL, githubURL, rootFile, listen, poll := args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]
+	dir, region, id, role, natsURL, githubURL, rootFile, _, poll := args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]
 	ctx := context.Background()
 	state := filepath.Join(dir, "state")
 	must(os.MkdirAll(filepath.Join(state, "nats"), 0o700))
@@ -116,55 +116,10 @@ func runHost(args []string) {
 	must(err)
 	must(h.ServeHostVersion(conn, region, id))
 	must(h.ServePulled(conn, region, id))
-	if role == "worker" {
-		must(h.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region, id))
-	}
 	if probation, err := releasepush.Probe(state, os.Stdout); err == nil && probation != nil {
 		require(probation.Served(), "%s must confirm its release", id)
 	}
-	var listener *server.Server
 	if role == "manager" {
-		h.Claim = func(ctx context.Context, release, sha string, digests map[string]string) error {
-			return pullrelease.ClaimPush(ctx, fabric, region, pullrelease.PushClaim{Release: release, SHA: sha, Binaries: digests, Host: id})
-		}
-		h.Unclaim = func(ctx context.Context, release string) {
-			must(pullrelease.ReleasePush(ctx, fabric, region, release))
-		}
-		h.HostReady = func(ctx context.Context, host, sha string, digests map[string]string) error {
-			return releasepush.AwaitReady(ctx, conn, region, host, sha, digests)
-		}
-		h.Relay = func(ctx context.Context, request []byte) []releasepush.HostVersion {
-			worker := &api.Node{ID: region + "-w", Role: api.NodeRoleWorker, Status: api.NodeStatus{State: api.NodeStatus_READY}}
-			if _, err := os.Stat(filepath.Join(filepath.Dir(dir), region+"-w", "stopped")); err == nil {
-				worker.Status.State = api.NodeStatus_DOWN
-			}
-			return releasepush.RelayWorkers(ctx, conn, protocol.MeshWorkerReleasePrefix+region, request, []*api.Node{worker})
-		}
-		if listen != "0" {
-			port, err := strconv.Atoi(listen)
-			must(err)
-			auth, err := releasepush.NewAuth(h.Verifier)
-			must(err)
-			options, err := releasepush.Options(state, auth)
-			must(err)
-			options.Host, options.Port = "127.0.0.1", port
-			listener, err = server.NewServer(options)
-			must(err)
-			go listener.Start()
-			require(listener.ReadyForConnections(10*time.Second), "release listener must listen")
-			inProcess, err := auth.Connect(listener)
-			must(err)
-			must(h.Serve(inProcess))
-			if region == "gru" {
-				var pin bytes.Buffer
-				must(releasepush.Pin([]string{"--state", state}, &pin))
-				regions, err := json.Marshal([]releasepush.Region{{Region: region, NATS: listener.ClientURL(), SPKISHA256: strings.TrimSpace(pin.String())}})
-				must(err)
-				path := filepath.Join(filepath.Dir(dir), "regions.json")
-				must(os.WriteFile(path+".tmp", regions, 0o600))
-				must(os.Rename(path+".tmp", path))
-			}
-		}
 		every, err := time.ParseDuration(poll)
 		must(err)
 		updater := &pullrelease.Updater{Region: region, Self: id, State: state, Conn: conn, Fabric: fabric,
@@ -176,20 +131,14 @@ func runHost(args []string) {
 				return hosts, nil
 			},
 			Health: func(ctx context.Context) error { return h.Health(ctx, "").Err() },
-			Source: h.Source, Attest: h.Attest, Client: h.Client, Nudges: h.Nudges,
-			Poll: every, HealthyFor: healthyFor, Deadline: deadline}
+			Source: h.Source, Attest: h.Attest, Client: h.Client,
+			Poll: every, HealthyFor: healthyFor, Deadline: deadline, BakeFor: healthyFor}
 		go func() { _ = updater.Run(ctx) }()
 	}
 	must(conn.Publish("e2e.ready."+region+"."+id, []byte(h.Digest)))
 	must(conn.Flush())
 	<-h.Installed
-	if listener != nil {
-		listener.Shutdown()
-		listener.WaitForShutdown()
-	}
-	must(conn.Publish("e2e.down."+region+"."+id, nil))
-	must(conn.Flush())
-	os.Exit(0)
+
 }
 
 type host struct {
@@ -284,19 +233,18 @@ func (o *outages) check() {
 }
 
 type lane struct {
-	bin       string
-	self      []byte
-	revision  string
-	github    *fakeGitHub
-	sigstore  *testSigstore
-	hosts     map[string]*host
-	conn      *nats.Conn
-	outages   *outages
-	progress  map[string]chan pullrelease.Status
-	last      map[string]pullrelease.Status
-	ready     chan [2]string
-	downs     chan string
-	regionsGR string
+	bin      string
+	self     []byte
+	revision string
+	github   *fakeGitHub
+	sigstore *sigstore.Authority
+	hosts    map[string]*host
+	conn     *nats.Conn
+	outages  *outages
+	progress map[string]chan pullrelease.Status
+	last     map[string]pullrelease.Status
+	ready    chan [2]string
+	downs    chan string
 }
 
 func startMesh(work string) []*server.Server {
@@ -353,9 +301,9 @@ func journey(bin, part string) {
 		cancel()
 		supervisors.Wait()
 	}()
-	l := &lane{bin: bin, self: selfBytes, revision: revision, github: newGitHub(), sigstore: newSigstore(),
+	l := &lane{bin: bin, self: selfBytes, revision: revision, github: newGitHub(), sigstore: sigstore.New(),
 		hosts: map[string]*host{}, outages: &outages{down: map[string]map[string]bool{}}, progress: map[string]chan pullrelease.Status{},
-		last: map[string]pullrelease.Status{}, ready: make(chan [2]string, 1024), downs: make(chan string, 1024), regionsGR: filepath.Join(work, "regions.json")}
+		last: map[string]pullrelease.Status{}, ready: make(chan [2]string, 1024), downs: make(chan string, 1024)}
 	defer func() {
 		if failure := recover(); failure != nil {
 			cancel()
@@ -376,7 +324,7 @@ func journey(bin, part string) {
 	}()
 	defer l.github.server.Close()
 	rootFile := filepath.Join(work, "trusted-root.json")
-	must(os.WriteFile(rootFile, l.sigstore.trustedRoot(), 0o600))
+	must(os.WriteFile(rootFile, l.sigstore.TrustedRoot(), 0o600))
 	meshes := startMesh(work)
 	for _, mesh := range meshes {
 		defer mesh.Shutdown()
@@ -394,8 +342,8 @@ func journey(bin, part string) {
 		}
 	})
 	must(err)
-	polls := map[string]string{"gru": "1h", "sjc": "3s"}
-	for _, region := range []string{"gru", "sjc"} {
+	polls := map[string]string{"gru": "3s", "fra": "3s", "sjc": "3s"}
+	for _, region := range []string{"sjc", "fra", "gru"} {
 		statuses := make(chan pullrelease.Status, 256)
 		l.progress[region] = statuses
 		_, err = l.conn.Subscribe(protocol.MeshPullProgressPrefix+region, func(m *nats.Msg) {
@@ -428,14 +376,14 @@ func journey(bin, part string) {
 	for range l.hosts {
 		l.waitReady(ctx, "", base)
 	}
-	for _, region := range []string{"gru", "sjc"} {
+	for _, region := range []string{"sjc", "fra", "gru"} {
 		owner := l.waitStatus(ctx, region, region+" elects one owner of its rollouts", func(s pullrelease.Status) bool { return s.Owner != "" })
 		fmt.Printf("%s: %s owns the rollouts\n", region, owner.Owner)
 	}
-	fmt.Println("cell up: gru and sjc on one JetStream mesh, two managers and a worker each, on the base binary")
+	fmt.Println("cell up: sjc, fra and gru on one JetStream mesh, two managers and a worker each, on the base binary")
 
-	if part == "push" {
-		l.pushes(ctx)
+	if part == "handover" {
+		l.handover(ctx)
 		return
 	}
 	if part == "degraded" {
@@ -452,7 +400,7 @@ func (l *lane) pulls(ctx context.Context) {
 	l.github.compare[revision+"..."+older] = comparison{status: "behind", base: revision, mergeBase: older}
 	l.github.mu.Unlock()
 	c100 := l.candidate("c100")
-	r0 := l.github.publish(older, "100", asset, c100, c100, l.sigstore.bundle(mainIdentity, older, "100", map[string][]byte{asset: c100}))
+	r0 := l.github.publish(older, "100", asset, c100, c100, l.sigstore.Bundle(sigstore.MainIdentity, older, "100", map[string][]byte{asset: c100}))
 	newer := l.waitStatus(ctx, "sjc", "sjc finds every host already newer than "+r0.tag, func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseNewer && s.Target != nil && s.Target.Tag() == r0.tag
 	})
@@ -462,24 +410,22 @@ func (l *lane) pulls(ctx context.Context) {
 	skipped := l.ask(ctx, "gru-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: l.release(r0)})
 	require(skipped.State == releasepush.StateNewer && skipped.Version == revision && skipped.Refusal == nil && skipped.Error == "",
 		"gru-w must skip the older release, replied %+v", skipped)
-	l.requireVersions(ctx, base, l.region("gru", "sjc")...)
+	l.requireVersions(ctx, base, l.region("sjc", "fra", "gru")...)
 	require(maps.Equal(before, l.starts()), "no host may restart for an older release: %v -> %v", before, l.starts())
 	fmt.Printf("older release %s -> every host already descends from it: nothing installed, not refused, not marked bad\n%s\n", r0.tag, newer)
 
 	r1 := l.publishGood("101", "c101")
-	l.github.mint(revision, "101")
-	require(strings.Contains(l.nudge(ctx), "gru: nudged"), "the first nudge must be accepted")
-	require(strings.Contains(l.nudge(ctx), "gru: throttled"), "a second nudge within the spacing must be throttled")
-	gru := l.waitStatus(ctx, "gru", "gru completes "+r1.tag+" after the nudge", complete(r1))
-	sjc := l.waitStatus(ctx, "sjc", "sjc completes "+r1.tag+" by its poll alone", complete(r1))
-	require(gru.Nudged == r1.tag && sjc.Nudged == "", "only gru was nudged: gru %q sjc %q", gru.Nudged, sjc.Nudged)
-	l.requireVersions(ctx, r1.digest, l.region("gru", "sjc")...)
-	fmt.Printf("nudge -> gru pulled %s; lost nudge -> sjc polled it; every host verified and on it\n%s\n%s\n", r1.tag, gru, sjc)
+	sjc := l.waitStatus(ctx, "sjc", "sjc completes "+r1.tag, complete(r1))
+	fra := l.waitStatus(ctx, "fra", "fra completes "+r1.tag, complete(r1))
+	gru := l.waitStatus(ctx, "gru", "gru completes "+r1.tag, complete(r1))
+	require(!fra.Done.Before(sjc.Done.Add(healthyFor)) && !gru.Done.Before(fra.Done.Add(healthyFor)), "a region bypassed its predecessor completion and bake")
+	l.requireVersions(ctx, r1.digest, l.region("sjc", "fra", "gru")...)
+	fmt.Printf("attested release pulled in sjc, fra, gru order; predecessor completion and bake persisted across hosts\n%s\n%s\n%s\n", sjc, fra, gru)
 
-	wrongWorkflow := identity{workflow: "TerraScale/ts-orchestrator/.github/workflows/lint-cache.yml@refs/heads/main", ref: "refs/heads/main", trigger: "push"}
-	wrongBranch := identity{workflow: "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/feature", ref: "refs/heads/feature", trigger: "push"}
-	unlogged := mainIdentity
-	unlogged.unlogged = true
+	wrongWorkflow := sigstore.Identity{Workflow: "TerraScale/ts-orchestrator/.github/workflows/lint-cache.yml@refs/heads/main", Ref: "refs/heads/main", Trigger: "push"}
+	wrongBranch := sigstore.Identity{Workflow: "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/feature", Ref: "refs/heads/feature", Trigger: "push"}
+	unlogged := sigstore.MainIdentity
+	unlogged.Unlogged = true
 	c102, c103, c104, c105, c106, c107, c108, c109 := l.candidate("c102"), l.candidate("c103"), l.candidate("c104"), l.candidate("c105"), l.candidate("c106"), l.candidate("c107"), l.candidate("c108"), l.candidate("c109")
 	tampered := append(bytes.Clone(c105[:len(c105)-1]), c105[len(c105)-1]^1)
 	diverged, forked, detached := strings.Repeat("e", 40), strings.Repeat("d", 40), strings.Repeat("b", 40)
@@ -498,14 +444,14 @@ func (l *lane) pulls(ctx context.Context) {
 		reason string
 		direct bool
 	}{
-		{"wrong workflow", "102", revision, c102, c102, l.sigstore.bundle(wrongWorkflow, revision, "102", map[string][]byte{asset: c102}), "not signed by", true},
-		{"wrong branch", "103", revision, c103, c103, l.sigstore.bundle(wrongBranch, revision, "103", map[string][]byte{asset: c103}), "not signed by", true},
+		{"wrong workflow", "102", revision, c102, c102, l.sigstore.Bundle(wrongWorkflow, revision, "102", map[string][]byte{asset: c102}), "not signed by", true},
+		{"wrong branch", "103", revision, c103, c103, l.sigstore.Bundle(wrongBranch, revision, "103", map[string][]byte{asset: c103}), "not signed by", true},
 		{"unattested", "104", revision, c104, c104, nil, "not found", false},
-		{"tampered", "105", revision, c105, tampered, l.sigstore.bundle(mainIdentity, revision, "105", map[string][]byte{asset: c105}), "sha256 differs", false},
-		{"not a descendant", "106", diverged, c106, c106, l.sigstore.bundle(mainIdentity, diverged, "106", map[string][]byte{asset: c106}), "does not descend", true},
-		{"no certificate timestamp", "107", revision, c107, c107, l.sigstore.bundle(unlogged, revision, "107", map[string][]byte{asset: c107}), "SCT", true},
-		{"ahead of another merge base", "108", forked, c108, c108, l.sigstore.bundle(mainIdentity, forked, "108", map[string][]byte{asset: c108}), "does not descend", true},
-		{"comparison ends elsewhere", "109", detached, c109, c109, l.sigstore.bundle(mainIdentity, detached, "109", map[string][]byte{asset: c109}), "does not end at", true},
+		{"tampered", "105", revision, c105, tampered, l.sigstore.Bundle(sigstore.MainIdentity, revision, "105", map[string][]byte{asset: c105}), "sha256 differs", false},
+		{"not a descendant", "106", diverged, c106, c106, l.sigstore.Bundle(sigstore.MainIdentity, diverged, "106", map[string][]byte{asset: c106}), "does not descend", true},
+		{"no certificate timestamp", "107", revision, c107, c107, l.sigstore.Bundle(unlogged, revision, "107", map[string][]byte{asset: c107}), "SCT", true},
+		{"ahead of another merge base", "108", forked, c108, c108, l.sigstore.Bundle(sigstore.MainIdentity, forked, "108", map[string][]byte{asset: c108}), "does not descend", true},
+		{"comparison ends elsewhere", "109", detached, c109, c109, l.sigstore.Bundle(sigstore.MainIdentity, detached, "109", map[string][]byte{asset: c109}), "does not end at", true},
 	}
 	for _, refusal := range refusals {
 		release := l.github.publish(refusal.sha, refusal.run, asset, refusal.binary, refusal.served, refusal.bundle)
@@ -520,7 +466,7 @@ func (l *lane) pulls(ctx context.Context) {
 		}
 		fmt.Printf("%s release %s refused: %s\n", refusal.name, release.tag, status.Reason)
 	}
-	l.requireVersions(ctx, r1.digest, l.region("gru", "sjc")...)
+	l.requireVersions(ctx, r1.digest, l.region("sjc", "fra", "gru")...)
 	fmt.Println("refused releases -> no host changed")
 
 	starts := l.starts()
@@ -571,120 +517,6 @@ func (l *lane) pulls(ctx context.Context) {
 	l.waitReady(ctx, "sjc."+stuck, r1.digest)
 }
 
-func (l *lane) pushes(ctx context.Context) {
-	revision := l.revision
-	r12 := l.publishGood("112", "c112")
-	l.github.mint(revision, "112")
-	require(strings.Contains(l.nudge(ctx), "gru: nudged"), "the nudge for %s must be accepted", r12.tag)
-	first := l.waitStatus(ctx, "gru", "gru gates its first host on "+r12.tag, gatingFirst(r12))
-	l.waitReady(ctx, "gru."+first.Hosts[0].ID, r12.digest)
-	r13 := l.publishGood("113", "c113")
-	reply := l.push(ctx, "113", l.candidate("c113"))
-	require(reply.State == "installed" && len(reply.Workers) == 1 && reply.Workers[0].Error == "" && reply.Workers[0].Refusal == nil,
-		"a push during a pull rollout must win, replied %+v", reply)
-	preempted := l.waitStatus(ctx, "gru", "gru records that the push of "+r13.tag+" preempted "+r12.tag, func(s pullrelease.Status) bool {
-		return s.Preempted == r12.tag
-	})
-	l.waitReady(ctx, "gru.gru-m", r13.digest)
-	gru := l.waitStatus(ctx, "gru", "gru restarts its pull from the pushed "+r13.tag, complete(r13))
-	l.waitStatus(ctx, "sjc", "sjc completes "+r13.tag, complete(r13))
-	l.requireVersions(ctx, r13.digest, l.region("gru", "sjc")...)
-	fmt.Printf("push during the pull rollout of %s -> the push installed, the pull recorded its preemption and restarted from the pushed release\n%s\n%s\n", r12.tag, preempted, gru)
-
-	starts := l.starts()
-	r14 := l.publishGood("114", "c114")
-	l.github.mint(revision, "114")
-	require(strings.Contains(l.nudge(ctx), "gru: nudged"), "the nudge for %s must be accepted", r14.tag)
-	first = l.waitStatus(ctx, "gru", "gru gates its first host on "+r14.tag, gatingFirst(r14))
-	l.waitReady(ctx, "gru."+first.Hosts[0].ID, r14.digest)
-	owner := first.Owner
-	l.hosts[owner].holdRestart()
-	l.hosts[owner].kill()
-	l.outages.mark("gru", owner, true)
-	handover := l.waitStatus(ctx, "gru", "the other gru manager takes over "+r14.tag, func(s pullrelease.Status) bool {
-		return s.Owner != owner && s.Target != nil && s.Target.Tag() == r14.tag
-	})
-	l.hosts[owner].releaseRestart()
-	gru = l.waitStatus(ctx, "gru", "gru resumes and completes "+r14.tag, complete(r14))
-	l.waitStatus(ctx, "sjc", "sjc completes "+r14.tag, complete(r14))
-	l.requireVersions(ctx, r14.digest, l.region("gru", "sjc")...)
-	for _, id := range l.region("gru") {
-		want := starts[id] + 1
-		if id == owner {
-			want++
-		}
-		require(l.hosts[id].starts.Load() == want, "%s started %d times, want %d", id, l.hosts[id].starts.Load()-starts[id], want-starts[id])
-	}
-	fmt.Printf("owner %s killed mid-rollout -> %s took over the same rollout; every host installed once\n%s\n%s\n", owner, handover.Owner, handover, gru)
-
-	r15 := l.publishGood("115", "c115")
-	l.hosts["gru-w"].holdRestart()
-	starts = l.starts()
-	pushed := make(chan releasepush.Reply, 1)
-	go func() { pushed <- l.push(ctx, "115", l.candidate("c115")) }()
-	l.waitDown(ctx, "gru.gru-w")
-	r16 := l.publishGood("116", "c116")
-	l.github.mint(revision, "116")
-	require(strings.Contains(l.nudge(ctx), "gru: nudged"), "the nudge for %s must be accepted", r16.tag)
-	waiting := l.waitStatus(ctx, "gru", "gru waits for the push of "+r15.tag, func(s pullrelease.Status) bool {
-		return s.Push != nil && strings.Contains(s.Reason, "release push "+r15.tag+" in progress")
-	})
-	require(waiting.Target != nil && waiting.Target.Tag() == r14.tag && waiting.Phase == pullrelease.PhaseComplete, "the pull must not start %s during the push:\n%s", r16.tag, waiting)
-	manager := l.ask(ctx, "gru-m", releasepush.PullRequest{Op: releasepush.PullStatus})
-	require(manager.SHA256 == r14.digest && manager.Health == "ok" && l.hosts["gru-m"].starts.Load() == starts["gru-m"],
-		"gru-m must keep serving %s until its worker is ready, runs %s (%s)", r14.digest, manager.SHA256, manager.Health)
-	fmt.Printf("push with its worker slow to come back -> the manager keeps running and the nudged pull waits\n%s\n", waiting)
-	l.hosts["gru-w"].releaseRestart()
-	reply = <-pushed
-	require(reply.State == "installed" && len(reply.Workers) == 1 && reply.Workers[0].Error == "" && reply.Workers[0].Refusal == nil,
-		"the push must install the worker, then gru-m, replied %+v", reply)
-	l.waitReady(ctx, "gru.gru-m", r15.digest)
-	gru = l.waitStatus(ctx, "gru", "gru pulls "+r16.tag+" once the push finished", complete(r16))
-	l.waitStatus(ctx, "sjc", "sjc completes "+r16.tag, complete(r16))
-	l.requireVersions(ctx, r16.digest, l.region("gru", "sjc")...)
-	fmt.Printf("worker ready -> manager installed the push; its claim dropped and the pull rolled %s out\n%s\n", r16.tag, gru)
-
-}
-
-func (l *lane) degraded(ctx context.Context) {
-	revision := l.revision
-	worker := l.hosts["gru-w"]
-	stopped := filepath.Join(worker.dir, "stopped")
-	must(os.WriteFile(stopped, nil, 0o600))
-	worker.holdRestart()
-	worker.kill()
-	r17 := l.publishGood("117", "c117")
-	reply := l.push(ctx, "117", l.candidate("c117"))
-	require(reply.State == "installed" && slices.Equal(reply.Degraded, []string{"gru-w"}) && len(reply.Workers) == 1 &&
-		reply.Workers[0].Down && reply.Workers[0].Error == "no answer",
-		"a push must install the manager past a stopped worker and report the region degraded, replied %+v", reply)
-	l.waitReady(ctx, "gru.gru-m", r17.digest)
-	metrics := l.releaseMetrics("gru-m")
-	require(strings.Contains(metrics, "ts_orch_release_region_degraded 1") &&
-		strings.Contains(metrics, `ts_orch_release_worker_skipped{host="gru-w",sha="`+revision+`",run="117"} 1`),
-		"gru-m must export the skipped worker, exports:\n%s", metrics)
-	fmt.Printf("worker host stopped -> the push installed gru-m anyway and the region reports degraded\n%s", metrics)
-	must(os.Remove(stopped))
-	worker.releaseRestart()
-	l.waitReady(ctx, "gru.gru-w", hex.EncodeToString(sha256Of(l.self)))
-	r18 := l.publishGood("118", "c118")
-	reply = l.push(ctx, "118", l.candidate("c118"))
-	require(reply.State == "installed" && len(reply.Degraded) == 0 && len(reply.Workers) == 1 && reply.Workers[0].Error == "" && reply.Workers[0].Refusal == nil,
-		"the next push must reach the returned worker, replied %+v", reply)
-	l.waitReady(ctx, "gru.gru-m", r18.digest)
-	metrics = l.releaseMetrics("gru-m")
-	require(strings.Contains(metrics, "ts_orch_release_region_degraded 0") && !strings.Contains(metrics, "ts_orch_release_worker_skipped"),
-		"the push that reached every worker must clear the degraded report, exports:\n%s", metrics)
-	l.requireVersions(ctx, r18.digest, "gru-m", "gru-w")
-	fmt.Println("worker back -> the next push reached it and cleared the degraded report")
-}
-
-func (l *lane) releaseMetrics(id string) string {
-	var metrics bytes.Buffer
-	releasepush.WriteReleaseMetrics(&metrics, filepath.Join(l.hosts[id].dir, "state"))
-	return metrics.String()
-}
-
 func (l *lane) waitDown(ctx context.Context, who string) {
 	for {
 		select {
@@ -722,28 +554,6 @@ func (l *lane) starts() map[string]int32 {
 	return starts
 }
 
-func (l *lane) push(ctx context.Context, run string, binary []byte) releasepush.Reply {
-	l.github.mint(l.revision, run)
-	l.github.mu.Lock()
-	token := l.github.token
-	l.github.mu.Unlock()
-	regions, err := releasepush.LoadRegions(l.regionsGR)
-	must(err)
-	conn, err := releasepush.Dial(regions[0], token)
-	must(err)
-	defer conn.Close()
-	data, err := json.Marshal(releasepush.OrchRelease{SHA: l.revision, Token: token, Binaries: map[string]releasepush.Binary{
-		runtime.GOARCH: {URL: releasepush.ReleaseURL(l.revision, run, runtime.GOARCH), SHA256: hex.EncodeToString(sha256Of(binary))}}})
-	must(err)
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-	defer cancel()
-	message, err := conn.RequestWithContext(ctx, releasepush.SubjectOrch, data)
-	must(err)
-	var reply releasepush.Reply
-	must(json.Unmarshal(message.Data, &reply))
-	return reply
-}
-
 func complete(release published) func(pullrelease.Status) bool {
 	return func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseComplete && s.Target != nil && s.Target.Tag() == release.tag
@@ -761,21 +571,12 @@ func (l *lane) candidate(mode string) []byte {
 
 func (l *lane) publishGood(run, mode string) published {
 	binary := l.candidate(mode)
-	return l.github.publish(l.revision, run, asset, binary, binary, l.sigstore.bundle(mainIdentity, l.revision, run, map[string][]byte{asset: binary}))
+	return l.github.publish(l.revision, run, asset, binary, binary, l.sigstore.Bundle(sigstore.MainIdentity, l.revision, run, map[string][]byte{asset: binary}))
 }
 
 func (l *lane) release(p published) releaseattest.Release {
 	return releaseattest.Release{SHA: p.sha, RunID: p.run, Bundle: releaseattest.AssetURL(p.sha, p.run, releaseattest.BundleAsset),
 		Binaries: map[string]releaseattest.Artifact{runtime.GOARCH: {URL: releaseattest.AssetURL(p.sha, p.run, asset), SHA256: p.digest}}}
-}
-
-func (l *lane) nudge(ctx context.Context) string {
-	command := exec.CommandContext(ctx, l.bin, "release", "nudge", "--regions", l.regionsGR)
-	command.Env = append(os.Environ(), "ACTIONS_ID_TOKEN_REQUEST_URL="+l.github.server.URL+"/token?api-version=2.0", "ACTIONS_ID_TOKEN_REQUEST_TOKEN=e2e")
-	output, err := command.CombinedOutput()
-	require(err == nil, "release nudge: %v: %s", err, output)
-	fmt.Print(string(output))
-	return string(output)
 }
 
 func (l *lane) ask(ctx context.Context, id string, request releasepush.PullRequest) releasepush.Reply {
@@ -841,4 +642,45 @@ func (l *lane) waitStatus(ctx context.Context, region, what string, done func(pu
 			panic(fmt.Sprintf("timed out waiting until %s; last %s status:\n%s", what, region, l.last[region]))
 		}
 	}
+}
+
+func (l *lane) handover(ctx context.Context) {
+	starts := l.starts()
+	candidate := l.publishGood("114", "c114")
+	first := l.waitStatus(ctx, "gru", "gru starts its ordered rollout", gatingFirst(candidate))
+	l.waitReady(ctx, "gru."+first.Hosts[0].ID, candidate.digest)
+	owner := first.Owner
+	l.hosts[owner].holdRestart()
+	l.hosts[owner].kill()
+	l.outages.mark("gru", owner, true)
+	handover := l.waitStatus(ctx, "gru", "the other manager takes over the same release", func(s pullrelease.Status) bool {
+		return s.Owner != owner && s.Target != nil && s.Target.Tag() == candidate.tag
+	})
+	l.hosts[owner].releaseRestart()
+	done := l.waitStatus(ctx, "gru", "gru completes the inherited rollout", complete(candidate))
+	l.requireVersions(ctx, candidate.digest, l.region("sjc", "fra", "gru")...)
+	for _, id := range l.region("gru") {
+		want := starts[id] + 1
+		if id == owner {
+			want++
+		}
+		require(l.hosts[id].starts.Load() == want, "%s started %d times, want %d", id, l.hosts[id].starts.Load(), want)
+	}
+	fmt.Printf("owner %s killed: %s inherited the durable rollout; every host installed once\n%s\n", owner, handover.Owner, done)
+}
+
+func (l *lane) degraded(ctx context.Context) {
+	worker := l.hosts["sjc-w"]
+	worker.holdRestart()
+	worker.kill()
+	candidate := l.publishGood("117", "c117")
+	waiting := l.waitStatus(ctx, "sjc", "an unavailable worker holds the first region", func(s pullrelease.Status) bool {
+		return s.Phase == pullrelease.PhaseWaiting && s.Target != nil && s.Target.Tag() == candidate.tag && strings.Contains(s.Reason, "does not answer")
+	})
+	base := hex.EncodeToString(sha256Of(l.self))
+	l.requireVersions(ctx, base, l.region("fra", "gru")...)
+	worker.releaseRestart()
+	l.waitStatus(ctx, "gru", "the fleet completes after the worker returns", complete(candidate))
+	l.requireVersions(ctx, candidate.digest, l.region("sjc", "fra", "gru")...)
+	fmt.Printf("unavailable first-region worker blocks later regions; return permits the ordered rollout\n%s\n", waiting)
 }

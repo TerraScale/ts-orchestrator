@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -19,9 +22,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/nats-io/nats.go"
 	"golang.org/x/sys/unix"
 )
 
@@ -446,44 +452,81 @@ func (h *Host) Dial(network, address string) (net.Conn, error) {
 
 func (h *Host) State(path string) string { return filepath.Join(h.Dir, "state", path) }
 
-func (h *Host) ReleaseRegion() (releasepush.Region, error) {
-	data, err := os.ReadFile(h.State("nats/tls.crt"))
-	if err != nil {
-		return releasepush.Region{}, err
-	}
-	certificate, err := tls.X509KeyPair(data, mustRead(h.State("nats/tls.key")))
-	if err != nil {
-		return releasepush.Region{}, err
-	}
-	pin, err := releasepush.SPKIPin(certificate.Certificate[0])
-	return releasepush.Region{Region: h.Region.Name, NATS: "tls://" + h.Address + ":4222", SPKISHA256: pin}, err
-}
-
-func mustRead(path string) []byte {
-	data, _ := os.ReadFile(path)
-	return data
-}
-
 func (h *Host) Health(ctx context.Context) (releasepush.Reply, error) {
-	region, err := h.ReleaseRegion()
+	token, err := os.ReadFile(h.State("mesh/client.token"))
 	if err != nil {
 		return releasepush.Reply{}, err
 	}
-	token, err := h.fleet.standIn.token(revisionOf(h.fleet.Binary), "1")
+	data, err := os.ReadFile(filepath.Join(swarmruntime.NodeCertificates(h.State("")), "swarm-node.crt"))
 	if err != nil {
 		return releasepush.Reply{}, err
 	}
-	conn, err := releasepush.Dial(region, token)
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return releasepush.Reply{}, fmt.Errorf("host has no node certificate")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return releasepush.Reply{}, err
+	}
+	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", mesh.LocalPort), nats.UserInfo(mesh.OrchUser, strings.TrimSpace(string(token))), nats.SetCustomDialer(h), nats.NoReconnect())
 	if err != nil {
 		return releasepush.Reply{}, err
 	}
 	defer conn.Close()
-	message, err := conn.RequestWithContext(ctx, releasepush.SubjectHealth, nil)
+	message, err := conn.RequestWithContext(ctx, releasepush.PullSubject(h.Region.Name, cert.Subject.CommonName), []byte(`{"op":"status"}`))
 	if err != nil {
 		return releasepush.Reply{}, err
 	}
 	var reply releasepush.Reply
 	return reply, json.Unmarshal(message.Data, &reply)
+}
+
+func (h *Host) Observation(ctx context.Context) (releasepush.Observation, error) {
+	roots := x509.NewCertPool()
+	roots.AddCert(h.fleet.standIn.caCert)
+	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		return h.Dial(network, h.Address+":443")
+	}}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport}
+	token, err := h.fleet.standIn.token(revisionOf(h.fleet.Binary), "1")
+	if err != nil {
+		return releasepush.Observation{}, err
+	}
+	var observation releasepush.Observation
+	for _, probe := range []struct {
+		method, token string
+		status        int
+	}{
+		{http.MethodGet, "", http.StatusUnauthorized},
+		{http.MethodPost, token, http.StatusMethodNotAllowed},
+		{http.MethodGet, token, http.StatusOK},
+	} {
+		request, err := http.NewRequestWithContext(ctx, probe.method, "https://whoami.e2e.test"+releasepush.ObservationPath, nil)
+		if err != nil {
+			return observation, err
+		}
+		if probe.token != "" {
+			request.Header.Set("Authorization", "Bearer "+probe.token)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			return observation, err
+		}
+		if response.StatusCode != probe.status {
+			response.Body.Close()
+			return observation, fmt.Errorf("observation %s: HTTP %d, want %d", probe.method, response.StatusCode, probe.status)
+		}
+		if probe.status == http.StatusOK {
+			err = json.NewDecoder(response.Body).Decode(&observation)
+		}
+		response.Body.Close()
+		if err != nil {
+			return observation, err
+		}
+	}
+	return observation, nil
 }
 
 func (f *Fleet) Secret(name string) (string, int) {

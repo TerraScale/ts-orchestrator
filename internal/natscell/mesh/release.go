@@ -254,3 +254,41 @@ func declaredReleasePlacement(next *swarmruntime.ServiceSpec, deployment *Deploy
 	}
 	return nil
 }
+
+func runningImages(ctx context.Context, conn *nats.Conn) (map[string]string, error) {
+	states, err := desiredStates(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+	replies := map[string]stateReply{}
+	err = collect(ctx, conn, StateSubject, nil, len(Regions(connRegion(conn))), stateWait, func(data []byte) bool {
+		var reply stateReply
+		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
+			replies[reply.Region] = reply
+		}
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	images := map[string]string{}
+	for name, state := range states {
+		entry := state.entry()
+		if entry.Spec == nil {
+			continue
+		}
+		ready := true
+		for _, region := range rolloutOrder(connRegion(conn), entry.Spec) {
+			reply, ok := replies[region]
+			serving := reply.Serving[name]
+			if !ok || reply.Ready[name] != entry.Generation || reply.Failed[name] == entry.Generation || reply.Unsaved[name] == entry.Generation || serving.Generation != entry.Generation || !serving.fresh() {
+				ready = false
+				break
+			}
+		}
+		if ready {
+			images[name] = entry.Spec.Image
+		}
+	}
+	return images, nil
+}

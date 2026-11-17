@@ -147,7 +147,7 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 			close(meshDone)
 		}()
 	}
-	err = serveNode(ctx, *state, output, plan, probation, swarmReady, func(ctx context.Context, service string) releasepush.HealthResult {
+	err = serveNode(ctx, *state, output, plan, public, probation, swarmReady, func(ctx context.Context, service string) releasepush.HealthResult {
 		return releaseHealth(ctx, *state, service, meshNode.Load(), public)
 	}, func(ctx context.Context) error {
 		if node := meshNode.Load(); node != nil {

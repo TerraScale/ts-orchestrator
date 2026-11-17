@@ -10,7 +10,8 @@ repo=$(git -C "$here" rev-parse --show-toplevel)
 git -C "$repo" cat-file -e "$previous^{commit}" 2>/dev/null || git -C "$repo" fetch -q --depth 1 origin "$previous"
 mkdir "$work/previous-src"
 git -C "$repo" archive "$previous" | tar -x -C "$work/previous-src"
-cp -r "$here/previous" "$work/previous-src/updater-previous"
+mkdir "$work/previous-src/updater-previous"
+cp "$here/previous/main.go.in" "$work/previous-src/updater-previous/main.go"
 (cd "$work/previous-src" && nice -n 19 go build -trimpath -ldflags="-s -w" -o "$work/previous-updater" ./updater-previous)
 mkdir -p "$work/updater-sys/class/dmi/id"
 printf 'Local\n' > "$work/updater-sys/class/dmi/id/chassis_asset_tag"

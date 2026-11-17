@@ -20,9 +20,11 @@ path. It does not prove an authenticated application operation.
 3. Use the existing app/environment GitHub concurrency group with cancellation
    disabled for production. Do not overlap manual releases of the same service.
 4. Record the expected digest, full source revision, workflow run ID, intended
-   regions and previous digest. Run `ts-orch release app --service <service>
-   --image <immutable-image>` from the approved workflow. Do not place tokens in
-   command arguments; the client mints its existing OIDC identity in memory.
+   regions and previous digest. The approved main workflow signs a selection
+   binding that service/revision/digest, then moves the existing package's release
+   tag. Hosts verify both build and selection attestations and pull the bytes.
+   Observe with `ts-orch release wait --service <service> --image <immutable-image>`;
+   the read-only HTTPS client mints its existing OIDC identity in memory.
 5. Retain the JSON per-region runtime evidence. Stop on any failed/missing row,
    identity or digest mismatch, or revision mismatch. Authenticated per-target
    smoke uses the authorized hosted email-code login. Project-credential

@@ -1,8 +1,6 @@
 package regionhost
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -10,7 +8,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/nodeinit"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
-	"github.com/nats-io/nats.go"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -293,28 +290,16 @@ func (r *run) confirmDataMounted(host string, instance *core.Instance, volume *c
 	if err != nil {
 		return err
 	}
-	pin, err := livePin(r.ctx, ip)
-	if err != nil {
-		return fmt.Errorf("host %s mount report unavailable: %w", host, err)
-	}
 	token, err := releasepush.MintToken(r.ctx)
 	if err != nil {
 		return fmt.Errorf("authenticate host %s mount report: %w", host, err)
 	}
-	conn, err := releasepush.Dial(releasepush.Region{Region: r.code, NATS: "tls://" + ip + ":4222", SPKISHA256: pin}, token, nats.NoReconnect())
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	ctx, cancel := context.WithTimeout(r.ctx, 8*time.Second)
-	defer cancel()
-	message, err := conn.RequestWithContext(ctx, releasepush.SubjectHealth, nil)
+	reply, err := releasepush.ReadHostObservation(r.ctx, releasepush.Region{Region: r.code}, ip, token)
 	if err != nil {
 		return fmt.Errorf("host %s mount report: %w", host, err)
 	}
-	var reply releasepush.Reply
-	if err := json.Unmarshal(message.Data, &reply); err != nil {
-		return err
+	if reply.Host != host {
+		return fmt.Errorf("host %s mount report identifies %s", host, reply.Host)
 	}
 	mount := reply.DataMount
 	if mount == nil {

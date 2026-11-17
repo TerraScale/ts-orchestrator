@@ -28,10 +28,12 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	netbirddashboard "github.com/TerraScale/ts-orchestrator/internal/netbird/dashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 )
 
 type Edge struct {
+	observer         atomic.Pointer[http.Handler]
 	bootstrap        *rolloutmaintenance.Store
 	bootstrapErr     error
 	bootstrapBarrier bootstrapBarrier
@@ -85,6 +87,10 @@ type Edge struct {
 	drainStarted       atomic.Pointer[time.Time]
 	requestDurations   sync.Map
 	upstreamSockets    upstreamBudget
+}
+
+func (e *Edge) SetObserver(handler http.Handler) {
+	e.observer.Store(&handler)
 }
 
 func New(stateDir string) *Edge { return newEdge(stateDir) }
@@ -423,6 +429,14 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	}
 	if peer && isChallenge(r) {
 		e.serveChallenge(w, r)
+		return
+	}
+	if r.URL.Path == releasepush.ObservationPath {
+		if handler := e.observer.Load(); handler != nil {
+			(*handler).ServeHTTP(w, r)
+		} else {
+			http.Error(w, "observer unavailable", http.StatusServiceUnavailable)
+		}
 		return
 	}
 	if _, ok := e.port(r.Host); !ok {

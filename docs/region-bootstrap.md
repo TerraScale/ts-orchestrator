@@ -358,10 +358,12 @@ holds the staging IDs must exist before `region apply stg compute`. Store the
 GHCR pull token as `stg-1-ghcr-pull-token` in `stg-vault` before platform
 services run there.
 
-**Releases land on staging first.** `release push` orders `stg` before every
-production region; with `stg` in `deploy/m1/regions.json` a failed preflight,
-install or health wait on staging stops the push, CI publishes no provenance
-bundle, and production nodes never pull the release.
+**Staging-first pull admission is blocked.** Staging records its binary rollout
+and bake in its own fabric store. Production cannot read that isolated store,
+and its hosts have no GitHub-runner OIDC identity for the CI observation API.
+C19 removes the old release-push path; an authenticated staging verdict bridge
+must replace its cross-environment ordering before C19 merges. No staging CA,
+Vault credential or production write grant is shared by that change.
 
 **Still open:** NetBird enrollment of staging nodes (their `netbird server`
 companion reads gru-vault, which `ts-orch-stg` cannot), metrics scraping by
@@ -1452,3 +1454,11 @@ Those require their own current source and runtime evidence.
 The post-handoff owner for ARM workload hosts and TerraBase also owns their
 disposable-preview removal. For the current GRU cost cutoff and exact workload
 teardown procedure, see [Explicit disposable workload teardown](disposable-workload-teardown.md).
+
+## HTTPS mount evidence
+
+Host adoption reads its authenticated mount report over the existing edge on
+443. It requires the regional mesh hostname, public PKI certificate and route
+inventory to exist before adoption can finish. This does not solve the first
+region bootstrap gap; it refuses adoption while that HTTPS path is unavailable.
+There is no public NATS mount-report fallback. See [exposure inventory](network.md).

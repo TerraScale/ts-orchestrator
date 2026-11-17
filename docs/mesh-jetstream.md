@@ -146,11 +146,9 @@ second host exists: a new host whose hostname equals the join material's
   ([second host](m1-runbook.md#a-second-host-in-a-region-joins-by-itself)): the
   join material `ts-orch-join-<region>` in gru-vault, the SwarmKit worker
   token, the mesh route to the founder's VCN address.
-- Releases: CI pushes only the founders (`deploy/m1/regions.json`). A founder
-  that accepts or already runs a ts-orch release relays the same signed
-  request on the mesh subject `ts.mesh.release.<region>`; the worker verifies
-  the GitHub OIDC token itself and installs it. A worker that was down misses
-  that relay and catches up on the next push.
+- Releases: a regional pull leader discovers attested binaries and requests
+  one host at a time to download and verify them through private pull subjects.
+  A returning worker resumes the durable regional rollout.
 - A mesh service runs on the founder only (`node.role==manager`), because the
   founder's edge serves it and worker edges reach it through that edge. On 2026-11-04 SwarmKit put TerraBase on `ts-sjc-2`
   before this rule; the task was rejected ("peers file is not written yet") and
@@ -308,43 +306,25 @@ A server on this release and a server on the previous one cannot talk: the
 cluster name, the transport (routes, not gateways) and the account (`ORCH`,
 not the global account) all differ. There is no bridge. Reasons:
 
-- The release push now installs one region at a time (`internal/releasepush`)
-  and waits for JetStream recovery. A transport or account migration that
-  cannot form a mixed-version cluster needs a separate migration design;
-  the health gate stops an ordinary push during such a split.
-- ts-orch's own updates use the release listener on 4222, not the mesh, so
-  they keep working in the window and after it.
+- Binary pulls require private mesh communication and healthy regional state.
+  A transport or account migration that cannot form a mixed-version cluster
+  needs a separate migration design; an ordinary binary rollout stops.
 - Service applies retry each region every 30 s while they wait, so an apply
   in the window completes when the last region restarts.
 - D24 allows production to break during the pivot.
 
 ## Orchestrator releases
 
-Releases roll through the region catalog with the first founded region last:
-sjc, fra, gru today. Before any install, every target must answer a version
-probe within 10 seconds and report health `ok` where available (G0). No
-responders or `no health check` accepts version alone for the first push;
-other health failures, including an install or restart in progress, stop the
-push before any install. G0 accepts any running version. Each region must
-serve the requested SHA within three minutes (G1), then report healthy
-JetStream and regional services
-continuously for 15 seconds within three minutes (G2). Health requires a
-successful server health check, a leader and the configured replica count
-for every stream. Every replica must be online, active within two seconds
-(twice the Raft heartbeat interval), and at most 128 operations behind;
-the instantaneous `Current` flag is not required. A named stream omitted
-from stream info fails with `no leader answered`. Health also requires
-a READY SwarmKit node and no service below
-its desired replicas. Unreadable service state fails the gate; host memory
-and disk pressure do not gate releases.
-
-Only after G2 may the next region restart, keeping at most one region
-restarting during the rollout. A region already running the release
-still passes G1 and the full G2 health gate. A failed gate stops the push
-and marks unreached regions skipped. G2 requires health replies from the
-requested SHA, polling every two seconds
-with an eight-second request timeout around a five-second handler budget.
-The next install waits for G2 even when a rerun finds a region already current.
+Production binary pull order is sjc, fra, gru. Isolated stg admission has no
+local predecessor; authenticating its verdict for production remains the
+merge blocker described in [platform releases](platform.md#releases).
+The regional leader reads its predecessor's record from the fabric pull store.
+It takes a tag only after that exact tag has completed and passed an observed
+five-minute bake. A failed or unavailable predecessor blocks later regions.
+Within a region, hosts install one at a time through PullInstall, downloading
+and verifying the attested binary themselves. Host probation and the regional
+health gate must pass before completion. Bake failures roll back the affected
+host and retain the bad-release record. See [platform releases](platform.md#releases).
 
 ## Accounts
 

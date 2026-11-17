@@ -2,9 +2,11 @@
 
 ## Deployment boundary
 
-CI sends each main build with `ts-orch release push` and wakes regions with
-`ts-orch release nudge` ([releases](platform.md#releases)). A node accepts a
-release only on its Sigstore attestation.
+CI publishes qualified, attested main binaries; regional leaders discover and
+pull them in fixed order after predecessor completion and bake. Application
+release jobs publish signed selections of existing image digests. Hosts verify
+the selection and build provenance before rollout. CI reads authenticated
+HTTPS observations; it never connects to NATS 4222.
 
 Webhooks may provide notification hints, never release authority. Consumers
 verify channels locally and poll to recover missed hints. No new webhook
@@ -41,12 +43,9 @@ publication time, so newly published older revisions receive the retention windo
 Production runtime credentials remain OCI Vault responsibilities. This source
 cleanup neither creates nor copies secrets, changes IAM, provisions capacity,
 nor deploys a fleet.
-The current `ci.yml` release-push job uses GitHub OIDC to authenticate to
-regional release listeners. Workflow identity and permissions gate that path;
-no PR review approval is required. Older
-Vault-signing/image adapters have separate qualification requirements and are
-not active deployment workflows. See [delivery pipeline](delivery-pipeline.md)
-and [contributing](../AGENTS.md#shipping-code).
+The ci.yml release-publish job signs artifacts with GitHub OIDC and publishes
+them for host discovery. The receiver and producer contracts and merge order
+are documented in [delivery pipeline](delivery-pipeline.md).
 
 ## Producer, infrastructure and verification gaps
 
@@ -67,7 +66,7 @@ and [contributing](../AGENTS.md#shipping-code).
    fresh digests. The fixed CI #1004 audit reproducer deliberately retains its
    historical URL framing; it makes no provider requests and issues no fresh
    release qualification. Historical source receipts remain audit records.
-4. Preserve the current release-push workflow's scoped OIDC authorization.
+4. Preserve the release-publish workflow identity, signed selection and authenticated HTTPS observation boundaries.
    Legacy OCI producer adapters need their own qualified Vault authentication
    path before reuse. No credential or permission is installed by this cleanup.
    Public source/releases need no manually copied provider token for operators;

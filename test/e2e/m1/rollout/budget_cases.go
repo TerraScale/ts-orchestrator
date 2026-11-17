@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rsa"
 	"fmt"
 	"net/http"
 	"os"
@@ -114,9 +113,9 @@ func budgetCases(ctx context.Context, conn, releases *nats.Conn, nodes, swarms [
 
 }
 
-func unsavedCase(ctx context.Context, conn, releases *nats.Conn, key *rsa.PrivateKey, nodes []*process, boot func(int) *process, roots, order, addresses []string, spec swarmruntime.ServiceSpec) {
+func unsavedCase(ctx context.Context, conn, releases *nats.Conn, nodes []*process, boot func(int) *process, roots, order, addresses []string, spec swarmruntime.ServiceSpec) {
 	previous := newGeneration(states(ctx, conn), order[0])
-	signedRelease(ctx, releases, key, spec.Image, "99")
+	signedRelease(ctx, releases, spec.Image, "99")
 	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > previous })
 	generation := newGeneration(states(ctx, conn), order[0])
 	evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Samples >= 1 })

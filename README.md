@@ -11,8 +11,8 @@ TerraScale Orchestrator is a Go orchestrator distributed as one binary. Every
 node runs one runtime, `terrascale-orchestrator node`
 ([`deploy/m1/ts-orch.service`](deploy/m1/ts-orch.service)): a SwarmKit manager
 and worker with containerd, the HTTPS edge and the embedded NATS mesh between
-regions. CI builds the static binaries; `ts-orch release push` and
-`ts-orch release nudge` deliver them (see [platform design](docs/platform.md#releases)).
+regions. CI publishes attested binaries and selected app images; hosts pull and verify them
+(see [network exposure](docs/network.md) and [platform design](docs/platform.md#releases)).
 `ts-deploy` is not the build or rollout engine for this repository.
 
 Use **`ts-orch` as the operational CLI**. Implement new deployment,

@@ -6,18 +6,14 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
 	"github.com/TerraScale/ts-orchestrator/internal/datamount"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
-	"github.com/nats-io/nats.go"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +25,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
-	"github.com/nats-io/nats-server/v2/server"
 )
 
 const serial = "0123456789abcdef0123456789abcdef"
@@ -310,7 +305,18 @@ func must(ok bool, message string) {
 }
 
 func invoke(c *cloud, args ...string) (string, error) {
-	api := httptest.NewServer(c)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == releasepush.ObservationPath {
+			must(r.Header.Get("Authorization") == "Bearer "+observationToken, "missing host observation authentication")
+			reportMu.Lock()
+			defer reportMu.Unlock()
+			data, err := json.Marshal(releasepush.Observation{Host: "extra", Health: "ok", DataMount: report})
+			must(err == nil, "encode mount report")
+			_, _ = w.Write(data)
+			return
+		}
+		c.ServeHTTP(w, r)
+	}))
 	defer api.Close()
 	transport := &http.Transport{DialTLSContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", api.Listener.Addr().String())
@@ -327,6 +333,10 @@ func invoke(c *cloud, args ...string) (string, error) {
 	err := regionhost.Run(ctx, args, &out)
 	return out.String(), err
 }
+
+var reportMu sync.Mutex
+var report = &datamount.Report{Serial: serial, MountPoint: datamount.MountPoint, Device: datamount.Device, UUID: uuid, FilesystemType: "ext4", SizeBytes: 3 * 1024 * 1024 * 1024}
+var observationToken = "e30." + base64.RawURLEncoding.EncodeToString([]byte(`{"run_id":"123"}`)) + ".signature"
 
 func run() error {
 	dir, err := os.MkdirTemp("", "region-volume-journey-")
@@ -358,16 +368,7 @@ func run() error {
 		return err
 	}
 	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "journey"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
-	cert, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
-	if err != nil {
-		return err
-	}
-	pair, err := tls.X509KeyPair(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert}), keyBytes)
-	if err != nil {
-		return err
-	}
-	token := "e30." + base64.RawURLEncoding.EncodeToString([]byte(`{"run_id":"123"}`)) + ".signature"
+	token := observationToken
 	oidc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		must(r.Header.Get("Authorization") == "bearer local", "missing OIDC authentication")
 		fmt.Fprintf(w, `{"value":%q}`, token)
@@ -375,33 +376,6 @@ func run() error {
 	defer oidc.Close()
 	os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", oidc.URL+"?local=1")
 	os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "local")
-	listener, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: 4222, NoLog: true, NoSigs: true, Authorization: token, TLSConfig: &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}})
-	if err != nil {
-		return err
-	}
-	go listener.Start()
-	defer func() { listener.Shutdown(); listener.WaitForShutdown() }()
-	must(listener.ReadyForConnections(5*time.Second), "release listener did not start")
-	conn, err := nats.Connect("tls://127.0.0.1:4222", nats.Token(token), nats.Secure(&tls.Config{InsecureSkipVerify: true}))
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	report := &datamount.Report{Serial: serial, MountPoint: datamount.MountPoint, Device: datamount.Device, UUID: uuid, FilesystemType: "ext4", SizeBytes: 3 * 1024 * 1024 * 1024}
-	var reportMu sync.Mutex
-	_, err = conn.Subscribe(releasepush.SubjectHealth, func(m *nats.Msg) {
-		reportMu.Lock()
-		data, marshalErr := json.Marshal(releasepush.Reply{Health: "ok", DataMount: report})
-		reportMu.Unlock()
-		must(marshalErr == nil, fmt.Sprint(marshalErr))
-		m.Respond(data)
-	})
-	if err != nil {
-		return err
-	}
-	if err := conn.Flush(); err != nil {
-		return err
-	}
 	digest := func(c *cloud) [32]byte {
 		b, err := json.Marshal(c.resources["volumes"], json.Deterministic(true))
 		must(err == nil, fmt.Sprint(err))

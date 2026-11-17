@@ -1,18 +1,11 @@
 name: App release canary
 
-# Proves app auto-deploy after each successful main release: publishes
-# ghcr.io/terrascale/app-canary (traefik/whoami relabelled with this commit,
-# so every push is a new digest) and releases its linux/arm64 digest to every
-# targeted region with `ts-orch release app`. Hosts admit this workflow's OIDC token
-# for the app-canary service only (releasepush appServices). The job summary
-# shows published -> serving in every region.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
 
-# An admitted rollout must finish or roll back before another canary starts.
 concurrency:
   group: production-app-canary
   cancel-in-progress: false
@@ -22,7 +15,6 @@ permissions:
 
 jobs:
   release:
-    # The receiver must be upgraded before the canary exercises the release API.
     if: ${{ github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' }}
     name: app-canary/release
     runs-on: ubuntu-24.04
@@ -45,15 +37,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Releases become visible before upload finishes; require the final qualification marker as well as the client.
           tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=30" \
             --jq '[.[] | select(.draft == false and (.tag_name | startswith("ci-")) and
               any(.assets[]?; .name == "terrascale-orchestrator-linux-amd64") and
               any(.assets[]?; .name == "qualification.json"))] |
               sort_by(.created_at) | last | .tag_name // ""')
           test -n "$tag"
+          revision=${tag#ci-}
+          revision=${revision%-run-*}
+          echo "ORCHESTRATOR_REVISION=$revision" >> "$GITHUB_ENV"
           gh release download "$tag" --repo TerraScale/ts-orchestrator --dir dist --pattern terrascale-orchestrator-linux-amd64
           chmod +x dist/terrascale-orchestrator-linux-amd64
+
+      - name: Observe the orchestrator on every registered host
+        run: dist/terrascale-orchestrator-linux-amd64 release hosts "$ORCHESTRATOR_REVISION"
 
       - name: Publish the canary image
         id: image
@@ -63,12 +60,10 @@ jobs:
         run: |
           set -euo pipefail
           image=ghcr.io/terrascale/app-canary
-          # shellcheck disable=SC2016 # Docker expands this build argument.
           printf '%s\n' 'FROM docker.io/traefik/whoami@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44' \
-            'ARG REVISION' 'LABEL org.opencontainers.image.revision=$REVISION' > "${RUNNER_TEMP}/Dockerfile"
+             'ARG REVISION' "LABEL org.opencontainers.image.revision=\$REVISION" > "${RUNNER_TEMP}/Dockerfile"
           echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           docker buildx create --use --driver docker-container >/dev/null
-          # FROM + LABEL only: no emulation needed for arm64.
           docker buildx build --platform linux/amd64,linux/arm64 --build-arg "REVISION=${GITHUB_SHA}" \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --tag "${image}:${GITHUB_SHA}" --push "${RUNNER_TEMP}"
@@ -113,10 +108,22 @@ jobs:
             --signer-workflow TerraScale/ts-orchestrator/.github/workflows/app-canary.yml \
             --bundle-from-oci
 
-      - name: Release to every region
-        shell: bash
+      - uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad
+
+      - name: Attest the selected release
         env:
           IMAGE: ${{ steps.image.outputs.ref }}
         run: |
-          set -euo pipefail
-          dist/terrascale-orchestrator-linux-amd64 release app --service app-canary --image "$IMAGE" | tee -a "$GITHUB_STEP_SUMMARY"
+          jq -cn --arg revision "$GITHUB_SHA" '{service:"app-canary", revision:$revision}' > "$RUNNER_TEMP/release-selection.json"
+          cosign attest --yes --type https://terrascale.tech/attestations/release-selection/v1 \
+            --predicate "$RUNNER_TEMP/release-selection.json" "$IMAGE"
+
+      - name: Publish the selected image for host pulls
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        run: docker buildx imagetools create --prefer-index=false --tag ghcr.io/terrascale/app-canary:release "$IMAGE"
+
+      - name: Observe the pulled release over HTTPS
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        run: dist/terrascale-orchestrator-linux-amd64 release wait --service app-canary --image "$IMAGE"
