@@ -57,6 +57,16 @@ func attest(ctx context.Context, r request) error {
 	if !slices.Contains(strings.Split(r.Region, "-"), "staging") || !strings.HasPrefix(r.Prefix, "abuse-") || len(r.Prefix) > 40 || strings.ContainsAny(r.Prefix, "/.\\ \n") || r.Compartment == "" {
 		return errors.New("staging scope required")
 	}
+	document, err := fleet.Load()
+	if err != nil {
+		return err
+	}
+	staging := slices.DeleteFunc(slices.Clone(document.Regions), func(region fleet.Region) bool {
+		return !slices.Contains(strings.Split(region.Label, "-"), "staging")
+	})
+	if len(staging) != 1 || staging[0].Label != r.Region || staging[0].CompartmentID != r.Compartment || staging[0].Nodes.Max > 3 {
+		return errors.New("request outside embedded fleet staging authority")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://169.254.169.254/opc/v2/instance/", nil)
 	if err != nil {
 		return err

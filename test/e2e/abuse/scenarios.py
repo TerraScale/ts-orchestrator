@@ -15,26 +15,79 @@ from workloads import Workloads, build
 
 
 class Load:
-    def __init__(self, owner, host):
+    def __init__(self, owner, host, outage=0):
         self.owner = owner
         self.host = host
         self.stop = threading.Event()
         self.counts = []
+        self.outage = outage
+        self.changed = threading.Condition()
+        self.seen = {}
+        self.affected = set()
+        self.recovered = set()
+        self.phase = 0
+        self.completed = 0
+        self.post_completed = 0
+        self.pre_errors = 0
+        self.max_outage = 0
+        self.failed = False
+        self.victim = ""
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=32)
-        self.jobs = [self.pool.submit(self.run) for _ in range(32)]
+        self.jobs = [self.pool.submit(self.run, worker) for worker in range(32)]
 
-    def run(self):
+    def run(self, worker):
         count, errors = 0, 0
+        last_good = time.monotonic()
         with contextlib.closing(self.owner.lane.connection(host=self.host)) as connection:
             while not self.stop.is_set():
+                with self.changed:
+                    phase = self.phase
+                success = False
                 try:
-                    if self.owner.request(connection, path="/work") != 200:
-                        errors += 1
-                    count += 1
+                    success = self.owner.request(connection, path="/work") == 200
                 except (OSError, http.client.HTTPException):
+                    success = False
+                now = time.monotonic()
+                gap = now - last_good
+                if success:
+                    count += 1
+                    last_good = now
+                else:
                     errors += 1
+                    connection.close()
+                with self.changed:
+                    self.completed += 1
+                    self.pre_errors += int(phase == 0 and not success)
+                    self.max_outage = max(self.max_outage, gap)
+                    self.failed |= bool(self.outage and gap > self.outage)
+                    if success:
+                        self.seen.setdefault(connection.probe, set()).add(worker)
+                        if phase == 2 and connection.probe and connection.probe != self.victim:
+                            self.post_completed += 1
+                            if worker in self.affected:
+                                self.recovered.add(worker)
+                    self.changed.notify_all()
+                if self.failed or not success and not self.outage:
                     break
         return count, errors
+
+    def begin_fault(self, victim, seconds):
+        with self.changed:
+            observed = self.changed.wait_for(lambda: self.completed >= 100 and self.seen.get(victim)
+                                            or self.failed, seconds)
+            self.owner.require(observed and not self.failed and not self.pre_errors and self.seen.get(victim),
+                               "load did not reach the task on the victim node")
+            self.victim = victim
+            self.affected = set(self.seen[victim])
+            self.phase = 1
+
+    def observe_recovery(self, seconds):
+        with self.changed:
+            self.phase = 2
+            observed = self.changed.wait_for(lambda: self.post_completed >= 100 and self.recovered
+                                            or self.failed, max(0, seconds))
+            self.owner.require(observed and not self.failed and self.recovered,
+                               "affected workload clients did not recover within C14 deadline")
 
     def close(self):
         self.stop.set()
@@ -44,8 +97,14 @@ class Load:
     def proof(self):
         count = sum(item[0] for item in self.counts)
         errors = sum(item[1] for item in self.counts)
-        self.owner.require(count >= 100 and errors == 0, f"load_requests={count} load_errors={errors}")
-        return f"load_requests={count} load_errors={errors}"
+        numbers = f"load_requests={count} load_errors={errors} load_outage_s={self.max_outage:.6f} load_outage_budget_s={self.outage}"
+        if self.outage:
+            numbers += f" affected_clients={len(self.affected)} recovered_clients={len(self.recovered)} post_fault_requests={self.post_completed}"
+            self.owner.require(count >= 100 and self.post_completed >= 100 and self.recovered
+                               and not self.failed and self.max_outage <= self.outage, numbers)
+        else:
+            self.owner.require(count >= 100 and errors == 0, numbers)
+        return numbers
 
 
 class Scenarios:
@@ -69,6 +128,7 @@ class Scenarios:
 
     @contextlib.contextmanager
     def monitor(self, host, outage=0):
+        self.lane.guard()
         connection = self.lane.connection(host=host)
         self.require(self.request(connection, path="/healthz") == 200, "healthy app preflight failed")
         healthy = self.healthy(connection, path="/healthz", outage=outage, cadence=self.lane.limits["p99"])
@@ -80,13 +140,15 @@ class Scenarios:
             healthy.thread.join()
             connection.close()
 
-    def finish(self, healthy):
-        self.require(healthy.enough.wait(self.lane.limits["deploy"]), "healthy client has fewer than 100 samples")
-        return healthy.finish(self.lane.limits["fresh_p99"] if healthy.outage else self.lane.limits["p99"])
+    def finish(self, healthy, since=0, seconds=None):
+        self.require(healthy.wait_since(since, seconds if seconds is not None else self.lane.limits["deploy"]),
+                     "healthy client has fewer than 100 phase samples")
+        return healthy.finish(self.lane.limits["fresh_p99"] if healthy.outage else self.lane.limits["p99"], since)
 
     @contextlib.contextmanager
-    def load(self, host):
-        load = Load(self, host)
+    def load(self, host, outage=0):
+        self.lane.guard()
+        load = Load(self, host, outage)
         try:
             yield load
         finally:
@@ -275,6 +337,7 @@ class Scenarios:
                     while True:
                         status = scope.remote(target, "disk-status")
                         if status["enospc"]:
+                            confirmed_full = time.monotonic()
                             break
                         self.require(time.monotonic() < deadline, "disk fault never reached ENOSPC")
                         threading.Event().wait(self.lane.limits["body"])
@@ -284,11 +347,15 @@ class Scenarios:
                     self.require({task["ID"] for task in neighbours}
                                  <= {task["ID"] for task in state["Neighbours"] or []},
                                  "disk full disturbed a platform task")
-                    numbers = self.finish(healthy)
+                    numbers = self.finish(healthy, since=confirmed_full)
+                    self.require(scope.remote(target, "disk-status")["enospc"],
+                                 "disk fault ended before full-phase sampling completed")
                 after = scope.remote(target, "snapshot")
                 self.require(after["disk_free"] > during["disk_free"] and after["pid"], "disk space or orchestrator did not recover")
                 self.platform_health(scope)
-            return f"filled_bytes={status['filled']} enospc=1 free_before={before['disk_free']} free_full={during['disk_free']} free_after={after['disk_free']} " + numbers
+                with self.monitor(good) as recovered:
+                    recovery_numbers = self.finish(recovered)
+            return f"filled_bytes={status['filled']} enospc=1 free_before={before['disk_free']} free_full={during['disk_free']} free_after={after['disk_free']} full_phase=({numbers}) recovery_phase=({recovery_numbers})"
 
     def platform_health(self, scope):
         with contextlib.closing(self.lane.connection()) as connection:
@@ -342,14 +409,17 @@ class Scenarios:
             return f"nodes_before={initial} nodes_peak={peak} nodes_after={final} policy_min={bounds['min']} policy_max={bounds['max']} " + load.proof() + " " + numbers
 
     def terminate_instance(self, scope, target):
+        self.lane.guard()
         inventory = self.oci(self.lane.region["oci_region"], "compute", "instance", "list",
                              "--compartment-id", self.lane.region["compartment_id"])
         matches = [item for item in inventory if item["id"] == target["id"]]
         self.require(len(matches) == 1 and matches[0]["compartment-id"] == self.lane.region["compartment_id"],
                      "fault target is outside staging compartment")
         scope.live_count()
+        started = time.monotonic()
         self.effect("compute", "instance", "terminate", "--instance-id", target["id"],
                     "--preserve-boot-volume", "false", "--force")
+        return started
 
     def restore_fleet(self, scope):
         scope.control("recover", seconds=self.lane.limits["node_up"])
@@ -365,20 +435,26 @@ class Scenarios:
             victim = next(node for node in nodes.values() if node["Instance"] != scope.manager["id"]
                           and any(task["Node"] == node["ID"] and task["State"] == "RUNNING" for task in service["Tasks"]))
             target = next(item for item in scope.hosts if item["id"] == victim["Instance"])
+            identity = scope.remote(target, "probe-identity")["process"]
             with self.monitor(host, outage=self.lane.limits["recovery"]) as healthy:
                 with contextlib.ExitStack() as cleanup:
                     cleanup.callback(self.restore_fleet, scope)
-                    started = time.monotonic()
-                    self.terminate_instance(scope, target)
-                    state = scope.wait(lambda state: scope.running(state, name) == 2
-                                       and all(task["Node"] != victim["ID"] for task in scope.service(state, name)["Tasks"]
-                                               if task["State"] == "RUNNING"), self.lane.limits["recovery"])
-                    recovered = time.monotonic() - started
-                    self.require(recovered <= self.lane.limits["recovery"], "node-loss recovery exceeded C14 bound")
-                    numbers = self.finish(healthy)
+                    with self.load(host, outage=self.lane.limits["recovery"]) as load:
+                        load.begin_fault(identity, self.lane.limits["deploy"])
+                        started = self.terminate_instance(scope, target)
+                        state = scope.wait(lambda state: scope.running(state, name) == 2
+                                           and all(task["Node"] != victim["ID"] for task in scope.service(state, name)["Tasks"]
+                                                   if task["State"] == "RUNNING"), self.lane.limits["recovery"])
+                        moved = time.monotonic()
+                        load.observe_recovery(self.lane.limits["recovery"] - (moved - started))
+                        numbers = self.finish(healthy, since=moved,
+                                              seconds=max(0, self.lane.limits["recovery"] - (time.monotonic() - started)))
+                        recovered = time.monotonic() - started
+                        self.require(recovered <= self.lane.limits["recovery"], "node-loss recovery exceeded C14 bound")
+                    load_numbers = load.proof()
                 scope.wait(lambda state: sum(node["State"] == "READY" for node in state["Nodes"])
                            >= self.lane.region["nodes"]["min"], self.lane.limits["node_up"])
-            return f"node_terminated=1 moved_running={scope.running(state, name)} recovery_s={recovered:.6f} recovery_budget_s={self.lane.limits['recovery']} " + numbers
+            return f"node_terminated=1 moved_running={scope.running(state, name)} recovery_s={recovered:.6f} recovery_budget_s={self.lane.limits['recovery']} " + load_numbers + " " + numbers
 
     def integer(self, file, name):
         import re

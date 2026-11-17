@@ -37,12 +37,25 @@ name. Every backend for ports 80, 443 and 5432 must belong to a running
 instance's primary VNIC in staging's private subnet. Workload sockets dial
 these pinned addresses, verify TLS and never follow redirects.
 
-Before each remote operation, host.py checks OCI IMDS v2 for the exact
-instance ID and staging compartment. The regional control executable repeats
-that attestation, validates the cluster's region and OCI instance IDs, and
-rejects more than three ready nodes. Before each mutation, OCI inventory is
+The helper build binds the tracked fleet document into the executable Python
+artifact as code, separately from request/configuration data. The source
+template refuses to execute without that binding. Before every operation,
+including direct invocation and the systemd disk child, host.py derives the
+unique staging label and compartment from that bound document, rejects
+caller authority that differs, and checks OCI IMDS v2 against that staging
+compartment and the exact instance ID. Supplying production IMDS IDs and a
+label containing staging cannot authorize an operation. The Go control
+executable independently derives the same authority from its embedded fleet
+document, repeats attestation, validates the cluster's region and OCI
+instance IDs, and rejects more than three ready nodes. Before each mutation, OCI inventory is
 refreshed; a new node's VNIC is verified before installing a workload on it.
 Names containing desktop are refused. Nothing runs on mariogk-desktop.
+
+NLB listeners must be exactly TCP 80, 443 and 5432, each mapped to its same-port
+backend set; all three sets must contain only attested staging VNIC addresses.
+Extra listeners/sets and unknown mappings are refused. The full live guard
+runs again before each scenario, app readiness, sampler/load phase and fault
+injection, and requires the same staging authority and pinned NLB addresses.
 
 The Go control helper uses ts-orch's local, TLS-authenticated SwarmKit control
 API and its ApplyServiceSpec/RemoveServiceSpec implementation. It never uses
@@ -155,12 +168,23 @@ to stock PostgreSQL, which does not understand that transport header.
   the healthy client running through both phases, and requires zero load
   errors. Node load exercises automatic growth/shrink if fleet policy
   allows; fixed staging policy must retain its exact node count.
-- Node loss terminates a verified staging instance through OCI during live
-  traffic, requires its running work to move and clients to recover, then
+- Node loss keeps 32 workload clients calling /work across OCI termination.
+  An attested host operation reads the local victim task's probe identity
+  and verifies its abuse tenant. Load response identity must prove traffic
+  reached that task before the fault. After its running tasks move, affected
+  client streams must serve from another probe process, at least 100 workload requests and 100 healthy
+  latency samples must complete, and the observed error gaps must fit C14's
+  recovery window. Every failed request is counted. It then
   restores the fleet's declared node count. Its compartment is checked again
   immediately before termination. Cleanup invokes only staging's native
   region apply compute implementation after checking its embedded fleet
   compartment and maximum of three; it never starts a stopped fourth node.
+
+Disk-full latency samples must start after confirmed ENOSPC; at least 100
+are required while the independent fault is still active. The retained fault
+marker is checked again before release. Another 100 samples separately prove
+healthy workload recovery after the fill file is removed. Samples collected
+during allocation cannot qualify the confirmed-full phase.
 
 ## Cleanup and evidence
 

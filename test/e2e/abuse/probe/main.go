@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
@@ -42,7 +43,11 @@ func main() {
 	var cancel context.CancelFunc
 	var memory [][]byte
 	var requests, failures atomic.Uint64
+	var identity [16]byte
+	rand.Read(identity[:])
+	process := fmt.Sprintf("%x", identity)
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Abuse-Process", process)
 		if mode == "postgres" {
 			conn, err := net.Dial("tcp", "127.0.0.1:18107")
 			if err != nil {
@@ -62,6 +67,7 @@ func main() {
 		fmt.Fprint(w, n)
 	})
 	http.HandleFunc("/work", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Abuse-Process", process)
 		data := [32]byte{}
 		for range 100000 {
 			data = sha256.Sum256(data[:])

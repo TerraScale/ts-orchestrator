@@ -12,6 +12,8 @@ import subprocess
 import sys
 import urllib.request
 
+BOUND_FLEET = None
+
 
 def command(arguments, payload=None):
     result = subprocess.run(arguments, input=payload, capture_output=True, check=False)
@@ -34,14 +36,23 @@ def attest(request):
     prefix = request["prefix"]
     if not re.fullmatch(r"abuse-[a-f0-9]{12}", prefix):
         raise RuntimeError("invalid abuse namespace")
-    if "staging" not in request["region"].split("-"):
-        raise RuntimeError("staging label required")
+    if BOUND_FLEET is None:
+        raise RuntimeError("fleet-bound helper artifact required")
+    matches = [region for region in BOUND_FLEET["regions"] if "staging" in region["label"].split("-")]
+    if len(matches) != 1:
+        raise RuntimeError("one fleet staging authority required")
+    staging = matches[0]
+    if (request["region"] != staging["label"] or request["compartment"] != staging["compartment_id"]
+            or not staging["compartment_id"] or not 1 <= staging["nodes"]["min"] <= staging["nodes"]["max"] <= 3
+            or any(region["compartment_id"] == staging["compartment_id"]
+                   for region in BOUND_FLEET["regions"] if region is not staging)):
+        raise RuntimeError("request outside fleet staging authority")
     query = urllib.request.Request("http://169.254.169.254/opc/v2/instance/",
                                    headers={"Authorization": "Bearer Oracle"})
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with opener.open(query, timeout=10) as response:
         identity = json.load(response)
-    if identity["id"] != request["instance"] or identity["compartmentId"] != request["compartment"]:
+    if identity["id"] != request["instance"] or identity["compartmentId"] != staging["compartment_id"]:
         raise RuntimeError("remote host is outside staging compartment")
     return pathlib.Path("/var/lib/ts-data") / prefix
 
@@ -131,6 +142,13 @@ def run(request):
         return None
     if operation == "snapshot":
         return snapshot()
+    if operation == "probe-identity":
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open("http://127.0.0.1:18101/healthz", timeout=10) as response:
+            identity = response.headers.get("X-Abuse-Process", "")
+            if response.read(128).decode() != request["prefix"] + "-victim" or not re.fullmatch(r"[a-f0-9]{32}", identity):
+                raise RuntimeError("local probe does not belong to the abuse tenant")
+        return {"process": identity}
     if operation == "disk-start":
         path = "/var/lib/ts-orch/" + request["prefix"] + "-fill"
         payload = dict(request, operation="disk-run")

@@ -123,8 +123,16 @@ def staging():
                 hosts.append({"id": instance["id"], "name": instance["display-name"],
                               "address": instance["display-name"] + ".nb.ts.internal"})
     require(len(node_ips) == len(running), "staging node addresses incomplete")
+    expected = {f"tcp-{port}" for port in (80, 443, 5432)}
+    require(set(balancer["listeners"]) == expected and set(balancer["backend-sets"]) == expected,
+            "NLB has unknown listener or backend-set mappings")
     for port in (80, 443, 5432):
-        backends = balancer["backend-sets"][f"tcp-{port}"]["backends"]
+        name = f"tcp-{port}"
+        listener = balancer["listeners"][name]
+        require(listener["port"] == port and listener["protocol"] == "TCP"
+                and listener["default-backend-set-name"] == name,
+                "NLB listener does not target the staging TCP backend set")
+        backends = balancer["backend-sets"][name]["backends"]
         require(backends and all(backend["ip-address"] in node_ips
                                 and backend["port"] == port for backend in backends),
                 "NLB backend outside staging nodes or expected port")
@@ -217,6 +225,7 @@ def request(connection, method="GET", path="/edge/ready", body=None):
     connection.request(method, path, body=body)
     response = connection.getresponse()
     connection.first_byte = response.first_byte - started
+    connection.probe = response.getheader("X-Abuse-Process", "")
     response.read()
     return response.status
 
@@ -233,38 +242,42 @@ class Healthy:
         self.last_good = time.monotonic()
         self.worst_outage = 0
         self.terminal_error = False
-        self.enough = threading.Event()
+        self.changed = threading.Condition()
         self.thread = threading.Thread(target=self.run)
 
     def run(self):
         while not self.stop.is_set():
+            started = time.monotonic()
             try:
                 if request(self.connection, path=self.path) != 200:
                     self.errors += 1
                 else:
-                    self.samples.append(self.connection.first_byte)
+                    self.samples.append((started, self.connection.first_byte))
                     self.worst_outage = max(self.worst_outage, time.monotonic() - self.last_good)
                     self.last_good = time.monotonic()
-                    if len(self.samples) >= 100:
-                        self.enough.set()
             except (OSError, http.client.HTTPException):
                 self.errors += 1
                 self.connection.close()
                 if not self.outage or time.monotonic() - self.last_good > self.outage:
                     self.terminal_error = True
                     self.stop.set()
-                    self.enough.set()
             if not self.outage and self.errors:
                 self.stop.set()
-                self.enough.set()
+            with self.changed:
+                self.changed.notify_all()
             if self.cadence:
                 self.stop.wait(self.cadence)
 
-    def finish(self, budget):
+    def wait_since(self, since, timeout):
+        with self.changed:
+            return self.changed.wait_for(lambda: sum(start >= since for start, _ in self.samples) >= 100
+                                         or self.stop.is_set(), timeout)
+
+    def finish(self, budget, since=0):
         self.stop.set()
         self.thread.join()
         self.connection.close()
-        ordered = sorted(self.samples)
+        ordered = sorted(value for start, value in self.samples if start >= since)
         p99 = ordered[math.ceil(len(ordered) * .99) - 1] if ordered else math.inf
         self.worst_outage = max(self.worst_outage, time.monotonic() - self.last_good)
         numbers = f"samples={len(ordered)} errors={self.errors} p99_s={p99:.6f} budget_s={budget} outage_s={self.worst_outage:.6f} outage_budget_s={self.outage}"
@@ -291,6 +304,12 @@ class Lane:
         self.limits = limits
         self.tls = ssl.create_default_context()
         self.tls.set_alpn_protocols(["http/1.1"])
+
+    def guard(self):
+        region, host, addresses = staging()
+        require(region["label"] == self.region["label"] and region["compartment_id"] == self.region["compartment_id"]
+                and host == self.host and addresses == self.addresses, "staging authority or NLB addresses changed")
+        self.region["_hosts"] = region["_hosts"]
 
     def connection(self, source="", address=None, host=None):
         return Connection(host or self.host, address or self.addresses[0], source,
@@ -415,6 +434,7 @@ def run():
     for name, owner in SCENARIOS:
         started = time.monotonic()
         try:
+            lane.guard()
             numbers = operations[name]()
             print(f"PASS {name} owner={owner} elapsed_s={time.monotonic() - started:.6f} {numbers}", flush=True)
         except (Refused, OSError, ValueError, KeyError, TypeError, RuntimeError, StopIteration,

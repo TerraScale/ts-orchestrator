@@ -52,7 +52,7 @@ class Workloads:
 
     def process(self, host, operation, **fields):
         self.owner.require(host in self.hosts and "desktop" not in host["address"], "host outside staging inventory")
-        source = (self.owner.root / "test/e2e/abuse/host.py").read_text()
+        source = base64.b64decode(self.owner.files["host.py"]).decode()
         command = "sudo -n python3 -c " + shlex.quote(source)
         process = subprocess.Popen(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
                                     "ubuntu@" + host["address"], command], stdin=subprocess.PIPE,
@@ -60,6 +60,8 @@ class Workloads:
         return process, json.dumps(self.payload(host, operation, **fields)).encode()
 
     def remote(self, host, operation, **fields):
+        if operation == "disk-start":
+            self.lane.guard()
         process, payload = self.process(host, operation, **fields)
         seconds = fields.get("control", {}).get("seconds", self.lane.limits["deploy"])
         try:
@@ -214,6 +216,7 @@ class Workloads:
         return sum(task["State"] == "RUNNING" for task in service["Tasks"] or []) if service else 0
 
     def ready(self, host):
+        self.lane.guard()
         deadline = time.monotonic() + self.lane.limits["deploy"]
         while True:
             with contextlib.closing(self.lane.connection(host=host)) as connection:
@@ -271,5 +274,8 @@ def build(owner):
         owner.require(result.returncode == 0, "abuse OCI image packaging failed; output withheld")
         owner.image = json.loads(result.stdout)
         files["image.tar"] = base64.b64encode(archive.read_bytes()).decode()
-        files["host.py"] = base64.b64encode((owner.root / "test/e2e/abuse/host.py").read_bytes()).decode()
+        source = (owner.root / "test/e2e/abuse/host.py").read_text()
+        fleet = (owner.root / "deploy/fleet/fleet.json").read_text()
+        source = source.replace("BOUND_FLEET = None", "BOUND_FLEET = json.loads(" + repr(fleet) + ")")
+        files["host.py"] = base64.b64encode(source.encode()).decode()
         owner.files = files
