@@ -42,7 +42,7 @@ func freePorts(count int) ([]int, error) {
 }
 
 func newMetaFleet(root string) (*metaFleet, error) {
-	regions := Regions()
+	regions := Regions("gru")
 	ports, err := freePorts(4 * len(regions))
 	if err != nil {
 		return nil, err
