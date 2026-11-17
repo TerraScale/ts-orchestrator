@@ -60,6 +60,7 @@ jq -e --arg tag "$tag" '.tagName == $tag and .isPrerelease == true and
     (.assets | all(.name == "terrascale-orchestrator-linux-amd64" or
       .name == "terrascale-orchestrator-linux-arm64" or
       .name == "qualification.json" or
+      .name == "staging-latency.json" or
       (.name | test("^production-[A-Z]{3}-(amd64|arm64)(-delegation)?\\.json$")) or
       (.name | test("^production-evidence-[0-9a-f]{64}$")) or
       (.name | test("^image-production-[0-9a-f]{64}-[A-Z]{3}-(amd64|arm64)(-delegation)?\\.json$")) or

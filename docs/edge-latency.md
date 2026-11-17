@@ -103,27 +103,42 @@ kept requests have zero connection phases. Nearest-rank p50/p95/p99 are
 reported for all phases, and both first byte and total must meet the table.
 Errors fail the lane without a retry. All sampling targets staging only.
 
-C16's staging job must upload `staging-latency-<release-sha>` containing
-`manifest.json`, `beta.json`, `delta.json` and `mariogk-dev.json`. The
-release workflow downloads that same-run artifact immediately before
-the release attestation publication. Its verifier checks revision, fixed vantages,
-the complete name/path inventory, 1,000 samples, all five phases, ordered
-finite quantiles and the current budgets. A missing artifact or failed
-verification blocks production. C16 must add the staging producer to
-`release-publish.needs`; until that producer exists the publication step fails
-closed. This change must remain draft until C16 is wired and staging proof
-has passed. An absent-manifest dry run proves rejection, not latency.
+The staging latency job runs after either `release-publish` or
+`release-publish-after-lanes` has uploaded the candidate attestation. It downloads the same-run pool proof artifact
+`staging-latency-<release-sha>` containing `manifest.json`, `beta.json`,
+`delta.json` and `mariogk-dev.json`, runs the sampler against that manifest
+from the CI runner, then verifies the three fixed pool reports. Verification
+checks revision, complete name/path inventory, 1,000 samples, all five phases,
+ordered finite quantiles and the current budgets. Missing proof or a failed
+sample fails the lane. An absent-manifest dry run proves rejection, not latency.
 
-After C19, production pulls attested releases rather than receiving a CI
-push. This draft preserves that publication path and places its provisional
-proof consumer before attestation publication. It cannot remain there when
-staging itself needs that attestation to boot the candidate: the authenticated
-staging verdict bridge documented in `docs/region-bootstrap.md` must bind
-latency proof to production admission after staging can pull the candidate.
-C16 also provisions a `stg` region with no public DNS names; its NLB endpoint
-contract must replace the staging DNS inventory and production-region labels
-assumed by this draft sampler. These are unresolved integration dependencies,
-not a functioning staging-first pull gate. Keep this PR draft.
+After either outcome, the job writes and uploads the release asset
+`staging-latency.json` on `ci-<sha>-run-<id>`, with exactly:
+
+```json
+{"verdict": "pass", "run": "https://github.com/TerraScale/ts-orchestrator/actions/runs/<id>"}
+```
+
+Only a successful sampling and verification step produces `pass`. A failed
+or skipped step produces `fail`; the upload runs even if artifact download,
+setup or sampling failed. An upload failure leaves the workflow failed and
+cannot authorize production. The run URL refers to this release workflow.
+The lane is also a dependency of `all-green`.
+
+This matches C16c #410, `internal/pullrelease/staging.go`:
+`LatencyAsset` is `staging-latency.json`, and `LatencyVerdict` has only the
+`verdict` (`pass` or `fail`) and `run` (HTTPS) fields. Stg reads the asset into
+its signed completion+bake record. Missing assets publish no record; a `fail`
+record blocks production admission. C22 supplies no separate verdict bridge.
+Attestation publication is independent of latency so staging can first pull
+the candidate whose latency will be measured.
+
+Live staging proof is outstanding. The pool report producer and sampler
+target contract still need live staging integration:
+C16 stages in `stg`, with no public DNS names. Discover its NLB through
+`internal/fleet` and the fleet document, without a hard-coded address, when
+wiring the live target inventory. Current absent reports produce `fail`,
+not a claim of measured staging latency.
 
 The C26 Worker adds `duration_seconds` to each successful scheduled endpoint
 observation, retaining its normal one-request-per-name five-minute cadence.
