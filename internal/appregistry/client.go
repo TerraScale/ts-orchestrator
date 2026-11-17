@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
 var repositoryPath = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}/terrascale(?:-stg)?/[a-z0-9][a-z0-9._-]{0,127}$`)
@@ -33,6 +34,42 @@ type Client struct {
 	Transport http.RoundTripper
 	mu        sync.Mutex
 	tokens    map[string]credential
+}
+
+func (c *Client) BoundTransport(base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		base = c.Transport
+	}
+	if base == nil {
+		base = remote.DefaultTransport
+	}
+	return regionalTransport{host: c.Host, base: base}
+}
+
+type regionalTransport struct {
+	host string
+	base http.RoundTripper
+}
+
+func (t regionalTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if !t.allows(request.URL) {
+		return nil, errors.New("request outside regional OCIR")
+	}
+	response, err := t.base.RoundTrip(request)
+	if err != nil {
+		return nil, err
+	}
+	if location := response.Header.Get("Location"); response.StatusCode >= 300 && response.StatusCode < 400 && location != "" {
+		destination, err := request.URL.Parse(location)
+		if err != nil || !t.allows(destination) {
+			return nil, errors.Join(errors.New("request outside regional OCIR"), response.Body.Close())
+		}
+	}
+	return response, nil
+}
+
+func (t regionalTransport) allows(target *url.URL) bool {
+	return target.Scheme == "https" && target.Host == t.host && target.User == nil
 }
 
 func IsImage(image string) bool { return pinnedPath.MatchString(image) }
@@ -122,7 +159,7 @@ func (c *Client) token(ctx context.Context, repository string) (string, error) {
 	if err := c.Sign(request); err != nil {
 		return "", err
 	}
-	client := &http.Client{Transport: c.Transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: c.BoundTransport(nil), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := client.Do(request)
 	if err != nil {
 		return "", fmt.Errorf("OCIR token request: %w", err)

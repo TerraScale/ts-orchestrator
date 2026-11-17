@@ -154,6 +154,7 @@ func main() {
 	signer := common.DefaultRequestSigner(provider)
 	backend := registry.New(registry.Logger(log.New(io.Discard, "", 0)), registry.WithReferrersSupport(false))
 	fallback := true
+	redirectPath, redirectOrigin := "", ""
 	requests := 0
 	signedHeaders := regexp.MustCompile(`headers="([^"]+)"`)
 	signature := regexp.MustCompile(`signature="([^"]+)"`)
@@ -196,6 +197,10 @@ func main() {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
+		}
+		if redirectPath != "" && r.URL.Path == redirectPath {
+			http.Redirect(w, r, redirectOrigin+r.URL.Path, http.StatusTemporaryRedirect)
+			return
 		}
 		if strings.Contains(r.URL.Path, "/referrers/") {
 			if fallback {
@@ -255,7 +260,8 @@ func main() {
 	_, _, err = unsignedResolver.Resolve(ctx, unsigned.Image)
 	require(err != nil, "executor accepted unsigned image")
 	fmt.Println("ok: unsigned image refused by discovery and executor")
-	attach(ctx, subject, authority.Bundle(identity, revision, "1", subjects), t)
+	buildBundle := authority.Bundle(identity, revision, "1", subjects)
+	attach(ctx, subject, buildBundle, t)
 	identity.Trigger = "workflow_dispatch"
 	attach(ctx, subject, authority.Selection(identity, revision, "2", "terrabase", map[string][]byte{"app-canary-manifest.json": raw}), t)
 	selected, err := source.Pull(ctx, apppull.Targets[0])
@@ -279,6 +285,30 @@ func main() {
 	must(blob.Close())
 	require(bytes.Equal(content, archive.Bytes()), "executor pulled different app layer bytes")
 	fmt.Println("ok: signed Date, regional executor layer pull and offline fallback-tag provenance")
+	configDigest, err := image.ConfigName()
+	must(err)
+	bundleDigest, _, err := v1.SHA256(bytes.NewReader(buildBundle))
+	must(err)
+	for _, origin := range []string{"https://another-region.ocir.io", "http://" + host} {
+		redirectOrigin = origin
+		redirectPath = "/v2/" + repository + "/blobs/" + configDigest.String()
+		_, err = source.Pull(ctx, apppull.Targets[0])
+		require(err != nil && strings.Contains(err.Error(), "request outside regional OCIR"), "discovery followed a config redirect outside regional OCIR")
+		redirectPath = "/v2/" + repository + "/blobs/" + bundleDigest.String()
+		_, err = source.Pull(ctx, apppull.Targets[0])
+		require(err != nil && strings.Contains(err.Error(), "request outside regional OCIR"), "discovery followed a bundle redirect outside regional OCIR")
+		_, _, err = resolver.Resolve(ctx, selected.Image)
+		require(err != nil && strings.Contains(err.Error(), "request outside regional OCIR"), "executor followed a bundle redirect outside regional OCIR")
+		redirectPath = "/v2/" + repository + "/blobs/" + manifest.Layers[0].Digest.String()
+		blob, err = fetcher.Fetch(ctx, imagespec.Descriptor{MediaType: string(manifest.Layers[0].MediaType), Digest: godigest.Digest(manifest.Layers[0].Digest.String()), Size: manifest.Layers[0].Size})
+		if err == nil {
+			_, err = io.Copy(io.Discard, blob)
+			err = errors.Join(err, blob.Close())
+		}
+		require(err != nil, "executor followed a layer redirect outside regional OCIR")
+	}
+	redirectPath = ""
+	fmt.Println("ok: discovery, offline verification and executor refuse cross-host and HTTP redirects")
 	fallback = false
 	selected, err = source.Pull(ctx, apppull.Targets[0])
 	must(err)

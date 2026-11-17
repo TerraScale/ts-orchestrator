@@ -56,10 +56,7 @@ func (s Source) Pull(ctx context.Context, target Target) (Selection, error) {
 	if err != nil {
 		return Selection{}, err
 	}
-	transport := s.Transport
-	if transport == nil {
-		transport = remote.DefaultTransport
-	}
+	transport := registry.BoundTransport(s.Transport)
 	trusted := s.Root
 	if trusted == nil {
 		trusted, err = imagetrust.PublicGoodRoot()

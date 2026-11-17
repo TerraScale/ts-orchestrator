@@ -10,7 +10,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
 	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/moby/swarmkit/v2/api"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -71,10 +70,7 @@ func (r *regionalResolver) resolver(ctx context.Context, image string) (remotes.
 	if err != nil {
 		return nil, "", nil, err
 	}
-	transport := registry.Transport
-	if transport == nil {
-		transport = remote.DefaultTransport
-	}
+	transport := registry.BoundTransport(nil)
 	client := &http.Client{Transport: registryTransport{host: registry.Host, base: transport}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	authorizer := appAuthorizer{registry: registry, image: image}
 	resolver := docker.NewResolver(docker.ResolverOptions{Hosts: func(host string) ([]docker.RegistryHost, error) {
@@ -102,9 +98,7 @@ func (r *regionalResolver) Resolve(ctx context.Context, image string) (string, i
 			return "", imagespec.Descriptor{}, err
 		}
 	}
-	if verifier.Transport == nil {
-		verifier.Transport = remote.DefaultTransport
-	}
+	verifier.Transport = registry.BoundTransport(verifier.Transport)
 	provenance, err := verifier.Selection(ctx, physical, r.target.Workflow, r.deployment.Revision, r.target.Service, keychain)
 	if err != nil {
 		return "", imagespec.Descriptor{}, err
