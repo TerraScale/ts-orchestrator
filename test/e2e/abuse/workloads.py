@@ -48,6 +48,7 @@ class Workloads:
 
     def payload(self, host, operation, **fields):
         return dict(region=self.region["label"], compartment=self.region["compartment_id"],
+                    vault=self.region["vault_id"], key=self.region["key_id"],
                     instance=host["id"], prefix=self.prefix, operation=operation, **fields)
 
     def process(self, host, operation, **fields):
@@ -275,7 +276,7 @@ def build(owner):
         owner.image = json.loads(result.stdout)
         files["image.tar"] = base64.b64encode(archive.read_bytes()).decode()
         source = (owner.root / "test/e2e/abuse/host.py").read_text()
-        fleet = (owner.root / "deploy/fleet/fleet.json").read_text()
+        fleet = json.dumps(owner.lane.region["_fleet"])
         source = source.replace("BOUND_FLEET = None", "BOUND_FLEET = json.loads(" + repr(fleet) + ")")
         files["host.py"] = base64.b64encode(source.encode()).decode()
         owner.files = files

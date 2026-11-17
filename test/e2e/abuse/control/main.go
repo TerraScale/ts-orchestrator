@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 )
@@ -20,6 +21,8 @@ import (
 type request struct {
 	Region      string                   `json:"region"`
 	Compartment string                   `json:"compartment"`
+	Vault       string                   `json:"vault"`
+	Key         string                   `json:"key"`
 	Instances   []string                 `json:"instances"`
 	Prefix      string                   `json:"prefix"`
 	Operation   string                   `json:"operation"`
@@ -54,17 +57,16 @@ type snapshot struct {
 }
 
 func attest(ctx context.Context, r request) error {
-	if !slices.Contains(strings.Split(r.Region, "-"), "staging") || !strings.HasPrefix(r.Prefix, "abuse-") || len(r.Prefix) > 40 || strings.ContainsAny(r.Prefix, "/.\\ \n") || r.Compartment == "" {
+	if !strings.HasPrefix(r.Prefix, "abuse-") || len(r.Prefix) > 40 || strings.ContainsAny(r.Prefix, "/.\\ \n") || r.Compartment == "" {
 		return errors.New("staging scope required")
 	}
 	document, err := fleet.Load()
 	if err != nil {
 		return err
 	}
-	staging := slices.DeleteFunc(slices.Clone(document.Regions), func(region fleet.Region) bool {
-		return !slices.Contains(strings.Split(region.Label, "-"), "staging")
-	})
-	if len(staging) != 1 || staging[0].Label != r.Region || staging[0].CompartmentID != r.Compartment || staging[0].Nodes.Max > 3 {
+	staging := document.Staging
+	if staging.Label != r.Region || !document.IsStaging(staging.OCIRegion, r.Compartment) ||
+		staging.VaultID != r.Vault || staging.KeyID != r.Key || staging.Nodes.Max > fleet.StagingMaxNodes {
 		return errors.New("request outside embedded fleet staging authority")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://169.254.169.254/opc/v2/instance/", nil)
@@ -173,6 +175,21 @@ func run() error {
 	if err := decoder.Decode(&r); err != nil {
 		return errors.New("invalid abuse control request")
 	}
+	if r.Operation == "fleet" {
+		document, err := fleet.Load()
+		if err != nil {
+			return err
+		}
+		region, err := document.Region(document.Staging.Label)
+		if err != nil {
+			return err
+		}
+		key := region.Key("network-load-balancer", "nlb")
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"document": document, "region_key": key.Region, "nlb_key": key.String(),
+			"nlb_name": region.Label + "-1-nlb", "api_name": region.APIName(document.DNS.Zone),
+		})
+	}
 	if r.Seconds <= 0 || r.Seconds > 7200 {
 		return errors.New("bounded observation required")
 	}
@@ -195,11 +212,16 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		index := slices.IndexFunc(document.Regions, func(region fleet.Region) bool { return region.Label == r.Region })
-		if index < 0 || document.Regions[index].CompartmentID != r.Compartment || document.Regions[index].Nodes.Max > 3 {
+		region, err := document.Region(r.Region)
+		if err != nil || region.Label != document.Staging.Label || !document.IsStaging(region.OCIRegion, r.Compartment) ||
+			document.Staging.VaultID != r.Vault || document.Staging.KeyID != r.Key || region.Nodes.Max > fleet.StagingMaxNodes {
 			return errors.New("compute recovery outside staging authority")
 		}
-		if err := fleet.Apply(ctx, []string{r.Region, "compute"}, io.Discard); err != nil {
+		factory, err := fleet.LoopFactory(ctx, region)
+		if err != nil {
+			return err
+		}
+		if err := fleet.ApplyCompute(ctx, document, region, factory, nil, ociresource.Out{Same: io.Discard, Changed: io.Discard, Apply: true}); err != nil {
 			return err
 		}
 	case "apply":

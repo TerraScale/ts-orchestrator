@@ -53,13 +53,19 @@ def oci(region, *arguments, paginated=True):
     return data["items"] if isinstance(data, dict) and "items" in data else data
 
 
+def fleet_scope():
+    result = subprocess.run(["go", "run", "./test/e2e/abuse/control"], cwd=ROOT,
+                            input=b'{"operation":"fleet"}', capture_output=True, timeout=120, check=False)
+    require(result.returncode == 0, "internal/fleet authority validation failed; output withheld")
+    return json.loads(result.stdout)
+
+
 def staging():
     require(len(sys.argv) == 1, "no target or argument accepted; staging is discovered")
-    fleet = json.loads((ROOT / "deploy/fleet/fleet.json").read_text())
-    matches = [region for region in fleet["regions"] if "staging" in region["label"].split("-")]
-    require(len(matches) == 1, "C16: fleet must contain exactly one staging label")
-    target = matches[0]
-    others = [region for region in fleet["regions"] if region is not target]
+    scope = fleet_scope()
+    fleet = scope["document"]
+    target = dict(fleet["staging"])
+    others = fleet["regions"]
     require(others, "production inventory missing; isolation cannot be checked")
     require(target["compartment_id"] and all(
         target["compartment_id"] != region["compartment_id"] for region in others
@@ -70,19 +76,22 @@ def staging():
         network = ipaddress.ip_network(target[field])
         require(all(not network.overlaps(ipaddress.ip_network(region["vcn_cidr"]))
                     for region in others), "staging network overlaps production")
-    host = target["label"] + ".api." + fleet["dns"]["zone"]
+    host = scope["api_name"]
     require(host not in fleet["dns"]["steered_names"], "staging hostname is globally steered")
     require(not target.get("geo_continents"), "staging is assigned production GeoDNS continents")
+    vault = oci(target["oci_region"], "kms", "management", "vault", "get",
+                "--vault-id", target["vault_id"], paginated=False)
+    require(vault["id"] == target["vault_id"] and vault["compartment-id"] == target["compartment_id"]
+            and vault["lifecycle-state"] == "ACTIVE", "fleet staging Vault is not active in its own compartment")
     inventory = oci(target["oci_region"], "nlb", "network-load-balancer", "list",
                     "--compartment-id", target["compartment_id"])
     owned = [item for item in inventory
              if item["compartment-id"] == target["compartment_id"]
-             and item["display-name"] == target["label"] + "-1-nlb"
+             and item["display-name"] == scope["nlb_name"]
              and item["lifecycle-state"] == "ACTIVE"
              and item["freeform-tags"].get("terrascale-managed-by") == "ts-orchestrator"
              and item["freeform-tags"].get("terrascale-owner") == "terrascale"
-             and item["freeform-tags"].get("terrascale-resource-key", "")
-             .endswith("/network-load-balancer/nlb")]
+             and item["freeform-tags"].get("terrascale-resource-key") == scope["nlb_key"]]
     require(len(owned) == 1, "C16: exactly one owned, active staging NLB required")
     balancer = oci(target["oci_region"], "nlb", "network-load-balancer", "get",
                    "--network-load-balancer-id", owned[0]["id"], paginated=False)
@@ -137,6 +146,8 @@ def staging():
                                 and backend["port"] == port for backend in backends),
                 "NLB backend outside staging nodes or expected port")
     target["_fleet"] = fleet
+    target["_region_key"] = scope["region_key"]
+    target["_nlb_key"] = scope["nlb_key"]
     target["_hosts"] = hosts
     return target, host, sorted(addresses)
 
@@ -308,6 +319,8 @@ class Lane:
     def guard(self):
         region, host, addresses = staging()
         require(region["label"] == self.region["label"] and region["compartment_id"] == self.region["compartment_id"]
+                and region["vault_id"] == self.region["vault_id"] and region["key_id"] == self.region["key_id"]
+                and region["_region_key"] == self.region["_region_key"] and region["_nlb_key"] == self.region["_nlb_key"]
                 and host == self.host and addresses == self.addresses, "staging authority or NLB addresses changed")
         self.region["_hosts"] = region["_hosts"]
 

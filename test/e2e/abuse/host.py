@@ -38,14 +38,12 @@ def attest(request):
         raise RuntimeError("invalid abuse namespace")
     if BOUND_FLEET is None:
         raise RuntimeError("fleet-bound helper artifact required")
-    matches = [region for region in BOUND_FLEET["regions"] if "staging" in region["label"].split("-")]
-    if len(matches) != 1:
-        raise RuntimeError("one fleet staging authority required")
-    staging = matches[0]
+    staging = BOUND_FLEET["staging"]
     if (request["region"] != staging["label"] or request["compartment"] != staging["compartment_id"]
+            or request["vault"] != staging["vault_id"] or request["key"] != staging["key_id"]
             or not staging["compartment_id"] or not 1 <= staging["nodes"]["min"] <= staging["nodes"]["max"] <= 3
             or any(region["compartment_id"] == staging["compartment_id"]
-                   for region in BOUND_FLEET["regions"] if region is not staging)):
+                   for region in BOUND_FLEET["regions"])):
         raise RuntimeError("request outside fleet staging authority")
     query = urllib.request.Request("http://169.254.169.254/opc/v2/instance/",
                                    headers={"Authorization": "Bearer Oracle"})
@@ -128,13 +126,13 @@ def run(request):
     if operation == "control":
         payload = dict(request["control"])
         payload.update(region=request["region"], compartment=request["compartment"],
-                       prefix=request["prefix"])
+                       prefix=request["prefix"], vault=request["vault"], key=request["key"])
         data = command([str(root / "control")], json.dumps(payload).encode())
         return json.loads(data)
     if operation == "watch":
         payload = dict(request["control"])
         payload.update(region=request["region"], compartment=request["compartment"],
-                       prefix=request["prefix"])
+                       prefix=request["prefix"], vault=request["vault"], key=request["key"])
         process = subprocess.Popen([str(root / "control")], stdin=subprocess.PIPE)
         process.communicate(json.dumps(payload).encode())
         if process.returncode:

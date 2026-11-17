@@ -23,8 +23,10 @@ and cannot qualify that case. No missing dependency counts as a pass.
 ## Production guard and fault scope
 
 The command accepts no arguments, target URL, region override or endpoint
-file. It reads the label containing the exact staging token from
-deploy/fleet/fleet.json; exactly one entry must match. Its compartment and
+file. Its native helper loads and validates deploy/fleet/fleet.json through
+internal/fleet, selects the explicit Staging entry (currently stg), and
+exports its catalog region key, NLB ownership key/name, API name, compartment
+and Vault/key scope. Production Regions are never staging candidates. Its compartment and
 VCN must be distinct from every production entry, its hostname must not be
 globally steered, and its fleet node bounds must fit within one to three.
 It must have no production GeoDNS continents, and live steering policies in
@@ -32,19 +34,20 @@ the fleet DNS compartment must not contain its NLB addresses or API name.
 
 OCI inventory must contain exactly one active orchestrator-owned NLB with
 that label, in that compartment, with the network-load-balancer/nlb resource
-key. The NLB's public IPv4 addresses must exactly match its regional API DNS
+key, matched exactly against Region.Key. The declared Vault must be active
+in staging's own compartment. The NLB's public IPv4 addresses must exactly match its regional API DNS
 name. Every backend for ports 80, 443 and 5432 must belong to a running
 instance's primary VNIC in staging's private subnet. Workload sockets dial
 these pinned addresses, verify TLS and never follow redirects.
 
-The helper build binds the tracked fleet document into the executable Python
+The helper build binds the native helper's validated fleet document into the executable Python
 artifact as code, separately from request/configuration data. The source
 template refuses to execute without that binding. Before every operation,
 including direct invocation and the systemd disk child, host.py derives the
-unique staging label and compartment from that bound document, rejects
+explicit staging label, compartment and Vault/key from that bound document, rejects
 caller authority that differs, and checks OCI IMDS v2 against that staging
-compartment and the exact instance ID. Supplying production IMDS IDs and a
-label containing staging cannot authorize an operation. The Go control
+compartment and the exact instance ID. Supplying production IMDS IDs or a
+staging-like label cannot authorize an operation. The Go control
 executable independently derives the same authority from its embedded fleet
 document, repeats attestation, validates the cluster's region and OCI
 instance IDs, and rejects more than three ready nodes. Before each mutation, OCI inventory is
@@ -181,7 +184,10 @@ to stock PostgreSQL, which does not understand that transport header.
   restores the fleet's declared node count. Its compartment is checked again
   immediately before termination. Cleanup invokes only staging's native
   region apply compute implementation after checking its embedded fleet
-  compartment and maximum of three; it never starts a stopped fourth node.
+  Staging entry, compartment, Vault/key and maximum of three. Recovery uses
+  LoopFactory and ApplyCompute with the attested staging node's instance
+  principal in staging's OCI region, never the operator-profile factory or
+  production credentials; it never starts a stopped fourth node.
 
 Disk-full latency samples must start after confirmed ENOSPC; at least 100
 are required while the independent fault is still active. The retained fault
