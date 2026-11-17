@@ -14,6 +14,7 @@ import (
 type unit struct {
 	ExecStart              []string
 	RestartSec             time.Duration
+	TimeoutStartSec        time.Duration
 	TimeoutStopSec         time.Duration
 	LimitNOFILE            uint64
 	UMask                  int
@@ -26,7 +27,7 @@ type unit struct {
 }
 
 var acceptedKeys = map[string]bool{
-	"Type": true, "NotifyAccess": true, "TimeoutStartSec": true, "Restart": true, "KillMode": true, "ExecStartPre": true,
+	"Type": true, "NotifyAccess": true, "Restart": true, "KillMode": true, "ExecStartPre": true,
 	"ProtectKernelLogs": true, "ProtectClock": true, "ProtectHostname": true, "LockPersonality": true,
 	"RestrictRealtime": true, "RestrictSUIDSGID": true, "SystemCallArchitectures": true,
 }
@@ -65,6 +66,8 @@ func parseUnit(data []byte) (unit, error) {
 			u.ExecStart = strings.Fields(value)
 		case "RestartSec":
 			u.RestartSec, err = time.ParseDuration(value)
+		case "TimeoutStartSec":
+			u.TimeoutStartSec, err = time.ParseDuration(strings.Replace(value, "min", "m", 1))
 		case "TimeoutStopSec":
 			u.TimeoutStopSec, err = time.ParseDuration(value)
 		case "LimitNOFILE":
