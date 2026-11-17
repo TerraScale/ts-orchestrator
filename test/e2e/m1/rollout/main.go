@@ -591,7 +591,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	topologyReady(ctx, roots)
 	if installOnly {
 		nonceCases(ctx, conn, roots, order, names, launcher, spec)
-		installCases(ctx, nodes, boot, roots, order, names, addresses, launcher, spec)
+		installCases(ctx, conn, nodes, boot, roots, order, names, launcher, spec)
 		for _, root := range roots {
 			must(os.Remove(filepath.Join(root, "clock-offset")))
 		}
@@ -602,6 +602,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	}
 	replacementImage, err := os.ReadFile(filepath.Join(roots[0], "replacement-image"))
 	must(err)
+	replacementBefore := terrabaseTasks(ctx, roots[0])
 	spec.Image = strings.Replace(string(replacementImage), "ghcr.io/terrascale/", "", 1)
 	generation := time.Now().UnixNano()
 	apply(generation, order[1])
@@ -640,6 +641,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	require(next.Bake.Reason == "", "later region bake failed: "+next.Bake.Reason)
 	observe(ctx, conn, func(s map[string]state) bool { return s[order[1]].Ready[spec.Name] == generation })
 	require(len(initial.Runtime.Tasks) > 0 && initial.Runtime.Tasks[0].Image == spec.Image && initial.Runtime.Tasks[0].Generation == generation, "image change did not replace the task")
+	require(replacementBefore[initial.Runtime.Tasks[0].TaskID] == nil, "a different digest retained the preceding task")
 	logStep("abrupt agent exit restarts a full bake; the next region advances automatically")
 
 	shortage := states(ctx, conn)[order[0]].Serving[lagging.Name]
@@ -647,6 +649,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	require(health(ctx, releases, spec.Name) == "ok", "unrelated replica shortage blocked A")
 	logStep("named service health passes while another service is short a replica")
 	slow := spec
+	slow.Image = lagging.Image
 	slow.Name, slow.Port, slow.Args, slow.Regions = "e2e-slow", 18087, []string{"--port", "18087"}, nil
 	command(ctx, names[0], roots[0], slow)
 	must(exec.CommandContext(ctx, "ip", "netns", "exec", names[0], "iptables", "-A", "OUTPUT", "-o", "lo", "-p", "tcp", "--dport", "18087", "-j", "DROP").Run())

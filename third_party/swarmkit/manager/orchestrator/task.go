@@ -79,7 +79,9 @@ func IsTaskDirty(s *api.Service, t *api.Task, n *api.Node) bool {
 	}
 
 	// Make a deep copy of the service and task spec for the comparison.
-	serviceTaskSpec := *s.Spec.Task.Copy()
+	serviceTaskSpec := *api.CanonicalTaskSpec(&s.Spec.Task)
+	t = t.Copy()
+	t.Spec = *api.CanonicalTaskSpec(&t.Spec)
 
 	// Task is not dirty if the placement constraints alone changed
 	// and the node currently assigned can satisfy the changed constraints.

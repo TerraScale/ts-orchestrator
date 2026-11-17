@@ -67,6 +67,13 @@ signed release of the same service may perform that repository change.
 Services continue serving through the existing regional bake and rollback
 protocol.
 
+Task comparisons treat a legacy `ghcr.io/terrascale/<pkg>@sha256:<digest>`
+and `<pkg>@sha256:<digest>` as the same image identity. Changing only that
+reference updates the service document without replacing its running tasks.
+New tasks use the updated service template; a different package or digest
+still requires replacement. Runtime evidence retains each task's actual
+reference while checking its canonical package and digest.
+
 A second PR removes GHCR resolution, the old dashboard package handoff and
 Vault token paths after no live fleet document, retained deployment floor or
 rollback image requires GHCR. GHCR pull-token secrets are then removed, one

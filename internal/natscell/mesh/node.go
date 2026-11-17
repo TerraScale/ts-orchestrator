@@ -623,6 +623,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 	var pullErr error
 	if spec := request.Entry.Spec; err == nil && spec != nil && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
 		pullSpec := *spec
+		pullSpec.Generation, pullSpec.RollbackOf = request.Entry.Generation, request.Entry.RollbackOf
 		pullSpec.Deployment, pullSpec.DeploymentFloor = request.Entry.Deployment, request.Entry.Deployment
 		pullErr = prePull(ctx, n.cfg.applier, pullSpec)
 		pulled = time.Since(start)

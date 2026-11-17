@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
+	"github.com/moby/swarmkit/v2/api"
 )
 
 func Digests(ctx context.Context, args []string, output io.Writer) error {
@@ -75,7 +76,7 @@ func WaitApp(ctx context.Context, args []string, output io.Writer) error {
 		return err
 	}
 	if err := waitObservations(ctx, regions, func(observation Observation) bool {
-		return observation.Running[*service] == *image
+		return api.CanonicalAppImage(observation.Running[*service]) == api.CanonicalAppImage(*image)
 	}); err != nil {
 		return err
 	}

@@ -37,7 +37,7 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 	if err != nil {
 		return rollout, err
 	}
-	if service == nil || !proto.Equal(&service.Spec, want) {
+	if service == nil || !sameServiceSpec(&service.Spec, want) {
 		return rollout, errors.New("requested service spec was superseded before readiness")
 	}
 	var probe func(context.Context, *api.Task) error
@@ -88,7 +88,7 @@ func serviceSpecExact(ctx context.Context, client api.ControlClient, requested S
 	if err != nil {
 		return rollout, err
 	}
-	if service == nil || !proto.Equal(&service.Spec, want) {
+	if service == nil || !sameServiceSpec(&service.Spec, want) {
 		return rollout, errors.New("requested service spec was superseded before readiness")
 	}
 	if status := service.UpdateStatus; status != nil && status.State != api.UpdateStatus_UPDATING && status.State != api.UpdateStatus_COMPLETED && status.State != api.UpdateStatus_ROLLBACK_COMPLETED {
@@ -120,7 +120,7 @@ func serviceSpecExact(ctx context.Context, client api.ControlClient, requested S
 			delete(serviceLabels, key)
 		}
 		if task.ServiceID != service.ID || task.Status.State != api.TaskStateRunning || task.DesiredState != api.TaskStateRunning ||
-			containerErr != nil || container.Image != requested.Image || !proto.Equal(&task.Spec, &service.Spec.Task) ||
+			containerErr != nil || api.CanonicalAppImage(container.Image) != api.CanonicalAppImage(requested.Image) || !proto.Equal(api.CanonicalTaskSpec(&task.Spec), api.CanonicalTaskSpec(&service.Spec.Task)) ||
 			task.ServiceAnnotations.Name != service.Spec.Annotations.Name || !maps.Equal(taskLabels, serviceLabels) ||
 			admitServiceSpec(task.ServiceAnnotations.Labels, requested) != nil {
 			return rollout, errors.New("running task does not match the requested artifact and generation")
@@ -151,7 +151,7 @@ func serviceSpecExact(ctx context.Context, client api.ControlClient, requested S
 	if err != nil {
 		return rollout, err
 	}
-	if !proto.Equal(&latest.Service.Spec, want) || !proto.Equal(latest.Service.SpecVersion, service.SpecVersion) {
+	if !sameServiceSpec(&latest.Service.Spec, want) || !proto.Equal(latest.Service.SpecVersion, service.SpecVersion) {
 		return rollout, errors.New("requested service spec changed during readiness verification")
 	}
 	return rollout, nil

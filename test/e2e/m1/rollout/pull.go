@@ -25,13 +25,20 @@ import (
 
 type registryTransport struct{ base *url.URL }
 
+const pullRegistry = "sa-saopaulo-1.ocir.io"
+
 func (t registryTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	require(request.URL.Host == "ghcr.io", "registry client escaped its origin")
+	require(request.URL.Host == pullRegistry && request.URL.Scheme == "https", "registry client escaped its origin")
+	original := request
 	request = request.Clone(request.Context())
 	endpoint := *request.URL
 	endpoint.Scheme, endpoint.Host = t.base.Scheme, t.base.Host
 	request.URL = &endpoint
-	return http.DefaultTransport.RoundTrip(request)
+	response, err := http.DefaultTransport.RoundTrip(request)
+	if response != nil {
+		response.Request = original
+	}
+	return response, err
 }
 
 func runPulled(ctx context.Context, state, image, run string) error {
@@ -51,7 +58,7 @@ func runPulled(ctx context.Context, state, image, run string) error {
 	trusted, err := root.NewTrustedRootFromJSON(authority.TrustedRoot())
 	must(err)
 	identity := sigstore.Identity{Workflow: apppull.Targets[0].Workflow, Ref: "refs/heads/main", Trigger: "push"}
-	subjects := map[string][]byte{"ghcr.io/terrascale/terrabase": manifest}
+	subjects := map[string][]byte{pullRegistry + "/journey/terrascale/terrabase": manifest}
 	provenance := authority.Bundle(identity, revision, "1", subjects)
 	bundles := [][]byte{provenance}
 	serve := func(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +107,7 @@ func runPulled(ctx context.Context, state, image, run string) error {
 	defer registry.Close()
 	endpoint, err := url.Parse(registry.URL)
 	must(err)
-	registryClient := &appregistry.Client{Host: "ghcr.io", Namespace: "journey", Prefix: "terrascale", Transport: registryTransport{endpoint}, Sign: func(*http.Request) error { return nil }}
+	registryClient := &appregistry.Client{Host: pullRegistry, Namespace: "journey", Prefix: "terrascale", Transport: registryTransport{endpoint}, Sign: func(*http.Request) error { return nil }}
 	source := apppull.Source{Registry: func(context.Context) (*appregistry.Client, error) { return registryClient, nil }, Root: trusted, Transport: registryTransport{endpoint}}
 	_, err = source.Pull(ctx, apppull.Targets[0])
 	require(err != nil, "a mutable tag selected a built image without release authorization")
@@ -126,7 +133,7 @@ func runPulled(ctx context.Context, state, image, run string) error {
 	bundles = [][]byte{provenance, authority.Selection(selector, revision, run, "terrabase", subjects)}
 	selected, err := source.Pull(ctx, apppull.Targets[0])
 	must(err)
-	require(selected.Image == image && selected.Claims.RunID == run && selected.Claims.Repository == "TerraScale/terrascale", "host changed the verified release identity")
+	require(selected.Image == strings.TrimPrefix(image, "ghcr.io/terrascale/") && selected.Claims.RunID == run && selected.Claims.Repository == "TerraScale/terrascale", "host changed the verified release identity")
 	var applied error
 	apply := mesh.Release(state)
 	err = (apppull.Updater{Source: source, Apply: func(ctx context.Context, service, image string, claims releasepush.Claims, progress releasepush.Progress) (json.RawMessage, error) {

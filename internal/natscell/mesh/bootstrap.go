@@ -139,6 +139,8 @@ func (n *Node) stageBootstrap(action string, j rolloutmaintenance.Job) error {
 	}
 	spec := *before.Spec
 	spec.Image = candidate.Image
+	generation := max(time.Now().UnixNano(), before.Generation+1)
+	spec.Generation, spec.RollbackOf = generation, 0
 	spec.Deployment, spec.DeploymentFloor = deployment, deployment
 	already := before.Spec.Image == candidate.Image && before.Deployment != nil && *before.Deployment == *deployment
 	n.mu.Unlock()
@@ -155,7 +157,6 @@ func (n *Node) stageBootstrap(action string, j rolloutmaintenance.Job) error {
 	if err = n.cfg.applier.PrePull(ctx, spec); err != nil {
 		return err
 	}
-	generation := max(time.Now().UnixNano(), before.Generation+1)
 	_, err = n.apply(context.WithValue(ctx, bootstrapStageKey{}, candidate.Image), ApplyRequest{Name: "terrabase", Entry: Entry{Generation: generation, Spec: &spec, Deployment: deployment}})
 	return err
 }
