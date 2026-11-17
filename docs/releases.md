@@ -430,7 +430,12 @@ the hosts that must take the release. Like production regions, the fleet serves 
 before the release appears: the lane applies `terrabase` and `e2e-whoami`
 through the mesh, because a release older than the native regional mesh name
 reports its edge unready without a route, and the updater rolls only while
-every other host of the region is healthy. Once
+every other host of the region is healthy. The lane hosts also carry production host
+state: the old release listener's directory `<state>/nats`, which every
+production host still has and where the updater stages its trial and run
+fence. A host that never had it cannot take a release (C47 fixes that, with its
+own fresh-worker lane step); the seeded directory is removed from this lane
+once the `upgrade-gate/previous` pin moves past C47's fix. Once
 both serve the installed release, the lane publishes the candidate. The
 installed binary's own pull updater then has to do the rest, unchanged:
 
