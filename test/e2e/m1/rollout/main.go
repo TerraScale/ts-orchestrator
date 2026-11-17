@@ -125,9 +125,9 @@ func unsignedRefused(ctx context.Context, namespace, launcher, root string, spec
 	path := filepath.Join(root, "apply.json")
 	must(os.WriteFile(path, data, 0600))
 	output, err := serviceCLI(ctx, namespace, launcher, root, "apply", "-f", path)
-	require(err != nil && strings.Contains(string(output), fmt.Sprint(generation)) && strings.Contains(string(output), "release again"), "service apply did not name the failed generation and release instruction: "+string(output))
+	require(err != nil && strings.Contains(string(output), fmt.Sprint(generation)) && strings.Contains(string(output), "service rm "+spec.Name+" and service apply -f"), "service apply did not name the failed generation and the rm then apply instruction: "+string(output))
 	output, err = serviceCLI(ctx, namespace, launcher, root, "resume", spec.Name)
-	require(err != nil && strings.Contains(string(output), fmt.Sprint(generation)) && strings.Contains(string(output), "release again"), "service resume cleared a failed bake: "+string(output))
+	require(err != nil && strings.Contains(string(output), fmt.Sprint(generation)) && strings.Contains(string(output), "service rm "+spec.Name+" and service apply -f"), "service resume cleared a failed bake: "+string(output))
 }
 
 func newGeneration(s map[string]state, region string) int64 {
@@ -729,7 +729,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	logStep("an observed regression remains failed across restart after readiness recovers")
 	unsignedRefused(ctx, names[0], launcher, roots[0], spec, generation)
 	logStep("service resume refuses a failed bake even with a canary hold")
-	logStep("service apply refuses a held generation and names the release instruction")
+	logStep("service apply refuses a held generation and names service rm then service apply")
 	require(retained.Release != nil && retained.Release.RunID == "100" && retained.Release.RunAttempt == 1 && retained.Release.Repository == "TerraScale/terrascale" && retained.Release.Revision == revision && retained.Release.Image == spec.Image, "failed receipt omitted held signed release identity")
 	signedRelease(ctx, releases, spec.Image, "100")
 	observe(ctx, conn, func(s map[string]state) bool {

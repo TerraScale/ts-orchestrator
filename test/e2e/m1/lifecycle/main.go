@@ -51,7 +51,7 @@ func main() {
 	case "node":
 		err = node(ctx, os.Args[2], os.Args[3])
 	case "every-node":
-		err = everyNode(ctx, os.Args[2], os.Args[3])
+		err = everyNode(ctx, os.Args[2], os.Args[3], os.Args[4])
 	default:
 		err = run(ctx, os.Args[1], os.Args[2])
 	}

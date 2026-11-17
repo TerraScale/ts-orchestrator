@@ -63,6 +63,27 @@ ssh ts-gru-1 sudo ts-orch service ls
 ssh ts-gru-1 sudo ts-orch service rm whoami
 ```
 
+A region applies a service, waits until every task of the new spec is running
+and answers its `readyPath`, then bakes it; the next region in the rollout
+order starts only after that bake passes. In a region with joined workers the
+manager probes each worker's task on the worker's NetBird address, so the
+service's readiness port must be in the same-region `service-health` NetBird
+policy (`internal/netbird/manager/desired.go`). When a task never answers, the
+bake verdict names it: `service whoami is not ready: task <id> on ts-sjc-2
+(10.200.72.235): task application readiness request failed: Get
+"http://10.200.72.235:8099/readyz": dial tcp 10.200.72.235:8099: i/o timeout:
+context deadline exceeded`: a dial timeout is a dropped port, `connection
+refused` a task that is not listening, an HTTP status the application itself. The verdict record is
+`/var/lib/ts-orch/mesh/bake-<service>-<generation>.json` on the region's
+manager.
+
+A failed bake holds the service at that generation in every region, and
+`service apply` refuses it (`<name> held at failed generation <n>; repair the cause, then run service rm <name> and service apply -f <file>`). An
+operator-applied service leaves the hold once the cause is fixed and released:
+`service rm <name>` (accepted while held, in every region), then
+`service apply -f <file>` again. A signed release leaves it through a strictly
+newer signed run or attempt.
+
 ## FR1: recover status canaries after every storage wipe
 
 A wipe removes the customer identity, project, database and API key used by
