@@ -350,3 +350,20 @@ groups:
         annotations:
           summary: A region leader gave up draining a node it wanted to remove; the node stays cordoned
           description: Its tasks did not move within 10 minutes. The scaler changes no node in that region until the drained node's tasks run elsewhere or a person runs ts-orch member activate on it, which also clears terrascale.drain-since (docs/platform.md, Node count).
+
+  - name: self-heal
+    rules:
+      - alert: SelfHealStopped
+        expr: ts_orch_self_heal_stopped > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Self-heal stopped in a region because a replacement node did not join and become ready within 30 minutes
+          description: No more instances are replaced there until the region is back to its size with every node healthy. Read the leader's self-heal log lines and the new instance's console (docs/oci-reconcile.md, Self-heal).
+      - alert: SelfHealRefused
+        expr: increase(ts_orch_self_heal_refusals_total{reason=~"several-unhealthy|quorum|last-copy|leader|budget"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Self-heal is waiting instead of repairing an unhealthy node
+          description: The reason label says why (several nodes unhealthy at once, Raft quorum, the last healthy copy of a database, the leader itself, or the replacement budget). A person decides (docs/oci-reconcile.md, Self-heal).

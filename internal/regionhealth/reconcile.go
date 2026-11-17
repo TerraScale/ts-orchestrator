@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/selfheal"
 )
 
 type Reconcile struct {
@@ -22,6 +23,7 @@ type Reconcile struct {
 	Error  string                   `json:"error,omitempty"`
 	Kinds  []ociresource.KindStatus `json:"kinds,omitempty"`
 	Nodes  *fleet.NodeDecision      `json:"nodes,omitempty"`
+	Heal   *selfheal.Status         `json:"heal,omitempty"`
 }
 
 func ServeReconcile(ctx context.Context, state string, latest func() (Reconcile, bool)) {
@@ -80,10 +82,13 @@ func askReconcile(ctx context.Context, conn *nats.Conn) (map[string]Reconcile, e
 }
 
 func (r Reconcile) lines() []string {
-	if r.Error != "" {
-		return []string{"reconcile: changes nothing: " + r.Error}
-	}
 	var out []string
+	if r.Heal != nil {
+		out = r.Heal.Lines()
+	}
+	if r.Error != "" {
+		return append(out, "reconcile: changes nothing: "+r.Error)
+	}
 	for _, k := range r.Kinds {
 		line := fmt.Sprintf("reconcile %s: %s", k.Kind, k.Result)
 		if !k.LastRun.IsZero() {

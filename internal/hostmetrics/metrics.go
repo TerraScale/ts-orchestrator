@@ -21,6 +21,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/selfheal"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
@@ -187,6 +188,7 @@ func Handler(region, address string, executor *swarmruntime.Executor) http.Handl
 		edge.WritePostgresPreauthMetrics(&body)
 		ociresource.WriteMetrics(&body)
 		fleet.WriteNodeMetrics(&body)
+		selfheal.WriteMetrics(&body)
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		_, _ = w.Write(body.Bytes())
 	})

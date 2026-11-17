@@ -92,6 +92,7 @@ type Reply struct {
 	Version    string          `json:"version,omitempty"`
 	SHA256     string          `json:"sha256,omitempty"`
 	Health     string          `json:"health,omitempty"`
+	Node       string          `json:"node,omitempty"`
 	Error      string          `json:"error,omitempty"`
 	RolledBack string          `json:"rolled_back,omitempty"`
 	Result     json.RawMessage `json:"result,omitempty"`
@@ -397,7 +398,7 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 	}
 	ctx, cancel := context.WithTimeout(ctx, healthHandlerBudget)
 	defer cancel()
-	text := "no health check"
+	text, node := "no health check", ""
 	if !h.mu.TryLock() {
 		return Reply{Version: h.Revision, Health: "release install in progress"}
 	}
@@ -407,9 +408,13 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 		return Reply{Version: h.Revision, Health: "release restart pending"}
 	}
 	if h.Health != nil {
-		text = "ok"
-		if err := h.Health(ctx, request.Service).Err(); err != nil {
+		result := h.Health(ctx, request.Service)
+		text, node = "ok", "ok"
+		if err := result.Err(); err != nil {
 			text = err.Error()
+		}
+		if err := errors.Join(result.Mesh, result.Edge); err != nil {
+			node = err.Error()
 		}
 	}
 	if previous := h.lastHealth.Swap(&text); previous == nil || *previous != text {
@@ -420,7 +425,7 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 	if err != nil {
 		mountError = err.Error()
 	}
-	reply := Reply{Version: h.Revision, Health: text, DataMount: mount, DataMountError: mountError}
+	reply := Reply{Version: h.Revision, Health: text, Node: node, DataMount: mount, DataMountError: mountError}
 	if state, reason := h.probation.status(); state == "unconfirmed" {
 		reply.State, reply.Error = state, reason
 	}

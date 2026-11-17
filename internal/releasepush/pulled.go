@@ -87,7 +87,8 @@ func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 	switch request.Op {
 	case PullStatus:
 		reply := h.version()
-		reply.Health = h.health(ctx, nil).Health
+		health := h.health(ctx, nil)
+		reply.Health, reply.Node = health.Health, health.Node
 		return reply
 	case PullInstall:
 		return h.installPulled(ctx, request.Release)
@@ -208,4 +209,12 @@ func AwaitReady(ctx context.Context, conn *nats.Conn, region, host, sha string, 
 		case <-tick.C:
 		}
 	}
+}
+
+func AskStatus(ctx context.Context, conn *nats.Conn, region, host string) (Reply, error) {
+	body, err := json.Marshal(PullRequest{Op: PullStatus})
+	if err != nil {
+		return Reply{}, err
+	}
+	return request(ctx, conn, PullSubject(region, host), body, 2*healthHandlerBudget)
 }

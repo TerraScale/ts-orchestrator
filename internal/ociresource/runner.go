@@ -57,9 +57,11 @@ type Runner struct {
 	Region    string
 	Authority authority.Fencer
 	Build     func(ctx context.Context) ([]Pass, error)
+	Heal      func(ctx context.Context, guard func(context.Context) error)
 
 	mu       sync.Mutex
 	leader   bool
+	healing  bool
 	passes   []Pass
 	buildErr error
 	kinds    map[string]*KindStatus
@@ -88,9 +90,14 @@ func (r *Runner) tick(ctx context.Context) {
 	r.mu.Lock()
 	r.leader = leader
 	built := r.passes != nil
+	heal := leader && !r.healing
+	r.healing = r.healing || heal
 	r.mu.Unlock()
 	if !leader {
 		return
+	}
+	if heal {
+		go r.heal(ctx, snapshot.Epoch)
 	}
 	if !built {
 		passes, err := r.Build(ctx)
@@ -112,6 +119,18 @@ func (r *Runner) tick(ctx context.Context) {
 		status.Running = true
 		go r.run(ctx, pass, snapshot.Epoch)
 	}
+}
+
+func (r *Runner) heal(ctx context.Context, epoch uint64) {
+	r.Heal(ctx, func(ctx context.Context) error {
+		if err := r.Authority.Guard(ctx, epoch); err != nil {
+			return fmt.Errorf("%w: %w", ErrFenced, err)
+		}
+		return nil
+	})
+	r.mu.Lock()
+	r.healing = false
+	r.mu.Unlock()
 }
 
 func (r *Runner) status(kind string) *KindStatus {
