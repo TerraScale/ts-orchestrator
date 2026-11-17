@@ -1,10 +1,5 @@
 name: App digests
 
-# Records every mesh service's desired image in git (W22): app image
-# workflows release new digests straight to the hosts (ts-orch release app),
-# so this job reads the mesh's desired state from a region's release listener
-# and commits it as deploy/m1/app-digests.json on branch app-digests. Hosts
-# admit this workflow's OIDC token for ts.release.mesh.state only.
 on:
   schedule:
     - cron: '17 6 * * *'
@@ -48,7 +43,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Releases become visible before upload finishes; require the final qualification marker as well as the client.
           tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=30" \
             --jq '[.[] | select(.draft == false and (.tag_name | startswith("ci-")) and
               any(.assets[]?; .name == "terrascale-orchestrator-linux-amd64") and
@@ -58,7 +52,7 @@ jobs:
           gh release download "$tag" --repo "${GITHUB_REPOSITORY}" --dir dist --pattern terrascale-orchestrator-linux-amd64
           chmod +x dist/terrascale-orchestrator-linux-amd64
 
-      - name: Record the desired images
+      - name: Record the running images
         shell: bash
         run: |
           set -euo pipefail
@@ -68,6 +62,6 @@ jobs:
           git add deploy/m1/app-digests.json
           if git diff --cached --quiet; then echo "Unchanged" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; fi
           git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
-            commit -q -m "chore(deploy): record desired app images"
+            commit -q -m "chore(deploy): record running app images"
           git push -q origin HEAD:app-digests
           { echo '```json'; cat deploy/m1/app-digests.json; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"

@@ -25,6 +25,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
+	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/releaseclient"
 	"github.com/nats-io/nats.go"
 )
 
@@ -159,6 +160,11 @@ func candidateMode() string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "push-client" {
+		must(releaseclient.Push(context.Background(), os.Args[2:], os.Stdout))
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Minute)
 	defer cancel()
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "recover" {

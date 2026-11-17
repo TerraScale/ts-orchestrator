@@ -97,6 +97,13 @@ func healthy(ctx context.Context, host *oraclehost.Host, want string) {
 		}
 		return nil
 	})
+	conn, err := host.Dial("tcp", host.Address+":4222")
+	if conn != nil {
+		conn.Close()
+	}
+	if err == nil {
+		panic(host.Name + " exposes the installer outside loopback")
+	}
 }
 
 func roles(fleet *oraclehost.Fleet) (managers, workers []*oraclehost.Host) {
@@ -576,6 +583,13 @@ func ready(ctx context.Context, fleet *oraclehost.Fleet, want, ca string) {
 	}
 	step("JetStream on managers; every host's edge listens and each worker balances whoami to its manager's backend")
 	publicNames(ctx, fleet, ca)
+	for _, host := range fleet.Hosts {
+		observation, err := host.Observation(ctx)
+		must(err)
+		require(observation.Health == "ok" && observation.Host == host.Name && observation.Version == want && len(observation.Images) > 0, "%s: invalid authenticated observation %+v", host.Name, observation)
+	}
+	step("authenticated read-only HTTPS observations match every host; unauthenticated reads and mutations refuse")
+
 }
 
 func main() {

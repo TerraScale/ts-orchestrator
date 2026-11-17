@@ -328,6 +328,11 @@ func runRegion(ctx context.Context, args []string) {
 		return releasepush.HealthResult{Mesh: node.ReleaseHealth(ctx), Service: regionhealth.Serving(ctx, root, name)}
 	}}
 	must(handler.Serve(conn))
+	if selection, err := os.ReadFile(filepath.Join(root, "pull-selection")); err == nil {
+		go runPulled(ctx, root, string(selection), "101")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		panic(err)
+	}
 	relay(ctx, address+":14223", "127.0.0.1:4223")
 	relay(ctx, address+":14222", "127.0.0.1:4224")
 	fmt.Println("READY")
@@ -774,8 +779,8 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	held := generation
 	nodes[0].kill()
 	olderHoldReceipt(roots[0], held)
+	must(os.WriteFile(filepath.Join(roots[0], "pull-selection"), []byte(spec.Image), 0600))
 	nodes[0] = boot(0)
-	signedRelease(ctx, releases, key, spec.Image, "101")
 	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > held })
 	generation = newGeneration(states(ctx, conn), order[0])
 	evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Samples >= 1 })
@@ -792,6 +797,8 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	replacement := replaced.ReplacedBy
 	require(replacement.Generation == generation && replacement.Release.Repository == "TerraScale/terrascale" && replacement.Release.RunID == "101" && replacement.Release.RunAttempt == 1 && replacement.Release.Revision == revision && replacement.Release.Image == spec.Image, "replacement journal omitted release identity")
 	logStep("release journals the local held generation and deployment; restart retains it and every region completes")
+	must(os.Remove(filepath.Join(roots[0], "pull-selection")))
+	logStep("host pulls a selected image, rejects a wrong signer, verifies provenance and completes the rollout without CI delivery")
 	signedRelease(ctx, releases, key, spec.Image, "102")
 	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > generation })
 	held = newGeneration(states(ctx, conn), order[0])

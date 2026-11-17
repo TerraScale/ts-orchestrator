@@ -168,7 +168,7 @@ func (r *run) add(host, shape string) error {
 	if err := r.ensureDNS(ip); err != nil {
 		return err
 	}
-	return r.ensurePin(ip, false)
+	return r.ensureObservationRegion(false)
 }
 
 func (r *run) ensureCompartment() (created bool, err error) {

@@ -125,6 +125,7 @@ type Progress interface {
 }
 
 type Handler struct {
+	Hosts       func(context.Context) ([]HostVersion, error)
 	probation   *Probation
 	Health      func(context.Context, string) HealthResult
 	Verifier    *Verifier

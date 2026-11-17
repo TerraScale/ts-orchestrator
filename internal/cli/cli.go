@@ -85,12 +85,10 @@ Use ts-orch release --help to list its commands.
 
 const releaseUsage = `Usage: ts-orch release <command> [flags]
 
-ts-orch release push sends a main build one region at a time (sjc, fra, gru), waiting for JetStream and the region's services (CI only);
-ts-orch release nudge tells every region's orchestrator to look for a new attested release now; it carries no authority (CI only);
-ts-orch release pin --state /var/lib/ts-orch prints a host's listener pin for that file.
-ts-orch release app --service <name> --image <ref@sha256> releases an app image to every region (app image CI only);
-ts-orch release digests --out <file> records every mesh service's desired image (app-digests CI only);
-ts-orch release mesh-check re-proves mesh ping, service apply and HTTPS in every region (CI only).
+ts-orch release hosts <revision> observes that every registered host runs the revision;
+ts-orch release wait --service <name> --image <ref@sha256> observes a pulled app rollout over authenticated HTTPS;
+ts-orch release digests --out <file> records every mesh service's running image (app-digests CI only);
+ts-orch release mesh-check reads mesh health, running digests and HTTPS in every region (CI only).
 ts-orch release manifest --sha <sha> --sequence <n> --out <file> builds a signed-release manifest from a CI release's binaries;
 ts-orch release sign --manifest <file> --key <keyfile> signs a manifest with an SSH key (namespace ts-orch-release);
 ts-orch release verify --manifest <file> [--sig <file>] [--allowed <file>] verifies a manifest against the allowed SSH keys.
@@ -176,14 +174,12 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 			}
 			return releasepreflight.Run(ctx)
 		}
-		if len(args) > 1 && args[1] == "push" {
-			return releasepush.Push(ctx, args[2:], output)
+
+		if len(args) > 1 && args[1] == "hosts" {
+			return releasepush.WaitHosts(ctx, args[2:], output)
 		}
-		if len(args) > 1 && args[1] == "nudge" {
-			return releasepush.SendNudge(ctx, args[2:], output)
-		}
-		if len(args) > 1 && args[1] == "app" {
-			return releasepush.PushApp(ctx, args[2:], output)
+		if len(args) > 1 && args[1] == "wait" {
+			return releasepush.WaitApp(ctx, args[2:], output)
 		}
 		if len(args) > 1 && args[1] == "digests" {
 			return releasepush.Digests(ctx, args[2:], output)
@@ -196,9 +192,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		}
 		if len(args) > 1 && args[1] == "verify-provenance" {
 			return imagetrust.VerifyImage(ctx, args[2:], output)
-		}
-		if len(args) > 1 && args[1] == "pin" {
-			return releasepush.Pin(args[2:], output)
 		}
 		if len(args) == 1 || args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
 			_, err := io.WriteString(output, releaseUsage)

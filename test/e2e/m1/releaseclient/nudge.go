@@ -1,4 +1,4 @@
-package releasepush
+package releaseclient
 
 import (
 	"context"

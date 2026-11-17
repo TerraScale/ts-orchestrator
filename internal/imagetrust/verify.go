@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -27,28 +30,57 @@ const mainRef = "refs/heads/main"
 
 const bundleLimit = 4 << 20
 
+type Provenance struct {
+	Repository string
+	Revision   string
+	Workflow   string
+	RunID      string
+	RunAttempt string
+}
+
+var invocation = regexp.MustCompile(`^https://github.com/(TerraScale/[^/]+)/actions/runs/([0-9]{1,20})/attempts/([0-9]+)$`)
+
 func Verify(ctx context.Context, image, workflowRef, revision string, keychain authn.Keychain) error {
+	_, err := Inspect(ctx, image, workflowRef, revision, keychain)
+	return err
+}
+
+type Verifier struct {
+	Root      root.TrustedMaterial
+	Transport http.RoundTripper
+}
+
+func Inspect(ctx context.Context, image, workflowRef, revision string, keychain authn.Keychain) (Provenance, error) {
+	trusted, err := PublicGoodRoot()
+	if err != nil {
+		return Provenance{}, err
+	}
+	return (Verifier{Root: trusted, Transport: remote.DefaultTransport}).Inspect(ctx, image, workflowRef, revision, keychain)
+}
+
+func (v Verifier) Inspect(ctx context.Context, image, workflowRef, revision string, keychain authn.Keychain) (Provenance, error) {
 	digest, err := name.NewDigest(image, name.StrictValidation)
 	if err != nil {
-		return fmt.Errorf("image %s refused: not a digest reference", image)
+		return Provenance{}, fmt.Errorf("image %s refused: not a digest reference", image)
 	}
-	bundles, err := fetchBundles(ctx, digest, keychain)
+	bundles, err := fetchBundles(ctx, digest, keychain, v.Transport)
 	if err != nil {
-		return fmt.Errorf("image %s refused: attestation lookup failed: %w", image, err)
+		return Provenance{}, fmt.Errorf("image %s refused: attestation lookup failed: %w", image, err)
 	}
 	identity, err := verify.NewShortCertificateIdentity(actionsIssuer, "", "https://github.com/"+workflowRef, "")
 	if err != nil {
-		return err
+		return Provenance{}, err
 	}
-	trustedRoot, err := PublicGoodRoot()
-	if err != nil {
-		return fmt.Errorf("image %s refused: attestation lookup failed: %w", image, err)
+	if v.Root == nil {
+		return Provenance{}, fmt.Errorf("image verifier has no trusted root")
 	}
-	verifier, err := verify.NewVerifier(trustedRoot, verify.WithTransparencyLog(1), verify.WithObserverTimestamps(1))
+	verifier, err := verify.NewVerifier(v.Root, verify.WithSignedCertificateTimestamps(1), verify.WithTransparencyLog(1), verify.WithObserverTimestamps(1))
 	if err != nil {
-		return err
+		return Provenance{}, err
 	}
 	policy := verify.NewPolicy(verify.WithArtifactDigest("sha256", digestBytes(digest)), verify.WithCertificateIdentity(identity))
+	var newest Provenance
+	var newestRun, newestAttempt uint64
 	for _, data := range bundles {
 		var b bundle.Bundle
 		if err := b.UnmarshalJSON(data); err != nil {
@@ -61,9 +93,28 @@ func Verify(ctx context.Context, image, workflowRef, revision string, keychain a
 		if !validProvenance(result, revision) {
 			continue
 		}
-		return nil
+		cert := result.Signature.Certificate
+		run := invocation.FindStringSubmatch(cert.RunInvocationURI)
+		if run == nil || cert.SourceRepositoryURI != "https://github.com/"+run[1] || !strings.HasPrefix(workflowRef, run[1]+"/.github/workflows/") {
+			continue
+		}
+		number, err := strconv.ParseUint(run[2], 10, 64)
+		if err != nil {
+			continue
+		}
+		attempt, err := strconv.ParseUint(run[3], 10, 64)
+		if err != nil || attempt == 0 {
+			continue
+		}
+		if newest.Repository == "" || number > newestRun || number == newestRun && attempt > newestAttempt {
+			newest = Provenance{Repository: run[1], Revision: revision, Workflow: workflowRef, RunID: run[2], RunAttempt: run[3]}
+			newestRun, newestAttempt = number, attempt
+		}
 	}
-	return fmt.Errorf("image %s refused: no provenance attestation signed by https://github.com/%s for commit %s", image, workflowRef, revision)
+	if newest.Repository != "" {
+		return newest, nil
+	}
+	return Provenance{}, fmt.Errorf("image %s refused: no provenance attestation signed by https://github.com/%s for commit %s", image, workflowRef, revision)
 }
 
 func PublicGoodRoot() (*root.TrustedRoot, error) {
@@ -89,8 +140,8 @@ func validProvenance(result *verify.VerificationResult, revision string) bool {
 	return signature.Certificate.SourceRepositoryDigest == revision && signature.Certificate.SourceRepositoryRef == mainRef
 }
 
-func fetchBundles(ctx context.Context, digest name.Digest, keychain authn.Keychain) ([][]byte, error) {
-	referrers, err := remote.Referrers(digest, remote.WithContext(ctx), remote.WithAuthFromKeychain(keychain))
+func fetchBundles(ctx context.Context, digest name.Digest, keychain authn.Keychain, transport http.RoundTripper) ([][]byte, error) {
+	referrers, err := remote.Referrers(digest, remote.WithContext(ctx), remote.WithAuthFromKeychain(keychain), remote.WithTransport(transport))
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +154,7 @@ func fetchBundles(ctx context.Context, digest name.Digest, keychain authn.Keycha
 		if descriptor.ArtifactType != bundleArtifactType {
 			continue
 		}
-		data, err := fetchBundle(ctx, digest.Context().Digest(descriptor.Digest.String()), keychain)
+		data, err := fetchBundle(ctx, digest.Context().Digest(descriptor.Digest.String()), keychain, transport)
 		if err != nil {
 			return nil, err
 		}
@@ -112,8 +163,8 @@ func fetchBundles(ctx context.Context, digest name.Digest, keychain authn.Keycha
 	return bundles, nil
 }
 
-func fetchBundle(ctx context.Context, manifest name.Digest, keychain authn.Keychain) ([]byte, error) {
-	fetched, err := remote.Get(manifest, remote.WithContext(ctx), remote.WithAuthFromKeychain(keychain))
+func fetchBundle(ctx context.Context, manifest name.Digest, keychain authn.Keychain, transport http.RoundTripper) ([]byte, error) {
+	fetched, err := remote.Get(manifest, remote.WithContext(ctx), remote.WithAuthFromKeychain(keychain), remote.WithTransport(transport))
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +175,7 @@ func fetchBundle(ctx context.Context, manifest name.Digest, keychain authn.Keych
 	if len(index.Layers) != 1 {
 		return nil, fmt.Errorf("bundle manifest %s: expected one layer", manifest)
 	}
-	layer, err := remote.Layer(manifest.Context().Digest(index.Layers[0].Digest.String()), remote.WithContext(ctx), remote.WithAuthFromKeychain(keychain))
+	layer, err := remote.Layer(manifest.Context().Digest(index.Layers[0].Digest.String()), remote.WithContext(ctx), remote.WithAuthFromKeychain(keychain), remote.WithTransport(transport))
 	if err != nil {
 		return nil, err
 	}

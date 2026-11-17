@@ -29,6 +29,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
+	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/releaseclient"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -233,9 +234,9 @@ func rolloutCases(ctx context.Context, data []byte) {
 	}
 	var visited atomic.Bool
 	later.Relay = func(context.Context, []byte) []releasepush.HostVersion { visited.Store(true); return nil }
-	regions := []releasepush.Region{}
+	regions := []releaseclient.Region{}
 	for i, handler := range []*releasepush.Handler{founder, later} {
-		options, err := releasepush.Options(work, nil)
+		options, err := releaseclient.Options(work, nil)
 		must(err)
 		options.Host, options.Port, options.CustomClientAuthentication = "127.0.0.1", -1, nil
 		srv, err := server.NewServer(options)
@@ -250,7 +251,7 @@ func rolloutCases(ctx context.Context, data []byte) {
 		certificate, err := x509.ParseCertificate(options.TLSConfig.Certificates[0].Certificate[0])
 		must(err)
 		pin := sha256.Sum256(certificate.RawSubjectPublicKeyInfo)
-		regions = append(regions, releasepush.Region{Region: []string{"sjc", "gru"}[i], NATS: srv.ClientURL(), SPKISHA256: hex.EncodeToString(pin[:])})
+		regions = append(regions, releaseclient.Region{Region: []string{"sjc", "gru"}[i], NATS: srv.ClientURL(), SPKISHA256: hex.EncodeToString(pin[:])})
 	}
 	regionBytes, err := json.Marshal(regions)
 	must(err)
@@ -305,12 +306,12 @@ func rolloutCases(ctx context.Context, data []byte) {
 		if mode == "repair-unhealthy-fleet" {
 			args = append(args, "--repair-unhealthy-fleet")
 		}
-		err := releasepush.Push(pushCtx, args, &output)
+		err := releaseclient.Push(pushCtx, args, &output)
 		cancelPush()
-		results, skipped := []releasepush.Result{}, []releasepush.Result{}
+		results, skipped := []releaseclient.Result{}, []releaseclient.Result{}
 		scanner := bufio.NewScanner(&output)
 		for scanner.Scan() {
-			var result releasepush.Result
+			var result releaseclient.Result
 			must(json.Unmarshal(scanner.Bytes(), &result))
 			if result.State == "repair_skipped_health" {
 				require(len(results) == 0, "skipped hosts must be printed before any region is pushed: "+output.String())
@@ -404,7 +405,7 @@ func serveRegion(ctx context.Context, args []string) {
 	h.Verifier.JWKSURL = jwks
 	h.Client = &http.Client{Transport: providerTransport{binaryURL}}
 	h.Health = func(context.Context, string) releasepush.HealthResult { return releasepush.HealthResult{} }
-	options, err := releasepush.Options(work, nil)
+	options, err := releaseclient.Options(work, nil)
 	must(err)
 	options.Host, options.CustomClientAuthentication = "127.0.0.1", nil
 	fmt.Sscan(port, &options.Port)
@@ -455,12 +456,12 @@ func replacementCase(ctx context.Context) {
 		ready(next, "SERVING true")
 		restarted <- next
 	}()
-	options, err := releasepush.Options(work, nil)
+	options, err := releaseclient.Options(work, nil)
 	must(err)
 	certificate, err := x509.ParseCertificate(options.TLSConfig.Certificates[0].Certificate[0])
 	must(err)
 	pin := sha256.Sum256(certificate.RawSubjectPublicKeyInfo)
-	regions, err := json.Marshal([]releasepush.Region{{Region: "sjc", NATS: fmt.Sprintf("nats://127.0.0.1:%d", port), SPKISHA256: hex.EncodeToString(pin[:])}})
+	regions, err := json.Marshal([]releaseclient.Region{{Region: "sjc", NATS: fmt.Sprintf("nats://127.0.0.1:%d", port), SPKISHA256: hex.EncodeToString(pin[:])}})
 	must(err)
 	write(filepath.Join(work, "replacement-regions.json"), string(regions))
 	assets := filepath.Join(work, "replacement-assets")
@@ -469,9 +470,9 @@ func replacementCase(ctx context.Context) {
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", provider+"/token?"))
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "lane"))
 	var output bytes.Buffer
-	err = releasepush.Push(ctx, []string{"--sha", release.SHA, "--dir", assets, "--regions", filepath.Join(work, "replacement-regions.json")}, &output)
+	err = releaseclient.Push(ctx, []string{"--sha", release.SHA, "--dir", assets, "--regions", filepath.Join(work, "replacement-regions.json")}, &output)
 	require(err == nil, fmt.Sprintf("a replacement must reach an unconfirmed host: %v %s", err, output.String()))
-	var result releasepush.Result
+	var result releaseclient.Result
 	must(json.Unmarshal(bytes.TrimSpace(output.Bytes()), &result))
 	require(result.State == "installed" && result.Health == "ok" && strings.Contains(result.Unconfirmed, "rollback unavailable"), "the unconfirmed candidate stays visible in the rollout output: "+output.String())
 	require(bytes.Equal(read(filepath.Join(work, "installed")), read(asset)) && bytes.Equal(read(filepath.Join(work, "installed.prev")), candidate), "the replacement must install with the unconfirmed candidate as previous")
@@ -763,27 +764,27 @@ func keepServing(ctx context.Context, start func() *exec.Cmd) func() {
 }
 
 func regionFile(work, name, address string) string {
-	options, err := releasepush.Options(work, nil)
+	options, err := releaseclient.Options(work, nil)
 	must(err)
 	certificate, err := x509.ParseCertificate(options.TLSConfig.Certificates[0].Certificate[0])
 	must(err)
 	pin := sha256.Sum256(certificate.RawSubjectPublicKeyInfo)
-	regions, err := json.Marshal([]releasepush.Region{{Region: "sjc", NATS: address, SPKISHA256: hex.EncodeToString(pin[:])}})
+	regions, err := json.Marshal([]releaseclient.Region{{Region: "sjc", NATS: address, SPKISHA256: hex.EncodeToString(pin[:])}})
 	must(err)
 	path := filepath.Join(work, name)
 	write(path, string(regions))
 	return path
 }
 
-func pushOne(ctx context.Context, work, name string, asset []byte, release releasepush.OrchRelease, provider, regions string) (releasepush.Result, error) {
+func pushOne(ctx context.Context, work, name string, asset []byte, release releasepush.OrchRelease, provider, regions string) (releaseclient.Result, error) {
 	assets := filepath.Join(work, name)
 	must(os.Mkdir(assets, 0o700))
 	writeExecutable(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), asset)
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", provider+"/token?"))
 	must(os.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "lane"))
 	var output bytes.Buffer
-	err := releasepush.Push(ctx, []string{"--sha", release.SHA, "--dir", assets, "--regions", regions}, &output)
-	var result releasepush.Result
+	err := releaseclient.Push(ctx, []string{"--sha", release.SHA, "--dir", assets, "--regions", regions}, &output)
+	var result releaseclient.Result
 	must(json.Unmarshal(bytes.TrimSpace(output.Bytes()), &result))
 	return result, err
 }
@@ -800,7 +801,7 @@ func rebuildCase(ctx context.Context) {
 	writeExecutable(installed, first)
 	port := freePort()
 	regions := regionFile(work, "regions.json", fmt.Sprintf("nats://127.0.0.1:%d", port))
-	push := func(mode, run string) (releasepush.Result, []byte, error) {
+	push := func(mode, run string) (releaseclient.Result, []byte, error) {
 		build := stamped(data, shaB, mode)
 		asset := filepath.Join(work, "asset-"+mode)
 		writeExecutable(asset, build)
@@ -832,7 +833,7 @@ func oldHostCase(ctx context.Context) {
 	writeExecutable(asset, build)
 	release, _, client, closeProvider := signedRelease(ctx, asset, shaB, "5", "1")
 	defer closeProvider()
-	options, err := releasepush.Options(work, nil)
+	options, err := releaseclient.Options(work, nil)
 	must(err)
 	options.Host, options.Port, options.CustomClientAuthentication = "127.0.0.1", -1, nil
 	srv, err := server.NewServer(options)
@@ -914,10 +915,10 @@ func watchdogCase(ctx context.Context, pusher string) {
 	assets := filepath.Join(work, "assets")
 	must(os.Mkdir(assets, 0o700))
 	writeExecutable(filepath.Join(assets, "terrascale-orchestrator-linux-"+runtime.GOARCH), build)
-	push := exec.CommandContext(ctx, pusher, "release", "push", "--sha", release.SHA, "--dir", assets, "--regions", regions)
+	push := exec.CommandContext(ctx, helper, "push-client", "--sha", release.SHA, "--dir", assets, "--regions", regions)
 	push.Env = append(os.Environ(), "ACTIONS_ID_TOKEN_REQUEST_URL="+provider+"/token?", "ACTIONS_ID_TOKEN_REQUEST_TOKEN=lane")
 	output, err := push.Output()
-	var result releasepush.Result
+	var result releaseclient.Result
 	must(json.Unmarshal(bytes.TrimSpace(output), &result))
 	waited := time.Duration(result.ServingMS-result.AcceptedMS) * time.Millisecond
 	require(err == nil && result.State == "installed" && bytes.Equal(read(installed), build) && waited >= 45*time.Second && waited <= 2*time.Minute, fmt.Sprintf("a shutdown stuck until the watchdog ends with the new binary serving early enough to leave a whole probation inside the pusher's wait: %v %+v", err, result))

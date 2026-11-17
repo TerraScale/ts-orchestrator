@@ -160,12 +160,19 @@ func (a api) orch(ctx context.Context, now time.Time) ([]string, error) {
 			}
 			return cmp.Or(runs.CheckRuns[0].Conclusion, runs.CheckRuns[0].Status), nil
 		}
-		release, err := conclusion("deploy/release-push")
+		release, err := conclusion("deploy/release-publish")
 		if err != nil {
 			return nil, err
 		}
 		if release == "success" {
-			break
+			verified, err := conclusion("app-canary/release")
+			if err != nil {
+				return nil, err
+			}
+			if verified == "success" {
+				break
+			}
+			release = "published; app pull observation " + cmp.Or(verified, "missing")
 		}
 		if release == "skipped" {
 			if test, err := conclusion("all-green"); err != nil {
@@ -175,7 +182,7 @@ func (a api) orch(ctx context.Context, now time.Time) ([]string, error) {
 			}
 		}
 		if now.Sub(c.Commit.Committer.Date) >= lagLimit {
-			oldest = fmt.Sprintf("- ts-orchestrator: main `%s` (%s ago) is not released to the regions; release-push: %s",
+			oldest = fmt.Sprintf("- ts-orchestrator: main `%s` (%s ago) is not released to the regions; pull observation: %s",
 				c.SHA, now.Sub(c.Commit.Committer.Date).Round(time.Minute), cmp.Or(release, "missing"))
 		}
 	}

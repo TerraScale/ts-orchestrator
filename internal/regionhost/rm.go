@@ -56,15 +56,9 @@ func (r *run) rm(host string, confirmed bool) error {
 			return errors.New("the host data volume is missing; refusing to terminate before detachment")
 		}
 	}
-	var ip string
 	if target == nil {
 		err = r.report("unchanged", "instance", cmp.Or(host, "ts-"+r.code+"-1"), "-")
 	} else {
-		if host == "" && target.LifecycleState != core.InstanceLifecycleStateTerminating {
-			if ip, err = r.publicIP(target); err != nil {
-				return err
-			}
-		}
 		if err := r.stopInstance(target); err != nil {
 			return err
 		}
@@ -95,7 +89,7 @@ func (r *run) rm(host string, confirmed bool) error {
 	if err := r.ensureDNS(""); err != nil {
 		return err
 	}
-	return r.ensurePin(ip, true)
+	return r.ensureObservationRegion(true)
 }
 
 func (r *run) detachDataVolume(instance *core.Instance, volume *core.Volume) error {

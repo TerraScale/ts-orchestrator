@@ -1,4 +1,4 @@
-package releasepush
+package releaseclient
 
 import (
 	"cmp"
@@ -39,16 +39,12 @@ const (
 
 const pushUsage = "usage: ts-orch release push --sha <40 hex> --dir <dir with " + assetPrefix + "<arch>> [--regions deploy/m1/regions.json] [--repair-unhealthy-fleet]"
 
-// Region is one deploy/m1/regions.json entry; a new region is one more line.
 type Region struct {
-	Region string `json:"region"`
-	NATS   string `json:"nats"`
-	// SPKISHA256 pins the listener key: hex or base64 sha256 of its
-	// SubjectPublicKeyInfo, printed on the host by `ts-orch release pin`.
+	Region     string `json:"region"`
+	NATS       string `json:"nats"`
 	SPKISHA256 string `json:"spki_sha256"`
 }
 
-// Result is the one JSON line push prints per region.
 type Result struct {
 	Region       string        `json:"region"`
 	State        string        `json:"state,omitempty"`
@@ -280,7 +276,6 @@ func awaitHealthy(ctx context.Context, region Region, release OrchRelease) (ms i
 	}
 }
 
-// LoadRegions reads deploy/m1/regions.json.
 func LoadRegions(path string) ([]Region, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -293,8 +288,6 @@ func LoadRegions(path string) ([]Region, error) {
 	return regions, nil
 }
 
-// Dial opens a CI connection to region's pinned release listener; replies
-// arrive on the token's run inbox.
 func Dial(region Region, token string, options ...nats.Option) (*nats.Conn, error) {
 	config, err := pinnedTLS(region.SPKISHA256)
 	if err != nil {
@@ -325,7 +318,6 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// MintToken requests a GitHub Actions OIDC token for the ts-orch audience.
 func MintToken(ctx context.Context) (string, error) {
 	endpoint, bearer := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL"), os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
 	if endpoint == "" || bearer == "" {
@@ -359,7 +351,6 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	since := func() int64 { return time.Since(start).Milliseconds() }
 	fail := func(err error) Result { result.Error = err.Error(); return result }
 	conn, err := Dial(region, release.Token, nats.Name("ts-orch release push"),
-		// The host restarts mid-push; reconnect immediately and keep trying.
 		nats.MaxReconnects(-1), nats.ReconnectWait(250*time.Millisecond), nats.ReconnectJitter(0, 0))
 	if err != nil {
 		return fail(err)
@@ -431,10 +422,6 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	}
 }
 
-// pinnedTLS trusts exactly the listener key the region pins. The listener
-// certificate is self-signed for no host name, so the pin replaces chain and
-// name verification (InsecureSkipVerify only disables those; the pin check in
-// VerifyPeerCertificate always runs).
 func pinnedTLS(pin string) (*tls.Config, error) {
 	want, err := hex.DecodeString(pin)
 	if err != nil {
@@ -462,8 +449,6 @@ func pinnedTLS(pin string) (*tls.Config, error) {
 	}, nil
 }
 
-// tokenRunID reads the run_id claim without verifying (the host verifies);
-// it names this run's release and reply inbox.
 func tokenRunID(token string) (string, error) {
 	parts := strings.Split(token, ".")
 	var claims Claims

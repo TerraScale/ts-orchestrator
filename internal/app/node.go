@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
 
+	"github.com/TerraScale/ts-orchestrator/internal/apppull"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/hostdashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
@@ -32,7 +34,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
+func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, public *edge.Edge, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -70,10 +72,6 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 		}
 	}()
 	go runManagerServices(healthCtx, state, plan, node, executor, failed)
-	if err := releasepush.EnsureFirewall(ctx); err != nil {
-		// Workloads keep serving; only release pushes are blocked until the next start.
-		fmt.Fprintf(output, "release listener firewall: %v\n", err)
-	}
 	for _, port := range []int{80, 443, edge.PostgresPort, hostmetrics.Port, hostdashboard.Port} {
 		if err := releasepush.OpenTCP(ctx, port); err != nil {
 			fmt.Fprintf(output, "edge firewall: %v\n", err)
@@ -94,62 +92,35 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 	releases.AbortStop = abortStop
 	releases.Mesh = mesh.Bridge(state)
 	releases.App = mesh.Release(state)
-	if plan.region != "" {
-		releases.Claim = func(ctx context.Context, release, sha string, digests map[string]string) error {
-			if !node.IsManager() {
-				return nil
-			}
-			fabric, err := mesh.ConnectFabric(state)
-			if err != nil {
-				return err
-			}
-			defer fabric.Close()
-			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			defer cancel()
-			return pullrelease.ClaimPush(ctx, fabric, plan.region, pullrelease.PushClaim{Release: release, SHA: sha, Binaries: digests, Host: node.ID()})
-		}
-		releases.Unclaim = func(ctx context.Context, release string) {
-			if !node.IsManager() {
-				return
-			}
-			fabric, err := mesh.ConnectFabric(state)
-			if err == nil {
-				defer fabric.Close()
-				ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-				defer cancel()
-				err = pullrelease.ReleasePush(ctx, fabric, plan.region, release)
-			}
-			if err != nil {
-				slog.WarnContext(ctx, "release push claim not released; the region's updater drops it when it lapses", "release", release, "error", err)
-			}
-		}
-		releases.HostReady = func(ctx context.Context, host, sha string, digests map[string]string) error {
+	releases.Hosts = func(ctx context.Context) ([]releasepush.HostVersion, error) {
+		if !node.IsManager() {
 			conn, err := mesh.Connect(state)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			defer conn.Close()
-			return releasepush.AwaitReady(ctx, conn, plan.region, host, sha, digests)
+			return releasepush.ReadInventory(ctx, conn, plan.region)
 		}
-		releases.Relay = func(ctx context.Context, request []byte) []releasepush.HostVersion {
-			if node.IsManager() {
-				return relayRelease(ctx, state, plan.region, request)
-			}
-			return nil
+		control, closer, err := swarmruntime.DialControl(state)
+		if err != nil {
+			return nil, err
 		}
+		defer closer.Close()
+		listed, err := control.ListNodes(ctx, &api.ListNodesRequest{})
+		if err != nil {
+			return nil, err
+		}
+		conn, err := mesh.Connect(state)
+		if err != nil {
+			return nil, err
+		}
+		defer conn.Close()
+		return releasepush.ReadHostVersions(ctx, conn, plan.region, listed.Nodes), nil
 	}
-	natsServer, natsConn, err := releasepush.Start(state)
-	if err != nil {
-		return err
-	}
-	defer natsServer.Shutdown()
-	defer natsConn.Close()
-	if err := releases.Serve(natsConn); err != nil {
-		return err
-	}
+	public.SetObserver(http.HandlerFunc(releases.Observe))
 	if plan.region != "" {
 		go serveHostReleases(ctx, state, plan.region, node, releases)
-		go runPullUpdates(ctx, state, plan.region, node, releases)
+		go runPullUpdates(ctx, state, plan.region, node, releases, failed)
 	}
 	notifier := sdnotify.Process()
 	if err := notifier.Ready("node ready"); err != nil {
@@ -186,7 +157,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 		return nil
 	case <-releases.Installed:
 		// Non-zero so Restart=always starts the new binary; containerd keeps workloads running.
-		return errors.New("installed a pushed release; exiting so systemd starts it")
+		return errors.New("installed a release; exiting so systemd starts it")
 	}
 }
 
@@ -466,35 +437,6 @@ func hostOf(address string) string {
 	return host
 }
 
-func relayRelease(ctx context.Context, state, region string, request []byte) []releasepush.HostVersion {
-	var nodes []*api.Node
-	control, closer, err := swarmruntime.DialControl(state)
-	if err == nil {
-		defer closer.Close()
-		inventoryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		listed, err := control.ListNodes(inventoryCtx, &api.ListNodesRequest{})
-		if err == nil {
-			nodes = append([]*api.Node{}, listed.Nodes...)
-		}
-	}
-	conn, err := mesh.Connect(state)
-	if err != nil {
-		rows := []releasepush.HostVersion{}
-		for _, node := range nodes {
-			if node.Role == api.NodeRoleWorker {
-				rows = append(rows, releasepush.HostVersion{ID: node.ID, Host: node.ID, Error: "no answer"})
-			}
-		}
-		if nodes == nil {
-			rows = append(rows, releasepush.HostVersion{Host: "worker inventory", Error: "no answer"})
-		}
-		return rows
-	}
-	defer conn.Close()
-	return releasepush.RelayWorkers(ctx, conn, protocol.MeshWorkerReleasePrefix+region, request, nodes)
-}
-
 func serveHostReleases(ctx context.Context, state, region string, node *swarmruntime.Node, releases *releasepush.Handler) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
@@ -506,11 +448,11 @@ func serveHostReleases(ctx context.Context, state, region string, node *swarmrun
 			closed := make(chan struct{})
 			conn.SetClosedHandler(func(*nats.Conn) { close(closed) })
 			err = releases.ServeHostVersion(conn, region, node.ID())
+			if err == nil && !worker {
+				err = releases.ServeInventory(conn, region)
+			}
 			if err == nil {
 				err = releases.ServePulled(conn, region, node.ID())
-			}
-			if err == nil && worker {
-				err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region, node.ID())
 			}
 			if err == nil {
 			wait:
@@ -543,7 +485,7 @@ func serveHostReleases(ctx context.Context, state, region string, node *swarmrun
 	}
 }
 
-func runPullUpdates(ctx context.Context, state, region string, node *swarmruntime.Node, releases *releasepush.Handler) {
+func runPullUpdates(ctx context.Context, state, region string, node *swarmruntime.Node, releases *releasepush.Handler, failed chan<- error) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for ctx.Err() == nil {
@@ -577,6 +519,12 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 				}
 			}
 			stop()
+		}()
+		go func() {
+			apps := apppull.Updater{Self: node.ID(), Fabric: fabric, Source: apppull.Source{Token: vaultsecret.ReadGHCRPullToken}, Apply: releases.App}
+			if err := apps.Run(managing); err != nil && managing.Err() == nil {
+				failed <- errors.Join(errors.New("app release updater stopped"), err)
+			}
 		}()
 		updater := pullrelease.New(region, node.ID(), state, conn, fabric, releases, func(ctx context.Context) ([]pullrelease.Host, error) {
 			return regionHosts(ctx, state)

@@ -1452,3 +1452,11 @@ Those require their own current source and runtime evidence.
 The post-handoff owner for ARM workload hosts and TerraBase also owns their
 disposable-preview removal. For the current GRU cost cutoff and exact workload
 teardown procedure, see [Explicit disposable workload teardown](disposable-workload-teardown.md).
+
+## HTTPS mount evidence
+
+Host adoption reads its authenticated mount report over the existing edge on
+443. It requires the regional mesh hostname, public PKI certificate and route
+inventory to exist before adoption can finish. This does not solve the first
+region bootstrap gap; it refuses adoption while that HTTPS path is unavailable.
+There is no public NATS mount-report fallback. See [exposure inventory](network.md).

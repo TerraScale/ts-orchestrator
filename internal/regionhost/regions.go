@@ -2,10 +2,7 @@ package regionhost
 
 import (
 	"bytes"
-	"cmp"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
@@ -14,11 +11,9 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
-	"github.com/nats-io/nats.go"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -27,7 +22,6 @@ const (
 	regionsFile = "deploy/m1/regions.json"
 )
 
-// publicIP is the instance's primary VNIC public IP.
 func (r *run) publicIP(inst *core.Instance) (string, error) {
 	attachments, err := r.compute.ListVnicAttachments(r.ctx, core.ListVnicAttachmentsRequest{CompartmentId: &r.compartment, InstanceId: inst.Id})
 	if err != nil {
@@ -48,7 +42,6 @@ func (r *run) publicIP(inst *core.Instance) (string, error) {
 	return "", fmt.Errorf("instance %s has no public IP", deref(inst.DisplayName))
 }
 
-// ensureDNS points CODE.mesh.terrascale.tech, DNS only, at ip ("" deletes it).
 func (r *run) ensureDNS(ip string) error {
 	token := os.Getenv(publicapi.TokenEnv)
 	if token == "" {
@@ -65,31 +58,6 @@ func (r *run) ensureDNS(ip string) error {
 	return r.report(verb, "dns", name, id)
 }
 
-// livePin waits for the release listener on ip:4222 and returns the SPKI pin
-// it presents. Trust on first use, like reading `ts-orch release pin` over a
-// first ssh connection, but it needs no ssh key on the host.
-func livePin(ctx context.Context, ip string) (string, error) {
-	var pin string
-	config := &tls.Config{MinVersion: tls.VersionTLS12,
-		InsecureSkipVerify: true, //nolint:gosec // the presented key is what this reads
-		VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
-			if len(raw) > 0 {
-				pin, _ = releasepush.SPKIPin(raw[0])
-			}
-			return nil
-		}}
-	err := poll(ctx, 10*time.Second, 60, func() (bool, error) {
-		conn, err := nats.Connect("tls://"+ip+":4222", nats.Secure(config), nats.NoReconnect(), nats.Timeout(5*time.Second))
-		if conn != nil {
-			conn.Close()
-		}
-		return pin != "", err // the listener refuses us without a CI token, after the handshake
-	})
-	return pin, err
-}
-
-// withRegion returns regions with want's entry set (or dropped when remove)
-// and whether that changed anything.
 func withRegion(regions []releasepush.Region, want releasepush.Region, remove bool) ([]releasepush.Region, bool) {
 	i := slices.IndexFunc(regions, func(r releasepush.Region) bool { return r.Region == want.Region })
 	switch {
@@ -107,49 +75,39 @@ func withRegion(regions []releasepush.Region, want releasepush.Region, remove bo
 	return next, true
 }
 
-// formatRegions writes regions.json as it is kept: one region per line.
 func formatRegions(regions []releasepush.Region) []byte {
 	lines := make([]string, len(regions))
 	for i, r := range regions {
-		lines[i] = fmt.Sprintf(`  {"region": %q, "nats": %q, "spki_sha256": %q}`, r.Region, r.NATS, r.SPKISHA256)
+		lines[i] = fmt.Sprintf(`  {"region": %q}`, r.Region)
 	}
 	return []byte("[\n" + strings.Join(lines, ",\n") + "\n]\n")
 }
 
-// ensurePin keeps the region host's regions.json line equal to its live
-// listener, through a pull request to main when it differs.
-func (r *run) ensurePin(ip string, remove bool) error {
+func (r *run) ensureObservationRegion(remove bool) error {
 	regions, err := releasepush.LoadRegions(regionsFile)
 	if err != nil {
 		return fmt.Errorf("run from the repository root: %w", err)
 	}
-	want := releasepush.Region{Region: r.code, NATS: "tls://" + ip + ":4222"}
-	if !remove {
-		if want.SPKISHA256, err = livePin(r.ctx, ip); err != nil {
-			return fmt.Errorf("release listener %s:4222: %w", ip, err)
-		}
-	}
+	want := releasepush.Region{Region: r.code}
 	if _, changed := withRegion(regions, want, remove); !changed {
-		return r.report("unchanged", "pin", r.code, cmp.Or(want.SPKISHA256, "-"))
+		return r.report("unchanged", "observer-region", r.code, want.Region)
 	}
 	verb := "updated"
 	if remove {
 		verb = "deleted"
 	}
 	if r.dry {
-		return r.report(verb, "pin", r.code, cmp.Or(want.SPKISHA256, "-"))
+		return r.report(verb, "observer-region", r.code, want.Region)
 	}
-	url, err := r.pinPR(want, remove)
+	url, err := r.regionPR(want, remove)
 	if err != nil {
 		return err
 	}
-	return r.report(verb, "pin", r.code, url)
+	return r.report(verb, "observer-region", r.code, url)
 }
 
-// pinPR opens (or refreshes) PR region-CODE-pin changing main's regions.json
-// and queues it to merge.
-func (r *run) pinPR(want releasepush.Region, remove bool) (string, error) {
-	branch := "region-" + r.code + "-pin"
+func (r *run) regionPR(want releasepush.Region, remove bool) (string, error) {
+	branch := "region-" + r.code + "-observer"
 	head, err := gh(r.ctx, "api", "repos/"+repo+"/git/ref/heads/main", "--jq", ".object.sha")
 	if err != nil {
 		return "", err
@@ -179,13 +137,13 @@ func (r *run) pinPR(want releasepush.Region, remove bool) (string, error) {
 			return "", err
 		}
 	}
-	title := "chore(m1): " + r.code + " release-listener pin in regions.json"
+	title := "chore(m1): " + r.code + " HTTPS observer region in regions.json"
 	if _, err := gh(r.ctx, "api", "-X", "PUT", "repos/"+repo+"/contents/"+regionsFile, "-f", "message="+title, "-f", "branch="+branch,
 		"-f", "sha="+file.SHA, "-f", "content="+base64.StdEncoding.EncodeToString(formatRegions(next))); err != nil {
 		return "", err
 	}
 	url, err := gh(r.ctx, "pr", "create", "--repo", repo, "--base", "main", "--head", branch, "--title", title,
-		"--body", "`ts-orch region add|rm "+r.code+"`: the region host's live release listener (TLS :4222) differs from regions.json.")
+		"--body", "`ts-orch region add|rm "+r.code+"`: the region's HTTPS observer membership differs from regions.json.")
 	if err != nil {
 		if url, err = gh(r.ctx, "pr", "view", branch, "--repo", repo, "--json", "url", "--jq", ".url"); err != nil {
 			return "", err

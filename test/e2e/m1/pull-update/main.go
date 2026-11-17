@@ -27,6 +27,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/releaseclient"
+	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -68,6 +70,11 @@ func candidateMode() string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "nudge-client" {
+		must(releaseclient.SendNudge(context.Background(), os.Args[2:], os.Stdout))
+		return
+	}
+
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "preflight" {
 		return
 	}
@@ -143,9 +150,9 @@ func runHost(args []string) {
 		if listen != "0" {
 			port, err := strconv.Atoi(listen)
 			must(err)
-			auth, err := releasepush.NewAuth(h.Verifier)
+			auth, err := releaseclient.NewAuth(h.Verifier)
 			must(err)
-			options, err := releasepush.Options(state, auth)
+			options, err := releaseclient.Options(state, auth)
 			must(err)
 			options.Host, options.Port = "127.0.0.1", port
 			listener, err = server.NewServer(options)
@@ -157,8 +164,8 @@ func runHost(args []string) {
 			must(h.Serve(inProcess))
 			if region == "gru" {
 				var pin bytes.Buffer
-				must(releasepush.Pin([]string{"--state", state}, &pin))
-				regions, err := json.Marshal([]releasepush.Region{{Region: region, NATS: listener.ClientURL(), SPKISHA256: strings.TrimSpace(pin.String())}})
+				must(releaseclient.Pin([]string{"--state", state}, &pin))
+				regions, err := json.Marshal([]releaseclient.Region{{Region: region, NATS: listener.ClientURL(), SPKISHA256: strings.TrimSpace(pin.String())}})
 				must(err)
 				path := filepath.Join(filepath.Dir(dir), "regions.json")
 				must(os.WriteFile(path+".tmp", regions, 0o600))
@@ -288,7 +295,7 @@ type lane struct {
 	self      []byte
 	revision  string
 	github    *fakeGitHub
-	sigstore  *testSigstore
+	sigstore  *sigstore.Authority
 	hosts     map[string]*host
 	conn      *nats.Conn
 	outages   *outages
@@ -353,7 +360,7 @@ func journey(bin, part string) {
 		cancel()
 		supervisors.Wait()
 	}()
-	l := &lane{bin: bin, self: selfBytes, revision: revision, github: newGitHub(), sigstore: newSigstore(),
+	l := &lane{bin: bin, self: selfBytes, revision: revision, github: newGitHub(), sigstore: sigstore.New(),
 		hosts: map[string]*host{}, outages: &outages{down: map[string]map[string]bool{}}, progress: map[string]chan pullrelease.Status{},
 		last: map[string]pullrelease.Status{}, ready: make(chan [2]string, 1024), downs: make(chan string, 1024), regionsGR: filepath.Join(work, "regions.json")}
 	defer func() {
@@ -376,7 +383,7 @@ func journey(bin, part string) {
 	}()
 	defer l.github.server.Close()
 	rootFile := filepath.Join(work, "trusted-root.json")
-	must(os.WriteFile(rootFile, l.sigstore.trustedRoot(), 0o600))
+	must(os.WriteFile(rootFile, l.sigstore.TrustedRoot(), 0o600))
 	meshes := startMesh(work)
 	for _, mesh := range meshes {
 		defer mesh.Shutdown()
@@ -452,7 +459,7 @@ func (l *lane) pulls(ctx context.Context) {
 	l.github.compare[revision+"..."+older] = comparison{status: "behind", base: revision, mergeBase: older}
 	l.github.mu.Unlock()
 	c100 := l.candidate("c100")
-	r0 := l.github.publish(older, "100", asset, c100, c100, l.sigstore.bundle(mainIdentity, older, "100", map[string][]byte{asset: c100}))
+	r0 := l.github.publish(older, "100", asset, c100, c100, l.sigstore.Bundle(sigstore.MainIdentity, older, "100", map[string][]byte{asset: c100}))
 	newer := l.waitStatus(ctx, "sjc", "sjc finds every host already newer than "+r0.tag, func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseNewer && s.Target != nil && s.Target.Tag() == r0.tag
 	})
@@ -476,10 +483,10 @@ func (l *lane) pulls(ctx context.Context) {
 	l.requireVersions(ctx, r1.digest, l.region("gru", "sjc")...)
 	fmt.Printf("nudge -> gru pulled %s; lost nudge -> sjc polled it; every host verified and on it\n%s\n%s\n", r1.tag, gru, sjc)
 
-	wrongWorkflow := identity{workflow: "TerraScale/ts-orchestrator/.github/workflows/lint-cache.yml@refs/heads/main", ref: "refs/heads/main", trigger: "push"}
-	wrongBranch := identity{workflow: "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/feature", ref: "refs/heads/feature", trigger: "push"}
-	unlogged := mainIdentity
-	unlogged.unlogged = true
+	wrongWorkflow := sigstore.Identity{Workflow: "TerraScale/ts-orchestrator/.github/workflows/lint-cache.yml@refs/heads/main", Ref: "refs/heads/main", Trigger: "push"}
+	wrongBranch := sigstore.Identity{Workflow: "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/feature", Ref: "refs/heads/feature", Trigger: "push"}
+	unlogged := sigstore.MainIdentity
+	unlogged.Unlogged = true
 	c102, c103, c104, c105, c106, c107, c108, c109 := l.candidate("c102"), l.candidate("c103"), l.candidate("c104"), l.candidate("c105"), l.candidate("c106"), l.candidate("c107"), l.candidate("c108"), l.candidate("c109")
 	tampered := append(bytes.Clone(c105[:len(c105)-1]), c105[len(c105)-1]^1)
 	diverged, forked, detached := strings.Repeat("e", 40), strings.Repeat("d", 40), strings.Repeat("b", 40)
@@ -498,14 +505,14 @@ func (l *lane) pulls(ctx context.Context) {
 		reason string
 		direct bool
 	}{
-		{"wrong workflow", "102", revision, c102, c102, l.sigstore.bundle(wrongWorkflow, revision, "102", map[string][]byte{asset: c102}), "not signed by", true},
-		{"wrong branch", "103", revision, c103, c103, l.sigstore.bundle(wrongBranch, revision, "103", map[string][]byte{asset: c103}), "not signed by", true},
+		{"wrong workflow", "102", revision, c102, c102, l.sigstore.Bundle(wrongWorkflow, revision, "102", map[string][]byte{asset: c102}), "not signed by", true},
+		{"wrong branch", "103", revision, c103, c103, l.sigstore.Bundle(wrongBranch, revision, "103", map[string][]byte{asset: c103}), "not signed by", true},
 		{"unattested", "104", revision, c104, c104, nil, "not found", false},
-		{"tampered", "105", revision, c105, tampered, l.sigstore.bundle(mainIdentity, revision, "105", map[string][]byte{asset: c105}), "sha256 differs", false},
-		{"not a descendant", "106", diverged, c106, c106, l.sigstore.bundle(mainIdentity, diverged, "106", map[string][]byte{asset: c106}), "does not descend", true},
-		{"no certificate timestamp", "107", revision, c107, c107, l.sigstore.bundle(unlogged, revision, "107", map[string][]byte{asset: c107}), "SCT", true},
-		{"ahead of another merge base", "108", forked, c108, c108, l.sigstore.bundle(mainIdentity, forked, "108", map[string][]byte{asset: c108}), "does not descend", true},
-		{"comparison ends elsewhere", "109", detached, c109, c109, l.sigstore.bundle(mainIdentity, detached, "109", map[string][]byte{asset: c109}), "does not end at", true},
+		{"tampered", "105", revision, c105, tampered, l.sigstore.Bundle(sigstore.MainIdentity, revision, "105", map[string][]byte{asset: c105}), "sha256 differs", false},
+		{"not a descendant", "106", diverged, c106, c106, l.sigstore.Bundle(sigstore.MainIdentity, diverged, "106", map[string][]byte{asset: c106}), "does not descend", true},
+		{"no certificate timestamp", "107", revision, c107, c107, l.sigstore.Bundle(unlogged, revision, "107", map[string][]byte{asset: c107}), "SCT", true},
+		{"ahead of another merge base", "108", forked, c108, c108, l.sigstore.Bundle(sigstore.MainIdentity, forked, "108", map[string][]byte{asset: c108}), "does not descend", true},
+		{"comparison ends elsewhere", "109", detached, c109, c109, l.sigstore.Bundle(sigstore.MainIdentity, detached, "109", map[string][]byte{asset: c109}), "does not end at", true},
 	}
 	for _, refusal := range refusals {
 		release := l.github.publish(refusal.sha, refusal.run, asset, refusal.binary, refusal.served, refusal.bundle)
@@ -727,9 +734,9 @@ func (l *lane) push(ctx context.Context, run string, binary []byte) releasepush.
 	l.github.mu.Lock()
 	token := l.github.token
 	l.github.mu.Unlock()
-	regions, err := releasepush.LoadRegions(l.regionsGR)
+	regions, err := releaseclient.LoadRegions(l.regionsGR)
 	must(err)
-	conn, err := releasepush.Dial(regions[0], token)
+	conn, err := releaseclient.Dial(regions[0], token)
 	must(err)
 	defer conn.Close()
 	data, err := json.Marshal(releasepush.OrchRelease{SHA: l.revision, Token: token, Binaries: map[string]releasepush.Binary{
@@ -761,7 +768,7 @@ func (l *lane) candidate(mode string) []byte {
 
 func (l *lane) publishGood(run, mode string) published {
 	binary := l.candidate(mode)
-	return l.github.publish(l.revision, run, asset, binary, binary, l.sigstore.bundle(mainIdentity, l.revision, run, map[string][]byte{asset: binary}))
+	return l.github.publish(l.revision, run, asset, binary, binary, l.sigstore.Bundle(sigstore.MainIdentity, l.revision, run, map[string][]byte{asset: binary}))
 }
 
 func (l *lane) release(p published) releaseattest.Release {
@@ -770,7 +777,9 @@ func (l *lane) release(p published) releaseattest.Release {
 }
 
 func (l *lane) nudge(ctx context.Context) string {
-	command := exec.CommandContext(ctx, l.bin, "release", "nudge", "--regions", l.regionsGR)
+	driver, err := os.Executable()
+	must(err)
+	command := exec.CommandContext(ctx, driver, "nudge-client", "--regions", l.regionsGR)
 	command.Env = append(os.Environ(), "ACTIONS_ID_TOKEN_REQUEST_URL="+l.github.server.URL+"/token?api-version=2.0", "ACTIONS_ID_TOKEN_REQUEST_TOKEN=e2e")
 	output, err := command.CombinedOutput()
 	require(err == nil, "release nudge: %v: %s", err, output)

@@ -63,8 +63,8 @@ of these hold:
 - `sequence` is higher than the one the node already has;
 - each binary's `sha256` matches the bytes at its `url`.
 
-CI runs `ts-orch release nudge` to tell every region to look now. The nudge
-only shortens the wait. It carries no authority.
+Discovery runs on the hosts. CI publishes attested artifacts and observes
+their serving verdict through authenticated HTTPS; it sends no NATS nudge.
 
 Rollout order is fixed. One node updates first. Then the rest of its region.
 Then the next region. Two nodes of one region never update at once. A node
@@ -82,8 +82,10 @@ bundle production nodes pull. Staging is its own environment with its own
 Vault, mesh CA and region list; see
 [region bootstrap](region-bootstrap.md#staging-region).
 
-Today: CI pushes each build over NATS port 4222 with a GitHub OIDC token
-(`internal/releasepush`). That path is removed after C3b is proven (C14).
+Hosts discover attested orchestrator releases and selected application images.
+CI publishes artifacts and reads authenticated rollout observations on HTTPS 443.
+See [network exposure](network.md) for listener owners, the selection contract
+and staged removal of the live public 4222 rules.
 
 ## Identity and access
 
