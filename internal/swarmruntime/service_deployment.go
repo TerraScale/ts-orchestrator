@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 )
 
 // Deployment is the signed workflow identity and approved immutable image.
@@ -26,7 +28,7 @@ func (d *Deployment) Validate() error {
 		return nil
 	}
 	run, err := strconv.ParseUint(d.RunID, 10, 64)
-	if err != nil || run == 0 || d.Repository == "" || !deploymentRevision.MatchString(d.Revision) || !deploymentImage.MatchString(d.Image) {
+	if err != nil || run == 0 || d.Repository == "" || !deploymentRevision.MatchString(d.Revision) || (!deploymentImage.MatchString(d.Image) && !appregistry.IsImage(d.Image)) {
 		return errors.New("invalid deployment identity")
 	}
 	return nil
@@ -78,7 +80,7 @@ func (d *Deployment) Accepts(next *Deployment) error {
 func handsOff(floor, next *Deployment) bool {
 	const image = "ghcr.io/terrascale/ts-dashboard@"
 	return floor.Repository == "TerraScale/ts-dashboard" && next.Repository == "TerraScale/terrascale" &&
-		strings.HasPrefix(floor.Image, image) && dashboardImage(next.Image)
+		strings.HasPrefix(floor.Image, image) && DeploymentImageBelongsToService("ts-dashboard", next.Image)
 }
 
 const (
@@ -95,7 +97,11 @@ func dashboardImage(image string) bool {
 // DeploymentImageBelongsToService binds retained and current signed images to a service.
 // Dashboard retains its old package only for persisted floors and rollback state.
 func DeploymentImageBelongsToService(name, image string) bool {
-	return strings.HasPrefix(image, "ghcr.io/terrascale/"+name+"@") || name == "ts-dashboard" && dashboardImage(image)
+	pkg := appregistry.Package(image)
+	if strings.HasPrefix(image, "ghcr.io/") {
+		return pkg == name || name == "ts-dashboard" && dashboardImage(image)
+	}
+	return pkg == name && name != "ts-dashboard" || name == "ts-dashboard" && pkg == "terrascale-dashboard"
 }
 
 func validateServiceDeployment(name string, deployment, floor *Deployment) error {

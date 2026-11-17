@@ -95,6 +95,8 @@ func prepareImage(ctx context.Context, root, specFile string) {
 	spec.Image = "ghcr.io/terrascale/terrabase@" + target.Digest.String()
 	_, err = client.ImageService().Create(ctx, images.Image{Name: spec.Image, Target: target})
 	must(err)
+	_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(spec.Image, "ghcr.io/terrascale/", "", 1), Target: target})
+	must(err)
 	for _, name := range []string{"app-canary", "install-canary", "invalid-canary", "nonce-canary"} {
 		_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(spec.Image, "/terrabase@", "/"+name+"@", 1), Target: target})
 		must(err)
@@ -110,6 +112,8 @@ func prepareImage(ctx context.Context, root, specFile string) {
 	must(err)
 	replacementName := "ghcr.io/terrascale/terrabase@" + replacement.Digest.String()
 	_, err = client.ImageService().Create(ctx, images.Image{Name: replacementName, Target: replacement})
+	must(err)
+	_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(replacementName, "ghcr.io/terrascale/", "", 1), Target: replacement})
 	must(err)
 	must(os.WriteFile(filepath.Join(root, "replacement-image"), []byte(replacementName), 0600))
 }
@@ -598,7 +602,8 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	}
 	replacementImage, err := os.ReadFile(filepath.Join(roots[0], "replacement-image"))
 	must(err)
-	spec.Image = string(replacementImage)
+	replacementBefore := terrabaseTasks(ctx, roots[0])
+	spec.Image = strings.Replace(string(replacementImage), "ghcr.io/terrascale/", "", 1)
 	generation := time.Now().UnixNano()
 	apply(generation, order[1])
 	initial := evidence(ctx, roots[0], generation, func(r receipt) bool { return !r.Bake.Started.IsZero() })
@@ -636,6 +641,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	require(next.Bake.Reason == "", "later region bake failed: "+next.Bake.Reason)
 	observe(ctx, conn, func(s map[string]state) bool { return s[order[1]].Ready[spec.Name] == generation })
 	require(len(initial.Runtime.Tasks) > 0 && initial.Runtime.Tasks[0].Image == spec.Image && initial.Runtime.Tasks[0].Generation == generation, "image change did not replace the task")
+	require(replacementBefore[initial.Runtime.Tasks[0].TaskID] == nil, "a different digest retained the preceding task")
 	logStep("abrupt agent exit restarts a full bake; the next region advances automatically")
 
 	shortage := states(ctx, conn)[order[0]].Serving[lagging.Name]
@@ -643,6 +649,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	require(health(ctx, releases, spec.Name) == "ok", "unrelated replica shortage blocked A")
 	logStep("named service health passes while another service is short a replica")
 	slow := spec
+	slow.Image = lagging.Image
 	slow.Name, slow.Port, slow.Args, slow.Regions = "e2e-slow", 18087, []string{"--port", "18087"}, nil
 	command(ctx, names[0], roots[0], slow)
 	must(exec.CommandContext(ctx, "ip", "netns", "exec", names[0], "iptables", "-A", "OUTPUT", "-o", "lo", "-p", "tcp", "--dport", "18087", "-j", "DROP").Run())

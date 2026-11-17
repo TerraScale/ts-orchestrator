@@ -333,7 +333,7 @@ func (a swarmApplier) PrePull(ctx context.Context, spec swarmruntime.ServiceSpec
 		return err
 	}
 	defer executor.Close()
-	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(EnvironmentOf(a.region).GHCRPullToken)); err != nil {
+	if err := executor.SetRegistryResolver(swarmruntime.AppRegistryResolver(a.region, EnvironmentOf(a.region).GHCRPullToken)); err != nil {
 		return err
 	}
 	return executor.PrePull(ctx, spec.Image, swarm.Annotations.Labels)

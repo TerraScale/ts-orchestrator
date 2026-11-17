@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/fsnotify/fsnotify"
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
 )
 
@@ -115,6 +116,10 @@ func budgetCases(ctx context.Context, conn, releases *nats.Conn, nodes, swarms [
 
 func unsavedCase(ctx context.Context, conn, releases *nats.Conn, nodes []*process, boot func(int) *process, roots, order, addresses []string, spec swarmruntime.ServiceSpec) {
 	previous := newGeneration(states(ctx, conn), order[0])
+	before := make([]map[string]*api.Task, len(roots))
+	for i, root := range roots {
+		before[i] = terrabaseTasks(ctx, root)
+	}
 	signedRelease(ctx, releases, spec.Image, "99")
 	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > previous })
 	generation := newGeneration(states(ctx, conn), order[0])
@@ -150,5 +155,33 @@ func unsavedCase(ctx context.Context, conn, releases *nats.Conn, nodes []*proces
 	unsavedPassed := evidence(ctx, roots[0], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() })
 	require(unsavedPassed.Bake.Reason == "" && unsavedPassed.Bake.Finished.Sub(restartedUnsaved.Bake.Started) >= rollout.BakeWindow, "unsaved failure restart did not run a full healthy window")
 	evidence(ctx, roots[1], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() && r.Bake.Reason == "" })
+	for i, root := range roots {
+		after := terrabaseTasks(ctx, root)
+		for id := range after {
+			require(before[i][id] != nil, "same-digest registry migration created a successor task")
+		}
+		for id, task := range before[i] {
+			if task.DesiredState == api.TaskStateRunning && task.Status.State == api.TaskStateRunning {
+				retained := after[id]
+				require(retained != nil && retained.DesiredState == api.TaskStateRunning && retained.Status.State == api.TaskStateRunning, "same-digest registry migration stopped the serving task")
+			}
+		}
+	}
+	logStep("same package and digest retain the running tasks without successors across the registry migration")
 	logStep("failure write refused reports failed unsaved; restart runs a full new window whose pass admits the next region")
+}
+
+func terrabaseTasks(ctx context.Context, root string) map[string]*api.Task {
+	client, conn, err := swarmruntime.DialControl(root)
+	must(err)
+	defer conn.Close()
+	listed, err := client.ListTasks(ctx, &api.ListTasksRequest{})
+	must(err)
+	tasks := map[string]*api.Task{}
+	for _, task := range listed.Tasks {
+		if task.ServiceAnnotations.Labels[swarmruntime.LabelServiceSpec] == "terrabase" {
+			tasks[task.ID] = task
+		}
+	}
+	return tasks
 }

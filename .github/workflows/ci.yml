@@ -146,6 +146,7 @@ jobs:
           - {lane: metadata-upgrade, entry: metadata-upgrade.sh, timeout: 8}
           - {lane: node-upgrade, entry: node-upgrade.sh, timeout: 10}
           - {lane: rollout, entry: rollout.sh, timeout: 10}
+          - {lane: ocir, entry: ocir.sh, timeout: 3, packages: "./test/e2e/m1/ocir"}
           - {lane: oracle-regions, entry: oracle-regions.sh, timeout: 7, packages: "./test/e2e/m1/oracle-regions"}
           - {lane: release-probation, entry: release-probation.sh, timeout: 7, packages: "./test/e2e/m1/release-probation"}
           - {lane: region-fallback, entry: region-fallback.sh, timeout: 4, packages: "./test/e2e/m1/oracle-regions"}

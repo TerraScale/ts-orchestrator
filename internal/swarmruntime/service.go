@@ -635,9 +635,15 @@ func rollbackError(ctx context.Context, client api.ControlClient, service *api.S
 // sameWorkload reports whether two revisions run the same task, whatever their
 // annotations, replicas or force-update counter.
 func sameWorkload(a, b *api.ServiceSpec) bool {
-	at, bt := a.Task.Copy(), b.Task.Copy()
+	at, bt := api.CanonicalTaskSpec(&a.Task), api.CanonicalTaskSpec(&b.Task)
 	at.ForceUpdate, bt.ForceUpdate = 0, 0
 	return proto.Equal(at, bt) && proto.Equal(a.Endpoint, b.Endpoint)
+}
+
+func sameServiceSpec(a, b *api.ServiceSpec) bool {
+	a, b = a.Copy(), b.Copy()
+	a.Task, b.Task = *api.CanonicalTaskSpec(&a.Task), *api.CanonicalTaskSpec(&b.Task)
+	return proto.Equal(a, b)
 }
 
 func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec) (*api.Service, error) {
@@ -662,7 +668,7 @@ func CompleteServiceSpec(ctx context.Context, client api.ControlClient, s Servic
 		if err != nil {
 			return err
 		}
-		if proto.Equal(&current.Spec, want) {
+		if sameServiceSpec(&current.Spec, want) {
 			return nil
 		}
 		select {
@@ -725,10 +731,10 @@ func applyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 		if s.ReplicaBounds != nil && current.Spec.GetReplicated() != nil && spec.GetReplicated() != nil && current.Spec.Annotations.Labels[LabelReplicaBounds] == spec.Annotations.Labels[LabelReplicaBounds] {
 			spec.GetReplicated().Replicas = current.Spec.GetReplicated().Replicas
 		}
-		if proto.Equal(&current.Spec, spec) {
+		if sameServiceSpec(&current.Spec, spec) {
 			return current, nil
 		}
-		if previous != nil && (!proto.Equal(&current.Spec, &previous.Spec) || !sameWorkload(&current.Spec, spec) ||
+		if previous != nil && (!sameServiceSpec(&current.Spec, &previous.Spec) || !sameWorkload(&current.Spec, spec) ||
 			!proto.Equal(current.Spec.GetReplicated(), spec.GetReplicated()) || !proto.Equal(current.Spec.GetGlobal(), spec.GetGlobal())) {
 			return nil, errors.New("requested service spec was superseded before metadata completion")
 		}
