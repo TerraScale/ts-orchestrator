@@ -37,6 +37,7 @@ async function request(url, options = {}, limit = 65_536) {
 
 async function endpoint([name, kind, region]) {
   const host = `${name}.terrascale.tech`;
+  const started = performance.now();
   try {
     if (kind === "pg") {
       const socket = connect({ hostname: host, port: 5432 }, { secureTransport: "on" });
@@ -55,7 +56,7 @@ async function endpoint([name, kind, region]) {
         : value.status === "ready" && (kind === "auth" || regions.includes(value.region) && (!region || value.region === region));
       if (!ready) return { key: host, reason: "not ready" };
     }
-    return { key: host, reason: "" };
+    return { key: host, reason: "", duration_seconds: (performance.now() - started) / 1_000, region: region ?? "global" };
   } catch {
     return { key: host, reason: "unreachable or invalid response" };
   }

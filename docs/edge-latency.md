@@ -59,6 +59,114 @@ are excluded. Long streams are observed when their handler finishes.
 For hijacked WebSockets, total follows the proxy lifetime and upstream includes
 upstream reads; concurrent client writes are not upstream time.
 
+## Staging release budget
+
+`deploy/observability/production/latency-budgets.json` is the single budget
+table. Each public name has fresh and kept connection p50/p95/p99 limits in
+seconds and an edge handler p95 limit. PostgreSQL uses the fresh limits for a
+verified direct TLS connect to port 5432; it does not authenticate a session or
+execute SQL. The table covers the global api, dash, auth and pg names and each
+regional api and pg name.
+
+The initial outside limits use X5's 2026-11-16 Brazil observations: gru fresh
+first byte 61–109 ms and kept first byte 18–36 ms; sjc/fra fresh first byte
+about 640 ms. The initial near limits are 120/150/200 ms fresh and 50/75/100 ms
+kept. Distant limits are 700/800/1,000 ms fresh and 250/300/400 ms kept.
+These are provisional envelopes, not measured percentiles. In particular,
+distant kept limits have no X5 kept baseline. Edge's provisional 100 ms p95
+requires calibration against deployed histogram data before this gate ships.
+Each pool vantage must be measured before accepting these limits; X5 alone
+does not establish the geography of a pool server.
+
+Build the sampler with `go build -o /tmp/staging-latency ./scripts/latency`.
+C16 must supply a staging deployment manifest with its forty-character
+`revision` and `targets`, each containing the canonical production `name`,
+the staging `host` and the expected serving `region`. Every budgeted name
+must appear exactly once. A staging host must contain the DNS label
+`staging` below `terrascale.tech`; production names are rejected before
+requests start. The sampler rejects a revision differing from `GITHUB_SHA`.
+The manifest is deployment inventory, not a configurable feature switch.
+
+On each of beta, delta and mariogk-dev, run the same candidate sampler with
+the manifest and budget table from that revision:
+
+```sh
+GITHUB_SHA=<release-sha> /tmp/staging-latency latency-budgets.json manifest.json > <server>.json
+```
+
+Each HTTP name gets 1,000 fresh and 1,000 kept samples against `/readyz`.
+One initial connection warms the kept path and is excluded. The sampler
+requires actual connection reuse for every kept observation, verified TLS,
+HTTP 200, a bounded JSON readiness body and the expected API region. It
+records DNS, TCP connect, TLS, first byte and complete response separately;
+kept requests have zero connection phases. Nearest-rank p50/p95/p99 are
+reported for all phases, and both first byte and total must meet the table.
+Errors fail the lane without a retry. All sampling targets staging only.
+
+C16's staging job must upload `staging-latency-<release-sha>` containing
+`manifest.json`, `beta.json`, `delta.json` and `mariogk-dev.json`. The
+release workflow downloads that same-run artifact immediately before
+the release attestation publication. Its verifier checks revision, fixed vantages,
+the complete name/path inventory, 1,000 samples, all five phases, ordered
+finite quantiles and the current budgets. A missing artifact or failed
+verification blocks production. C16 must add the staging producer to
+`release-publish.needs`; until that producer exists the publication step fails
+closed. This change must remain draft until C16 is wired and staging proof
+has passed. An absent-manifest dry run proves rejection, not latency.
+
+After C19, production pulls attested releases rather than receiving a CI
+push. This draft preserves that publication path and places its provisional
+proof consumer before attestation publication. It cannot remain there when
+staging itself needs that attestation to boot the candidate: the authenticated
+staging verdict bridge documented in `docs/region-bootstrap.md` must bind
+latency proof to production admission after staging can pull the candidate.
+C16 also provisions a `stg` region with no public DNS names; its NLB endpoint
+contract must replace the staging DNS inventory and production-region labels
+assumed by this draft sampler. These are unresolved integration dependencies,
+not a functioning staging-first pull gate. Keep this PR draft.
+
+The C26 Worker adds `duration_seconds` to each successful scheduled endpoint
+observation, retaining its normal one-request-per-name five-minute cadence.
+Reading the report sends no probes. Workers Fetch exposes neither DNS/TCP/TLS
+phase timings nor control of fresh versus reused connections. Its HTTP
+duration includes readiness body consumption, and PostgreSQL duration covers
+TLS connection and close. It cannot substitute for the pool's phase samples.
+The Worker currently probes production only; staging targets, a stable outside
+sample set and promotion integration remain an explicit C16/C26 dependency.
+The current gate validates pool proof only and must not be declared complete
+until that outside staging lane is supplied.
+
+## Production slowdown alert
+
+The production monitoring renderer reads the same table and generates
+`EdgeLatencyBudgetExceeded` for every HTTP name in every discovered region.
+It aggregates the total-stage buckets across hosts by `name`, `region` and
+`le`, computes p95 over fifteen minutes, and requires an over-budget result
+for another fifteen minutes. The critical alert retains `name` and `region`
+and uses the existing Alertmanager relay route. No outside production
+requests are added. Handler p95 includes long streams; inspect upstream time
+and request mix before interpreting it as connection latency. PostgreSQL
+is not covered by this HTTP histogram alert.
+
+Before enabling the rules, evaluate both the p95 expression and its budget
+comparison against current Prometheus data, retaining the nonempty baseline
+and empty comparison as evidence. For the initial common edge limit:
+
+```promql
+histogram_quantile(0.95,
+  sum by (name, region, le) (
+    rate(ts_orch_edge_request_duration_seconds_bucket{stage="total"}[15m])
+  )
+) > 0.1
+```
+
+On 2026-11-16 the existing gru production Prometheus returned an empty
+vector even without the comparison: no histogram baseline was available.
+That is missing telemetry, not proof of healthy latency. Deploy C20's
+histogram and activate C3's scrape coverage, then collect representative
+per-name/per-region p95 values and recalibrate the table before approval.
+No live alert installation or healthy-fleet proof is claimed by this draft.
+
 ## TLS and drain
 
 Public TLS offers h2 and HTTP/1.1. Certificate selection reads the in-memory
