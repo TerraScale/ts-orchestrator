@@ -645,9 +645,6 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 		return err
 	}
 	defer second.stop()
-	if err := second.wait(ctx, "edge certificate renewal deferred name=existing.e2e.test", 1); err != nil {
-		return err
-	}
 	if err := second.wait(ctx, "edge readiness changed ready=true", 1); err != nil {
 		return err
 	}

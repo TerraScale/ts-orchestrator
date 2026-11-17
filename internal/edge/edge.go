@@ -107,6 +107,7 @@ func newEdge(stateDir string) *Edge {
 		netbirdDashboard: netbirddashboard.New(stateDir),
 	}
 	e.bootstrap, e.bootstrapErr = rolloutmaintenance.Open(stateDir)
+	e.inventoryMissing.Store(true)
 	e.peers = durationTransport{newPeerTransport(e)}
 	e.routes.Store(&map[string]int{})
 	e.postgres.Store(&map[string]int{})

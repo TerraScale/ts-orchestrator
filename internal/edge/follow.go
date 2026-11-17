@@ -33,8 +33,8 @@ func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeI
 	proofRef := ""
 	for {
 		current, ok := inventory()
-		e.inventoryMissing.Store(!ok)
 		if !ok {
+			e.inventoryMissing.Store(true)
 			e.SetServiceRoutes(map[string]int{}, map[string]int{}, map[string]string{}, nil)
 			e.SetReadinessRoutes(nil)
 		} else {
@@ -54,6 +54,7 @@ func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeI
 			e.SetServiceRoutes(current.Web, current.Postgres, current.Services, e.ReadyServices())
 			e.SetReadinessRoutes(routes)
 			e.SetServiceRoutes(current.Web, current.Postgres, current.Services, localReadyServices(ctx, routes, current.Services))
+			e.inventoryMissing.Store(false)
 		}
 		select {
 		case <-ctx.Done():

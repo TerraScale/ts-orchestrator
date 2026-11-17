@@ -18,6 +18,12 @@ service routing and cannot be answered by another host on behalf of the edge
 being checked. Draining returns 503 immediately and withdraws the edge's
 advertised ready services.
 
+Every edge starts with its route inventory unloaded. A manager reports
+`routes unavailable` until its service and readiness tables have been stored;
+a mesh hostname does not bypass this condition. A successfully loaded empty
+inventory is valid, so a region with no application services can serve its
+native mesh name once its certificate is ready.
+
 Release health joins the edge's infrastructure conditions (listeners, routes,
 bootstrap, ingress, backends) on every host. The one exception is a worker's
 `edge inventory unavailable`: a worker without a valid inventory answers 503 to
