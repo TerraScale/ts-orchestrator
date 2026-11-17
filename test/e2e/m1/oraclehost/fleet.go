@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -41,9 +42,10 @@ const (
 )
 
 type Region struct {
-	Name      string
-	OCIRegion string
-	Hosts     []*Host
+	Name          string
+	OCIRegion     string
+	CompartmentID string
+	Hosts         []*Host
 }
 
 type Host struct {
@@ -83,7 +85,11 @@ func New(ctx context.Context, work, binary string, registry string, regions []st
 		if !ok {
 			return nil, fmt.Errorf("%s is not a catalog region", name)
 		}
-		region := &Region{Name: name, OCIRegion: entry.OCIRegion}
+		document, err := fleet.Embedded().Region(name)
+		if err != nil {
+			return nil, err
+		}
+		region := &Region{Name: name, OCIRegion: entry.OCIRegion, CompartmentID: document.CompartmentID}
 		for i := 1; i <= hostsPerRegion[r]; i++ {
 			octet := 10*(r+1) + i
 			netBird := netBirdMesh.Addr().As4()

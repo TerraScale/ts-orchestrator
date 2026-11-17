@@ -15,10 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
+	"github.com/TerraScale/ts-orchestrator/internal/fleetregion"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -170,14 +169,7 @@ func ownRegion(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if document := fleet.Embedded(); document.IsStaging(region, compartment) {
-		return document.Staging.Label, nil
-	}
-	entry, ok := catalog.CellForOCIRegion(region)
-	if !ok {
-		return "", fmt.Errorf("OCI region %q is not a catalog region", region)
-	}
-	return entry.Name(), nil
+	return fleetregion.Of(region, compartment)
 }
 
 func instanceValue(ctx context.Context, field string) (string, error) {

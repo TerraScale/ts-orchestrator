@@ -319,8 +319,11 @@ one with the most A1 headroom (`us-sanjose-1` used 4 of 250 cores) that is
 not the home region, close to GitHub's runners that push releases to it.
 
 **Isolation.** A node finds its region from IMDS `canonicalRegionName` and
-`compartmentId`: an instance in the staging compartment is `stg`, any other
-instance is the catalog cell of its OCI region. A `stg` node uses its own
+`compartmentId`: it is the fleet document region (or the staging entry) whose
+OCI region and compartment both match (`internal/fleetregion`). The OCI region
+name alone never names a region, so `us-sanjose-1` is `stg` in `stg-1-control`
+and `sjc` in `sjc-1-control`, and an instance in no fleet compartment refuses
+to start. Instance secrets use the same lookup to find `<label>-vault`. A `stg` node uses its own
 environment (`mesh.EnvironmentOf`): the Vault `stg-vault` in its compartment
 for the mesh CA seed `ts-orch-mesh-key`, its join material `ts-orch-join-stg`,
 `stg-1-terrabase-nats-token`, `stg-1-ghcr-pull-token` and its dashboard
@@ -353,8 +356,11 @@ gateways and subnets; `region apply` then owns the NAT gateway, private routes,
 node NSG, nodes and load balancer. The `nlb` pass needs a running node to
 balance to, so it runs after `compute`.
 
-Nodes run the newest attested release, so a release whose fleet document
-holds the staging IDs must exist before `region apply stg compute`. Store the
+Nodes boot the newest attested release. The compute pass reads that release's
+own `deploy/fleet/fleet.json` (at its commit) and refuses to create the
+instance configuration when the release has no region with this label in this
+compartment, because such nodes would not find their region; `region plan`
+shows the same verdict as its `release` row. Store the
 GHCR pull token as `stg-1-ghcr-pull-token` in `stg-vault` before platform
 services run there.
 

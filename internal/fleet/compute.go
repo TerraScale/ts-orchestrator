@@ -3,17 +3,14 @@ package fleet
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
-	"time"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/nodeinit"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/compute"
-	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
@@ -114,21 +111,16 @@ func launch(ctx context.Context, client core.ComputeClient, region Region) (comp
 	if chosen < 0 {
 		return compute.Launch{}, fmt.Errorf("no Canonical Ubuntu 24.04 %s image for %s", arch, region.Nodes.Shape)
 	}
-	newest, err := releaseattest.NewSource().Newest(ctx)
-	if err != nil {
-		return compute.Launch{}, fmt.Errorf("newest release: %w", err)
-	}
-	verifier, err := releaseattest.PublicGood()
+	release, err := newestNodeRelease(ctx)
 	if err != nil {
 		return compute.Launch{}, err
 	}
-	attested, err := verifier.Attested(ctx, &http.Client{Timeout: time.Minute}, newest)
-	if err != nil {
-		return compute.Launch{}, fmt.Errorf("attest %s: %w", newest.Tag(), err)
+	if err := release.knows(region); err != nil {
+		return compute.Launch{}, fmt.Errorf("%w; refusing to launch %s nodes on it", err, region.Label)
 	}
-	binary, ok := attested.Binaries[arch]
+	binary, ok := release.attested.Binaries[arch]
 	if !ok {
-		return compute.Launch{}, fmt.Errorf("attested release %s has no %s binary", attested.Tag(), arch)
+		return compute.Launch{}, fmt.Errorf("attested release %s has no %s binary", release.attested.Tag(), arch)
 	}
 	script, err := nodeinit.PoolCloudInit(m1.Files, binary.URL, binary.SHA256)
 	if err != nil {

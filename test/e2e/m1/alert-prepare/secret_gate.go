@@ -13,6 +13,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/cli"
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"golang.org/x/sys/unix"
 )
@@ -46,12 +47,16 @@ func secretGate(values map[string]string, seen *map[string]bool, denied *string,
 			}
 		}
 	}
-	region := "sa-saopaulo-1"
+	gru, err := fleet.Embedded().Region("gru")
+	must(err)
+	sjc, err := fleet.Embedded().Region("sjc")
+	must(err)
+	region := gru
 	listener, err := net.Listen("tcp", "169.254.169.254:80")
 	must(err)
 	metadata := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require(r.URL.Path == "/opc/v2/instance/", "preflight must use host instance metadata")
-		must(json.NewEncoder(w).Encode(map[string]string{"canonicalRegionName": region, "compartmentId": "ocid1.compartment.oc1..lane"}))
+		must(json.NewEncoder(w).Encode(map[string]string{"canonicalRegionName": region.OCIRegion, "compartmentId": region.CompartmentID}))
 	})}
 	go metadata.Serve(listener)
 	defer metadata.Close()
@@ -66,11 +71,11 @@ func secretGate(values map[string]string, seen *map[string]bool, denied *string,
 	for name := range manual {
 		require((*seen)[name], "activation preflight must match manual reference reads")
 	}
-	region = "us-sanjose-1"
+	region = sjc
 	*seen = map[string]bool{}
 	must(cli.Run(ctx, []string{"release", "preflight", "secrets"}, io.Discard))
 	require(!(*seen)["gru-1-ts-auth-master-key"] && !(*seen)["gru-1-ts-alerts-ntfy-topic"], "manual gate must use only the host region's requirements")
-	region = "sa-saopaulo-1"
+	region = gru
 	*denied = "gru-1-ts-alerts-ntfy-topic"
 	gateCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
