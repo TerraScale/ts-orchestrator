@@ -435,12 +435,15 @@ try:
         except queue.Empty:
             break
     assert len(pushes()) == before + 1 and len(groups("firing", {"LaneSlowPush"})) == 1, groups("firing", {"LaneSlowPush"})
+    push_failures = lambda: sum("production alert push failed" in line for relay in relays for line in list(relay.lines))
     before = len(pushes())
+    failed = push_failures()
     plan_push({"hang": True})
     assert post_relay(addresses[0], "late-direct", "LaneLateDirect") == 502
     assert len(pushes()) == before + 1
+    await_event("the late direct page logs its one push failure", lambda: push_failures() == failed + 1)
     before = len(pushes())
-    failed = sum("production alert push failed" in line for relay in relays for line in relay.lines)
+    failed = push_failures()
     plan_push({"hang": True})
     post_alerts([{"alertname": "LaneLatePush", "service": "ts-orch", "region": "global", "severity": "critical"}])
     await_event("a page whose push outlives the deadline is a 502 that Alertmanager retries before the next peer sends", lambda: len([e for e in groups("firing", {"LaneLatePush"}) if e[6] == "true"]) == 1 and len(pushes()) == before + 2, seconds=notification_deadline + peer_timeout)
@@ -452,7 +455,7 @@ try:
             events.get(timeout=quiet_until - time.monotonic())
         except queue.Empty:
             break
-    later = sum("production alert push failed" in line for relay in relays for line in relay.lines)
+    later = push_failures()
     late = groups("firing", {"LaneLatePush"})
     assert len(alive) == 2 and len(pushes()) == before + 2 and later == failed + 1 and [e[6] for e in late] == ["false", "true"] and len({e[0] for e in late}) == 1, (len(pushes()) - before, later - failed, late)
     relays.append(relay_process("relay-refused", "127.0.0.7", work / "refused" / "relay", work / "refused" / "alertmanager.env"))
