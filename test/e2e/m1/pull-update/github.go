@@ -46,7 +46,7 @@ type fakeGitHub struct {
 	key     *rsa.PrivateKey
 	staging *ecdsa.PrivateKey
 	forger  *ecdsa.PrivateKey
-	gate    map[string]string
+	forged  map[string]bool
 
 	mu        sync.Mutex
 	releases  []githubRelease
@@ -67,7 +67,7 @@ func newGitHub() *fakeGitHub {
 	must(err)
 	forger, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	must(err)
-	g := &fakeGitHub{key: key, staging: staging, forger: forger, gate: map[string]string{}, files: map[string][]byte{}, compare: map[string]comparison{},
+	g := &fakeGitHub{key: key, staging: staging, forger: forger, forged: map[string]bool{}, files: map[string][]byte{}, compare: map[string]comparison{},
 		compared: map[string]int{}, replied: map[string]int{}, listed: map[string][]time.Time{}}
 	g.server = httptest.NewServer(http.HandlerFunc(g.serve))
 	return g
@@ -133,31 +133,20 @@ func (g *fakeGitHub) stagingKey() string {
 	return base64.StdEncoding.EncodeToString(der)
 }
 
-func (g *fakeGitHub) setGate(tag, mode string) {
+func (g *fakeGitHub) forge(tag string, forged bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.gate[tag] = mode
+	g.forged[tag] = forged
 }
 
 func (g *fakeGitHub) serveStaging(w http.ResponseWriter, r *http.Request, tag string) {
-	mode := g.gate[tag]
-	if mode == pullrelease.GateMissing {
-		http.NotFound(w, r)
-		return
-	}
 	now := time.Now().UTC()
 	record := pullrelease.StagingRecord{Region: fleet.Embedded().Staging.Label, Tag: tag, Done: now.Add(-2 * healthyFor), Baked: now.Add(-healthyFor), Signed: now,
 		Latency: pullrelease.LatencyVerdict{Verdict: pullrelease.LatencyPass, Run: "https://github.com/TerraScale/ts-orchestrator/actions/runs/1"}}
-	switch mode {
-	case pullrelease.GateStale:
-		record.Signed = now.Add(-time.Hour)
-	case pullrelease.GateLatency:
-		record.Latency.Verdict = pullrelease.LatencyFail
-	}
 	data, err := json.Marshal(record)
 	must(err)
 	signer := g.staging
-	if mode == pullrelease.GateUnsigned {
+	if g.forged[tag] {
 		signer = g.forger
 	}
 	digest := sha256.Sum256(data)

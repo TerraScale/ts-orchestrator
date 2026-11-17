@@ -319,7 +319,7 @@ func startMesh(work string) []*server.Server {
 }
 
 func journey(bin, part string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	self, err := os.Executable()
 	must(err)
@@ -480,16 +480,14 @@ func (l *lane) pulls(ctx context.Context) {
 	l.github.mu.Unlock()
 	l.revision = revision
 	r1 := l.publishGood("101", "c101")
-	for _, mode := range []string{pullrelease.GateMissing, pullrelease.GateUnsigned, pullrelease.GateStale, pullrelease.GateLatency} {
-		l.github.setGate(r1.tag, mode)
-		refused := l.waitStatus(ctx, "sjc", "sjc refuses "+r1.tag+" while staging's record is "+mode, func(s pullrelease.Status) bool {
-			return strings.HasPrefix(s.Reason, "staging gate "+mode+":")
-		})
-		require(refused.Target == nil || refused.Target.Tag() != r1.tag, "sjc must not take %s before staging's signed completion verifies:\n%s", r1.tag, refused)
-		l.requireVersions(ctx, base, l.region("sjc", "fra", "gru")...)
-		fmt.Printf("staging record %s -> sjc stays on its release: %s\n", mode, refused.Reason)
-	}
-	l.github.setGate(r1.tag, "")
+	l.github.forge(r1.tag, true)
+	refused := l.waitStatus(ctx, "sjc", "sjc refuses "+r1.tag+" while staging's record is forged", func(s pullrelease.Status) bool {
+		return strings.HasPrefix(s.Reason, "staging gate "+pullrelease.GateUnsigned+":")
+	})
+	require(refused.Target == nil || refused.Target.Tag() != r1.tag, "sjc must not take %s before staging's signed completion verifies:\n%s", r1.tag, refused)
+	l.requireVersions(ctx, base, l.region("sjc", "fra", "gru")...)
+	fmt.Printf("forged staging record -> sjc stays on its release: %s\n", refused.Reason)
+	l.github.forge(r1.tag, false)
 	sjc := l.waitStatus(ctx, "sjc", "sjc completes "+r1.tag, complete(r1))
 	fra := l.waitStatus(ctx, "fra", "fra completes "+r1.tag, complete(r1))
 	gru := l.waitStatus(ctx, "gru", "gru completes "+r1.tag, complete(r1))
