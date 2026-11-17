@@ -226,7 +226,8 @@ previous unit-swapping release architecture is not part of this updater.
 ## Updater records
 
 An installed candidate is on probation until it serves. These files live in
-the state directory; the previous binary sits beside the executable.
+`<state>/nats`, which `ts-orch node` creates (mode 0700) at start when it is
+missing; the previous binary sits beside the executable.
 
 | File | Contents | Absent | Damaged |
 | --- | --- | --- | --- |
