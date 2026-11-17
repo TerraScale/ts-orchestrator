@@ -11,6 +11,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -20,6 +21,7 @@ type Reconcile struct {
 	Region string                   `json:"region"`
 	Error  string                   `json:"error,omitempty"`
 	Kinds  []ociresource.KindStatus `json:"kinds,omitempty"`
+	Nodes  *fleet.NodeDecision      `json:"nodes,omitempty"`
 }
 
 func ServeReconcile(ctx context.Context, state string, latest func() (Reconcile, bool)) {
@@ -95,6 +97,9 @@ func (r Reconcile) lines() []string {
 			line += "; running"
 		}
 		out = append(out, line)
+	}
+	if r.Nodes != nil {
+		out = append(out, fmt.Sprintf("nodes: %s at %s", r.Nodes, r.Nodes.At.UTC().Format(time.RFC3339)))
 	}
 	return out
 }

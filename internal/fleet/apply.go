@@ -15,13 +15,14 @@ import (
 
 type Pass struct {
 	Kind  string
-	Apply func(ctx context.Context, document Fleet, region Region, f *ociclient.Factory, out ociresource.Out) error
+	Apply func(ctx context.Context, document Fleet, region Region, f *ociclient.Factory, cluster Cluster, out ociresource.Out) error
 }
 
 var Passes = []Pass{
 	{Kind: "network", Apply: applyNetwork},
 	{Kind: "nlb", Apply: applyNLB},
 	{Kind: "compute", Apply: ApplyCompute},
+	{Kind: "nodes", Apply: applyNodes},
 	{Kind: "dns", Apply: applyDNS},
 }
 
@@ -66,14 +67,14 @@ func Apply(ctx context.Context, args []string, out io.Writer) error {
 		if _, err := fmt.Fprintf(out, "%s %s\n", region.Label, pass.Kind); err != nil {
 			return err
 		}
-		if err := pass.Apply(ctx, document, region, f, ociresource.Out{Same: out, Changed: out, Apply: true}); err != nil {
+		if err := pass.Apply(ctx, document, region, f, nil, ociresource.Out{Same: out, Changed: out, Apply: true}); err != nil {
 			return fmt.Errorf("%s %s: %w", region.Label, pass.Kind, err)
 		}
 	}
 	return nil
 }
 
-func ReconcilePasses(ctx context.Context, label string) ([]ociresource.Pass, error) {
+func ReconcilePasses(ctx context.Context, label string, cluster Cluster) ([]ociresource.Pass, error) {
 	document, err := Load()
 	if err != nil {
 		return nil, err
@@ -95,7 +96,7 @@ func ReconcilePasses(ctx context.Context, label string) ([]ociresource.Pass, err
 	for _, kind := range region.Reconcile {
 		pass := Passes[slices.IndexFunc(Passes, func(p Pass) bool { return p.Kind == kind })]
 		passes = append(passes, ociresource.Pass{Kind: kind, Run: func(ctx context.Context, out ociresource.Out) error {
-			return pass.Apply(ctx, document, region, f, out)
+			return pass.Apply(ctx, document, region, f, cluster, out)
 		}})
 	}
 	return passes, nil

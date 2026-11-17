@@ -45,11 +45,14 @@ func (f *raftFencer) Guard(ctx context.Context, epoch uint64) error {
 
 func runOCIReconcile(ctx context.Context, state, region string, node *swarmruntime.Node) {
 	runner := &ociresource.Runner{Region: region, Authority: &raftFencer{node: node}, Build: func(ctx context.Context) ([]ociresource.Pass, error) {
-		return fleet.ReconcilePasses(ctx, region)
+		return fleet.ReconcilePasses(ctx, region, node)
 	}}
 	go regionhealth.ServeReconcile(ctx, state, func() (regionhealth.Reconcile, bool) {
 		kinds, err := runner.Status()
 		status := regionhealth.Reconcile{Kinds: kinds}
+		if decision, ok := fleet.LastNodeDecision(region); ok {
+			status.Nodes = &decision
+		}
 		if err != nil {
 			status.Error = err.Error()
 		}

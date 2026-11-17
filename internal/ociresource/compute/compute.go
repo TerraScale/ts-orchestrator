@@ -102,11 +102,6 @@ func (p Pass) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(instances) > p.Max {
-		if instances, err = p.scaleIn(ctx, pool, instances); err != nil {
-			return err
-		}
-	}
 	return p.volumes(ctx, instances)
 }
 
@@ -177,20 +172,54 @@ func (p Pass) matches(configuration core.InstanceConfiguration) bool {
 		vnic.AssignPublicIp != nil && !*vnic.AssignPublicIp && slices.Equal(vnic.NsgIds, []string{p.NSGID})
 }
 
-func (p Pass) pool(ctx context.Context, configuration string) (core.InstancePool, error) {
+func (p Pass) owned(ctx context.Context) ([]core.InstancePoolSummary, error) {
 	summaries, err := all(func(page *string) ([]core.InstancePoolSummary, *string, error) {
 		r, err := p.Management.ListInstancePools(ctx, core.ListInstancePoolsRequest{CompartmentId: &p.Compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return core.InstancePool{}, fmt.Errorf("list instance pools: %w", err)
+		return nil, fmt.Errorf("list instance pools: %w", err)
 	}
 	summaries = slices.DeleteFunc(summaries, func(s core.InstancePoolSummary) bool {
 		return s.LifecycleState == core.InstancePoolSummaryLifecycleStateTerminated ||
 			s.LifecycleState == core.InstancePoolSummaryLifecycleStateTerminating || !p.owns("instance-pool", "nodes", s.FreeformTags)
 	})
 	if len(summaries) > 1 {
-		return core.InstancePool{}, fmt.Errorf("%d instance pools carry %s; remove all but one by hand", len(summaries), p.Key("instance-pool", "nodes"))
+		return nil, fmt.Errorf("%d instance pools carry %s; remove all but one by hand", len(summaries), p.Key("instance-pool", "nodes"))
+	}
+	return summaries, nil
+}
+
+type Pool struct {
+	core.InstancePool
+	Members []core.InstanceSummary
+}
+
+func (p Pass) Pool(ctx context.Context) (Pool, bool, error) {
+	summaries, err := p.owned(ctx)
+	if err != nil || len(summaries) == 0 {
+		return Pool{}, false, err
+	}
+	got, err := p.Management.GetInstancePool(ctx, core.GetInstancePoolRequest{InstancePoolId: summaries[0].Id})
+	if err != nil {
+		return Pool{}, false, err
+	}
+	members, err := p.members(ctx, got.InstancePool)
+	return Pool{InstancePool: got.InstancePool, Members: members}, err == nil, err
+}
+
+func (p Pass) Resize(ctx context.Context, pool Pool, size int) error {
+	if _, err := p.Management.UpdateInstancePool(ctx, core.UpdateInstancePoolRequest{InstancePoolId: pool.Id,
+		UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{Size: common.Int(size)}}); err != nil {
+		return fmt.Errorf("resize instance pool %s to %d: %w", *pool.Id, size, err)
+	}
+	return nil
+}
+
+func (p Pass) pool(ctx context.Context, configuration string) (core.InstancePool, error) {
+	summaries, err := p.owned(ctx)
+	if err != nil {
+		return core.InstancePool{}, err
 	}
 	if len(summaries) == 0 {
 		var places []core.CreateInstancePoolPlacementConfigurationDetails
@@ -271,61 +300,65 @@ func (p Pass) members(ctx context.Context, pool core.InstancePool) ([]core.Insta
 	})
 }
 
-func (p Pass) scaleIn(ctx context.Context, pool core.InstancePool, instances []core.InstanceSummary) ([]core.InstanceSummary, error) {
-	slices.SortFunc(instances, func(a, b core.InstanceSummary) int { return b.TimeCreated.Compare(a.TimeCreated.Time) })
-	for _, extra := range instances[:len(instances)-p.Max] {
-		got, err := p.Compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: extra.Id})
-		if err != nil {
-			return nil, err
-		}
-		if !p.owns("instance", "node", got.FreeformTags) {
-			return nil, fmt.Errorf("pool instance %s lacks %s; refusing to remove it", *extra.Id, p.Key("instance", "node"))
-		}
+func (p Pass) Retire(ctx context.Context, pool Pool, instanceID string) error {
+	got, err := p.Compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: &instanceID})
+	if err != nil {
+		return err
+	}
+	if got.LifecycleState == core.InstanceLifecycleStateTerminated || got.LifecycleState == core.InstanceLifecycleStateTerminating {
+		return nil
+	}
+	if !p.owns("instance", "node", got.FreeformTags) {
+		return fmt.Errorf("instance %s lacks %s; refusing to remove it", instanceID, p.Key("instance", "node"))
+	}
+	if slices.ContainsFunc(pool.Members, func(i core.InstanceSummary) bool { return deref(i.Id) == instanceID }) {
 		if _, err := p.Management.DetachInstancePoolInstance(ctx, core.DetachInstancePoolInstanceRequest{InstancePoolId: pool.Id,
-			DetachInstancePoolInstanceDetails: core.DetachInstancePoolInstanceDetails{InstanceId: extra.Id, IsDecrementSize: common.Bool(true), IsAutoTerminate: common.Bool(false)}}); err != nil {
-			return nil, fmt.Errorf("detach %s from the pool: %w", *extra.Id, err)
+			DetachInstancePoolInstanceDetails: core.DetachInstancePoolInstanceDetails{InstanceId: &instanceID, IsDecrementSize: common.Bool(true), IsAutoTerminate: common.Bool(false)}}); err != nil {
+			return fmt.Errorf("detach %s from the pool: %w", instanceID, err)
 		}
 		if err := waitFor(ctx, func() (bool, error) {
-			members, err := p.members(ctx, pool)
-			return !slices.ContainsFunc(members, func(i core.InstanceSummary) bool { return *i.Id == *extra.Id }), err
+			members, err := p.members(ctx, pool.InstancePool)
+			return !slices.ContainsFunc(members, func(i core.InstanceSummary) bool { return deref(i.Id) == instanceID }), err
 		}); err != nil {
-			return nil, fmt.Errorf("detach %s from the pool: %w", *extra.Id, err)
+			return fmt.Errorf("detach %s from the pool: %w", instanceID, err)
 		}
-		if _, err := p.Compute.InstanceAction(ctx, core.InstanceActionRequest{InstanceId: extra.Id, Action: core.InstanceActionActionSoftstop}); err != nil {
-			return nil, fmt.Errorf("stop %s: %w", *extra.Id, err)
+	}
+	if got.LifecycleState != core.InstanceLifecycleStateStopped {
+		if got.LifecycleState != core.InstanceLifecycleStateStopping {
+			if _, err := p.Compute.InstanceAction(ctx, core.InstanceActionRequest{InstanceId: &instanceID, Action: core.InstanceActionActionSoftstop}); err != nil {
+				return fmt.Errorf("stop %s: %w", instanceID, err)
+			}
 		}
 		if err := waitFor(ctx, func() (bool, error) {
-			got, err := p.Compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: extra.Id})
+			got, err := p.Compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: &instanceID})
 			return got.LifecycleState == core.InstanceLifecycleStateStopped, err
 		}); err != nil {
-			return nil, fmt.Errorf("stop %s: %w", *extra.Id, err)
+			return fmt.Errorf("stop %s: %w", instanceID, err)
 		}
-		attachments, err := p.attachments(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, attachment := range attachments {
-			if deref(attachment.GetInstanceId()) != *extra.Id {
-				continue
-			}
-			if _, err := p.Compute.DetachVolume(ctx, core.DetachVolumeRequest{VolumeAttachmentId: attachment.GetId()}); err != nil {
-				return nil, fmt.Errorf("detach data volume from %s: %w", *extra.Id, err)
-			}
-			if err := waitFor(ctx, func() (bool, error) {
-				got, err := p.Compute.GetVolumeAttachment(ctx, core.GetVolumeAttachmentRequest{VolumeAttachmentId: attachment.GetId()})
-				return got.VolumeAttachment.GetLifecycleState() == core.VolumeAttachmentLifecycleStateDetached, err
-			}); err != nil {
-				return nil, err
-			}
-			fmt.Fprintf(p.Out.Changed, "%-9s data volume %s detached from %s\n", "kept", deref(attachment.GetVolumeId()), *extra.Id)
-		}
-		if _, err := p.Compute.TerminateInstance(ctx, core.TerminateInstanceRequest{InstanceId: extra.Id,
-			PreserveBootVolume: common.Bool(false), PreserveDataVolumesCreatedAtLaunch: common.Bool(true)}); err != nil {
-			return nil, fmt.Errorf("terminate %s: %w", *extra.Id, err)
-		}
-		p.say("removed", "instance", "node", *extra.Id+" "+deref(extra.DisplayName))
 	}
-	return p.settle(ctx, pool)
+	attachments, err := p.attachments(ctx)
+	if err != nil {
+		return err
+	}
+	for _, attachment := range attachments {
+		if deref(attachment.GetInstanceId()) != instanceID {
+			continue
+		}
+		if _, err := p.Compute.DetachVolume(ctx, core.DetachVolumeRequest{VolumeAttachmentId: attachment.GetId()}); err != nil {
+			return fmt.Errorf("detach data volume from %s: %w", instanceID, err)
+		}
+		if err := waitFor(ctx, func() (bool, error) {
+			got, err := p.Compute.GetVolumeAttachment(ctx, core.GetVolumeAttachmentRequest{VolumeAttachmentId: attachment.GetId()})
+			return got.VolumeAttachment.GetLifecycleState() == core.VolumeAttachmentLifecycleStateDetached, err
+		}); err != nil {
+			return err
+		}
+	}
+	if _, err := p.Compute.TerminateInstance(ctx, core.TerminateInstanceRequest{InstanceId: &instanceID,
+		PreserveBootVolume: common.Bool(false), PreserveDataVolumesCreatedAtLaunch: common.Bool(true)}); err != nil {
+		return fmt.Errorf("terminate %s: %w", instanceID, err)
+	}
+	return nil
 }
 
 func (p Pass) attachments(ctx context.Context) ([]core.VolumeAttachment, error) {

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -185,6 +186,7 @@ func Handler(region, address string, executor *swarmruntime.Executor) http.Handl
 		observability.WriteEdgeResponseMetrics(&body)
 		edge.WritePostgresPreauthMetrics(&body)
 		ociresource.WriteMetrics(&body)
+		fleet.WriteNodeMetrics(&body)
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		_, _ = w.Write(body.Bytes())
 	})

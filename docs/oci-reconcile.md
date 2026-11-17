@@ -103,7 +103,7 @@ from the configuration's launch tags) and `<CELL>/volume/data-<n>`.
 | --- | --- |
 | Instance configuration | Kept when shape, OCPUs, memory, boot size, subnet, NSG and no public address match; otherwise a new one is made, the pool switched to it for new nodes, and the old one deleted. Running nodes are not replaced. |
 | Pool | Created at `nodes.min` across every availability domain and its fault domains; raised to `nodes.min` when below. The pass waits up to 20 minutes for the pool to be `RUNNING` with every instance running before it changes anything, and stops with the pool's state otherwise. |
-| Scale-in | Only when the pool is above `nodes.max`: the newest owned node is detached from the pool (size decremented, not auto-terminated), soft-stopped, its data volume detached, then terminated with `preserveDataVolumesCreatedAtLaunch=true`. |
+| Size | Never lowered by this pass. The `nodes` kind grows and shrinks the pool one drained node at a time (`docs/platform.md`, "Node count: the nodes kind"). |
 | Data volumes | A node with an attached owned data volume keeps it. Otherwise it gets the lowest kept volume in its availability domain, or a new one (at most `nodes.max`). The volume records the node in `terrascale-data-instance`; the node's metadata gets `terrascale-data-volume`, `terrascale-data-may-format` (true only while `terrascale-data-instance` is empty or names this node) and `terrascale-data-uuid`, the filesystem UUID chosen at volume creation. |
 
 No step deletes a data volume; `VOLUME_DELETE` is not granted. A node waits
@@ -232,7 +232,7 @@ writes them.
 `ts-orch node` runs one loop per region (`fleet.Reconciler`, run by
 `ociresource.Runner`). Every minute, on the region's SwarmKit Raft leader only,
 it starts each kind listed in the region's `reconcile` field of
-`deploy/fleet/fleet.json` (production: `network` and `nlb`, and the global
+`deploy/fleet/fleet.json` (production: `network`, `nlb` and `nodes`, and the global
 `dns` pass on gru, the DNS region; the document rejects `dns` anywhere else). The kinds run side
 by side; a kind whose pass from an earlier tick is still running is not
 started again. The CLI's `region apply <label> <kind>...` is unchanged and runs
@@ -252,7 +252,11 @@ any registered kind once.
   routes and subnet, a new zone's records and attachments, the steering
   policies of a new monitor) is planned on the next tick. `compute` has no
   plan mode yet, so its plan fails at its first write and it cannot join a
-  `reconcile` list until it gets one (C17).
+  `reconcile` list until it gets one (C17). `nodes` plans at most one line
+  per tick (grow the pool, cordon a node, or remove a drained one); its
+  SwarmKit writes (cordon, node removal) pass the same fence first
+  (`ociclient.Authorize`). A grown node waits for its data volume until
+  `compute` runs, so a region that scales needs `compute` in its list too.
 - **Fence.** Each tick reads the leader's Raft term and checks through the
   SwarmKit control API that this node leads it. Every OCI write is checked
   again at the final dispatch, after the request is signed and after any
