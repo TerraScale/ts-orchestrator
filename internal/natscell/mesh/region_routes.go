@@ -95,7 +95,6 @@ func (n *Node) regionRoutes() {
 	for {
 		if !reachedRegion && n.routedInRegion() {
 			reachedRegion = true
-			close(n.regionReached)
 			n.gossip.membership.Store(max(n.gossip.membership.Load(), time.Now().UnixNano()))
 		}
 		if n.membershipConn != nil {

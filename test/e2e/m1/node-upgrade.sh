@@ -24,22 +24,14 @@ serving() {
 		cmp -s "$installed" "$2" &&
 		edge whoami.e2e.test /health
 }
-release_revision() {
-	go version -m "$1" | awk -F'\t' '$2 == "build" && $3 ~ /^vcs[.]revision=/ {revision = substr($3, 14)} $2 == "build" && $3 == "vcs.modified=true" {dirty = "-dirty"} END {print revision dirty}'
-}
 swap_as_installed_release() {
 	local pid
 	pid=$(systemctl show ts-orch.service -p MainPID --value)
 	sudo install -m 0755 "$1" "$installed.next"
 	sudo nsenter -t "$pid" -m -- "$installed.next" release preflight
 	sudo cp --preserve=mode "$installed" "$installed.prev"
-	printf '{"sha":"%s","run_id":"%s","installed":"%s","starts":0}\n' "$(release_revision "$1")" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
-		sudo tee "$state/nats/release-trial" >/dev/null
 	sudo mv "$installed.next" "$installed"
 	sudo kill -TERM "$pid"
-}
-confirmed() {
-	sudo test ! -e "$state/nats/release-trial" && sudo test ! -e "$state/nats/release-rolled-back"
 }
 
 begin "production release serves under its own unit"
@@ -49,9 +41,8 @@ node_before=$(orch member ls | awk 'NR == 2 {print $1}')
 end "production release, its unit and its admission"
 
 begin "upgrade to this build the way the production installer swaps a release"
-swap_as_installed_release "$candidate" 1
+swap_as_installed_release "$candidate"
 wait_for 180 serving "$repo/deploy/m1/ts-orch.service" "$candidate"
-wait_for 30 confirmed
 test ! -e "$pairing_dropin"
 systemctl show ts-orch.service -p ExecStart --value | grep -q " node --state /var/lib/ts-orch "
 sudo cmp "$state/swarm/admission.json" "$work/admission-before.json"
@@ -61,7 +52,7 @@ orch service apply -f "$work/whoami-verbose.json"
 wait_for 30 edge whoami.e2e.test /health
 orch service ls | grep -Eq '^e2e-whoami +1/1 running'
 edge data.e2e.test /boots | head -1 | grep -qx "$first"
-end "candidate preflight in the old sandbox, swap with its release trial, restart: this build serves under its own unit, confirms its release with the stored admission unchanged"
+end "candidate preflight in the old sandbox, swap, restart: this build serves under its own unit with the stored admission unchanged"
 
 begin "rollback to the production release the way its recovery unit restores it"
 sudo systemctl stop ts-orch.service
@@ -77,9 +68,8 @@ orch service ls | grep -Eq '^e2e-whoami +1/1 running'
 end "production release restored with the unit recorded for it, serving"
 
 begin "upgrade again after the rollback"
-swap_as_installed_release "$candidate" 2
+swap_as_installed_release "$candidate"
 wait_for 180 serving "$repo/deploy/m1/ts-orch.service" "$candidate"
-wait_for 30 confirmed
 sudo cmp "$state/swarm/admission.json" "$work/admission-before.json"
 sudo ls "$state/units" | tee "$work/pairs.txt"
 test "$(wc -l <"$work/pairs.txt")" -le 3

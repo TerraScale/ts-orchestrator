@@ -210,7 +210,6 @@ type Node struct {
 	joined          []WorkerPeer
 	listening       time.Time
 	settled         chan struct{}
-	regionReached   chan struct{}
 }
 
 func start(cfg config) (_ *Node, err error) {
@@ -323,7 +322,7 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, membershipConn: membershipConn, gossip: gossip, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
-		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{}), regionReached: make(chan struct{})}
+		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{})}
 	if err := node.serveClockReports(); err != nil {
 		node.closeConns()
 		cancel()
@@ -405,8 +404,6 @@ func start(cfg config) (_ *Node, err error) {
 
 // Region is the region this node serves.
 func (n *Node) Region() string { return n.cfg.region }
-
-func (n *Node) RegionReached() <-chan struct{} { return n.regionReached }
 
 // TLS is the mesh mTLS config for both ends of a connection: it presents
 // this node's leaf and accepts only peers the mesh CA signed.
