@@ -14,6 +14,8 @@ import sys
 import threading
 import time
 
+from scenarios import Scenarios
+
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SCENARIOS = (
     ("http-one-source", "C18"),
@@ -54,8 +56,8 @@ def oci(region, *arguments, paginated=True):
 def staging():
     require(len(sys.argv) == 1, "no target or argument accepted; staging is discovered")
     fleet = json.loads((ROOT / "deploy/fleet/fleet.json").read_text())
-    matches = [region for region in fleet["regions"] if region["label"] == "staging"]
-    require(len(matches) == 1, "C16: fleet must contain exactly one label=staging entry")
+    matches = [region for region in fleet["regions"] if "staging" in region["label"].split("-")]
+    require(len(matches) == 1, "C16: fleet must contain exactly one staging label")
     target = matches[0]
     others = [region for region in fleet["regions"] if region is not target]
     require(others, "production inventory missing; isolation cannot be checked")
@@ -68,18 +70,19 @@ def staging():
         network = ipaddress.ip_network(target[field])
         require(all(not network.overlaps(ipaddress.ip_network(region["vcn_cidr"]))
                     for region in others), "staging network overlaps production")
-    host = "staging.api." + fleet["dns"]["zone"]
+    host = target["label"] + ".api." + fleet["dns"]["zone"]
     require(host not in fleet["dns"]["steered_names"], "staging hostname is globally steered")
+    require(not target.get("geo_continents"), "staging is assigned production GeoDNS continents")
     inventory = oci(target["oci_region"], "nlb", "network-load-balancer", "list",
                     "--compartment-id", target["compartment_id"])
     owned = [item for item in inventory
              if item["compartment-id"] == target["compartment_id"]
-             and item["display-name"] == "staging-1-nlb"
+             and item["display-name"] == target["label"] + "-1-nlb"
              and item["lifecycle-state"] == "ACTIVE"
              and item["freeform-tags"].get("terrascale-managed-by") == "ts-orchestrator"
              and item["freeform-tags"].get("terrascale-owner") == "terrascale"
-             and item["freeform-tags"].get("terrascale-resource-key")
-             == "STAGING/network-load-balancer/nlb"]
+             and item["freeform-tags"].get("terrascale-resource-key", "")
+             .endswith("/network-load-balancer/nlb")]
     require(len(owned) == 1, "C16: exactly one owned, active staging NLB required")
     balancer = oci(target["oci_region"], "nlb", "network-load-balancer", "get",
                    "--network-load-balancer-id", owned[0]["id"], paginated=False)
@@ -90,12 +93,20 @@ def staging():
     resolved = {item[4][0] for item in socket.getaddrinfo(host, 443, socket.AF_INET,
                                                         socket.SOCK_STREAM)}
     require(resolved and resolved == addresses, "staging DNS must resolve only to its owned NLB")
+    policies = oci(target["oci_region"], "dns", "steering-policy", "list",
+                   "--compartment-id", fleet["dns"]["compartment_id"])
+    for policy in policies:
+        detail = oci(target["oci_region"], "dns", "steering-policy", "get",
+                     "--steering-policy-id", policy["id"], paginated=False)
+        require(all(answer["rdata"].rstrip(".") not in addresses | {host}
+                    for answer in detail.get("answers", [])), "staging NLB participates in production DNS steering")
     instances = oci(target["oci_region"], "compute", "instance", "list",
                     "--compartment-id", target["compartment_id"])
     running = [item for item in instances if item["lifecycle-state"] == "RUNNING"]
     require(target["nodes"]["min"] <= len(running) <= target["nodes"]["max"],
             "C16: live staging node count outside fleet bounds")
     node_ips = set()
+    hosts = []
     for instance in running:
         require(instance["compartment-id"] == target["compartment_id"],
                 "instance outside staging compartment")
@@ -107,12 +118,18 @@ def staging():
                         in ipaddress.ip_network(target["private_subnet_cidr"]),
                         "primary staging VNIC outside staging private subnet")
                 node_ips.add(vnic["private-ip"])
+                require(target["label"] in instance["display-name"]
+                        and "desktop" not in instance["display-name"], "invalid staging host name")
+                hosts.append({"id": instance["id"], "name": instance["display-name"],
+                              "address": instance["display-name"] + ".nb.ts.internal"})
     require(len(node_ips) == len(running), "staging node addresses incomplete")
     for port in (80, 443, 5432):
         backends = balancer["backend-sets"][f"tcp-{port}"]["backends"]
         require(backends and all(backend["ip-address"] in node_ips
                                 and backend["port"] == port for backend in backends),
                 "NLB backend outside staging nodes or expected port")
+    target["_fleet"] = fleet
+    target["_hosts"] = hosts
     return target, host, sorted(addresses)
 
 
@@ -122,23 +139,65 @@ def c18_integer(file, pattern):
     return int(match[1])
 
 
-def budgets():
-    table = (ROOT / "docs/staging-abuse.md").read_text()
-    match = re.search(r"^\| healthy_p99_seconds \| ([0-9.]+) \| X5: ([^|]+) \|$", table, re.M)
-    require(match is not None, "X5: measured healthy p99 budget and evidence path missing")
-    evidence = (ROOT / match[2].strip()).resolve()
-    require(evidence.is_relative_to(ROOT) and evidence.is_file(), "X5: evidence file missing")
-    p99 = float(match[1])
-    require(math.isfinite(p99) and p99 > 0, "X5: healthy p99 must be positive and finite")
+def duration(file, name):
+    source = (ROOT / file).read_text()
+    match = re.search(r"\b" + name + r"\s*=\s*(?:(\d+)\s*\*\s*)?time\.(Second|Minute)", source)
+    require(match is not None, "deadline source changed: " + name)
+    return int(match[1] or 1) * (60 if match[2] == "Minute" else 1)
+
+
+def budgets(region):
+    document = json.loads((ROOT / "deploy/observability/production/latency-budgets.json").read_text())
+    peers = [item["label"] for item in region["_fleet"]["regions"]
+             if item["oci_region"] == region["oci_region"] and item is not region]
+    matches = [item for item in document if item["kind"] == "http"
+               and any(item["name"].startswith(peer + ".api.") for peer in peers)]
+    require(len(matches) == 1, "C22/X5: staging OCI region has no unique latency envelope")
+    envelope = matches[0]
+    policy = (ROOT / "internal/swarmruntime/autoscale.go").read_text()
+    values = {name: int(re.search(name + r":\s*(\d+)", policy)[1])
+              for name in ("UpStabilizationSeconds", "UpCooldownSeconds", "DownStabilizationSeconds", "DownCooldownSeconds")}
+    rollout = duration("internal/swarmruntime/service.go", "serviceRollout") + 2 * duration("internal/swarmruntime/service.go", "DefaultReadyTimeout")
+    require(all(len(envelope[key]) == 3 and all(math.isfinite(value) and value > 0 for value in envelope[key])
+                for key in ("fresh", "kept")), "invalid X5 latency envelope")
     return {
-        "p99": p99,
+        "p99": envelope["kept"][2],
+        "fresh_p99": envelope["fresh"][2],
+        "baseline": envelope["name"],
         "connections": c18_integer("internal/edge/limits.go", r"const maxSourceConnections = (\d+)"),
         "header": c18_integer("internal/edge/edge.go", r"public := &http.Server\{[\s\S]*?ReadHeaderTimeout:\s*(\d+) \* time.Second"),
         "workers": c18_integer("internal/edge/limits.go", r"const maxHTTPRefusals = (\d+)"),
+        "body_bytes": c18_integer("internal/edge/limits.go", r"const bodyProgressBytes = (\d+) << 10") << 10,
+        "max_body": c18_integer("internal/edge/edge.go", r"MaxBytesReader\(w, r.Body, (\d+)<<20\)") << 20,
+        "header_bytes": c18_integer("internal/edge/edge.go", r"MaxHeaderBytes:\s*(\d+) << 10") << 10,
+        "ws_source": c18_integer("internal/edge/regional.go", r"maxRegionalSocketsPerAddress\s*=\s*(\d+)"),
+        "pg_source": (c18_integer("internal/edge/postgres.go", r"maxPostgresConns\s*=\s*(\d+)") //
+                      c18_integer("internal/edge/postgres.go", r"maxPostgresSourceConns\s*=\s*maxPostgresConns / (\d+)")),
+        "body": duration("internal/edge/limits.go", "bodyProgressWindow"),
+        "idle": duration("internal/edge/edge.go", "clientIdleTimeout"),
+        "pg_idle": duration("internal/edge/postgres.go", "postgresIdleTimeout"),
+        "recovery": duration("internal/swarmruntime/liveness.go", "readinessWindow"),
+        "deploy": duration("internal/swarmruntime/service.go", "serviceRollout")
+                  + 2 * duration("internal/swarmruntime/service.go", "DefaultReadyTimeout"),
+        "node_up": duration("internal/nodescale/decide.go", "UpWindow")
+                   + duration("internal/nodescale/decide.go", "UpCooldown")
+                   + duration("internal/nodescale/scaler.go", "LaunchTimeout"),
+        "node_down": duration("internal/nodescale/decide.go", "DownWindow")
+                     + duration("internal/nodescale/decide.go", "DownCooldown"),
+        "replica_up": 60 + values["UpStabilizationSeconds"] + values["UpCooldownSeconds"] + rollout,
+        "replica_down": 60 + values["DownStabilizationSeconds"] + values["DownCooldownSeconds"] + rollout,
     }
 
 
+class TimedResponse(http.client.HTTPResponse):
+    def begin(self):
+        self.fp.peek(1)
+        self.first_byte = time.monotonic()
+        super().begin()
+
+
 class Connection(http.client.HTTPConnection):
+    response_class = TimedResponse
     def __init__(self, host, address, source, timeout, tls_context):
         super().__init__(host, port=443, timeout=timeout, source_address=(source, 0))
         self.address = address
@@ -153,31 +212,53 @@ class Connection(http.client.HTTPConnection):
             raise
 
 
-def request(connection):
-    connection.request("GET", "/edge/ready")
+def request(connection, method="GET", path="/edge/ready", body=None):
+    started = time.monotonic()
+    connection.request(method, path, body=body)
     response = connection.getresponse()
+    connection.first_byte = response.first_byte - started
     response.read()
     return response.status
 
 
 class Healthy:
-    def __init__(self, connection):
+    def __init__(self, connection, path="/edge/ready", outage=0, cadence=0):
         self.connection = connection
         self.samples = []
         self.errors = 0
         self.stop = threading.Event()
+        self.path = path
+        self.cadence = cadence
+        self.outage = outage
+        self.last_good = time.monotonic()
+        self.worst_outage = 0
+        self.terminal_error = False
+        self.enough = threading.Event()
         self.thread = threading.Thread(target=self.run)
 
     def run(self):
         while not self.stop.is_set():
-            started = time.monotonic()
             try:
-                if request(self.connection) != 200:
+                if request(self.connection, path=self.path) != 200:
                     self.errors += 1
+                else:
+                    self.samples.append(self.connection.first_byte)
+                    self.worst_outage = max(self.worst_outage, time.monotonic() - self.last_good)
+                    self.last_good = time.monotonic()
+                    if len(self.samples) >= 100:
+                        self.enough.set()
             except (OSError, http.client.HTTPException):
                 self.errors += 1
+                self.connection.close()
+                if not self.outage or time.monotonic() - self.last_good > self.outage:
+                    self.terminal_error = True
+                    self.stop.set()
+                    self.enough.set()
+            if not self.outage and self.errors:
                 self.stop.set()
-            self.samples.append(time.monotonic() - started)
+                self.enough.set()
+            if self.cadence:
+                self.stop.wait(self.cadence)
 
     def finish(self, budget):
         self.stop.set()
@@ -185,8 +266,10 @@ class Healthy:
         self.connection.close()
         ordered = sorted(self.samples)
         p99 = ordered[math.ceil(len(ordered) * .99) - 1] if ordered else math.inf
-        numbers = f"samples={len(ordered)} errors={self.errors} p99_s={p99:.6f} budget_s={budget}"
-        require(len(ordered) >= 100 and self.errors == 0 and p99 <= budget, numbers)
+        self.worst_outage = max(self.worst_outage, time.monotonic() - self.last_good)
+        numbers = f"samples={len(ordered)} errors={self.errors} p99_s={p99:.6f} budget_s={budget} outage_s={self.worst_outage:.6f} outage_budget_s={self.outage}"
+        require(len(ordered) >= 100 and not self.terminal_error and p99 <= budget
+                and ((self.outage and self.worst_outage <= self.outage) or self.errors == 0), numbers)
         return numbers
 
 
@@ -209,8 +292,8 @@ class Lane:
         self.tls = ssl.create_default_context()
         self.tls.set_alpn_protocols(["http/1.1"])
 
-    def connection(self, source, address=None):
-        return Connection(self.host, address or self.addresses[0], source,
+    def connection(self, source="", address=None, host=None):
+        return Connection(host or self.host, address or self.addresses[0], source,
                           self.limits["header"] + self.limits["p99"], self.tls)
 
     def flood(self, many):
@@ -302,34 +385,31 @@ class Lane:
         return f"closed={len(closed)} max_closed_s={max(closed):.6f} deadline_s={self.limits['header']}"
 
 
-def pending(message):
-    raise Refused(message)
-
-
 def run():
     try:
         region, host, addresses = staging()
         print(f"PASS staging-guard label={region['label']} pinned_nlb_ips={len(addresses)} max_nodes={region['nodes']['max']}", flush=True)
-        lane = Lane(region, host, addresses, budgets())
-    except (Refused, OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        lane = Lane(region, host, addresses, budgets(region))
+    except (Refused, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         message = str(error) if isinstance(error, Refused) else type(error).__name__
         print(f"FAIL staging-preflight attempted=0 reason={message}", flush=True)
         for name, owner in SCENARIOS:
             print(f"FAIL {name} owner={owner} attempted=0 reason=preflight", flush=True)
         return 2
+    scenarios = Scenarios(lane, ROOT, oci, require, request, Healthy, sources)
     operations = {
         "http-one-source": lambda: lane.flood(False),
         "http-many-sources": lambda: lane.flood(True),
-        "slow-headers": lane.slow_headers,
-        "slow-bodies": lambda: pending("body-consuming staging route and socket/memory observation required"),
-        "idle-websocket": lambda: pending("staging echo route and C18 idle deadline evidence required"),
-        "idle-postgres": lambda: pending("isolated staging database and private credential delivery required"),
-        "tenant-isolation": lambda: pending("two isolated staging tenants and X5 workload required"),
-        "task-oom": lambda: pending("region-scoped task fault operation and restart evidence required"),
-        "disk-full": lambda: pending("staging node fault scope, alert evidence and recovery operation required"),
-        "replica-scale": lambda: pending("isolated staging workload and C11 replica observation required"),
-        "node-scale": lambda: pending("C12 node observation and staging scale policy required"),
-        "node-loss": lambda: pending("C14 staging node fault and recovery operation required"),
+        "slow-headers": scenarios.headers,
+        "slow-bodies": scenarios.slow_bodies,
+        "idle-websocket": scenarios.websocket,
+        "idle-postgres": scenarios.postgres,
+        "tenant-isolation": scenarios.tenants,
+        "task-oom": scenarios.oom,
+        "disk-full": scenarios.disk,
+        "replica-scale": scenarios.replicas,
+        "node-scale": scenarios.nodes,
+        "node-loss": scenarios.node_loss,
     }
     failures = 0
     for name, owner in SCENARIOS:
@@ -337,7 +417,8 @@ def run():
         try:
             numbers = operations[name]()
             print(f"PASS {name} owner={owner} elapsed_s={time.monotonic() - started:.6f} {numbers}", flush=True)
-        except (Refused, OSError, ValueError, subprocess.SubprocessError, http.client.HTTPException) as error:
+        except (Refused, OSError, ValueError, KeyError, TypeError, RuntimeError, StopIteration,
+                subprocess.SubprocessError, http.client.HTTPException) as error:
             failures += 1
             message = str(error) if isinstance(error, Refused) else type(error).__name__
             print(f"FAIL {name} owner={owner} elapsed_s={time.monotonic() - started:.6f} reason={message}", flush=True)
