@@ -302,9 +302,10 @@ stays unhealthy, one node at a time per region.
 
 - **Unhealthy.** SwarmKit reports the node down, disconnected or unknown, or
   its manager unreachable; its document-made OCI instance (`instance/node`,
-  matched by display name and hostname) is not `RUNNING`; or its own readiness
-  (the release health over `ts.mesh.pull.<region>.<node>`) fails or does not
-  answer. A node created, launched or rebooted less than 10 minutes ago is
+  matched by display name and hostname) is not `RUNNING`; or its own node checks
+  (mesh and edge readiness, not the services it serves, read over
+  `ts.mesh.pull.<region>.<node>` with twice the 5 s health budget) fail or do
+  not answer. A node created, launched or rebooted less than 10 minutes ago is
   booting and never counts.
 - **Grace: 5 minutes, continuous.** SwarmKit marks a node down after 3 missed
   5 s heartbeats, a release restart and its readiness wait take at most
@@ -312,7 +313,9 @@ stays unhealthy, one node at a time per region.
   the clock, so a flapping node never triggers a repair. A new leader starts
   the clock again.
 - **Repair.** A node whose instance is running gets one OCI `RESET`, then
-  10 minutes to come back. If it is still unhealthy, or its instance was not
+  10 minutes to come back. The reset's send time is saved after OCI accepts
+  it; a reboot step without one (a throttled call, a leader that died) sends
+  it again. If it is still unhealthy, or its instance was not
   running, it is replaced: drained, demoted if it is a manager, removed from
   the swarm (`swarmruntime.RemoveMember`, the path `ts-orch member leave` and
   the node autoscaler share), and its instance is terminated with
@@ -320,11 +323,16 @@ stays unhealthy, one node at a time per region.
   the compute pass attaches the kept data volume of that availability domain
   to it (the C8 rule, whether or not the data has another replica), and the
   node joins by itself.
+- **Only document-made nodes.** Every reset, removal and terminate first
+  checks that `compute` is reconciled, that self-heal is not stopped, and that
+  the repair's instance is a document-made `instance/node` of this region's
+  compartment, listed this tick, whose name is the node's hostname.
 - **Durable.** The repair in flight, the last repair, the last replacement time
   and a stop live in the JetStream key-value bucket `TS_ORCH_SELF_HEAL`, one key
   per region, written before each action with a revision check. A new leader
-  continues the step it reads; the reset and the terminate are never sent twice
-  for one repair.
+  continues the step it reads. The bucket is in the TERRABASE fabric account,
+  and TerraBase's own credential is denied every subject of it
+  (`orchOnlyBuckets` in `internal/natscell/mesh/fabric.go`).
 - **Refusals**, each logged as `self-heal refused to repair a node` and counted
   in `ts_orch_self_heal_refusals_total{reason}`:
 

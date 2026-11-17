@@ -27,6 +27,7 @@ type Repair struct {
 	Step     string    `json:"step"`
 	Started  time.Time `json:"started"`
 	StepAt   time.Time `json:"step_at"`
+	Sent     time.Time `json:"sent,omitzero"`
 	Outcome  string    `json:"outcome,omitempty"`
 	Finished time.Time `json:"finished,omitzero"`
 }

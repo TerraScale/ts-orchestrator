@@ -57,7 +57,7 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 	options.CustomClientAuthentication = &clientAuth{
 		users: users,
 		terrabase: credential{secret: cfg.terrabaseToken, account: FabricAccount, permissions: &server.Permissions{
-			Publish:   &server.SubjectPermission{Allow: terrabasePublish},
+			Publish:   &server.SubjectPermission{Allow: terrabasePublish, Deny: orchOnlyBuckets},
 			Subscribe: &server.SubjectPermission{Allow: terrabaseSubscribe},
 		}},
 	}
@@ -102,6 +102,8 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 var (
 	terrabasePublish   = []string{TerraBaseSubjects, "$JS.API.>", "$KV.>", "$JS.ACK.>", "$JS.FC.>"}
 	terrabaseSubscribe = []string{TerraBaseSubjects, "_INBOX.>"}
+	orchOnlyBuckets    = []string{"$KV.TS_ORCH_SELF_HEAL.>", "$JS.API.*.*.KV_TS_ORCH_SELF_HEAL", "$JS.API.*.*.KV_TS_ORCH_SELF_HEAL.>",
+		"$JS.API.*.*.*.KV_TS_ORCH_SELF_HEAL", "$JS.API.*.*.*.KV_TS_ORCH_SELF_HEAL.>"}
 )
 
 var AccountsConfig = fmt.Sprintf(`accounts {

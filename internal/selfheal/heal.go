@@ -2,10 +2,8 @@ package selfheal
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -107,6 +105,7 @@ type pass struct {
 	record     Record
 	revision   uint64
 	nodes      []observed
+	owned      map[string]core.Instance
 	tasks      []*api.Task
 	now        time.Time
 	reconciled bool
@@ -157,11 +156,10 @@ func (h *Healer) tick(ctx context.Context, guard func(context.Context) error) (S
 	if p.compute, err = f.Compute(); err != nil {
 		return Status{}, err
 	}
-	instances, err := ownedInstances(ctx, p.compute, p.region)
-	if err != nil {
+	if p.owned, err = ownedInstances(ctx, p.compute, p.region); err != nil {
 		return Status{}, err
 	}
-	p.observe(ctx, conn, listed.Nodes, instances)
+	p.observe(ctx, conn, listed.Nodes)
 	overdue := p.track(ctx)
 	switch {
 	case p.record.Repair != nil:
@@ -180,7 +178,7 @@ func (h *Healer) tick(ctx context.Context, guard func(context.Context) error) (S
 
 func ownedInstances(ctx context.Context, client core.ComputeClient, region fleet.Region) (map[string]core.Instance, error) {
 	ownership := ociresource.Ownership{Owner: fleet.Owner}
-	byHost := map[string]core.Instance{}
+	owned := map[string]core.Instance{}
 	var page *string
 	for {
 		listed, err := client.ListInstances(ctx, core.ListInstancesRequest{CompartmentId: &region.CompartmentID, Page: page})
@@ -188,21 +186,23 @@ func ownedInstances(ctx context.Context, client core.ComputeClient, region fleet
 			return nil, fmt.Errorf("list instances: %w", err)
 		}
 		for _, instance := range listed.Items {
-			if !ownership.Owns(region.Key("instance", "node"), ociresource.Tags{Freeform: instance.FreeformTags}) || instance.DisplayName == nil {
-				continue
+			if ownership.Owns(region.Key("instance", "node"), ociresource.Tags{Freeform: instance.FreeformTags}) && instance.Id != nil && instance.DisplayName != nil {
+				owned[*instance.Id] = instance
 			}
-			if current, ok := byHost[*instance.DisplayName]; ok && !instance.TimeCreated.After(current.TimeCreated.Time) {
-				continue
-			}
-			byHost[*instance.DisplayName] = instance
 		}
 		if page = listed.OpcNextPage; page == nil {
-			return byHost, nil
+			return owned, nil
 		}
 	}
 }
 
-func (p *pass) observe(ctx context.Context, conn *nats.Conn, nodes []*api.Node, instances map[string]core.Instance) {
+func (p *pass) observe(ctx context.Context, conn *nats.Conn, nodes []*api.Node) {
+	byHost := map[string]core.Instance{}
+	for _, instance := range p.owned {
+		if current, ok := byHost[*instance.DisplayName]; !ok || instance.TimeCreated.After(current.TimeCreated.Time) {
+			byHost[*instance.DisplayName] = instance
+		}
+	}
 	ready := make([]string, len(nodes))
 	var pending sync.WaitGroup
 	for i, node := range nodes {
@@ -211,8 +211,8 @@ func (p *pass) observe(ctx context.Context, conn *nats.Conn, nodes []*api.Node, 
 			switch {
 			case err != nil:
 				ready[i] = "its readiness does not answer"
-			case reply.Health != "ok":
-				ready[i] = "its readiness fails: " + reply.Health
+			case reply.Node != "" && reply.Node != "ok":
+				ready[i] = "its node checks fail: " + reply.Node
 			}
 		})
 	}
@@ -222,7 +222,7 @@ func (p *pass) observe(ctx context.Context, conn *nats.Conn, nodes []*api.Node, 
 		if node.Description != nil {
 			o.host = node.Description.Hostname
 		}
-		if instance, ok := instances[o.host]; ok {
+		if instance, ok := byHost[o.host]; ok {
 			o.instance = &instance
 		}
 		o.reason = unhealthy(node, o.instance, ready[i])
@@ -249,8 +249,8 @@ func (p *pass) bootedAt(o observed) time.Time {
 	if o.instance != nil && o.instance.TimeCreated != nil && o.instance.TimeCreated.After(booted) {
 		booted = o.instance.TimeCreated.Time
 	}
-	if r := p.record.Repair; r != nil && r.Node == o.node.ID && r.Step == stepReboot && r.StepAt.After(booted) {
-		booted = r.StepAt
+	if r := p.record.Repair; r != nil && r.Node == o.node.ID && r.Step == stepReboot && r.Sent.After(booted) {
+		booted = r.Sent
 	}
 	return booted
 }
@@ -310,12 +310,30 @@ func (p *pass) blocked() string {
 	return ""
 }
 
-func (p *pass) refusal(ctx context.Context, c observed) (string, string) {
-	if !p.reconciled {
+func (p *pass) standing() (string, string) {
+	switch {
+	case !p.reconciled:
 		return "compute-not-reconciled", p.blocked()
-	}
-	if p.record.Stopped != "" {
+	case p.record.Stopped != "":
 		return "stopped", p.record.Stopped
+	}
+	return "", ""
+}
+
+func (p *pass) instance(r *Repair, c observed, present bool) (core.Instance, string, string) {
+	instance, ok := p.owned[r.Instance]
+	switch {
+	case !ok:
+		return core.Instance{}, "not-a-pool-node", "instance " + r.Instance + " is not a document-made node of this region"
+	case present && c.host != *instance.DisplayName:
+		return core.Instance{}, "not-a-pool-node", "instance " + r.Instance + " is not named " + c.host
+	}
+	return instance, "", ""
+}
+
+func (p *pass) refusal(ctx context.Context, c observed) (string, string) {
+	if reason, detail := p.standing(); reason != "" {
+		return reason, detail
 	}
 	if n := len(p.unhealthy()); n > 1 {
 		return "several-unhealthy", fmt.Sprintf("%d nodes are unhealthy at once; that looks like a region or network problem", n)
@@ -376,21 +394,42 @@ func (p *pass) start(ctx context.Context, c observed) error {
 	}
 	p.decided(ctx, step, "started", c.host, c.reason)
 	if step == stepReplace {
-		return p.replace(ctx)
+		return p.replace(ctx, *c.instance)
 	}
-	if _, err := p.compute.InstanceAction(ociclient.WithAuthority(ctx, p.guard), core.InstanceActionRequest{InstanceId: c.instance.Id, Action: core.InstanceActionActionReset}); err != nil {
-		return fmt.Errorf("reboot %s: %w", c.host, err)
+	return p.reset(ctx)
+}
+
+func (p *pass) reset(ctx context.Context) error {
+	r := p.record.Repair
+	if _, err := p.compute.InstanceAction(ociclient.WithAuthority(ctx, p.guard), core.InstanceActionRequest{InstanceId: &r.Instance, Action: core.InstanceActionActionReset}); err != nil {
+		return fmt.Errorf("reboot %s: %w", r.Host, err)
 	}
-	p.decided(ctx, stepReboot, "sent", c.host, "OCI reset of "+*c.instance.Id)
+	r.Sent = time.Now()
+	if err := p.save(ctx); err != nil {
+		return err
+	}
+	p.decided(ctx, stepReboot, "sent", r.Host, "OCI reset of "+r.Instance)
 	return nil
 }
 
 func (p *pass) advance(ctx context.Context) error {
 	r := p.record.Repair
 	c, present := p.find(r.Node)
+	if reason, detail := p.standing(); reason != "" {
+		p.refuse(ctx, r.Host, reason, detail)
+		return nil
+	}
+	instance, reason, detail := p.instance(r, c, present)
+	if reason != "" && r.Step != stepJoining {
+		p.refuse(ctx, r.Host, reason, detail)
+		return nil
+	}
 	switch r.Step {
 	case stepReboot:
-		if p.now.Sub(r.StepAt) < BootTime {
+		if r.Sent.IsZero() && instance.LifecycleState == core.InstanceLifecycleStateRunning {
+			return p.reset(ctx)
+		}
+		if !r.Sent.IsZero() && p.now.Sub(r.Sent) < BootTime {
 			return nil
 		}
 		if present && c.reason == "" {
@@ -409,9 +448,9 @@ func (p *pass) advance(ctx context.Context) error {
 			return err
 		}
 		p.decided(ctx, stepReplace, "started", r.Host, "still unhealthy "+BootTime.String()+" after the reboot: "+c.reason)
-		return p.replace(ctx)
+		return p.replace(ctx, instance)
 	case stepReplace:
-		return p.replace(ctx)
+		return p.replace(ctx, instance)
 	}
 	for _, o := range p.nodes {
 		created, _ := types.TimestampFromProto(o.node.Meta.CreatedAt)
@@ -427,7 +466,7 @@ func (p *pass) advance(ctx context.Context) error {
 	return p.finish(ctx, stepJoining, "failed", p.record.Stopped)
 }
 
-func (p *pass) replace(ctx context.Context) error {
+func (p *pass) replace(ctx context.Context, instance core.Instance) error {
 	r := p.record.Repair
 	if c, present := p.find(r.Node); present {
 		if err := swarmruntime.RemoveMember(ctx, p.client, c.host, p.guard); err != nil {
@@ -435,13 +474,7 @@ func (p *pass) replace(ctx context.Context) error {
 		}
 		p.decided(ctx, stepReplace, "removed", r.Host, "drained, demoted and removed from the swarm")
 	}
-	got, err := p.compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: &r.Instance})
-	var service common.ServiceError
-	switch {
-	case errors.As(err, &service) && service.GetHTTPStatusCode() == http.StatusNotFound:
-	case err != nil:
-		return fmt.Errorf("read instance %s: %w", r.Instance, err)
-	case got.LifecycleState != core.InstanceLifecycleStateTerminating && got.LifecycleState != core.InstanceLifecycleStateTerminated:
+	if instance.LifecycleState != core.InstanceLifecycleStateTerminating && instance.LifecycleState != core.InstanceLifecycleStateTerminated {
 		if _, err := p.compute.TerminateInstance(ociclient.WithAuthority(ctx, p.guard), core.TerminateInstanceRequest{InstanceId: &r.Instance,
 			PreserveBootVolume: common.Bool(false), PreserveDataVolumesCreatedAtLaunch: common.Bool(true)}); err != nil {
 			return fmt.Errorf("terminate %s: %w", r.Instance, err)
