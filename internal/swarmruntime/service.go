@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
@@ -181,17 +182,18 @@ var (
 )
 
 type ServiceSpec struct {
-	Name         string                     `json:"name"`
-	Image        string                     `json:"image"`
-	Args         []string                   `json:"args,omitempty"`
-	Env          map[string]string          `json:"env,omitempty"`
-	Secrets      map[string]vaultsecret.Ref `json:"secrets,omitempty"`
-	Mounts       []ServiceMount             `json:"mounts,omitempty"`
-	Port         uint32                     `json:"port"`
-	ReadyPath    string                     `json:"readyPath,omitempty"`
-	Hostnames    []string                   `json:"hostnames,omitempty"`
-	Replicas     uint64                     `json:"replicas"`
-	Dependencies *[]string                  `json:"dependencies,omitzero"`
+	Name          string                     `json:"name"`
+	Image         string                     `json:"image"`
+	Args          []string                   `json:"args,omitempty"`
+	Env           map[string]string          `json:"env,omitempty"`
+	Secrets       map[string]vaultsecret.Ref `json:"secrets,omitempty"`
+	Mounts        []ServiceMount             `json:"mounts,omitempty"`
+	Port          uint32                     `json:"port"`
+	ReadyPath     string                     `json:"readyPath,omitempty"`
+	Hostnames     []string                   `json:"hostnames,omitempty"`
+	Replicas      uint64                     `json:"replicas"`
+	ReplicaBounds *autoscale.Bounds          `json:"replicaBounds,omitempty"`
+	Dependencies  *[]string                  `json:"dependencies,omitzero"`
 	// ReadyTimeoutSeconds bounds how long a new task may take to answer
 	// readyPath before the update rolls back; zero keeps DefaultReadyTimeout.
 	ReadyTimeoutSeconds uint32 `json:"readyTimeoutSeconds,omitempty"`
@@ -237,6 +239,10 @@ var everyNodeServices = []string{"whoami"}
 
 func (s ServiceSpec) EveryNode() bool {
 	return slices.Contains(everyNodeServices, s.Name)
+}
+
+func (s ServiceSpec) onePerNode() bool {
+	return s.EveryNode() || len(s.Mounts) != 0 && s.Replicas > 1
 }
 
 // SwarmSpec maps the declaration to an upstream service; the executor
@@ -332,6 +338,20 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		return nil, err
 	}
 	labels := map[string]string{LabelServiceSpec: s.Name, LabelReadyPath: readyPath}
+	if s.ReplicaBounds != nil {
+		bounds := *s.ReplicaBounds
+		if err := bounds.Validate(); err != nil || bounds.Min < 1 || bounds.Max > 8 || int(s.Replicas) < bounds.Min || int(s.Replicas) > bounds.Max {
+			return nil, errors.New("replicaBounds must contain replicas within 1..8")
+		}
+		if (len(s.Mounts) != 0 || s.EveryNode() || s.Postgres != nil) && bounds.Min != bounds.Max {
+			return nil, errors.New("data owners and every-node services require pinned replica bounds")
+		}
+		encodedBounds, err := json.Marshal(bounds)
+		if err != nil {
+			return nil, err
+		}
+		labels[LabelReplicaBounds] = string(encodedBounds)
+	}
 	if s.Dependencies != nil {
 		dependencies, err := json.Marshal(s.Dependencies)
 		if err != nil {
@@ -418,7 +438,7 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	spec.Task.Placement = &api.Placement{}
 	switch {
-	case s.Region != "" && (s.EveryNode() || len(s.Mounts) != 0 && s.Replicas > 1):
+	case s.Region != "" && s.onePerNode():
 		spec.Task.Placement.MaxReplicas = 1
 	case s.Region != "":
 		spec.Task.Placement.Constraints = []string{"node.role==manager"}
@@ -688,6 +708,9 @@ func applyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 		}
 		if err := admitServiceSpec(current.Spec.Annotations.Labels, s); err != nil {
 			return nil, err
+		}
+		if s.ReplicaBounds != nil && current.Spec.GetReplicated() != nil && spec.GetReplicated() != nil && current.Spec.Annotations.Labels[LabelReplicaBounds] == spec.Annotations.Labels[LabelReplicaBounds] {
+			spec.GetReplicated().Replicas = current.Spec.GetReplicated().Replicas
 		}
 		if proto.Equal(&current.Spec, spec) {
 			return current, nil

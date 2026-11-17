@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
+	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
@@ -48,6 +50,8 @@ func main() {
 		})
 	case "node":
 		err = node(ctx, os.Args[2], os.Args[3])
+	case "every-node":
+		err = everyNode(ctx, os.Args[2], os.Args[3])
 	default:
 		err = run(ctx, os.Args[1], os.Args[2])
 	}
@@ -132,15 +136,48 @@ func node(ctx context.Context, root, name string) error {
 			return err
 		}
 	}
+	if name == "c18a" && len(os.Args) > 5 && strings.HasPrefix(os.Args[5], "autoscale-") {
+		if err := startAutoscaleEdge(ctx, state); err != nil {
+			return err
+		}
+	}
+	telemetry := &http.Server{Addr: ":9108", ReadHeaderTimeout: 5 * time.Second, Handler: hostmetrics.Handler("", "", executor)}
+	go func() {
+		if err := telemetry.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}()
+	defer telemetry.Close()
+	stopReplicas := func() {}
+	startReplicas := func() {
+		if name != "c18a" {
+			return
+		}
+		scaling, stop := context.WithCancel(ctx)
+		done := make(chan struct{})
+		current := node
+		go func() {
+			defer close(done)
+			if err := swarmruntime.RunReplicaAutoscaler(scaling, current, executor, func(remote *api.Node) (string, error) { return remote.Status.Addr, nil }); scaling.Err() == nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
+		}()
+		stopReplicas = func() { stop(); <-done }
+	}
+	startReplicas()
+	defer func() { stopReplicas() }()
+
 	server := &http.Server{Addr: ":19090", ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		switch r.URL.Path {
 		case "/metrics":
 			swarmruntime.ReadinessMetrics.WritePrometheus(w)
+			swarmruntime.WriteReplicaMetrics(w)
 		case "/binary":
 			http.ServeFile(w, r, os.Args[4])
 		case "/agent-stop":
+			stopReplicas()
 			if err := node.Stop(r.Context()); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
@@ -150,6 +187,7 @@ func node(ctx context.Context, root, name string) error {
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
+			startReplicas()
 		default:
 			http.NotFound(w, r)
 		}
@@ -391,7 +429,7 @@ func (j *journey) running(service, host string, runtime *containerd.Client) ([]*
 	return result, nil
 }
 
-func (j *journey) create(image, name, host string, port int, owner bool, replicas uint64) ([]*workload, error) {
+func (j *journey) create(image, name, host string, port int, owner bool, replicas uint64, bounds *autoscale.Bounds) ([]*workload, error) {
 	nodeName := "c18a"
 	if host == "10.231.0.3" {
 		nodeName = "c18b"
@@ -402,7 +440,7 @@ func (j *journey) create(image, name, host string, port int, owner bool, replica
 	}
 	declaration := swarmruntime.ServiceSpec{Name: name, Image: image, Env: map[string]string{"PORT": swarmruntime.TaskPortEnv},
 		Args: []string{"sh", "-c", "wget -q -O /tmp/lifecycle http://127.0.0.1:19090/binary && chmod +x /tmp/lifecycle && exec /tmp/lifecycle serve"},
-		Port: uint32(port), ReadyPath: "/ready", Replicas: replicas}
+		Port: uint32(port), ReadyPath: "/ready", Replicas: replicas, ReplicaBounds: bounds}
 	if owner {
 		declaration.Env = map[string]string{"PORT": strconv.Itoa(port)}
 		declaration.Mounts = []swarmruntime.ServiceMount{{Source: "/var/lib/ts-data/c18", Target: "/tmp"}}
@@ -470,19 +508,27 @@ func run(ctx context.Context, root, image string) error {
 			_ = w.runtime.Close()
 		}
 	}()
-	ownerSet, err := j.create(image, "c18-data", "10.231.0.2", 18083, true, 1)
+	if len(os.Args) > 3 {
+		switch os.Args[3] {
+		case "autoscale-up":
+			return j.autoscaleUp(image)
+		case "autoscale-down":
+			return j.autoscaleDown(image)
+		}
+	}
+	ownerSet, err := j.create(image, "c18-data", "10.231.0.2", 18083, true, 1, nil)
 	if err != nil {
 		return err
 	}
-	firstSet, err := j.create(image, "c18-first", "10.231.0.2", 18084, false, 1)
+	firstSet, err := j.create(image, "c18-first", "10.231.0.2", 18084, false, 1, nil)
 	if err != nil {
 		return err
 	}
-	secondSet, err := j.create(image, "c18-second", "10.231.0.2", 18085, false, 1)
+	secondSet, err := j.create(image, "c18-second", "10.231.0.2", 18085, false, 1, nil)
 	if err != nil {
 		return err
 	}
-	twins, err := j.create(image, "c18-twins", "10.231.0.3", 18086, false, 2)
+	twins, err := j.create(image, "c18-twins", "10.231.0.3", 18086, false, 2, nil)
 	if err != nil {
 		return err
 	}
@@ -510,5 +556,8 @@ func run(ctx context.Context, root, image string) error {
 	if len(os.Args) > 3 && os.Args[3] == "quick" {
 		return j.quickContinuity(owner, keys)
 	}
-	return j.reporting(first, second, owner, twins)
+	if err := j.reporting(first, second, owner, twins); err != nil {
+		return err
+	}
+	return j.everyNodeFromManager(image)
 }

@@ -155,9 +155,6 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 	if err := notifier.Ready("node ready"); err != nil {
 		return err
 	}
-	if probation.Served() {
-		releases.NodeList.AdoptEmbedded()
-	}
 	defer func() { _ = notifier.Stopping() }()
 	if _, err := fmt.Fprintf(output, "node %s %s ready; advertise %s\n", plan.admission.Role, node.ID(), plan.advertise); err != nil {
 		return err
@@ -223,6 +220,20 @@ func serveManagerRole(ctx context.Context, state string, plan hostPlan, node *sw
 	serving, stop := context.WithCancel(ctx)
 	defer stop()
 	go regionhealth.Run(serving, state)
+	autoscaleDone := make(chan struct{})
+	go func() {
+		defer close(autoscaleDone)
+		if err := swarmruntime.RunReplicaAutoscaler(serving, node, executor, replicaTelemetryAddress); serving.Err() == nil {
+			select {
+			case failed <- errors.Join(errors.New("replica autoscaler stopped"), err):
+			case <-serving.Done():
+			}
+		}
+	}()
+	defer func() {
+		stop()
+		<-autoscaleDone
+	}()
 	targetsDone := make(chan struct{})
 	go func() {
 		defer close(targetsDone)
@@ -233,6 +244,7 @@ func serveManagerRole(ctx context.Context, state string, plan hostPlan, node *sw
 		<-targetsDone
 	}()
 	if plan.region != "" {
+		go runOCIReconcile(serving, state, plan.region, node)
 		go publishJoin(serving, state, plan, node.ID())
 		go func() {
 			if err := hostdashboard.Run(serving, state, plan.region); serving.Err() == nil {

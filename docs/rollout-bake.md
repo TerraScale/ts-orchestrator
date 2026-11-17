@@ -103,7 +103,6 @@ observations. Health uses the sampled CA for both SwarmKit reads and the named
 service check, so blocked CA-file reads cannot accumulate per request. Runtime
 RPCs use the health context; named-service checking follows host/runtime checks.
 Checks are not a concurrent aggregate with an unconditional duration guarantee.
-Node-list status reads in the general health report are synchronous too.
 
 State replies still read receipts inside the subscription callback. Bake
 filesystem probes remain synchronous, and reconciliation still holds locks

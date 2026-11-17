@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 	"time"
@@ -39,14 +38,14 @@ type network struct {
 	routes      routetable.API
 	rules       nsg.API
 	region      Region
-	out         io.Writer
+	out         ociresource.Out
 	cell        string
 	compartment *string
 	vcn         *string
 	ownership   ociresource.Ownership
 }
 
-func applyNetwork(ctx context.Context, region Region, f *ociclient.Factory, out io.Writer) error {
+func applyNetwork(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, out ociresource.Out) error {
 	client, err := f.Network()
 	if err != nil {
 		return err
@@ -151,14 +150,14 @@ func applyNetwork(ctx context.Context, region Region, f *ociclient.Factory, out 
 			return err
 		}
 	}
+	if err := n.nodeNSG(ctx, groupFound); err != nil {
+		return err
+	}
 	nat, err := n.natGateway(ctx)
-	if err != nil {
+	if err != nil || nat == "" {
 		return err
 	}
-	if err := n.privateRoutes(ctx, vcns[i], subnets, nat, sgw.id, servicesCIDR); err != nil {
-		return err
-	}
-	return n.nodeNSG(ctx, groupFound)
+	return n.privateRoutes(ctx, vcns[i], subnets, nat, sgw.id, servicesCIDR)
 }
 
 func collectFound[T any](values []T, view func(T) found) []found {
@@ -200,7 +199,11 @@ func (n *network) adopt(kind, name string, items []found) (found, error) {
 }
 
 func (n *network) print(verb, kind, detail string) error {
-	_, err := fmt.Fprintf(n.out, "  %-8s %-17s %s\n", verb, kind, detail)
+	w := n.out.Changed
+	if verb == "ok" {
+		w = n.out.Same
+	}
+	_, err := fmt.Fprintf(w, "  %-8s %-17s %s\n", verb, kind, detail)
 	return err
 }
 
@@ -279,6 +282,9 @@ func (n *network) natGateway(ctx context.Context) (string, error) {
 	}
 	key := n.region.Key("nat-gateway", "nat")
 	name := n.cell + "-nat"
+	if err := n.print("create", "nat gateway", name); err != nil || !n.out.Apply {
+		return "", err
+	}
 	tags, _, err := n.stamp(key, map[string]string{"vcn": deref(n.vcn), "name": name})
 	if err != nil {
 		return "", err
@@ -290,10 +296,7 @@ func (n *network) natGateway(ctx context.Context) (string, error) {
 	}
 	got, err := n.client.GetNatGateway(ctx, core.GetNatGatewayRequest{NatGatewayId: created.Id,
 		RequestMetadata: untilAvailable(func(r core.GetNatGatewayResponse) string { return string(r.LifecycleState) })})
-	if err := available("nat gateway", name, string(got.LifecycleState), err); err != nil {
-		return "", err
-	}
-	return deref(created.Id), n.print("created", "nat gateway", name+" "+deref(got.NatIp)+" "+deref(created.Id))
+	return "", available("nat gateway", name, string(got.LifecycleState), err)
 }
 
 func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []core.Subnet, nat, sgw, servicesCIDR string) error {
@@ -317,6 +320,9 @@ func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []cor
 		{Destination: servicesCIDR, DestinationType: routetable.DestinationService, NetworkEntityID: sgw, Description: "oracle services"},
 	}}
 	if table == nil {
+		if err := n.print("create", "route table", name); err != nil || !n.out.Apply {
+			return err
+		}
 		tags, _, err := n.stamp(key, map[string]string{"vcn": deref(n.vcn), "name": name})
 		if err != nil {
 			return err
@@ -328,13 +334,7 @@ func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []cor
 		}
 		got, err := n.client.GetRouteTable(ctx, core.GetRouteTableRequest{RtId: created.Id,
 			RequestMetadata: untilAvailable(func(r core.GetRouteTableResponse) string { return string(r.LifecycleState) })})
-		if err := available("route table", name, string(got.LifecycleState), err); err != nil {
-			return err
-		}
-		table = &found{id: deref(created.Id), name: name}
-		if err := n.print("created", "route table", name+" "+table.id); err != nil {
-			return err
-		}
+		return available("route table", name, string(got.LifecycleState), err)
 	}
 	if table.id == deref(vcn.DefaultRouteTableId) {
 		return fmt.Errorf("route table %s is the VCN's default table; refusing to route the private subnet through it", table.name)
@@ -357,6 +357,9 @@ func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []cor
 	if deref(private.RouteTableId) == table.id {
 		return n.print("ok", "subnet", deref(private.DisplayName)+" routes through "+table.name)
 	}
+	if err := n.print("update", "subnet", deref(private.DisplayName)+" routes through "+table.name); err != nil || !n.out.Apply {
+		return err
+	}
 	current, err := n.client.GetSubnet(ctx, core.GetSubnetRequest{SubnetId: private.Id})
 	if err != nil {
 		return err
@@ -365,7 +368,7 @@ func (n *network) privateRoutes(ctx context.Context, vcn core.Vcn, subnets []cor
 		UpdateSubnetDetails: core.UpdateSubnetDetails{RouteTableId: common.String(table.id)}}); err != nil {
 		return fmt.Errorf("attach route table %s to subnet %s: %w", table.name, deref(private.DisplayName), err)
 	}
-	return n.print("updated", "subnet", deref(private.DisplayName)+" routes through "+table.name)
+	return nil
 }
 
 func (n *network) nodeNSG(ctx context.Context, groups []found) error {
@@ -376,6 +379,9 @@ func (n *network) nodeNSG(ctx context.Context, groups []found) error {
 		return err
 	}
 	if group == nil {
+		if err := n.print("create", "nsg", name); err != nil || !n.out.Apply {
+			return err
+		}
 		tags, _, err := n.stamp(key, map[string]string{"vcn": deref(n.vcn), "name": name})
 		if err != nil {
 			return err
@@ -387,25 +393,9 @@ func (n *network) nodeNSG(ctx context.Context, groups []found) error {
 		}
 		got, err := n.client.GetNetworkSecurityGroup(ctx, core.GetNetworkSecurityGroupRequest{NetworkSecurityGroupId: created.Id,
 			RequestMetadata: untilAvailable(func(r core.GetNetworkSecurityGroupResponse) string { return string(r.LifecycleState) })})
-		if err := available("nsg", name, string(got.LifecycleState), err); err != nil {
-			return err
-		}
-		group = &found{id: deref(created.Id), name: name}
-		if err := n.print("created", "nsg", name+" "+group.id); err != nil {
-			return err
-		}
+		return available("nsg", name, string(got.LifecycleState), err)
 	}
-	var rules []nsg.Rule
-	for _, port := range edgePorts {
-		rules = append(rules, nsg.Rule{Direction: nsg.DirectionIngress, Protocol: nsg.ProtocolTCP, Peer: "0.0.0.0/0",
-			PortMin: port, PortMax: port, Description: fmt.Sprintf("client tcp %d through the load balancer", port)})
-	}
-	for _, rule := range meshPorts {
-		rule.Direction, rule.Peer = nsg.DirectionIngress, n.region.VCNCIDR
-		rules = append(rules, rule)
-	}
-	rules = append(rules, nsg.Rule{Direction: nsg.DirectionEgress, Protocol: nsg.ProtocolAll, Peer: "0.0.0.0/0", Description: "all egress"})
-	return converge(ctx, n, "nsg", group.name, nsg.Reconciler{API: n.rules}, key, nsg.Spec{NSGID: group.id, Rules: rules, Exclusive: true})
+	return converge(ctx, n, "nsg", group.name, nsg.Reconciler{API: n.rules}, key, nsg.Spec{NSGID: group.id, Rules: nodeRules(n.region), Exclusive: true})
 }
 
 func converge[S, O any](ctx context.Context, n *network, kind, name string, resource ociresource.Resource[S, O], key ociresource.Key, spec S) error {
@@ -426,8 +416,29 @@ func converge[S, O any](ctx context.Context, n *network, kind, name string, reso
 	if plan.Empty() {
 		return n.print("ok", kind, name)
 	}
+	for _, change := range plan.Changes {
+		if err := n.print(change.Op, kind, name+": "+change.Detail); err != nil {
+			return err
+		}
+	}
+	if !n.out.Apply {
+		return nil
+	}
 	if err := resource.Apply(ctx, target, observed, ok, plan); err != nil {
 		return fmt.Errorf("%s %s: %w", kind, name, err)
 	}
-	return n.print("updated", kind, name+": "+plan.String())
+	return nil
+}
+
+func nodeRules(region Region) []nsg.Rule {
+	var rules []nsg.Rule
+	for _, port := range edgePorts {
+		rules = append(rules, nsg.Rule{Direction: nsg.DirectionIngress, Protocol: nsg.ProtocolTCP, Peer: "0.0.0.0/0",
+			PortMin: port, PortMax: port, Description: fmt.Sprintf("client tcp %d through the load balancer", port)})
+	}
+	for _, rule := range meshPorts {
+		rule.Direction, rule.Peer = nsg.DirectionIngress, region.VCNCIDR
+		rules = append(rules, rule)
+	}
+	return append(rules, nsg.Rule{Direction: nsg.DirectionEgress, Protocol: nsg.ProtocolAll, Peer: "0.0.0.0/0", Description: "all egress"})
 }

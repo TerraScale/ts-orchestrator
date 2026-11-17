@@ -40,6 +40,7 @@ type Region struct {
 	PrivateSubnetCIDR string   `json:"private_subnet_cidr"`
 	Nodes             Nodes    `json:"nodes"`
 	GeoContinents     []string `json:"geo_continents"`
+	Reconcile         []string `json:"reconcile"`
 }
 
 var Continents = []string{"AF", "AN", "AS", "EU", "NA", "OC", "SA"}
@@ -107,8 +108,14 @@ func (f Fleet) Validate() error {
 	if f.DNS.SteeringTTLSeconds <= 0 {
 		errs = append(errs, fmt.Errorf("dns.steering_ttl_seconds %d must be positive", f.DNS.SteeringTTLSeconds))
 	}
-	if _, ok := f.DNSRegion(); !ok {
+	home, ok := f.DNSRegion()
+	if !ok {
 		errs = append(errs, fmt.Errorf("dns.compartment_id %q is not the compartment of a region", f.DNS.CompartmentID))
+	}
+	for _, region := range f.Regions {
+		if region.Label != home.Label && slices.Contains(region.Reconcile, "dns") {
+			errs = append(errs, fmt.Errorf("region %s reconciles dns, which only %s, the DNS region, runs", region.Label, home.Label))
+		}
 	}
 	if !strings.HasPrefix(f.DNS.HealthCheckPath, "/") {
 		errs = append(errs, fmt.Errorf("dns.health_check_path %q must start with /", f.DNS.HealthCheckPath))
@@ -187,6 +194,13 @@ func (r Region) validate(field string) []error {
 	}
 	if public, private := subnets["public_subnet_cidr"], subnets["private_subnet_cidr"]; public.IsValid() && private.IsValid() && public.Overlaps(private) {
 		errs = append(errs, fmt.Errorf("%s.public_subnet_cidr %s overlaps private_subnet_cidr %s", field, public, private))
+	}
+	for i, kind := range r.Reconcile {
+		if !slices.ContainsFunc(Passes, func(p Pass) bool { return p.Kind == kind }) {
+			errs = append(errs, fmt.Errorf("%s.reconcile[%d] %q is not a registered kind (%s)", field, i, kind, kinds()))
+		} else if slices.Contains(r.Reconcile[:i], kind) {
+			errs = append(errs, fmt.Errorf("%s.reconcile[%d] %q is named twice", field, i, kind))
+		}
 	}
 	n := r.Nodes
 	if n.Min < MinNodes {

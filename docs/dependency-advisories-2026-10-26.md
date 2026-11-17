@@ -97,3 +97,13 @@ and x/tools 0.51.0, which the root already selected. Only `go.mod` and `go.sum`
 changed in the replacements, and their reviewed digests in
 `scripts/ci/audit-replacements.py` were recomputed. `bash scripts/ci/audit-dependencies.sh source`
 reports no vulnerabilities in all six scans.
+
+## 2026-11-16: replica scaling authority and placement
+
+C11 adds `manager/replicas.go` to check the local Raft term and service version
+inside replica transactions, without forwarding writes or replacing release
+rollback history. `manager/scheduler/replicas.go` uses the existing readiness,
+resource-request, placement-constraint, platform, host-port and replica-limit
+filters to count additional placements. The two-node lifecycle journey exercises
+these additions with real containerd tasks. The SwarmKit source digest is renewed
+in `scripts/ci/audit-replacements.py`; its published upstream baseline is unchanged.

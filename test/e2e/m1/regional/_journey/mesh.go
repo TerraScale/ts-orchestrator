@@ -3,9 +3,16 @@ package mesh
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"fmt"
 	"maps"
+	"math/big"
 	"net"
 	"os"
 	"os/exec"
@@ -16,7 +23,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
@@ -80,20 +86,54 @@ func FleetForgeEdgeInventory(node *Node, state string, older []byte) error {
 	if err != nil {
 		return err
 	}
-	spki, signature, err := nodelist.Sign(state, payload)
+	signed := func(signer string) (SignedEdgeInventory, error) {
+		chain, signature, err := swarmruntime.SignRegional(signer, EdgeInventoryMessage(payload))
+		return SignedEdgeInventory{Inventory: payload, Certificate: chain, Signature: signature}, err
+	}
+	root, region, other := filepath.Dir(state), node.cfg.region, "sjc"
+	if region == other {
+		other = "gru"
+	}
+	worker, err := signed(state)
 	if err != nil {
 		return err
 	}
-	var tampered signedEdgeInventory
+	foreign, err := signed(filepath.Join(root, "state-ts-"+other+"-1"))
+	if err != nil {
+		return err
+	}
+	removed, err := signed(filepath.Join(root, "removed-"+region))
+	if err != nil {
+		return err
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return err
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		Subject:     pkix.Name{CommonName: "ts-" + region + "-1", Organization: []string{"fleet-" + region}, OrganizationalUnit: []string{"swarm-manager"}},
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}, KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, IsCA: true, BasicConstraintsValid: true}
+	self, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(EdgeInventoryMessage(payload))
+	selfSignature, err := ecdsa.SignASN1(rand.Reader, key, digest[:])
+	if err != nil {
+		return err
+	}
+	var tampered SignedEdgeInventory
 	if err := protocol.DecodeTolerant(genuine, &tampered, maxWire); err != nil {
 		return err
 	}
 	tampered.Inventory = payload
 	attempts := map[string]any{
-		"a route signed by a non-manager":           signedEdgeInventory{Publisher: node.cfg.server, SPKI: spki, Inventory: payload, Signature: signature},
-		"a non-manager claiming the manager's name": signedEdgeInventory{Publisher: EdgeInventoryPublisher(node.cfg.region), SPKI: spki, Inventory: payload, Signature: signature},
-		"the manager's envelope with a new route":   tampered,
-		"a replay of an older manager inventory":    older,
+		"a route signed by a worker certificate":           worker,
+		"a self-signed manager certificate":                SignedEdgeInventory{Inventory: payload, Certificate: [][]byte{self}, Signature: selfSignature},
+		"another region's manager certificate":             foreign,
+		"a manager certificate the region no longer lists": removed,
+		"the manager's envelope with a new route":          tampered,
+		"a replay of an older manager inventory":           older,
 	}
 	for attempt, envelope := range attempts {
 		data, ok := envelope.([]byte)

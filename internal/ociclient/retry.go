@@ -102,18 +102,15 @@ func (d readDispatcher) Do(request *http.Request) (*http.Response, error) {
 			}
 			return nil, err
 		}
-		if finish != nil {
-			if err := request.Context().Err(); err != nil {
-				return deny(err)
+		if err := request.Context().Err(); err != nil {
+			return deny(err)
+		}
+		if guard, ok := request.Context().Value(authorityKey{}).(func(context.Context) error); ok {
+			if guard == nil {
+				return deny(errors.New("OCI wire authority is unavailable"))
 			}
-			// The durable begin may block; refresh the claim after that write.
-			if guard, ok := request.Context().Value(authorityKey{}).(func(context.Context) error); ok {
-				if guard == nil {
-					return deny(errors.New("OCI wire authority is unavailable"))
-				}
-				if err := guard(request.Context()); err != nil {
-					return deny(fmt.Errorf("OCI wire authority: %w", err))
-				}
+			if err := guard(request.Context()); err != nil {
+				return deny(fmt.Errorf("OCI wire authority: %w", err))
 			}
 		}
 		if acquire, ok := request.Context().Value(admissionKey{}).(func(context.Context) (func(), error)); ok {

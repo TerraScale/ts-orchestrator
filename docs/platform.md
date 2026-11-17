@@ -199,7 +199,13 @@ cutover; until that gate passes their existing records remain in place.
 See [DNS reconciliation](oci-reconcile.md#fleet-dns-pass) and
 [the cutover procedure](network/geodns.md).
 
-A reconciler on the global leader creates and updates these resources:
+Each region's SwarmKit Raft leader runs the passes listed in its region's
+`reconcile` field of the fleet document once a minute
+(`internal/ociresource/runner.go`). gru, sjc and fra list `network` and
+`nlb`; gru, the DNS region, also lists `dns`. `compute` joins a region when
+that region moves onto document-made nodes. How the loop is fenced, limited and observed is in
+`docs/oci-reconcile.md`, "Reconcile loop". Over the regions, the
+reconcilers create and update these resources:
 
 - VCNs
 - subnets
@@ -213,7 +219,8 @@ A reconciler on the global leader creates and updates these resources:
 - steering policies
 - health checks
 
-The reconciler authenticates as the instance (instance principal).
+The loop authenticates as the instance (instance principal); `region apply`
+uses the operator's config when it has one.
 
 The commands are `ts-orch region add`, `ts-orch region edit`, `ts-orch region rm`,
 `ts-orch region plan` and `ts-orch region status`. `ts-orch region bootstrap`
@@ -234,8 +241,8 @@ It builds on this existing code:
 | `internal/ociregion` | foundation, publicapi and peer |
 | `internal/edge/geodns` | GeoDNS |
 
-Today: OCI resources were created by operator commands with an API key;
-nothing in the cluster creates or changes them. The document and
+Today: the region leaders keep `network`, `nlb` and gru's `dns` in sync every
+minute; the rest was created by operator commands with an API key. The document and
 `region plan` exist. `ts-orch region apply <label> nlb` creates and keeps each
 region's network load balancer and its reserved address (docs/oci-reconcile.md,
 "Network load balancer"); gru, sjc and fra have one since 2026-11-16,

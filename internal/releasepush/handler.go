@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/datamount"
-	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
@@ -99,7 +98,6 @@ type Reply struct {
 	Deadline   time.Time       `json:"deadline,omitzero"`
 	Refusal    *Refusal        `json:"refusal,omitempty"`
 	Events     []string        `json:"events,omitempty"`
-	NodeList   nodelist.Status `json:"node_list,omitzero"`
 	Host       string          `json:"host,omitempty"`
 	Workers    []HostVersion   `json:"workers,omitempty"`
 	Arch       string          `json:"arch,omitempty"`
@@ -127,7 +125,6 @@ type Progress interface {
 
 type Handler struct {
 	probation   *Probation
-	NodeList    *nodelist.Store
 	Health      func(context.Context, string) HealthResult
 	Verifier    *Verifier
 	PrepareStop func(context.Context) error
@@ -194,7 +191,6 @@ func NewHandler(state string) (*Handler, error) {
 		slog.Warn("release rollback record unreadable", "error", err)
 	}
 	h.rolledBack.Store(rolledBack)
-	h.NodeList = nodelist.Open(state)
 	h.RefusalFile = filepath.Join(state, "nats", "release-attempt.json")
 	h.DegradedFile = degradedFile(state)
 	return h, nil
@@ -383,7 +379,7 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }
 
 func (h *Handler) version() Reply {
-	reply := Reply{Version: h.Revision, SHA256: h.Digest, NodeList: h.NodeList.Status(), Arch: runtime.GOARCH}
+	reply := Reply{Version: h.Revision, SHA256: h.Digest, Arch: runtime.GOARCH}
 	reply.State, reply.Error = h.probation.status()
 	if rollback := h.rolledBack.Load(); rollback != nil {
 		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason

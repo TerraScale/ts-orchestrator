@@ -126,8 +126,9 @@ jobs:
           - {lane: fabric, entry: fabric/run.sh, timeout: 3, packages: "./test/e2e/m1/fabric"}
           - {lane: regional, entry: regional.sh, timeout: 3, packages: "./test/e2e/m1/regional"}
           - {lane: fleet, entry: fleet.sh, timeout: 4, packages: "./test/e2e/m1/regional"}
-          - {lane: nodelist, entry: nodelist.sh, timeout: 8, packages: "./test/e2e/m1/nodelist"}
           - {lane: restarts, entry: restarts.sh, timeout: 8, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+          - {lane: autoscale-up, entry: autoscale-up.sh, timeout: 5, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+          - {lane: autoscale-down, entry: autoscale-down.sh, timeout: 5, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
           - {lane: readiness, entry: readiness.sh, timeout: 10, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
           - {lane: rollback, entry: rollback.sh, timeout: 8}
           - {lane: host-logs, entry: host-logs.sh, timeout: 12}
@@ -139,7 +140,7 @@ jobs:
           - {lane: metadata-upgrade, entry: metadata-upgrade.sh, timeout: 8}
           - {lane: node-upgrade, entry: node-upgrade.sh, timeout: 10}
           - {lane: rollout, entry: rollout.sh, timeout: 10}
-          - {lane: oracle-regions, entry: oracle-regions.sh, timeout: 5, packages: "./test/e2e/m1/oracle-regions"}
+          - {lane: oracle-regions, entry: oracle-regions.sh, timeout: 7, packages: "./test/e2e/m1/oracle-regions"}
           - {lane: region-fallback, entry: region-fallback.sh, timeout: 4, packages: "./test/e2e/m1/oracle-regions"}
           - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
           - {lane: pull-update, entry: pull-update.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}

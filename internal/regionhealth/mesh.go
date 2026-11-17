@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
-	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -62,11 +61,7 @@ func Run(ctx context.Context, state string) {
 		if conn == nil || conn.IsClosed() {
 			// The mesh writes its token once it starts; until then this retries every tick.
 			if conn, _ = mesh.Connect(state); conn != nil {
-				if err := Serve(conn, func() Report {
-					report := *latest.Load()
-					report.NodeList = nodelist.StatusAt(state)
-					return report
-				}); err != nil {
+				if err := Serve(conn, func() Report { return *latest.Load() }); err != nil {
 					slog.WarnContext(ctx, "region health responder failed", "error", err)
 					conn.Close()
 					conn = nil
@@ -108,41 +103,44 @@ func Ask(ctx context.Context, conn *nats.Conn) (map[string]Report, error) {
 	return ask(ctx, conn, len(mesh.Regions()), statusWait)
 }
 
-// ask collects one report per region until want arrived or wait elapsed.
 func ask(ctx context.Context, conn *nats.Conn, want int, wait time.Duration) (map[string]Report, error) {
+	return collect(ctx, conn, protocol.MeshHealthSubject, want, wait, func(r Report) string { return r.Region })
+}
+
+func collect[T any](ctx context.Context, conn *nats.Conn, subject string, want int, wait time.Duration, region func(T) string) (map[string]T, error) {
 	inbox := conn.NewRespInbox()
 	sub, err := conn.SubscribeSync(inbox)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = sub.Unsubscribe() }()
-	if err := conn.PublishRequest(protocol.MeshHealthSubject, inbox, nil); err != nil {
+	if err := conn.PublishRequest(subject, inbox, nil); err != nil {
 		return nil, err
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
-	reports := map[string]Report{}
-	for len(reports) < want {
+	replies := map[string]T{}
+	for len(replies) < want {
 		m, err := sub.NextMsgWithContext(waitCtx)
 		if err != nil {
 			break
 		}
-		var report Report
-		if protocol.DecodeTolerant(m.Data, &report, maxReply) == nil {
-			reports[report.Region] = report
+		var reply T
+		if protocol.DecodeTolerant(m.Data, &reply, maxReply) == nil {
+			replies[region(reply)] = reply
 		}
 	}
-	return reports, ctx.Err()
+	return replies, ctx.Err()
 }
 
 // write prints one line per region and fails when any is not ok.
-func write(output io.Writer, regions []string, reports map[string]Report) error {
+func write(output io.Writer, regions []string, reports map[string]Report, reconcile map[string]Reconcile) error {
 	var bad []string
 	for _, region := range regions {
 		line := region + ": unreachable"
 		report, ok := reports[region]
 		if ok {
-			line = region + ": " + report.State + "; " + report.NodeList.String()
+			line = region + ": " + report.State
 			if len(report.Reasons) != 0 {
 				line += " (" + strings.Join(report.Reasons, "; ") + ")"
 			}
@@ -155,6 +153,11 @@ func write(output io.Writer, regions []string, reports map[string]Report) error 
 		}
 		if report.Rollout != nil {
 			line += "\n  " + report.Rollout.String()
+		}
+		if result, ok := reconcile[region]; ok {
+			for _, reconcile := range result.lines() {
+				line += "\n  " + reconcile
+			}
 		}
 		for _, host := range report.Hosts {
 			line += fmt.Sprintf("\n  host %s: revision %s", host.Host, host.Version)
@@ -198,7 +201,7 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 		if err := report.readRollout(state); err != nil {
 			report.Reasons = append(report.Reasons, err.Error())
 		}
-		return write(output, []string{"local"}, map[string]Report{"local": report})
+		return write(output, []string{"local"}, map[string]Report{"local": report}, nil)
 	}
 	if err != nil {
 		return err
@@ -209,7 +212,11 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 	if err != nil {
 		return err
 	}
-	return write(output, regions, reports)
+	reconcile, err := askReconcile(ctx, conn)
+	if err != nil {
+		return err
+	}
+	return write(output, regions, reports, reconcile)
 }
 
 func releaseDegraded(report Report, state string) Report {

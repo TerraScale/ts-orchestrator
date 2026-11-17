@@ -333,3 +333,13 @@ groups:
           severity: critical
         annotations:
           summary: A served edge name has no valid certificate
+
+  - name: oci-reconcile
+    rules:
+      - alert: OCIReconcileStopped
+        expr: ts_orch_oci_reconcile_stopped > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: A region leader stopped an OCI reconcile kind because one tick wanted more than 16 OCI writes
+          description: The kind stays stopped on that leader until ts-orch restarts there. Read the leader's OCI change log lines to find what wanted to change so much (docs/oci-reconcile.md, Reconcile loop) before restarting it.

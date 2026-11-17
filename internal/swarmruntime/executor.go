@@ -59,6 +59,8 @@ type Executor struct {
 	node              *api.Node
 	registry          RegistryResolver
 	stateful          *execution.Source
+	replicaMu         sync.Mutex
+	replicaSampler    *hostload.Sampler
 	loadMu            sync.Mutex
 	loadTasks         map[string]*controller
 	loadSampler       *hostload.Sampler

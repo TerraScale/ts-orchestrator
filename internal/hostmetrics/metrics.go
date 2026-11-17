@@ -4,6 +4,7 @@ package hostmetrics
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
@@ -131,6 +133,16 @@ func Handler(region, address string, executor *swarmruntime.Executor) http.Handl
 			edge.ServeLocal(w, r)
 			return
 		}
+		if r.URL.Path == "/replica-load" {
+			load, err := executor.ReplicaLoad(r.Context())
+			if err != nil {
+				http.Error(w, "replica load unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(load)
+			return
+		}
 		if serveMonitoring(w, r) {
 			return
 		}
@@ -165,12 +177,14 @@ func Handler(region, address string, executor *swarmruntime.Executor) http.Handl
 			http.Error(w, "host runtime telemetry unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		swarmruntime.WriteReplicaMetrics(&body)
 		swarmruntime.ReadinessMetrics.WritePrometheus(&body)
 		edge.WriteLocalCertificateMetrics(r.Context(), &body)
 		observability.WriteEdgeListenerMetrics(&body)
 		observability.WriteNodeFeatureMetrics(&body)
 		observability.WriteEdgeResponseMetrics(&body)
 		edge.WritePostgresPreauthMetrics(&body)
+		ociresource.WriteMetrics(&body)
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		_, _ = w.Write(body.Bytes())
 	})

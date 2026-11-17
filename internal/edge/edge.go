@@ -27,6 +27,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	netbirddashboard "github.com/TerraScale/ts-orchestrator/internal/netbird/dashboard"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 )
 
@@ -479,6 +480,17 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 				}
 				http.Error(w, "bad request body", http.StatusBadRequest)
 				return
+			}
+		}
+	}
+	if !peer {
+		if routes := e.serviceRoutes.Load(); routes != nil {
+			host := r.Host
+			if name, _, err := net.SplitHostPort(host); err == nil {
+				host = name
+			}
+			if service := routes.hosts[strings.ToLower(host)]; service != "" {
+				observability.RecordServiceRequest(service)
 			}
 		}
 	}
