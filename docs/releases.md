@@ -421,9 +421,12 @@ that changes runtime inputs:
 | `upgrade-previous` | N-1: the release the `upgrade-gate/previous` pin names, downloaded from GitHub and checked against its listed digest | N: this build |
 | `upgrade-next` | N: this build | N+1: this build with its embedded `vcs.revision` replaced by a derived commit that descends from N, published one run later |
 
-Each lane boots one manager and one worker in sjc as real `ts-orch node`
-processes in Oracle mode (the `oraclehost` harness from the `oracle-regions`
-lane: IMDS, instance-principal federation, Vault and the production unit). Once
+Each lane boots real `ts-orch node` processes in Oracle mode (the `oraclehost`
+harness from the `oracle-regions` lane: IMDS, instance-principal federation,
+Vault and the production unit): the gru, sjc and fra founders, whose mesh forms
+the JetStream metadata group the pull updater stores its rollout in, and a
+worker in sjc. sjc is first in the rollout order, so its manager and worker are
+the hosts that must take the release. Once
 both serve the installed release, the lane publishes the candidate. The
 installed binary's own pull updater then has to do the rest, unchanged:
 
