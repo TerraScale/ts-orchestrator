@@ -137,7 +137,17 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 		go func() {
 			mesh.Run(ctx, *state, meshCluster(plan), func(node *mesh.Node) {
 				meshNode.Store(node)
-				served()
+				if plan.joiner() {
+					go func() {
+						select {
+						case <-ctx.Done():
+						case <-node.RegionReached():
+							served()
+						}
+					}()
+				} else {
+					served()
+				}
 				plannedstop.Register(ctx, node.PrepareStop)
 				handoff.SetTaskDrainer(node.DrainTask)
 				handoff.SetBootstrap(node.Bootstrap)

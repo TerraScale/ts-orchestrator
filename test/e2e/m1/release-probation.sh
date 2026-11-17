@@ -7,4 +7,4 @@ sudo swapoff --all
 lane="$(dirname "$bin")/release-probation"
 begin "a release confirms only once its node serves its region"
 sudo --preserve-env=PATH unshare --mount --net --propagation private "$lane" "$bin" "$work/probation"
-end "release-probation -> confirmed after mesh and release subscriptions; READY=1 without a mesh rolls back at the probation expiry"
+end "release-probation -> founder confirms at bootstrap; a joining worker confirms only with a route to its region; READY=1 and a local mesh without a regional route roll back at the probation expiry"
