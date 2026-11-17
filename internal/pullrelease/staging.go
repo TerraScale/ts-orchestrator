@@ -147,7 +147,9 @@ func (u *Updater) publishStaging(ctx context.Context) error {
 func (u *Updater) latency(ctx context.Context) (LatencyVerdict, error) {
 	target := *u.status.Target
 	asset := releaseattest.AssetURL(target.SHA, target.RunID, LatencyAsset)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, asset, nil)
+	fetch, cancel := context.WithTimeout(ctx, discoverWait)
+	defer cancel()
+	request, err := http.NewRequestWithContext(fetch, http.MethodGet, asset, nil)
 	if err != nil {
 		return LatencyVerdict{}, err
 	}
@@ -185,7 +187,9 @@ func (u *Updater) staged(ctx context.Context, tag string) string {
 
 func (u *Updater) verifyStaging(ctx context.Context, tag string) (string, string) {
 	staging := fleet.Embedded().Staging
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, staging.GateURL(tag), nil)
+	fetch, cancel := context.WithTimeout(ctx, discoverWait)
+	defer cancel()
+	request, err := http.NewRequestWithContext(fetch, http.MethodGet, staging.GateURL(tag), nil)
 	if err != nil {
 		return GateUnreadable, err.Error()
 	}
