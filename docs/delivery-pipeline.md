@@ -110,7 +110,7 @@ CI reads GET /orchestrator/observation through the existing authenticated edge
 on HTTPS 443. The response contains host revisions, regional health, a mesh
 ping matrix and desired/running images. It has no mutation operation.
 
-- release hosts REVISION waits for every registered host to run that revision.
+- release hosts REVISION waits for every registered host to run that revision with its release confirmed and no rollback.
 - release wait --service NAME --image IMAGE waits for the selected image to serve.
 - release digests --out FILE records complete, agreeing running digests.
 - release mesh-check verifies mesh and HTTPS evidence without NATS access.

@@ -94,7 +94,7 @@ func WaitHosts(ctx context.Context, args []string, output io.Writer) error {
 			return false
 		}
 		for _, host := range observation.Hosts {
-			if host.Version != args[0] || host.Error != "" || host.Refusal != nil {
+			if host.Version != args[0] || host.State != "" || host.RolledBack != "" || host.Error != "" || host.Refusal != nil {
 				return false
 			}
 		}
@@ -102,7 +102,7 @@ func WaitHosts(ctx context.Context, args []string, output io.Writer) error {
 	}); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(output, "Every registered host runs", args[0])
+	_, err = fmt.Fprintln(output, "Every registered host runs", args[0], "with its release confirmed and no rollback")
 	return err
 }
 

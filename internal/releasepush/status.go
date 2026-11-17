@@ -49,12 +49,14 @@ type Refusal struct {
 }
 
 type HostVersion struct {
-	ID      string   `json:"id"`
-	Host    string   `json:"host"`
-	Version string   `json:"version,omitempty"`
-	Refusal *Refusal `json:"refusal,omitempty"`
-	Error   string   `json:"error,omitempty"`
-	Down    bool     `json:"down,omitempty"`
+	ID         string   `json:"id"`
+	Host       string   `json:"host"`
+	Version    string   `json:"version,omitempty"`
+	State      string   `json:"state,omitempty"`
+	RolledBack string   `json:"rolled_back,omitempty"`
+	Refusal    *Refusal `json:"refusal,omitempty"`
+	Error      string   `json:"error,omitempty"`
+	Down       bool     `json:"down,omitempty"`
 }
 
 func (h *Handler) ServeHostVersion(conn *nats.Conn, region, host string) error {
@@ -93,7 +95,7 @@ func ReadHostVersions(ctx context.Context, conn *nats.Conn, region string, nodes
 				rows[i].Error = "host reports no running revision"
 				return
 			}
-			rows[i].Version, rows[i].Refusal = reply.Version, reply.Refusal
+			rows[i].Version, rows[i].State, rows[i].RolledBack, rows[i].Refusal = reply.Version, reply.State, reply.RolledBack, reply.Refusal
 		})
 	}
 	pending.Wait()

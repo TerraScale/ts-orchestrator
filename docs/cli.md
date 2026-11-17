@@ -70,7 +70,7 @@ HTTPS; see [platform design](platform.md#releases).
 
 | Command | Purpose |
 | --- | --- |
-| `ts-orch release hosts REVISION` | CI: wait until every registered host reports the published revision over authenticated HTTPS |
+| `ts-orch release hosts REVISION` | CI: wait until every registered host reports the published revision with its release confirmed and no rollback, over authenticated HTTPS |
 | `ts-orch release wait --service NAME --image REF@SHA256 [--regions F]` | CI: wait for the selected digest to serve in every region over authenticated HTTPS |
 | `ts-orch release digests --out F [--regions F]` | CI only (app digests): record agreeing, completed running images to a file |
 | `ts-orch release mesh-check [--regions F]` | CI only: read each native regional mesh endpoint over authenticated HTTPS and verify every peer observation, RTT and running image |
