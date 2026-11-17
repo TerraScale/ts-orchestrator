@@ -20,7 +20,11 @@ import (
 	"strings"
 	"time"
 
+	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/oraclehost"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
 )
@@ -154,8 +158,69 @@ func nextRevision(sha string) string {
 	return hex.EncodeToString(sum[:])[:40]
 }
 
-func fetch(mode, candidate, work, lineage string) {
+func workloads(lane string) []map[string]any {
+	var whoami map[string]any
+	decode(read(filepath.Join(lane, "whoami.json")), &whoami)
+	var images map[string]map[string]string
+	decode(read(filepath.Join(lane, "images.json")), &images)
+	whoami["image"] = images[whoami["name"].(string)][runtime.GOARCH]
+	var auth struct {
+		Secrets map[string]vaultsecret.Ref `json:"secrets"`
+	}
+	data, err := m1.Files.ReadFile("services/ts-auth.json")
+	must(err)
+	decode(data, &auth)
+	ref, ok := auth.Secrets[edge.RequestProofKey]
+	require(ok, "deploy/m1/services/ts-auth.json has no %s", edge.RequestProofKey)
+	terrabase := map[string]any{"name": "terrabase", "image": whoami["image"], "args": []string{"--port", "18082"}, "port": 18082,
+		"readyPath": "/health", "replicas": 1, "secrets": map[string]vaultsecret.Ref{edge.RequestProofKey: ref}}
+	return []map[string]any{terrabase, whoami}
+}
+
+func serve(ctx context.Context, fleet *oraclehost.Fleet, manager *oraclehost.Host, services []map[string]any, work string) {
+	names := []string{}
+	for _, service := range services {
+		if hostnames, ok := service["hostnames"].([]any); ok {
+			for _, name := range hostnames {
+				names = append(names, name.(string))
+			}
+		}
+	}
+	for _, region := range fleet.Regions {
+		names = append(names, region.Name+"."+mesh.Domain)
+	}
+	for _, name := range names {
+		material, err := fleet.EdgeMaterial(name)
+		must(err)
+		for _, host := range fleet.Hosts {
+			must(os.MkdirAll(host.State("edge-certs"), 0o700))
+			must(os.WriteFile(filepath.Join(host.State("edge-certs"), name), material, 0o600))
+		}
+	}
+	until(ctx, manager.Name+" reaches every region over the mesh", func() error {
+		output, _ := manager.Exec(ctx, "/usr/local/bin/ts-orch", "status")
+		for _, region := range fleet.Regions {
+			if !bytes.Contains(output, []byte(region.Name+":")) || bytes.Contains(output, []byte(region.Name+": unreachable")) {
+				return fmt.Errorf("region %s does not answer over the mesh: %s", region.Name, output)
+			}
+		}
+		return nil
+	})
+	for _, service := range services {
+		applied := filepath.Join(work, service["name"].(string)+".json")
+		data, err := json.Marshal(service)
+		must(err)
+		must(os.WriteFile(applied, data, 0o644))
+		output, err := manager.Exec(ctx, "/usr/local/bin/ts-orch", "service", "apply", "-f", applied)
+		require(err == nil && !bytes.Contains(output, []byte("on this host only")), "service apply of %s on %s did not go through the mesh: %v: %s", service["name"], manager.Name, err, output)
+	}
+}
+
+func fetch(mode, candidate, work, lineage, lane string) {
 	pin, head := pinned(), revision(candidate)
+	for _, service := range workloads(lane)[1:] {
+		must(oraclehost.FetchImage(context.Background(), service["image"].(string), filepath.Join(work, "registry")))
+	}
 	if mode == "previous" {
 		fetchPrevious(work, pin)
 	}
@@ -276,13 +341,25 @@ func until(ctx context.Context, what string, check func() error) {
 	}
 }
 
+func releaseLines(path string, lines int) string {
+	data, _ := os.ReadFile(path)
+	matched := []string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		lower := strings.ToLower(line)
+		if !strings.Contains(lower, "module=grpc") && (strings.Contains(lower, "release") || strings.Contains(lower, "preflight") || strings.Contains(lower, "refus")) {
+			matched = append(matched, line)
+		}
+	}
+	return strings.Join(matched[max(0, len(matched)-lines):], "\n")
+}
+
 func tail(path string, lines int) string {
 	data, _ := os.ReadFile(path)
 	all := strings.Split(strings.TrimSpace(string(data)), "\n")
 	return strings.Join(all[max(0, len(all)-lines):], "\n")
 }
 
-func journey(mode, candidatePath, work string, run uint64) {
+func journey(mode, candidatePath, work string, run uint64, lane string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 11*time.Minute)
 	defer cancel()
 	authority := sigstore.New()
@@ -313,7 +390,8 @@ func journey(mode, candidatePath, work string, run uint64) {
 		if value := recover(); value != nil {
 			fmt.Printf("FAIL: %v\nstand-in requests: %v\nGitHub requests:\n%s\n", value, fleet.Requests(), strings.Join(fleet.GitHub().Requests(), "\n"))
 			for _, host := range fleet.Hosts {
-				fmt.Printf("--- %s journal\n%s\n", host.Name, tail(filepath.Join(host.Dir, "journal.log"), 60))
+				fmt.Printf("--- %s release decisions\n%s\n", host.Name, releaseLines(filepath.Join(host.Dir, "journal.log"), 25))
+				fmt.Printf("--- %s journal\n%s\n", host.Name, tail(filepath.Join(host.Dir, "journal.log"), 40))
 			}
 			fleet.Close()
 			os.Exit(1)
@@ -331,6 +409,8 @@ func journey(mode, candidatePath, work string, run uint64) {
 	must(fleet.Boot(worker))
 	_, err = worker.WaitReady(ctx, 0, from)
 	must(err)
+	serve(ctx, fleet, manager, workloads(lane), work)
+	step("applied terrabase and e2e-whoami through %s's mesh, as production regions serve services", manager.Name)
 	for _, host := range fleet.Hosts {
 		until(ctx, host.Name+" serves the installed release", func() error { return serving(ctx, host, from, installed) })
 	}
@@ -353,14 +433,14 @@ func main() {
 	if oraclehost.Main() {
 		return
 	}
-	require(len(os.Args) == 6 && (os.Args[2] == "previous" || os.Args[2] == "next") && (os.Args[1] == "fetch" || os.Args[1] == "run"),
-		"usage: upgrade-gate fetch previous|next <candidate> <work> <lineage sha> | upgrade-gate run previous|next <candidate> <work> <run id>")
+	require(len(os.Args) == 7 && (os.Args[2] == "previous" || os.Args[2] == "next") && (os.Args[1] == "fetch" || os.Args[1] == "run"),
+		"usage: upgrade-gate fetch previous|next <candidate> <work> <lineage sha> <lane dir> | upgrade-gate run previous|next <candidate> <work> <run id> <lane dir>")
 	mode, candidate, work := os.Args[2], os.Args[3], os.Args[4]
 	if os.Args[1] == "fetch" {
-		fetch(mode, candidate, work, os.Args[5])
+		fetch(mode, candidate, work, os.Args[5], os.Args[6])
 		return
 	}
 	run, err := strconv.ParseUint(os.Args[5], 10, 64)
 	must(err)
-	journey(mode, candidate, work, run)
+	journey(mode, candidate, work, run, os.Args[6])
 }

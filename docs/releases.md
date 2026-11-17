@@ -426,7 +426,11 @@ harness from the `oracle-regions` lane: IMDS, instance-principal federation,
 Vault and the production unit): the gru, sjc and fra founders, whose mesh forms
 the JetStream metadata group the pull updater stores its rollout in, and a
 worker in sjc. sjc is first in the rollout order, so its manager and worker are
-the hosts that must take the release. Once
+the hosts that must take the release. Like production regions, the fleet serves services
+before the release appears: the lane applies `terrabase` and `e2e-whoami`
+through the mesh, because a release older than the native regional mesh name
+reports its edge unready without a route, and the updater rolls only while
+every other host of the region is healthy. Once
 both serve the installed release, the lane publishes the candidate. The
 installed binary's own pull updater then has to do the rest, unchanged:
 
