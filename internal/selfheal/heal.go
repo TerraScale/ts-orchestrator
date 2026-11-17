@@ -338,6 +338,11 @@ func (p *pass) refusal(ctx context.Context, c observed) (string, string) {
 	if n := len(p.unhealthy()); n > 1 {
 		return "several-unhealthy", fmt.Sprintf("%d nodes are unhealthy at once; that looks like a region or network problem", n)
 	}
+	for _, o := range p.nodes {
+		if _, ok := o.node.Spec.Annotations.Labels[swarmruntime.LabelDrainSince]; ok && o.node.Spec.Availability == api.NodeAvailabilityDrain && o.node.ID != c.node.ID {
+			return "scaling", "the node scaler is draining " + o.host + "; one node change at a time"
+		}
+	}
 	if c.instance == nil {
 		return "not-a-pool-node", "no document-made OCI instance is named " + c.host
 	}

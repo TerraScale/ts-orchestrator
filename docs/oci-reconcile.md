@@ -341,6 +341,7 @@ stays unhealthy, one node at a time per region.
   | `compute-not-reconciled` | `compute` is not in the region's `reconcile` list (every production region until C17). |
   | `stopped` | A replacement did not join; see below. |
   | `several-unhealthy` | More than one node is unhealthy at once: a region or network problem. `SelfHealRefused` fires. |
+  | `scaling` | The node scaler (C12) is draining another node to remove it; the scaler likewise changes no node while one is unhealthy. |
   | `not-a-pool-node` | No document-made instance carries the node's name, so hand-made hosts are never touched. |
   | `leader` | The unhealthy node is the Raft leader itself. |
   | `quorum` | Demoting the manager would lose the Raft majority, or a role change is pending. |
