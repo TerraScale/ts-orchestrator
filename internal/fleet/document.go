@@ -12,7 +12,10 @@ import (
 	document "github.com/TerraScale/ts-orchestrator/deploy/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
+
+const StagingMaxNodes = 3
 
 const MinNodes = 3
 
@@ -181,13 +184,26 @@ func (f Fleet) Validate() error {
 			errs = append(errs, fmt.Errorf("geo_continents: no region answers %s", continent))
 		}
 	}
-	return errors.Join(append(errs, f.Staging.validate(labels, vcns)...)...)
+	compartments := map[string]string{f.DNS.CompartmentID: "dns.compartment_id"}
+	for _, region := range f.Regions {
+		compartments[region.CompartmentID] = fmt.Sprintf("regions[%s].compartment_id", region.Label)
+	}
+	return errors.Join(append(errs, f.Staging.validate(labels, vcns, compartments)...)...)
 }
 
-func (s Staging) validate(labels map[string]bool, production []labelled) []error {
+func (s Staging) validate(labels map[string]bool, production []labelled, compartments map[string]string) []error {
 	errs := s.Region.validate("staging")
 	if labels[s.Label] {
 		errs = append(errs, fmt.Errorf("staging.label %q is also a production region", s.Label))
+	}
+	if owner, ok := compartments[s.CompartmentID]; ok {
+		errs = append(errs, fmt.Errorf("staging.compartment_id %q is also %s: its nodes would become staging", s.CompartmentID, owner))
+	}
+	if s.VaultID == vaultsecret.SharedVault {
+		errs = append(errs, fmt.Errorf("staging.vault_id %q is the production shared Vault", s.VaultID))
+	}
+	if s.Nodes.Max > StagingMaxNodes {
+		errs = append(errs, fmt.Errorf("staging.nodes.max %d is over staging's %d nodes", s.Nodes.Max, StagingMaxNodes))
 	}
 	if vcn, err := netip.ParsePrefix(s.VCNCIDR); err == nil {
 		for _, other := range production {
