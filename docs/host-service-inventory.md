@@ -3,7 +3,8 @@
 C15 inventory, observed on `ts-gru-1` on 2026-11-16. No additional production
 workload qualifies for conversion without moving state or taking responsibility
 for booting, repairing or identifying the host away from the host. This change
-documents ownership; it moves no process, state, port, hostname or secret.
+documents ownership and removes obsolete cold-maintenance tooling; it moves no
+process, state, port, hostname or secret.
 
 Prometheus, Alertmanager and alert delivery explicitly stay outside SwarmKit:
 monitoring must keep paging when SwarmKit itself is broken. Keeping their host
@@ -112,13 +113,19 @@ disable or remove distribution services that happen to be installed.
 
 The observed host also has inactive `ts-zdt-deadman.service` and a disabled,
 inactive `ts-zdt-deadman.timer`. The service describes a cold-maintenance
-dead-man switch and invokes `/var/tmp/zdt-offline/deadman.py`. Neither unit nor
-that script is shipped in this repository. They are recorded as host-only
-maintenance leftovers; production was not modified to remove them.
+dead-man switch and invokes `/var/tmp/zdt-offline/deadman.py`. The repository
+previously shipped their installer in `scripts/maintenance/window.py` and the
+founder script in `scripts/maintenance/deadman.py`. C15 deletes that obsolete
+window driver together with `deadman.py`, `deadman_workers.py` and their
+`qualify-deadman.py` fixture. Removing the coupled driver avoids retaining
+maintenance steps whose rollback helpers no longer exist. No surviving script
+installs or enables these deadman units. Per COS, C26's Cloudflare cron dead-man
+replaced the obsolete mechanism; this change adds no replacement scheduler.
+Production was not modified: the observed inactive units remain installed there.
 
-No dead unit was found in the reviewed M1 install path: every unit still
-performs the host responsibilities above. `deploy/systemd` NetBird units are
-referenced by `internal/netbird/client`; they are a separate enrollment install
+The remaining M1 install units perform the host responsibilities above.
+`deploy/systemd` NetBird units are referenced by `internal/netbird/client`;
+they are a separate enrollment install
 path, not duplicate M1 workload units. `deploy/netbird/manager` targets the
 separate `ts-ops` Podman deployment and its own store/backup/firewall, not the
 observed SwarmKit host; its installer explicitly refuses other hosts. This
@@ -127,10 +134,12 @@ based on their absence there.
 
 ## Release and proof boundary
 
-Nothing moves in this inventory-only change. Consequently there is no new
-cutover, host-unit removal, rollback restoration, service rescheduling or
-production-upgrade behavior to prove. No E2E assertion was added and no node
-was restarted. The read-only service counts above prove the observed existing
+Nothing moves in this inventory and obsolete-tooling cleanup. Consequently
+there is no new cutover, host-unit removal, rollback restoration, service rescheduling or
+production-upgrade behavior to prove. The removed installer is not invoked by
+the normal release path; removing it does not disable installed host units.
+No E2E assertion was added and no node was restarted. The read-only service
+counts above prove the observed existing
 workload ownership, not a newly exercised failover. Future conversions must
 preserve ports/names/secrets and prove cutover, restart/rescheduling and
 rollback in `e2e-m1`; any state migration needs a separate decision.
