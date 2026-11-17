@@ -24,7 +24,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostdashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
