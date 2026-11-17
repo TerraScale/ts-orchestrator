@@ -118,8 +118,9 @@ func signedRelease(ctx context.Context, binary, sha, run, attempt string) (relea
 			return
 		}
 		if strings.Contains(r.URL.Path, "/compare/") {
-			from, to, _ := strings.Cut(strings.Split(r.URL.Path, "/compare/")[1], "...")
-			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ahead", "ahead_by": 1, "base_commit": map[string]string{"sha": from}, "merge_base_commit": map[string]string{"sha": from}, "commits": []map[string]string{{"sha": to}}})
+			target, installed, _ := strings.Cut(strings.Split(r.URL.Path, "/compare/")[1], "...")
+			_ = json.NewEncoder(w).Encode(map[string]any{"base_commit": map[string]string{"sha": target}, "merge_base_commit": map[string]string{"sha": installed},
+				"status": "behind", "ahead_by": 0, "behind_by": 1, "commits": []map[string]string{}, "files": []map[string]string{}})
 			return
 		}
 		if r.URL.Path == "/token" {

@@ -33,11 +33,12 @@ type Source struct {
 	Client *http.Client
 	Now    func() time.Time
 
-	mu     sync.Mutex
-	etag   string
-	cached Release
-	found  bool
-	until  time.Time
+	mu      sync.Mutex
+	etag    string
+	cached  Release
+	found   bool
+	until   time.Time
+	lineage lineage
 }
 
 func NewSource() *Source {
@@ -138,29 +139,24 @@ func (s *Source) Descends(ctx context.Context, base, head string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.lineage.base == base && s.lineage.head == head {
+		return s.lineage.verdict
+	}
 	if now := s.Now(); now.Before(s.until) {
 		return &RateLimitedError{s.until}
 	}
-	first, err := s.compare(ctx, base, head, 1)
+	found, err := s.compare(ctx, head, base)
 	if err != nil {
 		return err
 	}
-	if first.Status == "behind" && first.AheadBy == 0 && first.Base.SHA == base && first.MergeBase.SHA == head {
-		return fmt.Errorf("%w: the installed %s already descends from %s", ErrOlder, base, head)
-	}
-	if first.Status != "ahead" || first.AheadBy < 1 || first.Base.SHA != base || first.MergeBase.SHA != base {
-		return fmt.Errorf("%w: %s does not descend from the installed %s (%s; base %s, merge base %s)", ErrRefused, head, base, first.Status, first.Base.SHA, first.MergeBase.SHA)
-	}
-	last := first
-	if first.AheadBy > 1 {
-		if last, err = s.compare(ctx, base, head, first.AheadBy); err != nil {
-			return err
-		}
-	}
-	if last.AheadBy != first.AheadBy || last.Base.SHA != base || last.MergeBase.SHA != base || len(last.Commits) != 1 || last.Commits[0].SHA != head {
-		return fmt.Errorf("%w: GitHub's comparison of the installed %s does not end at %s", ErrRefused, base, head)
-	}
-	return nil
+	s.lineage = lineage{base: base, head: head, verdict: found.descends(base, head)}
+	return s.lineage.verdict
+}
+
+type lineage struct {
+	base    string
+	head    string
+	verdict error
 }
 
 type commitRef struct {
@@ -168,29 +164,71 @@ type commitRef struct {
 }
 
 type comparison struct {
-	Status    string      `json:"status"`
-	AheadBy   int         `json:"ahead_by"`
-	Base      commitRef   `json:"base_commit"`
-	MergeBase commitRef   `json:"merge_base_commit"`
-	Commits   []commitRef `json:"commits"`
+	Status    string
+	AheadBy   int
+	BehindBy  int
+	Base      commitRef
+	MergeBase commitRef
 }
 
-func (s *Source) compare(ctx context.Context, base, head string, page int) (comparison, error) {
-	_, data, err := s.get(ctx, apiBase+"/compare/"+base+"..."+head+"?per_page=1&page="+strconv.Itoa(page), nil, compareLimit)
+func (c comparison) descends(base, head string) error {
+	switch {
+	case c.Base.SHA != head:
+		return fmt.Errorf("%w: GitHub resolved %s to %s", ErrRefused, head, c.Base.SHA)
+	case c.Status == "behind" && c.AheadBy == 0 && c.BehindBy > 0 && c.MergeBase.SHA == base:
+		return nil
+	case c.Status == "ahead" && c.BehindBy == 0 && c.AheadBy > 0 && c.MergeBase.SHA == head:
+		return fmt.Errorf("%w: the installed %s already descends from %s", ErrOlder, base, head)
+	}
+	return fmt.Errorf("%w: %s does not descend from the installed %s (%s; merge base %s)", ErrRefused, head, base, c.Status, c.MergeBase.SHA)
+}
+
+func (s *Source) compare(ctx context.Context, head, base string) (comparison, error) {
+	url := apiBase + "/compare/" + head + "..." + base + "?per_page=1"
+	response, err := s.open(ctx, url, nil)
 	if err != nil {
 		return comparison{}, err
 	}
-	var result comparison
-	if err := json.Unmarshal(data, &result); err != nil {
-		return comparison{}, fmt.Errorf("GitHub comparison unreadable: %w", err)
+	defer response.Body.Close()
+	var found comparison
+	fields := map[string]any{"status": &found.Status, "ahead_by": &found.AheadBy, "behind_by": &found.BehindBy,
+		"base_commit": &found.Base, "merge_base_commit": &found.MergeBase}
+	decoded := map[string]bool{}
+	decoder := json.NewDecoder(io.LimitReader(response.Body, compareLimit))
+	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+		return comparison{}, fmt.Errorf("GitHub comparison %s is not an object", url)
 	}
-	return result, nil
+	for len(fields) > 0 {
+		if !decoder.More() {
+			return comparison{}, fmt.Errorf("GitHub comparison %s lacks %d of its lineage fields", url, len(fields))
+		}
+		token, err := decoder.Token()
+		if err != nil {
+			return comparison{}, fmt.Errorf("GitHub comparison %s unreadable in its first %d bytes: %w", url, compareLimit, err)
+		}
+		key, _ := token.(string)
+		if decoded[key] {
+			return comparison{}, fmt.Errorf("GitHub comparison %s repeats %q", url, key)
+		}
+		target, wanted := fields[key]
+		if !wanted {
+			target = new(json.RawMessage)
+		}
+		if err := decoder.Decode(target); err != nil {
+			return comparison{}, fmt.Errorf("GitHub comparison %s unreadable in its first %d bytes: %w", url, compareLimit, err)
+		}
+		if wanted {
+			decoded[key] = true
+			delete(fields, key)
+		}
+	}
+	return found, nil
 }
 
-func (s *Source) get(ctx context.Context, url string, headers map[string]string, limit int64) (*http.Response, []byte, error) {
+func (s *Source) open(ctx context.Context, url string, headers map[string]string) (*http.Response, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
@@ -198,6 +236,23 @@ func (s *Source) get(ctx context.Context, url string, headers map[string]string,
 		request.Header.Set(key, value)
 	}
 	response, err := s.Client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	if until, limited := s.rateLimit(response); limited {
+		response.Body.Close()
+		s.until = until
+		return nil, &RateLimitedError{until}
+	}
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusNotModified {
+		response.Body.Close()
+		return nil, fmt.Errorf("GitHub %s: %s", url, response.Status)
+	}
+	return response, nil
+}
+
+func (s *Source) get(ctx context.Context, url string, headers map[string]string, limit int64) (*http.Response, []byte, error) {
+	response, err := s.open(ctx, url, headers)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -208,13 +263,6 @@ func (s *Source) get(ctx context.Context, url string, headers map[string]string,
 	}
 	if int64(len(data)) > limit {
 		return nil, nil, fmt.Errorf("GitHub reply to %s exceeds %d bytes", url, limit)
-	}
-	if until, limited := s.rateLimit(response); limited {
-		s.until = until
-		return nil, nil, &RateLimitedError{until}
-	}
-	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusNotModified {
-		return nil, nil, fmt.Errorf("GitHub %s: %s", url, response.Status)
 	}
 	return response, data, nil
 }

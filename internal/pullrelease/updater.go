@@ -54,10 +54,13 @@ type Updater struct {
 	Deadline   time.Duration
 	BakeFor    time.Duration
 
-	store    *Store
-	status   Status
-	revision uint64
-	leading  atomic.Bool
+	store     *Store
+	status    Status
+	revision  uint64
+	leading   atomic.Bool
+	newest    releaseattest.Release
+	newestErr error
+	listed    time.Time
 }
 
 func New(region, self, state string, conn, fabric *nats.Conn, handler *releasepush.Handler, hosts func(context.Context) ([]Host, error)) *Updater {
@@ -151,10 +154,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		return u.bake(ctx)
 	}
 
-	u.status.Checked = time.Now().UTC()
-	discover, cancel := context.WithTimeout(ctx, discoverWait)
-	release, err := u.Source.Newest(discover)
-	cancel()
+	release, err := u.discover(ctx)
 	var limited *releaseattest.RateLimitedError
 	switch {
 	case errors.As(err, &limited):
@@ -200,6 +200,18 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		}
 	}
 	return u.roll(ctx)
+}
+
+func (u *Updater) discover(ctx context.Context) (releaseattest.Release, error) {
+	if !u.listed.IsZero() && time.Since(u.listed) < u.Poll {
+		return u.newest, u.newestErr
+	}
+	u.status.Checked = time.Now().UTC()
+	discover, cancel := context.WithTimeout(ctx, discoverWait)
+	defer cancel()
+	u.newest, u.newestErr = u.Source.Newest(discover)
+	u.listed = time.Now()
+	return u.newest, u.newestErr
 }
 
 func (u *Updater) roll(ctx context.Context) time.Duration {
