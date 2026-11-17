@@ -51,6 +51,7 @@ def connect(host, address, password, timeout, source):
         nonce = base64.b64encode(os.urandom(18)).decode()
         first = "n=postgres,r=" + nonce
         expected = None
+        verified = False
         while True:
             tag, data = packet(stream)
             if tag == b"E":
@@ -83,9 +84,12 @@ def connect(host, address, password, timeout, source):
                     fields = dict(item.split("=", 1) for item in data[4:].decode().split(","))
                     if expected is None or "v" not in fields or not hmac.compare_digest(base64.b64decode(fields["v"]), expected):
                         raise ConnectionError("Postgres server SCRAM signature invalid")
+                    verified = True
                 elif kind != 0:
                     raise ConnectionError("unexpected Postgres authentication method")
             if tag == b"Z":
+                if not verified:
+                    raise ConnectionError("Postgres session did not authenticate with SCRAM")
                 return stream
     except BaseException:
         stream.close()

@@ -126,7 +126,9 @@ a digest-pinned scratch OCI image. The archive is imported on attested
 staging nodes without publishing to a registry. These apps use the runtime's
 normal stateless task-port, CPU bursting and autoscale paths. PostgreSQL is
 the real official 18-alpine image, pinned to per-architecture manifests in
-test/e2e/abuse/images.json; no TerraBase binary is downloaded.
+test/e2e/abuse/images.json; no TerraBase binary is downloaded. The probe strips
+the edge's validated PROXY v2 address header before forwarding the session
+to stock PostgreSQL, which does not understand that transport header.
 
 - HTTP floods fill each attacker's C18 source allowance across the NLB's
   possible backends, require explicit 429 refusal, and issue 100 requests on

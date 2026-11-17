@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,6 +30,13 @@ func main() {
 		os.Exit(2)
 	}
 	mode := os.Args[3]
+	if mode == "postgres" {
+		listener, err := net.Listen("tcp", ":18105")
+		if err != nil {
+			os.Exit(1)
+		}
+		go servePostgres(listener)
+	}
 	var leak sync.Once
 	var mu sync.Mutex
 	var cancel context.CancelFunc
@@ -35,7 +44,7 @@ func main() {
 	var requests, failures atomic.Uint64
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if mode == "postgres" {
-			conn, err := net.Dial("tcp", "127.0.0.1:18105")
+			conn, err := net.Dial("tcp", "127.0.0.1:18107")
 			if err != nil {
 				w.WriteHeader(503)
 				return
@@ -173,4 +182,40 @@ func main() {
 	if http.Serve(listener, nil) != nil {
 		os.Exit(1)
 	}
+}
+
+func servePostgres(listener net.Listener) {
+	for {
+		client, err := listener.Accept()
+		if err != nil {
+			os.Exit(1)
+		}
+		go forwardPostgres(client)
+	}
+}
+
+func forwardPostgres(client net.Conn) {
+	defer client.Close()
+	var header [16]byte
+	if _, err := io.ReadFull(client, header[:]); err != nil {
+		return
+	}
+	length := binary.BigEndian.Uint16(header[14:])
+	if !bytes.Equal(header[:12], []byte{13, 10, 13, 10, 0, 13, 10, 81, 85, 73, 84, 10}) || header[12] != 0x21 ||
+		!(header[13] == 0x11 && length == 12 || header[13] == 0x21 && length == 36) {
+		return
+	}
+	if _, err := io.CopyN(io.Discard, client, int64(length)); err != nil {
+		return
+	}
+	backend, err := net.Dial("tcp", "127.0.0.1:18107")
+	if err != nil {
+		return
+	}
+	defer backend.Close()
+	go func() {
+		io.Copy(backend, client)
+		backend.(*net.TCPConn).CloseWrite()
+	}()
+	io.Copy(client, backend)
 }

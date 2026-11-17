@@ -187,11 +187,12 @@ class Workloads:
             capacity = (self.lane.limits["pg_source"] * self.region["nodes"]["max"]
                         + self.owner.integer("internal/edge/postgres.go", "maxPostgresHandshakes") + 1)
             spec.update(image=manifest["postgres"][architecture], memoryMiB=256,
-                        args=["sh", "-c", f"/tmp/probe http 18104 postgres & exec docker-entrypoint.sh postgres -p 18105 -c unix_socket_directories=/tmp -c max_connections={capacity} -c shared_buffers=16MB"],
+                        args=["sh", "-c", f"/tmp/probe http 18104 postgres & exec docker-entrypoint.sh postgres -p 18107 -c unix_socket_directories=/tmp -c max_connections={capacity} -c shared_buffers=16MB"],
                         postgres={"port": 18105, "hostname": host},
                         mounts=[{"source": "/var/lib/ts-data/" + self.prefix + "/postgres", "target": "/tmp"},
                                 {"source": "/var/lib/ts-data/" + self.prefix + "/pgsocket", "target": "/var/run/postgresql"}],
-                        env={"ABUSE_TENANT": tenant, "PGDATA": "/tmp/pgdata", "POSTGRES_PASSWORD": self.password})
+                        env={"ABUSE_TENANT": tenant, "PGDATA": "/tmp/pgdata", "POSTGRES_PASSWORD": self.password,
+                             "POSTGRES_INITDB_ARGS": "--auth-host=scram-sha-256 --auth-local=trust"})
         self.names.append(name)
         self.cleanup.callback(self.remove, name)
         placement = ""
