@@ -125,11 +125,12 @@ func SetMemberAvailability(ctx context.Context, client api.ControlClient, hostna
 	if node.Role == api.NodeRoleManager {
 		return fmt.Errorf("%s is the region's manager; only workers drain", hostname)
 	}
-	if node.Spec.Availability == availability {
+	if _, scaled := node.Spec.Annotations.Labels[LabelDrainSince]; node.Spec.Availability == availability && !scaled {
 		return nil
 	}
 	spec := node.Spec.Copy()
 	spec.Availability = availability
+	delete(spec.Annotations.Labels, LabelDrainSince)
 	_, err = client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec})
 	return err
 }

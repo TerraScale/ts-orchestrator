@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -193,6 +194,7 @@ func (p Pass) owned(ctx context.Context) ([]core.InstancePoolSummary, error) {
 type Pool struct {
 	core.InstancePool
 	Members []core.InstanceSummary
+	Strays  []string
 }
 
 func (p Pass) Pool(ctx context.Context) (Pool, bool, error) {
@@ -205,7 +207,25 @@ func (p Pass) Pool(ctx context.Context) (Pool, bool, error) {
 		return Pool{}, false, err
 	}
 	members, err := p.members(ctx, got.InstancePool)
-	return Pool{InstancePool: got.InstancePool, Members: members}, err == nil, err
+	if err != nil {
+		return Pool{}, false, err
+	}
+	instances, err := all(func(page *string) ([]core.Instance, *string, error) {
+		r, err := p.Compute.ListInstances(ctx, core.ListInstancesRequest{CompartmentId: &p.Compartment, Page: page})
+		return r.Items, r.OpcNextPage, err
+	})
+	if err != nil {
+		return Pool{}, false, fmt.Errorf("list instances: %w", err)
+	}
+	pool := Pool{InstancePool: got.InstancePool, Members: members}
+	for _, instance := range instances {
+		if instance.LifecycleState != core.InstanceLifecycleStateTerminated && instance.LifecycleState != core.InstanceLifecycleStateTerminating &&
+			p.owns("instance", "node", instance.FreeformTags) && !slices.ContainsFunc(members, func(m core.InstanceSummary) bool { return deref(m.Id) == deref(instance.Id) }) {
+			pool.Strays = append(pool.Strays, deref(instance.Id))
+		}
+	}
+	slices.Sort(pool.Strays)
+	return pool, true, nil
 }
 
 func (p Pass) Resize(ctx context.Context, pool Pool, size int) error {
@@ -302,6 +322,9 @@ func (p Pass) members(ctx context.Context, pool core.InstancePool) ([]core.Insta
 
 func (p Pass) Retire(ctx context.Context, pool Pool, instanceID string) error {
 	got, err := p.Compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: &instanceID})
+	if serviceErr, ok := common.IsServiceError(err); ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

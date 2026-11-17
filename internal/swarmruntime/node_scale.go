@@ -36,10 +36,6 @@ func (n *Node) SwarmView(ctx context.Context) (fleet.SwarmView, error) {
 	if err != nil {
 		return fleet.SwarmView{}, err
 	}
-	ready := map[string]bool{}
-	for _, node := range nodes.Nodes {
-		ready[node.ID] = node.Status.State == api.NodeStatus_READY && node.Spec.Availability == api.NodeAvailabilityActive
-	}
 	view := fleet.SwarmView{Term: term, Demand: replicaDemand()}
 	for _, task := range tasks.Tasks {
 		if task.DesiredState == api.TaskStateRunning && task.Status.State < api.TaskStateRunning {
@@ -65,11 +61,8 @@ func (n *Node) SwarmView(ctx context.Context) (fleet.SwarmView, error) {
 				continue
 			}
 			member.Tasks++
-			if member.LastCopy == "" && task.Status.State == api.TaskStateRunning && execution.Stateful(task) &&
-				!slices.ContainsFunc(tasks.Tasks, func(other *api.Task) bool {
-					return other.ServiceID == task.ServiceID && other.NodeID != node.ID && ready[other.NodeID] && other.Status.State == api.TaskStateRunning
-				}) {
-				member.LastCopy = task.ServiceAnnotations.Name
+			if member.Data == "" && execution.Stateful(task) {
+				member.Data = task.ServiceAnnotations.Name
 			}
 		}
 		view.Nodes = append(view.Nodes, member)

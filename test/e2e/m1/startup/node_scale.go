@@ -127,7 +127,7 @@ func nodeScaleJourney(ctx context.Context, state string, manager *swarmruntime.N
 			return errors.New("worker-2 is still in the swarm after its removal")
 		}
 	}
-	fmt.Println("ok node-scale: new leader and quorum refused; one drained worker at a time; a new leader resumes the same drain and removes it")
+	fmt.Println("ok node-scale: Decide refuses a new leader and a manager; one drained worker at a time; after a leader change Decide picks the same drained worker; RemoveMember removes it on the new leader")
 	return nil
 }
 

@@ -253,7 +253,7 @@ any registered kind once.
   policies of a new monitor) is planned on the next tick. `compute` has no
   plan mode yet, so its plan fails at its first write and it cannot join a
   `reconcile` list until it gets one (C17). `nodes` plans at most one line
-  per tick (grow the pool, cordon a node, or remove a drained one); its
+  per tick (grow the pool, cordon a node, remove a drained one, or retire an owned instance left outside the pool and the swarm); its
   SwarmKit writes (cordon, node removal) pass the same fence first
   (`ociclient.Authorize`). A grown node waits for its data volume until
   `compute` runs, so a region that scales needs `compute` in its list too.

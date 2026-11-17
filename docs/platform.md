@@ -294,18 +294,19 @@ the document-made pool, so a region without one holds its count.
 | Grow | For 3 min the replica autoscaler (C11) could not place more replicas of a service (`region-capacity`, after admission), the count is below `nodes.max`, the pool is `RUNNING` and the last change is 10 min old. | The pool size goes up by one. The next change waits until every pool node has joined the swarm and is ready. |
 | Cordon | For 15 min no service was blocked or growing and no task waited for a node, the count is above `nodes.min` (or above `nodes.max`), and the last change is 10 min old. | One pool worker whose tasks fit on the other nodes (SwarmKit's own scheduler filters) is set to drain and labelled `terrascale.drain-since`. Fewest tasks first. |
 | Remove | The drained node runs no task and no task of the region waits for a node. | That instance is detached from the pool with the size decremented (never the pool's own termination choice), soft-stopped, its data volume detached and kept, terminated with `preserveDataVolumesCreatedAtLaunch=true`, then removed from the swarm. |
+| Retire | An instance carrying the `instance/node` ownership tag is outside the pool and in no swarm, for example because a leader died between the detach and the terminate and the swarm node was then removed. | It is terminated the same way, keeping its data volume. A drained node still in the swarm takes the Remove step instead. |
 
 Refusals, counted every tick in `ts_orch_node_scale_refusals_total{reason}` and logged when they begin:
 
 | Reason | Rule |
 | --- | --- |
 | `quorum` | Fewer than three ready managers, or the only candidate is a manager. Managers are never drained; promotion keeps three. |
-| `last-copy` | The node runs the only running copy of a stateful service (TerraBase data). |
+| `last-copy` | The node runs a stateful task (TerraBase or `terrascale.stateful`). The orchestrator has no signal that another copy of that data is caught up, so the guard is per node holding data, not per running copy: a pool worker that holds data is never drained by the scaler. Move or replicate the data by hand, then the node becomes a candidate. |
 | `no-room` | The other nodes cannot take the node's tasks. |
 | `bounds` | Demand cannot be placed and the count is `nodes.max`. At `nodes.min` with low demand the scaler holds (`at-min`); no step goes below `nodes.min` or above `nodes.max`. |
 | `in-flight` | A pool node has not joined yet, or a drain is running: one change per region at a time. |
 | `unhealthy` | The leader took over less than 5 min ago, or a node is not ready or not active. |
-| `drain-stuck` | The drained node's tasks did not move within 10 min. The node stays cordoned, `NodeDrainStuck` fires, and nothing else changes until a person resolves it. |
+| `drain-stuck` | The drained node's tasks did not move within 10 min. The node stays cordoned, `NodeDrainStuck` fires, and nothing else changes until a person resolves it: `ts-orch member activate <host>` returns it to service and clears `terrascale.drain-since`, so a later hand drain is never taken for the scaler's. |
 | `no-pool`, `no-pool-node` | No document-made pool to grow, or no pool node to remove. Hand-made hosts are never removed. |
 
 Every step is derived from the swarm and the pool, so a new leader resumes a
@@ -316,8 +317,14 @@ full 10 min cooldown before its first new change. `ts-orch status` and
 Metrics: `ts_orch_node_scale_{actual,desired,decision,decision_timestamp_seconds,drain_stuck}`.
 The swarm removal is `swarmruntime.RemoveMember`, the path C14 (self-heal)
 and `ts-orch member leave` use; the instance removal is `compute.Pass.Retire`.
-The e2e-m1 `operator` lane's `node-scale` case runs the scaler's decisions,
-cordon, a leader kill and the removal on a four-node in-process region.
+The e2e-m1 `operator` lane's `node-scale` case runs on a four-node in-process
+region with no OCI: `Decide` refuses a new leader and a manager candidate, cordons
+one worker, plans only its removal while it is drained, and after the leader is
+stopped the new leader's `Decide` picks the same drained worker; the case then
+calls `RemoveMember` on the new leader. It feeds `Decide` chosen times, a pool and
+quiet demand. The full resume on a leader change (Authorize, Retire, then
+RemoveMember), tasks moving off a drained node and the `last-copy` refusal are
+proven in the staging region.
 
 
 ## Routing

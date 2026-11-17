@@ -349,4 +349,4 @@ groups:
           severity: critical
         annotations:
           summary: A region leader gave up draining a node it wanted to remove; the node stays cordoned
-          description: Its tasks did not move within 10 minutes. The scaler changes no node in that region until the drained node's tasks run elsewhere or a person reactivates it (docs/platform.md, Node count).
+          description: Its tasks did not move within 10 minutes. The scaler changes no node in that region until the drained node's tasks run elsewhere or a person runs ts-orch member activate on it, which also clears terrascale.drain-since (docs/platform.md, Node count).

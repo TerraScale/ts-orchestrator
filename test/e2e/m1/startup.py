@@ -13,6 +13,7 @@ import threading
 import time
 from pathlib import Path
 
+SEED_CASE_SECONDS = {"promotion": 60, "node-scale": 120}
 CASES = (
     "promotion",
     "node-scale",
@@ -85,7 +86,7 @@ def run_case(binary, seed_binary, root, case):
     subprocess.run(["ip", "addr", "add", "169.254.169.254/32", "dev", "lo"], check=True)
     work = root / case
     work.mkdir()
-    if case in ("promotion", "node-scale"):
+    if case in SEED_CASE_SECONDS:
         local_var = work / "var-lib"
         local_var.mkdir()
         subprocess.run(["mount", "--bind", str(local_var), "/var/lib"], check=True)
@@ -93,7 +94,7 @@ def run_case(binary, seed_binary, root, case):
             [seed_binary, str(work), case, binary],
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=SEED_CASE_SECONDS[case],
             check=False,
         )
         require(result.returncode == 0, result.stdout[-1000:] + result.stderr[-6000:])

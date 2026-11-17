@@ -35,7 +35,7 @@ type SwarmNode struct {
 	Leader, Ready, Active    bool
 	DrainSince               time.Time
 	Tasks                    int
-	LastCopy                 string
+	Data                     string
 	Relocatable              bool
 }
 
@@ -82,6 +82,8 @@ func (d NodeDecision) line(pool string) string {
 		return fmt.Sprintf("grow      instance pool %s %d -> %d nodes: %s", pool, d.size-1, d.size, d.Code)
 	case "cordon":
 		return fmt.Sprintf("cordon    node %s (%s) to remove it: %s", d.Node, d.instanceID, d.Code)
+	case "retire":
+		return fmt.Sprintf("retire    instance %s: outside the pool and the swarm; terminate it keeping its data volume", d.instanceID)
 	default:
 		return fmt.Sprintf("remove    node %s (%s): detach it from the pool, terminate it keeping its data volume, remove it from the swarm", d.Node, d.instanceID)
 	}
@@ -175,6 +177,8 @@ func applyNodes(ctx context.Context, _ Fleet, region Region, f *ociclient.Factor
 		if err = pass.Retire(ctx, pool, decision.instanceID); err == nil {
 			err = cluster.Remove(ctx, decision.Node, ociclient.Authorize)
 		}
+	case "retire":
+		err = pass.Retire(ctx, pool, decision.instanceID)
 	}
 	if err != nil {
 		return fmt.Errorf("%s node %s: %w", decision.Action, cmp.Or(decision.Node, region.Label), err)
@@ -182,7 +186,7 @@ func applyNodes(ctx context.Context, _ Fleet, region Region, f *ociclient.Factor
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.blockedSince, s.quietSince = time.Time{}, time.Time{}
-	if decision.Action != "cordon" {
+	if decision.Action == "grow" || decision.Action == "remove" {
 		s.lastChange = time.Now()
 	}
 	slog.InfoContext(ctx, "node scaler acted", "region", region.Label, "action", decision.Action, "node", decision.Node,
@@ -284,6 +288,16 @@ func (s *NodeScaler) Decide(now time.Time, bounds Nodes, view SwarmView, pool co
 		d.Action = "remove"
 		return hold("drained", "%s is drained and its tasks run elsewhere", d.Node)
 	}
+	enlisted := map[string]bool{}
+	for _, node := range view.Nodes {
+		enlisted[node.InstanceID] = true
+	}
+	for _, stray := range pool.Strays {
+		if !enlisted[stray] {
+			d.Action, d.instanceID = "retire", stray
+			return hold("stray", "instance %s left the pool but is in no swarm; terminate it", stray)
+		}
+	}
 	if pooled && deref(pool.Size) > joined {
 		d.Desired = actual + deref(pool.Size) - joined
 		return refuse("in-flight", "waiting for %d of %d pool nodes to join and be ready", deref(pool.Size)-joined, deref(pool.Size))
@@ -351,8 +365,8 @@ func (s *NodeScaler) Decide(now time.Time, bounds Nodes, view SwarmView, pool co
 		switch {
 		case node.Manager:
 			refusals = append(refusals, refuseWith(d, "quorum", fmt.Sprintf("%s is a manager; removing it would leave fewer than %d", name, MinNodes)))
-		case node.LastCopy != "":
-			refusals = append(refusals, refuseWith(d, "last-copy", fmt.Sprintf("%s holds the last running copy of %s", name, node.LastCopy)))
+		case node.Data != "":
+			refusals = append(refusals, refuseWith(d, "last-copy", fmt.Sprintf("%s runs %s, which keeps data; nothing tells this leader that another copy is current", name, node.Data)))
 		case !node.Relocatable:
 			refusals = append(refusals, refuseWith(d, "no-room", fmt.Sprintf("the other nodes cannot take %s's tasks", name)))
 		default:
