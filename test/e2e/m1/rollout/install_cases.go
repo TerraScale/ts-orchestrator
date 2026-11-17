@@ -15,7 +15,12 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-func installCases(ctx context.Context, conn *nats.Conn, nodes []*process, boot func(int) *process, roots, order, names []string, launcher string, baseline swarmruntime.ServiceSpec) {
+func installCases(ctx context.Context, nodes []*process, boot func(int) *process, roots, order, names, addresses []string, launcher string, baseline swarmruntime.ServiceSpec) {
+	token, err := os.ReadFile(filepath.Join(roots[1], "mesh", "client.token"))
+	must(err)
+	conn, err := nats.Connect("nats://"+addresses[1]+":14223", nats.UserInfo("orch", strings.TrimSpace(string(token))), nats.IgnoreDiscoveredServers())
+	must(err)
+	defer conn.Close()
 	spec := baseline
 	spec.Name, spec.Port, spec.Args = "install-canary", 18092, []string{"--port", "18092"}
 	spec.Regions = order[:2]
@@ -25,15 +30,10 @@ func installCases(ctx context.Context, conn *nats.Conn, nodes []*process, boot f
 	for i := range roots[:2] {
 		installEvidence(ctx, roots[i], spec.Name, generation, false)
 		if i == 0 {
-			reconnect := conn.StatusChanged(nats.CONNECTED)
 			nodes[0].kill()
 			must(os.Remove(filepath.Join(roots[0], "mesh", fmt.Sprintf("bake-%s-%d.json", spec.Name, generation))))
 			nodes[0] = boot(0)
-			select {
-			case <-reconnect:
-			case <-ctx.Done():
-				panic(ctx.Err())
-			}
+			require(conn.Stats().Reconnects == 0, "installation observer reconnected during the region restart")
 			repeated := installEvidence(ctx, roots[0], spec.Name, generation, false)
 			require(repeated.Bake.Finished.IsZero(), "deleted receipt did not restart observation")
 		}

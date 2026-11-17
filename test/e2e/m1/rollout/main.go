@@ -591,7 +591,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	topologyReady(ctx, roots)
 	if installOnly {
 		nonceCases(ctx, conn, roots, order, names, launcher, spec)
-		installCases(ctx, conn, nodes, boot, roots, order, names, launcher, spec)
+		installCases(ctx, nodes, boot, roots, order, names, addresses, launcher, spec)
 		for _, root := range roots {
 			must(os.Remove(filepath.Join(root, "clock-offset")))
 		}
