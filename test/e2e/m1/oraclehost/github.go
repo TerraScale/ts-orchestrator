@@ -130,7 +130,10 @@ func (g *GitHub) answer(w http.ResponseWriter, r *http.Request, host string) int
 		writeJSON(w, http.StatusOK, releases[:min(len(releases), githubPageSize)])
 		return http.StatusOK
 	case host == githubAPI && strings.HasPrefix(r.URL.Path, repository+"/compare/"):
-		page, err := strconv.Atoi(r.URL.Query().Get("page"))
+		page, err := 0, error(nil)
+		if r.URL.Query().Has("page") {
+			page, err = strconv.Atoi(r.URL.Query().Get("page"))
+		}
 		base, head, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, repository+"/compare/"), "...")
 		body, ok := g.comparisons[ComparisonKey(base, head, page)]
 		if err != nil || !ok || r.URL.Query().Get("per_page") != "1" {

@@ -248,6 +248,15 @@ func fetch(mode, candidate, work, lineage, lane string) {
 		}
 		page = comparison.AheadBy
 	}
+	body := github(fmt.Sprintf("%s/compare/%s...%s?per_page=1", repositoryAPI, lineage, pin.SHA))
+	var reverse struct {
+		Status   string `json:"status"`
+		BehindBy int    `json:"behind_by"`
+	}
+	decode(body, &reverse)
+	require(reverse.Status == "behind", "GitHub compares %s with the pinned release %s as %q, not behind", lineage, pin.Tag, reverse.Status)
+	comparisons[oraclehost.ComparisonKey(served, base, 0)] = rewrite(body)
+	fmt.Printf("lineage %s...%s (%d bytes, behind by %d) served as %s...%s\n", lineage, pin.SHA, len(body), reverse.BehindBy, served, base)
 	releases := github(repositoryAPI + "/releases?per_page=30")
 	fmt.Printf("recorded GitHub release list: %d bytes\n", len(releases))
 	must(os.WriteFile(filepath.Join(work, "releases.json"), releases, 0o644))
@@ -425,7 +434,7 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 	}
 	requests := strings.Join(fleet.GitHub().Requests(), "\n")
 	require(strings.Contains(requests, "200 GET release-assets.githubusercontent.com"), "no host downloaded the release from GitHub's asset host:\n%s", requests)
-	require(strings.Contains(requests, "200 GET api.github.com/repos/TerraScale/ts-orchestrator/compare/"+from+"..."+sha), "the installed updater never checked the release's lineage:\n%s", requests)
+	require(strings.Contains(requests, "200 GET api.github.com/repos/TerraScale/ts-orchestrator/compare/"+from+"..."+sha) || strings.Contains(requests, "200 GET api.github.com/repos/TerraScale/ts-orchestrator/compare/"+sha+"..."+from), "the installed updater never checked the release's lineage:\n%s", requests)
 	step("%s installed %s on both sjc hosts through discovery, lineage, provenance, preflight and probation; each keeps %s as its rollback target", from, tag, from)
 }
 
