@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/datamount"
+	"github.com/TerraScale/ts-orchestrator/internal/ocirelease"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
@@ -75,6 +76,7 @@ type Reply struct {
 	Workers    []HostVersion   `json:"workers,omitempty"`
 	Arch       string          `json:"arch,omitempty"`
 	Degraded   []string        `json:"degraded,omitempty"`
+	Seq        uint64          `json:"seq,omitempty"`
 }
 
 type HealthRequest struct {
@@ -118,6 +120,9 @@ type Handler struct {
 	Installed               chan struct{}
 	Attest                  releaseattest.Verifier
 	Source                  *releaseattest.Source
+	Registry                func(context.Context) (ocirelease.Registry, error)
+	Regional                *ocirelease.Regional
+	SeqFile                 string
 
 	RefusalFile  string
 	DegradedFile string
@@ -130,7 +135,7 @@ type Handler struct {
 }
 
 func NewHandler(state string) (*Handler, error) {
-	binary, err := executable()
+	binary, err := Executable()
 	if err != nil {
 		return nil, err
 	}
@@ -157,12 +162,14 @@ func NewHandler(state string) (*Handler, error) {
 		slog.Warn("release rollback record unreadable", "error", err)
 	}
 	h.rolledBack.Store(rolledBack)
+	regional := ocirelease.NewRegional()
+	h.Client, h.Registry, h.Regional, h.SeqFile = &http.Client{Transport: regional}, regional.Registry, regional, seqFile(state)
 	h.RefusalFile = filepath.Join(state, "nats", "release-attempt.json")
 	h.DegradedFile = degradedFile(state)
 	return h, nil
 }
 
-func executable() (string, error) {
+func Executable() (string, error) {
 	path, err := os.Executable()
 	if err != nil {
 		return "", err

@@ -36,6 +36,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/hostnetwork"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/teardown"
+	"github.com/TerraScale/ts-orchestrator/internal/ocirelease"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
@@ -92,6 +93,8 @@ ts-orch release mesh-check reads mesh health, running digests and HTTPS in every
 ts-orch release manifest --sha <sha> --sequence <n> --out <file> builds a signed-release manifest from a CI release's binaries;
 ts-orch release sign --manifest <file> --key <keyfile> signs a manifest with an SSH key (namespace ts-orch-release);
 ts-orch release verify --manifest <file> [--sig <file>] [--allowed <file>] verifies a manifest against the allowed SSH keys.
+ts-orch release channel prepare <dist> <sha> <run> <seq> <channel.json> writes the channel document of a release for CI to sign;
+ts-orch release channel publish <dist> <channel dir> pushes the release and its channel to every region's and staging's OCIR and verifies them;
 ts-orch release verify-provenance --image <ref@sha256> --workflow <path@ref> --revision <sha> verifies an image's provenance attestation;
 ts-orch release preflight [secrets] reads this host's service secrets with a candidate binary before it is accepted;
 ts-orch release recover finishes or rolls back this host's pending release trial (run by its recovery unit).
@@ -189,6 +192,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		}
 		if len(args) > 1 && (args[1] == "manifest" || args[1] == "sign" || args[1] == "verify") {
 			return signedrelease.Run(ctx, args[1:], output)
+		}
+		if len(args) > 1 && args[1] == "channel" {
+			return ocirelease.Run(ctx, args[2:], output)
 		}
 		if len(args) > 1 && args[1] == "verify-provenance" {
 			return imagetrust.VerifyImage(ctx, args[2:], output)

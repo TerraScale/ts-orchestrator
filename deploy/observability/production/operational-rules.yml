@@ -23,6 +23,13 @@ groups:
           severity: critical
         annotations:
           summary: A release push installed a region's manager while one of its workers was down, so the region runs mixed releases until the worker is back and the next push reaches it
+      - alert: ReleaseStuck
+        expr: max by (region) (ts_orch_release_channel_seq) > on (region) min by (region) (ts_orch_release_installed_seq)
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: A host of the region has not installed the newest release of its regional OCIR channel for 30 minutes
 
   - name: terrabase-operations
     rules:

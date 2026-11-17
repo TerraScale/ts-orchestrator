@@ -1016,3 +1016,27 @@ tests:
         severity: critical
       exp_annotations:
         summary: The mesh store cannot reach its metadata quorum
+- interval: 1m
+  input_series:
+  - series: ts_orch_release_channel_seq{job="peer-topology",host="ts-sjc-1",instance="ts-sjc-1",region="sjc"}
+    values: 118+0x40
+  - series: ts_orch_release_installed_seq{job="peer-topology",host="ts-sjc-1",instance="ts-sjc-1",region="sjc"}
+    values: 118+0x40
+  - series: ts_orch_release_installed_seq{job="peer-topology",host="ts-sjc-2",instance="ts-sjc-2",region="sjc"}
+    values: 117+0x40
+  - series: ts_orch_release_channel_seq{job="peer-topology",host="ts-fra-1",instance="ts-fra-1",region="fra"}
+    values: 118+0x40
+  - series: ts_orch_release_installed_seq{job="peer-topology",host="ts-fra-1",instance="ts-fra-1",region="fra"}
+    values: 117+0x5 118+0x35
+  alert_rule_test:
+  - eval_time: 29m
+    alertname: ReleaseStuck
+    exp_alerts: []
+  - eval_time: 31m
+    alertname: ReleaseStuck
+    exp_alerts:
+    - exp_labels:
+        region: sjc
+        severity: critical
+      exp_annotations:
+        summary: A host of the region has not installed the newest release of its regional OCIR channel for 30 minutes

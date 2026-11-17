@@ -2,6 +2,6 @@
 source "$(dirname "$0")/common.sh"
 trap 'rm -rf "$work"' EXIT
 
-begin "pull rollout waits for an unavailable worker"
+begin "pull rollout from each region's OCIR channel, with no GitHub network"
 nice -n 19 "$(dirname "$bin")/pull-update" "$bin" degraded
-end "an unavailable worker blocks the first region and every later region until it returns"
+end "a channel document its bundle does not sign is refused without marking its release, which then installs in region order; an unavailable worker blocks later regions; replayed seq and tampered artifact refused; zero GitHub calls"

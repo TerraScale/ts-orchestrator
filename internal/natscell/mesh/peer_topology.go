@@ -241,6 +241,10 @@ func (n *Node) writePeerMetrics(w io.Writer) {
 }
 
 func (n *Node) servePeerMetrics(ctx context.Context) {
+	binary, err := releasepush.Executable()
+	if err != nil {
+		slog.WarnContext(ctx, "running binary unknown; the installed release seq reads 0", "error", err)
+	}
 	newServer := func() *http.Server {
 		return &http.Server{Addr: "127.0.0.1:9097", ReadHeaderTimeout: 2 * time.Second, WriteTimeout: 3 * time.Second,
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -253,7 +257,7 @@ func (n *Node) servePeerMetrics(ctx context.Context) {
 				n.writeRouteMetrics(w)
 				n.writeEdgeInventoryMetrics(w)
 				n.writeStoreMetrics(w)
-				releasepush.WriteReleaseMetrics(w, filepath.Dir(n.cfg.dir))
+				releasepush.WriteReleaseMetrics(w, filepath.Dir(n.cfg.dir), binary)
 			})}
 	}
 	tick := time.NewTicker(5 * time.Second)

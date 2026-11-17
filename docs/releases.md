@@ -23,12 +23,136 @@ preflight refusals have this kind. A damaged run fence is refused without
 rewriting it. `release_integrity` means a signature, provenance identity, binary
 digest, source ancestry or embedded revision failed verification.
 
-Regional leaders discover GitHub releases and send private PullInstall requests.
-Each host verifies Sigstore provenance, the allowed main workflow, transparency
-evidence, exact digest and revision before installation. There is no public
+Regional leaders read their region's OCIR release channel and send private
+PullInstall requests. Each host verifies Sigstore provenance, the allowed main
+workflow, transparency evidence, the channel seq, exact digest and revision
+before installation. There is no public
 push listener, worker relay or repair-push command. A refusal blocks that region;
 later regions wait for the same tag's completed, baked fabric record. See
 [platform releases](platform.md#releases) for the admission order.
+
+## Regional OCIR release channel
+
+Hosts install ts-orch releases from their own region's Oracle Cloud
+Infrastructure Registry (OCIR); they make no GitHub API call on this path.
+
+**Publish.** After main is green, CI's `deploy/release-publish` job runs the
+release's own amd64 binary:
+
+1. `ts-orch release channel prepare` builds the release artifact (one OCI image
+   manifest whose layers are `terrascale-orchestrator-linux-amd64`,
+   `terrascale-orchestrator-linux-arm64` and `provenance.sigstore.json`, each
+   named by its `org.opencontainers.image.title` annotation) and writes the
+   channel document `channel.json`:
+   `{"seq", "sha", "run", "artifact", "published_at"}`. `seq` is the workflow
+   run number, so it grows with every run and stays the same when a job is
+   rerun (step 5 of the runbook below covers a restarted run number); `artifact` is the artifact manifest's digest, which is the same in
+   every region.
+2. `actions/attest-build-provenance` signs `channel.json` keylessly with the
+   same identity as the binaries
+   (`TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main`, push,
+   this commit and run) and the bundle is saved as `channel.sigstore.json`.
+3. After C41's `ocir-login` action logs Docker in to `us-sanjose-1.ocir.io`,
+   `eu-frankfurt-1.ocir.io` and `sa-saopaulo-1.ocir.io` (the app registry's
+   hosts; staging shares us-sanjose-1) through GitHub OIDC token exchange,
+   `ts-orch release channel publish` pushes the artifact as
+   `orchestrator-release:ci-<sha>-run-<run>` and then the channel manifest
+   (layers `channel.json` and `channel.sigstore.json`) as
+   `orchestrator-release:stable` to every fleet region and to staging. Each
+   destination is the app registry's repository for that region
+   (`internal/appregistry`, namespace and prefix from `deploy/m1/registry.json`),
+   so staging, which shares us-sanjose-1, has its own repository. It reads both
+   back and verifies them the way a host does. A channel that already holds a
+   higher seq, or this seq for this release, is left unchanged, so a rerun or a
+   late older run never moves the channel back or writes a seq twice; the same
+   seq for another release fails the job. Every region is tried; any failed
+   region makes the job red.
+
+The GitHub Release assets stay as they are for people; hosts no longer read
+them.
+
+**Install.** The regional leader reads `stable` from its region's
+`orchestrator-release` repository, the same one the publisher wrote, through
+the app registry client it shares with app pulls: a request to
+`/20180419/docker/token` signed by the instance principal (with a signed
+`Date` header) returns the bearer token. No file credential or GitHub token
+exists on a host. A poll that finds the same channel
+manifest digest as the last one costs one small manifest read. A new channel is
+verified in this order:
+
+1. the channel bundle's certificate identity and issuer, transparency evidence
+   and that it attests the exact `channel.json` bytes;
+2. `seq` above the region's adopted seq (kept in the region's durable rollout
+   record); an older seq, or the same seq naming another release, is refused as
+   a replayed or rolled-back channel document;
+3. the artifact manifest by its digest, its `provenance.sigstore.json` bundle
+   (same identity, this commit and run) and that each binary layer's digest is
+   the attested digest.
+
+A document that fails step 1 or 2 is refused as a channel, against its manifest
+digest only: nothing it names is trusted, so the rollout record keeps its
+target, seq, `channel_seq` and bad list, and only its reason (logged at WARN)
+changes. Whoever can write OCIR but cannot sign can stall the region's next
+release this way, but cannot mark any release bad. Only a failure of step 3,
+which the signed document pins by digest, marks that release bad. An artifact
+the registry does not hold yet is not refused: the poll counts as an
+unreachable channel and is retried.
+
+Each host repeats the whole check itself when it receives the PullInstall (the
+request carries the signed channel document and bundle), refuses a seq below its
+own installed seq (`nats/release-seq.json` with the seq, tag and binary
+digest, written before the binary is staged), downloads the binary blob with its own registry token and then runs the
+unchanged staged install with probation. A host that already runs the target
+binary but has not recorded its seq is asked to install it and answers
+`current` without a restart. Lineage comes from the signed main identity and the
+monotonic seq; there is no GitHub compare.
+
+**Fallback while migrating.** Hosts still running a build that reads GitHub get
+this build through the existing path. When the channel cannot be read (no
+answer, an HTTP error, no `stable` tag yet) the leader logs
+`release channel unreachable; using the GitHub release fallback` at WARN and
+reads GitHub releases as before; it retries the channel after a backoff that
+doubles from the poll interval up to eight times it, plus up to half of it as
+jitter, and logs every fallback use at WARN. A refused channel never falls back.
+When the channel later names the release the fallback rolled out with a higher
+seq, the leader adopts it as the target, so every host records that seq through
+a `current` install.
+A host that missed the migration and still runs the older build cannot decode a
+channel release; it needs one push of this build. A follow-up change deletes the
+host-side GitHub code once every region has installed a release from its
+channel.
+
+**Metrics and alert.** Every host's orchestrator exporter (`peer-topology`
+scrape) reports `ts_orch_release_installed_seq`: the seq of
+`nats/release-seq.json` once that seq's binary is the installed binary and no
+probation trial is pending, and 0 otherwise. A release that fails probation and
+rolls back therefore reports 0 until the next release commits. Each manager
+reports `ts_orch_release_channel_seq`, the newest seq its region accepted from a
+verified channel document; an unsigned or replayed document leaves it unchanged.
+`ReleaseStuck` (critical, normal alert mail route) fires when a region's highest
+`channel_seq` stays above its lowest `installed_seq` for 30 minutes.
+
+### Runbook: ReleaseStuck
+
+1. `ts-orch observe` or the host's `nats/pull-rollout.json` shows the region's
+   phase and reason. A refused release names the reason (bad signature, digest,
+   replayed seq); a rolled-back release names the host and its probation error;
+   `waiting` names the host that does not answer or is unhealthy.
+2. A replayed or tampered channel (refused, reason names the seq or the
+   attestation) needs the publishing run checked and a new green main run; never
+   edit `stable` by hand.
+3. A rolled-back release stays bad for the region; the next green main release
+   moves the channel past it.
+4. A host whose `installed_seq` stays at 0 runs a build from before the channel
+   (push this build to it once), rolled back the channel's release in probation
+   (step 3) or is still in probation.
+5. Every release refused with `channel seq N (...) is not newer than the
+   region's seq M` while N is small means `GITHUB_RUN_NUMBER` restarted: GitHub
+   restarts it when `ci.yml` is deleted and recreated. Recover in one PR: change
+   the `release channel prepare` step's seq argument in `ci.yml` to
+   `$(( GITHUB_RUN_NUMBER + M ))`, where M is the highest
+   `ts_orch_release_channel_seq` of any region. The next main run then publishes
+   above every region's and host's seq; no production state is edited.
 
 ## Independent recovery
 

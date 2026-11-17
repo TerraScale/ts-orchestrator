@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/ocirelease"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
@@ -78,7 +80,7 @@ func main() {
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "preflight" {
 		return
 	}
-	if len(os.Args) == 11 && os.Args[1] == "host" {
+	if len(os.Args) == 13 && os.Args[1] == "host" {
 		runHost(os.Args[2:])
 		return
 	}
@@ -87,7 +89,7 @@ func main() {
 }
 
 func runHost(args []string) {
-	dir, region, id, role, natsURL, githubURL, rootFile, _, poll := args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]
+	dir, region, id, role, natsURL, githubURL, rootFile, _, poll, registryURL, keyFile := args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10]
 	ctx := context.Background()
 	state := filepath.Join(dir, "state")
 	must(os.MkdirAll(filepath.Join(state, "nats"), 0o700))
@@ -98,7 +100,8 @@ func runHost(args []string) {
 	}
 	client := githubClient(githubURL, fmt.Sprintf("%s/%d", id, os.Getpid()))
 	h.Verifier.JWKSURL = githubURL + "/jwks"
-	h.Client, h.Source.Client = client, client
+	regional := hostRegional(registryURL, keyFile, client.Transport)
+	h.Client, h.Registry, h.Source.Client = &http.Client{Transport: regional}, regional.Registry, client
 	data, err := os.ReadFile(rootFile)
 	must(err)
 	trusted, err := root.NewTrustedRootFromJSON(data)
@@ -138,7 +141,7 @@ func runHost(args []string) {
 				return hosts, nil
 			},
 			Health: func(ctx context.Context) error { return h.Health(ctx, "").Err() },
-			Source: h.Source, Attest: h.Attest, Client: h.Client,
+			Source: h.Source, Channel: &ocirelease.Reader{Registry: h.Registry, Attest: h.Attest}, Attest: h.Attest, Client: h.Client,
 			Poll: every, HealthyFor: healthyFor, Deadline: deadline, BakeFor: healthyFor}
 		go func() { _ = updater.Run(ctx) }()
 	}
@@ -240,19 +243,23 @@ func (o *outages) check() {
 }
 
 type lane struct {
-	bin      string
-	self     []byte
-	build    string
-	revision string
-	github   *fakeGitHub
-	sigstore *sigstore.Authority
-	hosts    map[string]*host
-	conn     *nats.Conn
-	outages  *outages
-	progress map[string]chan pullrelease.Status
-	last     map[string]pullrelease.Status
-	ready    chan [2]string
-	downs    chan string
+	bin        string
+	self       []byte
+	build      string
+	revision   string
+	github     *fakeGitHub
+	offline    *offlineGitHub
+	registries map[string]*regionRegistry
+	first      channelRelease
+	keyFile    string
+	sigstore   *sigstore.Authority
+	hosts      map[string]*host
+	conn       *nats.Conn
+	outages    *outages
+	progress   map[string]chan pullrelease.Status
+	last       map[string]pullrelease.Status
+	ready      chan [2]string
+	downs      chan string
 }
 
 func startMesh(work string) []*server.Server {
@@ -331,6 +338,20 @@ func journey(bin, part string) {
 		}
 	}()
 	defer l.github.server.Close()
+	githubURL, keyFile, registryURLs := l.github.server.URL, "-", map[string]string{"sjc": "-", "fra": "-", "gru": "-"}
+	if part == "degraded" {
+		l.offline, l.registries = newOfflineGitHub(), map[string]*regionRegistry{}
+		defer l.offline.server.Close()
+		key, path, certificate := principalKey(work)
+		githubURL, keyFile, l.keyFile = l.offline.server.URL, path, path
+		for region := range registryURLs {
+			l.registries[region] = newRegionRegistry(&key.PublicKey, certificate)
+			defer l.registries[region].server.Close()
+			registryURLs[region] = l.registries[region].server.URL
+		}
+		l.first = l.channelRelease(100, "100", l.self, l.self)
+		l.publishChannel(ctx, l.first)
+	}
 	rootFile := filepath.Join(work, "trusted-root.json")
 	must(os.WriteFile(rootFile, l.sigstore.TrustedRoot(), 0o600))
 	meshes := startMesh(work)
@@ -373,7 +394,7 @@ func journey(bin, part string) {
 				port = "-1"
 			}
 			l.hosts[id] = &host{region: region, id: id, role: role, dir: dir,
-				args: []string{"host", dir, region, id, role, meshes[0].ClientURL(), l.github.server.URL, rootFile, port, polls[region]}}
+				args: []string{"host", dir, region, id, role, meshes[0].ClientURL(), githubURL, rootFile, port, polls[region], registryURLs[region], keyFile}}
 		}
 	}
 	must(l.conn.Flush())
@@ -395,7 +416,7 @@ func journey(bin, part string) {
 		return
 	}
 	if part == "degraded" {
-		l.degraded(ctx)
+		l.channel(ctx)
 		return
 	}
 	l.pulls(ctx)
@@ -689,20 +710,4 @@ func (l *lane) handover(ctx context.Context) {
 		require(l.hosts[id].starts.Load() == want, "%s started %d times, want %d", id, l.hosts[id].starts.Load(), want)
 	}
 	fmt.Printf("owner %s killed: %s inherited the durable rollout; every host installed once\n%s\n", owner, handover.Owner, done)
-}
-
-func (l *lane) degraded(ctx context.Context) {
-	worker := l.hosts["sjc-w"]
-	worker.holdRestart()
-	worker.kill()
-	candidate := l.publishGood("117", "c117")
-	waiting := l.waitStatus(ctx, "sjc", "an unavailable worker holds the first region", func(s pullrelease.Status) bool {
-		return s.Phase == pullrelease.PhaseWaiting && s.Target != nil && s.Target.Tag() == candidate.tag && strings.Contains(s.Reason, "does not answer")
-	})
-	base := hex.EncodeToString(sha256Of(l.self))
-	l.requireVersions(ctx, base, l.region("fra", "gru")...)
-	worker.releaseRestart()
-	l.waitStatus(ctx, "gru", "the fleet completes after the worker returns", complete(candidate))
-	l.requireVersions(ctx, candidate.digest, l.region("sjc", "fra", "gru")...)
-	fmt.Printf("unavailable first-region worker blocks later regions; return permits the ordered rollout\n%s\n", waiting)
 }
