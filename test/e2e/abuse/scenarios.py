@@ -84,10 +84,13 @@ class Load:
     def observe_recovery(self, seconds):
         with self.changed:
             self.phase = 2
-            observed = self.changed.wait_for(lambda: self.post_completed >= 100 and self.recovered
+            observed = self.changed.wait_for(lambda: self.post_completed >= 100 and self.affected
+                                            and self.affected <= self.recovered
                                             or self.failed, max(0, seconds))
-            self.owner.require(observed and not self.failed and self.recovered,
-                               "affected workload clients did not recover within C14 deadline")
+            self.owner.require(observed and not self.failed and self.affected and self.affected <= self.recovered,
+                               f"affected_clients={len(self.affected)} recovered_clients={len(self.recovered)} "
+                               f"unrecovered_clients={len(self.affected - self.recovered)} post_fault_requests={self.post_completed}; "
+                               "every affected workload client must recover within C14 deadline")
 
     def close(self):
         self.stop.set()
@@ -99,8 +102,9 @@ class Load:
         errors = sum(item[1] for item in self.counts)
         numbers = f"load_requests={count} load_errors={errors} load_outage_s={self.max_outage:.6f} load_outage_budget_s={self.outage}"
         if self.outage:
-            numbers += f" affected_clients={len(self.affected)} recovered_clients={len(self.recovered)} post_fault_requests={self.post_completed}"
-            self.owner.require(count >= 100 and self.post_completed >= 100 and self.recovered
+            numbers += f" affected_clients={len(self.affected)} recovered_clients={len(self.recovered)} unrecovered_clients={len(self.affected - self.recovered)} post_fault_requests={self.post_completed}"
+            self.owner.require(count >= 100 and self.post_completed >= 100 and self.affected
+                               and self.affected <= self.recovered
                                and not self.failed and self.max_outage <= self.outage, numbers)
         else:
             self.owner.require(count >= 100 and errors == 0, numbers)

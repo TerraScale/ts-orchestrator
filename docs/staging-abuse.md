@@ -171,10 +171,13 @@ to stock PostgreSQL, which does not understand that transport header.
 - Node loss keeps 32 workload clients calling /work across OCI termination.
   An attested host operation reads the local victim task's probe identity
   and verifies its abuse tenant. Load response identity must prove traffic
-  reached that task before the fault. After its running tasks move, affected
-  client streams must serve from another probe process, at least 100 workload requests and 100 healthy
+  reached that task before the fault. After its running tasks move, every
+  affected client stream must serve from another probe process. Aggregate
+  throughput is checked separately: at least 100 workload requests and 100 healthy
   latency samples must complete, and the observed error gaps must fit C14's
-  recovery window. Every failed request is counted. It then
+  recovery window. Any affected client without post-movement success fails
+  the case, even if other clients supply all 100 successes. Every failed
+  request is counted and unrecovered clients are reported. It then
   restores the fleet's declared node count. Its compartment is checked again
   immediately before termination. Cleanup invokes only staging's native
   region apply compute implementation after checking its embedded fleet
