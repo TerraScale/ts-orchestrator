@@ -21,10 +21,7 @@ type Updater struct {
 }
 
 func (u Updater) Run(ctx context.Context) error {
-	store, err := pullrelease.Open(ctx, u.Fabric, "apps")
-	if err != nil {
-		return err
-	}
+	var store *pullrelease.Store
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	finished := make(chan error, 1)
@@ -36,9 +33,20 @@ func (u Updater) Run(ctx context.Context) error {
 	}()
 	var next time.Time
 	for {
-		leading, err := store.Lead(ctx, u.Self)
-		if err != nil {
-			return err
+		if store == nil {
+			opened, err := pullrelease.Open(ctx, u.Fabric, "apps")
+			if err != nil {
+				slog.ErrorContext(ctx, "app rollout store unavailable", "error", err)
+			}
+			store = opened
+		}
+		leading := false
+		if store != nil {
+			owned, err := store.Lead(ctx, u.Self)
+			if err != nil {
+				slog.ErrorContext(ctx, "app rollout lease not renewed", "error", err)
+			}
+			leading = owned && err == nil
 		}
 		if !leading && stop != nil {
 			stop()
