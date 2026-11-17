@@ -81,7 +81,7 @@ func main() {
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "preflight" {
 		return
 	}
-	if len(os.Args) == 14 && os.Args[1] == "host" {
+	if len(os.Args) == 15 && os.Args[1] == "host" {
 		runHost(os.Args[2:])
 		return
 	}
@@ -90,7 +90,7 @@ func main() {
 }
 
 func runHost(args []string) {
-	dir, region, id, role, natsURL, githubURL, rootFile, _, poll, registryURL, keyFile, stagingKey := args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11]
+	dir, region, id, role, natsURL, githubURL, rootFile, _, poll, registryURL, keyFile, stagingKey, stagingURL := args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12]
 	ctx := context.Background()
 	state := filepath.Join(dir, "state")
 	must(os.MkdirAll(filepath.Join(state, "nats"), 0o700))
@@ -99,7 +99,7 @@ func runHost(args []string) {
 		fmt.Fprintln(os.Stderr, "release handler:", err)
 		os.Exit(5)
 	}
-	client := githubClient(githubURL, fmt.Sprintf("%s/%d", id, os.Getpid()))
+	client := githubClient(githubURL, stagingURL, fmt.Sprintf("%s/%d", id, os.Getpid()))
 	h.Verifier.JWKSURL = githubURL + "/jwks"
 	regional := hostRegional(registryURL, keyFile, client.Transport)
 	h.Client, h.Registry, h.Source.Client = &http.Client{Transport: regional}, regional.Registry, client
@@ -420,7 +420,7 @@ func journey(bin, part string) {
 				port = "-1"
 			}
 			l.hosts[id] = &host{region: region, id: id, role: role, dir: dir,
-				args: []string{"host", dir, region, id, role, meshes[0].ClientURL(), githubURL, rootFile, port, polls[region], registryURLs[region], keyFile, l.github.stagingKey()}}
+				args: []string{"host", dir, region, id, role, meshes[0].ClientURL(), githubURL, rootFile, port, polls[region], registryURLs[region], keyFile, l.github.stagingKey(), l.github.server.URL}}
 		}
 	}
 	must(l.conn.Flush())

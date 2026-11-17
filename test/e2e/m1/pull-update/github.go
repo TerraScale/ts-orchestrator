@@ -127,6 +127,12 @@ func gatePath() string {
 	return parsed.Path
 }
 
+func gateHost() string {
+	parsed, err := url.Parse(fleet.Embedded().Staging.GateURL(""))
+	must(err)
+	return parsed.Host
+}
+
 func (g *fakeGitHub) stagingKey() string {
 	der, err := x509.MarshalPKIXPublicKey(&g.staging.PublicKey)
 	must(err)
@@ -257,24 +263,31 @@ func (g *fakeGitHub) oidc(sha, run string) string {
 const callerHeader = "X-E2E-Caller"
 
 type rewrite struct {
-	base   *url.URL
-	caller string
+	base    *url.URL
+	staging *url.URL
+	caller  string
 }
 
 func (r rewrite) RoundTrip(request *http.Request) (*http.Response, error) {
-	if !strings.HasSuffix(request.URL.Hostname(), "github.com") {
+	target := r.base
+	switch {
+	case request.URL.Host == gateHost():
+		target = r.staging
+	case !strings.HasSuffix(request.URL.Hostname(), "github.com"):
 		return http.DefaultTransport.RoundTrip(request)
 	}
 	clone := request.Clone(request.Context())
-	clone.URL.Scheme, clone.URL.Host, clone.Host = r.base.Scheme, r.base.Host, r.base.Host
+	clone.URL.Scheme, clone.URL.Host, clone.Host = target.Scheme, target.Host, target.Host
 	clone.Header.Set(callerHeader, r.caller)
 	return http.DefaultTransport.RoundTrip(clone)
 }
 
-func githubClient(base, caller string) *http.Client {
+func githubClient(base, staging, caller string) *http.Client {
 	parsed, err := url.Parse(base)
 	must(err)
-	return &http.Client{Transport: rewrite{parsed, caller}, Timeout: 30 * time.Second}
+	gate, err := url.Parse(staging)
+	must(err)
+	return &http.Client{Transport: rewrite{parsed, gate, caller}, Timeout: 30 * time.Second}
 }
 
 func parseStagingKey(encoded string) *ecdsa.PublicKey {
