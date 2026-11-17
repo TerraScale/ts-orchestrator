@@ -124,6 +124,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 	if err := notifier.Ready("node ready"); err != nil {
 		return err
 	}
+	probation.Served()
 	defer func() { _ = notifier.Stopping() }()
 	if _, err := fmt.Fprintf(output, "node %s %s ready; advertise %s\n", plan.admission.Role, node.ID(), plan.advertise); err != nil {
 		return err
