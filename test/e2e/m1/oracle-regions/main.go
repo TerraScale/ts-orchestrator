@@ -592,7 +592,7 @@ func main() {
 		return
 	}
 	binary, work, specFile, registry := os.Args[1], os.Args[2], os.Args[3], os.Args[4]
-	ctx, cancel := context.WithTimeout(context.Background(), 330*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 210*time.Second)
 	defer cancel()
 	first := revision(binary)
 	spec := workload(specFile, filepath.Join(os.Args[3], "..", "images.json"))
