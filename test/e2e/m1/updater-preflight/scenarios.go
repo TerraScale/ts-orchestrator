@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -31,6 +32,7 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	"golang.org/x/sys/unix"
 )
 
 func temporary(prefix string) (string, func()) {
@@ -641,11 +643,14 @@ func slowWriteCase(ctx context.Context) {
 	h, original, _ := preparedHost(work)
 	conn, closeListener := listener(h)
 	defer closeListener()
-	must(syscall.Mkfifo(h.Binary+".next", 0o600))
+	fan, err := unix.FanotifyInit(unix.FAN_CLASS_CONTENT|unix.FAN_CLOEXEC, unix.O_RDONLY|unix.O_CLOEXEC)
+	must(err)
+	must(unix.FanotifyMark(fan, unix.FAN_MARK_ADD, unix.FAN_OPEN_PERM|unix.FAN_EVENT_ON_CHILD, unix.AT_FDCWD, work))
+	held := make(chan func(uint32), 1)
+	go answerOpens(fan, h.Binary+".next", held)
 	replied := make(chan releasepush.Reply, 1)
 	go func() { replied <- installRequest(ctx, h, conn, work, shaB, "2") }()
-	reader, err := os.OpenFile(h.Binary+".next", os.O_RDONLY, 0)
-	must(err)
+	answer := <-held
 	helper, err := os.Executable()
 	must(err)
 	started := make(chan time.Duration, 1)
@@ -662,12 +667,37 @@ func slowWriteCase(ctx context.Context) {
 	case <-time.After(5 * time.Second):
 		delay = 5 * time.Second
 	}
-	_, err = io.Copy(io.Discard, reader)
-	must(errors.Join(err, reader.Close()))
+	answer(unix.FAN_DENY)
 	reply := <-replied
-	require(delay < time.Second, fmt.Sprintf("a command started during a stalled candidate write must not wait for it: started after %s", delay))
-	require(reply.State == "rejected" && bytes.Equal(read(h.Binary), original), fmt.Sprintf("a candidate that cannot be synced is refused: %+v", reply))
-	fmt.Println("ok slow write: a command started while the candidate write was stalled started in", delay.Round(time.Millisecond))
+	must(unix.FanotifyMark(fan, unix.FAN_MARK_REMOVE, unix.FAN_OPEN_PERM|unix.FAN_EVENT_ON_CHILD, unix.AT_FDCWD, work))
+	require(delay < time.Second, fmt.Sprintf("a command started while the candidate open was held must not wait for it: started after %s", delay))
+	require(reply.State == "rejected" && bytes.Equal(read(h.Binary), original), fmt.Sprintf("a candidate that cannot be written is refused: %+v", reply))
+	fmt.Println("ok slow write: a command started while the fresh candidate open was held started in", delay.Round(time.Millisecond))
+}
+
+func answerOpens(fan int, candidate string, held chan<- func(uint32)) {
+	buffer := make([]byte, 4096)
+	for {
+		n, err := unix.Read(fan, buffer)
+		must(err)
+		for offset := 0; offset < n; {
+			var event unix.FanotifyEventMetadata
+			must(binary.Read(bytes.NewReader(buffer[offset:n]), binary.NativeEndian, &event))
+			offset += int(event.Event_len)
+			answer := func(response uint32) {
+				var reply bytes.Buffer
+				must(binary.Write(&reply, binary.NativeEndian, unix.FanotifyResponse{Fd: event.Fd, Response: response}))
+				_, err := unix.Write(fan, reply.Bytes())
+				must(errors.Join(err, unix.Close(int(event.Fd))))
+			}
+			if path, _ := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", event.Fd)); path == candidate && held != nil {
+				held <- answer
+				held = nil
+				continue
+			}
+			answer(unix.FAN_ALLOW)
+		}
+	}
 }
 
 func lostRollbackCase(ctx context.Context) {

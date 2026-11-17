@@ -182,6 +182,7 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
         kill_after = set()
         busy = None
         stalled = {}
+        orphan = None
         while live:
             for held, until in list(stalled.items()):
                 if time.monotonic() >= until:
@@ -210,7 +211,8 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
                 if event in (1, 2, 3):
                     new = ctypes.c_ulonglong()
                     ptrace(0x4201, pid, 0, ctypes.byref(new))
-                    live.add(new.value)
+                    if new.value != orphan:
+                        live.add(new.value)
                 if (stop == (signal.SIGTRAP | 0x80) or event == 7) and pathlib.Path(
                     f"/proc/{pid}"
                 ).exists():
@@ -296,6 +298,14 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
                                 stalled[pid] = time.monotonic() + 123
                             elif hits == occurrence and outcome == "crash-after":
                                 kill_after.add(pid)
+                            elif hits == occurrence and outcome == "orphan":
+                                orphan = pid
+                                live.add(pid)
+                                for traced in live - {pid}:
+                                    try:
+                                        os.kill(traced, signal.SIGKILL)
+                                    except ProcessLookupError:
+                                        pass
                             elif hits == occurrence and outcome == "crash":
                                 for traced in live:
                                     try:
@@ -325,6 +335,9 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
                 )
                 if pid in stalled:
                     continue
+                if pid == orphan and event == 4:
+                    live.discard(pid)
+                    continue
                 ptrace(
                     24
                     if pid in injected or pid in committing or pid in kill_after
@@ -341,7 +354,7 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
         returncode = os.waitstatus_to_exitcode(root_status)
         log.seek(0)
         output = log.read().decode(errors="replace")
-        killed = outcome in ("crash", "crash-after")
+        killed = outcome in ("crash", "crash-after", "orphan")
         if stalled:
             raise RuntimeError(f"{step}: a stalled syscall was never released")
         if hits < occurrence or returncode != (-signal.SIGKILL if killed else 0):
@@ -361,6 +374,10 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
                     raise RuntimeError(
                         f"{step}: missing WARN for {warning}\n{output[-5000:]}"
                     )
+        if outcome == "orphan" and (
+            not orphan or os.readlink(f"/proc/{orphan}/exe") != work + "/installed.next"
+        ):
+            raise RuntimeError(f"{step}: no orphaned preflight runs the candidate")
         continued = subprocess.run(
             [helper, "resume-case", work, resume],
             capture_output=True,
@@ -368,6 +385,8 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
             timeout=60,
             check=False,
         )
+        if orphan:
+            os.kill(orphan, signal.SIGKILL)
         if continued.returncode:
             raise RuntimeError(
                 f"{step}: start after {outcome} failed\n{continued.stdout[-2000:]}{continued.stderr[-3000:]}"
@@ -424,6 +443,7 @@ cases = [
 ]
 cases += [
     busy_exec,
+    ("orphan-preflight-exec", "commit-case", "exec", r"/installed.next", 1, "orphan", "commit", ""),
     ("binary-directory-open", "commit-case", "open", "", 2, "installed", "commit", "traced install: installed"),
     ("binary-directory-sync", "commit-case", "fsync", "", 2, "installed", "commit", "binary rename durability"),
     ("all-postcommit", "commit-case", "persistent", ".*", 1, "persistent", "commit", ""),
