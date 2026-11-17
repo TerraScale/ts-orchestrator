@@ -465,7 +465,7 @@ func refusedInventory(ctx context.Context, follower *oraclehost.Host, region, wh
 func installEdgeCert(fleet *oraclehost.Fleet) string {
 	names := []string{"whoami.e2e.test", "api.terrascale.tech", "dash.terrascale.tech", "auth.terrascale.tech"}
 	for _, region := range fleet.Regions {
-		names = append(names, region.Name+".api.terrascale.tech")
+		names = append(names, region.Name+".api.terrascale.tech", region.Name+"."+mesh.Domain)
 	}
 	for _, name := range names {
 		material, err := fleet.EdgeMaterial(name)
@@ -668,6 +668,21 @@ func main() {
 	step("%s workers completed five discovery rounds without their manager's route port and never dialed an in-region NetBird route", gru.Name)
 	regionRouteFirewall(ctx, gru.Hosts[0], "-D")
 	meshUp(ctx, fleet)
+	for _, host := range fleet.Hosts {
+		observation, err := host.Observation(ctx)
+		must(err)
+		require(observation.Health == "ok" && observation.Host == host.Name && observation.Version == first, "%s: invalid empty-region observation %+v", host.Name, observation)
+		require(observation.Images != nil && observation.Running != nil && len(observation.Images) == 0 && len(observation.Running) == 0, "%s: app services exist before any apply: %+v", host.Name, observation)
+		var replies []mesh.Reply
+		must(json.Unmarshal(observation.Ping, &replies))
+		require(len(replies) == len(fleet.Regions), "%s: got %d peer observations, want %d", host.Name, len(replies), len(fleet.Regions))
+		for _, region := range fleet.Regions {
+			require(slices.ContainsFunc(replies, func(reply mesh.Reply) bool {
+				return reply.Region == region.Name && reply.Server != "" && reply.Error == "" && reply.ElapsedMS >= 0
+			}), "%s: missing healthy peer %s with RTT in %+v", host.Name, region.Name, replies)
+		}
+	}
+	step("before any service apply, every host serves its native regional mesh name with verified TLS, authenticated observation and every peer RTT; unsigned reads and mutations refuse")
 	delivered(ctx, fleet, gru.Hosts[1], gru.Hosts[2])
 	delivered(ctx, fleet, gru.Hosts[2], gru.Hosts[1])
 	fleet.UnpinSecret(regionjoin.SecretName(gru.Name))

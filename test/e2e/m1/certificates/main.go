@@ -31,6 +31,7 @@ import (
 	"time"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
@@ -586,12 +587,15 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 		return err
 	}
 	defer func() { current.stop() }()
+	if err := nativeMeshJourney(ctx, cfg, current, authority); err != nil {
+		return err
+	}
 	for _, node := range []string{"a", "b"} {
 		if err := route(ctx, cfg, node, "existing", []string{"existing.e2e.test", "rsa.e2e.test", map[string]string{"a": "gru", "b": "sjc"}[node] + ".regional.e2e.test"}); err != nil {
 			return err
 		}
 	}
-	if err := current.wait(ctx, "edge readiness changed ready=true", 1); err != nil {
+	if err := current.wait(ctx, "edge certificate renewal deferred name=existing.e2e.test", 1); err != nil {
 		return err
 	}
 	if err := awaitReady(ctx, "10.77.0.3"); err != nil {
@@ -636,6 +640,9 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 		return err
 	}
 	defer second.stop()
+	if err := second.wait(ctx, "edge certificate installed name=sjc."+mesh.Domain+" ", 2); err != nil {
+		return err
+	}
 	if err := second.wait(ctx, "edge readiness changed ready=true", 1); err != nil {
 		return err
 	}
@@ -739,7 +746,7 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 	if err != nil {
 		return err
 	}
-	if len(counts) != 4 || counts["urgent.e2e.test"] != 1 || counts["shared.e2e.test"] != 1 || counts["gru.shared.e2e.test"] != 1 || counts["sjc.shared.e2e.test"] != 1 {
+	if len(counts) != 6 || counts["gru."+mesh.Domain] != 2 || counts["sjc."+mesh.Domain] != 2 || counts["urgent.e2e.test"] != 1 || counts["shared.e2e.test"] != 1 || counts["gru.shared.e2e.test"] != 1 || counts["sjc.shared.e2e.test"] != 1 {
 		return fmt.Errorf("authority orders: %v", counts)
 	}
 	sharedAPI, err := conn.JetStream(nats.MaxWait(3 * time.Second))

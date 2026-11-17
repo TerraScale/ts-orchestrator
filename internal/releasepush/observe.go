@@ -86,7 +86,7 @@ func ReadObservation(ctx context.Context, region Region, token string) (Observat
 	if err != nil {
 		return observation, err
 	}
-	if status != http.StatusOK || observation.Health != "ok" || len(observation.Images) == 0 {
+	if status != http.StatusOK || observation.Health != "ok" || observation.Images == nil || observation.Running == nil {
 		return observation, fmt.Errorf("%s: HTTP %d, health %s: %s", region.Region, status, observation.Health, observation.Error)
 	}
 	return observation, nil

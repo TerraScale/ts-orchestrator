@@ -215,10 +215,10 @@ func (e *Edge) ready(ctx context.Context) ([]string, error) {
 	if e.follower.Load() && e.inventoryMissing.Load() {
 		conditions = append(conditions, edgeInventoryUnavailable)
 	} else {
-		if len(web)+len(postgres) == 0 {
+		if len(web)+len(postgres) == 0 && e.meshName() == "" {
 			conditions = append(conditions, "routes unavailable")
 		}
-		if len(routes) == 0 {
+		if len(routes) == 0 && (len(web)+len(postgres) != 0 || e.meshName() == "") {
 			conditions = append(conditions, "readiness routes unavailable")
 		}
 	}

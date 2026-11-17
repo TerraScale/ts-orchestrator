@@ -40,6 +40,9 @@ type Inventory struct {
 
 func (e *Edge) servedNames() []string {
 	names := []string{}
+	if name := e.meshName(); name != "" {
+		names = append(names, name)
+	}
 	for _, table := range []map[string]int{*e.routes.Load(), *e.postgres.Load()} {
 		for name := range table {
 			names = append(names, name)

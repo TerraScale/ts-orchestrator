@@ -58,8 +58,16 @@ type Mesh interface {
 	AdmittedRegions() []string
 }
 
-// SetMesh enables replays; until then a replay answer reaches the client as is.
-func (e *Edge) SetMesh(m Mesh) { e.mesh.Store(&m) }
+func (e *Edge) SetMesh(m Mesh) {
+	e.mesh.Store(&m)
+	if name := e.meshName(); name != "" {
+		e.certSeen.LoadOrStore(name, time.Now())
+	}
+	select {
+	case e.certRoutes <- struct{}{}:
+	default:
+	}
+}
 
 func (e *Edge) meshNode() Mesh {
 	if m := e.mesh.Load(); m != nil {
