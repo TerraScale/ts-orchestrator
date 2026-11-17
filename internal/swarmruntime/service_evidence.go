@@ -43,14 +43,19 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 	var probe func(context.Context, *api.Task) error
 	if requested.ReadyPath != "" {
 		probe = func(ctx context.Context, task *api.Task) error {
-			_, address, err := serviceTaskHost(ctx, client, requested, task)
+			machine, address, err := serviceTaskHost(ctx, client, requested, task)
 			if err != nil {
 				return err
 			}
 			if address.IsLoopback() {
-				return ProbeLocalTask(ctx, task)
+				err = ProbeLocalTask(ctx, task)
+			} else {
+				err = ProbeTask(ctx, task, address)
 			}
-			return ProbeTask(ctx, task, address)
+			if err != nil {
+				return fmt.Errorf("task %s on %s (%s): %w", task.ID, machine, address, err)
+			}
+			return nil
 		}
 	}
 	rollout, err = WaitServiceSpec(ctx, client, service, probe)
@@ -173,5 +178,9 @@ func serviceTaskHost(ctx context.Context, client api.ControlClient, requested Se
 			return machine, address, nil
 		}
 	}
-	return "", netip.Addr{}, fmt.Errorf("task %s runs on an unexpected machine", task.ID)
+	hostname := ""
+	if node != nil && node.Description != nil {
+		hostname = node.Description.Hostname
+	}
+	return "", netip.Addr{}, fmt.Errorf("task %s runs on an unexpected machine %q", task.ID, hostname)
 }

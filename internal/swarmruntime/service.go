@@ -525,13 +525,20 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 		return rollout, errors.New("service rollout requires a replicated service")
 	}
 	requested, fellBack := service.Spec.Update, time.Time{}
+	pending := errors.New("no task is running yet")
+	notReady := func(err error) error {
+		if ctx.Err() == nil {
+			return err
+		}
+		return fmt.Errorf("service %s is not ready: %w: %w", service.Spec.Annotations.Name, pending, ctx.Err())
+	}
 	for ; ; time.Sleep(servicePoll) {
-		if err := ctx.Err(); err != nil {
-			return rollout, fmt.Errorf("service %s is not ready: %w", service.Spec.Annotations.Name, err)
+		if ctx.Err() != nil {
+			return rollout, notReady(nil)
 		}
 		latest, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
 		if err != nil {
-			return rollout, err
+			return rollout, notReady(err)
 		}
 		status := latest.Service.UpdateStatus
 		// UpdateService clears UpdateStatus, so a rollback seen here is of the
@@ -558,7 +565,7 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 		}
 		listed, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}, DesiredStates: []api.TaskState{api.TaskStateRunning}, UpToDate: true}})
 		if err != nil {
-			return rollout, err
+			return rollout, notReady(err)
 		}
 		if task := unplacedCandidate(service, listed.Tasks, time.Now()); task != nil {
 			slog.WarnContext(ctx, "start-first candidate cannot be placed; updating stop-first", "service", service.Spec.Annotations.Name, "task", task.ID, "reason", task.Status.Err)
@@ -579,17 +586,23 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 				running = append(running, task)
 			}
 		}
-		if replicated := service.Spec.GetReplicated(); replicated == nil || uint64(len(running)) != replicated.Replicas || len(listed.Tasks) != len(running) {
+		if replicated := service.Spec.GetReplicated(); replicated == nil {
+			return rollout, errors.New("service rollout requires a replicated service")
+		} else if uint64(len(running)) != replicated.Replicas || len(listed.Tasks) != len(running) {
+			pending = fmt.Errorf("%d of %d replicas running, %d up-to-date tasks", len(running), replicated.Replicas, len(listed.Tasks))
 			continue
 		}
 		if rollout.Running == 0 {
 			rollout.Running = time.Since(start)
 		}
-		ready := true
-		for _, task := range running {
-			ready = ready && (probe == nil || probe(ctx, task) == nil)
+		var unready error
+		for i := 0; probe != nil && unready == nil && i < len(running); i++ {
+			unready = probe(ctx, running[i])
 		}
-		if ready {
+		if unready != nil && ctx.Err() == nil {
+			pending = unready
+		}
+		if unready == nil {
 			rollout.Ready = time.Since(start)
 			if rollout.StopFirst {
 				// Leave the spec exactly as requested; the task template is unchanged.
