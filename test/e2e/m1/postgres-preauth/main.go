@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
@@ -57,7 +58,10 @@ func main() {
 	go serveBackend(backend)
 	port := backend.Addr().(*net.TCPAddr).Port
 	public := edge.New(state)
-	public.SetServiceRoutes(map[string]int{}, map[string]int{host: port}, map[string]string{}, nil)
+	inventory := mesh.EdgeInventory{Postgres: map[string]int{host: port}}
+	go public.FollowInventory(context.Background(), func() (mesh.EdgeInventory, bool) {
+		return inventory, true
+	}, func(context.Context, string) error { return nil }, nil)
 	errCh := make(chan error, 1)
 	go func() { errCh <- public.Run(context.Background()) }()
 	step("edge postgres listener", waitListening(errCh))

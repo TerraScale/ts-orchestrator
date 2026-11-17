@@ -187,12 +187,12 @@ func limitsMain() {
 		fmt.Fprint(w, n)
 	})}).Serve(web)
 	public := edge.New(state)
-	public.SetServiceRoutes(map[string]int{host: web.Addr().(*net.TCPAddr).Port}, map[string]int{host: pgBackend.Addr().(*net.TCPAddr).Port}, map[string]string{host: "latency"}, []string{"latency"})
-	var peerSelections atomic.Uint64
-	public.SetPeerEdges(func() []mesh.WorkerPeer {
-		peerSelections.Add(1)
-		return []mesh.WorkerPeer{{Address: "10.80.1.2", ReadyServices: []string{"latency"}}}
-	})
+	inventory := mesh.EdgeInventory{
+		Web:       map[string]int{host: web.Addr().(*net.TCPAddr).Port},
+		Postgres:  map[string]int{host: pgBackend.Addr().(*net.TCPAddr).Port},
+		Services:  map[string]string{host: "latency"},
+		Readiness: []mesh.EdgeRoute{{Host: host, Port: web.Addr().(*net.TCPAddr).Port, Path: "/healthz"}},
+	}
 	key := make([]byte, 32)
 	_, err = rand.Read(key)
 	step("peer credential", err)
@@ -201,18 +201,26 @@ func limitsMain() {
 	errCh := make(chan error, 1)
 	runCtx, stopEdge := context.WithCancel(context.Background())
 	defer stopEdge()
+	go public.FollowInventory(runCtx, func() (mesh.EdgeInventory, bool) {
+		return inventory, true
+	}, func(context.Context, string) error { return nil }, nil)
 	go func() { errCh <- public.Run(runCtx) }()
 	step("edge listeners", waitListening(errCh))
 	for deadline := time.Now().Add(failAfter); ; {
 		var metrics strings.Builder
 		observability.WriteEdgeListenerMetrics(&metrics)
-		if strings.Contains(metrics.String(), `protocol="https"} 1`) && strings.Contains(metrics.String(), `protocol="http"} 1`) {
+		if strings.Contains(metrics.String(), `protocol="https"} 1`) && strings.Contains(metrics.String(), `protocol="http"} 1`) && len(public.ReadyServices()) == 1 && public.Readiness(runCtx).InfraErr() == nil {
 			break
 		}
 		if time.Now().After(deadline) {
-			step("HTTP listeners", errors.New("not ready"))
+			step("HTTP readiness", errors.New("not ready"))
 		}
 	}
+	var peerSelections atomic.Uint64
+	public.SetPeerEdges(func() []mesh.WorkerPeer {
+		peerSelections.Add(1)
+		return []mesh.WorkerPeer{{Address: "10.80.1.2", ReadyServices: []string{"latency"}}}
+	})
 	c := edgeClient{roots, host}
 	var failures []error
 	check := func(name string, err error) {

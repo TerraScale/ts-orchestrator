@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
@@ -32,7 +33,14 @@ func budgetEdge() {
 		routes[name+".e2e.test"] = port
 	}
 	routes[os.Args[3]] = routes["warm.e2e.test"]
-	public.SetRoutes(routes, nil)
+	services := make(map[string]string, len(routes))
+	for host := range routes {
+		services[host] = host
+	}
+	inventory := mesh.EdgeInventory{Web: routes, Services: services}
+	go public.FollowInventory(context.Background(), func() (mesh.EdgeInventory, bool) {
+		return inventory, true
+	}, func(context.Context, string) error { return nil }, nil)
 	errCh := make(chan error, 1)
 	go func() { errCh <- public.Run(context.Background()) }()
 	step("budget listeners", waitListening(errCh))
