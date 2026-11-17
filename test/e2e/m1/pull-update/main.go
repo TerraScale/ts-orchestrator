@@ -469,7 +469,7 @@ func (l *lane) pulls(ctx context.Context) {
 	skipped := l.ask(ctx, "gru-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: l.release(r0)})
 	require(skipped.State == releasepush.StateNewer && skipped.Version == original && skipped.Refusal == nil && skipped.Error == "",
 		"gru-w must skip the older release, replied %+v", skipped)
-	l.requireVersions(ctx, base, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, l.revision, base, l.region("sjc", "fra", "gru")...)
 	require(maps.Equal(before, l.starts()), "no host may restart for an older release: %v -> %v", before, l.starts())
 	fmt.Printf("older release %s -> every host already descends from it: nothing installed, not refused, not marked bad\n%s\n", r0.tag, newer)
 
@@ -485,14 +485,14 @@ func (l *lane) pulls(ctx context.Context) {
 		return strings.HasPrefix(s.Reason, "staging gate "+pullrelease.GateUnsigned+":")
 	})
 	require(refused.Target == nil || refused.Target.Tag() != r1.tag, "sjc must not take %s before staging's signed completion verifies:\n%s", r1.tag, refused)
-	l.requireVersions(ctx, base, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, original, base, l.region("sjc", "fra", "gru")...)
 	fmt.Printf("forged staging record -> sjc stays on its release: %s\n", refused.Reason)
 	l.github.forge(r1.tag, false)
 	sjc := l.waitStatus(ctx, "sjc", "sjc completes "+r1.tag, complete(r1))
 	fra := l.waitStatus(ctx, "fra", "fra completes "+r1.tag, complete(r1))
 	gru := l.waitStatus(ctx, "gru", "gru completes "+r1.tag, complete(r1))
 	require(!fra.Done.Before(sjc.Done.Add(healthyFor)) && !gru.Done.Before(sjc.Done.Add(healthyFor)), "a region bypassed the canary's completion and gate")
-	l.requireVersions(ctx, r1.digest, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, l.revision, r1.digest, l.region("sjc", "fra", "gru")...)
 	for _, region := range []pullrelease.Status{fra, gru} {
 		for _, row := range region.Hosts {
 			fetched := l.fetchedAt(row.ID, r1.tag)
@@ -551,7 +551,7 @@ func (l *lane) pulls(ctx context.Context) {
 		}
 		fmt.Printf("%s release %s refused: %s\n", refusal.name, release.tag, status.Reason)
 	}
-	l.requireVersions(ctx, r1.digest, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, l.revision, r1.digest, l.region("sjc", "fra", "gru")...)
 	fmt.Println("refused releases -> no host changed")
 
 	starts := l.starts()
@@ -574,7 +574,7 @@ func (l *lane) pulls(ctx context.Context) {
 	})
 	require(slices.Contains(status.Bad, r10.tag) && strings.Contains(status.Reason, "unhealthy") && status.Hosts[0].ID == failing && status.Hosts[0].State == pullrelease.HostRolledBack,
 		"the failing host's gate must fail on health and be confirmed restored: %s", status)
-	l.requireVersions(ctx, r1.digest, l.region("sjc")...)
+	l.requireVersions(ctx, l.revision, r1.digest, l.region("sjc")...)
 	for _, id := range l.region("sjc") {
 		want := starts[id]
 		if id == failing {
@@ -692,11 +692,11 @@ func (l *lane) ask(ctx context.Context, id string, request releasepush.PullReque
 	return reply
 }
 
-func (l *lane) requireVersions(ctx context.Context, digest string, ids ...string) {
+func (l *lane) requireVersions(ctx context.Context, version, digest string, ids ...string) {
 	for _, id := range ids {
 		reply := l.ask(ctx, id, releasepush.PullRequest{Op: releasepush.PullStatus})
-		require(reply.Version == l.revision && reply.SHA256 == digest && reply.Health == "ok",
-			"%s must run %s and be healthy, runs %s %s (%s)", id, digest, reply.Version, reply.SHA256, reply.Health)
+		require(reply.Version == version && reply.SHA256 == digest && reply.Health == "ok",
+			"%s must run %s %s and be healthy, runs %s %s (%s)", id, version, digest, reply.Version, reply.SHA256, reply.Health)
 	}
 }
 
@@ -759,7 +759,7 @@ func (l *lane) handover(ctx context.Context) {
 	})
 	l.hosts[owner].releaseRestart()
 	done := l.waitStatus(ctx, "gru", "gru completes the inherited rollout", complete(candidate))
-	l.requireVersions(ctx, candidate.digest, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, l.revision, candidate.digest, l.region("sjc", "fra", "gru")...)
 	for _, id := range l.region("gru") {
 		want := starts[id] + 1
 		if id == owner {

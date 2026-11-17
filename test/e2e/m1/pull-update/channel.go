@@ -328,7 +328,7 @@ func (l *lane) channel(ctx context.Context) {
 	for _, region := range []string{"sjc", "fra", "gru"} {
 		l.waitStatus(ctx, region, region+" records "+r100.tag+" from its channel", complete(r100.published))
 	}
-	l.requireVersions(ctx, base, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, l.revision, base, l.region("sjc", "fra", "gru")...)
 	for _, id := range l.region("sjc", "fra", "gru") {
 		require(strings.Contains(l.seqs(id), "ts_orch_release_installed_seq 100\n"), "%s must record channel seq 100 for the binary it runs:\n%s", id, l.seqs(id))
 	}
@@ -355,12 +355,12 @@ func (l *lane) channel(ctx context.Context) {
 	waiting := l.waitStatus(ctx, "sjc", "an unavailable worker holds the first region", func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseWaiting && s.Target != nil && s.Target.Tag() == r117.tag && strings.Contains(s.Reason, "does not answer")
 	})
-	l.requireVersions(ctx, base, l.region("fra", "gru")...)
+	l.requireVersions(ctx, l.revision, base, l.region("fra", "gru")...)
 	worker.releaseRestart()
 	for _, region := range []string{"fra", "gru"} {
 		l.waitStatus(ctx, region, region+" completes "+r117.tag+" after the worker returns", complete(r117.published))
 	}
-	l.requireVersions(ctx, r117.digest, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, l.revision, r117.digest, l.region("sjc", "fra", "gru")...)
 	fmt.Printf("unavailable first-region worker blocks later regions; return permits the ordered rollout\n%s\n", waiting)
 	fmt.Printf("release %s with %d MiB of change over the installed binary installed from each region's channel after its forged document was refused\n", r117.tag, len(padding)>>20)
 
@@ -385,7 +385,7 @@ func (l *lane) channel(ctx context.Context) {
 	require(strings.Contains(status.Reason, "differs from its attestation"), "the tampered artifact refusal lacks its reason: %s", status.Reason)
 	fmt.Printf("tampered artifact refused: %s\n", status.Reason)
 
-	l.requireVersions(ctx, r117.digest, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, l.revision, r117.digest, l.region("sjc", "fra", "gru")...)
 	require(slices.Equal(sortedStarts(before), sortedStarts(l.starts())), "no host may restart for a refused channel document: %v -> %v", before, l.starts())
 	for _, id := range l.region("sjc", "fra", "gru") {
 		require(strings.Contains(l.seqs(id), "ts_orch_release_installed_seq 117\n"), "%s must report installed seq 117:\n%s", id, l.seqs(id))
