@@ -50,7 +50,7 @@ type nlbPass struct {
 	out       ociresource.Out
 }
 
-func applyNLB(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, out ociresource.Out) error {
+func applyNLB(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, _ Cluster, out ociresource.Out) error {
 	var err error
 	p := nlbPass{region: region, out: out}
 	if p.network, err = f.Network(); err != nil {

@@ -13,10 +13,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
-const (
-	MinNodes = 3
-	MaxNodes = 3
-)
+const MinNodes = 3
 
 type Fleet struct {
 	DNS     DNS      `json:"dns"`
@@ -208,9 +205,6 @@ func (r Region) validate(field string) []error {
 	}
 	if n.Max < n.Min {
 		errs = append(errs, fmt.Errorf("%s.nodes.max %d is below nodes.min %d", field, n.Max, n.Min))
-	}
-	if n.Max > MaxNodes {
-		errs = append(errs, fmt.Errorf("%s.nodes.max %d is above the cap of %d nodes per region", field, n.Max, MaxNodes))
 	}
 	if n.Shape == "" {
 		errs = append(errs, fmt.Errorf("%s.nodes.shape is empty", field))

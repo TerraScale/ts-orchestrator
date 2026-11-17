@@ -36,6 +36,9 @@ func seed() error {
 	if os.Args[2] == "promotion" {
 		return promotionJourney(ctx, state, manager)
 	}
+	if os.Args[2] == "node-scale" {
+		return nodeScaleJourney(ctx, state, manager)
+	}
 	if os.Args[2] == "worker" {
 		client, conn, err := swarmruntime.DialControl(filepath.Join(state, "manager"))
 		if err != nil {

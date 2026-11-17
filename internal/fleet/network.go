@@ -45,7 +45,7 @@ type network struct {
 	ownership   ociresource.Ownership
 }
 
-func applyNetwork(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, out ociresource.Out) error {
+func applyNetwork(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, _ Cluster, out ociresource.Out) error {
 	client, err := f.Network()
 	if err != nil {
 		return err

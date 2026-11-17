@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"slices"
 	"strconv"
 
 	"github.com/moby/swarmkit/v2/api"
@@ -46,4 +47,50 @@ func ReplicaCapacity(service *api.Service, nodes []*api.Node, tasks []*api.Task,
 		}
 	}
 	return total
+}
+
+func Relocatable(services []*api.Service, nodes []*api.Node, tasks []*api.Task, leaving string) bool {
+	global := make(map[string]bool, len(services))
+	for _, service := range services {
+		global[service.ID] = service.Spec.GetGlobal() != nil
+	}
+	var infos []*NodeInfo
+	for _, node := range nodes {
+		if node.ID == leaving || node.Description == nil || node.Description.Resources == nil {
+			continue
+		}
+		info := newNodeInfo(node, nil, *node.Description.Resources.Copy())
+		for _, task := range tasks {
+			if task.NodeID == node.ID && task.Status.State < api.TaskStateCompleted {
+				info.addTask(task.Copy())
+			}
+		}
+		infos = append(infos, &info)
+	}
+	filters := []Filter{&ReadyFilter{}, &ResourceFilter{}, &ConstraintFilter{}, &PlatformFilter{}, &HostPortFilter{}, &MaxReplicasFilter{}}
+	for _, task := range tasks {
+		if task.NodeID != leaving || task.Status.State > api.TaskStateRunning || task.DesiredState > api.TaskStateRunning || global[task.ServiceID] {
+			continue
+		}
+		moved := task.Copy()
+		moved.ID, moved.NodeID = "relocated-"+task.ID, ""
+		var active []Filter
+		for _, filter := range filters {
+			if filter.SetTask(moved) {
+				active = append(active, filter)
+			}
+		}
+		placed := false
+		for _, info := range infos {
+			if !slices.ContainsFunc(active, func(filter Filter) bool { return !filter.Check(info) }) {
+				info.addTask(moved)
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			return false
+		}
+	}
+	return true
 }

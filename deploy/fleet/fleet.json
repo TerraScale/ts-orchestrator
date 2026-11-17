@@ -37,7 +37,8 @@
       "reconcile": [
         "network",
         "nlb",
-        "dns"
+        "dns",
+        "nodes"
       ]
     },
     {
@@ -64,7 +65,8 @@
       ],
       "reconcile": [
         "network",
-        "nlb"
+        "nlb",
+        "nodes"
       ]
     },
     {
@@ -90,7 +92,8 @@
       ],
       "reconcile": [
         "network",
-        "nlb"
+        "nlb",
+        "nodes"
       ]
     }
   ]

@@ -37,68 +37,81 @@ func ListMembers(ctx context.Context, client api.ControlClient) ([]Member, error
 	return members, nil
 }
 
-func LeaveMember(ctx context.Context, client api.ControlClient, hostname string) error {
+func RemoveMember(ctx context.Context, client api.ControlClient, hostname string, guard func(context.Context) error) error {
 	node, err := memberNode(ctx, client, hostname)
 	if err != nil {
 		return err
 	}
 	if node.Role == api.NodeRoleManager || node.Spec.DesiredRole == api.NodeRoleManager {
-		if err := canDemoteManager(ctx, client, node.ID); err != nil {
+		if err := CanDemoteManager(ctx, client, node.ID); err != nil {
 			return fmt.Errorf("cannot remove %s; promote replacement managers first: %w", hostname, err)
 		}
-		if node.Spec.DesiredRole != api.NodeRoleWorker || node.Spec.Availability != api.NodeAvailabilityDrain {
-			spec := node.Spec.Copy()
-			spec.DesiredRole = api.NodeRoleWorker
-			spec.Availability = api.NodeAvailabilityDrain
-			if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec}); err != nil {
-				return fmt.Errorf("demote %s: %w", hostname, err)
-			}
+		if err := updateMember(ctx, client, node, api.NodeRoleWorker, guard); err != nil {
+			return fmt.Errorf("demote %s: %w", hostname, err)
 		}
-		demoteCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		for demoted := false; !demoted; {
-			current, err := memberNode(demoteCtx, client, hostname)
-			if err != nil {
-				cancel()
-				return err
-			}
-			if demoted = current.Role == api.NodeRoleWorker && current.ManagerStatus == nil; !demoted {
-				select {
-				case <-demoteCtx.Done():
-					cancel()
-					return fmt.Errorf("demote %s: %w", hostname, demoteCtx.Err())
-				case <-time.After(time.Second):
-				}
-			}
-		}
-		cancel()
-		node, err = memberNode(ctx, client, hostname)
-		if err != nil {
-			return err
+		if node, err = awaitMember(ctx, client, hostname, 2*time.Minute, func(node *api.Node, _ []*api.Task) bool {
+			return node.Role == api.NodeRoleWorker && node.ManagerStatus == nil
+		}); err != nil {
+			return fmt.Errorf("demote %s: %w", hostname, err)
 		}
 	}
-	if node.Spec.Availability != api.NodeAvailabilityDrain {
-		spec := node.Spec.Copy()
-		spec.Availability = api.NodeAvailabilityDrain
-		if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec}); err != nil {
-			return fmt.Errorf("drain %s: %w", hostname, err)
-		}
+	if err := updateMember(ctx, client, node, node.Spec.DesiredRole, guard); err != nil {
+		return fmt.Errorf("drain %s: %w", hostname, err)
 	}
-	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Minute) // bounds the tasks' stop grace periods
-	defer cancel()
-	for ; ; time.Sleep(time.Second) {
-		tasks, err := client.ListTasks(waitCtx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{NodeIDs: []string{node.ID}}})
-		if err != nil {
-			return fmt.Errorf("%s still runs tasks: %w", hostname, err)
-		}
-		if !slices.ContainsFunc(tasks.Tasks, func(task *api.Task) bool { return task.Status.State <= api.TaskStateRunning }) {
-			break
-		}
+	if _, err := awaitMember(ctx, client, hostname, 5*time.Minute, drained); err != nil {
+		return fmt.Errorf("%s still runs tasks: %w", hostname, err)
 	}
-	// Force: the drained host is still up; SwarmKit revokes its certificate.
+	if err := guard(ctx); err != nil {
+		return err
+	}
 	if _, err := client.RemoveNode(ctx, &api.RemoveNodeRequest{NodeID: node.ID, Force: true}); err != nil {
 		return fmt.Errorf("remove %s: %w", hostname, err)
 	}
 	return nil
+}
+
+func updateMember(ctx context.Context, client api.ControlClient, node *api.Node, role api.NodeRole, guard func(context.Context) error) error {
+	if node.Spec.DesiredRole == role && node.Spec.Availability == api.NodeAvailabilityDrain {
+		return nil
+	}
+	if err := guard(ctx); err != nil {
+		return err
+	}
+	spec := node.Spec.Copy()
+	spec.DesiredRole, spec.Availability = role, api.NodeAvailabilityDrain
+	_, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec})
+	return err
+}
+
+func drained(node *api.Node, tasks []*api.Task) bool {
+	return !slices.ContainsFunc(tasks, func(task *api.Task) bool {
+		return task.DesiredState <= api.TaskStateRunning || node.Status.State == api.NodeStatus_READY && task.Status.State <= api.TaskStateRunning
+	})
+}
+
+func awaitMember(ctx context.Context, client api.ControlClient, hostname string, within time.Duration, done func(*api.Node, []*api.Task) bool) (*api.Node, error) {
+	ctx, cancel := context.WithTimeout(ctx, within)
+	defer cancel()
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	for {
+		node, err := memberNode(ctx, client, hostname)
+		if err != nil {
+			return nil, err
+		}
+		tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{NodeIDs: []string{node.ID}}})
+		if err != nil {
+			return nil, err
+		}
+		if done(node, tasks.Tasks) {
+			return node, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-tick.C:
+		}
+	}
 }
 
 // SetMemberAvailability drains (no tasks) or activates the worker named
@@ -112,16 +125,17 @@ func SetMemberAvailability(ctx context.Context, client api.ControlClient, hostna
 	if node.Role == api.NodeRoleManager {
 		return fmt.Errorf("%s is the region's manager; only workers drain", hostname)
 	}
-	if node.Spec.Availability == availability {
+	if _, scaled := node.Spec.Annotations.Labels[LabelDrainSince]; node.Spec.Availability == availability && !scaled {
 		return nil
 	}
 	spec := node.Spec.Copy()
 	spec.Availability = availability
+	delete(spec.Annotations.Labels, LabelDrainSince)
 	_, err = client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec})
 	return err
 }
 
-func canDemoteManager(ctx context.Context, client api.ControlClient, nodeID string) error {
+func CanDemoteManager(ctx context.Context, client api.ControlClient, nodeID string) error {
 	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 	if err != nil {
 		return err

@@ -201,8 +201,8 @@ See [DNS reconciliation](oci-reconcile.md#fleet-dns-pass) and
 
 Each region's SwarmKit Raft leader runs the passes listed in its region's
 `reconcile` field of the fleet document once a minute
-(`internal/ociresource/runner.go`). gru, sjc and fra list `network` and
-`nlb`; gru, the DNS region, also lists `dns`. `compute` joins a region when
+(`internal/ociresource/runner.go`). gru, sjc and fra list `network`,
+`nlb` and `nodes`; gru, the DNS region, also lists `dns`. `compute` joins a region when
 that region moves onto document-made nodes. How the loop is fenced, limited and observed is in
 `docs/oci-reconcile.md`, "Reconcile loop". Over the regions, the
 reconcilers create and update these resources:
@@ -247,8 +247,9 @@ minute; the rest was created by operator commands with an API key. The document 
 region's network load balancer and its reserved address (docs/oci-reconcile.md,
 "Network load balancer"); gru, sjc and fra have one since 2026-11-16,
 referenced by the staged OCI DNS zone while public names still use nodes.
-The network and global DNS passes are implemented. Compute (C8) and the
-node autoscaler (C12) follow.
+The network, global DNS, compute (C8) and node count (C12) passes are
+implemented; production regions do not list `compute` yet, so their node
+count holds at 3.
 
 ### Nodes: the compute kind
 
@@ -266,10 +267,8 @@ and makes, in the region's compartment:
 The ts-orch-hosts dynamic group matches every instance in the three region
 compartments, so a pool node has the instance principal the join needs.
 
-A pool size below `nodes.min` is raised; one above `nodes.max` is scaled
-in: the newest node leaves the pool, is stopped, its data volume is
-detached and kept, and it is terminated with
-`preserveDataVolumesCreatedAtLaunch=true`. A node without a data volume gets
+A pool size below `nodes.min` is raised. The compute kind never shrinks the
+pool; the `nodes` kind below removes one drained node at a time. A node without a data volume gets
 a kept one from its availability domain, or a new one. Image and release
 are fixed when the configuration is made; a newer release reaches the nodes
 through the release self-pull, so a second apply changes nothing.
@@ -281,6 +280,51 @@ installs the pinned release the way `deploy/m1/install.sh` does, and starts
 ts-orch. ts-orch reads `ts-orch-join-<region>` from the gru Vault (`internal/regionjoin`),
 joins as a worker and is promoted until the region has three managers
 (`internal/swarmruntime/manager_promotion.go`).
+
+### Node count: the nodes kind
+
+The `nodes` kind (`internal/fleet/nodes.go`) decides each region's node count
+on the region leader every tick, between the document's `nodes.min` and
+`nodes.max`; no bound lives in code. The document's floor is 3, the three
+managers. Each region lists `nodes`; the scaler only grows or shrinks
+the document-made pool, so a region without one holds its count.
+
+| Step | When | What |
+| --- | --- | --- |
+| Grow | For 3 min the replica autoscaler (C11) could not place more replicas of a service (`region-capacity`, after admission), the count is below `nodes.max`, the pool is `RUNNING` and the last change is 10 min old. | The pool size goes up by one. The next change waits until every pool node has joined the swarm and is ready. |
+| Cordon | For 15 min no service was blocked or growing and no task waited for a node, the count is above `nodes.min` (or above `nodes.max`), and the last change is 10 min old. | One pool worker whose tasks fit on the other nodes (SwarmKit's own scheduler filters) is set to drain and labelled `terrascale.drain-since`. Fewest tasks first. |
+| Remove | The drained node runs no task and no task of the region waits for a node. | That instance is detached from the pool with the size decremented (never the pool's own termination choice), soft-stopped, its data volume detached and kept, terminated with `preserveDataVolumesCreatedAtLaunch=true`, then removed from the swarm. |
+| Retire | An instance carrying the `instance/node` ownership tag is outside the pool and in no swarm, for example because a leader died between the detach and the terminate and the swarm node was then removed. | It is terminated the same way, keeping its data volume. A drained node still in the swarm takes the Remove step instead. |
+
+Refusals, counted every tick in `ts_orch_node_scale_refusals_total{reason}` and logged when they begin:
+
+| Reason | Rule |
+| --- | --- |
+| `quorum` | Fewer than three ready managers, or the only candidate is a manager. Managers are never drained; promotion keeps three. |
+| `last-copy` | The node runs a stateful task (TerraBase or `terrascale.stateful`). The orchestrator has no signal that another copy of that data is caught up, so the guard is per node holding data, not per running copy: a pool worker that holds data is never drained by the scaler. Move or replicate the data by hand, then the node becomes a candidate. |
+| `no-room` | The other nodes cannot take the node's tasks. |
+| `bounds` | Demand cannot be placed and the count is `nodes.max`. At `nodes.min` with low demand the scaler holds (`at-min`); no step goes below `nodes.min` or above `nodes.max`. |
+| `in-flight` | A pool node has not joined yet, or a drain is running: one change per region at a time. |
+| `unhealthy` | The leader took over less than 5 min ago, or a node is not ready or not active. |
+| `drain-stuck` | The drained node's tasks did not move within 10 min. The node stays cordoned, `NodeDrainStuck` fires, and nothing else changes until a person resolves it: `ts-orch member activate <host>` returns it to service and clears `terrascale.drain-since`, so a later hand drain is never taken for the scaler's. |
+| `no-pool`, `no-pool-node` | No document-made pool to grow, or no pool node to remove. Hand-made hosts are never removed. |
+
+Every step is derived from the swarm and the pool, so a new leader resumes a
+drain or a join instead of starting another change, and it waits 5 min and a
+full 10 min cooldown before its first new change. `ts-orch status` and
+`ts-orch region status` print the leader's last decision as
+`nodes: <action> <actual> [-> <desired>] (bounds min..max): <reason>`.
+Metrics: `ts_orch_node_scale_{actual,desired,decision,decision_timestamp_seconds,drain_stuck}`.
+The swarm removal is `swarmruntime.RemoveMember`, the path C14 (self-heal)
+and `ts-orch member leave` use; the instance removal is `compute.Pass.Retire`.
+The e2e-m1 `operator` lane's `node-scale` case runs on a four-node in-process
+region with no OCI: `Decide` refuses a new leader and a manager candidate, cordons
+one worker, plans only its removal while it is drained, and after the leader is
+stopped the new leader's `Decide` picks the same drained worker; the case then
+calls `RemoveMember` on the new leader. It feeds `Decide` chosen times, a pool and
+quiet demand. The full resume on a leader change (Authorize, Retire, then
+RemoveMember), tasks moving off a drained node and the `last-copy` refusal are
+proven in the staging region.
 
 
 ## Routing
@@ -362,9 +406,10 @@ limit; the new fleet deploys it).
 Replicas scale on CPU, memory and requests
 (`internal/swarmruntime/autoscale.go`).
 
-A node is added when load stays high, or when tasks cannot be placed. A node
-is drained and removed when load stays low. The count never goes below three
-managers. The last copy of a database is never removed.
+A node is added when the replica autoscaler cannot place the replicas load
+needs. A node is drained and removed when load stays low. The count never
+goes below three managers. The last copy of a database is never removed.
+See "Node count: the nodes kind".
 
 A region is created automatically when demand from a geography stays high,
 and only inside an allowed list and a budget. A region is removed only when
@@ -372,7 +417,9 @@ it is empty.
 
 A node that stays unhealthy for too long is replaced.
 
-Today: the node does not start the replica or node autoscaler (C13).
+Today: replicas and the node count scale on the region leader. Production's
+document holds every region at 3 nodes (`nodes.min` = `nodes.max` = 3); load
+beyond that is absorbed by replicas and the shape.
 
 ## What was removed
 

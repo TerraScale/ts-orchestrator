@@ -60,6 +60,14 @@ func WithAuthority(ctx context.Context, guard func(context.Context) error) conte
 	return context.WithValue(ctx, authorityKey{}, guard)
 }
 
+func Authorize(ctx context.Context) error {
+	guard, ok := ctx.Value(authorityKey{}).(func(context.Context) error)
+	if !ok {
+		return errors.New("write authority is unavailable")
+	}
+	return guard(ctx)
+}
+
 // WithAdmission acquires current write authority for each HTTP mutation attempt
 // and holds it until that attempt returns. SDK retries acquire it again.
 // Clients must use ConfigureRequestCancellation, as Factory clients do.

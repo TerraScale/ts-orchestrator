@@ -21,7 +21,7 @@ import (
 
 const nodeNSG = "node-nsg"
 
-func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, out ociresource.Out) error {
+func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, _ Cluster, out ociresource.Out) error {
 	var err error
 	clients := compute.Clients{}
 	if clients.Compute, err = f.Compute(); err != nil {

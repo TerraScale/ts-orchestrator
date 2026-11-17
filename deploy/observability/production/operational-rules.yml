@@ -343,3 +343,10 @@ groups:
         annotations:
           summary: A region leader stopped an OCI reconcile kind because one tick wanted more than 16 OCI writes
           description: The kind stays stopped on that leader until ts-orch restarts there. Read the leader's OCI change log lines to find what wanted to change so much (docs/oci-reconcile.md, Reconcile loop) before restarting it.
+      - alert: NodeDrainStuck
+        expr: ts_orch_node_scale_drain_stuck > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: A region leader gave up draining a node it wanted to remove; the node stays cordoned
+          description: Its tasks did not move within 10 minutes. The scaler changes no node in that region until the drained node's tasks run elsewhere or a person runs ts-orch member activate on it, which also clears terrascale.drain-since (docs/platform.md, Node count).

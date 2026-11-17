@@ -80,7 +80,7 @@ func runMemberCLI(ctx context.Context, args []string, output io.Writer, state st
 			if !swarmruntime.IsLeader(listed.Nodes, nodeID) {
 				return errors.New("membership changes must run on the Raft leader")
 			}
-			if err := swarmruntime.LeaveMember(ctx, client, args[1]); err != nil {
+			if err := swarmruntime.RemoveMember(ctx, client, args[1], func(ctx context.Context) error { return ctx.Err() }); err != nil {
 				return err
 			}
 			_, err = fmt.Fprintf(output, "%s drained and removed; terminate it or clear its state before it starts again\n", args[1])

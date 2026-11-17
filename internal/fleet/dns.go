@@ -52,7 +52,7 @@ func dnsConfig(ctx context.Context, fleet Fleet, f *ociclient.Factory) (geodns.C
 	return cfg, nil
 }
 
-func applyDNS(ctx context.Context, fleet Fleet, region Region, f *ociclient.Factory, out ociresource.Out) error {
+func applyDNS(ctx context.Context, fleet Fleet, region Region, f *ociclient.Factory, _ Cluster, out ociresource.Out) error {
 	home, _ := fleet.DNSRegion()
 	if region.Label != home.Label {
 		return fmt.Errorf("global dns pass belongs to %s, the fleet DNS compartment", home.Label)

@@ -107,3 +107,12 @@ resource-request, placement-constraint, platform, host-port and replica-limit
 filters to count additional placements. The two-node lifecycle journey exercises
 these additions with real containerd tasks. The SwarmKit source digest is renewed
 in `scripts/ci/audit-replacements.py`; its published upstream baseline is unchanged.
+
+## 2026-11-17: node removal placement
+
+C12 adds `Relocatable` to `manager/scheduler/replicas.go`. It places every live
+task of a leaving node on the other nodes through the same readiness,
+resource-request, placement-constraint, platform, host-port and replica-limit
+filters, so the region leader drains a node only when its tasks fit elsewhere.
+The SwarmKit source digest is renewed in `scripts/ci/audit-replacements.py`; its
+published upstream baseline is unchanged.
