@@ -14,4 +14,5 @@ var reconcilerStatements = []string{
 	"Allow dynamic-group {group} to use vaults in compartment id {compartment} where target.vault.id = '{vault}'",
 	"Allow dynamic-group {group} to use keys in compartment id {compartment} where target.key.id = '{key}'",
 	"Allow dynamic-group {group} to manage secret-family in compartment id {compartment} where target.vault.id = '{vault}'",
+	"Allow dynamic-group {group} to read repos in compartment id {compartment}",
 }

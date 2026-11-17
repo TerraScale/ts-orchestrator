@@ -347,7 +347,7 @@ ts-orch region status
 policy `ts-orch-stg` in the compartment: the reconciler statements of
 [oci-reconcile.md](oci-reconcile.md#statements) for `stg-1-control` only, plus
 `inspect secrets`, `use vaults`, `use keys` and `manage secret-family` on that
-Vault and key. It waits until the new compartment is visible in
+Vault and key, and `read repos` for its [OCIR](ocir.md) repositories. It waits until the new compartment is visible in
 `us-sanjose-1` and the Vault's management endpoint resolves. When the
 document's `compartment_id`, `vault_id` or `key_id` differ from the live ones
 it prints the right values and fails; commit them and run it again. A second

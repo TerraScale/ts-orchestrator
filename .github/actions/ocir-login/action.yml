@@ -1,0 +1,49 @@
+name: OCIR login
+description: Exchange this job's GitHub OIDC token for an OCI UPST of ts-ci-ocir and log docker in to each region's OCIR.
+inputs:
+  regions:
+    description: Space-separated OCI region names, such as "us-sanjose-1 eu-frankfurt-1 sa-saopaulo-1".
+    required: true
+  domain-url:
+    description: The identity domain URL, vars.OCI_IDENTITY_DOMAIN_URL.
+    required: true
+  client-id:
+    description: The token-exchange app's client ID, vars.OCI_TOKEN_EXCHANGE_CLIENT_ID.
+    required: true
+  client-secret:
+    description: The token-exchange app's client secret, secrets.OCI_TOKEN_EXCHANGE_CLIENT_SECRET.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        REGIONS: ${{ inputs.regions }}
+        DOMAIN_URL: ${{ inputs.domain-url }}
+        CLIENT_ID: ${{ inputs.client-id }}
+        CLIENT_SECRET: ${{ inputs.client-secret }}
+      run: |
+        set -euo pipefail
+        work=$(mktemp -d)
+        trap 'rm -rf "$work"' EXIT
+        jwt=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=terrascale-ocir" | jq -r .value)
+        echo "::add-mask::$jwt"
+        openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$work/key.pem" 2>/dev/null
+        public_key=$(openssl pkey -in "$work/key.pem" -pubout -outform DER | base64 -w0)
+        upst=$(curl -sSf -u "$CLIENT_ID:$CLIENT_SECRET" "$DOMAIN_URL/oauth2/v1/token" \
+          --data-urlencode grant_type=urn:ietf:params:oauth:grant-type:token-exchange \
+          --data-urlencode requested_token_type=urn:oci:token-type:oci-upst \
+          --data-urlencode subject_token_type=jwt \
+          --data-urlencode "subject_token=$jwt" \
+          --data-urlencode "public_key=$public_key" | jq -r .token)
+        echo "::add-mask::$upst"
+        for region in $REGIONS; do
+          host="$region.ocir.io"
+          date=$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S GMT')
+          signature=$(printf 'date: %s\n(request-target): get /20180419/docker/token\nhost: %s' "$date" "$host" | openssl dgst -sha256 -sign "$work/key.pem" | base64 -w0)
+          token=$(curl -sSf -H "date: $date" \
+            -H "Authorization: Signature version=\"1\",headers=\"date (request-target) host\",keyId=\"ST\$$upst\",algorithm=\"rsa-sha256\",signature=\"$signature\"" \
+            "https://$host/20180419/docker/token" | jq -r .token)
+          echo "::add-mask::$token"
+          printf '%s' "$token" | docker login "$host" -u BEARER_TOKEN --password-stdin
+        done
