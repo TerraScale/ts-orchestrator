@@ -80,8 +80,9 @@ keep-alive connections. Hijacked WebSockets retain their existing lifecycle.
 
 The existing `e2e-m1 / edge-limits` lane builds the edge from `origin/main`
 with Go's overlay mechanism and from the PR against the same backend and CA.
-The baseline receives the same duration instrumentation, retaining main's
-transport and drain behavior, so both builds expose comparable overhead.
+The overlay uses main's edge and observability sources without injecting PR
+fields, wrappers or instrumentation. Both builds use their own duration
+histograms, transport and drain behavior.
 For each it reports three sets of 100 fresh and 100 kept-alive first-byte
 samples, TLS 1.2/1.3 resumption and h2 negotiation, and the upstream connection
 count in the second 16-request burst. The PR must reuse the warm pool without
