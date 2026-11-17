@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/moby/swarmkit/v2/api"
@@ -33,7 +34,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, public *edge.Edge, probation *releasepush.Probation, swarmReady chan struct{}, health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
+func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, public *edge.Edge, probation *releasepush.Probation, swarmReady chan struct{}, meshServing <-chan struct{}, health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -116,14 +117,18 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 		return releasepush.ReadHostVersions(ctx, conn, plan.region, listed.Nodes), nil
 	}
 	public.SetObserver(http.HandlerFunc(releases.Observe))
+	subscribed := make(chan struct{})
 	if plan.region != "" {
-		go serveHostReleases(ctx, state, plan.region, node, releases)
+		go serveHostReleases(ctx, state, plan.region, node, releases, sync.OnceFunc(func() { close(subscribed) }))
 		go runPullUpdates(ctx, state, plan.region, node, releases, failed)
+	} else {
+		close(subscribed)
 	}
 	notifier := sdnotify.Process()
 	if err := notifier.Ready("node ready"); err != nil {
 		return err
 	}
+	go confirmWhenServing(ctx, probation, meshServing, subscribed)
 	defer func() { _ = notifier.Stopping() }()
 	if _, err := fmt.Fprintf(output, "node %s %s ready; advertise %s\n", plan.admission.Role, node.ID(), plan.advertise); err != nil {
 		return err
@@ -435,7 +440,18 @@ func hostOf(address string) string {
 	return host
 }
 
-func serveHostReleases(ctx context.Context, state, region string, node *swarmruntime.Node, releases *releasepush.Handler) {
+func confirmWhenServing(ctx context.Context, probation *releasepush.Probation, serving ...<-chan struct{}) {
+	for _, ready := range serving {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ready:
+		}
+	}
+	probation.Served()
+}
+
+func serveHostReleases(ctx context.Context, state, region string, node *swarmruntime.Node, releases *releasepush.Handler, subscribed func()) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for ctx.Err() == nil {
@@ -453,6 +469,7 @@ func serveHostReleases(ctx context.Context, state, region string, node *swarmrun
 				err = releases.ServePulled(conn, region, node.ID())
 			}
 			if err == nil {
+				subscribed()
 			wait:
 				for {
 					select {

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -125,12 +126,28 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 		})
 	}()
 	meshDone := make(chan struct{})
+	meshServing := make(chan struct{})
+	served := sync.OnceFunc(func() { close(meshServing) })
+	if plan.region == "" || plan.joiner() && plan.address == "" {
+		served()
+	}
 	if plan.joiner() && plan.address == "" {
 		close(meshDone) // a worker without IMDS stays out of the region's NATS cluster
 	} else {
 		go func() {
 			mesh.Run(ctx, *state, meshCluster(plan), func(node *mesh.Node) {
 				meshNode.Store(node)
+				if plan.joiner() {
+					go func() {
+						select {
+						case <-ctx.Done():
+						case <-node.RegionReached():
+							served()
+						}
+					}()
+				} else {
+					served()
+				}
 				plannedstop.Register(ctx, node.PrepareStop)
 				handoff.SetTaskDrainer(node.DrainTask)
 				handoff.SetBootstrap(node.Bootstrap)
@@ -147,7 +164,7 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 			close(meshDone)
 		}()
 	}
-	err = serveNode(ctx, *state, output, plan, public, probation, swarmReady, func(ctx context.Context, service string) releasepush.HealthResult {
+	err = serveNode(ctx, *state, output, plan, public, probation, swarmReady, meshServing, func(ctx context.Context, service string) releasepush.HealthResult {
 		return releaseHealth(ctx, *state, service, meshNode.Load(), public)
 	}, func(ctx context.Context) error {
 		if node := meshNode.Load(); node != nil {

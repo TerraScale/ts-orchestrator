@@ -139,6 +139,7 @@ jobs:
           - {lane: node-upgrade, entry: node-upgrade.sh, timeout: 10}
           - {lane: rollout, entry: rollout.sh, timeout: 10}
           - {lane: oracle-regions, entry: oracle-regions.sh, timeout: 7, packages: "./test/e2e/m1/oracle-regions"}
+          - {lane: release-probation, entry: release-probation.sh, timeout: 7, packages: "./test/e2e/m1/release-probation"}
           - {lane: region-fallback, entry: region-fallback.sh, timeout: 4, packages: "./test/e2e/m1/oracle-regions"}
           - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
           - {lane: pull-update, entry: pull-update.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
