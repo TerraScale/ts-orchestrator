@@ -327,6 +327,12 @@ RemoveMember), tasks moving off a drained node and the `last-copy` refusal are
 proven in the staging region.
 
 
+A node that stays unhealthy for 5 minutes is rebooted once through OCI and,
+if that does not help, replaced by the region leader, one node at a time,
+never against Raft quorum, the last healthy copy of a database's data or a
+region-wide failure, and at most once a day per region. It only acts where
+`compute` is reconciled. See `docs/oci-reconcile.md`, "Self-heal".
+
 ## Routing
 
 `dash`, `mcp`, `platform` and `auth` under `terrascale.tech` use GeoDNS. GeoDNS

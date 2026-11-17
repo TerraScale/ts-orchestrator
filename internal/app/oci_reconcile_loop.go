@@ -10,6 +10,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
+	"github.com/TerraScale/ts-orchestrator/internal/selfheal"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
@@ -47,9 +48,13 @@ func runOCIReconcile(ctx context.Context, state, region string, node *swarmrunti
 	runner := &ociresource.Runner{Region: region, Authority: &raftFencer{node: node}, Build: func(ctx context.Context) ([]ociresource.Pass, error) {
 		return fleet.ReconcilePasses(ctx, region, node)
 	}}
+	healer := selfheal.New(region, state, node, runner.Leading)
+	defer healer.Close()
+	runner.Heal = healer.Tick
 	go regionhealth.ServeReconcile(ctx, state, func() (regionhealth.Reconcile, bool) {
 		kinds, err := runner.Status()
-		status := regionhealth.Reconcile{Kinds: kinds}
+		heal := healer.Status()
+		status := regionhealth.Reconcile{Kinds: kinds, Heal: &heal}
 		if decision, ok := fleet.LastNodeDecision(region); ok {
 			status.Nodes = &decision
 		}

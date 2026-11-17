@@ -209,3 +209,11 @@ func AwaitReady(ctx context.Context, conn *nats.Conn, region, host, sha string, 
 		}
 	}
 }
+
+func AskStatus(ctx context.Context, conn *nats.Conn, region, host string) (Reply, error) {
+	body, err := json.Marshal(PullRequest{Op: PullStatus})
+	if err != nil {
+		return Reply{}, err
+	}
+	return request(ctx, conn, PullSubject(region, host), body, readyCheck)
+}

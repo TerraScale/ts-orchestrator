@@ -51,11 +51,10 @@ func Apply(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	i := slices.IndexFunc(document.Regions, func(r Region) bool { return r.Label == label })
-	if i < 0 {
-		return fmt.Errorf("region %q is not in the fleet document", label)
+	region, err := document.Region(label)
+	if err != nil {
+		return err
 	}
-	region := document.Regions[i]
 	f, err := factory(ctx, region.OCIRegion)
 	if err != nil {
 		return err
@@ -79,16 +78,11 @@ func ReconcilePasses(ctx context.Context, label string, cluster Cluster) ([]ocir
 	if err != nil {
 		return nil, err
 	}
-	i := slices.IndexFunc(document.Regions, func(r Region) bool { return r.Label == label })
-	if i < 0 {
-		return nil, fmt.Errorf("region %q is not in the fleet document", label)
-	}
-	region := document.Regions[i]
-	provider, err := ociclient.InstancePrincipalProviderContext(ctx, common.Region(region.OCIRegion), nil)
+	region, err := document.Region(label)
 	if err != nil {
 		return nil, err
 	}
-	f, err := ociclient.New(provider, ociclient.Options{Region: region.OCIRegion, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+	f, err := LoopFactory(ctx, region)
 	if err != nil {
 		return nil, err
 	}
@@ -100,4 +94,20 @@ func ReconcilePasses(ctx context.Context, label string, cluster Cluster) ([]ocir
 		}})
 	}
 	return passes, nil
+}
+
+func (f Fleet) Region(label string) (Region, error) {
+	i := slices.IndexFunc(f.Regions, func(r Region) bool { return r.Label == label })
+	if i < 0 {
+		return Region{}, fmt.Errorf("region %q is not in the fleet document", label)
+	}
+	return f.Regions[i], nil
+}
+
+func LoopFactory(ctx context.Context, region Region) (*ociclient.Factory, error) {
+	provider, err := ociclient.InstancePrincipalProviderContext(ctx, common.Region(region.OCIRegion), nil)
+	if err != nil {
+		return nil, err
+	}
+	return ociclient.New(provider, ociclient.Options{Region: region.OCIRegion, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
 }

@@ -294,6 +294,65 @@ any registered kind once.
   region. `ts-orch status` and `ts-orch region status`, run on a node, print
   each region leader's last result per kind.
 
+## Self-heal
+
+The region leader runs self-heal (`internal/selfheal`) on every reconcile loop
+tick, beside the kinds, fenced by the same Raft term. It replaces a node that
+stays unhealthy, one node at a time per region.
+
+- **Unhealthy.** SwarmKit reports the node down, disconnected or unknown, or
+  its manager unreachable; its document-made OCI instance (`instance/node`,
+  matched by display name and hostname) is not `RUNNING`; or its own readiness
+  (the release health over `ts.mesh.pull.<region>.<node>`) fails or does not
+  answer. A node created, launched or rebooted less than 10 minutes ago is
+  booting and never counts.
+- **Grace: 5 minutes, continuous.** SwarmKit marks a node down after 3 missed
+  5 s heartbeats, a release restart and its readiness wait take at most
+  3 minutes, and the loop ticks every minute. Any healthy observation resets
+  the clock, so a flapping node never triggers a repair. A new leader starts
+  the clock again.
+- **Repair.** A node whose instance is running gets one OCI `RESET`, then
+  10 minutes to come back. If it is still unhealthy, or its instance was not
+  running, it is replaced: drained, demoted if it is a manager, removed from
+  the swarm (`swarmruntime.RemoveMember`, the path `ts-orch member leave` and
+  the node autoscaler share), and its instance is terminated with
+  `preserveDataVolumesCreatedAtLaunch=true`. The pool launches a new instance,
+  the compute pass attaches the kept data volume of that availability domain
+  to it (the C8 rule, whether or not the data has another replica), and the
+  node joins by itself.
+- **Durable.** The repair in flight, the last repair, the last replacement time
+  and a stop live in the JetStream key-value bucket `TS_ORCH_SELF_HEAL`, one key
+  per region, written before each action with a revision check. A new leader
+  continues the step it reads; the reset and the terminate are never sent twice
+  for one repair.
+- **Refusals**, each logged as `self-heal refused to repair a node` and counted
+  in `ts_orch_self_heal_refusals_total{reason}`:
+
+  | Reason | When |
+  | --- | --- |
+  | `compute-not-reconciled` | `compute` is not in the region's `reconcile` list (every production region until C17). |
+  | `stopped` | A replacement did not join; see below. |
+  | `several-unhealthy` | More than one node is unhealthy at once: a region or network problem. `SelfHealRefused` fires. |
+  | `not-a-pool-node` | No document-made instance carries the node's name, so hand-made hosts are never touched. |
+  | `leader` | The unhealthy node is the Raft leader itself. |
+  | `quorum` | Demoting the manager would lose the Raft majority, or a role change is pending. |
+  | `last-copy` | The node runs a stateful task whose service has no running task on another healthy node. |
+  | `budget` | A replacement already happened in this region in the last 24 hours. |
+
+- **A replacement that does not join.** If no new node joins and turns healthy
+  within 30 minutes of the terminate, self-heal stops for the region:
+  `ts_orch_self_heal_stopped` raises `SelfHealStopped`, and no other instance
+  is touched. It resumes by itself once the region is back to its size with
+  every node healthy, which means a person fixed it.
+- **Visibility.** One `self-heal repair` log line per step and result, and
+  `ts_orch_self_heal_repairs_total{step,result}`,
+  `ts_orch_self_heal_unhealthy_nodes` on port 9108. `ts-orch status` and
+  `ts-orch region status` print each leader's self-heal line: healthy, booting
+  and unhealthy nodes, what it would refuse, the repair in flight and the last
+  repair.
+- **IAM.** Reboot is `INSTANCE_POWER_ACTIONS` and terminate `INSTANCE_DELETE`,
+  both already in the statements below.
+
 ## Reconciler IAM policy
 
 The ts-orch hosts call OCI with their instance principal (dynamic group
