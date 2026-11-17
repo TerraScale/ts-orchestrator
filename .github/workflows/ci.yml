@@ -16,6 +16,10 @@ on:
         description: Green main CI run of this commit whose published release this dispatch pushes to the regions running d360f05de
         type: string
         default: ''
+      push_regions:
+        description: Regions still running d360f05de to push, in order (a subsequence of sjc fra gru)
+        type: string
+        default: sjc fra gru
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -531,24 +535,37 @@ jobs:
         env:
           GH_READ_TOKEN: ${{ github.token }}
         run: bash scripts/ci/publish-qualification.sh
-      - name: Push sjc, then fra, then gru with the running fleet's release client
+      - name: Push each region with the running fleet's release client and confirm it with this build
         shell: bash
         env:
           FLEET_SHA: d360f05deb329f04d2ebad17216393a723f73fef
           FLEET_RUN: '43970746718'
+          REGIONS: ${{ inputs.push_regions }}
         run: |
           set -euo pipefail
+          [[ -n $REGIONS && $REGIONS =~ ^(sjc( |$))?(fra( |$))?(gru)?$ && $REGIONS != *" " ]]
           mkdir pusher
           gh release download "ci-${FLEET_SHA}-run-${FLEET_RUN}" --repo "${GITHUB_REPOSITORY}" --dir pusher \
             --pattern terrascale-orchestrator-linux-amd64 --pattern qualification.json
           jq -e --arg sha "$FLEET_SHA" '.source_revision == $sha' pusher/qualification.json
           test "$(sha256sum pusher/terrascale-orchestrator-linux-amd64 | awk '{print $1}')" = "$(jq -r '.artifacts[] | select(.name == "terrascale-orchestrator-linux-amd64") | .sha256' pusher/qualification.json)"
-          chmod +x pusher/terrascale-orchestrator-linux-amd64
+          chmod +x pusher/terrascale-orchestrator-linux-amd64 dist/terrascale-orchestrator-linux-amd64
           gh api "repos/${GITHUB_REPOSITORY}/contents/deploy/m1/regions.json?ref=${FLEET_SHA}" --jq .content | base64 -d > pusher/regions.json
-          for region in sjc fra gru; do
-            jq --arg region "$region" '[.[] | select(.region == $region)]' pusher/regions.json > "pusher/${region}.json"
+          for region in $REGIONS; do
+            jq -e --arg region "$region" '[.[] | select(.region == $region)] | if length == 1 then . else error("unknown region") end' pusher/regions.json > "pusher/${region}.json"
+            status=0
             pusher/terrascale-orchestrator-linux-amd64 release push --sha "${GITHUB_SHA}" --dir dist --regions "pusher/${region}.json" \
-              | tee -a "${RUNNER_TEMP}/release-push.jsonl"
+              > "pusher/${region}.jsonl" || status=$?
+            tee -a "${RUNNER_TEMP}/release-push.jsonl" < "pusher/${region}.jsonl"
+            if (( status != 0 )); then
+              jq -se --arg sha "$GITHUB_SHA" 'length == 1 and .[0].state == "installed" and .[0].error == ("timed out waiting for the region to serve " + $sha)' "pusher/${region}.jsonl"
+            fi
+            mkdir -p "observe/${region}/deploy/m1"
+            jq -n --arg region "$region" '[{region: $region}]' > "observe/${region}/deploy/m1/regions.json"
+            (cd "observe/${region}" && timeout 600 "${GITHUB_WORKSPACE}/dist/terrascale-orchestrator-linux-amd64" release hosts "${GITHUB_SHA}")
+            sleep 130
+            (cd "observe/${region}" && timeout 120 "${GITHUB_WORKSPACE}/dist/terrascale-orchestrator-linux-amd64" release hosts "${GITHUB_SHA}")
+            echo "${region}: every host runs ${GITHUB_SHA} and still does after the 2-minute probation window" | tee -a "${GITHUB_STEP_SUMMARY}"
           done
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
