@@ -43,6 +43,10 @@ type Rollback struct {
 
 var errSuperseded = errors.New("the release trial no longer names this binary")
 
+func establishState(state string) error {
+	return os.MkdirAll(filepath.Join(state, "nats"), 0o700)
+}
+
 func trialFile(state string) string       { return filepath.Join(state, "nats", "release-trial") }
 func stagedTrial(trial string) string     { return trial + ".staged" }
 func rollbackFile(state string) string    { return filepath.Join(state, "nats", "release-rolled-back") }
@@ -88,6 +92,9 @@ func Probe(state string, output io.Writer) (*Probation, error) {
 	value, _ := startups.LoadOrStore(filepath.Clean(state), &startup{})
 	result := value.(*startup)
 	result.once.Do(func() {
+		if result.err = establishState(state); result.err != nil {
+			return
+		}
 		binary, err := Executable()
 		if err != nil {
 			result.err = err

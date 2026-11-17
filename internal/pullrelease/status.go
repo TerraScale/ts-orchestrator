@@ -83,9 +83,6 @@ func write(state string, status Status) error {
 		return err
 	}
 	path := statusFile(state)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".pull-rollout-*")
 	if err != nil {
 		return err

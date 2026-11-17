@@ -253,6 +253,9 @@ func recoveryTrial(pending trial, output io.Writer) (*Probation, releaseID, erro
 func Recovery(ctx context.Context, output io.Writer) (result error) {
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Minute)
 	defer cancel()
+	if err := establishState(recoveryState); err != nil {
+		return err
+	}
 	marker := filepath.Join(recoveryState, "nats", "release-recovery")
 	var pending trial
 	resuming, err := readRecord(marker, &pending)

@@ -318,14 +318,15 @@ func crossFilesystem(ctx context.Context) {
 func selfExitCase(ctx context.Context, data []byte) {
 	work, cleanup := temporary("self-exit-")
 	defer cleanup()
-	must(os.Mkdir(filepath.Join(work, "nats"), 0o700))
 	binary := filepath.Join(work, "installed")
 	writeExecutable(binary, stamped(data, strings.Repeat("a", 40), "pass"))
 	writeExecutable(filepath.Join(work, "asset"), stamped(data, strings.Repeat("b", 40), "pass"))
 	command := exec.CommandContext(ctx, binary, "self-update", work, "slow-shutdown")
 	output, err := command.CombinedOutput()
 	require(err == nil && strings.Contains(string(output), "installed reply collected") && strings.Contains(string(output), "duplicates installed installed") && strings.Contains(string(output), "ordinary shutdown finished"), fmt.Sprintf("the old process must finish its ordinary shutdown after commit despite duplicate notifications: %v %s", err, output))
-	fmt.Println("ok process exit: installed reply collected; two duplicate requests during a 4-second ordinary shutdown coalesced; shutdown finished; old process exited")
+	fresh, err := os.Stat(filepath.Join(work, "nats"))
+	require(err == nil && fresh.IsDir() && fresh.Mode().Perm() == 0o700 && fence(work) == "2", fmt.Sprintf("a host without a release state directory creates it 0700 and records the release it installs: %v", err))
+	fmt.Println("ok process exit: a host with no nats state directory installed the release; installed reply collected; two duplicate requests during a 4-second ordinary shutdown coalesced; shutdown finished; old process exited")
 }
 
 func selfUpdate(ctx context.Context, work, mode string) {
