@@ -270,7 +270,7 @@ func (b *bootstrap) policy(group, compartment, vault, key string) error {
 		return b.report("updated", "policy", group, deref(policy.Id))
 	}
 	created, err := b.iam.CreatePolicy(b.ctx, identity.CreatePolicyRequest{CreatePolicyDetails: identity.CreatePolicyDetails{
-		CompartmentId: &compartment, Name: &group, Statements: statements, Description: common.String("ts-orch nodes of staging region " + b.staging.Label + ": reconcile and Vault")}})
+		CompartmentId: &compartment, Name: &group, Statements: statements, Description: common.String("ts-orch nodes of staging region " + b.staging.Label + ": reconcile, Vault and OCIR read")}})
 	if err != nil {
 		return fmt.Errorf("create policy %s: %w", group, err)
 	}

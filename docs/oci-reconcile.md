@@ -371,6 +371,7 @@ The ts-orch hosts call OCI with their instance principal (dynamic group
 created 2026-11-16) grants exactly what the regional reconciler owns. Nothing is
 granted in the tenancy root or in any other compartment, and there are no IAM,
 bucket, backup or Vault grants beyond the separate `ts-orch-hosts-vault` policy.
+Registry reads are the separate `ts-orch-hosts-ocir` policy ([OCIR](ocir.md)).
 
 | Statement (per control compartment) | Why |
 |---|---|
@@ -410,7 +411,7 @@ with `AttachVolume`, never at launch, and terminations must pass
 Staging has its own dynamic group and policy, both named `ts-orch-stg`,
 written by `ts-orch region bootstrap`: the per-compartment statements below for
 `stg-1-control` only, plus Vault statements limited to `stg-vault` and
-`stg-key`. Neither production group nor policy names staging, and staging's
+`stg-key` and `read repos` in `stg-1-control` ([OCIR](ocir.md)). Neither production group nor policy names staging, and staging's
 names no production compartment
 ([region bootstrap](region-bootstrap.md#staging-region)).
 
