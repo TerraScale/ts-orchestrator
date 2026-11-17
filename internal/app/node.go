@@ -519,7 +519,7 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			stop()
 		}()
 		go func() {
-			apps := apppull.Updater{Self: node.ID(), Fabric: fabric, Source: apppull.Source{Token: vaultsecret.ReadGHCRPullToken}, Apply: mesh.Release(state)}
+			apps := apppull.Updater{Self: node.ID(), Fabric: fabric, Source: apppull.Source{Token: mesh.EnvironmentOf(region).GHCRPullToken}, Apply: mesh.Release(state)}
 			if err := apps.Run(managing); err != nil && managing.Err() == nil {
 				failed <- errors.Join(errors.New("app release updater stopped"), err)
 			}

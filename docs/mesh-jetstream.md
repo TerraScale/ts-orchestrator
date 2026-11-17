@@ -315,7 +315,9 @@ not the global account) all differ. There is no bridge. Reasons:
 
 ## Orchestrator releases
 
-Binary pull order is sjc, fra, gru, with staging first once C16 founds that cell.
+Production binary pull order is sjc, fra, gru. Isolated stg admission has no
+local predecessor; authenticating its verdict for production remains the
+merge blocker described in [platform releases](platform.md#releases).
 The regional leader reads its predecessor's record from the fabric pull store.
 It takes a tag only after that exact tag has completed and passed an observed
 five-minute bake. A failed or unavailable predecessor blocks later regions.

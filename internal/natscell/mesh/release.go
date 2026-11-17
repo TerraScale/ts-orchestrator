@@ -261,7 +261,7 @@ func runningImages(ctx context.Context, conn *nats.Conn) (map[string]string, err
 		return nil, err
 	}
 	replies := map[string]stateReply{}
-	err = collect(ctx, conn, StateSubject, nil, len(Regions()), stateWait, func(data []byte) bool {
+	err = collect(ctx, conn, StateSubject, nil, len(Regions(connRegion(conn))), stateWait, func(data []byte) bool {
 		var reply stateReply
 		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
 			replies[reply.Region] = reply
@@ -278,7 +278,7 @@ func runningImages(ctx context.Context, conn *nats.Conn) (map[string]string, err
 			continue
 		}
 		ready := true
-		for _, region := range rolloutOrder(entry.Spec) {
+		for _, region := range rolloutOrder(connRegion(conn), entry.Spec) {
 			reply, ok := replies[region]
 			serving := reply.Serving[name]
 			if !ok || reply.Ready[name] != entry.Generation || reply.Failed[name] == entry.Generation || reply.Unsaved[name] == entry.Generation || serving.Generation != entry.Generation || !serving.fresh() {

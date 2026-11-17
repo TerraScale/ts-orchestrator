@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -544,12 +544,10 @@ func (u *Updater) mirror(ctx context.Context, status Status) {
 }
 
 func (u *Updater) predecessor(ctx context.Context, tag string) string {
-	order := []string{"sjc", "fra", "gru"}
-	for _, region := range catalog.Founded() {
-		if region.Name() == "staging" {
-			order = append([]string{"staging"}, order...)
-		}
+	if u.Region == fleet.Embedded().Staging.Label {
+		return ""
 	}
+	order := []string{"sjc", "fra", "gru"}
 	index := slices.Index(order, u.Region)
 	if index < 0 {
 		return "region has no reviewed binary rollout position"
