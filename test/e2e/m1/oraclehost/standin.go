@@ -248,7 +248,7 @@ func (s *standIn) metadata(w http.ResponseWriter, r *http.Request) {
 		"id": host.InstanceID, "displayName": host.Name, "hostname": host.Name,
 		"region": host.Region.OCIRegion, "canonicalRegionName": host.Region.OCIRegion,
 		"availabilityDomain": "stand-in:" + strings.ToUpper(host.Region.OCIRegion) + "-AD-1", "faultDomain": "FAULT-DOMAIN-1",
-		"compartmentId": "ocid1.compartment.oc1..oracleregions", "shape": "VM.Standard.A1.Flex",
+		"compartmentId": host.Region.CompartmentID, "shape": "VM.Standard.A1.Flex",
 		"state": "Running", "metadata": map[string]string{}, "definedTags": map[string]any{}, "freeformTags": map[string]string{},
 	}
 	switch path {

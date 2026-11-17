@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"golang.org/x/crypto/acme"
 )
 
@@ -153,7 +154,16 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 				}
 				_, _ = io.WriteString(w, region)
 			case strings.HasSuffix(r.URL.Path, "/compartmentId"):
-				_, _ = io.WriteString(w, "ocid1.compartment.oc1..journey")
+				label := "gru"
+				if strings.HasPrefix(r.RemoteAddr, "10.77.0.3:") {
+					label = "sjc"
+				}
+				region, err := fleet.Embedded().Region(label)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				_, _ = io.WriteString(w, region.CompartmentID)
 			case strings.HasSuffix(r.URL.Path, "/region"):
 				_, _ = io.WriteString(w, "sa-saopaulo-1")
 			case strings.HasSuffix(r.URL.Path, "/identity/key.pem"):

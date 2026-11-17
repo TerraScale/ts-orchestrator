@@ -14,6 +14,13 @@ import time
 from pathlib import Path
 
 SEED_CASE_SECONDS = {"promotion": 60, "node-scale": 120}
+SJC = next(
+    region
+    for region in json.loads(
+        (Path(__file__).resolve().parents[3] / "deploy/fleet/fleet.json").read_text()
+    )["regions"]
+    if region["label"] == "sjc"
+)
 CASES = (
     "promotion",
     "node-scale",
@@ -134,8 +141,8 @@ def run_case(binary, seed_binary, root, case):
                 "missing IMDS authorization",
             )
             values = {
-                "/opc/v2/instance/canonicalRegionName": "us-sanjose-1",
-                "/opc/v2/instance/compartmentId": "ocid1.compartment.oc1..startup",
+                "/opc/v2/instance/canonicalRegionName": SJC["oci_region"],
+                "/opc/v2/instance/compartmentId": SJC["compartment_id"],
                 "/opc/v2/instance/id": "instance",
                 "/opc/v2/vnics/": '[{"privateIp":"127.0.0.2","vcnCidrBlock":"127.0.0.0/16"}]',
             }

@@ -35,10 +35,6 @@ func (f Fleet) All() []Region {
 	return append(slices.Clone(f.Regions), f.Staging.Region)
 }
 
-func (f Fleet) IsStaging(ociRegion, compartmentID string) bool {
-	return f.Staging.OCIRegion == ociRegion && f.Staging.CompartmentID == compartmentID
-}
-
 type DNS struct {
 	Zone               string   `json:"zone"`
 	CompartmentID      string   `json:"compartment_id"`

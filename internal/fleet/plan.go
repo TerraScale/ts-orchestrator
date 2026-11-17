@@ -116,11 +116,13 @@ func factory(ctx context.Context, ociRegion string) (*ociclient.Factory, error) 
 
 func Plan(ctx context.Context, fleet Fleet) ([]Report, error) {
 	var reports []Report
+	release, found := newestNodeRelease(ctx)
 	for _, region := range fleet.All() {
 		report, err := observeRegion(ctx, region)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", region.Label, err)
 		}
+		report.Checks = append(report.Checks, releaseCheck(release, found, region))
 		reports = append(reports, report)
 	}
 	dns, err := observeDNS(ctx, fleet)

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleetregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
@@ -127,9 +128,9 @@ func discoverInstanceVault(ctx context.Context) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	entry, ok := catalog.CellForOCIRegion(metadata.Region)
-	if !ok {
-		return "", "", fmt.Errorf("instance region %q is not a TerraScale cell", metadata.Region)
+	cell, err := fleetregion.Of(metadata.Region, metadata.CompartmentID)
+	if err != nil {
+		return "", "", err
 	}
 	factory, err := ociclient.InstancePrincipalContext(ctx, metadata.Region)
 	if err != nil {
@@ -141,7 +142,7 @@ func discoverInstanceVault(ctx context.Context) (string, string, error) {
 	}
 	client.SetRegion(factory.Region())
 	factory.Configure(&client.BaseClient, ociclient.ServiceKMS)
-	name := entry.Name() + "-vault"
+	name := cell + "-vault"
 	var found []string
 	request := keymanagement.ListVaultsRequest{CompartmentId: &metadata.CompartmentID}
 	for range 32 {
@@ -163,7 +164,7 @@ func discoverInstanceVault(ctx context.Context) (string, string, error) {
 	if len(found) != 1 {
 		return "", "", fmt.Errorf("instance compartment needs exactly one active Vault %s, found %d", name, len(found))
 	}
-	instanceVault.cell, instanceVault.vaultID = entry.Name(), found[0]
+	instanceVault.cell, instanceVault.vaultID = cell, found[0]
 	return instanceVault.cell, instanceVault.vaultID, nil
 }
 

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/deploy/m1"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/fleetregion"
 )
 
 func CheckServiceSecrets(ctx context.Context) error {
@@ -44,9 +44,9 @@ func CheckRegionalSecrets(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	region, ok := catalog.CellForOCIRegion(metadata.Region)
-	if !ok {
-		return errors.New("service secret preflight found no supported host region")
+	region, err := fleetregion.Of(metadata.Region, metadata.CompartmentID)
+	if err != nil {
+		return fmt.Errorf("service secret preflight: %w", err)
 	}
 	entries, err := m1.Files.ReadDir("services")
 	if err != nil {
@@ -68,7 +68,7 @@ func CheckRegionalSecrets(ctx context.Context) error {
 		if err := json.Unmarshal(body, &manifest); err != nil {
 			return err
 		}
-		if len(manifest.Regions) != 0 && !slices.Contains(manifest.Regions, region.Name()) {
+		if len(manifest.Regions) != 0 && !slices.Contains(manifest.Regions, region) {
 			continue
 		}
 		for _, ref := range manifest.Secrets {
@@ -77,7 +77,7 @@ func CheckRegionalSecrets(ctx context.Context) error {
 			}
 		}
 	}
-	if region.Name() == "gru" {
+	if region == "gru" {
 		for _, ref := range AlertDeliveryRefs() {
 			if err := checkSecretRead(ctx, "ts-alerts", ref); err != nil {
 				return fmt.Errorf("release refused: service ts-alerts cannot read Vault secret %s; run region add before releasing changed secret references", ref.Name)

@@ -233,7 +233,7 @@ and makes, in the region's compartment:
 
 | Key | Resource |
 | --- | --- |
-| `instance-configuration/node` | Shape, OCPUs, memory and boot size from the document; the newest Canonical Ubuntu 24.04 image for the shape; the private subnet, the node NSG and no public address; the first-boot script with the newest attested release. |
+| `instance-configuration/node` | Shape, OCPUs, memory and boot size from the document; the newest Canonical Ubuntu 24.04 image for the shape; the private subnet, the node NSG and no public address; the first-boot script with the newest attested release, refused when that release's fleet document lacks the region in its compartment. |
 | `instance-pool/nodes` | One pool, created at `nodes.min`, one placement per availability domain with all its fault domains. Its instances carry `instance/node`. |
 | `volume/data-<n>` | One data volume per node, `n` up to `nodes.max`, `data_gb` and `data_vpus_per_gb`, made with `CreateVolume` and `AttachVolume`, never at launch. |
 
