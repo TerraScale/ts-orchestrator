@@ -1,0 +1,46 @@
+name: M1 e2e lane
+description: Builds or downloads the agent and the lane's journey entry points, restores the pinned runtime packages and runs one lane.
+inputs:
+  entry:
+    description: Lane script under test/e2e/m1.
+    required: true
+  packages:
+    description: Go packages of the lane's journey entry points, separated by spaces.
+    default: ''
+runs:
+  using: composite
+  steps:
+    - if: ${{ github.event_name == 'push' }}
+      name: Build the agent and journey entry points from the warm cache
+      shell: bash
+      env:
+        M1_PACKAGES: ${{ inputs.packages }}
+      run: |
+        read -r -a packages <<< "$M1_PACKAGES"
+        test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" ./cmd/terrascale-orchestrator "${packages[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+    - if: ${{ github.event_name != 'push' && inputs.packages != '' }}
+      name: Build this lane's journey entry points
+      shell: bash
+      env:
+        M1_PACKAGES: ${{ inputs.packages }}
+      run: |
+        read -r -a packages <<< "$M1_PACKAGES"
+        test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" "${packages[@]}"
+    - if: ${{ github.event_name != 'push' }}
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: e2e-m1-bin
+        path: ${{ runner.temp }}/m1-bin
+    - if: ${{ github.event_name != 'push' }}
+      shell: bash
+      run: chmod +x "$RUNNER_TEMP/m1-bin/"*
+    - name: Pinned runtime packages
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: ~/.cache/ts-m1-runtime
+        key: m1-runtime-${{ runner.arch }}-${{ hashFiles('deploy/m1/host-runtime.sh', 'internal/netbird/manager/server_cli.go', 'deploy/m1/install.sh') }}
+    - name: Run the lane
+      shell: bash
+      env:
+        M1_ENTRY: ${{ inputs.entry }}
+      run: bash "test/e2e/m1/$M1_ENTRY" "$RUNNER_TEMP/m1-bin/terrascale-orchestrator"
