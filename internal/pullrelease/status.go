@@ -56,6 +56,8 @@ type Status struct {
 	Done    time.Time              `json:"done,omitzero"`
 	Checked time.Time              `json:"checked,omitzero"`
 	Updated time.Time              `json:"updated,omitzero"`
+	Seq     uint64                 `json:"seq,omitempty"`
+	Channel uint64                 `json:"channel_seq,omitempty"`
 }
 
 func statusFile(state string) string { return filepath.Join(state, "nats", "pull-rollout.json") }

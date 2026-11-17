@@ -206,6 +206,9 @@ type rewrite struct {
 }
 
 func (r rewrite) RoundTrip(request *http.Request) (*http.Response, error) {
+	if !strings.HasSuffix(request.URL.Hostname(), "github.com") {
+		return http.DefaultTransport.RoundTrip(request)
+	}
 	clone := request.Clone(request.Context())
 	clone.URL.Scheme, clone.URL.Host, clone.Host = r.base.Scheme, r.base.Host, r.base.Host
 	clone.Header.Set(callerHeader, r.caller)

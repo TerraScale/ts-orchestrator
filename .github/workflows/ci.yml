@@ -459,6 +459,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             deploy/m1/regions.json
+            .github/actions/ocir-login
           sparse-checkout-cone-mode: false
 
       - name: Download this run's release binaries
@@ -489,6 +490,37 @@ jobs:
           set -euo pipefail
           cp "$BUNDLE" dist/provenance.sigstore.json
           gh release upload "ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}" dist/provenance.sigstore.json --repo "${GITHUB_REPOSITORY}" --clobber
+
+      - name: Write the release's channel document
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p channel
+          dist/terrascale-orchestrator-linux-amd64 release channel prepare dist "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" channel/channel.json
+
+      - name: Sign the channel document
+        id: channel
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: channel/channel.json
+          show-summary: false
+
+      - name: Log in to each region's OCIR
+        uses: ./.github/actions/ocir-login
+        with:
+          regions: us-sanjose-1 eu-frankfurt-1 sa-saopaulo-1
+          domain-url: ${{ vars.OCI_IDENTITY_DOMAIN_URL }}
+          client-id: ${{ vars.OCI_TOKEN_EXCHANGE_CLIENT_ID }}
+          client-secret: ${{ secrets.OCI_TOKEN_EXCHANGE_CLIENT_SECRET }}
+
+      - name: Publish the release and its channel to every region's OCIR
+        shell: bash
+        env:
+          BUNDLE: ${{ steps.channel.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          cp "$BUNDLE" channel/channel.sigstore.json
+          dist/terrascale-orchestrator-linux-amd64 release channel publish dist channel
 
 
   release-push-once:

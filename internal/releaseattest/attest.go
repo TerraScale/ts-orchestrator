@@ -46,6 +46,8 @@ type Release struct {
 	RunID    string              `json:"run_id"`
 	Binaries map[string]Artifact `json:"binaries"`
 	Bundle   string              `json:"bundle"`
+	Seq      uint64              `json:"seq,omitempty"`
+	Channel  *SignedChannel      `json:"channel,omitempty"`
 }
 
 func Tag(sha, run string) string { return "ci-" + sha + "-run-" + run }
@@ -57,6 +59,12 @@ func (r Release) Tag() string { return Tag(r.SHA, r.RunID) }
 func (r Release) Validate() error {
 	if !sha40.MatchString(r.SHA) || !runID.MatchString(r.RunID) {
 		return fmt.Errorf("%w: sha must be 40 lowercase hex and run_id a number", ErrRefused)
+	}
+	if r.Channel != nil {
+		return r.validateChannel()
+	}
+	if r.Seq != 0 {
+		return fmt.Errorf("%w: seq %d without its signed channel document", ErrRefused, r.Seq)
 	}
 	if r.Bundle != AssetURL(r.SHA, r.RunID, BundleAsset) {
 		return fmt.Errorf("%w: bundle must be %s", ErrRefused, AssetURL(r.SHA, r.RunID, BundleAsset))
@@ -88,6 +96,23 @@ func PublicGood() (Verifier, error) {
 }
 
 func (v Verifier) Subjects(data []byte, sha, run string) (map[string]string, error) {
+	attested, err := v.subjects(data, sha, run)
+	if err != nil {
+		return nil, err
+	}
+	subjects := map[string]string{}
+	for name, digest := range attested {
+		if strings.HasPrefix(name, AssetPrefix) {
+			subjects[name] = digest
+		}
+	}
+	if len(subjects) == 0 {
+		return nil, fmt.Errorf("%w: attestation names no ts-orch binary", ErrRefused)
+	}
+	return subjects, nil
+}
+
+func (v Verifier) subjects(data []byte, sha, run string) (map[string]string, error) {
 	if v.Root == nil {
 		return nil, errors.New("no sigstore trusted root")
 	}
@@ -130,13 +155,9 @@ func (v Verifier) Subjects(data []byte, sha, run string) (map[string]string, err
 	}
 	subjects := map[string]string{}
 	for _, subject := range result.Statement.GetSubject() {
-		digest := subject.GetDigest()["sha256"]
-		if strings.HasPrefix(subject.GetName(), AssetPrefix) && hex64.MatchString(digest) {
+		if digest := subject.GetDigest()["sha256"]; hex64.MatchString(digest) {
 			subjects[subject.GetName()] = digest
 		}
-	}
-	if len(subjects) == 0 {
-		return nil, fmt.Errorf("%w: attestation names no ts-orch binary", ErrRefused)
 	}
 	return subjects, nil
 }

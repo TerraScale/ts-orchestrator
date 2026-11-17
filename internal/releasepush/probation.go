@@ -88,7 +88,7 @@ func Probe(state string, output io.Writer) (*Probation, error) {
 	value, _ := startups.LoadOrStore(filepath.Clean(state), &startup{})
 	result := value.(*startup)
 	result.once.Do(func() {
-		binary, err := executable()
+		binary, err := Executable()
 		if err != nil {
 			result.err = err
 			return

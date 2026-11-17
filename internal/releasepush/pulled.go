@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -53,6 +54,11 @@ func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 		payload, _ := json.Marshal(HealthRequest{Service: request.Service})
 		health := h.health(ctx, payload)
 		reply.Health, reply.Node = health.Health, health.Node
+		if installed, err := readSeq(h.SeqFile); err != nil {
+			reply.Error = "installed seq unreadable: " + err.Error()
+		} else {
+			reply.Seq = installed.Seq
+		}
 		return reply
 	case PullInstall:
 		return h.installPulled(ctx, request.Release)
@@ -72,6 +78,7 @@ func (h *Handler) installPulled(ctx context.Context, release releaseattest.Relea
 	}
 	if err != nil {
 		if errors.Is(err, releaseattest.ErrRefused) {
+			slog.WarnContext(ctx, "pulled release refused", "release", release.Tag(), "seq", release.Seq, "reason", err.Error())
 			return integrityReply(release.SHA, claims, err)
 		}
 		return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
@@ -86,6 +93,9 @@ func (h *Handler) verifyPulled(ctx context.Context, release releaseattest.Releas
 	artifact, ok := release.Binaries[runtime.GOARCH]
 	if !ok {
 		return Binary{}, fmt.Errorf("%w: no binary for %s", releaseattest.ErrRefused, runtime.GOARCH)
+	}
+	if release.Channel != nil {
+		return h.verifyChannel(ctx, release, artifact)
 	}
 	data, err := releaseattest.Download(ctx, h.Client, release.Bundle, bundleLimit)
 	var missing *releaseattest.NotFoundError

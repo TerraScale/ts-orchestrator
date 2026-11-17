@@ -89,6 +89,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 		return err
 	}
 	releases.Health = health
+	releases.Regional.In(plan.region)
 	releases.PrepareStop = prepareStop
 	releases.AbortStop = abortStop
 	releases.Mesh = mesh.Bridge(state)

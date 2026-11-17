@@ -37,10 +37,18 @@ func ReadDegraded(state string) (*Degraded, error) {
 	return &record, nil
 }
 
-func WriteReleaseMetrics(w io.Writer, state string) {
+func WriteReleaseMetrics(w io.Writer, state, binary string) {
 	record, err := ReadDegraded(state)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.Warn("release degraded record unreadable", "error", err)
+	}
+	installed, channel, err := releaseSeqs(state, binary)
+	if err != nil {
+		slog.Warn("release seq records unreadable", "error", err)
+	}
+	observability.WriteGauge(w, "ts_orch_release_installed_seq", float64(installed))
+	if channel != 0 {
+		observability.WriteGauge(w, "ts_orch_release_channel_seq", float64(channel))
 	}
 	degraded := record != nil && len(record.Skipped) != 0
 	observability.WriteGauge(w, "ts_orch_release_region_degraded", observability.Bool(degraded))

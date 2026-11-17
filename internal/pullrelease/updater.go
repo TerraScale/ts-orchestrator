@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"slices"
 	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
+	"github.com/TerraScale/ts-orchestrator/internal/ocirelease"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -47,6 +49,7 @@ type Updater struct {
 	Hosts      func(context.Context) ([]Host, error)
 	Health     func(context.Context) error
 	Source     *releaseattest.Source
+	Channel    *ocirelease.Reader
 	Attest     releaseattest.Verifier
 	Client     *http.Client
 	Poll       time.Duration
@@ -61,6 +64,8 @@ type Updater struct {
 	newest    releaseattest.Release
 	newestErr error
 	listed    time.Time
+	failures  int
+	retry     time.Time
 }
 
 func New(region, self, state string, conn, fabric *nats.Conn, handler *releasepush.Handler, hosts func(context.Context) ([]Host, error)) *Updater {
@@ -71,7 +76,7 @@ func New(region, self, state string, conn, fabric *nats.Conn, handler *releasepu
 			}
 			return handler.Health(ctx, "").Err()
 		},
-		Source: handler.Source, Attest: handler.Attest, Client: handler.Client,
+		Source: handler.Source, Channel: &ocirelease.Reader{Registry: handler.Registry, Attest: handler.Attest}, Attest: handler.Attest, Client: handler.Client,
 		Poll: DefaultPoll, HealthyFor: DefaultHealthyFor, Deadline: DefaultDeadline, BakeFor: DefaultBakeFor}
 }
 
@@ -155,8 +160,23 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 	}
 
 	release, err := u.discover(ctx)
+	if release.Seq != 0 {
+		if release.Seq < u.status.Seq || release.Seq == u.status.Seq && (u.status.Target == nil || u.status.Target.Tag() != release.Tag()) {
+			return u.ignore(ctx, fmt.Sprintf("channel seq %d (%s) is not newer than the region's seq %d; a replayed or rolled-back channel document is refused", release.Seq, release.Tag(), u.status.Seq))
+		}
+		u.status.Channel = release.Seq
+	}
 	var limited *releaseattest.RateLimitedError
 	switch {
+	case errors.Is(err, releaseattest.ErrRefused) && release.SHA == "":
+		return u.ignore(ctx, err.Error())
+	case errors.Is(err, releaseattest.ErrRefused):
+		if !u.status.bad(release.Tag()) {
+			u.refuse(ctx, release, err.Error())
+		} else {
+			u.save(ctx)
+		}
+		return u.Poll
 	case errors.As(err, &limited):
 		u.status.Reason = err.Error()
 		u.save(ctx)
@@ -174,15 +194,18 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		u.save(ctx)
 		return u.Poll
 	}
+	if u.status.Target != nil && u.status.Target.Tag() == release.Tag() && release.Seq > u.status.Target.Seq {
+		adopted := release
+		u.status.Target, u.status.Seq = &adopted, max(u.status.Seq, release.Seq)
+		slog.InfoContext(ctx, "the release channel names the current target; adopting its seq", "release", release.Tag(), "seq", release.Seq)
+	}
 	if u.status.Target == nil || u.status.Target.Tag() != release.Tag() {
 		if reason := u.predecessor(ctx, release.Tag()); reason != "" {
 			u.status.Reason = reason
 			u.save(ctx)
 			return checkEvery
 		}
-		verify, cancel := context.WithTimeout(ctx, discoverWait)
-		attested, err := u.Attest.Attested(verify, u.Client, release)
-		cancel()
+		attested, err := u.attested(ctx, release)
 		var missing *releaseattest.NotFoundError
 		if errors.Is(err, releaseattest.ErrRefused) || errors.As(err, &missing) {
 			u.refuse(ctx, release, err.Error())
@@ -194,7 +217,8 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			return u.Poll
 		}
 		slog.InfoContext(ctx, "attested release found; rolling it out", "release", attested.Tag())
-		u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Checked: u.status.Checked}
+		u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Checked: u.status.Checked,
+			Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel}
 		if !u.save(ctx) {
 			return renewEvery
 		}
@@ -209,9 +233,35 @@ func (u *Updater) discover(ctx context.Context) (releaseattest.Release, error) {
 	u.status.Checked = time.Now().UTC()
 	discover, cancel := context.WithTimeout(ctx, discoverWait)
 	defer cancel()
-	u.newest, u.newestErr = u.Source.Newest(discover)
+	u.newest, u.newestErr = u.newestRelease(discover)
 	u.listed = time.Now()
 	return u.newest, u.newestErr
+}
+
+func (u *Updater) newestRelease(ctx context.Context) (releaseattest.Release, error) {
+	if u.Channel != nil && !time.Now().Before(u.retry) {
+		release, err := u.Channel.Newest(ctx)
+		if err == nil || errors.Is(err, releaseattest.ErrRefused) {
+			u.failures, u.retry = 0, time.Time{}
+			return release, err
+		}
+		u.failures++
+		backoff := u.Poll << min(u.failures-1, 3)
+		u.retry = time.Now().Add(backoff + rand.N(backoff/2+1))
+		slog.WarnContext(ctx, "release channel unreachable; using the GitHub release fallback", "region", u.Region, "error", err, "failures", u.failures, "channel_retry", u.retry)
+	} else if u.Channel != nil {
+		slog.WarnContext(ctx, "release channel backing off; using the GitHub release fallback", "region", u.Region, "channel_retry", u.retry)
+	}
+	return u.Source.Newest(ctx)
+}
+
+func (u *Updater) attested(ctx context.Context, release releaseattest.Release) (releaseattest.Release, error) {
+	if release.Channel != nil {
+		return release, nil
+	}
+	verify, cancel := context.WithTimeout(ctx, discoverWait)
+	defer cancel()
+	return u.Attest.Attested(verify, u.Client, release)
 }
 
 func (u *Updater) roll(ctx context.Context) time.Duration {
@@ -254,13 +304,14 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			return u.wait(ctx, fmt.Sprintf("%s runs %q, which the release does not build", host.Name, reply.Arch))
 		}
 		onTarget := reply.Version == target.SHA && reply.SHA256 == want.SHA256
-		if onTarget && row.State == HostDone {
+		unrecorded := target.Seq != 0 && reply.Seq != target.Seq
+		if onTarget && row.State == HostDone && !unrecorded {
 			continue
 		}
 		if !onTarget && reply.Health != restartPending && row.State == HostGating {
 			return u.rolledBack(ctx, row, "rolled back by its own probation: "+reply.Error)
 		}
-		if !onTarget && reply.Health != restartPending {
+		if (!onTarget || unrecorded) && reply.Health != restartPending {
 			if reason := u.regionReady(ctx, host.ID); reason != "" {
 				return u.wait(ctx, reason)
 			}
@@ -503,6 +554,15 @@ func (u *Updater) refuse(ctx context.Context, release releaseattest.Release, rea
 	u.save(ctx)
 }
 
+func (u *Updater) ignore(ctx context.Context, reason string) time.Duration {
+	if u.status.Reason != reason {
+		slog.WarnContext(ctx, "release channel refused; the rollout record keeps its target", "reason", reason)
+	}
+	u.status.Reason = reason
+	u.save(ctx)
+	return u.Poll
+}
+
 func (u *Updater) wait(ctx context.Context, reason string) time.Duration {
 	if u.status.Phase != PhaseRolledBack && u.status.Phase != PhaseRefused {
 		u.status.Phase = PhaseWaiting
@@ -552,6 +612,9 @@ func (u *Updater) save(ctx context.Context) bool {
 func (u *Updater) mirror(ctx context.Context, status Status) {
 	if err := write(u.State, status); err != nil {
 		slog.WarnContext(ctx, "pull rollout record not mirrored for the host's health report", "error", err)
+	}
+	if err := releasepush.RecordChannelSeq(u.State, status.Channel); err != nil {
+		slog.WarnContext(ctx, "release channel seq not recorded for the host's metrics", "error", err)
 	}
 }
 
