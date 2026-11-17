@@ -32,6 +32,13 @@ func main() {
 	var slowReady atomic.Bool
 	var notReady atomic.Bool
 	server := &http.Server{Addr: ":" + port, ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" {
+			until := time.Now().Add(100 * time.Millisecond)
+			for time.Now().Before(until) {
+				_ = time.Now().UnixNano()
+			}
+			return
+		}
 		if r.URL.Path == "/slow-ready" {
 			slowReady.Store(true)
 			return

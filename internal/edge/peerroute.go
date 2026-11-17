@@ -16,6 +16,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 const edgeHopHeader = "X-TerraScale-Edge-Hop"
@@ -44,6 +45,7 @@ func (e *Edge) SetServiceRoutes(web, postgres map[string]int, hosts map[string]s
 	}
 	before := e.ReadyServices()
 	e.serviceRoutes.Store(routes)
+	observability.SetServiceRequestRoutes(routes.hosts)
 	e.setRoutes(web, postgres)
 	if !slices.Equal(before, e.ReadyServices()) {
 		e.announceReady()

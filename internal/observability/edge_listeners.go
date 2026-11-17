@@ -44,6 +44,9 @@ func RecordEdgeResponse(protocol string, code int, reason string) {
 }
 
 func WriteEdgeResponseMetrics(w io.Writer) {
+	for service, count := range ServiceRequestCounts() {
+		WriteCounter(w, Series("ts_orch_edge_service_requests_total", "service", service), float64(count))
+	}
 	edgeResponses.Range(func(key, value any) bool {
 		response := key.(edgeResponseKey)
 		WriteCounter(w, Series("ts_orch_edge_responses_total", "protocol", response.protocol, "code", strconv.Itoa(response.code), "reason", response.reason), float64(value.(*atomic.Uint64).Load()))
