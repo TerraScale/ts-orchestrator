@@ -193,6 +193,7 @@ func (s *Source) compare(ctx context.Context, head, base string) (comparison, er
 	var found comparison
 	fields := map[string]any{"status": &found.Status, "ahead_by": &found.AheadBy, "behind_by": &found.BehindBy,
 		"base_commit": &found.Base, "merge_base_commit": &found.MergeBase}
+	decoded := map[string]bool{}
 	decoder := json.NewDecoder(io.LimitReader(response.Body, compareLimit))
 	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
 		return comparison{}, fmt.Errorf("GitHub comparison %s is not an object", url)
@@ -206,6 +207,9 @@ func (s *Source) compare(ctx context.Context, head, base string) (comparison, er
 			return comparison{}, fmt.Errorf("GitHub comparison %s unreadable in its first %d bytes: %w", url, compareLimit, err)
 		}
 		key, _ := token.(string)
+		if decoded[key] {
+			return comparison{}, fmt.Errorf("GitHub comparison %s repeats %q", url, key)
+		}
 		target, wanted := fields[key]
 		if !wanted {
 			target = new(json.RawMessage)
@@ -213,7 +217,10 @@ func (s *Source) compare(ctx context.Context, head, base string) (comparison, er
 		if err := decoder.Decode(target); err != nil {
 			return comparison{}, fmt.Errorf("GitHub comparison %s unreadable in its first %d bytes: %w", url, compareLimit, err)
 		}
-		delete(fields, key)
+		if wanted {
+			decoded[key] = true
+			delete(fields, key)
+		}
 	}
 	return found, nil
 }
