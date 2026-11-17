@@ -1,3 +1,10 @@
 {
-  "namespace": ""
+  "prod": {
+    "namespace": "grxnmoqvrcdv",
+    "repo_prefix": "terrascale"
+  },
+  "stg": {
+    "namespace": "grxnmoqvrcdv",
+    "repo_prefix": "terrascale-stg"
+  }
 }

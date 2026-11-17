@@ -16,8 +16,9 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 )
 
-var repositoryPath = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}/terrascale/[a-z0-9][a-z0-9._-]{0,127}$`)
-var pinnedPath = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}/terrascale/[a-z0-9][a-z0-9._-]{0,127}@sha256:[0-9a-f]{64}$`)
+var repositoryPath = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}/terrascale(?:-stg)?/[a-z0-9][a-z0-9._-]{0,127}$`)
+var packageName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+var pinnedPath = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}@sha256:[0-9a-f]{64}$`)
 
 type credential struct {
 	token   string
@@ -27,6 +28,7 @@ type credential struct {
 type Client struct {
 	Host      string
 	Namespace string
+	Prefix    string
 	Sign      func(*http.Request) error
 	Transport http.RoundTripper
 	mu        sync.Mutex
@@ -40,31 +42,44 @@ func Package(image string) string {
 	if strings.HasPrefix(repository, "ghcr.io/terrascale/") {
 		return strings.TrimPrefix(repository, "ghcr.io/terrascale/")
 	}
-	if !repositoryPath.MatchString(repository) {
+	if !IsImage(image) {
 		return ""
 	}
-	_, repository, _ = strings.Cut(repository, "/terrascale/")
 	return repository
 }
 
 func (c *Client) Image(image string) (string, error) {
-	if !IsImage(image) || !strings.HasPrefix(image, c.Namespace+"/terrascale/") {
-		return "", errors.New("app image is outside the tenancy repository or lacks a manifest digest")
+	if !IsImage(image) {
+		return "", errors.New("app image requires a package and manifest digest")
 	}
-	return c.Host + "/" + image, nil
+	pkg, digest, _ := strings.Cut(image, "@")
+	repository, err := c.Repository(pkg)
+	if err != nil {
+		return "", err
+	}
+	return repository + "@" + digest, nil
+}
+
+func (c *Client) path(pkg string) (string, error) {
+	path := c.Namespace + "/" + c.Prefix + "/" + pkg
+	if !packageName.MatchString(pkg) || !repositoryPath.MatchString(path) {
+		return "", errors.New("invalid app repository")
+	}
+	return path, nil
 }
 
 func (c *Client) Repository(pkg string) (string, error) {
-	path := c.Namespace + "/terrascale/" + pkg
-	if !repositoryPath.MatchString(path) {
-		return "", errors.New("invalid app repository")
+	path, err := c.path(pkg)
+	if err != nil {
+		return "", err
 	}
 	return c.Host + "/" + path, nil
 }
 
-func (c *Client) Keychain(ctx context.Context, repository string) (authn.Keychain, error) {
-	if !repositoryPath.MatchString(repository) || !strings.HasPrefix(repository, c.Namespace+"/terrascale/") {
-		return nil, errors.New("OCIR token scope differs from the app repository")
+func (c *Client) Keychain(ctx context.Context, pkg string) (authn.Keychain, error) {
+	repository, err := c.path(pkg)
+	if err != nil {
+		return nil, err
 	}
 	token, err := c.token(ctx, repository)
 	if err != nil {
@@ -74,10 +89,13 @@ func (c *Client) Keychain(ctx context.Context, repository string) (authn.Keychai
 }
 
 func (c *Client) Token(ctx context.Context, image string) (string, error) {
-	if _, err := c.Image(image); err != nil {
+	if !IsImage(image) {
+		return "", errors.New("app token requires a package and manifest digest")
+	}
+	repository, err := c.path(Package(image))
+	if err != nil {
 		return "", err
 	}
-	repository, _, _ := strings.Cut(image, "@")
 	return c.token(ctx, repository)
 }
 
@@ -92,6 +110,7 @@ func (c *Client) token(ctx context.Context, repository string) (string, error) {
 	}
 	endpoint := url.URL{Scheme: "https", Host: c.Host, Path: "/20180419/docker/token"}
 	endpoint.RawQuery = url.Values{"service": {c.Host}, "scope": {"repository:" + repository + ":pull"}}.Encode()
+	issued := time.Now()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return "", err
@@ -113,20 +132,17 @@ func (c *Client) token(ctx context.Context, repository string) (string, error) {
 		return "", fmt.Errorf("OCIR token request: HTTP %d", response.StatusCode)
 	}
 	var result struct {
-		Token     string    `json:"token"`
-		ExpiresIn int64     `json:"expires_in"`
-		IssuedAt  time.Time `json:"issued_at"`
+		Token     string `json:"token"`
+		ExpiresIn int64  `json:"expires_in"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result); err != nil {
 		return "", errors.New("invalid OCIR token response")
 	}
-	if result.IssuedAt.IsZero() {
-		result.IssuedAt = time.Now()
-	}
+
 	if result.Token == "" || result.ExpiresIn <= 60 || result.ExpiresIn > 86400 {
 		return "", errors.New("OCIR returned an empty or invalid token lifetime")
 	}
-	value := credential{result.Token, result.IssuedAt.Add(time.Duration(result.ExpiresIn) * time.Second)}
+	value := credential{result.Token, issued.Add(time.Duration(result.ExpiresIn) * time.Second)}
 	if time.Until(value.expires) <= time.Minute {
 		return "", errors.New("OCIR returned an expired token")
 	}

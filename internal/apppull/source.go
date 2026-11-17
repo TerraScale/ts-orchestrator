@@ -48,7 +48,7 @@ func (s Source) Pull(ctx context.Context, target Target) (Selection, error) {
 	if err != nil {
 		return Selection{}, err
 	}
-	keychain, err := registry.Keychain(ctx, registry.Namespace+"/terrascale/"+target.Package)
+	keychain, err := registry.Keychain(ctx, target.Package)
 	if err != nil {
 		return Selection{}, err
 	}
@@ -88,5 +88,5 @@ func (s Source) Pull(ctx context.Context, target Target) (Selection, error) {
 	if err != nil {
 		return Selection{}, err
 	}
-	return Selection{Image: registry.Namespace + "/terrascale/" + target.Package + "@" + digest.String(), Claims: releasepush.Claims{Repository: provenance.Repository, SHA: sha, RunID: provenance.RunID, RunAttempt: provenance.RunAttempt, JobWorkflowRef: provenance.Workflow}}, nil
+	return Selection{Image: target.Package + "@" + digest.String(), Claims: releasepush.Claims{Repository: provenance.Repository, SHA: sha, RunID: provenance.RunID, RunAttempt: provenance.RunAttempt, JobWorkflowRef: provenance.Workflow}}, nil
 }

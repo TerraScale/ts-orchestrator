@@ -3,22 +3,29 @@
 The reviewed tenancy namespace lives in `deploy/m1/registry.json`, embedded in
 `ts-orch`. Hosts do not query the Artifacts configuration API to discover it.
 
-Fleet service images and deployment records use
-`<namespace>/terrascale/<pkg>@sha256:<manifest digest>`. The digest identifies
+Fleet service images and deployment records use `<pkg>@sha256:<manifest digest>`.
+The digest identifies
 the native Linux child manifest, currently arm64 in the fleet, rather than a
 multi-platform index. The image bytes and digest are identical in every region.
-Each host prepends its own registry: `gru.ocir.io`, `sjc.ocir.io` or
-`fra.ocir.io`. Staging uses San Jose. The fleet reference and containerd image
+Each host expands it to
+`<oci-region>.ocir.io/<namespace>/<repo-prefix>/<pkg>@sha256:<manifest digest>`.
+The embedded registry document contains separate `prod` and `stg` mappings:
+namespace `grxnmoqvrcdv`, prefixes `terrascale` and `terrascale-stg` respectively.
+Production uses `sa-saopaulo-1`, `us-sanjose-1` and `eu-frankfurt-1`.
+Staging uses `us-sanjose-1` and its separate repository prefix. The fleet reference and containerd image
 record retain the hostless form; registry requests use the regional form.
-`release wait --service <service> --image <hostless reference>` compares that
+`release wait --service <service> --image <pkg>@sha256:<digest>` compares that
 stable fleet identity with running tasks.
 
 Hosts discover a release from their regional
-`<registry>/<namespace>/terrascale/<pkg>:release`. That tag selects a digest;
+`<registry>/<namespace>/<repo-prefix>/<pkg>:release`. That tag selects a digest;
 it never authorizes one. A signed GET to `/20180419/docker/token` requests
-`service=<registry>` and `scope=repository:<namespace>/terrascale/<pkg>:pull`.
+`service=<registry>` and `scope=repository:<namespace>/<repo-prefix>/<pkg>:pull`.
 The OCI instance-principal signer signs the method, request target, host and
-date. The returned token stays in memory, scoped to that repository, and is
+date. An absent signed Date yields an anonymous token at OCIR, so the host
+always supplies Date before signing. The response contains `token`,
+`access_token`, `scope` and `expires_in` with no `issued_at`; expiry is measured
+from the token request. The returned token stays in memory, scoped to that repository, and is
 refreshed before its expiry. Signed token requests cannot redirect. Pull
 credentials are bound to the regional registry.
 
@@ -27,9 +34,19 @@ selection with predicate type
 `https://terrascale.tech/attestations/release-selection/v1`, naming the service
 and source revision. Both are standard OCI 1.1 referrers with artifact type
 `application/vnd.dev.sigstore.bundle.v0.3+json`, subject equal to the selected
-manifest digest, and one JSON bundle layer. A registry without the referrers API
-uses the OCI fallback index tag `sha256-<manifest hex digest>` in the same
-repository. `remote.Referrers` reads either representation.
+manifest digest, and one JSON bundle layer with the same media type. OCIR
+returns 404 for the referrers API. Producers maintain the OCI fallback index
+tag `sha256-<manifest hex digest>` in the same repository. `remote.Referrers`
+reads that tag; registries supporting the API also work.
+
+App-canary CI builds once, copies the identical arm64 child manifest to all
+three production repositories and staging, and attaches the same build,
+selection and SBOM bundles using ORAS 1.3.6. Selection is a cosign v3.0.2
+attestation over the exact raw manifest bytes, whose SHA-256 is the image
+digest. Its subject filename does not change the digest or workflow identity.
+CI verifies the published build provenance before moving each single-platform
+`:release` tag, and waits for the production rollout using the package-only
+reference. Login uses the local `ocir-login` action and GitHub OIDC exchange.
 
 Verification uses the embedded Sigstore trust root, certificate identity of
 the producing GitHub Actions workflow on `refs/heads/main`, source revision,
@@ -65,4 +82,6 @@ pulls an app layer, verifies build and selection bundles offline through both
 the referrers API and fallback tag, checks the token is reused in memory, and
 refuses unsigned images and tampered images carrying copied bundles. Its
 transport permits requests only to the selected regional registry. The lane
-also refuses an unset embedded fleet namespace.
+requires a signed Date, uses the production token response shape, and checks
+that production and staging expand the same package digest into their own
+repositories. Empty namespace or repository-prefix declarations fail the lane.

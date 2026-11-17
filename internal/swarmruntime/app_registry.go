@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
@@ -92,8 +91,7 @@ func (r *regionalResolver) Resolve(ctx context.Context, image string) (string, i
 	if err != nil {
 		return "", imagespec.Descriptor{}, err
 	}
-	repository, _, _ := strings.Cut(image, "@")
-	keychain, err := registry.Keychain(ctx, repository)
+	keychain, err := registry.Keychain(ctx, appregistry.Package(image))
 	if err != nil {
 		return "", imagespec.Descriptor{}, err
 	}

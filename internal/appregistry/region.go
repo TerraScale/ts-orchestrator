@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"sync"
 
 	"github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -16,19 +16,32 @@ import (
 
 var regional sync.Map
 
-func Namespace() (string, error) {
+type Configuration struct {
+	Namespace string
+	Prefix    string
+}
+
+func ConfigurationFor(label string) (Configuration, error) {
 	data, err := m1.Files.ReadFile("registry.json")
 	if err != nil {
-		return "", err
+		return Configuration{}, err
 	}
-	var document struct{ Namespace string }
+	var document map[string]struct {
+		Namespace string
+		Prefix    string `json:"repo_prefix"`
+	}
 	if err := json.Unmarshal(data, &document); err != nil {
-		return "", err
+		return Configuration{}, err
 	}
-	if !repositoryPath.MatchString(document.Namespace + "/terrascale/app-canary") {
-		return "", errors.New("fleet OCIR namespace is unset or invalid")
+	environment := "prod"
+	if label == fleet.Embedded().Staging.Label {
+		environment = "stg"
 	}
-	return document.Namespace, nil
+	item, ok := document[environment]
+	if !ok || !repositoryPath.MatchString(item.Namespace+"/"+item.Prefix+"/app-canary") {
+		return Configuration{}, errors.New("fleet OCIR namespace or repository prefix is unset or invalid")
+	}
+	return Configuration{Namespace: item.Namespace, Prefix: item.Prefix}, nil
 }
 
 func Regional(ctx context.Context, label string) (*Client, error) {
@@ -42,11 +55,11 @@ func Regional(ctx context.Context, label string) (*Client, error) {
 	if !ok {
 		return nil, errors.New("app registry requires the host region")
 	}
-	namespace, err := Namespace()
+	configuration, err := ConfigurationFor(label)
 	if err != nil {
 		return nil, err
 	}
-	client := &Client{Host: strings.ToLower(entry.OCIRegionKey) + ".ocir.io", Namespace: namespace, Sign: func(request *http.Request) error {
+	client := &Client{Host: entry.OCIRegion + ".ocir.io", Namespace: configuration.Namespace, Prefix: configuration.Prefix, Sign: func(request *http.Request) error {
 		factory, err := ociclient.InstancePrincipalContext(request.Context(), entry.OCIRegion)
 		if err != nil {
 			return err

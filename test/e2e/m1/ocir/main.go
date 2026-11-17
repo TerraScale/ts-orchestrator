@@ -12,9 +12,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
-	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	remoteTransport "github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"io"
 	"log"
 	"net/http"
@@ -23,10 +23,11 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/apppull"
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
+	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
@@ -42,7 +43,7 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/root"
 )
 
-const host = "gru.ocir.io"
+const host = "sa-saopaulo-1.ocir.io"
 const repository = "journey/terrascale/terrabase"
 const revision = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 const artifactType = types.MediaType("application/vnd.dev.sigstore.bundle.v0.3+json")
@@ -84,11 +85,13 @@ func attach(ctx context.Context, subject *v1.Descriptor, data []byte, t transpor
 	attachment, err := mutate.Append(empty.Image, mutate.Addendum{Layer: layer})
 	must(err)
 	attachment = mutate.MediaType(attachment, types.OCIManifestSchema1)
-	attachment = mutate.ConfigMediaType(attachment, artifactType)
 	raw, err := attachment.RawManifest()
 	must(err)
 	var manifest v1.Manifest
 	must(json.Unmarshal(raw, &manifest))
+	configHash, _, err := v1.SHA256(strings.NewReader("{}"))
+	must(err)
+	manifest.Config = v1.Descriptor{MediaType: types.MediaType("application/vnd.oci.empty.v1+json"), Digest: configHash, Size: 2, Data: []byte("{}")}
 	manifest.Subject = subject
 	manifest.ArtifactType = string(artifactType)
 	raw, err = json.Marshal(manifest)
@@ -99,6 +102,28 @@ func attach(ctx context.Context, subject *v1.Descriptor, data []byte, t transpor
 	ref, err := name.NewDigest(host + "/" + repository + "@" + hash.String())
 	must(err)
 	must(remote.Write(ref, attachment, remote.WithContext(ctx), remote.WithTransport(t), remote.WithUserAgent("ocir-journey-publisher")))
+	tag, err := name.NewTag(host + "/" + repository + ":sha256-" + subject.Digest.Hex)
+	must(err)
+	index := v1.IndexManifest{SchemaVersion: 2, MediaType: types.OCIImageIndex, Manifests: []v1.Descriptor{}}
+	existing, err := remote.Get(tag, remote.WithContext(ctx), remote.WithTransport(t), remote.WithUserAgent("ocir-journey-publisher"))
+	if err == nil {
+		must(json.Unmarshal(existing.Manifest, &index))
+	} else {
+		var status *remoteTransport.Error
+		require(errors.As(err, &status) && status.StatusCode == http.StatusNotFound, "fallback index read failed")
+	}
+	index.Manifests = append(index.Manifests, v1.Descriptor{MediaType: types.OCIManifestSchema1, Digest: hash, Size: int64(len(raw)), ArtifactType: string(artifactType)})
+	encoded, err := json.Marshal(index)
+	must(err)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, "https://"+host+"/v2/"+repository+"/manifests/"+tag.TagStr(), bytes.NewReader(encoded))
+	must(err)
+	request.Header.Set("Content-Type", string(types.OCIImageIndex))
+	request.Header.Set("User-Agent", "ocir-journey-publisher")
+	response, err := (&http.Client{Transport: t}).Do(request)
+	must(err)
+	must(response.Body.Close())
+	require(response.StatusCode == http.StatusCreated, "fallback publication failed")
+
 }
 
 type artifact struct {
@@ -106,6 +131,11 @@ type artifact struct {
 	manifest []byte
 }
 
+func (a *artifact) RawConfigFile() ([]byte, error) { return []byte("{}"), nil }
+func (a *artifact) ConfigName() (v1.Hash, error) {
+	hash, _, err := v1.SHA256(strings.NewReader("{}"))
+	return hash, err
+}
 func (a *artifact) RawManifest() ([]byte, error) { return a.manifest, nil }
 func (a *artifact) Digest() (v1.Hash, error) {
 	hash, _, err := v1.SHA256(strings.NewReader(string(a.manifest)))
@@ -122,8 +152,8 @@ func main() {
 	must(err)
 	provider := common.NewRawConfigurationProvider("tenancy", "instance", "region", "fingerprint", string(privatePEM(key)), nil)
 	signer := common.DefaultRequestSigner(provider)
-	backend := registry.New(registry.Logger(log.New(io.Discard, "", 0)), registry.WithReferrersSupport(true))
-	fallback := false
+	backend := registry.New(registry.Logger(log.New(io.Discard, "", 0)), registry.WithReferrersSupport(false))
+	fallback := true
 	requests := 0
 	signedHeaders := regexp.MustCompile(`headers="([^"]+)"`)
 	signature := regexp.MustCompile(`signature="([^"]+)"`)
@@ -133,7 +163,14 @@ func main() {
 			authorization := r.Header.Get("Authorization")
 			headers := signedHeaders.FindStringSubmatch(authorization)
 			sig := signature.FindStringSubmatch(authorization)
-			require(len(headers) == 2 && len(sig) == 2, "token request lacks OCI signature")
+			if len(headers) != 2 || len(sig) != 2 || !strings.Contains(" "+headers[1]+" ", " date ") || r.Header.Get("Date") == "" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if _, err := http.ParseTime(r.Header.Get("Date")); err != nil {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
 			lines := []string{}
 			for _, header := range strings.Fields(headers[1]) {
 				value := r.Header.Get(header)
@@ -150,19 +187,23 @@ func main() {
 			must(err)
 			must(rsa.VerifyPKCS1v15(&key.PublicKey, crypto.SHA256, hash[:], value))
 			requests++
-			_ = json.NewEncoder(w).Encode(map[string]any{"token": "journey-regional-token", "expires_in": 300, "issued_at": time.Now().UTC()})
+			_ = json.NewEncoder(w).Encode(map[string]any{"token": "journey-regional-token", "access_token": "journey-regional-token", "scope": "", "expires_in": 3600})
 			return
 		}
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			if r.URL.Path != "/v2/" && r.Header.Get("Authorization") != "Bearer journey-regional-token" && !strings.Contains(r.Header.Get("User-Agent"), "ocir-journey-publisher") {
-				w.Header().Set("WWW-Authenticate", `Bearer realm="https://gru.ocir.io/20180419/docker/token",service="gru.ocir.io"`)
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"https://"+host+"/20180419/docker/token\",service=\""+host+"\"")
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
 		}
-		if fallback && strings.Contains(r.URL.Path, "/referrers/") {
-			http.NotFound(w, r)
-			return
+		if strings.Contains(r.URL.Path, "/referrers/") {
+			if fallback {
+				http.NotFound(w, r)
+				return
+			}
+			r = r.Clone(r.Context())
+			r.URL.Path = strings.Replace(r.URL.Path, "/referrers/sha256:", "/manifests/sha256-", 1)
 		}
 		backend.ServeHTTP(w, r)
 	}))
@@ -170,7 +211,15 @@ func main() {
 	endpoint, err := url.Parse(server.URL)
 	must(err)
 	t := transport{endpoint, server.Client().Transport}
-	client := &appregistry.Client{Host: host, Namespace: "journey", Sign: signer.Sign, Transport: t}
+	missingDate, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+host+"/20180419/docker/token?"+url.Values{"service": {host}, "scope": {"repository:" + repository + ":pull"}}.Encode(), nil)
+	must(err)
+	must(signer.Sign(missingDate))
+	response, err := (&http.Client{Transport: t}).Do(missingDate)
+	must(err)
+	must(response.Body.Close())
+	require(response.StatusCode == http.StatusUnauthorized, "token endpoint accepted an unsigned Date")
+	fmt.Println("ok: token endpoint refuses missing signed Date")
+	client := &appregistry.Client{Host: host, Namespace: "journey", Prefix: "terrascale", Sign: signer.Sign, Transport: t}
 	source := apppull.Source{Registry: func(context.Context) (*appregistry.Client, error) { return client, nil }, Root: trusted, Transport: t}
 	config := &v1.ConfigFile{OS: "linux", Architecture: runtime.GOARCH, Config: v1.Config{Labels: map[string]string{"org.opencontainers.image.revision": revision}}}
 	var archive bytes.Buffer
@@ -200,7 +249,7 @@ func main() {
 	identity := sigstore.Identity{Workflow: apppull.Targets[0].Workflow, Ref: "refs/heads/main", Trigger: "push"}
 	_, err = source.Pull(ctx, apppull.Targets[0])
 	require(err != nil, "unsigned image accepted")
-	unsigned := swarmruntime.Deployment{Repository: "TerraScale/terrascale", RunID: "2", RunAttempt: 1, Revision: revision, Image: repository + "@" + digest.String(), Workflow: apppull.Targets[0].Workflow}
+	unsigned := swarmruntime.Deployment{Repository: "TerraScale/terrascale", RunID: "2", RunAttempt: 1, Revision: revision, Image: "terrabase@" + digest.String(), Workflow: apppull.Targets[0].Workflow}
 	unsignedResolver, err := swarmruntime.AppImageResolver(client, unsigned, imagetrust.Verifier{Root: trusted, Transport: t})
 	must(err)
 	_, _, err = unsignedResolver.Resolve(ctx, unsigned.Image)
@@ -208,10 +257,10 @@ func main() {
 	fmt.Println("ok: unsigned image refused by discovery and executor")
 	attach(ctx, subject, authority.Bundle(identity, revision, "1", subjects), t)
 	identity.Trigger = "workflow_dispatch"
-	attach(ctx, subject, authority.Selection(identity, revision, "2", "terrabase", subjects), t)
+	attach(ctx, subject, authority.Selection(identity, revision, "2", "terrabase", map[string][]byte{"app-canary-manifest.json": raw}), t)
 	selected, err := source.Pull(ctx, apppull.Targets[0])
 	must(err)
-	require(selected.Image == repository+"@"+digest.String(), "fleet image gained a region or changed digest")
+	require(selected.Image == "terrabase@"+digest.String(), "fleet image gained a region or changed digest")
 	deployment := swarmruntime.Deployment{Repository: selected.Claims.Repository, RunID: selected.Claims.RunID, RunAttempt: 1, Revision: revision, Image: selected.Image, Workflow: selected.Claims.JobWorkflowRef}
 	resolver, err := swarmruntime.AppImageResolver(client, deployment, imagetrust.Verifier{Root: trusted, Transport: t})
 	must(err)
@@ -229,29 +278,13 @@ func main() {
 	must(err)
 	must(blob.Close())
 	require(bytes.Equal(content, archive.Bytes()), "executor pulled different app layer bytes")
-	fmt.Println("ok: signed token, regional layer pull and offline referrers API provenance")
-	keychain, err := client.Keychain(ctx, repository)
-	must(err)
-	pinned, err := name.NewDigest(host + "/" + repository + "@" + digest.String())
-	must(err)
-	referrers, err := remote.Referrers(pinned, remote.WithContext(ctx), remote.WithTransport(t), remote.WithAuthFromKeychain(keychain))
-	must(err)
-	fallbackRaw, err := referrers.RawManifest()
-	must(err)
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, "https://"+host+"/v2/"+repository+"/manifests/sha256-"+digest.Hex, strings.NewReader(string(fallbackRaw)))
-	must(err)
-	request.Header.Set("Content-Type", string(types.OCIImageIndex))
-	request.Header.Set("User-Agent", "ocir-journey-publisher")
-	response, err := (&http.Client{Transport: t}).Do(request)
-	must(err)
-	must(response.Body.Close())
-	require(response.StatusCode == http.StatusCreated, "fallback publication failed")
-	fallback = true
+	fmt.Println("ok: signed Date, regional executor layer pull and offline fallback-tag provenance")
+	fallback = false
 	selected, err = source.Pull(ctx, apppull.Targets[0])
 	must(err)
-	require(selected.Claims.RunID == "2", "fallback changed verified identity")
-	fmt.Println("ok: offline OCI referrers fallback tag provenance")
-	fallback = false
+	require(selected.Claims.RunID == "2", "referrers API changed verified identity")
+	fmt.Println("ok: offline OCI referrers API provenance also verifies")
+	fallback = true
 	changed, err := mutate.ConfigFile(image, &v1.ConfigFile{OS: "linux", Architecture: runtime.GOARCH, Config: v1.Config{Labels: config.Config.Labels, Cmd: []string{"tampered"}}})
 	must(err)
 	must(remote.Write(tag, changed, remote.WithContext(ctx), remote.WithTransport(t), remote.WithUserAgent("ocir-journey-publisher")))
@@ -261,10 +294,10 @@ func main() {
 	must(err)
 	changedSubject := &v1.Descriptor{MediaType: types.OCIManifestSchema1, Digest: changedDigest, Size: int64(len(changedRaw))}
 	attach(ctx, changedSubject, authority.Bundle(identity, revision, "1", subjects), t)
-	attach(ctx, changedSubject, authority.Selection(identity, revision, "2", "terrabase", subjects), t)
+	attach(ctx, changedSubject, authority.Selection(identity, revision, "2", "terrabase", map[string][]byte{"app-canary-manifest.json": raw}), t)
 	_, err = source.Pull(ctx, apppull.Targets[0])
 	require(err != nil, "tampered image accepted another digest provenance")
-	deployment.Image = repository + "@" + changedDigest.String()
+	deployment.Image = "terrabase@" + changedDigest.String()
 	resolver, err = swarmruntime.AppImageResolver(client, deployment, imagetrust.Verifier{Root: trusted, Transport: t})
 	must(err)
 	_, _, err = resolver.Resolve(ctx, deployment.Image)
@@ -272,9 +305,21 @@ func main() {
 	fmt.Println("ok: tampered image with copied bundles refused by discovery and executor")
 	require(requests == 1, "token was not cached across pulls")
 	fmt.Println("ok: instance-principal token cached in memory")
-	_, err = appregistry.Namespace()
-	must(err)
-	fmt.Println("ok: embedded fleet OCIR namespace is set")
+	for _, label := range []string{"gru", "sjc", "fra", "stg"} {
+		configuration, err := appregistry.ConfigurationFor(label)
+		must(err)
+		expected := "terrascale"
+		if label == "stg" {
+			expected = "terrascale-stg"
+		}
+		require(configuration.Namespace == "grxnmoqvrcdv" && configuration.Prefix == expected, "embedded registry environment is incorrect")
+		registry, err := appregistry.Regional(ctx, label)
+		must(err)
+		physical, err := registry.Image("terrabase@" + digest.String())
+		must(err)
+		require(strings.Contains(physical, "/grxnmoqvrcdv/"+expected+"/terrabase@"), "host expanded the wrong environment repository")
+	}
+	fmt.Println("ok: prod and staging expand the same package digest into separate repositories")
 }
 
 func privatePEM(key *rsa.PrivateKey) []byte {

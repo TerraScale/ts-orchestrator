@@ -80,7 +80,7 @@ func (d *Deployment) Accepts(next *Deployment) error {
 func handsOff(floor, next *Deployment) bool {
 	const image = "ghcr.io/terrascale/ts-dashboard@"
 	return floor.Repository == "TerraScale/ts-dashboard" && next.Repository == "TerraScale/terrascale" &&
-		strings.HasPrefix(floor.Image, image) && dashboardImage(next.Image)
+		strings.HasPrefix(floor.Image, image) && DeploymentImageBelongsToService("ts-dashboard", next.Image)
 }
 
 const (

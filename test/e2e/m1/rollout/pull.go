@@ -100,7 +100,7 @@ func runPulled(ctx context.Context, state, image, run string) error {
 	defer registry.Close()
 	endpoint, err := url.Parse(registry.URL)
 	must(err)
-	registryClient := &appregistry.Client{Host: "ghcr.io", Namespace: "journey", Transport: registryTransport{endpoint}, Sign: func(*http.Request) error { return nil }}
+	registryClient := &appregistry.Client{Host: "ghcr.io", Namespace: "journey", Prefix: "terrascale", Transport: registryTransport{endpoint}, Sign: func(*http.Request) error { return nil }}
 	source := apppull.Source{Registry: func(context.Context) (*appregistry.Client, error) { return registryClient, nil }, Root: trusted, Transport: registryTransport{endpoint}}
 	_, err = source.Pull(ctx, apppull.Targets[0])
 	require(err != nil, "a mutable tag selected a built image without release authorization")
