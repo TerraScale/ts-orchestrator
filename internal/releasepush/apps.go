@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 )
 
 func Digests(ctx context.Context, args []string, output io.Writer) error {
@@ -65,7 +67,7 @@ func WaitApp(ctx context.Context, args []string, output io.Writer) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *service == "" || appImage.FindStringSubmatch(*image) == nil || flags.NArg() != 0 {
+	if *service == "" || (appImage.FindStringSubmatch(*image) == nil && !appregistry.IsImage(*image)) || flags.NArg() != 0 {
 		return errors.New("usage: ts-orch release wait --service NAME --image IMAGE")
 	}
 	regions, err := LoadRegions(*regionsFile)

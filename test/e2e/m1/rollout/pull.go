@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/apppull"
+	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
@@ -54,11 +55,15 @@ func runPulled(ctx context.Context, state, image, run string) error {
 	provenance := authority.Bundle(identity, revision, "1", subjects)
 	bundles := [][]byte{provenance}
 	serve := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/20180419/docker/token" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"token": "journey", "expires_in": 300})
+			return
+		}
 		if r.URL.Path == "/v2/" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if !strings.HasPrefix(r.URL.Path, "/v2/terrascale/terrabase/") {
+		if !strings.HasPrefix(r.URL.Path, "/v2/journey/terrascale/terrabase/") {
 			http.NotFound(w, r)
 			return
 		}
@@ -69,8 +74,8 @@ func runPulled(ctx context.Context, state, image, run string) error {
 			attachment, _ := json.Marshal(imagespec.Manifest{Versioned: decoded.Versioned, MediaType: imagespec.MediaTypeImageManifest, ArtifactType: "application/vnd.dev.sigstore.bundle.v0.3+json", Config: imagespec.Descriptor{MediaType: imagespec.MediaTypeEmptyJSON, Digest: digest.FromString("{}"), Size: 2}, Layers: []imagespec.Descriptor{{MediaType: "application/vnd.dev.sigstore.bundle.v0.3+json", Digest: bundleDigest, Size: int64(len(bundle))}}})
 			attachmentDigest := digest.FromBytes(attachment)
 			index.Manifests = append(index.Manifests, imagespec.Descriptor{MediaType: imagespec.MediaTypeImageManifest, ArtifactType: "application/vnd.dev.sigstore.bundle.v0.3+json", Digest: attachmentDigest, Size: int64(len(attachment))})
-			files["/v2/terrascale/terrabase/manifests/"+attachmentDigest.String()] = attachment
-			files["/v2/terrascale/terrabase/blobs/"+bundleDigest.String()] = bundle
+			files["/v2/journey/terrascale/terrabase/manifests/"+attachmentDigest.String()] = attachment
+			files["/v2/journey/terrascale/terrabase/blobs/"+bundleDigest.String()] = bundle
 		}
 		if data, exists := files[r.URL.Path]; exists {
 			w.Header().Set("Content-Type", imagespec.MediaTypeImageManifest)
@@ -95,7 +100,8 @@ func runPulled(ctx context.Context, state, image, run string) error {
 	defer registry.Close()
 	endpoint, err := url.Parse(registry.URL)
 	must(err)
-	source := apppull.Source{Token: func(context.Context) (string, error) { return "registry-journey", nil }, Root: trusted, Transport: registryTransport{endpoint}}
+	registryClient := &appregistry.Client{Host: "ghcr.io", Namespace: "journey", Transport: registryTransport{endpoint}, Sign: func(*http.Request) error { return nil }}
+	source := apppull.Source{Registry: func(context.Context) (*appregistry.Client, error) { return registryClient, nil }, Root: trusted, Transport: registryTransport{endpoint}}
 	_, err = source.Pull(ctx, apppull.Targets[0])
 	require(err != nil, "a mutable tag selected a built image without release authorization")
 	selector := identity

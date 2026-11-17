@@ -139,6 +139,7 @@ func (n *Node) stageBootstrap(action string, j rolloutmaintenance.Job) error {
 	}
 	spec := *before.Spec
 	spec.Image = candidate.Image
+	spec.Deployment, spec.DeploymentFloor = deployment, deployment
 	already := before.Spec.Image == candidate.Image && before.Deployment != nil && *before.Deployment == *deployment
 	n.mu.Unlock()
 	if action == "staged" {

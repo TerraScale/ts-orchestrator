@@ -21,6 +21,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/TerraScale/ts-orchestrator/internal/apppull"
+	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/hostdashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
@@ -43,7 +44,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 		return err
 	}
 	defer executor.Close()
-	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(mesh.EnvironmentOf(plan.region).GHCRPullToken)); err != nil {
+	if err := executor.SetRegistryResolver(swarmruntime.AppRegistryResolver(plan.region, mesh.EnvironmentOf(plan.region).GHCRPullToken)); err != nil {
 		return err
 	}
 	if plan.region != "" && plan.address != "" {
@@ -536,7 +537,7 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			stop()
 		}()
 		go func() {
-			apps := apppull.Updater{Self: node.ID(), Fabric: fabric, Source: apppull.Source{Token: mesh.EnvironmentOf(region).GHCRPullToken}, Apply: mesh.Release(state)}
+			apps := apppull.Updater{Self: node.ID(), Fabric: fabric, Source: apppull.Source{Registry: func(ctx context.Context) (*appregistry.Client, error) { return appregistry.Regional(ctx, region) }}, Apply: mesh.Release(state)}
 			if err := apps.Run(managing); err != nil && managing.Err() == nil {
 				failed <- errors.Join(errors.New("app release updater stopped"), err)
 			}

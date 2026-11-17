@@ -95,6 +95,8 @@ func prepareImage(ctx context.Context, root, specFile string) {
 	spec.Image = "ghcr.io/terrascale/terrabase@" + target.Digest.String()
 	_, err = client.ImageService().Create(ctx, images.Image{Name: spec.Image, Target: target})
 	must(err)
+	_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(spec.Image, "ghcr.io/terrascale/", "journey/terrascale/", 1), Target: target})
+	must(err)
 	for _, name := range []string{"app-canary", "install-canary", "invalid-canary", "nonce-canary"} {
 		_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(spec.Image, "/terrabase@", "/"+name+"@", 1), Target: target})
 		must(err)
@@ -110,6 +112,8 @@ func prepareImage(ctx context.Context, root, specFile string) {
 	must(err)
 	replacementName := "ghcr.io/terrascale/terrabase@" + replacement.Digest.String()
 	_, err = client.ImageService().Create(ctx, images.Image{Name: replacementName, Target: replacement})
+	must(err)
+	_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(replacementName, "ghcr.io/terrascale/", "journey/terrascale/", 1), Target: replacement})
 	must(err)
 	must(os.WriteFile(filepath.Join(root, "replacement-image"), []byte(replacementName), 0600))
 }
@@ -598,7 +602,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	}
 	replacementImage, err := os.ReadFile(filepath.Join(roots[0], "replacement-image"))
 	must(err)
-	spec.Image = string(replacementImage)
+	spec.Image = strings.Replace(string(replacementImage), "ghcr.io/terrascale/", "journey/terrascale/", 1)
 	generation := time.Now().UnixNano()
 	apply(generation, order[1])
 	initial := evidence(ctx, roots[0], generation, func(r receipt) bool { return !r.Bake.Started.IsZero() })

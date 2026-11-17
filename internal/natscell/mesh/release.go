@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
@@ -111,7 +112,7 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	} else {
 		next = *previous
 	}
-	if repository(next.Image) != repository(image) && !dashboardPackageCutover(service, next.Image, image, deployment) {
+	if repository(next.Image) != repository(image) && !appRegistryCutover(service, next.Image, image, deployment) {
 		return nil, fmt.Errorf("%s runs %s; a release may change only its digest", service, repository(next.Image))
 	}
 	next.Image = image
@@ -241,7 +242,7 @@ func declaredReleasePlacement(next *swarmruntime.ServiceSpec, deployment *Deploy
 	if err := protocol.DecodeStrict(data, &declared, 64<<10); err != nil {
 		return err
 	}
-	if declared.Name != next.Name || repository(declared.Image) != repository(next.Image) && !dashboardPackageCutover(next.Name, declared.Image, next.Image, deployment) {
+	if declared.Name != next.Name || repository(declared.Image) != repository(next.Image) && !appRegistryCutover(next.Name, declared.Image, next.Image, deployment) {
 		return fmt.Errorf("%s: release declaration identity mismatch", next.Name)
 	}
 	if len(declared.Regions) == 0 {
@@ -291,4 +292,11 @@ func runningImages(ctx context.Context, conn *nats.Conn) (map[string]string, err
 		}
 	}
 	return images, nil
+}
+
+func appRegistryCutover(service, current, next string, deployment *Deployment) bool {
+	if dashboardPackageCutover(service, current, next, deployment) {
+		return true
+	}
+	return deployment != nil && deployment.Image == next && strings.HasPrefix(current, "ghcr.io/terrascale/") && appregistry.IsImage(next) && swarmruntime.DeploymentImageBelongsToService(service, current) && swarmruntime.DeploymentImageBelongsToService(service, next)
 }
