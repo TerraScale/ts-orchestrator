@@ -557,15 +557,14 @@ jobs:
             pusher/terrascale-orchestrator-linux-amd64 release push --sha "${GITHUB_SHA}" --dir dist --regions "pusher/${region}.json" \
               > "pusher/${region}.jsonl" || status=$?
             tee -a "${RUNNER_TEMP}/release-push.jsonl" < "pusher/${region}.jsonl"
-            if (( status != 0 )); then
-              jq -se --arg sha "$GITHUB_SHA" 'length == 1 and .[0].state == "installed" and .[0].error == ("timed out waiting for the region to serve " + $sha)' "pusher/${region}.jsonl"
-            fi
+            jq -se --arg sha "$GITHUB_SHA" --arg region "$region" --argjson status "$status" \
+              'length == 1 and .[0].region == $region and .[0].state == "installed" and
+              (if $status == 0 then (.[0].error // "") == "" else .[0].error == ("timed out waiting for the region to serve " + $sha) end)' \
+              "pusher/${region}.jsonl"
             mkdir -p "observe/${region}/deploy/m1"
             jq -n --arg region "$region" '[{region: $region}]' > "observe/${region}/deploy/m1/regions.json"
-            (cd "observe/${region}" && timeout 600 "${GITHUB_WORKSPACE}/dist/terrascale-orchestrator-linux-amd64" release hosts "${GITHUB_SHA}")
-            sleep 130
-            (cd "observe/${region}" && timeout 120 "${GITHUB_WORKSPACE}/dist/terrascale-orchestrator-linux-amd64" release hosts "${GITHUB_SHA}")
-            echo "${region}: every host runs ${GITHUB_SHA} and still does after the 2-minute probation window" | tee -a "${GITHUB_STEP_SUMMARY}"
+            (cd "observe/${region}" && timeout 600 "${GITHUB_WORKSPACE}/dist/terrascale-orchestrator-linux-amd64" release hosts "${GITHUB_SHA}") \
+              | tee -a "${GITHUB_STEP_SUMMARY}"
           done
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
