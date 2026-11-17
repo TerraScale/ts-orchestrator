@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -22,10 +23,11 @@ const (
 	DefaultPoll       = 5 * time.Minute
 	DefaultHealthyFor = 15 * time.Second
 	DefaultDeadline   = 3 * time.Minute
+	DefaultBakeFor    = 5 * time.Minute
 
 	checkEvery   = 2 * time.Second
 	askWait      = 8 * time.Second
-	installWait  = 2*time.Minute + releasepush.WorkerReplyWait
+	installWait  = 3*time.Minute + 30*time.Second
 	discoverWait = time.Minute
 
 	restartPending = "release restart pending"
@@ -47,16 +49,15 @@ type Updater struct {
 	Source     *releaseattest.Source
 	Attest     releaseattest.Verifier
 	Client     *http.Client
-	Nudges     <-chan releasepush.Nudge
 	Poll       time.Duration
 	HealthyFor time.Duration
 	Deadline   time.Duration
+	BakeFor    time.Duration
 
 	store    *Store
 	status   Status
 	revision uint64
 	leading  atomic.Bool
-	nudged   string
 }
 
 func New(region, self, state string, conn, fabric *nats.Conn, handler *releasepush.Handler, hosts func(context.Context) ([]Host, error)) *Updater {
@@ -67,22 +68,11 @@ func New(region, self, state string, conn, fabric *nats.Conn, handler *releasepu
 			}
 			return handler.Health(ctx, "").Err()
 		},
-		Source: handler.Source, Attest: handler.Attest, Client: handler.Client, Nudges: handler.Nudges,
-		Poll: DefaultPoll, HealthyFor: DefaultHealthyFor, Deadline: DefaultDeadline}
+		Source: handler.Source, Attest: handler.Attest, Client: handler.Client,
+		Poll: DefaultPoll, HealthyFor: DefaultHealthyFor, Deadline: DefaultDeadline, BakeFor: DefaultBakeFor}
 }
 
 func (u *Updater) Run(ctx context.Context) error {
-	nudges := make(chan string, 1)
-	subscription, err := u.Conn.Subscribe(nudgeSubject(u.Region), func(m *nats.Msg) {
-		select {
-		case nudges <- string(m.Data):
-		default:
-		}
-	})
-	if err != nil {
-		return err
-	}
-	defer func() { _ = subscription.Unsubscribe() }()
 	go u.lead(ctx)
 	timer := time.NewTimer(0)
 	defer timer.Stop()
@@ -90,25 +80,11 @@ func (u *Updater) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case nudge := <-u.Nudges:
-			tag := releaseattest.Tag(nudge.SHA, nudge.RunID)
-			if err := u.Conn.Publish(nudgeSubject(u.Region), []byte(tag)); err != nil {
-				slog.WarnContext(ctx, "release nudge not passed to the region's updater", "error", err)
-			}
-			continue
-		case tag := <-nudges:
-			if !u.leading.Load() {
-				continue
-			}
-			u.nudged = tag
-			slog.InfoContext(ctx, "release nudge received; checking for a new release", "release", tag)
 		case <-timer.C:
 		}
 		timer.Reset(u.turn(ctx))
 	}
 }
-
-func nudgeSubject(region string) string { return protocol.MeshPullPrefix + region + ".nudge" }
 
 func (u *Updater) lead(ctx context.Context) {
 	tick := time.NewTicker(renewEvery)
@@ -154,12 +130,12 @@ func (u *Updater) turn(ctx context.Context) time.Duration {
 	}
 	u.status, u.revision = status, revision
 	u.status.Region = u.Region
-	if u.nudged != "" {
-		u.status.Nudged, u.nudged = u.nudged, ""
-	}
 	if u.status.Owner != u.Self {
 		slog.InfoContext(ctx, "taking over the region's pull rollout", "region", u.Region, "from", u.status.Owner, "phase", u.status.Phase)
 		u.status.Owner = u.Self
+		if u.status.Phase == PhaseComplete && u.status.Baked.IsZero() {
+			u.status.Done = time.Now().UTC()
+		}
 		if !u.save(ctx) {
 			return renewEvery
 		}
@@ -168,24 +144,13 @@ func (u *Updater) turn(ctx context.Context) time.Duration {
 }
 
 func (u *Updater) cycle(ctx context.Context) time.Duration {
-	if u.status.Push != nil {
-		if u.status.active() {
-			u.preempt(ctx)
-		}
-		if reason := u.pushing(ctx); reason != "" {
-			u.status.Reason = reason
-			u.save(ctx)
-			return u.HealthyFor
-		}
-		slog.InfoContext(ctx, "release push finished in the region", "release", u.status.Push.Release)
-		u.status.Push, u.status.Reason = nil, ""
-		if !u.save(ctx) {
-			return renewEvery
-		}
-	}
 	if u.status.Phase == PhaseRollingBack && u.status.Target != nil {
 		return u.restore(ctx)
 	}
+	if u.status.Phase == PhaseComplete && u.status.Target != nil && u.status.Baked.IsZero() {
+		return u.bake(ctx)
+	}
+
 	u.status.Checked = time.Now().UTC()
 	discover, cancel := context.WithTimeout(ctx, discoverWait)
 	release, err := u.Source.Newest(discover)
@@ -210,6 +175,11 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		return u.Poll
 	}
 	if u.status.Target == nil || u.status.Target.Tag() != release.Tag() {
+		if reason := u.predecessor(ctx, release.Tag()); reason != "" {
+			u.status.Reason = reason
+			u.save(ctx)
+			return checkEvery
+		}
 		verify, cancel := context.WithTimeout(ctx, discoverWait)
 		attested, err := u.Attest.Attested(verify, u.Client, release)
 		cancel()
@@ -224,7 +194,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			return u.Poll
 		}
 		slog.InfoContext(ctx, "attested release found; rolling it out", "release", attested.Tag())
-		u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Nudged: u.status.Nudged, Checked: u.status.Checked}
+		u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Checked: u.status.Checked}
 		if !u.save(ctx) {
 			return renewEvery
 		}
@@ -282,9 +252,6 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			if reason := u.regionReady(ctx, host.ID); reason != "" {
 				return u.wait(ctx, reason)
 			}
-			if u.pushSeen(ctx) {
-				return renewEvery
-			}
 			row.State, row.Error = HostInstalling, ""
 			if !u.save(ctx) {
 				return renewEvery
@@ -325,10 +292,16 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		u.save(ctx)
 	}
 	u.status.Phase, u.status.Reason = PhaseComplete, ""
+	if u.status.Done.IsZero() {
+		u.status.Done = time.Now().UTC()
+	}
 	if !slices.ContainsFunc(u.status.Hosts, func(row HostProgress) bool { return row.State != HostNewer }) {
 		u.status.Phase, u.status.Reason = PhaseNewer, "every host already runs a release that descends from "+target.Tag()
 	}
 	u.save(ctx)
+	if u.status.Phase == PhaseComplete {
+		return u.bake(ctx)
+	}
 	return u.Poll
 }
 
@@ -403,7 +376,7 @@ func (u *Updater) gate(ctx context.Context, host Host, target releaseattest.Rele
 				healthy = true
 			}
 		}
-		if !u.leading.Load() || u.pushSeen(ctx) {
+		if !u.leading.Load() {
 			return errChanged
 		}
 		now := time.Now()
@@ -505,48 +478,6 @@ func builds(release releaseattest.Release, digest string) bool {
 	return false
 }
 
-func (u *Updater) preempt(ctx context.Context) {
-	pulled := ""
-	if u.status.Target != nil {
-		pulled = u.status.Target.Tag()
-		if u.status.Phase == PhaseRollingBack {
-			u.status.markBad(pulled)
-		}
-	}
-	slog.WarnContext(ctx, "release push preempts the pull rollout", "push", u.status.Push.Release, "pull", pulled, "phase", u.status.Phase)
-	u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseIdle, Bad: u.status.Bad, Nudged: u.status.Nudged, Checked: u.status.Checked,
-		Push: u.status.Push, Preempted: pulled}
-}
-
-func (u *Updater) pushSeen(ctx context.Context) bool {
-	status, _, err := u.store.Load(ctx)
-	return err == nil && status.Push != nil && time.Now().Before(status.Push.Until)
-}
-
-func (u *Updater) pushing(ctx context.Context) string {
-	claim := u.status.Push
-	if time.Now().After(claim.Until) {
-		return ""
-	}
-	waiting := "release push " + claim.Release + " in progress"
-	hosts, err := u.Hosts(ctx)
-	if err != nil {
-		return waiting + "; host inventory unavailable: " + err.Error()
-	}
-	for _, host := range hosts {
-		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
-		switch {
-		case err != nil:
-			return waiting + "; " + host.Name + " does not answer"
-		case reply.State != "" || reply.Health != "ok":
-			return waiting + "; " + host.Name + " is " + cmp.Or(reply.State, reply.Health)
-		case host.ID == claim.Host && (reply.Version != claim.SHA || reply.SHA256 != claim.Binaries[reply.Arch]):
-			return waiting + "; " + host.Name + " does not run it yet"
-		}
-	}
-	return ""
-}
-
 func (u *Updater) refuse(ctx context.Context, release releaseattest.Release, reason string) {
 	slog.WarnContext(ctx, "release refused", "release", release.Tag(), "reason", reason)
 	u.status.Phase, u.status.Reason = PhaseRefused, release.Tag()+": "+reason
@@ -610,4 +541,56 @@ func (u *Updater) mirror(ctx context.Context, status Status) {
 	if err := write(u.State, status); err != nil {
 		slog.WarnContext(ctx, "pull rollout record not mirrored for the host's health report", "error", err)
 	}
+}
+
+func (u *Updater) predecessor(ctx context.Context, tag string) string {
+	order := []string{"sjc", "fra", "gru"}
+	for _, region := range catalog.Founded() {
+		if region.Name() == "staging" {
+			order = append([]string{"staging"}, order...)
+		}
+	}
+	index := slices.Index(order, u.Region)
+	if index < 0 {
+		return "region has no reviewed binary rollout position"
+	}
+	if index == 0 {
+		return ""
+	}
+	previous := order[index-1]
+	status, _, err := (&Store{kv: u.store.kv, region: previous}).Load(ctx)
+	if err != nil {
+		return previous + ": predecessor rollout unreadable: " + err.Error()
+	}
+	if status.Target == nil || status.Target.Tag() != tag || status.Phase != PhaseComplete || status.Done.IsZero() || status.Baked.IsZero() {
+		return previous + ": waiting for the same release to complete"
+	}
+	if status.Baked.Sub(status.Done) < u.BakeFor {
+		return previous + ": completed release is still baking"
+	}
+	return ""
+}
+
+func (u *Updater) bake(ctx context.Context) time.Duration {
+	for i := range u.status.Hosts {
+		row := &u.status.Hosts[i]
+		if row.State == HostNewer {
+			continue
+		}
+		reply, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
+		if err != nil || reply.State != "" || reply.Health != "ok" || reply.Version != row.Version || reply.SHA256 != row.SHA256 {
+			return u.rolledBack(ctx, row, fmt.Sprintf("regional bake failed: %v %s %s %s", err, reply.State, reply.Health, reply.Error))
+		}
+	}
+	if err := u.Health(ctx); err != nil {
+		return u.rolledBack(ctx, &u.status.Hosts[0], "regional bake failed: "+err.Error())
+	}
+	if time.Since(u.status.Done) < u.BakeFor {
+		return checkEvery
+	}
+	if u.status.Baked.IsZero() {
+		u.status.Baked = time.Now().UTC()
+		u.save(ctx)
+	}
+	return u.Poll
 }

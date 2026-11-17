@@ -43,11 +43,14 @@ jobs:
               any(.assets[]?; .name == "qualification.json"))] |
               sort_by(.created_at) | last | .tag_name // ""')
           test -n "$tag"
+          revision=${tag#ci-}
+          revision=${revision%-run-*}
+          echo "ORCHESTRATOR_REVISION=$revision" >> "$GITHUB_ENV"
           gh release download "$tag" --repo TerraScale/ts-orchestrator --dir dist --pattern terrascale-orchestrator-linux-amd64
           chmod +x dist/terrascale-orchestrator-linux-amd64
 
       - name: Observe the orchestrator on every registered host
-        run: dist/terrascale-orchestrator-linux-amd64 release hosts "$GITHUB_SHA"
+        run: dist/terrascale-orchestrator-linux-amd64 release hosts "$ORCHESTRATOR_REVISION"
 
       - name: Publish the canary image
         id: image
@@ -104,6 +107,16 @@ jobs:
             --owner TerraScale \
             --signer-workflow TerraScale/ts-orchestrator/.github/workflows/app-canary.yml \
             --bundle-from-oci
+
+      - uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad
+
+      - name: Attest the selected release
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        run: |
+          jq -cn --arg revision "$GITHUB_SHA" '{service:"app-canary", revision:$revision}' > "$RUNNER_TEMP/release-selection.json"
+          cosign attest --yes --type https://terrascale.tech/attestations/release-selection/v1 \
+            --predicate "$RUNNER_TEMP/release-selection.json" "$IMAGE"
 
       - name: Publish the selected image for host pulls
         env:

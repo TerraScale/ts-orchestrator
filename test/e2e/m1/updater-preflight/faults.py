@@ -366,7 +366,6 @@ def run(helper, step, flow, syscall_name, pattern, occurrence, outcome, resume, 
         if outcome == "persistent":
             for warning in (
                 "binary rename durability",
-                "worker relay",
                 "reply delivery",
                 "reply flush",
             ):
@@ -478,7 +477,7 @@ cases += [
     ("settle-directory-sync", "settle-case", "fsync", "", 1, "eio", "settle", '"state":"","error":"","rolled_back":"","health_state":"","served":true'),
     ("expiry-race", "expiry-race-case", "rename", r"/installed", 1, "stall", "expiry", "traced expiry race: installed probation"),
 ]
-served = '"state":"probation","error":"","rolled_back":"","health_state":"","served":true,"after":""'
+served = '"state":"probation","error":"","rolled_back":"","health_state":"probation","served":true,"after":""'
 for flow, label in (("confirm-case", "first"), ("confirm-last-case", "last")):
     cases += [
         ("counter-sync-" + label, flow, "fsync", r"/nats", 1, "eio", "confirm", served),

@@ -187,6 +187,14 @@ func (s *Authority) timestampList(precertificate *x509.Certificate, now time.Tim
 }
 
 func (s *Authority) Bundle(who Identity, sha, run string, subjects map[string][]byte) []byte {
+	return s.attest(who, sha, run, subjects, "https://slsa.dev/provenance/v1", map[string]any{"buildDefinition": map[string]any{"buildType": "https://actions.github.io/buildtypes/workflow/v1"}})
+}
+
+func (s *Authority) Selection(who Identity, sha, run, service string, subjects map[string][]byte) []byte {
+	return s.attest(who, sha, run, subjects, "https://terrascale.tech/attestations/release-selection/v1", map[string]string{"service": service, "revision": sha})
+}
+
+func (s *Authority) attest(who Identity, sha, run string, subjects map[string][]byte, predicateType string, predicate any) []byte {
 	signing := key()
 	now := time.Now()
 	leaf := s.leaf(signing, who, sha, run, now)
@@ -199,8 +207,7 @@ func (s *Authority) Bundle(who Identity, sha, run string, subjects map[string][]
 		Subject       []subject `json:"subject"`
 		PredicateType string    `json:"predicateType"`
 		Predicate     any       `json:"predicate"`
-	}{Type: "https://in-toto.io/Statement/v1", PredicateType: "https://slsa.dev/provenance/v1",
-		Predicate: map[string]any{"buildDefinition": map[string]any{"buildType": "https://actions.github.io/buildtypes/workflow/v1"}}}
+	}{Type: "https://in-toto.io/Statement/v1", PredicateType: predicateType, Predicate: predicate}
 	for name, data := range subjects {
 		sum := sha256.Sum256(data)
 		statement.Subject = append(statement.Subject, subject{Name: name, Digest: map[string]string{"sha256": hex.EncodeToString(sum[:])}})

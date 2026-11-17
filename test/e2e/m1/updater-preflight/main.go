@@ -23,10 +23,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
-	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/releaseclient"
+	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
 	"github.com/nats-io/nats.go"
+	"github.com/sigstore/sigstore-go/pkg/root"
 )
 
 func require(ok bool, message string) {
@@ -88,7 +90,13 @@ type providerTransport struct{ url string }
 
 func (p providerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	clone := request.Clone(request.Context())
-	local, err := http.NewRequestWithContext(request.Context(), request.Method, p.url, nil)
+	target := p.url
+	if strings.HasSuffix(request.URL.Path, releaseattest.BundleAsset) {
+		target = strings.TrimSuffix(p.url, "/binary") + "/bundle"
+	} else if strings.Contains(request.URL.Path, "/compare/") {
+		target = strings.TrimSuffix(p.url, "/binary") + request.URL.Path
+	}
+	local, err := http.NewRequestWithContext(request.Context(), request.Method, target, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -96,14 +104,24 @@ func (p providerTransport) RoundTrip(request *http.Request) (*http.Response, err
 	return http.DefaultTransport.RoundTrip(clone)
 }
 
-func signedRelease(ctx context.Context, binary, sha, run, attempt string) (releasepush.OrchRelease, *releasepush.Verifier, *http.Client, func()) {
+func signedRelease(ctx context.Context, binary, sha, run, attempt string) (releaseFixture, *releasepush.Verifier, *http.Client, func()) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	must(err)
 	data, err := os.ReadFile(binary)
 	must(err)
 	sum := sha256.Sum256(data)
 	issuedToken := ""
+	bundle := signing.Bundle(sigstore.MainIdentity, sha, run, map[string][]byte{releaseattest.AssetPrefix + runtime.GOARCH: data})
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/bundle" {
+			_, _ = w.Write(bundle)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/compare/") {
+			from, to, _ := strings.Cut(strings.Split(r.URL.Path, "/compare/")[1], "...")
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ahead", "ahead_by": 1, "base_commit": map[string]string{"sha": from}, "merge_base_commit": map[string]string{"sha": from}, "commits": []map[string]string{{"sha": to}}})
+			return
+		}
 		if r.URL.Path == "/token" {
 			json.NewEncoder(w).Encode(map[string]string{"value": issuedToken})
 			return
@@ -129,7 +147,7 @@ func signedRelease(ctx context.Context, binary, sha, run, attempt string) (relea
 	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
 	must(err)
 	issuedToken = unsigned + "." + base64.RawURLEncoding.EncodeToString(signature)
-	release := releasepush.OrchRelease{SHA: sha, Token: unsigned + "." + base64.RawURLEncoding.EncodeToString(signature), Binaries: map[string]releasepush.Binary{
+	release := releaseFixture{SHA: sha, Token: unsigned + "." + base64.RawURLEncoding.EncodeToString(signature), Binaries: map[string]releasepush.Binary{
 		runtime.GOARCH: {URL: releasepush.ReleaseURL(sha, run, runtime.GOARCH), SHA256: hex.EncodeToString(sum[:])},
 	}}
 	verifier := releasepush.NewVerifier()
@@ -140,6 +158,9 @@ func signedRelease(ctx context.Context, binary, sha, run, attempt string) (relea
 }
 
 func request(ctx context.Context, conn *nats.Conn, subject string, payload []byte) releasepush.Reply {
+	if len(payload) == 0 {
+		payload, _ = json.Marshal(releasepush.PullRequest{Op: releasepush.PullStatus})
+	}
 	message, err := conn.RequestWithContext(ctx, subject, payload)
 	must(err)
 	var reply releasepush.Reply
@@ -160,11 +181,6 @@ func candidateMode() string {
 }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "push-client" {
-		must(releaseclient.Push(context.Background(), os.Args[2:], os.Stdout))
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Minute)
 	defer cancel()
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "recover" {
@@ -241,9 +257,6 @@ func main() {
 		case "start-state":
 			startState(ctx, os.Args[2], os.Args[3])
 			return
-		case "serve-region":
-			serveRegion(ctx, os.Args[2:])
-			return
 		case "self-update":
 			selfUpdate(ctx, os.Args[2], os.Args[3])
 			return
@@ -266,4 +279,39 @@ func main() {
 		return
 	}
 	run(ctx, os.Args[1], os.Args[2])
+}
+
+var signing = sigstore.New()
+
+type releaseFixture struct {
+	SHA      string                        `json:"sha"`
+	Token    string                        `json:"token"`
+	Binaries map[string]releasepush.Binary `json:"binaries"`
+}
+
+func pulledPayload(release releaseFixture, run string) []byte {
+	artifacts := map[string]releaseattest.Artifact{}
+	for arch, binary := range release.Binaries {
+		artifacts[arch] = releaseattest.Artifact{URL: binary.URL, SHA256: binary.SHA256}
+	}
+	data, err := json.Marshal(releasepush.PullRequest{Op: releasepush.PullInstall, Release: releaseattest.Release{SHA: release.SHA, RunID: run, Binaries: artifacts, Bundle: releaseattest.AssetURL(release.SHA, run, releaseattest.BundleAsset)}})
+	must(err)
+	return data
+}
+
+type handlerTransport struct{ h *releasepush.Handler }
+
+func (t handlerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if t.h.Client.Transport == nil {
+		return http.DefaultTransport.RoundTrip(request)
+	}
+	return t.h.Client.Transport.RoundTrip(request)
+}
+
+func serveHandler(h *releasepush.Handler, conn *nats.Conn) {
+	trusted, err := root.NewTrustedRootFromJSON(signing.TrustedRoot())
+	must(err)
+	h.Attest = releaseattest.Verifier{Root: trusted}
+	h.Source.Client = &http.Client{Transport: handlerTransport{h}}
+	must(h.ServePulled(conn, "e2e", "host"))
 }

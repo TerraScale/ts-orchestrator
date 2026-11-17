@@ -2,6 +2,6 @@
 source "$(dirname "$0")/common.sh"
 trap 'rm -rf "$work"' EXIT
 
-begin "release push past a stopped worker"
+begin "pull rollout waits for an unavailable worker"
 nice -n 19 "$(dirname "$bin")/pull-update" "$bin" degraded
-end "a stopped worker does not hold the push; the region reports degraded until the next push reaches it"
+end "an unavailable worker blocks the first region and every later region until it returns"

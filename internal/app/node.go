@@ -90,7 +90,6 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 	releases.PrepareStop = prepareStop
 	releases.AbortStop = abortStop
 	releases.Mesh = mesh.Bridge(state)
-	releases.App = mesh.Release(state)
 	releases.Hosts = func(ctx context.Context) ([]releasepush.HostVersion, error) {
 		if !node.IsManager() {
 			conn, err := mesh.Connect(state)
@@ -520,7 +519,7 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			stop()
 		}()
 		go func() {
-			apps := apppull.Updater{Self: node.ID(), Fabric: fabric, Source: apppull.Source{Token: vaultsecret.ReadGHCRPullToken}, Apply: releases.App}
+			apps := apppull.Updater{Self: node.ID(), Fabric: fabric, Source: apppull.Source{Token: vaultsecret.ReadGHCRPullToken}, Apply: mesh.Release(state)}
 			if err := apps.Run(managing); err != nil && managing.Err() == nil {
 				failed <- errors.Join(errors.New("app release updater stopped"), err)
 			}

@@ -20,8 +20,8 @@ was cancelled. `gh pr merge --auto --squash` merges once it passes; the branch
 need not be up to date with main. New PR pushes cancel older PR runs. On main,
 a newer push cancels an older run's `verify/go + artifact/linux-amd64-arm64`
 and `e2e-m1` jobs while they run or wait, so that run skips
-`deploy/release-push` and fails `all-green`; the newer run's commit carries
-both changes. `deploy/release-push` jobs share the `production-ts-orch` lock
+`deploy/release-publish` and fails `all-green`; the newer run's commit carries
+both changes. `deploy/release-publish` jobs share the `production-ts-orch` lock
 and never cancel a running rollout.
 
 Every main push runs `e2e-m1` again on the merged tree, beside the
@@ -46,215 +46,82 @@ are unchanged.
 The `verify/go + artifact/linux-amd64-arm64` job compares the push's
 executable inputs with the newest retained `ci-*` release in its history:
 different inputs publish, and the same inputs skip publication and
-`deploy/release-push` when that release's run succeeded; a release whose run
+`deploy/release-publish` when that release's run succeeded; a release whose run
 did not succeed is passed over for the next older one. Publishing builds static
 amd64/arm64 binaries, verifies their source metadata and publishes the binaries
 plus `qualification.json` on the GitHub release `ci-<sha>-run-<id>`. Use
 `gh run view` for individual run details and `gh release view` or
 `gh release download` for retained artifacts.
 
-The main-only `deploy/release-push` job runs only after both jobs passed. It
-downloads that run's retained binaries
-and calls `ts-orch release push` for the regions in
-[`deploy/m1/regions.json`](../deploy/m1/regions.json). GitHub OIDC is the push
-credential; workflow identity and permissions authorize the release listener.
-Regions roll one at a time in catalog order with the first founded region
-last: sjc, fra, gru today. G0 requires every target's version reply within
-10 seconds and health `ok` where the release-health subject is available,
-before installing anything. No responders or `no health check` accepts the
-version probe alone for the first push. G0 accepts any running version; an
-install in progress or a pending restart fails health. G1 waits up to three
-minutes for the requested SHA. G2 polls each region's release-health subject
-every two seconds with an eight-second request timeout around the handler's
-five-second total budget, requiring the requested SHA and 15 uninterrupted
-seconds of healthy JetStream leaders and replicas, a READY SwarmKit node and
-services at their desired replicas, within three minutes. Already-current
-regions still pass G1 and the full G2 health gate. G2 completes before the
-next install, keeping at most one JetStream peer down.
+The main-only `deploy/release-publish` job waits for the required checks,
+attests the retained binaries with Sigstore and uploads provenance.sigstore.json
+to their GitHub release. It does not deliver a binary to a host or send a nudge.
+The publication identity remains the qualified main CI workflow.
 
-Any failed gate stops the push; unreached regions are marked skipped with
-the blocking region's name. The job has a 30-minute limit and retains JSONL
-results with `started_at`, `observed_at`, `healthy_ms` and the last health
-reason. For a transient failure, run `gh run rerun <id> --failed`; for a bad
-build, open a revert PR. The mixed-version window can now last minutes.
-An already-unhealthy production stream intentionally stops the first release
-at sjc's G2. During the first push, regions still running the old binary
-provide only G0's version check if health is unavailable; G2 always checks
-the requested binary, including on reruns where it is already current.
-Runtime credentials remain managed by OCI Vault.
+## Host pull and regional order
 
-After every region passed, the same job attests the two pushed binaries with
-GitHub build provenance (`actions/attest-build-provenance`, signed keylessly
-by Sigstore with this job's OIDC identity), uploads the bundle to the run's
-release as `provenance.sigstore.json` and runs `ts-orch release nudge`, which
-sends one OIDC-authenticated nudge to each region in
-[`deploy/m1/regions.json`](../deploy/m1/regions.json). The job needs
-`contents: write` for the upload and `attestations: write` and
-`id-token: write` for the attestation. A release without that bundle is never
-pulled, so a push that failed a gate is not pulled either.
+Managers poll the GitHub releases API every five minutes. One owner per region
+holds a renewable lease in TS_ORCH_PULL_ROLLOUT. The regional record persists
+the target, each host's progress, failures and a stable completion timestamp.
+A successor resumes the same record. Lease failure relinquishes ownership;
+it does not stop the serving node.
 
-## Pull-based self-update
+The fixed binary order is sjc, fra, gru. Staging precedes sjc once C16 founds
+that catalog cell. Before taking a tag, the leader reads its predecessor's
+record from the same fabric store: that exact tag must be complete and its
+five-minute bake elapsed. Missing, unreadable or failed predecessor evidence
+blocks admission. During the bake the predecessor checks host and region
+health and rolls back on failure, which blocks subsequent regions.
 
-Each region's SwarmKit managers run the release updater
-(`internal/pullrelease`), and exactly one of them acts. The updater, not CI,
-decides what runs:
+Inside one region the updater admits one host at a time through the private
+PullInstall subject. Each host verifies the main workflow's Sigstore identity,
+source ancestry, transparency evidence and exact binary digest, then runs the
+candidate preflight before swapping. The existing probation and recovery
+units confirm a serving binary or restore its previous bytes. The next host
+waits for the full health gate. No public NATS receiver, CI push claim or
+nudge path remains.
 
-- **One owner per region.** The updaters share the replicated JetStream KV
-  bucket `TS_ORCH_PULL_ROLLOUT` in the mesh's TERRABASE account, which
-  carries JetStream (the ORCH account has none; the updater sends its host
-  requests there and opens the bucket as the `ts-orch` fabric user). Key `<region>.lease` names the
-  owner for 15 seconds; the owner renews it every 5 seconds and another manager
-  takes it only after it lapses. Key `<region>` is the rollout record. Every
-  write is compare-and-set on its revision, and a new owner first rewrites the
-  record under its own name, so a former owner's next write fails and it stops
-  before it installs anything. The new owner resumes the same rollout from the
-  record, starting with the host that was installing or gating. A nudge that
-  reaches a manager which is not the owner is passed on
-  `ts.mesh.pull.<region>.nudge`.
+## Application release selection
 
-- **Discovery.** It reads the public releases API without a token
-  (`GET /repos/TerraScale/ts-orchestrator/releases`, with `If-None-Match`)
-  every five minutes and at once when a nudge arrives. It honours
-  `X-RateLimit-Remaining`, `X-RateLimit-Reset` and `Retry-After` and waits
-  until the reset before it asks again. It takes the newest `ci-<sha>-run-<id>`
-  release that carries `provenance.sigstore.json`. A lost nudge only delays
-  the update until the next poll.
-- **The nudge is a hint.** `ts.release.nudge` on the release listener (TLS
-  :4222, the same pinned listener CI pushes to) accepts only a GitHub OIDC
-  token from `ci.yml` on `refs/heads/main` and at most one nudge per ten
-  seconds. It wakes the updater; the token is not a release authorization
-  and the updater ignores what the nudge names.
-- **Verification.** The updater and then every host check the Sigstore bundle
-  against the public-good trusted root with `sigstore-go`: a transparency-log
-  entry, an observer timestamp and a Fulcio signed certificate timestamp,
-  certificate identity
-  `https://github.com/TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main`
-  from `https://token.actions.githubusercontent.com`, source repository
-  `TerraScale/ts-orchestrator`, ref `refs/heads/main`, the release's commit,
-  a `push` trigger, the release's run and SLSA provenance v1. The binary for
-  the host's architecture must have the attested digest; the host checks the
-  downloaded bytes against it, then the binary's own VCS revision. The release
-  commit must descend from the host's installed revision: the public compare
-  API must report `ahead` with the installed revision as both its base and its
-  merge base, and its last commit (read with `per_page=1` on page `ahead_by`)
-  must be the release commit. The run must not be older than the
-  installed run. The host's existing preflight, commit point and probation
-  apply unchanged.
-- **Rollout.** One host at a time per region: a host already installing or
-  gating first, then the others by name, and the owner's own host last. Before each host every other host must answer,
-  be out of probation and report health `ok`, and the region's release health
-  must be `ok`. A host's restart goes through the same planned-stop gate
-  (`PrepareStop`) as a pushed release. After the install the host must
-  run the attested digest, have passed probation and stay healthy, together
-  with the region, for 15 uninterrupted seconds within three minutes.
-- **Rollback.** A candidate that never serves rolls itself back by probation.
-  A candidate that serves but fails the gate is told to roll back: it records
-  the rollback, restarts, and its next start restores the previous binary.
-  Until the host answers on `ts.release.version.<region>.<host>` (which every
-  binary serves, including one from before pull updates) on a revision other
-  than the candidate and out of probation, the rollout stays `rolling_back`
-  with the host `restoring`; a refused restore (for example `PrepareStop`
-  refusing for quorum) is asked again on the next pass. Only then does the
-  updater mark the release bad; it does not retry it, and the next newer
-  release rolls out normally. A rollback still pending twice the gate
-  deadline (six minutes) after it began becomes `rollback_stalled`: the
-  reason starts with `critical:`, the release is marked bad, the region's
-  health turns `degraded`, and the updater holds nothing; the host keeps the
-  candidate until an operator or a push restores it.
-- **A push always wins.** A pushed release records a claim in the rollout
-  record (`push`, held for at most 15 minutes, written within five seconds);
-  pull state never refuses it, and when the record is unreachable the push
-  proceeds and logs that the region cannot see it. A pull rollout that sees a
-  claim records the preemption (`preempted`), drops its target (marking it bad
-  when it was rolling it back) and checks the record again before each install
-  and on every gate tick, so it never installs beside a push it can see. The
-  owner drops the claim once every host answers healthy and out of probation
-  and the claiming manager runs the pushed binary, then discovers the newest
-  release again and rolls out from what the hosts now run. The manager relays the push to its workers first and restarts
-  itself only after each worker that installed it answers on the new binary,
-  out of probation and healthy (`releasepush.WorkerReadyWait`, three minutes).
-  A worker that refuses the release, or installs it but is not ready in time,
-  makes the manager keep its binary, refuse and drop the claim, so a region
-  never mixes releases because of a failed install. A worker that does not
-  answer and that SwarmKit lists as `DOWN` or `DISCONNECTED` (a stopped host) does not hold
-  the push: the relay does not wait for it, the manager installs anyway and
-  records the skip in `nats/release-degraded.json`. That host's region then
-  reports `degraded` in `ts-orch status`, the push result lists it under
-  `degraded`, and the manager exports `ts_orch_release_worker_skipped`
-  (alert `ReleaseWorkerSkipped`, critical) until a later push reaches every
-  worker. A worker that does not answer while SwarmKit lists it in any other
-  state still holds the push. A worker's release health checks
-  its own duties: its mesh NATS server, its orchestrator connection and a route
-  into its region (workers run no JetStream).
-- **Restart and status.** The owner publishes each change of the record on
-  `ts.mesh.pull-progress.<region>`, and every manager mirrors it to
-  `nats/pull-rollout.json` for its health report. `ts-orch status` prints the
-  rollout phase, its target, its owner, an open push claim, each host's
-  progress and version under the region.
+The producer reuses an already-built, attested native Linux digest of the
+existing GHCR package. Its release job signs a separate in-toto selection
+with predicate type https://terrascale.tech/attestations/release-selection/v1
+and service and revision fields, then moves that package's release tag to
+the selected digest. The tag is a discovery pointer and carries no authority.
 
-Regions update independently. The push job still runs first, so today the
-updater finds every host current, confirms each host's health and records
-the rollout complete. The follow-up PR deletes the `Push the release one region at a
-time` step and `ts-orch release push`'s orchestrator path once production
-status shows pulled rollouts completing, leaving CI with build, attest,
-upload and nudge.
+Hosts require both build provenance and the selection, verified with the
+existing Sigstore trust root, certificate identity, timestamps and transparency
+log. The certificate must name the target workflow on refs/heads/main.
+PR triggers are refused. TerraBase selection requires workflow_dispatch;
+auth and dashboard allow push or workflow_dispatch; the canary requires
+workflow_run. The selection run and attempt, rather than the build run,
+identify the durable deployment and retained floor. A newer authorized
+selection can release the same built digest after a held attempt.
 
-If `e2e-m1` fails or is cancelled after the build published, the run leaves its
-public `ci-<sha>-run-<id>` prerelease behind, skips `deploy/release-push` and
-fails `all-green`, so nothing reaches the regions. The comparison above passes
-over that release, so the next push to main publishes and rolls out again
-whatever it changes, documentation included, unless a successful run already
-published the same executable inputs.
+The producer signs keylessly with its existing OIDC permission and pushes
+only an attestation referrer and tag under the existing package using its
+existing or explicitly approved packages permission. It adds no PAT, host
+secret, package or GitHub attestations permission. Main build-only publication
+creates no selection. TerraBase release-only remains a user decision.
 
-App image workflows in the public
-[TerraScale monorepo](https://github.com/TerraScale/terrascale) release through
-`ts-orch release app`. This repository's
-[`app-canary.yml`](../.github/workflows/app-canary.yml) checks app releases and
-[`app-digests.yml`](../.github/workflows/app-digests.yml) records the mesh's
-desired image digests on the `app-digests` branch.
+## Read-only release proof
 
-## Release hints
+CI reads GET /orchestrator/observation through the existing authenticated edge
+on HTTPS 443. The response contains host revisions, regional health, a mesh
+ping matrix and desired/running images. It has no mutation operation.
 
-A webhook can hint that data exists; it cannot authorize a release. The
-pull-based self-update follows the same rule: its nudge only wakes the
-updater, and the Sigstore attestation authorizes the binary.
+- release hosts REVISION waits for every registered host to run that revision.
+- release wait --service NAME --image IMAGE waits for the selected image to serve.
+- release digests --out FILE records complete, agreeing running digests.
+- release mesh-check verifies mesh and HTTPS evidence without NATS access.
 
-The signed channel sequence remains the `run_number` wire field, currently a
-CI counter. Changing producers must preserve monotonic ordering.
+Transport failures and undecodable responses during host restart remain pending
+until the existing observation deadline; authentication failure is terminal.
+The canary waits for the revision encoded in the downloaded release tag, so a
+main commit that does not publish another binary cannot stall its observation.
 
-## Legacy standalone image and service adapters
-
-The former `image.yml` and `deploy.yml` are absent from the active workflows.
-Do not dispatch them or configure private runner containers, a builder registry,
-runner cache volumes or runner instance principals. CI uses GitHub-hosted
-runners only.
-
-Standalone `TerraScale/terrabase`, `TerraScale/ts-auth`, `TerraScale/ts-libs`
-and `TerraScale/ts-builder` have no GitHub copies. Fresh qualification for the
-legacy image/E2E adapters still requires reviewed source, pinned commits and
-release assets; monorepo outputs cannot silently replace their signed contracts.
-
-`scripts/ci/pin-terrabase.sh` can open a data-only GitHub PR for an existing
-qualified standalone release. It uses `gh`, the GitHub Actions commit identity
-and auto-merge (`gh pr merge --auto --squash`). It needs scoped cross-repository write
-authority when invoked from another repository; `GITHUB_TOKEN` only grants
-its own repository's permissions. Public source and release reads need no
-operator-managed source-host token. Production credentials are created and
-delivered through OCI Vault rather than copied by hand.
-
-Dated measurements below retain their original provider identities. They do
-not describe current GitHub-hosted runner performance or the active workflow.
-
-## Historical measurements (Forgejo runs, 2026-09-29)
-
-| Stage | Before | After |
-| --- | --- | --- |
-| Orchestrator `ci.yml` | 7m56s warm (run 705), 13–17 min cold | 1m55s–4m32s (runs 717, 719, 725, 727, 729) |
-| CI → image handoff | 5 values copied into a manual dispatch | none: `ci.yml` dispatches `image.yml` as it ends |
-| Image job | 27–40 min (runs 698, 702) | 6m22s (run 728), 8m30s with a cold base cache (run 726) |
-| Image tool setup | about 16 min (fj build, then nixpkgs tools with libguestfs built from source) | 31 s from pinned store paths in `/cache/nix` (10m31s once, to fill the cache) |
-| Appliance launches per image | 7 under TCG, about 70 s each | 2 |
-| Push → retained image | 45–60 min with hand-copied inputs | about 8½ min, plus any wait for the previous image build |
-| TerraBase `main` → published release | about 17 min, published bytes rebuilt (run 1018) | 7m14s, the tested bytes (run 1020) |
-| Local image build (KVM) | not available | 1m48s (`make image`) |
-| Promotion dry run | about 25 hand-run commands | 1m11s, one command |
+Receiver deployment precedes the companion producer change. The production
+4222 rule removal follows only after all six hosts run this release and the
+retired callers are absent over a recorded observation interval. FRA is
+changed and verified first, then SJC, then GRU. See [network.md](network.md)
+for before evidence, the exposure table and the exact undo procedure.

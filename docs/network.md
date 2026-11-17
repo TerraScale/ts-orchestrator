@@ -57,13 +57,22 @@ credential.
 
 Selection grants no additional trust. Unsigned images, another workflow's
 images and older signed identities fail verification or the durable floor.
-Selecting the same build again does not create a newer signed identity or
-clear its hold: a new attested build is required. Regional bake, hold and
+A newer authorized selection run or attempt can select the same already-built
+digest after a held rollout. Build publication alone cannot clear a hold. Regional bake, hold and
 rollback remain authoritative.
 
-Only the user's manual release-only job selects TerraBase's previously
-built pinned digest. Main build-only publication does not select a release.
-Auth, dashboard and app canary use their existing publishing permissions.
+The host requires a separate signed selection predicate bound to the service,
+revision and exact image subject. Its certificate names the main target workflow
+and an allowed trigger. TerraBase requires workflow_dispatch, so only the user's
+manual release-only job selects its previously built pinned digest. Main build-only publication does not select a release.
+Auth and dashboard allow push or workflow_dispatch; app canary requires
+workflow_run. Claims use the selecting run and attempt. Keyless Sigstore signing
+uses existing OIDC and GHCR permissions; no new GitHub attestation permission,
+credential, host secret or package is introduced.
+
+The existing Vault pull token is a classic MarioGK PAT: it can read every package
+that account may access, rather than a package-scoped credential. This change
+reuses it without expanding or rotating it.
 
 GET /orchestrator/observation uses the existing edge certificate and GitHub
 OIDC admission. It accepts only GET and exposes health, mesh pings,

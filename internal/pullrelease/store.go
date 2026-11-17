@@ -15,7 +15,6 @@ const (
 	Bucket     = "TS_ORCH_PULL_ROLLOUT"
 	leaseFor   = 15 * time.Second
 	renewEvery = 5 * time.Second
-	pushHold   = 15 * time.Minute
 )
 
 var errChanged = errors.New("pull rollout record changed under this manager")
@@ -23,14 +22,6 @@ var errChanged = errors.New("pull rollout record changed under this manager")
 type lease struct {
 	Owner string    `json:"owner"`
 	Until time.Time `json:"until"`
-}
-
-type PushClaim struct {
-	Release  string            `json:"release"`
-	SHA      string            `json:"sha"`
-	Binaries map[string]string `json:"binaries"`
-	Host     string            `json:"host"`
-	Until    time.Time         `json:"until"`
 }
 
 type Store struct {
@@ -105,41 +96,4 @@ func (s *Store) Lead(ctx context.Context, self string) (bool, error) {
 		return false, nil
 	}
 	return err == nil, err
-}
-
-func ClaimPush(ctx context.Context, fabric *nats.Conn, region string, claim PushClaim) error {
-	store, err := Open(ctx, fabric, region)
-	if err != nil {
-		return err
-	}
-	for {
-		status, revision, err := store.Load(ctx)
-		if err != nil {
-			return err
-		}
-		claim.Until = time.Now().Add(pushHold)
-		status.Region, status.Push = region, &claim
-		_, err = store.Save(ctx, status, revision)
-		if !errors.Is(err, errChanged) {
-			return err
-		}
-	}
-}
-
-func ReleasePush(ctx context.Context, fabric *nats.Conn, region, release string) error {
-	store, err := Open(ctx, fabric, region)
-	if err != nil {
-		return err
-	}
-	for {
-		status, revision, err := store.Load(ctx)
-		if err != nil || status.Push == nil || status.Push.Release != release {
-			return err
-		}
-		status.Push = nil
-		_, err = store.Save(ctx, status, revision)
-		if !errors.Is(err, errChanged) {
-			return err
-		}
-	}
 }

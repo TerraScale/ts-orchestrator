@@ -83,7 +83,7 @@ func (s Source) Pull(ctx context.Context, target Target) (Selection, error) {
 		return Selection{}, fmt.Errorf("%s: release must select a native Linux image with a full revision", target.Service)
 	}
 	pinned := ref.Context().Digest(digest.String()).Name()
-	provenance, err := (imagetrust.Verifier{Root: trusted, Transport: transport}).Inspect(ctx, pinned, target.Workflow, sha, keychain)
+	provenance, err := (imagetrust.Verifier{Root: trusted, Transport: transport}).Selection(ctx, pinned, target.Workflow, sha, target.Service, keychain)
 	if err != nil {
 		return Selection{}, err
 	}

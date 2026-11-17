@@ -16,7 +16,6 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,16 +31,6 @@ import (
 )
 
 const (
-	SubjectVersion = protocol.ReleaseVersion
-	SubjectHealth  = protocol.ReleaseHealth
-	SubjectOrch    = protocol.ReleaseOrch
-	SubjectApp     = protocol.ReleaseApp
-	SubjectNudge   = protocol.ReleaseNudge
-	SubjectPing    = protocol.ReleaseMeshPing
-	SubjectApply   = protocol.ReleaseMeshApply
-	SubjectRemove  = protocol.ReleaseMeshRemove
-	SubjectState   = protocol.ReleaseMeshState
-
 	orchRepository = owner + "/ts-orchestrator"
 	downloadPrefix = "https://github.com/" + orchRepository + "/releases/download/"
 	assetPrefix    = "terrascale-orchestrator-linux-"
@@ -65,23 +54,6 @@ var (
 type Binary struct {
 	URL    string `json:"url"`
 	SHA256 string `json:"sha256"`
-}
-
-type OrchRelease struct {
-	SHA      string            `json:"sha"`
-	Binaries map[string]Binary `json:"binaries"`
-	Token    string            `json:"token"`
-}
-
-type AppRelease struct {
-	Service string `json:"service"`
-	Image   string `json:"image"`
-	Token   string `json:"token"`
-}
-
-type MeshRequest struct {
-	Token string          `json:"token"`
-	Spec  json.RawMessage `json:"spec,omitempty"`
 }
 
 type Reply struct {
@@ -142,27 +114,19 @@ type Handler struct {
 	// records the last release that never served.
 	TrialFile, RollbackFile string
 	Client                  *http.Client
-	App                     func(ctx context.Context, service, image string, claims Claims, progress Progress) (json.RawMessage, error)
 	Mesh                    func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
-	Relay                   func(context.Context, []byte) []HostVersion
-	Claim                   func(ctx context.Context, release, sha string, digests map[string]string) error
-	Unclaim                 func(ctx context.Context, release string)
-	HostReady               func(ctx context.Context, host, sha string, digests map[string]string) error
 	Installed               chan struct{}
 	Attest                  releaseattest.Verifier
 	Source                  *releaseattest.Source
-	Nudges                  chan Nudge
-	lastNudge               atomic.Int64
 
-	RefusalFile   string
-	DegradedFile  string
-	mu            sync.Mutex
-	pending       releaseID
-	recovery      recoveryWindow
-	rolledBack    atomic.Pointer[Rollback]
-	exitOnce      sync.Once
-	lastHealth    atomic.Pointer[string]
-	appOperations map[appOperationKey]*appOperation
+	RefusalFile  string
+	DegradedFile string
+	mu           sync.Mutex
+	pending      releaseID
+	recovery     recoveryWindow
+	rolledBack   atomic.Pointer[Rollback]
+	exitOnce     sync.Once
+	lastHealth   atomic.Pointer[string]
 }
 
 func NewHandler(state string) (*Handler, error) {
@@ -172,7 +136,7 @@ func NewHandler(state string) (*Handler, error) {
 	}
 	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary, runningBinary: binary,
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
-		Client: &http.Client{}, Installed: make(chan struct{}, 1), Source: releaseattest.NewSource(), Nudges: make(chan Nudge, 1)}
+		Client: &http.Client{}, Installed: make(chan struct{}, 1), Source: releaseattest.NewSource()}
 	attest, err := releaseattest.PublicGood()
 	if err != nil {
 		return nil, err
@@ -212,138 +176,6 @@ func Revision() string {
 		return "unknown"
 	}
 	return buildRevision(info)
-}
-
-func (h *Handler) Serve(conn *nats.Conn) error {
-	return h.serve(conn, map[string]func(context.Context, []byte) Reply{
-		SubjectVersion: func(context.Context, []byte) Reply { return h.version() },
-		SubjectHealth:  h.health,
-		SubjectOrch:    h.relayed,
-		SubjectApp:     h.app,
-		SubjectNudge:   h.nudge,
-		SubjectPing:    func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "ping", data) },
-		SubjectApply:   func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "apply", data) },
-		SubjectRemove:  func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "rm", data) },
-		SubjectState:   func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "state", data) },
-	})
-}
-
-func (h *Handler) ServeWorker(conn *nats.Conn, subject, host string) error {
-	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: func(ctx context.Context, data []byte) Reply {
-		reply := h.orch(ctx, data)
-		reply.Host = host
-		return reply
-	}})
-}
-
-func (h *Handler) relayed(ctx context.Context, data []byte) Reply {
-	host, _ := os.Hostname()
-	if h.Relay == nil {
-		reply := h.orch(ctx, data)
-		reply.Host = secretpreflight.Scrub(host)
-		return reply
-	}
-	admitted, refused := h.admit(ctx, data)
-	if refused != nil {
-		refused.Host = secretpreflight.Scrub(host)
-		return *refused
-	}
-	workers := h.Relay(ctx, data)
-	var skipped []HostVersion
-	for _, worker := range workers {
-		if worker.Error != "" {
-			slog.Warn("release worker relay incomplete", "host", worker.Host, "down", worker.Down, "error", worker.Error)
-		}
-		if h.HostReady == nil {
-			continue
-		}
-		var err error
-		switch {
-		case worker.Refusal != nil:
-			err = fmt.Errorf("worker %s refused %s, so this manager keeps running its binary: %s", worker.Host, admitted.release.SHA, worker.Refusal.Reason)
-		case worker.Error != "" && worker.Down:
-			skipped = append(skipped, worker)
-			continue
-		case worker.Error != "":
-			err = fmt.Errorf("worker %s is up but did not answer, so this manager keeps running its binary: %s", worker.Host, worker.Error)
-		case worker.ID != "":
-			if err = h.HostReady(ctx, worker.ID, admitted.release.SHA, admitted.digests); err != nil {
-				err = fmt.Errorf("worker %s is not ready on %s, so this manager keeps running its binary: %w", worker.Host, admitted.release.SHA, err)
-			}
-		}
-		if err != nil {
-			h.unclaim(ctx, admitted)
-			reply := refusalReply(RefusalHost, admitted.release.SHA, admitted.binary.SHA256, admitted.claims, err)
-			reply.Host, reply.Workers = secretpreflight.Scrub(host), workers
-			return reply
-		}
-	}
-	h.recordDegraded(admitted, skipped)
-	reply := h.installAdmitted(ctx, admitted)
-	reply.Host, reply.Workers = secretpreflight.Scrub(host), workers
-	for _, worker := range skipped {
-		reply.Degraded = append(reply.Degraded, worker.Host)
-	}
-	return reply
-}
-
-type admission struct {
-	release OrchRelease
-	binary  Binary
-	claims  Claims
-	tag     string
-	digests map[string]string
-}
-
-func (h *Handler) orch(ctx context.Context, data []byte) Reply {
-	admitted, refused := h.admit(ctx, data)
-	if refused != nil {
-		return *refused
-	}
-	return h.installAdmitted(ctx, admitted)
-}
-
-func (h *Handler) admit(ctx context.Context, data []byte) (admission, *Reply) {
-	var release OrchRelease
-	if err := protocol.DecodeStrict(data, &release, 64<<10); err != nil {
-		reply := integrityReply(release.SHA, Claims{}, err)
-		return admission{}, &reply
-	}
-	binary, claims, err := h.validateOrch(ctx, release)
-	if err != nil {
-		var host *hostError
-		reply := integrityReply(release.SHA, claims, err)
-		if errors.As(err, &host) {
-			reply = refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
-		}
-		return admission{}, &reply
-	}
-	admitted := admission{release: release, binary: binary, claims: claims, tag: ReleaseTag(release.SHA, claims.RunID), digests: map[string]string{}}
-	for arch, artifact := range release.Binaries {
-		admitted.digests[arch] = artifact.SHA256
-	}
-	if h.Claim != nil {
-		if err := h.Claim(ctx, admitted.tag, release.SHA, admitted.digests); err != nil {
-			slog.Warn("release push proceeds without its region claim; the region's pull updater cannot see it", "release", admitted.tag, "error", err)
-		}
-	}
-	return admitted, nil
-}
-
-func (h *Handler) installAdmitted(ctx context.Context, admitted admission) Reply {
-	h.mu.Lock()
-	reply := h.installRelease(ctx, admitted.release.SHA, admitted.binary, admitted.claims)
-	h.mu.Unlock()
-	if reply.State != "installed" && reply.State != "current" {
-		h.unclaim(ctx, admitted)
-	}
-	return reply
-}
-
-func (h *Handler) unclaim(ctx context.Context, admitted admission) {
-	if h.Unclaim != nil {
-		h.Unclaim(ctx, admitted.tag)
-	}
 }
 
 func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Context, []byte) Reply) error {
@@ -501,30 +333,6 @@ func ReleaseURL(sha, runID, arch string) string {
 	return downloadPrefix + ReleaseTag(sha, runID) + "/" + assetPrefix + arch
 }
 
-func (h *Handler) validateOrch(ctx context.Context, release OrchRelease) (Binary, Claims, error) {
-	if !hex40.MatchString(release.SHA) {
-		return Binary{}, Claims{}, errors.New("sha must be 40 lowercase hex")
-	}
-	binary, ok := release.Binaries[runtime.GOARCH]
-	if !ok {
-		return Binary{}, Claims{}, errors.New("no binary for " + runtime.GOARCH)
-	}
-	if !hex64.MatchString(binary.SHA256) {
-		return Binary{}, Claims{}, errors.New("sha256 must be 64 lowercase hex")
-	}
-	claims, err := h.Verifier.Verify(ctx, release.Token)
-	if err != nil {
-		return binary, Claims{}, err
-	}
-	if claims.JobWorkflowRef != orchWorkflow || claims.SHA != release.SHA {
-		return Binary{}, Claims{}, errors.New("token is not for this ts-orchestrator commit")
-	}
-	if want := ReleaseURL(release.SHA, claims.RunID, runtime.GOARCH); binary.URL != want {
-		return Binary{}, Claims{}, errors.New("url must be " + want)
-	}
-	return binary, claims, nil
-}
-
 func (h *Handler) olderRun(runID string) (bool, error) {
 	data, err := os.ReadFile(h.RunIDFile)
 	if errors.Is(err, os.ErrNotExist) {
@@ -666,69 +474,6 @@ func writeFresh(path string, data []byte) error {
 		_ = os.Remove(path)
 	}
 	return err
-}
-
-func (h *Handler) app(ctx context.Context, data []byte) Reply {
-	var release AppRelease
-	if err := protocol.DecodeStrict(data, &release, 64<<10); err != nil {
-		return rejected(err)
-	}
-	claims, err := h.validateApp(ctx, release)
-	if err != nil {
-		return rejected(err)
-	}
-	if h.App == nil {
-		return rejected(errors.New("this host runs no mesh"))
-	}
-	return h.appOperation(release, claims)
-}
-
-func (h *Handler) validateApp(ctx context.Context, release AppRelease) (Claims, error) {
-	match := appImage.FindStringSubmatch(release.Image)
-	packageName := release.Service
-	if release.Service == "ts-dashboard" {
-		packageName = "terrascale-dashboard"
-	}
-	if match == nil || match[1] != packageName {
-		return Claims{}, errors.New("image must use the service GHCR package pinned by sha256 digest")
-	}
-	claims, err := h.Verifier.Verify(ctx, release.Token)
-	if err != nil {
-		return Claims{}, err
-	}
-	if !slices.Contains(appServices[claims.JobWorkflowRef], release.Service) {
-		return Claims{}, errors.New("token workflow may not release " + release.Service)
-	}
-	if !hex40.MatchString(claims.SHA) {
-		return Claims{}, errors.New("token sha must be 40 lowercase hex")
-	}
-	return claims, nil
-}
-
-func (h *Handler) mesh(ctx context.Context, op string, data []byte) Reply {
-	var request MeshRequest
-	if err := protocol.DecodeStrict(data, &request, 64<<10); err != nil {
-		return rejected(err)
-	}
-	claims, err := h.Verifier.VerifyMesh(ctx, request.Token)
-	if err != nil {
-		return rejected(err)
-	}
-	if claims.JobWorkflowRef != meshWorkflow && op != "state" {
-		return rejected(errors.New("the app-digests workflow may only read state"))
-	}
-	if h.Mesh == nil {
-		return rejected(errors.New("this host runs no mesh bridge"))
-	}
-	if op == "apply" {
-		key := appOperationKey{claims.Repository, claims.RunID, claims.RunAttempt, claims.SHA, claims.JobWorkflowRef, "mesh-apply", fmt.Sprintf("%x", sha256.Sum256(request.Spec))}
-		return h.operation(key, func(ctx context.Context, _ Progress) (json.RawMessage, error) { return h.Mesh(ctx, op, request.Spec) })
-	}
-	result, err := h.Mesh(ctx, op, request.Spec)
-	if err != nil {
-		return Reply{State: "failed", Error: err.Error(), Result: result}
-	}
-	return Reply{State: "done", Result: result}
 }
 
 func (h *Handler) exitAfter(delay time.Duration) {

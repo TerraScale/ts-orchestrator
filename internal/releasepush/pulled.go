@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
@@ -20,31 +19,19 @@ const (
 
 	StateNewer = "newer"
 
-	stateRestoring  = "restoring"
-	nudgeSpacing    = 10 * time.Second
-	readyCheck      = 2 * time.Second
-	WorkerReadyWait = 3 * time.Minute
-	bundleLimit     = 4 << 20
+	stateRestoring = "restoring"
+	bundleLimit    = 4 << 20
 )
-
-type Nudge struct {
-	Token string `json:"token,omitempty"`
-	SHA   string `json:"sha"`
-	RunID string `json:"run_id"`
-}
 
 type PullRequest struct {
 	Op      string                `json:"op"`
+	Service string                `json:"service,omitempty"`
 	Release releaseattest.Release `json:"release,omitzero"`
 	Reason  string                `json:"reason,omitempty"`
 }
 
 func PullSubject(region, host string) string {
 	return protocol.MeshPullPrefix + region + "." + host
-}
-
-func (h *Handler) ServeNudge(conn *nats.Conn) error {
-	return h.serve(conn, map[string]func(context.Context, []byte) Reply{SubjectNudge: h.nudge})
 }
 
 func (h *Handler) ServePulled(conn *nats.Conn, region, host string) error {
@@ -55,30 +42,6 @@ func (h *Handler) ServePulled(conn *nats.Conn, region, host string) error {
 	}})
 }
 
-func (h *Handler) nudge(ctx context.Context, data []byte) Reply {
-	var request Nudge
-	if err := protocol.DecodeStrict(data, &request, 64<<10); err != nil {
-		return rejected(err)
-	}
-	claims, err := h.Verifier.Verify(ctx, request.Token)
-	if err != nil {
-		return rejected(err)
-	}
-	if claims.JobWorkflowRef != orchWorkflow {
-		return rejected(errors.New("token is not from the ts-orchestrator release workflow"))
-	}
-	now := time.Now().UnixNano()
-	last := h.lastNudge.Load()
-	if now-last < int64(nudgeSpacing) || !h.lastNudge.CompareAndSwap(last, now) {
-		return Reply{State: "throttled", Version: h.Revision}
-	}
-	select {
-	case h.Nudges <- Nudge{SHA: claims.SHA, RunID: claims.RunID}:
-	default:
-	}
-	return Reply{State: "nudged", Version: h.Revision}
-}
-
 func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 	var request PullRequest
 	if err := protocol.DecodeStrict(data, &request, 64<<10); err != nil {
@@ -87,7 +50,8 @@ func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 	switch request.Op {
 	case PullStatus:
 		reply := h.version()
-		health := h.health(ctx, nil)
+		payload, _ := json.Marshal(HealthRequest{Service: request.Service})
+		health := h.health(ctx, payload)
 		reply.Health, reply.Node = health.Health, health.Node
 		return reply
 	case PullInstall:
@@ -174,41 +138,6 @@ func (h *Handler) rollbackPulled(ctx context.Context, release releaseattest.Rele
 	h.rolledBack.Store(&record)
 	h.pending = installed
 	return Reply{State: stateRestoring, Version: h.Revision, RolledBack: release.SHA, Error: reason}
-}
-
-func AwaitReady(ctx context.Context, conn *nats.Conn, region, host, sha string, digests map[string]string) error {
-	ctx, cancel := context.WithTimeout(ctx, WorkerReadyWait)
-	defer cancel()
-	request, err := json.Marshal(PullRequest{Op: PullStatus})
-	if err != nil {
-		return err
-	}
-	tick := time.NewTicker(readyCheck)
-	defer tick.Stop()
-	last := "no answer"
-	for {
-		asked, done := context.WithTimeout(ctx, readyCheck)
-		message, err := conn.RequestWithContext(asked, PullSubject(region, host), request)
-		done()
-		var reply Reply
-		switch {
-		case err != nil:
-			last = "no answer: " + err.Error()
-		case protocol.DecodeTolerant(message.Data, &reply, 64<<10) != nil:
-			last = "unreadable status"
-		case reply.Version != sha || reply.SHA256 != digests[reply.Arch]:
-			last = "runs " + reply.Version
-		case reply.State != "" || reply.Health != "ok":
-			last = "release " + reply.State + " " + reply.Health
-		default:
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("not ready within %s: %s", WorkerReadyWait, last)
-		case <-tick.C:
-		}
-	}
 }
 
 func AskStatus(ctx context.Context, conn *nats.Conn, region, host string) (Reply, error) {

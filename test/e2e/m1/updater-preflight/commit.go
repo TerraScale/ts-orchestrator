@@ -92,7 +92,7 @@ func listener(h *releasepush.Handler) (*nats.Conn, func()) {
 	require(srv.ReadyForConnections(5*time.Second), "release listener must listen")
 	conn, err := nats.Connect(srv.ClientURL())
 	must(err)
-	must(h.Serve(conn))
+	serveHandler(h, conn)
 	return conn, func() { conn.Close(); srv.Shutdown() }
 }
 
@@ -124,9 +124,7 @@ func installAsset(ctx context.Context, h *releasepush.Handler, conn *nats.Conn, 
 	release, verifier, client, closeProvider := signedRelease(ctx, asset, sha, run, "1")
 	defer closeProvider()
 	h.Verifier, h.Client = verifier, client
-	payload, err := json.Marshal(release)
-	must(err)
-	return request(ctx, conn, releasepush.SubjectOrch, payload)
+	return request(ctx, conn, releasepush.PullSubject("e2e", "host"), pulledPayload(release, run))
 }
 
 func installRequest(ctx context.Context, h *releasepush.Handler, conn *nats.Conn, work, sha, run string) releasepush.Reply {
@@ -151,7 +149,6 @@ func commitCase(ctx context.Context, work, outcome string) {
 	}
 	conn, closeListener := listener(h)
 	defer closeListener()
-	h.Relay = func(context.Context, []byte) []releasepush.HostVersion { return nil }
 	write(filepath.Join(work, "armed"), "ready")
 	reply := installRequest(ctx, h, conn, work, shaB, "2")
 	switch outcome {
@@ -210,8 +207,8 @@ func startState(ctx context.Context, work, mode string) {
 	must(err)
 	conn, closeListener := listener(h)
 	defer closeListener()
-	version := request(ctx, conn, releasepush.SubjectVersion, nil)
-	health := request(ctx, conn, releasepush.SubjectHealth, nil)
+	version := request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil)
+	health := request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil)
 	result := started{Revision: h.Revision, State: version.State, Error: version.Error, RolledBack: version.RolledBack, HealthState: health.State}
 	if mode == "race" {
 		replacement := installAsset(ctx, h, conn, otherAsset(work, shaC), shaC, "3")
@@ -219,7 +216,7 @@ func startState(ctx context.Context, work, mode string) {
 	}
 	if mode == "serve" || mode == "race" {
 		result.Served = probation.Served()
-		result.After = request(ctx, conn, releasepush.SubjectVersion, nil).State
+		result.After = request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil).State
 	}
 	data, err := json.Marshal(result)
 	must(err)
@@ -387,7 +384,6 @@ func replaceCase(ctx context.Context, work string, damaged bool) {
 	h.Binary, h.Revision = filepath.Join(work, "installed"), shaA
 	conn, closeListener := listener(h)
 	defer closeListener()
-	h.Relay = func(context.Context, []byte) []releasepush.HostVersion { return nil }
 	write(filepath.Join(work, "armed"), "ready")
 	reply := installRequest(ctx, h, conn, work, shaB, "2")
 	require(reply.State == "rejected" && reply.Refusal != nil, fmt.Sprintf("a failed replacement must be refused: %+v", reply))
@@ -443,10 +439,9 @@ func expiryRaceStart(ctx context.Context, work string) {
 	must(err)
 	conn, closeListener := listener(h)
 	defer closeListener()
-	h.Relay = func(context.Context, []byte) []releasepush.HostVersion { return nil }
 	write(filepath.Join(work, "armed"), "ready")
 	reply := installRequest(ctx, h, conn, work, shaB, "2")
-	state := request(ctx, conn, releasepush.SubjectVersion, nil).State
+	state := request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil).State
 	<-h.Installed
 	fmt.Println("traced expiry race:", reply.State, state)
 }

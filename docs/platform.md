@@ -19,73 +19,38 @@ Releases are pull, never push.
 
 CI on `main` tests and builds static `linux/amd64` and `linux/arm64` binaries
 with `-trimpath -buildvcs=true`. It publishes them on the GitHub release
-`ci-<sha>-run-<id>`. CI holds no production credential. CI cannot reach the
-nodes.
+`ci-<sha>-run-<id>`. CI holds no long-lived production credential and observes hosts through
+authenticated HTTPS 443.
 
-A production release is a JSON manifest:
+Hosts discover the newest attested orchestrator release. CI publishes binaries,
+qualification and Sigstore provenance; hosts verify the workflow, main source,
+transparency evidence and exact binary digest before installation.
 
-```text
-{
-  v,
-  channel: "production",
-  sequence,
-  sha,
-  created,
-  binaries: {
-    "linux/amd64": { url, sha256 },
-    "linux/arm64": { url, sha256 }
-  }
-}
-```
+Binary rollout order is fixed: sjc, fra, gru. A leader can take a tag only after
+its predecessor records that exact tag complete in the fabric pull store and
+finishes a five-minute regional bake. The first region has no predecessor.
+Hosts update one at a time inside their region. The completion timestamp is persisted; a new owner restarts any unfinished
+bake before recording its verdict. During the bake the leader checks every host
+and regional health; a failed bake starts rollback and blocks later regions.
+Probation still restores a binary that never serves.
 
-The manifest is signed with OpenSSH:
+Application hosts pull the existing package's release pointer and require both
+build provenance and a separate signed release-selection attestation. The
+selection must bind the service, image revision and digest, come from the
+service's main workflow, and carry an allowed trigger. TerraBase requires a
+manual workflow_dispatch selection. The selecting run and attempt identify
+the durable rollout, including its hold and rollback.
 
-```sh
-ssh-keygen -Y sign -n ts-orch-release
-```
+CI reads authenticated observations on HTTPS 443. See [network exposure](network.md)
+for listener owners and staged removal of the live public 4222 rules.
 
-The signing key is one listed with role `release` in
-`deploy/m1/allowed-keys.json`. That file is embedded in the binary. Changing
-the list needs a release signed by a key that is already allowed.
-
-PR C3 adds these commands:
-
-| Command | What it does |
-| --- | --- |
-| `ts-orch release manifest` | Writes the manifest |
-| `ts-orch release sign` | Signs it with an allowed `release` key |
-| `ts-orch release verify` | Checks the signature |
-
-Nodes poll for the newest manifest. A node accepts a manifest only when all
-of these hold:
-
-- the signature is valid;
-- `sequence` is higher than the one the node already has;
-- each binary's `sha256` matches the bytes at its `url`.
-
-Discovery runs on the hosts. CI publishes attested artifacts and observes
-their serving verdict through authenticated HTTPS; it sends no NATS nudge.
-
-Rollout order is fixed. One node updates first. Then the rest of its region.
-Then the next region. Two nodes of one region never update at once. A node
-that is not healthy within the probation window rolls back and marks the
-digest bad. That uses the existing release probation and recovery code. The next
-pull request for this path is C3b.
-
-Later, a builder inside production rebuilds each commit and must produce
-identical digests.
-
-Staging (`stg`, the fleet document's `staging` entry) receives every build
-before production: `release push` puts it first, and a staging failure stops
-the push before any production region and before CI publishes the provenance
-bundle production nodes pull. Staging is its own environment with its own
-Vault, mesh CA and region list; see
-[region bootstrap](region-bootstrap.md#staging-region).
-
-Hosts discover attested orchestrator releases and selected application images.
-CI publishes artifacts and reads authenticated rollout observations on HTTPS 443.
-See [network exposure](network.md) for listener owners, the selection contract
-and staged removal of the live public 4222 rules.
+Staging is the fleet document's isolated `stg` environment, with its own Vault,
+mesh CA and fabric store. It is not in the serving release inventory yet.
+The production fabric cannot read its completion record. Staging-first pull
+admission requires an authenticated verdict bridge between these isolated
+environments before staging can qualify production releases; the C19 merge
+is held for that integration. No cross-environment credential or grant is
+introduced by this rebase. See [staging bootstrap](region-bootstrap.md#staging-region).
 
 ## Identity and access
 

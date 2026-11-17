@@ -37,24 +37,6 @@ func ReadDegraded(state string) (*Degraded, error) {
 	return &record, nil
 }
 
-func (h *Handler) recordDegraded(admitted admission, skipped []HostVersion) {
-	if len(skipped) == 0 {
-		if err := removeIfExists(h.DegradedFile); err != nil {
-			slog.Warn("release degraded record not cleared", "error", err)
-		}
-		return
-	}
-	record := Degraded{SHA: admitted.release.SHA, RunID: admitted.claims.RunID, At: time.Now().UTC()}
-	for _, worker := range skipped {
-		record.Skipped = append(record.Skipped, SkippedWorker{Host: worker.Host, Reason: worker.Error})
-		slog.Error("release region degraded: a down worker was skipped and the manager installs anyway",
-			"worker", worker.Host, "sha", admitted.release.SHA, "run", admitted.claims.RunID, "reason", worker.Error)
-	}
-	if err := writeJSON(h.DegradedFile, record); err != nil {
-		slog.Error("release degraded record not saved", "error", err)
-	}
-}
-
 func WriteReleaseMetrics(w io.Writer, state string) {
 	record, err := ReadDegraded(state)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {

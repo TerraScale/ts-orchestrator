@@ -81,7 +81,7 @@ func (u Updater) Cycle(ctx context.Context) error {
 			slog.WarnContext(ctx, "app release refused", "service", target.Service, "error", err)
 			continue
 		}
-		apply, cancel := context.WithTimeout(ctx, releasepush.HandlerWait)
+		apply, cancel := context.WithTimeout(context.WithoutCancel(ctx), releasepush.HandlerWait)
 		_, err = u.Apply(apply, target.Service, candidate.Image, candidate.Claims, progress{ctx, target.Service})
 		cancel()
 		if err != nil {

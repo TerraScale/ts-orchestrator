@@ -18,59 +18,17 @@ Output is drained while only 4 KiB is retained; diagnostics contain valid UTF-8
 without control characters.
 
 `host_prerequisite` means this host could not complete verification or
-installation: unavailable signing keys, incomplete downloads, network errors,
-disk failures and candidate preflight refusals have this kind. A damaged run
-fence has its own kind, `run_fence_damaged` (see Updater records); the pusher
-treats it like a host prerequisite and names it in the region's refusals. A token whose key is missing after the host refreshed its signing keys is
-`release_integrity`; a key set fetched less than 30 seconds earlier is not
-refreshed again, so that case stays `host_prerequisite`, and so does a request
-that waited for another request's key-set fetch that failed. `release_integrity`
-means a release was proven wrong: an invalid signature, forbidden workflow or
-URL, a digest mismatch after receiving all bytes, or an embedded revision that
-differs from the signed release. Integrity refusals and unknown or absent kinds
-stop later regions; other regions continue past host prerequisites and the run
-fails at its end.
+installation: incomplete downloads, network errors, disk failures and candidate
+preflight refusals have this kind. A damaged run fence is refused without
+rewriting it. `release_integrity` means a signature, provenance identity, binary
+digest, source ancestry or embedded revision failed verification.
 
-The first host relays the request to every worker in the region's inventory and
-returns one row per expected worker. Collecting worker answers is bounded by 90
-seconds; the inventory lookup (up to 5 seconds), the mesh connection and the
-publish flushes come on top of that. A worker that did
-not answer keeps a `no answer` row; a missing answer is never a refusal. If the
-inventory is unavailable, a `worker inventory` row says so. The rollout stops
-in the first region only when the first host and every expected worker
-explicitly return the same candidate preflight refusal.
-
-A first host that accepted the candidate (`installed` or `current`) has its
-release health checked before the next region when every refusal in its region
-is a host prerequisite or a damaged fence. When a worker returns an integrity
-refusal or a refusal of an unknown or absent kind, the region fails at once
-without that health check and every later region is skipped. A first host that
-refused is not health-checked; its region's refusals are reported and, unless
-one is an integrity refusal or the refusal is unanimous, the next region
-proceeds.
-
-A region's first host is serving the candidate when its version answer names
-the candidate's revision and one of the release's binary digests, and it is not
-on probation. A rollback of the candidate is checked first, so another build of
-the same commit that rolled back is never reported as serving. A host running a
-build from before this release sends no digest; for that host serving is
-confirmed by revision only and the result line says so in `revision_only`.
-
-### Repair push
-
-Before anything is sent, the pusher asks each region's first host for its
-version and health, and an ordinary push stops when any first host reports a
-health error. If a release caused that error, the release that fixes it could
-never be pushed. `ts-orch release push ... --repair-unhealthy-fleet` is for that
-case only: it skips the initial health check of each first host that answered
-its version request on its pinned, authenticated listener and reported a health
-error. A first host that does not answer its version request still fails the
-push. Each skipped host gets a line with state `repair_skipped_health` and its
-health text before any release is sent, and its region's result carries the
-same text in `repair`. Every later gate is unchanged: after each region's first
-host installs, the push waits for its health and stops before the next region if
-it does not become healthy. The flag is never a default and no other flag sets
-it; use it only to push a fix for a health error that a release caused.
+Regional leaders discover GitHub releases and send private PullInstall requests.
+Each host verifies Sigstore provenance, the allowed main workflow, transparency
+evidence, exact digest and revision before installation. There is no public
+push listener, worker relay or repair-push command. A refusal blocks that region;
+later regions wait for the same tag's completed, baked fabric record. See
+[platform releases](platform.md#releases) for the admission order.
 
 ## Independent recovery
 
@@ -153,7 +111,7 @@ the state directory; the previous binary sits beside the executable.
 | `nats/release-runtime` | Candidate identity, run, boot identity, monotonic first execution and recovery window. | Initialized from the unit when a trial exists and its candidate has started. | Recovery reports an error while the agent keeps serving. A different boot or release establishes a new runtime. |
 | `nats/release-trial.staged` | A replacement's trial, same format, written before its binary rename. | Nothing staged. | Left as it is and ignored. |
 | `<binary>.prev.staged` | Hard link to the binary that is installed while a replacement is staged; becomes `.prev` after the replacement's binary rename. | Nothing staged. | Not applicable (any file is only renamed or removed). |
-| `nats/release-run-id` | Decimal run id of the newest staged release. | Any run is accepted. | Every different release is refused as `run_fence_damaged`, the refusal is saved in `release-attempt.json`, and the file is left as it is. To repair it, write the highest run id ever pushed to this host (the `run_id` of `release-trial` or `release-rolled-back` when either is present, otherwise the newest release run) as a decimal with no other text. |
+| `nats/release-run-id` | Decimal run id of the newest staged release. | Any run is accepted. | Every different release is refused as `run_fence_damaged`, the refusal is saved in `release-attempt.json`, and the file is left as it is. To repair it, write the highest release run id ever installed on this host (the `run_id` of `release-trial` or `release-rolled-back` when either is present, otherwise the newest release run) as a decimal with no other text. |
 | `nats/release-rolled-back` | JSON object: `sha`, `run_id`, `reason`; this release adds `sha256`. | No rejected run. | Logged; no rejected run is known. |
 | `nats/release-attempt.json` | Last refusal of this host, with the identity of the binary installed at the time. | Nothing to report. | Nothing to report. |
 
@@ -216,9 +174,8 @@ installed reply has been sent ends the old process 45 seconds later if its
 ordinary shutdown (up to 30 seconds, closing edge connections in order) is
 stuck; it takes no lock. With the service manager's 1-second restart and the
 two-minute probation of the next start, the candidate serves or is rolled back
-at most 166 seconds after the reply, and the pusher waits 4 minutes after the
-reply for it to serve, leaving 74 seconds for a restored binary to start and
-report the rollback. A second restart request while one is queued is
+at most 166 seconds after the reply. The pull leader checks the actual running
+revision, digest and health after restart. A second restart request while one is queued is
 coalesced.
 
 Staging and the rename hold the same lock as probation confirmation and the
@@ -316,7 +273,7 @@ host with a refusing worker, a replacement reaching an unconfirmed host, an
 failed or unsynced start count on the first and the last allowed start, a
 probation deadline that fires while a replacement holds the installation lock,
 a busy candidate at exec, an unfinished rollback, a rollback whose directory
-sync fails, a stale rollback record, a repair push, two builds of one commit,
+sync fails, a stale rollback record, private pull installation, two builds of one commit,
 a pre-digest host, a slow shutdown with duplicate restart requests, a shutdown
 stuck until the watchdog, and the previous updater installing this build again
 after a rollback to it.
@@ -484,7 +441,7 @@ protections and the relay exception, or keep metadata unrestricted if rules are
 not yet active; repair preparation or file validation, restart and recheck delivery.
 A failed step-7 host must return to the verified step-6 state as described above.
 
-Before switching the host binary, release push, self-update and the M1 installer
+Before switching the host binary, the private pull installer and the M1 installer
 execute the candidate's `release preflight`. It checks the installed relay
 unit's effective preparation command where the relay is installed. On OCI hosts
 it reads every secret referenced by the candidate's regional service manifests

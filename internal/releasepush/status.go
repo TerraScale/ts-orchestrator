@@ -3,11 +3,12 @@ package releasepush
 import (
 	"context"
 	"errors"
-	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/moby/swarmkit/v2/api"

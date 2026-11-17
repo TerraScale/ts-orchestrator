@@ -119,8 +119,12 @@ func waitObservations(ctx context.Context, regions []Region, ready func(Observat
 		complete := true
 		for _, region := range regions {
 			observation, status, err := fetchObservation(ctx, region, "", token)
+			if status == 401 || status == 403 {
+				return fmt.Errorf("%s: observation HTTP %d", region.Region, status)
+			}
 			if err != nil {
-				return err
+				complete = false
+				continue
 			}
 			if status != 200 && status != 503 {
 				return fmt.Errorf("%s: observation HTTP %d", region.Region, status)

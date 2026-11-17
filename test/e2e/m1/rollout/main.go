@@ -4,23 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto"
 	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	containerd "github.com/containerd/containerd/v2/client"
-	"github.com/containerd/containerd/v2/core/content"
-	"github.com/containerd/containerd/v2/core/images"
-	"github.com/containerd/containerd/v2/pkg/namespaces"
-	"github.com/containerd/platforms"
-	"github.com/opencontainers/go-digest"
-	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -30,6 +18,14 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/content"
+	"github.com/containerd/containerd/v2/core/images"
+	"github.com/containerd/containerd/v2/pkg/namespaces"
+	"github.com/containerd/platforms"
+	"github.com/opencontainers/go-digest"
+	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
@@ -118,46 +114,6 @@ func prepareImage(ctx context.Context, root, specFile string) {
 	must(os.WriteFile(filepath.Join(root, "replacement-image"), []byte(replacementName), 0600))
 }
 
-func signedToken(key *rsa.PrivateKey, run, service string) string {
-	repository, workflow := "TerraScale/terrascale", "ci.yml"
-	if service == "app-canary" {
-		repository, workflow = "TerraScale/ts-orchestrator", "app-canary.yml"
-	}
-	encode := func(v any) string {
-		data, err := json.Marshal(v)
-		must(err)
-		return base64.RawURLEncoding.EncodeToString(data)
-	}
-	header := encode(map[string]string{"alg": "RS256", "kid": "journey"})
-	claims := encode(map[string]any{
-		"iss": "https://token.actions.githubusercontent.com", "aud": "ts-orch",
-		"exp": time.Now().Add(time.Hour).Unix(), "nbf": time.Now().Add(-time.Minute).Unix(),
-		"repository": repository, "repository_owner": "TerraScale", "ref": "refs/heads/main",
-		"sha": revision, "run_id": run, "run_attempt": "1", "event_name": "workflow_dispatch",
-		"job_workflow_ref": repository + "/.github/workflows/" + workflow + "@refs/heads/main",
-	})
-	signed := header + "." + claims
-	sum := sha256.Sum256([]byte(signed))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, sum[:])
-	must(err)
-	return signed + "." + base64.RawURLEncoding.EncodeToString(signature)
-}
-
-func signedRelease(ctx context.Context, conn *nats.Conn, key *rsa.PrivateKey, image, run string) {
-	reply := releaseReply(ctx, conn, key, "terrabase", image, run)
-	require(reply.State == "accepted", "signed release refused: "+reply.Error)
-}
-
-func releaseReply(ctx context.Context, conn *nats.Conn, key *rsa.PrivateKey, service, image, run string) releasepush.Reply {
-	data, err := json.Marshal(releasepush.AppRelease{Service: service, Image: image, Token: signedToken(key, run, service)})
-	must(err)
-	message, err := conn.RequestWithContext(ctx, releasepush.SubjectApp, data)
-	must(err)
-	var reply releasepush.Reply
-	must(json.Unmarshal(message.Data, &reply))
-	return reply
-}
-
 func serviceCLI(ctx context.Context, namespace, launcher, root string, args ...string) ([]byte, error) {
 	command := []string{"netns", "exec", namespace, "unshare", "--mount", "--uts", "--propagation", "private", "bash", launcher, root, filepath.Join(root, "..", "ts-orch"), "service"}
 	return exec.CommandContext(ctx, "ip", append(command, args...)...).CombinedOutput()
@@ -218,6 +174,17 @@ func main() {
 		rows, err := swarmruntime.ListServiceSpecs(ctx, client)
 		must(err)
 		must(json.NewEncoder(os.Stdout).Encode(rows))
+	case "pull":
+		failure := runPulled(ctx, os.Args[2], os.Args[3], os.Args[4])
+		reply := releasepush.Reply{State: "done"}
+		if failure != nil {
+			reply.State, reply.Error = "failed", failure.Error()
+		}
+		data, err := json.Marshal(reply)
+		must(err)
+		path := filepath.Join(os.Args[2], "selection-"+os.Args[4]+".json")
+		must(os.WriteFile(path+".tmp", data, 0600))
+		must(os.Rename(path+".tmp", path))
 	case "control":
 		control(ctx, os.Args[2:])
 	case "journey", "install":
@@ -315,21 +282,14 @@ func runRegion(ctx context.Context, args []string) {
 	must(err)
 	defer conn.Close()
 
-	public, err := os.ReadFile(filepath.Join(root, "..", "keys.json"))
-	must(err)
-	listener, err := net.Listen("tcp", "127.0.0.1:18088")
-	must(err)
-	jwks := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(public) })}
-	go jwks.Serve(listener)
-	defer jwks.Close()
-	verifier := releasepush.NewVerifier()
-	verifier.JWKSURL = "http://127.0.0.1:18088/keys"
-	handler := &releasepush.Handler{Verifier: verifier, App: mesh.Release(root), Health: func(ctx context.Context, name string) releasepush.HealthResult {
+	handler := &releasepush.Handler{Health: func(ctx context.Context, name string) releasepush.HealthResult {
 		return releasepush.HealthResult{Mesh: node.ReleaseHealth(ctx), Service: regionhealth.Serving(ctx, root, name)}
 	}}
-	must(handler.Serve(conn))
+	must(handler.ServePulled(conn, "e2e", "host"))
 	if selection, err := os.ReadFile(filepath.Join(root, "pull-selection")); err == nil {
-		go runPulled(ctx, root, string(selection), "101")
+		fields := strings.Fields(string(selection))
+		require(len(fields) == 2, "selection must name an immutable image and selecting run")
+		go runPulled(ctx, root, fields[0], fields[1])
 	} else if !errors.Is(err, os.ErrNotExist) {
 		panic(err)
 	}
@@ -409,9 +369,9 @@ func command(ctx context.Context, namespace, root string, spec any) {
 }
 
 func health(ctx context.Context, conn *nats.Conn, name string) string {
-	data, err := json.Marshal(releasepush.HealthRequest{Service: name})
+	data, err := json.Marshal(releasepush.PullRequest{Op: releasepush.PullStatus, Service: name})
 	must(err)
-	message, err := conn.RequestWithContext(ctx, releasepush.SubjectHealth, data)
+	message, err := conn.RequestWithContext(ctx, releasepush.PullSubject("e2e", "host"), data)
 	must(err)
 	var reply releasepush.Reply
 	must(json.Unmarshal(message.Data, &reply))
@@ -437,6 +397,16 @@ type state struct {
 }
 
 func states(ctx context.Context, conn *nats.Conn) map[string]state {
+	connected := conn.StatusChanged(nats.CONNECTED, nats.CLOSED)
+	defer conn.RemoveStatusListener(connected)
+	if !conn.IsConnected() {
+		select {
+		case status := <-connected:
+			require(status == nats.CONNECTED, "mesh observer closed before reconnecting")
+		case <-ctx.Done():
+			panic(ctx.Err())
+		}
+	}
 	inbox := nats.NewInbox()
 	replies := make(chan *nats.Msg, 3)
 	sub, err := conn.ChanSubscribe(inbox, replies)
@@ -540,16 +510,12 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	names := []string{"c21-first", "c21-second", "c21-third"}
 	addresses := []string{"10.203.21.2", "10.203.21.3", "10.203.21.4"}
 	roots := []string{filepath.Join(root, "first"), filepath.Join(root, "second"), filepath.Join(root, "third")}
+	selectionState, selectionNamespace = roots[0], names[0]
 	swarms := make([]*process, len(roots))
 	nodes := make([]*process, len(roots))
 	boot := func(i int) *process {
 		return start(ctx, names[i], launcher, roots[i], "region", order[i], addresses[i], order[(i+1)%len(roots)], addresses[(i+1)%len(roots)], seedFile)
 	}
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	must(err)
-	public, err := json.Marshal(map[string]any{"keys": []any{map[string]string{"kty": "RSA", "kid": "journey", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}})
-	must(err)
-	must(os.WriteFile(filepath.Join(root, "keys.json"), public, 0600))
 
 	var lagging swarmruntime.ServiceSpec
 	baselineGeneration := time.Now().UnixNano()
@@ -625,7 +591,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 		for _, root := range roots {
 			must(os.Remove(filepath.Join(root, "clock-offset")))
 		}
-		unsavedCase(ctx, conn, releases, key, nodes, boot, roots, order, addresses, spec)
+		unsavedCase(ctx, conn, releases, nodes, boot, roots, order, addresses, spec)
 		budgetCases(ctx, conn, releases, nodes, swarms, boot, roots, order, names, addresses, launcher, spec)
 		fmt.Println("install and budget journey passed")
 		return
@@ -765,9 +731,9 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	logStep("service resume refuses a failed bake even with a canary hold")
 	logStep("service apply refuses a held generation and names the release instruction")
 	require(retained.Release != nil && retained.Release.RunID == "100" && retained.Release.RunAttempt == 1 && retained.Release.Repository == "TerraScale/terrascale" && retained.Release.Revision == revision && retained.Release.Image == spec.Image, "failed receipt omitted held signed release identity")
-	signedRelease(ctx, releases, key, spec.Image, "100")
+	signedRelease(ctx, releases, spec.Image, "100")
 	observe(ctx, conn, func(s map[string]state) bool {
-		reply := releaseReply(ctx, releases, key, spec.Name, spec.Image, "100")
+		reply := selectionResult(roots[0], "100")
 		require(newGeneration(s, order[0]) == generation && s[order[0]].Failed[spec.Name] == generation, "replayed held release replaced its generation")
 		if reply.State != "failed" {
 			return false
@@ -779,7 +745,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	held := generation
 	nodes[0].kill()
 	olderHoldReceipt(roots[0], held)
-	must(os.WriteFile(filepath.Join(roots[0], "pull-selection"), []byte(spec.Image), 0600))
+	must(os.WriteFile(filepath.Join(roots[0], "pull-selection"), []byte(spec.Image+" 101"), 0600))
 	nodes[0] = boot(0)
 	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > held })
 	generation = newGeneration(states(ctx, conn), order[0])
@@ -799,7 +765,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	logStep("release journals the local held generation and deployment; restart retains it and every region completes")
 	must(os.Remove(filepath.Join(roots[0], "pull-selection")))
 	logStep("host pulls a selected image, rejects a wrong signer, verifies provenance and completes the rollout without CI delivery")
-	signedRelease(ctx, releases, key, spec.Image, "102")
+	signedRelease(ctx, releases, spec.Image, "102")
 	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > generation })
 	held = newGeneration(states(ctx, conn), order[0])
 	evidence(ctx, roots[0], held, func(r receipt) bool { return r.Bake.Samples >= 1 })
@@ -849,4 +815,26 @@ func socketReady(ctx context.Context, path string) {
 			panic(ctx.Err())
 		}
 	}
+}
+
+var selectionState, selectionNamespace string
+
+func signedRelease(ctx context.Context, _ *nats.Conn, image, run string) {
+	command := exec.CommandContext(ctx, "ip", "netns", "exec", selectionNamespace, os.Args[0], "pull", selectionState, image, run)
+	output, err := os.OpenFile(filepath.Join(selectionState, "selection-"+run+".log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	must(err)
+	command.Stdout, command.Stderr = output, output
+	must(command.Start())
+	go func() { _ = command.Wait(); _ = output.Close() }()
+}
+
+func selectionResult(state, run string) releasepush.Reply {
+	data, err := os.ReadFile(filepath.Join(state, "selection-"+run+".json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return releasepush.Reply{State: "accepted"}
+	}
+	must(err)
+	var reply releasepush.Reply
+	must(json.Unmarshal(data, &reply))
+	return reply
 }

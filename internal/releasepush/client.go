@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/nats-io/nats.go"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/nats.go"
 )
 
 type Region struct {

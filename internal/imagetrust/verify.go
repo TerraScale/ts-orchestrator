@@ -24,6 +24,8 @@ const bundleArtifactType = "application/vnd.dev.sigstore.bundle.v0.3+json"
 
 const provenancePredicateType = "https://slsa.dev/provenance/v1"
 
+const SelectionPredicateType = "https://terrascale.tech/attestations/release-selection/v1"
+
 const actionsIssuer = "https://token.actions.githubusercontent.com"
 
 const mainRef = "refs/heads/main"
@@ -59,6 +61,14 @@ func Inspect(ctx context.Context, image, workflowRef, revision string, keychain 
 }
 
 func (v Verifier) Inspect(ctx context.Context, image, workflowRef, revision string, keychain authn.Keychain) (Provenance, error) {
+	return v.inspect(ctx, image, workflowRef, revision, "", keychain)
+}
+
+func (v Verifier) Selection(ctx context.Context, image, workflowRef, revision, service string, keychain authn.Keychain) (Provenance, error) {
+	return v.inspect(ctx, image, workflowRef, revision, service, keychain)
+}
+
+func (v Verifier) inspect(ctx context.Context, image, workflowRef, revision, service string, keychain authn.Keychain) (Provenance, error) {
 	digest, err := name.NewDigest(image, name.StrictValidation)
 	if err != nil {
 		return Provenance{}, fmt.Errorf("image %s refused: not a digest reference", image)
@@ -80,6 +90,7 @@ func (v Verifier) Inspect(ctx context.Context, image, workflowRef, revision stri
 	}
 	policy := verify.NewPolicy(verify.WithArtifactDigest("sha256", digestBytes(digest)), verify.WithCertificateIdentity(identity))
 	var newest Provenance
+	built := false
 	var newestRun, newestAttempt uint64
 	for _, data := range bundles {
 		var b bundle.Bundle
@@ -90,13 +101,30 @@ func (v Verifier) Inspect(ctx context.Context, image, workflowRef, revision stri
 		if err != nil {
 			continue
 		}
-		if !validProvenance(result, revision) {
+		if !validSource(result, revision, workflowRef) {
 			continue
 		}
 		cert := result.Signature.Certificate
 		run := invocation.FindStringSubmatch(cert.RunInvocationURI)
 		if run == nil || cert.SourceRepositoryURI != "https://github.com/"+run[1] || !strings.HasPrefix(workflowRef, run[1]+"/.github/workflows/") {
 			continue
+		}
+		if result.Statement.PredicateType == provenancePredicateType {
+			built = true
+			if service != "" {
+				continue
+			}
+		} else if service == "" || result.Statement.PredicateType != SelectionPredicateType {
+			continue
+		}
+		if service != "" {
+			predicate := result.Statement.Predicate.AsMap()
+			if predicate["service"] != service || predicate["revision"] != revision {
+				continue
+			}
+			if service == "terrabase" && cert.BuildTrigger != "workflow_dispatch" {
+				continue
+			}
 		}
 		number, err := strconv.ParseUint(run[2], 10, 64)
 		if err != nil {
@@ -111,10 +139,10 @@ func (v Verifier) Inspect(ctx context.Context, image, workflowRef, revision stri
 			newestRun, newestAttempt = number, attempt
 		}
 	}
-	if newest.Repository != "" {
+	if newest.Repository != "" && built {
 		return newest, nil
 	}
-	return Provenance{}, fmt.Errorf("image %s refused: no provenance attestation signed by https://github.com/%s for commit %s", image, workflowRef, revision)
+	return Provenance{}, fmt.Errorf("image %s refused: missing authorized build provenance or %s selection signed by https://github.com/%s for commit %s", image, service, workflowRef, revision)
 }
 
 func PublicGoodRoot() (*root.TrustedRoot, error) {
@@ -129,15 +157,22 @@ func digestBytes(digest name.Digest) []byte {
 	return value
 }
 
-func validProvenance(result *verify.VerificationResult, revision string) bool {
-	if result.VerifiedIdentity == nil || result.Statement == nil || result.Statement.PredicateType != provenancePredicateType {
+func validSource(result *verify.VerificationResult, revision, workflowRef string) bool {
+	if result.VerifiedIdentity == nil || result.Statement == nil || result.Statement.Predicate == nil {
 		return false
 	}
 	signature := result.Signature
 	if signature == nil || signature.Certificate == nil {
 		return false
 	}
-	return signature.Certificate.SourceRepositoryDigest == revision && signature.Certificate.SourceRepositoryRef == mainRef
+	cert := signature.Certificate
+	if cert.SourceRepositoryDigest != revision || cert.SourceRepositoryRef != mainRef {
+		return false
+	}
+	if workflowRef == "TerraScale/ts-orchestrator/.github/workflows/app-canary.yml@refs/heads/main" {
+		return cert.BuildTrigger == "workflow_run"
+	}
+	return cert.BuildTrigger == "push" || cert.BuildTrigger == "workflow_dispatch"
 }
 
 func fetchBundles(ctx context.Context, digest name.Digest, keychain authn.Keychain, transport http.RoundTripper) ([][]byte, error) {

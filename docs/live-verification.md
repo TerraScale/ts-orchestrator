@@ -68,38 +68,22 @@ The pin for every mesh service is the `app-digests` branch's
 it can lag the hosts by hours); the
 `deploy/m1/services/*.json` images in this repository are only the
 first-application specs and do not track releases. The ts-orch pin is
-this repository's `main`: the `ci.yml` `release-push` job pushes every
-published build to all `deploy/m1/regions.json` regions and retains the
-per-region JSONL result (`release-push-<sha>-<run>` artifact, state
-`installed` plus `serving_ms`).
+the newest qualified, attested main release. Hosts pull it under the regional
+completion and bake gate described in [delivery-pipeline.md](delivery-pipeline.md).
 
 Auditing what a region actually runs needs no write path:
 
-- The region's ts-orch revision: `ts.release.version` on the pinned 4222
-  release listener answers `{"version": "<vcs.revision>"}`; `ts-orch
-  release push` reads exactly this to prove serving. A read of it needs
-  a GitHub OIDC token minted by a qualifying workflow (`id-token:
-  write`), so an operator without a CI job cannot poll it from a laptop;
-  treat the newest `release-push` artifact as the pinned evidence.
+- Authenticated GET /orchestrator/observation on each regional mesh HTTPS
+  hostname reports every registered host's running revision and refusal state.
+  CI uses its existing main-workflow OIDC token. release hosts REVISION waits
+  for all hosts; an operator inside NetBird or the VCN can use ts-orch status.
 - The dashboard revision: `GET https://dash.terrascale.tech/readyz`
   returns `X-TerraScale-Revision` (the image's `SourceRevisionId`),
   checked per release by the monorepo's
   `scripts/dashboard/verify-live.py` directly against the origin.
-- TerraBase, ts-auth and MCP expose only `version` strings on `/healthz`
-  (`0.1.0`, `0.1.0-alpha.ttd.3`), not image digests; per-region running
-  digests for them are not exposed by any read-only command today
-  (`ts-orch inspect digests --region <r>` is the proposed gap filler;
-  the mesh's `ts.svc.state` carries each region's desired image but its
-  loopback listener and the CI-only `ts.release.mesh.state` both sit
-  behind credentials an operator does not hold).
-
-Measured 2026-11-04 23:28Z and re-checked 23:58Z (no change between
-rounds): all three regions reported TerraBase `0.1.0` with matching
-`X-TerraBase-Region`/`X-TerraBase-Machine`, controllers answered
-`/healthz` and `/readyz` on 9463 over NetBird, the dashboard served
-`X-TerraScale-Revision` equal to the newest released qualified main
-commit, and the newest ts-orch push had reached every region within
-~11 s of serving.
+- release digests --out FILE reads authenticated HTTPS observations and records
+  the agreed running images only when every region's desired rollout is complete.
+  release mesh-check reads the ping matrix and verifies public HTTPS host identity.
 
 ## Offline checks
 

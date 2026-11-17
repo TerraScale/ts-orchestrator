@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/datamount"
-	"github.com/nats-io/nats.go"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/datamount"
+	"github.com/nats-io/nats.go"
 )
 
 const ObservationPath = "/orchestrator/observation"
@@ -123,7 +124,7 @@ func fetchObservation(ctx context.Context, region Region, address, token string)
 	defer response.Body.Close()
 	var observation Observation
 	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&observation); err != nil {
-		return Observation{}, 0, fmt.Errorf("%s: HTTP %s: %w", region.Region, response.Status, err)
+		return Observation{}, response.StatusCode, fmt.Errorf("%s: HTTP %s: %w", region.Region, response.Status, err)
 	}
 	return observation, response.StatusCode, nil
 }
