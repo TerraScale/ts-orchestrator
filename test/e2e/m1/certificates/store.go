@@ -117,7 +117,7 @@ ready:
 			return err
 		}
 	}
-	for _, region := range mesh.Regions() {
+	for _, region := range mesh.Regions("gru") {
 		if region == "gru" || region == "sjc" {
 			continue
 		}

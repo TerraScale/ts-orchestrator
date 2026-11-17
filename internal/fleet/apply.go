@@ -97,11 +97,12 @@ func ReconcilePasses(ctx context.Context, label string, cluster Cluster) ([]ocir
 }
 
 func (f Fleet) Region(label string) (Region, error) {
-	i := slices.IndexFunc(f.Regions, func(r Region) bool { return r.Label == label })
+	all := f.All()
+	i := slices.IndexFunc(all, func(r Region) bool { return r.Label == label })
 	if i < 0 {
 		return Region{}, fmt.Errorf("region %q is not in the fleet document", label)
 	}
-	return f.Regions[i], nil
+	return all[i], nil
 }
 
 func LoopFactory(ctx context.Context, region Region) (*ociclient.Factory, error) {

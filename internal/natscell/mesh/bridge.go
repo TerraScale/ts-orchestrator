@@ -47,7 +47,7 @@ func bridge(ctx context.Context, conn *nats.Conn, op string, spec json.RawMessag
 		want, _ := json.Marshal(service)
 		have, _ := json.Marshal(entry.Spec)
 		if entry.RollbackOf == 0 && bytes.Equal(want, have) {
-			rows, failed = send(ctx, conn, ApplyRequest{Name: service.Name, Entry: entry}, max(applyWait, rolloutWait(&service)))
+			rows, failed = send(ctx, conn, ApplyRequest{Name: service.Name, Entry: entry}, max(applyWait, rolloutWait(connRegion(conn), &service)))
 		} else {
 			rows, failed = applySpec(ctx, conn, service, "", false, applyWait-5*time.Second)
 		}

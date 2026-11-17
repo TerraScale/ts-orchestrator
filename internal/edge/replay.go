@@ -410,7 +410,7 @@ func (e *Edge) failover(out *http.Request) (*http.Response, error) {
 	if out.GetBody == nil || out.Header.Get(replaySrcHeader) != "" {
 		return nil, nil
 	}
-	for _, region := range nearest(m.RTT(), m.Region(), mesh.Regions()) {
+	for _, region := range nearest(m.RTT(), m.Region(), mesh.Regions(m.Region())) {
 		// An error means a write may have run there: never send it again.
 		if next, err := e.send(out, region, m.Region()); err != nil || next != nil {
 			return next, err
@@ -486,7 +486,7 @@ func parseReplay(value string) (regions []string, fallback bool) {
 // nearest orders the known regions other than self by measured RTT; a region
 // without a live gateway goes last, in the backend's order.
 func nearest(rtt map[string]time.Duration, self string, regions []string) []string {
-	known := mesh.Regions()
+	known := mesh.Regions(self)
 	var picked []string
 	for _, region := range regions {
 		if region != self && slices.Contains(known, region) && !slices.Contains(picked, region) {

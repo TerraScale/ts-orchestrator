@@ -152,6 +152,8 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 					region = "us-sanjose-1"
 				}
 				_, _ = io.WriteString(w, region)
+			case strings.HasSuffix(r.URL.Path, "/compartmentId"):
+				_, _ = io.WriteString(w, "ocid1.compartment.oc1..journey")
 			case strings.HasSuffix(r.URL.Path, "/region"):
 				_, _ = io.WriteString(w, "sa-saopaulo-1")
 			case strings.HasSuffix(r.URL.Path, "/identity/key.pem"):

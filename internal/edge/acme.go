@@ -28,7 +28,7 @@ func (e *Edge) serveChallenge(w http.ResponseWriter, r *http.Request) {
 	e.challenges.ServeHTTP(local, r)
 	m := e.meshNode()
 	if local.Code != http.StatusOK && !fromPeer(r) && m != nil {
-		for _, region := range mesh.Regions() {
+		for _, region := range mesh.Regions(m.Region()) {
 			if region == m.Region() {
 				continue
 			}

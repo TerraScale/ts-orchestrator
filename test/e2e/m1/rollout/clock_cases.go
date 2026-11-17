@@ -104,7 +104,7 @@ func assertWaiting(ctx context.Context, conn *nats.Conn, region, service string,
 		require(s[region].Ready[service] != generation, "downstream region admitted without required evidence")
 		return true
 	})
-	regions := mesh.Regions()
+	regions := mesh.Regions("gru")
 	order := append(append([]string{}, regions[1:]...), regions[0])
 	seat := []string{"first", "second", "third"}[slices.Index(order, region)]
 	assertRuntimeBefore(ctx, "c21-"+seat, os.Args[3], filepath.Join(os.Args[2], seat), service, generation)

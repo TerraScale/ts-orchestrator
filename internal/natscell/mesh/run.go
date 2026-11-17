@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -28,15 +29,13 @@ import (
 // The shared mesh secret lives in the gru-vault (compartment gru-1-control);
 // every region reads it cross-region with its instance principal.
 const (
-	vaultRegion   = "sa-saopaulo-1"
-	vaultID       = vaultsecret.SharedVault
-	vaultKeyID    = "ocid1.key.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljr2bdwyvlua7oi6gpg7gl72ln6t2l2fb63tl2cvhllvokc4l2afeeq"
-	compartmentID = "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq"
-	secretName    = "ts-orch-mesh-key"
-	// TerraBaseTokenSecret is TerraBase's mesh NATS token; its service spec
-	// delivers the same secret as TERRABASE_NATS_TOKEN_FILE.
-	TerraBaseTokenSecret = "gru-1-terrabase-nats-token"
-	retryEvery           = 30 * time.Second
+	vaultRegion           = "sa-saopaulo-1"
+	vaultID               = vaultsecret.SharedVault
+	vaultKeyID            = "ocid1.key.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljr2bdwyvlua7oi6gpg7gl72ln6t2l2fb63tl2cvhllvokc4l2afeeq"
+	compartmentID         = "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq"
+	secretName            = "ts-orch-mesh-key"
+	TerraBaseTokenPurpose = "terrabase-nats-token"
+	retryEvery            = 30 * time.Second
 )
 
 // Run serves this host's region on the mesh until ctx ends, calling started
@@ -112,11 +111,12 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 	if err := releasepush.OpenTCP(ctx, ClusterPort); err != nil {
 		slog.WarnContext(ctx, "mesh cluster firewall", "error", err)
 	}
-	secret, err := loadSecret(ctx, secretName, "ts-orch mesh CA seed")
+	environment := EnvironmentOf(region)
+	secret, err := loadSecret(ctx, environment, secretName, "ts-orch mesh CA seed")
 	if err != nil {
 		return nil, err
 	}
-	terrabaseToken, err := loadSecret(ctx, TerraBaseTokenSecret, "TerraBase mesh NATS token")
+	terrabaseToken, err := loadSecret(ctx, environment, environment.Secret(TerraBaseTokenPurpose), "TerraBase mesh NATS token")
 	if err != nil {
 		clear(secret)
 		return nil, err
@@ -142,7 +142,7 @@ func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseTok
 		}
 	}
 	seeds := map[string][]string{}
-	for _, peer := range Regions() {
+	for _, peer := range Regions(region) {
 		if peer == region {
 			continue
 		}
@@ -161,35 +161,49 @@ func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseTok
 		ClusterAddress: advertise, Address: NetBirdAddress, Worker: cluster.Worker})
 }
 
-// ownRegion maps the instance's OCI region to its catalog region token.
 func ownRegion(ctx context.Context) (string, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://169.254.169.254/opc/v2/instance/canonicalRegionName", nil)
+	region, err := instanceValue(ctx, "canonicalRegionName")
+	if err != nil {
+		return "", err
+	}
+	compartment, err := instanceValue(ctx, "compartmentId")
+	if err != nil {
+		return "", err
+	}
+	if document := fleet.Embedded(); document.IsStaging(region, compartment) {
+		return document.Staging.Label, nil
+	}
+	entry, ok := catalog.CellForOCIRegion(region)
+	if !ok {
+		return "", fmt.Errorf("OCI region %q is not a catalog region", region)
+	}
+	return entry.Name(), nil
+}
+
+func instanceValue(ctx context.Context, field string) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://169.254.169.254/opc/v2/instance/"+field, nil)
 	if err != nil {
 		return "", err
 	}
 	request.Header.Set("Authorization", "Bearer Oracle")
 	response, err := hostenroll.NewIMDSClient().Do(request)
 	if err != nil {
-		return "", fmt.Errorf("read OCI region from IMDS: %w", err)
+		return "", fmt.Errorf("read %s from IMDS: %w", field, err)
 	}
 	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, 128))
+	body, err := io.ReadAll(io.LimitReader(response.Body, 256))
 	if err != nil || response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("read OCI region from IMDS: status %d", response.StatusCode)
+		return "", fmt.Errorf("read %s from IMDS: status %d", field, response.StatusCode)
 	}
-	entry, ok := catalog.CellForOCIRegion(strings.TrimSpace(string(body)))
-	if !ok {
-		return "", fmt.Errorf("OCI region %q is not a catalog region", strings.TrimSpace(string(body)))
-	}
-	return entry.Name(), nil
+	return strings.TrimSpace(string(body)), nil
 }
 
 // loadSecret reads a shared mesh secret of 32 random bytes, creating it once
 // when the Vault has none. The value is never logged.
-func loadSecret(ctx context.Context, secretName, description string) ([]byte, error) {
+func loadSecret(ctx context.Context, environment Environment, secretName, description string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	factory, err := ociclient.InstancePrincipalContext(ctx, vaultRegion)
+	factory, err := ociclient.InstancePrincipalContext(ctx, environment.VaultRegion)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +211,7 @@ func loadSecret(ctx context.Context, secretName, description string) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	value, err := vaultsecret.Read(ctx, bundles, vaultID, secretName)
+	value, err := vaultsecret.Read(ctx, bundles, environment.Vault.VaultID, secretName)
 	if err != nil {
 		management, clientErr := ocivault.NewVaultsClientWithConfigurationProvider(factory.Provider())
 		if clientErr != nil {
@@ -206,7 +220,7 @@ func loadSecret(ctx context.Context, secretName, description string) ([]byte, er
 		management.SetRegion(factory.Region())
 		factory.Configure(&management.BaseClient, ociclient.ServiceVault)
 		// Ensure creates only when absent; a concurrent creator wins and we re-read.
-		if _, ensureErr := vaultsecret.Ensure(ctx, &management, vaultsecret.Target{CompartmentID: compartmentID, VaultID: vaultID, KeyID: vaultKeyID},
+		if _, ensureErr := vaultsecret.Ensure(ctx, &management, environment.Vault,
 			secretName, description, func(context.Context) (string, error) {
 				seed := make([]byte, 32)
 				_, err := rand.Read(seed)
@@ -214,7 +228,7 @@ func loadSecret(ctx context.Context, secretName, description string) ([]byte, er
 			}); ensureErr != nil {
 			return nil, errors.Join(err, ensureErr)
 		}
-		if value, err = vaultsecret.Read(ctx, bundles, vaultID, secretName); err != nil {
+		if value, err = vaultsecret.Read(ctx, bundles, environment.Vault.VaultID, secretName); err != nil {
 			return nil, err
 		}
 	}
@@ -327,7 +341,7 @@ func (a swarmApplier) PrePull(ctx context.Context, spec swarmruntime.ServiceSpec
 		return err
 	}
 	defer executor.Close()
-	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(vaultsecret.ReadGHCRPullToken)); err != nil {
+	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(EnvironmentOf(a.region).GHCRPullToken)); err != nil {
 		return err
 	}
 	return executor.PrePull(ctx, spec.Image, swarm.Annotations.Labels)

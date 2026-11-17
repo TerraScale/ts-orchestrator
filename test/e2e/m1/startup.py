@@ -135,6 +135,7 @@ def run_case(binary, seed_binary, root, case):
             )
             values = {
                 "/opc/v2/instance/canonicalRegionName": "us-sanjose-1",
+                "/opc/v2/instance/compartmentId": "ocid1.compartment.oc1..startup",
                 "/opc/v2/instance/id": "instance",
                 "/opc/v2/vnics/": '[{"privateIp":"127.0.0.2","vcnCidrBlock":"127.0.0.0/16"}]',
             }

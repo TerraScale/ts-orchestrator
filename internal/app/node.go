@@ -41,7 +41,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 		return err
 	}
 	defer executor.Close()
-	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(vaultsecret.ReadGHCRPullToken)); err != nil {
+	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(mesh.EnvironmentOf(plan.region).GHCRPullToken)); err != nil {
 		return err
 	}
 	if plan.region != "" && plan.address != "" {

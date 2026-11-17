@@ -96,5 +96,32 @@
         "nodes"
       ]
     }
-  ]
+  ],
+  "staging": {
+    "label": "stg",
+    "oci_region": "us-sanjose-1",
+    "compartment_id": "ocid1.compartment.oc1..aaaaaaaa4j6dkusearaucklxyddsdzqxo6rud27kqxdpn5deywvvmycqyrsa",
+    "vault_id": "ocid1.vault.oc1.us-sanjose-1.grvpxk2yaaeck.abzwuljrayi4xmphstdgedoqqh562pnp5pha6nocgn2fxu3uaoa7clrfaxra",
+    "key_id": "ocid1.key.oc1.us-sanjose-1.grvpxk2yaaeck.abzwuljrwxc6ugkuawxaozhw3laq5tesx3zqsbhtcmagpnyslbhrnvo4sx2q",
+    "vcn_cidr": "10.254.0.0/24",
+    "public_subnet_cidr": "10.254.0.0/25",
+    "private_subnet_cidr": "10.254.0.192/26",
+    "nodes": {
+      "min": 3,
+      "max": 3,
+      "shape": "VM.Standard.A1.Flex",
+      "ocpus": 2,
+      "memory_gb": 12,
+      "boot_gb": 50,
+      "data_gb": 50,
+      "data_vpus_per_gb": 10
+    },
+    "geo_continents": [],
+    "reconcile": [
+      "network",
+      "compute",
+      "nlb",
+      "nodes"
+    ]
+  }
 }

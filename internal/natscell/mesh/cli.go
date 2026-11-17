@@ -79,7 +79,7 @@ func Remove(ctx context.Context, conn *nats.Conn, name string, output io.Writer)
 }
 
 func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSpec, holdAfter string, resume bool, wait time.Duration) ([]Reply, error) {
-	if err := validEntry(spec.Name, Entry{Generation: 1, Spec: &spec, HoldAfter: holdAfter}); err != nil {
+	if err := validEntry(connRegion(conn), spec.Name, Entry{Generation: 1, Spec: &spec, HoldAfter: holdAfter}); err != nil {
 		return nil, err
 	}
 	entries, err := desiredStates(ctx, conn)
@@ -90,11 +90,11 @@ func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSp
 	if failedAnywhere(ctx, conn, spec.Name, before.Generation) {
 		return nil, fmt.Errorf("%s held at failed generation %d; repair the cause and release again with the same digest or a corrected image", spec.Name, before.Generation)
 	}
-	if holdAfter == "" && !resume && before.HoldAfter != "" && slices.Contains(rolloutOrder(&spec), before.HoldAfter) {
+	if holdAfter == "" && !resume && before.HoldAfter != "" && slices.Contains(rolloutOrder(connRegion(conn), &spec), before.HoldAfter) {
 		holdAfter = before.HoldAfter
 	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
-	rows, failed := send(ctx, conn, ApplyRequest{Name: spec.Name, Entry: Entry{Generation: generation, Spec: &spec, HoldAfter: holdAfter}}, max(wait, rolloutWait(&spec)))
+	rows, failed := send(ctx, conn, ApplyRequest{Name: spec.Name, Entry: Entry{Generation: generation, Spec: &spec, HoldAfter: holdAfter}}, max(wait, rolloutWait(connRegion(conn), &spec)))
 	if failed == nil || before.Spec == nil || bakeHeld(rows, spec.Name) {
 		return rows, failed
 	}
@@ -121,7 +121,7 @@ const applyRepublish = 30 * time.Second
 // trip. A positive again re-publishes the request while regions are pending.
 func gather(ctx context.Context, conn *nats.Conn, subject string, payload []byte, wait, again time.Duration, rtt bool, observe func(Reply)) ([]string, map[string]Reply, error) {
 	sent := time.Now()
-	regions, replies := Regions(), map[string]Reply{}
+	regions, replies := Regions(connRegion(conn)), map[string]Reply{}
 	err := collectAgain(ctx, conn, subject, payload, math.MaxInt, wait, again, func(data []byte) bool {
 		var reply Reply
 		if protocol.DecodeTolerant(data, &reply, maxWire) != nil {

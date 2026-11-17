@@ -41,7 +41,11 @@ func (n *Node) EdgeCertificateNodes() (string, []string, error) {
 }
 
 func EdgeCertificateClient(ctx context.Context, state string) (*nats.Conn, []byte, error) {
-	secret, err := loadSecret(ctx, secretName, "ts-orch mesh CA seed")
+	region, err := ownRegion(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	secret, err := loadSecret(ctx, EnvironmentOf(region), secretName, "ts-orch mesh CA seed")
 	if err != nil {
 		return nil, nil, err
 	}

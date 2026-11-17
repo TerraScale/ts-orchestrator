@@ -184,7 +184,7 @@ func meshToken(host *oraclehost.Host, name string) string {
 }
 
 func delivered(ctx context.Context, fleet *oraclehost.Fleet, from, to *oraclehost.Host) {
-	terrabase, _ := fleet.Secret(mesh.TerraBaseTokenSecret)
+	terrabase, _ := fleet.Secret(mesh.EnvironmentOf("gru").Secret(mesh.TerraBaseTokenPurpose))
 	accounts := []struct {
 		name       string
 		credential func(*oraclehost.Host) nats.Option

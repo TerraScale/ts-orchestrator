@@ -100,7 +100,7 @@ func Serve(conn *nats.Conn, latest func() Report) error {
 
 // Ask collects every region's report over the mesh within statusWait.
 func Ask(ctx context.Context, conn *nats.Conn) (map[string]Report, error) {
-	return ask(ctx, conn, len(mesh.Regions()), statusWait)
+	return ask(ctx, conn, len(mesh.ConnRegions(conn)), statusWait)
 }
 
 func ask(ctx context.Context, conn *nats.Conn, want int, wait time.Duration) (map[string]Report, error) {
@@ -207,7 +207,7 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 		return err
 	}
 	defer conn.Close()
-	regions := mesh.Regions()
+	regions := mesh.ConnRegions(conn)
 	reports, err := ask(ctx, conn, len(regions), statusWait)
 	if err != nil {
 		return err
