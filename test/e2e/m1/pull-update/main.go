@@ -319,7 +319,7 @@ func startMesh(work string) []*server.Server {
 }
 
 func journey(bin, part string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	self, err := os.Executable()
 	must(err)
