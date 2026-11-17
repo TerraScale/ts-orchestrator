@@ -547,6 +547,14 @@ func (f *Fleet) PinSecret(name string) string {
 	return string(item.Versions[len(item.Versions)-1])
 }
 
+func (f *Fleet) PutSecret(name, value string) {
+	f.standIn.mu.Lock()
+	defer f.standIn.mu.Unlock()
+	item := f.standIn.secrets[name]
+	item.Versions = append(item.Versions, []byte(value))
+	f.standIn.notify()
+}
+
 func (f *Fleet) UnpinSecret(name string) {
 	f.standIn.mu.Lock()
 	defer f.standIn.mu.Unlock()
