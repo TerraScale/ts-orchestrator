@@ -116,3 +116,19 @@ resource-request, placement-constraint, platform, host-port and replica-limit
 filters, so the region leader drains a node only when its tasks fit elsewhere.
 The SwarmKit source digest is renewed in `scripts/ci/audit-replacements.py`; its
 published upstream baseline is unchanged.
+
+## 2026-11-17: app image identity
+
+C42 adds `api/app_image.go` and updates `manager/orchestrator/task.go` to
+compare legacy TerraScale GHCR references and package-only references by the
+same package and manifest digest. Reason: SwarmKit's updater and up-to-date
+task filter compare the new template with immutable stored task snapshots,
+so normalizing only the submitted spec still replaces a serving task.
+The desired template keeps its new reference for future tasks; different
+packages or digests still require replacement. The native installation
+journey verified no successor and retained RUNNING tasks for the same digest;
+the native rollout journey verified a new task ID for a different digest.
+The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
+`b7e83a749008520a074ba5cff4629088538c7a636603858ac8449e507eaa5f9f`.
+The published `github.com/moby/swarmkit/v2` v2.1.2 baseline and upstream commit
+`12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb` remain unchanged.
