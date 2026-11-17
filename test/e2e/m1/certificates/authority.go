@@ -24,6 +24,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"golang.org/x/crypto/acme"
 )
 
@@ -195,6 +196,10 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 				}
 				if !ok {
 					http.NotFound(w, r)
+					return
+				}
+				if vault := r.URL.Query().Get("vaultId"); vault != vaultsecret.SharedVault {
+					http.Error(w, "production nodes read "+r.URL.Query().Get("secretName")+" from gru-vault, asked "+vault, http.StatusBadRequest)
 					return
 				}
 				_ = json.NewEncoder(w).Encode(map[string]any{"secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString([]byte(value))}, "versionNumber": 1})

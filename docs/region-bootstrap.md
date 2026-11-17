@@ -371,8 +371,20 @@ C19 removes the old release-push path; an authenticated staging verdict bridge
 must replace its cross-environment ordering before C19 merges. No staging CA,
 Vault credential or production write grant is shared by that change.
 
-**Still open:** NetBird enrollment of staging nodes (their `netbird server`
-companion reads gru-vault, which `ts-orch-stg` cannot), metrics scraping by
+**Done:** NetBird enrollment of staging nodes. The `netbird server` companion
+reads its setup key from the Vault of the node's fleet document entry:
+production nodes read `gru-1-netbird-setup-key` in gru-vault, staging nodes
+read `stg-1-netbird-setup-key` in `stg-vault`. That key is minted once with
+`ts-orch netbird setup-key --servers-group stg-servers`: reusable, at most 6
+uses, expiring 90 days after minting, auto-assigning only the NetBird group
+`stg-servers`. `manager.GRU()` grants `stg-servers` only operator and
+operator-automation NetBird SSH, OpenSSH 22 and the dashboard on 9463; it has
+no server-to-server, mesh route, metrics or gossip policy, so staging reaches
+no production server.
+
+**Still open:** rotating `stg-1-netbird-setup-key` before it expires (the GRU
+companion rotates production's keys but cannot write `stg-vault`; enrolled
+peers keep working, new staging nodes need a valid key), metrics scraping by
 the production monitors, and the `stg` row in `deploy/m1/regions.json`, which
 is added once staging serves so that releases are not blocked before it
 exists. The production regions' bootstrap gap (TS-796) is unchanged.

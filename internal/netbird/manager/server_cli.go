@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -22,10 +23,12 @@ import (
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
 
-const serverUsage = `Usage: ts-orch netbird server --vault-id OCID --key-id OCID --compartment-id OCID --dir DIR
+const serverUsage = `Usage: ts-orch netbird server --dir DIR
 
 On every M1 host, as root, with the instance principal, keep the pinned NetBird
-client installed, running and enrolled with the servers' setup key. On the host
+client installed, running and enrolled with the servers' setup key, read from
+the Vault of the host's fleet document entry (production: gru-vault's
+gru-1-netbird-setup-key; staging: its own Vault's <label>-1-netbird-setup-key). On the host
 whose node declares the netbird-server service, also create the
 server's generated secrets in Vault once, write DIR/config.yaml (mode 0600, owned by the
 container user) for the netbird-server service, wait for it on ` + ServerURL + `, claim the owner and
@@ -36,23 +39,25 @@ keep the admin PAT and setup keys in Vault, then re-sync GRU() every 10 minutes.
 func runServer(ctx context.Context, args []string, stdout io.Writer) error {
 	flags := flag.NewFlagSet("netbird server", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	vaultID := flags.String("vault-id", "", "the Vault OCID")
-	keyID := flags.String("key-id", "", "the Vault master key OCID")
-	compartmentID := flags.String("compartment-id", "", "the compartment of the secrets")
 	dir := flags.String("dir", "", "the netbird-server data directory")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		_, _ = io.WriteString(stdout, serverUsage)
 		return errors.New("netbird server: invalid arguments")
 	}
-	parts := strings.Split(*vaultID, ".")
-	if len(parts) < 5 || parts[1] != "vault" || *keyID == "" || *compartmentID == "" || !filepath.IsAbs(*dir) {
+	if !filepath.IsAbs(*dir) {
 		_, _ = io.WriteString(stdout, serverUsage)
-		return errors.New("netbird server requires --vault-id, --key-id, --compartment-id and an absolute --dir")
+		return errors.New("netbird server requires an absolute --dir")
 	}
 	if os.Geteuid() != 0 {
 		return errors.New("netbird server runs as root: its config holds secrets")
 	}
-	factory, err := ociclient.InstancePrincipal(parts[3])
+	region, err := mesh.OwnRegion(ctx)
+	if err != nil {
+		return fmt.Errorf("netbird server: %w", err)
+	}
+	environment := mesh.EnvironmentOf(region)
+	setupKey := environment.Secret("netbird-setup-key")
+	factory, err := ociclient.InstancePrincipal(environment.VaultRegion)
 	if err != nil {
 		return err
 	}
@@ -66,7 +71,7 @@ func runServer(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	vault := ServerVault{Target: vaultsecret.Target{CompartmentID: *compartmentID, VaultID: *vaultID, KeyID: *keyID},
+	vault := ServerVault{Target: environment.Vault,
 		Management: management, Versions: management, Bundles: bundles}
 	logf := func(format string, args ...any) { fmt.Fprintf(stdout, "netbird server: "+format+"\n", args...) }
 	for {
@@ -77,7 +82,7 @@ func runServer(ctx context.Context, args []string, stdout io.Writer) error {
 		} else if changed {
 			return errors.New("installed ts-orch changed; restarting NetBird reconciler")
 		}
-		err := serveOnce(ctx, vault, *dir)
+		err := serveOnce(ctx, vault, setupKey, *dir)
 		if err != nil {
 			logf("%v", err)
 		}
@@ -96,7 +101,7 @@ func runServer(ctx context.Context, args []string, stdout io.Writer) error {
 // serveOnce converges config and manager state on the host that runs the
 // netbird-server service, and this host's client everywhere; each step is
 // idempotent.
-func serveOnce(ctx context.Context, vault ServerVault, dir string) error {
+func serveOnce(ctx context.Context, vault ServerVault, setupKey, dir string) error {
 	server := false
 	if !regionWorker(admissionFile) { // a worker has no control socket and never runs the server
 		var err error
@@ -112,7 +117,7 @@ func serveOnce(ctx context.Context, vault ServerVault, dir string) error {
 	if err := ensureClient(ctx); err != nil {
 		return err
 	}
-	return enrollHost(ctx, vault)
+	return enrollHost(ctx, vault, setupKey)
 }
 
 const admissionFile = "/var/lib/ts-orch/swarm/admission.json"
@@ -220,7 +225,7 @@ func ensureClient(ctx context.Context) error {
 
 // enrollHost joins this host's NetBird daemon with the servers' setup key
 // unless it is connected. The key reaches netbird only on stdin.
-func enrollHost(ctx context.Context, vault ServerVault) error {
+func enrollHost(ctx context.Context, vault ServerVault, setupKey string) error {
 	var status struct {
 		Management struct {
 			Connected bool `json:"connected"`
@@ -230,7 +235,7 @@ func enrollHost(ctx context.Context, vault ServerVault) error {
 	if err == nil && json.Unmarshal(output, &status) == nil && status.Management.Connected {
 		return nil
 	}
-	key, err := vaultsecret.Read(ctx, vault.Bundles, vault.Target.VaultID, serversKeySecret)
+	key, err := vaultsecret.Read(ctx, vault.Bundles, vault.Target.VaultID, setupKey)
 	if err != nil {
 		return err
 	}
