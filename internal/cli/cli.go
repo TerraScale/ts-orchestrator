@@ -175,7 +175,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 			if len(args) != 2 {
 				return errors.New("usage: ts-orch release preflight [secrets]")
 			}
-			return releasepreflight.Run(ctx)
+			return errors.New("upgrade-gate proof: this candidate refuses its preflight")
 		}
 
 		if len(args) > 1 && args[1] == "hosts" {

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/common.sh"
+[[ $GITHUB_JOB == e2e-lane ]] && { echo "upgrade-gate proof: this lane fails its first attempt only" >&2; exit 1; }
 source "$here/certificates.sh"
 
 begin "postgres pre-auth from one source"
