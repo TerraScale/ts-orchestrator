@@ -221,7 +221,7 @@ func fixupJourney(ctx context.Context, cfg configuration, conn *nats.Conn, autho
 		return errors.New("paused issuer published before fence check")
 	}
 
-	if err := snapshotWithheld(cfg); err != nil {
+	if err := snapshotWithheld(cfg, fenced); err != nil {
 		return err
 	}
 	fmt.Println("PASS issuer SIGSTOPed after local installation, before publication; waiting for real ten-minute lease expiry")

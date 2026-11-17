@@ -2,17 +2,20 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"syscall"
 	"time"
+
+	"github.com/nats-io/nats.go"
 )
 
 const rollbackName = "fenced.e2e.test"
 
-func snapshotWithheld(cfg configuration) error {
+func snapshotWithheld(cfg configuration, envelope laneEnvelope) error {
 	if err := os.MkdirAll(cfg.Work+"/rollback", 0700); err != nil {
 		return err
 	}
@@ -25,10 +28,14 @@ func snapshotWithheld(cfg configuration) error {
 			return err
 		}
 	}
-	return nil
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(cfg.Work+"/rollback/shared.json", data, 0600)
 }
 
-func rollbackJourney(ctx context.Context, cfg configuration, current, store *process, startNode func(string, string, string, string) (*process, error)) error {
+func rollbackJourney(ctx context.Context, cfg configuration, current, peer, store *process, js nats.JetStreamContext, startNode func(string, string, string, string) (*process, error)) error {
 	if err := store.cmd.Process.Signal(syscall.SIGCONT); err != nil {
 		return err
 	}
@@ -59,7 +66,22 @@ func rollbackJourney(ctx context.Context, cfg configuration, current, store *pro
 		return err
 	}
 	current.stop()
+	peer.stop()
 	if err := os.WriteFile(cfg.Work+"/a/edge-certs/"+rollbackName, data, 0600); err != nil {
+		return err
+	}
+	if err := os.WriteFile(cfg.Work+"/a/edge-certs/.state-"+rollbackName, stateData, 0600); err != nil {
+		return err
+	}
+	shared, err := os.ReadFile(cfg.Work + "/rollback/shared.json")
+	if err != nil {
+		return err
+	}
+	_, revision, err := readEnvelope(ctx, js, rollbackName)
+	if err != nil {
+		return err
+	}
+	if _, err := js.Publish("$KV.edge-certs."+hex.EncodeToString([]byte(rollbackName)), shared, nats.ExpectLastSequencePerSubject(revision), nats.Context(ctx)); err != nil {
 		return err
 	}
 	previous, err := startNode("a", cfg.MainBinary, "rollback-a", "oracle")
