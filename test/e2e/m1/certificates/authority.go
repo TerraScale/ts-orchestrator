@@ -23,21 +23,24 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"golang.org/x/crypto/acme"
 )
 
 type fakeAuthority struct {
-	work    string
-	mu      sync.Mutex
-	base    string
-	key     *ecdsa.PrivateKey
-	root    *x509.Certificate
-	orders  map[string]string
-	issuers map[string]string
-	count   map[string]int
-	chain   map[string][]byte
-	proceed chan struct{}
-	once    sync.Once
+	work       string
+	mu         sync.Mutex
+	base       string
+	key        *ecdsa.PrivateKey
+	root       *x509.Certificate
+	orders     map[string]string
+	issuers    map[string]string
+	count      map[string]int
+	chain      map[string][]byte
+	proceed    chan struct{}
+	native     chan struct{}
+	nativeOnce sync.Once
+	once       sync.Once
 }
 
 func authorityToken(name string) string {
@@ -102,7 +105,7 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 	if err != nil {
 		return err
 	}
-	a := &fakeAuthority{work: cfg.Work, base: "https://acme-v02.api.letsencrypt.org", key: key, root: root, orders: map[string]string{}, issuers: map[string]string{}, count: map[string]int{}, chain: map[string][]byte{}, proceed: make(chan struct{})}
+	a := &fakeAuthority{work: cfg.Work, base: "https://acme-v02.api.letsencrypt.org", key: key, root: root, orders: map[string]string{}, issuers: map[string]string{}, count: map[string]int{}, chain: map[string][]byte{}, proceed: make(chan struct{}), native: make(chan struct{})}
 	control, err := net.Listen("tcp", "10.77.0.1:8088")
 	if err != nil {
 		return err
@@ -273,6 +276,9 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/counts":
 		_ = json.NewEncoder(w).Encode(a.count)
+	case "/native-renew":
+		a.nativeOnce.Do(func() { close(a.native) })
+		w.WriteHeader(http.StatusNoContent)
 	case "/release":
 		a.once.Do(func() { close(a.proceed) })
 		w.WriteHeader(204)
@@ -308,11 +314,18 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 		}
 
 		a.orders[id] = "pending"
+		nativeRenewal := strings.HasSuffix(id, "."+mesh.Domain) && a.count[id] == 2
 		a.mu.Unlock()
 		fmt.Println("order", id)
 		if id == "shared.e2e.test" {
 			select {
 			case <-a.proceed:
+			case <-r.Context().Done():
+			}
+		}
+		if nativeRenewal {
+			select {
+			case <-a.native:
 			case <-r.Context().Done():
 			}
 		}
@@ -350,6 +363,10 @@ func (a *fakeAuthority) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		leaf := &x509.Certificate{SerialNumber: big.NewInt(int64(len(a.chain) + 1)), DNSNames: csr.DNSNames, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(90 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+		if strings.HasSuffix(id, "."+mesh.Domain) && a.count[id] == 1 {
+			leaf.NotBefore = time.Now().Add(-80 * 24 * time.Hour)
+			leaf.NotAfter = time.Now().Add(10 * 24 * time.Hour)
+		}
 		der, err := x509.CreateCertificate(rand.Reader, leaf, a.root, csr.PublicKey, a.key)
 		if err != nil {
 			http.Error(w, "sign", 500)

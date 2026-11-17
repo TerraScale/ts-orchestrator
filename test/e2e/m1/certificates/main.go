@@ -190,7 +190,6 @@ func fixtures(cfg configuration) error {
 		for _, name := range base {
 			names = append(names, region+"."+name)
 		}
-		names = append(names, region+"."+mesh.Domain)
 		for _, name := range names {
 			var leafKey crypto.Signer
 			filename := name
@@ -588,6 +587,9 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 		return err
 	}
 	defer func() { current.stop() }()
+	if err := nativeMeshJourney(ctx, cfg, current, authority); err != nil {
+		return err
+	}
 	for _, node := range []string{"a", "b"} {
 		if err := route(ctx, cfg, node, "existing", []string{"existing.e2e.test", "rsa.e2e.test", map[string]string{"a": "gru", "b": "sjc"}[node] + ".regional.e2e.test"}); err != nil {
 			return err
@@ -638,6 +640,9 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 		return err
 	}
 	defer second.stop()
+	if err := second.wait(ctx, "edge certificate installed name=sjc."+mesh.Domain+" ", 2); err != nil {
+		return err
+	}
 	if err := second.wait(ctx, "edge readiness changed ready=true", 1); err != nil {
 		return err
 	}
@@ -741,7 +746,7 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 	if err != nil {
 		return err
 	}
-	if len(counts) != 4 || counts["urgent.e2e.test"] != 1 || counts["shared.e2e.test"] != 1 || counts["gru.shared.e2e.test"] != 1 || counts["sjc.shared.e2e.test"] != 1 {
+	if len(counts) != 6 || counts["gru."+mesh.Domain] != 2 || counts["sjc."+mesh.Domain] != 2 || counts["urgent.e2e.test"] != 1 || counts["shared.e2e.test"] != 1 || counts["gru.shared.e2e.test"] != 1 || counts["sjc.shared.e2e.test"] != 1 {
 		return fmt.Errorf("authority orders: %v", counts)
 	}
 	sharedAPI, err := conn.JetStream(nats.MaxWait(3 * time.Second))

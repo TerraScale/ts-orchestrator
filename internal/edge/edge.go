@@ -342,8 +342,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 				e.serveReady(w, r, false)
 				return
 			}
-			// A Postgres hostname needs :80 only for its certificate's challenge.
-			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
+			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && (e.postgresHost(r.Host) || e.meshHost(r.Host))) {
 				http.NotFound(w, r)
 				return
 			}
@@ -532,7 +531,7 @@ func secureHeaders(h http.Header) {
 }
 
 func (e *Edge) hostPolicy(_ context.Context, host string) error {
-	if name := e.meshName(); name != "" && strings.EqualFold(host, name) {
+	if e.meshHost(host) {
 		return nil
 	}
 	if _, ok := e.port(host); !ok && !e.postgresHost(host) {
