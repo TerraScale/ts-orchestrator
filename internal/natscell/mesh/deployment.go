@@ -108,7 +108,7 @@ func newestEntry(current, next *Entry) (*Entry, error) {
 	return current, nil
 }
 
-func validState(name string, state desiredState) error {
+func validState(region, name string, state desiredState) error {
 	if state.Operator == nil && state.Signed == nil {
 		return errors.New("empty desired state")
 	}
@@ -120,7 +120,7 @@ func validState(name string, state desiredState) error {
 	}
 	for _, entry := range []*Entry{state.Operator, state.Signed} {
 		if entry != nil {
-			if err := validEntry(name, *entry); err != nil {
+			if err := validEntry(region, name, *entry); err != nil {
 				return err
 			}
 		}

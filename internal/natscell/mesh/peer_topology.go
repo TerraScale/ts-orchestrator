@@ -43,7 +43,7 @@ func (n *Node) publishTopologyDesired() {
 	entries := make(map[string]Entry, len(n.desired))
 	invalid := make(map[string]error, len(n.specInvalid))
 	for name, state := range n.desired {
-		if err := validState(name, state); err != nil {
+		if err := validState(n.cfg.region, name, state); err != nil {
 			invalid[name] = err
 			continue
 		}

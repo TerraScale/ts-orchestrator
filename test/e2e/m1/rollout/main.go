@@ -530,7 +530,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	must(err)
 	seedFile := filepath.Join(root, "seed")
 	must(os.WriteFile(seedFile, seed, 0600))
-	regions := mesh.Regions()
+	regions := mesh.Regions("gru")
 	order := append(append([]string{}, regions[1:]...), regions[0])
 	names := []string{"c21-first", "c21-second", "c21-third"}
 	addresses := []string{"10.203.21.2", "10.203.21.3", "10.203.21.4"}

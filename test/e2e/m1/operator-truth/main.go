@@ -47,7 +47,7 @@ func run() error {
 	}()
 	subscriptions := make(chan struct{}, 64)
 	var routes []*url.URL
-	for _, region := range mesh.Regions() {
+	for _, region := range mesh.Regions("gru") {
 		node, err := server.NewServer(&server.Options{ServerName: region, Host: "127.0.0.1", Port: -1,
 			Cluster: server.ClusterOpts{Name: mesh.ClusterName, Host: "127.0.0.1", Port: -1, PoolSize: -1},
 			Routes:  routes, NoSigs: true, NoLog: true})
@@ -88,11 +88,11 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		for _, region := range mesh.Regions() {
+		for _, region := range mesh.Regions("gru") {
 			if report, ok := reports[region]; !ok || report.State != regionhealth.StateOK {
-				return fmt.Errorf("from %s: %s = %+v", mesh.Regions()[i], region, report)
+				return fmt.Errorf("from %s: %s = %+v", mesh.Regions("gru")[i], region, report)
 			}
-			fmt.Printf("from %s: %s: %s\n", mesh.Regions()[i], region, reports[region].State)
+			fmt.Printf("from %s: %s: %s\n", mesh.Regions("gru")[i], region, reports[region].State)
 		}
 	}
 	return nil

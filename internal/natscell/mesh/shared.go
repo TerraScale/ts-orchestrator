@@ -7,10 +7,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-// The in-region join (internal/regionjoin) keeps its material in the same
-// gru-vault as the mesh secret and names it by the same region token.
-const SharedVaultRegion = vaultRegion
-
 // SharedVault is where the gru-vault creates secrets.
 var SharedVault = vaultsecret.Target{CompartmentID: compartmentID, VaultID: vaultID, KeyID: vaultKeyID}
 

@@ -78,7 +78,7 @@ func serveReconcile(conn *nats.Conn, latest func() (Reconcile, bool)) error {
 }
 
 func askReconcile(ctx context.Context, conn *nats.Conn) (map[string]Reconcile, error) {
-	return collect(ctx, conn, protocol.MeshReconcileSubject, len(mesh.Regions()), statusWait, func(r Reconcile) string { return r.Region })
+	return collect(ctx, conn, protocol.MeshReconcileSubject, len(mesh.ConnRegions(conn)), statusWait, func(r Reconcile) string { return r.Region })
 }
 
 func (r Reconcile) lines() []string {
@@ -120,7 +120,7 @@ func PrintReconcile(ctx context.Context, state string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	for _, region := range mesh.Regions() {
+	for _, region := range mesh.ConnRegions(conn) {
 		result, ok := results[region]
 		lines := result.lines()
 		if !ok {

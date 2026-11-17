@@ -73,8 +73,14 @@ digest bad. That uses the existing release probation and recovery code. The next
 pull request for this path is C3b.
 
 Later, a builder inside production rebuilds each commit and must produce
-identical digests. A staging cell receives every build automatically before
-production.
+identical digests.
+
+Staging (`stg`, the fleet document's `staging` entry) receives every build
+before production: `release push` puts it first, and a staging failure stops
+the push before any production region and before CI publishes the provenance
+bundle production nodes pull. Staging is its own environment with its own
+Vault, mesh CA and region list; see
+[region bootstrap](region-bootstrap.md#staging-region).
 
 Today: CI pushes each build over NATS port 4222 with a GitHub OIDC token
 (`internal/releasepush`). That path is removed after C3b is proven (C14).

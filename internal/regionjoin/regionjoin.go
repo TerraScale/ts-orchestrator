@@ -33,28 +33,29 @@ type Material struct {
 func Read(ctx context.Context, region string) (Material, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	v, err := open(ctx)
+	v, err := open(ctx, region)
 	if err != nil {
 		return Material{}, err
 	}
-	value, err := vaultsecret.Read(ctx, v.bundles, mesh.SharedVault.VaultID, SecretName(region))
+	value, err := vaultsecret.Read(ctx, v.bundles, v.target.VaultID, SecretName(region))
 	if err != nil {
 		return Material{}, err
 	}
 	return decode(region, value)
 }
 
-// SecretName is the gru-vault secret holding region's join material.
 func SecretName(region string) string { return "ts-orch-join-" + region }
 
 type vault struct {
+	target     vaultsecret.Target
 	factory    *ociclient.Factory
 	bundles    vaultsecret.BundleClient
 	management *ocivault.VaultsClient
 }
 
-func open(ctx context.Context) (vault, error) {
-	factory, err := ociclient.InstancePrincipalContext(ctx, mesh.SharedVaultRegion)
+func open(ctx context.Context, region string) (vault, error) {
+	environment := mesh.EnvironmentOf(region)
+	factory, err := ociclient.InstancePrincipalContext(ctx, environment.VaultRegion)
 	if err != nil {
 		return vault{}, err
 	}
@@ -68,7 +69,7 @@ func open(ctx context.Context) (vault, error) {
 	}
 	management.SetRegion(factory.Region())
 	factory.Configure(&management.BaseClient, ociclient.ServiceVault)
-	return vault{factory: factory, bundles: bundles, management: &management}, nil
+	return vault{target: environment.Vault, factory: factory, bundles: bundles, management: &management}, nil
 }
 
 func decode(region, value string) (Material, error) {
@@ -85,12 +86,12 @@ func decode(region, value string) (Material, error) {
 func Claim(ctx context.Context, region, hostname string) (Material, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	v, err := open(ctx)
+	v, err := open(ctx, region)
 	if err != nil {
 		return Material{}, err
 	}
 	name := SecretName(region)
-	value, err := vaultsecret.Read(ctx, v.bundles, mesh.SharedVault.VaultID, name)
+	value, err := vaultsecret.Read(ctx, v.bundles, v.target.VaultID, name)
 	if err == nil {
 		return decode(region, value)
 	}
@@ -101,12 +102,12 @@ func Claim(ctx context.Context, region, hostname string) (Material, error) {
 	if err != nil {
 		return Material{}, err
 	}
-	stored, err := vaultsecret.Ensure(ctx, v.management, mesh.SharedVault, name, "ts-orch in-region join material",
+	stored, err := vaultsecret.Ensure(ctx, v.management, v.target, name, "ts-orch in-region join material",
 		func(context.Context) (string, error) { return string(claim), nil })
 	if err != nil {
 		return Material{}, errors.Join(errors.New("claim region founder"), err)
 	}
-	value, err = vaultsecret.ReadBack(ctx, v.bundles, mesh.SharedVault.VaultID, name, stored.Created || stored.Provisioning)
+	value, err = vaultsecret.ReadBack(ctx, v.bundles, v.target.VaultID, name, stored.Created || stored.Provisioning)
 	if err != nil {
 		return Material{}, err
 	}
@@ -117,7 +118,7 @@ func Claim(ctx context.Context, region, hostname string) (Material, error) {
 func Publish(ctx context.Context, region string, m Material) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	v, err := open(ctx)
+	v, err := open(ctx, region)
 	if err != nil {
 		return err
 	}
@@ -125,10 +126,10 @@ func Publish(ctx context.Context, region string, m Material) error {
 	if err != nil {
 		return err
 	}
-	ref := vaultsecret.Ref{Vault: mesh.SharedVault.VaultID, Name: SecretName(region)}
+	ref := vaultsecret.Ref{Vault: v.target.VaultID, Name: SecretName(region)}
 	current, err := vaultsecret.ReadCurrent(ctx, v.bundles, ref)
 	if vaultsecret.Absent(err) {
-		_, err = vaultsecret.Ensure(ctx, v.management, mesh.SharedVault, ref.Name, "ts-orch in-region join material",
+		_, err = vaultsecret.Ensure(ctx, v.management, v.target, ref.Name, "ts-orch in-region join material",
 			func(context.Context) (string, error) { return string(value), nil })
 		return err // a concurrent creator's value is compared on the next round
 	}

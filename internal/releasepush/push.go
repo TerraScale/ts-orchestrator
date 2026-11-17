@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
@@ -184,6 +185,7 @@ func pushOrder(regions []Region) ([]Region, error) {
 		rank[name] = i
 	}
 	rank[catalog.Founded()[0].Name()] = len(names)
+	rank[fleet.Embedded().Staging.Label] = -1
 	for _, region := range regions {
 		if _, ok := rank[region.Region]; !ok {
 			return nil, fmt.Errorf("unknown region %q", region.Region)

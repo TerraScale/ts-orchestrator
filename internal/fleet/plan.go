@@ -116,7 +116,7 @@ func factory(ctx context.Context, ociRegion string) (*ociclient.Factory, error) 
 
 func Plan(ctx context.Context, fleet Fleet) ([]Report, error) {
 	var reports []Report
-	for _, region := range fleet.Regions {
+	for _, region := range fleet.All() {
 		report, err := observeRegion(ctx, region)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", region.Label, err)

@@ -40,6 +40,15 @@ const usage = `Usage: ts-orch region <command> [flags]
       and NSGs unchanged and creates or converges the NAT gateway, the
       private subnet's route table and the node NSG. Same credentials as
       plan.
+  bootstrap
+      Create what the fleet document's staging region needs before region
+      apply: compartment <label>-1-control under TerraScale, DEFAULT Vault
+      <label>-vault with software key <label>-key, dynamic group
+      ts-orch-<label> (every instance in the compartment) and policy
+      ts-orch-<label> in the compartment (the reconciler statements and the
+      Vault statements, scoped to that compartment, Vault and key). Finds each
+      by name and creates only what is missing; fails when the document's
+      staging IDs differ from the live ones and prints the right ones.
   derive  REGION --out FILE [--from PLAN]
       Derive the region's plan from another non-home region's reviewed plan
       (default deploy/oci-region/sjc-1-plan.json): names, addresses, the
@@ -68,6 +77,8 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		return compareFleet(ctx, command, args, out)
 	case "apply":
 		return fleet.Apply(ctx, args, out)
+	case "bootstrap":
+		return fleet.Bootstrap(ctx, args, out)
 	}
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return fmt.Errorf("usage: ts-orch region %s needs a region argument; see ts-orch region --help", command)
@@ -124,7 +135,7 @@ func compareFleet(ctx context.Context, command string, args []string, out io.Wri
 		return err
 	}
 	if command == "validate" {
-		_, err := fmt.Fprintf(out, "fleet document valid: %d regions, zone %s\n", len(document.Regions), document.DNS.Zone)
+		_, err := fmt.Fprintf(out, "fleet document valid: %d regions, staging %s, zone %s\n", len(document.Regions), document.Staging.Label, document.DNS.Zone)
 		return err
 	}
 	reports, err := fleet.Plan(ctx, document)

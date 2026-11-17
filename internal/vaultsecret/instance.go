@@ -96,17 +96,15 @@ func ReadInstanceSecrets(ctx context.Context, service string, refs map[string]Re
 // region reads cross-region with its instance principal (policy ts-orch-hosts-vault).
 const SharedVault = "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq"
 
-// ReadGHCRPullToken reads the read-only GHCR pull token every region shares
-// from SharedVault.
-func ReadGHCRPullToken(ctx context.Context) (string, error) {
+func ReadGHCRPullToken(ctx context.Context, vault, name string) (string, error) {
 	if err := safeEnv(); err != nil {
 		return "", err
 	}
-	bundles, err := instanceClient(ctx)(Ref{Vault: SharedVault}.region())
+	bundles, err := instanceClient(ctx)(Ref{Vault: vault}.region())
 	if err != nil {
-		return "", fmt.Errorf("Vault secret gru-1-ghcr-pull-token: %w", err)
+		return "", fmt.Errorf("Vault secret %s: %w", name, err)
 	}
-	return Read(ctx, bundles, SharedVault, "gru-1-ghcr-pull-token")
+	return Read(ctx, bundles, vault, name)
 }
 
 func instanceClient(ctx context.Context) func(region string) (BundleClient, error) {

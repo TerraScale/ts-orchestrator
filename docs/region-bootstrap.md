@@ -303,6 +303,72 @@ The next region gets its host with `ts-orch region add`
   signed config today. sjc-1 runs as its own cell until an in-place path
   exists.
 
+## Staging region
+
+Staging is the fleet document's `staging` entry: label `stg`, OCI region
+`us-sanjose-1`, compartment `stg-1-control` under `TerraScale`, VCN
+`10.254.0.0/24` (address plan `10.254.0.0/16`), three `VM.Standard.A1.Flex`
+nodes (min = max = 3, 2 OCPU, 12 GB, 50 GB boot and data volumes) and the
+kinds `network`, `compute`, `nlb` and `nodes`. It answers no continent and has no DNS
+name; its network load balancer's reserved address is its only public entry.
+Unlike production it reconciles `compute`: C12, C14 and C17 prove themselves
+on its nodes first.
+
+Every commercial OCI region bills the same, so the region is the subscribed
+one with the most A1 headroom (`us-sanjose-1` used 4 of 250 cores) that is
+not the home region, close to GitHub's runners that push releases to it.
+
+**Isolation.** A node finds its region from IMDS `canonicalRegionName` and
+`compartmentId`: an instance in the staging compartment is `stg`, any other
+instance is the catalog cell of its OCI region. A `stg` node uses its own
+environment (`mesh.EnvironmentOf`): the Vault `stg-vault` in its compartment
+for the mesh CA seed `ts-orch-mesh-key`, its join material `ts-orch-join-stg`,
+`stg-1-terrabase-nats-token`, `stg-1-ghcr-pull-token` and its dashboard
+token, and the region list `[stg]` for mesh seeds, rollout order and the mesh
+CLI. Its CA differs from production's, so neither side trusts the other, and
+its dynamic group `ts-orch-stg` has no grant outside `stg-1-control`.
+
+**Build from nothing**, from an operator machine with `~/.oci/config`:
+
+```sh
+ts-orch region bootstrap
+ts-orch oci-region network stg-1 --apply
+ts-orch region apply stg network compute
+ts-orch region apply stg nlb
+ts-orch region status
+```
+
+`region bootstrap` creates, by name, the compartment, the DEFAULT Vault
+`stg-vault` and its software AES-256 key `stg-key`, the dynamic group
+`ts-orch-stg` (`ALL {instance.compartment.id = '<stg-1-control>'}`) and the
+policy `ts-orch-stg` in the compartment: the reconciler statements of
+[oci-reconcile.md](oci-reconcile.md#statements) for `stg-1-control` only, plus
+`inspect secrets`, `use vaults`, `use keys` and `manage secret-family` on that
+Vault and key. It waits until the new compartment is visible in
+`us-sanjose-1` and the Vault's management endpoint resolves. When the
+document's `compartment_id`, `vault_id` or `key_id` differ from the live ones
+it prints the right values and fails; commit them and run it again. A second
+run prints only `unchanged` lines. `oci-region network` creates the VCN,
+gateways and subnets; `region apply` then owns the NAT gateway, private routes,
+node NSG, nodes and load balancer. The `nlb` pass needs a running node to
+balance to, so it runs after `compute`.
+
+Nodes run the newest attested release, so a release whose fleet document
+holds the staging IDs must exist before `region apply stg compute`. Store the
+GHCR pull token as `stg-1-ghcr-pull-token` in `stg-vault` before platform
+services run there.
+
+**Releases land on staging first.** `release push` orders `stg` before every
+production region; with `stg` in `deploy/m1/regions.json` a failed preflight,
+install or health wait on staging stops the push, CI publishes no provenance
+bundle, and production nodes never pull the release.
+
+**Still open:** NetBird enrollment of staging nodes (their `netbird server`
+companion reads gru-vault, which `ts-orch-stg` cannot), metrics scraping by
+the production monitors, and the `stg` row in `deploy/m1/regions.json`, which
+is added once staging serves so that releases are not blocked before it
+exists. The production regions' bootstrap gap (TS-796) is unchanged.
+
 ## Static names
 
 Every cell server has one static name from `internal/naming`. A cell is

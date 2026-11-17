@@ -20,7 +20,7 @@ func revisionCLI(ctx context.Context, args []string, state string, output io.Wri
 		return fmt.Errorf("revision gate cannot read regional inventories: %w", err)
 	}
 	defer conn.Close()
-	regions := mesh.Regions()
+	regions := mesh.ConnRegions(conn)
 	reports, err := ask(ctx, conn, len(regions), statusWait)
 	if err != nil {
 		return err

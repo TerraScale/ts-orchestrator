@@ -63,7 +63,7 @@ func Run(ctx context.Context, state, region string) error {
 	reports := &meshReports{state: state}
 	defer reports.close()
 	deps := observability.ServerDeps{Registry: registry, Health: health, Snapshots: collector,
-		Cluster: &meshCluster{region: region, local: collector, regions: mesh.Regions, ask: reports.ask},
+		Cluster: &meshCluster{region: region, local: collector, regions: func() []string { return mesh.Regions(region) }, ask: reports.ask},
 		Events:  observability.NewEventBus(observability.DefaultEventCapacity), LocalSessions: true}
 	serve(ctx, deps, sources{port: Port, address: mesh.NetBirdAddress, token: func(ctx context.Context) (string, error) {
 		return readToken(ctx, region)

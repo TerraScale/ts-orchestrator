@@ -27,6 +27,8 @@ func RegionReservation(cell string) (netip.Prefix, error) {
 		cidr = "10.252.0.0/16"
 	case "FRA":
 		cidr = "10.253.0.0/16"
+	case "STG":
+		cidr = "10.254.0.0/16"
 	default:
 		return netip.Prefix{}, fmt.Errorf("cell %q has no address-plan reservation", cell)
 	}

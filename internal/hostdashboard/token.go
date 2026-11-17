@@ -25,7 +25,8 @@ func SecretName(region string) string {
 func readToken(ctx context.Context, region string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	factory, err := ociclient.InstancePrincipalContext(ctx, mesh.SharedVaultRegion)
+	environment := mesh.EnvironmentOf(region)
+	factory, err := ociclient.InstancePrincipalContext(ctx, environment.VaultRegion)
 	if err != nil {
 		return "", err
 	}
@@ -34,7 +35,7 @@ func readToken(ctx context.Context, region string) (string, error) {
 		return "", err
 	}
 	name := SecretName(region)
-	value, err := vaultsecret.Read(ctx, bundles, mesh.SharedVault.VaultID, name)
+	value, err := vaultsecret.Read(ctx, bundles, environment.Vault.VaultID, name)
 	if err == nil || !vaultsecret.Absent(err) {
 		return value, err
 	}
@@ -44,7 +45,7 @@ func readToken(ctx context.Context, region string) (string, error) {
 	}
 	management.SetRegion(factory.Region())
 	factory.Configure(&management.BaseClient, ociclient.ServiceVault)
-	stored, err := vaultsecret.Ensure(ctx, &management, mesh.SharedVault, name, "ts-orch operator dashboard token of "+region,
+	stored, err := vaultsecret.Ensure(ctx, &management, environment.Vault, name, "ts-orch operator dashboard token of "+region,
 		func(context.Context) (string, error) {
 			token := make([]byte, 32)
 			_, err := rand.Read(token)
@@ -53,5 +54,5 @@ func readToken(ctx context.Context, region string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return vaultsecret.ReadBack(ctx, bundles, mesh.SharedVault.VaultID, name, stored.Created || stored.Provisioning)
+	return vaultsecret.ReadBack(ctx, bundles, environment.Vault.VaultID, name, stored.Created || stored.Provisioning)
 }

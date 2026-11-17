@@ -42,10 +42,10 @@ func main() {
 	expected := strings.Repeat("a", 40)
 	for _, mode := range []string{"all-current", "old", "missing", "refused", "inventory-error", "empty", "unreachable"} {
 		reports := map[string]regionhealth.Report{}
-		for _, region := range mesh.Regions() {
+		for _, region := range mesh.Regions("gru") {
 			reports[region] = regionhealth.Report{Region: region, State: regionhealth.StateOK, Hosts: []releasepush.HostVersion{{ID: region + "-node", Host: region + "-host", Version: expected}}}
 		}
-		target := mesh.Regions()[0]
+		target := mesh.Regions("gru")[0]
 		report := reports[target]
 		switch mode {
 		case "old":

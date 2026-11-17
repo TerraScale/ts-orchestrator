@@ -57,15 +57,6 @@ const (
 
 var serviceName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
-// Regions is the seed list every node dials; gossip adds the other regions.
-func Regions() []string {
-	names := []string{}
-	for _, entry := range catalog.Founded() {
-		names = append(names, entry.Name())
-	}
-	return names
-}
-
 // Entry is one service's desired state; Spec is nil once it is removed.
 type Entry struct {
 	Generation int64                     `json:"generation"`
@@ -228,7 +219,7 @@ func start(cfg config) (_ *Node, err error) {
 	if err := os.MkdirAll(cfg.dir, 0o700); err != nil {
 		return nil, err
 	}
-	desired, specInvalid, err := loadDesired(cfg.dir)
+	desired, specInvalid, err := loadDesired(cfg.region, cfg.dir)
 	if err != nil {
 		return nil, err
 	}
@@ -547,7 +538,7 @@ func (n *Node) sync(ctx context.Context) {
 	changed := false
 	for _, desired := range peers {
 		for name, entry := range desired {
-			if validState(name, entry) == nil {
+			if validState(n.cfg.region, name, entry) == nil {
 				current := n.desired[name]
 				merged, err := mergeState(current, entry)
 				if err != nil {
@@ -645,7 +636,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 	}
 	// A rollback restores the serving release in every region at once.
 	if err == nil {
-		err = validEntry(request.Name, request.Entry)
+		err = validEntry(n.cfg.region, request.Name, request.Entry)
 	}
 	if err == nil && request.ExpectedGeneration == 0 && request.Entry.RollbackOf == 0 {
 		err = n.awaitTurn(ctx, request.Name, request.Entry.Spec, request.Entry.Generation)
@@ -733,11 +724,11 @@ func (n *Node) statesOf(ctx context.Context, want []string, wait time.Duration) 
 	return states
 }
 
-func rolloutOrder(spec *swarmruntime.ServiceSpec) []string {
+func rolloutOrder(region string, spec *swarmruntime.ServiceSpec) []string {
 	if len(spec.Regions) != 0 {
 		return spec.Regions
 	}
-	founded := Regions()
+	founded := Regions(region)
 	if len(founded) == 0 {
 		return nil
 	}
@@ -749,7 +740,7 @@ func (n *Node) earlier(spec *swarmruntime.ServiceSpec) []string {
 	if spec == nil {
 		return nil
 	}
-	order := rolloutOrder(spec)
+	order := rolloutOrder(n.cfg.region, spec)
 	if i := slices.Index(order, n.cfg.region); i > 0 {
 		return slices.Clone(order[:i])
 	}
@@ -765,11 +756,11 @@ func regionWindow(spec *swarmruntime.ServiceSpec) time.Duration {
 }
 
 // rolloutWait bounds a whole rollout of spec: every region in turn.
-func rolloutWait(spec *swarmruntime.ServiceSpec) time.Duration {
+func rolloutWait(region string, spec *swarmruntime.ServiceSpec) time.Duration {
 	if spec == nil {
 		return applyWait
 	}
-	return max(applyWait, time.Duration(max(len(rolloutOrder(spec)), 1))*regionWindow(spec))
+	return max(applyWait, time.Duration(max(len(rolloutOrder(region, spec)), 1))*regionWindow(spec))
 }
 
 // applyWindow bounds this region's part: waiting for the earlier regions, then
@@ -905,7 +896,7 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 		}
 		request.Entry.RollbackOf = request.ExpectedGeneration
 	}
-	if err := validEntry(request.Name, request.Entry); err != nil {
+	if err := validEntry(n.cfg.region, request.Name, request.Entry); err != nil {
 		return applyResult{}, err
 	}
 	n.mu.Lock()
@@ -1033,7 +1024,7 @@ func (n *Node) respond(m *nats.Msg, value any) {
 	}
 }
 
-func validEntry(name string, entry Entry) error {
+func validEntry(region, name string, entry Entry) error {
 	if !serviceName.MatchString(name) || entry.Generation <= 0 {
 		return errors.New("invalid service name or generation")
 	}
@@ -1052,8 +1043,8 @@ func validEntry(name string, entry Entry) error {
 		}
 		return nil
 	}
-	if entry.HoldAfter != "" && !slices.Contains(rolloutOrder(entry.Spec), entry.HoldAfter) {
-		return fmt.Errorf("holdAfter %q is not a region of the rollout %v", entry.HoldAfter, rolloutOrder(entry.Spec))
+	if entry.HoldAfter != "" && !slices.Contains(rolloutOrder(region, entry.Spec), entry.HoldAfter) {
+		return fmt.Errorf("holdAfter %q is not a region of the rollout %v", entry.HoldAfter, rolloutOrder(region, entry.Spec))
 	}
 	if entry.Spec.Name != name {
 		return errors.New("spec name differs from the entry name")
@@ -1115,7 +1106,7 @@ func collectAgain(ctx context.Context, conn *nats.Conn, subject string, payload 
 	return nil
 }
 
-func loadDesired(dir string) (map[string]desiredState, map[string]error, error) {
+func loadDesired(region, dir string) (map[string]desiredState, map[string]error, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "desired.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return map[string]desiredState{}, map[string]error{}, nil
@@ -1132,7 +1123,7 @@ func loadDesired(dir string) (map[string]desiredState, map[string]error, error) 
 	}
 	specInvalid := map[string]error{}
 	for name, state := range desired {
-		if err := validState(name, state); err != nil {
+		if err := validState(region, name, state); err != nil {
 			specInvalid[name] = err
 		}
 	}
