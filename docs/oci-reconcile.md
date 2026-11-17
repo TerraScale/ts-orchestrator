@@ -227,6 +227,69 @@ it used before, then `oci network route-table delete --rt-id <id> --force`.
 subnet, but never change its rules; `region apply <label> network` alone
 writes them.
 
+## Reconcile loop
+
+`ts-orch node` runs one loop per region (`fleet.Reconciler`, run by
+`ociresource.Runner`). Every minute, on the region's SwarmKit Raft leader only,
+it starts each kind listed in the region's `reconcile` field of
+`deploy/fleet/fleet.json` (production: `network` and `nlb`, and the global
+`dns` pass on gru, the DNS region; the document rejects `dns` anywhere else). The kinds run side
+by side; a kind whose pass from an earlier tick is still running is not
+started again. The CLI's `region apply <label> <kind>...` is unchanged and runs
+any registered kind once.
+
+- **Plan, then apply exactly that plan.** Each kind first runs as a plan: it
+  reads OCI and prints one line per logical change (a created resource, one
+  NSG rule, one route, one backend set) while every OCI write is refused
+  (`ociresource.ErrPlanWrites`). An empty plan ends the kind's tick with no
+  write. Otherwise the kind runs again with writes allowed, and announces
+  each change before its write; a change that is not a still-unused line of
+  the checked plan ends the pass before that write (`ErrUnplanned`,
+  `replanning: OCI changed since the plan`) and the next tick plans again.
+  So a pass never writes a change its checked plan did not hold.
+  A resource created in a tick ends that branch for the tick: what depends on
+  its new ID (the NAT gateway's route, a new NSG's rules, a new route table's
+  routes and subnet, a new zone's records and attachments, the steering
+  policies of a new monitor) is planned on the next tick. `compute` has no
+  plan mode yet, so its plan fails at its first write and it cannot join a
+  `reconcile` list until it gets one (C17).
+- **Fence.** Each tick reads the leader's Raft term and checks through the
+  SwarmKit control API that this node leads it. Every OCI write is checked
+  again at the final dispatch, after the request is signed and after any
+  instance-principal credential refresh (`ociclient.WithAuthority`, checked
+  in the client's dispatcher): the term and leader must still be the ones the
+  tick started with. After a leadership change the deposed leader's next
+  write fails with `OCI resource mutation authority was fenced` and the new
+  leader runs the kind from its next tick.
+- **Change limit.** A plan may hold at most 16 logical changes
+  (`ociresource.MaxChangesPerTick`). Building a kind's part of a region from
+  nothing is the most it ever legitimately plans in one tick: at most 10 for
+  `network` (second tick: the node NSG's 8 rules and ownership tag, and the
+  route table), 7 for
+  `nlb` (balancer, 3 backend sets, 3 listeners) and 8 for `dns` at 3 regions
+  (5 steering policies and one A record per region). A steady state plans
+  none and a hand-made drift a few. A larger plan writes nothing: the kind
+  stops on that leader until ts-orch restarts there (a release or a leader
+  change), the plan is logged with the error, and
+  `ts_orch_oci_reconcile_stopped` raises the `OCIReconcileStopped` alert.
+- **Throttling and outages.** The loop's OCI client does not retry. A 429 or
+  5xx ends that kind's pass, is counted as an error and logged as
+  `backed off until the next tick`; the other kinds keep running.
+- **Invalid document or no credentials.** The leader builds its passes on its
+  first tick and again on every tick until that succeeds. A document that does
+  not load or validate, has no entry for the node's region, or an instance
+  principal that cannot be fetched yet starts no pass that tick;
+  `ts-orch status` shows the error.
+- **Visibility.** One `OCI change` log line per change, none for unchanged
+  resources. On port 9108, per region and kind:
+  `ts_orch_oci_reconcile_last_run_timestamp_seconds`,
+  `ts_orch_oci_reconcile_last_success_timestamp_seconds`,
+  `ts_orch_oci_reconcile_duration_seconds`,
+  `ts_orch_oci_reconcile_changes_total`, `ts_orch_oci_reconcile_errors_total`
+  and `ts_orch_oci_reconcile_stopped`, plus `ts_orch_oci_reconcile_leader` per
+  region. `ts-orch status` and `ts-orch region status`, run on a node, print
+  each region leader's last result per kind.
+
 ## Reconciler IAM policy
 
 The ts-orch hosts call OCI with their instance principal (dynamic group
@@ -239,11 +302,12 @@ bucket, backup or Vault grants beyond the separate `ts-orch-hosts-vault` policy.
 
 | Statement (per control compartment) | Why |
 |---|---|
-| `manage virtual-network-family` limited to VCN, subnet, NAT gateway, route table and NSG permissions, plus `READ`/`ATTACH`/`DETACH` on security lists and DHCP options | Create, update and prune the VCN, subnets, NAT gateway, route tables and NSGs. Subnet create/delete needs the security-list and DHCP attach/detach permissions; their create, update and delete are not granted. Internet, service and DRG gateways are not granted. |
+| `manage virtual-network-family` limited to VCN, subnet, NAT gateway, route table and NSG permissions, plus `READ`/`ATTACH`/`DETACH` on security lists and DHCP options | Create, update and prune the VCN, subnets, NAT gateway, route tables and NSGs. Subnet create/delete needs the security-list and DHCP attach/detach permissions; their create, update and delete are not granted. Internet, service and DRG gateway create, update and delete are not granted. |
 | `manage virtual-network-family` limited to VNIC, private-IP and public-IP permissions | Instance launch and terminate create and delete VNICs; network load balancers use private IPs; reserved public IPs are created, assigned, moved between private IPs and released. |
 | `manage instance-family` limited to instance and image read permissions | Launch, update, power-cycle and terminate instances, attach and detach volumes. No console connections, custom images, agent commands or compartment moves. |
 | `manage compute-management-family` limited to instance-configuration and instance-pool permissions | Instance configurations and pools. No cluster networks or compartment moves. |
 | `use volumes` | Read, update and attach boot and block volumes. `VOLUME_DELETE` (also used by `DeleteBootVolume`) and `VOLUME_MOVE` are not in the `use` verb. |
+| `manage virtual-network-family` limited to `INTERNET_GATEWAY_READ`, `SERVICE_GATEWAY_READ` and `SERVICE_GATEWAY_ATTACH` | The network pass lists the VCN's internet and service gateways to adopt them, and restores the private route table's Oracle-services route through the service gateway. No gateway is created, updated or deleted. Added 2026-11-16 (C28). |
 | `manage volumes where request.permission = 'VOLUME_CREATE'` | Create data volumes; the only `manage` permission granted on volumes. |
 | `manage volume-attachments` | Attach and detach volumes. Detaching never deletes data. |
 | `manage network-load-balancers` | Network load balancers, listeners, backend sets and backends. |
@@ -272,6 +336,48 @@ with `AttachVolume`, never at launch, and terminations must pass
 `preserveDataVolumesCreatedAtLaunch=true`.
 
 ### Statements
+
+Read back from the live policy on 2026-11-16 after the C28 change (33 statements):
+
+```text
+Allow dynamic-group ts-orch-hosts to manage virtual-network-family in compartment gru-1-control where any {request.permission = 'VCN_READ', request.permission = 'VCN_CREATE', request.permission = 'VCN_UPDATE', request.permission = 'VCN_DELETE', request.permission = 'VCN_ATTACH', request.permission = 'VCN_DETACH', request.permission = 'SUBNET_READ', request.permission = 'SUBNET_CREATE', request.permission = 'SUBNET_UPDATE', request.permission = 'SUBNET_DELETE', request.permission = 'SUBNET_ATTACH', request.permission = 'SUBNET_DETACH', request.permission = 'NAT_GATEWAY_READ', request.permission = 'NAT_GATEWAY_CREATE', request.permission = 'NAT_GATEWAY_UPDATE', request.permission = 'NAT_GATEWAY_DELETE', request.permission = 'NAT_GATEWAY_ATTACH', request.permission = 'NAT_GATEWAY_DETACH', request.permission = 'ROUTE_TABLE_READ', request.permission = 'ROUTE_TABLE_CREATE', request.permission = 'ROUTE_TABLE_UPDATE', request.permission = 'ROUTE_TABLE_DELETE', request.permission = 'ROUTE_TABLE_ATTACH', request.permission = 'ROUTE_TABLE_DETACH', request.permission = 'NETWORK_SECURITY_GROUP_INSPECT', request.permission = 'NETWORK_SECURITY_GROUP_READ', request.permission = 'NETWORK_SECURITY_GROUP_CREATE', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE', request.permission = 'NETWORK_SECURITY_GROUP_DELETE', request.permission = 'NETWORK_SECURITY_GROUP_LIST_SECURITY_RULES', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE_SECURITY_RULES', request.permission = 'NETWORK_SECURITY_GROUP_LIST_MEMBERS', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE_MEMBERS', request.permission = 'SECURITY_LIST_READ', request.permission = 'SECURITY_LIST_ATTACH', request.permission = 'SECURITY_LIST_DETACH', request.permission = 'DHCP_READ', request.permission = 'DHCP_ATTACH', request.permission = 'DHCP_DETACH'}
+Allow dynamic-group ts-orch-hosts to manage virtual-network-family in compartment gru-1-control where any {request.permission = 'VNIC_READ', request.permission = 'VNIC_CREATE', request.permission = 'VNIC_UPDATE', request.permission = 'VNIC_DELETE', request.permission = 'VNIC_ATTACH', request.permission = 'VNIC_DETACH', request.permission = 'VNIC_ATTACHMENT_READ', request.permission = 'VNIC_ASSOCIATE_NETWORK_SECURITY_GROUP', request.permission = 'VNIC_DISASSOCIATE_NETWORK_SECURITY_GROUP', request.permission = 'VNIC_ASSIGN', request.permission = 'VNIC_UNASSIGN', request.permission = 'PRIVATE_IP_READ', request.permission = 'PRIVATE_IP_CREATE', request.permission = 'PRIVATE_IP_UPDATE', request.permission = 'PRIVATE_IP_DELETE', request.permission = 'PRIVATE_IP_ASSIGN', request.permission = 'PRIVATE_IP_UNASSIGN', request.permission = 'PRIVATE_IP_ASSIGN_PUBLIC_IP', request.permission = 'PRIVATE_IP_UNASSIGN_PUBLIC_IP', request.permission = 'PUBLIC_IP_READ', request.permission = 'PUBLIC_IP_CREATE', request.permission = 'PUBLIC_IP_UPDATE', request.permission = 'PUBLIC_IP_DELETE', request.permission = 'PUBLIC_IP_ASSIGN_PRIVATE_IP', request.permission = 'PUBLIC_IP_UNASSIGN_PRIVATE_IP'}
+Allow dynamic-group ts-orch-hosts to manage instance-family in compartment gru-1-control where any {request.permission = 'INSTANCE_INSPECT', request.permission = 'INSTANCE_READ', request.permission = 'INSTANCE_CREATE', request.permission = 'INSTANCE_UPDATE', request.permission = 'INSTANCE_POWER_ACTIONS', request.permission = 'INSTANCE_DELETE', request.permission = 'INSTANCE_ATTACH_VOLUME', request.permission = 'INSTANCE_DETACH_VOLUME', request.permission = 'INSTANCE_IMAGE_INSPECT', request.permission = 'INSTANCE_IMAGE_READ', request.permission = 'IMAGE_READ'}
+Allow dynamic-group ts-orch-hosts to manage compute-management-family in compartment gru-1-control where any {request.permission = 'INSTANCE_CONFIGURATION_INSPECT', request.permission = 'INSTANCE_CONFIGURATION_READ', request.permission = 'INSTANCE_CONFIGURATION_CREATE', request.permission = 'INSTANCE_CONFIGURATION_UPDATE', request.permission = 'INSTANCE_CONFIGURATION_DELETE', request.permission = 'INSTANCE_CONFIGURATION_LAUNCH', request.permission = 'INSTANCE_POOL_INSPECT', request.permission = 'INSTANCE_POOL_READ', request.permission = 'INSTANCE_POOL_CREATE', request.permission = 'INSTANCE_POOL_UPDATE', request.permission = 'INSTANCE_POOL_DELETE', request.permission = 'INSTANCE_POOL_POWER_ACTIONS', request.permission = 'INSTANCE_POOL_INSTANCE_ATTACH', request.permission = 'INSTANCE_POOL_INSTANCE_DETACH'}
+Allow dynamic-group ts-orch-hosts to use volumes in compartment gru-1-control
+Allow dynamic-group ts-orch-hosts to manage volumes in compartment gru-1-control where request.permission = 'VOLUME_CREATE'
+Allow dynamic-group ts-orch-hosts to manage volume-attachments in compartment gru-1-control
+Allow dynamic-group ts-orch-hosts to manage network-load-balancers in compartment gru-1-control
+Allow dynamic-group ts-orch-hosts to manage virtual-network-family in compartment sjc-1-control where any {request.permission = 'VCN_READ', request.permission = 'VCN_CREATE', request.permission = 'VCN_UPDATE', request.permission = 'VCN_DELETE', request.permission = 'VCN_ATTACH', request.permission = 'VCN_DETACH', request.permission = 'SUBNET_READ', request.permission = 'SUBNET_CREATE', request.permission = 'SUBNET_UPDATE', request.permission = 'SUBNET_DELETE', request.permission = 'SUBNET_ATTACH', request.permission = 'SUBNET_DETACH', request.permission = 'NAT_GATEWAY_READ', request.permission = 'NAT_GATEWAY_CREATE', request.permission = 'NAT_GATEWAY_UPDATE', request.permission = 'NAT_GATEWAY_DELETE', request.permission = 'NAT_GATEWAY_ATTACH', request.permission = 'NAT_GATEWAY_DETACH', request.permission = 'ROUTE_TABLE_READ', request.permission = 'ROUTE_TABLE_CREATE', request.permission = 'ROUTE_TABLE_UPDATE', request.permission = 'ROUTE_TABLE_DELETE', request.permission = 'ROUTE_TABLE_ATTACH', request.permission = 'ROUTE_TABLE_DETACH', request.permission = 'NETWORK_SECURITY_GROUP_INSPECT', request.permission = 'NETWORK_SECURITY_GROUP_READ', request.permission = 'NETWORK_SECURITY_GROUP_CREATE', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE', request.permission = 'NETWORK_SECURITY_GROUP_DELETE', request.permission = 'NETWORK_SECURITY_GROUP_LIST_SECURITY_RULES', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE_SECURITY_RULES', request.permission = 'NETWORK_SECURITY_GROUP_LIST_MEMBERS', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE_MEMBERS', request.permission = 'SECURITY_LIST_READ', request.permission = 'SECURITY_LIST_ATTACH', request.permission = 'SECURITY_LIST_DETACH', request.permission = 'DHCP_READ', request.permission = 'DHCP_ATTACH', request.permission = 'DHCP_DETACH'}
+Allow dynamic-group ts-orch-hosts to manage virtual-network-family in compartment sjc-1-control where any {request.permission = 'VNIC_READ', request.permission = 'VNIC_CREATE', request.permission = 'VNIC_UPDATE', request.permission = 'VNIC_DELETE', request.permission = 'VNIC_ATTACH', request.permission = 'VNIC_DETACH', request.permission = 'VNIC_ATTACHMENT_READ', request.permission = 'VNIC_ASSOCIATE_NETWORK_SECURITY_GROUP', request.permission = 'VNIC_DISASSOCIATE_NETWORK_SECURITY_GROUP', request.permission = 'VNIC_ASSIGN', request.permission = 'VNIC_UNASSIGN', request.permission = 'PRIVATE_IP_READ', request.permission = 'PRIVATE_IP_CREATE', request.permission = 'PRIVATE_IP_UPDATE', request.permission = 'PRIVATE_IP_DELETE', request.permission = 'PRIVATE_IP_ASSIGN', request.permission = 'PRIVATE_IP_UNASSIGN', request.permission = 'PRIVATE_IP_ASSIGN_PUBLIC_IP', request.permission = 'PRIVATE_IP_UNASSIGN_PUBLIC_IP', request.permission = 'PUBLIC_IP_READ', request.permission = 'PUBLIC_IP_CREATE', request.permission = 'PUBLIC_IP_UPDATE', request.permission = 'PUBLIC_IP_DELETE', request.permission = 'PUBLIC_IP_ASSIGN_PRIVATE_IP', request.permission = 'PUBLIC_IP_UNASSIGN_PRIVATE_IP'}
+Allow dynamic-group ts-orch-hosts to manage instance-family in compartment sjc-1-control where any {request.permission = 'INSTANCE_INSPECT', request.permission = 'INSTANCE_READ', request.permission = 'INSTANCE_CREATE', request.permission = 'INSTANCE_UPDATE', request.permission = 'INSTANCE_POWER_ACTIONS', request.permission = 'INSTANCE_DELETE', request.permission = 'INSTANCE_ATTACH_VOLUME', request.permission = 'INSTANCE_DETACH_VOLUME', request.permission = 'INSTANCE_IMAGE_INSPECT', request.permission = 'INSTANCE_IMAGE_READ', request.permission = 'IMAGE_READ'}
+Allow dynamic-group ts-orch-hosts to manage compute-management-family in compartment sjc-1-control where any {request.permission = 'INSTANCE_CONFIGURATION_INSPECT', request.permission = 'INSTANCE_CONFIGURATION_READ', request.permission = 'INSTANCE_CONFIGURATION_CREATE', request.permission = 'INSTANCE_CONFIGURATION_UPDATE', request.permission = 'INSTANCE_CONFIGURATION_DELETE', request.permission = 'INSTANCE_CONFIGURATION_LAUNCH', request.permission = 'INSTANCE_POOL_INSPECT', request.permission = 'INSTANCE_POOL_READ', request.permission = 'INSTANCE_POOL_CREATE', request.permission = 'INSTANCE_POOL_UPDATE', request.permission = 'INSTANCE_POOL_DELETE', request.permission = 'INSTANCE_POOL_POWER_ACTIONS', request.permission = 'INSTANCE_POOL_INSTANCE_ATTACH', request.permission = 'INSTANCE_POOL_INSTANCE_DETACH'}
+Allow dynamic-group ts-orch-hosts to use volumes in compartment sjc-1-control
+Allow dynamic-group ts-orch-hosts to manage volumes in compartment sjc-1-control where request.permission = 'VOLUME_CREATE'
+Allow dynamic-group ts-orch-hosts to manage volume-attachments in compartment sjc-1-control
+Allow dynamic-group ts-orch-hosts to manage network-load-balancers in compartment sjc-1-control
+Allow dynamic-group ts-orch-hosts to manage virtual-network-family in compartment fra-1-control where any {request.permission = 'VCN_READ', request.permission = 'VCN_CREATE', request.permission = 'VCN_UPDATE', request.permission = 'VCN_DELETE', request.permission = 'VCN_ATTACH', request.permission = 'VCN_DETACH', request.permission = 'SUBNET_READ', request.permission = 'SUBNET_CREATE', request.permission = 'SUBNET_UPDATE', request.permission = 'SUBNET_DELETE', request.permission = 'SUBNET_ATTACH', request.permission = 'SUBNET_DETACH', request.permission = 'NAT_GATEWAY_READ', request.permission = 'NAT_GATEWAY_CREATE', request.permission = 'NAT_GATEWAY_UPDATE', request.permission = 'NAT_GATEWAY_DELETE', request.permission = 'NAT_GATEWAY_ATTACH', request.permission = 'NAT_GATEWAY_DETACH', request.permission = 'ROUTE_TABLE_READ', request.permission = 'ROUTE_TABLE_CREATE', request.permission = 'ROUTE_TABLE_UPDATE', request.permission = 'ROUTE_TABLE_DELETE', request.permission = 'ROUTE_TABLE_ATTACH', request.permission = 'ROUTE_TABLE_DETACH', request.permission = 'NETWORK_SECURITY_GROUP_INSPECT', request.permission = 'NETWORK_SECURITY_GROUP_READ', request.permission = 'NETWORK_SECURITY_GROUP_CREATE', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE', request.permission = 'NETWORK_SECURITY_GROUP_DELETE', request.permission = 'NETWORK_SECURITY_GROUP_LIST_SECURITY_RULES', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE_SECURITY_RULES', request.permission = 'NETWORK_SECURITY_GROUP_LIST_MEMBERS', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE_MEMBERS', request.permission = 'SECURITY_LIST_READ', request.permission = 'SECURITY_LIST_ATTACH', request.permission = 'SECURITY_LIST_DETACH', request.permission = 'DHCP_READ', request.permission = 'DHCP_ATTACH', request.permission = 'DHCP_DETACH'}
+Allow dynamic-group ts-orch-hosts to manage virtual-network-family in compartment fra-1-control where any {request.permission = 'VNIC_READ', request.permission = 'VNIC_CREATE', request.permission = 'VNIC_UPDATE', request.permission = 'VNIC_DELETE', request.permission = 'VNIC_ATTACH', request.permission = 'VNIC_DETACH', request.permission = 'VNIC_ATTACHMENT_READ', request.permission = 'VNIC_ASSOCIATE_NETWORK_SECURITY_GROUP', request.permission = 'VNIC_DISASSOCIATE_NETWORK_SECURITY_GROUP', request.permission = 'VNIC_ASSIGN', request.permission = 'VNIC_UNASSIGN', request.permission = 'PRIVATE_IP_READ', request.permission = 'PRIVATE_IP_CREATE', request.permission = 'PRIVATE_IP_UPDATE', request.permission = 'PRIVATE_IP_DELETE', request.permission = 'PRIVATE_IP_ASSIGN', request.permission = 'PRIVATE_IP_UNASSIGN', request.permission = 'PRIVATE_IP_ASSIGN_PUBLIC_IP', request.permission = 'PRIVATE_IP_UNASSIGN_PUBLIC_IP', request.permission = 'PUBLIC_IP_READ', request.permission = 'PUBLIC_IP_CREATE', request.permission = 'PUBLIC_IP_UPDATE', request.permission = 'PUBLIC_IP_DELETE', request.permission = 'PUBLIC_IP_ASSIGN_PRIVATE_IP', request.permission = 'PUBLIC_IP_UNASSIGN_PRIVATE_IP'}
+Allow dynamic-group ts-orch-hosts to manage instance-family in compartment fra-1-control where any {request.permission = 'INSTANCE_INSPECT', request.permission = 'INSTANCE_READ', request.permission = 'INSTANCE_CREATE', request.permission = 'INSTANCE_UPDATE', request.permission = 'INSTANCE_POWER_ACTIONS', request.permission = 'INSTANCE_DELETE', request.permission = 'INSTANCE_ATTACH_VOLUME', request.permission = 'INSTANCE_DETACH_VOLUME', request.permission = 'INSTANCE_IMAGE_INSPECT', request.permission = 'INSTANCE_IMAGE_READ', request.permission = 'IMAGE_READ'}
+Allow dynamic-group ts-orch-hosts to manage compute-management-family in compartment fra-1-control where any {request.permission = 'INSTANCE_CONFIGURATION_INSPECT', request.permission = 'INSTANCE_CONFIGURATION_READ', request.permission = 'INSTANCE_CONFIGURATION_CREATE', request.permission = 'INSTANCE_CONFIGURATION_UPDATE', request.permission = 'INSTANCE_CONFIGURATION_DELETE', request.permission = 'INSTANCE_CONFIGURATION_LAUNCH', request.permission = 'INSTANCE_POOL_INSPECT', request.permission = 'INSTANCE_POOL_READ', request.permission = 'INSTANCE_POOL_CREATE', request.permission = 'INSTANCE_POOL_UPDATE', request.permission = 'INSTANCE_POOL_DELETE', request.permission = 'INSTANCE_POOL_POWER_ACTIONS', request.permission = 'INSTANCE_POOL_INSTANCE_ATTACH', request.permission = 'INSTANCE_POOL_INSTANCE_DETACH'}
+Allow dynamic-group ts-orch-hosts to use volumes in compartment fra-1-control
+Allow dynamic-group ts-orch-hosts to manage volumes in compartment fra-1-control where request.permission = 'VOLUME_CREATE'
+Allow dynamic-group ts-orch-hosts to manage volume-attachments in compartment fra-1-control
+Allow dynamic-group ts-orch-hosts to manage network-load-balancers in compartment fra-1-control
+Allow dynamic-group ts-orch-hosts to manage dns-zones in compartment gru-1-control where any {request.permission = 'DNS_ZONE_INSPECT', request.permission = 'DNS_ZONE_CREATE', target.dns-zone.name = 'edge.terrascale.tech'}
+Allow dynamic-group ts-orch-hosts to manage dns-records in compartment gru-1-control where target.dns-zone.name = 'edge.terrascale.tech'
+Allow dynamic-group ts-orch-hosts to manage dns-steering-policies in compartment gru-1-control
+Allow dynamic-group ts-orch-hosts to read dns-steering-policy-attachments in compartment gru-1-control
+Allow dynamic-group ts-orch-hosts to manage health-check-monitor in compartment gru-1-control
+Allow dynamic-group ts-orch-hosts to inspect health-check-results in compartment gru-1-control
+Allow dynamic-group ts-orch-hosts to manage virtual-network-family in compartment gru-1-control where any {request.permission = 'INTERNET_GATEWAY_READ', request.permission = 'SERVICE_GATEWAY_READ', request.permission = 'SERVICE_GATEWAY_ATTACH'}
+Allow dynamic-group ts-orch-hosts to manage virtual-network-family in compartment sjc-1-control where any {request.permission = 'INTERNET_GATEWAY_READ', request.permission = 'SERVICE_GATEWAY_READ', request.permission = 'SERVICE_GATEWAY_ATTACH'}
+Allow dynamic-group ts-orch-hosts to manage virtual-network-family in compartment fra-1-control where any {request.permission = 'INTERNET_GATEWAY_READ', request.permission = 'SERVICE_GATEWAY_READ', request.permission = 'SERVICE_GATEWAY_ATTACH'}
+```
+
+Before the C28 change (30 statements; C28 appended the last three above, one per control compartment):
+
+<details><summary>Statements before 2026-11-16 C28</summary>
 
 ```text
 Allow dynamic-group ts-orch-hosts to manage virtual-network-family in compartment gru-1-control where any {request.permission = 'VCN_READ', request.permission = 'VCN_CREATE', request.permission = 'VCN_UPDATE', request.permission = 'VCN_DELETE', request.permission = 'VCN_ATTACH', request.permission = 'VCN_DETACH', request.permission = 'SUBNET_READ', request.permission = 'SUBNET_CREATE', request.permission = 'SUBNET_UPDATE', request.permission = 'SUBNET_DELETE', request.permission = 'SUBNET_ATTACH', request.permission = 'SUBNET_DETACH', request.permission = 'NAT_GATEWAY_READ', request.permission = 'NAT_GATEWAY_CREATE', request.permission = 'NAT_GATEWAY_UPDATE', request.permission = 'NAT_GATEWAY_DELETE', request.permission = 'NAT_GATEWAY_ATTACH', request.permission = 'NAT_GATEWAY_DETACH', request.permission = 'ROUTE_TABLE_READ', request.permission = 'ROUTE_TABLE_CREATE', request.permission = 'ROUTE_TABLE_UPDATE', request.permission = 'ROUTE_TABLE_DELETE', request.permission = 'ROUTE_TABLE_ATTACH', request.permission = 'ROUTE_TABLE_DETACH', request.permission = 'NETWORK_SECURITY_GROUP_INSPECT', request.permission = 'NETWORK_SECURITY_GROUP_READ', request.permission = 'NETWORK_SECURITY_GROUP_CREATE', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE', request.permission = 'NETWORK_SECURITY_GROUP_DELETE', request.permission = 'NETWORK_SECURITY_GROUP_LIST_SECURITY_RULES', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE_SECURITY_RULES', request.permission = 'NETWORK_SECURITY_GROUP_LIST_MEMBERS', request.permission = 'NETWORK_SECURITY_GROUP_UPDATE_MEMBERS', request.permission = 'SECURITY_LIST_READ', request.permission = 'SECURITY_LIST_ATTACH', request.permission = 'SECURITY_LIST_DETACH', request.permission = 'DHCP_READ', request.permission = 'DHCP_ATTACH', request.permission = 'DHCP_DETACH'}
@@ -305,6 +411,8 @@ Allow dynamic-group ts-orch-hosts to read dns-steering-policy-attachments in com
 Allow dynamic-group ts-orch-hosts to manage health-check-monitor in compartment gru-1-control
 Allow dynamic-group ts-orch-hosts to inspect health-check-results in compartment gru-1-control
 ```
+
+</details>
 
 ### Verification (2026-11-16, from ts-gru-1 with the instance principal)
 

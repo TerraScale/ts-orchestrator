@@ -97,7 +97,7 @@ func (c *Client) objects(ctx context.Context, endpoint string, query url.Values)
 	}
 }
 
-func (c *Client) ensure(ctx context.Context, cfg Config, collection string, key ociresource.Key, desired any, apply bool) (object, Change, error) {
+func (c *Client) ensure(ctx context.Context, cfg Config, collection string, key ociresource.Key, desired any, apply bool, admit func(Change) error) (object, Change, error) {
 	change := Change{Kind: key.Kind, Name: key.Name}
 	query := url.Values{"compartmentId": {cfg.CompartmentID}}
 	if key.Kind == "dns-zone" {
@@ -132,8 +132,8 @@ func (c *Client) ensure(ctx context.Context, cfg Config, collection string, key 
 	}
 	if len(found) == 0 {
 		change.Action = "missing"
-		if !apply {
-			return object{}, change, nil
+		if err := admit(Change{Action: "create", Kind: key.Kind, Name: key.Name}); err != nil || !apply {
+			return object{}, change, err
 		}
 		var created object
 		_, err := c.request(ctx, http.MethodPost, collection, "", desired, &created)
@@ -181,8 +181,8 @@ func (c *Client) ensure(ctx context.Context, cfg Config, collection string, key 
 		return current, change, nil
 	}
 	change.Action = "differs"
-	if !apply {
-		return current, change, nil
+	if err := admit(Change{Action: "update", Kind: key.Kind, Name: key.Name}); err != nil || !apply {
+		return current, change, err
 	}
 	want["freeformTags"] = (ociresource.Tags{Freeform: current.FreeformTags}).Merge(ociresource.Tags{Freeform: cfg.tags(key.Kind, key.Name)}).Freeform
 	if headers.Get("etag") == "" {
@@ -224,14 +224,17 @@ func covers(have, want any) bool {
 	return reflect.DeepEqual(have, want)
 }
 
-func (c *Client) Reconcile(ctx context.Context, cfg Config, apply bool) ([]Change, error) {
+func (c *Client) Reconcile(ctx context.Context, cfg Config, apply bool, admit func(Change) error) ([]Change, error) {
 	var changes []Change
 	zone, change, err := c.ensure(ctx, cfg, c.dns+"/zones", cfg.key("dns-zone", "zone"), map[string]any{
-		"name": cfg.Zone, "zoneType": "PRIMARY", "compartmentId": cfg.CompartmentID, "freeformTags": cfg.tags("dns-zone", "zone")}, apply)
+		"name": cfg.Zone, "zoneType": "PRIMARY", "compartmentId": cfg.CompartmentID, "freeformTags": cfg.tags("dns-zone", "zone")}, apply, admit)
 	if err != nil {
 		return changes, err
 	}
 	changes = append(changes, change)
+	if change.Action == "created" {
+		zone.ID = ""
+	}
 	var targets []string
 	for _, region := range cfg.Regions {
 		targets = append(targets, region.IP)
@@ -261,40 +264,48 @@ func (c *Client) Reconcile(ctx context.Context, cfg Config, apply bool) ([]Chang
 	}
 	slices.Sort(union)
 	union = slices.Compact(union)
-	initial := targets
-	if apply {
-		initial = union
-	}
-	m, change, err := c.ensure(ctx, cfg, c.health+"/httpMonitors", cfg.key("http-monitor", "edge"), monitor(initial), apply)
+	m, change, err := c.ensure(ctx, cfg, c.health+"/httpMonitors", cfg.key("http-monitor", "edge"), monitor(union), apply, admit)
 	if err != nil {
 		return changes, err
 	}
 	changes = append(changes, change)
+	if change.Action == "created" {
+		m.ID = ""
+	}
 	for _, name := range cfg.Names {
+		if m.ID == "" {
+			break
+		}
 		label := strings.SplitN(name, ".", 2)[0]
-		policy, change, err := c.ensure(ctx, cfg, c.dns+"/steeringPolicies", cfg.key("steering-policy", label), cfg.policy(name, m.ID), apply)
+		policy, change, err := c.ensure(ctx, cfg, c.dns+"/steeringPolicies", cfg.key("steering-policy", label), cfg.policy(name, m.ID), apply, admit)
 		if err != nil {
 			return changes, err
 		}
 		changes = append(changes, change)
-		if zone.ID == "" || policy.ID == "" {
+		if zone.ID == "" || policy.ID == "" || change.Action == "created" {
 			continue
 		}
-		change, err = c.attach(ctx, cfg, zone.ID, name, policy.ID, apply)
+		change, err = c.attach(ctx, cfg, zone.ID, name, policy.ID, apply, admit)
 		if err != nil {
 			return changes, err
 		}
 		changes = append(changes, change)
 	}
 	if zone.ID != "" {
-		records, err := c.records(ctx, cfg, zone.ID, apply)
+		records, err := c.records(ctx, cfg, zone.ID, apply, admit)
 		if err != nil {
 			return changes, err
 		}
 		changes = append(changes, records...)
 	}
-	if apply && !slices.Equal(union, targets) {
-		_, change, err := c.ensure(ctx, cfg, c.health+"/httpMonitors", cfg.key("http-monitor", "edge"), monitor(targets), true)
+	if m.ID != "" && !slices.Equal(union, targets) {
+		change := Change{Action: "differs", Kind: "http-monitor", Name: "edge"}
+		var err error
+		if apply {
+			_, change, err = c.ensure(ctx, cfg, c.health+"/httpMonitors", cfg.key("http-monitor", "edge"), monitor(targets), true, admit)
+		} else {
+			err = admit(Change{Action: "update", Kind: "http-monitor", Name: "edge"})
+		}
 		if err != nil {
 			return changes, err
 		}
@@ -306,7 +317,7 @@ func (c *Client) Reconcile(ctx context.Context, cfg Config, apply bool) ([]Chang
 	return changes, nil
 }
 
-func (c *Client) attach(ctx context.Context, cfg Config, zone, domain, policy string, apply bool) (Change, error) {
+func (c *Client) attach(ctx context.Context, cfg Config, zone, domain, policy string, apply bool, admit func(Change) error) (Change, error) {
 	change := Change{Action: "missing", Kind: "steering-attachment", Name: domain}
 	attachments, err := c.objects(ctx, c.dns+"/steeringPolicyAttachments", url.Values{"compartmentId": {cfg.CompartmentID}, "zoneId": {zone}, "domain": {domain}})
 	if err != nil {
@@ -340,8 +351,8 @@ func (c *Client) attach(ctx context.Context, cfg Config, zone, domain, policy st
 			return change, fmt.Errorf("foreign record at steering name %s", domain)
 		}
 	}
-	if !apply {
-		return change, nil
+	if err := admit(Change{Action: "create", Kind: change.Kind, Name: domain}); err != nil || !apply {
+		return change, err
 	}
 	var a object
 	_, err = c.request(ctx, http.MethodPost, c.dns+"/steeringPolicyAttachments", "", map[string]string{

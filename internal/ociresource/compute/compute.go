@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"slices"
 	"strings"
@@ -65,7 +64,7 @@ type Pass struct {
 	Clients
 	Nodes
 	Ownership ociresource.Ownership
-	Out       io.Writer
+	Out       ociresource.Out
 }
 
 func (p Pass) tags(kind, name string) map[string]string {
@@ -77,7 +76,11 @@ func (p Pass) owns(kind, name string, tags map[string]string) bool {
 }
 
 func (p Pass) say(verb, kind, name, detail string) {
-	fmt.Fprintf(p.Out, "%-9s %s %s\n", verb, p.Key(kind, name), detail)
+	w := p.Out.Changed
+	if verb == "unchanged" || verb == "kept" {
+		w = p.Out.Same
+	}
+	fmt.Fprintf(w, "%-9s %s %s\n", verb, p.Key(kind, name), detail)
 }
 
 func (p Pass) Run(ctx context.Context) error {
@@ -314,7 +317,7 @@ func (p Pass) scaleIn(ctx context.Context, pool core.InstancePool, instances []c
 			}); err != nil {
 				return nil, err
 			}
-			fmt.Fprintf(p.Out, "%-9s data volume %s detached from %s\n", "kept", deref(attachment.GetVolumeId()), *extra.Id)
+			fmt.Fprintf(p.Out.Changed, "%-9s data volume %s detached from %s\n", "kept", deref(attachment.GetVolumeId()), *extra.Id)
 		}
 		if _, err := p.Compute.TerminateInstance(ctx, core.TerminateInstanceRequest{InstanceId: extra.Id,
 			PreserveBootVolume: common.Bool(false), PreserveDataVolumesCreatedAtLaunch: common.Bool(true)}); err != nil {

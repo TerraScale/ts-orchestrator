@@ -247,6 +247,7 @@ func serveManagerRole(ctx context.Context, state string, plan hostPlan, node *sw
 		<-targetsDone
 	}()
 	if plan.region != "" {
+		go runOCIReconcile(serving, state, plan.region, node)
 		go publishJoin(serving, state, plan, node.ID())
 		go func() {
 			if err := hostdashboard.Run(serving, state, plan.region); serving.Err() == nil {

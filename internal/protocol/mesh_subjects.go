@@ -14,6 +14,7 @@ const (
 	// MeshHealthSubject answers with the region's host and SwarmKit health
 	// (internal/regionhealth).
 	MeshHealthSubject      = "ts.mesh.health"
+	MeshReconcileSubject   = "ts.mesh.reconcile"
 	MeshPullPrefix         = "ts.mesh.pull."
 	MeshPullProgressPrefix = "ts.mesh.pull-progress."
 )
