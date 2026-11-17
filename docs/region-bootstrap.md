@@ -395,34 +395,41 @@ ts-orch region status
 ```
 
 `region bootstrap` creates, by name, the compartment, the DEFAULT Vault
-`stg-vault` and its software AES-256 key `stg-key`, the dynamic group
+`stg-vault`, its software AES-256 key `stg-key` and its HSM ECDSA P-256 key
+`stg-release-signer`, the bucket `stg-release-gate` (public read without
+list), the dynamic group
 `ts-orch-stg` (`ALL {instance.compartment.id = '<stg-1-control>'}`) and the
 policy `ts-orch-stg` in the compartment: the reconciler statements of
 [oci-reconcile.md](oci-reconcile.md#statements) for `stg-1-control` only, plus
 `inspect secrets`, `use vaults`, `use keys` and `manage secret-family` on that
-Vault and key, and `read repos` for its [OCIR](ocir.md) repositories. It waits until the new compartment is visible in
-`us-sanjose-1` and the Vault's management endpoint resolves. When the
-document's `compartment_id`, `vault_id` or `key_id` differ from the live ones
-it prints the right values and fails; commit them and run it again. A second
-run prints only `unchanged` lines. `oci-region network` creates the VCN,
+Vault and key, `use keys` on the signer, `manage objects` in the gate bucket
+and `read repos` for its [OCIR](ocir.md) repositories. It waits until the new
+compartment is visible in `us-sanjose-1` and the Vault's management endpoint
+resolves. It reads only the staging label and OCI region from the document, so
+it runs before the rest is filled in. When the document's `compartment_id`,
+`vault_id`, `key_id`, `signer_key_id`, `signer_public_key` or `namespace`
+differ from the live ones it prints the right values and fails; commit them and
+run it again. A second run prints only `unchanged` lines. `oci-region network` creates the VCN,
 gateways and subnets; `region apply` then owns the NAT gateway, private routes,
 node NSG, nodes and load balancer. The `nlb` pass needs a running node to
 balance to, so it runs after `compute`.
 
-Nodes boot the newest attested release. The compute pass reads that release's
-own `deploy/fleet/fleet.json` (at its commit) and refuses to create the
-instance configuration when the release has no region with this label in this
+Nodes boot the newest attested release, and the compute pass pins it in the
+instance configuration it creates. The compute pass reads that release's own
+`deploy/fleet/fleet.json` (at its commit) and refuses to create the instance
+configuration when the release has no region with this label in this
 compartment, because such nodes would not find their region; `region plan`
 shows the same verdict as its `release` row. Store the
 GHCR pull token as `stg-1-ghcr-pull-token` in `stg-vault` before platform
 services run there.
 
-**Staging-first pull admission is blocked.** Staging records its binary rollout
-and bake in its own fabric store. Production cannot read that isolated store,
-and its hosts have no GitHub-runner OIDC identity for the CI observation API.
-C19 removes the old release-push path; an authenticated staging verdict bridge
-must replace its cross-environment ordering before C19 merges. No staging CA,
-Vault credential or production write grant is shared by that change.
+**Releases reach staging first.** stg has no rollout predecessor. Once it
+completes and bakes a tag, it publishes a signed completion record to
+`stg-release-gate`, and sjc takes the tag only after verifying that record
+against `staging.signer_public_key`. A missing or stale record keeps
+production on its release and alerts (`StagingGateBlocking`;
+[platform releases](platform.md#releases)). No staging CA, Vault credential
+or production grant is shared.
 
 **Done:** NetBird enrollment of staging nodes. The `netbird server` companion
 reads its setup key from the Vault of the node's fleet document entry:
@@ -437,10 +444,9 @@ no production server.
 
 **Still open:** rotating `stg-1-netbird-setup-key` before it expires (the GRU
 companion rotates production's keys but cannot write `stg-vault`; enrolled
-peers keep working, new staging nodes need a valid key), metrics scraping by
-the production monitors, and the `stg` row in `deploy/m1/regions.json`, which
-is added once staging serves so that releases are not blocked before it
-exists. The production regions' bootstrap gap (TS-796) is unchanged.
+peers keep working, new staging nodes need a valid key) and metrics scraping by
+the production monitors. The production regions' bootstrap gap (TS-796) is
+unchanged.
 
 ## Static names
 

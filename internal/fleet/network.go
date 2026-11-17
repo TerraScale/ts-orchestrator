@@ -217,7 +217,7 @@ func (n *network) stamp(key ociresource.Key, spec any) (map[string]string, strin
 }
 
 func untilAvailable[R any](state func(R) string) common.RequestMetadata {
-	policy := common.NewRetryPolicyWithOptions(common.WithMaximumNumberAttempts(60), common.WithFixedBackoff(2*time.Second),
+	policy := common.NewRetryPolicyWithOptions(common.ReplaceWithValuesFromRetryPolicy(common.NoRetryPolicy()), common.WithMaximumNumberAttempts(60), common.WithFixedBackoff(2*time.Second),
 		common.WithShouldRetryOperation(func(r common.OCIOperationResponse) bool {
 			response, ok := r.Response.(R)
 			return r.Error == nil && ok && state(response) != "AVAILABLE"

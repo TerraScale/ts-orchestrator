@@ -2,6 +2,8 @@ package fleet
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +17,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 const bootstrapParent = "TerraScale"
@@ -34,7 +37,7 @@ func Bootstrap(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) != 0 {
 		return errors.New("usage: ts-orch region bootstrap")
 	}
-	document, err := Load()
+	document, err := decode()
 	if err != nil {
 		return err
 	}
@@ -76,7 +79,25 @@ func Bootstrap(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	key, err := b.key(compartment, vault)
+	keys, err := b.keys(vault)
+	if err != nil {
+		return err
+	}
+	key, err := b.key(keys, compartment, b.staging.Label+"-key", keymanagement.CreateKeyDetailsProtectionModeSoftware,
+		keymanagement.KeyShape{Algorithm: keymanagement.KeyShapeAlgorithmAes, Length: common.Int(32)})
+	if err != nil {
+		return err
+	}
+	signer, err := b.key(keys, compartment, b.staging.Label+"-release-signer", keymanagement.CreateKeyDetailsProtectionModeHsm,
+		keymanagement.KeyShape{Algorithm: keymanagement.KeyShapeAlgorithmEcdsa, Length: common.Int(32), CurveId: keymanagement.KeyShapeCurveIdP256})
+	if err != nil {
+		return err
+	}
+	public, err := signerPublicKey(b.ctx, keys, signer)
+	if err != nil {
+		return err
+	}
+	namespace, err := b.bucket(compartment)
 	if err != nil {
 		return err
 	}
@@ -84,7 +105,8 @@ func Bootstrap(ctx context.Context, args []string, out io.Writer) error {
 	if err := b.dynamicGroup(group, compartment); err != nil {
 		return err
 	}
-	if err := b.policy(group, compartment, deref(vault.Id), deref(key.Id)); err != nil {
+	if err := b.policy(group, compartment, strings.NewReplacer("{group}", group, "{compartment}", compartment, "{vault}", deref(vault.Id), "{key}", deref(key.Id),
+		"{signer}", deref(signer.Id), "{bucket}", b.staging.GateBucket())); err != nil {
 		return err
 	}
 	var stale []error
@@ -92,6 +114,9 @@ func Bootstrap(ctx context.Context, args []string, out io.Writer) error {
 		{"compartment_id", b.staging.CompartmentID, compartment},
 		{"vault_id", b.staging.VaultID, deref(vault.Id)},
 		{"key_id", b.staging.KeyID, deref(key.Id)},
+		{"signer_key_id", b.staging.SignerKeyID, deref(signer.Id)},
+		{"signer_public_key", b.staging.SignerPublicKey, public},
+		{"namespace", b.staging.Namespace, namespace},
 	} {
 		if field.document != field.live {
 			stale = append(stale, fmt.Errorf("fleet document staging.%s is %s; set it to %s", field.name, field.document, field.live))
@@ -182,16 +207,19 @@ func (b *bootstrap) vault(compartment string) (keymanagement.Vault, error) {
 	return got.Vault, b.report(verb, "vault", name, id)
 }
 
-func (b *bootstrap) key(compartment string, vault keymanagement.Vault) (keymanagement.Key, error) {
+func (b *bootstrap) keys(vault keymanagement.Vault) (keymanagement.KmsManagementClient, error) {
 	if err := resolvable(b.ctx, deref(vault.ManagementEndpoint)); err != nil {
-		return keymanagement.Key{}, err
+		return keymanagement.KmsManagementClient{}, err
 	}
 	keys, err := keymanagement.NewKmsManagementClientWithConfigurationProvider(b.factory.Provider(), deref(vault.ManagementEndpoint))
 	if err != nil {
-		return keymanagement.Key{}, err
+		return keymanagement.KmsManagementClient{}, err
 	}
 	b.factory.Configure(&keys.BaseClient, ociclient.ServiceKMS)
-	name := b.staging.Label + "-key"
+	return keys, nil
+}
+
+func (b *bootstrap) key(keys keymanagement.KmsManagementClient, compartment, name string, protection keymanagement.CreateKeyDetailsProtectionModeEnum, shape keymanagement.KeyShape) (keymanagement.Key, error) {
 	listed, err := keys.ListKeys(b.ctx, keymanagement.ListKeysRequest{CompartmentId: &compartment})
 	if err != nil {
 		return keymanagement.Key{}, fmt.Errorf("list keys: %w", err)
@@ -207,8 +235,7 @@ func (b *bootstrap) key(compartment string, vault keymanagement.Vault) (keymanag
 		id = deref(live[0].Id)
 	} else {
 		created, err := keys.CreateKey(b.ctx, keymanagement.CreateKeyRequest{CreateKeyDetails: keymanagement.CreateKeyDetails{
-			CompartmentId: &compartment, DisplayName: &name, ProtectionMode: keymanagement.CreateKeyDetailsProtectionModeSoftware,
-			KeyShape: &keymanagement.KeyShape{Algorithm: keymanagement.KeyShapeAlgorithmAes, Length: common.Int(32)}}})
+			CompartmentId: &compartment, DisplayName: &name, ProtectionMode: protection, KeyShape: &shape}})
 		if err != nil {
 			return keymanagement.Key{}, fmt.Errorf("create key %s: %w", name, err)
 		}
@@ -222,6 +249,46 @@ func (b *bootstrap) key(compartment string, vault keymanagement.Vault) (keymanag
 		return keymanagement.Key{}, errors.Join(fmt.Errorf("key %s is %s, not ENABLED", name, got.LifecycleState), err)
 	}
 	return got.Key, b.report(verb, "key", name, id)
+}
+
+func signerPublicKey(ctx context.Context, keys keymanagement.KmsManagementClient, signer keymanagement.Key) (string, error) {
+	version, err := keys.GetKeyVersion(ctx, keymanagement.GetKeyVersionRequest{KeyId: signer.Id, KeyVersionId: signer.CurrentKeyVersion})
+	if err != nil {
+		return "", fmt.Errorf("read key version of %s: %w", deref(signer.DisplayName), err)
+	}
+	block, _ := pem.Decode([]byte(deref(version.PublicKey)))
+	if block == nil {
+		return "", fmt.Errorf("key %s has no PEM public key", deref(signer.DisplayName))
+	}
+	return base64.StdEncoding.EncodeToString(block.Bytes), nil
+}
+
+func (b *bootstrap) bucket(compartment string) (string, error) {
+	storage, err := b.factory.ObjectStorage()
+	if err != nil {
+		return "", err
+	}
+	namespace, err := storage.GetNamespace(b.ctx, objectstorage.GetNamespaceRequest{})
+	if err != nil {
+		return "", fmt.Errorf("read object storage namespace: %w", err)
+	}
+	name := b.staging.GateBucket()
+	got, err := storage.GetBucket(b.ctx, objectstorage.GetBucketRequest{NamespaceName: namespace.Value, BucketName: &name})
+	if failure, ok := common.IsServiceError(err); ok && failure.GetHTTPStatusCode() == 404 {
+		created, err := storage.CreateBucket(b.ctx, objectstorage.CreateBucketRequest{NamespaceName: namespace.Value, CreateBucketDetails: objectstorage.CreateBucketDetails{
+			Name: &name, CompartmentId: &compartment, PublicAccessType: objectstorage.CreateBucketDetailsPublicAccessTypeObjectreadwithoutlist}})
+		if err != nil {
+			return "", fmt.Errorf("create bucket %s: %w", name, err)
+		}
+		return deref(namespace.Value), b.report("created", "bucket", name, deref(created.Id))
+	}
+	if err != nil {
+		return "", fmt.Errorf("read bucket %s: %w", name, err)
+	}
+	if deref(got.CompartmentId) != compartment || got.PublicAccessType != objectstorage.BucketPublicAccessTypeObjectreadwithoutlist {
+		return "", fmt.Errorf("bucket %s is in %s with public access %s, not in %s with %s", name, deref(got.CompartmentId), got.PublicAccessType, compartment, objectstorage.BucketPublicAccessTypeObjectreadwithoutlist)
+	}
+	return deref(namespace.Value), b.report("unchanged", "bucket", name, deref(got.Id))
 }
 
 func (b *bootstrap) dynamicGroup(name, compartment string) error {
@@ -249,8 +316,7 @@ func (b *bootstrap) dynamicGroup(name, compartment string) error {
 	return b.report("created", "dynamic-group", name, deref(created.Id))
 }
 
-func (b *bootstrap) policy(group, compartment, vault, key string) error {
-	replacer := strings.NewReplacer("{group}", group, "{compartment}", compartment, "{vault}", vault, "{key}", key)
+func (b *bootstrap) policy(group, compartment string, replacer *strings.Replacer) error {
 	statements := make([]string, len(reconcilerStatements))
 	for i, statement := range reconcilerStatements {
 		statements[i] = replacer.Replace(statement)

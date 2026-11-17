@@ -81,7 +81,7 @@ func main() {
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "preflight" {
 		return
 	}
-	if len(os.Args) == 13 && os.Args[1] == "host" {
+	if len(os.Args) == 14 && os.Args[1] == "host" {
 		runHost(os.Args[2:])
 		return
 	}
@@ -90,7 +90,7 @@ func main() {
 }
 
 func runHost(args []string) {
-	dir, region, id, role, natsURL, githubURL, rootFile, _, poll, registryURL, keyFile := args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10]
+	dir, region, id, role, natsURL, githubURL, rootFile, _, poll, registryURL, keyFile, stagingKey := args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11]
 	ctx := context.Background()
 	state := filepath.Join(dir, "state")
 	must(os.MkdirAll(filepath.Join(state, "nats"), 0o700))
@@ -159,7 +159,7 @@ func runHost(args []string) {
 				return readServices(filepath.Join(filepath.Dir(dir), "services"))
 			},
 			Source: h.Source, Channel: &ocirelease.Reader{Registry: h.Registry, Attest: h.Attest}, Attest: h.Attest, Client: h.Client,
-			Poll: every, HealthyFor: healthyFor, Deadline: deadline, BakeFor: healthyFor}
+			Poll: every, HealthyFor: healthyFor, Deadline: deadline, BakeFor: healthyFor, StagingKey: parseStagingKey(stagingKey)}
 		go func() { _ = updater.Run(ctx) }()
 	}
 	must(conn.Publish("e2e.ready."+region+"."+id, []byte(h.Digest)))
@@ -420,7 +420,7 @@ func journey(bin, part string) {
 				port = "-1"
 			}
 			l.hosts[id] = &host{region: region, id: id, role: role, dir: dir,
-				args: []string{"host", dir, region, id, role, meshes[0].ClientURL(), githubURL, rootFile, port, polls[region], registryURLs[region], keyFile}}
+				args: []string{"host", dir, region, id, role, meshes[0].ClientURL(), githubURL, rootFile, port, polls[region], registryURLs[region], keyFile, l.github.stagingKey()}}
 		}
 	}
 	must(l.conn.Flush())
@@ -480,6 +480,16 @@ func (l *lane) pulls(ctx context.Context) {
 	l.github.mu.Unlock()
 	l.revision = revision
 	r1 := l.publishGood("101", "c101")
+	for _, mode := range []string{pullrelease.GateMissing, pullrelease.GateUnsigned, pullrelease.GateStale, pullrelease.GateLatency} {
+		l.github.setGate(r1.tag, mode)
+		refused := l.waitStatus(ctx, "sjc", "sjc refuses "+r1.tag+" while staging's record is "+mode, func(s pullrelease.Status) bool {
+			return strings.HasPrefix(s.Reason, "staging gate "+mode+":")
+		})
+		require(refused.Target == nil || refused.Target.Tag() != r1.tag, "sjc must not take %s before staging's signed completion verifies:\n%s", r1.tag, refused)
+		l.requireVersions(ctx, base, l.region("sjc", "fra", "gru")...)
+		fmt.Printf("staging record %s -> sjc stays on its release: %s\n", mode, refused.Reason)
+	}
+	l.github.setGate(r1.tag, "")
 	sjc := l.waitStatus(ctx, "sjc", "sjc completes "+r1.tag, complete(r1))
 	fra := l.waitStatus(ctx, "fra", "fra completes "+r1.tag, complete(r1))
 	gru := l.waitStatus(ctx, "gru", "gru completes "+r1.tag, complete(r1))

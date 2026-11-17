@@ -346,9 +346,9 @@ not the global account) all differ. There is no bridge. Reasons:
 
 ## Orchestrator releases
 
-Production binaries go to sjc first, the canary, then to fra and gru at the
-same time. Isolated stg admission has no local predecessor; authenticating its
-verdict for production remains the merge blocker described in
+The isolated stg region signs completion of the exact tag after its regional
+health gate passes. sjc verifies that record before it starts as the production
+canary. fra and gru roll out at the same time once sjc passes its gate. See
 [platform releases](platform.md#releases).
 
 Each tag has one durable decision, `decision.<tag>` in `TS_ORCH_PULL_ROLLOUT`,

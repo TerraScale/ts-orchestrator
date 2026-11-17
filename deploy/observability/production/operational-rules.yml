@@ -369,6 +369,16 @@ groups:
           summary: A region leader gave up draining a node it wanted to remove; the node stays cordoned
           description: Its tasks did not move within 10 minutes. The scaler changes no node in that region until the drained node's tasks run elsewhere or a person runs ts-orch member activate on it, which also clears terrascale.drain-since (docs/platform.md, Node count).
 
+  - name: release-gate
+    rules:
+      - alert: StagingGateBlocking
+        expr: ts_orch_release_staging_gate_blocked_seconds > 3600
+        labels:
+          severity: critical
+        annotations:
+          summary: sjc has refused the newest release for an hour because staging published no fresh signed completion of it
+          description: The reason label says why. missing means stg never completed and baked the release (it failed, rolled back or is down); stale means stg's signed completion is older than 15 minutes because stg stopped refreshing it; unsigned means the record does not verify with staging.signer_public_key; latency means C22's staging latency verdict is not pass; unreadable means the gate bucket did not answer. Production keeps its current release until stg finishes the newest one. Read stg's pull rollout with ts-orch status on a staging node (docs/platform.md, Releases).
+
   - name: self-heal
     rules:
       - alert: SelfHealStopped

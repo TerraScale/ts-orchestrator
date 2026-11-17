@@ -185,11 +185,15 @@ func (p nlbPass) reservedAddress(ctx context.Context) (core.PublicIp, error) {
 	if err != nil {
 		return core.PublicIp{}, fmt.Errorf("create reserved address: %w", err)
 	}
-	ip := created.PublicIp
-	return core.PublicIp{}, wait(ctx, "reserved address "+deref(ip.IpAddress), func() (bool, error) {
-		r, err := p.network.GetPublicIp(ctx, core.GetPublicIpRequest{PublicIpId: ip.Id})
+	var available core.PublicIp
+	if err := wait(ctx, "reserved address "+deref(created.IpAddress), func() (bool, error) {
+		r, err := p.network.GetPublicIp(ctx, core.GetPublicIpRequest{PublicIpId: created.Id})
+		available = r.PublicIp
 		return r.LifecycleState == core.PublicIpLifecycleStateAvailable, err
-	})
+	}); err != nil {
+		return core.PublicIp{}, err
+	}
+	return available, nil
 }
 
 func healthChecker() networkloadbalancer.HealthCheckerDetails {

@@ -2,9 +2,12 @@ package main
 
 import (
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -15,6 +18,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
+	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 )
 
 const (
@@ -36,8 +42,11 @@ type githubRelease struct {
 }
 
 type fakeGitHub struct {
-	server *httptest.Server
-	key    *rsa.PrivateKey
+	server  *httptest.Server
+	key     *rsa.PrivateKey
+	staging *ecdsa.PrivateKey
+	forger  *ecdsa.PrivateKey
+	gate    map[string]string
 
 	mu        sync.Mutex
 	releases  []githubRelease
@@ -54,7 +63,11 @@ type fakeGitHub struct {
 func newGitHub() *fakeGitHub {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	must(err)
-	g := &fakeGitHub{key: key, files: map[string][]byte{}, compare: map[string]comparison{},
+	staging, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	must(err)
+	forger, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	must(err)
+	g := &fakeGitHub{key: key, staging: staging, forger: forger, gate: map[string]string{}, files: map[string][]byte{}, compare: map[string]comparison{},
 		compared: map[string]int{}, replied: map[string]int{}, listed: map[string][]time.Time{}}
 	g.server = httptest.NewServer(http.HandlerFunc(g.serve))
 	return g
@@ -70,6 +83,8 @@ func (g *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 			"n": base64.RawURLEncoding.EncodeToString(g.key.N.Bytes()),
 			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(g.key.E)).Bytes()),
 		}}}))
+	case strings.HasPrefix(r.URL.Path, gatePath()):
+		g.serveStaging(w, r, strings.TrimPrefix(r.URL.Path, gatePath()))
 	case r.URL.Path == "/token":
 		must(json.NewEncoder(w).Encode(map[string]string{"value": g.token}))
 	case r.URL.Path == repositoryPath+"/releases":
@@ -104,6 +119,51 @@ func (g *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = w.Write(data)
 	}
+}
+
+func gatePath() string {
+	parsed, err := url.Parse(fleet.Embedded().Staging.GateURL(""))
+	must(err)
+	return parsed.Path
+}
+
+func (g *fakeGitHub) stagingKey() string {
+	der, err := x509.MarshalPKIXPublicKey(&g.staging.PublicKey)
+	must(err)
+	return base64.StdEncoding.EncodeToString(der)
+}
+
+func (g *fakeGitHub) setGate(tag, mode string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.gate[tag] = mode
+}
+
+func (g *fakeGitHub) serveStaging(w http.ResponseWriter, r *http.Request, tag string) {
+	mode := g.gate[tag]
+	if mode == pullrelease.GateMissing {
+		http.NotFound(w, r)
+		return
+	}
+	now := time.Now().UTC()
+	record := pullrelease.StagingRecord{Region: fleet.Embedded().Staging.Label, Tag: tag, Done: now.Add(-2 * healthyFor), Baked: now.Add(-healthyFor), Signed: now,
+		Latency: pullrelease.LatencyVerdict{Verdict: pullrelease.LatencyPass, Run: "https://github.com/TerraScale/ts-orchestrator/actions/runs/1"}}
+	switch mode {
+	case pullrelease.GateStale:
+		record.Signed = now.Add(-time.Hour)
+	case pullrelease.GateLatency:
+		record.Latency.Verdict = pullrelease.LatencyFail
+	}
+	data, err := json.Marshal(record)
+	must(err)
+	signer := g.staging
+	if mode == pullrelease.GateUnsigned {
+		signer = g.forger
+	}
+	digest := sha256.Sum256(data)
+	signature, err := ecdsa.SignASN1(rand.Reader, signer, digest[:])
+	must(err)
+	must(json.NewEncoder(w).Encode(pullrelease.SignedRecord{Record: data, Signature: signature}))
 }
 
 type comparison struct {
@@ -226,4 +286,14 @@ func githubClient(base, caller string) *http.Client {
 	parsed, err := url.Parse(base)
 	must(err)
 	return &http.Client{Transport: rewrite{parsed, caller}, Timeout: 30 * time.Second}
+}
+
+func parseStagingKey(encoded string) *ecdsa.PublicKey {
+	der, err := base64.StdEncoding.DecodeString(encoded)
+	must(err)
+	parsed, err := x509.ParsePKIXPublicKey(der)
+	must(err)
+	key, ok := parsed.(*ecdsa.PublicKey)
+	require(ok, "the staging key must be ECDSA")
+	return key
 }

@@ -410,8 +410,10 @@ with `AttachVolume`, never at launch, and terminations must pass
 
 Staging has its own dynamic group and policy, both named `ts-orch-stg`,
 written by `ts-orch region bootstrap`: the per-compartment statements below for
-`stg-1-control` only, plus Vault statements limited to `stg-vault` and
-`stg-key` and `read repos` in `stg-1-control` ([OCIR](ocir.md)). Neither production group nor policy names staging, and staging's
+`stg-1-control` only, plus Vault statements limited to `stg-vault`, `stg-key`
+and the signer `stg-release-signer`, `manage objects` in the bucket
+`stg-release-gate` and `read repos` in `stg-1-control` ([OCIR](ocir.md)).
+Neither production group nor policy names staging, and staging's
 names no production compartment
 ([region bootstrap](region-bootstrap.md#staging-region)).
 

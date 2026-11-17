@@ -3,6 +3,7 @@ package pullrelease
 import (
 	"cmp"
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,6 +61,7 @@ type Updater struct {
 	HealthyFor time.Duration
 	Deadline   time.Duration
 	BakeFor    time.Duration
+	StagingKey *ecdsa.PublicKey
 
 	store      *Store
 	status     Status
@@ -80,7 +82,11 @@ type Updater struct {
 }
 
 func New(region, self, state string, conn, fabric *nats.Conn, handler *releasepush.Handler, hosts func(context.Context) ([]Host, error), services func(context.Context) ([]Service, error)) *Updater {
-	return &Updater{Region: region, Self: self, State: state, Conn: conn, Fabric: fabric, Hosts: hosts, Services: services,
+	signer, err := fleet.Embedded().Staging.Signer()
+	if err != nil {
+		panic(err)
+	}
+	return &Updater{Region: region, Self: self, State: state, Conn: conn, Fabric: fabric, Hosts: hosts, Services: services, StagingKey: signer,
 		Source: handler.Source, Channel: &ocirelease.Reader{Registry: handler.Registry, Attest: handler.Attest}, Attest: handler.Attest, Client: handler.Client,
 		Poll: DefaultPoll, HealthyFor: DefaultHealthyFor, Deadline: DefaultDeadline, BakeFor: DefaultBakeFor}
 }
@@ -132,6 +138,9 @@ func (u *Updater) lead(ctx context.Context) {
 				}
 			}
 			u.listen(ctx)
+			if !leading {
+				stagingBlock.Store(nil)
+			}
 			if !leading {
 				if status, _, err := u.store.Load(ctx); err == nil {
 					u.mirror(ctx, status)
@@ -264,6 +273,13 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		}
 		u.prefetch(ctx, attested)
 		reason := u.admission(ctx, attested.Tag())
+		if reason == "" && u.Region == catalog.RolloutOrder()[0] {
+			if reason := u.staged(ctx, attested.Tag()); reason != "" {
+				u.status.Reason = reason
+				u.save(ctx)
+				return checkEvery
+			}
+		}
 		if reason == "" {
 			decided, err := u.store.admit(ctx, attested.Tag(), u.Region)
 			if err != nil {
@@ -526,13 +542,14 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 	if !slices.ContainsFunc(u.status.Hosts, func(row HostProgress) bool { return row.State != HostNewer }) {
 		u.status.Phase, u.status.Reason = PhaseNewer, "every host already runs a release that descends from "+target.Tag()
 	}
-	u.save(ctx)
+	if !u.save(ctx) {
+		return renewEvery
+	}
 	switch {
 	case u.status.Phase == PhaseComplete && !u.status.settled():
 		return u.bake(ctx)
 	case u.status.Phase == PhaseComplete:
-		u.sweepAfter = time.Now().Add(u.Poll)
-		return u.Poll
+		return u.complete(ctx)
 	}
 	return u.Poll
 }
@@ -905,7 +922,20 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 		return checkEvery
 	}
 	u.status.Passed = now
-	u.save(ctx)
+	if !u.save(ctx) {
+		return renewEvery
+	}
+	return u.complete(ctx)
+}
+
+func (u *Updater) complete(ctx context.Context) time.Duration {
+	if u.Region == fleet.Embedded().Staging.Label && u.status.passed() {
+		if err := u.publishStaging(ctx); err != nil {
+			slog.WarnContext(ctx, "staging completion not published; production stays on its release", "release", u.status.Target.Tag(), "error", err)
+			u.status.Reason = "staging completion not published: " + err.Error()
+			u.save(ctx)
+		}
+	}
 	u.sweepAfter = time.Now().Add(u.Poll)
 	return u.Poll
 }

@@ -29,7 +29,8 @@ transparency evidence and exact binary digest before installation.
 The region list is `catalog.RolloutOrder` (sjc, fra, gru), written once in the
 region catalog. App releases (TerraBase, ts-auth, ts-dashboard) follow it one
 region after another. Orchestrator binaries use it in two phases: its first
-entry, sjc, is the canary; fra and gru take a tag only after sjc records that
+entry, sjc, is the canary and verifies the isolated staging region's signed
+completion. fra and gru take a tag only after sjc records that
 exact tag complete in the fabric pull store and passes its regional health
 gate, and then roll out at the same time. A tag that any region is rolling back
 or has rolled back is held by every region that has not started it.
@@ -50,12 +51,24 @@ CI reads authenticated observations on HTTPS 443. See [network exposure](network
 for listener owners and staged removal of the live public 4222 rules.
 
 Staging is the fleet document's isolated `stg` environment, with its own Vault,
-mesh CA and fabric store. It is not in the serving release inventory yet.
-The production fabric cannot read its completion record. Staging-first pull
-admission requires an authenticated verdict bridge between these isolated
-environments before staging can qualify production releases; the C19 merge
-is held for that integration. No cross-environment credential or grant is
-introduced by this rebase. See [staging bootstrap](region-bootstrap.md#staging-region).
+mesh CA and fabric store, so production cannot read stg's pull store. Instead,
+after stg completes and bakes a tag, its leader signs a completion record
+(region, tag, done, baked, signed time and `latency`, the C22 latency
+verdict) with the HSM key `stg-release-signer`
+in `stg-vault` and writes it as object `<tag>` to the bucket
+`stg-release-gate`, which anyone may read but not list. It signs it again on
+every five-minute turn while that tag stays complete. Before sjc takes a tag,
+its leader fetches that object over HTTPS and verifies it against
+`staging.signer_public_key` in the fleet document: no credential, CA or grant
+is shared between the environments. stg reads the verdict from the release
+asset `staging-latency.json` (`{"verdict": "pass" | "fail", "run": "<https
+run URL>"}`), which the C22 latency gate writes; without it stg publishes no
+record. A missing, unreadable, unsigned or still-baking record, a latency
+verdict other than `pass`, or a record signed more than 15 minutes ago keeps
+sjc on its release; it checks again every five minutes. After an hour blocked,
+`ts_orch_release_staging_gate_blocked_seconds` raises `StagingGateBlocking`,
+labelled with the reason. A release that fails on staging therefore never
+reaches production. See [staging bootstrap](region-bootstrap.md#staging-region).
 
 ## Identity and access
 

@@ -1,10 +1,15 @@
 package fleet
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -26,9 +31,36 @@ type Fleet struct {
 }
 
 type Staging struct {
-	Region  `json:",inline"`
-	VaultID string `json:"vault_id"`
-	KeyID   string `json:"key_id"`
+	Region          `json:",inline"`
+	VaultID         string `json:"vault_id"`
+	KeyID           string `json:"key_id"`
+	SignerKeyID     string `json:"signer_key_id"`
+	SignerPublicKey string `json:"signer_public_key"`
+	Namespace       string `json:"namespace"`
+}
+
+func (s Staging) GateBucket() string {
+	return s.Label + "-release-gate"
+}
+
+func (s Staging) GateURL(tag string) string {
+	return "https://objectstorage." + s.OCIRegion + ".oraclecloud.com/n/" + url.PathEscape(s.Namespace) + "/b/" + url.PathEscape(s.GateBucket()) + "/o/" + url.PathEscape(tag)
+}
+
+func (s Staging) Signer() (*ecdsa.PublicKey, error) {
+	der, err := base64.StdEncoding.DecodeString(s.SignerPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("staging.signer_public_key is not base64: %w", err)
+	}
+	parsed, err := x509.ParsePKIXPublicKey(der)
+	if err != nil {
+		return nil, fmt.Errorf("staging.signer_public_key: %w", err)
+	}
+	key, ok := parsed.(*ecdsa.PublicKey)
+	if !ok || key.Curve != elliptic.P256() {
+		return nil, errors.New("staging.signer_public_key is not an ECDSA P-256 key")
+	}
+	return key, nil
 }
 
 func (f Fleet) All() []Region {
@@ -87,11 +119,19 @@ type Nodes struct {
 }
 
 func Load() (Fleet, error) {
+	fleet, err := decode()
+	if err != nil {
+		return Fleet{}, err
+	}
+	return fleet, fleet.Validate()
+}
+
+func decode() (Fleet, error) {
 	var fleet Fleet
 	if err := json.Unmarshal(document.Document, &fleet, json.RejectUnknownMembers(true)); err != nil {
 		return Fleet{}, fmt.Errorf("fleet document: %w", err)
 	}
-	return fleet, fleet.Validate()
+	return fleet, nil
 }
 
 var embedded = sync.OnceValues(Load)
@@ -197,6 +237,15 @@ func (s Staging) validate(labels map[string]bool, production []labelled, compart
 	}
 	if s.VaultID == vaultsecret.SharedVault {
 		errs = append(errs, fmt.Errorf("staging.vault_id %q is the production shared Vault", s.VaultID))
+	}
+	if !strings.HasPrefix(s.SignerKeyID, "ocid1.key.") {
+		errs = append(errs, fmt.Errorf("staging.signer_key_id %q is not a key OCID", s.SignerKeyID))
+	}
+	if _, err := s.Signer(); err != nil {
+		errs = append(errs, err)
+	}
+	if s.Namespace == "" {
+		errs = append(errs, errors.New("staging.namespace is empty"))
 	}
 	if s.Nodes.Max > StagingMaxNodes {
 		errs = append(errs, fmt.Errorf("staging.nodes.max %d is over staging's %d nodes", s.Nodes.Max, StagingMaxNodes))
