@@ -36,6 +36,7 @@ import (
 const (
 	asset        = releaseattest.AssetPrefix + runtime.GOARCH
 	healthyFor   = 2 * time.Second
+	poll         = 3 * time.Second
 	orchUser     = "orch"
 	orchSecret   = "e2e-orch-secret"
 	fabricUser   = "ts-orch"
@@ -67,6 +68,12 @@ func candidateMode() string {
 	return string(data[marker+len("\nCANDIDATE:"):])
 }
 
+func asRevision(binary []byte, from, to string) []byte {
+	stamp := []byte("vcs.revision=" + from)
+	require(bytes.Count(binary, stamp) > 0, "the journey binary carries no %s", stamp)
+	return bytes.ReplaceAll(binary, stamp, []byte("vcs.revision="+to))
+}
+
 func main() {
 	if len(os.Args) == 3 && os.Args[1] == "release" && os.Args[2] == "preflight" {
 		return
@@ -89,7 +96,7 @@ func runHost(args []string) {
 		fmt.Fprintln(os.Stderr, "release handler:", err)
 		os.Exit(5)
 	}
-	client := githubClient(githubURL)
+	client := githubClient(githubURL, fmt.Sprintf("%s/%d", id, os.Getpid()))
 	h.Verifier.JWKSURL = githubURL + "/jwks"
 	h.Client, h.Source.Client = client, client
 	data, err := os.ReadFile(rootFile)
@@ -235,6 +242,7 @@ func (o *outages) check() {
 type lane struct {
 	bin      string
 	self     []byte
+	build    string
 	revision string
 	github   *fakeGitHub
 	sigstore *sigstore.Authority
@@ -301,7 +309,7 @@ func journey(bin, part string) {
 		cancel()
 		supervisors.Wait()
 	}()
-	l := &lane{bin: bin, self: selfBytes, revision: revision, github: newGitHub(), sigstore: sigstore.New(),
+	l := &lane{bin: bin, self: selfBytes, build: revision, revision: revision, github: newGitHub(), sigstore: sigstore.New(),
 		hosts: map[string]*host{}, outages: &outages{down: map[string]map[string]bool{}}, progress: map[string]chan pullrelease.Status{},
 		last: map[string]pullrelease.Status{}, ready: make(chan [2]string, 1024), downs: make(chan string, 1024)}
 	defer func() {
@@ -342,7 +350,7 @@ func journey(bin, part string) {
 		}
 	})
 	must(err)
-	polls := map[string]string{"gru": "3s", "fra": "3s", "sjc": "3s"}
+	polls := map[string]string{"gru": poll.String(), "fra": poll.String(), "sjc": poll.String()}
 	for _, region := range []string{"sjc", "fra", "gru"} {
 		statuses := make(chan pullrelease.Status, 256)
 		l.progress[region] = statuses
@@ -394,10 +402,10 @@ func journey(bin, part string) {
 }
 
 func (l *lane) pulls(ctx context.Context) {
-	revision := l.revision
+	original := l.revision
 	older, base, before := strings.Repeat("1", 40), hex.EncodeToString(sha256Of(l.self)), l.starts()
 	l.github.mu.Lock()
-	l.github.compare[revision+"..."+older] = comparison{status: "behind", base: revision, mergeBase: older}
+	l.github.compare[older+"..."+original] = comparison{status: "ahead", aheadBy: 2, base: older, mergeBase: older}
 	l.github.mu.Unlock()
 	c100 := l.candidate("c100")
 	r0 := l.github.publish(older, "100", asset, c100, c100, l.sigstore.Bundle(sigstore.MainIdentity, older, "100", map[string][]byte{asset: c100}))
@@ -405,22 +413,33 @@ func (l *lane) pulls(ctx context.Context) {
 		return s.Phase == pullrelease.PhaseNewer && s.Target != nil && s.Target.Tag() == r0.tag
 	})
 	require(!slices.Contains(newer.Bad, r0.tag) && len(newer.Hosts) == 3 && !slices.ContainsFunc(newer.Hosts, func(h pullrelease.HostProgress) bool {
-		return h.State != pullrelease.HostNewer || h.Version != revision || h.Error != ""
+		return h.State != pullrelease.HostNewer || h.Version != original || h.Error != ""
 	}), "an older release must leave every host on its newer release, unrefused and not marked bad:\n%s", newer)
 	skipped := l.ask(ctx, "gru-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: l.release(r0)})
-	require(skipped.State == releasepush.StateNewer && skipped.Version == revision && skipped.Refusal == nil && skipped.Error == "",
+	require(skipped.State == releasepush.StateNewer && skipped.Version == original && skipped.Refusal == nil && skipped.Error == "",
 		"gru-w must skip the older release, replied %+v", skipped)
 	l.requireVersions(ctx, base, l.region("sjc", "fra", "gru")...)
 	require(maps.Equal(before, l.starts()), "no host may restart for an older release: %v -> %v", before, l.starts())
 	fmt.Printf("older release %s -> every host already descends from it: nothing installed, not refused, not marked bad\n%s\n", r0.tag, newer)
 
+	revision := strings.Repeat("2", 40)
+	lineage := revision + "..." + original
+	l.github.mu.Lock()
+	l.github.compare[lineage] = comparison{status: "behind", behindBy: 3, base: revision, mergeBase: original}
+	l.github.mu.Unlock()
+	l.revision = revision
 	r1 := l.publishGood("101", "c101")
 	sjc := l.waitStatus(ctx, "sjc", "sjc completes "+r1.tag, complete(r1))
 	fra := l.waitStatus(ctx, "fra", "fra completes "+r1.tag, complete(r1))
 	gru := l.waitStatus(ctx, "gru", "gru completes "+r1.tag, complete(r1))
 	require(!fra.Done.Before(sjc.Done.Add(healthyFor)) && !gru.Done.Before(fra.Done.Add(healthyFor)), "a region bypassed its predecessor completion and bake")
 	l.requireVersions(ctx, r1.digest, l.region("sjc", "fra", "gru")...)
-	fmt.Printf("attested release pulled in sjc, fra, gru order; predecessor completion and bake persisted across hosts\n%s\n%s\n%s\n", sjc, fra, gru)
+	l.github.mu.Lock()
+	compared, replied := l.github.compared[lineage], l.github.replied[lineage]
+	l.github.mu.Unlock()
+	require(replied > 1<<20 && compared >= 1 && compared <= len(l.hosts), "every host must check %s once against a comparison over 1 MiB: %d checks of %d bytes", lineage, compared, replied)
+	fmt.Printf("attested release %s pulled in sjc, fra, gru order; predecessor completion and bake persisted across hosts; %d lineage checks for %d hosts, each reply %d bytes\n%s\n%s\n%s\n",
+		r1.tag, compared, len(l.hosts), replied, sjc, fra, gru)
 
 	wrongWorkflow := sigstore.Identity{Workflow: "TerraScale/ts-orchestrator/.github/workflows/lint-cache.yml@refs/heads/main", Ref: "refs/heads/main", Trigger: "push"}
 	wrongBranch := sigstore.Identity{Workflow: "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/feature", Ref: "refs/heads/feature", Trigger: "push"}
@@ -430,9 +449,9 @@ func (l *lane) pulls(ctx context.Context) {
 	tampered := append(bytes.Clone(c105[:len(c105)-1]), c105[len(c105)-1]^1)
 	diverged, forked, detached := strings.Repeat("e", 40), strings.Repeat("d", 40), strings.Repeat("b", 40)
 	l.github.mu.Lock()
-	l.github.compare[revision+"..."+diverged] = comparison{status: "diverged", base: revision, mergeBase: strings.Repeat("c", 40), commits: []string{diverged}}
-	l.github.compare[revision+"..."+forked] = comparison{status: "ahead", base: revision, mergeBase: strings.Repeat("c", 40), commits: []string{strings.Repeat("a", 40), forked}}
-	l.github.compare[revision+"..."+detached] = comparison{status: "ahead", base: revision, mergeBase: revision, commits: []string{strings.Repeat("a", 40), strings.Repeat("f", 40)}}
+	l.github.compare[diverged+"..."+revision] = comparison{status: "diverged", aheadBy: 1, behindBy: 1, base: diverged, mergeBase: strings.Repeat("c", 40)}
+	l.github.compare[forked+"..."+revision] = comparison{status: "behind", behindBy: 2, base: forked, mergeBase: strings.Repeat("c", 40)}
+	l.github.compare[detached+"..."+revision] = comparison{status: "behind", behindBy: 2, base: strings.Repeat("f", 40), mergeBase: revision}
 	l.github.mu.Unlock()
 	refusals := []struct {
 		name   string
@@ -451,7 +470,7 @@ func (l *lane) pulls(ctx context.Context) {
 		{"not a descendant", "106", diverged, c106, c106, l.sigstore.Bundle(sigstore.MainIdentity, diverged, "106", map[string][]byte{asset: c106}), "does not descend", true},
 		{"no certificate timestamp", "107", revision, c107, c107, l.sigstore.Bundle(unlogged, revision, "107", map[string][]byte{asset: c107}), "SCT", true},
 		{"ahead of another merge base", "108", forked, c108, c108, l.sigstore.Bundle(sigstore.MainIdentity, forked, "108", map[string][]byte{asset: c108}), "does not descend", true},
-		{"comparison ends elsewhere", "109", detached, c109, c109, l.sigstore.Bundle(sigstore.MainIdentity, detached, "109", map[string][]byte{asset: c109}), "does not end at", true},
+		{"comparison of another commit", "109", detached, c109, c109, l.sigstore.Bundle(sigstore.MainIdentity, detached, "109", map[string][]byte{asset: c109}), "GitHub resolved", true},
 	}
 	for _, refusal := range refusals {
 		release := l.github.publish(refusal.sha, refusal.run, asset, refusal.binary, refusal.served, refusal.bundle)
@@ -515,6 +534,9 @@ func (l *lane) pulls(ctx context.Context) {
 	restored := l.ask(ctx, stuck, releasepush.PullRequest{Op: releasepush.PullRollback, Release: l.release(r11), Reason: "operator restores the stalled host"})
 	require(restored.State == "restoring", "the operator's rollback of %s must restore its previous binary, replied %+v", stuck, restored)
 	l.waitReady(ctx, "sjc."+stuck, r1.digest)
+	listings, unchanged, shortest := l.github.listingGaps()
+	require(unchanged > 0 && shortest >= poll, "an owner may list releases once per %s and repeat with its ETag: %d listings, %d unchanged, shortest gap %s", poll, listings, unchanged, shortest)
+	fmt.Printf("release discovery: %d listings by the region owners, %d answered 304, at least %s apart in each process\n", listings, unchanged, shortest)
 }
 
 func (l *lane) waitDown(ctx context.Context, who string) {
@@ -566,7 +588,7 @@ func sha256Of(data []byte) []byte {
 }
 
 func (l *lane) candidate(mode string) []byte {
-	return append(bytes.Clone(l.self), []byte("\nCANDIDATE:"+mode)...)
+	return append(asRevision(l.self, l.build, l.revision), []byte("\nCANDIDATE:"+mode)...)
 }
 
 func (l *lane) publishGood(run, mode string) published {
