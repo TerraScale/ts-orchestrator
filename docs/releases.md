@@ -419,7 +419,7 @@ that changes runtime inputs:
 | Lane | Installed release | Release it must install |
 | --- | --- | --- |
 | `upgrade-previous` | N-1: the release the `upgrade-gate/previous` pin names, downloaded from GitHub and checked against its listed digest | N: this build |
-| `upgrade-next` | N: this build | N+1: the same tree with different bytes, published one run later |
+| `upgrade-next` | N: this build | N+1: this build with its embedded `vcs.revision` replaced by a derived commit that descends from N, published one run later |
 
 Each lane boots one manager and one worker in sjc as real `ts-orch node`
 processes in Oracle mode (the `oraclehost` harness from the `oracle-regions`
@@ -428,7 +428,7 @@ both serve the installed release, the lane publishes the candidate. The
 installed binary's own pull updater then has to do the rest, unchanged:
 
 - find the candidate in GitHub's release list on its next five-minute poll;
-- in `upgrade-previous`, check the lineage against GitHub's comparison;
+- check the lineage against GitHub's comparison, N-1...N in `upgrade-previous` and N...N+1 in `upgrade-next`;
 - verify the provenance bundle;
 - roll the release out one host at a time over NATS, with the candidate
   preflight, staging, the binary rename and the restart;
@@ -450,7 +450,15 @@ A release list or comparison that outgrows what the installed updater reads
 therefore fails the gate, as it would in production. On a pull request the
 comparison is the one between the pin and the pull request's merge commit (the
 commit the release will be), answered for the head commit the candidate was
-built from.
+built from. `upgrade-next` serves that same recorded comparison for N...N+1,
+with the pin's commit rewritten to N and the last commit to N+1, so N's own
+lineage check reads a body of real size and shape.
+
+Recorded releases with a run ID at or above the candidate's (published by main
+while the lane runs) are left out of the list, so the newest release is always
+the candidate. When GitHub does not compare the pin as an ancestor of the
+commit being released, the lane fails before any host starts and says to rebase
+onto main.
 
 The stand-in answers with an empty release list until the candidate is
 published, so the first poll finds nothing rather than refusing a real release
@@ -479,8 +487,10 @@ correct.
 `upgrade-gate/previous` is an annotated tag on the release's commit. Its
 message is the release tag, for example
 `ci-b60ccc99171132995225f7b8bcf5350176782e58-run-44061090529`. Each successful
-`deploy/release-publish` moves it to the release it just published, so the
-next run proves that release can install its successor. The lane never reads
+`deploy/release-publish` moves it to the release it just published, unless the
+pin already names a later run, so the next run proves that release can install
+its successor. The pin moves on publication, not on installation: nothing in CI
+notices when production stays behind it, because the lane never reads
 production.
 
 When production runs something else, for example when it is stuck on an older
@@ -510,7 +520,10 @@ run, so one flaky attempt cannot hold main red and releases back for hours:
    - writes a warning annotation;
    - adds a job summary line;
    - uploads the lane's matrix entry as `e2e-rerun-<attempt>-<lane>`.
-2. `e2e-rerun-plan` collects these entries and records them in its job summary
+2. `e2e-rerun-plan` takes, for each lane, the attempt of its latest job (so a
+   partial `gh run rerun --failed`, such as the infrastructure rerun of
+   `revert-red-main`, keeps first-attempt failures from earlier attempts),
+   collects the entries of those attempts and records them in its job summary
    and in the artifact `e2e-reruns-<attempt>` (90 days: run, attempt, commit,
    event and lanes).
 3. `e2e-m1 / <lane> (rerun)` runs each of those lanes once more, from the same
@@ -519,6 +532,11 @@ run, so one flaky attempt cannot hold main red and releases back for hours:
    The second case stays red and names the lane.
 4. `e2e-m1`, and through it `all-green` and `deploy/release-publish`, passes
    only if every lane passed its first attempt or its rerun.
+
+Only the `e2e-m1` matrix lanes are covered. `e2e-certificates` (one 30-minute
+job) and the `caller-key` shards also block `deploy/release-publish`, but they
+run only when their own inputs change and were not the lanes that held main
+red; covering them needs the same plan and rerun pair for each, a follow-up.
 
 Because the rerun happens inside the run, the shared `revert-red-main` workflow
 only sees a failed run after the second failure. A lane is never retried inside

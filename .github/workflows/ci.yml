@@ -230,9 +230,14 @@ jobs:
           import subprocess
 
           repository, run, attempt = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"]
-          prefix = f"e2e-rerun-{attempt}-"
-          pages = json.loads(subprocess.check_output(["gh", "api", "--paginate", "--slurp", f"repos/{repository}/actions/runs/{run}/artifacts?per_page=100"]))
-          names = sorted(artifact["name"] for page in pages for artifact in page["artifacts"] if artifact["name"].startswith(prefix))
+
+          def pages(path, key):
+              return [item for page in json.loads(subprocess.check_output(["gh", "api", "--paginate", "--slurp", path])) for item in page[key]]
+
+          artifacts = {artifact["name"] for artifact in pages(f"repos/{repository}/actions/runs/{run}/artifacts?per_page=100", "artifacts")}
+          latest = {job["name"].removeprefix("e2e-m1 / "): job["run_attempt"] for job in pages(f"repos/{repository}/actions/runs/{run}/jobs?filter=latest&per_page=100", "jobs")
+                    if job["name"].startswith("e2e-m1 / ") and not job["name"].endswith(" (rerun)")}
+          names = sorted(f"e2e-rerun-{lane_attempt}-{lane}" for lane, lane_attempt in latest.items() if f"e2e-rerun-{lane_attempt}-{lane}" in artifacts)
           lanes = []
           for name in names:
               target = pathlib.Path(os.environ["RUNNER_TEMP"], name)
@@ -620,6 +625,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          pinned=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/upgrade-gate/previous" --jq .object.sha)
+          pinned_run=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${pinned}" --jq .message | sed -n 's/^ci-[0-9a-f]\{40\}-run-\([0-9]\+\)$/\1/p')
+          if [ "${pinned_run:-0}" -ge "$GITHUB_RUN_ID" ]; then
+            echo "upgrade-gate/previous already names run ${pinned_run}, not older than run ${GITHUB_RUN_ID}: left in place" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           object=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags" -f tag=upgrade-gate/previous \
             -f message="ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}" -f object="${GITHUB_SHA}" -f type=commit --jq .sha)
           gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/upgrade-gate/previous" -f sha="$object" -F force=true --jq .object.sha

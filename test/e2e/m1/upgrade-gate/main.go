@@ -29,7 +29,6 @@ const (
 	repositoryAPI = "https://api.github.com/repos/" + releaseattest.Repository
 	pinRef        = "tags/upgrade-gate/previous"
 	region        = "sjc"
-	nextTrailer   = "\nupgrade-gate: the next release of this tree\n"
 	trustedMarker = `"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1"`
 )
 
@@ -119,8 +118,7 @@ func pinned() pinnedRelease {
 	return pinnedRelease{Tag: name, SHA: match[1], Run: match[2]}
 }
 
-func fetchPrevious(work string) string {
-	pin := pinned()
+func fetchPrevious(work string, pin pinnedRelease) {
 	var release struct {
 		Draft  bool `json:"draft"`
 		Assets []struct {
@@ -145,29 +143,44 @@ func fetchPrevious(work string) string {
 		must(os.WriteFile(filepath.Join(work, "previous"), data, 0o755))
 		require(revision(filepath.Join(work, "previous")) == pin.SHA, "pinned %s %s was not built from %s", pin.Tag, asset, pin.SHA)
 		fmt.Printf("pinned previous release %s (%s sha256:%s)\n", pin.Tag, asset, digest(data))
-		return pin.SHA
+		return
 	}
 	panic(fmt.Sprintf("pinned release %s has no %s", pin.Tag, asset))
 }
 
+func nextRevision(sha string) string {
+	sum := sha256.Sum256([]byte("upgrade-gate: the next release after " + sha))
+	return hex.EncodeToString(sum[:])[:40]
+}
+
 func fetch(mode, candidate, work, lineage string) {
-	comparisons := map[string][]byte{}
+	pin, head := pinned(), revision(candidate)
 	if mode == "previous" {
-		base, head := fetchPrevious(work), revision(candidate)
-		for page := 1; ; {
-			body := github(fmt.Sprintf("%s/compare/%s...%s?per_page=1&page=%d", repositoryAPI, base, lineage, page))
-			var comparison struct {
-				Status  string `json:"status"`
-				AheadBy int    `json:"ahead_by"`
-			}
-			decode(body, &comparison)
-			comparisons[oraclehost.ComparisonKey(base, head, page)] = bytes.ReplaceAll(body, []byte(lineage), []byte(head))
-			fmt.Printf("lineage %s...%s page %d: %s, ahead by %d, %d bytes\n", base, lineage, page, comparison.Status, comparison.AheadBy, len(body))
-			if page != 1 || comparison.AheadBy <= 1 {
-				break
-			}
-			page = comparison.AheadBy
+		fetchPrevious(work, pin)
+	}
+	rewrite := func(body []byte) []byte { return bytes.ReplaceAll(body, []byte(lineage), []byte(head)) }
+	base, served := pin.SHA, head
+	if mode == "next" {
+		base, served = head, nextRevision(head)
+		rewrite = func(body []byte) []byte {
+			return bytes.ReplaceAll(bytes.ReplaceAll(body, []byte(lineage), []byte(served)), []byte(pin.SHA), []byte(head))
 		}
+	}
+	comparisons := map[string][]byte{}
+	for page := 1; ; {
+		body := github(fmt.Sprintf("%s/compare/%s...%s?per_page=1&page=%d", repositoryAPI, pin.SHA, lineage, page))
+		var comparison struct {
+			Status  string `json:"status"`
+			AheadBy int    `json:"ahead_by"`
+		}
+		decode(body, &comparison)
+		require(comparison.Status == "ahead", "GitHub compares the pinned release %s with %s as %q: the pin is not an ancestor of what this run releases; rebase onto main", pin.Tag, lineage, comparison.Status)
+		comparisons[oraclehost.ComparisonKey(base, served, page)] = rewrite(body)
+		fmt.Printf("lineage %s...%s page %d (%d bytes, ahead by %d) served as %s...%s\n", pin.SHA, lineage, page, len(body), comparison.AheadBy, base, served)
+		if page != 1 || comparison.AheadBy <= 1 {
+			break
+		}
+		page = comparison.AheadBy
 	}
 	releases := github(repositoryAPI + "/releases?per_page=30")
 	fmt.Printf("recorded GitHub release list: %d bytes\n", len(releases))
@@ -175,6 +188,30 @@ func fetch(mode, candidate, work, lineage string) {
 	data, err := json.Marshal(comparisons)
 	must(err)
 	must(os.WriteFile(filepath.Join(work, "comparisons.json"), data, 0o644))
+}
+
+func withRevision(binary []byte, from, to string) []byte {
+	old, replacement := []byte("vcs.revision="+from), []byte("vcs.revision="+to)
+	require(bytes.Contains(binary, old), "the binary does not embed vcs.revision=%s", from)
+	return bytes.ReplaceAll(binary, old, replacement)
+}
+
+func olderReleases(recorded []byte, run uint64) []byte {
+	var releases []map[string]any
+	decode(recorded, &releases)
+	kept := []map[string]any{}
+	for _, release := range releases {
+		tag, _ := release["tag_name"].(string)
+		if match := releaseTag.FindStringSubmatch(tag); match != nil {
+			if number, err := strconv.ParseUint(match[2], 10, 64); err == nil && number >= run {
+				continue
+			}
+		}
+		kept = append(kept, release)
+	}
+	data, err := json.Marshal(kept)
+	must(err)
+	return data
 }
 
 func trusting(binary, trusted []byte) []byte {
@@ -255,7 +292,8 @@ func journey(mode, candidatePath, work string, run uint64) {
 		installed, target = trusting(read(filepath.Join(work, "previous")), trusted), trusting(candidate, trusted)
 	case "next":
 		installed = trusting(candidate, trusted)
-		target = append(bytes.Clone(installed), nextTrailer...)
+		target = withRevision(installed, sha, nextRevision(sha))
+		sha = nextRevision(sha)
 		run++
 	}
 	installedPath := filepath.Join(work, "installed")
@@ -278,7 +316,7 @@ func journey(mode, candidatePath, work string, run uint64) {
 			os.Exit(1)
 		}
 	}()
-	must(fleet.GitHub().Record(read(filepath.Join(work, "releases.json")), comparisons))
+	must(fleet.GitHub().Record(olderReleases(read(filepath.Join(work, "releases.json")), run), comparisons))
 	manager, worker := fleet.Regions[0].Hosts[0], fleet.Regions[0].Hosts[1]
 	for _, host := range []*oraclehost.Host{manager, worker} {
 		must(fleet.Boot(host))
@@ -299,7 +337,7 @@ func journey(mode, candidatePath, work string, run uint64) {
 	}
 	requests := strings.Join(fleet.GitHub().Requests(), "\n")
 	require(strings.Contains(requests, "200 GET release-assets.githubusercontent.com"), "no host downloaded the release from GitHub's asset host:\n%s", requests)
-	require(mode != "previous" || strings.Contains(requests, "200 GET api.github.com/repos/TerraScale/ts-orchestrator/compare/"+from+"..."+sha), "the installed updater never checked the release's lineage:\n%s", requests)
+	require(strings.Contains(requests, "200 GET api.github.com/repos/TerraScale/ts-orchestrator/compare/"+from+"..."+sha), "the installed updater never checked the release's lineage:\n%s", requests)
 	step("%s installed %s on both hosts through discovery, lineage, provenance, preflight and probation; each keeps %s as its rollback target", from, tag, from)
 }
 
