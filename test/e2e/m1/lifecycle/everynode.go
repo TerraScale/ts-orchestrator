@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,7 +16,7 @@ import (
 
 const unservedWait = 15 * time.Second
 
-func (j *journey) everyNodeFromManager(image string) error {
+func (j *journey) everyNodeFromManager(image string) (err error) {
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -28,22 +29,31 @@ func (j *journey) everyNodeFromManager(image string) error {
 		}
 		return nil
 	}
-	for _, mode := range []string{"unserved", "served"} {
-		if mode == "unserved" {
-			err = firewall("-I")
-		} else {
-			err = firewall("-D")
-		}
-		if err != nil {
-			return err
-		}
+	run := func(mode string) error {
 		output, err := exec.CommandContext(j.ctx, "ip", "netns", "exec", "c18a", self, "every-node", j.root, image, mode).CombinedOutput()
 		fmt.Print(string(output))
 		if err != nil {
 			return fmt.Errorf("every-node whoami from the manager (%s worker): %w", mode, err)
 		}
+		return nil
 	}
-	return nil
+	if err := firewall("-I"); err != nil {
+		return err
+	}
+	dropped := true
+	defer func() {
+		if dropped {
+			err = errors.Join(err, firewall("-D"))
+		}
+	}()
+	if err := run("unserved"); err != nil {
+		return err
+	}
+	if err := firewall("-D"); err != nil {
+		return err
+	}
+	dropped = false
+	return run("served")
 }
 
 func everyNode(ctx context.Context, root, image, mode string) error {
@@ -70,7 +80,7 @@ func everyNode(ctx context.Context, root, image, mode string) error {
 		if err == nil {
 			return fmt.Errorf("every-node whoami became ready while the manager could not reach its worker's task")
 		}
-		for _, want := range []string{"service whoami is not ready: task ", " on c18b (10.231.0.3): task application readiness request failed: context deadline exceeded"} {
+		for _, want := range []string{"service whoami is not ready: task ", " on c18b (10.231.0.3): task application readiness request failed: ", "dial tcp 10.231.0.3:18087: i/o timeout"} {
 			if !strings.Contains(err.Error(), want) {
 				return fmt.Errorf("every-node whoami failed without naming the unserved worker task (want %q): %w", want, err)
 			}

@@ -62,7 +62,7 @@ func Resume(ctx context.Context, conn *nats.Conn, name string, output io.Writer)
 	}
 	current := entries[name].entry()
 	if failedAnywhere(ctx, conn, name, current.Generation) {
-		return fmt.Errorf("%s held at failed generation %d; repair the cause and release again with the same digest or a corrected image", name, current.Generation)
+		return fmt.Errorf("%s held at failed generation %d; repair the cause, then run service rm %s and service apply -f <file>", name, current.Generation, name)
 	}
 	if current.Spec == nil || current.HoldAfter == "" {
 		return fmt.Errorf("%s has no held rollout", name)
@@ -88,7 +88,7 @@ func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSp
 	}
 	before := entries[spec.Name].entry()
 	if failedAnywhere(ctx, conn, spec.Name, before.Generation) {
-		return nil, fmt.Errorf("%s held at failed generation %d; repair the cause and release again with the same digest or a corrected image", spec.Name, before.Generation)
+		return nil, fmt.Errorf("%s held at failed generation %d; repair the cause, then run service rm %s and service apply -f <file>", spec.Name, before.Generation, spec.Name)
 	}
 	if holdAfter == "" && !resume && before.HoldAfter != "" && slices.Contains(rolloutOrder(connRegion(conn), &spec), before.HoldAfter) {
 		holdAfter = before.HoldAfter

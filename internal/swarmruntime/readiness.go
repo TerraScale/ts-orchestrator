@@ -54,7 +54,7 @@ func probeReady(ctx context.Context, task *api.Task, endpoint netip.AddrPort) er
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return &TaskReadinessError{Status: "request-failed"}
+		return &TaskReadinessError{Status: "request-failed", Err: err}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -65,11 +65,16 @@ func probeReady(ctx context.Context, task *api.Task, endpoint netip.AddrPort) er
 
 // TaskReadinessError is a running task's application answering its readyPath
 // with anything but 200: Status is "HTTP <code>" or "request-failed".
-type TaskReadinessError struct{ Status string }
+type TaskReadinessError struct {
+	Status string
+	Err    error
+}
+
+func (e *TaskReadinessError) Unwrap() error { return e.Err }
 
 func (e *TaskReadinessError) Error() string {
 	if e.Status == "request-failed" {
-		return "task application readiness request failed"
+		return "task application readiness request failed: " + e.Err.Error()
 	}
 	return "task application readiness returned " + e.Status
 }
