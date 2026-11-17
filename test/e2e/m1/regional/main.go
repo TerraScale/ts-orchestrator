@@ -292,7 +292,13 @@ func main() {
 		}
 	}()
 	regional := edge.New(state)
-	regional.SetRoutes(map[string]int{host: 8080, upgradeHost: backend.Addr().(*net.TCPAddr).Port}, nil)
+	inventory := mesh.EdgeInventory{
+		Web:      map[string]int{host: 8080, upgradeHost: backend.Addr().(*net.TCPAddr).Port, "api.terrascale.tech": 8080},
+		Services: map[string]string{host: host, upgradeHost: upgradeHost, "api.terrascale.tech": "api.terrascale.tech"},
+	}
+	go regional.FollowInventory(context.Background(), func() (mesh.EdgeInventory, bool) {
+		return inventory, true
+	}, func(context.Context, string) error { return nil }, nil)
 	step("SetRequestProofSecret", regional.SetRequestProofSecret(writer.secret))
 	regional.SetRegionalNodes(func() []mesh.WorkerPeer { return nodes })
 	control, err := net.Listen("tcp", "127.0.0.1:0")
@@ -357,7 +363,6 @@ func main() {
 			}
 		}
 	}()
-	regional.SetRoutes(map[string]int{host: 8080, upgradeHost: backend.Addr().(*net.TCPAddr).Port, "api.terrascale.tech": 8080}, nil)
 	for _, check := range []struct {
 		host, path string
 		code       int

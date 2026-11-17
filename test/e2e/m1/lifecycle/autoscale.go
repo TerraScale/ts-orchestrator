@@ -19,6 +19,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
@@ -242,8 +243,13 @@ func (j *journey) autoscaleDown(image string) error {
 
 func startAutoscaleEdge(ctx context.Context, state string) error {
 	public := edge.New(state)
-	public.SetServiceRoutes(map[string]int{"c11.e2e.test": 18089, "fixed.c11.e2e.test": 18090}, nil,
-		map[string]string{"c11.e2e.test": "c11-load", "fixed.c11.e2e.test": "c11-fixed"}, nil)
+	inventory := mesh.EdgeInventory{
+		Web:      map[string]int{"c11.e2e.test": 18089, "fixed.c11.e2e.test": 18090},
+		Services: map[string]string{"c11.e2e.test": "c11-load", "fixed.c11.e2e.test": "c11-fixed"},
+	}
+	go public.FollowInventory(ctx, func() (mesh.EdgeInventory, bool) {
+		return inventory, true
+	}, func(context.Context, string) error { return nil }, nil)
 	failed := make(chan error, 1)
 	go func() { failed <- public.Run(ctx) }()
 	return until(ctx, func() error {

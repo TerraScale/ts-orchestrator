@@ -595,8 +595,10 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 			return err
 		}
 	}
-	if err := current.wait(ctx, "edge certificate renewal deferred name=existing.e2e.test", 1); err != nil {
-		return err
+	for _, process := range []*process{current, old} {
+		if err := process.wait(ctx, "edge certificate renewal deferred name=existing.e2e.test", 1); err != nil {
+			return err
+		}
 	}
 	if err := awaitReady(ctx, "10.77.0.3"); err != nil {
 		return fmt.Errorf("main binary routes: %w", err)
@@ -633,6 +635,9 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 	if err != nil {
 		return err
 	}
+	if err := old.wait(ctx, "edge certificate installed name=sjc."+mesh.Domain+" ", 2); err != nil {
+		return err
+	}
 	old.stop()
 	oldRunning = false
 	second, err := startNode("b", cfg.Binary, "b-process", "oracle")
@@ -640,9 +645,6 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 		return err
 	}
 	defer second.stop()
-	if err := second.wait(ctx, "edge certificate installed name=sjc."+mesh.Domain+" ", 2); err != nil {
-		return err
-	}
 	if err := second.wait(ctx, "edge readiness changed ready=true", 1); err != nil {
 		return err
 	}

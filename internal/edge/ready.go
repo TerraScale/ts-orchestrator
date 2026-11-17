@@ -210,17 +210,17 @@ func (e *Edge) ready(ctx context.Context) ([]string, error) {
 			conditions = append(conditions, "node draining")
 		}
 	}
+	inventoryMissing := e.inventoryMissing.Load()
 	web, postgres := *e.routes.Load(), *e.postgres.Load()
 	routes := *e.readyRoutes.Load()
-	if e.follower.Load() && e.inventoryMissing.Load() {
-		conditions = append(conditions, edgeInventoryUnavailable)
-	} else {
-		if len(web)+len(postgres) == 0 && e.meshName() == "" {
+	if inventoryMissing {
+		if e.follower.Load() {
+			conditions = append(conditions, edgeInventoryUnavailable)
+		} else {
 			conditions = append(conditions, "routes unavailable")
 		}
-		if len(routes) == 0 && (len(web)+len(postgres) != 0 || e.meshName() == "") {
-			conditions = append(conditions, "readiness routes unavailable")
-		}
+	} else if len(routes) == 0 && len(web)+len(postgres) != 0 {
+		conditions = append(conditions, "readiness routes unavailable")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
