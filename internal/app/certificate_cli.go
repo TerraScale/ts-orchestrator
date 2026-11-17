@@ -13,61 +13,30 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
-	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 )
 
 func RunCertificateCLI(ctx context.Context, args []string, output io.Writer) error {
-	if len(args) < 1 || args[0] != "inventory" || len(args) > 2 {
-		return errors.New("usage: ts-orch edge certificates inventory [local|node|all]")
-	}
-	scope := "local"
-	if len(args) == 2 {
-		scope = args[1]
+	if len(args) != 1 || args[0] != "inventory" {
+		return errors.New("usage: ts-orch edge certificates inventory")
 	}
 	targets := map[string]string{}
-	var nodes []nodelist.Node
-	if scope != "local" {
-		list, err := nodelist.Read("/var/lib/ts-orch")
-		if err != nil {
-			return fmt.Errorf("certificate inventory node list: %w", err)
-		}
-		nodes = list.Nodes
+	iface, err := net.InterfaceByName("wt0")
+	if err != nil {
+		return err
 	}
-	if scope == "all" {
-		for _, node := range nodes {
-			targets[node.Name] = node.MeshIP
-		}
-	} else if scope == "local" {
-		iface, err := net.InterfaceByName("wt0")
-		if err != nil {
-			return err
-		}
-		addresses, err := iface.Addrs()
-		if err != nil {
-			return err
-		}
-		for _, address := range addresses {
-			ip, _, err := net.ParseCIDR(address.String())
-			if err == nil && ip.To4() != nil && ip.IsPrivate() {
-				targets["local"] = ip.String()
-				break
-			}
-		}
-		if len(targets) == 0 {
-			return errors.New("local mesh address unavailable")
-		}
-	} else {
-		for _, node := range nodes {
-			if node.Name == scope {
-				targets[node.Name] = node.MeshIP
-			}
-		}
-		if len(targets) == 0 {
-			return errors.New("node is not in the node list")
+	addresses, err := iface.Addrs()
+	if err != nil {
+		return err
+	}
+	for _, address := range addresses {
+		ip, _, err := net.ParseCIDR(address.String())
+		if err == nil && ip.To4() != nil && ip.IsPrivate() {
+			targets["local"] = ip.String()
+			break
 		}
 	}
 	if len(targets) == 0 {
-		return errors.New("node list is empty")
+		return errors.New("local mesh address unavailable")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil

@@ -3,14 +3,16 @@ package mesh
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats.go"
 )
 
@@ -39,11 +41,22 @@ type EdgeInventory struct {
 	ProofRef   string            `json:"proof_ref,omitempty"`
 }
 
-type signedEdgeInventory struct {
+type SignedEdgeInventory struct {
+	Inventory   []byte   `json:"inventory"`
+	Certificate [][]byte `json:"certificate"`
+	Signature   []byte   `json:"signature"`
+}
+
+type carriedEdgeInventory struct {
 	Publisher string `json:"publisher"`
 	SPKI      []byte `json:"spki"`
 	Inventory []byte `json:"inventory"`
-	Signature []byte `json:"signature"`
+}
+
+type followedEdgeInventory struct {
+	EdgeInventory
+	publisher string
+	signed    []byte
 }
 
 type edgePublication struct {
@@ -53,7 +66,9 @@ type edgePublication struct {
 	issued     time.Time
 }
 
-func EdgeInventoryPublisher(region string) string { return "ts-" + region + "-1" }
+func EdgeInventoryMessage(payload []byte) []byte {
+	return append([]byte("TS-EDGE-INVENTORY-V1\x00"), payload...)
+}
 
 func (inventory EdgeInventory) valid(region string) bool {
 	ports := func(table map[string]int) bool {
@@ -101,11 +116,11 @@ func (n *Node) PublishEdgeInventory(state string, inventory EdgeInventory) error
 		if err != nil {
 			return err
 		}
-		spki, signature, err := nodelist.Sign(state, payload)
+		chain, signature, err := swarmruntime.SignRegional(state, EdgeInventoryMessage(payload))
 		if err != nil {
 			return err
 		}
-		signed, err := protocol.EncodeJSON(signedEdgeInventory{Publisher: EdgeInventoryPublisher(n.cfg.region), SPKI: spki, Inventory: payload, Signature: signature})
+		signed, err := protocol.EncodeJSON(SignedEdgeInventory{Inventory: payload, Certificate: chain, Signature: signature})
 		if err != nil {
 			return err
 		}
@@ -115,23 +130,9 @@ func (n *Node) PublishEdgeInventory(state string, inventory EdgeInventory) error
 	return n.conn.Publish(n.edgeInventorySubject(), last.signed)
 }
 
-func (n *Node) verifyEdgeInventory(state string, data []byte) (EdgeInventory, error) {
-	var signed signedEdgeInventory
-	if err := protocol.DecodeTolerant(data, &signed, maxWire); err != nil {
-		return EdgeInventory{}, err
-	}
-	if signed.Publisher != EdgeInventoryPublisher(n.cfg.region) {
-		return EdgeInventory{}, errors.New("edge inventory publisher is not the region's manager")
-	}
-	list, err := nodelist.Read(state)
-	if err != nil {
-		return EdgeInventory{}, err
-	}
-	if err := list.Verify(signed.Publisher, n.cfg.region, signed.SPKI, signed.Inventory, signed.Signature); err != nil {
-		return EdgeInventory{}, err
-	}
+func (n *Node) decodeEdgeInventory(payload []byte) (EdgeInventory, error) {
 	var inventory EdgeInventory
-	if err := protocol.DecodeTolerant(signed.Inventory, &inventory, maxWire); err != nil {
+	if err := protocol.DecodeTolerant(payload, &inventory, maxWire); err != nil {
 		return EdgeInventory{}, err
 	}
 	if !inventory.valid(n.cfg.region) {
@@ -143,11 +144,43 @@ func (n *Node) verifyEdgeInventory(state string, data []byte) (EdgeInventory, er
 	return inventory, nil
 }
 
+func (n *Node) verifyEdgeInventory(state string, data []byte) (followedEdgeInventory, error) {
+	var signed SignedEdgeInventory
+	if err := protocol.DecodeTolerant(data, &signed, maxWire); err != nil {
+		return followedEdgeInventory{}, err
+	}
+	publisher, err := swarmruntime.VerifyRegionalManager(state, signed.Certificate, EdgeInventoryMessage(signed.Inventory), signed.Signature)
+	if err != nil {
+		return followedEdgeInventory{}, err
+	}
+	inventory, err := n.decodeEdgeInventory(signed.Inventory)
+	if err != nil {
+		return followedEdgeInventory{}, err
+	}
+	return followedEdgeInventory{EdgeInventory: inventory, publisher: publisher, signed: data}, nil
+}
+
+func (n *Node) carriedEdgeInventory(data []byte) (followedEdgeInventory, error) {
+	var carried carriedEdgeInventory
+	if err := protocol.DecodeTolerant(data, &carried, maxWire); err != nil {
+		return followedEdgeInventory{}, err
+	}
+	if carried.Publisher != "ts-"+n.cfg.region+"-1" || len(carried.SPKI) == 0 {
+		return followedEdgeInventory{}, errors.New("persisted edge inventory is not a carried regional inventory")
+	}
+	inventory, err := n.decodeEdgeInventory(carried.Inventory)
+	if err != nil {
+		return followedEdgeInventory{}, err
+	}
+	return followedEdgeInventory{EdgeInventory: inventory, signed: data}, nil
+}
+
 func (n *Node) acceptEdgeInventory(state string, data []byte) error {
 	inventory, err := n.verifyEdgeInventory(state, data)
 	n.edgeFollowMu.Lock()
 	defer n.edgeFollowMu.Unlock()
 	if err != nil {
+		n.edgeRefusals.Add(1)
 		if err.Error() != n.edgeRefused {
 			slog.WarnContext(n.ctx, "edge inventory refused", "error", err)
 			n.edgeRefused = err.Error()
@@ -155,32 +188,84 @@ func (n *Node) acceptEdgeInventory(state string, data []byte) error {
 		return err
 	}
 	n.edgeRefused = ""
-	if current := n.edgeInventory.Load(); current != nil && inventory.Generation <= current.Generation {
+	if current, ok := n.edgeInventories[inventory.publisher]; ok && inventory.Generation <= current.Generation {
 		return errors.New("edge inventory generation is not newer")
 	}
-	if err := writePrivate(filepath.Join(state, edgeInventoryFile), data); err != nil {
-		slog.WarnContext(n.ctx, "edge inventory not persisted", "error", err)
+	if newest, ok := n.selectEdgeInventory(state); !ok || inventory.Generation > newest.Generation {
+		if err := writePrivate(filepath.Join(state, edgeInventoryFile), data); err != nil {
+			slog.WarnContext(n.ctx, "edge inventory not persisted", "error", err)
+		}
 	}
-	n.edgeInventory.Store(&inventory)
+	n.edgeInventories[inventory.publisher] = inventory
+	n.selectEdgeInventory(state)
 	return nil
 }
 
-func (n *Node) FollowEdgeInventory(state string) func() (EdgeInventory, bool) {
-	if data, err := os.ReadFile(filepath.Join(state, edgeInventoryFile)); err == nil {
-		if inventory, err := n.verifyEdgeInventory(state, data); err == nil {
-			n.edgeInventory.Store(&inventory)
-		} else {
-			slog.WarnContext(n.ctx, "persisted edge inventory refused", "error", err)
+func (n *Node) selectEdgeInventory(state string) (followedEdgeInventory, bool) {
+	managers := swarmruntime.RegionManagers(state)
+	var selected followedEdgeInventory
+	found := false
+	trusted := []string{}
+	for publisher, inventory := range n.edgeInventories {
+		if publisher != "" && !slices.Contains(managers, publisher) || time.Since(inventory.Issued) > edgeInventoryLifetime {
+			continue
+		}
+		if publisher != "" {
+			trusted = append(trusted, publisher)
+		}
+		if !found || inventory.Generation > selected.Generation {
+			selected, found = inventory, true
 		}
 	}
+	slices.Sort(trusted)
+	n.edgeTrusted.Store(&trusted)
+	if found {
+		n.edgeInventory.Store(&selected.EdgeInventory)
+		n.edgePublisher.Store(&selected.publisher)
+	} else {
+		n.edgeInventory.Store(nil)
+		n.edgePublisher.Store(nil)
+	}
+	return selected, found
+}
+
+func (n *Node) FollowEdgeInventory(state string) func() (EdgeInventory, bool) {
+	n.edgeFollowMu.Lock()
+	n.edgeInventories = map[string]followedEdgeInventory{}
+	if data, err := os.ReadFile(filepath.Join(state, edgeInventoryFile)); err == nil {
+		inventory, err := n.verifyEdgeInventory(state, data)
+		if err != nil {
+			var carryErr error
+			if inventory, carryErr = n.carriedEdgeInventory(data); carryErr != nil {
+				slog.WarnContext(n.ctx, "persisted edge inventory refused", "error", err)
+			}
+			err = carryErr
+		}
+		if err == nil {
+			n.edgeInventories[inventory.publisher] = inventory
+			n.selectEdgeInventory(state)
+		}
+	}
+	n.edgeFollowMu.Unlock()
 	if _, err := n.conn.Subscribe(n.edgeInventorySubject(), func(message *nats.Msg) { _ = n.acceptEdgeInventory(state, message.Data) }); err != nil {
 		slog.WarnContext(n.ctx, "edge inventory subscription unavailable", "error", err)
 	}
 	return func() (EdgeInventory, bool) {
-		inventory := n.edgeInventory.Load()
-		if inventory == nil || time.Since(inventory.Issued) > edgeInventoryLifetime {
-			return EdgeInventory{}, false
+		n.edgeFollowMu.Lock()
+		defer n.edgeFollowMu.Unlock()
+		inventory, ok := n.selectEdgeInventory(state)
+		return inventory.EdgeInventory, ok
+	}
+}
+
+func (n *Node) writeEdgeInventoryMetrics(w io.Writer) {
+	fmt.Fprintf(w, "ts_orch_mesh_edge_inventory_refused_total %d\n", n.edgeRefusals.Load())
+	if publisher := n.edgePublisher.Load(); publisher != nil {
+		fmt.Fprintf(w, "ts_orch_mesh_edge_inventory_publisher{node=%q} 1\n", *publisher)
+	}
+	if trusted := n.edgeTrusted.Load(); trusted != nil {
+		for _, publisher := range *trusted {
+			fmt.Fprintf(w, "ts_orch_mesh_edge_inventory_trusted{node=%q} 1\n", publisher)
 		}
-		return *inventory, true
 	}
 }

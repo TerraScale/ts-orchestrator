@@ -3,17 +3,23 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
 	"debug/buildinfo"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -22,12 +28,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/moby/swarmkit/v2/api"
+
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
-	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/oraclehost"
 	"github.com/nats-io/nats.go"
@@ -323,107 +331,128 @@ func meshUp(ctx context.Context, fleet *oraclehost.Fleet) {
 	step("every manager's mesh is up and every region answers ts-orch status over it")
 }
 
-func operatorRelease(ctx context.Context, fleet *oraclehost.Fleet, binary, repo, dir string) (string, error) {
-	nodes := []nodelist.Node{}
-	for index, host := range fleet.Hosts {
-		output, err := host.Exec(ctx, "/usr/local/bin/ts-orch", "node", "keys")
-		if err != nil {
-			return "", fmt.Errorf("%s node keys: %w: %s", host.Name, err, output)
-		}
-		var keys nodelist.PublicKeys
-		if err := json.Unmarshal(output, &keys); err != nil {
-			return "", err
-		}
-		nodes = append(nodes, nodelist.Node{Name: host.Name, Region: host.Region.Name, PublicIP: fmt.Sprintf("198.51.100.%d", index+1), PrivateIP: host.Address,
-			WGPublicKey: keys.WGPublicKey, TLSSPKISHA256: keys.TLSSPKISHA256})
-	}
-	inventory, err := json.Marshal(nodes)
-	if err != nil {
-		return "", err
-	}
-	inventoryPath, listPath := filepath.Join(dir, "inventory.json"), filepath.Join(dir, "nodes.json")
-	if err := os.WriteFile(inventoryPath, inventory, 0o644); err != nil {
-		return "", err
-	}
-	if output, err := exec.CommandContext(ctx, binary, "node", "list", "build", strconv.FormatUint(nodelist.StatusAt(fleet.Hosts[0].State("")).Sequence+1, 10), inventoryPath, listPath).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("ts-orch node list build: %w: %s", err, output)
-	}
-	list, err := os.ReadFile(listPath)
-	if err != nil {
-		return "", err
-	}
-	source := filepath.Join(repo, "deploy", "m1", "embed.go")
-	original, err := os.ReadFile(source)
-	if err != nil {
-		return "", err
-	}
-	embedded := regexp.MustCompile(`(?m)^const NodeList = .*$`).ReplaceAllLiteral(original, []byte("const NodeList = "+strconv.Quote(string(list))))
-	if bytes.Equal(embedded, original) {
-		return "", errors.New("deploy/m1/embed.go has no NodeList declaration")
-	}
-	overlaySource, overlay, out := filepath.Join(dir, "embed.go"), filepath.Join(dir, "overlay.json"), filepath.Join(dir, "release")
-	if err := os.WriteFile(overlaySource, embedded, 0o644); err != nil {
-		return "", err
-	}
-	replace, err := json.Marshal(map[string]map[string]string{"Replace": {source: overlaySource}})
-	if err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(overlay, replace, 0o644); err != nil {
-		return "", err
-	}
-	goTool, err := exec.LookPath("go")
-	if err != nil {
-		return "", err
-	}
-	owner, err := os.Stat(repo)
-	if err != nil {
-		return "", err
-	}
-	build := []string{"env", "PATH=" + filepath.Dir(goTool) + ":/usr/bin:/bin", "GOFLAGS=-overlay=" + overlay, "bash", filepath.Join(repo, "test", "e2e", "m1", "build.sh"), out, "./cmd/terrascale-orchestrator"}
-	if uid := owner.Sys().(*syscall.Stat_t).Uid; uid != uint32(os.Geteuid()) {
-		build = append([]string{"sudo", "-H", "-u", fmt.Sprintf("#%d", uid)}, build...)
-	}
-	if output, err := exec.CommandContext(ctx, build[0], build[1:]...).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build the release that embeds the enrolled node list: %w: %s", err, output)
-	}
-	release := filepath.Join(out, "terrascale-orchestrator")
-	require(revision(release) == revision(binary), "the release embedding the node list has revision %s, want %s", revision(release), revision(binary))
-	return release, nil
-}
-
-func nodeListSequence(ctx context.Context, host *oraclehost.Host, want uint64) {
-	until(ctx, fmt.Sprintf("%s node list sequence %d", host.Name, want), func() error {
-		status := nodelist.StatusAt(filepath.Join(host.Dir, "state"))
-		if status.Sequence != want || status.Refused != "" {
-			return fmt.Errorf("%s", status)
-		}
-		return nil
-	})
-}
-
 func edgeAnswer(ctx context.Context, host *oraclehost.Host, ca, url string) string {
 	output, _ := exec.CommandContext(ctx, "ip", "netns", "exec", host.Namespace, "curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", "--cacert", ca,
 		"--resolve", "whoami.e2e.test:80:127.0.0.1", url).Output()
 	return string(output)
 }
 
-func unlisted(ctx context.Context, fleet *oraclehost.Fleet, want, ca string) {
-	shipped, err := nodelist.Decode([]byte(m1.NodeList))
+func nodeCertificate(state string) *x509.Certificate {
+	data, err := os.ReadFile(filepath.Join(swarmruntime.NodeCertificates(state), "swarm-node.crt"))
 	must(err)
-	managers, workers := roles(fleet)
-	for _, host := range fleet.Hosts {
-		healthy(ctx, host, want)
-		nodeListSequence(ctx, host, shipped.Sequence)
+	block, _ := pem.Decode(data)
+	require(block != nil, "%s holds no node certificate", state)
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	must(err)
+	return certificate
+}
+
+func inventoryState(ctx context.Context, host *oraclehost.Host) (int, string, []string) {
+	refused, publisher, trusted := -1, "", []string{}
+	until(ctx, host.Name+" edge inventory metrics", func() error {
+		text, err := metrics(ctx, host)
+		if err != nil {
+			return err
+		}
+		trusted = []string{}
+		for _, line := range strings.Split(text, "\n") {
+			if value, ok := strings.CutPrefix(line, "ts_orch_mesh_edge_inventory_trusted{node=\""); ok {
+				node, _, _ := strings.Cut(value, "\"")
+				trusted = append(trusted, node)
+			}
+			if value, ok := strings.CutPrefix(line, "ts_orch_mesh_edge_inventory_refused_total "); ok {
+				if _, err := fmt.Sscan(value, &refused); err != nil {
+					return err
+				}
+			}
+			if value, ok := strings.CutPrefix(line, "ts_orch_mesh_edge_inventory_publisher{node=\""); ok {
+				publisher, _, _ = strings.Cut(value, "\"")
+			}
+		}
+		if refused < 0 {
+			return errors.New("no edge inventory refusal counter")
+		}
+		return nil
+	})
+	return refused, publisher, trusted
+}
+
+func promoteManagers(ctx context.Context, leader *oraclehost.Host, hosts ...*oraclehost.Host) {
+	client, conn, err := swarmruntime.DialControl(leader.State(""))
+	must(err)
+	defer conn.Close()
+	for _, host := range hosts {
+		current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeCertificate(host.State("")).Subject.CommonName})
+		must(err)
+		spec := current.Node.Spec.Copy()
+		spec.DesiredRole = api.NodeRoleManager
+		_, err = client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: current.Node.ID, NodeVersion: &current.Node.Meta.Version, Spec: spec})
+		must(err)
+		until(ctx, host.Name+" is a Raft-reachable manager", func() error {
+			current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: current.Node.ID})
+			if err != nil {
+				return err
+			}
+			if node := current.Node; node.Role != api.NodeRoleManager || node.ManagerStatus == nil || node.ManagerStatus.Reachability != api.RaftMemberStatus_REACHABLE || node.Status.State != api.NodeStatus_READY {
+				return fmt.Errorf("role %v manager status %v state %v", node.Role, node.ManagerStatus, node.Status.State)
+			}
+			return nil
+		})
 	}
-	for _, manager := range managers {
-		whoamiBackend(ctx, manager, ca)
+}
+
+func forgedInventory(host *oraclehost.Host, sign func([]byte) ([][]byte, []byte, error)) []byte {
+	data, err := os.ReadFile(host.State("edge-inventory.json"))
+	must(err)
+	var genuine mesh.SignedEdgeInventory
+	must(json.Unmarshal(data, &genuine))
+	var inventory mesh.EdgeInventory
+	must(json.Unmarshal(genuine.Inventory, &inventory))
+	inventory.Web["forged.e2e.test"] = inventory.Web["whoami.e2e.test"]
+	inventory.Generation, inventory.Issued = uint64(time.Now().UnixNano()), time.Now().UTC()
+	payload, err := protocol.EncodeJSON(inventory)
+	must(err)
+	chain, signature, err := sign(mesh.EdgeInventoryMessage(payload))
+	must(err)
+	envelope, err := protocol.EncodeJSON(mesh.SignedEdgeInventory{Inventory: payload, Certificate: chain, Signature: signature})
+	must(err)
+	return envelope
+}
+
+func selfSigned(template *x509.Certificate) func([]byte) ([][]byte, []byte, error) {
+	return func(message []byte) ([][]byte, []byte, error) {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return nil, nil, err
+		}
+		forged := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: template.Subject, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+			KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}, IsCA: true, BasicConstraintsValid: true}
+		der, err := x509.CreateCertificate(rand.Reader, forged, forged, &key.PublicKey, key)
+		if err != nil {
+			return nil, nil, err
+		}
+		digest := sha256.Sum256(message)
+		signature, err := ecdsa.SignASN1(rand.Reader, key, digest[:])
+		return [][]byte{der}, signature, err
 	}
-	for _, worker := range workers {
-		ready, page := edgeAnswer(ctx, worker, ca, "http://127.0.0.1/edge/ready"), edgeAnswer(ctx, worker, ca, "http://whoami.e2e.test/")
-		require(ready == "503" && page == "404", "%s without an enrolled publisher: edge readiness %s and whoami %s, want 503 and 404 (no route, so no backend reached)", worker.Name, ready, page)
-	}
-	step("shipped node list on every host: release health ok everywhere, managers serve whoami, unenrolled publishers leave workers with readiness 503 and routes 404")
+}
+
+func refusedInventory(ctx context.Context, follower *oraclehost.Host, region, what string, envelope []byte) {
+	before, _, _ := inventoryState(ctx, follower)
+	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", mesh.LocalPort), nats.SetCustomDialer(follower), nats.UserInfo(mesh.OrchUser, meshToken(follower, "client.token")))
+	must(err)
+	defer conn.Close()
+	must(conn.Publish(protocol.MeshWorkerPrefix+region+".edge.inventory", envelope))
+	must(conn.FlushWithContext(ctx))
+	until(ctx, follower.Name+" refuses "+what, func() error {
+		if refused, _, _ := inventoryState(ctx, follower); refused <= before {
+			return fmt.Errorf("refusals %d", refused)
+		}
+		return nil
+	})
+	answer, _ := exec.CommandContext(ctx, "ip", "netns", "exec", follower.Namespace, "curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5",
+		"--resolve", "forged.e2e.test:80:127.0.0.1", "http://forged.e2e.test/").Output()
+	require(string(answer) == "404", "%s routes forged.e2e.test from %s: HTTP %s, want 404", follower.Name, what, answer)
 }
 
 func installEdgeCert(fleet *oraclehost.Fleet) string {
@@ -514,7 +543,7 @@ func ready(ctx context.Context, fleet *oraclehost.Fleet, want, ca string) {
 				return fmt.Errorf("%w: %s", err, output)
 			}
 			for _, region := range fleet.Regions {
-				if !strings.HasPrefix(statusLine(output, region.Name), region.Name+": ok;") {
+				if !strings.HasPrefix(statusLine(output, region.Name), region.Name+": ok") {
 					return fmt.Errorf("region %s not ok: %s", region.Name, output)
 				}
 			}
@@ -563,7 +592,7 @@ func main() {
 		return
 	}
 	binary, work, specFile, registry := os.Args[1], os.Args[2], os.Args[3], os.Args[4]
-	ctx, cancel := context.WithTimeout(context.Background(), 210*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 330*time.Second)
 	defer cancel()
 	first := revision(binary)
 	spec := workload(specFile, filepath.Join(os.Args[3], "..", "images.json"))
@@ -666,13 +695,6 @@ func main() {
 	}
 	require(dialed.Load() == 0, "a host dialed the forged member %s %d times", oraclehost.GatewayAddress, dialed.Load())
 	step("%s workers drop and count membership naming an address outside the VCN; nobody dialed %s", gru.Name, oraclehost.GatewayAddress)
-	release := make(chan error, 1)
-	var released string
-	go func() {
-		var err error
-		released, err = operatorRelease(ctx, fleet, binary, filepath.Join(filepath.Dir(specFile), "..", "..", ".."), filepath.Dir(work))
-		release <- err
-	}()
 	applies := make(chan error, 2)
 	for _, service := range []map[string]any{peerCredentialService(spec), spec} {
 		go func() {
@@ -695,21 +717,14 @@ func main() {
 		}()
 	}
 	must(errors.Join(<-applies, <-applies))
-	unlisted(ctx, fleet, first, ca)
-	must(<-release)
-	enrolledSequence := nodelist.StatusAt(fleet.Hosts[0].State("")).Sequence + 1
-	step("operator built the release enrolling every host with ts-orch node keys and ts-orch node list build")
-	for _, host := range fleet.Hosts {
-		before := host.LastRun()
-		must(host.Install(released))
-		must(host.Restart())
-		_, err := host.WaitReady(ctx, before, first)
-		must(err)
-		healthy(ctx, host, first)
-		nodeListSequence(ctx, host, enrolledSequence)
-		step("%s restarted on the release to READY, release health ok and enrolled node list adopted", host.Name)
-	}
 	ready(ctx, fleet, first, ca)
+	step("with no release enrolling any key, every worker serves its region's names from inventories its manager signed with its SwarmKit manager certificate")
+	follower, founder := gru.Hosts[1], nodeCertificate(gru.Hosts[0].State(""))
+	refusedInventory(ctx, follower, gru.Name, "a self-signed manager certificate naming its founder", forgedInventory(follower, selfSigned(founder)))
+	refusedInventory(ctx, follower, gru.Name, "another region's manager certificate", forgedInventory(follower, func(message []byte) ([][]byte, []byte, error) {
+		return swarmruntime.SignRegional(sjc.Hosts[0].State(""), message)
+	}))
+	step("%s refuses inventories signed by a self-signed certificate naming %s's founder and by %s's real manager certificate, and never routes their forged name", follower.Name, gru.Name, sjc.Name)
 
 	flapped, survivor := gru.Hosts[2], gru.Hosts[1]
 	configured := fmt.Sprintf("ts_orch_mesh_region_route_configured{address=%q}", flapped.Address)
@@ -741,9 +756,44 @@ func main() {
 	step("%s went not READY and back: its route stayed configured, and after %d route sockets to %s were reset ORCH, TERRABASE and ALERTS deliver both ways over the VCN", flapped.Name, reset, survivor.Name)
 
 	departed := gru.Hosts[2]
+	promoteManagers(ctx, gru.Hosts[0], follower, departed)
+	step("%s's SwarmKit managers promoted %s and %s with no release; both are Raft-reachable managers", gru.Name, follower.Name, departed.Name)
+	removed, departedID := filepath.Join(work, "departed-state"), nodeCertificate(departed.State("")).Subject.CommonName
+	promotedIDs := []string{nodeCertificate(follower.State("")).Subject.CommonName, departedID}
+	until(ctx, follower.Name+" trusts the inventories of both promoted managers", func() error {
+		for _, host := range []*oraclehost.Host{follower, departed} {
+			if unit := nodeCertificate(host.State("")).Subject.OrganizationalUnit; !slices.Equal(unit, []string{"swarm-manager"}) {
+				return fmt.Errorf("%s organizational unit %v", host.Name, unit)
+			}
+		}
+		if _, _, trusted := inventoryState(ctx, follower); !slices.Contains(trusted, promotedIDs[0]) || !slices.Contains(trusted, promotedIDs[1]) {
+			return fmt.Errorf("trusted %v", trusted)
+		}
+		return nil
+	})
+	whoamiBackend(ctx, follower, ca)
+	step("%s trusts the inventories %s and %s sign with their new manager certificates and serves whoami", follower.Name, follower.Name, departed.Name)
+	must(os.CopyFS(swarmruntime.NodeCertificates(removed), os.DirFS(swarmruntime.NodeCertificates(departed.State("")))))
 	left, err := gru.Hosts[0].Exec(ctx, "/usr/local/bin/ts-orch", "member", "leave", departed.Name)
 	require(err == nil, "member leave %s: %v: %s", departed.Name, err, left)
 	must(departed.Kill())
+	until(ctx, follower.Name+" learns "+departed.Name+" left its managers", func() error {
+		if managers := swarmruntime.RegionManagers(follower.State("")); slices.Contains(managers, departedID) || len(managers) == 0 {
+			return fmt.Errorf("managers %v", managers)
+		}
+		return nil
+	})
+	refusedInventory(ctx, follower, gru.Name, "the still-valid manager certificate of "+departed.Name+", which left", forgedInventory(follower, func(message []byte) ([][]byte, []byte, error) {
+		return swarmruntime.SignRegional(removed, message)
+	}))
+	until(ctx, follower.Name+" stops trusting "+departed.Name+"'s inventory", func() error {
+		if _, publisher, trusted := inventoryState(ctx, follower); publisher == "" || publisher == departedID || slices.Contains(trusted, departedID) {
+			return fmt.Errorf("publisher %q trusted %v", publisher, trusted)
+		}
+		return nil
+	})
+	whoamiBackend(ctx, follower, ca)
+	step("%s left: %s refuses an inventory signed with its still-valid manager certificate, follows a current manager's inventory and still serves whoami", departed.Name, follower.Name)
 	gru.Hosts = []*oraclehost.Host{gru.Hosts[0], gru.Hosts[1], replacement}
 	fleet.Hosts = append(slices.DeleteFunc(fleet.Hosts, func(host *oraclehost.Host) bool { return host == departed }), replacement)
 	must(fleet.Boot(replacement))

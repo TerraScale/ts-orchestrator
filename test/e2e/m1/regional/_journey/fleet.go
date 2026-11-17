@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,13 +26,11 @@ import (
 	"syscall"
 	"time"
 
-	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
-	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/ca"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 )
@@ -568,38 +567,46 @@ func (p *fleetProcess) awaitReady(ctx context.Context, root string) error {
 	return nil
 }
 
-func fleetNodeList(root string, regions []string) error {
-	shipped, err := nodelist.Decode([]byte(m1.NodeList))
-	if err != nil {
-		return err
-	}
-	list := nodelist.List{Sequence: shipped.Sequence + 1}
+func fleetRegionCertificates(root string, regions []string) error {
+	authorities := map[string]ca.RootCA{}
 	for index, region := range regions {
-		name := fleetHostName(index, region)
-		keys, err := nodelist.Keys(filepath.Join(root, "state-"+name))
+		authority, ok := authorities[region]
+		if !ok {
+			var err error
+			if authority, err = ca.CreateRootCA(ca.DefaultRootCN); err != nil {
+				return err
+			}
+			authorities[region] = authority
+			if err := fleetIssue(authority, filepath.Join(root, "removed-"+region), "ts-"+region+"-9", ca.ManagerRole, region); err != nil {
+				return err
+			}
+		}
+		name, role := fleetHostName(index, region), ca.WorkerRole
+		if index%2 == 0 {
+			role = ca.ManagerRole
+		}
+		state := filepath.Join(root, "state-"+name)
+		if err := fleetIssue(authority, state, name, role, region); err != nil {
+			return err
+		}
+		managers, err := json.Marshal([]api.Peer{{NodeID: fleetHostName(index-index%2, region), Addr: fmt.Sprintf("10.77.0.%d:4242", 10+index-index%2)}})
 		if err != nil {
 			return err
 		}
-		meshIP, err := nodelist.MeshIP(name, region)
-		if err != nil {
-			return err
-		}
-		list.Nodes = append(list.Nodes, nodelist.Node{Name: name, Region: region, PublicIP: fmt.Sprintf("198.51.100.%d", 10+index),
-			PrivateIP: fmt.Sprintf("10.77.0.%d", 10+index), MeshIP: meshIP, WGPublicKey: keys.WGPublicKey, TLSSPKISHA256: keys.TLSSPKISHA256})
-	}
-	if err := list.Validate(); err != nil {
-		return err
-	}
-	wire, err := protocol.EncodeJSON(list)
-	if err != nil {
-		return err
-	}
-	for index, region := range regions {
-		if err := os.WriteFile(filepath.Join(root, "state-"+fleetHostName(index, region), "node", "nodes.json"), wire, 0o600); err != nil {
+		if err := os.WriteFile(swarmruntime.RegionManagersFile(state), managers, 0o600); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func fleetIssue(authority ca.RootCA, state, name, role, region string) error {
+	paths := ca.NewConfigPaths(swarmruntime.NodeCertificates(state))
+	if err := ca.SaveRootCA(authority, paths.RootCA); err != nil {
+		return err
+	}
+	_, _, err := authority.IssueAndSaveNewCertificates(ca.NewKeyReadWriter(paths.Node, nil, nil), name, role, "fleet-"+region)
+	return err
 }
 
 type fleetClient struct {
@@ -1327,7 +1334,7 @@ func FleetEdgeJourney(root string) error {
 		}
 	}
 	regions := []string{"gru", "gru", "sjc", "sjc", "fra", "fra"}
-	if err := fleetNodeList(root, regions); err != nil {
+	if err := fleetRegionCertificates(root, regions); err != nil {
 		return err
 	}
 	hosts := []*fleetProcess{}
@@ -1431,7 +1438,7 @@ func FleetEdgeJourney(root string) error {
 			if err := worker.query(ctx, "health", "health ok"); err != nil {
 				return err
 			}
-			fmt.Printf("ok %s: SQL writes from the worker edge on :8080 reach the writer; a malformed proof label keeps the last good reference; forged, tampered and replayed inventories are refused; the worker serves after losing its manager and after a cold restart with the manager down; without any inventory it answers 503 and stays release-healthy\n", founder.name[3:6])
+			fmt.Printf("ok %s: SQL writes from the worker edge on :8080 reach the writer; a malformed proof label keeps the last good reference; inventories signed by a worker, a self-signed, another region's or an unlisted manager certificate, tampered or replayed are refused; the worker serves after losing its manager and after a cold restart with the manager down; without any inventory it answers 503 and stays release-healthy\n", founder.name[3:6])
 		case 1:
 			if err := client.write(ctx, worker, founder, 1); err != nil {
 				return err

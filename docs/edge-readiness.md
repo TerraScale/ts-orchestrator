@@ -89,37 +89,57 @@ existing task never meets a missing placement in the SwarmKit updater.
 
 ## Every host runs the edge
 
-Every host starts the edge for HTTP, HTTPS and Postgres. The region's manager
-reads services from SwarmKit every 5 seconds and publishes the edge inventory
-(routes, readiness routes, admitted regional nodes and the TerraBase request-proof
-secret reference) on the authenticated mesh subject
-`ts.mesh.worker.<region>.edge.inventory`. It signs the inventory with its node
-TLS identity (`/var/lib/ts-orch/node/tls.key`) as `ts-<region>-1`, with the
-region, an issue time and a generation that only grows. It signs a new
-generation when the inventory changes and at least every hour, and republishes
-the latest signed inventory every 5 seconds, so a worker that missed a message
-converges on the next one.
+Every host starts the edge for HTTP, HTTPS and Postgres. Every host that holds
+a SwarmKit manager certificate of its region reads services from SwarmKit every
+5 seconds and publishes the edge inventory (routes, readiness routes, admitted
+regional nodes and the TerraBase request-proof secret reference) on the mesh
+subject `ts.mesh.worker.<region>.edge.inventory`. It signs the inventory with
+its SwarmKit node key (`/var/lib/ts-orch/swarm/certificates/swarm-node.key`)
+and sends its node certificate chain with it, with the region, an issue time
+and a generation that only grows. It signs a new generation when the inventory
+changes and at least every hour, and republishes the latest signed inventory
+every 5 seconds, so a worker that missed a message converges on the next one.
 
-A worker accepts an inventory only when the signer is `ts-<region>-1` in its
-adopted node list ([node enrolment](node-enrolment.md)) for that region, the
-signature verifies against the listed key, the issue time is not in the future
-and the generation is newer than the one it holds. Anything else, including an
-inventory signed by any other node, is refused and logged once per reason. The
-worker writes the last accepted signed inventory to
-`/var/lib/ts-orch/edge-inventory.json` and verifies it again after a restart,
-so losing the manager does not withdraw its routes, even across a worker
-restart. An inventory issued more than 24 hours ago is stale: the worker drops
-its routes and answers 503. A worker outside the mesh, or whose node list does
-not list the manager yet, has no inventory and answers 503.
+Trust comes from the regional join, not from the release. A follower accepts an
+inventory only when:
 
-Replacing a publisher's `tls.key` requires enrolling its new public identity
-through [node enrolment](node-enrolment.md) and delivering that list to its
-followers in a confirmed release before cutover. The region-roll plan must
-include that dependency: a promoted `ts-<region>-2` cannot publish as
-`ts-<region>-1`, and a rebuilt publisher's new key does not match the old pin.
-Persisted inventories remain usable only until their 24-hour lifetime expires.
-Changing publisher identity or the source of inventory trust requires a
-separate design change.
+- the certificate chains to its own region's SwarmKit root CA
+  (`swarm/certificates/swarm-root-ca.crt`) and is valid now, so a self-signed,
+  expired or other-region certificate is refused;
+- the certificate carries the `swarm-manager` role and the follower's own
+  cluster organization;
+- the certificate's node ID is in the region's current manager list, which the
+  SwarmKit dispatcher pushes to every node's agent over its mTLS session and
+  SwarmKit keeps in `swarm/state.json`;
+- the signature over the inventory verifies against that certificate, the
+  issue time is not in the future and the generation is newer than the last
+  one from the same manager.
+
+Anything else is refused, counted in `ts_orch_mesh_edge_inventory_refused_total`
+and logged once per reason. A node the region admits as a manager, including one
+promoted by `ts-orch member promote`, publishes as soon as it holds its manager
+certificate, with no release. A node the region demotes or removes leaves the
+manager list: its inventories are refused from then on and the follower drops
+the ones it holds from that node at once, falling back to the newest inventory
+of a current manager. `ts_orch_mesh_edge_inventory_publisher{node="<id>"}` names
+the manager whose inventory the follower serves, and
+`ts_orch_mesh_edge_inventory_trusted{node="<id>"}` names every current manager
+whose inventory the follower holds.
+
+The follower writes the newest accepted signed inventory to
+`/var/lib/ts-orch/edge-inventory.json` and verifies it again after a restart
+against the certificates and manager list on disk, so losing the manager does
+not withdraw its routes, even across a worker restart. An inventory issued more
+than 24 hours ago is stale: the worker drops its routes and answers 503. A
+worker outside the mesh, or whose region lists no manager, has no inventory and
+answers 503.
+
+Releases install on workers before their manager. For one release a follower
+also starts from a persisted inventory in the format the previous release
+wrote (publisher `ts-<region>-1` with a pinned TLS key), which its previous
+release had verified, so a worker that upgrades before its manager keeps
+serving until the manager publishes a certificate-signed inventory. The next
+release removes that carry-over.
 
 Each host decides its own ready services by probing every readiness route on
 loopback. A worker's edge readiness and release health count a route as
@@ -136,8 +156,9 @@ proxies to the local TerraBase task that runs on every node.
 ## Journey
 
 The regional E2E lane starts six host processes (two per region), each in its
-own network namespace on a shared bridge, with its own node identity and one
-node list naming all six. Each has its own loopback, mesh node, edge, stand-in
+own network namespace on a shared bridge, with its own node identity and a
+SwarmKit certificate from its region's CA: a manager certificate on
+`ts-<region>-1` and a worker certificate on `ts-<region>-2`. Each has its own loopback, mesh node, edge, stand-in
 applications for two public hostnames and Postgres, and a TerraBase stand-in on
 its internal port that answers the writer status and SQL writes only on
 `ts-<region>-1`. The worker of each region gets its routes only from the signed

@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/nodelist"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -56,7 +55,6 @@ type Report struct {
 	State     string                    `json:"state"`
 	Reasons   []string                  `json:"reasons,omitempty"`
 	At        time.Time                 `json:"at"`
-	NodeList  nodelist.Status           `json:"node_list"`
 	Hosts     []releasepush.HostVersion `json:"hosts,omitempty"`
 	HostError string                    `json:"host_error,omitempty"`
 	Rollout   *pullrelease.Status       `json:"rollout,omitempty"`
@@ -121,7 +119,7 @@ func Check(ctx context.Context, state string) Report { return check(ctx, state) 
 // check reads and classifies this host now.
 func check(ctx context.Context, state string) Report {
 	status, reasons := Classify(read(ctx, state))
-	return Report{State: status, Reasons: reasons, At: time.Now().UTC(), NodeList: nodelist.StatusAt(state)}
+	return Report{State: status, Reasons: reasons, At: time.Now().UTC()}
 }
 
 func read(ctx context.Context, state string) Input {
