@@ -15,6 +15,7 @@ from pathlib import Path
 
 CASES = (
     "promotion",
+    "node-scale",
     "fresh-outage",
     "worker-outage",
     "manager-match",
@@ -84,15 +85,15 @@ def run_case(binary, seed_binary, root, case):
     subprocess.run(["ip", "addr", "add", "169.254.169.254/32", "dev", "lo"], check=True)
     work = root / case
     work.mkdir()
-    if case == "promotion":
+    if case in ("promotion", "node-scale"):
         local_var = work / "var-lib"
         local_var.mkdir()
         subprocess.run(["mount", "--bind", str(local_var), "/var/lib"], check=True)
         result = subprocess.run(
-            [seed_binary, str(work), "promotion", binary],
+            [seed_binary, str(work), case, binary],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=120,
             check=False,
         )
         require(result.returncode == 0, result.stdout[-1000:] + result.stderr[-6000:])

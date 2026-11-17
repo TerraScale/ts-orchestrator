@@ -2,15 +2,12 @@ package swarmruntime
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"time"
 
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/manager/scheduler"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
@@ -128,29 +125,10 @@ func (n *Node) Cordon(ctx context.Context, nodeID string, since time.Time) error
 	return err
 }
 
-func (n *Node) RemoveDrained(ctx context.Context, nodeID string) error {
+func (n *Node) Remove(ctx context.Context, hostname string, guard func(context.Context) error) error {
 	client, err := n.ControlClient(ctx)
 	if err != nil {
 		return err
 	}
-	got, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
-	if status.Code(err) == codes.NotFound {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	node := got.Node
-	if node.Role == api.NodeRoleManager || node.Spec.Availability != api.NodeAvailabilityDrain || node.Spec.Annotations.Labels[LabelDrainSince] == "" {
-		return fmt.Errorf("node %s is not a worker drained for removal", nodeID)
-	}
-	tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{NodeIDs: []string{nodeID}}})
-	if err != nil {
-		return err
-	}
-	if slices.ContainsFunc(tasks.Tasks, func(task *api.Task) bool { return task.Status.State <= api.TaskStateRunning }) {
-		return errors.New("node " + nodeID + " still runs tasks")
-	}
-	_, err = client.RemoveNode(ctx, &api.RemoveNodeRequest{NodeID: nodeID, Force: true})
-	return err
+	return RemoveMember(ctx, client, hostname, guard)
 }

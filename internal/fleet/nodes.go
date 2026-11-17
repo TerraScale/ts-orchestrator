@@ -55,7 +55,7 @@ type SwarmView struct {
 type Cluster interface {
 	SwarmView(ctx context.Context) (SwarmView, error)
 	Cordon(ctx context.Context, nodeID string, since time.Time) error
-	RemoveDrained(ctx context.Context, nodeID string) error
+	Remove(ctx context.Context, hostname string, guard func(context.Context) error) error
 }
 
 type NodeDecision struct {
@@ -99,7 +99,7 @@ func (d NodeDecision) String() string {
 	return text
 }
 
-type nodeScaler struct {
+type NodeScaler struct {
 	mu           sync.Mutex
 	term         uint64
 	since        time.Time
@@ -112,9 +112,9 @@ type nodeScaler struct {
 
 var nodeScalers sync.Map
 
-func scalerFor(label string) *nodeScaler {
-	value, _ := nodeScalers.LoadOrStore(label, &nodeScaler{refusals: map[string]int{}})
-	return value.(*nodeScaler)
+func scalerFor(label string) *NodeScaler {
+	value, _ := nodeScalers.LoadOrStore(label, &NodeScaler{})
+	return value.(*NodeScaler)
 }
 
 func LastNodeDecision(label string) (NodeDecision, bool) {
@@ -122,7 +122,7 @@ func LastNodeDecision(label string) (NodeDecision, bool) {
 	if !ok {
 		return NodeDecision{}, false
 	}
-	s := value.(*nodeScaler)
+	s := value.(*NodeScaler)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.last, !s.last.At.IsZero()
@@ -152,7 +152,7 @@ func applyNodes(ctx context.Context, _ Fleet, region Region, f *ociclient.Factor
 	s := scalerFor(region.Label)
 	now := time.Now()
 	s.mu.Lock()
-	decision := s.decide(now, region.Nodes, view, pool, pooled)
+	decision := s.Decide(now, region.Nodes, view, pool, pooled)
 	if !out.Apply {
 		s.record(region.Label, decision)
 	}
@@ -173,9 +173,7 @@ func applyNodes(ctx context.Context, _ Fleet, region Region, f *ociclient.Factor
 		err = cluster.Cordon(ctx, decision.nodeID, now)
 	case "remove":
 		if err = pass.Retire(ctx, pool, decision.instanceID); err == nil {
-			if err = ociclient.Authorize(ctx); err == nil {
-				err = cluster.RemoveDrained(ctx, decision.nodeID)
-			}
+			err = cluster.Remove(ctx, decision.Node, ociclient.Authorize)
 		}
 	}
 	if err != nil {
@@ -192,10 +190,13 @@ func applyNodes(ctx context.Context, _ Fleet, region Region, f *ociclient.Factor
 	return nil
 }
 
-func (s *nodeScaler) record(label string, d NodeDecision) {
+func (s *NodeScaler) record(label string, d NodeDecision) {
 	log := slog.With("region", label, "action", d.Action, "actual", d.Actual, "desired", d.Desired, "min", d.Min, "max", d.Max,
 		"code", d.Code, "reason", d.Reason, "node", d.Node)
 	if d.Refused {
+		if s.refusals == nil {
+			s.refusals = map[string]int{}
+		}
 		s.refusals[d.Code]++
 	}
 	switch {
@@ -219,7 +220,7 @@ func since(start time.Time, holds bool, now time.Time) time.Time {
 	return start
 }
 
-func (s *nodeScaler) decide(now time.Time, bounds Nodes, view SwarmView, pool compute.Pool, pooled bool) NodeDecision {
+func (s *NodeScaler) Decide(now time.Time, bounds Nodes, view SwarmView, pool compute.Pool, pooled bool) NodeDecision {
 	if view.Term != s.term {
 		s.term, s.since, s.lastChange = view.Term, now, now
 		s.blockedSince, s.quietSince = time.Time{}, time.Time{}

@@ -314,8 +314,10 @@ full 10 min cooldown before its first new change. `ts-orch status` and
 `ts-orch region status` print the leader's last decision as
 `nodes: <action> <actual> [-> <desired>] (bounds min..max): <reason>`.
 Metrics: `ts_orch_node_scale_{actual,desired,decision,decision_timestamp_seconds,drain_stuck}`.
-C14 (self-heal) reuses the same drain and removal path:
-`swarmruntime.Node.Cordon`, `Node.RemoveDrained` and `compute.Pass.Retire`.
+The swarm removal is `swarmruntime.RemoveMember`, the path C14 (self-heal)
+and `ts-orch member leave` use; the instance removal is `compute.Pass.Retire`.
+The e2e-m1 `operator` lane's `node-scale` case runs the scaler's decisions,
+cordon, a leader kill and the removal on a four-node in-process region.
 
 
 ## Routing
