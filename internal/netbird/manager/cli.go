@@ -27,13 +27,14 @@ const usage = `Usage:
   ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply] [--pat-file FILE] [--management-url URL]
   ts-orch netbird inventory [--pat-file FILE] [--management-url URL]
   ts-orch netbird image-input --plan PLAN --setup-key-secret-id OCID --out FILE
-  ts-orch netbird server --vault-id OCID --key-id OCID --compartment-id OCID --dir DIR
+  ts-orch netbird server --dir DIR
 
 Without --apply, sync, prune-peers, remove-peers and setup-key print the
 planned changes only. remove-peers deletes the disconnected server peers of
 decommissioned slots. setup-key creates the servers' setup key and writes its
 value to a new owner-only file; --servers-group names another region's servers
-group (sjc-servers), whose key carries that name. The admin PAT comes from --pat-file (a regular
+group (sjc-servers), whose key carries that name. The staging group
+(stg-servers) gets a key with 6 uses that expires in 90 days. The admin PAT comes from --pat-file (a regular
 owner-only file) or NB_PAT. image-input writes a region's image netbird.json
 (new file FILE) from its regional plan and the Vault secret holding its
 servers' setup key; it needs no PAT and makes no call.
