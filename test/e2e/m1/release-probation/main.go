@@ -82,6 +82,7 @@ func installAsRelease(host *oraclehost.Host, binary, revision, run string) int {
 	data, err := os.ReadFile(binary)
 	must(err)
 	must(os.WriteFile(p.binary+".prev", data, 0o755))
+	must(os.MkdirAll(filepath.Dir(p.trial), 0o700))
 	trial, err := json.Marshal(map[string]any{"sha": revision, "run_id": run, "installed": time.Now().UTC(), "starts": 0})
 	must(err)
 	must(os.WriteFile(p.trial, trial, 0o600))
@@ -118,6 +119,13 @@ func main() {
 	must(err)
 	original, err := fleet.WaitSecret(ctx, meshKey, func(value string) bool { return value != "" })
 	must(err)
+	until(ctx, "the mesh starts", func() error {
+		journal, err := os.ReadFile(filepath.Join(host.Dir, "journal.log"))
+		if err != nil || !strings.Contains(string(journal), "mesh started") {
+			return errors.New("no mesh started line yet")
+		}
+		return nil
+	})
 	step("%s founded gru, sent READY=1 and started its mesh from Vault", host.Name)
 
 	last := installAsRelease(host, binary, revision, "1")
