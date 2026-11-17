@@ -234,7 +234,7 @@ func FleetHost(args []string) error {
 	if err := os.MkdirAll(filepath.Join(state, "edge-certs"), 0700); err != nil {
 		return err
 	}
-	for _, host := range append(slices.Sorted(maps.Keys(fleetWeb)), fleetPostgres, fleetWriter, netbirdHost) {
+	for _, host := range append(slices.Sorted(maps.Keys(fleetWeb)), fleetPostgres, fleetWriter, netbirdHost, region+"."+mesh.Domain) {
 		cert, err := os.ReadFile(filepath.Join(root, "regional", "edge-certs", host))
 		if err != nil {
 			return err

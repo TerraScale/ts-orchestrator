@@ -83,7 +83,7 @@ Auditing what a region actually runs needs no write path:
   `scripts/dashboard/verify-live.py` directly against the origin.
 - release digests --out FILE reads authenticated HTTPS observations and records
   the agreed running images only when every region's desired rollout is complete.
-  release mesh-check reads the ping matrix and verifies public HTTPS host identity.
+  release mesh-check reads authenticated observations from each native regional HTTPS endpoint and verifies every peer and RTT without a demo service.
 
 ## Offline checks
 

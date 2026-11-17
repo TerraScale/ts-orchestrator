@@ -294,17 +294,10 @@ func (e *Edge) reconcileCertificates(ctx context.Context) {
 	tick := time.NewTicker(10 * time.Second)
 	defer tick.Stop()
 	for {
-		names := map[string]bool{}
-		for host := range *e.routes.Load() {
-			names[host] = true
-		}
-		for host := range *e.postgres.Load() {
-			names[host] = true
-		}
 		if err := e.certs.cache.publishHoldings(ctx); err != nil {
 			slog.WarnContext(ctx, "edge certificate inventory unavailable", "error", err)
 		}
-		for name := range names {
+		for _, name := range e.servedNames() {
 			if ctx.Err() != nil {
 				return
 			}

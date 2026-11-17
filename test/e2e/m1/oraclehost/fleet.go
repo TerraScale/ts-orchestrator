@@ -509,7 +509,7 @@ func (h *Host) Observation(ctx context.Context) (releasepush.Observation, error)
 		{http.MethodPost, token, http.StatusMethodNotAllowed},
 		{http.MethodGet, token, http.StatusOK},
 	} {
-		request, err := http.NewRequestWithContext(ctx, probe.method, "https://whoami.e2e.test"+releasepush.ObservationPath, nil)
+		request, err := http.NewRequestWithContext(ctx, probe.method, "https://"+h.Region.Name+"."+mesh.Domain+releasepush.ObservationPath, nil)
 		if err != nil {
 			return observation, err
 		}

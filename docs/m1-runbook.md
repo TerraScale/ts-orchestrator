@@ -56,11 +56,13 @@ ssh ts-gru-1 sudo journalctl -u ts-orch -n 50 --no-pager
 
 ## Services
 
+Each region’s edge owns `<region>.mesh.terrascale.tech` without an app service.
+The authenticated `/orchestrator/observation` endpoint reports its health, running
+digests and observations of every mesh peer. `ts-orch release mesh-check` reads
+these endpoints and prints the peer RTTs; no demo service is required.
+
 ```sh
-scp deploy/m1/services/whoami.json ts-gru-1:/tmp/whoami.json
-ssh ts-gru-1 sudo ts-orch service apply -f /tmp/whoami.json
 ssh ts-gru-1 sudo ts-orch service ls
-ssh ts-gru-1 sudo ts-orch service rm whoami
 ```
 
 ## FR1: recover status canaries after every storage wipe
@@ -205,7 +207,7 @@ with its own SwarmKit node and its own NATS cluster (`internal/natscell/mesh`).
   pull in sjc, fra, gru order after predecessor completion and regional bake.
 - Live check: `.github/workflows/multi-region.yml` (every 6 h, after main CI,
   or `gh workflow run multi-region.yml --ref main`) runs `ts-orch release
-  mesh-check`: ping matrix, one apply to all regions, HTTPS per region.
+  mesh-check`: authenticated observations of every peer with RTTs, over each region’s native HTTPS endpoint; no service apply.
 
 ### Infrastructure
 

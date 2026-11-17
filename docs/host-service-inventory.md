@@ -80,7 +80,7 @@ are not evidence of production processes: the production entry point is
 | TerraBase (`terrabase`) | Production: `2/2 running`; `deploy/m1/services/terrabase.json` | SwarmKit tasks; existing `/var/lib/ts-data/terrabase` bind. |
 | Authentication (`ts-auth`) | Production: `1/1 running`; `deploy/m1/services/ts-auth.json` | SwarmKit tasks. |
 | Product dashboard (`ts-dashboard`) | Production: `1/1 running`; `deploy/m1/services/ts-dashboard.json` | SwarmKit tasks; distinct from the embedded host diagnostic dashboard. |
-| `app-canary` and `whoami` | Specs in `deploy/m1/services`; absent from the observed GRU service list. `app-canary` targets SJC/FRA. | Already service specs, not host daemons. No assertion about their running replicas on other hosts. |
+| `app-canary` | Spec in `deploy/m1/services`; absent from the observed GRU service list. Targets SJC/FRA. | A service spec, not a host daemon. No assertion about its running replicas on other hosts. The unused production whoami spec was removed; native mesh endpoints require no app service. |
 
 `internal/swarmruntime/service.go` converts these specs into services with
 resource limits/reservations and restart policy; the executor independently

@@ -249,7 +249,7 @@ func (e *Edge) setRoutes(web, postgres map[string]int) {
 	e.postgres.Store(postgresTable)
 	e.certSeen.Range(func(key, _ any) bool {
 		name := key.(string)
-		if _, web := (*e.routes.Load())[name]; !web {
+		if _, web := (*e.routes.Load())[name]; !web && name != e.meshName() {
 			if _, pg := (*e.postgres.Load())[name]; !pg {
 				e.certSeen.Delete(name)
 			}
@@ -532,6 +532,9 @@ func secureHeaders(h http.Header) {
 }
 
 func (e *Edge) hostPolicy(_ context.Context, host string) error {
+	if name := e.meshName(); name != "" && strings.EqualFold(host, name) {
+		return nil
+	}
 	if _, ok := e.port(host); !ok && !e.postgresHost(host) {
 		return fmt.Errorf("edge: no route for host %q", host)
 	}

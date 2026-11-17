@@ -31,6 +31,7 @@ import (
 	"time"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
@@ -189,6 +190,7 @@ func fixtures(cfg configuration) error {
 		for _, name := range base {
 			names = append(names, region+"."+name)
 		}
+		names = append(names, region+"."+mesh.Domain)
 		for _, name := range names {
 			var leafKey crypto.Signer
 			filename := name
@@ -591,7 +593,7 @@ func journey(ctx context.Context, cfg configuration, scenario string) error {
 			return err
 		}
 	}
-	if err := current.wait(ctx, "edge readiness changed ready=true", 1); err != nil {
+	if err := current.wait(ctx, "edge certificate renewal deferred name=existing.e2e.test", 1); err != nil {
 		return err
 	}
 	if err := awaitReady(ctx, "10.77.0.3"); err != nil {
