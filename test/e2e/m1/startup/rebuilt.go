@@ -53,18 +53,24 @@ func rebuiltRegion(ctx context.Context, state string) error {
 				if _, accepts := regionjoin.ReachableManager(ctx, old); accepts {
 					return errors.New("rebuilt manager accepted deleted cluster material")
 				}
+				forged := material
+				forged.Founder = old.Founder
+				if _, accepts := regionjoin.ReachableManager(ctx, forged); accepts {
+					return errors.New("current cluster accepted material naming an absent founder")
+				}
 				absent, err := regionjoin.ClusterMaterial(ctx, client, old.Founder)
 				if err != nil {
 					return err
 				}
-				absent.Managers = material.Managers
-				if _, accepts := regionjoin.ReachableManager(ctx, absent); accepts {
-					return errors.New("current cluster accepted material naming an absent founder")
+				if absent.Founder != founder || absent.WorkerToken != material.WorkerToken {
+					return errors.New("cluster did not replace the absent founder while preserving its token")
 				}
 			}
-			manager, accepts := regionjoin.ReachableManager(ctx, material)
+			rollout := material
+			rollout.Nodes = nil
+			manager, accepts := regionjoin.ReachableManager(ctx, rollout)
 			if !accepts {
-				return errors.New("current cluster material did not authenticate its manager")
+				return errors.New("old publisher material without nodes did not authenticate its manager")
 			}
 			joining, err := swarmruntime.JoiningAdmission(founder+"-worker", founder+"-worker", manager, material.WorkerToken)
 			if err != nil {
@@ -75,6 +81,9 @@ func rebuiltRegion(ctx context.Context, state string) error {
 				return err
 			}
 			ready := awaitPromotionReady(ctx, client, api.NewWatchClient(conn), 2, 1)
+			if ready == nil && founder == "new-founder" {
+				ready = departedFounder(ctx, state, executor, node, worker, client, api.NewWatchClient(conn), material)
+			}
 			stop, done := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 			defer done()
 			if err := errors.Join(ready, worker.Stop(stop)); err != nil {
@@ -87,6 +96,6 @@ func rebuiltRegion(ctx context.Context, state string) error {
 			return err
 		}
 	}
-	fmt.Println("rebuilt region publishes its new founder and token; a worker joins; stale cluster material is refused")
+	fmt.Println("rebuilt region and departed founder: replacement workers join; cluster token stays unchanged on founder departure; old publishers remain joinable; stale cluster material is refused")
 	return nil
 }

@@ -18,12 +18,22 @@ func ClusterMaterial(ctx context.Context, client api.ControlClient, founder stri
 		return Material{}, err
 	}
 	names := make([]string, 0, len(listed.Nodes))
+	leader := ""
 	for _, node := range listed.Nodes {
 		if node.Description != nil {
 			names = append(names, node.Description.Hostname)
+			if node.Status.State == api.NodeStatus_READY && node.Role == api.NodeRoleManager && node.ManagerStatus != nil && node.ManagerStatus.Leader {
+				leader = node.Description.Hostname
+			}
 		}
 	}
 	slices.Sort(names)
+	if !slices.Contains(names, founder) {
+		if leader == "" {
+			return Material{}, errors.New("join material requires a current cluster leader")
+		}
+		founder = leader
+	}
 	clusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
 	if err != nil || len(clusters.Clusters) != 1 {
 		return Material{}, errors.Join(errors.New("read the cluster's worker join token"), err)
@@ -32,7 +42,7 @@ func ClusterMaterial(ctx context.Context, client api.ControlClient, founder stri
 }
 
 func ReachableManager(ctx context.Context, material Material) (string, bool) {
-	if !slices.Contains(material.Nodes, material.Founder) {
+	if material.Founder == "" || len(material.Nodes) > 0 && !slices.Contains(material.Nodes, material.Founder) {
 		return "", false
 	}
 	parsed, err := ca.ParseJoinToken(material.WorkerToken)
