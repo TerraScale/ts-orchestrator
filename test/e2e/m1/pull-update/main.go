@@ -112,6 +112,9 @@ func runHost(args []string) {
 		if mode == "unhealthy" {
 			return releasepush.HealthResult{Service: errors.New("candidate is unhealthy")}
 		}
+		if _, err := os.Stat(filepath.Join(dir, "draining")); err == nil {
+			return releasepush.HealthResult{Edge: errors.New("edge not ready: node draining")}
+		}
 		return releasepush.HealthResult{}
 	}
 	h.PrepareStop = func(context.Context) error {
@@ -413,6 +416,7 @@ func journey(bin, part string) {
 
 	if part == "handover" {
 		l.handover(ctx)
+		l.bakeDrain(ctx)
 		return
 	}
 	if part == "degraded" {
@@ -710,4 +714,54 @@ func (l *lane) handover(ctx context.Context) {
 		require(l.hosts[id].starts.Load() == want, "%s started %d times, want %d", id, l.hosts[id].starts.Load(), want)
 	}
 	fmt.Printf("owner %s killed: %s inherited the durable rollout; every host installed once\n%s\n", owner, handover.Owner, done)
+}
+
+func ownerInstalling(release published) func(pullrelease.Status) bool {
+	return func(s pullrelease.Status) bool {
+		return s.Target != nil && s.Target.Tag() == release.tag && slices.ContainsFunc(s.Hosts, func(h pullrelease.HostProgress) bool {
+			return h.ID == s.Owner && (h.State == pullrelease.HostInstalling || h.State == pullrelease.HostGating)
+		})
+	}
+}
+
+func (l *lane) bakeDrain(ctx context.Context) {
+	draining := filepath.Join(l.hosts["sjc-w"].dir, "draining")
+	settled := func(release published) func(pullrelease.Status) bool {
+		return func(s pullrelease.Status) bool {
+			return s.Target != nil && s.Target.Tag() == release.tag && (s.Phase == pullrelease.PhaseComplete && !s.Baked.IsZero() || s.Phase == pullrelease.PhaseRollingBack || s.Phase == pullrelease.PhaseRolledBack)
+		}
+	}
+	sampled := func(release published) func(pullrelease.Status) bool {
+		return func(s pullrelease.Status) bool {
+			return s.Target != nil && s.Target.Tag() == release.tag && (s.Phase == pullrelease.PhaseComplete && strings.Contains(s.Reason, "node draining") || s.Phase == pullrelease.PhaseRollingBack || s.Phase == pullrelease.PhaseRolledBack)
+		}
+	}
+
+	brief := l.publishGood("115", "c115")
+	l.waitStatus(ctx, "sjc", "sjc's owner installs "+brief.tag+" on itself, after sjc-w", ownerInstalling(brief))
+	must(os.WriteFile(draining, nil, 0o600))
+	seen := l.waitStatus(ctx, "sjc", "sjc's bake samples sjc-w draining", sampled(brief))
+	require(seen.Phase == pullrelease.PhaseComplete && strings.HasPrefix(seen.Reason, "regional bake sample failed: ") && seen.Baked.IsZero(),
+		"one draining sample must restart the bake, not roll back:\n%s", seen)
+	must(os.Remove(draining))
+	baked := l.waitStatus(ctx, "sjc", "sjc bakes "+brief.tag+" once sjc-w serves again", settled(brief))
+	require(baked.Phase == pullrelease.PhaseComplete && !baked.Baked.IsZero() && baked.Reason == "" && !slices.Contains(baked.Bad, brief.tag) && !baked.Baked.Before(seen.Done.Add(healthyFor)),
+		"a drain that ends must pass the bake a full window after its last failed sample:\n%s", baked)
+	fmt.Printf("sjc-w draining during the bake of %s -> the bake restarts and passes once it serves\n%s\n", brief.tag, baked)
+
+	stuck := l.publishGood("116", "c116")
+	l.waitStatus(ctx, "sjc", "sjc's owner installs "+stuck.tag+" on itself, after sjc-w", ownerInstalling(stuck))
+	must(os.WriteFile(draining, nil, 0o600))
+	drained := time.Now()
+	failed := l.waitStatus(ctx, "sjc", "sjc rolls back "+stuck.tag+" while sjc-w stays draining", func(s pullrelease.Status) bool {
+		return s.Target != nil && s.Target.Tag() == stuck.tag && (s.Phase == pullrelease.PhaseRollingBack || s.Phase == pullrelease.PhaseRolledBack || !s.Baked.IsZero())
+	})
+	require(failed.Baked.IsZero() && strings.Contains(failed.Reason, "regional bake failed in ") && strings.Contains(failed.Reason, "node draining") && !failed.Since.Before(drained.Add(15*time.Second)),
+		"a host that stays draining must fail the bake after 15 seconds of failed samples:\n%s", failed)
+	must(os.Remove(draining))
+	rolled := l.waitStatus(ctx, "sjc", "sjc confirms the rollback of "+stuck.tag, func(s pullrelease.Status) bool {
+		return s.Phase == pullrelease.PhaseRolledBack && s.Target != nil && s.Target.Tag() == stuck.tag
+	})
+	require(slices.Contains(rolled.Bad, stuck.tag), "a failed bake must mark %s bad:\n%s", stuck.tag, rolled)
+	fmt.Printf("sjc-w draining past the bake's 15 second failure bound -> %s rolled back and marked bad\n%s\n", stuck.tag, rolled)
 }
