@@ -80,13 +80,18 @@ that has one. The hop carries the peer credential and the header
 
 Edge certificates are shared per region through Vault secrets
 `ts-orch-edge-<region>-<hash>`. Let's Encrypt allows 5 duplicates a week. A
-stopping node answers 503 on `/healthz` for 20 s first while continuing to
-admit application requests during load-balancer propagation (C5c). After that
-drain window, active edge requests have 5 s to finish before their connections
-close, including streamed responses
-and hijacked WebSockets. Nodes without recent external health probes skip the
-20 s window. The systemd stop timeout remains 180 s; it also covers planned-stop
-preparation and other node shutdown work outside the edge's shutdown budget.
+stopping node starts answering 503 on `/healthz` at the stop signal and keeps
+the 20 s drain while admitting application requests during load-balancer
+propagation (C5c). Mesh preparation overlaps that window and gets at most 5 s.
+After the drain, active HTTP requests get at most 5 s before their connections
+close, including streamed responses and hijacked WebSockets. Nodes without
+recent external health probes skip the 20 s window.
+
+All shutdown joins share a deadline 30 s after the stop starts, including the
+SwarmKit node, mesh, edge and background services. An unfinished wait logs its
+component once and is abandoned without changing persistence call ordering or
+stopping TerraBase containers. The systemd stop timeout is 45 s: the process
+budget plus 15 s of margin for service-manager delivery, scheduling and reaping.
 
 Nodes live on private subnets with a NAT gateway. The only public address of
 a region is its network load balancer.

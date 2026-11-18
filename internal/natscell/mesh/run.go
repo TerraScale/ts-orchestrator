@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/fleetregion"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -41,6 +42,21 @@ const (
 // once the node runs. A missing Vault secret, IMDS answer or peer never stops
 // local serving: Run logs and retries, and gateways reconnect on their own.
 func Run(ctx context.Context, state string, cluster Cluster, started func(*Node)) {
+	ctx, finish := plannedstop.WithBudget(ctx)
+	defer finish()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		run(ctx, state, cluster, started)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		plannedstop.Wait(ctx, "mesh", done)
+	}
+}
+
+func run(ctx context.Context, state string, cluster Cluster, started func(*Node)) {
 	for {
 		admission, stored, err := swarmruntime.StoredAdmission(state)
 		if err == nil && stored {

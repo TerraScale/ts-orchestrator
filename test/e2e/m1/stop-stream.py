@@ -21,6 +21,20 @@ subprocess.run(
 )
 subprocess.run(["sudo", "chmod", "0755", str(script)], check=True)
 try:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
+        route.connect(("192.0.2.1", 80))
+        source = route.getsockname()[0]
+    assert not source.startswith("127."), source
+    probe = http.client.HTTPConnection(
+        "127.0.0.1", 80, timeout=5, source_address=(source, 0)
+    )
+    try:
+        probe.request("GET", "/healthz", headers={"Host": "data.e2e.test"})
+        response = probe.getresponse()
+        assert response.status in (200, 404), response.status
+        response.read()
+    finally:
+        probe.close()
     context = ssl.create_default_context(cafile=ca)
     with (
         socket.create_connection(("127.0.0.1", 443), timeout=10) as raw,
@@ -34,9 +48,9 @@ try:
         assert response.status == 200, response.status
         assert response.read(12) == b"data: held\n\n"
         started = time.monotonic()
-        subprocess.run(["sudo", "systemctl", "stop", "ts-orch"], check=True, timeout=10)
+        subprocess.run(["sudo", "systemctl", "stop", "ts-orch"], check=True, timeout=30)
         elapsed = time.monotonic() - started
-        assert elapsed < 10, elapsed
+        assert 20 <= elapsed < 30, elapsed
         exit_code = subprocess.check_output(
             [
                 "sudo",
@@ -56,7 +70,7 @@ try:
         except http.client.IncompleteRead as error:
             assert not error.partial, error.partial
         print(
-            f"manager stop with held SSE: {elapsed:.3f}s; stream closed; no SIGKILL",
+            f"probed manager stop with held SSE: {elapsed:.3f}s; 20s health drain kept; stream closed; no SIGKILL",
             flush=True,
         )
 finally:
