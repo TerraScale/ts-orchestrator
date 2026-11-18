@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ocirelease"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
@@ -666,7 +667,7 @@ func (u *Updater) predecessor(ctx context.Context, tag string) string {
 	if u.Region == fleet.Embedded().Staging.Label {
 		return ""
 	}
-	order := []string{"sjc", "fra", "gru"}
+	order := catalog.RolloutOrder()
 	index := slices.Index(order, u.Region)
 	if index < 0 {
 		return "region has no reviewed binary rollout position"

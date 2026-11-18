@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -280,12 +282,96 @@ func MetaBootJourney(root string) error {
 	}
 	fmt.Println("ok metadata: a founder with an empty log joined the existing group instead of forming one")
 
-	stored := &swarmruntime.ServiceSpec{Name: "terrabase", Regions: []string{"gru", "sjc", "fra"}}
-	for region, want := range map[string][]string{"sjc": nil, "fra": {"sjc"}, "gru": {"sjc", "fra"}} {
-		if got := fleet.nodes[region].earlier(stored); !slices.Equal(got, want) {
-			return fmt.Errorf("%s rolls a release out after %v, want after %v", region, got, want)
+	spec := &swarmruntime.ServiceSpec{Name: "terrabase", Regions: []string{"gru", "sjc", "fra"}}
+	generation := time.Now().UnixNano()
+	rule := EnvironmentOf("gru").Rollout
+	turnWithin := func(region string, wait time.Duration) error {
+		turnCtx, stop := context.WithTimeout(ctx, wait)
+		defer stop()
+		return fleet.nodes[region].awaitTurn(turnCtx, "terrabase", spec, generation)
+	}
+	decision := func(region string) AdmissionDecision {
+		node := fleet.nodes[region]
+		node.admissionMu.Lock()
+		defer node.admissionMu.Unlock()
+		return node.admission["terrabase"]
+	}
+	if err := turnWithin("sjc", 10*time.Second); err != nil {
+		return fmt.Errorf("sjc, first in the order, was not admitted with every founder on it: %w", err)
+	}
+	for _, region := range []string{"fra", "gru"} {
+		if err := turnWithin(region, 3*time.Second); err == nil || decision(region).Earlier != "sjc" {
+			return fmt.Errorf("%s was admitted before sjc passed generation %d: %v, %+v", region, generation, err, decision(region))
 		}
 	}
-	fmt.Println("ok order: a spec stored as gru, sjc, fra rolls out to sjc, then fra, then gru on every founder")
+	fmt.Println("ok order: a spec stored as gru, sjc, fra admits sjc first; fra and gru wait for sjc's verdict")
+
+	fleet.stop("sjc", "fra")
+	var stagedMu sync.Mutex
+	staged := map[string]stateReply{}
+	stage := func(region string, rollout []string, passed bool) {
+		reply := stateReply{Region: region, Desired: map[string]desiredState{}, Ready: map[string]int64{}, Rollout: rollout}
+		if passed {
+			reply.Ready["terrabase"] = generation
+		}
+		stagedMu.Lock()
+		staged[region] = reply
+		stagedMu.Unlock()
+	}
+	responder, err := fleet.nodes["gru"].conn.Subscribe(StateSubject, func(m *nats.Msg) {
+		var request struct {
+			Nonce string `json:"nonce"`
+			View  string `json:"view"`
+		}
+		if protocol.DecodeTolerant(m.Data, &request, maxWire) != nil || request.View != "" {
+			return
+		}
+		stagedMu.Lock()
+		replies := []stateReply{}
+		for _, reply := range staged {
+			replies = append(replies, reply)
+		}
+		stagedMu.Unlock()
+		for _, reply := range replies {
+			reply.Nonce = request.Nonce
+			if reply.Ready["terrabase"] == generation {
+				reply.Serving = map[string]ServingResult{"terrabase": {Generation: generation, Serving: true, At: time.Now()}}
+			}
+			if data, err := protocol.EncodeJSON(reply); err == nil {
+				_ = m.Respond(data)
+			}
+		}
+	})
+	if err != nil {
+		return err
+	}
+	defer responder.Unsubscribe()
+	stage("sjc", rule, true)
+	stage("fra", nil, false)
+	admitted := make(chan error, 1)
+	go func() { admitted <- turnWithin("gru", time.Minute) }()
+	waitFor := func(evidence string) error {
+		return regionalAwait(ctx, func() bool {
+			got := decision("gru")
+			return got.Generation == generation && got.Earlier == "fra" && got.Evidence == evidence
+		})
+	}
+	if err := waitFor("rollout order not agreed"); err != nil {
+		return fmt.Errorf("gru did not wait for fra advertising no rollout order: %w, %+v", err, decision("gru"))
+	}
+	stage("fra", rule, false)
+	if err := waitFor("fresh serving evidence missing"); err != nil {
+		return fmt.Errorf("gru did not wait for fra's verdict once fra agreed on the order: %w, %+v", err, decision("gru"))
+	}
+	stage("fra", rule, true)
+	select {
+	case err := <-admitted:
+		if err != nil || decision("gru").Evidence != "admitted" {
+			return fmt.Errorf("gru was not admitted once sjc and fra passed: %v, %+v", err, decision("gru"))
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	fmt.Println("ok order: one generation through the real admission path: gru waited while fra advertised no rollout order, then for fra's verdict, and admitted itself once sjc and fra passed")
 	return nil
 }

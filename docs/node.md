@@ -99,7 +99,12 @@ applies it to every region it targets, one region at a time in its
 environment's fixed order: sjc, fra, gru in production (`catalog.RolloutOrder`)
 and the single region stg in staging. The order of the spec's `regions` does
 not matter, and a spec may name only regions of its environment's order:
-pre-pull, fast replacement, ready path, bake. Each region gets its readiness timeout
+pre-pull, fast replacement, ready path, bake. Every mesh node advertises its
+order in its state reply. A region admits a TerraBase generation only when
+every other region the spec targets answers with the same order. A peer
+still on a binary that advertises none holds it, with the admission evidence
+`rollout order not agreed`. The release continues on its own once every peer
+agrees, within its rollout window. Each region gets its readiness timeout
 (`readyTimeoutSeconds`, 60 s by default) plus 30 s to pull and submit plus the
 bake budget; regions the spec does not place answer at once. If a targeted
 region fails or misses its window, the release re-applies the previous spec
