@@ -20,6 +20,9 @@ func reclaim(ctx context.Context, vault vault, region, hostname, instanceID stri
 	if err != nil || current.CreatedAt.IsZero() {
 		return material, err
 	}
+	if _, joinable := ReachableManager(ctx, material); joinable {
+		return material, nil
+	}
 	definition, err := fleet.Embedded().Region(region)
 	if err != nil {
 		return Material{}, err
