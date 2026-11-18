@@ -1055,10 +1055,12 @@ func validEntry(region, name string, entry Entry) error {
 	if entry.Spec.Name != name {
 		return errors.New("spec name differs from the entry name")
 	}
-	for _, region := range entry.Spec.Regions {
-		// Any catalog region may join; spending approval gates instance creation, not this.
-		if _, ok := catalog.LookupName(region); !ok {
-			return fmt.Errorf("unknown region %q", region)
+	for _, target := range entry.Spec.Regions {
+		if _, ok := catalog.LookupName(target); !ok {
+			return fmt.Errorf("unknown region %q", target)
+		}
+		if EnvironmentOf(target).Founder != EnvironmentOf(region).Founder {
+			return fmt.Errorf("target region %s belongs to another environment than %s", target, region)
 		}
 	}
 	_, err := entry.Spec.SwarmSpec()

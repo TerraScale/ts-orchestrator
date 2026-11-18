@@ -28,6 +28,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 
+	"github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -607,6 +608,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	}
 	topologyReady(ctx, roots)
 	if !installOnly {
+		crossEnvironmentRefused(ctx, conn, roots, order)
 		for i, service := range []string{"ts-auth", "ts-dashboard"} {
 			pkg := service
 			if service == "ts-dashboard" {
@@ -969,4 +971,58 @@ func stagingCases(ctx context.Context, root, namespace, address, launcher, seedF
 	node = nil
 	must(os.Rename(filepath.Join(root, "mesh"), filepath.Join(root, "staging-mesh")))
 	logStep("new isolated staging region creates all three declared services from verified app pulls; dashboard release preserves its regional spec")
+}
+
+func crossEnvironmentRefused(ctx context.Context, conn *nats.Conn, roots, regions []string) {
+	before := states(ctx, conn)
+	runtime := map[string]swarmruntime.ServiceInspection{}
+	inspect := func(root string) swarmruntime.ServiceInspection {
+		control, closer, err := swarmruntime.DialControl(root)
+		must(err)
+		defer closer.Close()
+		service, err := swarmruntime.ServiceByName(ctx, control, "terrabase")
+		must(err)
+		inspection, err := swarmruntime.InspectService(service)
+		must(err)
+		return inspection
+	}
+	for i, region := range regions {
+		runtime[region] = inspect(roots[i])
+	}
+	data, err := m1.Files.ReadFile("services/stg/terrabase.json")
+	must(err)
+	var spec swarmruntime.ServiceSpec
+	must(json.Unmarshal(data, &spec))
+	err = mesh.Apply(ctx, conn, spec, "", io.Discard)
+	require(err != nil && strings.Contains(err.Error(), "belongs to another environment"), "operator apply accepted a staging declaration in production")
+	inbox := nats.NewInbox()
+	replies := make(chan *nats.Msg, len(regions))
+	sub, err := conn.ChanSubscribe(inbox, replies)
+	must(err)
+	defer sub.Unsubscribe()
+	must(conn.Flush())
+	data, err = json.Marshal(mesh.ApplyRequest{Name: spec.Name, Entry: mesh.Entry{Generation: time.Now().UnixNano(), Spec: &spec}})
+	must(err)
+	must(conn.PublishRequest(mesh.ApplySubject, inbox, data))
+	must(conn.Flush())
+	refused := map[string]bool{}
+	for len(refused) < len(regions) {
+		select {
+		case message := <-replies:
+			var reply mesh.Reply
+			must(json.Unmarshal(message.Data, &reply))
+			require(before[reply.Region].Desired != nil && strings.Contains(reply.Error, "belongs to another environment"), "mesh apply accepted a staging declaration in production")
+			refused[reply.Region] = true
+		case <-ctx.Done():
+			panic(ctx.Err())
+		}
+	}
+	after := states(ctx, conn)
+	for i, region := range regions {
+		require(reflect.DeepEqual(before[region].Desired, after[region].Desired), "staging declaration changed production desired state")
+		current := inspect(roots[i])
+		require(current.ID == runtime[region].ID, "staging declaration recreated a production service")
+		require(reflect.DeepEqual(current.Spec, runtime[region].Spec), "staging declaration changed a production service")
+	}
+	logStep("operator and mesh apply reject staging declarations before changing production desired state or services in fra, gru and sjc")
 }

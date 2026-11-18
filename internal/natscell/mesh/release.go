@@ -27,8 +27,6 @@ const (
 	rollbackWait = 40 * time.Second
 )
 
-// Release serves app image releases (releasepush.Handler.App) on this host's
-// mesh node: it updates the image and declared all-region app budgets.
 func Release(state string) func(ctx context.Context, service, image string, claims releasepush.Claims, progress releasepush.Progress) (json.RawMessage, error) {
 	return func(ctx context.Context, service, image string, claims releasepush.Claims, progress releasepush.Progress) (json.RawMessage, error) {
 		fence, err := rolloutmaintenance.Open(state)

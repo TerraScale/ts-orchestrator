@@ -1,18 +1,62 @@
-# Regional dashboard capacity with auth confined to gru
+# Production dashboard capacity with auth confined to gru
 
-New signed releases of an unheld app with an embedded all-region declaration
-adopt that declaration's placement and CPU/memory reservations. Dashboard omits
-`regions`, so it follows all admitted regions, including future regions. Auth keeps its explicit `regions: ["gru"]` and its signed releases
-preserve placement: current terrascale main rejects startup outside TS_REGION=gru
-(App.cs:177), and regional auth writes are not linearizable. Regional auth startup
-and write safety must be resolved before its placement can expand. Releases
-retain the persisted spec's credentials, environment, routes,
-ports, mounts and replica count. They do not apply the declaration's image.
-Held services retain their placement, budgets and hold. Identical signed
-receipt retries resume the original generation and bake, including a receipt
-accepted before this placement change. Unsigned releases and unrelated services
-retain their placement. Rollback restores the entire previous spec and retains
-the signed release floor.
+An image release copies the persisted service spec and changes only its image.
+It retains placement, CPU/memory reservations, credentials, environment,
+routes, ports, mounts and replica count. Editing a checked-in declaration or
+shipping a new orchestrator binary does not apply those configuration changes
+to an existing service. A repeated signed receipt resumes its original
+generation and bake. The existing hold and failed-bake rules still apply;
+rollback restores the entire previous spec and retains the signed release floor.
+
+The production dashboard declaration omits `regions`, so an explicit apply
+targets all regions in the production mesh, including future admitted regions.
+Production auth retains `regions: ["gru"]`; do not expand it without qualifying
+regional auth startup and write safety. Staging has its own declarations and mesh.
+
+## Apply a deliberate configuration change
+
+Commit the intended env, secret references, reservations or placement change
+to the appropriate declaration. Coordinate new variables with the application
+release that supports them. For an existing service, a matching operator must
+then explicitly apply that declaration with the service's **current image**;
+the checked-in image can be older and must not replace the active release.
+Automatic first apply is only for an absent service with a regional declaration.
+The production root auth/dashboard declarations are not an automatic first-apply
+path.
+
+Run as root on a manager in the intended environment with its mesh running and
+the reviewed declaration available. This example changes staging dashboard
+configuration without changing its image:
+
+```sh
+(
+  set -eu
+  umask 077
+  prepared_spec=$(mktemp)
+  trap 'rm -f "$prepared_spec"' EXIT
+  current_image=$(ts-orch service inspect ts-dashboard | jq -er '.spec.image')
+  jq --arg image "$current_image" '.image = $image' deploy/m1/services/stg/ts-dashboard.json > "$prepared_spec"
+  ts-orch service apply -f "$prepared_spec"
+  ts-orch service inspect ts-dashboard
+)
+```
+
+Verify the resulting spec and readiness. Production configuration changes use
+the reviewed production declaration on a production manager, preserving its
+intended production placement. Never substitute a staging declaration: mesh
+admission rejects targets from another environment before updating desired state
+or changing, creating or removing a service. This procedure is not part of
+normal image release or automatic staging bootstrap.
+
+Provision every newly referenced secret and its read permission before shipping
+the binary that embeds it. Secret preflight checks the whole region's applicable
+declarations; one missing staging reference refuses the staging orchestrator
+binary release. An individual app-pull failure does not stop the updater from
+trying the other services. A failed first apply can roll back to absence and
+retain its signed floor: fixing the secret alone does not admit that same signed
+run again. Repair the cause and publish a strictly newer signed run or attempt.
+
+## Capacity
 
 Dashboard reserves **200m CPU and 2048 MiB memory**. Auth retains its existing
 **500m CPU and 2048 MiB memory**, exclusively in gru. Stateless
@@ -66,7 +110,7 @@ The new resource rendering applies only to services using TaskPort without
 mounts. Valid TaskPort services also require readiness and forbid a PostgreSQL
 listener. TerraBase has mounted data, fixed ports and no TaskPort;
 its render and update policy remain unchanged, including 1000m/4096 MiB and
-10 GiB disk. Its declaration is not embedded in the signed-app placement policy.
+10 GiB disk. Image releases do not reapply its declaration's configuration.
 The executor's equal-budget OCI CPU options also remain unchanged.
 
 `TestTerraBaseRenderUnchanged` pins the **full** declaration render to a SHA-256
