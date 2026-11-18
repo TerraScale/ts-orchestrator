@@ -11,6 +11,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -34,29 +35,55 @@ type Source struct {
 	Registry  func(context.Context) (*appregistry.Client, error)
 }
 
-func (s Source) Pull(ctx context.Context, target Target) (Selection, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
+type release struct {
+	ref       name.Tag
+	keychain  authn.Keychain
+	transport http.RoundTripper
+}
+
+func (s Source) release(ctx context.Context, target Target) (release, error) {
 	if s.Registry == nil {
-		return Selection{}, fmt.Errorf("app release registry is unavailable")
+		return release{}, fmt.Errorf("app release registry is unavailable")
 	}
 	registry, err := s.Registry(ctx)
 	if err != nil {
-		return Selection{}, err
+		return release{}, err
 	}
 	repository, err := registry.Repository(target.Package)
 	if err != nil {
-		return Selection{}, err
+		return release{}, err
 	}
 	keychain, err := registry.Keychain(ctx, target.Package)
 	if err != nil {
-		return Selection{}, err
+		return release{}, err
 	}
 	ref, err := name.NewTag(repository+":release", name.StrictValidation)
 	if err != nil {
+		return release{}, err
+	}
+	return release{ref: ref, keychain: keychain, transport: registry.BoundTransport(s.Transport)}, nil
+}
+
+func (s Source) Digest(ctx context.Context, target Target) (string, error) {
+	selected, err := s.release(ctx, target)
+	if err != nil {
+		return "", err
+	}
+	head, err := remote.Head(selected.ref, remote.WithContext(ctx), remote.WithTransport(selected.transport), remote.WithAuthFromKeychain(selected.keychain))
+	if err != nil {
+		return "", err
+	}
+	return head.Digest.String(), nil
+}
+
+func (s Source) Pull(ctx context.Context, target Target) (Selection, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	selected, err := s.release(ctx, target)
+	if err != nil {
 		return Selection{}, err
 	}
-	transport := registry.BoundTransport(s.Transport)
+	ref, keychain, transport := selected.ref, selected.keychain, selected.transport
 	trusted := s.Root
 	if trusted == nil {
 		trusted, err = imagetrust.PublicGoodRoot()
