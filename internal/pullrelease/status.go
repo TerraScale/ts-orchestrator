@@ -53,6 +53,8 @@ type Status struct {
 	Bad     []string               `json:"bad,omitempty"`
 	Since   time.Time              `json:"since,omitzero"`
 	Baked   time.Time              `json:"baked,omitzero"`
+	Failing time.Time              `json:"failing,omitzero"`
+	Failed  int                    `json:"failed,omitempty"`
 	Done    time.Time              `json:"done,omitzero"`
 	Checked time.Time              `json:"checked,omitzero"`
 	Updated time.Time              `json:"updated,omitzero"`

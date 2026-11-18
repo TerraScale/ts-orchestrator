@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/nats-io/nats.go"
 )
 
@@ -28,6 +29,7 @@ const (
 	DefaultBakeFor    = 5 * time.Minute
 
 	checkEvery   = 2 * time.Second
+	bakeFailures = 3
 	askWait      = 8 * time.Second
 	installWait  = 3*time.Minute + 30*time.Second
 	discoverWait = time.Minute
@@ -645,18 +647,22 @@ func (u *Updater) predecessor(ctx context.Context, tag string) string {
 }
 
 func (u *Updater) bake(ctx context.Context) time.Duration {
-	for i := range u.status.Hosts {
-		row := &u.status.Hosts[i]
-		if row.State == HostNewer {
-			continue
+	if row, failure := u.bakeSample(ctx); failure != "" {
+		now := time.Now().UTC()
+		if u.status.Failed == 0 {
+			u.status.Failing = now
 		}
-		reply, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
-		if err != nil || reply.State != "" || reply.Health != "ok" || reply.Version != row.Version || reply.SHA256 != row.SHA256 {
-			return u.rolledBack(ctx, row, fmt.Sprintf("regional bake failed: %v %s %s %s", err, reply.State, reply.Health, reply.Error))
+		u.status.Failed++
+		if u.status.Failed >= bakeFailures && now.Sub(u.status.Failing) >= rollout.BakeFailureDuration {
+			return u.rolledBack(ctx, row, fmt.Sprintf("regional bake failed in %d samples over %s: %s", u.status.Failed, now.Sub(u.status.Failing).Round(time.Second), failure))
 		}
+		u.status.Done, u.status.Reason = now, "regional bake sample failed: "+failure
+		u.save(ctx)
+		return checkEvery
 	}
-	if err := u.Health(ctx); err != nil {
-		return u.rolledBack(ctx, &u.status.Hosts[0], "regional bake failed: "+err.Error())
+	if u.status.Failed != 0 {
+		u.status.Failing, u.status.Failed, u.status.Reason = time.Time{}, 0, ""
+		u.save(ctx)
 	}
 	if time.Since(u.status.Done) < u.BakeFor {
 		return checkEvery
@@ -666,4 +672,21 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 		u.save(ctx)
 	}
 	return u.Poll
+}
+
+func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string) {
+	for i := range u.status.Hosts {
+		row := &u.status.Hosts[i]
+		if row.State == HostNewer {
+			continue
+		}
+		reply, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
+		if err != nil || reply.State != "" || reply.Health != "ok" || reply.Version != row.Version || reply.SHA256 != row.SHA256 {
+			return row, fmt.Sprintf("%v %s %s %s", err, reply.State, reply.Health, reply.Error)
+		}
+	}
+	if err := u.Health(ctx); err != nil {
+		return &u.status.Hosts[0], err.Error()
+	}
+	return nil, ""
 }
