@@ -50,9 +50,6 @@ jobs:
           gh release download "$tag" --repo TerraScale/ts-orchestrator --dir dist --pattern terrascale-orchestrator-linux-amd64
           chmod +x dist/terrascale-orchestrator-linux-amd64
 
-      - name: Observe the orchestrator on every registered host
-        run: dist/terrascale-orchestrator-linux-amd64 release hosts "$ORCHESTRATOR_REVISION"
-
       - uses: ./.github/actions/ocir-login
         with:
           regions: us-sanjose-1 eu-frankfurt-1 sa-saopaulo-1
@@ -60,7 +57,7 @@ jobs:
           client-id: ${{ vars.OCI_TOKEN_EXCHANGE_CLIENT_ID }}
           client-secret: ${{ secrets.OCI_TOKEN_EXCHANGE_CLIENT_SECRET }}
 
-      - uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6
+      - uses: oras-project/setup-oras@6c7c53b4590464855840e6196435c3af71140f64
         with:
           version: 1.3.6
 
@@ -166,6 +163,9 @@ jobs:
             oras tag "$repo@$DIGEST" release
             test "$(oras resolve "$repo:release")" = "$DIGEST"
           done
+
+      - name: Observe the orchestrator on every registered host
+        run: dist/terrascale-orchestrator-linux-amd64 release hosts "$ORCHESTRATOR_REVISION"
 
       - name: Observe the pulled release over HTTPS
         env:
