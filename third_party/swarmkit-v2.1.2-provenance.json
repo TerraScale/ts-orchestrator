@@ -210,6 +210,17 @@
       "upstream_sha256": "6b1b7f3467c0ed2cd1d149504eb845353d7a3d88381ce85392951c2846ee419c"
     },
     {
+      "bytes": 2464,
+      "path": "ca/forward.go",
+      "rationale": "Port upstream a34f01e8c294ace05ffbfc2aef669f8fb8b7e8d5 (ca: forward a request to the leader only once): refuse a request that arrived already forwarded and build the forwarded TLS metadata from the outgoing context, so a forwarding manager is never presented as the client.",
+      "sha256": "181d8efa64285c17d251d1a7c72bcf160a1a1e0083db7920f7ef75a554e597d6",
+      "source_history": [
+        "a34f01e8c294ace05ffbfc2aef669f8fb8b7e8d5 Merge commit from fork (moby/swarmkit, 2026-11-03)"
+      ],
+      "upstream_bytes": 2010,
+      "upstream_sha256": "f0facedf6fd82cf83547979d9db2ecf1a44bf60bded169a24b622590d2ba9d43"
+    },
+    {
       "bytes": 5461,
       "path": "manager/state/raft/membership/cluster.go",
       "rationale": "Replace a Raft member on an address update instead of mutating the shared *Member that Members() hands to unlocked readers (data race on a manager's own address move).",
