@@ -1068,6 +1068,9 @@ func validEntry(region, name string, entry Entry) error {
 		return errors.New("spec name differs from the entry name")
 	}
 	for _, target := range entry.Spec.Regions {
+		if EnvironmentOf(target).Founder != EnvironmentOf(region).Founder {
+			return fmt.Errorf("target region %s belongs to another environment than %s", target, region)
+		}
 		if order := EnvironmentOf(region).Rollout; !slices.Contains(order, target) {
 			return fmt.Errorf("target region %q is not in the rollout order %v of %s", target, order, region)
 		}
