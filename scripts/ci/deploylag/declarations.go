@@ -13,6 +13,10 @@ import (
 
 func declaredServices(regions []releasepush.Region) (map[string]map[string]bool, error) {
 	declared := map[string]map[string]bool{}
+	inventory := map[string]bool{}
+	for _, region := range regions {
+		inventory[region.Region] = true
+	}
 	for _, region := range regions {
 		declared[region.Region] = map[string]bool{"ts-orchestrator": true}
 		directory := filepath.Join("deploy/m1/services", region.Region)
@@ -26,7 +30,8 @@ func declaredServices(regions []releasepush.Region) (map[string]map[string]bool,
 			if x.name == "ts-orchestrator" {
 				continue
 			}
-			data, err := os.ReadFile(filepath.Join(directory, x.name+".json"))
+			path := filepath.Join(directory, x.name+".json")
+			data, err := os.ReadFile(path)
 			if regional && errors.Is(err, os.ErrNotExist) {
 				continue
 			}
@@ -38,10 +43,17 @@ func declaredServices(regions []releasepush.Region) (map[string]map[string]bool,
 				Regions []string `json:"regions"`
 			}
 			if err := json.Unmarshal(data, &spec); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%s: %w", path, err)
 			}
 			if spec.Name != x.name || regional && !slices.Contains(spec.Regions, region.Region) {
-				return nil, fmt.Errorf("%s: declaration identity or region mismatch", x.name)
+				return nil, fmt.Errorf("%s: declaration identity or region mismatch", path)
+			}
+			if !regional {
+				for _, name := range spec.Regions {
+					if !inventory[name] {
+						return nil, fmt.Errorf("%s: unknown production region %q", path, name)
+					}
+				}
 			}
 			declared[region.Region][x.name] = len(spec.Regions) == 0 || slices.Contains(spec.Regions, region.Region)
 		}

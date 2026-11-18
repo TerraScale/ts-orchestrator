@@ -90,10 +90,20 @@ Both upgrade lanes pin the newest signed published strict ancestor of
 commit's own release even when publication finishes first, and record the
 selected tag in their logs and job summaries.
 
-Release pruning also considers CI drafts older than its existing age cutoff,
-using creation time when publication time is absent. Drafts do not consume
-the newest-published-release allowance. Existing revision, tag and manifest
-digest pins still protect releases from deletion.
+The `prune-releases.yml` workflow runs hourly and invokes
+`scripts/ci/prune-drafts.sh` to remove CI and image drafts created more than
+one day ago. Cleanup shares the `production-ts-orch` concurrency group with
+both publication paths, so it cannot delete a draft while it becomes public.
+It rereads each candidate and keeps any release that has become public.
+Drafts do not consume the newest-published-release allowance or inherit
+production pin retention because hosts cannot select them.
+
+Published-release pruning remains in `scripts/ci/prune-releases.sh`, which
+requires an explicit file of live pins. Its default retention keeps the
+newest 20 published releases and those published within seven days. Revision,
+tag and manifest digest pins protect public releases from deletion; an
+unreadable manifest also preserves its release. The hourly draft cleanup
+does not delete public releases.
 
 ## Host pull and regional order
 

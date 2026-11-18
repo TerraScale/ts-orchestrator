@@ -30,14 +30,11 @@ for ((page = 1; ; page++)); do
 done
 
 cutoff=$(date -u -d "-$keep_days days" +%s)
-draft_cutoff=$(date -u -d '-1 day' +%s)
-jq -c --argjson draft_cutoff "$draft_cutoff" --argjson keep "$keep" --argjson cutoff "$cutoff" '
-	[.[] | select(.prerelease and (.tag_name | test("^(ci|image)-[0-9a-f]{40}-run-[0-9]+(-attempt-[0-9]+)?$")))]
-	| ((map(select(.draft | not)) | sort_by(.published_at) | reverse | .[$keep:][]),
-		(.[] | select(.draft)))
-	| select(if .draft then (.created_at | fromdateiso8601) < $draft_cutoff
-		else (.published_at | fromdateiso8601) < $cutoff end)
-	| {id, draft, tag: .tag_name, published_at: (.published_at // .created_at), bytes: ([.assets[].size] | add // 0),
+jq -c --argjson keep "$keep" --argjson cutoff "$cutoff" '
+	[.[] | select(.prerelease and (.draft | not) and (.tag_name | test("^(ci|image)-[0-9a-f]{40}-run-[0-9]+(-attempt-[0-9]+)?$")))]
+	| sort_by(.published_at) | reverse | .[$keep:][]
+	| select((.published_at | fromdateiso8601) < $cutoff)
+	| {id, tag: .tag_name, published_at, bytes: ([.assets[].size] | add // 0),
 		manifests: [.assets[] | select((.name | test("(\\.json|\\.sha256|^SHA256SUMS)$")) and .size <= 1048576)
 			| .name]}' "$work/releases.json" > "$work/candidates.json"
 
@@ -59,7 +56,7 @@ deleted=0 freed=0 kept=0
 while IFS= read -r release; do
 	tag=$(jq -r .tag <<< "$release")
 	mapfile -t manifests < <(jq -r '.manifests[]' <<< "$release")
-	if [[ $(jq -r .draft <<< "$release") == false ]] && names_pin "$tag" "${manifests[@]}"; then
+	if names_pin "$tag" "${manifests[@]}"; then
 		echo "kept $tag: pinned"
 		kept=$((kept + 1))
 		continue
