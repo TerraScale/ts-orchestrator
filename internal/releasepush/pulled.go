@@ -44,13 +44,13 @@ func PullSubject(region, host string) string {
 
 func (h *Handler) ServePulled(conn *nats.Conn, region, host string) error {
 	return h.serve(conn, map[string]func(context.Context, []byte) Reply{PullSubject(region, host): func(ctx context.Context, data []byte) Reply {
-		reply := h.pulled(ctx, data)
+		reply := h.pulled(ctx, region, data)
 		reply.Host = host
 		return reply
 	}})
 }
 
-func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
+func (h *Handler) pulled(ctx context.Context, region string, data []byte) Reply {
 	var request PullRequest
 	if err := protocol.DecodeStrict(data, &request, 64<<10); err != nil {
 		return rejected(err)
@@ -70,7 +70,7 @@ func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 		}
 		return reply
 	case PullInstall:
-		return h.installPulled(ctx, request.Release)
+		return h.installPulled(ctx, region, request.Release)
 	case PullFetch:
 		return h.fetchPulled(ctx, request.Release)
 	case PullRollback:
@@ -81,7 +81,7 @@ func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 	return rejected(fmt.Errorf("unknown pull operation %q", request.Op))
 }
 
-func (h *Handler) installPulled(ctx context.Context, release releaseattest.Release) Reply {
+func (h *Handler) installPulled(ctx context.Context, region string, release releaseattest.Release) Reply {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	claims := Claims{SHA: release.SHA, RunID: release.RunID}
@@ -98,6 +98,12 @@ func (h *Handler) installPulled(ctx context.Context, release releaseattest.Relea
 			return integrityReply(release.SHA, claims, err)
 		}
 		return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
+	}
+	candidate := releaseID{release.SHA, binary.SHA256}
+	if h.pending != candidate && (h.Revision != release.SHA || h.Digest != binary.SHA256) {
+		if err := h.admit(ctx, region, release, binary); err != nil {
+			return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
+		}
 	}
 	return h.installRelease(ctx, release.SHA, binary, claims)
 }

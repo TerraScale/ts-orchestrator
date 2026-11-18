@@ -348,8 +348,10 @@ not the global account) all differ. There is no bridge. Reasons:
 
 The isolated stg region signs completion of the exact tag after its regional
 health gate passes. sjc verifies that record before it starts as the production
-canary. fra and gru roll out at the same time once sjc passes its gate. See
-[platform releases](platform.md#releases).
+canary. During a staging infrastructure outage, an exact-release, 24-hour
+admission from the pinned main dispatch workflow can authorize installation.
+Every production host verifies one of those records. fra and gru roll out at
+the same time once sjc passes its gate. See [platform releases](platform.md#releases).
 
 Each tag has one durable decision, `decision.<tag>` in `TS_ORCH_PULL_ROLLOUT`,
 changed only by compare-and-set: a region admits itself by adding its name while

@@ -89,7 +89,7 @@ func preflightCases(ctx context.Context, work string, h *releasepush.Handler, co
 		require(reply.Refusal.SHA256 == digest(candidate) && reply.Refusal.RunID != "", "refusal must name candidate digest and attempt")
 		require(bytes.Equal(read(h.Binary), original) && record(h.TrialFile) == nil && string(read(h.Binary+".prev")) == "superseded", "preflight refusal must stage nothing")
 		require(fence(work) == "1", "refusal must preserve the run fence")
-		reported := request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil).Refusal
+		reported := request(ctx, conn, releasepush.PullSubject("stg", "host"), nil).Refusal
 		require(reported != nil && reported.SHA256 == digest(candidate), "the installed binary must report its refusal")
 		require(len(reply.Refusal.Reason) <= secretpreflight.MaxOutputBytes && utf8.ValidString(reply.Refusal.Reason) && !strings.ContainsFunc(reply.Refusal.Reason, unicode.IsControl), "diagnostic must be bounded valid text")
 		if mode == "hang" {
@@ -152,7 +152,7 @@ func networkCases(ctx context.Context, work string, h *releasepush.Handler, conn
 	fresh := releasepush.NewVerifier()
 	fresh.Client = &http.Client{Transport: failTransport{}}
 	h.Verifier, h.Client = fresh, &http.Client{Transport: failTransport{}}
-	reply := request(ctx, conn, releasepush.PullSubject("e2e", "host"), payload)
+	reply := request(ctx, conn, releasepush.PullSubject("stg", "host"), payload)
 	require(reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalHost, "unavailable attestation must be host prerequisite")
 	h.Verifier = verifier
 	for _, entry := range []struct {
@@ -165,7 +165,7 @@ func networkCases(ctx context.Context, work string, h *releasepush.Handler, conn
 		{"fully received digest mismatch", corruptTransport{client.Transport}, releasepush.RefusalIntegrity},
 	} {
 		h.Client = &http.Client{Transport: entry.transport}
-		reply = request(ctx, conn, releasepush.PullSubject("e2e", "host"), payload)
+		reply = request(ctx, conn, releasepush.PullSubject("stg", "host"), payload)
 		require(reply.Refusal != nil && reply.Refusal.Kind == entry.kind, entry.name+" refusal must classify proven evidence")
 		fmt.Println("ok classification:", entry.name, "->", entry.kind)
 	}
@@ -344,7 +344,7 @@ func selfUpdate(ctx context.Context, work, mode string) {
 		}
 		observer, err := nats.Connect(conn.ConnectedUrl())
 		must(err)
-		must(observer.PublishRequest(releasepush.PullSubject("e2e", "host"), nats.NewInbox(), pulledPayload(release, "2")))
+		must(observer.PublishRequest(releasepush.PullSubject("stg", "host"), nats.NewInbox(), pulledPayload(release, "2")))
 		must(observer.Flush())
 		observer.Close()
 		select {
@@ -389,7 +389,7 @@ func fenceCase(ctx context.Context) {
 		write(h.RunIDFile, content)
 		reply = installRequest(ctx, h, conn, work, shaB, "9")
 		require(reply.State == "rejected" && reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalFence && strings.Contains(reply.Error, "run fence damaged"), fmt.Sprintf("a damaged fence must refuse every run as its own kind: %+v", reply))
-		reported := request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil).Refusal
+		reported := request(ctx, conn, releasepush.PullSubject("stg", "host"), nil).Refusal
 		require(reported != nil && reported.Kind == releasepush.RefusalFence && record(h.RefusalFile)["kind"] == releasepush.RefusalFence, fmt.Sprintf("a damaged fence refusal must be saved and reported: %+v", reported))
 		require(fence(work) == content && bytes.Equal(read(h.Binary), original), "a damaged fence must never be overwritten")
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 )
 
 // Port is the dashboard's TCP port on the NetBird address.
@@ -57,6 +58,13 @@ func Run(ctx context.Context, state, region string) error {
 			return regionhealth.Check(ctx, state), nil
 		})
 		return report.State == regionhealth.StateOK, report.State
+	}})
+	binary, err := releasepush.Executable()
+	if err != nil {
+		return err
+	}
+	health.Add(observability.Check{Name: "release admission", Run: func(context.Context) (bool, string) {
+		return releasepush.AdmissionDetail(state, binary)
 	}})
 	collector, err := observability.NewCollector(observability.CollectorConfig{Cell: region, Member: host, Role: Role,
 		Registry: registry, Health: health,

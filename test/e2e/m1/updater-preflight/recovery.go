@@ -64,7 +64,7 @@ func recoveryCase(ctx context.Context, binary string) {
 		conn, err := nats.Connect(strings.TrimSpace(string(read("/run/recovery-listener"))))
 		must(err)
 		defer conn.Close()
-		reply := request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil)
+		reply := request(ctx, conn, releasepush.PullSubject("stg", "host"), nil)
 		require(reply.Version != "", "the running agent must answer its NATS version request")
 	}
 	cases := []struct {

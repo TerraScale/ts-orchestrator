@@ -124,7 +124,7 @@ func installAsset(ctx context.Context, h *releasepush.Handler, conn *nats.Conn, 
 	release, verifier, client, closeProvider := signedRelease(ctx, asset, sha, run, "1")
 	defer closeProvider()
 	h.Verifier, h.Client = verifier, client
-	return request(ctx, conn, releasepush.PullSubject("e2e", "host"), pulledPayload(release, run))
+	return request(ctx, conn, releasepush.PullSubject("stg", "host"), pulledPayload(release, run))
 }
 
 func installRequest(ctx context.Context, h *releasepush.Handler, conn *nats.Conn, work, sha, run string) releasepush.Reply {
@@ -207,8 +207,8 @@ func startState(ctx context.Context, work, mode string) {
 	must(err)
 	conn, closeListener := listener(h)
 	defer closeListener()
-	version := request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil)
-	health := request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil)
+	version := request(ctx, conn, releasepush.PullSubject("stg", "host"), nil)
+	health := request(ctx, conn, releasepush.PullSubject("stg", "host"), nil)
 	result := started{Revision: h.Revision, State: version.State, Error: version.Error, RolledBack: version.RolledBack, HealthState: health.State}
 	if mode == "race" {
 		replacement := installAsset(ctx, h, conn, otherAsset(work, shaC), shaC, "3")
@@ -216,7 +216,7 @@ func startState(ctx context.Context, work, mode string) {
 	}
 	if mode == "serve" || mode == "race" {
 		result.Served = probation.Served()
-		result.After = request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil).State
+		result.After = request(ctx, conn, releasepush.PullSubject("stg", "host"), nil).State
 	}
 	data, err := json.Marshal(result)
 	must(err)
@@ -441,7 +441,7 @@ func expiryRaceStart(ctx context.Context, work string) {
 	defer closeListener()
 	write(filepath.Join(work, "armed"), "ready")
 	reply := installRequest(ctx, h, conn, work, shaB, "2")
-	state := request(ctx, conn, releasepush.PullSubject("e2e", "host"), nil).State
+	state := request(ctx, conn, releasepush.PullSubject("stg", "host"), nil).State
 	<-h.Installed
 	fmt.Println("traced expiry race:", reply.State, state)
 }

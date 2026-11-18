@@ -38,6 +38,13 @@ func ReadDegraded(state string) (*Degraded, error) {
 }
 
 func WriteReleaseMetrics(w io.Writer, state, binary string) {
+	admission, admissionErr := ReadAdmission(state, binary)
+	if admissionErr != nil {
+		slog.Warn("release admission record unreadable", "error", admissionErr)
+	}
+	if admission != nil && admission.RunID != "" {
+		observability.WriteGauge(w, observability.Series("ts_orch_release_staging_admission", "region", admission.Region, "reason", "admitted_without_staging", "run", admission.RunID, "tag", admission.Tag), 1)
+	}
 	record, err := ReadDegraded(state)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.Warn("release degraded record unreadable", "error", err)

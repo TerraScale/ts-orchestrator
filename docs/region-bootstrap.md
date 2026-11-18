@@ -425,8 +425,10 @@ services run there.
 
 **Releases reach staging first.** stg has no rollout predecessor. Once it
 completes and bakes a tag, it publishes a signed completion record to
-`stg-release-gate`, and sjc takes the tag only after verifying that record
-against `staging.signer_public_key`. A missing or stale record keeps
+`stg-release-gate`, and production verifies that record
+against `staging.signer_public_key` before installing. The sole alternative is
+a valid, unexpired exact-tag-and-digests attestation from the repository’s
+`main` dispatch workflow (`staging-admission.yml`). A missing or stale record keeps
 production on its release and alerts (`StagingGateBlocking`;
 [platform releases](platform.md#releases)). No staging CA, Vault credential
 or production grant is shared.

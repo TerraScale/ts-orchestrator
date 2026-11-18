@@ -15,12 +15,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
-	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 )
 
 const (
@@ -42,14 +43,16 @@ type githubRelease struct {
 }
 
 type fakeGitHub struct {
-	server  *httptest.Server
-	key     *rsa.PrivateKey
-	staging *ecdsa.PrivateKey
-	forger  *ecdsa.PrivateKey
-	forged  map[string]bool
+	server       *httptest.Server
+	key          *rsa.PrivateKey
+	staging      *ecdsa.PrivateKey
+	forger       *ecdsa.PrivateKey
+	gateModes    map[string]string
+	gateBinaries map[string]map[string]string
 
 	mu        sync.Mutex
 	releases  []githubRelease
+	prepared  map[string]githubRelease
 	files     map[string][]byte
 	compare   map[string]comparison
 	compared  map[string]int
@@ -67,7 +70,7 @@ func newGitHub() *fakeGitHub {
 	must(err)
 	forger, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	must(err)
-	g := &fakeGitHub{key: key, staging: staging, forger: forger, forged: map[string]bool{}, files: map[string][]byte{}, compare: map[string]comparison{},
+	g := &fakeGitHub{key: key, staging: staging, forger: forger, prepared: map[string]githubRelease{}, gateModes: map[string]string{}, gateBinaries: map[string]map[string]string{}, files: map[string][]byte{}, compare: map[string]comparison{},
 		compared: map[string]int{}, replied: map[string]int{}, listed: map[string][]time.Time{}}
 	g.server = httptest.NewServer(http.HandlerFunc(g.serve))
 	return g
@@ -139,26 +142,44 @@ func (g *fakeGitHub) stagingKey() string {
 	return base64.StdEncoding.EncodeToString(der)
 }
 
-func (g *fakeGitHub) forge(tag string, forged bool) {
+func (g *fakeGitHub) gateMode(tag, mode string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.forged[tag] = forged
+	g.gateModes[tag] = mode
+}
+
+func (g *fakeGitHub) admission(tag string, bundle []byte) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	path := downloadPath + tag + "/" + releasegate.BundleAsset
+	if bundle == nil {
+		delete(g.files, path)
+	} else {
+		g.files[path] = bundle
+	}
 }
 
 func (g *fakeGitHub) serveStaging(w http.ResponseWriter, r *http.Request, tag string) {
+	if g.gateModes[tag] == "missing" {
+		http.NotFound(w, r)
+		return
+	}
 	now := time.Now().UTC()
-	record := pullrelease.StagingRecord{Region: fleet.Embedded().Staging.Label, Tag: tag, Done: now.Add(-2 * healthyFor), Baked: now.Add(-healthyFor), Signed: now,
-		Latency: pullrelease.LatencyVerdict{Verdict: pullrelease.LatencyPass, Run: "https://github.com/TerraScale/ts-orchestrator/actions/runs/1"}}
+	record := releasegate.StagingRecord{Binaries: g.gateBinaries[tag], BakeFor: healthyFor, Region: fleet.Embedded().Staging.Label, Tag: tag, Done: now.Add(-2 * healthyFor), Baked: now.Add(-healthyFor), Signed: now,
+		Latency: releasegate.LatencyVerdict{Verdict: releasegate.LatencyPass, Run: "https://github.com/TerraScale/ts-orchestrator/actions/runs/1"}}
+	if g.gateModes[tag] == "another" {
+		record.Tag = "ci-" + strings.Repeat("f", 40) + "-run-999"
+	}
 	data, err := json.Marshal(record)
 	must(err)
 	signer := g.staging
-	if g.forged[tag] {
+	if g.gateModes[tag] == "unsigned" {
 		signer = g.forger
 	}
 	digest := sha256.Sum256(data)
 	signature, err := ecdsa.SignASN1(rand.Reader, signer, digest[:])
 	must(err)
-	must(json.NewEncoder(w).Encode(pullrelease.SignedRecord{Record: data, Signature: signature}))
+	must(json.NewEncoder(w).Encode(releasegate.SignedRecord{Record: data, Signature: signature}))
 }
 
 type comparison struct {
@@ -219,6 +240,19 @@ type published struct {
 }
 
 func (g *fakeGitHub) publish(sha, run, asset string, attested, served, bundle []byte) published {
+	release := g.prepare(sha, run, asset, attested, served, bundle)
+	g.expose(release.tag)
+	return release
+}
+
+func (g *fakeGitHub) expose(tag string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.releases = append([]githubRelease{g.prepared[tag]}, g.releases...)
+	g.version++
+}
+
+func (g *fakeGitHub) prepare(sha, run, asset string, attested, served, bundle []byte) published {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	tag := "ci-" + sha + "-run-" + run
@@ -230,8 +264,8 @@ func (g *fakeGitHub) publish(sha, run, asset string, attested, served, bundle []
 		g.files[downloadPath+tag+"/"+bundleAsset] = bundle
 	}
 	release.Assets = append(release.Assets, githubAsset{Name: bundleAsset, State: "uploaded"})
-	g.releases = append([]githubRelease{release}, g.releases...)
-	g.version++
+	g.prepared[tag] = release
+	g.gateBinaries[tag] = map[string]string{runtime.GOARCH: digest}
 	return published{tag: tag, sha: sha, run: run, digest: digest}
 }
 

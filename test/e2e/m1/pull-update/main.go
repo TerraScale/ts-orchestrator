@@ -108,6 +108,7 @@ func runHost(args []string) {
 	trusted, err := root.NewTrustedRootFromJSON(data)
 	must(err)
 	h.Attest = releaseattest.Verifier{Root: trusted}
+	h.Admission.StagingKey = parseStagingKey(stagingKey)
 	mode := candidateMode()
 	var flaps atomic.Int64
 	h.Health = func(context.Context, string) releasepush.HealthResult {
@@ -479,15 +480,16 @@ func (l *lane) pulls(ctx context.Context) {
 	l.github.compare[lineage] = comparison{status: "behind", behindBy: 3, base: revision, mergeBase: original}
 	l.github.mu.Unlock()
 	l.revision = revision
-	r1 := l.publishGood("101", "c101")
-	l.github.forge(r1.tag, true)
-	refused := l.waitStatus(ctx, "sjc", "sjc refuses "+r1.tag+" while staging's record is forged", func(s pullrelease.Status) bool {
-		return strings.HasPrefix(s.Reason, "staging gate "+pullrelease.GateUnsigned+":")
+	c101 := l.candidate("c101")
+	r1 := l.github.prepare(l.revision, "101", asset, c101, c101, l.sigstore.Bundle(sigstore.MainIdentity, l.revision, "101", map[string][]byte{asset: c101}))
+	l.admissionGate(ctx, r1, original, base)
+	opened := time.Now()
+	l.github.gateMode(r1.tag, "")
+	l.github.expose(r1.tag)
+	l.waitStatus(ctx, "sjc", "sjc admits the release once its staging record exists", func(s pullrelease.Status) bool {
+		return s.Target != nil && s.Target.Tag() == r1.tag
 	})
-	require(refused.Target == nil || refused.Target.Tag() != r1.tag, "sjc must not take %s before staging's signed completion verifies:\n%s", r1.tag, refused)
-	l.requireVersions(ctx, original, base, l.region("sjc", "fra", "gru")...)
-	fmt.Printf("forged staging record -> sjc stays on its release: %s\n", refused.Reason)
-	l.github.forge(r1.tag, false)
+	fmt.Printf("staging record available to first production region admission: %.3f seconds\n", time.Since(opened).Seconds())
 	sjc := l.waitStatus(ctx, "sjc", "sjc completes "+r1.tag, complete(r1))
 	fra := l.waitStatus(ctx, "fra", "fra completes "+r1.tag, complete(r1))
 	gru := l.waitStatus(ctx, "gru", "gru completes "+r1.tag, complete(r1))

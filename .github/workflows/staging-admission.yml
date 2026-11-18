@@ -1,0 +1,86 @@
+name: Admit one release without staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Exact ci-SHA-run-ID release tag
+        required: true
+        type: string
+      reason:
+        description: Why production must proceed during the staging outage
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-admission-${{ inputs.release }}
+  cancel-in-progress: false
+
+jobs:
+  admission:
+    if: ${{ github.repository == 'TerraScale/ts-orchestrator' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad
+        with:
+          cosign-release: v3.0.2
+
+      - name: Verify and identify the exact release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release }}
+          ADMISSION_REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^ci-([0-9a-f]{40})-run-([0-9]{1,20})$ ]]
+          revision=${BASH_REMATCH[1]}
+          test -n "$ADMISSION_REASON"
+          cd "$RUNNER_TEMP"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern terrascale-orchestrator-linux-amd64 \
+            --pattern terrascale-orchestrator-linux-arm64 \
+            --pattern provenance.sigstore.json
+          for arch in amd64 arm64; do
+            gh attestation verify "terrascale-orchestrator-linux-$arch" \
+              --bundle provenance.sigstore.json --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow TerraScale/ts-orchestrator/.github/workflows/ci.yml \
+              --source-ref refs/heads/main --source-digest "$revision"
+          done
+          amd64=$(sha256sum terrascale-orchestrator-linux-amd64 | cut -d ' ' -f1)
+          arm64=$(sha256sum terrascale-orchestrator-linux-arm64 | cut -d ' ' -f1)
+          jq -cnS --arg tag "$RELEASE_TAG" --arg amd64 "$amd64" --arg arm64 "$arm64" \
+            '{tag:$tag,binaries:{amd64:$amd64,arm64:$arm64}}' > release-target.json
+          jq -cS --arg reason "$ADMISSION_REASON" \
+            '. as $target | (now|floor) as $issued | $target + {reason:$reason,issued_at:($issued|todateiso8601),expires_at:($issued+86400|todateiso8601)}' \
+            release-target.json > staging-admission.json
+
+      - name: Sign the admission with the dispatch identity
+        env:
+          ADMISSION_WORKDIR: ${{ runner.temp }}
+        run: |
+          set -eu
+          cd "$ADMISSION_WORKDIR"
+          cosign attest-blob --yes --new-bundle-format \
+            --type https://terrascale.tech/attestations/admit-without-staging/v1 \
+            --predicate staging-admission.json \
+            --bundle staging-admission.sigstore.json release-target.json
+
+      - name: Publish the signed admission for production to pull
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release }}
+          ADMISSION_WORKDIR: ${{ runner.temp }}
+        run: |
+          set -eu
+          gh release upload "$RELEASE_TAG" "$ADMISSION_WORKDIR/staging-admission.sigstore.json" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          printf 'Admit %s without staging for 24 hours, authorized by run %s.\n' \
+            "$RELEASE_TAG" "$GITHUB_RUN_ID" >> "$GITHUB_STEP_SUMMARY"

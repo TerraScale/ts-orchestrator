@@ -303,7 +303,7 @@ func runRegion(ctx context.Context, args []string) {
 	handler := &releasepush.Handler{Health: func(ctx context.Context, name string) releasepush.HealthResult {
 		return releasepush.HealthResult{Mesh: node.ReleaseHealth(ctx), Service: regionhealth.Serving(ctx, root, name)}
 	}}
-	must(handler.ServePulled(conn, "e2e", "host"))
+	must(handler.ServePulled(conn, "stg", "host"))
 	if selection, err := os.ReadFile(filepath.Join(root, "pull-selection")); err == nil {
 		fields := strings.Fields(string(selection))
 		require(len(fields) == 2, "selection must name an immutable image and selecting run")
@@ -389,7 +389,7 @@ func command(ctx context.Context, namespace, root string, spec any) {
 func health(ctx context.Context, conn *nats.Conn, name string) string {
 	data, err := json.Marshal(releasepush.PullRequest{Op: releasepush.PullStatus, Service: name})
 	must(err)
-	message, err := conn.RequestWithContext(ctx, releasepush.PullSubject("e2e", "host"), data)
+	message, err := conn.RequestWithContext(ctx, releasepush.PullSubject("stg", "host"), data)
 	must(err)
 	var reply releasepush.Reply
 	must(json.Unmarshal(message.Data, &reply))

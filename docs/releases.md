@@ -26,7 +26,9 @@ digest, source ancestry or embedded revision failed verification.
 Regional leaders read their region's OCIR release channel and send private
 PullInstall requests. Each host verifies Sigstore provenance, the allowed main
 workflow, transparency evidence, the channel seq, exact digest and revision
-before installation. There is no public
+before installation. Production hosts also verify staging’s signed completion
+or the exact-release, expiring main-dispatch break-glass attestation; see
+[staging admission](platform.md#releases). There is no public
 push listener, worker relay or repair-push command. A refusal blocks that region;
 fra and gru wait for sjc's completed record of the same tag with a passed gate. See
 [platform releases](platform.md#releases) for the admission order.
@@ -34,7 +36,10 @@ fra and gru wait for sjc's completed record of the same tag with a passed gate. 
 ## Regional OCIR release channel
 
 Hosts install ts-orch releases from their own region's Oracle Cloud
-Infrastructure Registry (OCIR); they make no GitHub API call on this path.
+Infrastructure Registry (OCIR). Staging completion is read from its public OCI
+bucket; when that completion is unavailable or invalid, the admission verifier
+also looks for the signed break-glass release asset on GitHub. Neither request
+needs a credential shared with staging.
 
 **Publish.** After the exact tree passed its merged PR's `all-green`, or
 after main's lanes pass when that proof is absent, CI's `deploy/release-publish` job runs the

@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 	"github.com/digitorus/timestamp"
 	ct "github.com/google/certificate-transparency-go"
 	cttls "github.com/google/certificate-transparency-go/tls"
@@ -192,6 +193,12 @@ func (s *Authority) Bundle(who Identity, sha, run string, subjects map[string][]
 
 func (s *Authority) Selection(who Identity, sha, run, service string, subjects map[string][]byte) []byte {
 	return s.attest(who, sha, run, subjects, "https://terrascale.tech/attestations/release-selection/v1", map[string]string{"service": service, "revision": sha})
+}
+
+func (s *Authority) Admission(who Identity, sha, run string, admission releasegate.Attestation) []byte {
+	document, err := admission.Target.Document()
+	must(err)
+	return s.attest(who, sha, run, map[string][]byte{"release-target.json": document}, releasegate.PredicateType, admission)
 }
 
 func (s *Authority) attest(who Identity, sha, run string, subjects map[string][]byte, predicateType string, predicate any) []byte {

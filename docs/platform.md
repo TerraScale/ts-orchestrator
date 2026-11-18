@@ -50,25 +50,55 @@ the durable rollout, including its hold and rollback.
 CI reads authenticated observations on HTTPS 443. See [network exposure](network.md)
 for listener owners and staged removal of the live public 4222 rules.
 
-Staging is the fleet document's isolated `stg` environment, with its own Vault,
-mesh CA and fabric store, so production cannot read stg's pull store. Instead,
-after stg completes and bakes a tag, its leader signs a completion record
-(region, tag, done, baked, signed time and `latency`, the C22 latency
-verdict) with the HSM key `stg-release-signer`
-in `stg-vault` and writes it as object `<tag>` to the bucket
-`stg-release-gate`, which anyone may read but not list. It signs it again on
-every five-minute turn while that tag stays complete. Before sjc takes a tag,
-its leader fetches that object over HTTPS and verifies it against
-`staging.signer_public_key` in the fleet document: no credential, CA or grant
-is shared between the environments. stg reads the verdict from the release
-asset `staging-latency.json` (`{"verdict": "pass" | "fail", "run": "<https
-run URL>"}`), which the C22 latency gate writes; without it stg publishes no
-record. A missing, unreadable, unsigned or still-baking record, a latency
-verdict other than `pass`, or a record signed more than 15 minutes ago keeps
-sjc on its release; it checks again every five minutes. After an hour blocked,
-`ts_orch_release_staging_gate_blocked_seconds` raises `StagingGateBlocking`,
-labelled with the reason. A release that fails on staging therefore never
-reaches production. See [staging bootstrap](region-bootstrap.md#staging-region).
+Staging is the fleet document’s isolated `stg` environment, with its own Vault,
+mesh CA and fabric store. After completing and baking a tag, its leader signs
+`region`, `tag`, `binaries`, `done`, `baked`, `bake_for`, `signed` and `latency` with the HSM
+key `stg-release-signer` in `stg-vault`. It writes the signed record as object
+`<tag>` in the public-read-without-list bucket `stg-release-gate`. The signed
+`bake_for` records the staging updater’s actual required healthy interval;
+receivers verify the observed interval meets it. The publisher refreshes the
+record on completed-release health sweeps. The latency verdict comes from the
+release asset `staging-latency.json` (`{"verdict":"pass"|"fail","run":"<https run URL>"}`);
+without that verdict, staging publishes nothing.
+
+Before adopting a tag, sjc verifies its signed completion against the staging
+public key embedded in the fleet document, matching the exact tag and binary digests. Every production host independently
+makes the same admission check before installing, including private direct
+PullInstall requests. Missing, unreadable, unsigned, wrong-tag, incomplete-bake,
+failed-latency and older-than-15-minute records fail closed. No staging CA,
+Vault credential or production grant crosses environments. Production regional
+ordering remains sjc followed by fra and gru in parallel. The exception still requires the canary gate,
+build provenance, channel ordering, host preflight or probation.
+
+If staging infrastructure is broken independently of a release, a repository
+maintainer can dispatch **Admit one release without staging** on `main`, selecting
+one exact `ci-<sha>-run-<id>` tag and giving a reason. That workflow downloads both
+Linux binaries, verifies their main-workflow build provenance, hashes them,
+and keylessly signs an `admit-without-staging/v1` attestation with its GitHub
+OIDC identity and Sigstore transparency evidence. It publishes the bundle as
+`staging-admission.sigstore.json` on that release for hosts to pull. There is no
+host push or personal signing key. Hosts accept only
+`TerraScale/ts-orchestrator/.github/workflows/staging-admission.yml@refs/heads/main`,
+from this repository, ref `refs/heads/main` and trigger `workflow_dispatch`.
+The signed subject and predicate bind the exact tag and architecture-to-binary
+digests. The approval expires within 24 hours of its verified signing time and
+cannot authorize any other tag or digest. Expiry is checked for every new install;
+it does not roll back an already admitted release. No approval means no install,
+regardless of how long staging has been unavailable.
+
+The gate adds no bake or fixed delay after a record exists. sjc rechecks on its
+existing discovery cadence: up to 15 seconds for the OCIR channel, or the existing
+five-minute GitHub cadence, plus verification and network time. Requests have
+one-minute bounds for each evidence source. Staging signs completion after the
+same 20-second healthy window used by the production regional health gate.
+
+`StagingGateBlocking` fires after an hour of ordinary blocking and on the next
+scrape for any host running a break-glass-admitted binary. Each use persists a
+receipt under `nats/release-admissions/<binary-sha256>.json`; changing leadership
+or restarting does not clear it. `ts-orch observe` prints
+`admitted without staging by run <id>` in each host’s release-admission check.
+A later installed binary uses its own receipt. See
+[staging bootstrap](region-bootstrap.md#staging-region).
 
 ## Identity and access
 

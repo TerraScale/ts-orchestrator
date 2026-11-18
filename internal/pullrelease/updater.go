@@ -274,7 +274,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		u.prefetch(ctx, attested)
 		reason := u.admission(ctx, attested.Tag())
 		if reason == "" && u.Region == catalog.RolloutOrder()[0] {
-			if reason := u.staged(ctx, attested.Tag()); reason != "" {
+			if reason := u.staged(ctx, attested); reason != "" {
 				u.status.Reason = reason
 				u.save(ctx)
 				return checkEvery

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -19,55 +18,11 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
-
-const (
-	stagingFresh   = 3 * DefaultPoll
-	stagingMaxSize = 64 << 10
-
-	GateMissing    = "missing"
-	GateUnreadable = "unreadable"
-	GateUnsigned   = "unsigned"
-	GateBaking     = "baking"
-	GateStale      = "stale"
-	GateLatency    = "latency"
-
-	LatencyAsset = "staging-latency.json"
-	LatencyPass  = "pass"
-	LatencyFail  = "fail"
-)
-
-type LatencyVerdict struct {
-	Verdict string `json:"verdict"`
-	Run     string `json:"run"`
-}
-
-func (v LatencyVerdict) validate() error {
-	if v.Verdict != LatencyPass && v.Verdict != LatencyFail {
-		return fmt.Errorf("latency verdict %q is not %s or %s", v.Verdict, LatencyPass, LatencyFail)
-	}
-	if !strings.HasPrefix(v.Run, "https://") {
-		return fmt.Errorf("latency verdict run %q is not an https URL", v.Run)
-	}
-	return nil
-}
-
-type StagingRecord struct {
-	Region  string         `json:"region"`
-	Tag     string         `json:"tag"`
-	Done    time.Time      `json:"done"`
-	Baked   time.Time      `json:"baked"`
-	Signed  time.Time      `json:"signed"`
-	Latency LatencyVerdict `json:"latency"`
-}
-
-type SignedRecord struct {
-	Record    []byte `json:"record"`
-	Signature []byte `json:"signature"`
-}
 
 type gateBlock struct {
 	region string
@@ -84,7 +39,7 @@ func (u *Updater) publishStaging(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	record, err := json.Marshal(StagingRecord{Region: u.Region, Tag: u.status.Target.Tag(), Done: u.status.Done, Baked: u.status.Passed, Signed: time.Now().UTC(), Latency: latency})
+	record, err := json.Marshal(releasegate.StagingRecord{Binaries: releasegate.ReleaseTarget(*u.status.Target).Binaries, BakeFor: u.BakeFor, Region: u.Region, Tag: u.status.Target.Tag(), Done: u.status.Done, Baked: u.status.Passed, Signed: time.Now().UTC(), Latency: latency})
 	if err != nil {
 		return err
 	}
@@ -127,7 +82,7 @@ func (u *Updater) publishStaging(ctx context.Context) error {
 	if !ecdsa.VerifyASN1(u.StagingKey, digest[:], signature) {
 		return errors.New("staging.signer_key_id signs with another key than staging.signer_public_key")
 	}
-	body, err := json.Marshal(SignedRecord{Record: record, Signature: signature})
+	body, err := json.Marshal(releasegate.SignedRecord{Record: record, Signature: signature})
 	if err != nil {
 		return err
 	}
@@ -144,101 +99,50 @@ func (u *Updater) publishStaging(ctx context.Context) error {
 	return nil
 }
 
-func (u *Updater) latency(ctx context.Context) (LatencyVerdict, error) {
+func (u *Updater) latency(ctx context.Context) (releasegate.LatencyVerdict, error) {
 	target := *u.status.Target
-	asset := releaseattest.AssetURL(target.SHA, target.RunID, LatencyAsset)
+	asset := releaseattest.AssetURL(target.SHA, target.RunID, releasegate.LatencyAsset)
 	fetch, cancel := context.WithTimeout(ctx, discoverWait)
 	defer cancel()
 	request, err := http.NewRequestWithContext(fetch, http.MethodGet, asset, nil)
 	if err != nil {
-		return LatencyVerdict{}, err
+		return releasegate.LatencyVerdict{}, err
 	}
 	response, err := u.Client.Do(request)
 	if err != nil {
-		return LatencyVerdict{}, fmt.Errorf("latency verdict: %w", err)
+		return releasegate.LatencyVerdict{}, fmt.Errorf("latency verdict: %w", err)
 	}
 	defer response.Body.Close()
 	switch {
 	case response.StatusCode == http.StatusNotFound:
-		return LatencyVerdict{}, fmt.Errorf("latency verdict missing: %s has no %s", target.Tag(), LatencyAsset)
+		return releasegate.LatencyVerdict{}, fmt.Errorf("latency verdict missing: %s has no %s", target.Tag(), releasegate.LatencyAsset)
 	case response.StatusCode != http.StatusOK:
-		return LatencyVerdict{}, fmt.Errorf("latency verdict: %s answered %s", asset, response.Status)
+		return releasegate.LatencyVerdict{}, fmt.Errorf("latency verdict: %s answered %s", asset, response.Status)
 	}
-	var verdict LatencyVerdict
-	if err := json.NewDecoder(io.LimitReader(response.Body, stagingMaxSize)).Decode(&verdict); err != nil {
-		return LatencyVerdict{}, fmt.Errorf("latency verdict damaged: %w", err)
+	var verdict releasegate.LatencyVerdict
+	if err := json.NewDecoder(io.LimitReader(response.Body, releasegate.MaxRecordSize)).Decode(&verdict); err != nil {
+		return releasegate.LatencyVerdict{}, fmt.Errorf("latency verdict damaged: %w", err)
 	}
-	return verdict, verdict.validate()
+	return verdict, verdict.Validate()
 }
 
-func (u *Updater) staged(ctx context.Context, tag string) string {
-	code, reason := u.verifyStaging(ctx, tag)
-	if code == "" {
+func (u *Updater) staged(ctx context.Context, release releaseattest.Release) string {
+	_, err := (releasegate.Verifier{Client: u.Client, Attest: u.Attest, StagingKey: u.StagingKey}).Check(ctx, u.Region, release)
+	if err == nil {
 		stagingBlock.Store(nil)
 		return ""
 	}
-	block := &gateBlock{region: u.Region, tag: tag, code: code, since: time.Now()}
-	if held := stagingBlock.Load(); held != nil {
+	code := releasegate.GateUnreadable
+	var refusal *releasegate.Refusal
+	if errors.As(err, &refusal) {
+		code = refusal.Code
+	}
+	block := &gateBlock{region: u.Region, tag: release.Tag(), code: code, since: time.Now()}
+	if held := stagingBlock.Load(); held != nil && held.tag == block.tag {
 		block.since = held.since
 	}
 	stagingBlock.Store(block)
-	return "staging gate " + code + ": " + reason
-}
-
-func (u *Updater) verifyStaging(ctx context.Context, tag string) (string, string) {
-	staging := fleet.Embedded().Staging
-	fetch, cancel := context.WithTimeout(ctx, discoverWait)
-	defer cancel()
-	request, err := http.NewRequestWithContext(fetch, http.MethodGet, staging.GateURL(tag), nil)
-	if err != nil {
-		return GateUnreadable, err.Error()
-	}
-	response, err := u.Client.Do(request)
-	if err != nil {
-		return GateUnreadable, err.Error()
-	}
-	defer response.Body.Close()
-	switch {
-	case response.StatusCode == http.StatusNotFound:
-		return GateMissing, staging.Label + " has published no baked completion of " + tag
-	case response.StatusCode != http.StatusOK:
-		return GateUnreadable, staging.GateURL(tag) + " answered " + response.Status
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, stagingMaxSize+1))
-	if err != nil {
-		return GateUnreadable, err.Error()
-	}
-	if len(body) > stagingMaxSize {
-		return GateUnsigned, fmt.Sprintf("record is over %d bytes", stagingMaxSize)
-	}
-	var envelope SignedRecord
-	if err := json.Unmarshal(body, &envelope); err != nil {
-		return GateUnsigned, "record is not a signed record: " + err.Error()
-	}
-	digest := sha256.Sum256(envelope.Record)
-	if !ecdsa.VerifyASN1(u.StagingKey, digest[:], envelope.Signature) {
-		return GateUnsigned, "signature does not verify with staging.signer_public_key"
-	}
-	var record StagingRecord
-	if err := json.Unmarshal(envelope.Record, &record); err != nil {
-		return GateUnsigned, "signed record is damaged: " + err.Error()
-	}
-	if record.Region != staging.Label || record.Tag != tag {
-		return GateUnsigned, fmt.Sprintf("signed record is for %s %s, not %s %s", record.Region, record.Tag, staging.Label, tag)
-	}
-	if err := record.Latency.validate(); err != nil {
-		return GateLatency, err.Error()
-	}
-	if record.Latency.Verdict != LatencyPass {
-		return GateLatency, fmt.Sprintf("%s latency verdict for %s is %s (%s)", staging.Label, tag, record.Latency.Verdict, record.Latency.Run)
-	}
-	if record.Done.IsZero() || record.Baked.Sub(record.Done) < u.BakeFor {
-		return GateBaking, fmt.Sprintf("%s baked %s for %s, under %s", staging.Label, tag, record.Baked.Sub(record.Done), u.BakeFor)
-	}
-	if age := time.Since(record.Signed); age > stagingFresh || age < -time.Minute {
-		return GateStale, fmt.Sprintf("%s signed its completion of %s at %s, not within %s", staging.Label, tag, record.Signed.Format(time.RFC3339), stagingFresh)
-	}
-	return "", ""
+	return err.Error()
 }
 
 func WriteMetrics(w io.Writer) {

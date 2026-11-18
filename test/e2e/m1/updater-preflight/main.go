@@ -314,5 +314,5 @@ func serveHandler(h *releasepush.Handler, conn *nats.Conn) {
 	must(err)
 	h.Attest = releaseattest.Verifier{Root: trusted}
 	h.Source.Client = &http.Client{Transport: handlerTransport{h}}
-	must(h.ServePulled(conn, "e2e", "host"))
+	must(h.ServePulled(conn, "stg", "host"))
 }

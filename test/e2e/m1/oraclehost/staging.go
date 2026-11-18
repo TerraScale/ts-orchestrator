@@ -16,6 +16,8 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
+	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 )
 
 var stagingKey = func() *ecdsa.PrivateKey {
@@ -48,9 +50,9 @@ func StagingSigned(binary []byte) []byte {
 
 func (s *standIn) staging(w http.ResponseWriter, tag string) {
 	now := time.Now().UTC()
-	record, err := json.Marshal(pullrelease.StagingRecord{Region: fleet.Embedded().Staging.Label, Tag: tag,
+	record, err := json.Marshal(releasegate.StagingRecord{Binaries: s.github.stagingBinaries(tag), BakeFor: pullrelease.DefaultBakeFor, Region: fleet.Embedded().Staging.Label, Tag: tag,
 		Done: now.Add(-2 * pullrelease.DefaultBakeFor), Baked: now.Add(-pullrelease.DefaultBakeFor), Signed: now,
-		Latency: pullrelease.LatencyVerdict{Verdict: pullrelease.LatencyPass, Run: "https://github.com/TerraScale/ts-orchestrator/actions/runs/1"}})
+		Latency: releasegate.LatencyVerdict{Verdict: releasegate.LatencyPass, Run: "https://github.com/TerraScale/ts-orchestrator/actions/runs/1"}})
 	if err != nil {
 		serviceError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
 		return
@@ -61,10 +63,34 @@ func (s *standIn) staging(w http.ResponseWriter, tag string) {
 		serviceError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, pullrelease.SignedRecord{Record: record, Signature: signature})
+	writeJSON(w, http.StatusOK, releasegate.SignedRecord{Record: record, Signature: signature})
 }
 
 func stagingTag(host, path string) (string, bool) {
 	tag, ok := strings.CutPrefix(path, stagingGate.Path)
 	return tag, ok && host == stagingGate.Host && tag != ""
+}
+
+func (g *GitHub) stagingBinaries(tag string) map[string]string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	binaries := map[string]string{}
+	for _, releases := range [][]map[string]any{g.published, g.recorded} {
+		for _, release := range releases {
+			if release["tag_name"] != tag {
+				continue
+			}
+			assets, _ := release["assets"].([]any)
+			for _, raw := range assets {
+				asset, _ := raw.(map[string]any)
+				name, _ := asset["name"].(string)
+				digest, _ := asset["digest"].(string)
+				if arch, ok := strings.CutPrefix(name, releaseattest.AssetPrefix); ok {
+					binaries[arch] = strings.TrimPrefix(digest, "sha256:")
+				}
+			}
+			return binaries
+		}
+	}
+	return binaries
 }

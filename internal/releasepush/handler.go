@@ -24,9 +24,11 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/datamount"
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/ocirelease"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
 	"github.com/nats-io/nats.go"
 )
@@ -106,6 +108,7 @@ type Progress interface {
 
 type Handler struct {
 	Deployments func(context.Context) (DeploymentObservation, error)
+	Admission   releasegate.Verifier
 	Hosts       func(context.Context) ([]HostVersion, error)
 	Discover    func(context.Context) (Discovery, error)
 	probation   *Probation
@@ -175,6 +178,11 @@ func NewHandler(state string) (*Handler, error) {
 		slog.Warn("release rollback record unreadable", "error", err)
 	}
 	h.rolledBack.Store(rolledBack)
+	stagingKey, err := fleet.Embedded().Staging.Signer()
+	if err != nil {
+		return nil, err
+	}
+	h.Admission = releasegate.Verifier{StagingKey: stagingKey}
 	regional := ocirelease.NewRegional()
 	h.Client, h.Registry, h.Regional, h.SeqFile = &http.Client{Transport: regional}, regional.Registry, regional, seqFile(state)
 	h.RefusalFile = filepath.Join(state, "nats", "release-attempt.json")

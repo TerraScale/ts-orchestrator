@@ -239,6 +239,9 @@ func (l *lane) channelRelease(seq uint64, run string, binary, served []byte) cha
 	document, err := ocirelease.Document(image, l.revision, run, seq, time.Now())
 	must(err)
 	signed := releaseattest.SignedChannel{Document: document, Bundle: l.sigstore.Bundle(sigstore.MainIdentity, l.revision, run, map[string][]byte{releaseattest.ChannelDocument: document})}
+	l.github.mu.Lock()
+	l.github.gateBinaries[releaseattest.Tag(l.revision, run)] = map[string]string{runtime.GOARCH: hex.EncodeToString(sha256Of(binary))}
+	l.github.mu.Unlock()
 	return channelRelease{published: published{tag: releaseattest.Tag(l.revision, run), sha: l.revision, run: run, digest: hex.EncodeToString(sha256Of(binary))}, signed: signed, image: image}
 }
 
