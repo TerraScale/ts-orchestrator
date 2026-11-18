@@ -148,6 +148,11 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 		} else {
 			slog.Info("Host log settings applied")
 		}
+		if replaced, err := ensureCompanionUnit(ctx); err != nil {
+			slog.Error("netbird-server.service does not match this binary", "error", err)
+		} else if replaced {
+			slog.Info("netbird-server.service replaced with this binary's unit")
+		}
 	}()
 	select {
 	case <-ctx.Done():
