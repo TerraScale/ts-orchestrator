@@ -21,6 +21,19 @@ for name in ["node.go", "run.go", "serving.go"]:
     target = overlay / name
     target.write_text(content)
     replacements[str(original)] = str(target)
+for name in ["terrabase", "ts-auth", "ts-dashboard"]:
+    original = repo / "deploy/m1/services/stg" / (name + ".json")
+    spec = json.loads(original.read_text())
+    spec["secrets"] = {}
+    spec["mounts"] = []
+    spec.pop("postgres", None)
+    spec["args"] = []
+    spec["env"]["WHOAMI_PORT_NUMBER"] = "${PORT}" if name != "terrabase" else str(spec["port"])
+    spec["readyPath"] = "/health"
+    spec["replicas"] = 1
+    target = overlay / (name + ".json")
+    target.write_text(json.dumps(spec))
+    replacements[str(original)] = str(target)
 (overlay / "overlay.json").write_text(json.dumps({"Replace": replacements}))
 PY
 CGO_ENABLED=0 go -C "$repo" build -trimpath -overlay "$overlay/overlay.json" -o "$1" ./test/e2e/m1/rollout

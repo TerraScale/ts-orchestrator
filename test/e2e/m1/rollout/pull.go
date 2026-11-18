@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/apppull"
@@ -41,7 +42,8 @@ func (t registryTransport) RoundTrip(request *http.Request) (*http.Response, err
 	return response, err
 }
 
-func runPulled(ctx context.Context, state, image, run string) error {
+func runPulled(ctx context.Context, state, image, run, service string) error {
+	target := apppull.Targets[slices.IndexFunc(apppull.Targets, func(target apppull.Target) bool { return target.Service == service })]
 	ctx = namespaces.WithNamespace(ctx, "terrascale")
 	client, err := containerd.New(filepath.Join(state, "run", "containerd.sock"))
 	must(err)
@@ -57,8 +59,8 @@ func runPulled(ctx context.Context, state, image, run string) error {
 	authority := sigstore.New()
 	trusted, err := root.NewTrustedRootFromJSON(authority.TrustedRoot())
 	must(err)
-	identity := sigstore.Identity{Workflow: apppull.Targets[0].Workflow, Ref: "refs/heads/main", Trigger: "push"}
-	subjects := map[string][]byte{pullRegistry + "/journey/terrascale/terrabase": manifest}
+	identity := sigstore.Identity{Workflow: target.Workflow, Ref: "refs/heads/main", Trigger: "push"}
+	subjects := map[string][]byte{pullRegistry + "/journey/terrascale/" + target.Package: manifest}
 	provenance := authority.Bundle(identity, revision, "1", subjects)
 	bundles := [][]byte{provenance}
 	serve := func(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +72,7 @@ func runPulled(ctx context.Context, state, image, run string) error {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if !strings.HasPrefix(r.URL.Path, "/v2/journey/terrascale/terrabase/") {
+		if !strings.HasPrefix(r.URL.Path, "/v2/journey/terrascale/"+target.Package+"/") {
 			http.NotFound(w, r)
 			return
 		}
@@ -81,8 +83,8 @@ func runPulled(ctx context.Context, state, image, run string) error {
 			attachment, _ := json.Marshal(imagespec.Manifest{Versioned: decoded.Versioned, MediaType: imagespec.MediaTypeImageManifest, ArtifactType: "application/vnd.dev.sigstore.bundle.v0.3+json", Config: imagespec.Descriptor{MediaType: imagespec.MediaTypeEmptyJSON, Digest: digest.FromString("{}"), Size: 2}, Layers: []imagespec.Descriptor{{MediaType: "application/vnd.dev.sigstore.bundle.v0.3+json", Digest: bundleDigest, Size: int64(len(bundle))}}})
 			attachmentDigest := digest.FromBytes(attachment)
 			index.Manifests = append(index.Manifests, imagespec.Descriptor{MediaType: imagespec.MediaTypeImageManifest, ArtifactType: "application/vnd.dev.sigstore.bundle.v0.3+json", Digest: attachmentDigest, Size: int64(len(attachment))})
-			files["/v2/journey/terrascale/terrabase/manifests/"+attachmentDigest.String()] = attachment
-			files["/v2/journey/terrascale/terrabase/blobs/"+bundleDigest.String()] = bundle
+			files["/v2/journey/terrascale/"+target.Package+"/manifests/"+attachmentDigest.String()] = attachment
+			files["/v2/journey/terrascale/"+target.Package+"/blobs/"+bundleDigest.String()] = bundle
 		}
 		if data, exists := files[r.URL.Path]; exists {
 			w.Header().Set("Content-Type", imagespec.MediaTypeImageManifest)
@@ -109,36 +111,38 @@ func runPulled(ctx context.Context, state, image, run string) error {
 	must(err)
 	registryClient := &appregistry.Client{Host: pullRegistry, Namespace: "journey", Prefix: "terrascale", Transport: registryTransport{endpoint}, Sign: func(*http.Request) error { return nil }}
 	source := apppull.Source{Registry: func(context.Context) (*appregistry.Client, error) { return registryClient, nil }, Root: trusted, Transport: registryTransport{endpoint}}
-	_, err = source.Pull(ctx, apppull.Targets[0])
+	_, err = source.Pull(ctx, target)
 	require(err != nil, "a mutable tag selected a built image without release authorization")
 	selector := identity
 	selector.Trigger = "workflow_dispatch"
 	wrong := selector
 	wrong.Workflow = "TerraScale/terrascale/.github/workflows/untrusted.yml@refs/heads/main"
-	bundles = [][]byte{provenance, authority.Selection(wrong, revision, run, "terrabase", subjects)}
-	_, err = source.Pull(ctx, apppull.Targets[0])
+	bundles = [][]byte{provenance, authority.Selection(wrong, revision, run, service, subjects)}
+	_, err = source.Pull(ctx, target)
 	require(err != nil, "host accepted a selection signed by an untrusted workflow")
 	wrong = selector
 	wrong.Trigger = "pull_request"
-	bundles = [][]byte{provenance, authority.Selection(wrong, revision, run, "terrabase", subjects)}
-	_, err = source.Pull(ctx, apppull.Targets[0])
+	bundles = [][]byte{provenance, authority.Selection(wrong, revision, run, service, subjects)}
+	_, err = source.Pull(ctx, target)
 	require(err != nil, "host accepted a PR-triggered release selection")
-	wrong.Trigger = "push"
-	bundles = [][]byte{provenance, authority.Selection(wrong, revision, run, "terrabase", subjects)}
-	_, err = source.Pull(ctx, apppull.Targets[0])
-	require(err != nil, "TerraBase released without a manual dispatch")
-	bundles = [][]byte{provenance, authority.Selection(selector, revision, run, "ts-auth", subjects)}
-	_, err = source.Pull(ctx, apppull.Targets[0])
+	if service == "terrabase" {
+		wrong.Trigger = "push"
+		bundles = [][]byte{provenance, authority.Selection(wrong, revision, run, service, subjects)}
+		_, err = source.Pull(ctx, target)
+		require(err != nil, "TerraBase released without a manual dispatch")
+	}
+	bundles = [][]byte{provenance, authority.Selection(selector, revision, run, "app-canary", subjects)}
+	_, err = source.Pull(ctx, target)
 	require(err != nil, "host accepted a selection for another service")
-	bundles = [][]byte{provenance, authority.Selection(selector, revision, run, "terrabase", subjects)}
-	selected, err := source.Pull(ctx, apppull.Targets[0])
+	bundles = [][]byte{provenance, authority.Selection(selector, revision, run, service, subjects)}
+	selected, err := source.Pull(ctx, target)
 	must(err)
 	require(selected.Image == strings.TrimPrefix(image, "ghcr.io/terrascale/") && selected.Claims.RunID == run && selected.Claims.Repository == "TerraScale/terrascale", "host changed the verified release identity")
 	var applied error
 	apply := mesh.Release(state)
 	err = (apppull.Updater{Source: source, Apply: func(ctx context.Context, service, image string, claims releasepush.Claims, progress releasepush.Progress) (json.RawMessage, error) {
 		data, failure := apply(ctx, service, image, claims, progress)
-		if service == "terrabase" {
+		if service == target.Service {
 			applied = failure
 		}
 		return data, failure

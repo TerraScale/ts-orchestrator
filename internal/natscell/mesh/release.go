@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -95,31 +95,9 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	if resume && failedAnywhere(ctx, conn, service, before.Generation) {
 		return nil, fmt.Errorf("%s held at failed generation %d by release %+v; refused release %+v; repair the cause and release again from a strictly newer signed run or attempt", service, before.Generation, before.Deployment, deployment)
 	}
-	var next swarmruntime.ServiceSpec
-	if previous == nil {
-		// Only the authenticated canary workflow can create its fixed workload.
-		// A newer signed run also restores a removed canary, using its fixed spec.
-		if service != "app-canary" || deployment == nil {
-			return nil, fmt.Errorf("%s is not a mesh service", service)
-		}
-		data, err := m1.Files.ReadFile("services/app-canary.json")
-		if err != nil {
-			return nil, err
-		}
-		if err := protocol.DecodeStrict(data, &next, 64<<10); err != nil {
-			return nil, err
-		}
-	} else {
-		next = *previous
-	}
-	if repository(next.Image) != repository(image) && !appRegistryCutover(service, next.Image, image, deployment) {
-		return nil, fmt.Errorf("%s runs %s; a release may change only its digest", service, repository(next.Image))
-	}
-	next.Image = image
-	if deployment != nil && before.HoldAfter == "" {
-		if err := declaredReleasePlacement(&next, deployment); err != nil {
-			return nil, err
-		}
+	next, err := releaseSpec(connRegion(conn), service, image, previous, deployment)
+	if err != nil {
+		return nil, err
 	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
 	hold := before.HoldAfter
@@ -228,32 +206,37 @@ func desiredStates(ctx context.Context, conn *nats.Conn) (map[string]desiredStat
 	return newest, errors.Join(err, conflict)
 }
 
-// declaredReleasePlacement uses the embedded first-party declaration as the
-// authority for all-region placement and packing, rather than a service list.
-func declaredReleasePlacement(next *swarmruntime.ServiceSpec, deployment *Deployment) error {
-	data, err := m1.Files.ReadFile("services/" + next.Name + ".json")
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+func releaseSpec(region, service, image string, previous *swarmruntime.ServiceSpec, deployment *Deployment) (swarmruntime.ServiceSpec, error) {
+	var next swarmruntime.ServiceSpec
+	if previous == nil {
+		if deployment == nil || !serviceName.MatchString(service) {
+			return next, fmt.Errorf("%s is not a mesh service", service)
+		}
+		path := "services/" + region + "/" + service + ".json"
+		if service == "app-canary" {
+			path = "services/app-canary.json"
+		}
+		data, err := m1.Files.ReadFile(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return next, fmt.Errorf("%s is not declared for region %s", service, region)
+		}
+		if err != nil {
+			return next, err
+		}
+		if err := protocol.DecodeStrict(data, &next, 64<<10); err != nil {
+			return next, err
+		}
+		if next.Name != service || service != "app-canary" && !slices.Contains(next.Regions, region) {
+			return next, fmt.Errorf("%s: declaration identity or region mismatch", service)
+		}
+	} else {
+		next = *previous
 	}
-	if err != nil {
-		return err
+	if repository(next.Image) != repository(image) && !appRegistryCutover(service, next.Image, image, deployment) {
+		return next, fmt.Errorf("%s runs %s; a release may change only its digest", service, repository(next.Image))
 	}
-	var declared swarmruntime.ServiceSpec
-	if err := protocol.DecodeStrict(data, &declared, 64<<10); err != nil {
-		return err
-	}
-	if declared.Name != next.Name || repository(declared.Image) != repository(next.Image) && !appRegistryCutover(next.Name, declared.Image, next.Image, deployment) {
-		return fmt.Errorf("%s: release declaration identity mismatch", next.Name)
-	}
-	if len(declared.Regions) == 0 {
-		next.Regions = nil
-		next.MilliCPU, next.MemoryMiB = declared.MilliCPU, declared.MemoryMiB
-		// The declared env listens on the task's own ${PORT}, so the release
-		// starts the new task before stopping the old one. Secret references
-		// stay the runtime's.
-		next.Env = maps.Clone(declared.Env)
-	}
-	return nil
+	next.Image = image
+	return next, nil
 }
 
 func runningImages(ctx context.Context, conn *nats.Conn) (map[string]string, error) {

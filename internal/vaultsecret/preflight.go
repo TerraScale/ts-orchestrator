@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"slices"
@@ -48,7 +49,12 @@ func CheckRegionalSecrets(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("service secret preflight: %w", err)
 	}
-	entries, err := m1.Files.ReadDir("services")
+	directory := "services/" + region
+	entries, err := m1.Files.ReadDir(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		directory = "services"
+		entries, err = m1.Files.ReadDir(directory)
+	}
 	if err != nil {
 		return err
 	}
@@ -56,7 +62,7 @@ func CheckRegionalSecrets(ctx context.Context) error {
 		if !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		body, err := m1.Files.ReadFile("services/" + entry.Name())
+		body, err := m1.Files.ReadFile(directory + "/" + entry.Name())
 		if err != nil {
 			return err
 		}

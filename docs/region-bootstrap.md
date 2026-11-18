@@ -309,8 +309,10 @@ Staging is the fleet document's `staging` entry: label `stg`, OCI region
 `us-sanjose-1`, compartment `stg-1-control` under `TerraScale`, VCN
 `10.254.0.0/24` (address plan `10.254.0.0/16`), three `VM.Standard.A1.Flex`
 nodes (min = max = 3, 2 OCPU, 12 GB, 50 GB boot and data volumes) and the
-kinds `network`, `compute`, `nlb` and `nodes`. It answers no continent and has no DNS
-name; its network load balancer's reserved address is its only public entry.
+kinds `network`, `compute`, `nlb` and `nodes`. It answers no continent. Its
+service names `stg.auth`, `stg.dash`, `stg.api` and `stg.pg` under
+`terrascale.tech` require DNS-only public A records to the staging load
+balancer at `155.248.205.205`, so normal HTTP-01 certificate issuance works.
 Unlike production it reconciles `compute`: C12, C14 and C17 prove themselves
 on its nodes first.
 
@@ -330,6 +332,23 @@ for the mesh CA seed `ts-orch-mesh-key`, its join material `ts-orch-join-stg`,
 token, and the region list `[stg]` for mesh seeds, rollout order and the mesh
 CLI. Its CA differs from production's, so neither side trusts the other, and
 its dynamic group `ts-orch-stg` has no grant outside `stg-1-control`.
+
+**Services.** The binary embeds `deploy/m1/services/stg/*.json`. Regional
+managers already discover verified app selections from their regional registry
+and pass them to the mesh release handler. For an absent service, that handler
+loads `services/<region>/<service>.json`, validates its identity and placement,
+and changes its image to the verified selection. A recreated staging region
+therefore needs no operator `service apply` or operator NetBird connection.
+An existing service keeps every spec field except its image on release.
+The production regions have no regional declaration directories and gain no
+first-apply behavior; the existing shared app-canary declaration still applies.
+
+Staging declarations reference only stg-vault, including Stripe test-mode
+credentials. Secret preflight selects the regional directory, and Vault
+identity distinguishes staging from sjc despite their shared OCI region.
+Service HTTP and Postgres routes supply certificate names to the edge; these
+names do not belong in production GeoDNS steering. The C17 application release
+must honor the staging issuer, audience and dashboard auth-origin variables.
 
 **Build from nothing**, from an operator machine with `~/.oci/config`:
 
