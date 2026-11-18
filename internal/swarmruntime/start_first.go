@@ -33,6 +33,60 @@ func unplacedCandidate(service *api.Service, tasks []*api.Task, now time.Time) *
 	return nil
 }
 
+type UnplacedCandidateError struct {
+	Service, Task, Reason string
+	Serving               int
+}
+
+func (e *UnplacedCandidateError) Error() string {
+	return fmt.Sprintf("service %s update refused and rolled back: start-first candidate %s cannot be placed (%s), and stopping first would stop all %d serving tasks", e.Service, e.Task, e.Reason, e.Serving)
+}
+
+func stopFirstEndsService(ctx context.Context, client api.ControlClient, service *api.Service, upToDate []*api.Task) (int, bool, error) {
+	listed, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+	if err != nil {
+		return 0, false, err
+	}
+	current := make(map[string]bool, len(upToDate))
+	for _, task := range upToDate {
+		current[task.ID] = true
+	}
+	var serving, old uint64
+	for _, task := range listed.Tasks {
+		if task.Status.State != api.TaskStateRunning {
+			continue
+		}
+		serving++
+		if !current[task.ID] {
+			old++
+		}
+	}
+	stopped := old
+	if parallelism := service.Spec.Update.Parallelism; parallelism != 0 && parallelism < old {
+		stopped = parallelism
+	}
+	return int(serving), serving != 0 && stopped == serving, nil
+}
+
+func refuseUnplaced(ctx context.Context, client api.ControlClient, service *api.Service, candidate *api.Task, serving int) error {
+	unlock, err := lockServiceSpecs(ctx, client)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	latest, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
+	if err != nil {
+		return err
+	}
+	if !proto.Equal(latest.Service.SpecVersion, service.SpecVersion) {
+		return fmt.Errorf("service %s changed during its refused update", service.Spec.Annotations.Name)
+	}
+	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: service.ID, ServiceVersion: &latest.Service.Meta.Version, Spec: &latest.Service.Spec, Rollback: api.UpdateServiceRequest_PREVIOUS}); err != nil {
+		return err
+	}
+	return &UnplacedCandidateError{Service: service.Spec.Annotations.Name, Task: candidate.ID, Reason: candidate.Status.Err, Serving: serving}
+}
+
 // stopFirst is update with the old task stopped before the candidate starts.
 // The rewrite makes the candidate SwarmKit's previous spec, so a rollback would
 // restore the candidate itself; pause instead and let the release roll back.
