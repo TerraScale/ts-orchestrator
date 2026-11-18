@@ -56,6 +56,14 @@ func AssetURL(sha, run, name string) string { return downloadURL + Tag(sha, run)
 
 func (r Release) Tag() string { return Tag(r.SHA, r.RunID) }
 
+func (r Release) OnGitHub() Release {
+	binaries := map[string]Artifact{}
+	for arch, binary := range r.Binaries {
+		binaries[arch] = Artifact{URL: AssetURL(r.SHA, r.RunID, AssetPrefix+arch), SHA256: binary.SHA256}
+	}
+	return Release{SHA: r.SHA, RunID: r.RunID, Binaries: binaries, Bundle: AssetURL(r.SHA, r.RunID, BundleAsset)}
+}
+
 func (r Release) Validate() error {
 	if !sha40.MatchString(r.SHA) || !runID.MatchString(r.RunID) {
 		return fmt.Errorf("%w: sha must be 40 lowercase hex and run_id a number", ErrRefused)

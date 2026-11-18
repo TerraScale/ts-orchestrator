@@ -117,10 +117,20 @@ jitter, and logs every fallback use at WARN. A refused channel never falls back.
 When the channel later names the release the fallback rolled out with a higher
 seq, the leader adopts it as the target, so every host records that seq through
 a `current` install.
-A host that missed the migration and still runs the older build cannot decode a
-channel release; it needs one push of this build. A follow-up change deletes the
-host-side GitHub code once every region has installed a release from its
-channel.
+
+**Hosts on older builds.** A host that verifies channel releases says so in its
+pull status answer (`"channel": true`). The leader sends the channel release
+(seq and signed document) only to those hosts. Any other host, a build from
+before the channel (its request decoder rejects the unknown `seq` and `channel`
+members) or one from before the status field, gets the same release in the
+GitHub Release form that build reads: the same commit, run and binary digests,
+with the GitHub asset and provenance URLs. That host verifies the GitHub
+provenance and lineage itself as before, so nothing unsigned reaches it, and the
+leader does not wait for a seq it cannot record. A leader on a new build
+therefore updates a worker on any earlier build in the same rollout, with no
+push and nothing done on the host. A follow-up change deletes the host-side
+GitHub code, and with it the GitHub form, once every region has installed a
+release from its channel.
 
 **Metrics and alert.** Every host's orchestrator exporter (`peer-topology`
 scrape) reports `ts_orch_release_installed_seq`: the seq of
@@ -420,7 +430,7 @@ that changes runtime inputs:
 | Lane | Installed release | Release it must install |
 | --- | --- | --- |
 | `upgrade-previous` | N-1: the release the `upgrade-gate/previous` pin names, downloaded from GitHub and checked against its listed digest | N: this build |
-| `upgrade-next` | N: this build | N+1: this build with its embedded `vcs.revision` replaced by a derived commit that descends from N, published one run later |
+| `upgrade-next` | N: this build on the founders and the sjc manager; N-1 (the pin) on the sjc worker | N+1: this build with its embedded `vcs.revision` replaced by a derived commit that descends from N, published one run later on GitHub and as that run's seq on every region's signed release channel |
 
 Each lane boots real `ts-orch node` processes in Oracle mode (the `oraclehost`
 harness from the `oracle-regions` lane: IMDS, instance-principal federation,
@@ -443,6 +453,19 @@ installed binary's own pull updater then has to do the rest, unchanged:
 - roll the release out one host at a time over NATS, with the candidate
   preflight, staging, the binary rename and the restart;
 - confirm it through probation.
+
+`upgrade-next` is the mixed region production meets during a rollout: a manager
+on N and a worker still on N-1. Its release is on the signed channel (served by
+the stand-in's `<oci-region>.ocir.io` behind the instance-principal token
+exchange) before any host boots, so the managers read the channel on their
+first poll instead of backing off to GitHub. The sjc manager installs N+1 on
+itself from the channel and must record its seq. It sends the worker the form
+that build reads: the channel release when the worker's status says
+`channel: true` (the worker must then record the seq too), otherwise the GitHub
+Release form, which the worker verifies through GitHub's asset host and its own
+N-1...N+1 lineage check. Since that worker installs while the lane applies
+services, its starting release is proven by its ready event on N-1 instead of
+the serving check.
 
 The lane passes when both hosts serve the candidate's revision and digest, no
 trial, staged trial or rollback record remains, and each host keeps the

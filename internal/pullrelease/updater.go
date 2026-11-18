@@ -307,7 +307,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			return u.wait(ctx, fmt.Sprintf("%s runs %q, which the release does not build", host.Name, reply.Arch))
 		}
 		onTarget := reply.Version == target.SHA && reply.SHA256 == want.SHA256
-		unrecorded := target.Seq != 0 && reply.Seq != target.Seq
+		unrecorded := target.Seq != 0 && reply.Channel && reply.Seq != target.Seq
 		if onTarget && row.State == HostDone && !unrecorded {
 			continue
 		}
@@ -322,7 +322,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			if !u.save(ctx) {
 				return renewEvery
 			}
-			reply, err = u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullInstall, Release: target}, installWait)
+			reply, err = u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullInstall, Release: readable(target, reply)}, installWait)
 			if err != nil {
 				return u.wait(ctx, host.Name+" install has no answer: "+err.Error())
 			}
@@ -512,7 +512,7 @@ func (u *Updater) restore(ctx context.Context) time.Duration {
 		if !u.save(ctx) {
 			return renewEvery
 		}
-		restored, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullRollback, Release: target, Reason: row.Error}, askWait)
+		restored, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullRollback, Release: readable(target, reply), Reason: row.Error}, askWait)
 		if err != nil || restored.State != "restoring" {
 			return u.restoring(ctx, row, fmt.Sprintf("restoring the previous binary failed: %v %s", err, restored.Error))
 		}
@@ -533,6 +533,13 @@ func (u *Updater) restoring(ctx context.Context, row *HostProgress, reason strin
 	u.status.Reason = row.Host + ": " + reason
 	u.save(ctx)
 	return checkEvery
+}
+
+func readable(release releaseattest.Release, host releasepush.Reply) releaseattest.Release {
+	if host.Channel || release.Channel == nil {
+		return release
+	}
+	return release.OnGitHub()
 }
 
 func builds(release releaseattest.Release, digest string) bool {
