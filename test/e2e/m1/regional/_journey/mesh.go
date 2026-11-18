@@ -23,10 +23,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -286,7 +288,7 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 		}
 	}()
 	if err := regionalAwait(ctx, func() bool { return len(founder.joinedWorkers()) == 1 && own.server.NumRoutes() > 0 }); err != nil {
-		ready, pending, membershipErr := peerCfg.applier.(swarmApplier).WorkerStates(context.Background())
+		ready, pending, _, membershipErr := peerCfg.applier.(swarmApplier).WorkerStates(context.Background())
 		return fmt.Errorf("two regions and a joined worker: %w (ready=%v pending=%v membership=%v routes=%d)", err, ready, pending, membershipErr, own.server.NumRoutes())
 	}
 	if err := health(ctx, workerState, workerAgent); err != nil {
@@ -373,6 +375,40 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 	}()
 	defer func() { stopSamples(); <-samplesDone }()
 	stopNode(workerAgent)
+	founder.workerMu.Lock()
+	lastAnnouncement := founder.announced[workerName]
+	lastAnnouncement.at = time.Now().Add(-workerSettleWindow)
+	founder.announced[workerName] = lastAnnouncement
+	founder.workerMu.Unlock()
+	if err := founder.setJoined(ctx); err != nil || len(founder.joinedWorkers()) != 1 {
+		return fmt.Errorf("announcement silence removed a ready member: %v", err)
+	}
+	membershipCA := filepath.Join(managerState, "swarm", "certificates", "swarm-root-ca.crt")
+	outageRequest, err := protocol.EncodeJSON(drainRequest{Node: workerName, Task: "restart-task"})
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(membershipCA, membershipCA+".unavailable"); err != nil {
+		return err
+	}
+	refreshErr := founder.setJoined(ctx)
+	pingErr := round(2)
+	outageResponse, drainErr := founder.conn.RequestWithContext(ctx, protocol.MeshDrainPrefix+"sjc", outageRequest)
+	var outageReply drainReply
+	if drainErr == nil {
+		drainErr = protocol.DecodeStrict(outageResponse.Data, &outageReply, maxWire)
+	}
+	restoreErr := os.Rename(membershipCA+".unavailable", membershipCA)
+	if restoreErr != nil {
+		return restoreErr
+	}
+	if refreshErr == nil || pingErr != nil || len(founder.joinedWorkers()) != 1 {
+		return fmt.Errorf("control outage lost cached topology or mesh liveness: refresh %v, ping %v", refreshErr, pingErr)
+	}
+	if drainErr != nil || outageReply.Error != "regional membership unavailable" {
+		return fmt.Errorf("control outage accepted a drain: %+v, %v", outageReply, drainErr)
+	}
+	fmt.Println("ok regional peers: announcement silence warns; failed control lookup preserves peers and cached pings but refuses drains")
 	stopNode(founder)
 	founder, err = start(peerCfg)
 	if err != nil {
@@ -386,8 +422,8 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 			return ctx.Err()
 		case <-rounds.C:
 		}
-		if len(founder.joinedWorkers()) != 0 {
-			return errors.New("restarted founder unexpectedly has workers before their announcements resume")
+		if len(founder.joinedWorkers()) != 1 {
+			return errors.New("restarted founder lost its ready worker without a fresh announcement")
 		}
 		if err := round(2); err != nil {
 			return err
@@ -436,6 +472,34 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 	if err := round(2); err != nil {
 		return err
 	}
+	founder.SetRegionalDrainer(func(_ context.Context, node, task string) error {
+		current, err := os.ReadFile(file)
+		if err != nil || !bytes.Contains(current, []byte(line)) || node != workerName || task != "restart-task" {
+			return fmt.Errorf("regional drain peer proof: %q, %s, %s, %v", current, node, task, err)
+		}
+		return nil
+	})
+	cancelled, cancelDrain := context.WithCancel(ctx)
+	cancelDrain()
+	if err := handoff.DrainTask(cancelled, "restart-task"); !errors.Is(err, context.Canceled) {
+		return fmt.Errorf("unattached drainer ignored cancellation: %v", err)
+	}
+	pendingDrain := make(chan error, 1)
+	go func() { pendingDrain <- handoff.DrainTask(ctx, "restart-task") }()
+	handoff.SetTaskDrainer(workerAgent.DrainTask)
+	if err := <-pendingDrain; err != nil {
+		return fmt.Errorf("restarted worker task drain: %w", err)
+	}
+	stopNode(workerAgent)
+	workerAgent, err = start(workerCfg)
+	if err != nil {
+		return err
+	}
+	handoff.SetTaskDrainer(workerAgent.DrainTask)
+	if err := handoff.DrainTask(ctx, "restart-task"); err != nil {
+		return fmt.Errorf("reattached worker task drain: %w", err)
+	}
+	fmt.Println("ok regional peers: restarted worker waits for drainer attachment and drains through its regional peer; replacement reattaches")
 	stopSamples()
 	<-samplesDone
 	sampleMu.Lock()
@@ -449,7 +513,7 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 	if err != nil || statErr != nil || !bytes.Equal(before, current) || !stat.ModTime().Equal(info.ModTime()) {
 		return errors.New("worker recovery rewrote the peers file")
 	}
-	fmt.Println("ok regional peers: four empty restart rounds and recovery preserved worker, bytes and mtime at 100ms sampling")
+	fmt.Println("ok regional peers: four rounds without announcements and recovery preserved worker, bytes and mtime at 100ms sampling")
 	if err := writer.track("regional-data", []string{"gru"}, true); err != nil {
 		return err
 	}
@@ -475,30 +539,38 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 	if err := regionalAwait(ctx, func() bool { return len(founder.joinedWorkers()) == 0 }); err != nil {
 		return err
 	}
-	for i := range 2 {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-rounds.C:
-		}
-		if err := round(2); err != nil {
-			return err
-		}
-		current, err := os.ReadFile(file)
-		if err != nil {
-			return err
-		}
-		if bytes.Contains(current, []byte(line)) != (i == 0) {
-			return fmt.Errorf("removed worker has wrong presence after omission round %d: %q", i+1, current)
-		}
-		if i == 0 {
-			stat, err := os.Stat(file)
-			if err != nil || !stat.ModTime().Equal(info.ModTime()) || !bytes.Equal(before, current) {
-				return errors.New("first omission rewrote the peers file before grace")
-			}
-		}
+	stale, err := protocol.EncodeJSON(nodeAnnouncement{WorkerPeer: WorkerPeer{Node: workerName, Address: "127.0.0.4"}, NodeID: worker.ID()})
+	if err != nil {
+		return err
 	}
-	fmt.Println("ok regional peers: removed worker retained for first omission and dropped on second")
+	founder.recordWorker(&nats.Msg{Data: stale})
+	if err := founder.setJoined(ctx); err != nil || len(founder.joinedWorkers()) != 0 {
+		return fmt.Errorf("stale announcement restored removed worker: %w", err)
+	}
+	registry, err := os.ReadFile(filepath.Join(founder.cfg.dir, "workers.json"))
+	if err != nil || bytes.Contains(registry, []byte(worker.ID())) {
+		return fmt.Errorf("removed worker identity was not pruned: %q, %v", registry, err)
+	}
+	if err := round(2); err != nil {
+		return err
+	}
+	current, err = os.ReadFile(file)
+	if err != nil || bytes.Contains(current, []byte(line)) {
+		return fmt.Errorf("authoritative removal retained worker in peers: %q, %v", current, err)
+	}
+	request, err := protocol.EncodeJSON(drainRequest{Node: workerName, Task: "restart-task"})
+	if err != nil {
+		return err
+	}
+	response, err := founder.conn.RequestWithContext(ctx, protocol.MeshDrainPrefix+"sjc", request)
+	if err != nil {
+		return err
+	}
+	var reply drainReply
+	if err := protocol.DecodeStrict(response.Data, &reply, maxWire); err != nil || reply.Error != "node not admitted" {
+		return fmt.Errorf("removed worker drain accepted: %+v, %v", reply, err)
+	}
+	fmt.Println("ok regional peers: explicit membership removal drops worker immediately and rejects stale announcements and drains")
 	return nil
 }
 

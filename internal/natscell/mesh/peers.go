@@ -28,8 +28,7 @@ const peersEvery = 5 * time.Second
 type peer struct{ node, address string }
 
 type workerObservation struct {
-	peers     []peer
-	startedAt time.Time
+	peers []peer
 }
 
 // peers keeps <root>/<service>/peers current for every service this node runs.
@@ -46,11 +45,9 @@ type peers struct {
 	regions  []string
 	rejected map[string]int
 
-	worker       bool
-	workers      map[string][]peer
-	workerMissed map[string]map[string]int
-	workersReady map[string]time.Time
-	perNode      map[string]bool
+	worker  bool
+	workers map[string][]peer
+	perNode map[string]bool
 }
 
 // peersMissedRounds is how many ping rounds in a row a region must miss
@@ -160,8 +157,6 @@ func (p *peers) observe(answered map[string]peer, workers map[string]workerObser
 func (p *peers) observeWorkers(answered map[string]peer, observations map[string]workerObservation) {
 	if p.workers == nil {
 		p.workers = map[string][]peer{}
-		p.workerMissed = map[string]map[string]int{}
-		p.workersReady = map[string]time.Time{}
 	}
 	for region := range p.workers {
 		if _, ok := p.up[region]; !ok {
@@ -169,39 +164,12 @@ func (p *peers) observeWorkers(answered map[string]peer, observations map[string
 				continue
 			}
 			delete(p.workers, region)
-			delete(p.workerMissed, region)
-			delete(p.workersReady, region)
 		}
 	}
 	for region := range answered {
-		observation := observations[region]
-		age := time.Since(observation.startedAt)
-		if len(observation.peers) == 0 && !observation.startedAt.IsZero() && age >= 0 && age < time.Minute &&
-			!p.workersReady[region].Equal(observation.startedAt) {
-			delete(p.workerMissed, region)
-			continue
-		}
-		if len(observation.peers) > 0 {
-			p.workersReady[region] = observation.startedAt
-		}
-		if p.workerMissed[region] == nil {
-			p.workerMissed[region] = map[string]int{}
-		}
-		missed := p.workerMissed[region]
 		next := map[string]peer{}
-		for _, at := range observation.peers {
+		for _, at := range observations[region].peers {
 			next[at.node] = at
-			delete(missed, at.node)
-		}
-		for _, at := range p.workers[region] {
-			if _, ok := next[at.node]; ok {
-				continue
-			}
-			if missed[at.node]++; missed[at.node] < peersMissedRounds {
-				next[at.node] = at
-			} else {
-				delete(missed, at.node)
-			}
 		}
 		p.workers[region] = slices.Collect(maps.Values(next))
 		slices.SortFunc(p.workers[region], func(a, b peer) int { return strings.Compare(a.node, b.node) })
@@ -303,7 +271,7 @@ func (n *Node) pingPeers(ctx context.Context, wait time.Duration) (map[string]pe
 			if at := (peer{reply.Server, reply.Address}); validPeer(reply.Region, at) {
 				up[reply.Region] = at
 				reports[reply.Region] = reply.Attestations
-				observation := workerObservation{startedAt: reply.StartedAt}
+				observation := workerObservation{}
 				for _, worker := range reply.Workers {
 					if w := (peer{worker.Node, worker.Address}); validPeer(reply.Region, w) && w.node != at.node {
 						observation.peers = append(observation.peers, w)

@@ -129,6 +129,9 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	meshServing := make(chan struct{})
 	served := sync.OnceFunc(func() { close(meshServing) })
 	if plan.region == "" || plan.joiner() && plan.address == "" {
+		handoff.SetTaskDrainer(func(context.Context, string) error {
+			return errors.New("regional TerraBase drain is unavailable")
+		})
 		served()
 	}
 	if plan.joiner() && plan.address == "" {
@@ -149,7 +152,6 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 					served()
 				}
 				plannedstop.Register(ctx, node.PrepareStop)
-				handoff.SetTaskDrainer(node.DrainTask)
 				handoff.SetBootstrap(node.Bootstrap)
 				handoff.SetClearPeer(node.ClearPeer)
 				public.JoinMesh(node)
@@ -160,6 +162,7 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 					follow := node.FollowEdgeInventory(*state)
 					inventory.Store(&follow)
 				}
+				handoff.SetTaskDrainer(node.DrainTask)
 			})
 			close(meshDone)
 		}()
