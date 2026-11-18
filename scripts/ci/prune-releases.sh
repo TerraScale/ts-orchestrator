@@ -50,10 +50,11 @@ done
 
 cutoff=$(date -u -d "-$keep_days days" +%s)
 jq -c --argjson keep "$keep" --argjson cutoff "$cutoff" '
-	[.[] | select(.prerelease and (.draft | not) and (.tag_name | test("^(ci|image)-[0-9a-f]{40}-run-[0-9]+(-attempt-[0-9]+)?$")))]
-	| sort_by(.published_at) | reverse | .[$keep:][]
-	| select((.published_at | fromdateiso8601) < $cutoff)
-	| {id, tag: .tag_name, published_at, bytes: ([.assets[].size] | add // 0),
+	[.[] | select(.prerelease and (.tag_name | test("^(ci|image)-[0-9a-f]{40}-run-[0-9]+(-attempt-[0-9]+)?$")))]
+	| ((map(select(.draft | not)) | sort_by(.published_at) | reverse | .[$keep:][]),
+		(.[] | select(.draft and (.tag_name | startswith("ci-")))))
+	| select(((.published_at // .created_at) | fromdateiso8601) < $cutoff)
+	| {id, tag: .tag_name, published_at: (.published_at // .created_at), bytes: ([.assets[].size] | add // 0),
 		manifests: [.assets[] | select((.name | test("(\\.json|\\.sha256|^SHA256SUMS)$")) and .size <= 1048576)
 			| .name]}' "$work/releases.json" > "$work/candidates.json"
 

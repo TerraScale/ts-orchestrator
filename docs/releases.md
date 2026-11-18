@@ -36,7 +36,8 @@ later regions wait for the same tag's completed, baked fabric record. See
 Hosts install ts-orch releases from their own region's Oracle Cloud
 Infrastructure Registry (OCIR); they make no GitHub API call on this path.
 
-**Publish.** After main is green, CI's `deploy/release-publish` job runs the
+**Publish.** After the exact tree passed its merged PR's `all-green`, or
+after main's lanes pass when that proof is absent, CI's `deploy/release-publish` job runs the
 release's own amd64 binary:
 
 1. `ts-orch release channel prepare` builds the release artifact (one OCI image
@@ -418,13 +419,14 @@ executing this hook.
 ## Upgrade gate
 
 A release is published only if production's own updater can install it. Two
-release-blocking lanes in the `e2e-m1` matrix prove this before
-`deploy/release-publish` runs, on every push to main and on every pull request
-that changes runtime inputs:
+release-blocking lanes in the `e2e-m1` matrix prove this on every pull request
+that changes runtime inputs and run again on main. Publication can reuse
+the merged PR's successful gate only after proving identical trees; otherwise
+these main lanes must finish before `deploy/release-publish`:
 
 | Lane | Installed release | Release it must install |
 | --- | --- | --- |
-| `upgrade-previous` | N-1: the release the `upgrade-gate/previous` pin names, downloaded from GitHub and checked against its listed digest | N: this build |
+| `upgrade-previous` | N-1: the newest signed published release that strictly precedes this build's commit, downloaded from GitHub and checked against its listed digest | N: this build |
 | `upgrade-next` | N: this build | N+1: this build with its embedded `vcs.revision` replaced by a derived commit that descends from N, published one run later |
 
 Each lane boots real `ts-orch node` processes in Oracle mode (the `oraclehost`
@@ -452,7 +454,8 @@ installed binary's own pull updater then has to do the rest, unchanged:
 The lane passes when both hosts serve the candidate's revision and digest, no
 trial, staged trial or rollback record remains, and each host keeps the
 replaced release at `terrascale-orchestrator.prev`. It fails when any of those
-steps refuses or times out, and then `deploy/release-publish` does not run.
+steps refuses or times out. That blocks publication when main's lane gate
+is required; after an early publication it fails main and triggers its revert.
 
 The GitHub the hosts reach is a stand-in, and its bodies are GitHub's own:
 
@@ -497,33 +500,29 @@ release channel changes, for example to an OCI registry, the stand-in must
 serve that channel too. Until it does, the gate fails, and that failure is
 correct.
 
-### Bumping the pinned N-1
+### Selecting the pinned N-1
 
-`upgrade-gate/previous` is an annotated tag on the release's commit. Its
-message is the release tag, for example
-`ci-b60ccc99171132995225f7b8bcf5350176782e58-run-44061090529`. Each successful
-`deploy/release-publish` moves it to the release it just published, unless the
-pin already names a later run, so the next run proves that release can install
-its successor. The pin moves on publication, not on installation: nothing in CI
-notices when production stays behind it, because the lane never reads
-production.
+Both upgrade lanes list published CI releases and order them by descending
+run ID, matching production's release selection. A late publication of an
+older run cannot move N-1 behind a newer eligible run. A candidate must carry this architecture's binary and
+`provenance.sigstore.json`, and its release tag must resolve to the source
+commit named in the tag. The lane pins the newest candidate for which
+GitHub reports `ahead` with a positive commit distance from that candidate
+to this build's exact source revision. Equal commits, descendants and
+diverged histories cannot become N-1. The comparison uses `SOURCE_SHA` on
+both PRs and main, and must agree with the candidate binary's embedded VCS
+revision; a PR's synthetic merge commit does not substitute for its source.
 
-When production runs something else, for example when it is stuck on an older
-release, point the pin at the release production reports, so the
-gate proves the upgrade production actually faces:
+The selected tag, source revision and strict-ancestor distance appear in
+both lane logs and their job summaries. Selection happens once before
+the lane records its real forward and reverse lineage comparisons. API
+errors or the absence of a suitable published ancestor fail the lane.
 
-```sh
-release=ci-<sha>-run-<run id>
-sha=${release#ci-}; sha=${sha%-run-*}
-object=$(gh api repos/TerraScale/ts-orchestrator/git/tags -f tag=upgrade-gate/previous \
-  -f message="$release" -f object="$sha" -f type=commit --jq .sha)
-gh api --method PATCH repos/TerraScale/ts-orchestrator/git/refs/tags/upgrade-gate/previous \
-  -f sha="$object" -F force=true
-```
-
-The release must be published, that is, it must carry
-`provenance.sigstore.json`. The next `deploy/release-publish` moves the pin
-forward again.
+Early publication can therefore expose this run's own release before its
+upgrade lanes start without changing their baseline. The publisher no longer
+advances a mutable upgrade-gate tag. N-1 remains a published strict ancestor;
+`upgrade-previous` still proves N-1 installs N on both sjc hosts, and
+`upgrade-next` still proves N installs the derived N+1 through its updater.
 
 ## Automatic reruns of release-blocking lanes
 
@@ -545,11 +544,11 @@ run, so one flaky attempt cannot hold main red and releases back for hours:
    agent build. Its job summary says either "passed its automatic rerun" (a
    recorded flake) or "failed its first attempt and its one automatic rerun".
    The second case stays red and names the lane.
-4. `e2e-m1`, and through it `all-green` and `deploy/release-publish`, passes
+4. `e2e-m1`, and through it `all-green` and publication's selected lane gate, passes
    only if every lane passed its first attempt or its rerun.
 
 Only the `e2e-m1` matrix lanes are covered. `e2e-certificates` (one 30-minute
-job) and the `caller-key` shards also block `deploy/release-publish`, but they
+job) and the `caller-key` shards also block the selected lane gate, but they
 run only when their own inputs change and were not the lanes that held main
 red; covering them needs the same plan and rerun pair for each, a follow-up.
 
