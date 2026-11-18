@@ -3,9 +3,11 @@ package regionjoin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/ca"
 	"github.com/moby/swarmkit/v2/connectionbroker"
@@ -39,6 +41,18 @@ func ClusterMaterial(ctx context.Context, client api.ControlClient, founder stri
 		return Material{}, errors.Join(errors.New("read the cluster's worker join token"), err)
 	}
 	return Material{Founder: founder, WorkerToken: clusters.Clusters[0].RootCA.JoinTokens.Worker, Nodes: names}, nil
+}
+
+func NamesStored(material Material, stateDir string, stored swarmruntime.Admission) (bool, error) {
+	if material.WorkerToken == "" {
+		return stored.HostID == stored.FounderID && material.Founder == stored.HostID, nil
+	}
+	parsed, err := ca.ParseJoinToken(material.WorkerToken)
+	if err != nil {
+		return false, fmt.Errorf("join material worker token: %w", err)
+	}
+	root, err := swarmruntime.ClusterRoot(stateDir)
+	return err == nil && parsed.RootDigest == root, err
 }
 
 func ReachableManager(ctx context.Context, material Material) (string, bool) {

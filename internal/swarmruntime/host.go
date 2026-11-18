@@ -14,10 +14,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/ca"
 	"github.com/moby/swarmkit/v2/manager"
+	"github.com/opencontainers/go-digest"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -69,6 +71,35 @@ func StoredAdmission(stateDir string) (Admission, bool, error) {
 }
 
 func SwarmDir(stateDir string) string { return filepath.Join(stateDir, "swarm") }
+
+func (a Admission) BelongsTo(hostname, instanceID string) bool {
+	return a.HostID == hostname && a.InstanceID == instanceID
+}
+
+func ClusterRoot(stateDir string) (digest.Digest, error) {
+	root, err := ca.GetLocalRootCA(ca.NewConfigPaths(filepath.Join(SwarmDir(stateDir), "certificates")).RootCA)
+	if err != nil {
+		return "", fmt.Errorf("read stored cluster root: %w", err)
+	}
+	return root.Digest, nil
+}
+
+func SetAsideSwarm(stateDir string, at time.Time) (string, error) {
+	lock := flock.New(filepath.Join(SwarmDir(stateDir), "node.lock"))
+	locked, err := lock.TryLock()
+	if err != nil {
+		return "", err
+	}
+	if !locked {
+		return "", errors.New("swarm node state is already in use")
+	}
+	defer lock.Unlock()
+	aside := filepath.Join(stateDir, "set-aside", "swarm-"+at.UTC().Format("20060102T150405.000000000Z"))
+	if err := os.MkdirAll(filepath.Dir(aside), 0o700); err != nil {
+		return "", err
+	}
+	return aside, os.Rename(SwarmDir(stateDir), aside)
+}
 
 func ControlSocket(stateDir string) string { return filepath.Join(stateDir, "control.sock") }
 

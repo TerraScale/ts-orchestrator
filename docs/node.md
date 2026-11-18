@@ -24,6 +24,7 @@ pull anonymously.
 |---|---|
 | `<state>/runtime.lock` | Held by the running `ts-orch node` from before release probation; a second `ts-orch node` on the same state exits without touching release state |
 | `<state>/swarm/` | SwarmKit certificates, Raft log, `admission.json`, `node.lock` |
+| `<state>/set-aside/swarm-<UTC time>/` | A previous host's or stale cluster's `swarm/` that this host did not resume (kept for inspection, never read) |
 | `<state>/control.sock` | Control socket (below); symlink to the upstream `<state>/swarm/control.sock` |
 | `<state>/runtime-logs/` | Container logs written by the executor |
 

@@ -350,8 +350,19 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 	plan := hostPlan{region: instance.Region, address: instance.PrivateIP, vcnCIDR: instance.VCNCIDR}
 	plan.listen, plan.advertise = swarmruntime.SwarmAddresses(instance.PrivateIP)
 	if restarted {
-		plan.admission = stored
-		return plan, nil
+		resumes, err := storedAdmissionHolds(ctx, state, stored, hostname, instance, metadataErr == nil, output)
+		if err != nil {
+			return hostPlan{}, err
+		}
+		if resumes {
+			plan.admission = stored
+			return plan, nil
+		}
+		aside, err := swarmruntime.SetAsideSwarm(state, time.Now())
+		if err != nil {
+			return hostPlan{}, fmt.Errorf("set aside stored cluster state: %w", err)
+		}
+		fmt.Fprintf(output, "set aside the stored cluster state at %s; joining through %s\n", aside, regionjoin.SecretName(instance.Region))
 	}
 	for {
 		material, err := regionjoin.Claim(ctx, instance.Region, hostname, instance.ID)
@@ -386,6 +397,29 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 		case <-time.After(30 * time.Second):
 		}
 	}
+}
+
+func storedAdmissionHolds(ctx context.Context, state string, stored swarmruntime.Admission, hostname string, instance regionjoin.Instance, metadata bool, output io.Writer) (bool, error) {
+	if !metadata {
+		if stored.HostID == hostname && (instance.ID == "" || stored.InstanceID == instance.ID) {
+			return true, nil
+		}
+		return false, fmt.Errorf("stored admission of %s (%s) is not this host %s and host metadata is unavailable", stored.HostID, stored.InstanceID, hostname)
+	}
+	if !stored.BelongsTo(hostname, instance.ID) {
+		fmt.Fprintf(output, "stored admission belongs to %s (%s), not this host %s (%s)\n", stored.HostID, stored.InstanceID, hostname, instance.ID)
+		return false, nil
+	}
+	material, err := regionjoin.Read(ctx, instance.Region)
+	if err != nil {
+		fmt.Fprintf(output, "read %s: %v; resuming this host's stored admission\n", regionjoin.SecretName(instance.Region), err)
+		return true, nil
+	}
+	named, err := regionjoin.NamesStored(material, state, stored)
+	if err == nil && !named {
+		fmt.Fprintf(output, "%s names another cluster than this host's stored admission\n", regionjoin.SecretName(instance.Region))
+	}
+	return named, err
 }
 
 func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string) {
@@ -424,16 +458,27 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 			for _, member := range members {
 				routes = append(routes, meshRoute(member))
 			}
-			stored, err := regionjoin.Read(ctx, plan.region)
+			current, err := regionjoin.Read(ctx, plan.region)
 			if err != nil {
 				return err
 			}
-			stored, err = regionjoin.ClusterMaterial(ctx, client, stored.Founder)
+			if current.WorkerToken != "" {
+				named, err := regionjoin.NamesStored(current, state, plan.admission)
+				if err != nil {
+					return err
+				}
+				if !named {
+					if _, live := regionjoin.ReachableManager(ctx, current); live {
+						return fmt.Errorf("%s names another live cluster", regionjoin.SecretName(plan.region))
+					}
+				}
+			}
+			own, err := regionjoin.ClusterMaterial(ctx, client, current.Founder)
 			if err != nil {
 				return err
 			}
-			stored.Managers, stored.Routes = managers, routes
-			return regionjoin.Publish(ctx, plan.region, stored)
+			own.Managers, own.Routes = managers, routes
+			return regionjoin.Publish(ctx, plan.region, own)
 		}()
 		if err != nil {
 			slog.WarnContext(ctx, "region join material not published; retrying", "secret", regionjoin.SecretName(plan.region), "error", err)
