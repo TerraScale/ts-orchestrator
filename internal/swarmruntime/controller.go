@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -778,6 +779,7 @@ func (c *controller) stopTask(ctx context.Context) error {
 	}
 	if c.regionalTerraBase() && !rolloutmaintenance.PinnedStop(ctx, c.bootstrapPin()) {
 		if err := handoff.DrainTask(ctx, c.task.ID); err != nil {
+			slog.WarnContext(ctx, "waiting for handoff: the replacement starts once this task hands over and releases its host ports", "service", c.task.ServiceAnnotations.Name, "task", c.task.ID, "error", err)
 			// A missing/restarting coordinator never makes a live process a failed
 			// terminal task: retain its assignment and retry once the mesh returns.
 			return exec.MakeTemporary(err)

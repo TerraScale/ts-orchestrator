@@ -506,6 +506,10 @@ func (r *Supervisor) DelayStart(ctx context.Context, _ store.Tx, oldTask *api.Ta
 			}
 		}
 
+		if waitStop && !r.awaitHostPortRelease(ctx, newTaskID) {
+			return
+		}
+
 		err := r.store.Update(func(tx store.Tx) error {
 			err := r.StartNow(tx, newTaskID)
 			if err != nil {
@@ -519,6 +523,81 @@ func (r *Supervisor) DelayStart(ctx context.Context, _ store.Tx, oldTask *api.Ta
 	}()
 
 	return doneCh
+}
+
+func (r *Supervisor) awaitHostPortRelease(ctx context.Context, taskID string) bool {
+	var serviceID string
+	r.store.View(func(tx store.ReadTx) {
+		if t := store.GetTask(tx, taskID); t != nil {
+			serviceID = t.ServiceID
+		}
+	})
+	if serviceID == "" {
+		return true
+	}
+	watch, cancelWatch := state.Watch(r.store.WatchQueue(),
+		api.EventUpdateTask{Task: &api.Task{ServiceID: serviceID}, Checks: []api.TaskCheckFunc{api.TaskCheckServiceID}},
+		api.EventDeleteTask{Task: &api.Task{ServiceID: serviceID}, Checks: []api.TaskCheckFunc{api.TaskCheckServiceID}},
+		api.EventUpdateNode{},
+		api.EventDeleteNode{},
+	)
+	defer cancelWatch()
+	var waiting string
+	for {
+		var holder *api.Task
+		var err error
+		r.store.View(func(tx store.ReadTx) {
+			holder, err = hostPortHolder(tx, taskID)
+		})
+		if err != nil {
+			log.G(ctx).WithError(err).WithField("task.id", taskID).Error("host port holders unreadable")
+			return true
+		}
+		if holder == nil {
+			return true
+		}
+		if holder.ID != waiting {
+			waiting = holder.ID
+			log.G(ctx).WithFields(map[string]interface{}{"task.id": taskID, "predecessor": holder.ID, "node.id": holder.NodeID}).Info("waiting for handoff: the predecessor still holds the host ports")
+		}
+		select {
+		case <-watch:
+		case <-ctx.Done():
+			return false
+		}
+	}
+}
+
+func hostPortHolder(tx store.ReadTx, taskID string) (*api.Task, error) {
+	t := store.GetTask(tx, taskID)
+	if t == nil || t.DesiredState != api.TaskStateReady || !holdsHostPorts(t) {
+		return nil, nil
+	}
+	siblings, err := store.FindTasks(tx, store.ByServiceID(t.ServiceID))
+	if err != nil {
+		return nil, err
+	}
+	for _, sibling := range siblings {
+		if sibling.ID == t.ID || sibling.NodeID == "" || sibling.DesiredState <= api.TaskStateRunning ||
+			sibling.Status.State < api.TaskStateStarting || sibling.Status.State > api.TaskStateRunning {
+			continue
+		}
+		if (t.Slot == 0 || sibling.Slot != t.Slot) && sibling.NodeID != t.NodeID {
+			continue
+		}
+		if node := store.GetNode(tx, sibling.NodeID); node == nil || node.Status.State == api.NodeStatus_DOWN {
+			continue
+		}
+		return sibling, nil
+	}
+	return nil, nil
+}
+
+func holdsHostPorts(t *api.Task) bool {
+	if t.Endpoint == nil {
+		return false
+	}
+	return len(t.Endpoint.Ports) != 0 || t.Endpoint.Spec != nil && len(t.Endpoint.Spec.Ports) != 0
 }
 
 // StartNow moves the task into the RUNNING state so it will proceed to start

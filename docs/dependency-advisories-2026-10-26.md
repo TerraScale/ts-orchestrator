@@ -192,7 +192,24 @@ at v2.1.3 or at master `a34f01e8c` (2026-11-03).
   per task as before. When and how a task stops is unchanged.
 
 The e2e-m1 rollback lane exercises both with real containerd tasks.
+
+## 2026-11-18: a fixed-port replacement starts only once its predecessor stops
+
+C24 changes `manager/orchestrator/restart/restart.go` and
+`manager/orchestrator/taskinit/init.go`. A stop-first replacement waited for
+its old task to stop for at most `defaultOldTaskTimeout` (one minute) and was
+then started anyway; after a manager leader change, `taskinit` started every
+task left at desired state READY at once, without looking at the old task. A
+TerraBase predecessor whose regional handoff is refused keeps running and
+keeps its host ports, so its replacement started into
+`host port 6432,8080 is reserved`. `DelayStart` with `waitStop` now also waits,
+without a timer, while a task of the same service that was told to stop is
+still starting or running in the replacement's slot or on its node (node not
+down). It applies only to tasks that publish host ports and stay at desired
+state READY; start-first updates never wait, because their old task is still
+desired RUNNING. `taskinit` goes through `DelayStart` for the same check.
+The e2e-m1 rollback lane holds a predecessor 70 s past SIGTERM.
 The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
-`babf9117ecc5f0e744f168e2a8d04cd02e0533126e99706d814c8dbbd0539217`; the
+`24fbdff9ea98eee78ffe5ccb5b913d3a86004b9578649937650749f97ce34310`; the
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.

@@ -143,10 +143,12 @@ orch service rm e2e-wait
 orch service rm e2e-nudge
 end "pending task at an older spec version + a failed scheduling pass -> the same task runs once its room frees"
 
-begin "a stop-first replacement waiting for its running predecessor is counted once, and nothing else takes the predecessor's room"
+begin "a fixed-port stop-first replacement waits for its predecessor's handoff, past SwarmKit's old-task timer, and nothing else takes its room"
 free=$(free_cpu)
+handoff=/var/lib/ts-data/e2e-linger
+sudo rm -f "$handoff"/handoff-*
 jq -n --arg image "$(jq -r .image "$here/data.json")" --argjson cpu $((free / 2 + 1)) \
-	'{name: "e2e-linger", image: $image, args: ["sh", "-c", "trap \"\" TERM; while :; do sleep 1; done"], env: {E2E_RELEASE: "1"}, mounts: [{source: "/var/lib/ts-data/e2e-linger", target: "/tmp"}], port: 18090, replicas: 1, milliCPU: $cpu}' >"$work/linger-1.json"
+	'{name: "e2e-linger", image: $image, args: ["sh", "-c", "trap \"stop=1\" TERM; until [ -n \"$stop\" ] && [ -f /tmp/handoff-$E2E_RELEASE ]; do sleep 1; done"], env: {E2E_RELEASE: "1"}, mounts: [{source: "/var/lib/ts-data/e2e-linger", target: "/tmp"}], port: 18090, replicas: 1, milliCPU: $cpu}' >"$work/linger-1.json"
 orch service apply -f "$work/linger-1.json"
 lingering=$(running_tasks e2e-linger)
 [[ -n $lingering ]]
@@ -156,11 +158,21 @@ replacing=$!
 told_to_stop() {
 	orch service ps e2e-linger | awk -v id="$lingering" '$1 == id' | grep -Eq ' running +shutdown '
 }
-replacement_assigned() {
-	orch service ps e2e-linger | awk -v id="$lingering" 'NR > 1 && $1 != id' | grep -Eq ' (assigned|accepted|preparing|ready|starting) +(ready|running) '
+no_port_contention() {
+	orch service ps e2e-linger >"$work/linger-ps.txt"
+	if grep -q 'is reserved' "$work/linger-ps.txt"; then
+		cat "$work/linger-ps.txt"
+		echo "the replacement tried to take host ports its predecessor still holds" >&2
+		exit 1
+	fi
+}
+replacement_waiting() {
+	no_port_contention
+	awk -v id="$lingering" 'NR > 1 && $1 != id' "$work/linger-ps.txt" | grep -Eq ' (assigned|accepted|preparing|ready) +ready '
 }
 wait_for 20 told_to_stop
-wait_for 30 replacement_assigned
+stopping=$SECONDS
+wait_for 30 replacement_waiting
 fit_spec e2e-room 18091 1 $((free - free / 2)) 1 >"$work/room.json"
 if orch service apply -f "$work/room.json" >"$work/room.txt" 2>&1; then
 	cat "$work/room.txt"
@@ -169,17 +181,24 @@ if orch service apply -f "$work/room.json" >"$work/room.txt" 2>&1; then
 fi
 cat "$work/room.txt"
 grep -q "update refused: start-first candidate .* cannot be placed (no suitable node (insufficient resources on 1 node))" "$work/room.txt"
-orch service ps e2e-linger
-told_to_stop
-replacement_assigned
-[[ -z $(running_tasks e2e-linger) ]]
-kill -0 "$replacing"
 orch service rm e2e-room
-orch service rm e2e-linger
-if wait "$replacing"; then
+while ((SECONDS < stopping + 70)); do
+	told_to_stop
+	replacement_waiting
+	kill -0 "$replacing"
+	sleep 5
+done
+orch service ps e2e-linger
+sudo touch "$handoff/handoff-1"
+if ! wait "$replacing"; then
 	cat "$work/linger-2.txt"
-	echo "the replacement reported ready while its predecessor still ran" >&2
+	echo "the replacement did not serve once its predecessor handed over" >&2
 	exit 1
 fi
 cat "$work/linger-2.txt"
-end "predecessor running past SIGTERM, desired shutdown -> its replacement is assigned in its room without running, another service is refused"
+replaced=$(running_tasks e2e-linger)
+[[ -n $replaced && $replaced != "$lingering" ]]
+no_port_contention
+sudo touch "$handoff/handoff-2"
+orch service rm e2e-linger
+end "predecessor refuses its handoff for 70 s after SIGTERM -> the replacement waits ready, never contends for its ports, another service is refused its room; handoff accepted -> the replacement serves"

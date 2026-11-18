@@ -103,7 +103,8 @@ func CheckTasks(ctx context.Context, s *store.MemoryStore, readTx store.ReadTx, 
 
 			// Start now
 			err := batch.Update(func(tx store.Tx) error {
-				return startSupervisor.StartNow(tx, t.ID)
+				startSupervisor.DelayStart(ctx, tx, nil, t.ID, 0, true)
+				return nil
 			})
 			if err != nil {
 				log.G(ctx).WithError(err).WithField("task.id", t.ID).Error("moving task out of delayed state failed")
