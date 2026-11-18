@@ -410,6 +410,152 @@ Once hosts run this updater, candidates older than the change introducing
 forward. Automatic probation rollback renames `.prev` directly, without
 executing this hook.
 
+## Upgrade gate
+
+A release is published only if production's own updater can install it. Two
+release-blocking lanes in the `e2e-m1` matrix prove this before
+`deploy/release-publish` runs, on every push to main and on every pull request
+that changes runtime inputs:
+
+| Lane | Installed release | Release it must install |
+| --- | --- | --- |
+| `upgrade-previous` | N-1: the release the `upgrade-gate/previous` pin names, downloaded from GitHub and checked against its listed digest | N: this build |
+| `upgrade-next` | N: this build | N+1: this build with its embedded `vcs.revision` replaced by a derived commit that descends from N, published one run later |
+
+Each lane boots real `ts-orch node` processes in Oracle mode (the `oraclehost`
+harness from the `oracle-regions` lane: IMDS, instance-principal federation,
+Vault and the production unit): the gru, sjc and fra founders, whose mesh forms
+the JetStream metadata group the pull updater stores its rollout in, and a
+worker in sjc. sjc is first in the rollout order, so its manager and worker are
+the hosts that must take the release. Like production regions, the fleet serves services
+before the release appears: the lane applies `terrabase` and `e2e-whoami`
+through the mesh, because a release older than the native regional mesh name
+reports its edge unready without a route, and the updater rolls only while
+every other host of the region is healthy. The lane hosts also carry production host
+state: the old release listener's directory `<state>/nats`, which every
+production host still has and where the updater stages its trial and run
+fence. A host that never had it cannot take a release (C47 fixes that, with its
+own fresh-worker lane step); the seeded directory is removed from this lane
+once the `upgrade-gate/previous` pin moves past C47's fix. Once
+both serve the installed release, the lane publishes the candidate. The
+installed binary's own pull updater then has to do the rest, unchanged:
+
+- find the candidate in GitHub's release list on its next five-minute poll;
+- check the lineage against GitHub's comparison, N-1...N in `upgrade-previous` and N...N+1 in `upgrade-next`;
+- verify the provenance bundle;
+- roll the release out one host at a time over NATS, with the candidate
+  preflight, staging, the binary rename and the restart;
+- confirm it through probation.
+
+The lane passes when both hosts serve the candidate's revision and digest, no
+trial, staged trial or rollback record remains, and each host keeps the
+replaced release at `terrascale-orchestrator.prev`. It fails when any of those
+steps refuses or times out, and then `deploy/release-publish` does not run.
+
+The GitHub the hosts reach is a stand-in, and its bodies are GitHub's own:
+
+- the release list is `GET /releases?per_page=30` as GitHub answered it when
+  the lane started, with the candidate added in the shape of a real release;
+- the comparison pages are GitHub's real
+  `compare/<N-1>...<N>?per_page=1&page=<n>` answers, at their real size.
+
+A release list or comparison that outgrows what the installed updater reads
+therefore fails the gate, as it would in production. On a pull request the
+comparison is the one between the pin and the pull request's merge commit (the
+commit the release will be), answered for the head commit the candidate was
+built from. `upgrade-next` serves that same recorded comparison for N...N+1,
+with the pin's commit rewritten to N and the last commit to N+1, so N's own
+lineage check reads a body of real size and shape.
+
+Recorded releases with a run ID at or above the candidate's (published by main
+while the lane runs) are left out of the list, so the newest release is always
+the candidate. When GitHub does not compare the pin as an ancestor of the
+commit being released, the lane fails before any host starts and says to rebase
+onto main.
+
+The stand-in answers with an empty release list until the candidate is
+published, so the first poll finds nothing rather than refusing a real release
+whose bundle the lane cannot serve.
+
+What the gate does not prove:
+
+- **Production's provenance identity.** Every Sigstore trust root embedded in
+  both binaries is replaced, byte for byte at the same length, by the lane's
+  stand-in authority. This is the only way a published binary can accept a
+  build that GitHub has not attested. The verifier code is unchanged; the
+  identity it requires (`ci.yml` on `refs/heads/main`, push, run and commit) is
+  signed by the stand-in.
+- **The systemd recovery timer and unit pairing.** The harness answers the
+  release path's `systemctl` and `systemd-analyze verify` requests for the
+  recovery units and `ts-orch.service` in place of systemd. The `node-upgrade`
+  and `recovery` lanes cover those under real systemd.
+
+The gate follows the release path of whatever binary is installed. If the
+release channel changes, for example to an OCI registry, the stand-in must
+serve that channel too. Until it does, the gate fails, and that failure is
+correct.
+
+### Bumping the pinned N-1
+
+`upgrade-gate/previous` is an annotated tag on the release's commit. Its
+message is the release tag, for example
+`ci-b60ccc99171132995225f7b8bcf5350176782e58-run-44061090529`. Each successful
+`deploy/release-publish` moves it to the release it just published, unless the
+pin already names a later run, so the next run proves that release can install
+its successor. The pin moves on publication, not on installation: nothing in CI
+notices when production stays behind it, because the lane never reads
+production.
+
+When production runs something else, for example when it is stuck on an older
+release, point the pin at the release production reports, so the
+gate proves the upgrade production actually faces:
+
+```sh
+release=ci-<sha>-run-<run id>
+sha=${release#ci-}; sha=${sha%-run-*}
+object=$(gh api repos/TerraScale/ts-orchestrator/git/tags -f tag=upgrade-gate/previous \
+  -f message="$release" -f object="$sha" -f type=commit --jq .sha)
+gh api --method PATCH repos/TerraScale/ts-orchestrator/git/refs/tags/upgrade-gate/previous \
+  -f sha="$object" -F force=true
+```
+
+The release must be published, that is, it must carry
+`provenance.sigstore.json`. The next `deploy/release-publish` moves the pin
+forward again.
+
+## Automatic reruns of release-blocking lanes
+
+A failed `e2e-m1` lane gets exactly one automatic rerun in the same workflow
+run, so one flaky attempt cannot hold main red and releases back for hours:
+
+1. The lane's step runs with `continue-on-error`. When it fails or exceeds its
+   timeout, the job:
+   - writes a warning annotation;
+   - adds a job summary line;
+   - uploads the lane's matrix entry as `e2e-rerun-<attempt>-<lane>`.
+2. `e2e-rerun-plan` takes, for each lane, the attempt of its latest job (so a
+   partial `gh run rerun --failed`, such as the infrastructure rerun of
+   `revert-red-main`, keeps first-attempt failures from earlier attempts),
+   collects the entries of those attempts and records them in its job summary
+   and in the artifact `e2e-reruns-<attempt>` (90 days: run, attempt, commit,
+   event and lanes).
+3. `e2e-m1 / <lane> (rerun)` runs each of those lanes once more, from the same
+   agent build. Its job summary says either "passed its automatic rerun" (a
+   recorded flake) or "failed its first attempt and its one automatic rerun".
+   The second case stays red and names the lane.
+4. `e2e-m1`, and through it `all-green` and `deploy/release-publish`, passes
+   only if every lane passed its first attempt or its rerun.
+
+Only the `e2e-m1` matrix lanes are covered. `e2e-certificates` (one 30-minute
+job) and the `caller-key` shards also block `deploy/release-publish`, but they
+run only when their own inputs change and were not the lanes that held main
+red; covering them needs the same plan and rerun pair for each, a follow-up.
+
+Because the rerun happens inside the run, the shared `revert-red-main` workflow
+only sees a failed run after the second failure. A lane is never retried inside
+its own script. A lane that is rerun often is a flaky test to fix: the
+`e2e-reruns-*` artifacts list every rerun.
+
 ## Service credential releases
 
 For existing hosts, use this order. At any failed check, stop before the next

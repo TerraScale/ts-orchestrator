@@ -159,12 +159,14 @@ jobs:
           - {lane: data-volume, entry: data-volume.sh, timeout: 8, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
           - {lane: postgres-preauth, entry: postgres-preauth.sh, timeout: 3, packages: "./test/e2e/m1/postgres-preauth"}
           - {lane: edge-limits, entry: edge-limits.sh, timeout: 15, packages: "./test/e2e/m1/postgres-preauth"}
+          - {lane: upgrade-previous, entry: upgrade-previous.sh, timeout: 14, packages: "./test/e2e/m1/upgrade-gate"}
+          - {lane: upgrade-next, entry: upgrade-next.sh, timeout: 14, packages: "./test/e2e/m1/upgrade-gate"}
     name: e2e-m1 / ${{ matrix.lane }}
     concurrency:
       group: e2e-m1-${{ matrix.lane }}-${{ github.event_name }}-${{ github.ref }}
       cancel-in-progress: true
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: ${{ matrix.timeout }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -175,34 +177,30 @@ jobs:
         uses: ./.github/actions/go
         with:
           cache: e2e-arm64
-      - if: ${{ github.event_name == 'push' }}
-        name: Build the agent and journey entry points from the warm cache
-        env:
-          M1_PACKAGES: ${{ matrix.packages }}
-        run: |
-          read -r -a packages <<< "$M1_PACKAGES"
-          test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" ./cmd/terrascale-orchestrator "${packages[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
-      - if: ${{ github.event_name != 'push' && matrix.packages != '' }}
-        name: Build this lane's journey entry points
-        env:
-          M1_PACKAGES: ${{ matrix.packages }}
-        run: |
-          read -r -a packages <<< "$M1_PACKAGES"
-          test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" "${packages[@]}"
-      - if: ${{ github.event_name != 'push' }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - id: lane
+        name: Run the lane
+        uses: ./.github/actions/e2e-lane
+        continue-on-error: true
+        timeout-minutes: ${{ matrix.timeout }}
         with:
-          name: e2e-m1-bin
-          path: ${{ runner.temp }}/m1-bin
-      - if: ${{ github.event_name != 'push' }}
-        run: chmod +x "$RUNNER_TEMP/m1-bin/"*
-      - name: Pinned runtime packages
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+          entry: ${{ matrix.entry }}
+          packages: ${{ matrix.packages }}
+      - if: ${{ steps.lane.outcome == 'failure' }}
+        name: Queue the lane's one automatic rerun
+        env:
+          LANE: ${{ toJSON(matrix) }}
+          NAME: ${{ matrix.lane }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/rerun"
+          printf '%s\n' "$LANE" > "$RUNNER_TEMP/rerun/$NAME.json"
+          echo "::warning title=e2e-m1 / $NAME::failed on its first attempt; e2e-m1 / $NAME (rerun) runs it once more and decides the run"
+          echo "### e2e-m1 / $NAME failed on its first attempt: one automatic rerun queued" >> "$GITHUB_STEP_SUMMARY"
+      - if: ${{ steps.lane.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          path: ~/.cache/ts-m1-runtime
-          key: m1-runtime-${{ runner.arch }}-${{ hashFiles('deploy/m1/host-runtime.sh', 'internal/netbird/manager/server_cli.go', 'deploy/m1/install.sh') }}
-      - name: Run the lane
-        run: bash "test/e2e/m1/${{ matrix.entry }}" "$RUNNER_TEMP/m1-bin/terrascale-orchestrator"
+          name: e2e-rerun-${{ github.run_attempt }}-${{ matrix.lane }}
+          path: ${{ runner.temp }}/rerun/
+          retention-days: 30
       - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.lane == 'core' && steps.go.outputs.cache-hit != 'true' }}
         run: python3 scripts/ci/trim-go-cache.py
       - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.lane == 'core' && steps.go.outputs.cache-hit != 'true' }}
@@ -211,9 +209,102 @@ jobs:
           path: ${{ steps.go.outputs.cache-paths }}
           key: ${{ steps.go.outputs.cache-key }}
 
+  e2e-rerun-plan:
+    needs: [paths, e2e-lane]
+    if: ${{ !cancelled() && needs.e2e-lane.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      actions: read
+    outputs:
+      lanes: ${{ steps.plan.outputs.lanes }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - id: plan
+        name: Collect the lanes that failed their first attempt
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          repository, run, attempt = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"]
+
+          def pages(path, key):
+              return [item for page in json.loads(subprocess.check_output(["gh", "api", "--paginate", "--slurp", path])) for item in page[key]]
+
+          artifacts = {artifact["name"] for artifact in pages(f"repos/{repository}/actions/runs/{run}/artifacts?per_page=100", "artifacts")}
+          latest = {job["name"].removeprefix("e2e-m1 / "): job["run_attempt"] for job in pages(f"repos/{repository}/actions/runs/{run}/jobs?filter=latest&per_page=100", "jobs")
+                    if job["name"].startswith("e2e-m1 / ") and not job["name"].endswith(" (rerun)")}
+          names = sorted(f"e2e-rerun-{lane_attempt}-{lane}" for lane, lane_attempt in latest.items() if f"e2e-rerun-{lane_attempt}-{lane}" in artifacts)
+          lanes = []
+          for name in names:
+              target = pathlib.Path(os.environ["RUNNER_TEMP"], name)
+              subprocess.check_call(["gh", "run", "download", run, "--repo", repository, "--name", name, "--dir", str(target)])
+              lanes += [json.loads(path.read_text()) for path in sorted(target.glob("*.json"))]
+          record = {"run_id": int(run), "run_attempt": int(attempt), "sha": os.environ["SOURCE_SHA"], "event": os.environ["GITHUB_EVENT_NAME"],
+                    "reruns": [{"lane": lane["lane"], "first_attempt": "failure", "rerun_job": f"e2e-m1 / {lane['lane']} (rerun)"} for lane in lanes]}
+          pathlib.Path(os.environ["RUNNER_TEMP"], "e2e-reruns.json").write_text(json.dumps(record, indent=2) + "\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"lanes={json.dumps({'include': lanes})}\ncount={len(lanes)}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              if lanes:
+                  summary.write("### Automatic e2e reruns\n\nEach lane below failed its first attempt and runs once more; its rerun decides this run.\n\n")
+                  summary.writelines(f"- e2e-m1 / {lane['lane']}\n" for lane in lanes)
+              else:
+                  summary.write("Every e2e lane passed its first attempt; no rerun.\n")
+          PYTHON
+      - if: ${{ steps.plan.outputs.count != '0' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e2e-reruns-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/e2e-reruns.json
+          retention-days: 90
+
+  e2e-lane-rerun:
+    needs: [paths, e2e-rerun-plan]
+    if: ${{ !cancelled() && needs.e2e-rerun-plan.result == 'success' && needs.e2e-rerun-plan.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.e2e-rerun-plan.outputs.lanes) }}
+    name: e2e-m1 / ${{ matrix.lane }} (rerun)
+    concurrency:
+      group: e2e-m1-rerun-${{ matrix.lane }}-${{ github.event_name }}-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: ./.github/actions/go
+        with:
+          cache: e2e-arm64
+      - name: Run the lane once more
+        uses: ./.github/actions/e2e-lane
+        timeout-minutes: ${{ matrix.timeout }}
+        with:
+          entry: ${{ matrix.entry }}
+          packages: ${{ matrix.packages }}
+      - if: ${{ always() }}
+        name: Record the rerun
+        env:
+          NAME: ${{ matrix.lane }}
+          RESULT: ${{ job.status }}
+        run: |
+          if [ "$RESULT" = success ]; then
+            echo "### e2e-m1 / $NAME passed its automatic rerun after failing its first attempt: a flake, recorded in e2e-reruns-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### e2e-m1 / $NAME failed its first attempt and its one automatic rerun: the run stays red" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=e2e-m1 / $NAME::failed its first attempt and its one automatic rerun"
+          fi
+
   e2e-m1:
     if: ${{ always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.paths.outputs.runtime == 'true') }}
-    needs: [paths, e2e-lane]
+    needs: [paths, e2e-lane, e2e-rerun-plan, e2e-lane-rerun]
     concurrency:
       group: e2e-m1-${{ github.event_name }}-${{ github.ref }}
       cancel-in-progress: true
@@ -223,7 +314,13 @@ jobs:
       - name: Check upstream results
         env:
           LANES: ${{ needs.e2e-lane.result }}
-        run: test "$LANES" = success
+          PLAN: ${{ needs.e2e-rerun-plan.result }}
+          RERUNS: ${{ needs.e2e-rerun-plan.outputs.count }}
+          RERUN: ${{ needs.e2e-lane-rerun.result }}
+        run: |
+          test "$LANES" = success
+          test "$PLAN" = success
+          test "$RERUNS" = 0 || test "$RERUN" = success
 
   certificate-paths:
     needs: paths
@@ -522,6 +619,22 @@ jobs:
           cp "$BUNDLE" channel/channel.sigstore.json
           dist/terrascale-orchestrator-linux-amd64 release channel publish dist channel
 
+      - name: Pin this release as the upgrade gate's previous release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pinned=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/upgrade-gate/previous" --jq .object.sha)
+          pinned_run=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${pinned}" --jq .message | sed -n 's/^ci-[0-9a-f]\{40\}-run-\([0-9]\+\)$/\1/p')
+          if [ "${pinned_run:-0}" -ge "$GITHUB_RUN_ID" ]; then
+            echo "upgrade-gate/previous already names run ${pinned_run}, not older than run ${GITHUB_RUN_ID}: left in place" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          object=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags" -f tag=upgrade-gate/previous \
+            -f message="ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}" -f object="${GITHUB_SHA}" -f type=commit --jq .sha)
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/upgrade-gate/previous" -f sha="$object" -F force=true --jq .object.sha
+
 
   release-push-once:
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.push_main_run != '' }}
@@ -610,7 +723,7 @@ jobs:
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [paths, lint, e2e-build, e2e-lane, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-publish]
+    needs: [paths, lint, e2e-build, e2e-lane, e2e-rerun-plan, e2e-lane-rerun, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:

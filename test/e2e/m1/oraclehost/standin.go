@@ -41,6 +41,9 @@ var standInNames = []string{
 	"vaults." + vaultRegion + ".oci.oraclecloud.com",
 	"token.actions.githubusercontent.com",
 	registryHost,
+	githubAPI,
+	githubWeb,
+	githubAssets,
 }
 
 type secret struct {
@@ -64,6 +67,7 @@ type standIn struct {
 	changed  chan struct{}
 	requests map[string]int
 	servers  []*http.Server
+	github   *GitHub
 }
 
 func certificate(template, parent *x509.Certificate, public crypto.PublicKey, signer crypto.Signer) ([]byte, error) {
@@ -108,7 +112,7 @@ func newStandIn(f *Fleet) (*standIn, *tls.Certificate, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	s := &standIn{fleet: f, names: names, caKey: caKey, secrets: map[string]*secret{}, pinned: map[string]int{}, changed: make(chan struct{}), requests: map[string]int{}}
+	s := &standIn{fleet: f, names: names, caKey: caKey, secrets: map[string]*secret{}, pinned: map[string]int{}, changed: make(chan struct{}), requests: map[string]int{}, github: newGitHub()}
 	ca := &x509.Certificate{Subject: pkix.Name{CommonName: "oracle-regions stand-in CA"}, IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
 	if s.caPEM, err = certificate(ca, nil, caKey.Public(), caKey); err != nil {
 		return nil, nil, err
@@ -286,6 +290,8 @@ func (s *standIn) cloud(w http.ResponseWriter, r *http.Request) {
 		s.jwks(w)
 	case host == registryHost && strings.HasPrefix(r.URL.Path, "/v2/"):
 		s.registry(w, r)
+	case host == githubAPI || host == githubWeb || host == githubAssets:
+		s.github.serve(w, r, host)
 	default:
 		serviceError(w, http.StatusNotFound, "NotAuthorizedOrNotFound", "stand-in has no "+r.Method+" "+host+r.URL.Path)
 	}

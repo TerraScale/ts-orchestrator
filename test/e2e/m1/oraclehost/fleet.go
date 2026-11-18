@@ -217,6 +217,15 @@ func (f *Fleet) prepare(host *Host) error {
 	if err := os.Symlink(filepath.Base(installedPath), filepath.Join(host.Dir, "bin", "ts-orch")); err != nil {
 		return err
 	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{systemctlCommand, analyzeCommand} {
+		if err := copyFile(self, filepath.Join(host.Dir, "bin", name), 0o755); err != nil {
+			return err
+		}
+	}
 	for _, name := range []string{"containerd", "containerd-shim-runc-v2"} {
 		path, err := exec.LookPath(name)
 		if err != nil {

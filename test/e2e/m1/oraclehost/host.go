@@ -46,6 +46,9 @@ type Event struct {
 }
 
 func Main() bool {
+	if name := filepath.Base(os.Args[0]); name == systemctlCommand || name == analyzeCommand {
+		os.Exit(serviceManager(name, os.Args[1:]))
+	}
 	if len(os.Args) < 3 {
 		return false
 	}
@@ -307,6 +310,9 @@ func (s *supervisor) start() (<-chan string, error) {
 	s.child = cmd
 	s.mu.Unlock()
 	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	if err := s.recordStart(cmd.Process.Pid, hex.EncodeToString(invocation)); err != nil {
 		return nil, err
 	}
 	s.emit("started", revision, fmt.Sprint(cmd.Process.Pid))
