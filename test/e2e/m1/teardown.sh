@@ -12,7 +12,7 @@ active_units() {
 }
 
 enabled_units() {
-	systemctl list-unit-files --plain --no-legend --state=enabled,enabled-runtime "${unit_patterns[@]}" | awk '{print $1}'
+	systemctl list-unit-files --plain --no-legend | awk '$2 ~ /^(enabled|enabled-runtime)$/ && $1 ~ /^(ts-orch.*|containerd.*|netbird.*|terrascale-.*|ts-e2e-.*|docker\.(service|socket))$/ {print $1}'
 }
 
 volume_mounts() {
