@@ -172,6 +172,17 @@ groups:
         annotations:
           summary: A public edge listener is unavailable
           description: Inspect listener bind errors. Other edge protocols continue serving; no manual release prerequisite is required.
+  - name: regional-handoff
+    rules:
+      - alert: RegionalDrainRefused
+        expr: max by (source, code) (ts_orch_regional_drain_refused{job="host-storage"}) > 0
+        for: 5m
+        labels:
+          service: terrabase
+          severity: critical
+        annotations:
+          summary: A regional TerraBase keeps refusing the handoff that its stop needs
+          description: ts_orch_regional_drain_refused is 1 while the source node's TerraBase refuses the regional prime or drain with the given code. The stop stays gated, the task keeps serving, and the edge retries once per backoff window (30 seconds doubling to 10 minutes) without holding ingress in between. The task's state message names the refusal and the next attempt. Read the source TerraBase's "Regional handoff refused" log line for the reason. Never force the stop, the drain or a member leave.
   - name: desired-state
     rules:
       - alert: ServiceSpecInvalid

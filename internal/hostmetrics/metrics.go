@@ -186,6 +186,7 @@ func Handler(region, address string, executor *swarmruntime.Executor) http.Handl
 		observability.WriteNodeFeatureMetrics(&body)
 		observability.WriteEdgeResponseMetrics(&body)
 		edge.WritePostgresPreauthMetrics(&body)
+		edge.WriteRegionalDrainMetrics(&body)
 		ociresource.WriteMetrics(&body)
 		fleet.WriteNodeMetrics(&body)
 		selfheal.WriteMetrics(&body)

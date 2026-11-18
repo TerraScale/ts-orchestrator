@@ -416,7 +416,14 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 
 // DrainRegionalNode authorizes a stop only after ingress has drained and a
 // different ready node owns the region following an applied-position handoff.
-func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
+func (e *Edge) DrainRegionalNode(ctx context.Context, node, task string) error {
+	if err := regionalRefusalPending(node, task, time.Now()); err != nil {
+		return err
+	}
+	return regionalRefusalRecord(node, task, e.drainRegionalNode(ctx, node), time.Now())
+}
+
+func (e *Edge) drainRegionalNode(ctx context.Context, node string) error {
 	router := e.regional.Load()
 	if router == nil {
 		return errors.New("regional routing unavailable")
@@ -451,7 +458,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 		}
 		response.Body.Close()
 		if response.StatusCode != http.StatusNoContent {
-			return fmt.Errorf("regional prime HTTP %d", response.StatusCode)
+			return &regionalRefusal{code: fmt.Sprintf("prime_http_%d", response.StatusCode), err: fmt.Errorf("regional prime HTTP %d", response.StatusCode)}
 		}
 	}
 	release, err := router.hold(ctx)
@@ -567,17 +574,14 @@ func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source
 			return fmt.Errorf("%w: %w", lastErr, ctx.Err())
 		}
 		lastErr = fmt.Errorf("regional handoff HTTP %d", response.StatusCode)
+		code := fmt.Sprintf("drain_http_%d", response.StatusCode)
 		if refusal.Error.Code != "" {
 			lastErr = fmt.Errorf("%w: %s", lastErr, refusal.Error.Code)
+			code = refusal.Error.Code
 		}
 		delay, ok := regionalDrainDelay(response.Header.Get("Retry-After"))
-		if response.StatusCode != http.StatusServiceUnavailable || !ok {
-			return lastErr
-		}
-		switch refusal.Error.Code {
-		case "source_retiring":
-		default:
-			return lastErr
+		if response.StatusCode != http.StatusServiceUnavailable || !ok || refusal.Error.Code != "source_retiring" {
+			return &regionalRefusal{code: code, err: lastErr}
 		}
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= delay+10*time.Second {
 			return fmt.Errorf("%w: %w", lastErr, context.DeadlineExceeded)
