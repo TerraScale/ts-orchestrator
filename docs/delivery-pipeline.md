@@ -36,27 +36,48 @@ Caller-key change detection restores only module sources under its own cache
 name; the caller-key builder has a separate build/module cache. Neither restores
 the lint audit cache. Lint uses a fresh namespace to exclude oversized historical
 entries. Cache keys include the pinned Go version, go.sum and UTC date, with a
-restore prefix restricted to the same dependency hash. A job saves at most once
-per day for those inputs instead of once per commit. Before saving, compiled
+restore prefix restricted to the same dependency hash. Most jobs save at most once
+per day for those inputs. The main release builder saves once per run and
+restores the newest matching dependency cache without trimming compiled
+outputs: both architectures must remain warm across releases. Other compiled
 build caches are trimmed oldest-first to 1 GiB; module sources are retained.
 Go rebuilds evicted outputs it needs. ARM64 journey and release producers retain
 their cache names and save the paths returned by the action. Job time limits
 are unchanged.
 
-The `verify/go + artifact/linux-amd64-arm64` job compares the push's
+Without exact PR tree proof, the `verify/go + artifact/linux-amd64-arm64`
+job compares the push's
 executable inputs with the newest retained `ci-*` release in its history:
 different inputs publish, and the same inputs skip publication and
 `deploy/release-publish` when that release's run succeeded; a release whose run
 did not succeed is passed over for the next older one. Publishing builds static
 amd64/arm64 binaries, verifies their source metadata and publishes the binaries
-plus `qualification.json` on the GitHub release `ci-<sha>-run-<id>`. Use
+plus `qualification.json` on a draft GitHub release `ci-<sha>-run-<id>`. Use
 `gh run view` for individual run details and `gh release view` or
 `gh release download` for retained artifacts.
 
-The main-only `deploy/release-publish` job waits for the required checks,
-attests the retained binaries with Sigstore and uploads provenance.sigstore.json
-to their GitHub release. It does not deliver a binary to a host or send a nudge.
-The publication identity remains the qualified main CI workflow.
+Before building, main checks GitHub's merged-PR association for its exact
+commit, the PR head's tree against main's Git tree and the successful
+`all-green` job in a completed PR run of `ci.yml`. Only same-repository PRs
+qualify. The search considers the latest 100 successful PR runs; no match
+uses main's lanes. API errors fail the build. The proof, including run,
+attempt, head, tree and gate URL, is written to the build summary.
+
+For a proven tree, the main-only `deploy/release-publish` job needs only
+the fresh main build. Source scans already passed on that exact PR tree;
+main still builds both architectures in parallel and checks and audits the
+actual release binaries. It attests them with Sigstore, uploads
+`provenance.sigstore.json`, makes the draft public and publishes the signed
+regional channels. Without that proof, `release-publish-after-lanes` waits
+for the same main lane gates as before and runs the identical publisher.
+Only the selected job has the check name `deploy/release-publish`.
+
+All main lanes still run independently. `all-green` waits for them and both
+publication paths, rejects failed or cancelled jobs and requires publication
+when a build is required. `revert-red-main.yml` still observes the completed
+CI run. Neither path delivers a binary to a host or sends a nudge. The
+publication identity remains this push's main CI workflow, source and run;
+no PR binary or attestation is reused.
 
 ## Host pull and regional order
 
