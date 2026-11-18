@@ -17,16 +17,26 @@ grep -q 'service e2e-whoami updated .* update=rollback_completed' "$work/events.
 orch service ps e2e-whoami
 end "never-ready deploy -> rolled back, previous task serves"
 
+free_cpu() {
+	local reserved=0 name
+	for name in $(orch service ls | awk 'NR > 1 {print $1}'); do
+		reserved=$((reserved + $(orch service inspect "$name" | jq '(.spec.milliCPU // 50) * (.spec.replicas // 1)')))
+	done
+	echo $(($(nproc) * 1000 - 250 - reserved))
+}
+fit_spec() {
+	jq -n --arg image "$(jq -r .image "$here/whoami.json")" --arg name "$1" --argjson port "$2" --argjson replicas "$3" --argjson cpu "$4" --arg release "$5" \
+		'{name: $name, image: $image, env: {WHOAMI_PORT_NUMBER: "${PORT}", E2E_RELEASE: $release}, port: $port, readyPath: "/health", replicas: $replicas, milliCPU: $cpu}'
+}
+running_tasks() {
+	orch service ps "$1" | awk 'NR > 1 && / running +running / {print $1}' | sort | xargs
+}
+refused="update refused: start-first candidate .* cannot be placed (no suitable node (insufficient resources on 1 node)) without stopping the last of 1 serving tasks"
+
 begin "start-first candidate with no room on the only node is refused, its serving task stays"
-reserved=0
-for name in $(orch service ls | awk 'NR > 1 {print $1}'); do
-	reserved=$((reserved + $(orch service inspect "$name" | jq '.spec.milliCPU // 50')))
-done
-cpu=$((($(nproc) * 1000 - 250 - reserved) / 2 + 1))
-jq -n --arg image "$(jq -r .image "$here/whoami.json")" --argjson cpu "$cpu" \
-	'{name: "e2e-fit", image: $image, env: {WHOAMI_PORT_NUMBER: "${PORT}", E2E_RELEASE: "1"}, port: 18084, readyPath: "/health", replicas: 1, milliCPU: $cpu}' >"$work/fit-1.json"
+fit_spec e2e-fit 18084 1 $(($(free_cpu) / 2 + 1)) 1 >"$work/fit-1.json"
 orch service apply -f "$work/fit-1.json"
-serving=$(orch service ps e2e-fit | awk 'NR > 1 && / running +running / {print $1}')
+serving=$(running_tasks e2e-fit)
 [[ -n $serving ]]
 jq '.env.E2E_RELEASE = "2"' "$work/fit-1.json" >"$work/fit-2.json"
 if orch service apply -f "$work/fit-2.json" >"$work/fit.txt" 2>&1; then
@@ -35,7 +45,7 @@ if orch service apply -f "$work/fit-2.json" >"$work/fit.txt" 2>&1; then
 	exit 1
 fi
 cat "$work/fit.txt"
-grep -q "update refused and rolled back: start-first candidate .* cannot be placed (no suitable node (insufficient resources on 1 node)), and stopping first would stop all 1 serving tasks" "$work/fit.txt"
+grep -q "$refused; the previous spec is restored" "$work/fit.txt"
 only_serving() {
 	[[ $(orch service ps e2e-fit | awk 'NR > 1 && / [a-z]+ +running +[0-9hms]+ ago/ {print $1, ($0 ~ / running +running /)}') == "$serving 1" ]]
 }
@@ -44,3 +54,66 @@ orch service ps e2e-fit
 orch service inspect e2e-fit | jq -e '.spec.env.E2E_RELEASE == "1"'
 orch service rm e2e-fit
 end "unplaceable start-first candidate -> update refused, the same task keeps serving the previous spec"
+
+begin "two replicas with no room for a candidate update one slot at a time, and a candidate that never fits is refused"
+free=$(free_cpu)
+small=$((free / 3 + 1))
+fit_spec e2e-pair 18085 2 "$small" 1 >"$work/pair-1.json"
+orch service apply -f "$work/pair-1.json"
+fit_spec e2e-pair 18085 2 "$small" 2 >"$work/pair-2.json"
+orch service apply -f "$work/pair-2.json"
+orch service ps e2e-pair
+serving=$(running_tasks e2e-pair)
+[[ $(wc -w <<<"$serving") == 2 ]]
+orch service inspect e2e-pair | jq -e '.spec.env.E2E_RELEASE == "2"'
+fit_spec e2e-pair 18085 2 $((free - small + 1)) 3 >"$work/pair-3.json"
+if orch service apply -f "$work/pair-3.json" >"$work/pair.txt" 2>&1; then
+	cat "$work/pair.txt"
+	echo "an update whose candidate never fits reported success" >&2
+	exit 1
+fi
+cat "$work/pair.txt"
+grep -q "$refused; the previous spec is restored" "$work/pair.txt"
+kept=$(comm -12 <(tr ' ' '\n' <<<"$serving") <(running_tasks e2e-pair | tr ' ' '\n'))
+[[ $(wc -w <<<"$kept") == 1 ]]
+pair_restored() {
+	[[ $(orch service ps e2e-pair | awk 'NR > 1 && / [a-z]+ +running +[0-9hms]+ ago/ {desired++; running += ($0 ~ / running +running /)} END {print desired + 0, running + 0}') == "2 2" ]]
+}
+wait_for 30 pair_restored
+orch service ps e2e-pair
+running_tasks e2e-pair | grep -qw "$kept"
+orch service inspect e2e-pair | jq -e '.spec.env.E2E_RELEASE == "2"'
+orch service rm e2e-pair
+end "two replicas -> stop-first one slot at a time; a never-fitting candidate is refused while an original task keeps serving"
+
+begin "an unplaceable release never hands the serving task to the unserved release it superseded"
+fit_spec e2e-over 18086 1 $(($(free_cpu) / 2 + 1)) 1 >"$work/over-1.json"
+orch service apply -f "$work/over-1.json"
+serving=$(running_tasks e2e-over)
+[[ -n $serving ]]
+jq '.env.E2E_RELEASE = "2"' "$work/over-1.json" >"$work/over-2.json"
+jq '.env.E2E_RELEASE = "3"' "$work/over-1.json" >"$work/over-3.json"
+orch service apply -f "$work/over-2.json" >"$work/over-2.txt" 2>&1 &
+superseded=$!
+second_written() {
+	orch service inspect e2e-over | jq -e '.spec.env.E2E_RELEASE == "2"' >/dev/null
+}
+wait_for 10 second_written
+if orch service apply -f "$work/over-3.json" >"$work/over-3.txt" 2>&1; then
+	cat "$work/over-3.txt"
+	echo "an update with no room for its candidate reported success" >&2
+	exit 1
+fi
+cat "$work/over-3.txt"
+grep -q "$refused; they run neither this nor the previous spec" "$work/over-3.txt"
+if wait "$superseded"; then
+	cat "$work/over-2.txt"
+	echo "the superseded release reported success" >&2
+	exit 1
+fi
+cat "$work/over-2.txt"
+orch service ps e2e-over
+orch service inspect e2e-over | jq -e '.spec.env.E2E_RELEASE == "3"'
+[[ $(running_tasks e2e-over) == "$serving" ]]
+orch service rm e2e-over
+end "release 3 refused while 2 was still unplaced -> neither replaces the serving release 1"

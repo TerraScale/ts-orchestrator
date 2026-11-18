@@ -478,7 +478,13 @@ service port from the newest ready task while the old one drains. When the
 node has no room for both tasks (E16: a 2-CPU host), a candidate still unplaced
 for insufficient resources 5 s after it was created falls back to stop-first for
 that update: the old task stops, the candidate starts, and the release reply says
-`stop-first: candidate did not fit`. Proof 2026-10-22 on sjc and fra (`w14-speed` with
+`stop-first: candidate did not fit`. The fallback runs only while another task
+keeps serving: the updater moves to the next slot only after the replacement in
+the current slot runs. When stopping first would stop the last serving task, or
+a candidate is still unplaced 5 s after its slot's old task stopped, the update
+is refused. The refusal restores the previous spec when the serving tasks run it.
+Otherwise the spec stays and its candidate waits for room while the serving tasks
+keep serving. Proof 2026-10-22 on sjc and fra (`w14-speed` with
 `"regions": ["sjc","fra"]`, hostnames `w14-sjc`/`w14-fra.terrascale.tech`,
 probes every 50 ms from ts-sjc-1 through the public HTTPS edge):
 

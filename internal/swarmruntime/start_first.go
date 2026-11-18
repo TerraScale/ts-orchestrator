@@ -9,54 +9,68 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/manager/orchestrator"
 )
 
 // startFirstPlacementGrace is how long a start-first candidate may stay
 // unplaced for lack of resources before its update falls back to stop-first.
 const startFirstPlacementGrace = 5 * time.Second
 
-// unplacedCandidate returns a start-first candidate the scheduler has refused
-// for lack of resources since at least startFirstPlacementGrace ago: the old
-// task's reservation leaves no room for both (E16: 2-CPU hosts).
-func unplacedCandidate(service *api.Service, tasks []*api.Task, now time.Time) *api.Task {
-	if service.Spec.Update == nil || service.Spec.Update.Order != api.UpdateConfig_START_FIRST {
+func unplacedCandidates(requested *api.UpdateConfig, tasks []*api.Task, now time.Time) []*api.Task {
+	if requested == nil || requested.Order != api.UpdateConfig_START_FIRST {
 		return nil
 	}
+	var unplaced []*api.Task
 	for _, task := range tasks {
 		created, err := types.TimestampFromProto(task.Meta.CreatedAt)
-		// SwarmKit's scheduler writes "no suitable node (insufficient resources on N node(s))".
 		if err == nil && task.NodeID == "" && task.Status.State == api.TaskStatePending &&
 			strings.Contains(task.Status.Err, "insufficient resources") && now.Sub(created) >= startFirstPlacementGrace {
-			return task
+			unplaced = append(unplaced, task)
 		}
 	}
-	return nil
+	return unplaced
 }
 
 type UnplacedCandidateError struct {
 	Service, Task, Reason string
 	Serving               int
+	Restored              bool
 }
 
 func (e *UnplacedCandidateError) Error() string {
-	return fmt.Sprintf("service %s update refused and rolled back: start-first candidate %s cannot be placed (%s), and stopping first would stop all %d serving tasks", e.Service, e.Task, e.Reason, e.Serving)
+	refused := fmt.Sprintf("service %s update refused: start-first candidate %s cannot be placed (%s) without stopping the last of %d serving tasks", e.Service, e.Task, e.Reason, e.Serving)
+	if e.Restored {
+		return refused + "; the previous spec is restored and its serving tasks keep serving"
+	}
+	return refused + "; they run neither this nor the previous spec, so they keep serving and the candidate stays pending"
 }
 
-func stopFirstEndsService(ctx context.Context, client api.ControlClient, service *api.Service, upToDate []*api.Task) (int, bool, error) {
-	listed, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+type serviceRoom struct {
+	serving      int
+	endsService  bool
+	servingSlots map[uint64]bool
+}
+
+func roomForCandidates(ctx context.Context, client api.ControlClient, service *api.Service, upToDate []*api.Task) (serviceRoom, error) {
+	room := serviceRoom{servingSlots: map[uint64]bool{}}
+	listed, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}}})
 	if err != nil {
-		return 0, false, err
+		return room, err
 	}
 	current := make(map[string]bool, len(upToDate))
 	for _, task := range upToDate {
 		current[task.ID] = true
 	}
-	var serving, old uint64
+	var old uint64
 	for _, task := range listed.Tasks {
 		if task.Status.State != api.TaskStateRunning {
 			continue
 		}
-		serving++
+		room.servingSlots[task.Slot] = true
+		if task.DesiredState != api.TaskStateRunning {
+			continue
+		}
+		room.serving++
 		if !current[task.ID] {
 			old++
 		}
@@ -65,10 +79,11 @@ func stopFirstEndsService(ctx context.Context, client api.ControlClient, service
 	if parallelism := service.Spec.Update.Parallelism; parallelism != 0 && parallelism < old {
 		stopped = parallelism
 	}
-	return int(serving), serving != 0 && stopped == serving, nil
+	room.endsService = room.serving != 0 && stopped == uint64(room.serving)
+	return room, nil
 }
 
-func refuseUnplaced(ctx context.Context, client api.ControlClient, service *api.Service, candidate *api.Task, serving int) error {
+func refuseUnplaced(ctx context.Context, client api.ControlClient, service *api.Service, previous *api.Service, requested *api.UpdateConfig, candidate *api.Task) error {
 	unlock, err := lockServiceSpecs(ctx, client)
 	if err != nil {
 		return err
@@ -81,10 +96,35 @@ func refuseUnplaced(ctx context.Context, client api.ControlClient, service *api.
 	if !proto.Equal(latest.Service.SpecVersion, service.SpecVersion) {
 		return fmt.Errorf("service %s changed during its refused update", service.Spec.Annotations.Name)
 	}
-	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: service.ID, ServiceVersion: &latest.Service.Meta.Version, Spec: &latest.Service.Spec, Rollback: api.UpdateServiceRequest_PREVIOUS}); err != nil {
+	listed, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+	if err != nil {
 		return err
 	}
-	return &UnplacedCandidateError{Service: service.Spec.Annotations.Name, Task: candidate.ID, Reason: candidate.Status.Err, Serving: serving}
+	refusal := &UnplacedCandidateError{Service: service.Spec.Annotations.Name, Task: candidate.ID, Reason: candidate.Status.Err, Restored: previous != nil}
+	for _, task := range listed.Tasks {
+		if task.Status.State == api.TaskStateRunning {
+			refusal.Serving++
+			refusal.Restored = refusal.Restored && !orchestrator.IsTaskDirty(previous, task, nil)
+		}
+	}
+	spec := latest.Service.Spec.Copy()
+	spec.Update = requested.Copy()
+	if refusal.Restored {
+		spec = previous.Spec.Copy()
+	} else if proto.Equal(latest.Service.Spec.Update, requested) {
+		return refusal
+	}
+	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: service.ID, ServiceVersion: &latest.Service.Meta.Version, Spec: spec}); err != nil {
+		return err
+	}
+	return refusal
+}
+
+func previousService(service *api.Service) *api.Service {
+	if service.PreviousSpec == nil {
+		return nil
+	}
+	return &api.Service{ID: service.ID, Spec: *service.PreviousSpec.Copy(), SpecVersion: service.PreviousSpecVersion.Copy()}
 }
 
 // stopFirst is update with the old task stopped before the candidate starts.
@@ -94,22 +134,6 @@ func stopFirst(update *api.UpdateConfig) *api.UpdateConfig {
 	update = update.Copy()
 	update.Order, update.FailureAction = api.UpdateConfig_STOP_FIRST, api.UpdateConfig_PAUSE
 	return update
-}
-
-// candidateFailed reports a task of service's template that failed since the
-// fallback. The restarted updater adopts the candidate without tracking its
-// failures, so SwarmKit itself would neither pause nor roll back.
-func candidateFailed(ctx context.Context, client api.ControlClient, service *api.Service, since time.Time) error {
-	listed, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}, UpToDate: true}})
-	if err != nil {
-		return err
-	}
-	for _, task := range listed.Tasks {
-		if (task.Status.State == api.TaskStateFailed || task.Status.State == api.TaskStateRejected) && TaskTime(task).After(since) {
-			return fmt.Errorf("service %s candidate failed after the stop-first fallback: %s", service.Spec.Annotations.Name, task.Status.Err)
-		}
-	}
-	return nil
 }
 
 // writeUpdatePolicy rewrites only the update policy of the spec service was
