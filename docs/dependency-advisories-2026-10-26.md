@@ -196,3 +196,31 @@ The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
 `babf9117ecc5f0e744f168e2a8d04cd02e0533126e99706d814c8dbbd0539217`; the
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.
+
+## 2026-11-18: a fixed-port stop-first replacement waits for its predecessor; acknowledged task statuses survive a failed batch
+
+C29 changes four files. None of these behaviours is fixed upstream at v2.1.3 or
+at master `a34f01e8c` (2026-11-03).
+
+- `manager/orchestrator/restart/restart.go`: `DelayStart` used to start a
+  stop-first replacement once its one-minute old-task timer fired, even while
+  its predecessor still ran. A replacement that publishes host ports now
+  waits, with no time limit, until no sibling told to stop is STARTING or
+  RUNNING in its slot or on its node, unless that node is DOWN or deleted.
+  While it waits, an in-progress update's status message names the wait.
+- `manager/orchestrator/taskinit/init.go`: after a leader change, a READY
+  candidate that publishes host ports goes through the same wait instead of
+  `StartNow`.
+- `manager/orchestrator/update/updater.go`: while an update is in progress,
+  a slot whose READY candidate still waits on a host-port holder counts as
+  dirty, so the updater adopts the candidate and its failure action still
+  applies. Tasks without host ports are unchanged.
+- `manager/dispatcher/dispatcher.go`: `processUpdates` used to drop the task
+  statuses of a failed store batch after `UpdateTaskStatus` had acknowledged
+  them. They are now re-queued unless the store already holds them or a newer
+  status has arrived.
+
+The e2e-m1 rollback lane exercises the wait with real containerd tasks.
+The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
+`ff640f62edd7c1c9406e64fbd75dd92784647ac3cd105780726829cb6955dd0a`; the v2.1.2 baseline and upstream commit
+`12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb` remain unchanged.

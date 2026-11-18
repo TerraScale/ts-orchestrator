@@ -19,7 +19,7 @@ BASELINES = (
         "github.com/moby/swarmkit/v2", "v2.1.2", "third_party/swarmkit",
         "12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb",
         "docs/dependency-advisories-2026-10-26.md",
-        "babf9117ecc5f0e744f168e2a8d04cd02e0533126e99706d814c8dbbd0539217",
+        "ff640f62edd7c1c9406e64fbd75dd92784647ac3cd105780726829cb6955dd0a",
     ),
     (
         "github.com/nats-io/nats-server/v2", "v2.15.0", "third_party/nats-server",
