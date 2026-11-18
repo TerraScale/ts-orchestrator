@@ -84,22 +84,9 @@ func (nodeInfo *NodeInfo) removeTask(t *api.Task) bool {
 		}
 	}
 
-	reservations := taskReservations(t.Spec)
-	resources := nodeInfo.AvailableResources
-
-	resources.MemoryBytes += reservations.MemoryBytes
-	resources.NanoCPUs += reservations.NanoCPUs
-
-	if nodeInfo.Description == nil || nodeInfo.Description.Resources == nil ||
-		nodeInfo.Description.Resources.Generic == nil {
-		return true
+	if reserves(oldTask) {
+		nodeInfo.release(oldTask)
 	}
-
-	taskAssigned := t.AssignedGenericResources
-	nodeAvailableResources := &resources.Generic
-	nodeRes := nodeInfo.Description.Resources.Generic
-	genericresource.Reclaim(nodeAvailableResources, taskAssigned, nodeRes)
-
 	return true
 }
 
@@ -108,13 +95,15 @@ func (nodeInfo *NodeInfo) removeTask(t *api.Task) bool {
 func (nodeInfo *NodeInfo) addTask(t *api.Task) bool {
 	oldTask, ok := nodeInfo.Tasks[t.ID]
 	if ok {
-		if t.DesiredState <= api.TaskStateCompleted && oldTask.DesiredState > api.TaskStateCompleted {
+		if reserves(t) && !reserves(oldTask) {
 			nodeInfo.Tasks[t.ID] = t
+			nodeInfo.reserve(t)
 			nodeInfo.ActiveTasksCount++
 			nodeInfo.ActiveTasksCountByService[t.ServiceID]++
 			return true
-		} else if t.DesiredState > api.TaskStateCompleted && oldTask.DesiredState <= api.TaskStateCompleted {
+		} else if !reserves(t) && reserves(oldTask) {
 			nodeInfo.Tasks[t.ID] = t
+			nodeInfo.release(oldTask)
 			nodeInfo.ActiveTasksCount--
 			nodeInfo.ActiveTasksCountByService[t.ServiceID]--
 			return true
@@ -123,18 +112,9 @@ func (nodeInfo *NodeInfo) addTask(t *api.Task) bool {
 	}
 
 	nodeInfo.Tasks[t.ID] = t
-
-	reservations := taskReservations(t.Spec)
-	resources := nodeInfo.AvailableResources
-
-	resources.MemoryBytes -= reservations.MemoryBytes
-	resources.NanoCPUs -= reservations.NanoCPUs
-
-	// minimum size required
-	t.AssignedGenericResources = make([]*api.GenericResource, 0, len(resources.Generic))
-	taskAssigned := &t.AssignedGenericResources
-
-	genericresource.Claim(&resources.Generic, taskAssigned, reservations.Generic)
+	if reserves(t) {
+		nodeInfo.reserve(t)
+	}
 
 	if t.Endpoint != nil {
 		for _, port := range t.Endpoint.Ports {
@@ -145,12 +125,41 @@ func (nodeInfo *NodeInfo) addTask(t *api.Task) bool {
 		}
 	}
 
-	if t.DesiredState <= api.TaskStateCompleted {
+	if reserves(t) {
 		nodeInfo.ActiveTasksCount++
 		nodeInfo.ActiveTasksCountByService[t.ServiceID]++
 	}
 
 	return true
+}
+
+func reserves(t *api.Task) bool {
+	return t.DesiredState <= api.TaskStateCompleted
+}
+
+func (nodeInfo *NodeInfo) reserve(t *api.Task) {
+	reservations := taskReservations(t.Spec)
+	resources := nodeInfo.AvailableResources
+
+	resources.MemoryBytes -= reservations.MemoryBytes
+	resources.NanoCPUs -= reservations.NanoCPUs
+
+	t.AssignedGenericResources = make([]*api.GenericResource, 0, len(resources.Generic))
+	genericresource.Claim(&resources.Generic, &t.AssignedGenericResources, reservations.Generic)
+}
+
+func (nodeInfo *NodeInfo) release(t *api.Task) {
+	reservations := taskReservations(t.Spec)
+	resources := nodeInfo.AvailableResources
+
+	resources.MemoryBytes += reservations.MemoryBytes
+	resources.NanoCPUs += reservations.NanoCPUs
+
+	if nodeInfo.Description == nil || nodeInfo.Description.Resources == nil ||
+		nodeInfo.Description.Resources.Generic == nil {
+		return
+	}
+	genericresource.Reclaim(&resources.Generic, t.AssignedGenericResources, nodeInfo.Description.Resources.Generic)
 }
 
 func taskReservations(spec api.TaskSpec) (reservations api.Resources) {

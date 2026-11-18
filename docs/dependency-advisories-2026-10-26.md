@@ -165,3 +165,32 @@ The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
 `57ce89504a724988faacc67fc8e5841b892c8dfee8c5e7bf491d53831473c57b`; the
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.
+
+## 2026-11-18: scheduler re-queues wanted tasks and frees stopping tasks' reservations
+
+C1c changes two files in `manager/scheduler`. Neither behaviour is fixed upstream
+at v2.1.3 or at master `a34f01e8c` (2026-11-03).
+
+- `scheduler.go` `noSuitableNode` used to drop every task whose spec version
+  was older than its service's from the scheduling queue, writing nothing to
+  it, so no later event brought it back. Every service write bumps the spec
+  version, including a labels-only write and the stop-first update-order
+  rewrite. A still-wanted pending task then stayed pending even after room
+  appeared (gru ts-dashboard, 2026-11-18). Now only an old-version task that is
+  pending and desired shutdown is shut down; every other task gets its error
+  and is re-queued.
+- `nodeinfo.go`: a task reserves CPU, memory and generic resources only while
+  its desired state is COMPLETE or lower, the threshold the active-task count
+  already used. The reservation is released on that transition, and the
+  scheduler runs a pass when it is. A task first seen past that state is not
+  reserved; `removeTask` and the `createOrUpdateNode` recount skip such tasks.
+  Host ports stay held until the task is removed. A task told to shut down
+  that keeps running, such as TerraBase while its regional handoff is refused,
+  no longer holds room beside its replacement. When and how a task stops is
+  unchanged.
+
+The e2e-m1 rollback lane exercises both with real containerd tasks.
+The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
+`bee8e8bd57df6776082927f17ede09214a4acf120e786929cc8dcb47bbce6751`; the
+v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
+remain unchanged.
