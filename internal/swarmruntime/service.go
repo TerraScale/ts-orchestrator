@@ -515,7 +515,6 @@ func (e *RollbackError) Error() string {
 
 // WaitServiceSpec waits until every replica of the service's current spec is
 // RUNNING and passes probe (when given). A rollback or a paused update is an error.
-// A start-first candidate the node has no room for falls back to stop-first.
 func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api.Service, probe func(context.Context, *api.Task) error) (ServiceRollout, error) {
 	ctx, cancel := context.WithTimeout(ctx, serviceRollout+2*ReadyTimeout(service.Spec.Annotations.Labels))
 	defer cancel()
@@ -568,6 +567,13 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 			return rollout, notReady(err)
 		}
 		if task := unplacedCandidate(service, listed.Tasks, time.Now()); task != nil {
+			serving, last, err := stopFirstEndsService(ctx, client, service, listed.Tasks)
+			if err != nil {
+				return rollout, notReady(err)
+			}
+			if last {
+				return rollout, refuseUnplaced(ctx, client, service, task, serving)
+			}
 			slog.WarnContext(ctx, "start-first candidate cannot be placed; updating stop-first", "service", service.Spec.Annotations.Name, "task", task.ID, "reason", task.Status.Err)
 			if service, err = writeUpdatePolicy(ctx, client, service, stopFirst(service.Spec.Update)); err != nil {
 				return rollout, err
