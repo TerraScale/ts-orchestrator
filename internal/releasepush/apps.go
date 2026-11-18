@@ -7,11 +7,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
-	"github.com/moby/swarmkit/v2/api"
 )
 
 func Digests(ctx context.Context, args []string, output io.Writer) error {
@@ -76,7 +78,7 @@ func WaitApp(ctx context.Context, args []string, output io.Writer) error {
 		return err
 	}
 	if err := waitObservations(ctx, regions, func(observation Observation) bool {
-		return api.CanonicalAppImage(observation.Running[*service]) == api.CanonicalAppImage(*image)
+		return appregistry.SameDigest(observation.Running[*service], *image)
 	}); err != nil {
 		return err
 	}
@@ -97,7 +99,7 @@ func WaitHosts(ctx context.Context, args []string, output io.Writer) error {
 			return false
 		}
 		for _, host := range observation.Hosts {
-			if host.Version != args[0] || host.State != "" || host.RolledBack != "" || host.Error != "" || host.Refusal != nil {
+			if host.Version != args[0] || host.State != "" || host.RolledBack != "" || host.Error != "" || host.Refusal != nil || host.Down {
 				return false
 			}
 		}
@@ -114,6 +116,7 @@ func waitObservations(ctx context.Context, regions []Region, ready func(Observat
 	defer cancel()
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
+	previous := map[string]string{}
 	for {
 		token, err := MintToken(ctx)
 		if err != nil {
@@ -122,6 +125,29 @@ func waitObservations(ctx context.Context, regions []Region, ready func(Observat
 		complete := true
 		for _, region := range regions {
 			observation, status, err := fetchObservation(ctx, region, "", token)
+			confirmed := err == nil && status == 200 && observation.Health == "ok" && ready(observation)
+			fetchError := ""
+			if err != nil {
+				fetchError = err.Error()
+			}
+			slices.SortFunc(observation.Hosts, func(a, b HostVersion) int { return strings.Compare(a.ID, b.ID) })
+			state, encodeErr := json.Marshal(struct {
+				Status     int               `json:"status"`
+				Ready      bool              `json:"ready"`
+				Health     string            `json:"health"`
+				Error      string            `json:"error,omitempty"`
+				FetchError string            `json:"fetch_error,omitempty"`
+				Hosts      []HostVersion     `json:"hosts"`
+				Images     map[string]string `json:"images"`
+				Running    map[string]string `json:"running"`
+			}{status, confirmed, observation.Health, observation.Error, fetchError, observation.Hosts, observation.Images, observation.Running})
+			if encodeErr != nil {
+				return encodeErr
+			}
+			if string(state) != previous[region.Region] {
+				previous[region.Region] = string(state)
+				slog.InfoContext(ctx, "Region release observation", "region", region.Region, "observed_at", time.Now().UTC().Format(time.RFC3339Nano), "state", string(state))
+			}
 			if status == 401 || status == 403 {
 				return fmt.Errorf("%s: observation HTTP %d", region.Region, status)
 			}
@@ -132,7 +158,7 @@ func waitObservations(ctx context.Context, regions []Region, ready func(Observat
 			if status != 200 && status != 503 {
 				return fmt.Errorf("%s: observation HTTP %d", region.Region, status)
 			}
-			if status != 200 || observation.Health != "ok" || !ready(observation) {
+			if !confirmed {
 				complete = false
 			}
 		}
