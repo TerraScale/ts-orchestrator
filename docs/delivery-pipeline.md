@@ -45,8 +45,7 @@ Go rebuilds evicted outputs it needs. ARM64 journey and release producers retain
 their cache names and save the paths returned by the action. Job time limits
 are unchanged.
 
-Without exact PR tree proof, the `verify/go + artifact/linux-amd64-arm64`
-job compares the push's
+The `verify/go + artifact/linux-amd64-arm64` job always compares the push's
 executable inputs with the newest retained `ci-*` release in its history:
 different inputs publish, and the same inputs skip publication and
 `deploy/release-publish` when that release's run succeeded; a release whose run
@@ -58,14 +57,18 @@ plus `qualification.json` on a draft GitHub release `ci-<sha>-run-<id>`. Use
 
 Before building, main checks GitHub's merged-PR association for its exact
 commit, the PR head's tree against main's Git tree and the successful
-`all-green` job in a completed PR run of `ci.yml`. Only same-repository PRs
-qualify. The search considers the latest 100 successful PR runs; no match
-uses main's lanes. API errors fail the build. The proof, including run,
-attempt, head, tree and gate URL, is written to the build summary.
+`all-green` job in a completed PR run of `ci.yml`. That same attempt must
+have successful `lint`, `e2e-m1`, certificate detector/lane, caller-key
+detector and all eight caller-key shards. A skipped lane does not qualify.
+Only same-repository PRs qualify. The search considers the latest 100 successful PR runs; no match
+uses main's lanes. API errors, timeouts and incomplete job lists select main's
+lanes and record the reason without failing the build. The proof, including
+run, attempt, head, tree and each gate URL, is written to the build summary.
 
 For a proven tree, the main-only `deploy/release-publish` job needs only
-the fresh main build. Source scans already passed on that exact PR tree;
-main still builds both architectures in parallel and checks and audits the
+the fresh main build when executable inputs changed. The legacy scan runs
+on both paths; source dependency audits already passed on that exact PR tree.
+Main still builds both architectures in parallel and checks and audits the
 actual release binaries. It attests them with Sigstore, uploads
 `provenance.sigstore.json`, makes the draft public and publishes the signed
 regional channels. Without that proof, `release-publish-after-lanes` waits
@@ -78,6 +81,11 @@ when a build is required. `revert-red-main.yml` still observes the completed
 CI run. Neither path delivers a binary to a host or sends a nudge. The
 publication identity remains this push's main CI workflow, source and run;
 no PR binary or attestation is reused.
+
+Release pruning also considers CI drafts older than its existing age cutoff,
+using creation time when publication time is absent. Drafts do not consume
+the newest-published-release allowance. Existing revision, tag and manifest
+digest pins still protect releases from deletion.
 
 ## Host pull and regional order
 

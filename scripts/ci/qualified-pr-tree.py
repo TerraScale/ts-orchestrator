@@ -3,7 +3,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from qualified_release import REPOSITORY, api, require
+from qualified_release import REPOSITORY, api, command, require
 
 
 def qualification():
@@ -32,23 +32,37 @@ def qualification():
                 run["head_sha"] in heads and head.get("id") == run["head_sha"] and
                 head.get("tree_id") == tree):
             continue
-        pages = json.loads(subprocess.check_output([
+        pages = json.loads(command(
             "gh", "api", "--paginate", "--slurp",
             f"repos/{REPOSITORY}/actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100",
-        ], text=True))
-        gates = [job for page in pages for job in page["jobs"] if job["name"] == "all-green"]
-        if (len(gates) == 1 and gates[0]["run_id"] == run["id"] and
-                gates[0]["status"] == "completed" and gates[0]["conclusion"] == "success"):
+            text=True))
+        jobs = [job for page in pages for job in page["jobs"]]
+        require(pages and all(page["total_count"] == len(jobs) for page in pages),
+                "incomplete PR job evidence")
+        required = ("all-green", "lint", "e2e-m1", "certificate-paths", "e2e-certificates",
+                    "caller-key-changes", *(f"caller-key / {shard}" for shard in range(8)))
+        passed = {}
+        for name in required:
+            matches = [job for job in jobs if job["name"] == name]
+            if (len(matches) != 1 or matches[0]["run_id"] != run["id"] or
+                    matches[0]["status"] != "completed" or matches[0]["conclusion"] != "success"):
+                break
+            passed[name] = matches[0]["html_url"]
+        else:
             return {"qualified": "true", "source": source, "tree": tree,
                     "pr": heads[run["head_sha"]],
                     "pr_head": run["head_sha"], "pr_run": run["html_url"],
-                    "pr_attempt": run["run_attempt"], "gate": gates[0]["html_url"]}
+                    "pr_attempt": run["run_attempt"], "gates": passed}
     return {"qualified": "false", "source": source, "tree": tree}
 
 
 if __name__ == "__main__":
     os.environ["GH_HOST"] = "github.com"
-    proof = qualification()
+    try:
+        proof = qualification()
+    except (ValueError, KeyError, TypeError, AttributeError, IndexError,
+            OSError, subprocess.SubprocessError) as error:
+        proof = {"qualified": "false", "reason": f"{type(error).__name__}: {error}"}
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
         output.write(f"qualified={proof['qualified']}\n")
     evidence = json.dumps(proof, sort_keys=True)

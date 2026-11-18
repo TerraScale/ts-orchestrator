@@ -474,7 +474,6 @@ jobs:
         with:
           cache: release
       - name: Scan legacy terms within CI
-        if: ${{ steps.qualification.outputs.qualified != 'true' }}
         run: |
           scanner="$RUNNER_TEMP/legacy-scanner"
           mkdir -p "$scanner"
@@ -500,13 +499,8 @@ jobs:
         shell: bash
         env:
           GITHUB_SHA: ${{ env.SOURCE_SHA }}
-          QUALIFIED: ${{ steps.qualification.outputs.qualified }}
         run: |
           set -euo pipefail
-          if [ "$QUALIFIED" = true ]; then
-            echo 'publication=required' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           status=0
           python3 -B scripts/ci/release-inputs-changed.py || status=$?
           case $status in
