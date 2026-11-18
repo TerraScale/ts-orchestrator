@@ -26,7 +26,9 @@ Hosts discover the newest attested orchestrator release. CI publishes binaries,
 qualification and Sigstore provenance; hosts verify the workflow, main source,
 transparency evidence and exact binary digest before installation.
 
-Binary rollout order is fixed: sjc, fra, gru. A leader can take a tag only after
+Binary rollout order is fixed: sjc, fra, gru. App releases (TerraBase,
+ts-auth, ts-dashboard) follow the same list, `catalog.RolloutOrder`, written
+once in the region catalog. A leader can take a tag only after
 its predecessor records that exact tag complete in the fabric pull store and
 passes its regional health gate. The first region has no predecessor.
 Hosts update one at a time inside their region. The completion timestamp is persisted; a new owner restarts any unfinished

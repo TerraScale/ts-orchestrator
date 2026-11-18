@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 )
@@ -278,5 +279,13 @@ func MetaBootJourney(root string) error {
 		return fmt.Errorf("stream replicas after empty rejoin: %w", err)
 	}
 	fmt.Println("ok metadata: a founder with an empty log joined the existing group instead of forming one")
+
+	stored := &swarmruntime.ServiceSpec{Name: "terrabase", Regions: []string{"gru", "sjc", "fra"}}
+	for region, want := range map[string][]string{"sjc": nil, "fra": {"sjc"}, "gru": {"sjc", "fra"}} {
+		if got := fleet.nodes[region].earlier(stored); !slices.Equal(got, want) {
+			return fmt.Errorf("%s rolls a release out after %v, want after %v", region, got, want)
+		}
+	}
+	fmt.Println("ok order: a spec stored as gru, sjc, fra rolls out to sjc, then fra, then gru on every founder")
 	return nil
 }

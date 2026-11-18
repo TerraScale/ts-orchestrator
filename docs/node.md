@@ -95,8 +95,10 @@ An app release needs a token from a workflow `appServices` allows to release
 `terrabase`, `ts-auth`; ts-dashboard `images-ghcr.yml`: `ts-dashboard`), and
 the image name must equal the service. The receiving host reads the service's
 newest desired spec on the mesh, changes only its digest (same repository) and
-applies it to every region it targets, one region at a time: pre-pull, fast
-replacement, ready path, bake. Each region gets its readiness timeout
+applies it to every region it targets, one region at a time in the fixed
+order sjc, fra, gru (`catalog.RolloutOrder`, the binary rollout's list; the
+order of the spec's `regions` does not matter, and a spec may name only regions
+of that list): pre-pull, fast replacement, ready path, bake. Each region gets its readiness timeout
 (`readyTimeoutSeconds`, 60 s by default) plus 30 s to pull and submit plus the
 bake budget; regions the spec does not place answer at once. If a targeted
 region fails or misses its window, the release re-applies the previous spec
