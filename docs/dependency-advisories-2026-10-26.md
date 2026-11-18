@@ -149,3 +149,19 @@ The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
 `4309b7cfbae7ab97c517aa89172fbda7b74773fc3d1716bb752e9cb76a34877e`; the
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.
+
+## 2026-11-18: updater adopts a candidate only once it runs
+
+C1b changes `manager/orchestrator/update/updater.go`. `useExistingTask` used to
+adopt an existing clean task, stop the slot's other tasks and return at once,
+even while the adopted task was still pending. A restarted updater could
+therefore stop the old task of every slot before any replacement ran. It now
+waits for the adopted task to run before the worker takes the next slot. Under
+start-first order it starts the adopted task and stops the slot's other tasks
+only once it runs, as `updateTask` does. It also counts the adopted task's
+failures toward the failure action. The e2e-m1 rollback lane exercises this
+with real containerd tasks.
+The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
+`57ce89504a724988faacc67fc8e5841b892c8dfee8c5e7bf491d53831473c57b`; the
+v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
+remain unchanged.

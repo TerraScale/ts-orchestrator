@@ -523,7 +523,7 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 	if service.Spec.GetReplicated() == nil {
 		return rollout, errors.New("service rollout requires a replicated service")
 	}
-	requested, fellBack := service.Spec.Update, time.Time{}
+	requested, previous, freed := service.Spec.Update, previousService(service), map[string]time.Time{}
 	pending := errors.New("no task is running yet")
 	notReady := func(err error) error {
 		if ctx.Err() == nil {
@@ -566,25 +566,36 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 		if err != nil {
 			return rollout, notReady(err)
 		}
-		if task := unplacedCandidate(service, listed.Tasks, time.Now()); task != nil {
-			serving, last, err := stopFirstEndsService(ctx, client, service, listed.Tasks)
+		if candidates := unplacedCandidates(requested, listed.Tasks, time.Now()); len(candidates) != 0 {
+			room, err := roomForCandidates(ctx, client, service, listed.Tasks)
 			if err != nil {
 				return rollout, notReady(err)
 			}
-			if last {
-				return rollout, refuseUnplaced(ctx, client, service, task, serving)
+			if rollout.StopFirst {
+				for _, task := range candidates {
+					if room.servingSlots[task.Slot] {
+						delete(freed, task.ID)
+						continue
+					}
+					if _, seen := freed[task.ID]; !seen {
+						freed[task.ID] = time.Now()
+					}
+					if time.Since(freed[task.ID]) >= startFirstPlacementGrace {
+						return rollout, refuseUnplaced(ctx, client, service, previous, requested, task)
+					}
+				}
+				continue
 			}
-			slog.WarnContext(ctx, "start-first candidate cannot be placed; updating stop-first", "service", service.Spec.Annotations.Name, "task", task.ID, "reason", task.Status.Err)
+			task := candidates[0]
+			if room.endsService {
+				return rollout, refuseUnplaced(ctx, client, service, previous, requested, task)
+			}
+			slog.WarnContext(ctx, "start-first candidate cannot be placed; updating stop-first", "service", service.Spec.Annotations.Name, "task", task.ID, "reason", task.Status.Err, "serving", room.serving)
 			if service, err = writeUpdatePolicy(ctx, client, service, stopFirst(service.Spec.Update)); err != nil {
 				return rollout, err
 			}
-			rollout.StopFirst, fellBack = true, time.Now()
+			rollout.StopFirst = true
 			continue
-		}
-		if rollout.StopFirst {
-			if err := candidateFailed(ctx, client, service, fellBack); err != nil {
-				return rollout, err
-			}
 		}
 		running := make([]*api.Task, 0, len(listed.Tasks))
 		for _, task := range listed.Tasks {

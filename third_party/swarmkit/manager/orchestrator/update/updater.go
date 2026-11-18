@@ -335,11 +335,11 @@ func (u *Updater) worker(ctx context.Context, queue <-chan orchestrator.Slot, up
 			}
 		}
 		if runningTask != nil {
-			if err := u.useExistingTask(ctx, slot, runningTask); err != nil {
+			if err := u.useExistingTask(ctx, slot, runningTask, updateConfig.Order); err != nil {
 				log.G(ctx).WithError(err).Error("update failed")
 			}
 		} else if cleanTask != nil {
-			if err := u.useExistingTask(ctx, slot, cleanTask); err != nil {
+			if err := u.useExistingTask(ctx, slot, cleanTask, updateConfig.Order); err != nil {
 				log.G(ctx).WithError(err).Error("update failed")
 			}
 		} else {
@@ -449,12 +449,41 @@ func (u *Updater) updateTask(ctx context.Context, slot orchestrator.Slot, update
 	}
 }
 
-func (u *Updater) useExistingTask(ctx context.Context, slot orchestrator.Slot, existing *api.Task) error {
+func (u *Updater) useExistingTask(ctx context.Context, slot orchestrator.Slot, existing *api.Task, order api.UpdateConfig_UpdateOrder) error {
+	taskUpdates, cancel := state.Watch(u.watchQueue, api.EventUpdateTask{
+		Task:   &api.Task{ID: existing.ID},
+		Checks: []api.TaskCheckFunc{api.TaskCheckID},
+	})
+	defer cancel()
+	if existing.Status.State < api.TaskStateRunning {
+		u.updatedTasksMu.Lock()
+		u.updatedTasks[existing.ID] = time.Time{}
+		u.updatedTasksMu.Unlock()
+	}
+
 	var removeTasks []*api.Task
 	for _, t := range slot {
 		if t != existing {
 			removeTasks = append(removeTasks, t)
 		}
+	}
+	if order == api.UpdateConfig_START_FIRST && len(removeTasks) != 0 {
+		if existing.DesiredState != api.TaskStateRunning {
+			if started := u.restarts.DelayStart(ctx, nil, nil, existing.ID, 0, false); started != nil {
+				select {
+				case <-started:
+				case <-u.stopChan:
+					return nil
+				}
+			}
+		}
+		if !u.waitRunning(existing.ID, taskUpdates) {
+			return nil
+		}
+		return u.store.Batch(func(batch *store.Batch) error {
+			_, err := u.removeOldTasks(ctx, batch, removeTasks)
+			return err
+		})
 	}
 	if len(removeTasks) != 0 || existing.DesiredState != api.TaskStateRunning {
 		var delayStartCh <-chan struct{}
@@ -486,7 +515,32 @@ func (u *Updater) useExistingTask(ctx context.Context, slot orchestrator.Slot, e
 		}
 	}
 
+	u.waitRunning(existing.ID, taskUpdates)
 	return nil
+}
+
+func (u *Updater) waitRunning(id string, taskUpdates <-chan events.Event) bool {
+	var task *api.Task
+	u.store.View(func(tx store.ReadTx) {
+		task = store.GetTask(tx, id)
+	})
+	for task != nil && task.Status.State < api.TaskStateRunning {
+		select {
+		case e := <-taskUpdates:
+			task = e.(api.EventUpdateTask).Task
+		case <-u.stopChan:
+			return false
+		}
+	}
+	if task == nil || task.Status.State != api.TaskStateRunning {
+		return false
+	}
+	u.updatedTasksMu.Lock()
+	if started, tracked := u.updatedTasks[id]; tracked && started.IsZero() {
+		u.updatedTasks[id] = time.Now()
+	}
+	u.updatedTasksMu.Unlock()
+	return true
 }
 
 // removeOldTasks shuts down the given tasks and returns one of the tasks that
