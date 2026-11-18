@@ -23,6 +23,15 @@ const (
 	pairingDropin = "/run/systemd/system/ts-orch.service.d/ts-orch-unit.conf"
 )
 
+var pairedUnits = []struct {
+	embedded  string
+	installed string
+	suffix    string
+}{
+	{embedded: "ts-orch.service", installed: installedUnit, suffix: ".service"},
+	{embedded: "services/netbird-server.service", installed: "/etc/systemd/system/netbird-server.service", suffix: ".netbird-server.service"},
+}
+
 func pairUnit(ctx context.Context) error {
 	installed, err := os.ReadFile(installedUnit)
 	if errors.Is(err, os.ErrNotExist) {
@@ -39,33 +48,51 @@ func pairUnit(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	keep := map[string]bool{self + ".service": true}
+	current, err := fileDigest(installedBin)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	previous, err := fileDigest(installedBin + ".prev")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err := os.MkdirAll(unitPairs, 0o700); err != nil {
 		return err
 	}
-	if err := writeAtomic(filepath.Join(unitPairs, self+".service"), unit); err != nil {
-		return err
-	}
-	current, err := fileDigest(installedBin)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-	case err != nil:
-		return err
-	default:
-		keep[current+".service"] = true
-		pair := filepath.Join(unitPairs, current+".service")
-		if _, err := os.Stat(pair); errors.Is(err, os.ErrNotExist) {
-			if err := writeAtomic(pair, installed); err != nil {
-				return err
-			}
-		} else if err != nil {
+	keep := map[string]bool{}
+	for _, paired := range pairedUnits {
+		embedded, err := m1.Files.ReadFile(paired.embedded)
+		if err != nil {
 			return err
 		}
-	}
-	if previous, err := fileDigest(installedBin + ".prev"); err == nil {
-		keep[previous+".service"] = true
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		keep[self+paired.suffix] = true
+		if err := writeAtomic(filepath.Join(unitPairs, self+paired.suffix), embedded); err != nil {
+			return err
+		}
+		if previous != "" {
+			keep[previous+paired.suffix] = true
+		}
+		if current == "" {
+			continue
+		}
+		keep[current+paired.suffix] = true
+		pair := filepath.Join(unitPairs, current+paired.suffix)
+		if _, err := os.Stat(pair); !errors.Is(err, os.ErrNotExist) {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		running, err := os.ReadFile(paired.installed)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := writeAtomic(pair, running); err != nil {
+			return err
+		}
 	}
 	entries, err := os.ReadDir(unitPairs)
 	if err != nil {

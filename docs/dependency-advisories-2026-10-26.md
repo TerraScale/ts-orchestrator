@@ -132,3 +132,20 @@ The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
 `b7e83a749008520a074ba5cff4629088538c7a636603858ac8449e507eaa5f9f`.
 The published `github.com/moby/swarmkit/v2` v2.1.2 baseline and upstream commit
 `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb` remain unchanged.
+
+## 2026-11-18: SwarmKit CA forwarding advisory
+
+Upstream moby/swarmkit merged a private security fix as
+`a34f01e8c294ace05ffbfc2aef669f8fb8b7e8d5` ("Merge commit from fork", 2026-11-03,
+"ca: forward a request to the leader only once"). Our v2.1.2 copy had the same
+`ca/forward.go`: `WithMetadataForwardTLSInfo` built the outgoing metadata from
+the incoming context and never refused an already forwarded request, so a
+request forwarded twice to the leader carried the forwarding manager's identity
+as the client. The fix is ported unchanged: an already forwarded request is
+refused with `ResourceExhausted`, the metadata starts from the outgoing context
+and a missing peer clears `remote_addr`. Upstream `0562f4d2f` only swaps the
+archived go-grpc-prometheus dependency and is not ported.
+The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
+`4309b7cfbae7ab97c517aa89172fbda7b74773fc3d1716bb752e9cb76a34877e`; the
+v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
+remain unchanged.

@@ -9,6 +9,7 @@ Type=notify
 NotifyAccess=main
 TimeoutStartSec=5min
 ExecStartPre=+/bin/sh -c 'p=/var/lib/ts-orch/units/$$(sha256sum /usr/local/bin/terrascale-orchestrator | cut -c1-64).service; rm -f /run/systemd/system/ts-orch.service.d/ts-orch-unit.conf; [ -f "$$p" ] || exit 0; cmp -s "$$p" /etc/systemd/system/ts-orch.service && exit 0; cp "$$p" /etc/systemd/system/ts-orch.service.next && chmod 0644 /etc/systemd/system/ts-orch.service.next && mv -f /etc/systemd/system/ts-orch.service.next /etc/systemd/system/ts-orch.service && systemctl daemon-reload && exit 1; exit 0'
+ExecStartPre=+-/bin/sh -c 'p=/var/lib/ts-orch/units/$$(sha256sum /usr/local/bin/terrascale-orchestrator | cut -c1-64).netbird-server.service; [ -f "$$p" ] || exit 0; cmp -s "$$p" /etc/systemd/system/netbird-server.service && exit 0; cp "$$p" /etc/systemd/system/netbird-server.service.next && chmod 0644 /etc/systemd/system/netbird-server.service.next && mv -f /etc/systemd/system/netbird-server.service.next /etc/systemd/system/netbird-server.service && systemctl daemon-reload && systemctl --no-block try-restart netbird-server.service'
 ExecStart=/usr/local/bin/terrascale-orchestrator node --state /var/lib/ts-orch
 Restart=always
 RestartSec=1s

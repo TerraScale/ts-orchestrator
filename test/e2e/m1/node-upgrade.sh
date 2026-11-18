@@ -82,5 +82,6 @@ wait_for 180 serving "$repo/deploy/m1/ts-orch.service" "$candidate"
 wait_for 30 confirmed
 sudo cmp "$state/swarm/admission.json" "$work/admission-before.json"
 sudo ls "$state/units" | tee "$work/pairs.txt"
-test "$(wc -l <"$work/pairs.txt")" -le 3
+test "$(cut -c1-64 "$work/pairs.txt" | sort -u | wc -l)" -le 3
+test "$(grep -c '\.netbird-server\.service$' "$work/pairs.txt")" -eq "$(grep -Ec '^[0-9a-f]{64}\.service$' "$work/pairs.txt")"
 end "this build serves again; only the pairs of the installed, previous and candidate binaries remain"

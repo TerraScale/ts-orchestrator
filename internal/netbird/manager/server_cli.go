@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"flag"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -232,19 +234,68 @@ func enrollHost(ctx context.Context, vault ServerVault, setupKey string) error {
 		} `json:"management"`
 	}
 	output, err := exec.CommandContext(ctx, clientBinary, "status", "--json").Output()
-	if err == nil && json.Unmarshal(output, &status) == nil && status.Management.Connected {
-		return nil
+	connected := err == nil && json.Unmarshal(output, &status) == nil && status.Management.Connected
+	if connected {
+		applied, err := serverSSHApplied(ctx)
+		if err != nil || applied {
+			return err
+		}
+		if output, err := exec.CommandContext(ctx, clientBinary, "down").CombinedOutput(); err != nil {
+			return fmt.Errorf("netbird down: %w: %s", err, strings.TrimSpace(string(output)))
+		}
 	}
-	key, err := vaultsecret.Read(ctx, vault.Bundles, vault.Target.VaultID, setupKey)
-	if err != nil {
-		return err
+	args := []string{"up", "--management-url", DefaultManagementURL}
+	for _, setting := range serverSSHSettings {
+		args = append(args, setting.flag+"="+strconv.FormatBool(setting.want))
 	}
-	up := exec.CommandContext(ctx, clientBinary, "up", "--management-url", DefaultManagementURL, "--setup-key-file", "/dev/stdin")
-	up.Stdin = strings.NewReader(key)
+	up := exec.CommandContext(ctx, clientBinary, args...)
+	if !connected {
+		key, err := vaultsecret.Read(ctx, vault.Bundles, vault.Target.VaultID, setupKey)
+		if err != nil {
+			return err
+		}
+		up.Args = append(up.Args, "--setup-key-file", "/dev/stdin")
+		up.Stdin = strings.NewReader(key)
+	}
 	if output, err := up.CombinedOutput(); err != nil {
 		return fmt.Errorf("netbird up: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+var serverSSHSettings = []struct {
+	flag string
+	key  string
+	want bool
+}{
+	{"--allow-server-ssh", "serverSSHAllowed", true},
+	{"--enable-ssh-root", "enableSSHRoot", true},
+	{"--enable-ssh-sftp", "enableSSHSFTP", true},
+	{"--enable-ssh-local-port-forwarding", "enableSSHLocalPortForwarding", true},
+	{"--enable-ssh-remote-port-forwarding", "enableSSHRemotePortForwarding", false},
+	{"--disable-ssh-auth", "disableSSHAuth", false},
+}
+
+func serverSSHApplied(ctx context.Context) (bool, error) {
+	output, err := exec.CommandContext(ctx, clientBinary, "debug", "config").Output()
+	defer clear(output)
+	if err != nil {
+		return false, fmt.Errorf("netbird debug config: %w", err)
+	}
+	var config map[string]jsontext.Value
+	if err := json.Unmarshal(output, &config); err != nil {
+		return false, fmt.Errorf("netbird debug config: %w", err)
+	}
+	for _, setting := range serverSSHSettings {
+		var value bool
+		if err := json.Unmarshal(config[setting.key], &value); err != nil {
+			return false, fmt.Errorf("netbird debug config %s: %w", setting.key, err)
+		}
+		if value != setting.want {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 const containerUser = 65532
