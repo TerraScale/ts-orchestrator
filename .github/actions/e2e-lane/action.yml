@@ -1,15 +1,32 @@
 name: M1 e2e lane
 description: Builds or downloads the agent and the lane's journey entry points, restores the pinned runtime packages and runs one lane.
 inputs:
+  lane:
+    description: Lane name shown in the run and summary.
+    required: true
+  timeout:
+    description: Existing lane execution limit in minutes.
+    required: true
   entry:
     description: Lane script under test/e2e/m1.
     required: true
   packages:
     description: Go packages of the lane's journey entry points, separated by spaces.
     default: ''
+outputs:
+  clean:
+    description: Whether the lane started without leftovers.
+    value: ${{ steps.clean.outcome }}
+  teardown:
+    description: Whether the lane released its host resources.
+    value: ${{ steps.teardown.outcome }}
 runs:
   using: composite
   steps:
+    - id: clean
+      name: Check clean host for ${{ inputs.lane }}
+      shell: bash
+      run: bash test/e2e/m1/teardown.sh check
     - if: ${{ github.event_name == 'push' }}
       name: Build the agent and journey entry points from the warm cache
       shell: bash
@@ -39,8 +56,18 @@ runs:
       with:
         path: ~/.cache/ts-m1-runtime
         key: m1-runtime-${{ runner.arch }}-${{ hashFiles('deploy/m1/host-runtime.sh', 'internal/netbird/manager/server_cli.go', 'deploy/m1/install.sh') }}
-    - name: Run the lane
+    - name: Run ${{ inputs.lane }}
       shell: bash
       env:
         M1_ENTRY: ${{ inputs.entry }}
-      run: bash "test/e2e/m1/$M1_ENTRY" "$RUNNER_TEMP/m1-bin/terrascale-orchestrator"
+        M1_TIMEOUT: ${{ inputs.timeout }}
+      run: |
+        setsid timeout --foreground "${M1_TIMEOUT}m" bash "test/e2e/m1/$M1_ENTRY" "$RUNNER_TEMP/m1-bin/terrascale-orchestrator" &
+        lane_pid=$!
+        echo "$lane_pid" > "$RUNNER_TEMP/m1-lane-process-group"
+        wait "$lane_pid"
+    - id: teardown
+      if: ${{ always() }}
+      name: Tear down ${{ inputs.lane }}
+      shell: bash
+      run: bash test/e2e/m1/teardown.sh
