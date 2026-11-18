@@ -3,8 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,12 +20,20 @@ import (
 
 func (l *lane) admissionGate(ctx context.Context, release published, original, base string) {
 	target := l.release(release)
-	for _, mode := range []string{"missing", "another", "unsigned"} {
+	for _, mode := range []string{"missing", "another", "unsigned", "rolled_back"} {
 		l.github.gateMode(release.tag, mode)
 		reply := l.ask(ctx, "sjc-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: target})
 		require(reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalHost && strings.Contains(reply.Refusal.Reason, "staging gate"), "%s staging record admitted: %+v", mode, reply)
 		fmt.Printf("production host refuses staging record %s: %s\n", mode, reply.Refusal.Reason)
 	}
+	before := l.blockedSeconds(ctx, "sjc-w")
+	alternate := l.github.prepare(target.SHA, "1010", asset, l.candidate("c101"), l.candidate("c101"), l.sigstore.Bundle(sigstore.MainIdentity, target.SHA, "1010", map[string][]byte{asset: l.candidate("c101")}))
+	l.github.gateMode(alternate.tag, "missing")
+	refused := l.ask(ctx, "sjc-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: l.release(alternate)})
+	require(refused.Refusal != nil, "unapproved newer tag must refuse")
+	after := l.blockedSeconds(ctx, "sjc-w")
+	require(after >= before, "newest-tag change reset the receiver gate timer: %f to %f", before, after)
+	fmt.Println("continuous receiver refusal is exported and survives newest-tag changes")
 	l.github.gateMode(release.tag, "missing")
 	identity := sigstore.Identity{Workflow: releasegate.Workflow, Ref: releaseattest.MainRef, Trigger: "workflow_dispatch"}
 	now := time.Now().UTC().Truncate(time.Second)
@@ -73,4 +85,57 @@ func (l *lane) admissionGate(ctx context.Context, release published, original, b
 	require(strings.Contains(metrics.String(), `ts_orch_release_staging_admission{`) && strings.Contains(metrics.String(), `run="9001"`), "break-glass admission must raise the existing production alert: %s", metrics.String())
 	fmt.Printf("%s; retained after restart, production alert series exported\n", detail)
 	l.github.admission(release.tag, nil)
+}
+
+func (l *lane) blockedSeconds(ctx context.Context, host string) float64 {
+	message, err := l.conn.RequestWithContext(ctx, "e2e.release.metrics."+host, nil)
+	must(err)
+	for _, line := range strings.Split(string(message.Data), "\n") {
+		if strings.HasPrefix(line, "ts_orch_release_staging_gate_blocked_seconds{") {
+			fields := strings.Fields(line)
+			value, err := strconv.ParseFloat(fields[len(fields)-1], 64)
+			must(err)
+			return value
+		}
+	}
+	panic("production receiver exports no blocked admission metric")
+}
+
+func (l *lane) bootAdmission(ctx context.Context, release published, identity sigstore.Identity, admission releasegate.Attestation) {
+	prototype := l.hosts["sjc-w"]
+	dir := filepath.Join(filepath.Dir(prototype.dir), "sjc-boot")
+	state := filepath.Join(dir, "state")
+	must(os.MkdirAll(filepath.Join(dir, "bin"), 0o700))
+	must(os.MkdirAll(filepath.Join(state, "nats"), 0o700))
+	binary := filepath.Join(dir, "bin", "terrascale-orchestrator")
+	must(os.WriteFile(binary, l.candidate("c101"), 0o755))
+	pending, err := json.Marshal(releasegate.Receipt{Target: admission.Target, Region: "sjc"})
+	must(err)
+	pendingPath := filepath.Join(state, "nats", "release-boot-admission.json")
+	must(os.WriteFile(pendingPath, pending, 0o600))
+	args := append([]string(nil), prototype.args...)
+	args[1], args[3], args[4] = dir, "sjc-boot", "worker"
+	l.github.gateMode(release.tag, "missing")
+	l.github.admission(release.tag, nil)
+	output, err := exec.CommandContext(ctx, binary, args...).CombinedOutput()
+	require(err != nil && strings.Contains(string(output), "staging gate missing"), "unapproved fresh host booted: %v %s", err, output)
+	require(strings.Contains(string(output), "admission") || strings.Contains(string(output), "staging gate"), "boot must refuse through admission")
+	expired := admission
+	expired.IssuedAt, expired.ExpiresAt = expired.IssuedAt.Add(-25*time.Hour), expired.ExpiresAt.Add(-25*time.Hour)
+	l.github.admission(release.tag, l.sigstore.Admission(identity, l.build, "9000", expired))
+	output, err = exec.CommandContext(ctx, binary, args...).CombinedOutput()
+	require(err != nil && strings.Contains(string(output), "expired"), "expired configuration approval booted a fresh host: %v %s", err, output)
+	l.github.admission(release.tag, l.sigstore.Admission(identity, l.build, "9001", admission))
+	boot, cancel := context.WithCancel(ctx)
+	command := exec.CommandContext(boot, binary, args...)
+	var log bytes.Buffer
+	command.Stdout, command.Stderr = &log, &log
+	must(command.Start())
+	defer func() { cancel(); _ = command.Wait() }()
+	l.waitReady(ctx, "sjc.sjc-boot", release.digest)
+	ok, detail := releasepush.AdmissionDetail(state, binary)
+	require(ok && detail == "admitted without staging by run 9001", "fresh host must retain its current authorizing run: %s", detail)
+	_, err = os.Stat(pendingPath)
+	require(os.IsNotExist(err), "fresh host must consume the pending boot admission")
+	fmt.Println("fresh host refuses missing/expired approval, then verifies current approval before serving and retains its run")
 }

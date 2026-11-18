@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 )
 
 type SkippedWorker struct {
@@ -38,6 +39,7 @@ func ReadDegraded(state string) (*Degraded, error) {
 }
 
 func WriteReleaseMetrics(w io.Writer, state, binary string) {
+	releasegate.WriteBlockedMetrics(w, releasegate.Receiver)
 	admission, admissionErr := ReadAdmission(state, binary)
 	if admissionErr != nil {
 		slog.Warn("release admission record unreadable", "error", admissionErr)

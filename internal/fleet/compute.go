@@ -3,9 +3,11 @@ package fleet
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/nodeinit"
@@ -19,7 +21,7 @@ import (
 
 const nodeNSG = "node-nsg"
 
-func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, _ Cluster, out ociresource.Out) error {
+func ApplyCompute(ctx context.Context, document Fleet, region Region, f *ociclient.Factory, _ Cluster, out ociresource.Out) error {
 	var err error
 	clients := compute.Clients{}
 	if clients.Compute, err = f.Compute(); err != nil {
@@ -90,30 +92,33 @@ func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Fact
 		Label: region.Label, Compartment: region.CompartmentID, Shape: nodes.Shape, OCPUs: nodes.OCPUs, MemoryGB: nodes.MemoryGB,
 		BootGB: nodes.BootGB, DataGB: nodes.DataGB, DataVPUsPerGB: nodes.DataVPUsPerGB, Min: nodes.Min, Max: nodes.Max,
 		SubnetID: deref(subnets[subnet].Id), NSGID: deref(nsgs[nsg].Id), Places: places, Key: region.Key,
-		Launch: func(ctx context.Context) (compute.Launch, error) { return launch(ctx, clients.Compute, region) },
+		Launch: func(ctx context.Context) (compute.Launch, error) {
+			return launch(ctx, clients.Compute, document, region)
+		},
+		Admit: func(ctx context.Context, data string) error {
+			return admitConfiguration(ctx, document.Staging, region.Label, data)
+		},
 	}}.Run(ctx)
 }
 
-func launch(ctx context.Context, client core.ComputeClient, region Region) (compute.Launch, error) {
+func launch(ctx context.Context, client core.ComputeClient, document Fleet, region Region) (compute.Launch, error) {
 	arch := nodeinit.ShapeArch(region.Nodes.Shape)
 	image := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[arch]
-	release, err := newestNodeRelease(ctx)
+	release, receipt, err := AdmittedNodeRelease(ctx, document, region)
 	if err != nil {
 		return compute.Launch{}, err
 	}
-	if err := release.knows(region); err != nil {
-		return compute.Launch{}, fmt.Errorf("%w; refusing to launch %s nodes on it", err, region.Label)
-	}
-	binary, ok := release.attested.Binaries[arch]
+	binary, ok := release.Binaries[arch]
 	if !ok {
-		return compute.Launch{}, fmt.Errorf("attested release %s has no %s binary", release.attested.Tag(), arch)
+		return compute.Launch{}, fmt.Errorf("attested release %s has no %s binary", release.Tag(), arch)
 	}
+	receipt.At = time.Time{}
 	pinned, prebuilt, err := nodeinit.PinnedHostImage(region.OCIRegion, arch)
 	if err != nil {
 		return compute.Launch{}, err
 	}
 	if prebuilt {
-		metadata, err := nodeinit.HostMetadata(binary.URL, binary.SHA256)
+		metadata, err := nodeinit.HostMetadata(binary.URL, binary.SHA256, receipt)
 		return compute.Launch{ImageID: pinned.ImageID, Metadata: metadata}, err
 	}
 	images, err := client.ListImages(ctx, core.ListImagesRequest{CompartmentId: common.String(region.CompartmentID),
@@ -129,9 +134,15 @@ func launch(ctx context.Context, client core.ComputeClient, region Region) (comp
 	if chosen < 0 {
 		return compute.Launch{}, fmt.Errorf("no Canonical Ubuntu 24.04 %s image for %s", arch, region.Nodes.Shape)
 	}
-	script, err := nodeinit.PoolCloudInit(m1.Files, binary.URL, binary.SHA256)
+	script, err := nodeinit.PoolCloudInit(m1.Files, binary.URL, binary.SHA256, receipt)
 	if err != nil {
 		return compute.Launch{}, err
 	}
-	return compute.Launch{ImageID: deref(images.Items[chosen].Id), Metadata: map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script))}}, nil
+	admission, err := json.Marshal(receipt)
+	if err != nil {
+		return compute.Launch{}, err
+	}
+	return compute.Launch{ImageID: deref(images.Items[chosen].Id), Metadata: map[string]string{
+		"user_data": base64.StdEncoding.EncodeToString([]byte(script)), nodeinit.ReleaseAdmissionKey: string(admission),
+	}}, nil
 }

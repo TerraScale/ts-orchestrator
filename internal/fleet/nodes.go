@@ -19,6 +19,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/compute"
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 )
 
 const (
@@ -130,13 +131,15 @@ func LastNodeDecision(label string) (NodeDecision, bool) {
 	return s.last, !s.last.At.IsZero()
 }
 
-func applyNodes(ctx context.Context, _ Fleet, region Region, f *ociclient.Factory, cluster Cluster, out ociresource.Out) error {
+func applyNodes(ctx context.Context, document Fleet, region Region, f *ociclient.Factory, cluster Cluster, out ociresource.Out) error {
 	if cluster == nil {
 		return errors.New("the nodes kind runs only on the region's Raft leader inside ts-orch node")
 	}
 	var err error
 	pass := compute.Pass{Ownership: ociresource.Ownership{Owner: Owner}, Out: out,
-		Nodes: compute.Nodes{Label: region.Label, Compartment: region.CompartmentID, Key: region.Key}}
+		Nodes: compute.Nodes{Label: region.Label, Compartment: region.CompartmentID, Key: region.Key, Admit: func(ctx context.Context, data string) error {
+			return admitConfiguration(ctx, document.Staging, region.Label, data)
+		}}}
 	if pass.Compute, err = f.Compute(); err != nil {
 		return err
 	}
@@ -383,6 +386,7 @@ func refuseWith(d NodeDecision, code, reason string) NodeDecision {
 }
 
 func WriteNodeMetrics(w io.Writer) {
+	releasegate.WriteBlockedMetrics(w, releasegate.Launch)
 	nodeScalers.Range(func(key, value any) bool {
 		region := key.(string)
 		d, ok := LastNodeDecision(region)

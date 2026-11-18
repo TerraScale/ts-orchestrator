@@ -37,6 +37,14 @@ import (
 )
 
 func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, public *edge.Edge, probation *releasepush.Probation, swarmReady chan struct{}, meshServing <-chan struct{}, stopping func(), health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
+	releases, err := releasepush.NewHandler(state)
+	if err != nil {
+		return err
+	}
+	releases.Regional.In(plan.region)
+	if err := releases.CompleteBootAdmission(ctx, plan.region, plan.releaseAdmission); err != nil {
+		return err
+	}
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -90,13 +98,8 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 			fmt.Fprintf(output, "netbird firewall: %v\n", err)
 		}
 	}
-	releases, err := releasepush.NewHandler(state)
-	if err != nil {
-		return err
-	}
 	releases.Health = health
 	releases.Peer = node.IsManager
-	releases.Regional.In(plan.region)
 	releases.PrepareStop = prepareStop
 	releases.AbortStop = abortStop
 	releases.Mesh = mesh.Bridge(state)
@@ -286,6 +289,7 @@ type hostPlan struct {
 	listen, advertise        string
 	admission                swarmruntime.Admission
 	region, address, vcnCIDR string
+	releaseAdmission         string
 }
 
 func (p hostPlan) joiner() bool { return p.admission.HostID != p.admission.FounderID }
@@ -365,6 +369,7 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 		plan.admission = stored
 		return plan, nil
 	}
+	plan.releaseAdmission = instance.ReleaseAdmission
 	for {
 		material, err := regionjoin.Claim(ctx, instance.Region, hostname, instance.ID)
 		switch {
@@ -565,6 +570,12 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			apps := apppull.Updater{Self: node.ID(), Region: region, Fabric: fabric, Source: apppull.Source{Registry: func(ctx context.Context) (*appregistry.Client, error) { return appregistry.Regional(ctx, region) }}, Apply: apppull.Apply(mesh.Release(state)).Within(ctx)}
 			if err := apps.Run(managing); err != nil && managing.Err() == nil {
 				failed <- errors.Join(errors.New("app release updater stopped"), err)
+			}
+		}()
+		go func() {
+			if err := pullrelease.RunStagingWithdrawals(managing, region, fabric); err != nil && managing.Err() == nil {
+				slog.ErrorContext(managing, "staging withdrawal publisher stopped", "error", err)
+				stop()
 			}
 		}()
 		updater := pullrelease.New(region, node.ID(), state, conn, fabric, releases, func(ctx context.Context) ([]pullrelease.Host, error) {

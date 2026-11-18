@@ -472,6 +472,13 @@ func (p *pass) advance(ctx context.Context) error {
 }
 
 func (p *pass) replace(ctx context.Context, instance core.Instance) error {
+	document, err := fleet.Load()
+	if err != nil {
+		return err
+	}
+	if err := fleet.AdmitInstanceConfiguration(ctx, document, p.region, instance.InstanceConfigurationId); err != nil {
+		return err
+	}
 	r := p.record.Repair
 	if c, present := p.find(r.Node); present {
 		if err := swarmruntime.RemoveMember(ctx, p.client, c.host, p.guard); err != nil {

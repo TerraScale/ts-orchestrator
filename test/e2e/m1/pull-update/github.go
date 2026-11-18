@@ -160,11 +160,28 @@ func (g *fakeGitHub) admission(tag string, bundle []byte) {
 }
 
 func (g *fakeGitHub) serveStaging(w http.ResponseWriter, r *http.Request, tag string) {
+	if strings.HasSuffix(tag, releasegate.WithdrawalSuffix) {
+		release := strings.TrimSuffix(tag, releasegate.WithdrawalSuffix)
+		if g.gateModes[release] != "rolled_back" {
+			http.NotFound(w, r)
+			return
+		}
+		data, err := json.Marshal(releasegate.Withdrawal{Region: fleet.Embedded().Staging.Label, Tag: release, Signed: time.Now().UTC(), Reason: "node E2E rollback"})
+		must(err)
+		digest := sha256.Sum256(data)
+		signature, err := ecdsa.SignASN1(rand.Reader, g.staging, digest[:])
+		must(err)
+		must(json.NewEncoder(w).Encode(releasegate.SignedRecord{Record: data, Signature: signature}))
+		return
+	}
 	if g.gateModes[tag] == "missing" {
 		http.NotFound(w, r)
 		return
 	}
 	now := time.Now().UTC()
+	if g.gateModes[tag] == "old" {
+		now = now.Add(-24 * time.Hour)
+	}
 	record := releasegate.StagingRecord{Binaries: g.gateBinaries[tag], BakeFor: healthyFor, Region: fleet.Embedded().Staging.Label, Tag: tag, Done: now.Add(-2 * healthyFor), Baked: now.Add(-healthyFor), Signed: now,
 		Latency: releasegate.LatencyVerdict{Verdict: releasegate.LatencyPass, Run: "https://github.com/TerraScale/ts-orchestrator/actions/runs/1"}}
 	if g.gateModes[tag] == "another" {

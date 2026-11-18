@@ -10,10 +10,8 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
-	"slices"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/verify"
@@ -47,7 +45,7 @@ type Receipt struct {
 	Target
 	Region string    `json:"region"`
 	RunID  string    `json:"run_id,omitempty"`
-	At     time.Time `json:"at"`
+	At     time.Time `json:"at,omitzero"`
 }
 
 func (r Receipt) Message() string {
@@ -70,10 +68,6 @@ type Verifier struct {
 	StagingKey *ecdsa.PublicKey
 }
 
-func Production(region string) bool {
-	return slices.ContainsFunc(fleet.Embedded().Regions, func(r fleet.Region) bool { return r.Label == region })
-}
-
 func ReleaseTarget(release releaseattest.Release) Target {
 	target := Target{Tag: release.Tag(), Binaries: map[string]string{}}
 	for arch, binary := range release.Binaries {
@@ -87,9 +81,10 @@ func (t Target) Document() ([]byte, error) {
 	return append(data, '\n'), err
 }
 
-func (v Verifier) Check(ctx context.Context, region string, release releaseattest.Release) (Receipt, error) {
-	receipt := Receipt{Target: ReleaseTarget(release), Region: region, At: time.Now().UTC()}
-	if region == fleet.Embedded().Staging.Label {
+func (v Verifier) Check(ctx context.Context, region string, release releaseattest.Release, source Origin) (receipt Receipt, failure error) {
+	defer func() { RecordBlock(source, region, failure) }()
+	receipt = Receipt{Target: ReleaseTarget(release), Region: region, At: time.Now().UTC()}
+	if region == scope.Staging.Label {
 		return receipt, nil
 	}
 	if !Production(region) {

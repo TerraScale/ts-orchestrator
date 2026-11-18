@@ -49,7 +49,11 @@ func StagingSigned(binary []byte) []byte {
 }
 
 func (s *standIn) staging(w http.ResponseWriter, tag string) {
-	now := time.Now().UTC()
+	if strings.HasSuffix(tag, releasegate.WithdrawalSuffix) {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	now := time.Now().UTC().Add(-24 * time.Hour)
 	record, err := json.Marshal(releasegate.StagingRecord{Binaries: s.github.stagingBinaries(tag), BakeFor: pullrelease.DefaultBakeFor, Region: fleet.Embedded().Staging.Label, Tag: tag,
 		Done: now.Add(-2 * pullrelease.DefaultBakeFor), Baked: now.Add(-pullrelease.DefaultBakeFor), Signed: now,
 		Latency: releasegate.LatencyVerdict{Verdict: releasegate.LatencyPass, Run: "https://github.com/TerraScale/ts-orchestrator/actions/runs/1"}})

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
@@ -24,22 +23,23 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
-type gateBlock struct {
-	region string
-	tag    string
-	code   string
-	since  time.Time
-}
-
-var stagingBlock atomic.Pointer[gateBlock]
+var stagingBlock atomic.Pointer[struct{}]
 
 func (u *Updater) publishStaging(ctx context.Context) error {
-	staging := fleet.Embedded().Staging
 	latency, err := u.latency(ctx)
 	if err != nil {
 		return err
 	}
-	record, err := json.Marshal(releasegate.StagingRecord{Binaries: releasegate.ReleaseTarget(*u.status.Target).Binaries, BakeFor: u.BakeFor, Region: u.Region, Tag: u.status.Target.Tag(), Done: u.status.Done, Baked: u.status.Passed, Signed: time.Now().UTC(), Latency: latency})
+	record := releasegate.StagingRecord{Binaries: releasegate.ReleaseTarget(*u.status.Target).Binaries, BakeFor: u.BakeFor, Region: u.Region, Tag: u.status.Target.Tag(), Done: u.status.Done, Baked: u.status.Passed, Signed: time.Now().UTC(), Latency: latency}
+	return publishStagingRecord(ctx, u.status.Target.Tag(), record, u.StagingKey)
+}
+
+func publishStagingRecord(ctx context.Context, object string, value any, key *ecdsa.PublicKey) error {
+	staging := fleet.Embedded().Staging
+	publish, cancel := context.WithTimeout(ctx, releasegate.FetchWait)
+	defer cancel()
+	ctx = publish
+	record, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (u *Updater) publishStaging(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("sign staging completion: %w", err)
 	}
-	if !ecdsa.VerifyASN1(u.StagingKey, digest[:], signature) {
+	if !ecdsa.VerifyASN1(key, digest[:], signature) {
 		return errors.New("staging.signer_key_id signs with another key than staging.signer_public_key")
 	}
 	body, err := json.Marshal(releasegate.SignedRecord{Record: record, Signature: signature})
@@ -91,7 +91,7 @@ func (u *Updater) publishStaging(ctx context.Context) error {
 		return err
 	}
 	_, err = storage.PutObject(ctx, objectstorage.PutObjectRequest{NamespaceName: &staging.Namespace, BucketName: common.String(staging.GateBucket()),
-		ObjectName: common.String(u.status.Target.Tag()), ContentLength: common.Int64(int64(len(body))), ContentType: common.String("application/json"),
+		ObjectName: common.String(object), ContentLength: common.Int64(int64(len(body))), ContentType: common.String("application/json"),
 		PutObjectBody: io.NopCloser(bytes.NewReader(body))})
 	if err != nil {
 		return fmt.Errorf("publish staging completion: %w", err)
@@ -127,28 +127,17 @@ func (u *Updater) latency(ctx context.Context) (releasegate.LatencyVerdict, erro
 }
 
 func (u *Updater) staged(ctx context.Context, release releaseattest.Release) string {
-	_, err := (releasegate.Verifier{Client: u.Client, Attest: u.Attest, StagingKey: u.StagingKey}).Check(ctx, u.Region, release)
+	_, err := (releasegate.Verifier{Client: u.Client, Attest: u.Attest, StagingKey: u.StagingKey}).Check(ctx, u.Region, release, releasegate.Leader)
 	if err == nil {
 		stagingBlock.Store(nil)
 		return ""
 	}
-	code := releasegate.GateUnreadable
-	var refusal *releasegate.Refusal
-	if errors.As(err, &refusal) {
-		code = refusal.Code
-	}
-	block := &gateBlock{region: u.Region, tag: release.Tag(), code: code, since: time.Now()}
-	if held := stagingBlock.Load(); held != nil && held.tag == block.tag {
-		block.since = held.since
-	}
-	stagingBlock.Store(block)
+	stagingBlock.Store(&struct{}{})
 	return err.Error()
 }
 
 func WriteMetrics(w io.Writer) {
-	block := stagingBlock.Load()
-	if block == nil {
-		return
+	if stagingBlock.Load() != nil {
+		releasegate.WriteBlockedMetrics(w, releasegate.Leader)
 	}
-	observability.WriteGauge(w, observability.Series("ts_orch_release_staging_gate_blocked_seconds", "region", block.region, "reason", block.code), time.Since(block.since).Seconds())
 }

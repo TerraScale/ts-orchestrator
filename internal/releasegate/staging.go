@@ -5,25 +5,22 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 )
 
 const (
-	StagingFresh  = 15 * time.Minute
 	MaxRecordSize = 64 << 10
 
 	GateMissing    = "missing"
 	GateUnreadable = "unreadable"
 	GateUnsigned   = "unsigned"
 	GateBaking     = "baking"
-	GateStale      = "stale"
 	GateLatency    = "latency"
 
 	LatencyAsset = "staging-latency.json"
@@ -63,10 +60,10 @@ type SignedRecord struct {
 }
 
 func (v Verifier) staging(ctx context.Context, target Target) (string, string) {
-	staging := fleet.Embedded().Staging
+	staging := scope.Staging
 	fetch, cancel := context.WithTimeout(ctx, FetchWait)
 	defer cancel()
-	request, err := http.NewRequestWithContext(fetch, http.MethodGet, staging.GateURL(target.Tag), nil)
+	request, err := http.NewRequestWithContext(fetch, http.MethodGet, gateURL(target.Tag), nil)
 	if err != nil {
 		return GateUnreadable, err.Error()
 	}
@@ -79,7 +76,7 @@ func (v Verifier) staging(ctx context.Context, target Target) (string, string) {
 	case response.StatusCode == http.StatusNotFound:
 		return GateMissing, staging.Label + " has published no baked completion of " + target.Tag
 	case response.StatusCode != http.StatusOK:
-		return GateUnreadable, staging.GateURL(target.Tag) + " answered " + response.Status
+		return GateUnreadable, gateURL(target.Tag) + " answered " + response.Status
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, MaxRecordSize+1))
 	if err != nil {
@@ -115,8 +112,15 @@ func (v Verifier) staging(ctx context.Context, target Target) (string, string) {
 	if record.Done.IsZero() || record.BakeFor <= 0 || record.Baked.Sub(record.Done) < record.BakeFor || record.Signed.Before(record.Baked) {
 		return GateBaking, fmt.Sprintf("%s baked %s for %s, under %s", staging.Label, target.Tag, record.Baked.Sub(record.Done), record.BakeFor)
 	}
-	if age := time.Since(record.Signed); age > StagingFresh || age < -time.Minute {
-		return GateStale, fmt.Sprintf("%s signed its completion of %s at %s, not within %s", staging.Label, target.Tag, record.Signed.Format(time.RFC3339), StagingFresh)
+	if record.Signed.IsZero() || record.Signed.After(time.Now().Add(time.Minute)) {
+		return GateUnsigned, "completion signing time is invalid"
+	}
+	if err := v.withdrawal(ctx, target.Tag); err != nil {
+		var refusal *Refusal
+		if errors.As(err, &refusal) {
+			return refusal.Code, refusal.Reason
+		}
+		return GateUnreadable, err.Error()
 	}
 	return "", ""
 }

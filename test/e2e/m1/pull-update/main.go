@@ -29,6 +29,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
 	"github.com/nats-io/nats-server/v2/server"
@@ -109,6 +110,10 @@ func runHost(args []string) {
 	must(err)
 	h.Attest = releaseattest.Verifier{Root: trusted}
 	h.Admission.StagingKey = parseStagingKey(stagingKey)
+	if err := h.CompleteBootAdmission(ctx, region, ""); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(5)
+	}
 	mode := candidateMode()
 	var flaps atomic.Int64
 	h.Health = func(context.Context, string) releasepush.HealthResult {
@@ -142,6 +147,13 @@ func runHost(args []string) {
 	must(err)
 	must(h.ServeHostVersion(conn, region, id))
 	must(h.ServePulled(conn, region, id))
+	_, err = conn.Subscribe("e2e.release.metrics."+id, func(m *nats.Msg) {
+		var metrics bytes.Buffer
+		releasepush.WriteReleaseMetrics(&metrics, state, h.Binary)
+		must(m.Respond(metrics.Bytes()))
+	})
+	must(err)
+
 	if probation, err := releasepush.Probe(state, os.Stdout); err == nil && probation != nil {
 		require(probation.Served(), "%s must confirm its release", id)
 	}
@@ -484,12 +496,16 @@ func (l *lane) pulls(ctx context.Context) {
 	r1 := l.github.prepare(l.revision, "101", asset, c101, c101, l.sigstore.Bundle(sigstore.MainIdentity, l.revision, "101", map[string][]byte{asset: c101}))
 	l.admissionGate(ctx, r1, original, base)
 	opened := time.Now()
-	l.github.gateMode(r1.tag, "")
+	l.github.gateMode(r1.tag, "old")
 	l.github.expose(r1.tag)
 	l.waitStatus(ctx, "sjc", "sjc admits the release once its staging record exists", func(s pullrelease.Status) bool {
 		return s.Target != nil && s.Target.Tag() == r1.tag
 	})
-	fmt.Printf("staging record available to first production region admission: %.3f seconds\n", time.Since(opened).Seconds())
+	fmt.Printf("staging completion signed 24 hours earlier admits after staging advanced; first production region admission: %.3f seconds\n", time.Since(opened).Seconds())
+	bootRelease := l.github.prepare(l.revision, "1011", asset, c101, c101, l.sigstore.Bundle(sigstore.MainIdentity, l.revision, "1011", map[string][]byte{asset: c101}))
+	bootIdentity := sigstore.Identity{Workflow: releasegate.Workflow, Ref: releaseattest.MainRef, Trigger: "workflow_dispatch"}
+	bootNow := time.Now().UTC().Truncate(time.Second)
+	l.bootAdmission(ctx, bootRelease, bootIdentity, releasegate.Attestation{Target: releasegate.ReleaseTarget(l.release(bootRelease)), IssuedAt: bootNow, ExpiresAt: bootNow.Add(releasegate.Lifetime), Reason: "fresh host boot admission"})
 	sjc := l.waitStatus(ctx, "sjc", "sjc completes "+r1.tag, complete(r1))
 	fra := l.waitStatus(ctx, "fra", "fra completes "+r1.tag, complete(r1))
 	gru := l.waitStatus(ctx, "gru", "gru completes "+r1.tag, complete(r1))

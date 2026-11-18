@@ -428,7 +428,7 @@ completes and bakes a tag, it publishes a signed completion record to
 `stg-release-gate`, and production verifies that record
 against `staging.signer_public_key` before installing. The sole alternative is
 a valid, unexpired exact-tag-and-digests attestation from the repository’s
-`main` dispatch workflow (`staging-admission.yml`). A missing or stale record keeps
+`main` dispatch workflow (`staging-admission.yml`). A missing, invalid or withdrawn record keeps
 production on its release and alerts (`StagingGateBlocking`;
 [platform releases](platform.md#releases)). No staging CA, Vault credential
 or production grant is shared.

@@ -1,9 +1,7 @@
 package regionhost
 
 import (
-	"context"
 	"encoding/base64"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -12,7 +10,9 @@ import (
 	"time"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/nodeinit"
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 )
@@ -204,12 +204,12 @@ func (r *run) faultDomains(ad string) ([]string, error) {
 	return names, nil
 }
 
-func hostMetadata(prebuilt bool, url, sum string, volume *core.Volume, mayFormat bool) (map[string]string, error) {
+func hostMetadata(prebuilt bool, url, sum string, volume *core.Volume, mayFormat bool, receipt releasegate.Receipt) (map[string]string, error) {
 	id, uuid, serial := deref(volume.Id), volume.FreeformTags[dataUUIDTag], volume.FreeformTags[dataSerialTag]
 	if prebuilt {
-		return nodeinit.HostVolumeMetadata(url, sum, id, uuid, serial, mayFormat)
+		return nodeinit.HostVolumeMetadata(url, sum, id, uuid, serial, mayFormat, receipt)
 	}
-	script, err := nodeinit.CloudInit(m1.Files, url, sum, id, uuid, serial, mayFormat)
+	script, err := nodeinit.CloudInit(m1.Files, url, sum, id, uuid, serial, mayFormat, receipt)
 	if err != nil {
 		return nil, err
 	}
@@ -252,9 +252,18 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 			nsgs = append(nsgs, *g.Id)
 		}
 	}
-	url, sum, err := newestRelease(r.ctx, m.arch)
+	document := fleet.Embedded()
+	region, err := document.Region(strings.ToLower(r.code))
 	if err != nil {
 		return nil, nil, err
+	}
+	release, receipt, err := fleet.AdmittedNodeRelease(r.ctx, document, region)
+	if err != nil {
+		return nil, nil, err
+	}
+	binary, ok := release.Binaries[m.arch]
+	if !ok {
+		return nil, nil, fmt.Errorf("release %s has no %s binary", release.Tag(), m.arch)
 	}
 	ads, err := r.ids.ListAvailabilityDomains(r.ctx, identity.ListAvailabilityDomainsRequest{CompartmentId: &r.tenancy})
 	if err != nil {
@@ -322,7 +331,7 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 			continue
 		}
 		mayFormat := r.createdVolumes[deref(volume.Id)]
-		metadata, metadataErr := hostMetadata(prebuilt, url, sum, volume, mayFormat)
+		metadata, metadataErr := hostMetadata(prebuilt, binary.URL, binary.SHA256, volume, mayFormat, receipt)
 		if metadataErr != nil {
 			return nil, nil, metadataErr
 		}
@@ -352,32 +361,6 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 		return nil, nil, err
 	}
 	return &inst, volume, r.attachDataVolume(name, &inst, volume)
-}
-
-// newestRelease is the newest CI release's ts-orch asset for arch and its
-// sha256, as install.sh takes them.
-func newestRelease(ctx context.Context, arch string) (url, sum string, err error) {
-	const repo = "TerraScale/ts-orchestrator"
-	tag, err := exec.CommandContext(ctx, "gh", "release", "list", "--repo", repo, "--exclude-drafts", "-L", "1", "--json", "tagName", "--jq", ".[0].tagName").Output()
-	if err != nil {
-		return "", "", fmt.Errorf("gh release list: %w", err)
-	}
-	data, err := exec.CommandContext(ctx, "gh", "release", "view", strings.TrimSpace(string(tag)), "--repo", repo, "--json", "assets").Output()
-	if err != nil {
-		return "", "", fmt.Errorf("gh release view: %w", err)
-	}
-	var release struct {
-		Assets []struct{ Name, Digest, URL string }
-	}
-	if err := json.Unmarshal(data, &release, json.MatchCaseInsensitiveNames(true)); err != nil {
-		return "", "", err
-	}
-	for _, a := range release.Assets {
-		if a.Name == "terrascale-orchestrator-linux-"+arch {
-			return a.URL, strings.TrimPrefix(a.Digest, "sha256:"), nil
-		}
-	}
-	return "", "", errors.New("newest CI release has no terrascale-orchestrator-linux-" + arch)
 }
 
 func deref[T any](p *T) T {

@@ -58,6 +58,7 @@ type Nodes struct {
 	Places        []Place
 	Key           func(kind, name string) ociresource.Key
 	Launch        func(context.Context) (Launch, error)
+	Admit         func(context.Context, string) error
 }
 
 type Pass struct {
@@ -229,6 +230,19 @@ func (p Pass) Pool(ctx context.Context) (Pool, bool, error) {
 }
 
 func (p Pass) Resize(ctx context.Context, pool Pool, size int) error {
+	if size > deref(pool.Size) {
+		configuration, err := p.Management.GetInstanceConfiguration(ctx, core.GetInstanceConfigurationRequest{InstanceConfigurationId: pool.InstanceConfigurationId})
+		if err != nil {
+			return err
+		}
+		details, ok := configuration.InstanceDetails.(core.ComputeInstanceDetails)
+		if !ok || details.LaunchDetails == nil {
+			return fmt.Errorf("pool configuration has no launch details")
+		}
+		if err := p.Admit(ctx, details.LaunchDetails.Metadata[nodeinit.ReleaseAdmissionKey]); err != nil {
+			return err
+		}
+	}
 	if _, err := p.Management.UpdateInstancePool(ctx, core.UpdateInstancePoolRequest{InstancePoolId: pool.Id,
 		UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{Size: common.Int(size)}}); err != nil {
 		return fmt.Errorf("resize instance pool %s to %d: %w", *pool.Id, size, err)

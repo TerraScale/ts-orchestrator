@@ -2,9 +2,12 @@ package nodeinit
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"regexp"
+
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 )
 
 var (
@@ -15,11 +18,11 @@ var (
 	plainURL       = regexp.MustCompile(`^https://[A-Za-z0-9./_:%-]+$`)
 )
 
-func CloudInit(files fs.FS, binaryURL, sum, volumeID, expectedUUID, expectedSerial string, mayFormat bool) (string, error) {
+func CloudInit(files fs.FS, binaryURL, sum, volumeID, expectedUUID, expectedSerial string, mayFormat bool, receipt releasegate.Receipt) (string, error) {
 	if err := checkBinding(volumeID, expectedUUID, expectedSerial, mayFormat); err != nil {
 		return "", err
 	}
-	return hostScript(files, binaryURL, sum, fmt.Sprintf("bash /usr/local/lib/ts-orch/data-volume.sh %t '%s' '%s' '%s'\n", mayFormat, volumeID, expectedUUID, expectedSerial))
+	return hostScript(files, binaryURL, sum, fmt.Sprintf("bash /usr/local/lib/ts-orch/data-volume.sh %t '%s' '%s' '%s'\n", mayFormat, volumeID, expectedUUID, expectedSerial), receipt)
 }
 
 func checkBinding(volumeID, expectedUUID, expectedSerial string, mayFormat bool) error {
@@ -29,8 +32,8 @@ func checkBinding(volumeID, expectedUUID, expectedSerial string, mayFormat bool)
 	return nil
 }
 
-func PoolCloudInit(files fs.FS, binaryURL, sum string) (string, error) {
-	return hostScript(files, binaryURL, sum, poolDataVolume)
+func PoolCloudInit(files fs.FS, binaryURL, sum string, receipt releasegate.Receipt) (string, error) {
+	return hostScript(files, binaryURL, sum, poolDataVolume, receipt)
 }
 
 const (
@@ -52,9 +55,13 @@ done
 bash /usr/local/lib/ts-orch/data-volume.sh "$(metadata terrascale-data-may-format)" "$volume" "$(metadata terrascale-data-uuid)" ''
 `
 
-func hostScript(files fs.FS, binaryURL, sum, dataVolume string) (string, error) {
+func hostScript(files fs.FS, binaryURL, sum, dataVolume string, receipt releasegate.Receipt) (string, error) {
 	if !sha256Hex.MatchString(sum) || !plainURL.MatchString(binaryURL) {
 		return "", fmt.Errorf("release asset needs a plain https URL and a lowercase sha256")
+	}
+	admission, err := admissionDocument(sum, receipt)
+	if err != nil {
+		return "", err
 	}
 	runtime, err := fs.ReadFile(files, "host-runtime.sh")
 	if err != nil {
@@ -87,7 +94,10 @@ curl -fsSL --retry 3 -o "$tmp" '%s'
 echo '%s  '"$tmp" | sha256sum -c --quiet
 install -m 0755 "$tmp" /usr/local/bin/terrascale-orchestrator
 ln -sfn terrascale-orchestrator /usr/local/bin/ts-orch
-install -d -m 0700 /var/lib/ts-orch
+install -d -m 0700 /var/lib/ts-orch/nats/release-admissions
+umask 077
+echo '%s' | base64 -d > /var/lib/ts-orch/nats/release-admissions/%s.json
+cp /var/lib/ts-orch/nats/release-admissions/%s.json /var/lib/ts-orch/nats/release-boot-admission.json
 install -d -m 0755 /var/lib/ts-data /var/lib/ts-data/terrabase
 echo '%s' | base64 -d > /etc/systemd/system/ts-orch.service
 echo '%s' | base64 -d > /etc/systemd/system/netbird-server.service
@@ -99,8 +109,17 @@ systemctl daemon-reload
 systemctl enable ts-orch.service netbird-server.service terrascale-ts-auth-metadata.service
 systemctl start terrascale-ts-auth-metadata.service
 systemctl restart ts-orch.service netbird-server.service
-`, base64.StdEncoding.EncodeToString([]byte(dataVolumeSetup)), dataVolume, base64.StdEncoding.EncodeToString(runtime), binaryURL, sum, base64.StdEncoding.EncodeToString(unit),
+`, base64.StdEncoding.EncodeToString([]byte(dataVolumeSetup)), dataVolume, base64.StdEncoding.EncodeToString(runtime), binaryURL, sum, base64.StdEncoding.EncodeToString(admission), sum, sum, base64.StdEncoding.EncodeToString(unit),
 		base64.StdEncoding.EncodeToString(companion)), nil
+}
+
+func admissionDocument(sum string, receipt releasegate.Receipt) ([]byte, error) {
+	for _, digest := range receipt.Binaries {
+		if digest == sum && receipt.Tag != "" {
+			return json.Marshal(receipt)
+		}
+	}
+	return nil, fmt.Errorf("node initialization requires admission for the boot binary digest")
 }
 
 var dataVolumeSetup = dataVolumeProbe + fstabMounts + mountCheck + dropIns("/etc/systemd/system", "/bin/bash")

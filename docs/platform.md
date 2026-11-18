@@ -57,7 +57,7 @@ key `stg-release-signer` in `stg-vault`. It writes the signed record as object
 `<tag>` in the public-read-without-list bucket `stg-release-gate`. The signed
 `bake_for` records the staging updater’s actual required healthy interval;
 receivers verify the observed interval meets it. The publisher refreshes the
-record on completed-release health sweeps. The latency verdict comes from the
+record on completed-release health sweeps. A separate watcher of staging’s durable rollout publishes a signed withdrawal at <tag>.rollback when rollback starts or a release is retained as bad. Each consumer reads that object too; an unreadable or invalid withdrawal fails closed. A withdrawn tag cannot be restored by an in-flight completion upload because the withdrawal has its own object key. Withdrawal publishing runs independently of binary rollback. The latency verdict comes from the
 release asset `staging-latency.json` (`{"verdict":"pass"|"fail","run":"<https run URL>"}`);
 without that verdict, staging publishes nothing.
 
@@ -65,7 +65,7 @@ Before adopting a tag, sjc verifies its signed completion against the staging
 public key embedded in the fleet document, matching the exact tag and binary digests. Every production host independently
 makes the same admission check before installing, including private direct
 PullInstall requests. Missing, unreadable, unsigned, wrong-tag, incomplete-bake,
-failed-latency and older-than-15-minute records fail closed. No staging CA,
+failed-latency and withdrawn records fail closed. Completed records do not expire: a later region may install the same exact release after staging has advanced to another tag. No staging CA,
 Vault credential or production grant crosses environments. Production regional
 ordering remains sjc followed by fra and gru in parallel. The exception still requires the canary gate,
 build provenance, channel ordering, host preflight or probation.
@@ -99,6 +99,22 @@ or restarting does not clear it. `ts-orch observe` prints
 `admitted without staging by run <id>` in each host’s release-admission check.
 A later installed binary uses its own receipt. See
 [staging bootstrap](region-bootstrap.md#staging-region).
+
+The same admission applies to production node boot selection, reusable instance
+configurations, pool growth, self-heal replacement and the region-add path.
+Cloud-init carries the checked tag/digests/run receipt so a newly created host
+exports break-glass evidence too. Cached configurations are rechecked before
+reuse or controller-driven growth; a missing admission requires a new admitted
+configuration. Binary rollback and recovery never consult the gate.
+
+This staging record admits **ts-orch binaries only**. Application image selections
+in apppull (TerraBase, ts-auth and the dashboard) retain their existing build and
+service-selection verification and are deliberately outside this binary gate.
+
+Before merging this PR, all three conditions must hold: the COS has sent
+STAGING-UP, C22’s #405 has merged, and at least one published release carries
+staging-latency.json. A healthy staging cell alone cannot publish a completion
+without that latency asset. Auto-merge stays off while any condition is missing.
 
 ## Identity and access
 

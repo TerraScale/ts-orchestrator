@@ -8,12 +8,14 @@ import (
 	json "encoding/json/v2"
 
 	image "github.com/TerraScale/ts-orchestrator/deploy/image"
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 )
 
 const (
-	ReleaseURLKey    = "terrascale-release-url"
-	ReleaseSHA256Key = "terrascale-release-sha256"
-	hostImagesSchema = "terrascale.host-images.v1"
+	ReleaseURLKey       = "terrascale-release-url"
+	ReleaseSHA256Key    = "terrascale-release-sha256"
+	ReleaseAdmissionKey = "release_admission"
+	hostImagesSchema    = "terrascale.host-images.v1"
 )
 
 var (
@@ -73,18 +75,22 @@ func PinnedHostImage(region, arch string) (HostImage, bool, error) {
 	return pinned, found, nil
 }
 
-func HostMetadata(binaryURL, sum string) (map[string]string, error) {
+func HostMetadata(binaryURL, sum string, receipt releasegate.Receipt) (map[string]string, error) {
 	if !sha256Hex.MatchString(sum) || !plainURL.MatchString(binaryURL) {
 		return nil, fmt.Errorf("release asset needs a plain https URL and a lowercase sha256")
 	}
-	return map[string]string{ReleaseURLKey: binaryURL, ReleaseSHA256Key: sum}, nil
+	admission, err := admissionDocument(sum, receipt)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{ReleaseURLKey: binaryURL, ReleaseSHA256Key: sum, ReleaseAdmissionKey: string(admission)}, nil
 }
 
-func HostVolumeMetadata(binaryURL, sum, volumeID, expectedUUID, expectedSerial string, mayFormat bool) (map[string]string, error) {
+func HostVolumeMetadata(binaryURL, sum, volumeID, expectedUUID, expectedSerial string, mayFormat bool, receipt releasegate.Receipt) (map[string]string, error) {
 	if err := checkBinding(volumeID, expectedUUID, expectedSerial, mayFormat); err != nil {
 		return nil, err
 	}
-	metadata, err := HostMetadata(binaryURL, sum)
+	metadata, err := HostMetadata(binaryURL, sum, receipt)
 	if err != nil {
 		return nil, err
 	}

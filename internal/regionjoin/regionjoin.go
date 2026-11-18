@@ -144,6 +144,7 @@ func Publish(ctx context.Context, region string, m Material) error {
 // Instance is what IMDS says about this OCI host.
 type Instance struct {
 	Region, ID, PrivateIP, VCNCIDR string
+	ReleaseAdmission               string `json:"-"`
 }
 
 // Local reads this host's region, instance OCID and private VCN address.
@@ -152,9 +153,18 @@ func Local(ctx context.Context) (Instance, error) {
 	if err != nil {
 		return Instance{}, err
 	}
-	id, err := imds(ctx, "instance/id")
+	raw, err := imds(ctx, "instance/")
 	if err != nil {
 		return Instance{}, err
+	}
+	var instance struct {
+		ID       string `json:"id"`
+		Metadata struct {
+			ReleaseAdmission string `json:"release_admission"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal([]byte(raw), &instance); err != nil {
+		return Instance{}, fmt.Errorf("decode IMDS instance: %w", err)
 	}
 	vnics, err := imds(ctx, "vnics/")
 	if err != nil {
@@ -167,7 +177,7 @@ func Local(ctx context.Context) (Instance, error) {
 	if err := json.Unmarshal([]byte(vnics), &listed); err != nil || len(listed) == 0 || listed[0].PrivateIP == "" {
 		return Instance{}, errors.New("IMDS lists no VNIC private IP")
 	}
-	return Instance{Region: region, ID: strings.TrimSpace(id), PrivateIP: listed[0].PrivateIP, VCNCIDR: listed[0].VCNCIDR}, nil
+	return Instance{Region: region, ID: strings.TrimSpace(instance.ID), PrivateIP: listed[0].PrivateIP, VCNCIDR: listed[0].VCNCIDR, ReleaseAdmission: instance.Metadata.ReleaseAdmission}, nil
 }
 
 func imds(ctx context.Context, path string) (string, error) {
