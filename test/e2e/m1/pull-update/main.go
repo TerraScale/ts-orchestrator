@@ -29,6 +29,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -108,11 +109,15 @@ func runHost(args []string) {
 	must(err)
 	h.Attest = releaseattest.Verifier{Root: trusted}
 	mode := candidateMode()
+	var flaps atomic.Int64
 	h.Health = func(context.Context, string) releasepush.HealthResult {
 		if mode == "unhealthy" {
 			return releasepush.HealthResult{Service: errors.New("candidate is unhealthy")}
 		}
 		if _, err := os.Stat(filepath.Join(dir, "draining")); err == nil {
+			return releasepush.HealthResult{Edge: errors.New("edge not ready: node draining")}
+		}
+		if _, err := os.Stat(filepath.Join(dir, "flapping")); err == nil && flaps.Add(1)%2 == 1 {
 			return releasepush.HealthResult{Edge: errors.New("edge not ready: node draining")}
 		}
 		return releasepush.HealthResult{}
@@ -745,7 +750,7 @@ func (l *lane) bakeDrain(ctx context.Context) {
 		"one draining sample must restart the bake, not roll back:\n%s", seen)
 	must(os.Remove(draining))
 	baked := l.waitStatus(ctx, "sjc", "sjc bakes "+brief.tag+" once sjc-w serves again", settled(brief))
-	require(baked.Phase == pullrelease.PhaseComplete && !baked.Baked.IsZero() && baked.Reason == "" && !slices.Contains(baked.Bad, brief.tag) && !baked.Baked.Before(seen.Done.Add(healthyFor)),
+	require(baked.Phase == pullrelease.PhaseComplete && !baked.Baked.IsZero() && baked.Reason == "" && !slices.Contains(baked.Bad, brief.tag) && !baked.Baked.Before(seen.Updated.Add(healthyFor)) && baked.Done.Equal(seen.Done),
 		"a drain that ends must pass the bake a full window after its last failed sample:\n%s", baked)
 	fmt.Printf("sjc-w draining during the bake of %s -> the bake restarts and passes once it serves\n%s\n", brief.tag, baked)
 
@@ -764,4 +769,22 @@ func (l *lane) bakeDrain(ctx context.Context) {
 	})
 	require(slices.Contains(rolled.Bad, stuck.tag), "a failed bake must mark %s bad:\n%s", stuck.tag, rolled)
 	fmt.Printf("sjc-w draining past the bake's 15 second failure bound -> %s rolled back and marked bad\n%s\n", stuck.tag, rolled)
+
+	flapping := filepath.Join(l.hosts["sjc-w"].dir, "flapping")
+	flapped := l.publishGood("117", "c117")
+	l.waitStatus(ctx, "sjc", "sjc's owner installs "+flapped.tag+" on itself, after sjc-w", ownerInstalling(flapped))
+	must(os.WriteFile(flapping, nil, 0o600))
+	bound := 2*healthyFor + rollout.BakeFailureDuration
+	bounded := l.waitStatus(ctx, "sjc", "sjc rolls back "+flapped.tag+" while sjc-w drains on every other sample", func(s pullrelease.Status) bool {
+		return s.Target != nil && s.Target.Tag() == flapped.tag && (s.Phase == pullrelease.PhaseRollingBack || s.Phase == pullrelease.PhaseRolledBack || !s.Baked.IsZero())
+	})
+	elapsed := bounded.Since.Sub(bounded.Done)
+	require(bounded.Baked.IsZero() && strings.Contains(bounded.Reason, "regional bake found no healthy ") && strings.Contains(bounded.Reason, "failed samples, the last: ") && strings.Contains(bounded.Reason, "node draining") &&
+		elapsed >= bound && elapsed < bound+5*time.Second,
+		"a host that drains on every other sample must fail the bake at its %s bound, failed after %s:\n%s", bound, elapsed, bounded)
+	must(os.Remove(flapping))
+	l.waitStatus(ctx, "sjc", "sjc confirms the rollback of "+flapped.tag, func(s pullrelease.Status) bool {
+		return s.Phase == pullrelease.PhaseRolledBack && s.Target != nil && s.Target.Tag() == flapped.tag && slices.Contains(s.Bad, flapped.tag)
+	})
+	fmt.Printf("sjc-w draining on every other bake sample -> %s rolled back at the bake bound after %s\n%s\n", flapped.tag, elapsed.Round(time.Second), bounded)
 }

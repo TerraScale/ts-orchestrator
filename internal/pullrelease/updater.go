@@ -145,6 +145,7 @@ func (u *Updater) turn(ctx context.Context) time.Duration {
 		u.status.Owner = u.Self
 		if u.status.Phase == PhaseComplete && u.status.Baked.IsZero() {
 			u.status.Done = time.Now().UTC()
+			u.status.Healthy, u.status.Failing, u.status.Failed, u.status.Failures = time.Time{}, time.Time{}, 0, 0
 		}
 		if !u.save(ctx) {
 			return renewEvery
@@ -647,34 +648,47 @@ func (u *Updater) predecessor(ctx context.Context, tag string) string {
 }
 
 func (u *Updater) bake(ctx context.Context) time.Duration {
-	if row, failure := u.bakeSample(ctx); failure != "" {
-		now := time.Now().UTC()
+	now := time.Now().UTC()
+	if row, check, failure := u.bakeSample(ctx); failure != "" {
+		slog.WarnContext(ctx, "regional bake sample failed", "release", u.status.Target.Tag(), "host", row.Host, "check", check, "failure", failure)
 		if u.status.Failed == 0 {
 			u.status.Failing = now
 		}
 		u.status.Failed++
+		u.status.Failures++
+		u.status.Healthy = time.Time{}
 		if u.status.Failed >= bakeFailures && now.Sub(u.status.Failing) >= rollout.BakeFailureDuration {
 			return u.rolledBack(ctx, row, fmt.Sprintf("regional bake failed in %d samples over %s: %s", u.status.Failed, now.Sub(u.status.Failing).Round(time.Second), failure))
 		}
-		u.status.Done, u.status.Reason = now, "regional bake sample failed: "+failure
+		if bound := u.bakeBound(); now.Sub(u.status.Done) >= bound {
+			return u.rolledBack(ctx, row, fmt.Sprintf("regional bake found no healthy %s window within %s: %d failed samples, the last: %s", u.BakeFor, bound, u.status.Failures, failure))
+		}
+		u.status.Reason = "regional bake sample failed: " + failure
 		u.save(ctx)
 		return checkEvery
 	}
-	if u.status.Failed != 0 {
+	if u.status.Failed != 0 || u.status.Healthy.IsZero() {
 		u.status.Failing, u.status.Failed, u.status.Reason = time.Time{}, 0, ""
+		if u.status.Healthy.IsZero() {
+			u.status.Healthy = now
+		}
 		u.save(ctx)
 	}
-	if time.Since(u.status.Done) < u.BakeFor {
+	if now.Sub(u.status.Healthy) < u.BakeFor || now.Sub(u.status.Done) < u.BakeFor {
 		return checkEvery
 	}
 	if u.status.Baked.IsZero() {
-		u.status.Baked = time.Now().UTC()
+		u.status.Baked = now
 		u.save(ctx)
 	}
 	return u.Poll
 }
 
-func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string) {
+func (u *Updater) bakeBound() time.Duration {
+	return 2*u.BakeFor + rollout.BakeFailureDuration
+}
+
+func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string, string) {
 	for i := range u.status.Hosts {
 		row := &u.status.Hosts[i]
 		if row.State == HostNewer {
@@ -682,11 +696,11 @@ func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string) {
 		}
 		reply, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
 		if err != nil || reply.State != "" || reply.Health != "ok" || reply.Version != row.Version || reply.SHA256 != row.SHA256 {
-			return row, fmt.Sprintf("%v %s %s %s", err, reply.State, reply.Health, reply.Error)
+			return row, "host status", fmt.Sprintf("%v %s %s %s", err, reply.State, reply.Health, reply.Error)
 		}
 	}
 	if err := u.Health(ctx); err != nil {
-		return &u.status.Hosts[0], err.Error()
+		return &u.status.Hosts[0], "region health", err.Error()
 	}
-	return nil, ""
+	return nil, "", ""
 }
