@@ -372,12 +372,11 @@ func (s *Scheduler) createOrUpdateNode(n *api.Node) {
 		resources = n.Description.Resources.Copy()
 		// reconcile resources by looping over all tasks in this node
 		if nodeInfoErr == nil {
+			for _, held := range nodeInfo.heldRooms {
+				resources.MemoryBytes -= held.memoryBytes
+				resources.NanoCPUs -= held.nanoCPUs
+			}
 			for _, task := range nodeInfo.Tasks {
-				reservations := taskReservations(task.Spec)
-
-				resources.MemoryBytes -= reservations.MemoryBytes
-				resources.NanoCPUs -= reservations.NanoCPUs
-
 				genericresource.ConsumeNodeResources(&resources.Generic,
 					task.AssignedGenericResources)
 			}
@@ -943,17 +942,12 @@ func (s *Scheduler) noSuitableNode(ctx context.Context, taskGroup map[string]*ap
 		newT.Status.Timestamp = ptypes.MustTimestampProto(time.Now())
 		sv := service.SpecVersion
 		tv := newT.SpecVersion
-		if sv != nil && tv != nil && sv.Index > tv.Index {
+		if sv != nil && tv != nil && sv.Index > tv.Index && t.Status.State == api.TaskStatePending && t.DesiredState >= api.TaskStateShutdown {
 			log.G(ctx).WithField("task.id", t.ID).Debug(
-				"task belongs to old revision of service",
+				"task of an old revision is desired shutdown, scheduler will go ahead and do so",
 			)
-			if t.Status.State == api.TaskStatePending && t.DesiredState >= api.TaskStateShutdown {
-				log.G(ctx).WithField("task.id", t.ID).Debug(
-					"task is desired shutdown, scheduler will go ahead and do so",
-				)
-				newT.Status.State = api.TaskStateShutdown
-				newT.Status.Err = ""
-			}
+			newT.Status.State = api.TaskStateShutdown
+			newT.Status.Err = ""
 		} else {
 			if explanation != "" {
 				newT.Status.Err = "no suitable node (" + explanation + ")"

@@ -32,6 +32,7 @@ type NodeInfo struct {
 	ActiveTasksCountByService map[string]int
 	AvailableResources        *api.Resources
 	usedHostPorts             map[hostPortSpec]struct{}
+	heldRooms                 map[roomKey]room
 
 	// recentFailures is a map from service ID/version to the timestamps of
 	// the most recent failures the node has experienced from replicas of
@@ -50,6 +51,7 @@ func newNodeInfo(n *api.Node, tasks map[string]*api.Task, availableResources api
 		ActiveTasksCountByService: make(map[string]int),
 		AvailableResources:        availableResources.Copy(),
 		usedHostPorts:             make(map[hostPortSpec]struct{}),
+		heldRooms:                 make(map[roomKey]room),
 		recentFailures:            make(map[versionedService][]time.Time),
 		lastCleanup:               time.Now(),
 	}
@@ -84,11 +86,8 @@ func (nodeInfo *NodeInfo) removeTask(t *api.Task) bool {
 		}
 	}
 
-	reservations := taskReservations(t.Spec)
+	nodeInfo.recount(roomOf(oldTask))
 	resources := nodeInfo.AvailableResources
-
-	resources.MemoryBytes += reservations.MemoryBytes
-	resources.NanoCPUs += reservations.NanoCPUs
 
 	if nodeInfo.Description == nil || nodeInfo.Description.Resources == nil ||
 		nodeInfo.Description.Resources.Generic == nil {
@@ -123,12 +122,10 @@ func (nodeInfo *NodeInfo) addTask(t *api.Task) bool {
 	}
 
 	nodeInfo.Tasks[t.ID] = t
+	nodeInfo.recount(roomOf(t))
 
 	reservations := taskReservations(t.Spec)
 	resources := nodeInfo.AvailableResources
-
-	resources.MemoryBytes -= reservations.MemoryBytes
-	resources.NanoCPUs -= reservations.NanoCPUs
 
 	// minimum size required
 	t.AssignedGenericResources = make([]*api.GenericResource, 0, len(resources.Generic))
@@ -151,6 +148,70 @@ func (nodeInfo *NodeInfo) addTask(t *api.Task) bool {
 	}
 
 	return true
+}
+
+type roomKey struct {
+	serviceID string
+	slot      uint64
+	port      uint32
+	taskID    string
+}
+
+type room struct {
+	memoryBytes int64
+	nanoCPUs    int64
+}
+
+func roomOf(t *api.Task) roomKey {
+	if port := lowestPublishedPort(t); port != 0 {
+		return roomKey{serviceID: t.ServiceID, slot: t.Slot, port: port}
+	}
+	return roomKey{taskID: t.ID}
+}
+
+func lowestPublishedPort(t *api.Task) uint32 {
+	if t.Endpoint == nil {
+		return 0
+	}
+	ports := t.Endpoint.Ports
+	if t.Endpoint.Spec != nil {
+		ports = t.Endpoint.Spec.Ports
+	}
+	var lowest uint32
+	for _, port := range ports {
+		if port != nil && port.PublishedPort != 0 && (lowest == 0 || port.PublishedPort < lowest) {
+			lowest = port.PublishedPort
+		}
+	}
+	return lowest
+}
+
+func (nodeInfo *NodeInfo) recount(key roomKey) {
+	var needed room
+	for _, t := range nodeInfo.Tasks {
+		if roomOf(t) == key {
+			reservations := taskReservations(t.Spec)
+			needed.memoryBytes = max(needed.memoryBytes, reservations.MemoryBytes)
+			needed.nanoCPUs = max(needed.nanoCPUs, reservations.NanoCPUs)
+		}
+	}
+	held := nodeInfo.heldRooms[key]
+	nodeInfo.AvailableResources.MemoryBytes += held.memoryBytes - needed.memoryBytes
+	nodeInfo.AvailableResources.NanoCPUs += held.nanoCPUs - needed.nanoCPUs
+	if needed == (room{}) {
+		delete(nodeInfo.heldRooms, key)
+	} else {
+		nodeInfo.heldRooms[key] = needed
+	}
+}
+
+func (nodeInfo *NodeInfo) roomNeeded(t *api.Task) room {
+	reservations := taskReservations(t.Spec)
+	held := nodeInfo.heldRooms[roomOf(t)]
+	return room{
+		memoryBytes: max(held.memoryBytes, reservations.MemoryBytes) - held.memoryBytes,
+		nanoCPUs:    max(held.nanoCPUs, reservations.NanoCPUs) - held.nanoCPUs,
+	}
 }
 
 func taskReservations(spec api.TaskSpec) (reservations api.Resources) {

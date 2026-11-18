@@ -54,6 +54,7 @@ func (f *ReadyFilter) Explain(nodes int) string {
 // the task.
 type ResourceFilter struct {
 	reservations *api.Resources
+	t            *api.Task
 }
 
 // SetTask returns true when the filter is enabled for a given task.
@@ -69,16 +70,18 @@ func (f *ResourceFilter) SetTask(t *api.Task) bool {
 	}
 
 	f.reservations = r.Reservations
+	f.t = t
 	return true
 }
 
 // Check returns true if the task can be scheduled into the given node.
 func (f *ResourceFilter) Check(n *NodeInfo) bool {
-	if f.reservations.NanoCPUs > n.AvailableResources.NanoCPUs {
+	needed := n.roomNeeded(f.t)
+	if needed.nanoCPUs > n.AvailableResources.NanoCPUs {
 		return false
 	}
 
-	if f.reservations.MemoryBytes > n.AvailableResources.MemoryBytes {
+	if needed.memoryBytes > n.AvailableResources.MemoryBytes {
 		return false
 	}
 

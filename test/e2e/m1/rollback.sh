@@ -117,3 +117,69 @@ orch service inspect e2e-over | jq -e '.spec.env.E2E_RELEASE == "3"'
 [[ $(running_tasks e2e-over) == "$serving" ]]
 orch service rm e2e-over
 end "release 3 refused while 2 was still unplaced -> neither replaces the serving release 1"
+
+begin "a pending task whose service spec was rewritten is placed once room appears"
+fit_spec e2e-hold 18087 1 $(($(free_cpu) / 2 + 1)) 1 >"$work/hold.json"
+orch service apply -f "$work/hold.json"
+fit_spec e2e-wait 18088 1 "$(jq .milliCPU "$work/hold.json")" 1 >"$work/wait.json"
+if orch service apply -f "$work/wait.json" >"$work/wait.txt" 2>&1; then
+	cat "$work/wait.txt"
+	echo "a service with no room reported ready" >&2
+	exit 1
+fi
+cat "$work/wait.txt"
+grep -q "update refused: start-first candidate .* cannot be placed (no suitable node (insufficient resources on 1 node))" "$work/wait.txt"
+waiting=$(orch service ps e2e-wait | awk 'NR > 1 && / pending +running / {print $1}')
+[[ -n $waiting ]]
+fit_spec e2e-nudge 18089 1 50 1 >"$work/nudge.json"
+orch service apply -f "$work/nudge.json"
+orch service rm e2e-hold
+waiting_placed() {
+	[[ $(running_tasks e2e-wait) == "$waiting" ]]
+}
+wait_for 30 waiting_placed
+orch service ps e2e-wait
+orch service rm e2e-wait
+orch service rm e2e-nudge
+end "pending task at an older spec version + a failed scheduling pass -> the same task runs once its room frees"
+
+begin "a stop-first replacement waiting for its running predecessor is counted once, and nothing else takes the predecessor's room"
+free=$(free_cpu)
+jq -n --arg image "$(jq -r .image "$here/data.json")" --argjson cpu $((free / 2 + 1)) \
+	'{name: "e2e-linger", image: $image, args: ["sh", "-c", "trap \"\" TERM; while :; do sleep 1; done"], env: {E2E_RELEASE: "1"}, mounts: [{source: "/var/lib/ts-data/e2e-linger", target: "/tmp"}], port: 18090, replicas: 1, milliCPU: $cpu}' >"$work/linger-1.json"
+orch service apply -f "$work/linger-1.json"
+lingering=$(running_tasks e2e-linger)
+[[ -n $lingering ]]
+jq '.env.E2E_RELEASE = "2"' "$work/linger-1.json" >"$work/linger-2.json"
+orch service apply -f "$work/linger-2.json" >"$work/linger-2.txt" 2>&1 &
+replacing=$!
+told_to_stop() {
+	orch service ps e2e-linger | awk -v id="$lingering" '$1 == id' | grep -Eq ' running +shutdown '
+}
+replacement_assigned() {
+	orch service ps e2e-linger | awk -v id="$lingering" 'NR > 1 && $1 != id' | grep -Eq ' (assigned|accepted|preparing|ready|starting) +(ready|running) '
+}
+wait_for 20 told_to_stop
+wait_for 30 replacement_assigned
+fit_spec e2e-room 18091 1 $((free - free / 2)) 1 >"$work/room.json"
+if orch service apply -f "$work/room.json" >"$work/room.txt" 2>&1; then
+	cat "$work/room.txt"
+	echo "a service took the room of a predecessor that still runs" >&2
+	exit 1
+fi
+cat "$work/room.txt"
+grep -q "update refused: start-first candidate .* cannot be placed (no suitable node (insufficient resources on 1 node))" "$work/room.txt"
+orch service ps e2e-linger
+told_to_stop
+replacement_assigned
+[[ -z $(running_tasks e2e-linger) ]]
+kill -0 "$replacing"
+orch service rm e2e-room
+orch service rm e2e-linger
+if wait "$replacing"; then
+	cat "$work/linger-2.txt"
+	echo "the replacement reported ready while its predecessor still ran" >&2
+	exit 1
+fi
+cat "$work/linger-2.txt"
+end "predecessor running past SIGTERM, desired shutdown -> its replacement is assigned in its room without running, another service is refused"
