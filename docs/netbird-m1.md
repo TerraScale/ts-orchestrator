@@ -99,7 +99,7 @@ target.secret.name = /gru-1-netbird-*/` and `use keys` on `gru-vault-master`.
 Managed by `manager.GRU()`; the upstream allow-all `Default` policy is
 deleted at first start.
 
-- `operators`, `ops-automation` -> `gru-servers`: TCP 22 and NetBird SSH.
+- `operators`, `ops-automation` -> `gru-servers`: TCP 22 (OpenSSH; M1 hosts run no NetBird SSH server, see [NetBird SSH is off on M1 hosts](#netbird-ssh-is-off-on-m1-hosts)).
 - `gru-servers` <-> `gru-servers`: ICMP and service health ports.
 
 ## Clients
@@ -107,14 +107,18 @@ deleted at first start.
 | Host | OS | How it is enrolled |
 |---|---|---|
 | ts-gru-1, ts-sjc-1, ts-fra-1 | Ubuntu 24.04 arm64 | `ts-orch netbird server` (unit on every M1 host) installs the pinned client and runs `netbird up` with `gru-1-netbird-setup-key` on stdin; only the host declaring the `netbird-server` service also runs the server side |
+| delta, mariogk-dev, beta | NixOS | Homelab fleet module `services.netbird.clients.terrascale` with `gru-1-netbird-operators-setup-key` |
+| operator PC | any | the one command below |
+
+### NetBird SSH is off on M1 hosts
 
 Every M1 host keeps the NetBird SSH server off (`--allow-server-ssh=false`,
 re-applied by `ts-orch netbird server` whenever the client's config differs).
-While it runs, the NetBird client DNATs port 22 of the host's NetBird address
-to its own server on 22022, so operator OpenSSH (`ssh ts-<r>-1`, known host
-key) would be unreachable over NetBird.
-| delta, mariogk-dev, beta | NixOS | Homelab fleet module `services.netbird.clients.terrascale` with `gru-1-netbird-operators-setup-key` |
-| operator PC | any | the one command below |
+While it runs, the NetBird 0.81.3 client always DNATs port 22 of the host's
+NetBird address to its own server on 22022, so operator OpenSSH
+(`ssh ts-<r>-1`, known host key) would be unreachable over NetBird. Operators
+reach M1 hosts with OpenSSH on the NetBird address; `ts-orch netbird ssh` and
+`ts-orch log-scan` have no NetBird SSH server to reach there.
 
 ## Operator PC
 
