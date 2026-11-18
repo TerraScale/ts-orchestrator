@@ -127,14 +127,17 @@ type Handler struct {
 	Regional                *ocirelease.Regional
 	SeqFile                 string
 
-	RefusalFile  string
-	DegradedFile string
-	mu           sync.Mutex
-	pending      releaseID
-	recovery     recoveryWindow
-	rolledBack   atomic.Pointer[Rollback]
-	exitOnce     sync.Once
-	lastHealth   atomic.Pointer[string]
+	RefusalFile   string
+	DegradedFile  string
+	mu            sync.Mutex
+	pending       releaseID
+	recovery      recoveryWindow
+	rolledBack    atomic.Pointer[Rollback]
+	exitOnce      sync.Once
+	lastHealth    atomic.Pointer[string]
+	subscribed    sync.Mutex
+	subscriptions []*nats.Subscription
+	inflight      sync.WaitGroup
 }
 
 func NewHandler(state string) (*Handler, error) {
@@ -189,11 +192,11 @@ func Revision() string {
 }
 
 func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Context, []byte) Reply) error {
-	var subscriptions []*nats.Subscription
-	var mu sync.Mutex
 	for subject, handle := range subjects {
 		subscription, err := conn.Subscribe(subject, func(m *nats.Msg) {
+			h.inflight.Add(1)
 			go func() {
+				defer h.inflight.Done()
 				ctx, cancel := context.WithTimeout(context.Background(), HandlerWait)
 				defer cancel()
 				reply := handle(ctx, m.Data)
@@ -205,13 +208,6 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 					slog.Warn("release reply delivery failed", "error", err)
 				}
 				if reply.State == "installed" || reply.State == stateRestoring {
-					mu.Lock()
-					for _, subscription := range subscriptions {
-						if err := subscription.Unsubscribe(); err != nil && !errors.Is(err, nats.ErrBadSubscription) {
-							slog.Warn("release installed; request subscription not closed", "error", err)
-						}
-					}
-					mu.Unlock()
 					if err := conn.FlushTimeout(5 * time.Second); err != nil {
 						slog.Warn("release installed; reply flush failed", "error", err)
 					}
@@ -226,11 +222,23 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 		if err != nil {
 			return err
 		}
-		mu.Lock()
-		subscriptions = append(subscriptions, subscription)
-		mu.Unlock()
+		h.subscribed.Lock()
+		h.subscriptions = append(h.subscriptions, subscription)
+		h.subscribed.Unlock()
 	}
 	return conn.Flush()
+}
+
+func (h *Handler) Close(conn *nats.Conn) error {
+	h.subscribed.Lock()
+	var failed error
+	for _, subscription := range h.subscriptions {
+		failed = errors.Join(failed, subscription.Unsubscribe())
+	}
+	h.subscriptions = nil
+	h.subscribed.Unlock()
+	h.inflight.Wait()
+	return errors.Join(failed, conn.Flush())
 }
 
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }

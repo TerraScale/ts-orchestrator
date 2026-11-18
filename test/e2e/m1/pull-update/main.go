@@ -160,6 +160,7 @@ func runHost(args []string) {
 	must(conn.Publish("e2e.ready."+region+"."+id, []byte(h.Digest)))
 	must(conn.Flush())
 	<-h.Installed
+	must(h.Close(conn))
 
 }
 
