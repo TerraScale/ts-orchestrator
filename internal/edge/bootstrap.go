@@ -100,9 +100,10 @@ func (e *Edge) Bootstrap(ctx context.Context, action string, j rolloutmaintenanc
 			if err != nil {
 				return err
 			}
+			refusal := primeRefusal(member.Node, response)
 			response.Body.Close()
-			if response.StatusCode != http.StatusNoContent {
-				return fmt.Errorf("follower catch-up HTTP %d", response.StatusCode)
+			if refusal != nil {
+				return fmt.Errorf("follower catch-up: %w", refusal)
 			}
 		}
 		return nil
@@ -132,9 +133,10 @@ func (e *Edge) Bootstrap(ctx context.Context, action string, j rolloutmaintenanc
 					if e != nil {
 						return e
 					}
+					refusal := primeRefusal(peer.Node, response)
 					response.Body.Close()
-					if response.StatusCode != http.StatusNoContent {
-						return fmt.Errorf("pre-stop follower catch-up HTTP %d", response.StatusCode)
+					if refusal != nil {
+						return fmt.Errorf("pre-stop follower catch-up: %w", refusal)
 					}
 				}
 			}

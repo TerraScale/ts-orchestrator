@@ -440,16 +440,31 @@ func (e *Edge) drainRegionalNode(ctx context.Context, router *regionalRouter, no
 		return err
 	}
 	var target mesh.WorkerPeer
+	var candidates []mesh.WorkerPeer
 	admitted := false
 	for _, peer := range (*router.nodes.Load())() {
 		if peer.Node == node {
 			admitted = true
 		} else {
-			target = peer
+			candidates = append(candidates, peer)
 		}
 	}
-	if !admitted || target.Node == "" {
+	if !admitted || len(candidates) == 0 {
 		return errors.New("replacement has no admitted regional peer")
+	}
+	var unavailable error
+	for _, peer := range candidates {
+		probe, cancel := context.WithTimeout(ctx, time.Second)
+		_, err := e.regionalStatus(probe, router, peer)
+		cancel()
+		if err == nil {
+			target = peer
+			break
+		}
+		unavailable = errors.Join(unavailable, fmt.Errorf("%s: %w", peer.Node, err))
+	}
+	if target.Node == "" {
+		return &regionalRefusal{code: "target_unavailable", err: fmt.Errorf("no regional peer of %s serves TerraBase to take over: %w", node, unavailable)}
 	}
 	slog.Info("regional replacement requested", "source", node, "target", target.Node, "writer", owner.Node)
 	if owner.Node == node {
@@ -459,9 +474,10 @@ func (e *Edge) drainRegionalNode(ctx context.Context, router *regionalRouter, no
 		if err != nil {
 			return err
 		}
+		refusal := primeRefusal(target.Node, response)
 		response.Body.Close()
-		if response.StatusCode != http.StatusNoContent {
-			return &regionalRefusal{code: fmt.Sprintf("prime_http_%d", response.StatusCode), err: fmt.Errorf("regional prime HTTP %d", response.StatusCode)}
+		if refusal != nil {
+			return refusal
 		}
 	}
 	release, err := router.hold(ctx)
@@ -550,6 +566,29 @@ func (e *Edge) drainRegionalNode(ctx context.Context, router *regionalRouter, no
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
+}
+
+func primeRefusal(target string, response *http.Response) *regionalRefusal {
+	if response.StatusCode == http.StatusNoContent {
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 16<<10))
+	var answer struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err == nil {
+		err = json.Unmarshal(body, &answer)
+	}
+	code, detail := fmt.Sprintf("prime_http_%d", response.StatusCode), answer.Error.Message
+	if err != nil || answer.Error.Code == "" {
+		detail = "not a TerraBase refusal: " + strings.TrimSpace(string(body[:min(len(body), 512)]))
+	} else {
+		code = answer.Error.Code
+	}
+	return &regionalRefusal{code: code, err: fmt.Errorf("regional prime on %s HTTP %d %s: %s", target, response.StatusCode, code, detail)}
 }
 
 func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source, target mesh.WorkerPeer, holdIngress func() (bool, error), releaseIngress func(bool) bool) error {
