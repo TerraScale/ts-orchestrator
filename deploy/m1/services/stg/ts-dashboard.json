@@ -1,0 +1,46 @@
+{
+  "dependencies": [
+    "peers"
+  ],
+  "name": "ts-dashboard",
+  "image": "terrascale-dashboard@sha256:61ecf560162350e55042e49118903f62375519cbc087083d4c09d81cd5eb0261",
+  "env": {
+    "ASPNETCORE_URLS": "http://127.0.0.1:${PORT}",
+    "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp",
+    "TS_DASHBOARD_TERRABASE_URL": "http://127.0.0.1:8081",
+    "TS_DASHBOARD_AUTH_ORIGIN": "https://stg.auth.terrascale.tech"
+  },
+  "secrets": {
+    "STRIPE_SECRET_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvpxk2yaaeck.abzwuljrayi4xmphstdgedoqqh562pnp5pha6nocgn2fxu3uaoa7clrfaxra",
+      "name": "stg-1-stripe-secret-key"
+    },
+    "STRIPE_WEBHOOK_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvpxk2yaaeck.abzwuljrayi4xmphstdgedoqqh562pnp5pha6nocgn2fxu3uaoa7clrfaxra",
+      "name": "stg-1-stripe-webhook-secret"
+    },
+    "TERRABASE_PEER_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvpxk2yaaeck.abzwuljrayi4xmphstdgedoqqh562pnp5pha6nocgn2fxu3uaoa7clrfaxra",
+      "name": "stg-1-terrabase-peer-secret"
+    },
+    "TS_AUTH_DASHBOARD_CLIENT_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvpxk2yaaeck.abzwuljrayi4xmphstdgedoqqh562pnp5pha6nocgn2fxu3uaoa7clrfaxra",
+      "name": "stg-1-ts-auth-dashboard-client-secret"
+    },
+    "TS_DASHBOARD_SESSION_ENCRYPTION_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvpxk2yaaeck.abzwuljrayi4xmphstdgedoqqh562pnp5pha6nocgn2fxu3uaoa7clrfaxra",
+      "name": "stg-1-ts-dashboard-session-encryption-key"
+    }
+  },
+  "port": 8085,
+  "readyPath": "/readyz",
+  "hostnames": [
+    "stg.dash.terrascale.tech"
+  ],
+  "replicas": 1,
+  "milliCPU": 200,
+  "memoryMiB": 2048,
+  "regions": [
+    "stg"
+  ]
+}

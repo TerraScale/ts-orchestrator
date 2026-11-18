@@ -15,6 +15,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleetregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -312,10 +313,10 @@ func ValidateDeliveryRefs(cell, service string, refs map[string]Ref, env map[str
 	if len(refs) > MaxRefs || !nameRE.MatchString(service) {
 		return errors.New("Vault delivery needs a service name and at most 64 references")
 	}
-	entry, known := catalog.LookupName(cell)
+	location, locationErr := fleetregion.Lookup(cell)
 	files := map[string]bool{}
 	for key, ref := range refs {
-		if !known || ref.region() != entry.OCIRegion {
+		if locationErr != nil || ref.region() != location.OCIRegion || location.VaultID != "" && ref.Vault != location.VaultID {
 			return fmt.Errorf("Vault secret %s of %s must name a Vault in cell %s's region", key, service, cell)
 		}
 		if !envKeyRE.MatchString(key) {

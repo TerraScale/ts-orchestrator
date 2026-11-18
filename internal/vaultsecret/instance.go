@@ -16,7 +16,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleetregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
 )
 
@@ -48,7 +47,7 @@ func ValidateServiceRefs(cell, vaultID, service string, refs map[string]Ref) err
 	}) {
 		return fmt.Errorf("service %s shares a name with the cell's infrastructure secrets and names no Vault secrets", service)
 	}
-	entry, known := catalog.LookupName(cell)
+	location, locationErr := fleetregion.Lookup(cell)
 	own := map[string]Ref{}
 	for key, ref := range refs {
 		if !serviceKeyRE.MatchString(key) || !FileKey(key) {
@@ -57,7 +56,7 @@ func ValidateServiceRefs(cell, vaultID, service string, refs map[string]Ref) err
 		if vaultID == "" {
 			vaultID = ref.Vault
 		}
-		if !known || ref.Vault != vaultID || ref.region() != entry.OCIRegion {
+		if locationErr != nil || ref.Vault != vaultID || ref.region() != location.OCIRegion || location.VaultID != "" && ref.Vault != location.VaultID {
 			return fmt.Errorf("Vault secret %s of %s must name cell %s's Vault", key, service, cell)
 		}
 		// Alert delivery reads only its exact topic and two approved shared GRU references.
@@ -195,17 +194,14 @@ func instanceMetadata(ctx context.Context) (metadata, error) {
 	return result, nil
 }
 
-// refsVault is the cell and Vault of service's non-empty refs: the Vault of
-// the first key, whose region names the cell; ValidateServiceRefs binds every
-// ref to that one Vault and to the cell's name rules.
 func refsVault(service string, refs map[string]Ref) (string, string, error) {
 	ref := refs[slices.Min(slices.Collect(maps.Keys(refs)))]
-	entry, ok := catalog.CellForOCIRegion(ref.region())
-	if !ok {
-		return "", "", fmt.Errorf("Vault secrets of %s must name a Vault in a TerraScale cell's region", service)
+	cell, err := fleetregion.OfVault(ref.Vault, ref.region())
+	if err != nil {
+		return "", "", fmt.Errorf("Vault secrets of %s: %w", service, err)
 	}
-	if err := ValidateServiceRefs(entry.Name(), ref.Vault, service, refs); err != nil {
+	if err := ValidateServiceRefs(cell, ref.Vault, service, refs); err != nil {
 		return "", "", err
 	}
-	return entry.Name(), ref.Vault, nil
+	return cell, ref.Vault, nil
 }

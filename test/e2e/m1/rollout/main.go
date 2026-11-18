@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 
+	"github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -76,7 +78,7 @@ func prepareImage(ctx context.Context, root, specFile string) {
 		metadata.Config.Labels = map[string]string{}
 	}
 	metadata.Config.Labels["org.opencontainers.image.revision"] = revision
-	metadata.Config.Cmd = []string{"--port", "8097"}
+	metadata.Config.Cmd = nil
 	write := func(value any, media string) imagespec.Descriptor {
 		data, err := json.Marshal(value)
 		must(err)
@@ -97,8 +99,10 @@ func prepareImage(ctx context.Context, root, specFile string) {
 	must(err)
 	_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(spec.Image, "ghcr.io/terrascale/", "", 1), Target: target})
 	must(err)
-	for _, name := range []string{"app-canary", "install-canary", "invalid-canary", "nonce-canary"} {
+	for _, name := range []string{"app-canary", "install-canary", "invalid-canary", "nonce-canary", "ts-auth", "terrascale-dashboard"} {
 		_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(spec.Image, "/terrabase@", "/"+name+"@", 1), Target: target})
+		must(err)
+		_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(strings.TrimPrefix(spec.Image, "ghcr.io/terrascale/"), "terrabase@", name+"@", 1), Target: target})
 		must(err)
 	}
 	data, err = json.Marshal(spec)
@@ -114,6 +118,8 @@ func prepareImage(ctx context.Context, root, specFile string) {
 	_, err = client.ImageService().Create(ctx, images.Image{Name: replacementName, Target: replacement})
 	must(err)
 	_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(replacementName, "ghcr.io/terrascale/", "", 1), Target: replacement})
+	must(err)
+	_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(strings.TrimPrefix(replacementName, "ghcr.io/terrascale/"), "terrabase@", "terrascale-dashboard@", 1), Target: replacement})
 	must(err)
 	must(os.WriteFile(filepath.Join(root, "replacement-image"), []byte(replacementName), 0600))
 }
@@ -179,7 +185,11 @@ func main() {
 		must(err)
 		must(json.NewEncoder(os.Stdout).Encode(rows))
 	case "pull":
-		failure := runPulled(ctx, os.Args[2], os.Args[3], os.Args[4])
+		service := "terrabase"
+		if len(os.Args) > 5 {
+			service = os.Args[5]
+		}
+		failure := runPulled(ctx, os.Args[2], os.Args[3], os.Args[4], service)
 		reply := releasepush.Reply{State: "done"}
 		if failure != nil {
 			reply.State, reply.Error = "failed", failure.Error()
@@ -268,8 +278,12 @@ func runRegion(ctx context.Context, args []string) {
 	must(err)
 	serverName, err := os.Hostname()
 	must(err)
+	seeds := map[string][]string{}
+	if peerRegion != region {
+		seeds[peerRegion] = []string{"nats://" + peerAddress + ":6222"}
+	}
 	node, err := mesh.StartRegionalHost(mesh.RegionalHost{State: root, Region: region, Server: serverName, CA: ca,
-		TerraBaseToken: fmt.Sprintf("%x", seed), Seeds: map[string][]string{peerRegion: {"nats://" + peerAddress + ":6222"}},
+		TerraBaseToken: fmt.Sprintf("%x", seed), Seeds: seeds,
 		ClusterAddress: address + ":6222", Address: func() (string, error) { return address, nil }})
 	must(err)
 	defer node.Close()
@@ -293,7 +307,7 @@ func runRegion(ctx context.Context, args []string) {
 	if selection, err := os.ReadFile(filepath.Join(root, "pull-selection")); err == nil {
 		fields := strings.Fields(string(selection))
 		require(len(fields) == 2, "selection must name an immutable image and selecting run")
-		go runPulled(ctx, root, fields[0], fields[1])
+		go runPulled(ctx, root, fields[0], fields[1], "terrabase")
 	} else if !errors.Is(err, os.ErrNotExist) {
 		panic(err)
 	}
@@ -412,7 +426,8 @@ func states(ctx context.Context, conn *nats.Conn) map[string]state {
 		}
 	}
 	inbox := nats.NewInbox()
-	replies := make(chan *nats.Msg, 3)
+	count := len(mesh.ConnRegions(conn))
+	replies := make(chan *nats.Msg, count)
 	sub, err := conn.ChanSubscribe(inbox, replies)
 	must(err)
 	defer sub.Unsubscribe()
@@ -420,7 +435,7 @@ func states(ctx context.Context, conn *nats.Conn) map[string]state {
 	deadline := time.NewTimer(time.Second)
 	defer deadline.Stop()
 	result := map[string]state{}
-	for len(result) < 3 {
+	for len(result) < count {
 		select {
 		case message := <-replies:
 			require(len(message.Data) > 0, fmt.Sprintf("empty state reply from %s, headers %v", conn.ConnectedUrl(), message.Header))
@@ -528,6 +543,9 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 		output, err := exec.CommandContext(ctx, os.Args[0], "prepare", roots[i], specFile).CombinedOutput()
 		require(err == nil, fmt.Sprintf("prepare image: %v %s", err, output))
 		swarms[i] = start(ctx, names[i], launcher, roots[i], "swarm")
+		if i == 0 && !installOnly {
+			stagingCases(ctx, roots[i], names[i], addresses[i], launcher, seedFile)
+		}
 		data, err := os.ReadFile(filepath.Join(roots[i], "spec.json"))
 		must(err)
 		var baseline swarmruntime.ServiceSpec
@@ -589,6 +607,29 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 		must(conn.Flush())
 	}
 	topologyReady(ctx, roots)
+	if !installOnly {
+		crossEnvironmentRefused(ctx, conn, roots, order)
+		for i, service := range []string{"ts-auth", "ts-dashboard"} {
+			pkg := service
+			if service == "ts-dashboard" {
+				pkg = "terrascale-dashboard"
+			}
+			image := strings.Replace(strings.TrimPrefix(spec.Image, "ghcr.io/terrascale/"), "terrabase@", pkg+"@", 1)
+			run := fmt.Sprint(204 + i)
+			selectService(ctx, image, run, service)
+			observe(ctx, conn, func(s map[string]state) bool {
+				result := selectionResult(roots[0], run)
+				if result.State == "accepted" {
+					return false
+				}
+				require(result.State == "failed" && strings.Contains(result.Error, "is not declared for region"), "production created an undeclared service")
+				for _, region := range order {
+					require(s[region].Desired[service] == nil, "production gained a staging declaration")
+				}
+				return true
+			})
+		}
+	}
 	if installOnly {
 		nonceCases(ctx, conn, roots, order, names, launcher, spec)
 		installCases(ctx, conn, nodes, boot, roots, order, names, launcher, spec)
@@ -827,7 +868,11 @@ func socketReady(ctx context.Context, path string) {
 var selectionState, selectionNamespace string
 
 func signedRelease(ctx context.Context, _ *nats.Conn, image, run string) {
-	command := exec.CommandContext(ctx, "ip", "netns", "exec", selectionNamespace, os.Args[0], "pull", selectionState, image, run)
+	selectService(ctx, image, run, "terrabase")
+}
+
+func selectService(ctx context.Context, image, run, service string) {
+	command := exec.CommandContext(ctx, "ip", "netns", "exec", selectionNamespace, os.Args[0], "pull", selectionState, image, run, service)
 	output, err := os.OpenFile(filepath.Join(selectionState, "selection-"+run+".log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	must(err)
 	command.Stdout, command.Stderr = output, output
@@ -844,4 +889,140 @@ func selectionResult(state, run string) releasepush.Reply {
 	var reply releasepush.Reply
 	must(json.Unmarshal(data, &reply))
 	return reply
+}
+
+func stagingCases(ctx context.Context, root, namespace, address, launcher, seedFile string) {
+	imageData, err := os.ReadFile(filepath.Join(root, "spec.json"))
+	must(err)
+	var workload swarmruntime.ServiceSpec
+	must(json.Unmarshal(imageData, &workload))
+	replacementData, err := os.ReadFile(filepath.Join(root, "replacement-image"))
+	must(err)
+	cache, err := containerd.New(filepath.Join(root, "run", "containerd.sock"))
+	must(err)
+	defer cache.Close()
+	for i, name := range []string{workload.Image, string(replacementData)} {
+		image, err := cache.GetImage(namespaces.WithNamespace(ctx, "terrascale"), name)
+		must(err)
+		pin, err := cache.NewContainer(namespaces.WithNamespace(ctx, "terrascale"), fmt.Sprint("staging-image-", i), containerd.WithImage(image), containerd.WithContainerLabels(map[string]string{"terrascale.ports": "released"}))
+		must(err)
+		defer pin.Delete(namespaces.WithNamespace(context.WithoutCancel(ctx), "terrascale"))
+	}
+	node := start(ctx, namespace, launcher, root, "region", "stg", address, "stg", address, seedFile)
+	defer func() {
+		if node != nil {
+			node.stop()
+		}
+	}()
+	token, err := os.ReadFile(filepath.Join(root, "mesh", "client.token"))
+	must(err)
+	conn, err := nats.Connect("nats://"+address+":14223", nats.UserInfo("orch", strings.TrimSpace(string(token))), nats.IgnoreDiscoveredServers())
+	must(err)
+	defer conn.Close()
+	require(len(states(ctx, conn)["stg"].Desired) == 0, "new staging region already has services")
+	topology, err := os.ReadFile(filepath.Join(root, "mesh", "admitted-peers.json"))
+	require(err == nil, "staging founder was not admitted to its own peer topology")
+	var peers []struct{ Region string }
+	must(json.Unmarshal(topology, &peers))
+	require(len(peers) == 1 && peers[0].Region == "stg", "staging peer topology crossed environments")
+	for i, service := range []string{"terrabase", "ts-auth", "ts-dashboard"} {
+		pkg := service
+		if service == "ts-dashboard" {
+			pkg = "terrascale-dashboard"
+		}
+		image := strings.Replace(strings.TrimPrefix(workload.Image, "ghcr.io/terrascale/"), "terrabase@", pkg+"@", 1)
+		run := fmt.Sprint(200 + i)
+		selectService(ctx, image, run, service)
+		observe(ctx, conn, func(s map[string]state) bool {
+			result := selectionResult(root, run)
+			require(result.State != "failed", "staging first apply failed: "+result.Error)
+			return result.State == "done" && s["stg"].Ready[service] > 0
+		})
+		var before struct{ Signed *mesh.Entry }
+		must(json.Unmarshal(states(ctx, conn)["stg"].Desired[service], &before))
+		require(before.Signed != nil && before.Signed.Spec != nil, "new service has no signed desired spec")
+		require(before.Signed.Spec.Image == image && reflect.DeepEqual(before.Signed.Spec.Regions, []string{"stg"}), "first apply lost staging placement or image")
+		if service == "ts-dashboard" {
+			require(before.Signed.Spec.Env["TS_DASHBOARD_AUTH_ORIGIN"] == "https://stg.auth.terrascale.tech", "dashboard lost staging auth origin")
+			replacement, err := os.ReadFile(filepath.Join(root, "replacement-image"))
+			must(err)
+			image = strings.Replace(strings.TrimPrefix(string(replacement), "ghcr.io/terrascale/"), "terrabase@", pkg+"@", 1)
+			selectService(ctx, image, "203", service)
+			observe(ctx, conn, func(s map[string]state) bool {
+				result := selectionResult(root, "203")
+				require(result.State != "failed", "staging dashboard release failed: "+result.Error)
+				return result.State == "done"
+			})
+			var after struct{ Signed *mesh.Entry }
+			must(json.Unmarshal(states(ctx, conn)["stg"].Desired[service], &after))
+			want := *before.Signed.Spec
+			want.Image = image
+			require(reflect.DeepEqual(&want, after.Signed.Spec), "dashboard release changed fields other than its image")
+		}
+		if service == "ts-auth" {
+			must(mesh.Remove(ctx, conn, service, io.Discard))
+		}
+	}
+	for _, service := range []string{"ts-dashboard", "terrabase"} {
+		must(mesh.Remove(ctx, conn, service, io.Discard))
+	}
+	conn.Close()
+	node.stop()
+	node = nil
+	must(os.Rename(filepath.Join(root, "mesh"), filepath.Join(root, "staging-mesh")))
+	logStep("new isolated staging region creates all three declared services from verified app pulls; dashboard release preserves its regional spec")
+}
+
+func crossEnvironmentRefused(ctx context.Context, conn *nats.Conn, roots, regions []string) {
+	before := states(ctx, conn)
+	runtime := map[string]swarmruntime.ServiceInspection{}
+	inspect := func(root string) swarmruntime.ServiceInspection {
+		control, closer, err := swarmruntime.DialControl(root)
+		must(err)
+		defer closer.Close()
+		service, err := swarmruntime.ServiceByName(ctx, control, "terrabase")
+		must(err)
+		inspection, err := swarmruntime.InspectService(service)
+		must(err)
+		return inspection
+	}
+	for i, region := range regions {
+		runtime[region] = inspect(roots[i])
+	}
+	data, err := m1.Files.ReadFile("services/stg/terrabase.json")
+	must(err)
+	var spec swarmruntime.ServiceSpec
+	must(json.Unmarshal(data, &spec))
+	err = mesh.Apply(ctx, conn, spec, "", io.Discard)
+	require(err != nil && strings.Contains(err.Error(), "belongs to another environment"), "operator apply accepted a staging declaration in production")
+	inbox := nats.NewInbox()
+	replies := make(chan *nats.Msg, len(regions))
+	sub, err := conn.ChanSubscribe(inbox, replies)
+	must(err)
+	defer sub.Unsubscribe()
+	must(conn.Flush())
+	data, err = json.Marshal(mesh.ApplyRequest{Name: spec.Name, Entry: mesh.Entry{Generation: time.Now().UnixNano(), Spec: &spec}})
+	must(err)
+	must(conn.PublishRequest(mesh.ApplySubject, inbox, data))
+	must(conn.Flush())
+	refused := map[string]bool{}
+	for len(refused) < len(regions) {
+		select {
+		case message := <-replies:
+			var reply mesh.Reply
+			must(json.Unmarshal(message.Data, &reply))
+			require(before[reply.Region].Desired != nil && strings.Contains(reply.Error, "belongs to another environment"), "mesh apply accepted a staging declaration in production")
+			refused[reply.Region] = true
+		case <-ctx.Done():
+			panic(ctx.Err())
+		}
+	}
+	after := states(ctx, conn)
+	for i, region := range regions {
+		require(reflect.DeepEqual(before[region].Desired, after[region].Desired), "staging declaration changed production desired state")
+		current := inspect(roots[i])
+		require(current.ID == runtime[region].ID, "staging declaration recreated a production service")
+		require(reflect.DeepEqual(current.Spec, runtime[region].Spec), "staging declaration changed a production service")
+	}
+	logStep("operator and mesh apply reject staging declarations before changing production desired state or services in fra, gru and sjc")
 }
