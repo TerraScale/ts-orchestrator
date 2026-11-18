@@ -3,7 +3,7 @@
 ## Deployment boundary
 
 CI publishes qualified, attested main binaries; regional leaders discover and
-pull them in fixed order after predecessor completion and bake. Application
+pull them in sjc first, then fra and gru together once sjc passed its gate. Application
 release jobs publish signed selections of existing image digests. Hosts verify
 the selection and build provenance before rollout. CI reads authenticated
 HTTPS observations; it never connects to NATS 4222.

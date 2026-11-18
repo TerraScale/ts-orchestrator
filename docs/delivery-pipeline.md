@@ -100,11 +100,16 @@ the target, each host's progress, failures and a stable completion timestamp.
 A successor resumes the same record. Lease failure relinquishes ownership;
 it does not stop the serving node.
 
-The fixed binary order is sjc, fra, gru. Staging precedes sjc once C16 founds
-that catalog cell. Before taking a tag, the leader reads its predecessor's
-record from the same fabric store: that exact tag must be complete and have
-passed its regional gate. Missing, unreadable or failed predecessor evidence
-blocks admission.
+sjc is the canary region; fra and gru follow it together. Staging precedes sjc
+once C16 founds that catalog cell. Before taking a tag, the leader reads the
+other production regions' records from the same fabric store: the canary must
+have completed that exact tag and passed its regional gate, and no region may
+have rolled it back. Missing, unreadable or failed evidence blocks admission.
+Once admitted, a region keeps rolling even if another region later rolls the
+tag back; the failing region restores only itself. Every host downloads and
+verifies the release when its region first sees it, so the install that
+follows the previous host's gate starts from the fetched binary. A region's
+gate end is written once, when its gate passes.
 
 The gate compares with the region before the release. When a region takes a
 tag its leader records a baseline: each host's health conditions and the

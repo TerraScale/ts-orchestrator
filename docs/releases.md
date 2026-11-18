@@ -28,7 +28,7 @@ PullInstall requests. Each host verifies Sigstore provenance, the allowed main
 workflow, transparency evidence, the channel seq, exact digest and revision
 before installation. There is no public
 push listener, worker relay or repair-push command. A refusal blocks that region;
-later regions wait for the same tag's completed, baked fabric record. See
+fra and gru wait for sjc's completed record of the same tag with a passed gate. See
 [platform releases](platform.md#releases) for the admission order.
 
 ## Regional OCIR release channel
