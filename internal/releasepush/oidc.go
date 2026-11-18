@@ -59,6 +59,8 @@ const meshWorkflow = orchRepository + "/.github/workflows/multi-region.yml@" + m
 // record them in git.
 const digestsWorkflow = orchRepository + "/.github/workflows/app-digests.yml@" + mainRef
 
+const deployLagWorkflow = orchRepository + "/.github/workflows/deploy-lag.yml@" + mainRef
+
 // Claims are the GitHub Actions OIDC claims ts-orch acts on.
 type Claims struct {
 	Issuer          string   `json:"iss"`
@@ -135,12 +137,13 @@ func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 	return claims, nil
 }
 
-// VerifyMesh returns the claims of a valid token from ts-orchestrator's
-// multi-region workflow on main, audience ts-orch.
 func (v *Verifier) VerifyMesh(ctx context.Context, token string) (Claims, error) {
 	claims, err := v.verify(ctx, token)
-	if err == nil && (claims.Repository != orchRepository || claims.JobWorkflowRef != meshWorkflow && claims.JobWorkflowRef != digestsWorkflow) {
-		err = errors.New("token is not from the multi-region or app-digests workflow")
+	if err == nil && (claims.Repository != orchRepository || claims.JobWorkflowRef != meshWorkflow && claims.JobWorkflowRef != digestsWorkflow && claims.JobWorkflowRef != deployLagWorkflow) {
+		err = errors.New("token is not from an observation workflow")
+	}
+	if err == nil && claims.JobWorkflowRef == deployLagWorkflow && (claims.WorkflowRef != deployLagWorkflow || claims.EventName != "schedule" && claims.EventName != "workflow_dispatch" && claims.EventName != "workflow_run") {
+		err = errors.New("deployment observation requires the main deploy-lag workflow")
 	}
 	if err != nil {
 		return Claims{}, err

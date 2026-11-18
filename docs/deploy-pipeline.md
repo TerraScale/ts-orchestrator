@@ -106,29 +106,31 @@ and scoped signing checks remain mandatory for each region.
 
 ## Live verification and timing
 
-`deploy-lag.yml` runs after each CI run on main and once a day
-(`scripts/ci/deploylag`) and fails,
-opening or updating one assigned GitHub alert (`TS-768`, mentions `@mariogk`),
-when a main build was published but not released within 30 minutes:
+`deploy-lag.yml` runs after each main CI push and every five minutes.
+`scripts/ci/deploylag` reads every region over HTTPS using its main-workflow
+GitHub OIDC identity. Only GET `/orchestrator/observation` is authorized;
+`?view=deployments` returns regional task revisions, hosts, task errors and
+rollout failures. No release or mutation authority is granted to this workflow.
+The verifier and regional report must be released to the hosts before the new
+guard can observe them.
 
-- ts-orchestrator: a main commit is released when its `deploy/release-push`
-  succeeded, or a newer one did; a skipped release-push with a green
-  `all-green` check had nothing to publish. A red main that skips
-  release-push counts.
-- terrabase, ts-auth (terrascale `ci.yml` jobs `main`; `main-auth` or
-  `main-auth-ordered`) and ts-dashboard (terrascale `images-ghcr.yml` job
-  `Publish and release`), in main runs of every event: the oldest image published
-  since the last successful `Release to every region` step starts the clock;
-  newer builds never reset it. A build-only dispatch counts as no publication.
-- TerraBase is in the code map held: deploy lag does not cover its manual
-  release-only job yet. Its normal main job publishes an image and skips
-  release while waiting for manual dispatch. Findings are logged, not alerted.
-  Unreadable history is a finding, and so is a
-  successful main run without one of those jobs, or one of those jobs that
-  succeeded without a `Run docker/build-push-action` or `Release to every region`
-  step: the finding names the app, the missing job or step and the run.
+Every artifact (ts-orchestrator, terrabase, ts-auth, ts-dashboard) has a row in
+every production region: main commit, selected release, running revisions by host,
+lag in minutes, budget and verdict. Each artifact's budget lives in the guard's
+artifact table and is fifteen minutes. The newest signed selection observed in
+any region is the target everywhere. An unserved target's age starts at channel
+publication (or the selected application's OCIR publication step), rather than
+the commit timestamp. An unchanged artifact remains current when unrelated main
+changes produce no release. A running descendant of the sampled selection is current.
+A reported release failure is red
+immediately. Unreadable regions and revision comparisons explicitly report
+`cannot observe`; missing observation never means a release was not deployed.
 
-The alert closes on the first run with no findings.
+A red main run opens or updates one assigned `Deploy lag: <artifact>` issue
+per affected artifact and pages through the existing `TS_ALERTS_NTFY_TOPIC`.
+An artifact's issue closes when all its regional rows are green. Delivery errors
+remain visible in the failing run. The final output line is `DEPLOY ok` or
+`DEPLOY red`, followed by a comma-separated artifact list.
 
 Check the binary revision and services on every inventoried server;
 publishing a release is not evidence of deployment.

@@ -509,6 +509,43 @@ func (h *Host) Observation(ctx context.Context) (releasepush.Observation, error)
 	if err != nil {
 		return releasepush.Observation{}, err
 	}
+	workflow := "TerraScale/ts-orchestrator/.github/workflows/deploy-lag.yml@refs/heads/main"
+	for _, identity := range []struct {
+		workflow, repository, ref, event, caller string
+		status                                   int
+	}{
+		{workflow, "TerraScale/ts-orchestrator", "refs/heads/main", "schedule", workflow, http.StatusOK},
+		{workflow, "TerraScale/ts-orchestrator", "refs/heads/main", "workflow_run", workflow, http.StatusOK},
+		{workflow, "TerraScale/ts-orchestrator", "refs/heads/main", "workflow_dispatch", workflow, http.StatusOK},
+		{workflow, "TerraScale/ts-orchestrator", "refs/heads/main", "pull_request", workflow, http.StatusUnauthorized},
+		{workflow, "TerraScale/ts-orchestrator", "refs/heads/other", "schedule", workflow, http.StatusUnauthorized},
+		{workflow, "TerraScale/other", "refs/heads/main", "schedule", workflow, http.StatusUnauthorized},
+		{workflow, "TerraScale/ts-orchestrator", "refs/heads/main", "schedule", "TerraScale/ts-orchestrator/.github/workflows/other.yml@refs/heads/main", http.StatusUnauthorized},
+	} {
+		readToken, err := h.fleet.standIn.identityToken(revisionOf(h.fleet.Binary), "1", map[string]any{"job_workflow_ref": identity.workflow, "workflow_ref": identity.caller, "repository": identity.repository, "ref": identity.ref, "event_name": identity.event})
+		if err != nil {
+			return releasepush.Observation{}, err
+		}
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			request, err := http.NewRequestWithContext(ctx, method, "https://"+h.Region.Name+"."+mesh.Domain+releasepush.ObservationPath, nil)
+			if err != nil {
+				return releasepush.Observation{}, err
+			}
+			request.Header.Set("Authorization", "Bearer "+readToken)
+			response, err := client.Do(request)
+			if err != nil {
+				return releasepush.Observation{}, err
+			}
+			response.Body.Close()
+			want := identity.status
+			if method == http.MethodPost {
+				want = http.StatusMethodNotAllowed
+			}
+			if response.StatusCode != want {
+				return releasepush.Observation{}, fmt.Errorf("deploy-lag observation %s %s: HTTP %d, want %d", identity.event, method, response.StatusCode, want)
+			}
+		}
+	}
 	var observation releasepush.Observation
 	for _, probe := range []struct {
 		method, token string

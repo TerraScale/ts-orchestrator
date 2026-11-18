@@ -99,6 +99,7 @@ type Progress interface {
 }
 
 type Handler struct {
+	Deployments func(context.Context) (DeploymentObservation, error)
 	Hosts       func(context.Context) ([]HostVersion, error)
 	probation   *Probation
 	Health      func(context.Context, string) HealthResult

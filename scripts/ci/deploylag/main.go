@@ -1,5 +1,3 @@
-// The scheduled deployment guard fails when a main build was published but has
-// not been released to the regions within 30 minutes (TS-768, TS-764).
 package main
 
 import (
@@ -13,87 +11,46 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 )
 
 const forge = "https://api.github.com/repos/TerraScale/"
-const alertTitle = "TS-768: Deployment lag exceeds 30 minutes"
-const lagLimit = 30 * time.Minute
-const publishStep = "Build or reuse the target image and publish its main tag"
-const releaseStep = "Release to every region"
 
-type app struct {
-	service, repo, workflow, jobID, jobName string
+type artifact struct {
+	name, repo string
+	budget     time.Duration
 }
 
-var apps = []app{
-	{"ts-auth", "terrascale", "ci.yml", "main-auth", "main-auth"},
-	{"ts-dashboard", "terrascale", "images-ghcr.yml", "image", "Publish and release"},
+var artifacts = []artifact{
+	{"ts-orchestrator", "ts-orchestrator", 15 * time.Minute},
+	{"terrabase", "terrascale", 15 * time.Minute},
+	{"ts-auth", "terrascale", 15 * time.Minute},
+	{"ts-dashboard", "terrascale", 15 * time.Minute},
 }
 
-type workflowRun struct {
-	ID         int64     `json:"id"`
-	HeadSHA    string    `json:"head_sha"`
-	HTMLURL    string    `json:"html_url"`
-	Conclusion string    `json:"conclusion"`
-	CreatedAt  time.Time `json:"created_at"`
-}
-
-type step struct {
-	Name        string    `json:"name"`
-	Status      string    `json:"status"`
-	Conclusion  string    `json:"conclusion"`
-	StartedAt   time.Time `json:"started_at"`
-	CompletedAt time.Time `json:"completed_at"`
-}
-
-type job struct {
-	JobID      string `json:"job_id"`
-	Name       string `json:"name"`
-	Conclusion string `json:"conclusion"`
-	Steps      []step `json:"steps"`
-}
-
-func (a api) jobs(ctx context.Context, repo string, run workflowRun) ([]job, error) {
-	var result struct {
-		TotalCount int   `json:"total_count"`
-		Jobs       []job `json:"jobs"`
-	}
-	err := a.request(ctx, "GET", fmt.Sprintf("%s%s/actions/runs/%d/jobs?per_page=100", forge, repo, run.ID), a.readToken, nil, &result)
-	if err == nil && result.TotalCount > len(result.Jobs) {
-		err = fmt.Errorf("run %s is unreadable: it has %d jobs, %d read", run.HTMLURL, result.TotalCount, len(result.Jobs))
-	}
-	return result.Jobs, err
+type commit struct {
+	SHA    string `json:"sha"`
+	Commit struct {
+		Committer struct {
+			Date time.Time `json:"date"`
+		} `json:"committer"`
+	} `json:"commit"`
 }
 
 type api struct {
-	client                *http.Client
-	readToken, writeToken string
+	client                                  *http.Client
+	readToken, writeToken, observationToken string
+	commits                                 map[string]commit
+	relations                               map[string]string
+	publications                            map[string]time.Time
 }
 
-// Reads are idempotent: a transient GitHub failure must not turn readable
-// deployment history into a missing-proof alert. Writes are never retried.
-func (a api) request(ctx context.Context, method, url, token string, input, output any) error {
-	for attempt := 0; ; attempt++ {
-		err := a.requestOnce(ctx, method, url, token, input, output)
-		var transient *transientReadError
-		if method != http.MethodGet || !errors.As(err, &transient) || attempt == 2 {
-			return err
-		}
-		timer := time.NewTimer(time.Duration(attempt+1) * 250 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-}
-
-type transientReadError struct{ error }
-
-func (a api) requestOnce(ctx context.Context, method, url, token string, input, output any) error {
+func (a *api) request(ctx context.Context, method, url, token string, input, output any) error {
 	var body io.Reader
 	if input != nil {
 		wire, err := json.Marshal(input)
@@ -113,293 +70,439 @@ func (a api) requestOnce(ctx context.Context, method, url, token string, input, 
 	req.Header.Set("Cache-Control", "no-cache")
 	response, err := a.client.Do(req)
 	if err != nil {
-		return &transientReadError{errors.New("deployment guard HTTP request did not complete")}
+		return errors.New("HTTP request failed")
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		err := fmt.Errorf("deployment guard HTTP status %d", response.StatusCode)
-		if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500 {
-			return &transientReadError{err}
-		}
-		return err
+		return fmt.Errorf("HTTP %d", response.StatusCode)
 	}
 	if output == nil {
 		return nil
 	}
-	wire, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	wire, err := io.ReadAll(io.LimitReader(response.Body, (4<<20)+1))
 	if err != nil {
-		return &transientReadError{errors.New("deployment guard response could not be read")}
+		return errors.New("HTTP response unreadable")
+	}
+	if len(wire) > 4<<20 {
+		return errors.New("HTTP response exceeds 4 MiB")
 	}
 	return json.Unmarshal(wire, output)
 }
 
-func (a api) orch(ctx context.Context, now time.Time) ([]string, error) {
-	var commits []struct {
-		SHA    string `json:"sha"`
-		Commit struct {
-			Committer struct {
-				Date time.Time `json:"date"`
-			} `json:"committer"`
-		} `json:"commit"`
+func (a *api) mainCommit(ctx context.Context, repo string) (commit, error) {
+	if c, ok := a.commits[repo]; ok {
+		return c, nil
 	}
-	if err := a.request(ctx, "GET", forge+"ts-orchestrator/commits?sha=main&per_page=30", a.readToken, nil, &commits); err != nil {
-		return nil, err
+	var c commit
+	if err := a.request(ctx, "GET", forge+repo+"/commits/main", a.readToken, nil, &c); err != nil {
+		return c, err
 	}
-	var oldest string
-	for _, c := range commits {
-		conclusion := func(name string) (string, error) {
-			var runs struct {
-				CheckRuns []struct {
-					Status     string `json:"status"`
-					Conclusion string `json:"conclusion"`
-				} `json:"check_runs"`
-			}
-			err := a.request(ctx, "GET", forge+"ts-orchestrator/commits/"+c.SHA+"/check-runs?check_name="+name, a.readToken, nil, &runs)
-			if err != nil || len(runs.CheckRuns) == 0 {
-				return "", err
-			}
-			return cmp.Or(runs.CheckRuns[0].Conclusion, runs.CheckRuns[0].Status), nil
+	if len(c.SHA) != 40 || c.Commit.Committer.Date.IsZero() {
+		return c, errors.New("main commit unavailable")
+	}
+	a.commits[repo] = c
+	return c, nil
+}
+
+func (a *api) lag(ctx context.Context, repo, running string, main commit, now time.Time) (time.Duration, error) {
+	if len(running) != 40 {
+		return 0, errors.New("running revision is unavailable")
+	}
+	if running == main.SHA {
+		return 0, nil
+	}
+	key := repo + "/" + running + "/" + main.SHA
+	status, ok := a.relations[key]
+	var comparison struct {
+		Status string `json:"status"`
+	}
+	if !ok {
+		if err := a.request(ctx, "GET", forge+repo+"/compare/"+running+"..."+main.SHA+"?per_page=1", a.readToken, nil, &comparison); err != nil {
+			return 0, err
 		}
-		release, err := conclusion("deploy/release-publish")
-		if err != nil {
-			return nil, err
+		status = comparison.Status
+		a.relations[key] = status
+	}
+	var lag time.Duration
+	switch status {
+	case "identical", "behind":
+	case "ahead":
+		if main.Commit.Committer.Date.IsZero() {
+			return 0, errors.New("selected release publication timestamp is unavailable")
 		}
-		if release == "success" {
-			verified, err := conclusion("app-canary/release")
+		lag = max(0, now.Sub(main.Commit.Committer.Date))
+	default:
+		return 0, errors.New("running commit and main have diverged")
+	}
+	return lag, nil
+}
+
+func (a *api) region(ctx context.Context, region string) (releasepush.DeploymentObservation, error) {
+	var report releasepush.DeploymentObservation
+	request, err := http.NewRequestWithContext(ctx, "GET", "https://"+region+".mesh.terrascale.tech"+releasepush.ObservationPath+"?view=deployments", nil)
+	if err != nil {
+		return report, errors.New("observation request invalid")
+	}
+	request.Header.Set("Authorization", "Bearer "+a.observationToken)
+	response, err := a.client.Do(request)
+	if err != nil {
+		return report, errors.New("regional HTTPS request failed")
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusServiceUnavailable {
+		return report, fmt.Errorf("HTTP %d", response.StatusCode)
+	}
+	err = json.UnmarshalRead(io.LimitReader(response.Body, 4<<20), &report)
+	if err != nil {
+		return report, fmt.Errorf("HTTP %d: invalid regional deployment JSON", response.StatusCode)
+	}
+	if report.Error != "" {
+		return report, errors.New(report.Error)
+	}
+	if response.StatusCode != http.StatusOK {
+		return report, fmt.Errorf("HTTP %d", response.StatusCode)
+	}
+	if err == nil && (report.Region != region || report.Host == "" || report.Apps == nil || len(report.Hosts) == 0) {
+		err = errors.New("incomplete regional deployment observation")
+	}
+	return report, err
+}
+
+func (a *api) publication(ctx context.Context, x artifact, target releasepush.DeploymentTarget) (time.Time, error) {
+	if !target.PublishedAt.IsZero() {
+		return target.PublishedAt, nil
+	}
+	key := x.name + "/" + target.RunID
+	if published, ok := a.publications[key]; ok {
+		return published, nil
+	}
+	var result struct {
+		Total int `json:"total_count"`
+		Jobs  []struct {
+			Name  string `json:"name"`
+			Steps []struct {
+				Name        string    `json:"name"`
+				Conclusion  string    `json:"conclusion"`
+				CompletedAt time.Time `json:"completed_at"`
+				StartedAt   time.Time `json:"started_at"`
+			} `json:"steps"`
+		} `json:"jobs"`
+	}
+	if err := a.request(ctx, "GET", forge+x.repo+"/actions/runs/"+target.RunID+"/jobs?per_page=100", a.readToken, nil, &result); err != nil {
+		return time.Time{}, err
+	}
+	if result.Total > len(result.Jobs) {
+		return time.Time{}, errors.New("release publication jobs are incomplete")
+	}
+	for _, job := range result.Jobs {
+		matches := x.name == "terrabase" && slices.Contains([]string{"main", "native-release", "release-only"}, job.Name) || x.name == "ts-auth" && slices.Contains([]string{"main-auth", "main-auth-ordered"}, job.Name) || x.name == "ts-dashboard" && job.Name == "Publish and release"
+		if !matches {
+			continue
+		}
+		for _, step := range job.Steps {
+			if step.Name == "Publish and verify the same image and bundles in every OCIR region" && step.Conclusion == "success" && !step.CompletedAt.IsZero() {
+				a.publications[key] = step.CompletedAt
+				return step.CompletedAt, nil
+			}
+			if step.Name == "Release the pinned arm64 digest to each region" && !step.StartedAt.IsZero() {
+				a.publications[key] = step.StartedAt
+				return step.StartedAt, nil
+			}
+		}
+	}
+	return time.Time{}, errors.New("selected release publication timestamp is unavailable")
+}
+
+func (a *api) verdict(ctx context.Context, x artifact, region string, report releasepush.DeploymentObservation, now time.Time) (string, bool) {
+	main, err := a.mainCommit(ctx, x.repo)
+	if err != nil {
+		return fmt.Sprintf("%s %s: cannot observe main: %s", x.name, region, err), true
+	}
+	target, ok := report.Targets[x.name]
+	if !ok || target.Error != "" || len(target.Revision) != 40 {
+		return fmt.Sprintf("%s %s: main=%s cannot observe %s: %s", x.name, region, main.SHA, region, cmp.Or(target.Error, "selected release revision unavailable")), true
+	}
+	if _, err := a.lag(ctx, x.repo, target.Revision, main, now); err != nil {
+		return fmt.Sprintf("%s %s: cannot observe %s: selected release ancestry: %s", x.name, region, region, err), true
+	}
+	release := commit{SHA: target.Revision}
+	var tasks []releasepush.DeploymentTask
+	var reasons []string
+	failed := false
+	pending := false
+	if x.name == "ts-orchestrator" {
+		for _, host := range report.Hosts {
+			tasks = append(tasks, releasepush.DeploymentTask{Host: host.Host, Revision: host.Version, State: "RUNNING"})
+			if host.State != "" && host.State != "current" && host.State != "newer" {
+				pending = true
+				reasons = append(reasons, host.Host+": "+host.State)
+			}
+			if host.Error != "" || host.Down || host.Refusal != nil || host.RolledBack != "" {
+				failed = true
+				reason := cmp.Or(host.Error, host.State, "host down or release rolled back")
+				if host.Refusal != nil {
+					reason = host.Refusal.Reason
+				}
+				reasons = append(reasons, host.Host+": "+reason)
+			}
+		}
+		var pull struct {
+			Target *struct {
+				SHA string `json:"sha"`
+			} `json:"target"`
+			Phase  string `json:"phase"`
+			Reason string `json:"reason"`
+			Hosts  []struct {
+				Host  string `json:"host"`
+				Error string `json:"error"`
+			} `json:"hosts"`
+		}
+		if err := json.Unmarshal(report.Pull, &pull); err != nil {
+			return fmt.Sprintf("%s %s: cannot observe %s: pull rollout unreadable", x.name, region, region), true
+		}
+		if pull.Target != nil && pull.Target.SHA == target.Revision && !slices.Contains([]string{"idle", "complete", "newer"}, pull.Phase) {
+			pending = true
+		}
+		if (pull.Target == nil || pull.Target.SHA == target.Revision) && slices.Contains([]string{"refused", "rolled_back", "rollback_stalled"}, pull.Phase) {
+			failed = true
+		}
+		if (pull.Target == nil || pull.Target.SHA == target.Revision) && pull.Reason != "" {
+			reasons = append(reasons, report.Host+": "+pull.Reason)
+		}
+		for _, host := range pull.Hosts {
+			if (pull.Target == nil || pull.Target.SHA == target.Revision) && host.Error != "" {
+				reasons = append(reasons, host.Host+": "+host.Error)
+			}
+		}
+	} else {
+		app, ok := report.Apps[x.name]
+		if !ok || app.Error != "" {
+			return fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, cmp.Or(app.Error, "application deployment inventory missing")), true
+		}
+		tasks, failed = app.Tasks, app.Failed
+		if app.Reason != "" {
+			reasons = append(reasons, app.Host+": "+app.Reason)
+		}
+	}
+	var running []string
+	var lag time.Duration
+	if x.name != "ts-orchestrator" {
+		pending = !report.Apps[x.name].Complete || uint64(len(tasks)) < report.Apps[x.name].Replicas
+	}
+	for _, task := range tasks {
+		if task.Reason != "" {
+			reasons = append(reasons, task.Host+": "+task.Reason)
+		}
+		if task.State != "RUNNING" {
+			pending = true
+			reasons = append(reasons, task.Host+": "+task.State)
+			continue
+		}
+		running = append(running, task.Host+"="+task.Revision)
+		differentImage := x.name != "ts-orchestrator" && !appregistry.SameDigest(task.Image, target.Image)
+		if (task.Revision != target.Revision || differentImage) && release.Commit.Committer.Date.IsZero() {
+			published, err := a.publication(ctx, x, target)
 			if err != nil {
-				return nil, err
+				return fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, err), true
 			}
-			if verified == "success" {
-				break
-			}
-			release = "published; app pull observation " + cmp.Or(verified, "missing")
+			release.Commit.Committer.Date = published
 		}
-		if release == "skipped" {
-			if test, err := conclusion("all-green"); err != nil {
-				return nil, err
-			} else if test == "success" {
-				continue
-			}
-		}
-		if now.Sub(c.Commit.Committer.Date) >= lagLimit {
-			oldest = fmt.Sprintf("- ts-orchestrator: main `%s` (%s ago) is not released to the regions; pull observation: %s",
-				c.SHA, now.Sub(c.Commit.Committer.Date).Round(time.Minute), cmp.Or(release, "missing"))
-		}
-	}
-	if oldest == "" {
-		return nil, nil
-	}
-	return []string{oldest}, nil
-}
-
-func (a api) release(ctx context.Context, x app, now time.Time) ([]string, error) {
-	var runs struct {
-		WorkflowRuns []workflowRun `json:"workflow_runs"`
-	}
-	url := fmt.Sprintf("%s%s/actions/workflows/%s/runs?branch=main&event=workflow_dispatch&per_page=20", forge, x.repo, x.workflow)
-	if err := a.request(ctx, "GET", url, a.readToken, nil, &runs); err != nil {
-		return nil, err
-	}
-	var finding, unread string
-	seen := false
-walk:
-	for _, run := range runs.WorkflowRuns {
-		jobs, err := a.jobs(ctx, x.repo, run)
+		behind, err := a.lag(ctx, x.repo, task.Revision, release, now)
 		if err != nil {
-			return nil, err
+			return fmt.Sprintf("%s %s: main=%s running=%s cannot observe %s: %s", x.name, region, main.SHA, strings.Join(running, ","), region, err), true
 		}
-		for _, job := range jobs {
-			matches := job.JobID == x.jobID
-			if job.JobID == "" {
-				matches = job.Name == x.jobName || slices.ContainsFunc(job.Steps, func(s step) bool { return s.Name == publishStep })
-			}
-			if !matches {
-				continue
-			}
-			seen = true
-			var published time.Time
-			var publishes bool
-			released := "missing"
-			for _, step := range job.Steps {
-				if step.Name == publishStep {
-					publishes = true
-					if step.Conclusion == "success" {
-						published = step.CompletedAt
-					}
-				}
-				if step.Name == releaseStep {
-					released = cmp.Or(step.Conclusion, step.Status)
-				}
-			}
-			if released == "success" {
-				fmt.Printf("%s: successful release boundary (%s)\n", x.service, run.HTMLURL)
-				break walk
-			}
-			var missing string
-			switch {
-			case !publishes:
-				missing = publishStep
-			case released == "missing":
-				missing = releaseStep
-			}
-			if job.Conclusion == "success" && missing != "" && unread == "" {
-				unread = fmt.Sprintf("- %s: job `%s` of %s %s run %s succeeded without a `%s` step", x.service, job.Name, x.repo, x.workflow, run.HTMLURL, missing)
-			}
-			switch {
-			case published.IsZero():
-			case now.Sub(published) >= lagLimit:
-				finding = fmt.Sprintf("- %s: image of %s main run %s published %s ago, release: %s",
-					x.service, x.repo, run.HTMLURL, now.Sub(published).Round(time.Minute), released)
-			}
+		lag = max(lag, behind)
+		if differentImage && task.Revision == target.Revision {
+			lag = max(lag, now.Sub(release.Commit.Committer.Date))
 		}
 	}
-
-	if !seen {
-		return []string{fmt.Sprintf("- %s: no run in the last %d runs has job `%s`; the guard's job contract is stale", x.service, len(runs.WorkflowRuns), x.jobID)}, nil
+	if len(running) == 0 {
+		running = []string{"none"}
+		pending = true
 	}
-	return slices.DeleteFunc([]string{unread, finding}, func(s string) bool { return s == "" }), nil
+	if pending {
+		published, err := a.publication(ctx, x, target)
+		if err != nil {
+			return fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, err), true
+		}
+		lag = max(lag, now.Sub(published))
+	}
+	red := failed || lag > x.budget
+	state := "ok"
+	if red {
+		state = "red"
+	}
+	slices.Sort(reasons)
+	reasons = slices.Compact(reasons)
+	return fmt.Sprintf("%s %s: main=%s release=%s running=%s lag=%.1fm budget=%.0fm state=%s %s", x.name, region, main.SHA, target.Revision, strings.Join(running, ","), lag.Minutes(), x.budget.Minutes(), state, strings.Join(reasons, "; ")), red
 }
 
-func (a api) terrabase(ctx context.Context) ([]string, error) {
-	for page := 1; ; page++ {
-		var runs struct {
-			WorkflowRuns []workflowRun `json:"workflow_runs"`
-		}
-		url := fmt.Sprintf("%sterrascale/actions/workflows/ci.yml/runs?branch=main&event=workflow_dispatch&per_page=100&page=%d", forge, page)
-		if err := a.request(ctx, "GET", url, a.readToken, nil, &runs); err != nil {
-			return nil, err
-		}
-		for _, run := range runs.WorkflowRuns {
-			jobs, err := a.jobs(ctx, "terrascale", run)
-			if err != nil {
-				return nil, err
-			}
-			for _, job := range jobs {
-				if job.Name != "release-only" || job.Conclusion == "skipped" {
-					continue
-				}
-				var findings []string
-				releasedAt := run.CreatedAt
-				for _, step := range job.Steps {
-					if step.Name != "Release the pinned arm64 digest to each region" {
-						continue
-					}
-					if !step.StartedAt.IsZero() {
-						releasedAt = step.StartedAt
-					}
-					if !step.CompletedAt.IsZero() {
-						releasedAt = step.CompletedAt
-					}
-					if !step.StartedAt.IsZero() && (step.Conclusion == "failure" || step.Conclusion == "cancelled") {
-						findings = []string{fmt.Sprintf("- terrabase: manual release `%s` %s after starting: %s", run.HeadSHA, step.Conclusion, run.HTMLURL)}
-					}
-				}
-				var comparison struct {
-					AheadBy int `json:"ahead_by"`
-				}
-				err := a.request(ctx, "GET", forge+"terrascale/compare/"+run.HeadSHA+"...main", a.readToken, nil, &comparison)
-				if err != nil {
-					fmt.Println("terrabase held: main comparison unavailable:", err)
-				} else {
-					fmt.Printf("terrabase held: last manual release %s at %s, main is %d commits ahead\n", run.HeadSHA, releasedAt.UTC().Format(time.RFC3339), comparison.AheadBy)
-				}
-				return findings, nil
-			}
-		}
-		if len(runs.WorkflowRuns) < 100 {
-			fmt.Println("terrabase held: no manual release-only run found")
-			return nil, nil
-		}
+func (a *api) issues(ctx context.Context, rows map[string][]string, red map[string]bool) error {
+	type issue struct {
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		PullRequest any    `json:"pull_request"`
 	}
-}
-
-func (a api) alert(ctx context.Context, findings []string) error {
+	open := map[string][]int{}
 	base := forge + "ts-orchestrator/issues"
-	slices.Sort(findings)
-	body := "@mariogk Automatic deployment guard: a main build was published but not released to the regions within 30 minutes, or its release history is unreadable.\n\n"
-	body += strings.Join(findings, "\n") + "\n\nPart of TS-768. See docs/deploy-pipeline.md and the scheduled deploy-lag.yml run."
 	for page := 1; ; page++ {
-		var issues []struct {
-			Number      int       `json:"number"`
-			Title       string    `json:"title"`
-			Body        string    `json:"body"`
-			PullRequest *struct{} `json:"pull_request"`
-		}
-		if err := a.request(ctx, "GET", fmt.Sprintf("%s?state=open&per_page=50&page=%d", base, page),
-			a.writeToken, nil, &issues); err != nil {
+		var issues []issue
+		if err := a.request(ctx, "GET", fmt.Sprintf("%s?state=open&per_page=100&page=%d", base, page), a.writeToken, nil, &issues); err != nil {
 			return err
 		}
 		for _, issue := range issues {
-			if issue.PullRequest != nil || issue.Title != alertTitle {
-				continue
+			if issue.PullRequest == nil {
+				open[issue.Title] = append(open[issue.Title], issue.Number)
 			}
-			if len(findings) == 0 {
-				return a.request(ctx, "PATCH", fmt.Sprintf("%s/%d", base, issue.Number), a.writeToken, map[string]string{"state": "closed"}, nil)
-			}
-			if issue.Body == body {
-				return nil
-			}
-			return a.request(ctx, "PATCH", fmt.Sprintf("%s/%d", base, issue.Number), a.writeToken, map[string]string{"body": body}, nil)
 		}
-		if len(issues) == 0 {
+		if len(issues) < 100 {
 			break
 		}
 	}
-	if len(findings) == 0 {
-		return nil
-	}
-	return a.request(ctx, "POST", base, a.writeToken, map[string]any{
-		"title": alertTitle, "body": body, "assignees": []string{"mariogk"},
-	}, nil)
-}
-
-func run(ctx context.Context, a api, now func() time.Time, notify bool) error {
-	findings, err := a.orch(ctx, now())
-	if err != nil {
-		findings = append(findings, "- ts-orchestrator: main release history unavailable: "+err.Error())
-	}
-	held, err := a.terrabase(ctx)
-	if err != nil {
-		held = []string{"- terrabase: manual release history unavailable: " + err.Error()}
-	}
-	findings = append(findings, held...)
-	for _, x := range apps {
-		found, err := a.release(ctx, x, now())
-		if err != nil {
-			found = []string{"- " + x.service + ": " + x.repo + " image job history unavailable: " + err.Error()}
+	for _, x := range artifacts {
+		title := "Deploy lag: " + x.name
+		body := "@mariogk Deployment guard is red.\n\n```text\n" + strings.Join(rows[x.name], "\n") + "\n```\n\nhttps://github.com/" + os.Getenv("GITHUB_REPOSITORY") + "/actions/runs/" + os.Getenv("GITHUB_RUN_ID")
+		for i, number := range open[title] {
+			patch := map[string]string{"state": "closed"}
+			if red[x.name] && i == 0 {
+				patch = map[string]string{"body": body}
+			}
+			if err := a.request(ctx, "PATCH", fmt.Sprintf("%s/%d", base, number), a.writeToken, patch, nil); err != nil {
+				return err
+			}
 		}
-		findings = append(findings, found...)
-	}
-	for _, finding := range findings {
-		fmt.Println(finding)
-	}
-	if notify {
-		// Collection failure still gets a bounded opportunity to deliver its alert.
-		alertCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
-		defer cancel()
-		if err := a.alert(alertCtx, findings); err != nil {
-			return fmt.Errorf("deployment alert could not be delivered: %w", err)
+		if red[x.name] && len(open[title]) == 0 {
+			if err := a.request(ctx, "POST", base, a.writeToken, map[string]any{"title": title, "body": body, "assignees": []string{"mariogk"}}, nil); err != nil {
+				return err
+			}
 		}
-	}
-	if len(findings) > 0 {
-		return fmt.Errorf("deployment guard found %d lag/proof failures", len(findings))
 	}
 	return nil
+}
+
+func (a *api) page(ctx context.Context, affected []string) error {
+	topic := os.Getenv("TS_ALERTS_NTFY_TOPIC")
+	if topic == "" || strings.ContainsAny(topic, "/?# \t\r\n") {
+		return errors.New("existing paging topic unavailable")
+	}
+	message := "Deployment guard red: " + strings.Join(affected, ", ") + ". Check Deploy lag issues in TerraScale/ts-orchestrator."
+	request, err := http.NewRequestWithContext(ctx, "POST", "https://ntfy.sh/"+topic, strings.NewReader(message))
+	if err != nil {
+		return errors.New("page request invalid")
+	}
+	request.Header.Set("Title", "TerraScale deployment lag")
+	request.Header.Set("Priority", "urgent")
+	response, err := a.client.Do(request)
+	if err != nil {
+		return errors.New("page delivery transport failed")
+	}
+	defer response.Body.Close()
+	var result struct {
+		ID      string `json:"id"`
+		Event   string `json:"event"`
+		Topic   string `json:"topic"`
+		Message string `json:"message"`
+	}
+	if response.StatusCode != http.StatusOK || json.UnmarshalRead(io.LimitReader(response.Body, 64<<10), &result) != nil || result.ID == "" || result.Event != "message" || result.Topic != topic || result.Message != message {
+		return errors.New("page delivery was not accepted")
+	}
+	return nil
+}
+
+func run(ctx context.Context, a *api, now time.Time) bool {
+	regions, err := releasepush.LoadRegions("deploy/m1/regions.json")
+	rows, red := map[string][]string{}, map[string]bool{}
+	if err != nil {
+		fmt.Println("cannot observe regions:", err)
+	}
+	reports := map[string]releasepush.DeploymentObservation{}
+	observationErrors := map[string]error{}
+	targets := map[string]releasepush.DeploymentTarget{}
+	for _, region := range regions {
+		report, observeErr := a.region(ctx, region.Region)
+		reports[region.Region], observationErrors[region.Region] = report, observeErr
+		if observeErr != nil {
+			continue
+		}
+		for _, x := range artifacts {
+			target := report.Targets[x.name]
+			candidate, parseErr := strconv.ParseUint(target.RunID, 10, 64)
+			selected, _ := strconv.ParseUint(targets[x.name].RunID, 10, 64)
+			if x.name == "ts-orchestrator" {
+				candidate, selected = target.Seq, targets[x.name].Seq
+			}
+			if _, exists := targets[x.name]; !exists {
+				targets[x.name] = target
+			}
+			if target.Error == "" && parseErr == nil && (candidate > selected || candidate == selected && target.Attempt > targets[x.name].Attempt) {
+				targets[x.name] = target
+			}
+			current := targets[x.name]
+			if target.Error == "" && parseErr == nil && candidate == selected && target.Attempt == current.Attempt && (target.Revision != current.Revision || target.Image != current.Image) {
+				current.Error = "regions report conflicting signed release selections"
+				targets[x.name] = current
+			}
+		}
+	}
+	for _, region := range regions {
+		report, observeErr := reports[region.Region], observationErrors[region.Region]
+		report.Targets = targets
+		for _, x := range artifacts {
+			var line string
+			var bad bool
+			if observeErr != nil {
+				line, bad = fmt.Sprintf("%s: cannot observe %s: %s", x.name, region.Region, observeErr), true
+			} else {
+				line, bad = a.verdict(ctx, x, region.Region, report, now)
+			}
+			fmt.Println(line)
+			rows[x.name] = append(rows[x.name], line)
+			red[x.name] = red[x.name] || bad
+		}
+	}
+	var affected []string
+	for _, x := range artifacts {
+		red[x.name] = red[x.name] || err != nil
+		if red[x.name] {
+			affected = append(affected, x.name)
+		}
+	}
+	if os.Getenv("GITHUB_REF") == "refs/heads/main" {
+		if err := a.issues(ctx, rows, red); err != nil {
+			fmt.Println("issue delivery failed:", err)
+			if len(affected) == 0 {
+				for _, x := range artifacts {
+					affected = append(affected, x.name)
+				}
+			}
+		}
+		if len(affected) > 0 {
+			if err := a.page(ctx, affected); err != nil {
+				fmt.Println("paging failed:", err)
+			}
+		}
+	}
+	if len(affected) > 0 {
+		fmt.Println("DEPLOY red", strings.Join(affected, ","))
+		return false
+	}
+	var names []string
+	for _, x := range artifacts {
+		names = append(names, x.name)
+	}
+	fmt.Println("DEPLOY ok", strings.Join(names, ","))
+	return true
 }
 
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Minute)
 	defer cancel()
-	a := api{client: &http.Client{Timeout: 20 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
-		readToken:  cmp.Or(os.Getenv("GH_READ_TOKEN"), os.Getenv("GH_TOKEN")),
-		writeToken: cmp.Or(os.Getenv("GH_WRITE_TOKEN"), os.Getenv("GH_TOKEN"))}
-	if a.readToken == "" || (os.Getenv("TS_DEPLOY_GUARD_DRY_RUN") != "1" && a.writeToken == "") {
-		fmt.Fprintln(os.Stderr, "deployment guard requires GitHub read and alert-write credentials")
-		os.Exit(1)
+	token, err := releasepush.MintToken(ctx)
+	if err != nil {
+		fmt.Println("observation identity unavailable:", err)
 	}
-	if err := run(ctx, a, time.Now, os.Getenv("TS_DEPLOY_GUARD_DRY_RUN") != "1"); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	a := &api{client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, readToken: cmp.Or(os.Getenv("GH_READ_TOKEN"), os.Getenv("GH_TOKEN")), writeToken: cmp.Or(os.Getenv("GH_WRITE_TOKEN"), os.Getenv("GH_TOKEN")), observationToken: token, commits: map[string]commit{}, relations: map[string]string{}, publications: map[string]time.Time{}}
+	if !run(ctx, a, time.Now()) {
 		os.Exit(1)
 	}
 }

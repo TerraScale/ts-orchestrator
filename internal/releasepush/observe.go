@@ -59,6 +59,10 @@ func (h *Handler) Observe(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
+	if r.URL.Query().Get("view") == "deployments" {
+		h.observeDeployments(ctx, w)
+		return
+	}
 	if h.Mesh == nil || h.Health == nil {
 		http.Error(w, "mesh unavailable", http.StatusServiceUnavailable)
 		return
