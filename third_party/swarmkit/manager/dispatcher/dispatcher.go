@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"reflect"
 	"strconv"
 	"sync"
 	"time"
@@ -876,9 +877,34 @@ func (d *Dispatcher) processUpdates(ctx context.Context) {
 	})
 	if err != nil {
 		logr.WithError(err).Error("dispatcher batch failed")
+		d.requeueUnappliedTaskUpdates(taskUpdates)
 	}
 
 	d.processUpdatesCond.Broadcast()
+}
+
+func (d *Dispatcher) requeueUnappliedTaskUpdates(taskUpdates map[string]*api.TaskStatus) {
+	unapplied := make(map[string]*api.TaskStatus, len(taskUpdates))
+	d.store.View(func(tx store.ReadTx) {
+		for taskID, taskStatus := range taskUpdates {
+			task := store.GetTask(tx, taskID)
+			if task == nil || task.Status.State > taskStatus.State {
+				continue
+			}
+			stored := task.Status
+			stored.AppliedBy, stored.AppliedAt = taskStatus.AppliedBy, taskStatus.AppliedAt
+			if !reflect.DeepEqual(&stored, taskStatus) {
+				unapplied[taskID] = taskStatus
+			}
+		}
+	})
+	d.taskUpdatesLock.Lock()
+	for taskID, taskStatus := range unapplied {
+		if _, newer := d.taskUpdates[taskID]; !newer {
+			d.taskUpdates[taskID] = taskStatus
+		}
+	}
+	d.taskUpdatesLock.Unlock()
 }
 
 // Tasks is a stream of tasks state for node. Each message contains full list
