@@ -28,6 +28,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	netbirddashboard "github.com/TerraScale/ts-orchestrator/internal/netbird/dashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 )
@@ -270,6 +271,7 @@ func (e *Edge) Drain() {
 	if !e.draining.Swap(true) {
 		started := time.Now()
 		e.drainStarted.Store(&started)
+		slog.Info("edge health drain started", "window", drainGrace)
 		e.announceReady()
 	}
 }
@@ -292,19 +294,32 @@ func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (e *Edge) Run(ctx context.Context) error {
+	ctx, finish := plannedstop.WithBudget(ctx)
+	defer finish()
 	if err := e.certs.cache.loadDisk(ctx); err != nil {
 		return err
 	}
 	listeners, stop := context.WithCancel(context.WithoutCancel(ctx))
 	defer stop()
-	var running sync.WaitGroup
-	running.Go(func() { e.reconcileCertificates(ctx) })
-	running.Go(func() { e.reconcileReadiness(ctx) })
-	running.Go(func() { e.reconcileNetBirdDashboard(ctx) })
+	workers := map[string]func(){
+		"edge certificates":      func() { e.reconcileCertificates(ctx) },
+		"edge readiness":         func() { e.reconcileReadiness(ctx) },
+		"edge NetBird dashboard": func() { e.reconcileNetBirdDashboard(ctx) },
+	}
 	for _, protocol := range []string{"http", "https", "postgres", "terrabase"} {
-		running.Go(func() { e.runListener(listeners, protocol) })
+		workers["edge "+protocol+" listener"] = func() { e.runListener(listeners, protocol) }
+	}
+	done := make(map[string]chan struct{}, len(workers))
+	for name, work := range workers {
+		stopped := make(chan struct{})
+		done[name] = stopped
+		go func() {
+			defer close(stopped)
+			work()
+		}()
 	}
 	<-ctx.Done()
+	plannedstop.Begin(ctx)
 	e.Drain()
 	if time.Since(time.Unix(0, e.lastHealthProbe.Load())) < time.Minute {
 		remaining := drainGrace
@@ -313,14 +328,19 @@ func (e *Edge) Run(ctx context.Context) error {
 		}
 		timer := time.NewTimer(remaining)
 		defer timer.Stop()
-		<-timer.C
+		select {
+		case <-timer.C:
+		case <-plannedstop.Begin(ctx).Done():
+		}
 	}
 	stop()
-	running.Wait()
+	for name, stopped := range done {
+		plannedstop.Wait(ctx, name, stopped)
+	}
 	return nil
 }
 
-const drainGrace = 20 * time.Second
+const drainGrace = plannedstop.DrainWindow
 
 const clientIdleTimeout = 120 * time.Second
 

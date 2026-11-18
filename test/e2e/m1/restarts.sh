@@ -9,7 +9,7 @@ whoami_pid=$(sudo fuser -n tcp 18081 2>/dev/null | xargs)
 data_pid=$(sudo fuser -n tcp 18082 2>/dev/null | xargs)
 test -n "$whoami_pid"
 test -n "$data_pid"
-sudo systemctl stop ts-orch
+python3 "$here/stop-stream.py" "$work/ca.pem" "$data"
 test "$(sudo fuser -n tcp 18081 2>/dev/null | xargs)" = "$whoami_pid"
 test "$(sudo fuser -n tcp 18082 2>/dev/null | xargs)" = "$data_pid"
 curl -fsS --max-time 5 http://127.0.0.1:18081/health

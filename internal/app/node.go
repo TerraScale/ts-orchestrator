@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostdashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
@@ -35,7 +36,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, public *edge.Edge, probation *releasepush.Probation, swarmReady chan struct{}, meshServing <-chan struct{}, health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
+func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, public *edge.Edge, probation *releasepush.Probation, swarmReady chan struct{}, meshServing <-chan struct{}, stopping func(), health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -58,10 +59,15 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 	}
 	close(swarmReady)
 	defer func() {
-		stop, done := context.WithTimeout(context.Background(), 30*time.Second)
-		defer done()
-		_ = node.Stop(stop)
+		if err := node.Stop(plannedstop.Begin(ctx)); err != nil {
+			if plannedstop.Begin(ctx).Err() != nil {
+				plannedstop.Abandon(ctx, "SwarmKit node", err)
+			} else {
+				slog.Warn("SwarmKit node stop failed", "error", err)
+			}
+		}
 	}()
+	defer stopping()
 	healthCtx, stopHealth := context.WithCancel(ctx)
 	defer stopHealth()
 	go hostmetrics.Run(healthCtx, plan.region, executor)
@@ -198,7 +204,7 @@ func runManagerServices(ctx context.Context, state string, plan hostPlan, node *
 		go func() {
 			defer close(done)
 			if manager {
-				serveManagerRole(serving, state, plan, node, executor, failed)
+				serveManagerRole(serving, ctx, state, plan, node, executor, failed)
 			} else {
 				syncHostTargets(serving)
 			}
@@ -210,11 +216,11 @@ func runManagerServices(ctx context.Context, state string, plan hostPlan, node *
 			}
 		}
 		stop()
-		<-done
+		plannedstop.Join(ctx, "manager services", done)
 	}
 }
 
-func serveManagerRole(ctx context.Context, state string, plan hostPlan, node *swarmruntime.Node, executor *swarmruntime.Executor, failed chan<- error) {
+func serveManagerRole(ctx, lifetime context.Context, state string, plan hostPlan, node *swarmruntime.Node, executor *swarmruntime.Executor, failed chan<- error) {
 	serving, stop := context.WithCancel(ctx)
 	defer stop()
 	go regionhealth.Run(serving, state)
@@ -230,7 +236,7 @@ func serveManagerRole(ctx context.Context, state string, plan hostPlan, node *sw
 	}()
 	defer func() {
 		stop()
-		<-autoscaleDone
+		plannedstop.Join(lifetime, "replica autoscaler", autoscaleDone)
 	}()
 	targetsDone := make(chan struct{})
 	go func() {
@@ -239,7 +245,7 @@ func serveManagerRole(ctx context.Context, state string, plan hostPlan, node *sw
 	}()
 	defer func() {
 		stop()
-		<-targetsDone
+		plannedstop.Join(lifetime, "SLO targets", targetsDone)
 	}()
 	if plan.region != "" {
 		go runOCIReconcile(serving, state, plan.region, node)

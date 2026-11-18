@@ -13,7 +13,7 @@ ExecStartPre=+-/bin/sh -c 'p=/var/lib/ts-orch/units/$$(sha256sum /usr/local/bin/
 ExecStart=/usr/local/bin/terrascale-orchestrator node --state /var/lib/ts-orch
 Restart=always
 RestartSec=1s
-TimeoutStopSec=180s
+TimeoutStopSec=45s
 KillMode=mixed
 LimitNOFILE=65536
 UMask=0077

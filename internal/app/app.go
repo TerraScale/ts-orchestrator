@@ -33,6 +33,8 @@ import (
 )
 
 func RunNode(ctx context.Context, args []string, output io.Writer) error {
+	ctx, finish := plannedstop.WithBudget(ctx)
+	defer finish()
 	flags := flag.NewFlagSet("node", flag.ContinueOnError)
 	flags.SetOutput(output)
 	state := flags.String("state", "/var/lib/ts-orch", "absolute state directory")
@@ -72,12 +74,14 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	swarmReady := make(chan struct{})
-	edgeDone := make(chan error, 1)
+	edgeDone := make(chan struct{})
+	var edgeErr error
 	public := edge.New(*state)
 	go func() {
-		err := public.Run(ctx)
+		defer close(edgeDone)
+		edgeErr = public.Run(ctx)
+		plannedstop.Begin(ctx)
 		cancel()
-		edgeDone <- err
 	}()
 	var inventory atomic.Pointer[func() (mesh.EdgeInventory, bool)]
 	published := make(chan struct{}, 1)
@@ -90,6 +94,15 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 		return refreshEdgeRequestProof(ctx, public, ref, vaultsecret.ReadInstanceSecrets)
 	}, published)
 	var meshNode atomic.Pointer[mesh.Node]
+	plannedstop.Register(ctx, func(context.Context) error {
+		prepareNodeStop(ctx, public, func(stop context.Context) error {
+			if node := meshNode.Load(); node != nil {
+				return node.PrepareStop(stop)
+			}
+			return nil
+		})
+		return nil
+	})
 	manager := plan.admission.Role == "manager"
 	if !manager {
 		public.SetInventoryFollower()
@@ -151,7 +164,6 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 				} else {
 					served()
 				}
-				plannedstop.Register(ctx, node.PrepareStop)
 				handoff.SetBootstrap(node.Bootstrap)
 				handoff.SetClearPeer(node.ClearPeer)
 				public.JoinMesh(node)
@@ -167,24 +179,50 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 			close(meshDone)
 		}()
 	}
-	err = serveNode(ctx, *state, output, plan, public, probation, swarmReady, meshServing, func(ctx context.Context, service string) releasepush.HealthResult {
-		return releaseHealth(ctx, *state, service, meshNode.Load(), public)
-	}, func(ctx context.Context) error {
-		if node := meshNode.Load(); node != nil {
-			return node.PrepareStop(ctx)
+	nodeDone := make(chan struct{})
+	var nodeErr error
+	go func() {
+		defer close(nodeDone)
+		nodeErr = serveNode(ctx, *state, output, plan, public, probation, swarmReady, meshServing, func() {
+			plannedstop.Begin(ctx)
+			cancel()
+		}, func(ctx context.Context, service string) releasepush.HealthResult {
+			return releaseHealth(ctx, *state, service, meshNode.Load(), public)
+		}, func(ctx context.Context) error {
+			if node := meshNode.Load(); node != nil {
+				return node.PrepareStop(ctx)
+			}
+			if plan.region == "" || (plan.joiner() && plan.address == "") {
+				return nil
+			}
+			return errors.New("mesh not started; planned release refused")
+		}, func() {
+			if node := meshNode.Load(); node != nil {
+				node.AbortStop()
+			}
+		})
+	}()
+	select {
+	case <-nodeDone:
+	case <-ctx.Done():
+	case <-plannedstop.Started(ctx):
+		select {
+		case <-nodeDone:
+		case <-ctx.Done():
+		case <-plannedstop.Begin(ctx).Done():
 		}
-		if plan.region == "" || (plan.joiner() && plan.address == "") {
-			return nil
-		}
-		return errors.New("mesh not started; planned release refused")
-	}, func() {
-		if node := meshNode.Load(); node != nil {
-			node.AbortStop()
-		}
-	})
+	}
+	plannedstop.Begin(ctx)
 	cancel()
-	<-meshDone
-	return errors.Join(err, <-edgeDone)
+	err = ctx.Err()
+	if plannedstop.Wait(ctx, "serveNode", nodeDone) {
+		err = nodeErr
+	}
+	plannedstop.Wait(ctx, "mesh", meshDone)
+	if plannedstop.Wait(ctx, "edge", edgeDone) {
+		err = errors.Join(err, edgeErr)
+	}
+	return err
 }
 
 func syncEdgeInventory(ctx context.Context, state, region string, publish func(mesh.EdgeInventory)) {

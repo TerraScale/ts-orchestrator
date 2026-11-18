@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 )
 
 func (e *Edge) runListener(ctx context.Context, protocol string) {
@@ -40,6 +41,9 @@ func (e *Edge) runListener(ctx context.Context, protocol string) {
 }
 
 func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listener) error {
+	tracked := &shutdownListener{Listener: ln}
+	ln = tracked
+	defer tracked.closeConnections()
 	defer observability.SetEdgeListenerReady(protocol, false)
 	bit := listenerBit(protocol)
 	e.listeners.Or(bit)
@@ -54,31 +58,40 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 		}
 		defer func() {
 			observability.SetEdgeListenerReady(protocol, false)
-			server.Shutdown(context.Background())
+			shutdown, cancel := context.WithTimeout(plannedstop.Begin(ctx), shutdownGrace)
+			defer cancel()
+			err := server.Shutdown(shutdown)
+			remaining := tracked.closeConnections()
+			server.Close()
+			if err != nil || remaining != 0 {
+				slog.Warn("edge connections abandoned", "protocol", protocol, "connections", remaining, "error", err)
+			}
 		}()
 	}
-	served := make(chan error, 1)
+	served := make(chan struct{})
+	var serveErr error
 	go func() {
+		defer close(served)
 		switch protocol {
 		case "http":
-			served <- server.Serve(limitedListener{Listener: ln, edge: e, protocol: protocol})
+			serveErr = server.Serve(limitedListener{Listener: ln, edge: e, protocol: protocol})
 		case "https":
 			config := server.TLSConfig.Clone()
 			config.NextProtos = []string{"h2", "http/1.1"}
-			served <- server.ServeTLS(limitedListener{Listener: ln, edge: e, protocol: protocol, config: config}, "", "")
+			serveErr = server.ServeTLS(limitedListener{Listener: ln, edge: e, protocol: protocol, config: config}, "", "")
 		case "postgres":
-			served <- e.servePostgres(ln)
+			serveErr = e.servePostgres(ln)
 		case "terrabase":
-			served <- e.serveRegionalInternal(ln)
+			serveErr = e.serveRegionalInternal(ln)
 		}
 	}()
 	select {
 	case <-ctx.Done():
 		ln.Close()
-		<-served
+		plannedstop.Wait(ctx, "edge "+protocol+" accept loop", served)
 		return ctx.Err()
-	case err := <-served:
+	case <-served:
 		ln.Close()
-		return err
+		return serveErr
 	}
 }

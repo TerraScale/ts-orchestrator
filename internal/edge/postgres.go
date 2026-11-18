@@ -179,8 +179,8 @@ func (e *Edge) postgresConn(raw net.Conn, config *tls.Config, releaseHandshake f
 		default:
 			conn.Write(postgresError("28000", "TLS is required: use sslmode=require"))
 			// Let the client read the error before close; unread input would reset it.
-			if tcp, ok := raw.(*net.TCPConn); ok {
-				tcp.CloseWrite()
+			if half, ok := raw.(interface{ CloseWrite() error }); ok {
+				half.CloseWrite()
 			}
 			io.Copy(io.Discard, io.LimitReader(conn, 64<<10))
 			return
