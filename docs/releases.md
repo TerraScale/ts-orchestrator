@@ -430,7 +430,7 @@ that changes runtime inputs:
 | Lane | Installed release | Release it must install |
 | --- | --- | --- |
 | `upgrade-previous` | N-1: the release the `upgrade-gate/previous` pin names, downloaded from GitHub and checked against its listed digest | N: this build |
-| `upgrade-next` | N: this build on the founders and the sjc manager; N-1 (the pin) on the sjc worker | N+1: this build with its embedded `vcs.revision` replaced by a derived commit that descends from N, published one run later on GitHub and as that run's seq on every region's signed release channel |
+| `upgrade-next` | N: this build on the founders and the sjc manager; the oldest release production still runs (`oldestRelease` in the lane, d360f05de, from before the channel) on the sjc worker | N+1: this build with its embedded `vcs.revision` replaced by a derived commit that descends from N, published one run later on GitHub and as that run's seq on every region's signed release channel |
 
 Each lane boots real `ts-orch node` processes in Oracle mode (the `oraclehost`
 harness from the `oracle-regions` lane: IMDS, instance-principal federation,
@@ -455,7 +455,11 @@ installed binary's own pull updater then has to do the rest, unchanged:
 - confirm it through probation.
 
 `upgrade-next` is the mixed region production meets during a rollout: a manager
-on N and a worker still on N-1. Its release is on the signed channel (served by
+on N and a worker still on the oldest release production runs. That build is
+fixed in the lane rather than taken from the moving pin, because the pin soon
+names a build that already reads channel releases; the worker gets the
+`<state>/nats` directory a production host of that build carries, since builds
+before C47 do not create it. Its release is on the signed channel (served by
 the stand-in's `<oci-region>.ocir.io` behind the instance-principal token
 exchange) before any host boots, so the managers read the channel on their
 first poll instead of backing off to GitHub. The sjc manager installs N+1 on
@@ -463,9 +467,10 @@ itself from the channel and must record its seq. It sends the worker the form
 that build reads: the channel release when the worker's status says
 `channel: true` (the worker must then record the seq too), otherwise the GitHub
 Release form, which the worker verifies through GitHub's asset host and its own
-N-1...N+1 lineage check. Since that worker installs while the lane applies
-services, its starting release is proven by its ready event on N-1 instead of
-the serving check.
+lineage check to N+1. Both sjc hosts may install as soon as the lane applies
+services, so their starting releases are proven by their ready events instead
+of the serving check; the gru and fra founders, which wait for sjc in the
+rollout order, still pass it.
 
 The lane passes when both hosts serve the candidate's revision and digest, no
 trial, staged trial or rollback record remains, and each host keeps the
