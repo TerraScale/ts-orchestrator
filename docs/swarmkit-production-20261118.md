@@ -22,7 +22,7 @@ state was changed.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `netbird-server.service` failing with `invalid arguments`, ~700 restarts per 2 h on every manager | C16e changed the unit's arguments; pull releases replace only the binary | `ts-orch node` installs its embedded unit when it differs |
+| `netbird-server.service` failing with `invalid arguments`, ~700 restarts per 2 h on every manager | C16e changed the unit's arguments; pull releases replace only the binary | Release preflight stores each binary's `netbird-server.service` under `/var/lib/ts-orch/units/<sha>.netbird-server.service`; the privileged `ExecStartPre=+` of `ts-orch.service` installs it, reloads and restarts the companion |
 | `log-scan`, `netbird ssh`: no node readable | NetBird enrollment no longer passes `--allow-server-ssh` and its siblings | `netbird server` re-applies the server SSH settings |
 | `ts-orch observe` pending everywhere | foundation discovery reads `gru-1-head`, absent in production | open: needs a decision on the observe access path |
 | fra stalls, gru waits for fra | ts-fra-2 runs d360f05de, which cannot decode the current pull request (`unknown object member name "seq"`) and cannot reach the channel release | open: no operator path reaches ts-fra-2 |
