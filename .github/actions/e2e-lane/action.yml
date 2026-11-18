@@ -34,7 +34,7 @@ runs:
         M1_PACKAGES: ${{ inputs.packages }}
       run: |
         read -r -a packages <<< "$M1_PACKAGES"
-        test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" ./cmd/terrascale-orchestrator "${packages[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+        timeout --foreground 300 test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" ./cmd/terrascale-orchestrator "${packages[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
     - if: ${{ github.event_name != 'push' && inputs.packages != '' }}
       name: Build this lane's journey entry points
       shell: bash
@@ -42,7 +42,7 @@ runs:
         M1_PACKAGES: ${{ inputs.packages }}
       run: |
         read -r -a packages <<< "$M1_PACKAGES"
-        test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" "${packages[@]}"
+        timeout --foreground 300 test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" "${packages[@]}"
     - if: ${{ github.event_name != 'push' }}
       uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
       with:
@@ -70,4 +70,4 @@ runs:
       if: ${{ always() }}
       name: Tear down ${{ inputs.lane }}
       shell: bash
-      run: bash test/e2e/m1/teardown.sh
+      run: timeout --foreground 180 bash test/e2e/m1/teardown.sh

@@ -120,60 +120,67 @@ jobs:
       matrix:
         include:
           - group: 1
+            deadline: 98
             lanes:
-              - {lane: edge-limits, entry: edge-limits.sh, timeout: 15, packages: "./test/e2e/m1/postgres-preauth"}
-              - {lane: host-logs, entry: host-logs.sh, timeout: 12}
-              - {lane: rollback, entry: rollback.sh, timeout: 8}
-              - {lane: ocir, entry: ocir.sh, timeout: 3, packages: "./test/e2e/m1/ocir"}
+              - {lane: edge-limits, entry: edge-limits.sh, timeout: 15, budget: 25, packages: "./test/e2e/m1/postgres-preauth"}
+              - {lane: host-logs, entry: host-logs.sh, timeout: 12, budget: 22}
+              - {lane: rollback, entry: rollback.sh, timeout: 8, budget: 18}
+              - {lane: ocir, entry: ocir.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/ocir"}
           - group: 2
+            deadline: 105
             lanes:
-              - {lane: readiness, entry: readiness.sh, timeout: 10, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
-              - {lane: oracle-regions, entry: oracle-regions.sh, timeout: 7, packages: "./test/e2e/m1/oracle-regions"}
-              - {lane: release-probation, entry: release-probation.sh, timeout: 7, packages: "./test/e2e/m1/release-probation"}
-              - {lane: regional, entry: regional.sh, timeout: 3, packages: "./test/e2e/m1/regional"}
-              - {lane: websocket, entry: websocket.sh, timeout: 8}
+              - {lane: readiness, entry: readiness.sh, timeout: 10, budget: 20, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+              - {lane: oracle-regions, entry: oracle-regions.sh, timeout: 7, budget: 17, packages: "./test/e2e/m1/oracle-regions"}
+              - {lane: release-probation, entry: release-probation.sh, timeout: 7, budget: 17, packages: "./test/e2e/m1/release-probation"}
+              - {lane: regional, entry: regional.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/regional"}
+              - {lane: websocket, entry: websocket.sh, timeout: 8, budget: 18}
           - group: 3
+            deadline: 123
             lanes:
-              - {lane: updater-preflight, entry: updater-preflight.sh, timeout: 12}
-              - {lane: boot-order, entry: boot-order.sh, timeout: 8, packages: "./test/e2e/m1/boot-order"}
-              - {lane: pull-degraded, entry: pull-degraded.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
-              - {lane: recovery, entry: recovery.sh, timeout: 5}
-              - {lane: core, entry: run.sh, timeout: 8}
-              - {lane: host-credentials, entry: host-credentials.sh, timeout: 5, packages: "./test/e2e/m1/host-credentials"}
+              - {lane: updater-preflight, entry: updater-preflight.sh, timeout: 12, budget: 22}
+              - {lane: boot-order, entry: boot-order.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/boot-order"}
+              - {lane: pull-degraded, entry: pull-degraded.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/pull-update"}
+              - {lane: recovery, entry: recovery.sh, timeout: 5, budget: 15}
+              - {lane: core, entry: run.sh, timeout: 8, budget: 18}
+              - {lane: host-credentials, entry: host-credentials.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/host-credentials"}
           - group: 4
+            deadline: 106
             lanes:
-              - {lane: upgrade-next, entry: upgrade-next.sh, timeout: 14, packages: "./test/e2e/m1/upgrade-gate"}
-              - {lane: rollout-install, entry: rollout-install.sh, timeout: 10}
-              - {lane: pull-handover, entry: pull-handover.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
-              - {lane: fleet, entry: fleet.sh, timeout: 4, packages: "./test/e2e/m1/regional"}
-              - {lane: postgres-preauth, entry: postgres-preauth.sh, timeout: 3, packages: "./test/e2e/m1/postgres-preauth"}
+              - {lane: upgrade-next, entry: upgrade-next.sh, timeout: 14, budget: 24, packages: "./test/e2e/m1/upgrade-gate"}
+              - {lane: rollout-install, entry: rollout-install.sh, timeout: 10, budget: 20}
+              - {lane: pull-handover, entry: pull-handover.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/pull-update"}
+              - {lane: fleet, entry: fleet.sh, timeout: 4, budget: 14, packages: "./test/e2e/m1/regional"}
+              - {lane: postgres-preauth, entry: postgres-preauth.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/postgres-preauth"}
           - group: 5
+            deadline: 94
             lanes:
-              - {lane: upgrade-previous, entry: upgrade-previous.sh, timeout: 14, packages: "./test/e2e/m1/upgrade-gate"}
-              - {lane: autoscale-down, entry: autoscale-down.sh, timeout: 5, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
-              - {lane: autoscale-up, entry: autoscale-up.sh, timeout: 5, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
-              - {lane: node-upgrade, entry: node-upgrade.sh, timeout: 10}
+              - {lane: upgrade-previous, entry: upgrade-previous.sh, timeout: 14, budget: 24, packages: "./test/e2e/m1/upgrade-gate"}
+              - {lane: autoscale-down, entry: autoscale-down.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+              - {lane: autoscale-up, entry: autoscale-up.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+              - {lane: node-upgrade, entry: node-upgrade.sh, timeout: 10, budget: 20}
           - group: 6
+            deadline: 117
             lanes:
-              - {lane: monitoring, entry: monitoring.sh, timeout: 8, packages: "./test/e2e/m1/monitoring"}
-              - {lane: pull-update, entry: pull-update.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
-              - {lane: data-volume, entry: data-volume.sh, timeout: 8, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
-              - {lane: fabric, entry: fabric/run.sh, timeout: 3, packages: "./test/e2e/m1/fabric"}
-              - {lane: restarts, entry: restarts.sh, timeout: 8, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
-              - {lane: release-contracts, entry: release-contracts.sh, timeout: 5, packages: "./test/e2e/m1/revision-gate ./test/e2e/m1/vault-policy"}
+              - {lane: monitoring, entry: monitoring.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/monitoring"}
+              - {lane: pull-update, entry: pull-update.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/pull-update"}
+              - {lane: data-volume, entry: data-volume.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
+              - {lane: fabric, entry: fabric/run.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/fabric"}
+              - {lane: restarts, entry: restarts.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+              - {lane: release-contracts, entry: release-contracts.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/revision-gate ./test/e2e/m1/vault-policy"}
           - group: 7
+            deadline: 105
             lanes:
-              - {lane: operator, entry: operator.sh, timeout: 8, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
-              - {lane: rollout, entry: rollout.sh, timeout: 10}
-              - {lane: pull-bake, entry: pull-bake.sh, timeout: 5, packages: "./test/e2e/m1/pull-update"}
-              - {lane: region-fallback, entry: region-fallback.sh, timeout: 4, packages: "./test/e2e/m1/oracle-regions"}
-              - {lane: metadata-upgrade, entry: metadata-upgrade.sh, timeout: 8}
+              - {lane: operator, entry: operator.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
+              - {lane: rollout, entry: rollout.sh, timeout: 10, budget: 20}
+              - {lane: pull-bake, entry: pull-bake.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/pull-update"}
+              - {lane: region-fallback, entry: region-fallback.sh, timeout: 4, budget: 14, packages: "./test/e2e/m1/oracle-regions"}
+              - {lane: metadata-upgrade, entry: metadata-upgrade.sh, timeout: 8, budget: 18}
     name: e2e-m1 / group ${{ matrix.group }}
     concurrency:
       group: e2e-m1-group-${{ matrix.group }}-${{ github.event_name }}-${{ github.ref }}
       cancel-in-progress: true
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
+    timeout-minutes: ${{ matrix.deadline }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -185,10 +192,11 @@ jobs:
         with:
           cache: e2e-arm64
       - name: Prepare the hosted runner
-        run: bash test/e2e/m1/teardown.sh
+        run: timeout --foreground 180 bash test/e2e/m1/teardown.sh prepare
       - id: lane0
         if: ${{ !cancelled() && matrix.lanes[0] != null }}
         name: e2e-m1 / ${{ matrix.lanes[0].lane }}
+        timeout-minutes: ${{ matrix.lanes[0].budget }}
         uses: ./.github/actions/e2e-lane
         continue-on-error: true
         with:
@@ -199,6 +207,7 @@ jobs:
       - id: lane1
         if: ${{ !cancelled() && matrix.lanes[1] != null }}
         name: e2e-m1 / ${{ matrix.lanes[1].lane }}
+        timeout-minutes: ${{ matrix.lanes[1].budget }}
         uses: ./.github/actions/e2e-lane
         continue-on-error: true
         with:
@@ -209,6 +218,7 @@ jobs:
       - id: lane2
         if: ${{ !cancelled() && matrix.lanes[2] != null }}
         name: e2e-m1 / ${{ matrix.lanes[2].lane }}
+        timeout-minutes: ${{ matrix.lanes[2].budget }}
         uses: ./.github/actions/e2e-lane
         continue-on-error: true
         with:
@@ -219,6 +229,7 @@ jobs:
       - id: lane3
         if: ${{ !cancelled() && matrix.lanes[3] != null }}
         name: e2e-m1 / ${{ matrix.lanes[3].lane }}
+        timeout-minutes: ${{ matrix.lanes[3].budget }}
         uses: ./.github/actions/e2e-lane
         continue-on-error: true
         with:
@@ -229,6 +240,7 @@ jobs:
       - id: lane4
         if: ${{ !cancelled() && matrix.lanes[4] != null }}
         name: e2e-m1 / ${{ matrix.lanes[4].lane }}
+        timeout-minutes: ${{ matrix.lanes[4].budget }}
         uses: ./.github/actions/e2e-lane
         continue-on-error: true
         with:
@@ -239,6 +251,7 @@ jobs:
       - id: lane5
         if: ${{ !cancelled() && matrix.lanes[5] != null }}
         name: e2e-m1 / ${{ matrix.lanes[5].lane }}
+        timeout-minutes: ${{ matrix.lanes[5].budget }}
         uses: ./.github/actions/e2e-lane
         continue-on-error: true
         with:
@@ -247,6 +260,7 @@ jobs:
           packages: ${{ matrix.lanes[5].packages }}
           timeout: ${{ matrix.lanes[5].timeout }}
       - name: Record each lane and queue only its existing automatic rerun
+        if: ${{ !cancelled() }}
         env:
           LANES: ${{ toJSON(matrix.lanes) }}
           RESULTS: ${{ toJSON(steps) }}
@@ -259,6 +273,7 @@ jobs:
           lanes, results = json.loads(os.environ["LANES"]), json.loads(os.environ["RESULTS"])
           target = pathlib.Path(os.environ["RUNNER_TEMP"], "rerun")
           target.mkdir()
+          errors = []
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
               summary.write("### e2e lane results\n\n| Lane | First attempt |\n|---|---|\n")
               for index, lane in enumerate(lanes):
@@ -266,11 +281,14 @@ jobs:
                   outcome = result["outcome"]
                   summary.write(f"| {lane['lane']} | {outcome} |\n")
                   if result["outputs"].get("clean") != "success" or result["outputs"].get("teardown") != "success":
-                      raise SystemExit(f"Host isolation failed for {lane['lane']}; this failure cannot be rerun away")
+                      errors.append(f"Host isolation failed for {lane['lane']}; this failure cannot be rerun away")
+                      continue
                   if outcome == "failure":
                       (target / f"{lane['lane']}.json").write_text(json.dumps(lane))
                   elif outcome != "success":
-                      raise SystemExit(f"Lane {lane['lane']} did not finish: {outcome}")
+                      errors.append(f"Lane {lane['lane']} did not finish: {outcome}")
+          if errors:
+              raise SystemExit("\n".join(errors))
           PYTHON
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -312,14 +330,16 @@ jobs:
               return [item for page in json.loads(subprocess.check_output(["gh", "api", "--paginate", "--slurp", path])) for item in page[key]]
 
           artifacts = {artifact["name"] for artifact in pages(f"repos/{repository}/actions/runs/{run}/artifacts?per_page=100", "artifacts")}
-          latest = {job["name"].removeprefix("e2e-m1 / "): job["run_attempt"] for job in pages(f"repos/{repository}/actions/runs/{run}/jobs?filter=latest&per_page=100", "jobs")
+          latest = {job["name"].removeprefix("e2e-m1 / group "): job["run_attempt"] for job in pages(f"repos/{repository}/actions/runs/{run}/jobs?filter=latest&per_page=100", "jobs")
                     if job["name"].startswith("e2e-m1 / group ")}
-          names = sorted(f"e2e-rerun-{lane_attempt}-{group}" for group, lane_attempt in latest.items() if f"e2e-rerun-{lane_attempt}-{group}" in artifacts)
+          names = sorted(f"e2e-rerun-{lane_attempt}-group-{group}" for group, lane_attempt in latest.items() if f"e2e-rerun-{lane_attempt}-group-{group}" in artifacts)
           lanes = []
           for name in names:
               target = pathlib.Path(os.environ["RUNNER_TEMP"], name)
               subprocess.check_call(["gh", "run", "download", run, "--repo", repository, "--name", name, "--dir", str(target)])
               lanes += [json.loads(path.read_text()) for path in sorted(target.glob("*.json"))]
+          for lane in lanes:
+              lane["job_timeout"] = lane["timeout"] + 30
           record = {"run_id": int(run), "run_attempt": int(attempt), "sha": os.environ["SOURCE_SHA"], "event": os.environ["GITHUB_EVENT_NAME"],
                     "reruns": [{"lane": lane["lane"], "first_attempt": "failure", "rerun_job": f"e2e-m1 / {lane['lane']} (rerun)"} for lane in lanes]}
           pathlib.Path(os.environ["RUNNER_TEMP"], "e2e-reruns.json").write_text(json.dumps(record, indent=2) + "\n")
@@ -351,7 +371,7 @@ jobs:
       group: e2e-m1-rerun-${{ matrix.lane }}-${{ github.event_name }}-${{ github.ref }}
       cancel-in-progress: true
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
+    timeout-minutes: ${{ matrix.job_timeout }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -362,8 +382,9 @@ jobs:
         with:
           cache: e2e-arm64
       - name: Prepare the hosted runner
-        run: bash test/e2e/m1/teardown.sh
+        run: timeout --foreground 180 bash test/e2e/m1/teardown.sh prepare
       - name: e2e-m1 / ${{ matrix.lane }} (rerun)
+        timeout-minutes: ${{ matrix.budget }}
         uses: ./.github/actions/e2e-lane
         with:
           lane: ${{ matrix.lane }}
