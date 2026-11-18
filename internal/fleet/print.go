@@ -38,7 +38,11 @@ func PrintStatus(w io.Writer, reports []Report) error {
 			counts[c.State]++
 			byState[c.State] = append(byState[c.State], c.Kind)
 		}
-		line := fmt.Sprintf("%-4s %-22s ok %d  foreign %d  claimed %d  differs %d  missing %d", report.Name, report.Scope, counts[Ok], counts[Foreign], counts[Claimed], counts[Differs], counts[Missing])
+		status := "ok"
+		if counts[Claimed]+counts[Differs]+counts[Missing] > 0 {
+			status = "not ready"
+		}
+		line := fmt.Sprintf("%-4s %-22s %s  matched %d  foreign %d  claimed %d  differs %d  missing %d", report.Name, report.Scope, status, counts[Ok], counts[Foreign], counts[Claimed], counts[Differs], counts[Missing])
 		for _, state := range []State{Claimed, Differs, Missing} {
 			if len(byState[state]) > 0 {
 				line += fmt.Sprintf("  %s: %s", state, strings.Join(byState[state], ", "))
@@ -46,6 +50,16 @@ func PrintStatus(w io.Writer, reports []Report) error {
 		}
 		if _, err := fmt.Fprintln(w, line); err != nil {
 			return err
+		}
+		for _, check := range report.Checks {
+			if check.State == Ok {
+				continue
+			}
+			for _, detail := range check.Details {
+				if _, err := fmt.Fprintf(w, "  %s: %s\n", check.Kind, detail); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil

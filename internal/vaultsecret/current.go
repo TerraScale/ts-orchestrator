@@ -16,6 +16,7 @@ import (
 type Current struct {
 	ID        string    `json:"id"`
 	Version   int64     `json:"version"`
+	CreatedAt time.Time `json:"-"`
 	ExpiresAt time.Time `json:"expires_at,omitzero"`
 	value     string
 }
@@ -50,7 +51,11 @@ func ReadCurrent(ctx context.Context, client BundleClient, ref Ref) (Current, er
 			expires = deadline.Time
 		}
 	}
-	return Current{ID: *bundle.SecretId, Version: *bundle.VersionNumber, ExpiresAt: expires, value: value}, nil
+	created := time.Time{}
+	if bundle.TimeCreated != nil {
+		created = bundle.TimeCreated.Time
+	}
+	return Current{ID: *bundle.SecretId, Version: *bundle.VersionNumber, CreatedAt: created, ExpiresAt: expires, value: value}, nil
 }
 
 // ResolveCurrent reads a complete set before the consumer can publish it.

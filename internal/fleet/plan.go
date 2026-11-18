@@ -339,6 +339,11 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 		match := subnetIDs[false] != "" && deref(b.SubnetId) == subnetIDs[false] && len(public) > 0
 		return item{deref(b.DisplayName) + " " + strings.Join(public, ","), b.FreeformTags, match, key("network-load-balancer", "nlb")}, string(b.LifecycleState)
 	}), false))
+	health, err := backendHealth(ctx, nlbPass{region: region, network: network, balancers: balancers}, nlbs, instances, attachments)
+	if err != nil {
+		return report, err
+	}
+	report.Checks = append(report.Checks, health)
 	reserved, err := list("reserved address", func(page *string) ([]core.PublicIp, *string, error) {
 		r, err := network.ListPublicIps(ctx, core.ListPublicIpsRequest{Scope: core.ListPublicIpsScopeRegion, Lifetime: core.ListPublicIpsLifetimeReserved, CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
@@ -363,7 +368,7 @@ func nodes(region Region, instances []core.Instance, subnetOf map[string]string,
 		if privateSubnet == "" || subnetOf[deref(in.Id)] != privateSubnet {
 			subnet = "not in private subnet"
 		}
-		match := deref(in.Shape) == want.Shape && ocpus == want.OCPUs && memory == want.MemoryGB && subnet == "private subnet"
+		match := deref(in.Shape) == want.Shape && ocpus == want.OCPUs && memory == want.MemoryGB && subnet == "private subnet" && in.LifecycleState == core.InstanceLifecycleStateRunning
 		desc := fmt.Sprintf("%s %s %g/%g %s %s", deref(in.DisplayName), deref(in.Shape), ocpus, memory, strings.ToLower(string(in.LifecycleState)), subnet)
 		return item{desc, in.FreeformTags, match, keys}, string(in.LifecycleState)
 	})

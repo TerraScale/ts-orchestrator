@@ -114,6 +114,10 @@ func (p Pass) configuration(ctx context.Context) (string, []string, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("list instance configurations: %w", err)
 	}
+	launch, err := p.Launch(ctx)
+	if err != nil {
+		return "", nil, err
+	}
 	var current string
 	var stale []string
 	for _, summary := range summaries {
@@ -124,7 +128,7 @@ func (p Pass) configuration(ctx context.Context) (string, []string, error) {
 		if err != nil {
 			return "", nil, err
 		}
-		if current == "" && p.matches(got.InstanceConfiguration) {
+		if current == "" && p.matches(got.InstanceConfiguration, launch) {
 			current = *summary.Id
 			continue
 		}
@@ -133,10 +137,6 @@ func (p Pass) configuration(ctx context.Context) (string, []string, error) {
 	if current != "" {
 		p.say("unchanged", "instance-configuration", "node", current)
 		return current, stale, nil
-	}
-	launch, err := p.Launch(ctx)
-	if err != nil {
-		return "", nil, err
 	}
 	created, err := p.Management.CreateInstanceConfiguration(ctx, core.CreateInstanceConfigurationRequest{
 		CreateInstanceConfiguration: core.CreateInstanceConfigurationDetails{
@@ -159,7 +159,7 @@ func (p Pass) configuration(ctx context.Context) (string, []string, error) {
 	return *created.Id, stale, nil
 }
 
-func (p Pass) matches(configuration core.InstanceConfiguration) bool {
+func (p Pass) matches(configuration core.InstanceConfiguration, want Launch) bool {
 	details, ok := configuration.InstanceDetails.(core.ComputeInstanceDetails)
 	if !ok || details.LaunchDetails == nil {
 		return false
@@ -167,7 +167,8 @@ func (p Pass) matches(configuration core.InstanceConfiguration) bool {
 	launch := details.LaunchDetails
 	source, ok := launch.SourceDetails.(core.InstanceConfigurationInstanceSourceViaImageDetails)
 	vnic := launch.CreateVnicDetails
-	return ok && deref(launch.Shape) == p.Shape && launch.ShapeConfig != nil &&
+	return ok && deref(source.ImageId) == want.ImageID && launch.Metadata["user_data"] == base64.StdEncoding.EncodeToString([]byte(want.UserData)) &&
+		deref(launch.Shape) == p.Shape && launch.ShapeConfig != nil &&
 		deref(launch.ShapeConfig.Ocpus) == p.OCPUs && deref(launch.ShapeConfig.MemoryInGBs) == p.MemoryGB &&
 		deref(source.BootVolumeSizeInGBs) == p.BootGB && vnic != nil && deref(vnic.SubnetId) == p.SubnetID &&
 		vnic.AssignPublicIp != nil && !*vnic.AssignPublicIp && slices.Equal(vnic.NsgIds, []string{p.NSGID})

@@ -23,6 +23,7 @@ import (
 )
 
 type Material struct {
+	Nodes       []string `json:"nodes,omitempty"`
 	Founder     string   `json:"founder"`
 	WorkerToken string   `json:"workerToken,omitempty"`
 	Managers    []string `json:"managers,omitempty"`
@@ -83,7 +84,7 @@ func decode(region, value string) (Material, error) {
 // Claim makes hostname the region's founder unless the region already has
 // join material, and returns the region's material. OCI keeps secret names
 // unique in a Vault, so exactly one concurrent claimer creates it.
-func Claim(ctx context.Context, region, hostname string) (Material, error) {
+func Claim(ctx context.Context, region, hostname, instanceID string) (Material, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	v, err := open(ctx, region)
@@ -91,9 +92,9 @@ func Claim(ctx context.Context, region, hostname string) (Material, error) {
 		return Material{}, err
 	}
 	name := SecretName(region)
-	value, err := vaultsecret.Read(ctx, v.bundles, v.target.VaultID, name)
+	current, err := vaultsecret.ReadCurrent(ctx, v.bundles, vaultsecret.Ref{Vault: v.target.VaultID, Name: name})
 	if err == nil {
-		return decode(region, value)
+		return reclaim(ctx, v, region, hostname, instanceID, current)
 	}
 	if !vaultsecret.Absent(err) {
 		return Material{}, err
@@ -107,7 +108,7 @@ func Claim(ctx context.Context, region, hostname string) (Material, error) {
 	if err != nil {
 		return Material{}, errors.Join(errors.New("claim region founder"), err)
 	}
-	value, err = vaultsecret.ReadBack(ctx, v.bundles, v.target.VaultID, name, stored.Created || stored.Provisioning)
+	value, err := vaultsecret.ReadBack(ctx, v.bundles, v.target.VaultID, name, stored.Created || stored.Provisioning)
 	if err != nil {
 		return Material{}, err
 	}

@@ -21,6 +21,7 @@ import (
 var (
 	edgePorts = []int{80, 443, 5432}
 	meshPorts = []nsg.Rule{
+		{Protocol: nsg.ProtocolTCP, PortMin: 4242, PortMax: 4242, Description: "swarm manager"},
 		{Protocol: nsg.ProtocolTCP, PortMin: 4222, PortMax: 4222, Description: "nats client"},
 		{Protocol: nsg.ProtocolTCP, PortMin: 6222, PortMax: 6222, Description: "nats cluster"},
 		{Protocol: nsg.ProtocolTCP, PortMin: 7422, PortMax: 7422, Description: "nats leafnode"},
