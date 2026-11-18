@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"regexp"
 	"runtime"
 	"strings"
@@ -30,6 +31,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
+	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -38,6 +41,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/moby/swarmkit/v2/api"
 	godigest "github.com/opencontainers/go-digest"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -302,6 +306,21 @@ func main() {
 	must(blob.Close())
 	require(bytes.Equal(content, archive.Bytes()), "executor pulled different app layer bytes")
 	fmt.Println("ok: signed Date, regional executor layer pull and offline fallback-tag provenance")
+	executor, err := swarmruntime.NewExecutor(os.Args[1], os.Args[2])
+	must(err)
+	must(executor.SetRegistryResolver(func(context.Context, *api.Task, *api.Node) (remotes.Resolver, error) { return resolver, nil }))
+	must(executor.PrePull(ctx, selected.Image, nil))
+	runtimeClient, err := containerd.New(os.Args[1], containerd.WithDefaultNamespace("terrascale"))
+	must(err)
+	pulled, err := runtimeClient.GetImage(ctx, selected.Image)
+	must(err)
+	unpacked, err := pulled.IsUnpacked(ctx, "overlayfs")
+	must(err)
+	require(pulled.Target().Digest.String() == digest.String() && unpacked, "containerd stored another digest or left the selected image packed")
+	must(executor.PrePull(ctx, selected.Image, nil))
+	must(runtimeClient.Close())
+	must(executor.Close())
+	fmt.Println("ok: containerd pulls and unpacks the selected regional image under its fleet name")
 	configDigest, err := image.ConfigName()
 	must(err)
 	bundleDigest, _, err := v1.SHA256(bytes.NewReader(buildBundle))

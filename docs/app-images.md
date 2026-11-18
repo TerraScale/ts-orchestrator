@@ -14,6 +14,9 @@ namespace `grxnmoqvrcdv`, prefixes `terrascale` and `terrascale-stg` respectivel
 Production uses `sa-saopaulo-1`, `us-sanjose-1` and `eu-frankfurt-1`.
 Staging uses `us-sanjose-1` and its separate repository prefix. The fleet reference and containerd image
 record retain the hostless form; registry requests use the regional form.
+containerd parses a pull reference as `host/path`, so the executor pulls the
+regional form and the regional resolver names the stored image with the
+hostless form after verifying it.
 `release wait --service <service> --image <pkg>@sha256:<digest>` compares that
 stable fleet identity with running tasks.
 

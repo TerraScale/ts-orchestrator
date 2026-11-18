@@ -260,7 +260,13 @@ func (e *Executor) pullImage(ctx context.Context, ref string, resolver remotes.R
 	defer release(context.WithoutCancel(ctx))
 	image, err := e.client.GetImage(ctx, ref)
 	if errdefs.IsNotFound(err) {
-		_, err = e.client.Pull(ctx, ref, containerd.WithResolver(resolver), containerd.WithPullUnpack, containerd.WithPullSnapshotter(imageSnapshotter))
+		source := ref
+		if regional, ok := resolver.(*regionalResolver); ok {
+			if source, err = regional.source(ctx, ref); err != nil {
+				return err
+			}
+		}
+		_, err = e.client.Pull(ctx, source, containerd.WithResolver(resolver), containerd.WithPullUnpack, containerd.WithPullSnapshotter(imageSnapshotter))
 		return err
 	}
 	if err != nil {
