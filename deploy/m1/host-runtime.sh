@@ -2,8 +2,13 @@
 set -euo pipefail
 
 if ! command -v chronyc >/dev/null; then
-    apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chrony
+    (
+        apt_dir=$(mktemp -d)
+        trap 'rm -rf "$apt_dir"' EXIT
+        install -d -m 0755 "$apt_dir" "$apt_dir/lists/partial" "$apt_dir/cache/archives/partial"
+        apt-get -o Dir::State::Lists="$apt_dir/lists" -o Dir::Cache="$apt_dir/cache" update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get -o Dir::State::Lists="$apt_dir/lists" -o Dir::Cache="$apt_dir/cache" -o DPkg::Lock::Timeout=300 install -y -qq chrony
+    )
 fi
 cat > /etc/chrony/chrony.conf <<'CHRONY'
 server 169.254.169.254 iburst minpoll 4 maxpoll 6
