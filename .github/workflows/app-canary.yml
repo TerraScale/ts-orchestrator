@@ -30,6 +30,7 @@ jobs:
           sparse-checkout: |
             deploy/m1/regions.json
             .github/actions/ocir-login
+            scripts/ci/publish-app-canary.sh
           sparse-checkout-cone-mode: false
 
       - name: Download the newest main ts-orch
@@ -51,8 +52,11 @@ jobs:
           chmod +x dist/terrascale-orchestrator-linux-amd64
 
       - uses: ./.github/actions/ocir-login
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ocir-prod
         with:
           regions: us-sanjose-1 eu-frankfurt-1 sa-saopaulo-1
+          repository: ${{ vars.OCIR_NAMESPACE }}/terrascale/app-canary
           domain-url: ${{ vars.OCI_IDENTITY_DOMAIN_URL }}
           client-id: ${{ vars.OCI_TOKEN_EXCHANGE_CLIENT_ID }}
           client-secret: ${{ secrets.OCI_TOKEN_EXCHANGE_CLIENT_SECRET }}
@@ -70,6 +74,7 @@ jobs:
         shell: bash
         env:
           NAMESPACE: ${{ vars.OCIR_NAMESPACE }}
+          DOCKER_CONFIG: ${{ runner.temp }}/ocir-prod
         run: |
           set -euo pipefail
           test -n "$NAMESPACE"
@@ -104,6 +109,8 @@ jobs:
 
       - name: Generate SBOM
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ocir-prod
         with:
           image: ${{ steps.image.outputs.ref }}
           format: spdx-json
@@ -126,42 +133,70 @@ jobs:
             --predicate "$RUNNER_TEMP/release-selection.json" \
             --bundle "$RUNNER_TEMP/selection.sigstore.json" "$RUNNER_TEMP/app-canary-manifest.json"
 
-      - name: Publish images and bundles in every environment
+      - name: Publish production images and bundles
         shell: bash
         env:
-          NAMESPACE: ${{ vars.OCIR_NAMESPACE }}
-          IMAGE: ${{ steps.image.outputs.ref }}
+          DOCKER_CONFIG: ${{ runner.temp }}/ocir-prod
+          REPOSITORY: ${{ vars.OCIR_NAMESPACE }}/terrascale/app-canary
           DIGEST: ${{ steps.image.outputs.arm64 }}
           BUILD_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
           SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
         run: |
           set -euo pipefail
-          media=application/vnd.dev.sigstore.bundle.v0.3+json
-          cp "$BUILD_BUNDLE" "$RUNNER_TEMP/build.sigstore.json"
-          cp "$SBOM_BUNDLE" "$RUNNER_TEMP/sbom.sigstore.json"
-          cd "$RUNNER_TEMP"
-          for destination in us-sanjose-1/terrascale eu-frankfurt-1/terrascale sa-saopaulo-1/terrascale us-sanjose-1/terrascale-stg; do
-            region=${destination%/*}
-            prefix=${destination#*/}
-            repo="$region.ocir.io/$NAMESPACE/$prefix/app-canary"
-            if [ "$repo@$DIGEST" != "$IMAGE" ]; then
-              oras cp --from-oci-layout "$RUNNER_TEMP/app-canary-layout:arm64" "$repo@$DIGEST"
-            fi
-            test "$(oras resolve "$repo@$DIGEST")" = "$DIGEST"
-            for bundle in build.sigstore.json selection.sigstore.json sbom.sigstore.json; do
-              oras attach --distribution-spec v1.1-referrers-tag --artifact-type "$media" "$repo@$DIGEST" "$bundle:$media"
-            done
-            oras discover --distribution-spec v1.1-referrers-tag --artifact-type "$media" --format json "$repo@$DIGEST" |
-              jq -e '.referrers | length >= 3'
-            "$GITHUB_WORKSPACE/dist/terrascale-orchestrator-linux-amd64" release verify-provenance \
-              --image "$repo@$DIGEST" \
-              --workflow TerraScale/ts-orchestrator/.github/workflows/app-canary.yml@refs/heads/main \
-              --revision "$GITHUB_SHA"
-          done
-          for destination in us-sanjose-1/terrascale eu-frankfurt-1/terrascale sa-saopaulo-1/terrascale us-sanjose-1/terrascale-stg; do
-            region=${destination%/*}
-            prefix=${destination#*/}
-            repo="$region.ocir.io/$NAMESPACE/$prefix/app-canary"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          bash scripts/ci/publish-app-canary.sh us-sanjose-1 eu-frankfurt-1 sa-saopaulo-1
+
+      - name: Log in to staging only
+        uses: ./.github/actions/ocir-login
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ocir-stg
+        with:
+          regions: us-sanjose-1
+          repository: ${{ vars.OCIR_NAMESPACE }}/terrascale-stg/app-canary
+          domain-url: ${{ vars.OCI_IDENTITY_DOMAIN_URL }}
+          client-id: ${{ vars.OCI_TOKEN_EXCHANGE_CLIENT_ID }}
+          client-secret: ${{ secrets.OCI_TOKEN_EXCHANGE_CLIENT_SECRET }}
+
+      - name: Publish staging and select its release
+        shell: bash
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ocir-stg
+          REPOSITORY: ${{ vars.OCIR_NAMESPACE }}/terrascale-stg/app-canary
+          DIGEST: ${{ steps.image.outputs.arm64 }}
+          BUILD_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          test ! -e "$RUNNER_TEMP/ocir-prod/config.json"
+          bash scripts/ci/publish-app-canary.sh us-sanjose-1
+          repo="us-sanjose-1.ocir.io/$REPOSITORY"
+          oras tag "$repo@$DIGEST" release
+          test "$(oras resolve "$repo:release")" = "$DIGEST"
+
+      - name: Log in to production for release selection
+        uses: ./.github/actions/ocir-login
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ocir-prod
+        with:
+          regions: us-sanjose-1 eu-frankfurt-1 sa-saopaulo-1
+          repository: ${{ vars.OCIR_NAMESPACE }}/terrascale/app-canary
+          domain-url: ${{ vars.OCI_IDENTITY_DOMAIN_URL }}
+          client-id: ${{ vars.OCI_TOKEN_EXCHANGE_CLIENT_ID }}
+          client-secret: ${{ secrets.OCI_TOKEN_EXCHANGE_CLIENT_SECRET }}
+
+      - name: Select the production release
+        shell: bash
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/ocir-prod
+          REPOSITORY: ${{ vars.OCIR_NAMESPACE }}/terrascale/app-canary
+          DIGEST: ${{ steps.image.outputs.arm64 }}
+        run: |
+          set -euo pipefail
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          test ! -e "$RUNNER_TEMP/ocir-stg/config.json"
+          for region in us-sanjose-1 eu-frankfurt-1 sa-saopaulo-1; do
+            repo="$region.ocir.io/$REPOSITORY"
             oras tag "$repo@$DIGEST" release
             test "$(oras resolve "$repo:release")" = "$DIGEST"
           done
@@ -173,3 +208,7 @@ jobs:
         env:
           IMAGE: ${{ steps.image.outputs.fleet }}
         run: dist/terrascale-orchestrator-linux-amd64 release wait --service app-canary --image "$IMAGE"
+
+      - name: Remove registry credentials
+        if: ${{ always() }}
+        run: rm -rf "$RUNNER_TEMP/ocir-prod" "$RUNNER_TEMP/ocir-stg"
