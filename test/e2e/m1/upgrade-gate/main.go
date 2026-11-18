@@ -34,6 +34,7 @@ import (
 const (
 	repositoryAPI = "https://api.github.com/repos/" + releaseattest.Repository
 	pinRef        = "tags/upgrade-gate/previous"
+	oldestRelease = "ci-d360f05deb329f04d2ebad17216393a723f73fef-run-43970746718"
 	region        = "sjc"
 	probeWait     = 10 * time.Second
 	trustedMarker = `"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1"`
@@ -125,7 +126,13 @@ func pinned() pinnedRelease {
 	return pinnedRelease{Tag: name, SHA: match[1], Run: match[2]}
 }
 
-func fetchPrevious(work string, pin pinnedRelease) {
+func named(tag string) pinnedRelease {
+	match := releaseTag.FindStringSubmatch(tag)
+	require(match != nil, "%s is not a release tag", tag)
+	return pinnedRelease{Tag: tag, SHA: match[1], Run: match[2]}
+}
+
+func fetchRelease(path string, pin pinnedRelease) {
 	var release struct {
 		Draft  bool `json:"draft"`
 		Assets []struct {
@@ -147,8 +154,8 @@ func fetchPrevious(work string, pin pinnedRelease) {
 		}
 		data := github(file.Download)
 		require("sha256:"+digest(data) == file.Digest, "pinned %s %s has digest %s, GitHub lists %s", pin.Tag, asset, digest(data), file.Digest)
-		must(os.WriteFile(filepath.Join(work, "previous"), data, 0o755))
-		require(revision(filepath.Join(work, "previous")) == pin.SHA, "pinned %s %s was not built from %s", pin.Tag, asset, pin.SHA)
+		must(os.WriteFile(path, data, 0o755))
+		require(revision(path) == pin.SHA, "pinned %s %s was not built from %s", pin.Tag, asset, pin.SHA)
 		fmt.Printf("pinned previous release %s (%s sha256:%s)\n", pin.Tag, asset, digest(data))
 		return
 	}
@@ -223,49 +230,18 @@ func fetch(mode, candidate, work, lineage, lane string) {
 	for _, service := range workloads(lane)[1:] {
 		must(oraclehost.FetchImage(context.Background(), service["image"].(string), filepath.Join(work, "registry")))
 	}
-	fetchPrevious(work, pin)
-	type lineageRoute struct {
-		base, served string
-		rewrite      func([]byte) []byte
-	}
-	routes := []lineageRoute{{pin.SHA, head, func(body []byte) []byte { return bytes.ReplaceAll(body, []byte(lineage), []byte(head)) }}}
-	if mode == "next" {
-		next := nextRevision(head)
-		routes = []lineageRoute{
-			{head, next, func(body []byte) []byte {
-				return bytes.ReplaceAll(bytes.ReplaceAll(body, []byte(lineage), []byte(next)), []byte(pin.SHA), []byte(head))
-			}},
-			{pin.SHA, next, func(body []byte) []byte { return bytes.ReplaceAll(body, []byte(lineage), []byte(next)) }},
-		}
-	}
 	comparisons := map[string][]byte{}
-	for page := 1; ; {
-		body := github(fmt.Sprintf("%s/compare/%s...%s?per_page=1&page=%d", repositoryAPI, pin.SHA, lineage, page))
-		var comparison struct {
-			Status  string `json:"status"`
-			AheadBy int    `json:"ahead_by"`
-		}
-		decode(body, &comparison)
-		require(comparison.Status == "ahead", "GitHub compares the pinned release %s with %s as %q: the pin is not an ancestor of what this run releases; rebase onto main", pin.Tag, lineage, comparison.Status)
-		for _, route := range routes {
-			comparisons[oraclehost.ComparisonKey(route.base, route.served, page)] = route.rewrite(body)
-			fmt.Printf("lineage %s...%s page %d (%d bytes, ahead by %d) served as %s...%s\n", pin.SHA, lineage, page, len(body), comparison.AheadBy, route.base, route.served)
-		}
-		if page != 1 || comparison.AheadBy <= 1 {
-			break
-		}
-		page = comparison.AheadBy
+	if mode == "previous" {
+		fetchRelease(filepath.Join(work, "previous"), pin)
+		record(comparisons, pin, lineage, lineageRoute{pin.SHA, head, func(body []byte) []byte { return bytes.ReplaceAll(body, []byte(lineage), []byte(head)) }})
 	}
-	body := github(fmt.Sprintf("%s/compare/%s...%s?per_page=1", repositoryAPI, lineage, pin.SHA))
-	var reverse struct {
-		Status   string `json:"status"`
-		BehindBy int    `json:"behind_by"`
-	}
-	decode(body, &reverse)
-	require(reverse.Status == "behind", "GitHub compares %s with the pinned release %s as %q, not behind", lineage, pin.Tag, reverse.Status)
-	for _, route := range routes {
-		comparisons[oraclehost.ComparisonKey(route.served, route.base, 0)] = route.rewrite(body)
-		fmt.Printf("lineage %s...%s (%d bytes, behind by %d) served as %s...%s\n", lineage, pin.SHA, len(body), reverse.BehindBy, route.served, route.base)
+	if mode == "next" {
+		oldest, next := named(oldestRelease), nextRevision(head)
+		fetchRelease(filepath.Join(work, "oldest"), oldest)
+		record(comparisons, pin, lineage, lineageRoute{head, next, func(body []byte) []byte {
+			return bytes.ReplaceAll(bytes.ReplaceAll(body, []byte(lineage), []byte(next)), []byte(pin.SHA), []byte(head))
+		}})
+		record(comparisons, oldest, lineage, lineageRoute{oldest.SHA, next, func(body []byte) []byte { return bytes.ReplaceAll(body, []byte(lineage), []byte(next)) }})
 	}
 	releases := github(repositoryAPI + "/releases?per_page=30")
 	fmt.Printf("recorded GitHub release list: %d bytes\n", len(releases))
@@ -273,6 +249,38 @@ func fetch(mode, candidate, work, lineage, lane string) {
 	data, err := json.Marshal(comparisons)
 	must(err)
 	must(os.WriteFile(filepath.Join(work, "comparisons.json"), data, 0o644))
+}
+
+type lineageRoute struct {
+	base, served string
+	rewrite      func([]byte) []byte
+}
+
+func record(comparisons map[string][]byte, from pinnedRelease, lineage string, route lineageRoute) {
+	for page := 1; ; {
+		body := github(fmt.Sprintf("%s/compare/%s...%s?per_page=1&page=%d", repositoryAPI, from.SHA, lineage, page))
+		var comparison struct {
+			Status  string `json:"status"`
+			AheadBy int    `json:"ahead_by"`
+		}
+		decode(body, &comparison)
+		require(comparison.Status == "ahead", "GitHub compares the release %s with %s as %q: it is not an ancestor of what this run releases; rebase onto main", from.Tag, lineage, comparison.Status)
+		comparisons[oraclehost.ComparisonKey(route.base, route.served, page)] = route.rewrite(body)
+		fmt.Printf("lineage %s...%s page %d (%d bytes, ahead by %d) served as %s...%s\n", from.SHA, lineage, page, len(body), comparison.AheadBy, route.base, route.served)
+		if page != 1 || comparison.AheadBy <= 1 {
+			break
+		}
+		page = comparison.AheadBy
+	}
+	body := github(fmt.Sprintf("%s/compare/%s...%s?per_page=1", repositoryAPI, lineage, from.SHA))
+	var reverse struct {
+		Status   string `json:"status"`
+		BehindBy int    `json:"behind_by"`
+	}
+	decode(body, &reverse)
+	require(reverse.Status == "behind", "GitHub compares %s with the release %s as %q, not behind", lineage, from.Tag, reverse.Status)
+	comparisons[oraclehost.ComparisonKey(route.served, route.base, 0)] = route.rewrite(body)
+	fmt.Printf("lineage %s...%s (%d bytes, behind by %d) served as %s...%s\n", lineage, from.SHA, len(body), reverse.BehindBy, route.served, route.base)
 }
 
 func withRevision(binary []byte, from, to string) []byte {
@@ -385,12 +393,12 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 	trusted := authority.TrustedRoot()
 	candidate := read(candidatePath)
 	sha := revision(candidatePath)
-	previous := trusting(read(filepath.Join(work, "previous")), trusted)
-	var installed, target []byte
+	var installed, target, older []byte
 	switch mode {
 	case "previous":
-		installed, target = previous, trusting(candidate, trusted)
+		installed, target = trusting(read(filepath.Join(work, "previous")), trusted), trusting(candidate, trusted)
 	case "next":
+		older = trusting(read(filepath.Join(work, "oldest")), trusted)
 		installed = trusting(candidate, trusted)
 		target = withRevision(installed, sha, nextRevision(sha))
 		sha = nextRevision(sha)
@@ -399,9 +407,6 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 	installedPath := filepath.Join(work, "installed")
 	must(os.WriteFile(installedPath, installed, 0o755))
 	from := revision(installedPath)
-	previousPath := filepath.Join(work, "previous-trusting")
-	must(os.WriteFile(previousPath, previous, 0o755))
-	pin := revision(previousPath)
 	var comparisons map[string][]byte
 	decode(read(filepath.Join(work, "comparisons.json")), &comparisons)
 	registry := filepath.Join(work, "registry")
@@ -432,8 +437,12 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 		step("published %s (%s sha256:%s) with its provenance", tag, asset, digest(target))
 	}
 	if mode == "next" {
-		workerFrom, workerInstalled = pin, previous
-		must(os.WriteFile(filepath.Join(worker.Dir, "bin", "terrascale-orchestrator"), previous, 0o755))
+		olderPath := filepath.Join(work, "oldest-trusting")
+		must(os.WriteFile(olderPath, older, 0o755))
+		workerFrom, workerInstalled = revision(olderPath), older
+		must(os.WriteFile(filepath.Join(worker.Dir, "bin", "terrascale-orchestrator"), older, 0o755))
+		must(os.MkdirAll(worker.State("nats"), 0o700))
+		step("%s starts on %s, the oldest release production still runs, with the release listener's directory %s a production host of that build carries", worker.Name, oldestRelease, "/var/lib/ts-orch/nats")
 		publish()
 		artifact := ocirelease.ArtifactImage(map[string][]byte{runtime.GOARCH: target}, bundle)
 		document, err := ocirelease.Document(artifact, sha, runID, run, time.Now())
@@ -463,7 +472,7 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 	serve(ctx, fleet, manager, workloads(lane), work)
 	step("applied terrabase and e2e-whoami through %s's mesh, as production regions serve services", manager.Name)
 	for _, host := range fleet.Hosts {
-		if mode == "next" && host == worker {
+		if mode == "next" && host.Region == upgraded {
 			continue
 		}
 		until(ctx, host.Name+" serves the installed release", func() error { return serving(ctx, host, from, installed) })
@@ -472,7 +481,7 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 		step("gru, sjc and fra founders and the %s worker serve %s sha256:%s; GitHub lists no release of ours yet", region, from, digest(installed))
 		publish()
 	} else {
-		step("gru, sjc and fra founders serve %s sha256:%s; the %s worker booted on the previous release %s", from, digest(installed), region, workerFrom)
+		step("gru and fra founders serve %s sha256:%s and wait for sjc in the rollout order; the sjc hosts booted on %s and %s and roll as soon as the region is healthy", from, digest(installed), from, workerFrom)
 	}
 	for _, host := range upgraded.Hosts {
 		until(ctx, host.Name+" installs "+tag+" through its updater and confirms it", func() error { return serving(ctx, host, sha, target) })
