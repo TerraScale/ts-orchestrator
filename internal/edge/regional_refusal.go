@@ -83,7 +83,7 @@ func regionalRefusalRecord(source, task string, err error, now time.Time) error 
 }
 
 func regionalRefusalError(backoff regionalBackoff, now time.Time) error {
-	return fmt.Errorf("regional handoff refused (%d in a row): %w; next attempt in %s", backoff.failures, backoff.refusal, backoff.next.Sub(now).Round(time.Second))
+	return fmt.Errorf("regional handoff refused (%d in a row on this manager): %w; this manager's next attempt in %s", backoff.failures, backoff.refusal, backoff.next.Sub(now).Round(time.Second))
 }
 
 func WriteRegionalDrainMetrics(w io.Writer) {

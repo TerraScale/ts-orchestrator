@@ -367,15 +367,15 @@ func main() {
 		return writer.refused
 	}
 	code, body, err := drainNode("node=n2&task=t2")
-	if err == nil && (code != http.StatusServiceUnavailable || !strings.Contains(body, "regional handoff HTTP 503: drain_unavailable") || !strings.Contains(body, "next attempt in 30s") || refusedDrains() != 1) {
+	if err == nil && (code != http.StatusServiceUnavailable || !strings.Contains(body, "regional handoff HTTP 503: drain_unavailable") || !strings.Contains(body, "this manager's next attempt in 30s") || refusedDrains() != 1) {
 		err = fmt.Errorf("answered %d %q after %d drain requests, want 503 with drain_unavailable and its next attempt after 1", code, body, refusedDrains())
 	}
-	step("a drain the follower n2 refuses is surfaced with its code and its next attempt", err)
+	step("a drain the follower n2 refuses is surfaced with its code and this manager's next attempt", err)
 	code, body, err = drainNode("node=n2&task=t2")
-	if err == nil && (code != http.StatusServiceUnavailable || !strings.Contains(body, "refused (1 in a row)") || refusedDrains() != 1) {
+	if err == nil && (code != http.StatusServiceUnavailable || !strings.Contains(body, "refused (1 in a row on this manager)") || refusedDrains() != 1) {
 		err = fmt.Errorf("answered %d %q after %d drain requests, want the stored refusal without a new drain request", code, body, refusedDrains())
 	}
-	step("a retried stop of n2 inside its backoff window reaches neither the ingress hold nor n2", err)
+	step("a retried stop of n2 inside this manager's backoff window reaches neither its ingress hold nor n2", err)
 	if missing := regional.Readiness(context.Background()).Missing; slices.Contains(missing, "node draining") {
 		step("edge readiness after the refused drain", fmt.Errorf("edge reports %v", missing))
 	}

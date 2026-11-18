@@ -10,4 +10,4 @@ for host in regional.e2e.test upgrade.e2e.test; do
 done
 bash "$here/regional/peers.sh" "$work"
 sudo unshare -n sh -c 'ip link set lo up && exec "$0" "$@"' "$(dirname "$bin")/regional" "$work/regional" "$work/ca.pem" regional.e2e.test upgrade.e2e.test
-end "regional edge -> REST, two WebSockets, a refused follower drain that backs off without a hold, a drain with both open, REST after it, an upload after a backend's half-close"
+end "regional edge -> REST, two WebSockets, a refused follower drain that backs off per manager without a hold, a drain with both open, REST after it, an upload after a backend's half-close"

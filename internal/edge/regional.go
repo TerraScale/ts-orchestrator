@@ -420,10 +420,6 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node, task string) error {
 	if err := regionalRefusalPending(node, task, time.Now()); err != nil {
 		return err
 	}
-	return regionalRefusalRecord(node, task, e.drainRegionalNode(ctx, node), time.Now())
-}
-
-func (e *Edge) drainRegionalNode(ctx context.Context, node string) error {
 	router := e.regional.Load()
 	if router == nil {
 		return errors.New("regional routing unavailable")
@@ -432,6 +428,13 @@ func (e *Edge) drainRegionalNode(ctx context.Context, node string) error {
 		return err
 	}
 	defer func() { <-router.changing }()
+	if err := regionalRefusalPending(node, task, time.Now()); err != nil {
+		return err
+	}
+	return regionalRefusalRecord(node, task, e.drainRegionalNode(ctx, router, node), time.Now())
+}
+
+func (e *Edge) drainRegionalNode(ctx context.Context, router *regionalRouter, node string) error {
 	owner, err := e.regionalOwner(ctx, router, true)
 	if err != nil {
 		return err
