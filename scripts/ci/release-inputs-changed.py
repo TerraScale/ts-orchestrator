@@ -1,12 +1,13 @@
+#!/usr/bin/env python3
 """Exit 3 only after proving executable inputs match a retained main ancestor."""
 
 import json
 import os
+from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
 
 from qualified_release import TAG, admit, api, command
 
@@ -15,7 +16,6 @@ def inputs():
     root = Path(command("git", "rev-parse", "--show-toplevel", text=True).strip())
     paths = {"go.mod", "go.sum", "Makefile", ".github/workflows/ci.yml",
              ".github/actions/go/action.yml",
-             ".github/actions/release-publish/action.yml", "scripts/ci/qualified-pr-tree.py",
              "scripts/ci/audit-dependencies.sh",
              "scripts/ci/check-release-binaries.sh", "scripts/ci/publish-qualification.sh",
              "scripts/ci/qualified_release.py", "scripts/ci/release-inputs-changed.py"}
@@ -75,12 +75,12 @@ def changed():
             candidates.append((int(match[2]), match[1], tag))
     with tempfile.TemporaryDirectory() as temporary:
         for _, base, tag in sorted(candidates, reverse=True):
-            ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", base, source], check=False)
+            ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", base, source])
             if ancestry.returncode == 1:
                 continue
             if ancestry.returncode != 0:
                 raise ValueError("retained source ancestry is unreadable")
-            diff = subprocess.run(["git", "diff", "--quiet", base, source, "--", *paths], check=False)
+            diff = subprocess.run(["git", "diff", "--quiet", base, source, "--", *paths])
             if diff.returncode == 1:
                 # Building current source needs no retained bytes. Only a skip
                 # requires downloading and admitting the complete baseline.
