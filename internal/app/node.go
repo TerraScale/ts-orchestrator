@@ -326,14 +326,14 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 		return plan, nil
 	}
 	for {
-		material, err := regionjoin.Claim(ctx, instance.Region, hostname)
+		material, err := regionjoin.Claim(ctx, instance.Region, hostname, instance.ID)
 		switch {
 		case err != nil:
 			fmt.Fprintf(output, "region join: %v; retrying\n", err)
 		default:
 			manager, joinable := "", false
 			if material.WorkerToken != "" {
-				manager, joinable = reachableManager(ctx, material.Managers)
+				manager, joinable = regionjoin.ReachableManager(ctx, material)
 			}
 			switch {
 			case joinable:
@@ -343,7 +343,7 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 				}
 				fmt.Fprintf(output, "joining %s at %s as a worker\n", regionjoin.SecretName(instance.Region), manager)
 				return plan, nil
-			case material.Founder == hostname:
+			case material.Founder == hostname && material.WorkerToken == "":
 				plan.admission = swarmruntime.FoundingAdmission(hostname, instance.ID)
 				return plan, nil
 			case material.WorkerToken != "":
@@ -400,12 +400,9 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 			if err != nil {
 				return err
 			}
-			if stored.WorkerToken == "" {
-				clusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
-				if err != nil || len(clusters.Clusters) != 1 {
-					return errors.Join(errors.New("read the cluster's worker join token"), err)
-				}
-				stored.WorkerToken = clusters.Clusters[0].RootCA.JoinTokens.Worker
+			stored, err = regionjoin.ClusterMaterial(ctx, client, stored.Founder)
+			if err != nil {
+				return err
 			}
 			stored.Managers, stored.Routes = managers, routes
 			return regionjoin.Publish(ctx, plan.region, stored)
@@ -419,19 +416,6 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 		case <-time.After(30 * time.Second):
 		}
 	}
-}
-
-func reachableManager(ctx context.Context, managers []string) (string, bool) {
-	for _, manager := range managers {
-		dial, cancel := context.WithTimeout(ctx, 5*time.Second)
-		conn, err := (&net.Dialer{}).DialContext(dial, "tcp", manager)
-		cancel()
-		if err == nil {
-			_ = conn.Close()
-			return manager, true
-		}
-	}
-	return "", false
 }
 
 func hostOf(address string) string {
