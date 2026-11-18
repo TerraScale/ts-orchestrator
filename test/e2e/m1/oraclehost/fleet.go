@@ -546,6 +546,30 @@ func (h *Host) Observation(ctx context.Context) (releasepush.Observation, error)
 			}
 		}
 	}
+	for _, workflow := range []string{
+		"TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main",
+		"TerraScale/ts-orchestrator/.github/workflows/multi-region.yml@refs/heads/main",
+		"TerraScale/ts-orchestrator/.github/workflows/app-digests.yml@refs/heads/main",
+		"TerraScale/ts-orchestrator/.github/workflows/app-canary.yml@refs/heads/main",
+	} {
+		otherToken, err := h.fleet.standIn.identityToken(revisionOf(h.fleet.Binary), "1", map[string]any{"job_workflow_ref": workflow, "workflow_ref": workflow, "event_name": "workflow_dispatch"})
+		if err != nil {
+			return releasepush.Observation{}, err
+		}
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+h.Region.Name+"."+mesh.Domain+releasepush.ObservationPath+"?view=deployments", nil)
+		if err != nil {
+			return releasepush.Observation{}, err
+		}
+		request.Header.Set("Authorization", "Bearer "+otherToken)
+		response, err := client.Do(request)
+		if err != nil {
+			return releasepush.Observation{}, err
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusUnauthorized {
+			return releasepush.Observation{}, fmt.Errorf("%s can read deployment details: HTTP %d", workflow, response.StatusCode)
+		}
+	}
 	var observation releasepush.Observation
 	for _, probe := range []struct {
 		method, token string

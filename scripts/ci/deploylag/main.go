@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +47,7 @@ type api struct {
 	commits                                 map[string]commit
 	relations                               map[string]string
 	publications                            map[string]time.Time
+	releases                                map[string]applicationRelease
 }
 
 func (a *api) request(ctx context.Context, method, url, token string, input, output any) error {
@@ -132,13 +132,16 @@ func (a *api) lag(ctx context.Context, repo, running string, main commit, now ti
 		}
 		lag = max(0, now.Sub(main.Commit.Committer.Date))
 	default:
-		return 0, errors.New("running commit and main have diverged")
+		return 0, errors.New("running commit and the compared target have diverged")
 	}
 	return lag, nil
 }
 
 func (a *api) region(ctx context.Context, region string) (releasepush.DeploymentObservation, error) {
 	var report releasepush.DeploymentObservation
+	if a.observationToken == "" {
+		return report, errors.New("GitHub observation identity unavailable")
+	}
 	request, err := http.NewRequestWithContext(ctx, "GET", "https://"+region+".mesh.terrascale.tech"+releasepush.ObservationPath+"?view=deployments", nil)
 	if err != nil {
 		return report, errors.New("observation request invalid")
@@ -169,6 +172,10 @@ func (a *api) region(ctx context.Context, region string) (releasepush.Deployment
 }
 
 func (a *api) publication(ctx context.Context, x artifact, target releasepush.DeploymentTarget) (time.Time, error) {
+	if x.name == "ts-auth" || x.name == "ts-dashboard" {
+		release, err := a.applicationRelease(ctx, x, target)
+		return release.published, err
+	}
 	if !target.PublishedAt.IsZero() {
 		return target.PublishedAt, nil
 	}
@@ -195,7 +202,7 @@ func (a *api) publication(ctx context.Context, x artifact, target releasepush.De
 		return time.Time{}, errors.New("release publication jobs are incomplete")
 	}
 	for _, job := range result.Jobs {
-		matches := x.name == "terrabase" && slices.Contains([]string{"main", "native-release", "release-only"}, job.Name) || x.name == "ts-auth" && slices.Contains([]string{"main-auth", "main-auth-ordered"}, job.Name) || x.name == "ts-dashboard" && job.Name == "Publish and release"
+		matches := x.name == "terrabase" && slices.Contains([]string{"main", "native-release", "release-only"}, job.Name)
 		if !matches {
 			continue
 		}
@@ -213,17 +220,26 @@ func (a *api) publication(ctx context.Context, x artifact, target releasepush.De
 	return time.Time{}, errors.New("selected release publication timestamp is unavailable")
 }
 
-func (a *api) verdict(ctx context.Context, x artifact, region string, report releasepush.DeploymentObservation, now time.Time) (string, bool) {
+func (a *api) verdict(ctx context.Context, x artifact, region string, report releasepush.DeploymentObservation, now time.Time) (result finding) {
+	var pipelineFailures []string
+	defer func() {
+		if result.unknown {
+			if failures := append(reportedFailures(x, report), pipelineFailures...); len(failures) > 0 {
+				result.red = true
+				result.line += " state=red " + strings.Join(failures, "; ")
+			}
+		}
+	}()
 	main, err := a.mainCommit(ctx, x.repo)
 	if err != nil {
-		return fmt.Sprintf("%s %s: cannot observe main: %s", x.name, region, err), true
+		return finding{line: fmt.Sprintf("%s %s: cannot observe main: %s", x.name, region, err), unknown: true}
 	}
 	target, ok := report.Targets[x.name]
 	if !ok || target.Error != "" || len(target.Revision) != 40 {
-		return fmt.Sprintf("%s %s: main=%s cannot observe %s: %s", x.name, region, main.SHA, region, cmp.Or(target.Error, "selected release revision unavailable")), true
+		return finding{line: fmt.Sprintf("%s %s: main=%s cannot observe %s: %s", x.name, region, main.SHA, region, cmp.Or(target.Error, "selected release revision unavailable")), unknown: true}
 	}
 	if _, err := a.lag(ctx, x.repo, target.Revision, main, now); err != nil {
-		return fmt.Sprintf("%s %s: cannot observe %s: selected release ancestry: %s", x.name, region, region, err), true
+		return finding{line: fmt.Sprintf("%s %s: cannot observe %s: selected release ancestry: %s", x.name, region, region, err), unknown: true}
 	}
 	release := commit{SHA: target.Revision}
 	var tasks []releasepush.DeploymentTask
@@ -232,18 +248,18 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 	pending := false
 	if x.name == "ts-orchestrator" {
 		for _, host := range report.Hosts {
-			tasks = append(tasks, releasepush.DeploymentTask{Host: host.Host, Revision: host.Version, State: "RUNNING"})
+			state := "RUNNING"
+			if hostFailure(host) != "" {
+				state = "FAILED"
+			}
+			tasks = append(tasks, releasepush.DeploymentTask{Host: host.Host, Revision: host.Version, State: state})
 			if host.State != "" && host.State != "current" && host.State != "newer" {
 				pending = true
 				reasons = append(reasons, host.Host+": "+host.State)
 			}
-			if host.Error != "" || host.Down || host.Refusal != nil || host.RolledBack != "" {
+			if reason := hostFailure(host); reason != "" {
 				failed = true
-				reason := cmp.Or(host.Error, host.State, "host down or release rolled back")
-				if host.Refusal != nil {
-					reason = host.Refusal.Reason
-				}
-				reasons = append(reasons, host.Host+": "+reason)
+				reasons = append(reasons, reason)
 			}
 		}
 		var pull struct {
@@ -258,7 +274,7 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 			} `json:"hosts"`
 		}
 		if err := json.Unmarshal(report.Pull, &pull); err != nil {
-			return fmt.Sprintf("%s %s: cannot observe %s: pull rollout unreadable", x.name, region, region), true
+			return finding{line: fmt.Sprintf("%s %s: cannot observe %s: pull rollout unreadable", x.name, region, region), unknown: true}
 		}
 		if pull.Target != nil && pull.Target.SHA == target.Revision && !slices.Contains([]string{"idle", "complete", "newer"}, pull.Phase) {
 			pending = true
@@ -277,7 +293,7 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 	} else {
 		app, ok := report.Apps[x.name]
 		if !ok || app.Error != "" {
-			return fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, cmp.Or(app.Error, "application deployment inventory missing")), true
+			return finding{line: fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, cmp.Or(app.Error, "application deployment inventory missing")), unknown: true}
 		}
 		tasks, failed = app.Tasks, app.Failed
 		if app.Reason != "" {
@@ -289,11 +305,26 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 	if x.name != "ts-orchestrator" {
 		pending = !report.Apps[x.name].Complete || uint64(len(tasks)) < report.Apps[x.name].Replicas
 	}
+	if x.name == "ts-auth" || x.name == "ts-dashboard" {
+		publication, err := a.applicationRelease(ctx, x, target)
+		if err != nil {
+			return finding{line: fmt.Sprintf("%s %s: cannot observe %s: publishing run %s: %s", x.name, region, region, target.RunID, err), unknown: true}
+		}
+		release.Commit.Committer.Date = publication.published
+		pending, failed = pending || publication.waiting, failed || publication.failed
+		reasons = append(reasons, publication.detail)
+		if publication.failed {
+			pipelineFailures = append(pipelineFailures, publication.detail)
+		}
+	}
 	for _, task := range tasks {
 		if task.Reason != "" {
 			reasons = append(reasons, task.Host+": "+task.Reason)
 		}
 		if task.State != "RUNNING" {
+			if task.State == "FAILED" {
+				running = append(running, task.Host+"="+cmp.Or(task.Revision, "unknown")+" (FAILED)")
+			}
 			pending = true
 			reasons = append(reasons, task.Host+": "+task.State)
 			continue
@@ -303,13 +334,13 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 		if (task.Revision != target.Revision || differentImage) && release.Commit.Committer.Date.IsZero() {
 			published, err := a.publication(ctx, x, target)
 			if err != nil {
-				return fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, err), true
+				return finding{line: fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, err), unknown: true}
 			}
 			release.Commit.Committer.Date = published
 		}
 		behind, err := a.lag(ctx, x.repo, task.Revision, release, now)
 		if err != nil {
-			return fmt.Sprintf("%s %s: main=%s running=%s cannot observe %s: %s", x.name, region, main.SHA, strings.Join(running, ","), region, err), true
+			return finding{line: fmt.Sprintf("%s %s: main=%s running=%s cannot observe %s: %s", x.name, region, main.SHA, strings.Join(running, ","), region, err), unknown: true}
 		}
 		lag = max(lag, behind)
 		if differentImage && task.Revision == target.Revision {
@@ -320,10 +351,10 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 		running = []string{"none"}
 		pending = true
 	}
-	if pending {
+	if pending && !failed {
 		published, err := a.publication(ctx, x, target)
 		if err != nil {
-			return fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, err), true
+			return finding{line: fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, err), unknown: true}
 		}
 		lag = max(lag, now.Sub(published))
 	}
@@ -334,50 +365,7 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 	}
 	slices.Sort(reasons)
 	reasons = slices.Compact(reasons)
-	return fmt.Sprintf("%s %s: main=%s release=%s running=%s lag=%.1fm budget=%.0fm state=%s %s", x.name, region, main.SHA, target.Revision, strings.Join(running, ","), lag.Minutes(), x.budget.Minutes(), state, strings.Join(reasons, "; ")), red
-}
-
-func (a *api) issues(ctx context.Context, rows map[string][]string, red map[string]bool) error {
-	type issue struct {
-		Number      int    `json:"number"`
-		Title       string `json:"title"`
-		PullRequest any    `json:"pull_request"`
-	}
-	open := map[string][]int{}
-	base := forge + "ts-orchestrator/issues"
-	for page := 1; ; page++ {
-		var issues []issue
-		if err := a.request(ctx, "GET", fmt.Sprintf("%s?state=open&per_page=100&page=%d", base, page), a.writeToken, nil, &issues); err != nil {
-			return err
-		}
-		for _, issue := range issues {
-			if issue.PullRequest == nil {
-				open[issue.Title] = append(open[issue.Title], issue.Number)
-			}
-		}
-		if len(issues) < 100 {
-			break
-		}
-	}
-	for _, x := range artifacts {
-		title := "Deploy lag: " + x.name
-		body := "@mariogk Deployment guard is red.\n\n```text\n" + strings.Join(rows[x.name], "\n") + "\n```\n\nhttps://github.com/" + os.Getenv("GITHUB_REPOSITORY") + "/actions/runs/" + os.Getenv("GITHUB_RUN_ID")
-		for i, number := range open[title] {
-			patch := map[string]string{"state": "closed"}
-			if red[x.name] && i == 0 {
-				patch = map[string]string{"body": body}
-			}
-			if err := a.request(ctx, "PATCH", fmt.Sprintf("%s/%d", base, number), a.writeToken, patch, nil); err != nil {
-				return err
-			}
-		}
-		if red[x.name] && len(open[title]) == 0 {
-			if err := a.request(ctx, "POST", base, a.writeToken, map[string]any{"title": title, "body": body, "assignees": []string{"mariogk"}}, nil); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return finding{line: fmt.Sprintf("%s %s: main=%s release=%s running=%s lag=%.1fm budget=%.0fm state=%s %s", x.name, region, main.SHA, target.Revision, strings.Join(running, ","), lag.Minutes(), x.budget.Minutes(), state, strings.Join(reasons, "; ")), red: red}
 }
 
 func (a *api) page(ctx context.Context, affected []string) error {
@@ -409,91 +397,6 @@ func (a *api) page(ctx context.Context, affected []string) error {
 	return nil
 }
 
-func run(ctx context.Context, a *api, now time.Time) bool {
-	regions, err := releasepush.LoadRegions("deploy/m1/regions.json")
-	rows, red := map[string][]string{}, map[string]bool{}
-	if err != nil {
-		fmt.Println("cannot observe regions:", err)
-	}
-	reports := map[string]releasepush.DeploymentObservation{}
-	observationErrors := map[string]error{}
-	targets := map[string]releasepush.DeploymentTarget{}
-	for _, region := range regions {
-		report, observeErr := a.region(ctx, region.Region)
-		reports[region.Region], observationErrors[region.Region] = report, observeErr
-		if observeErr != nil {
-			continue
-		}
-		for _, x := range artifacts {
-			target := report.Targets[x.name]
-			candidate, parseErr := strconv.ParseUint(target.RunID, 10, 64)
-			selected, _ := strconv.ParseUint(targets[x.name].RunID, 10, 64)
-			if x.name == "ts-orchestrator" {
-				candidate, selected = target.Seq, targets[x.name].Seq
-			}
-			if _, exists := targets[x.name]; !exists {
-				targets[x.name] = target
-			}
-			if target.Error == "" && parseErr == nil && (candidate > selected || candidate == selected && target.Attempt > targets[x.name].Attempt) {
-				targets[x.name] = target
-			}
-			current := targets[x.name]
-			if target.Error == "" && parseErr == nil && candidate == selected && target.Attempt == current.Attempt && (target.Revision != current.Revision || target.Image != current.Image) {
-				current.Error = "regions report conflicting signed release selections"
-				targets[x.name] = current
-			}
-		}
-	}
-	for _, region := range regions {
-		report, observeErr := reports[region.Region], observationErrors[region.Region]
-		report.Targets = targets
-		for _, x := range artifacts {
-			var line string
-			var bad bool
-			if observeErr != nil {
-				line, bad = fmt.Sprintf("%s: cannot observe %s: %s", x.name, region.Region, observeErr), true
-			} else {
-				line, bad = a.verdict(ctx, x, region.Region, report, now)
-			}
-			fmt.Println(line)
-			rows[x.name] = append(rows[x.name], line)
-			red[x.name] = red[x.name] || bad
-		}
-	}
-	var affected []string
-	for _, x := range artifacts {
-		red[x.name] = red[x.name] || err != nil
-		if red[x.name] {
-			affected = append(affected, x.name)
-		}
-	}
-	if os.Getenv("GITHUB_REF") == "refs/heads/main" {
-		if err := a.issues(ctx, rows, red); err != nil {
-			fmt.Println("issue delivery failed:", err)
-			if len(affected) == 0 {
-				for _, x := range artifacts {
-					affected = append(affected, x.name)
-				}
-			}
-		}
-		if len(affected) > 0 {
-			if err := a.page(ctx, affected); err != nil {
-				fmt.Println("paging failed:", err)
-			}
-		}
-	}
-	if len(affected) > 0 {
-		fmt.Println("DEPLOY red", strings.Join(affected, ","))
-		return false
-	}
-	var names []string
-	for _, x := range artifacts {
-		names = append(names, x.name)
-	}
-	fmt.Println("DEPLOY ok", strings.Join(names, ","))
-	return true
-}
-
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Minute)
 	defer cancel()
@@ -501,7 +404,7 @@ func main() {
 	if err != nil {
 		fmt.Println("observation identity unavailable:", err)
 	}
-	a := &api{client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, readToken: cmp.Or(os.Getenv("GH_READ_TOKEN"), os.Getenv("GH_TOKEN")), writeToken: cmp.Or(os.Getenv("GH_WRITE_TOKEN"), os.Getenv("GH_TOKEN")), observationToken: token, commits: map[string]commit{}, relations: map[string]string{}, publications: map[string]time.Time{}}
+	a := &api{client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, readToken: cmp.Or(os.Getenv("GH_READ_TOKEN"), os.Getenv("GH_TOKEN")), writeToken: cmp.Or(os.Getenv("GH_WRITE_TOKEN"), os.Getenv("GH_TOKEN")), observationToken: token, commits: map[string]commit{}, relations: map[string]string{}, publications: map[string]time.Time{}, releases: map[string]applicationRelease{}}
 	if !run(ctx, a, time.Now()) {
 		os.Exit(1)
 	}

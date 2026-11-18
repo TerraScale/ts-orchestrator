@@ -49,17 +49,22 @@ func (h *Handler) Observe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	_, err := h.Verifier.VerifyMesh(r.Context(), token)
+	claims, err := h.Verifier.VerifyMesh(r.Context(), token)
 	if err != nil {
-		_, err = h.Verifier.Verify(r.Context(), token)
+		claims, err = h.Verifier.Verify(r.Context(), token)
 	}
-	if err != nil {
+	deployments := r.URL.Query().Get("view") == "deployments"
+	if err != nil || deployments && claims.JobWorkflowRef != deployLagWorkflow {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	budget := 20 * time.Second
+	if deployments {
+		budget = 15 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), budget)
 	defer cancel()
-	if r.URL.Query().Get("view") == "deployments" {
+	if deployments {
 		h.observeDeployments(ctx, w)
 		return
 	}
