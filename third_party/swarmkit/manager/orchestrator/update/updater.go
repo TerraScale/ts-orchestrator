@@ -590,7 +590,24 @@ func (u *Updater) isTaskDirty(t *api.Task) bool {
 }
 
 func (u *Updater) isSlotDirty(slot orchestrator.Slot) bool {
-	return len(slot) > 1 || (len(slot) == 1 && u.isTaskDirty(slot[0]))
+	return len(slot) > 1 || (len(slot) == 1 && (u.isTaskDirty(slot[0]) || u.awaitsHostPorts(slot[0])))
+}
+
+func (u *Updater) awaitsHostPorts(t *api.Task) bool {
+	status := u.newService.UpdateStatus
+	if status == nil || status.State != api.UpdateStatus_UPDATING && status.State != api.UpdateStatus_ROLLBACK_STARTED {
+		return false
+	}
+	var holder *api.Task
+	var err error
+	u.store.View(func(tx store.ReadTx) {
+		holder, err = restart.HostPortHolder(tx, t.ID)
+	})
+	if err != nil {
+		log.L.WithError(err).WithField("task.id", t.ID).Error("host port holders unreadable; the update keeps supervising the task")
+		return true
+	}
+	return holder != nil
 }
 
 func (u *Updater) startUpdate(ctx context.Context, serviceID string) {
