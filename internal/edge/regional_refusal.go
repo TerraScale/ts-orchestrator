@@ -27,6 +27,10 @@ func (r *regionalRefusal) Error() string { return r.err.Error() }
 
 func (r *regionalRefusal) Unwrap() error { return r.err }
 
+func (r *regionalRefusal) with(cause error) *regionalRefusal {
+	return &regionalRefusal{code: r.code, err: fmt.Errorf("%w: %w", r.err, cause)}
+}
+
 type regionalBackoff struct {
 	task     string
 	refusal  *regionalRefusal

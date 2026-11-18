@@ -553,12 +553,12 @@ func (e *Edge) drainRegionalNode(ctx context.Context, router *regionalRouter, no
 }
 
 func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source, target mesh.WorkerPeer, holdIngress func() (bool, error), releaseIngress func(bool) bool) error {
-	var lastErr error
+	var lastErr *regionalRefusal
 	for {
 		response, err := e.regionalRequest(ctx, router, source, http.MethodPost, "/v1/rollout/drain?target="+url.QueryEscape(target.Node))
 		if err != nil {
 			if lastErr != nil && ctx.Err() != nil {
-				return fmt.Errorf("%w: %w", lastErr, ctx.Err())
+				return lastErr.with(ctx.Err())
 			}
 			return err
 		}
@@ -574,20 +574,18 @@ func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source
 		decodeErr := json.NewDecoder(io.LimitReader(response.Body, 16<<10)).Decode(&refusal)
 		response.Body.Close()
 		if decodeErr != nil && lastErr != nil && ctx.Err() != nil {
-			return fmt.Errorf("%w: %w", lastErr, ctx.Err())
+			return lastErr.with(ctx.Err())
 		}
-		lastErr = fmt.Errorf("regional handoff HTTP %d", response.StatusCode)
-		code := fmt.Sprintf("drain_http_%d", response.StatusCode)
+		lastErr = &regionalRefusal{code: fmt.Sprintf("drain_http_%d", response.StatusCode), err: fmt.Errorf("regional handoff HTTP %d", response.StatusCode)}
 		if refusal.Error.Code != "" {
-			lastErr = fmt.Errorf("%w: %s", lastErr, refusal.Error.Code)
-			code = refusal.Error.Code
+			lastErr = &regionalRefusal{code: refusal.Error.Code, err: fmt.Errorf("%w: %s", lastErr.err, refusal.Error.Code)}
 		}
 		delay, ok := regionalDrainDelay(response.Header.Get("Retry-After"))
 		if response.StatusCode != http.StatusServiceUnavailable || !ok || refusal.Error.Code != "source_retiring" {
-			return &regionalRefusal{code: code, err: lastErr}
+			return lastErr
 		}
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= delay+10*time.Second {
-			return fmt.Errorf("%w: %w", lastErr, context.DeadlineExceeded)
+			return lastErr.with(context.DeadlineExceeded)
 		}
 		if !releaseIngress(false) {
 			return lastErr
@@ -597,12 +595,12 @@ func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return fmt.Errorf("%w: %w", lastErr, ctx.Err())
+			return lastErr.with(ctx.Err())
 		case <-timer.C:
 		}
 		held, err := holdIngress()
 		if err != nil {
-			return fmt.Errorf("%w: %w", lastErr, err)
+			return lastErr.with(err)
 		}
 		if !held {
 			return lastErr
