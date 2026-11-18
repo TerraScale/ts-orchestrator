@@ -98,8 +98,9 @@ newest desired spec on the mesh, changes only its digest (same repository) and
 applies it to every region it targets, one region at a time in its
 environment's fixed order: sjc, fra, gru in production (`catalog.RolloutOrder`)
 and the single region stg in staging. The order of the spec's `regions` does
-not matter, and a spec may name only regions of its environment's order:
-pre-pull, fast replacement, ready path, bake. Every mesh node advertises its
+not matter for those regions. A catalog region of the same environment that
+has no reviewed position yet rolls out first, in the spec's order, ahead of
+the reviewed ones. Each region: pre-pull, fast replacement, ready path, bake. Every mesh node advertises its
 order in its state reply. A region admits a TerraBase generation only when
 every other region the spec targets answers with the same order. A peer
 still on a binary that advertises none holds it, with the admission evidence

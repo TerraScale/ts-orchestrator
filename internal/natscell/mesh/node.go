@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
@@ -752,7 +753,8 @@ func rolloutOrder(region string, spec *swarmruntime.ServiceSpec) []string {
 	if len(spec.Regions) == 0 {
 		return order
 	}
-	return slices.DeleteFunc(order, func(name string) bool { return !slices.Contains(spec.Regions, name) })
+	unreviewed := slices.DeleteFunc(slices.Clone(spec.Regions), func(name string) bool { return slices.Contains(order, name) })
+	return append(unreviewed, slices.DeleteFunc(order, func(name string) bool { return !slices.Contains(spec.Regions, name) })...)
 }
 
 // earlier is the target regions of spec rolled before this one.
@@ -1097,11 +1099,11 @@ func validEntry(region, name string, entry Entry) error {
 		return errors.New("spec name differs from the entry name")
 	}
 	for _, target := range entry.Spec.Regions {
+		if _, ok := catalog.LookupName(target); !ok {
+			return fmt.Errorf("unknown region %q", target)
+		}
 		if EnvironmentOf(target).Founder != EnvironmentOf(region).Founder {
 			return fmt.Errorf("target region %s belongs to another environment than %s", target, region)
-		}
-		if order := EnvironmentOf(region).Rollout; !slices.Contains(order, target) {
-			return fmt.Errorf("target region %q is not in the rollout order %v of %s", target, order, region)
 		}
 	}
 	_, err := entry.Spec.SwarmSpec()
