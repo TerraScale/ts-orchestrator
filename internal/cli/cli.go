@@ -56,7 +56,7 @@ Runtime:
   node                   Run this host's SwarmKit node with containerd and the HTTPS edge (--state DIR)
 
 Operator tooling:
-  observe                Inspect authenticated metrics, history, snapshots, cluster and events
+  observe                Inspect node dashboards in every production region (defaults to cluster)
   usage                  Print regional node and service CPU/memory for a time window
   cost                   Print a region's OCI spend and month forecast (read-only)
   bench                  Run isolated in-region benchmark clients and save capacity reports

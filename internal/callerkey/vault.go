@@ -11,9 +11,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/TerraScale/ts-orchestrator/internal/controlaccess"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
@@ -67,28 +66,8 @@ func (vaultStore) Write(ctx context.Context, t Target, name string, previous Sna
 	return err
 }
 
-func (vaultStore) Regions(ctx context.Context) ([]string, error) {
-	factory, err := ociclient.OperatorConfig(catalog.OCIRegion(catalog.Bootstrap))
-	if err != nil {
-		return nil, errors.New("caller-key operator credentials unavailable")
-	}
-	resolver, err := region.DiscoverCurrentFoundation(ctx, factory)
-	if err != nil {
-		return nil, err
-	}
-	approved, err := resolver.Footprint.AuthorizedRegions(ctx)
-	if err != nil {
-		return nil, err
-	}
-	cells := make([]string, 0, len(approved.Regions))
-	for _, intent := range approved.Regions {
-		cell, ok := intent.Plan["cell"].(string)
-		if !ok {
-			return nil, errors.New("authenticated footprint has an invalid cell")
-		}
-		cells = append(cells, cell)
-	}
-	return cells, nil
+func (vaultStore) Regions(context.Context) ([]string, error) {
+	return controlaccess.Regions(), nil
 }
 
 func vaultClients(t Target) (ocivault.VaultsClient, ocisecrets.SecretsClient, error) {

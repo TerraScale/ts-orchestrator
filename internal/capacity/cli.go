@@ -58,12 +58,9 @@ func (c Client) Query(ctx context.Context, region string, from, to time.Time) (U
 	defer func() { cancel(); pending.Wait() }()
 	requests := make([]*http.Request, 0, len(c.URLs))
 	for _, base := range c.URLs {
-		u, err := url.Parse(base)
-		if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
-			return Usage{}, errors.New("invalid usage URL")
-		}
-		if u.Scheme == "http" && u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" && !strings.HasSuffix(u.Hostname(), ".nb.ts.internal") {
-			return Usage{}, errors.New("HTTP usage URL must use loopback or the encrypted NetBird overlay")
+		u, err := controlaccess.Origin(base)
+		if err != nil {
+			return Usage{}, err
 		}
 		u.Path = strings.TrimRight(u.Path, "/") + "/v1/usage"
 		u.RawQuery = url.Values{"region": {region}, "from": {from.UTC().Format(time.RFC3339Nano)}, "to": {to.UTC().Format(time.RFC3339Nano)}}.Encode()

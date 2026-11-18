@@ -84,8 +84,10 @@ Targets, not measured; the drill below measures them.
 
 ### Bad data written
 
-1. `ts-orch observe backups --database ID --partition ID` — read the backup
-   state of the database (requires canonical ULIDs).
+1. **Gap:** the node dashboards expose no TerraBase backup state, and
+   `ts-orch` has no supported backup-observation command. Have the TerraBase
+   owner verify the database's snapshot and WAL coverage before selecting a
+   restore point. Cluster health cannot establish backup recoverability.
 2. Point-in-time restore to any second within the 7-day window, 30 min per
    database. **Gap:** no `ts-orch` command drives a point-in-time restore
    yet; the API exists on TerraBase but only the owner can call it today.
