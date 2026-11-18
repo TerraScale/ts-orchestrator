@@ -210,6 +210,9 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 	if os.Args[4] == "baseline" {
 		return nil
 	}
+	if err := c.plaintextRefusal(); err != nil {
+		return err
+	}
 	public.SetPeerEdges(func() []mesh.WorkerPeer { return nil })
 	if err := c.served("198.18.2.1", 80, "", http.StatusOK); err != nil {
 		return err
@@ -241,15 +244,18 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 	started := time.Now()
 	public.Drain()
 	stop()
-	var admission error
 	for _, port := range []int{80, 443} {
 		conn, response, err := c.requestPath("198.18.2.1", port, "/during-drain", "Connection: close\r\n")
 		if err != nil {
 			return err
 		}
 		conn.Close()
-		if response.StatusCode != http.StatusServiceUnavailable {
-			admission = errors.Join(admission, fmt.Errorf("drain admission on %d: HTTP %d", port, response.StatusCode))
+		want := http.StatusOK
+		if port == 80 {
+			want = http.StatusFound
+		}
+		if response.StatusCode != want {
+			return fmt.Errorf("drain admission on %d: HTTP %d, want %d", port, response.StatusCode, want)
 		}
 	}
 	conn, response, err := c.requestPath("198.18.2.1", 80, "/healthz", "Connection: close\r\n")
@@ -273,16 +279,21 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 	if response.StatusCode != http.StatusServiceUnavailable {
 		return fmt.Errorf("late drain health HTTP %d", response.StatusCode)
 	}
+	conn, response, err = c.requestPath("198.18.2.1", 443, "/during-drain", "Connection: close\r\n")
+	if err != nil {
+		return err
+	}
+	conn.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("late propagation HTTP %d", response.StatusCode)
+	}
 	select {
 	case err := <-done:
 		if err != nil {
 			return err
 		}
 	case <-time.After(11 * time.Second):
-		return errors.Join(admission, errors.New("edge did not stop with a held stream"))
-	}
-	if admission != nil {
-		return admission
+		return errors.New("edge did not stop with a held stream")
 	}
 	elapsed := time.Since(started)
 	if elapsed < 20*time.Second || elapsed >= 30*time.Second {
@@ -301,6 +312,27 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 		conn.Close()
 		return errors.New("HTTPS admission continued after shutdown")
 	}
-	fmt.Printf("edge stop: health 503 and application 503 immediately; held SSE and hijacked WebSocket closed; elapsed=%s\n", elapsed.Round(time.Millisecond))
+	fmt.Printf("edge stop: health 503 and HTTPS application 200 during propagation; held SSE and hijacked WebSocket closed; elapsed=%s\n", elapsed.Round(time.Millisecond))
+	return nil
+}
+
+func (c edgeClient) plaintextRefusal() error {
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:5432", failAfter)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(time.Second))
+	if _, err := conn.Write([]byte{0, 0, 0, 8, 0, 3, 0, 0}); err != nil {
+		return err
+	}
+	reply, err := io.ReadAll(conn)
+	if err != nil {
+		return fmt.Errorf("plaintext PostgreSQL refusal did not half-close: %w", err)
+	}
+	if len(reply) == 0 || reply[0] != 'E' || !strings.Contains(string(reply), "TLS is required") {
+		return fmt.Errorf("plaintext PostgreSQL refusal: %q", reply)
+	}
+	fmt.Println("plaintext PostgreSQL refusal: TLS is required, followed by FIN while client write side remains open")
 	return nil
 }

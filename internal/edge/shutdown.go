@@ -3,24 +3,11 @@ package edge
 import (
 	"errors"
 	"net"
-	"net/http"
 	"sync"
 	"time"
 )
 
 const shutdownGrace = 5 * time.Second
-
-func (e *Edge) drainingRequest(w http.ResponseWriter, r *http.Request) bool {
-	if e.drainingHealth(w, r) {
-		return true
-	}
-	if !e.draining.Load() {
-		return false
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	http.Error(w, "edge draining", http.StatusServiceUnavailable)
-	return true
-}
 
 type shutdownListener struct {
 	net.Listener
