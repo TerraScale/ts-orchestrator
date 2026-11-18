@@ -268,12 +268,7 @@ var serverSSHSettings = []struct {
 	key  string
 	want bool
 }{
-	{"--allow-server-ssh", "serverSSHAllowed", true},
-	{"--enable-ssh-root", "enableSSHRoot", true},
-	{"--enable-ssh-sftp", "enableSSHSFTP", true},
-	{"--enable-ssh-local-port-forwarding", "enableSSHLocalPortForwarding", true},
-	{"--enable-ssh-remote-port-forwarding", "enableSSHRemotePortForwarding", false},
-	{"--disable-ssh-auth", "disableSSHAuth", false},
+	{"--allow-server-ssh", "serverSSHAllowed", false},
 }
 
 func serverSSHApplied(ctx context.Context) (bool, error) {

@@ -107,6 +107,12 @@ deleted at first start.
 | Host | OS | How it is enrolled |
 |---|---|---|
 | ts-gru-1, ts-sjc-1, ts-fra-1 | Ubuntu 24.04 arm64 | `ts-orch netbird server` (unit on every M1 host) installs the pinned client and runs `netbird up` with `gru-1-netbird-setup-key` on stdin; only the host declaring the `netbird-server` service also runs the server side |
+
+Every M1 host keeps the NetBird SSH server off (`--allow-server-ssh=false`,
+re-applied by `ts-orch netbird server` whenever the client's config differs).
+While it runs, the NetBird client DNATs port 22 of the host's NetBird address
+to its own server on 22022, so operator OpenSSH (`ssh ts-<r>-1`, known host
+key) would be unreachable over NetBird.
 | delta, mariogk-dev, beta | NixOS | Homelab fleet module `services.netbird.clients.terrascale` with `gru-1-netbird-operators-setup-key` |
 | operator PC | any | the one command below |
 

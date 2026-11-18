@@ -23,7 +23,7 @@ state was changed.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `netbird-server.service` failing with `invalid arguments`, ~700 restarts per 2 h on every manager | C16e changed the unit's arguments; pull releases replace only the binary | Release preflight stores each binary's `netbird-server.service` under `/var/lib/ts-orch/units/<sha>.netbird-server.service`; the privileged `ExecStartPre=+` of `ts-orch.service` installs it, reloads and restarts the companion |
-| `log-scan`, `netbird ssh`: no node readable | NetBird enrollment no longer passes `--allow-server-ssh` and its siblings | `netbird server` re-applies the server SSH settings |
+| `log-scan`, `netbird ssh`: no node readable | NetBird enrollment no longer passes `--allow-server-ssh` and its siblings | Withdrawn in C2b: the NetBird SSH server DNATs port 22 of the NetBird address to 22022, which took `ssh ts-<r>-1` from OpenSSH, and its browserless login secret `gru-1-netbird-ssh-automation-email` does not exist. `netbird server` keeps it off; node logs stay unreadable over NetBird SSH |
 | `ts-orch observe` pending everywhere | foundation discovery reads `gru-1-head`, absent in production | open: needs a decision on the observe access path |
 | fra stalls, gru waits for fra | ts-fra-2 runs d360f05de, which cannot decode the current pull request (`unknown object member name "seq"`) and cannot reach the channel release | open: no operator path reaches ts-fra-2 |
 | gru TerraBase 0/2 on the new digest | writer handoff loop (C49), gru runs 90c536aa3 without C50 | C50/C51; gru gets C50 once fra unblocks the release |
