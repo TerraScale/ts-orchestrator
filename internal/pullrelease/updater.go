@@ -396,6 +396,8 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		}
 		row.State, row.Error, row.Version, row.SHA256, row.Ready = HostDone, "", target.SHA, want.SHA256, time.Now().UTC()
 		u.save(ctx)
+		slog.InfoContext(ctx, "host release gate passed", "release", target.Tag(), "host", host.Name,
+			"installed", row.Installed, "elapsed", row.Ready.Sub(row.Installed))
 	}
 	u.status.Phase, u.status.Reason = PhaseComplete, ""
 	if u.status.Done.IsZero() {
@@ -460,7 +462,7 @@ func (u *Updater) gate(ctx context.Context, host Host, target releaseattest.Rele
 	deadline := time.Now().Add(u.Deadline)
 	var healthySince time.Time
 	last := "no answer"
-	tick := time.NewTicker(checkEvery)
+	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {
 		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)

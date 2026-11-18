@@ -263,7 +263,7 @@ type readinessVerdict struct {
 }
 
 func (e *Edge) reconcileReadiness(ctx context.Context) {
-	tick := time.NewTicker(3 * time.Second)
+	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	var reported *bool
 	for {

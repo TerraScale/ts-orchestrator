@@ -5,10 +5,12 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/nlbhealth"
 )
 
-const DrainWindow = 20 * time.Second
-const EdgeShare = DrainWindow + 5*time.Second
+const DrainWindow = nlbhealth.DrainWindow
+const EdgeShare = 25 * time.Second
 const Limit = EdgeShare + 5*time.Second
 
 type budgetKey struct{}

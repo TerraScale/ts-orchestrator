@@ -104,6 +104,7 @@ func limitsMain() {
 	go serveBackend(pgBackend)
 	entered, release := make(chan struct{}, 32), make(chan struct{})
 	streamRelease := make(chan struct{})
+	drainComplete := make(chan struct{})
 	poolEntered := make(chan struct{}, 16)
 	poolRelease := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
 	var backendConnections atomic.Uint64
@@ -158,6 +159,22 @@ func limitsMain() {
 			fmt.Fprint(w, "data: held\n\n")
 			http.NewResponseController(w).Flush()
 			<-r.Context().Done()
+			return
+		}
+		if r.URL.Path == "/drain-complete" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: held\n\n")
+			http.NewResponseController(w).Flush()
+			select {
+			case <-drainComplete:
+				fmt.Fprint(w, "data: complete\n\n")
+			case <-r.Context().Done():
+			}
+			return
+		}
+		if r.URL.Path == "/drain-release" {
+			close(drainComplete)
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 		if r.URL.Path == "/pool" {

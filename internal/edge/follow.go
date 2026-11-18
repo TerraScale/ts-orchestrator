@@ -27,7 +27,7 @@ func (e *Edge) JoinMesh(node *mesh.Node) {
 }
 
 func (e *Edge) FollowInventory(ctx context.Context, inventory func() (mesh.EdgeInventory, bool), proof func(context.Context, string) error, published <-chan struct{}) {
-	tick := time.NewTicker(5 * time.Second)
+	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	var nextProof time.Time
 	proofRef := ""

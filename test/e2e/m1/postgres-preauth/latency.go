@@ -17,6 +17,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 )
 
 func (c edgeClient) latency() error {
@@ -241,6 +242,21 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 	if response.StatusCode != http.StatusSwitchingProtocols {
 		return fmt.Errorf("websocket HTTP %d", response.StatusCode)
 	}
+	finite, err := c.open("198.18.2.1", 443)
+	if err != nil {
+		return err
+	}
+	defer finite.Close()
+	finite.SetDeadline(time.Now().Add(failAfter))
+	fmt.Fprintf(finite, "GET /drain-complete HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", c.host)
+	completed, err := http.ReadResponse(bufio.NewReader(finite), nil)
+	if err != nil {
+		return err
+	}
+	defer completed.Body.Close()
+	if _, err := io.ReadFull(completed.Body, payload[:]); err != nil || string(payload[:]) != "data: held\n\n" {
+		return fmt.Errorf("finite request not held: %q: %w", payload, err)
+	}
 	started := time.Now()
 	public.Drain()
 	stop()
@@ -269,7 +285,7 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 	select {
 	case err := <-done:
 		return fmt.Errorf("edge stopped before health drain completed: %v", err)
-	case <-time.After(19 * time.Second):
+	case <-time.After(plannedstop.DrainWindow - time.Second):
 	}
 	conn, response, err = c.requestPath("198.18.2.1", 80, "/healthz", "Connection: close\r\n")
 	if err != nil {
@@ -287,6 +303,18 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("late propagation HTTP %d", response.StatusCode)
 	}
+	conn, response, err = c.requestPath("198.18.2.1", 443, "/drain-release", "Connection: close\r\n")
+	if err != nil {
+		return err
+	}
+	conn.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("release in-flight request HTTP %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(completed.Body)
+	if err != nil || string(body) != "data: complete\n\n" {
+		return fmt.Errorf("in-flight response incomplete: %q: %w", body, err)
+	}
 	select {
 	case err := <-done:
 		if err != nil {
@@ -296,7 +324,7 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 		return errors.New("edge did not stop with a held stream")
 	}
 	elapsed := time.Since(started)
-	if elapsed < 20*time.Second || elapsed >= 30*time.Second {
+	if elapsed < plannedstop.DrainWindow || elapsed >= plannedstop.Limit {
 		return fmt.Errorf("edge stop outside drain and shutdown bound: %s", elapsed)
 	}
 	stream.SetReadDeadline(time.Now().Add(time.Second))
@@ -312,7 +340,7 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 		conn.Close()
 		return errors.New("HTTPS admission continued after shutdown")
 	}
-	fmt.Printf("edge stop: health 503 and HTTPS application 200 during propagation; held SSE and hijacked WebSocket closed; elapsed=%s\n", elapsed.Round(time.Millisecond))
+	fmt.Printf("edge stop: health 503 and HTTPS application 200 during propagation; in-flight response completed; held SSE and hijacked WebSocket closed; elapsed=%s\n", elapsed.Round(time.Millisecond))
 	return nil
 }
 

@@ -56,6 +56,7 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 		if protocol == "https" {
 			server = public
 		}
+		server.ConnState = tracked.httpState
 		defer func() {
 			observability.SetEdgeListenerReady(protocol, false)
 			shutdown, cancel := context.WithTimeout(plannedstop.Begin(ctx), shutdownGrace)
@@ -63,8 +64,9 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 			err := server.Shutdown(shutdown)
 			remaining := tracked.closeConnections()
 			server.Close()
-			if err != nil || remaining != 0 {
-				slog.Warn("edge connections abandoned", "protocol", protocol, "connections", remaining, "error", err)
+			if err != nil || remaining.Total != 0 {
+				slog.Warn("edge connections abandoned", "protocol", protocol, "connections", remaining.Total,
+					"new", remaining.New, "active", remaining.Active, "idle", remaining.Idle, "hijacked", remaining.Hijacked, "error", err)
 			}
 		}()
 	}
