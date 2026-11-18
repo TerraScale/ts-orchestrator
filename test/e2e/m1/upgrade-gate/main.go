@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"debug/buildinfo"
@@ -31,7 +32,6 @@ import (
 
 const (
 	repositoryAPI = "https://api.github.com/repos/" + releaseattest.Repository
-	pinRef        = "tags/upgrade-gate/previous"
 	region        = "sjc"
 	probeWait     = 10 * time.Second
 	trustedMarker = `"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1"`
@@ -106,21 +106,72 @@ type pinnedRelease struct {
 	Tag, SHA, Run string
 }
 
-func pinned() pinnedRelease {
-	var ref struct {
-		Object struct{ Type, SHA string } `json:"object"`
+func pinned(lineage string) pinnedRelease {
+	type candidate struct {
+		pinnedRelease
+		Published time.Time
+		RunID     uint64
 	}
-	decode(github(repositoryAPI+"/git/ref/"+pinRef), &ref)
-	require(ref.Object.Type == "tag", "%s must be an annotated tag naming the release, not a %s", pinRef, ref.Object.Type)
-	var tag struct {
-		Message string                     `json:"message"`
-		Object  struct{ Type, SHA string } `json:"object"`
+	var candidates []candidate
+	for page := 1; ; page++ {
+		var releases []struct {
+			Tag       string                  `json:"tag_name"`
+			Draft     bool                    `json:"draft"`
+			Published time.Time               `json:"published_at"`
+			Assets    []struct{ Name string } `json:"assets"`
+		}
+		decode(github(fmt.Sprintf("%s/releases?per_page=100&page=%d", repositoryAPI, page)), &releases)
+		for _, release := range releases {
+			match := releaseTag.FindStringSubmatch(release.Tag)
+			if release.Draft || release.Published.IsZero() || match == nil || match[1] == lineage {
+				continue
+			}
+			binary, provenance := false, false
+			for _, file := range release.Assets {
+				binary = binary || file.Name == asset
+				provenance = provenance || file.Name == releaseattest.BundleAsset
+			}
+			if !binary || !provenance {
+				continue
+			}
+			run, err := strconv.ParseUint(match[2], 10, 64)
+			must(err)
+			candidates = append(candidates, candidate{pinnedRelease{release.Tag, match[1], match[2]}, release.Published, run})
+		}
+		if len(releases) < 100 {
+			break
+		}
 	}
-	decode(github(repositoryAPI+"/git/tags/"+ref.Object.SHA), &tag)
-	name := strings.TrimSpace(tag.Message)
-	match := releaseTag.FindStringSubmatch(name)
-	require(match != nil && tag.Object.Type == "commit" && match[1] == tag.Object.SHA, "%s must point at the commit of the release its message names, have %q on %s %s", pinRef, name, tag.Object.Type, tag.Object.SHA)
-	return pinnedRelease{Tag: name, SHA: match[1], Run: match[2]}
+	slices.SortFunc(candidates, func(a, b candidate) int {
+		if order := b.Published.Compare(a.Published); order != 0 {
+			return order
+		}
+		return cmp.Compare(b.RunID, a.RunID)
+	})
+	for _, release := range candidates {
+		var comparison struct {
+			Status  string `json:"status"`
+			AheadBy int    `json:"ahead_by"`
+		}
+		decode(github(fmt.Sprintf("%s/compare/%s...%s?per_page=1", repositoryAPI, release.SHA, lineage)), &comparison)
+		if comparison.Status != "ahead" || comparison.AheadBy == 0 {
+			continue
+		}
+		var commit struct{ SHA string }
+		decode(github(repositoryAPI+"/commits/"+release.Tag), &commit)
+		require(commit.SHA == release.SHA, "release %s points at %s instead of %s", release.Tag, commit.SHA, release.SHA)
+		message := fmt.Sprintf("pinned strict-ancestor release %s for %s (ahead by %d)\n", release.Tag, lineage, comparison.AheadBy)
+		fmt.Print(message)
+		if summary := os.Getenv("GITHUB_STEP_SUMMARY"); summary != "" {
+			file, err := os.OpenFile(summary, os.O_APPEND|os.O_WRONLY, 0)
+			must(err)
+			_, err = fmt.Fprint(file, message)
+			must(err)
+			must(file.Close())
+		}
+		return release.pinnedRelease
+	}
+	panic(fmt.Sprintf("no published release is a strict ancestor of %s", lineage))
 }
 
 func fetchPrevious(work string, pin pinnedRelease) {
@@ -217,7 +268,9 @@ func serve(ctx context.Context, fleet *oraclehost.Fleet, manager *oraclehost.Hos
 }
 
 func fetch(mode, candidate, work, lineage, lane string) {
-	pin, head := pinned(), revision(candidate)
+	head := revision(candidate)
+	require(lineage == head, "lineage %s differs from candidate revision %s", lineage, head)
+	pin := pinned(lineage)
 	for _, service := range workloads(lane)[1:] {
 		must(oraclehost.FetchImage(context.Background(), service["image"].(string), filepath.Join(work, "registry")))
 	}

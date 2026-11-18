@@ -15,6 +15,7 @@ def inputs():
     root = Path(command("git", "rev-parse", "--show-toplevel", text=True).strip())
     paths = {"go.mod", "go.sum", "Makefile", ".github/workflows/ci.yml",
              ".github/actions/go/action.yml",
+             ".github/actions/release-publish/action.yml", "scripts/ci/qualified-pr-tree.py",
              "scripts/ci/audit-dependencies.sh",
              "scripts/ci/check-release-binaries.sh", "scripts/ci/publish-qualification.sh",
              "scripts/ci/qualified_release.py", "scripts/ci/release-inputs-changed.py"}
