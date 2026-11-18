@@ -85,7 +85,7 @@ func main() {
 		runHost(os.Args[2:])
 		return
 	}
-	require(len(os.Args) == 3 && (os.Args[2] == "pull" || os.Args[2] == "handover" || os.Args[2] == "degraded"), "usage: pull-update <ts-orch binary> pull|handover|degraded")
+	require(len(os.Args) == 3 && (os.Args[2] == "pull" || os.Args[2] == "handover" || os.Args[2] == "degraded" || os.Args[2] == "bake"), "usage: pull-update <ts-orch binary> pull|handover|degraded|bake")
 	journey(os.Args[1], os.Args[2])
 }
 
@@ -421,6 +421,9 @@ func journey(bin, part string) {
 
 	if part == "handover" {
 		l.handover(ctx)
+		return
+	}
+	if part == "bake" {
 		l.bakeDrain(ctx)
 		return
 	}
