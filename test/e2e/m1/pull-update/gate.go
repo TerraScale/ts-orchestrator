@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,9 +15,11 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
-const gateBudget = 75 * time.Second
+const gateBudget = 90 * time.Second
 
 func readServices(dir string) ([]pullrelease.Service, error) {
 	entries, err := os.ReadDir(dir)
@@ -80,6 +84,29 @@ func (l *lane) rolledBack(ctx context.Context, release published) pullrelease.St
 	})
 }
 
+func (l *lane) dropBaseline(ctx context.Context, region string) {
+	fabric, err := nats.Connect(l.conn.ConnectedUrl(), nats.UserInfo(fabricUser, fabricSecret))
+	must(err)
+	defer fabric.Close()
+	js, err := jetstream.New(fabric)
+	must(err)
+	kv, err := js.KeyValue(ctx, pullrelease.Bucket)
+	must(err)
+	for {
+		entry, err := kv.Get(ctx, region)
+		must(err)
+		record := map[string]json.RawMessage{}
+		must(json.Unmarshal(entry.Value(), &record))
+		delete(record, "baseline")
+		data, err := json.Marshal(record)
+		must(err)
+		if _, err = kv.Update(ctx, region, data, entry.Revision()); !errors.Is(err, jetstream.ErrKeyExists) {
+			must(err)
+			return
+		}
+	}
+}
+
 func (l *lane) gate(ctx context.Context) {
 	l.setService("ts-auth", 1, 1, "auth-1")
 	l.setService("ts-dashboard", 0, 1)
@@ -95,7 +122,7 @@ func (l *lane) gate(ctx context.Context) {
 	}
 	elapsed := time.Since(published)
 	sjc, fra, gru := regions["sjc"], regions["fra"], regions["gru"]
-	require(sjc.Baseline != nil && slices.Equal(sjc.Baseline.Lagging, []string{"ts-dashboard"}) && len(sjc.Baseline.Hosts) == 3,
+	require(sjc.Baseline != nil && maps.Equal(sjc.Baseline.Lagging, map[string]uint64{"ts-dashboard": 0}) && len(sjc.Baseline.Hosts) == 3,
 		"sjc must record ts-dashboard down and its backend-down hosts as the state before the release:\n%+v", sjc.Baseline)
 	require(!fra.Done.Before(sjc.Passed) && !gru.Done.Before(fra.Passed), "a region started before its predecessor passed its gate")
 	for _, region := range regions {
@@ -108,7 +135,15 @@ func (l *lane) gate(ctx context.Context) {
 	fmt.Printf("ts-dashboard down and every sjc host's edge degraded before %s -> it still installs and passes sjc, fra and gru in order in %s\n%s\n",
 		degraded.tag, elapsed.Round(time.Second), strings.Join(slices.Concat(sjc.Timeline(), fra.Timeline(), gru.Timeline()), "\n"))
 
-	second := l.publishGood("116", "c116")
+	resumed := l.publishGood("116", "c116")
+	l.waitStatus(ctx, "sjc", "sjc's owner installs "+resumed.tag+" on itself, after the other hosts", ownerInstalling(resumed))
+	l.dropBaseline(ctx, "sjc")
+	inherited := l.waitStatus(ctx, "sjc", "sjc passes "+resumed.tag+" from a record saved without its state before the release", settled(resumed))
+	require(!inherited.Passed.IsZero() && inherited.Baseline != nil && maps.Equal(inherited.Baseline.Lagging, map[string]uint64{"ts-dashboard": 0}),
+		"a record an older build saved without a baseline must take the region as it is now and pass with ts-dashboard still down:\n%s\n%+v", inherited, inherited.Baseline)
+	fmt.Printf("record of %s saved without its baseline, as an older build saves it -> the owner records the region as it is and passes with ts-dashboard down\n%s\n", resumed.tag, inherited)
+
+	second := l.publishGood("117", "c117")
 	l.waitStatus(ctx, "sjc", "sjc samples the regional gate of "+second.tag, gating(second))
 	l.setService("ts-auth", 1, 2, "auth-1")
 	down := time.Now()
@@ -118,12 +153,12 @@ func (l *lane) gate(ctx context.Context) {
 	l.setService("ts-auth", 1, 1, "auth-1")
 	rolled := l.rolledBack(ctx, second)
 	blocked := l.waitStatus(ctx, "fra", "fra holds "+second.tag+" behind sjc", func(s pullrelease.Status) bool {
-		return strings.Contains(s.Reason, "sjc: waiting for the same release to pass its regional gate")
+		require(s.Target == nil || s.Target.Tag() != second.tag, "fra took %s, which sjc rolled back:\n%s", second.tag, s)
+		return s.Updated.After(rolled.Updated) && strings.Contains(s.Reason, "sjc: waiting for the same release to pass its regional gate")
 	})
-	require(blocked.Target != nil && blocked.Target.Tag() == degraded.tag, "fra left %s for the release sjc rolled back:\n%s", degraded.tag, blocked)
-	fmt.Printf("ts-auth's second replica never ready during the gate of %s -> rolled back and marked bad in sjc; fra stays on %s\n%s\n", second.tag, degraded.tag, rolled)
+	fmt.Printf("ts-auth's second replica never ready during the gate of %s -> rolled back and marked bad in sjc; fra holds %s\n%s\n", second.tag, blocked.Target.Tag(), rolled)
 
-	restart := l.publishGood("117", "c117")
+	restart := l.publishGood("118", "c118")
 	l.waitStatus(ctx, "sjc", "sjc samples the regional gate of "+restart.tag, gating(restart))
 	l.setService("ts-auth", 1, 1, "auth-2")
 	restarted := l.waitStatus(ctx, "sjc", "sjc fails the gate of "+restart.tag+" on a restarted task", settled(restart))

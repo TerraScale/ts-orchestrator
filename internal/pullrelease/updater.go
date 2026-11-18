@@ -230,7 +230,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			discovered = u.seenAt
 		}
 		u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Checked: u.status.Checked,
-			Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: discovered, Baseline: u.baseline(ctx)}
+			Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: discovered}
 		if !u.save(ctx) {
 			return renewEvery
 		}
@@ -302,6 +302,9 @@ func (u *Updater) attested(ctx context.Context, release releaseattest.Release) (
 
 func (u *Updater) roll(ctx context.Context) time.Duration {
 	target := *u.status.Target
+	if reason := u.recordBaseline(ctx); reason != "" {
+		return u.wait(ctx, reason)
+	}
 	hosts, err := u.Hosts(ctx)
 	if err != nil || len(hosts) == 0 {
 		return u.wait(ctx, fmt.Sprintf("host inventory unavailable: %v", err))
@@ -683,6 +686,11 @@ func (u *Updater) predecessor(ctx context.Context, tag string) string {
 }
 
 func (u *Updater) bake(ctx context.Context) time.Duration {
+	if reason := u.recordBaseline(ctx); reason != "" {
+		u.status.Reason = reason
+		u.save(ctx)
+		return checkEvery
+	}
 	now := time.Now().UTC()
 	row, check, failure, restarted := u.bakeSample(ctx)
 	if restarted {
