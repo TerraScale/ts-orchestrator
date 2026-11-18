@@ -92,6 +92,8 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           oras manifest fetch --output "$RUNNER_TEMP/app-canary-manifest.json" "$image@$digest"
           test "sha256:$(sha256sum "$RUNNER_TEMP/app-canary-manifest.json" | cut -d ' ' -f1)" = "$digest"
+          oras cp --to-oci-layout "$image@$digest" "$RUNNER_TEMP/app-canary-layout:arm64"
+          test "$(oras resolve --oci-layout "$RUNNER_TEMP/app-canary-layout:arm64")" = "$digest"
 
       - name: Attest build provenance
         id: provenance
@@ -143,7 +145,7 @@ jobs:
             prefix=${destination#*/}
             repo="$region.ocir.io/$NAMESPACE/$prefix/app-canary"
             if [ "$repo@$DIGEST" != "$IMAGE" ]; then
-              oras cp "$IMAGE" "$repo@$DIGEST"
+              oras cp --from-oci-layout "$RUNNER_TEMP/app-canary-layout:arm64" "$repo@$DIGEST"
             fi
             test "$(oras resolve "$repo@$DIGEST")" = "$DIGEST"
             for bundle in build.sigstore.json selection.sigstore.json sbom.sigstore.json; do
