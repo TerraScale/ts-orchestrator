@@ -109,8 +109,7 @@ type pinnedRelease struct {
 func pinned(lineage string) pinnedRelease {
 	type candidate struct {
 		pinnedRelease
-		Published time.Time
-		RunID     uint64
+		RunID uint64
 	}
 	var candidates []candidate
 	for page := 1; ; page++ {
@@ -136,16 +135,13 @@ func pinned(lineage string) pinnedRelease {
 			}
 			run, err := strconv.ParseUint(match[2], 10, 64)
 			must(err)
-			candidates = append(candidates, candidate{pinnedRelease{release.Tag, match[1], match[2]}, release.Published, run})
+			candidates = append(candidates, candidate{pinnedRelease{release.Tag, match[1], match[2]}, run})
 		}
 		if len(releases) < 100 {
 			break
 		}
 	}
 	slices.SortFunc(candidates, func(a, b candidate) int {
-		if order := b.Published.Compare(a.Published); order != 0 {
-			return order
-		}
 		return cmp.Compare(b.RunID, a.RunID)
 	})
 	for _, release := range candidates {

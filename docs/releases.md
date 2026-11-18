@@ -502,8 +502,9 @@ correct.
 
 ### Selecting the pinned N-1
 
-Both upgrade lanes list published CI releases and order them by publication
-time, then run ID. A candidate must carry this architecture's binary and
+Both upgrade lanes list published CI releases and order them by descending
+run ID, matching production's release selection. A late publication of an
+older run cannot move N-1 behind a newer eligible run. A candidate must carry this architecture's binary and
 `provenance.sigstore.json`, and its release tag must resolve to the source
 commit named in the tag. The lane pins the newest candidate for which
 GitHub reports `ahead` with a positive commit distance from that candidate
