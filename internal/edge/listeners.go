@@ -40,6 +40,9 @@ func (e *Edge) runListener(ctx context.Context, protocol string) {
 }
 
 func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listener) error {
+	tracked := &shutdownListener{Listener: ln}
+	ln = tracked
+	defer tracked.closeConnections()
 	defer observability.SetEdgeListenerReady(protocol, false)
 	bit := listenerBit(protocol)
 	e.listeners.Or(bit)
@@ -54,7 +57,14 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 		}
 		defer func() {
 			observability.SetEdgeListenerReady(protocol, false)
-			server.Shutdown(context.Background())
+			shutdown, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+			defer cancel()
+			err := server.Shutdown(shutdown)
+			remaining := tracked.closeConnections()
+			server.Close()
+			if err != nil || remaining != 0 {
+				slog.Warn("edge connections abandoned", "protocol", protocol, "connections", remaining, "error", err)
+			}
 		}()
 	}
 	served := make(chan error, 1)

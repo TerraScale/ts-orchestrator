@@ -206,7 +206,7 @@ func (c edgeClient) latencyMetrics(public *edge.Edge) error {
 	return nil
 }
 
-func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error, entered <-chan struct{}, release chan struct{}) error {
+func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) error {
 	if os.Args[4] == "baseline" {
 		return nil
 	}
@@ -214,79 +214,93 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error, ent
 	if err := c.served("198.18.2.1", 80, "", http.StatusOK); err != nil {
 		return err
 	}
-	result := make(chan error, 1)
-	go func() {
-		conn, err := c.open("198.18.2.1", 443)
-		if err != nil {
-			result <- err
-			return
-		}
-		defer conn.Close()
-		fmt.Fprintf(conn, "GET /drain HTTP/1.1\r\nHost: %s\r\n\r\n", c.host)
-		response, err := http.ReadResponse(bufio.NewReader(conn), nil)
-		if err == nil {
-			_, err = io.Copy(io.Discard, response.Body)
-			response.Body.Close()
-			if response.StatusCode != 200 {
-				err = fmt.Errorf("in-flight HTTP %d", response.StatusCode)
-			}
-		}
-		result <- err
-	}()
-	defer close(release)
-	select {
-	case <-entered:
-	case <-time.After(failAfter):
-		return errors.New("drain request did not reach backend")
+	stream, err := c.open("198.18.2.1", 443)
+	if err != nil {
+		return err
+	}
+	defer stream.Close()
+	stream.SetDeadline(time.Now().Add(failAfter))
+	fmt.Fprintf(stream, "GET /drain HTTP/1.1\r\nHost: %s\r\n\r\n", c.host)
+	response, err := http.ReadResponse(bufio.NewReader(stream), nil)
+	if err != nil {
+		return err
+	}
+	var payload [12]byte
+	if _, err := io.ReadFull(response.Body, payload[:]); err != nil || string(payload[:]) != "data: held\n\n" {
+		return fmt.Errorf("stream not held: %q: %w", payload, err)
+	}
+	stream.SetDeadline(time.Time{})
+	websocket, response, err := c.requestPath("198.18.2.1", 443, "/echo", "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n")
+	if err != nil {
+		return err
+	}
+	defer websocket.Close()
+	if response.StatusCode != http.StatusSwitchingProtocols {
+		return fmt.Errorf("websocket HTTP %d", response.StatusCode)
 	}
 	started := time.Now()
 	public.Drain()
 	stop()
-	health, response, err := c.requestPath("198.18.2.1", 80, "/readyz", "Connection: close\r\n")
-	if health != nil {
-		health.Close()
-	}
-	if err != nil {
-		return err
-	}
-	if response.StatusCode != http.StatusServiceUnavailable {
-		return fmt.Errorf("drain health HTTP %d", response.StatusCode)
-	}
-	propagating, response, err := c.requestPath("198.18.2.1", 443, "/during-drain", "")
-	if err != nil {
-		return err
-	}
-	defer propagating.Close()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("propagation HTTP %d", response.StatusCode)
-	}
-	propagating.SetReadDeadline(started.Add(30 * time.Second))
-	var probe [1]byte
-	_, err = propagating.Read(probe[:])
-	if !errors.Is(err, io.EOF) {
-		return fmt.Errorf("propagation connection close: %w", err)
-	}
-	if elapsed := time.Since(started); elapsed < 20*time.Second {
-		return fmt.Errorf("HTTPS admission stopped before NLB propagation: %s", elapsed)
-	}
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:443", failAfter)
-	if err == nil {
-		conn.Close()
-		return errors.New("HTTPS admission continued after propagation")
-	}
-	release <- struct{}{}
-	select {
-	case err := <-result:
+	var admission error
+	for _, port := range []int{80, 443} {
+		conn, response, err := c.requestPath("198.18.2.1", port, "/during-drain", "Connection: close\r\n")
 		if err != nil {
 			return err
 		}
-	case <-time.After(failAfter):
-		return errors.New("in-flight request did not finish")
+		conn.Close()
+		if response.StatusCode != http.StatusServiceUnavailable {
+			admission = errors.Join(admission, fmt.Errorf("drain admission on %d: HTTP %d", port, response.StatusCode))
+		}
+	}
+	conn, response, err := c.requestPath("198.18.2.1", 80, "/healthz", "Connection: close\r\n")
+	if err != nil {
+		return err
+	}
+	conn.Close()
+	if response.StatusCode != http.StatusServiceUnavailable {
+		return fmt.Errorf("drain health HTTP %d", response.StatusCode)
 	}
 	select {
 	case err := <-done:
-		return err
-	case <-time.After(failAfter):
-		return errors.New("edge did not finish graceful shutdown")
+		return fmt.Errorf("edge stopped before health drain completed: %v", err)
+	case <-time.After(19 * time.Second):
 	}
+	conn, response, err = c.requestPath("198.18.2.1", 80, "/healthz", "Connection: close\r\n")
+	if err != nil {
+		return err
+	}
+	conn.Close()
+	if response.StatusCode != http.StatusServiceUnavailable {
+		return fmt.Errorf("late drain health HTTP %d", response.StatusCode)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			return err
+		}
+	case <-time.After(11 * time.Second):
+		return errors.Join(admission, errors.New("edge did not stop with a held stream"))
+	}
+	if admission != nil {
+		return admission
+	}
+	elapsed := time.Since(started)
+	if elapsed < 20*time.Second || elapsed >= 30*time.Second {
+		return fmt.Errorf("edge stop outside drain and shutdown bound: %s", elapsed)
+	}
+	stream.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := stream.Read(payload[:]); err != io.EOF {
+		return fmt.Errorf("stream connection not closed: %v", err)
+	}
+	websocket.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := websocket.Read(payload[:]); err != io.EOF {
+		return fmt.Errorf("hijacked websocket not closed: %v", err)
+	}
+	conn, err = net.DialTimeout("tcp", "127.0.0.1:443", failAfter)
+	if err == nil {
+		conn.Close()
+		return errors.New("HTTPS admission continued after shutdown")
+	}
+	fmt.Printf("edge stop: health 503 and application 503 immediately; held SSE and hijacked WebSocket closed; elapsed=%s\n", elapsed.Round(time.Millisecond))
+	return nil
 }

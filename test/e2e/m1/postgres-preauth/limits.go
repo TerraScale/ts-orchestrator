@@ -104,7 +104,6 @@ func limitsMain() {
 	go serveBackend(pgBackend)
 	entered, release := make(chan struct{}, 32), make(chan struct{})
 	streamRelease := make(chan struct{})
-	drainEntered, drainRelease := make(chan struct{}), make(chan struct{})
 	poolEntered := make(chan struct{}, 16)
 	poolRelease := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
 	var backendConnections atomic.Uint64
@@ -155,8 +154,11 @@ func limitsMain() {
 			return
 		}
 		if r.URL.Path == "/drain" {
-			close(drainEntered)
-			<-drainRelease
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: held\n\n")
+			http.NewResponseController(w).Flush()
+			<-r.Context().Done()
+			return
 		}
 		if r.URL.Path == "/pool" {
 			wave, _ := strconv.Atoi(r.URL.RawQuery)
@@ -222,6 +224,10 @@ func limitsMain() {
 		return []mesh.WorkerPeer{{Address: "10.80.1.2", ReadyServices: []string{"latency"}}}
 	})
 	c := edgeClient{roots, host}
+	if os.Args[4] == "shutdown" {
+		step("bounded streaming shutdown", c.drain(public, stopEdge, errCh))
+		return
+	}
 	var failures []error
 	check := func(name string, err error) {
 		if err != nil {
@@ -241,7 +247,7 @@ func limitsMain() {
 	check("upstream pool", c.pool(poolEntered, poolRelease, &backendConnections, os.Args[4] != "baseline"))
 	check("edge duration histograms", c.latencyMetrics(public))
 	if os.Args[4] == "latency" || os.Args[4] == "baseline" {
-		check("drain in-flight request", c.drain(public, stopEdge, errCh, drainEntered, drainRelease))
+		check("drain in-flight request", c.drain(public, stopEdge, errCh))
 		step("latency lane", errors.Join(failures...))
 		return
 	}
@@ -303,7 +309,7 @@ func limitsMain() {
 			check("refusal metric "+reason, errors.New("missing reason series"))
 		}
 	}
-	check("drain in-flight request", c.drain(public, stopEdge, errCh, drainEntered, drainRelease))
+	check("drain in-flight request", c.drain(public, stopEdge, errCh))
 	step("edge abuse lane", errors.Join(failures...))
 }
 

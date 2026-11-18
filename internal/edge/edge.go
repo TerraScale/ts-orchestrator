@@ -329,6 +329,9 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
 	plain := &http.Server{
 		Handler: countResponses("http", e.measureRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if e.drainingRequest(w, r) {
+				return
+			}
 			if !e.authorizeEdgeHop(w, r) {
 				return
 			}
@@ -386,6 +389,9 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 const netbirdHost = "netbird.terrascale.tech"
 
 func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
+	if e.drainingRequest(w, r) {
+		return
+	}
 	switch {
 	case isExtendedConnect(r):
 		w, r = upgradeExtendedConnect(w, r)
