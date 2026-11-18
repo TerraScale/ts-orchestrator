@@ -76,8 +76,13 @@ them.
 the app registry client it shares with app pulls: a request to
 `/20180419/docker/token` signed by the instance principal (with a signed
 `Date` header) returns the bearer token. No file credential or GitHub token
-exists on a host. A poll that finds the same channel
-manifest digest as the last one costs one small manifest read. A new channel is
+exists on a host. After reading a signed OCIR release, the leader checks for
+channel changes every 15 seconds. A poll that finds the same channel manifest
+digest as the last one costs one small manifest read. The GitHub fallback keeps
+its five-minute discovery interval and existing channel retry backoff. Once the
+release is baked, unchanged-channel discovery skips host and regional health
+sampling until the existing five-minute sweep is due. Active bake samples and
+post-action waits keep their original cadence. A new channel is
 verified in this order:
 
 1. the channel bundle's certificate identity and issuer, transparency evidence

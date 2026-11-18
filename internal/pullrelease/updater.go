@@ -28,6 +28,7 @@ const (
 	DefaultDeadline   = 3 * time.Minute
 	DefaultBakeFor    = 5 * time.Minute
 
+	channelPoll  = 15 * time.Second
 	checkEvery   = 2 * time.Second
 	bakeFailures = 3
 	askWait      = 8 * time.Second
@@ -59,15 +60,16 @@ type Updater struct {
 	Deadline   time.Duration
 	BakeFor    time.Duration
 
-	store     *Store
-	status    Status
-	revision  uint64
-	leading   atomic.Bool
-	newest    releaseattest.Release
-	newestErr error
-	listed    time.Time
-	failures  int
-	retry     time.Time
+	store      *Store
+	status     Status
+	revision   uint64
+	leading    atomic.Bool
+	newest     releaseattest.Release
+	newestErr  error
+	listed     time.Time
+	failures   int
+	retry      time.Time
+	sweepAfter time.Time
 }
 
 func New(region, self, state string, conn, fabric *nats.Conn, handler *releasepush.Handler, hosts func(context.Context) ([]Host, error)) *Updater {
@@ -143,6 +145,7 @@ func (u *Updater) turn(ctx context.Context) time.Duration {
 	if u.status.Owner != u.Self {
 		slog.InfoContext(ctx, "taking over the region's pull rollout", "region", u.Region, "from", u.status.Owner, "phase", u.status.Phase)
 		u.status.Owner = u.Self
+		u.sweepAfter = time.Time{}
 		if u.status.Phase == PhaseComplete && u.status.Baked.IsZero() {
 			u.status.Done = time.Now().UTC()
 			u.status.Healthy, u.status.Failing, u.status.Failed, u.status.Failures = time.Time{}, time.Time{}, 0, 0
@@ -226,11 +229,21 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			return renewEvery
 		}
 	}
+	if u.status.Phase == PhaseComplete && !u.status.Baked.IsZero() && time.Now().Before(u.sweepAfter) {
+		return u.pollInterval()
+	}
 	return u.roll(ctx)
 }
 
+func (u *Updater) pollInterval() time.Duration {
+	if u.newest.Channel != nil {
+		return min(u.Poll, channelPoll)
+	}
+	return u.Poll
+}
+
 func (u *Updater) discover(ctx context.Context) (releaseattest.Release, error) {
-	if !u.listed.IsZero() && time.Since(u.listed) < u.Poll {
+	if !u.listed.IsZero() && time.Since(u.listed) < u.pollInterval() {
 		return u.newest, u.newestErr
 	}
 	u.status.Checked = time.Now().UTC()
@@ -681,7 +694,8 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 		u.status.Baked = now
 		u.save(ctx)
 	}
-	return u.Poll
+	u.sweepAfter = time.Now().Add(u.Poll)
+	return u.pollInterval()
 }
 
 func (u *Updater) bakeBound() time.Duration {
