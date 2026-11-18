@@ -108,6 +108,12 @@ retain() {
 retain terrascale-orchestrator-linux-amd64
 retain terrascale-orchestrator-linux-arm64
 retain qualification.json
+if jq -e '.isDraft == true' "$work/view.json" >/dev/null; then
+    gh release edit "$tag" --repo "$repository" --draft=false
+fi
+[[ $(gh api "repos/$repository/commits/$tag" --jq .sha) == "$GITHUB_SHA" ]] || {
+    echo 'published release tag points to a different source revision' >&2; exit 1;
+}
 printf 'TS_RELEASE_QUALIFICATION_V1 source_sha=%s run_id=%s run_number=%s manifest_sha256=%s\n' \
     "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" \
     "$(sha256sum dist/qualification.json | awk '{print $1}')"

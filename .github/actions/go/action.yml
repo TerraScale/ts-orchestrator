@@ -46,6 +46,6 @@ runs:
       uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
       with:
         path: ${{ steps.go.outputs.paths }}
-        key: go-${{ inputs.cache }}-${{ steps.go.outputs.version }}-${{ hashFiles('go.sum') }}-${{ inputs.cache == 'release' && github.run_id || steps.go.outputs.day }}
+        key: go-${{ inputs.cache }}-${{ steps.go.outputs.version }}-${{ hashFiles('go.sum') }}-${{ steps.go.outputs.day }}
         restore-keys: |
           go-${{ inputs.cache }}-${{ steps.go.outputs.version }}-${{ hashFiles('go.sum') }}-
