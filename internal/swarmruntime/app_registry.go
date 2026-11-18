@@ -58,21 +58,29 @@ type regionalResolver struct {
 	verifier   imagetrust.Verifier
 }
 
-func (r *regionalResolver) resolver(ctx context.Context, image string) (remotes.Resolver, string, *appregistry.Client, error) {
+func (r *regionalResolver) source(ctx context.Context, image string) (string, error) {
 	if image != r.deployment.Image {
-		return nil, "", nil, errors.New("regional registry image differs from admitted digest")
+		return "", errors.New("regional registry image differs from admitted digest")
 	}
+	_, physical, _, err := r.resolver(ctx, image)
+	return physical, err
+}
+
+func (r *regionalResolver) resolver(ctx context.Context, image string) (remotes.Resolver, string, *appregistry.Client, error) {
 	registry, err := r.registry(ctx)
 	if err != nil {
 		return nil, "", nil, err
 	}
-	physical, err := registry.Image(image)
+	physical, err := registry.Image(r.deployment.Image)
 	if err != nil {
 		return nil, "", nil, err
 	}
+	if image != r.deployment.Image && image != physical {
+		return nil, "", nil, errors.New("regional registry image differs from admitted digest")
+	}
 	transport := registry.BoundTransport(nil)
 	client := &http.Client{Transport: registryTransport{host: registry.Host, base: transport}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	authorizer := appAuthorizer{registry: registry, image: image}
+	authorizer := appAuthorizer{registry: registry, image: r.deployment.Image}
 	resolver := docker.NewResolver(docker.ResolverOptions{Hosts: func(host string) ([]docker.RegistryHost, error) {
 		if host != registry.Host {
 			return nil, errors.New("app image resolved outside its region")
@@ -87,7 +95,7 @@ func (r *regionalResolver) Resolve(ctx context.Context, image string) (string, i
 	if err != nil {
 		return "", imagespec.Descriptor{}, err
 	}
-	keychain, err := registry.Keychain(ctx, appregistry.Package(image))
+	keychain, err := registry.Keychain(ctx, appregistry.Package(r.deployment.Image))
 	if err != nil {
 		return "", imagespec.Descriptor{}, err
 	}
@@ -107,7 +115,7 @@ func (r *regionalResolver) Resolve(ctx context.Context, image string) (string, i
 		return "", imagespec.Descriptor{}, errors.New("app provenance differs from signed deployment")
 	}
 	_, descriptor, err := resolver.Resolve(ctx, physical)
-	return image, descriptor, err
+	return r.deployment.Image, descriptor, err
 }
 
 func (r *regionalResolver) Fetcher(ctx context.Context, image string) (remotes.Fetcher, error) {
