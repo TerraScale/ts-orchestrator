@@ -44,20 +44,24 @@ type HostProgress struct {
 }
 
 type Status struct {
-	Region  string                 `json:"region"`
-	Owner   string                 `json:"owner,omitempty"`
-	Phase   string                 `json:"phase"`
-	Target  *releaseattest.Release `json:"target,omitempty"`
-	Hosts   []HostProgress         `json:"hosts,omitempty"`
-	Reason  string                 `json:"reason,omitempty"`
-	Bad     []string               `json:"bad,omitempty"`
-	Since   time.Time              `json:"since,omitzero"`
-	Baked   time.Time              `json:"baked,omitzero"`
-	Done    time.Time              `json:"done,omitzero"`
-	Checked time.Time              `json:"checked,omitzero"`
-	Updated time.Time              `json:"updated,omitzero"`
-	Seq     uint64                 `json:"seq,omitempty"`
-	Channel uint64                 `json:"channel_seq,omitempty"`
+	Region   string                 `json:"region"`
+	Owner    string                 `json:"owner,omitempty"`
+	Phase    string                 `json:"phase"`
+	Target   *releaseattest.Release `json:"target,omitempty"`
+	Hosts    []HostProgress         `json:"hosts,omitempty"`
+	Reason   string                 `json:"reason,omitempty"`
+	Bad      []string               `json:"bad,omitempty"`
+	Since    time.Time              `json:"since,omitzero"`
+	Baked    time.Time              `json:"baked,omitzero"`
+	Healthy  time.Time              `json:"healthy,omitzero"`
+	Failing  time.Time              `json:"failing,omitzero"`
+	Failed   int                    `json:"failed,omitempty"`
+	Failures int                    `json:"failures,omitempty"`
+	Done     time.Time              `json:"done,omitzero"`
+	Checked  time.Time              `json:"checked,omitzero"`
+	Updated  time.Time              `json:"updated,omitzero"`
+	Seq      uint64                 `json:"seq,omitempty"`
+	Channel  uint64                 `json:"channel_seq,omitempty"`
 }
 
 func statusFile(state string) string { return filepath.Join(state, "nats", "pull-rollout.json") }
