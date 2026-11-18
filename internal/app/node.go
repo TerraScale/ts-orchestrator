@@ -550,7 +550,7 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			stop()
 		}()
 		go func() {
-			apps := apppull.Updater{Self: node.ID(), Fabric: fabric, Source: apppull.Source{Registry: func(ctx context.Context) (*appregistry.Client, error) { return appregistry.Regional(ctx, region) }}, Apply: mesh.Release(state)}
+			apps := apppull.Updater{Self: node.ID(), Region: region, Fabric: fabric, Source: apppull.Source{Registry: func(ctx context.Context) (*appregistry.Client, error) { return appregistry.Regional(ctx, region) }}, Apply: mesh.Release(state)}
 			if err := apps.Run(managing); err != nil && managing.Err() == nil {
 				failed <- errors.Join(errors.New("app release updater stopped"), err)
 			}

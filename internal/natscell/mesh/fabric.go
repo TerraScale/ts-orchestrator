@@ -77,14 +77,12 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 		}
 		options.Routes = append(options.Routes, address)
 	}
-	if len(options.Routes) > 0 {
-		options.Cluster = server.ClusterOpts{
-			Name: ClusterName, Host: cfg.clusterHost, Port: cfg.clusterPort, Advertise: cfg.clusterAdvertise,
-			TLSConfig: tlsConfig, TLSTimeout: 5, PinnedAccounts: []string{FabricAccount},
-			SolicitImplicitRoute: gossip.solicit,
-		}
+	options.Cluster = server.ClusterOpts{
+		Name: ClusterName, Host: cfg.clusterHost, Port: cfg.clusterPort, Advertise: cfg.clusterAdvertise,
+		TLSConfig: tlsConfig, TLSTimeout: 5, PinnedAccounts: []string{FabricAccount},
+		SolicitImplicitRoute: gossip.solicit,
 	}
-	if cfg.applier != nil && len(options.Routes) > 0 {
+	if cfg.applier != nil {
 		options.JetStream = true
 		options.SyncAlways = true
 		options.StoreDir = cfg.dir
