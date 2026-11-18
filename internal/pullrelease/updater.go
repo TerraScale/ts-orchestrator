@@ -20,6 +20,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ocirelease"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/nats-io/nats.go"
@@ -129,6 +130,7 @@ func (u *Updater) lead(ctx context.Context) {
 				slog.WarnContext(ctx, "pull rollout lease not renewed", "error", err)
 			}
 			if u.leading.Swap(leading) != leading {
+				releasegate.RecordBlock(releasegate.Leader, u.Region, nil)
 				slog.InfoContext(ctx, "pull rollout ownership changed", "region", u.Region, "owner", leading)
 				if leading {
 					select {

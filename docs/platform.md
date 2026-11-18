@@ -101,11 +101,11 @@ A later installed binary uses its own receipt. See
 [staging bootstrap](region-bootstrap.md#staging-region).
 
 The same admission applies to production node boot selection, reusable instance
-configurations, pool growth, self-heal replacement and the region-add path.
+configurations, pool growth, replacement first boot and the region-add path.
 Cloud-init carries the checked tag/digests/run receipt so a newly created host
 exports break-glass evidence too. Cached configurations are rechecked before
 reuse or controller-driven growth; a missing admission requires a new admitted
-configuration. Binary rollback and recovery never consult the gate.
+configuration. Self-heal retires the failed instance without checking its historical configuration: the replacement uses the pool’s current configuration and verifies admission at first boot. Binary rollback and recovery never consult the gate.
 
 This staging record admits **ts-orch binaries only**. Application image selections
 in apppull (TerraBase, ts-auth and the dashboard) retain their existing build and
