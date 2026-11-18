@@ -29,6 +29,19 @@ type Store struct {
 	region string
 }
 
+func Observe(ctx context.Context, fabric *nats.Conn, region string) (Status, error) {
+	js, err := jetstream.New(fabric)
+	if err != nil {
+		return Status{}, err
+	}
+	kv, err := js.KeyValue(ctx, Bucket)
+	if err != nil {
+		return Status{}, err
+	}
+	status, _, err := (&Store{kv: kv, region: region}).Load(ctx)
+	return status, err
+}
+
 func Open(ctx context.Context, fabric *nats.Conn, region string) (*Store, error) {
 	js, err := jetstream.New(fabric)
 	if err != nil {

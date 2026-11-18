@@ -1,9 +1,8 @@
 name: Deployment lag guard
 
-# Check the live M1 release path after main delivery and once daily.
 on:
   schedule:
-    - cron: '23 4 * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
   workflow_run:
     workflows: [CI]
@@ -22,13 +21,14 @@ env:
 
 jobs:
   check:
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push') }}
     environment: production
     permissions:
       contents: read
       actions: read
       checks: read
       issues: write
+      id-token: write
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -46,11 +46,13 @@ jobs:
           go-version-file: go.mod
 
 
-      - name: Compare main publications with M1 release completion
+      - name: Compare main with each running artifact in every region
         shell: bash
         env:
           GH_READ_TOKEN: ${{ github.token }}
           GH_WRITE_TOKEN: ${{ github.token }}
+          TS_ALERTS_NTFY_TOPIC: ${{ secrets.TS_ALERTS_NTFY_TOPIC }}
         run: |
           set -euo pipefail
-          go run ./scripts/ci/deploylag
+          go build -o "$RUNNER_TEMP/deploy-lag" ./scripts/ci/deploylag
+          "$RUNNER_TEMP/deploy-lag"

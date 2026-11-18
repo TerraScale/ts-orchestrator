@@ -440,6 +440,10 @@ func (s *standIn) jwks(w http.ResponseWriter) {
 }
 
 func (s *standIn) token(sha, run string) (string, error) {
+	return s.identityToken(sha, run, nil)
+}
+
+func (s *standIn) identityToken(sha, run string, identity map[string]any) (string, error) {
 	encode := func(v any) (string, error) {
 		data, err := json.Marshal(v)
 		return base64.RawURLEncoding.EncodeToString(data), err
@@ -448,11 +452,15 @@ func (s *standIn) token(sha, run string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	claims, err := encode(map[string]any{
+	values := map[string]any{
 		"iss": githubIssuer, "aud": "ts-orch", "exp": time.Now().Add(10 * time.Minute).Unix(), "nbf": time.Now().Add(-time.Minute).Unix(),
 		"repository": "TerraScale/ts-orchestrator", "repository_owner": "TerraScale", "ref": "refs/heads/main",
 		"sha": sha, "run_id": run, "run_attempt": "1", "event_name": "push", "job_workflow_ref": orchWorkflow,
-	})
+	}
+	for name, value := range identity {
+		values[name] = value
+	}
+	claims, err := encode(values)
 	if err != nil {
 		return "", err
 	}

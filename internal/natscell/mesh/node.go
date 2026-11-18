@@ -345,9 +345,17 @@ func start(cfg config) (_ *Node, err error) {
 		},
 		StateSubject: func(m *nats.Msg) {
 			var request struct {
-				Nonce string `json:"nonce"`
+				Nonce  string `json:"nonce"`
+				View   string `json:"view"`
+				Region string `json:"region"`
 			}
 			_ = protocol.DecodeTolerant(m.Data, &request, maxWire)
+			if request.View == "deployments" {
+				if request.Region == cfg.region {
+					node.goWork(func() { node.respond(m, node.observeDeployments()) })
+				}
+				return
+			}
 			state := stateReply{Nonce: request.Nonce, Region: cfg.region, Desired: maps.Clone(*node.stateDesired.Load()), Ready: map[string]int64{}, Serving: node.servingSnapshot()}
 			for name, result := range state.Serving {
 				if result.fresh() {

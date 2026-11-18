@@ -118,6 +118,28 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 		defer conn.Close()
 		return releasepush.ReadHostVersions(ctx, conn, plan.region, listed.Nodes), nil
 	}
+	releases.Deployments = func(ctx context.Context) (releasepush.DeploymentObservation, error) {
+		report, err := mesh.ObserveDeployments(ctx, state, plan.region)
+		if err != nil {
+			return report, err
+		}
+		report.Hosts, err = releases.Hosts(ctx)
+		if err != nil {
+			return report, err
+		}
+		conn, err := mesh.ConnectFabric(state)
+		if err != nil {
+			return report, err
+		}
+		defer conn.Close()
+		pull, err := pullrelease.Observe(ctx, conn, plan.region)
+		if err != nil {
+			return report, err
+		}
+		report.Pull, err = json.Marshal(pull)
+		report.Targets = observeDeploymentTargets(ctx, releases, plan.region)
+		return report, err
+	}
 	public.SetObserver(http.HandlerFunc(releases.Observe))
 	subscribed := make(chan struct{})
 	if plan.region != "" {
