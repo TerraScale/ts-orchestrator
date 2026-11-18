@@ -24,7 +24,7 @@ func main() {
 		}
 		return
 	}
-	if err := mesh.RegionalPeersJourney(os.Args[1], app.WorkerReleaseJourney); err != nil {
+	if err := mesh.RegionalPeersJourney(os.Args[1], app.WorkerReleaseJourney, app.PullRolloutJourney); err != nil {
 		fmt.Fprintln(os.Stderr, "FAIL regional peers:", err)
 		os.Exit(1)
 	}
