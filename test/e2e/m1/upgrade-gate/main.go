@@ -23,7 +23,9 @@ import (
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/ocirelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/oraclehost"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
@@ -221,15 +223,19 @@ func fetch(mode, candidate, work, lineage, lane string) {
 	for _, service := range workloads(lane)[1:] {
 		must(oraclehost.FetchImage(context.Background(), service["image"].(string), filepath.Join(work, "registry")))
 	}
-	if mode == "previous" {
-		fetchPrevious(work, pin)
+	fetchPrevious(work, pin)
+	type lineageRoute struct {
+		base, served string
+		rewrite      func([]byte) []byte
 	}
-	rewrite := func(body []byte) []byte { return bytes.ReplaceAll(body, []byte(lineage), []byte(head)) }
-	base, served := pin.SHA, head
+	routes := []lineageRoute{{pin.SHA, head, func(body []byte) []byte { return bytes.ReplaceAll(body, []byte(lineage), []byte(head)) }}}
 	if mode == "next" {
-		base, served = head, nextRevision(head)
-		rewrite = func(body []byte) []byte {
-			return bytes.ReplaceAll(bytes.ReplaceAll(body, []byte(lineage), []byte(served)), []byte(pin.SHA), []byte(head))
+		next := nextRevision(head)
+		routes = []lineageRoute{
+			{head, next, func(body []byte) []byte {
+				return bytes.ReplaceAll(bytes.ReplaceAll(body, []byte(lineage), []byte(next)), []byte(pin.SHA), []byte(head))
+			}},
+			{pin.SHA, next, func(body []byte) []byte { return bytes.ReplaceAll(body, []byte(lineage), []byte(next)) }},
 		}
 	}
 	comparisons := map[string][]byte{}
@@ -241,8 +247,10 @@ func fetch(mode, candidate, work, lineage, lane string) {
 		}
 		decode(body, &comparison)
 		require(comparison.Status == "ahead", "GitHub compares the pinned release %s with %s as %q: the pin is not an ancestor of what this run releases; rebase onto main", pin.Tag, lineage, comparison.Status)
-		comparisons[oraclehost.ComparisonKey(base, served, page)] = rewrite(body)
-		fmt.Printf("lineage %s...%s page %d (%d bytes, ahead by %d) served as %s...%s\n", pin.SHA, lineage, page, len(body), comparison.AheadBy, base, served)
+		for _, route := range routes {
+			comparisons[oraclehost.ComparisonKey(route.base, route.served, page)] = route.rewrite(body)
+			fmt.Printf("lineage %s...%s page %d (%d bytes, ahead by %d) served as %s...%s\n", pin.SHA, lineage, page, len(body), comparison.AheadBy, route.base, route.served)
+		}
 		if page != 1 || comparison.AheadBy <= 1 {
 			break
 		}
@@ -255,8 +263,10 @@ func fetch(mode, candidate, work, lineage, lane string) {
 	}
 	decode(body, &reverse)
 	require(reverse.Status == "behind", "GitHub compares %s with the pinned release %s as %q, not behind", lineage, pin.Tag, reverse.Status)
-	comparisons[oraclehost.ComparisonKey(served, base, 0)] = rewrite(body)
-	fmt.Printf("lineage %s...%s (%d bytes, behind by %d) served as %s...%s\n", lineage, pin.SHA, len(body), reverse.BehindBy, served, base)
+	for _, route := range routes {
+		comparisons[oraclehost.ComparisonKey(route.served, route.base, 0)] = route.rewrite(body)
+		fmt.Printf("lineage %s...%s (%d bytes, behind by %d) served as %s...%s\n", lineage, pin.SHA, len(body), reverse.BehindBy, route.served, route.base)
+	}
 	releases := github(repositoryAPI + "/releases?per_page=30")
 	fmt.Printf("recorded GitHub release list: %d bytes\n", len(releases))
 	must(os.WriteFile(filepath.Join(work, "releases.json"), releases, 0o644))
@@ -375,10 +385,11 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 	trusted := authority.TrustedRoot()
 	candidate := read(candidatePath)
 	sha := revision(candidatePath)
+	previous := trusting(read(filepath.Join(work, "previous")), trusted)
 	var installed, target []byte
 	switch mode {
 	case "previous":
-		installed, target = trusting(read(filepath.Join(work, "previous")), trusted), trusting(candidate, trusted)
+		installed, target = previous, trusting(candidate, trusted)
 	case "next":
 		installed = trusting(candidate, trusted)
 		target = withRevision(installed, sha, nextRevision(sha))
@@ -388,6 +399,9 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 	installedPath := filepath.Join(work, "installed")
 	must(os.WriteFile(installedPath, installed, 0o755))
 	from := revision(installedPath)
+	previousPath := filepath.Join(work, "previous-trusting")
+	must(os.WriteFile(previousPath, previous, 0o755))
+	pin := revision(previousPath)
 	var comparisons map[string][]byte
 	decode(read(filepath.Join(work, "comparisons.json")), &comparisons)
 	registry := filepath.Join(work, "registry")
@@ -409,6 +423,25 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 	must(fleet.GitHub().Record(olderReleases(read(filepath.Join(work, "releases.json")), run), comparisons))
 	upgraded := fleet.Regions[1]
 	manager, worker := upgraded.Hosts[0], upgraded.Hosts[1]
+	workerFrom, workerInstalled := from, installed
+	runID := strconv.FormatUint(run, 10)
+	tag := releaseattest.Tag(sha, runID)
+	bundle := authority.Bundle(sigstore.MainIdentity, sha, runID, map[string][]byte{asset: target})
+	publish := func() {
+		fleet.GitHub().Publish(tag, map[string][]byte{asset: target, releaseattest.BundleAsset: bundle})
+		step("published %s (%s sha256:%s) with its provenance", tag, asset, digest(target))
+	}
+	if mode == "next" {
+		workerFrom, workerInstalled = pin, previous
+		must(os.WriteFile(filepath.Join(worker.Dir, "bin", "terrascale-orchestrator"), previous, 0o755))
+		publish()
+		artifact := ocirelease.ArtifactImage(map[string][]byte{runtime.GOARCH: target}, bundle)
+		document, err := ocirelease.Document(artifact, sha, runID, run, time.Now())
+		must(err)
+		signed := releaseattest.SignedChannel{Document: document, Bundle: authority.Bundle(sigstore.MainIdentity, sha, runID, map[string][]byte{releaseattest.ChannelDocument: document})}
+		must(fleet.PublishChannel(artifact, ocirelease.ChannelImage(signed)))
+		step("published %s as seq %d on every region's signed release channel before any host boots, as release-publish does", tag, run)
+	}
 	founders := []*oraclehost.Host{fleet.Regions[0].Hosts[0], manager, fleet.Regions[2].Hosts[0]}
 	must(fleet.Boot(founders...))
 	for _, host := range founders {
@@ -416,26 +449,64 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 		must(err)
 	}
 	must(fleet.Boot(worker))
-	_, err = worker.WaitReady(ctx, 0, from)
+	_, err = worker.WaitReady(ctx, 0, workerFrom)
 	must(err)
+	advertised := false
+	until(ctx, worker.Name+" answers the pull status request on "+workerFrom, func() error {
+		probe, cancel := context.WithTimeout(ctx, probeWait)
+		defer cancel()
+		reply, err := worker.Health(probe)
+		advertised = reply.Channel
+		return err
+	})
+	step("%s runs %s and %s signed channel releases", worker.Name, workerFrom, map[bool]string{true: "reads", false: "cannot read"}[advertised])
 	serve(ctx, fleet, manager, workloads(lane), work)
 	step("applied terrabase and e2e-whoami through %s's mesh, as production regions serve services", manager.Name)
 	for _, host := range fleet.Hosts {
+		if mode == "next" && host == worker {
+			continue
+		}
 		until(ctx, host.Name+" serves the installed release", func() error { return serving(ctx, host, from, installed) })
 	}
-	step("gru, sjc and fra founders and the %s worker serve %s sha256:%s; GitHub lists no release of ours yet", region, from, digest(installed))
-	tag := releaseattest.Tag(sha, strconv.FormatUint(run, 10))
-	bundle := authority.Bundle(sigstore.MainIdentity, sha, strconv.FormatUint(run, 10), map[string][]byte{asset: target})
-	fleet.GitHub().Publish(tag, map[string][]byte{asset: target, releaseattest.BundleAsset: bundle})
-	step("published %s (%s sha256:%s) with its provenance", tag, asset, digest(target))
+	if mode == "previous" {
+		step("gru, sjc and fra founders and the %s worker serve %s sha256:%s; GitHub lists no release of ours yet", region, from, digest(installed))
+		publish()
+	} else {
+		step("gru, sjc and fra founders serve %s sha256:%s; the %s worker booted on the previous release %s", from, digest(installed), region, workerFrom)
+	}
 	for _, host := range upgraded.Hosts {
 		until(ctx, host.Name+" installs "+tag+" through its updater and confirms it", func() error { return serving(ctx, host, sha, target) })
-		require(bytes.Equal(read(filepath.Join(host.Dir, "bin", "terrascale-orchestrator.prev")), installed), "%s does not keep the replaced release as its rollback target", host.Name)
+		kept := installed
+		if host == worker {
+			kept = workerInstalled
+		}
+		require(bytes.Equal(read(filepath.Join(host.Dir, "bin", "terrascale-orchestrator.prev")), kept), "%s does not keep the replaced release as its rollback target", host.Name)
 	}
 	requests := strings.Join(fleet.GitHub().Requests(), "\n")
-	require(strings.Contains(requests, "200 GET release-assets.githubusercontent.com"), "no host downloaded the release from GitHub's asset host:\n%s", requests)
-	require(strings.Contains(requests, "200 GET api.github.com/repos/TerraScale/ts-orchestrator/compare/"+from+"..."+sha) || strings.Contains(requests, "200 GET api.github.com/repos/TerraScale/ts-orchestrator/compare/"+sha+"..."+from), "the installed updater never checked the release's lineage:\n%s", requests)
-	step("%s installed %s on both sjc hosts through discovery, lineage, provenance, preflight and probation; each keeps %s as its rollback target", from, tag, from)
+	lineage := func(base string) bool {
+		return strings.Contains(requests, "200 GET api.github.com/repos/TerraScale/ts-orchestrator/compare/"+base+"..."+sha) || strings.Contains(requests, "200 GET api.github.com/repos/TerraScale/ts-orchestrator/compare/"+sha+"..."+base)
+	}
+	if mode == "previous" {
+		require(strings.Contains(requests, "200 GET release-assets.githubusercontent.com"), "no host downloaded the release from GitHub's asset host:\n%s", requests)
+		require(lineage(from), "the installed updater never checked the release's lineage:\n%s", requests)
+		step("%s installed %s on both sjc hosts through discovery, lineage, provenance, preflight and probation; each keeps %s as its rollback target", from, tag, from)
+		return
+	}
+	served := fleet.ChannelRequests(upgraded.OCIRegion + ".ocir.io")
+	require(served[ocirelease.Stable] > 0 && served["blob"] > 0, "%s never read the sjc release channel: %v", manager.Name, served)
+	var metrics bytes.Buffer
+	releasepush.WriteReleaseMetrics(&metrics, manager.State(""), filepath.Join(manager.Dir, "bin", "terrascale-orchestrator"))
+	require(strings.Contains(metrics.String(), fmt.Sprintf("ts_orch_release_installed_seq %d\n", run)), "%s must record channel seq %d for the release it runs:\n%s", manager.Name, run, metrics.String())
+	if advertised {
+		metrics.Reset()
+		releasepush.WriteReleaseMetrics(&metrics, worker.State(""), filepath.Join(worker.Dir, "bin", "terrascale-orchestrator"))
+		require(strings.Contains(metrics.String(), fmt.Sprintf("ts_orch_release_installed_seq %d\n", run)), "%s reads channel releases and must record seq %d:\n%s", worker.Name, run, metrics.String())
+		step("%s installed %s from the signed channel on both sjc hosts, seq %d recorded on each", from, tag, run)
+		return
+	}
+	require(strings.Contains(requests, "200 GET release-assets.githubusercontent.com"), "%s cannot read channel releases and never downloaded the release from GitHub's asset host:\n%s", worker.Name, requests)
+	require(lineage(workerFrom), "%s never checked the release's lineage from %s:\n%s", worker.Name, workerFrom, requests)
+	step("%s installed %s from the signed channel (seq %d) and sent it to %s on %s as the GitHub release that build reads; it checked provenance and lineage and keeps %s as its rollback target", manager.Name, tag, run, worker.Name, workerFrom, workerFrom)
 }
 
 func main() {

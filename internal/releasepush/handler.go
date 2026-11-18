@@ -77,6 +77,7 @@ type Reply struct {
 	Arch       string          `json:"arch,omitempty"`
 	Degraded   []string        `json:"degraded,omitempty"`
 	Seq        uint64          `json:"seq,omitempty"`
+	Channel    bool            `json:"channel,omitempty"`
 }
 
 type HealthRequest struct {

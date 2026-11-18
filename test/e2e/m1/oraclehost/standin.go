@@ -68,6 +68,8 @@ type standIn struct {
 	requests map[string]int
 	servers  []*http.Server
 	github   *GitHub
+	stable   string
+	served   map[string]int
 }
 
 func certificate(template, parent *x509.Certificate, public crypto.PublicKey, signer crypto.Signer) ([]byte, error) {
@@ -106,7 +108,7 @@ func (f *Fleet) EdgeMaterial(name string) ([]byte, error) {
 func newStandIn(f *Fleet) (*standIn, *tls.Certificate, error) {
 	names := slices.Clone(standInNames)
 	for _, region := range f.Regions {
-		names = append(names, "auth."+region.OCIRegion+".oraclecloud.com")
+		names = append(names, "auth."+region.OCIRegion+".oraclecloud.com", region.OCIRegion+ocirSuffix)
 	}
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -290,6 +292,8 @@ func (s *standIn) cloud(w http.ResponseWriter, r *http.Request) {
 		s.jwks(w)
 	case host == registryHost && strings.HasPrefix(r.URL.Path, "/v2/"):
 		s.registry(w, r)
+	case strings.HasSuffix(host, ocirSuffix) && slices.Contains(s.names, host):
+		s.ocir(w, r, host)
 	case host == githubAPI || host == githubWeb || host == githubAssets:
 		s.github.serve(w, r, host)
 	default:

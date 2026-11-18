@@ -53,7 +53,7 @@ func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 		reply := h.version()
 		payload, _ := json.Marshal(HealthRequest{Service: request.Service})
 		health := h.health(ctx, payload)
-		reply.Health, reply.Node = health.Health, health.Node
+		reply.Health, reply.Node, reply.Channel = health.Health, health.Node, true
 		if installed, err := readSeq(h.SeqFile); err != nil {
 			reply.Error = "installed seq unreadable: " + err.Error()
 		} else {
