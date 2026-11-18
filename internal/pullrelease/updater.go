@@ -28,6 +28,7 @@ const (
 	DefaultDeadline   = 3 * time.Minute
 	DefaultBakeFor    = 5 * time.Minute
 
+	channelPoll  = 15 * time.Second
 	checkEvery   = 2 * time.Second
 	bakeFailures = 3
 	askWait      = 8 * time.Second
@@ -179,7 +180,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		} else {
 			u.save(ctx)
 		}
-		return u.Poll
+		return u.pollInterval()
 	case errors.As(err, &limited):
 		u.status.Reason = err.Error()
 		u.save(ctx)
@@ -187,15 +188,15 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 	case errors.Is(err, releaseattest.ErrNoRelease):
 		u.status.Reason = err.Error()
 		u.save(ctx)
-		return u.Poll
+		return u.pollInterval()
 	case err != nil:
 		u.status.Reason = "release discovery: " + err.Error()
 		u.save(ctx)
-		return u.Poll
+		return u.pollInterval()
 	}
 	if u.status.bad(release.Tag()) {
 		u.save(ctx)
-		return u.Poll
+		return u.pollInterval()
 	}
 	if u.status.Target != nil && u.status.Target.Tag() == release.Tag() && release.Seq > u.status.Target.Seq {
 		adopted := release
@@ -212,12 +213,12 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		var missing *releaseattest.NotFoundError
 		if errors.Is(err, releaseattest.ErrRefused) || errors.As(err, &missing) {
 			u.refuse(ctx, release, err.Error())
-			return u.Poll
+			return u.pollInterval()
 		}
 		if err != nil {
 			u.status.Reason = "attestation check: " + err.Error()
 			u.save(ctx)
-			return u.Poll
+			return u.pollInterval()
 		}
 		slog.InfoContext(ctx, "attested release found; rolling it out", "release", attested.Tag())
 		u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Checked: u.status.Checked,
@@ -229,8 +230,15 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 	return u.roll(ctx)
 }
 
+func (u *Updater) pollInterval() time.Duration {
+	if u.newest.Channel != nil {
+		return min(u.Poll, channelPoll)
+	}
+	return u.Poll
+}
+
 func (u *Updater) discover(ctx context.Context) (releaseattest.Release, error) {
-	if !u.listed.IsZero() && time.Since(u.listed) < u.Poll {
+	if !u.listed.IsZero() && time.Since(u.listed) < u.pollInterval() {
 		return u.newest, u.newestErr
 	}
 	u.status.Checked = time.Now().UTC()
@@ -336,7 +344,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			case reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalIntegrity:
 				row.Error = reply.Refusal.Reason
 				u.refuse(ctx, target, host.Name+" refused the release: "+reply.Refusal.Reason)
-				return u.Poll
+				return u.pollInterval()
 			default:
 				row.State = HostPending
 				return u.wait(ctx, host.Name+" did not install: "+cmp.Or(refusalReason(reply), reply.Error, reply.State))
@@ -346,7 +354,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		u.save(ctx)
 		if host.ID == u.Self && !onTarget {
 			slog.InfoContext(ctx, "installed the release on this host; its new process finishes the rollout", "release", target.Tag())
-			return u.Poll
+			return u.pollInterval()
 		}
 		if err := u.gate(ctx, host, target, want); err != nil {
 			if errors.Is(err, errChanged) {
@@ -368,7 +376,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 	if u.status.Phase == PhaseComplete {
 		return u.bake(ctx)
 	}
-	return u.Poll
+	return u.pollInterval()
 }
 
 func (u *Updater) inFlight(id string) bool {
@@ -486,7 +494,7 @@ func (u *Updater) restore(ctx context.Context) time.Duration {
 		u.status.Phase = PhaseRolledBack
 		u.status.markBad(target.Tag())
 		u.save(ctx)
-		return u.Poll
+		return u.pollInterval()
 	}
 	if limit := 2 * u.Deadline; time.Since(u.status.Since) > limit {
 		u.status.Phase = PhaseStalled
@@ -494,7 +502,7 @@ func (u *Updater) restore(ctx context.Context) time.Duration {
 		u.status.markBad(target.Tag())
 		u.save(ctx)
 		slog.ErrorContext(ctx, "release rollback stalled; the pull rollout stops holding the region", "release", target.Tag(), "host", row.Host, "reason", u.status.Reason)
-		return u.Poll
+		return u.pollInterval()
 	}
 	running, err := releasepush.AskVersion(ctx, u.Conn, u.Region, row.ID)
 	if err != nil {
@@ -526,7 +534,7 @@ func (u *Updater) restore(ctx context.Context) time.Duration {
 	u.status.markBad(target.Tag())
 	u.save(ctx)
 	slog.WarnContext(ctx, "release rolled back; the host runs its previous binary", "release", target.Tag(), "host", row.Host, "version", running.Version)
-	return u.Poll
+	return u.pollInterval()
 }
 
 func (u *Updater) restoring(ctx context.Context, row *HostProgress, reason string) time.Duration {
@@ -563,7 +571,7 @@ func (u *Updater) ignore(ctx context.Context, reason string) time.Duration {
 	}
 	u.status.Reason = reason
 	u.save(ctx)
-	return u.Poll
+	return u.pollInterval()
 }
 
 func (u *Updater) wait(ctx context.Context, reason string) time.Duration {
@@ -681,7 +689,7 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 		u.status.Baked = now
 		u.save(ctx)
 	}
-	return u.Poll
+	return u.pollInterval()
 }
 
 func (u *Updater) bakeBound() time.Duration {
