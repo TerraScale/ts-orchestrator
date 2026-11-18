@@ -16,17 +16,15 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-const portsLabel = "terrascale.ports"
+const (
+	portsLabel     = "terrascale.ports"
+	hostPortsLabel = "terrascale.host-ports"
+)
 
 // SwarmKit's inert network allocator leaves generic task ports unallocated;
 // container metadata reserves them locally. An exited container releases its
 // ports at once: its task never runs again, and SwarmKit retains stopped
 // tasks (and their containers) long after a replacement needs the port.
-//
-// Prepare (starting=false) refuses a port held by another service's live or
-// prepared container; a replacement task of the same service may prepare
-// while its predecessor still serves. Start (starting=true) refuses any live
-// holder, so one port never has two running owners.
 func (c *controller) reservePorts(ctx context.Context, starting bool) (string, func(), error) {
 	var requested []string
 	if c.task.Endpoint != nil {
@@ -76,7 +74,11 @@ func (c *controller) checkPortHolders(ctx context.Context, requested []string, s
 		if !known {
 			return fmt.Errorf("container %s has unknown host-port ownership", container.ID())
 		}
-		if !slices.ContainsFunc(strings.Split(claimed, ","), func(port string) bool { return slices.Contains(requested, port) }) {
+		held := strings.Split(claimed, ",")
+		if !starting {
+			held = append(held, strings.Split(labels[hostPortsLabel], ",")...)
+		}
+		if !slices.ContainsFunc(held, func(port string) bool { return slices.Contains(requested, port) }) {
 			continue
 		}
 		holder, err := portHolderState(ctx, container, labels)
@@ -181,6 +183,6 @@ func (c *controller) releaseFailedPorts(ctx context.Context, err error) {
 	ctx = runtimeContext(context.WithoutCancel(ctx))
 	if container, loadErr := c.executor.client.LoadContainer(ctx, c.id); loadErr == nil {
 		// containerd deletes a label set to "", which would read as unknown ownership.
-		_, _ = container.SetLabels(ctx, map[string]string{portsLabel: releasedPorts})
+		_, _ = container.SetLabels(ctx, map[string]string{portsLabel: releasedPorts, hostPortsLabel: releasedPorts})
 	}
 }

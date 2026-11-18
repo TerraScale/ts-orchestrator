@@ -58,7 +58,7 @@ func (c *controller) pickTaskPort(ctx context.Context) (uint16, error) {
 		if err != nil {
 			return 0, err
 		}
-		for port := range strings.SplitSeq(labels[portsLabel], ",") {
+		for port := range strings.SplitSeq(labels[portsLabel]+","+labels[hostPortsLabel], ",") {
 			claimed[port] = true
 		}
 	}
