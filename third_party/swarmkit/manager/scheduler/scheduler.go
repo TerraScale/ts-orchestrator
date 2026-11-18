@@ -342,7 +342,6 @@ func (s *Scheduler) updateTask(ctx context.Context, t *api.Task) bool {
 	nodeInfo, err := s.nodeSet.nodeInfo(t.NodeID)
 	if err == nil && nodeInfo.addTask(t) {
 		s.nodeSet.updateNode(nodeInfo)
-		return !reserves(t)
 	}
 
 	return false
@@ -373,15 +372,11 @@ func (s *Scheduler) createOrUpdateNode(n *api.Node) {
 		resources = n.Description.Resources.Copy()
 		// reconcile resources by looping over all tasks in this node
 		if nodeInfoErr == nil {
+			for _, held := range nodeInfo.heldRooms {
+				resources.MemoryBytes -= held.memoryBytes
+				resources.NanoCPUs -= held.nanoCPUs
+			}
 			for _, task := range nodeInfo.Tasks {
-				if !reserves(task) {
-					continue
-				}
-				reservations := taskReservations(task.Spec)
-
-				resources.MemoryBytes -= reservations.MemoryBytes
-				resources.NanoCPUs -= reservations.NanoCPUs
-
 				genericresource.ConsumeNodeResources(&resources.Generic,
 					task.AssignedGenericResources)
 			}

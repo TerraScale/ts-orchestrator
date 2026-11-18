@@ -166,9 +166,9 @@ The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.
 
-## 2026-11-18: scheduler re-queues wanted tasks and frees stopping tasks' reservations
+## 2026-11-18: scheduler re-queues wanted tasks and counts a waiting replacement once
 
-C1c changes two files in `manager/scheduler`. Neither behaviour is fixed upstream
+C1c changes three files in `manager/scheduler`. Neither behaviour is fixed upstream
 at v2.1.3 or at master `a34f01e8c` (2026-11-03).
 
 - `scheduler.go` `noSuitableNode` used to drop every task whose spec version
@@ -179,18 +179,20 @@ at v2.1.3 or at master `a34f01e8c` (2026-11-03).
   appeared (gru ts-dashboard, 2026-11-18). Now only an old-version task that is
   pending and desired shutdown is shut down; every other task gets its error
   and is re-queued.
-- `nodeinfo.go`: a task reserves CPU, memory and generic resources only while
-  its desired state is COMPLETE or lower, the threshold the active-task count
-  already used. The reservation is released on that transition, and the
-  scheduler runs a pass when it is. A task first seen past that state is not
-  reserved; `removeTask` and the `createOrUpdateNode` recount skip such tasks.
-  Host ports stay held until the task is removed. A task told to shut down
-  that keeps running, such as TerraBase while its regional handoff is refused,
-  no longer holds room beside its replacement. When and how a task stops is
-  unchanged.
+- `nodeinfo.go`, `filter.go`: tasks of the same service and slot on one node
+  that publish the same lowest port hold their largest CPU and memory
+  reservation once, not the sum. The TerraScale runtime never starts a task
+  while a live container holds one of its ports, so at most one of them runs
+  at a time. A stop-first replacement waiting beside its predecessor, such as
+  TerraBase while its regional handoff is refused, therefore fits in the
+  predecessor's room. The predecessor holds its full reservation until it
+  leaves the node, so no other task takes that room while it still runs.
+  Tasks without a published port, such as start-first apps on task ports,
+  keep one reservation each. Generic resources, including disk, are claimed
+  per task as before. When and how a task stops is unchanged.
 
 The e2e-m1 rollback lane exercises both with real containerd tasks.
 The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
-`bee8e8bd57df6776082927f17ede09214a4acf120e786929cc8dcb47bbce6751`; the
+`babf9117ecc5f0e744f168e2a8d04cd02e0533126e99706d814c8dbbd0539217`; the
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.
