@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +46,7 @@ type writers struct {
 	mu            sync.Mutex
 	owner, secret string
 	epoch         int
+	refused       int
 }
 
 func (s *writers) node(name string) http.Handler {
@@ -55,11 +57,18 @@ func (s *writers) node(name string) http.Handler {
 		}
 		s.mu.Lock()
 		owner, epoch := s.owner, s.epoch
-		if r.URL.Path == "/v1/rollout/drain" {
+		refuse := r.URL.Path == "/v1/rollout/drain" && name == "n2"
+		if refuse {
+			s.refused++
+		} else if r.URL.Path == "/v1/rollout/drain" {
 			s.owner, s.epoch = r.URL.Query().Get("target"), epoch+1
 		}
 		s.mu.Unlock()
 		switch {
+		case refuse:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":{"code":"drain_unavailable"}}`)
 		case r.URL.Path == "/v1/rollout/status":
 			fmt.Fprintf(w, `{"node":%q,"owner":%q,"epoch":%d,"writer":%t,"ready":true}`, name, owner, epoch, owner == name)
 		case r.URL.Path == "/v1/rollout/prime" || r.URL.Path == "/v1/rollout/drain":
@@ -306,7 +315,7 @@ func main() {
 	go http.Serve(control, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
-		if err := regional.DrainRegionalNode(ctx, r.URL.Query().Get("node")); err != nil {
+		if err := regional.DrainRegionalNode(ctx, r.URL.Query().Get("node"), r.URL.Query().Get("task")); err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		}
 	}))
@@ -343,12 +352,46 @@ func main() {
 	step("HTTP/1.1 WebSocket answered 101 and echoed a frame", err)
 	h2, err := openHTTP2(roots, host)
 	step("RFC 8441 WebSocket answered 200 and echoed a frame", err)
-	drain, err := http.Get("http://" + control.Addr().String() + "/drain?node=n1")
-	if err == nil {
-		body, _ := io.ReadAll(drain.Body)
-		if drain.StatusCode != http.StatusOK {
-			err = fmt.Errorf("DrainRegionalNode within 5s: %s", strings.TrimSpace(string(body)))
+	drainNode := func(query string) (int, string, error) {
+		response, err := http.Get("http://" + control.Addr().String() + "/drain?" + query)
+		if err != nil {
+			return 0, "", err
 		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		return response.StatusCode, strings.TrimSpace(string(body)), err
+	}
+	refusedDrains := func() int {
+		writer.mu.Lock()
+		defer writer.mu.Unlock()
+		return writer.refused
+	}
+	code, body, err := drainNode("node=n2&task=t2")
+	if err == nil && (code != http.StatusServiceUnavailable || !strings.Contains(body, "regional handoff HTTP 503: drain_unavailable") || !strings.Contains(body, "this manager's next attempt in 30s") || refusedDrains() != 1) {
+		err = fmt.Errorf("answered %d %q after %d drain requests, want 503 with drain_unavailable and its next attempt after 1", code, body, refusedDrains())
+	}
+	step("a drain the follower n2 refuses is surfaced with its code and this manager's next attempt", err)
+	code, body, err = drainNode("node=n2&task=t2")
+	if err == nil && (code != http.StatusServiceUnavailable || !strings.Contains(body, "refused (1 in a row on this manager)") || refusedDrains() != 1) {
+		err = fmt.Errorf("answered %d %q after %d drain requests, want the stored refusal without a new drain request", code, body, refusedDrains())
+	}
+	step("a retried stop of n2 inside this manager's backoff window reaches neither its ingress hold nor n2", err)
+	if missing := regional.Readiness(context.Background()).Missing; slices.Contains(missing, "node draining") {
+		step("edge readiness after the refused drain", fmt.Errorf("edge reports %v", missing))
+	}
+	step("edge readiness never reports node draining for the refused drain", nil)
+	step("REST through the writer n1 keeps flowing after the refusal", rest("rest from n1"))
+	step("HTTP/1.1 WebSocket to n1 still echoes after the refusal", h1.echo())
+	step("RFC 8441 WebSocket to n1 still echoes after the refusal", h2.echo())
+	var refusals strings.Builder
+	edge.WriteRegionalDrainMetrics(&refusals)
+	if series := observability.Series("ts_orch_regional_drain_refused", "source", "n2", "code", "drain_unavailable") + " 1\n"; refusals.String() != series {
+		step("regional drain refusal gauge", fmt.Errorf("metrics %q, want %q", refusals.String(), series))
+	}
+	step("ts_orch_regional_drain_refused reports n2's drain_unavailable", nil)
+	code, body, err = drainNode("node=n1&task=t1")
+	if err == nil && (code != http.StatusOK || refusedDrains() != 1) {
+		err = fmt.Errorf("DrainRegionalNode within 5s: %d %q", code, body)
 	}
 	step("drain of the writer n1 with both WebSockets open", err)
 	step("HTTP/1.1 WebSocket ended by the drain", h1.ended())
@@ -388,7 +431,7 @@ func main() {
 	}
 	var metrics strings.Builder
 	observability.WriteEdgeResponseMetrics(&metrics)
-	for _, check := range []struct{ protocol, code, count string }{{"http", "404", "1"}, {"https", "200", "3"}, {"https", "101", "2"}, {"https", "404", "1"}, {"https", "502", "1"}, {"https", "503", "1"}} {
+	for _, check := range []struct{ protocol, code, count string }{{"http", "404", "1"}, {"https", "200", "4"}, {"https", "101", "2"}, {"https", "404", "1"}, {"https", "502", "1"}, {"https", "503", "1"}} {
 		series := observability.Series("ts_orch_edge_responses_total", "protocol", check.protocol, "code", check.code, "reason", "") + " " + check.count + "\n"
 		if !strings.Contains(metrics.String(), series) {
 			step("edge response counters", fmt.Errorf("missing %s in %s", series, metrics.String()))

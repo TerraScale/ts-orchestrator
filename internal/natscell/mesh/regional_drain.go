@@ -11,7 +11,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-type regionalDrainer func(context.Context, string) error
+type regionalDrainer func(context.Context, string, string) error
 
 type drainRequest struct {
 	Bootstrap *rolloutmaintenance.Job `json:"bootstrap,omitempty"`
@@ -35,7 +35,7 @@ func (n *Node) RegionalNodes() []WorkerPeer {
 	return nodes
 }
 
-func (n *Node) SetRegionalDrainer(drain func(context.Context, string) error) {
+func (n *Node) SetRegionalDrainer(drain func(context.Context, string, string) error) {
 	fn := regionalDrainer(drain)
 	n.regionalDrain.Store(&fn)
 }
@@ -107,7 +107,7 @@ func (n *Node) handleDrain(m *nats.Msg) {
 	ctx, cancel := context.WithTimeout(n.ctx, 2*time.Minute)
 	defer cancel()
 	var reply drainReply
-	if err := (*drain)(ctx, request.Node); err != nil {
+	if err := (*drain)(ctx, request.Node, request.Task); err != nil {
 		reply.Error = err.Error()
 	}
 	n.respond(m, reply)
