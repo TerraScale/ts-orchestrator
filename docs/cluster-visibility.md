@@ -31,43 +31,47 @@ commands. Extend existing namespaces instead of building a parallel CLI.
 
 ## Implemented observation interfaces
 
-`ts-orch observe --help` documents readable tables and version 1 JSON output.
-All requests use the same private bearer-authenticated services as the dashboard;
-partial observations are printed and return a nonzero exit status. Requests have
-a fixed 15-second deadline, 8 MiB response bound and at most 64 candidate endpoints.
+`ts-orch observe` reads every production region's manager node dashboard at
+`ts-<region>-1.nb.ts.internal:9463`, using the runtime mesh's region roster.
+It resolves each manager's NetBird DNS name to one overlay IPv4 address before
+reading the matching `<region>-1-orch-dashboard-token` from the runtime's OCI
+Vault. Credentials stay in memory. This uses the operator's OCI identity and
+does not depend on an Object Storage foundation anchor or create credentials.
 
-| CLI views | Shared source/API | Dashboard |
-| --- | --- | --- |
-| `metrics`, `history` | Actual registry and retained history; `/v1/metrics/catalog`, `/v1/history`, `/v1/history/metrics` | `/metric-catalog`, live Datastar updates and ECharts history with text tables |
-| `snapshot`, `cluster`, `events` | Existing member collector, regional NATS aggregation and event bus | Existing member, regional, event and feature pages |
-| `regions`, `region` | `/v1/regions` and `/v1/regions/{cell}` from the regional global-view cache | Global overview and region detail |
-| `nodes`, `node`, `services`, `service` | `/v1/regions/{cell}/nodes[/node[/services[/service]]]` | Node and service drilldowns |
-| `volumes`, `volume` | `/v1/regions/{cell}/volumes[/volume]` | Volume drilldowns |
+The default view is `cluster`. `--region gru` selects one runtime region;
+`--region` also accepts its OCI region name. Every selected dashboard is read,
+including when another dashboard fails or returns partial data. Partial
+observations are printed and return a nonzero exit status. Requests share a
+fixed 15-second deadline and an 8 MiB response bound. JSON output is a stream
+of version 1 documents, one per successful dashboard response, retaining its
+source and partial status.
 
-Resource commands select the authenticated endpoint's local region automatically;
-`--cell` selects another observed region. Singular node/service/volume views use
-`--node`, `--service` and `--volume`. Missing or stale observations cannot establish
-that an omitted resource is absent. Known stale resources retain their timestamps;
-unknown resources under stale/truncated data remain unknown. A failed volume read
-is unavailable. Complete current observations alone establish `not_found`.
+| CLI views | Shared source/API |
+| --- | --- |
+| `metrics` | Actual node registry; `/v1/metrics/catalog` |
+| `snapshot` | Node collector; `/v1/snapshot` |
+| `cluster` | Local node snapshot and regional health reports over NATS; `/v1/cluster` |
+| `events` | Node event bus; `/v1/events` |
 
-The catalog discovers the actual registry, including Go/process families, plus
-retained names. It bounds exposition to 1 MiB, 2,048 families, 4,096 current samples
-and 64 samples per family. Exceeding a bound is explicit. Current label names are
-shown without label values; unsupported description/unit/type/collection metadata
-is disclosed. This catalog describes the queried registry, not fleet-wide coverage.
-History queries expose pending replay, dropped series, incomplete/truncated data,
-source cadence, per-series freshness and gaps. Counter rates require counters.
-The maximum query is 14 days and 512 series; dashboard rendering keeps 32 series
-and 1,200 points while retaining access through the bounded history API.
+`--url` with a private `--token-file` remains available for a diagnostic read.
+These flags select one explicit endpoint and cannot be combined with `--region`.
+No token is accepted as a command argument. Public plaintext HTTP destinations
+are rejected; plaintext requests require loopback or the encrypted NetBird overlay.
 
-Normal zero-configuration operator access still depends on a trusted admitted
-endpoint and scoped Vault-token resolver from OCI. The current CLI bridge reuses
-existing benchmark configuration or explicit diagnostic `--url`/`--token-file`;
-it does not satisfy automatic production access. NetBird discovery alone grants
-no authority. Full SwarmKit service observations, regional operation progress and
-live function snapshots need their actual authenticated producer wiring before
-these interfaces can claim complete runtime or infrastructure coverage.
+The former resource, operation, history, decision, insight, summary and log views
+have no node-dashboard HTTP producer and are removed. The cluster response is a
+health observation, not a service inventory or release history. A remote region's
+health report and the manager's local collector have different detail; missing
+reports remain missing rather than establishing that resources are absent.
+
+Capacity usage, cost reports and benchmark preflight share the dashboard lookup
+and its encrypted-overlay origin validation. Their `/v1/usage` and `/v1/cost`
+producers are absent from the current node dashboard, so those reports cannot yet
+claim working production coverage; benchmark preflight fails before starting load.
+Caller-key's target coverage uses the same runtime region roster without reading
+a dashboard or foundation anchor. GRU teardown remains unconditionally blocked:
+dashboard health does not establish manager retirement or authorize deletion of
+protected backups.
 
 ## Reuse the dashboard stack
 

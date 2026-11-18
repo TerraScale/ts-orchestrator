@@ -28,22 +28,6 @@ type foundationDiscoveryObjects interface {
 	GetNamespace(context.Context, objectstorage.GetNamespaceRequest) (objectstorage.GetNamespaceResponse, error)
 }
 
-func foundationHomeClient(factory *ociclient.Factory) (*objectstorage.ObjectStorageClient, string, error) {
-	if factory == nil {
-		return nil, "", fmt.Errorf("%w: authenticated OCI caller is absent", ErrFoundationDiscoveryPending)
-	}
-	tenancy, err := factory.Provider().TenancyOCID()
-	if err != nil || tenancy == "" {
-		return nil, "", fmt.Errorf("%w: authenticated tenancy is absent", ErrFoundationDiscoveryPending)
-	}
-	home, err := factory.ForRegion(foundationHomeRegion)
-	if err != nil {
-		return nil, "", err
-	}
-	client, err := home.ObjectStorage()
-	return &client, tenancy, err
-}
-
 func discoveryNamespace(ctx context.Context, client foundationDiscoveryObjects, tenancy string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

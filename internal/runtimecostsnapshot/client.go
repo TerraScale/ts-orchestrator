@@ -6,8 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/netip"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -52,15 +50,9 @@ func (c Client) Read(ctx context.Context, region string) (Snapshot, error) {
 	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	requests := make([]*http.Request, 0, len(c.Access.URLs))
 	for _, origin := range c.Access.URLs {
-		u, err := url.Parse(origin)
-		if err != nil || len(origin) > 2048 || u.Hostname() == "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "" || u.RawPath != "" || u.Path != "" && u.Path != "/" || strings.ContainsAny(origin, "\r\n\t ") {
-			return Snapshot{}, errors.New("invalid cost origin")
-		}
-		if u.Scheme != "https" {
-			address, err := netip.ParseAddr(u.Hostname())
-			if u.Scheme != "http" || err != nil || !address.IsLoopback() {
-				return Snapshot{}, errors.New("cost origin requires HTTPS")
-			}
+		u, err := controlaccess.Origin(origin)
+		if err != nil {
+			return Snapshot{}, err
 		}
 		u.Path = Path
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

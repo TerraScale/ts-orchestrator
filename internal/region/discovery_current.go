@@ -18,30 +18,11 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 const foundationFloorLimit = 2*trust.MaxRootChainBytes + 4096
-
-// DiscoverCurrentFoundation discovers current authority from the independently
-// embedded genesis and durably adopts its lineage before exposing a resolver.
-func DiscoverCurrentFoundation(ctx context.Context, factory *ociclient.Factory) (FoundationResolver, error) {
-	genesis, err := trust.DiscoveryGenesis()
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	client, tenancy, err := foundationHomeClient(factory)
-	if err != nil {
-		return FoundationResolver{}, err
-	}
-	resolver, err := discoverCurrentFoundation(ctx, client, tenancy, genesis)
-	if err == nil {
-		resolver.Footprint.(*SignedFootprint).factory = factory
-	}
-	return resolver, err
-}
 
 type foundationFloor struct {
 	Version        int    `json:"version"`
@@ -53,10 +34,6 @@ type foundationFloor struct {
 	Generation     uint64 `json:"generation"`
 	GrantSHA256    string `json:"grantSha256"`
 	AnchorSHA256   string `json:"anchorSha256"`
-}
-
-func discoverCurrentFoundation(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring) (FoundationResolver, error) {
-	return discoverCurrentFoundationWith(ctx, client, tenancy, genesis, nil)
 }
 
 func discoverCurrentFoundationWith(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring, memo *foundationVerificationMemo) (FoundationResolver, error) {

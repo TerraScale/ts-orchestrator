@@ -11,7 +11,6 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"slices"
@@ -24,88 +23,45 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
-const observeHelp = `Usage: ts-orch observe <metrics|history|snapshot|cluster|events|decisions|insights|summary|logs|regions|region|nodes|node|services|service|functions|function|volumes|volume|foundation|credentials|backups|netbird> [flags]
+const observeHelp = `Usage: ts-orch observe [metrics|snapshot|cluster|events] [flags]
 
-Read the same authenticated APIs as the dashboard. JSON output has version 1.
-  --region REGION        Select an admitted region; authenticated discovery supplies endpoints
-  --cell CELL            Resource region; defaults to the authenticated endpoint's local region
-  --node NAME            Node selector; omit for regional SwarmKit services
-  --service ID           Managed service ID; node-local role with --node; log service filter
-  --tenant ID            Tenant selector for one admitted function
-  --function ID          Function selector; requires --tenant
-  --volume ID            Managed volume selector
-  --database ID          Canonical database ID; required for credentials and backups
-  --partition ID         Canonical partition ID; required for credentials and backups
+Read the authenticated node dashboards. Defaults to cluster in every production region.
+JSON output is a stream of version 1 documents, one per regional dashboard.
+  --region REGION        Select one runtime region instead of every production region
   --format table|json    Readable output or versioned JSON
   --search TEXT          Filter the metric catalog by name, description or source
-  --metric NAME          History metric; --range 1h or --start/--end RFC3339
-  --label NAME=VALUE     Repeatable history label filter
-  --tier raw|1m|5m|1h     History resolution; automatic when omitted
-  --rate                 History counter rate per second
-  --max 64               History series bound (1..512)
   --limit 200            Recent events bound (1..2048); --after SEQUENCE resumes
-                        Decisions allow 1..1000; log classes allow 1..500
-  --since TIME           Decision start: RFC3339 or a duration such as 1h
-  --subject-id ID        Match a decision's exact subject identity
-  --window 1h            Summary duration (1m..168h); logs accept 1h or 24h
-  --min-level DEBUG      Log threshold: DEBUG, INFO, WARN or ERROR
   --url ORIGIN           Diagnostic endpoint; requires --token-file
   --token-file FILE      Private diagnostic token file; requires --url
 
-Endpoints and read credentials resolve from admitted OCI authority and Vault.
-Missing authority remains pending. No token is accepted as a command argument.
-Requests have a fixed 15-second deadline and 8 MiB limit.
-Partial or truncated results are printed and return an error.
-Logs contain aggregated classes; the API does not report source coverage or operation correlation.
-Foundation is durable provisioning progress. Operations report current committed state;
-recorded_at is log commit time, not a stage transition. No operation history is implied.
+Manager addresses resolve through NetBird DNS (ts-<region>-1:9463).
+Credentials are read from the runtime Vault secret <region>-1-orch-dashboard-token.
+No token is accepted as a command argument. Requests have a fixed 15-second
+deadline and 8 MiB limit. Partial results are printed and return an error.
 `
 
 func runObserve(ctx context.Context, args []string, out io.Writer) error {
-	if len(args) == 0 || slices.Contains([]string{"help", "--help", "-h"}, args[0]) {
+	if len(args) > 0 && slices.Contains([]string{"help", "--help", "-h"}, args[0]) {
 		_, err := io.WriteString(out, observeHelp)
 		return err
 	}
-	view := args[0]
-	if !slices.Contains([]string{"metrics", "history", "snapshot", "cluster", "events", "decisions", "insights", "summary", "logs", "regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume", "foundation", "credentials", "backups", "netbird"}, view) {
+	view := "cluster"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		view, args = args[0], args[1:]
+	}
+	if !slices.Contains([]string{"metrics", "snapshot", "cluster", "events"}, view) {
 		return fmt.Errorf("unknown observe view %q; use ts-orch observe --help", view)
 	}
 	flags := flag.NewFlagSet("observe "+view, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	cell := flags.String("cell", "", "resource region")
-	node := flags.String("node", "", "node selector")
-	service := flags.String("service", "", "service selector")
-	tenant := flags.String("tenant", "", "function tenant selector")
-	function := flags.String("function", "", "function selector")
-	volume := flags.String("volume", "", "volume selector")
-	database := flags.String("database", "", "database selector")
-	partition := flags.String("partition", "", "partition selector")
 	region := flags.String("region", "", "region selector")
 	format := flags.String("format", "table", "table or json")
 	origin := flags.String("url", "", "diagnostic endpoint")
 	tokenFile := flags.String("token-file", "", "private diagnostic token file")
 	search := flags.String("search", "", "metric search")
-	metric := flags.String("metric", "", "history metric")
-	window := flags.String("range", "1h", "history range")
-	start := flags.String("start", "", "history start")
-	end := flags.String("end", "", "history end")
-	tier := flags.String("tier", "", "history tier")
-	rate := flags.Bool("rate", false, "counter rate")
-	maximum := flags.Int("max", 64, "history series limit")
 	limit := flags.Int("limit", 200, "event limit")
 	after := flags.Uint64("after", 0, "event sequence")
-	feature := observeFeatureFlags{}
-	feature.register(flags)
-	labels := url.Values{}
-	flags.Func("label", "history label NAME=VALUE", func(value string) error {
-		name, value, ok := strings.Cut(value, "=")
-		if !ok || name == "" {
-			return errors.New("label must be NAME=VALUE")
-		}
-		labels.Set("label."+name, value)
-		return nil
-	})
-	if err := flags.Parse(args[1:]); err != nil {
+	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			_, err = io.WriteString(out, observeHelp)
 			return err
@@ -115,61 +71,16 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 	if flags.NArg() != 0 || (*format != "table" && *format != "json") {
 		return errors.New("observe accepts flags only; --format must be table or json")
 	}
+	if (*origin == "") != (*tokenFile == "") {
+		return errors.New("diagnostic access requires --url and --token-file together")
+	}
+	if *origin != "" && *region != "" {
+		return errors.New("--region does not apply to diagnostic --url access")
+	}
 	var wrongFlag string
 	flags.Visit(func(f *flag.Flag) {
-		switch f.Name {
-		case "cell":
-			if !isObserveResource(view) || view == "regions" {
-				wrongFlag = f.Name
-			}
-		case "node":
-			if view != "node" && view != "services" && view != "service" {
-				wrongFlag = f.Name
-			}
-		case "service":
-			if view != "service" && view != "logs" {
-				wrongFlag = f.Name
-			}
-		case "volume":
-			if view != "volume" {
-				wrongFlag = f.Name
-			}
-		case "database", "partition":
-			if view != "credentials" && view != "backups" {
-				wrongFlag = f.Name
-			}
-		case "tenant", "function":
-			if view != "function" {
-				wrongFlag = f.Name
-			}
-		case "search":
-			if view != "metrics" {
-				wrongFlag = f.Name
-			}
-		case "metric", "range", "start", "end", "tier", "rate", "max", "label":
-			if view != "history" {
-				wrongFlag = f.Name
-			}
-		case "after":
-			if view != "events" {
-				wrongFlag = f.Name
-			}
-		case "limit":
-			if view != "events" && view != "decisions" && view != "logs" {
-				wrongFlag = f.Name
-			}
-		case "since", "subject-id":
-			if view != "decisions" {
-				wrongFlag = f.Name
-			}
-		case "window":
-			if view != "summary" && view != "logs" {
-				wrongFlag = f.Name
-			}
-		case "min-level":
-			if view != "logs" {
-				wrongFlag = f.Name
-			}
+		if f.Name == "search" && view != "metrics" || (f.Name == "limit" || f.Name == "after") && view != "events" {
+			wrongFlag = f.Name
 		}
 	})
 	if wrongFlag != "" {
@@ -180,201 +91,106 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 	switch view {
 	case "metrics":
 		path = "/v1/metrics/catalog"
-	case "history":
-		query = labels
-		query.Set("metric", *metric)
-		query.Set("range", *window)
-		query.Set("tier", *tier)
-		query.Set("max", strconv.Itoa(*maximum))
-		query.Set("start", *start)
-		query.Set("end", *end)
-		if *rate {
-			query.Set("rate", "1")
-		}
-		if *maximum < 1 {
-			return errors.New("--max must be between 1 and 512")
-		}
-		if _, err := observability.ParseHistoryQuery(query, time.Now()); err != nil {
-			return err
-		}
 	case "events":
 		if *limit < 1 || *limit > observability.DefaultEventCapacity {
 			return errors.New("--limit must be between 1 and 2048")
 		}
 		query.Set("limit", strconv.Itoa(*limit))
 		query.Set("after", strconv.FormatUint(*after, 10))
-	case "decisions", "summary", "logs":
-		var err error
-		query, err = feature.query(view, *limit, *service)
-		if err != nil {
-			return err
-		}
-	case "credentials", "backups", "netbird":
-		var err error
-		path, err = observeOperationPath(view, *database, *partition)
-		if err != nil {
-			return err
-		}
-	}
-	if isObserveResource(view) {
-		var err error
-		path, err = observeResourcePath(view, *cell, *node, *service, *volume, *tenant, *function)
-		if err != nil {
-			return err
-		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	urls, token, err := observeAccess(ctx, *region, *origin, *tokenFile)
-	if err != nil {
-		return err
-	}
 	transport := &http.Transport{Proxy: nil, IdleConnTimeout: 30 * time.Second}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	var failures []error
-	var partialData []byte
-	var partialSource string
+	selectors := controlaccess.Regions()
+	if *region != "" {
+		selectors = []string{*region}
+	}
+	if *origin != "" {
+		selectors = []string{*origin}
+	}
 	type answer struct {
+		index  int
 		source string
 		data   []byte
 		err    error
 	}
-	answers := make(chan answer, len(urls))
-	for _, base := range urls {
+	answers := make(chan answer, len(selectors))
+	for i, selector := range selectors {
 		go func() {
-			resourcePath := path
-			if isObserveResource(view) && view != "regions" && *cell == "" {
-				data, err := observeFetch(ctx, client, base, "/v1/regions", nil, token)
-				if err != nil {
-					answers <- answer{source: base, err: err}
-					return
-				}
-				local, err := observeLocalCell(data)
-				if err != nil {
-					answers <- answer{source: base, err: err}
-					return
-				}
-				resourcePath, err = observeResourcePath(view, local, *node, *service, *volume, *tenant, *function)
-				if err != nil {
-					answers <- answer{source: base, err: err}
-					return
-				}
+			access, err := observeAccess(ctx, selector, *origin, *tokenFile)
+			if err != nil {
+				answers <- answer{index: i, err: err}
+				return
 			}
-			data, err := observeFetch(ctx, client, base, resourcePath, query, token)
-			answers <- answer{base, data, err}
+			base := access.URLs[0]
+			data, err := observeFetch(ctx, client, base, path, query, access.Token)
+			answers <- answer{i, base, data, err}
 		}()
 	}
-gather:
-	for range urls {
-		var result answer
-		select {
-		case result = <-answers:
-		case <-ctx.Done():
-			failures = append(failures, ctx.Err())
-			break gather
-		}
-		base, data, err := result.source, result.data, result.err
-		if err != nil {
-			failures = append(failures, err)
+	results := make([]answer, len(selectors))
+	for range selectors {
+		result := <-answers
+		results[result.index] = result
+	}
+	var failures []error
+	for i, result := range results {
+		if result.err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", selectors[i], result.err))
+			if *format == "table" {
+				if _, err := fmt.Fprintf(out, "REGION %s STATE unavailable\n", selectors[i]); err != nil {
+					return errors.Join(append(failures, err)...)
+				}
+			}
 			continue
 		}
 		var buffer strings.Builder
-		partial, err := writeObserve(&buffer, view, *format, base, *search, data)
+		partial, err := writeObserve(&buffer, view, *format, result.source, *search, result.data)
 		if err != nil {
-			failures = append(failures, err)
+			failures = append(failures, fmt.Errorf("%s: %w", result.source, err))
 			continue
 		}
 		if partial {
-			if partialData == nil {
-				partialData, partialSource = data, base
-			}
-			continue
+			failures = append(failures, fmt.Errorf("%s: partial or truncated observation; inspect the reported gaps", result.source))
 		}
-		_, err = io.WriteString(out, buffer.String())
-		return err
+		if _, err := io.WriteString(out, buffer.String()); err != nil {
+			return errors.Join(append(failures, err)...)
+		}
 	}
-	if partialData != nil {
-		_, err := writeObserve(out, view, *format, partialSource, *search, partialData)
-		return errors.Join(errors.New("observe returned partial or truncated data; inspect the reported gaps"), err)
-	}
-	return fmt.Errorf("observe %s: %w", view, errors.Join(failures...))
+	return errors.Join(failures...)
 }
 
-func observeAccess(ctx context.Context, region, origin, tokenFile string) ([]string, string, error) {
-	var urls []string
-	var token string
-	if (origin == "") != (tokenFile == "") {
-		return nil, "", errors.New("diagnostic access requires --url and --token-file together")
-	}
+func observeAccess(ctx context.Context, region, origin, tokenFile string) (controlaccess.Access, error) {
 	if origin == "" {
-		access, err := controlaccess.Resolve(ctx, region)
-		if err != nil {
-			if errors.Is(err, controlaccess.ErrPending) {
-				return nil, "", fmt.Errorf("observe access pending: %w", err)
-			}
-			return nil, "", fmt.Errorf("resolve admitted observe access: %w", err)
-		}
-		urls, token = access.URLs, access.Token
+		return controlaccess.Resolve(ctx, region)
 	}
-	if tokenFile != "" {
-		file, err := os.Open(tokenFile)
-		if err != nil {
-			return nil, "", fmt.Errorf("open observe token file: %w", err)
-		}
-		defer file.Close()
-		info, err := file.Stat()
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
-			return nil, "", errors.New("observe token file must be a private regular file")
-		}
-		data, err := io.ReadAll(io.LimitReader(file, 4097))
-		if err != nil {
-			return nil, "", err
-		}
-		token = strings.TrimSpace(string(data))
-		clear(data)
-		if len(data) > 4096 {
-			return nil, "", errors.New("observe token file exceeds 4096 bytes")
-		}
+	if _, err := controlaccess.Origin(origin); err != nil {
+		return controlaccess.Access{}, err
 	}
-	if len(token) < 32 || len(token) > 4096 || strings.ContainsAny(token, " \t\r\n\x00") {
-		return nil, "", errors.New("observe requires one 32-4096 byte bearer token from OCI Vault or a private file")
+	file, err := os.Open(tokenFile)
+	if err != nil {
+		return controlaccess.Access{}, fmt.Errorf("open observe token file: %w", err)
 	}
-	if origin != "" {
-		urls = []string{origin}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		return controlaccess.Access{}, errors.New("observe token file must be a private regular file")
 	}
-	if len(urls) == 0 {
-		return nil, "", fmt.Errorf("admitted management endpoints are unavailable: %w", controlaccess.ErrPending)
+	data, err := io.ReadAll(io.LimitReader(file, 4097))
+	if err != nil {
+		return controlaccess.Access{}, err
 	}
-	if len(urls) > 64 {
-		return nil, "", errors.New("observe endpoint inventory exceeds 64 controllers")
+	token := strings.TrimSpace(string(data))
+	clear(data)
+	if len(data) > 4096 || len(token) < 32 || len(token) > 4096 || strings.ContainsAny(token, " \t\r\n\x00") {
+		return controlaccess.Access{}, errors.New("observe requires one 32-4096 byte bearer token from a private file")
 	}
-	// Validate every destination before sending a credential to any of them.
-	for _, base := range urls {
-		if _, err := observeURL(base); err != nil {
-			return nil, "", err
-		}
-	}
-	return urls, token, nil
-}
-
-func observeURL(base string) (*url.URL, error) {
-	u, err := url.Parse(base)
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || (u.Scheme != "https" && u.Scheme != "http") {
-		return nil, errors.New("observe endpoint must be an HTTP(S) origin without credentials, path, query or fragment")
-	}
-	if u.Scheme == "http" {
-		host := u.Hostname()
-		ip, _ := netip.ParseAddr(host)
-		if host != "localhost" && !ip.IsLoopback() && !netip.MustParsePrefix("10.200.0.0/16").Contains(ip) && !strings.HasSuffix(host, ".nb.ts.internal") {
-			return nil, errors.New("HTTP observe endpoints require loopback or the encrypted NetBird overlay")
-		}
-	}
-	return u, nil
+	return controlaccess.Access{URLs: []string{origin}, Token: token}, nil
 }
 
 func observeFetch(ctx context.Context, client *http.Client, base, path string, query url.Values, token string) ([]byte, error) {
-	u, err := observeURL(base)
+	u, err := controlaccess.Origin(base)
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +220,7 @@ func observeFetch(ctx context.Context, client *http.Client, base, path string, q
 	if len(data) == 0 || strings.TrimSpace(string(data)) == "null" {
 		return nil, fmt.Errorf("%s: API returned empty observation", base)
 	}
-	if response.StatusCode != http.StatusOK && !observeResourceError(path, response.StatusCode, data) && !observeOperationError(path, response.StatusCode, data) {
+	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s: API returned HTTP %d", base, response.StatusCode)
 	}
 	return data, nil
@@ -415,24 +231,6 @@ func writeObserve(out io.Writer, view, format, source, search string, data []byt
 	partial := false
 	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	switch view {
-	case "foundation", "credentials", "backups", "netbird":
-		var err error
-		value, partial, err = writeObserveOperation(table, view, format, data)
-		if err != nil {
-			return false, err
-		}
-	case "decisions", "insights", "summary", "logs":
-		var err error
-		value, partial, err = writeObserveFeature(table, view, format, data)
-		if err != nil {
-			return false, err
-		}
-	case "regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume":
-		var err error
-		value, partial, err = writeObserveResource(table, view, format, data)
-		if err != nil {
-			return false, err
-		}
 	case "metrics":
 		var result observability.CatalogResult
 		if err := json.Unmarshal(data, &result); err != nil {
@@ -460,31 +258,6 @@ func writeObserve(out io.Writer, view, format, source, search string, data []byt
 				}
 				for _, sample := range metric.Samples {
 					fmt.Fprintf(table, "  SAMPLE\t%s\t%s\n", sample.Name, sample.Value)
-				}
-			}
-		}
-	case "history":
-		var result observability.CatalogHistory
-		if err := json.Unmarshal(data, &result); err != nil {
-			return false, errors.New("invalid history JSON")
-		}
-		if result.Version != 1 {
-			return false, errors.New("unsupported history version")
-		}
-		partial = result.Truncated || result.Pending || result.Incomplete || result.State != "available"
-		for _, series := range result.Series {
-			partial = partial || series.Stale || series.Gaps
-		}
-		value = result
-		if format == "table" {
-			fmt.Fprintf(table, "STATE\t%s\tREASON\t%s\nTRUNCATED\t%t\tPENDING\t%t\tINCOMPLETE\t%t\n", result.State, result.Reason, result.Truncated, result.Pending, result.Incomplete)
-			fmt.Fprintf(table, "RETENTION START\t%s\tINTERVAL seconds\t%g\tDROPPED SERIES\t%d\n", result.RetentionStart.Format(time.RFC3339), result.IntervalSeconds, result.DroppedSeries)
-			fmt.Fprintln(table, "METRIC\tLABELS\tTIER\tTIME\tVALUE\tMIN\tMAX")
-			for _, series := range result.Series {
-				fmt.Fprintf(table, "SERIES\t%s\tSTALE\t%t\tGAPS\t%t\tLAST OBSERVED\t%s\n", series.Metric, series.Stale, series.Gaps, series.LastObservedAt.Format(time.RFC3339))
-				labels, _ := json.Marshal(series.Labels)
-				for _, point := range series.Points {
-					fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%g\t%g\t%g\n", series.Metric, labels, series.Tier, point.Time.Format(time.RFC3339), point.Value, point.Min, point.Max)
 				}
 			}
 		}
@@ -535,7 +308,7 @@ func writeObserve(out io.Writer, view, format, source, search string, data []byt
 			Source  string `json:"source"`
 			Partial bool   `json:"partial"`
 			Data    any    `json:"data"`
-		}{1, view, source, partial, value}, jsontext.WithIndent("  "), jsonv1.FormatDurationAsNano(true)) // same duration shape the API serves
+		}{1, view, source, partial, value}, jsontext.WithIndent("  "), jsonv1.FormatDurationAsNano(true))
 		if err == nil {
 			_, err = io.WriteString(out, "\n")
 		}
