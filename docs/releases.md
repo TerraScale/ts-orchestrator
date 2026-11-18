@@ -36,7 +36,8 @@ later regions wait for the same tag's completed, baked fabric record. See
 Hosts install ts-orch releases from their own region's Oracle Cloud
 Infrastructure Registry (OCIR); they make no GitHub API call on this path.
 
-**Publish.** After main is green, CI's `deploy/release-publish` job runs the
+**Publish.** After the exact tree passed its merged PR's `all-green`, or
+after main's lanes pass when that proof is absent, CI's `deploy/release-publish` job runs the
 release's own amd64 binary:
 
 1. `ts-orch release channel prepare` builds the release artifact (one OCI image
@@ -418,9 +419,10 @@ executing this hook.
 ## Upgrade gate
 
 A release is published only if production's own updater can install it. Two
-release-blocking lanes in the `e2e-m1` matrix prove this before
-`deploy/release-publish` runs, on every push to main and on every pull request
-that changes runtime inputs:
+release-blocking lanes in the `e2e-m1` matrix prove this on every pull request
+that changes runtime inputs and run again on main. Publication can reuse
+the merged PR's successful gate only after proving identical trees; otherwise
+these main lanes must finish before `deploy/release-publish`:
 
 | Lane | Installed release | Release it must install |
 | --- | --- | --- |
@@ -452,7 +454,8 @@ installed binary's own pull updater then has to do the rest, unchanged:
 The lane passes when both hosts serve the candidate's revision and digest, no
 trial, staged trial or rollback record remains, and each host keeps the
 replaced release at `terrascale-orchestrator.prev`. It fails when any of those
-steps refuses or times out, and then `deploy/release-publish` does not run.
+steps refuses or times out. That blocks publication when main's lane gate
+is required; after an early publication it fails main and triggers its revert.
 
 The GitHub the hosts reach is a stand-in, and its bodies are GitHub's own:
 
@@ -545,11 +548,11 @@ run, so one flaky attempt cannot hold main red and releases back for hours:
    agent build. Its job summary says either "passed its automatic rerun" (a
    recorded flake) or "failed its first attempt and its one automatic rerun".
    The second case stays red and names the lane.
-4. `e2e-m1`, and through it `all-green` and `deploy/release-publish`, passes
+4. `e2e-m1`, and through it `all-green` and publication's selected lane gate, passes
    only if every lane passed its first attempt or its rerun.
 
 Only the `e2e-m1` matrix lanes are covered. `e2e-certificates` (one 30-minute
-job) and the `caller-key` shards also block `deploy/release-publish`, but they
+job) and the `caller-key` shards also block the selected lane gate, but they
 run only when their own inputs change and were not the lanes that held main
 red; covering them needs the same plan and rerun pair for each, a follow-up.
 
