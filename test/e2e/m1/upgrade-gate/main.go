@@ -359,7 +359,7 @@ func trusting(binary, trusted []byte) []byte {
 		offset = start + length
 	}
 	require(patched > 0, "the binary embeds no Sigstore trusted root")
-	return out
+	return oraclehost.StagingSigned(out)
 }
 
 func serving(ctx context.Context, host *oraclehost.Host, sha string, binary []byte) error {

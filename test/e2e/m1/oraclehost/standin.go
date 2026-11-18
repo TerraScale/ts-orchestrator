@@ -44,6 +44,7 @@ var standInNames = []string{
 	githubAPI,
 	githubWeb,
 	githubAssets,
+	stagingGate.Host,
 }
 
 type secret struct {
@@ -292,6 +293,12 @@ func (s *standIn) cloud(w http.ResponseWriter, r *http.Request) {
 		s.registry(w, r)
 	case host == githubAPI || host == githubWeb || host == githubAssets:
 		s.github.serve(w, r, host)
+	case r.Method == http.MethodGet && host == stagingGate.Host:
+		if tag, ok := stagingTag(host, r.URL.Path); ok {
+			s.staging(w, tag)
+			return
+		}
+		serviceError(w, http.StatusNotFound, "ObjectNotFound", "stand-in has no "+r.URL.Path)
 	default:
 		serviceError(w, http.StatusNotFound, "NotAuthorizedOrNotFound", "stand-in has no "+r.Method+" "+host+r.URL.Path)
 	}
