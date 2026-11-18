@@ -107,6 +107,15 @@ func (u Updater) turn(ctx context.Context, due bool, seen map[string]string) tur
 	return turn{err: u.cycle(ctx, moved)}
 }
 
+func (a Apply) Within(host context.Context) Apply {
+	return func(ctx context.Context, service, image string, claims releasepush.Claims, progress releasepush.Progress) (json.RawMessage, error) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		defer context.AfterFunc(host, cancel)()
+		return a(ctx, service, image, claims, progress)
+	}
+}
+
 func (u Updater) Cycle(ctx context.Context) error {
 	return u.cycle(ctx, Targets)
 }

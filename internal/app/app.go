@@ -151,7 +151,7 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 		close(meshDone) // a worker without IMDS stays out of the region's NATS cluster
 	} else {
 		go func() {
-			mesh.Run(ctx, *state, meshCluster(plan), func(node *mesh.Node) {
+			mesh.Run(ctx, *state, meshCluster(plan), public.Drained(), func(node *mesh.Node) {
 				meshNode.Store(node)
 				if plan.joiner() {
 					go func() {

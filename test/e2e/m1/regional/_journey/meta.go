@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -9,8 +10,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 )
@@ -250,6 +253,9 @@ func MetaBootJourney(root string) error {
 		return fmt.Errorf("KV after full restart: %v", err)
 	}
 	fmt.Println("ok metadata: full-fleet cold restart re-elected", leader, "with the same group and data")
+	if err := managerRestartJourney(ctx, fleet); err != nil {
+		return err
+	}
 
 	fleet.stop(alone)
 	if err := os.RemoveAll(fleet.cfgs[alone].dir); err != nil {
@@ -278,5 +284,195 @@ func MetaBootJourney(root string) error {
 		return fmt.Errorf("stream replicas after empty rejoin: %w", err)
 	}
 	fmt.Println("ok metadata: a founder with an empty log joined the existing group instead of forming one")
+	return nil
+}
+
+const (
+	leaseBucket  = "journey-leases"
+	leaseLapse   = 2500 * time.Millisecond
+	journeyDrain = 2 * time.Second
+)
+
+type leaseAck struct {
+	at     time.Time
+	server string
+}
+
+type leaseWrites struct {
+	mu   sync.Mutex
+	acks []leaseAck
+}
+
+func (w *leaseWrites) first(match func(leaseAck) bool) (leaseAck, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	index := slices.IndexFunc(w.acks, match)
+	if index < 0 {
+		return leaseAck{}, false
+	}
+	return w.acks[index], true
+}
+
+func (w *leaseWrites) lastBefore(at time.Time) (leaseAck, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	index := slices.IndexFunc(w.acks, func(ack leaseAck) bool { return !ack.at.Before(at) })
+	if index == 0 || len(w.acks) == 0 {
+		return leaseAck{}, false
+	}
+	if index < 0 {
+		index = len(w.acks)
+	}
+	return w.acks[index-1], true
+}
+
+func (w *leaseWrites) widest(from, to time.Time) (time.Duration, int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	last, widest, count := from, time.Duration(0), 0
+	for _, ack := range w.acks {
+		if ack.at.Before(from) || ack.at.After(to) {
+			continue
+		}
+		widest, last, count = max(widest, ack.at.Sub(last)), ack.at, count+1
+	}
+	return widest, count
+}
+
+func holdLease(ctx context.Context, cfg config, writes *leaseWrites) error {
+	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", cfg.localPort), nats.Token(cfg.terrabaseToken), nats.Name("journey-lease-"+cfg.region),
+		nats.IgnoreDiscoveredServers(), nats.MaxReconnects(-1), nats.ReconnectWait(100*time.Millisecond))
+	if err != nil {
+		return err
+	}
+	js, err := conn.JetStream(nats.MaxWait(500 * time.Millisecond))
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	kv, err := js.KeyValue(leaseBucket)
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	go func() {
+		defer conn.Close()
+		tick := time.NewTicker(100 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			if _, err := kv.Put("home."+cfg.region, []byte(time.Now().Format(time.RFC3339Nano))); err == nil {
+				ack := leaseAck{at: time.Now(), server: conn.ConnectedServerId()}
+				writes.mu.Lock()
+				writes.acks = append(writes.acks, ack)
+				writes.mu.Unlock()
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+		}
+	}()
+	return nil
+}
+
+func managerRestartJourney(ctx context.Context, fleet *metaFleet) error {
+	regions := fleet.regions
+	js, err := fleet.nodes[regions[0]].fabric.JetStream(nats.Context(ctx))
+	if err != nil {
+		return err
+	}
+	if _, err := js.CreateKeyValue(&nats.KeyValueConfig{Bucket: leaseBucket, Replicas: len(regions), TTL: 10 * time.Second}); err != nil {
+		return fmt.Errorf("lease bucket: %w", err)
+	}
+	writing, stopWriting := context.WithCancel(ctx)
+	defer stopWriting()
+	holders := map[string]*leaseWrites{}
+	for _, region := range regions {
+		holders[region] = &leaseWrites{}
+		if err := holdLease(writing, fleet.cfgs[region], holders[region]); err != nil {
+			return fmt.Errorf("%s lease holder: %w", region, err)
+		}
+	}
+	anyAck := func(leaseAck) bool { return true }
+	if err := regionalAwait(ctx, func() bool {
+		return !slices.ContainsFunc(regions, func(region string) bool { _, ok := holders[region].first(anyAck); return !ok })
+	}); err != nil {
+		return fmt.Errorf("every region renews its lease: %w", err)
+	}
+	for _, region := range regions {
+		var health error
+		if err := regionalAwait(ctx, func() bool { health = fleet.nodes[region].lifecycle.Health(ctx); return health == nil }); err != nil {
+			return fmt.Errorf("%s health before the manager restart: %w (%v)", region, err, health)
+		}
+	}
+	info, err := js.StreamInfo("KV_" + leaseBucket)
+	if err != nil || info.Cluster == nil || !slices.Contains(regions, info.Cluster.Leader) {
+		return fmt.Errorf("lease bucket leader: %v", err)
+	}
+	restarting := info.Cluster.Leader
+	stopping := fleet.nodes[restarting]
+	retired := stopping.server.ID()
+	began := time.Now()
+	if err := stopping.PrepareStop(ctx); err != nil {
+		groups, _ := json.Marshal(stopping.server.Raftz(&server.RaftzOptions{AccountFilter: FabricAccount}))
+		return fmt.Errorf("planned stop of the %s manager: %w; its Raft groups: %s", restarting, err, groups)
+	}
+	budget, finish := plannedstop.WithBudget(ctx)
+	defer finish()
+	drained, closed := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(closed)
+		stopping.closeAfterDrain(budget, drained)
+	}()
+	draining := time.Now()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(journeyDrain):
+	}
+	shutdown := time.Now()
+	close(drained)
+	<-closed
+	delete(fleet.nodes, restarting)
+	if err := fleet.start(restarting); err != nil {
+		return err
+	}
+	replacement := fleet.nodes[restarting].server.ID()
+	if _, err := fleet.await(ctx, "the restarted manager rejoins", regions); err != nil {
+		return err
+	}
+	rejoined := time.Now()
+	fresh := map[string]func(leaseAck) bool{}
+	for _, region := range regions {
+		fresh[region] = func(ack leaseAck) bool { return ack.at.After(rejoined) }
+	}
+	fresh[restarting] = func(ack leaseAck) bool { return ack.server == replacement }
+	if err := regionalAwait(ctx, func() bool {
+		return !slices.ContainsFunc(regions, func(region string) bool { _, ok := holders[region].first(fresh[region]); return !ok })
+	}); err != nil {
+		return fmt.Errorf("every region renews through the rejoined fleet, %s through its replacement server: %w", restarting, err)
+	}
+	stopWriting()
+	if _, ok := holders[restarting].first(func(ack leaseAck) bool {
+		return ack.server == retired && ack.at.After(draining.Add(journeyDrain/2)) && ack.at.Before(shutdown)
+	}); !ok {
+		return fmt.Errorf("the %s lease was not renewed through its own manager while that manager drained", restarting)
+	}
+	var gaps []string
+	for _, region := range regions {
+		from, ok := holders[region].lastBefore(began)
+		if !ok {
+			return fmt.Errorf("%s has no renewal before the handoff", region)
+		}
+		to, _ := holders[region].first(fresh[region])
+		widest, count := holders[region].widest(from.at, to.at)
+		if widest >= leaseLapse {
+			return fmt.Errorf("the %s lease lapsed %s while the %s manager handed off, drained, restarted and rejoined", region, widest, restarting)
+		}
+		gaps = append(gaps, fmt.Sprintf("%s=%s over %s (%d renewals)", region, widest.Round(time.Millisecond), to.at.Sub(from.at).Round(time.Millisecond), count))
+	}
+	fmt.Printf("ok manager restart: every region renewed the R3 lease bucket from its last renewal before the %s handoff to a fresh one after the rejoin, %s through its draining manager and then its replacement; widest gaps: %s\n",
+		restarting, restarting, strings.Join(gaps, ", "))
 	return nil
 }

@@ -64,6 +64,37 @@ the planned stop and restores election eligibility. The single log entry
 `mesh leaders transferred` gives the transferred group count, elapsed time,
 and groups whose successor was still unconfirmed at the bound.
 
+At the stop signal the node stops its own ts-orch work, closes its own
+connections, and refuses and disconnects every named ts-orch user (ORCH,
+fabric, alerts, membership, monitor), so no rollout, apply or rollback
+publishes through a stopping node. The embedded server itself stays open for
+TerraBase's token-authenticated loopback clients and for mesh routes until the
+edge reports its listeners drained, and then shuts down. The stop budget is
+split: the edge gets `plannedstop.EdgeShare` (the 20-second drain plus 5
+seconds of HTTP shutdown), and the server's shutdown and store flush get the
+remaining 5 seconds of `plannedstop.Limit` (30 seconds), even when an edge
+worker never finishes. After a successful handoff, the replicated groups this
+server led or followed are observers: they vote and replicate but cannot lead.
+That holds only for groups that existed at the handoff. The stopping peer
+stays eligible for new placement, and a group created on it during the drain
+can elect it. After a refused handoff, the stop still proceeds within the
+budget without that guarantee.
+
+TerraBase on the host dials only `127.0.0.1:4223`, so it keeps its lease and
+regional-owner renewals through the drain and loses its server only from the
+process exit until the next process listens and routes. About 3.5 s is an
+estimate from one pre-change timeline (sjc, 2026-11-18 21:32: exit 43.45, new
+server admitted TerraBase 46.66, cross-region routes up by 47.10), not a
+measured post-change outage. Whether the 5-second regional-writer lease
+survives depends on the last successful renewal before the exit and the first
+one after reconnection. Those two timestamps are the check after each install.
+
+The guarantee assumes one stopping manager at a time, the serial order the
+orchestrator release follows (one host per region, regions in turn, see
+[Orchestrator releases](#orchestrator-releases)). An observer still votes, so
+two managers stopping at once each count the other's replica, and an R3 group
+loses quorum once both are down.
+
 A signed release prepares the handoff immediately before the binary swap.
 A refusal returns `host refused release restart` to the release caller and
 keeps the running binary and listeners. An unsuccessful installation restores

@@ -4,10 +4,11 @@ import (
 	"errors"
 	"net"
 	"sync"
-	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 )
 
-const shutdownGrace = 5 * time.Second
+const shutdownGrace = plannedstop.EdgeShare - plannedstop.DrainWindow
 
 type shutdownListener struct {
 	net.Listener

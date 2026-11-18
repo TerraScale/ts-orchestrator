@@ -209,6 +209,7 @@ type Node struct {
 	announced       map[string]announcement
 	joined          []WorkerPeer
 	listening       time.Time
+	auth            *clientAuth
 	settled         chan struct{}
 	regionReached   chan struct{}
 }
@@ -322,7 +323,7 @@ func start(cfg config) (_ *Node, err error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, membershipConn: membershipConn, gossip: gossip, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
+	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, auth: auth, conn: conn, membershipConn: membershipConn, gossip: gossip, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
 		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{}), regionReached: make(chan struct{})}
 	if err := node.loadWorkers(); err != nil {
 		node.closeConns()
@@ -469,14 +470,6 @@ func (n *Node) Close() error {
 	return n.close(context.Background())
 }
 
-func (n *Node) CloseContext(ctx context.Context) error {
-	if ctx.Err() != nil {
-		n.ForceClose()
-		return nil
-	}
-	return n.close(ctx)
-}
-
 func (n *Node) close(ctx context.Context) error {
 	err := n.PrepareStop(ctx)
 	n.ForceClose()
@@ -484,14 +477,18 @@ func (n *Node) close(ctx context.Context) error {
 }
 
 func (n *Node) ForceClose() {
+	n.stopWork()
+	n.server.Shutdown()
+	n.server.WaitForShutdown()
+	n.work.Wait()
+}
+
+func (n *Node) stopWork() {
 	n.workMu.Lock()
 	n.closing = true
 	n.workMu.Unlock()
 	n.cancel()
 	n.closeConns()
-	n.server.Shutdown()
-	n.server.WaitForShutdown()
-	n.work.Wait()
 }
 
 func (n *Node) regions() []string {

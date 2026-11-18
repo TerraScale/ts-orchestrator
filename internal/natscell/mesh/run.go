@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/nats-io/nats-server/v2/server"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
 
@@ -41,13 +43,13 @@ const (
 // Run serves this host's region on the mesh until ctx ends, calling started
 // once the node runs. A missing Vault secret, IMDS answer or peer never stops
 // local serving: Run logs and retries, and gateways reconnect on their own.
-func Run(ctx context.Context, state string, cluster Cluster, started func(*Node)) {
+func Run(ctx context.Context, state string, cluster Cluster, drained <-chan struct{}, started func(*Node)) {
 	ctx, finish := plannedstop.WithBudget(ctx)
 	defer finish()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		run(ctx, state, cluster, started)
+		run(ctx, state, cluster, drained, started)
 	}()
 	select {
 	case <-done:
@@ -56,7 +58,7 @@ func Run(ctx context.Context, state string, cluster Cluster, started func(*Node)
 	}
 }
 
-func run(ctx context.Context, state string, cluster Cluster, started func(*Node)) {
+func run(ctx context.Context, state string, cluster Cluster, drained <-chan struct{}, started func(*Node)) {
 	for {
 		admission, stored, err := swarmruntime.StoredAdmission(state)
 		if err == nil && stored {
@@ -74,10 +76,19 @@ func run(ctx context.Context, state string, cluster Cluster, started func(*Node)
 			go watchHostRole(runCtx, state, cluster.Worker, cancel)
 			node.Run(runCtx)
 			roleChanged := runCtx.Err() != nil
-			if err := node.CloseContext(ctx); err != nil {
-				slog.Warn("mesh stop forced", "error", err)
-				node.ForceClose()
+			var prepared error
+			if ctx.Err() == nil {
+				prepared = node.PrepareStop(ctx)
 			}
+			if ctx.Err() != nil {
+				node.closeAfterDrain(ctx, drained)
+				cancel()
+				return
+			}
+			if prepared != nil {
+				slog.Warn("mesh stop forced", "error", prepared)
+			}
+			node.ForceClose()
 			cancel()
 			if ctx.Err() != nil {
 				return
@@ -95,6 +106,41 @@ func run(ctx context.Context, state string, cluster Cluster, started func(*Node)
 		case <-time.After(retryEvery):
 		}
 	}
+}
+
+func (n *Node) closeAfterDrain(ctx context.Context, drained <-chan struct{}) {
+	n.stopWork()
+	n.quiesce()
+	edge, release := plannedstop.Share(ctx, plannedstop.EdgeShare)
+	defer release()
+	slog.Info("mesh NATS keeps serving TerraBase and routes until the edge drains", "server", n.server.Name(), "until", deadlineOf(edge))
+	select {
+	case <-drained:
+	case <-edge.Done():
+		slog.Warn("mesh NATS shutdown started at the edge's share of the stop budget", "server", n.server.Name())
+	}
+	n.ForceClose()
+}
+
+func (n *Node) quiesce() {
+	n.auth.quiesced.Store(true)
+	connz, err := n.server.Connz(&server.ConnzOptions{Username: true, Limit: math.MaxInt32})
+	if err != nil {
+		slog.Warn("mesh ts-orch clients not listed for disconnection", "error", err)
+		return
+	}
+	for _, conn := range connz.Conns {
+		if _, named := n.auth.users[conn.AuthorizedUser]; named {
+			if err := n.server.DisconnectClientByID(conn.Cid); err != nil {
+				slog.Warn("mesh ts-orch client not disconnected", "user", conn.AuthorizedUser, "cid", conn.Cid, "error", err)
+			}
+		}
+	}
+}
+
+func deadlineOf(ctx context.Context) time.Time {
+	end, _ := ctx.Deadline()
+	return end
 }
 
 func watchHostRole(ctx context.Context, state string, worker bool, cancel context.CancelFunc) {

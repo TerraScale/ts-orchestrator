@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/nats-io/nats-server/v2/logger"
 	"github.com/nats-io/nats-server/v2/server"
@@ -125,6 +126,7 @@ type clientAuth struct {
 	server    *server.Server
 	users     map[string]credential
 	terrabase credential
+	quiesced  atomic.Bool
 }
 
 func (a *clientAuth) Check(c server.ClientAuthentication) bool {
@@ -134,6 +136,9 @@ func (a *clientAuth) Check(c server.ClientAuthentication) bool {
 	}
 	name, want, presented := terrabaseUser, a.terrabase, opts.Token
 	if opts.Username != "" {
+		if a.quiesced.Load() {
+			return false
+		}
 		user, ok := a.users[opts.Username]
 		if !ok {
 			return false

@@ -86,6 +86,8 @@ type Edge struct {
 	draining           atomic.Bool
 	lastHealthProbe    atomic.Int64
 	drainStarted       atomic.Pointer[time.Time]
+	drained            chan struct{}
+	drainedOnce        sync.Once
 	requestDurations   sync.Map
 	upstreamSockets    upstreamBudget
 }
@@ -106,6 +108,7 @@ func newEdge(stateDir string) *Edge {
 		peerAddr:         func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
 		spoolDir:         filepath.Join(stateDir, "edge-spool"),
 		netbirdDashboard: netbirddashboard.New(stateDir),
+		drained:          make(chan struct{}),
 	}
 	e.bootstrap, e.bootstrapErr = rolloutmaintenance.Open(stateDir)
 	e.inventoryMissing.Store(true)
@@ -293,9 +296,14 @@ func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
+func (e *Edge) Drained() <-chan struct{} { return e.drained }
+
+func (e *Edge) markDrained() { e.drainedOnce.Do(func() { close(e.drained) }) }
+
 func (e *Edge) Run(ctx context.Context) error {
 	ctx, finish := plannedstop.WithBudget(ctx)
 	defer finish()
+	defer e.markDrained()
 	if err := e.certs.cache.loadDisk(ctx); err != nil {
 		return err
 	}
@@ -306,8 +314,11 @@ func (e *Edge) Run(ctx context.Context) error {
 		"edge readiness":         func() { e.reconcileReadiness(ctx) },
 		"edge NetBird dashboard": func() { e.reconcileNetBirdDashboard(ctx) },
 	}
+	var serving []string
 	for _, protocol := range []string{"http", "https", "postgres", "terrabase"} {
-		workers["edge "+protocol+" listener"] = func() { e.runListener(listeners, protocol) }
+		name := "edge " + protocol + " listener"
+		serving = append(serving, name)
+		workers[name] = func() { e.runListener(listeners, protocol) }
 	}
 	done := make(map[string]chan struct{}, len(workers))
 	for name, work := range workers {
@@ -334,6 +345,10 @@ func (e *Edge) Run(ctx context.Context) error {
 		}
 	}
 	stop()
+	for _, name := range serving {
+		plannedstop.Wait(ctx, name, done[name])
+	}
+	e.markDrained()
 	for name, stopped := range done {
 		plannedstop.Wait(ctx, name, stopped)
 	}
