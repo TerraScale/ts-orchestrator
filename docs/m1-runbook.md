@@ -406,7 +406,7 @@ A removed host cannot rejoin with its old identity. Terminate it, or stop ts-orc
 
 Every green main push with a changed binary publishes an attested release.
 Hosts discover and verify it, then update one host at a time and one region
-at a time after the predecessor's completion and five-minute bake. CI observes
+at a time after the predecessor passes its regional health gate. CI observes
 through authenticated HTTPS. See [delivery-pipeline.md](delivery-pipeline.md).
 
 The following measurements are historical results of the retired delivery path.

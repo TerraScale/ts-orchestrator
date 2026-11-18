@@ -545,6 +545,8 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 		}()
 		updater := pullrelease.New(region, node.ID(), state, conn, fabric, releases, func(ctx context.Context) ([]pullrelease.Host, error) {
 			return regionHosts(ctx, state)
+		}, func(ctx context.Context) ([]pullrelease.Service, error) {
+			return regionServices(ctx, state)
 		})
 		if err := updater.Run(managing); err != nil && ctx.Err() == nil && managing.Err() == nil {
 			slog.WarnContext(ctx, "pull release updater stopped", "error", err)
@@ -576,6 +578,43 @@ func regionHosts(ctx context.Context, state string) ([]pullrelease.Host, error) 
 		hosts = append(hosts, pullrelease.Host{ID: node.ID, Name: name})
 	}
 	return hosts, nil
+}
+
+func regionServices(ctx context.Context, state string) ([]pullrelease.Service, error) {
+	control, closer, err := swarmruntime.DialControl(state)
+	if err != nil {
+		return nil, err
+	}
+	defer closer.Close()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	specs, err := swarmruntime.ListServiceSpecs(ctx, control)
+	if err != nil {
+		return nil, err
+	}
+	listed, err := control.ListServices(ctx, &api.ListServicesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	tasks, err := control.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	for _, service := range listed.Services {
+		names[service.ID] = service.Spec.Annotations.Name
+	}
+	running := map[string][]string{}
+	for _, task := range tasks.Tasks {
+		if task.Status.State == api.TaskStateRunning {
+			running[names[task.ServiceID]] = append(running[names[task.ServiceID]], task.ID)
+		}
+	}
+	services := make([]pullrelease.Service, 0, len(specs))
+	for _, spec := range specs {
+		services = append(services, pullrelease.Service{Name: spec.Name, Running: spec.Running, Replicas: spec.Replicas, Generation: spec.Generation, Tasks: running[spec.Name]})
+	}
+	return services, nil
 }
 
 func meshRoute(address string) string {

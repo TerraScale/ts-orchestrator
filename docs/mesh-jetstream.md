@@ -319,8 +319,8 @@ Production binary pull order is sjc, fra, gru. Isolated stg admission has no
 local predecessor; authenticating its verdict for production remains the
 merge blocker described in [platform releases](platform.md#releases).
 The regional leader reads its predecessor's record from the fabric pull store.
-It takes a tag only after that exact tag has completed and passed an observed
-five-minute bake. A failed or unavailable predecessor blocks later regions.
+It takes a tag only after that exact tag has completed and passed its
+predecessor's regional health gate. A failed or unavailable predecessor blocks later regions.
 Within a region, hosts install one at a time through PullInstall, downloading
 and verifying the attested binary themselves. Host probation and the regional
 health gate must pass before completion. Bake failures roll back the affected

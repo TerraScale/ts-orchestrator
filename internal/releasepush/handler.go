@@ -77,7 +77,10 @@ type Reply struct {
 	Arch       string          `json:"arch,omitempty"`
 	Degraded   []string        `json:"degraded,omitempty"`
 	Seq        uint64          `json:"seq,omitempty"`
+	Started    time.Time       `json:"started,omitzero"`
 }
+
+var processStarted = time.Now().UTC()
 
 type HealthRequest struct {
 	Service string `json:"service"`
@@ -186,8 +189,10 @@ func Revision() string {
 }
 
 func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Context, []byte) Reply) error {
+	var subscriptions []*nats.Subscription
+	var mu sync.Mutex
 	for subject, handle := range subjects {
-		if _, err := conn.Subscribe(subject, func(m *nats.Msg) {
+		subscription, err := conn.Subscribe(subject, func(m *nats.Msg) {
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), HandlerWait)
 				defer cancel()
@@ -200,6 +205,13 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 					slog.Warn("release reply delivery failed", "error", err)
 				}
 				if reply.State == "installed" || reply.State == stateRestoring {
+					mu.Lock()
+					for _, subscription := range subscriptions {
+						if err := subscription.Unsubscribe(); err != nil && !errors.Is(err, nats.ErrBadSubscription) {
+							slog.Warn("release installed; request subscription not closed", "error", err)
+						}
+					}
+					mu.Unlock()
 					if err := conn.FlushTimeout(5 * time.Second); err != nil {
 						slog.Warn("release installed; reply flush failed", "error", err)
 					}
@@ -210,9 +222,13 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 					}
 				}
 			}()
-		}); err != nil {
+		})
+		if err != nil {
 			return err
 		}
+		mu.Lock()
+		subscriptions = append(subscriptions, subscription)
+		mu.Unlock()
 	}
 	return conn.Flush()
 }
@@ -220,7 +236,7 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }
 
 func (h *Handler) version() Reply {
-	reply := Reply{Version: h.Revision, SHA256: h.Digest, Arch: runtime.GOARCH}
+	reply := Reply{Version: h.Revision, SHA256: h.Digest, Arch: runtime.GOARCH, Started: processStarted}
 	reply.State, reply.Error = h.probation.status()
 	if rollback := h.rolledBack.Load(); rollback != nil {
 		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason

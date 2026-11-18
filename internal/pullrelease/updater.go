@@ -24,11 +24,12 @@ import (
 
 const (
 	DefaultPoll       = 5 * time.Minute
-	DefaultHealthyFor = 15 * time.Second
+	DefaultHealthyFor = 4 * time.Second
 	DefaultDeadline   = 3 * time.Minute
-	DefaultBakeFor    = 5 * time.Minute
+	DefaultBakeFor    = 20 * time.Second
 
-	channelPoll  = 15 * time.Second
+	channelPoll  = 10 * time.Second
+	legacyBake   = 5 * time.Minute
 	checkEvery   = 2 * time.Second
 	bakeFailures = 3
 	askWait      = 8 * time.Second
@@ -50,7 +51,7 @@ type Updater struct {
 	Conn       *nats.Conn
 	Fabric     *nats.Conn
 	Hosts      func(context.Context) ([]Host, error)
-	Health     func(context.Context) error
+	Services   func(context.Context) ([]Service, error)
 	Source     *releaseattest.Source
 	Channel    *ocirelease.Reader
 	Attest     releaseattest.Verifier
@@ -70,16 +71,13 @@ type Updater struct {
 	failures   int
 	retry      time.Time
 	sweepAfter time.Time
+	seenTag    string
+	seenAt     time.Time
+	watched    watch
 }
 
-func New(region, self, state string, conn, fabric *nats.Conn, handler *releasepush.Handler, hosts func(context.Context) ([]Host, error)) *Updater {
-	return &Updater{Region: region, Self: self, State: state, Conn: conn, Fabric: fabric, Hosts: hosts,
-		Health: func(ctx context.Context) error {
-			if handler.Health == nil {
-				return errors.New("this host has no health check")
-			}
-			return handler.Health(ctx, "").Err()
-		},
+func New(region, self, state string, conn, fabric *nats.Conn, handler *releasepush.Handler, hosts func(context.Context) ([]Host, error), services func(context.Context) ([]Service, error)) *Updater {
+	return &Updater{Region: region, Self: self, State: state, Conn: conn, Fabric: fabric, Hosts: hosts, Services: services,
 		Source: handler.Source, Channel: &ocirelease.Reader{Registry: handler.Registry, Attest: handler.Attest}, Attest: handler.Attest, Client: handler.Client,
 		Poll: DefaultPoll, HealthyFor: DefaultHealthyFor, Deadline: DefaultDeadline, BakeFor: DefaultBakeFor}
 }
@@ -146,7 +144,7 @@ func (u *Updater) turn(ctx context.Context) time.Duration {
 		slog.InfoContext(ctx, "taking over the region's pull rollout", "region", u.Region, "from", u.status.Owner, "phase", u.status.Phase)
 		u.status.Owner = u.Self
 		u.sweepAfter = time.Time{}
-		if u.status.Phase == PhaseComplete && u.status.Baked.IsZero() {
+		if u.status.Phase == PhaseComplete && !u.status.passed() {
 			u.status.Done = time.Now().UTC()
 			u.status.Healthy, u.status.Failing, u.status.Failed, u.status.Failures = time.Time{}, time.Time{}, 0, 0
 		}
@@ -161,8 +159,12 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 	if u.status.Phase == PhaseRollingBack && u.status.Target != nil {
 		return u.restore(ctx)
 	}
-	if u.status.Phase == PhaseComplete && u.status.Target != nil && u.status.Baked.IsZero() {
+	if u.status.Phase == PhaseComplete && u.status.Target != nil && !u.status.passed() {
 		return u.bake(ctx)
+	}
+	if u.status.Phase == PhaseComplete && u.status.Baked.IsZero() && time.Since(u.status.Done) >= legacyBake {
+		u.status.Baked = time.Now().UTC()
+		u.save(ctx)
 	}
 
 	release, err := u.discover(ctx)
@@ -223,13 +225,17 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			return u.Poll
 		}
 		slog.InfoContext(ctx, "attested release found; rolling it out", "release", attested.Tag())
+		discovered := time.Now().UTC()
+		if u.seenTag == attested.Tag() {
+			discovered = u.seenAt
+		}
 		u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Checked: u.status.Checked,
-			Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel}
+			Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: discovered, Baseline: u.baseline(ctx)}
 		if !u.save(ctx) {
 			return renewEvery
 		}
 	}
-	if u.status.Phase == PhaseComplete && !u.status.Baked.IsZero() && time.Now().Before(u.sweepAfter) {
+	if u.status.Phase == PhaseComplete && u.status.passed() && time.Now().Before(u.sweepAfter) {
 		return u.pollInterval()
 	}
 	return u.roll(ctx)
@@ -251,6 +257,9 @@ func (u *Updater) discover(ctx context.Context) (releaseattest.Release, error) {
 	defer cancel()
 	u.newest, u.newestErr = u.newestRelease(discover)
 	u.listed = time.Now()
+	if u.newest.SHA != "" && u.newest.Tag() != u.seenTag {
+		u.seenTag, u.seenAt = u.newest.Tag(), u.listed.UTC()
+	}
 	return u.newest, u.newestErr
 }
 
@@ -269,6 +278,17 @@ func (u *Updater) newestRelease(ctx context.Context) (releaseattest.Release, err
 		slog.WarnContext(ctx, "release channel backing off; using the GitHub release fallback", "region", u.Region, "channel_retry", u.retry)
 	}
 	return u.Source.Newest(ctx)
+}
+
+func published(release releaseattest.Release) time.Time {
+	if release.Channel == nil {
+		return time.Time{}
+	}
+	channel, err := releaseattest.ParseChannel(release.Channel.Document)
+	if err != nil {
+		return time.Time{}
+	}
+	return channel.PublishedAt
 }
 
 func (u *Updater) attested(ctx context.Context, release releaseattest.Release) (releaseattest.Release, error) {
@@ -341,6 +361,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			}
 			switch {
 			case reply.State == "installed" || reply.State == "current":
+				row.Installed = time.Now().UTC()
 			case reply.State == releasepush.StateNewer:
 				row.State = HostNewer
 				continue
@@ -355,6 +376,9 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 				return u.wait(ctx, host.Name+" did not install: "+cmp.Or(refusalReason(reply), reply.Error, reply.State))
 			}
 		}
+		if row.Installed.IsZero() {
+			row.Installed = cmp.Or(reply.Started, time.Now()).UTC()
+		}
 		row.State = HostGating
 		u.save(ctx)
 		if host.ID == u.Self && !onTarget {
@@ -367,7 +391,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			}
 			return u.rolledBack(ctx, row, err.Error())
 		}
-		row.State, row.Error, row.Version, row.SHA256 = HostDone, "", target.SHA, want.SHA256
+		row.State, row.Error, row.Version, row.SHA256, row.Ready = HostDone, "", target.SHA, want.SHA256, time.Now().UTC()
 		u.save(ctx)
 	}
 	u.status.Phase, u.status.Reason = PhaseComplete, ""
@@ -418,12 +442,13 @@ func (u *Updater) regionReady(ctx context.Context, except string) string {
 			return host.Name + " does not answer: " + err.Error()
 		case reply.State != "":
 			return host.Name + " is in release " + reply.State
-		case reply.Health != "ok":
-			return host.Name + " is not healthy: " + reply.Health
+		}
+		if worse := u.status.Baseline.worseHost(host.ID, reply.Health); worse != "" {
+			return host.Name + " is worse than before the release: " + worse
 		}
 	}
-	if err := u.Health(ctx); err != nil {
-		return "region not healthy: " + err.Error()
+	if _, worse := u.servicesWorse(ctx); worse != "" {
+		return "region worse than before the release: " + worse
 	}
 	return ""
 }
@@ -446,11 +471,11 @@ func (u *Updater) gate(ctx context.Context, host Host, target releaseattest.Rele
 			return fmt.Errorf("%s left the release; it runs %s %s: %s", host.Name, reply.Version, reply.SHA256, reply.Error)
 		case reply.State != "":
 			last = "release " + reply.State
-		case reply.Health != "ok":
-			last = reply.Health
 		default:
-			if err := u.Health(ctx); err != nil {
-				last = "region: " + err.Error()
+			if worse := u.status.Baseline.worseHost(host.ID, reply.Health); worse != "" {
+				last = worse
+			} else if _, worse := u.servicesWorse(ctx); worse != "" {
+				last = "region: " + worse
 			} else {
 				healthy = true
 			}
@@ -651,19 +676,20 @@ func (u *Updater) predecessor(ctx context.Context, tag string) string {
 	if err != nil {
 		return previous + ": predecessor rollout unreadable: " + err.Error()
 	}
-	if status.Target == nil || status.Target.Tag() != tag || status.Phase != PhaseComplete || status.Done.IsZero() || status.Baked.IsZero() {
-		return previous + ": waiting for the same release to complete"
-	}
-	if status.Baked.Sub(status.Done) < u.BakeFor {
-		return previous + ": completed release is still baking"
+	if status.Target == nil || status.Target.Tag() != tag || status.Phase != PhaseComplete || status.Done.IsZero() || !status.passed() {
+		return previous + ": waiting for the same release to pass its regional gate"
 	}
 	return ""
 }
 
 func (u *Updater) bake(ctx context.Context) time.Duration {
 	now := time.Now().UTC()
-	if row, check, failure := u.bakeSample(ctx); failure != "" {
-		slog.WarnContext(ctx, "regional bake sample failed", "release", u.status.Target.Tag(), "host", row.Host, "check", check, "failure", failure)
+	row, check, failure, restarted := u.bakeSample(ctx)
+	if restarted {
+		return u.rolledBack(ctx, row, "regional gate: "+failure)
+	}
+	if failure != "" {
+		slog.WarnContext(ctx, "regional gate sample failed", "release", u.status.Target.Tag(), "host", row.Host, "check", check, "failure", failure)
 		if u.status.Failed == 0 {
 			u.status.Failing = now
 		}
@@ -690,10 +716,8 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 	if now.Sub(u.status.Healthy) < u.BakeFor || now.Sub(u.status.Done) < u.BakeFor {
 		return checkEvery
 	}
-	if u.status.Baked.IsZero() {
-		u.status.Baked = now
-		u.save(ctx)
-	}
+	u.status.Passed = now
+	u.save(ctx)
 	u.sweepAfter = time.Now().Add(u.Poll)
 	return u.pollInterval()
 }
@@ -702,19 +726,36 @@ func (u *Updater) bakeBound() time.Duration {
 	return 2*u.BakeFor + rollout.BakeFailureDuration
 }
 
-func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string, string) {
+func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string, string, bool) {
+	if !u.watched.done.Equal(u.status.Done) {
+		u.watched = watch{done: u.status.Done, tasks: map[string][]string{}, versions: map[string][2]int64{}}
+	}
+	var row *HostProgress
+	check, failure := "", ""
 	for i := range u.status.Hosts {
-		row := &u.status.Hosts[i]
-		if row.State == HostNewer {
+		host := &u.status.Hosts[i]
+		if host.State == HostNewer {
 			continue
 		}
-		reply, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
-		if err != nil || reply.State != "" || reply.Health != "ok" || reply.Version != row.Version || reply.SHA256 != row.SHA256 {
-			return row, "host status", fmt.Sprintf("%v %s %s %s", err, reply.State, reply.Health, reply.Error)
+		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
+		if err == nil && reply.Started.After(u.status.Done) {
+			return host, "restart", fmt.Sprintf("%s orchestrator restarted at %s, after the gate began", host.Host, reply.Started.UTC().Format(time.RFC3339)), true
+		}
+		if failure != "" {
+			continue
+		}
+		if err != nil || reply.State != "" || reply.Version != host.Version || reply.SHA256 != host.SHA256 {
+			row, check, failure = host, "host status", fmt.Sprintf("%v %s %s %s", err, reply.State, reply.Health, reply.Error)
+		} else if worse := u.status.Baseline.worseHost(host.ID, reply.Health); worse != "" {
+			row, check, failure = host, "host health", worse
 		}
 	}
-	if err := u.Health(ctx); err != nil {
-		return &u.status.Hosts[0], "region health", err.Error()
+	services, worse := u.servicesWorse(ctx)
+	if restart := u.watched.restarted(u.status.Baseline, services); restart != "" {
+		return &u.status.Hosts[0], "restart", restart, true
 	}
-	return nil, "", ""
+	if failure == "" && worse != "" {
+		row, check, failure = &u.status.Hosts[0], "region services", worse
+	}
+	return row, check, failure, false
 }

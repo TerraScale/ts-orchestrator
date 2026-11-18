@@ -35,12 +35,14 @@ const (
 )
 
 type HostProgress struct {
-	ID      string `json:"id"`
-	Host    string `json:"host"`
-	State   string `json:"state"`
-	Version string `json:"version,omitempty"`
-	SHA256  string `json:"sha256,omitempty"`
-	Error   string `json:"error,omitempty"`
+	ID        string    `json:"id"`
+	Host      string    `json:"host"`
+	State     string    `json:"state"`
+	Version   string    `json:"version,omitempty"`
+	SHA256    string    `json:"sha256,omitempty"`
+	Error     string    `json:"error,omitempty"`
+	Installed time.Time `json:"installed,omitzero"`
+	Ready     time.Time `json:"ready,omitzero"`
 }
 
 type Status struct {
@@ -62,6 +64,11 @@ type Status struct {
 	Updated  time.Time              `json:"updated,omitzero"`
 	Seq      uint64                 `json:"seq,omitempty"`
 	Channel  uint64                 `json:"channel_seq,omitempty"`
+
+	Published  time.Time `json:"published,omitzero"`
+	Discovered time.Time `json:"discovered,omitzero"`
+	Passed     time.Time `json:"passed,omitzero"`
+	Baseline   *Baseline `json:"baseline,omitempty"`
 }
 
 func statusFile(state string) string { return filepath.Join(state, "nats", "pull-rollout.json") }
@@ -101,6 +108,36 @@ func write(state string, status Status) error {
 
 func (s Status) active() bool {
 	return s.Phase == PhaseRolling || s.Phase == PhaseWaiting || s.Phase == PhaseRollingBack
+}
+
+func (s Status) passed() bool {
+	return !s.Passed.IsZero() || !s.Baked.IsZero()
+}
+
+func (s Status) Timeline() []string {
+	if s.Target == nil {
+		return nil
+	}
+	stamp := func(stage string, at time.Time) string {
+		if at.IsZero() {
+			return stage + "\t-"
+		}
+		line := stage + "\t" + at.UTC().Format(time.RFC3339)
+		if !s.Published.IsZero() {
+			line += "\t+" + at.Sub(s.Published).Round(time.Second).String()
+		}
+		return line
+	}
+	lines := []string{s.Region + "\t" + s.Target.Tag() + "\t" + s.Phase, stamp("published", s.Published), stamp("discovered", s.Discovered)}
+	for _, host := range s.Hosts {
+		lines = append(lines, stamp(host.Host+" installed", host.Installed), stamp(host.Host+" ready", host.Ready))
+	}
+	lines = append(lines, stamp("gate start", s.Done), stamp("gate end", s.Passed))
+	complete := s.Passed
+	if s.Phase != PhaseComplete {
+		complete = time.Time{}
+	}
+	return append(lines, stamp("complete", complete))
 }
 
 func (s *Status) bad(tag string) bool {

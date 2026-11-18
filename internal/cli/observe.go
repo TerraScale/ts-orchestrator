@@ -21,12 +21,15 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/controlaccess"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 )
 
-const observeHelp = `Usage: ts-orch observe [metrics|snapshot|cluster|events] [flags]
+const observeHelp = `Usage: ts-orch observe [metrics|snapshot|cluster|events|releases] [flags]
 
 Read the authenticated node dashboards. Defaults to cluster in every production region.
 JSON output is a stream of version 1 documents, one per regional dashboard.
+releases prints each region's last ts-orch release: published, discovered,
+installed and ready on each host, gate start, gate end and complete.
   --region REGION        Select one runtime region instead of every production region
   --format table|json    Readable output or versioned JSON
   --search TEXT          Filter the metric catalog by name, description or source
@@ -49,7 +52,7 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		view, args = args[0], args[1:]
 	}
-	if !slices.Contains([]string{"metrics", "snapshot", "cluster", "events"}, view) {
+	if !slices.Contains([]string{"metrics", "snapshot", "cluster", "events", "releases"}, view) {
 		return fmt.Errorf("unknown observe view %q; use ts-orch observe --help", view)
 	}
 	flags := flag.NewFlagSet("observe "+view, flag.ContinueOnError)
@@ -285,6 +288,20 @@ func writeObserve(out io.Writer, view, format, source, search string, data []byt
 			partial = partial || len(member.Errors) > 0 || member.MetricsTruncated
 			if format == "table" {
 				writeObserveMember(table, member)
+			}
+		}
+	case "releases":
+		var result pullrelease.Status
+		if err := json.Unmarshal(data, &result); err != nil || result.Region == "" {
+			return false, errors.New("invalid release record JSON")
+		}
+		value = result
+		if format == "table" {
+			for _, line := range result.Timeline() {
+				fmt.Fprintln(table, line)
+			}
+			if result.Reason != "" {
+				fmt.Fprintf(table, "reason\t%s\n", result.Reason)
 			}
 		}
 	case "events":
