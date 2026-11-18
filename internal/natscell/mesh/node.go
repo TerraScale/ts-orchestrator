@@ -101,7 +101,6 @@ type Reply struct {
 	Regions      []string                   `json:"regions,omitempty"`
 	Attestations map[string]PeerAttestation `json:"attestations,omitempty"`
 	Workers      []WorkerPeer               `json:"workers,omitempty"`
-	StartedAt    time.Time                  `json:"startedAt,omitzero"`
 }
 
 type stateReply struct {
@@ -324,6 +323,14 @@ func start(cfg config) (_ *Node, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, membershipConn: membershipConn, gossip: gossip, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
 		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{}), regionReached: make(chan struct{})}
+	if err := node.loadWorkers(); err != nil {
+		node.closeConns()
+		cancel()
+		return nil, err
+	}
+	if err := node.setJoined(ctx); err != nil {
+		slog.WarnContext(ctx, "mesh initial worker membership unavailable", "error", err)
+	}
 	if err := node.serveClockReports(); err != nil {
 		node.closeConns()
 		cancel()
@@ -336,12 +343,15 @@ func start(cfg config) (_ *Node, err error) {
 	node.publishTopologyDesired()
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) {
+			if err := node.setJoined(ctx); err != nil {
+				slog.WarnContext(ctx, "mesh ping membership unavailable", "error", err)
+			}
 			var address string // a node without NetBird (or a worker) still answers; peers skip it
 			if cfg.address != nil {
 				address, _ = cfg.address()
 			}
 			node.respond(m, Reply{Region: cfg.region, Server: cfg.server, Regions: node.regions(), Address: address, Attestations: node.localAttestations(),
-				Workers: node.joinedWorkers(), StartedAt: node.listening})
+				Workers: node.joinedWorkers()})
 		},
 		StateSubject: func(m *nats.Msg) {
 			var request struct {

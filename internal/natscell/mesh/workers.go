@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -24,9 +26,8 @@ type WorkerPeer struct {
 }
 
 type announcement struct {
-	nodeID  string
-	address string
-	at      time.Time
+	NodeID  string `json:"node_id"`
+	Address string `json:"address"`
 }
 
 type nodeAnnouncement struct {
@@ -34,12 +35,10 @@ type nodeAnnouncement struct {
 	NodeID string `json:"node_id"`
 }
 
-// workerFresh is how long an announcement counts: three missed rounds drop
-// the worker from its region's peers files and per-node replica count.
-const workerFresh = 3 * peersEvery
+const workerSettleWindow = 3 * peersEvery
 
 type workerNodes interface {
-	WorkerStates(context.Context) (map[string]bool, map[string]bool, error)
+	WorkerStates(context.Context) (map[string]string, map[string]bool, error)
 	Replicas(ctx context.Context, service string) (uint64, error)
 }
 
@@ -79,20 +78,67 @@ func (n *Node) announce(ctx context.Context) {
 
 func (n *Node) recordWorker(m *nats.Msg) {
 	var at nodeAnnouncement
-	if protocol.DecodeStrict(m.Data, &at, maxWire) != nil || at.Node == n.cfg.server || !validPeer(n.cfg.region, peer{at.Node, at.Address}) {
+	if protocol.DecodeStrict(m.Data, &at, maxWire) != nil || at.NodeID == "" || at.Node == n.cfg.server || !validPeer(n.cfg.region, peer{at.Node, at.Address}) {
 		return
 	}
 	n.workerMu.Lock()
 	defer n.workerMu.Unlock()
+	lister, ok := n.cfg.applier.(workerNodes)
+	if !ok {
+		return
+	}
+	ready, _, err := lister.WorkerStates(n.ctx)
+	if err != nil {
+		slog.WarnContext(n.ctx, "mesh worker announcement membership unavailable", "error", err)
+		return
+	}
+	if ready[at.NodeID] != at.Node {
+		return
+	}
 	if n.announced == nil {
 		n.announced = map[string]announcement{}
 	}
-	n.announced[at.Node] = announcement{nodeID: at.NodeID, address: at.Address, at: time.Now()}
+	known := announcement{NodeID: at.NodeID, Address: at.Address}
+	if n.announced[at.Node] == known {
+		return
+	}
+	next := maps.Clone(n.announced)
+	next[at.Node] = known
+	data, err := protocol.EncodeJSON(next)
+	if err == nil {
+		err = writePrivate(filepath.Join(n.cfg.dir, "workers.json"), data)
+	}
+	if err != nil {
+		slog.WarnContext(n.ctx, "mesh worker identity persistence failed", "error", err)
+		return
+	}
+	n.announced = next
+}
+
+func (n *Node) loadWorkers() error {
+	data, err := os.ReadFile(filepath.Join(n.cfg.dir, "workers.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := protocol.DecodeStrict(data, &n.announced, maxWire); err != nil {
+		return err
+	}
+	for node, at := range n.announced {
+		if at.NodeID == "" || node == n.cfg.server || !validPeer(n.cfg.region, peer{node, at.Address}) {
+			return errors.New("invalid persisted worker identity")
+		}
+	}
+	return nil
 }
 
 func (n *Node) refreshJoined(ctx context.Context) {
 	for {
-		n.setJoined(ctx)
+		if err := n.setJoined(ctx); err != nil {
+			slog.WarnContext(ctx, "mesh worker membership unavailable", "error", err)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -103,33 +149,35 @@ func (n *Node) refreshJoined(ctx context.Context) {
 	}
 }
 
-func (n *Node) setJoined(ctx context.Context) {
-	var ready, pending map[string]bool
+func (n *Node) setJoined(ctx context.Context) error {
+	n.workerMu.Lock()
+	defer n.workerMu.Unlock()
+	var ready map[string]string
+	var pending map[string]bool
 	if lister, ok := n.cfg.applier.(workerNodes); ok {
 		var err error
 		if ready, pending, err = lister.WorkerStates(ctx); err != nil {
-			slog.WarnContext(ctx, "mesh worker membership unavailable", "error", err)
-			return
+			n.joined = nil
+			return err
 		}
 	}
-	fresh := max(workerFresh, 3*n.cfg.peersEvery)
-	n.workerMu.Lock()
-	defer n.workerMu.Unlock()
+	window := max(workerSettleWindow, 3*n.cfg.peersEvery)
 	joined := []WorkerPeer{}
 	for node, at := range n.announced {
-		if time.Since(at.at) <= fresh && (ready[node] || ready[at.nodeID]) {
-			joined = append(joined, WorkerPeer{Node: node, Address: at.address})
+		if ready[at.NodeID] == node {
+			joined = append(joined, WorkerPeer{Node: node, Address: at.Address})
 		}
 	}
 	slices.SortFunc(joined, func(a, b WorkerPeer) int { return strings.Compare(a.Node, b.Node) })
 	n.joined = joined
-	if time.Since(n.listening) >= fresh && len(pending) == 0 {
+	if time.Since(n.listening) >= window && len(pending) == 0 {
 		select {
 		case <-n.settled:
 		default:
 			close(n.settled)
 		}
 	}
+	return nil
 }
 
 func (n *Node) joinedWorkers() []WorkerPeer {
@@ -201,7 +249,7 @@ func (n *Node) trackWorkerServices(ctx context.Context) {
 	}
 }
 
-func (a swarmApplier) WorkerStates(ctx context.Context) (ready, pending map[string]bool, err error) {
+func (a swarmApplier) WorkerStates(ctx context.Context) (ready map[string]string, pending map[string]bool, err error) {
 	client, done, err := a.control()
 	if err != nil {
 		return nil, nil, err
@@ -213,15 +261,14 @@ func (a swarmApplier) WorkerStates(ctx context.Context) (ready, pending map[stri
 	if err != nil {
 		return nil, nil, err
 	}
-	ready, pending = map[string]bool{}, map[string]bool{}
+	ready, pending = map[string]string{}, map[string]bool{}
 	for _, node := range nodes.Nodes {
 		if node.Spec.Availability != api.NodeAvailabilityActive || node.Spec.Membership != api.NodeMembershipAccepted || node.Description == nil {
 			continue
 		}
 		switch node.Status.State {
 		case api.NodeStatus_READY:
-			ready[node.ID] = true
-			ready[node.Description.Hostname] = true
+			ready[node.ID] = node.Description.Hostname
 		case api.NodeStatus_UNKNOWN:
 			pending[node.ID] = true
 			pending[node.Description.Hostname] = true

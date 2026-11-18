@@ -2,26 +2,28 @@ package handoff
 
 import (
 	"context"
-	"errors"
+	"sync"
 	"sync/atomic"
 )
 
 type taskDrainer func(context.Context, string) error
 
 var regionalDrainer atomic.Pointer[taskDrainer]
+var regionalReady = make(chan struct{})
+var regionalAttached sync.Once
 
-// SetTaskDrainer attaches this host's authenticated regional drain exchange.
 func SetTaskDrainer(drain func(context.Context, string) error) {
 	fn := taskDrainer(drain)
 	regionalDrainer.Store(&fn)
+	regionalAttached.Do(func() { close(regionalReady) })
 }
 
-// DrainTask returns only after ingress has drained the task and proven its peer.
-// Losing the mesh never authorizes a stop.
 func DrainTask(ctx context.Context, task string) error {
-	drain := regionalDrainer.Load()
-	if drain == nil {
-		return errors.New("regional TerraBase drain is unavailable")
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-regionalReady:
 	}
+	drain := regionalDrainer.Load()
 	return (*drain)(ctx, task)
 }

@@ -149,7 +149,6 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 					served()
 				}
 				plannedstop.Register(ctx, node.PrepareStop)
-				handoff.SetTaskDrainer(node.DrainTask)
 				handoff.SetBootstrap(node.Bootstrap)
 				handoff.SetClearPeer(node.ClearPeer)
 				public.JoinMesh(node)
@@ -160,6 +159,7 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 					follow := node.FollowEdgeInventory(*state)
 					inventory.Store(&follow)
 				}
+				handoff.SetTaskDrainer(node.DrainTask)
 			})
 			close(meshDone)
 		}()

@@ -67,6 +67,10 @@ func (n *Node) handleDrain(m *nats.Msg) {
 		n.respond(m, drainReply{Error: "invalid drain request"})
 		return
 	}
+	if err := n.setJoined(n.ctx); err != nil {
+		n.respond(m, drainReply{Error: "regional membership unavailable"})
+		return
+	}
 	admitted := false
 	for _, peer := range n.RegionalNodes() {
 		admitted = admitted || peer.Node == request.Node
