@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -145,12 +144,11 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
-	_, unlock, err := c.reservePorts(ctx, false)
+	ports, unlock, err := c.reservePorts(ctx, false)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	var ports string
 	ctx = runtimeContext(ctx)
 	ctx, release, err := c.executor.client.WithLease(ctx)
 	if err != nil {
@@ -503,16 +501,11 @@ func (c *controller) start(ctx context.Context) error {
 			return err
 		}
 		// The predecessor of a replacement may still be exiting; never start a second port owner.
-		ports, unlock, err := c.reservePorts(ctx, true)
+		_, unlock, err := c.reservePorts(ctx, true)
 		if err != nil {
 			return err
 		}
 		defer unlock()
-		if ports != "" {
-			if _, err := ctr.SetLabels(ctx, map[string]string{portsLabel: ports}); err != nil {
-				return err
-			}
-		}
 		if err := t.Start(ctx); err != nil {
 			return err
 		}
@@ -785,7 +778,6 @@ func (c *controller) stopTask(ctx context.Context) error {
 	}
 	if c.regionalTerraBase() && !rolloutmaintenance.PinnedStop(ctx, c.bootstrapPin()) {
 		if err := handoff.DrainTask(ctx, c.task.ID); err != nil {
-			slog.WarnContext(ctx, "waiting for handoff: the replacement starts once this task hands over and releases its host ports", "service", c.task.ServiceAnnotations.Name, "task", c.task.ID, "error", err)
 			// A missing/restarting coordinator never makes a live process a failed
 			// terminal task: retain its assignment and retry once the mesh returns.
 			return exec.MakeTemporary(err)
