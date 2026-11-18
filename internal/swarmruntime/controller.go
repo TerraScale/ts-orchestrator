@@ -145,11 +145,12 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
-	ports, unlock, err := c.reservePorts(ctx, false)
+	_, unlock, err := c.reservePorts(ctx, false)
 	if err != nil {
 		return err
 	}
 	defer unlock()
+	var ports string
 	ctx = runtimeContext(ctx)
 	ctx, release, err := c.executor.client.WithLease(ctx)
 	if err != nil {
@@ -502,11 +503,16 @@ func (c *controller) start(ctx context.Context) error {
 			return err
 		}
 		// The predecessor of a replacement may still be exiting; never start a second port owner.
-		_, unlock, err := c.reservePorts(ctx, true)
+		ports, unlock, err := c.reservePorts(ctx, true)
 		if err != nil {
 			return err
 		}
 		defer unlock()
+		if ports != "" {
+			if _, err := ctr.SetLabels(ctx, map[string]string{portsLabel: ports}); err != nil {
+				return err
+			}
+		}
 		if err := t.Start(ctx); err != nil {
 			return err
 		}

@@ -449,10 +449,13 @@ func (e *Edge) drainRegionalNode(ctx context.Context, router *regionalRouter, no
 			candidates = append(candidates, peer)
 		}
 	}
-	if !admitted || len(candidates) == 0 {
-		return errors.New("replacement has no admitted regional peer")
+	if !admitted {
+		return errors.New("replacement source is not an admitted regional node")
 	}
-	var unavailable error
+	unavailable := errors.New("no other admitted regional node")
+	if len(candidates) != 0 {
+		unavailable = nil
+	}
 	for _, peer := range candidates {
 		probe, cancel := context.WithTimeout(ctx, time.Second)
 		_, err := e.regionalStatus(probe, router, peer)

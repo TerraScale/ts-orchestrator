@@ -22,11 +22,6 @@ const portsLabel = "terrascale.ports"
 // container metadata reserves them locally. An exited container releases its
 // ports at once: its task never runs again, and SwarmKit retains stopped
 // tasks (and their containers) long after a replacement needs the port.
-//
-// Prepare (starting=false) refuses a port held by another service's live or
-// prepared container; a replacement task of the same service may prepare
-// while its predecessor still serves. Start (starting=true) refuses any live
-// holder, so one port never has two running owners.
 func (c *controller) reservePorts(ctx context.Context, starting bool) (string, func(), error) {
 	var requested []string
 	if c.task.Endpoint != nil {

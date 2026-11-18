@@ -205,11 +205,15 @@ keeps its host ports, so its replacement started into
 `host port 6432,8080 is reserved`. `DelayStart` with `waitStop` now also waits,
 without a timer, while a task of the same service that was told to stop is
 still starting or running in the replacement's slot or on its node (node not
-down). It applies only to tasks that publish host ports and stay at desired
-state READY; start-first updates never wait, because their old task is still
-desired RUNNING. `taskinit` goes through `DelayStart` for the same check.
-The e2e-m1 rollback lane holds a predecessor 70 s past SIGTERM.
+down). It applies only to tasks that publish a host-mode port with a
+nonzero published port and stay at desired state READY; start-first updates
+never wait, because their old task is still desired RUNNING. `taskinit` goes
+through `DelayStart` for the same check. While it waits, the replacement's
+container records no host-port claim; the executor writes the claim under its
+port lock when the task starts. The e2e-m1 rollback lane holds a fixed-port
+predecessor 65 s past SIGTERM, checks that it keeps serving and that the
+replacement stays READY without a claim, then lets it hand over.
 The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
-`24fbdff9ea98eee78ffe5ccb5b913d3a86004b9578649937650749f97ce34310`; the
+`d2c8e039c6a669786d6ac62554ff93492ca727c52ea79c5fd3bf12204b5a31b1`; the
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.

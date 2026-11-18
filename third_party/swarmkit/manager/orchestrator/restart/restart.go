@@ -528,7 +528,7 @@ func (r *Supervisor) DelayStart(ctx context.Context, _ store.Tx, oldTask *api.Ta
 func (r *Supervisor) awaitHostPortRelease(ctx context.Context, taskID string) bool {
 	var serviceID string
 	r.store.View(func(tx store.ReadTx) {
-		if t := store.GetTask(tx, taskID); t != nil {
+		if t := store.GetTask(tx, taskID); t != nil && holdsHostPorts(t) {
 			serviceID = t.ServiceID
 		}
 	})
@@ -597,7 +597,16 @@ func holdsHostPorts(t *api.Task) bool {
 	if t.Endpoint == nil {
 		return false
 	}
-	return len(t.Endpoint.Ports) != 0 || t.Endpoint.Spec != nil && len(t.Endpoint.Spec.Ports) != 0
+	ports := t.Endpoint.Ports
+	if t.Endpoint.Spec != nil {
+		ports = t.Endpoint.Spec.Ports
+	}
+	for _, port := range ports {
+		if port.PublishMode == api.PublishModeHost && port.PublishedPort != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // StartNow moves the task into the RUNNING state so it will proceed to start

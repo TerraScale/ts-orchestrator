@@ -143,36 +143,56 @@ orch service rm e2e-wait
 orch service rm e2e-nudge
 end "pending task at an older spec version + a failed scheduling pass -> the same task runs once its room frees"
 
-begin "a fixed-port stop-first replacement waits for its predecessor's handoff, past SwarmKit's old-task timer, and nothing else takes its room"
+begin "a fixed-port stop-first replacement waits for its predecessor's handoff without claiming its ports, and nothing else takes its room"
 free=$(free_cpu)
 handoff=/var/lib/ts-data/e2e-linger
 sudo rm -f "$handoff"/handoff-*
 jq -n --arg image "$(jq -r .image "$here/data.json")" --argjson cpu $((free / 2 + 1)) \
-	'{name: "e2e-linger", image: $image, args: ["sh", "-c", "trap \"stop=1\" TERM; until [ -n \"$stop\" ] && [ -f /tmp/handoff-$E2E_RELEASE ]; do sleep 1; done"], env: {E2E_RELEASE: "1"}, mounts: [{source: "/var/lib/ts-data/e2e-linger", target: "/tmp"}], port: 18090, replicas: 1, milliCPU: $cpu}' >"$work/linger-1.json"
+	'{name: "e2e-linger", image: $image, args: ["sh", "-c", "echo release-$E2E_RELEASE >/tmp/index.html; httpd -p 18090 -h /tmp; trap \"stop=1\" TERM; until [ -n \"$stop\" ] && [ -f /tmp/handoff-$E2E_RELEASE ]; do sleep 1; done"], env: {E2E_RELEASE: "1"}, mounts: [{source: "/var/lib/ts-data/e2e-linger", target: "/tmp"}], port: 18090, replicas: 1, milliCPU: $cpu}' >"$work/linger-1.json"
 orch service apply -f "$work/linger-1.json"
 lingering=$(running_tasks e2e-linger)
 [[ -n $lingering ]]
+serving() {
+	[[ $(curl -fsS --max-time 2 http://127.0.0.1:18090/) == "release-$1" ]]
+}
+wait_for 30 serving 1
 jq '.env.E2E_RELEASE = "2"' "$work/linger-1.json" >"$work/linger-2.json"
 orch service apply -f "$work/linger-2.json" >"$work/linger-2.txt" 2>&1 &
 replacing=$!
+exec 3>&2
+fail() {
+	{
+		orch service ps e2e-linger || true
+		echo "$1"
+	} >&3 2>&3
+	exit 1
+}
 told_to_stop() {
 	orch service ps e2e-linger | awk -v id="$lingering" '$1 == id' | grep -Eq ' running +shutdown '
 }
-no_port_contention() {
-	orch service ps e2e-linger >"$work/linger-ps.txt"
-	if grep -q 'is reserved' "$work/linger-ps.txt"; then
-		cat "$work/linger-ps.txt"
-		echo "the replacement tried to take host ports its predecessor still holds" >&2
-		exit 1
-	fi
+replacement() {
+	orch service ps e2e-linger | awk -v id="$lingering" 'NR > 1 && $1 != id && $4 != "shutdown" {print $1}'
 }
-replacement_waiting() {
-	no_port_contention
-	awk -v id="$lingering" 'NR > 1 && $1 != id' "$work/linger-ps.txt" | grep -Eq ' (assigned|accepted|preparing|ready) +ready '
+port_claim() {
+	local container
+	container=$(sudo ctr --namespace terrascale containers ls -q | grep "^ts-$1" || true)
+	[[ -n $container ]] || return 1
+	sudo ctr --namespace terrascale containers info "$container" | jq -r '.Labels["terrascale.ports"]'
+}
+held() {
+	orch service ps e2e-linger >"$work/linger-ps.txt"
+	! grep -q 'is reserved' "$work/linger-ps.txt" || fail "the replacement contended for host ports its predecessor still holds"
+	told_to_stop || fail "the predecessor stopped while its handoff was refused"
+	serving 1 || fail "the predecessor stopped serving while its handoff was refused"
+	waiting=$(replacement)
+	[[ -n $waiting ]] || return 1
+	awk -v id="$waiting" '$1 == id' "$work/linger-ps.txt" | grep -Eq ' (assigned|accepted|preparing|ready) +ready ' || fail "the replacement left READY while its predecessor held the ports"
+	claim=$(port_claim "$waiting") || return 1
+	[[ $claim == released ]] || fail "the waiting replacement claims host ports: $claim"
+	((SECONDS >= stopping + 65))
 }
 wait_for 20 told_to_stop
 stopping=$SECONDS
-wait_for 30 replacement_waiting
 fit_spec e2e-room 18091 1 $((free - free / 2)) 1 >"$work/room.json"
 if orch service apply -f "$work/room.json" >"$work/room.txt" 2>&1; then
 	cat "$work/room.txt"
@@ -182,23 +202,22 @@ fi
 cat "$work/room.txt"
 grep -q "update refused: start-first candidate .* cannot be placed (no suitable node (insufficient resources on 1 node))" "$work/room.txt"
 orch service rm e2e-room
-while ((SECONDS < stopping + 70)); do
-	told_to_stop
-	replacement_waiting
-	kill -0 "$replacing"
-	sleep 5
-done
-orch service ps e2e-linger
+wait_for 90 held
+kill -0 "$replacing"
 sudo touch "$handoff/handoff-1"
 if ! wait "$replacing"; then
 	cat "$work/linger-2.txt"
-	echo "the replacement did not serve once its predecessor handed over" >&2
-	exit 1
+	fail "the replacement did not serve once its predecessor handed over"
 fi
 cat "$work/linger-2.txt"
 replaced=$(running_tasks e2e-linger)
-[[ -n $replaced && $replaced != "$lingering" ]]
-no_port_contention
+[[ $replaced == "$waiting" ]]
+wait_for 20 serving 2
+[[ $(port_claim "$replaced") == 18090 ]]
+orch service ps e2e-linger >"$work/linger-ps.txt"
+if grep -q 'is reserved' "$work/linger-ps.txt"; then
+	fail "the replacement contended for host ports"
+fi
 sudo touch "$handoff/handoff-2"
 orch service rm e2e-linger
-end "predecessor refuses its handoff for 70 s after SIGTERM -> the replacement waits ready, never contends for its ports, another service is refused its room; handoff accepted -> the replacement serves"
+end "predecessor refuses its handoff 65 s past SIGTERM -> it keeps serving release 1 on 18090, the replacement stays READY with no port claim, another service is refused its room; handoff accepted -> the replacement claims 18090 and serves release 2"
