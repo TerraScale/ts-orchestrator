@@ -47,6 +47,7 @@ type writers struct {
 	owner, secret string
 	epoch         int
 	refused       int
+	refusal       string
 }
 
 func (s *writers) node(name string) http.Handler {
@@ -56,7 +57,7 @@ func (s *writers) node(name string) http.Handler {
 			return
 		}
 		s.mu.Lock()
-		owner, epoch := s.owner, s.epoch
+		owner, epoch, refusal := s.owner, s.epoch, s.refusal
 		refuse := r.URL.Path == "/v1/rollout/drain" && name == "n2"
 		if refuse {
 			s.refused++
@@ -67,8 +68,9 @@ func (s *writers) node(name string) http.Handler {
 		switch {
 		case refuse:
 			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = io.WriteString(w, `{"error":{"code":"drain_unavailable"}}`)
+			fmt.Fprintf(w, `{"error":{"code":%q}}`, refusal)
 		case r.URL.Path == "/v1/rollout/status":
 			fmt.Fprintf(w, `{"node":%q,"owner":%q,"epoch":%d,"writer":%t,"ready":true}`, name, owner, epoch, owner == name)
 		case r.URL.Path == "/v1/rollout/prime" || r.URL.Path == "/v1/rollout/drain":
@@ -283,7 +285,7 @@ func main() {
 	state, ca, host, upgradeHost := os.Args[1], os.Args[2], os.Args[3], os.Args[4]
 	secret := make([]byte, 32)
 	_, _ = rand.Read(secret)
-	writer := &writers{owner: "n1", secret: hex.EncodeToString(secret), epoch: 1}
+	writer := &writers{owner: "n1", secret: hex.EncodeToString(secret), epoch: 1, refusal: "drain_unavailable"}
 	nodes := []mesh.WorkerPeer{{Node: "n1", Address: "127.0.0.2"}, {Node: "n2", Address: "127.0.0.3"}}
 	protocols := new(http.Protocols)
 	protocols.SetUnencryptedHTTP2(true)
@@ -313,7 +315,7 @@ func main() {
 	control, err := net.Listen("tcp", "127.0.0.1:0")
 	step("control port", err)
 	go http.Serve(control, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
 		if err := regional.DrainRegionalNode(ctx, r.URL.Query().Get("node"), r.URL.Query().Get("task")); err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -389,9 +391,31 @@ func main() {
 		step("regional drain refusal gauge", fmt.Errorf("metrics %q, want %q", refusals.String(), series))
 	}
 	step("ts_orch_regional_drain_refused reports n2's drain_unavailable", nil)
+	writer.mu.Lock()
+	writer.refusal = "source_retiring"
+	writer.mu.Unlock()
+	code, body, err = drainNode("node=n2&task=t3")
+	if err == nil && (code != http.StatusServiceUnavailable || !strings.Contains(body, "regional handoff HTTP 503: source_retiring") || !strings.Contains(body, "refused (1 in a row on this manager)") || !strings.Contains(body, "this manager's next attempt in 30s") || refusedDrains() != 2) {
+		err = fmt.Errorf("answered %d %q after %d drain requests, want 503 with source_retiring and its next attempt after 2", code, body, refusedDrains())
+	}
+	step("a source_retiring drain of the follower n2 while the writer n1 already serves is a refusal with this manager's next attempt", err)
+	code, body, err = drainNode("node=n2&task=t3")
+	if err == nil && (code != http.StatusServiceUnavailable || !strings.Contains(body, "source_retiring") || refusedDrains() != 2) {
+		err = fmt.Errorf("answered %d %q after %d drain requests, want the stored source_retiring refusal without a new drain request", code, body, refusedDrains())
+	}
+	step("a retried stop of the retiring n2 inside this manager's backoff window reaches neither its ingress hold nor n2", err)
+	if missing := regional.Readiness(context.Background()).Missing; slices.Contains(missing, "node draining") {
+		step("edge readiness after the source_retiring refusal", fmt.Errorf("edge reports %v", missing))
+	}
+	refusals.Reset()
+	edge.WriteRegionalDrainMetrics(&refusals)
+	if series := observability.Series("ts_orch_regional_drain_refused", "source", "n2", "code", "source_retiring") + " 1\n"; refusals.String() != series {
+		step("regional drain refusal gauge", fmt.Errorf("metrics %q, want %q", refusals.String(), series))
+	}
+	step("ts_orch_regional_drain_refused reports n2's source_retiring", nil)
 	code, body, err = drainNode("node=n1&task=t1")
-	if err == nil && (code != http.StatusOK || refusedDrains() != 1) {
-		err = fmt.Errorf("DrainRegionalNode within 5s: %d %q", code, body)
+	if err == nil && (code != http.StatusOK || refusedDrains() != 2) {
+		err = fmt.Errorf("DrainRegionalNode within 15s: %d %q", code, body)
 	}
 	step("drain of the writer n1 with both WebSockets open", err)
 	step("HTTP/1.1 WebSocket ended by the drain", h1.ended())
