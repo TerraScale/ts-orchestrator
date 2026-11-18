@@ -129,6 +129,9 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	meshServing := make(chan struct{})
 	served := sync.OnceFunc(func() { close(meshServing) })
 	if plan.region == "" || plan.joiner() && plan.address == "" {
+		handoff.SetTaskDrainer(func(context.Context, string) error {
+			return errors.New("regional TerraBase drain is unavailable")
+		})
 		served()
 	}
 	if plan.joiner() && plan.address == "" {

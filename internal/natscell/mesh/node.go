@@ -204,6 +204,7 @@ type Node struct {
 	edgeFollowMu    sync.Mutex
 	edgeRefused     string
 	edgeInventories map[string]followedEdgeInventory
+	membershipMu    sync.Mutex
 	workerMu        sync.Mutex
 	announced       map[string]announcement
 	joined          []WorkerPeer
@@ -343,9 +344,6 @@ func start(cfg config) (_ *Node, err error) {
 	node.publishTopologyDesired()
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) {
-			if err := node.setJoined(ctx); err != nil {
-				slog.WarnContext(ctx, "mesh ping membership unavailable", "error", err)
-			}
 			var address string // a node without NetBird (or a worker) still answers; peers skip it
 			if cfg.address != nil {
 				address, _ = cfg.address()

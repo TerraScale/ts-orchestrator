@@ -28,6 +28,7 @@ type WorkerPeer struct {
 type announcement struct {
 	NodeID  string `json:"node_id"`
 	Address string `json:"address"`
+	at      time.Time
 }
 
 type nodeAnnouncement struct {
@@ -38,7 +39,7 @@ type nodeAnnouncement struct {
 const workerSettleWindow = 3 * peersEvery
 
 type workerNodes interface {
-	WorkerStates(context.Context) (map[string]string, map[string]bool, error)
+	WorkerStates(context.Context) (map[string]string, map[string]bool, map[string]bool, error)
 	Replicas(ctx context.Context, service string) (uint64, error)
 }
 
@@ -81,13 +82,13 @@ func (n *Node) recordWorker(m *nats.Msg) {
 	if protocol.DecodeStrict(m.Data, &at, maxWire) != nil || at.NodeID == "" || at.Node == n.cfg.server || !validPeer(n.cfg.region, peer{at.Node, at.Address}) {
 		return
 	}
-	n.workerMu.Lock()
-	defer n.workerMu.Unlock()
+	n.membershipMu.Lock()
+	defer n.membershipMu.Unlock()
 	lister, ok := n.cfg.applier.(workerNodes)
 	if !ok {
 		return
 	}
-	ready, _, err := lister.WorkerStates(n.ctx)
+	ready, _, _, err := lister.WorkerStates(n.ctx)
 	if err != nil {
 		slog.WarnContext(n.ctx, "mesh worker announcement membership unavailable", "error", err)
 		return
@@ -95,24 +96,32 @@ func (n *Node) recordWorker(m *nats.Msg) {
 	if ready[at.NodeID] != at.Node {
 		return
 	}
+	n.workerMu.Lock()
+	defer n.workerMu.Unlock()
 	if n.announced == nil {
 		n.announced = map[string]announcement{}
 	}
-	known := announcement{NodeID: at.NodeID, Address: at.Address}
-	if n.announced[at.Node] == known {
+	known := announcement{NodeID: at.NodeID, Address: at.Address, at: time.Now()}
+	previous := n.announced[at.Node]
+	if previous.NodeID == known.NodeID && previous.Address == known.Address {
+		n.announced[at.Node] = known
 		return
 	}
 	next := maps.Clone(n.announced)
 	next[at.Node] = known
-	data, err := protocol.EncodeJSON(next)
-	if err == nil {
-		err = writePrivate(filepath.Join(n.cfg.dir, "workers.json"), data)
-	}
-	if err != nil {
+	if err := n.saveWorkers(next); err != nil {
 		slog.WarnContext(n.ctx, "mesh worker identity persistence failed", "error", err)
 		return
 	}
 	n.announced = next
+}
+
+func (n *Node) saveWorkers(workers map[string]announcement) error {
+	data, err := protocol.EncodeJSON(workers)
+	if err != nil {
+		return err
+	}
+	return writePrivate(filepath.Join(n.cfg.dir, "workers.json"), data)
 }
 
 func (n *Node) loadWorkers() error {
@@ -150,26 +159,44 @@ func (n *Node) refreshJoined(ctx context.Context) {
 }
 
 func (n *Node) setJoined(ctx context.Context) error {
-	n.workerMu.Lock()
-	defer n.workerMu.Unlock()
+	n.membershipMu.Lock()
+	defer n.membershipMu.Unlock()
 	var ready map[string]string
-	var pending map[string]bool
+	var pending, known map[string]bool
 	if lister, ok := n.cfg.applier.(workerNodes); ok {
 		var err error
-		if ready, pending, err = lister.WorkerStates(ctx); err != nil {
-			n.joined = nil
+		if ready, pending, known, err = lister.WorkerStates(ctx); err != nil {
 			return err
 		}
 	}
+	n.workerMu.Lock()
+	defer n.workerMu.Unlock()
 	window := max(workerSettleWindow, 3*n.cfg.peersEvery)
 	joined := []WorkerPeer{}
+	next := maps.Clone(n.announced)
 	for node, at := range n.announced {
+		if known != nil && !known[at.NodeID] {
+			delete(next, node)
+		}
 		if ready[at.NodeID] == node {
 			joined = append(joined, WorkerPeer{Node: node, Address: at.Address})
+			last := at.at
+			if last.IsZero() {
+				last = n.listening
+			}
+			if age := time.Since(last); age >= window {
+				slog.WarnContext(ctx, "ready regional worker has stopped announcing on the mesh", "worker", node, "node_id", at.NodeID, "last_announcement_age", age)
+			}
 		}
 	}
 	slices.SortFunc(joined, func(a, b WorkerPeer) int { return strings.Compare(a.Node, b.Node) })
 	n.joined = joined
+	if len(next) != len(n.announced) {
+		if err := n.saveWorkers(next); err != nil {
+			return err
+		}
+		n.announced = next
+	}
 	if time.Since(n.listening) >= window && len(pending) == 0 {
 		select {
 		case <-n.settled:
@@ -249,20 +276,21 @@ func (n *Node) trackWorkerServices(ctx context.Context) {
 	}
 }
 
-func (a swarmApplier) WorkerStates(ctx context.Context) (ready map[string]string, pending map[string]bool, err error) {
+func (a swarmApplier) WorkerStates(ctx context.Context) (ready map[string]string, pending, known map[string]bool, err error) {
 	client, done, err := a.control()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer done()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	ready, pending = map[string]string{}, map[string]bool{}
+	ready, pending, known = map[string]string{}, map[string]bool{}, map[string]bool{}
 	for _, node := range nodes.Nodes {
+		known[node.ID] = true
 		if node.Spec.Availability != api.NodeAvailabilityActive || node.Spec.Membership != api.NodeMembershipAccepted || node.Description == nil {
 			continue
 		}
@@ -274,7 +302,7 @@ func (a swarmApplier) WorkerStates(ctx context.Context) (ready map[string]string
 			pending[node.Description.Hostname] = true
 		}
 	}
-	return ready, pending, nil
+	return ready, pending, known, nil
 }
 
 func (a swarmApplier) Replicas(ctx context.Context, service string) (replicas uint64, err error) {

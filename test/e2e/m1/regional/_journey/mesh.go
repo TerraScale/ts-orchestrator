@@ -288,7 +288,7 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 		}
 	}()
 	if err := regionalAwait(ctx, func() bool { return len(founder.joinedWorkers()) == 1 && own.server.NumRoutes() > 0 }); err != nil {
-		ready, pending, membershipErr := peerCfg.applier.(swarmApplier).WorkerStates(context.Background())
+		ready, pending, _, membershipErr := peerCfg.applier.(swarmApplier).WorkerStates(context.Background())
 		return fmt.Errorf("two regions and a joined worker: %w (ready=%v pending=%v membership=%v routes=%d)", err, ready, pending, membershipErr, own.server.NumRoutes())
 	}
 	if err := health(ctx, workerState, workerAgent); err != nil {
@@ -375,6 +375,40 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 	}()
 	defer func() { stopSamples(); <-samplesDone }()
 	stopNode(workerAgent)
+	founder.workerMu.Lock()
+	lastAnnouncement := founder.announced[workerName]
+	lastAnnouncement.at = time.Now().Add(-workerSettleWindow)
+	founder.announced[workerName] = lastAnnouncement
+	founder.workerMu.Unlock()
+	if err := founder.setJoined(ctx); err != nil || len(founder.joinedWorkers()) != 1 {
+		return fmt.Errorf("announcement silence removed a ready member: %v", err)
+	}
+	membershipCA := filepath.Join(managerState, "swarm", "certificates", "swarm-root-ca.crt")
+	outageRequest, err := protocol.EncodeJSON(drainRequest{Node: workerName, Task: "restart-task"})
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(membershipCA, membershipCA+".unavailable"); err != nil {
+		return err
+	}
+	refreshErr := founder.setJoined(ctx)
+	pingErr := round(2)
+	outageResponse, drainErr := founder.conn.RequestWithContext(ctx, protocol.MeshDrainPrefix+"sjc", outageRequest)
+	var outageReply drainReply
+	if drainErr == nil {
+		drainErr = protocol.DecodeStrict(outageResponse.Data, &outageReply, maxWire)
+	}
+	restoreErr := os.Rename(membershipCA+".unavailable", membershipCA)
+	if restoreErr != nil {
+		return restoreErr
+	}
+	if refreshErr == nil || pingErr != nil || len(founder.joinedWorkers()) != 1 {
+		return fmt.Errorf("control outage lost cached topology or mesh liveness: refresh %v, ping %v", refreshErr, pingErr)
+	}
+	if drainErr != nil || outageReply.Error != "regional membership unavailable" {
+		return fmt.Errorf("control outage accepted a drain: %+v, %v", outageReply, drainErr)
+	}
+	fmt.Println("ok regional peers: announcement silence warns; failed control lookup preserves peers and cached pings but refuses drains")
 	stopNode(founder)
 	founder, err = start(peerCfg)
 	if err != nil {
@@ -512,6 +546,10 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 	founder.recordWorker(&nats.Msg{Data: stale})
 	if err := founder.setJoined(ctx); err != nil || len(founder.joinedWorkers()) != 0 {
 		return fmt.Errorf("stale announcement restored removed worker: %w", err)
+	}
+	registry, err := os.ReadFile(filepath.Join(founder.cfg.dir, "workers.json"))
+	if err != nil || bytes.Contains(registry, []byte(worker.ID())) {
+		return fmt.Errorf("removed worker identity was not pruned: %q, %v", registry, err)
 	}
 	if err := round(2); err != nil {
 		return err
