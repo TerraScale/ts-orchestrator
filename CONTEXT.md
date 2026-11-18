@@ -164,12 +164,11 @@ ts-orchestrator; see `deploy/netbird/README.md`.
 
 **Operator SSH**
 
-Two independent SSH paths into every controller and managed host. NetBird SSH
-listens on the server's NetBird address (`ts-gru-1.nb.ts.internal`)
-and requires the operator's NetBird identity-provider login and the
-`operators-to-gru-servers-ssh` policy. OpenSSH listens on the private
-IP and accepts the owner's Ed25519 key, which controller A receives in OCI
-`ssh_authorized_keys` launch metadata and forwards to every server it launches.
+OpenSSH is the one SSH path into M1 hosts: operators reach it on the
+server's NetBird address (`ssh ts-<r>-1`) with the owner's Ed25519 key. The
+NetBird SSH server stays off on M1 hosts because, while it runs, NetBird
+redirects port 22 of the NetBird address to itself; see
+`docs/netbird-m1.md` (NetBird SSH is off on M1 hosts).
 
 **Production readiness**
 

@@ -134,7 +134,9 @@ time, nodes and component. It does no I/O.
 ## Before and after
 
 `ts-orch log-scan --since 24h` reads every node's journal over NetBird SSH
-and prints counts per service, node and level and the top classes. TS-808
+and prints counts per service, node and level and the top classes. M1 hosts
+run no NetBird SSH server (see `docs/netbird-m1.md`, NetBird SSH is off on M1
+hosts), so log-scan reads no M1 node. TS-808
 posts its output before the fixes and after they reach GRU and SJC.
 
 ## Slices

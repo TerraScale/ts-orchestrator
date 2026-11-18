@@ -631,9 +631,10 @@ Enrollment runs as root, retries failures without a systemd start-rate limit,
 and invokes `terrascale-orchestrator netbird-enroll`. Neither service gates
 controller or managed-host startup.
 
-Enrollment enables NetBird split DNS, keeps server routes off and enables NetBird SSH:
-root login, SFTP and local port forwarding, with identity-provider (JWT)
-authentication required and remote port forwarding off. An already connected
+Enrollment enables NetBird split DNS, keeps server routes off and keeps the
+NetBird SSH server off (`--allow-server-ssh=false`), because while it runs
+NetBird redirects port 22 of the NetBird address to itself and takes it from
+OpenSSH (see `docs/netbird-m1.md`). An already connected
 server whose effective configuration differs is brought down once and up
 again with its saved identity. Because the daemon spawns `login` and `su`
 sessions, `netbird.service` runs unconfined like `ssh.service`. Sessions run
