@@ -120,61 +120,61 @@ jobs:
       matrix:
         include:
           - group: 1
-            deadline: 98
+            deadline: 92
             lanes:
               - {lane: edge-limits, entry: edge-limits.sh, timeout: 15, budget: 25, packages: "./test/e2e/m1/postgres-preauth"}
-              - {lane: host-logs, entry: host-logs.sh, timeout: 12, budget: 22}
-              - {lane: rollback, entry: rollback.sh, timeout: 8, budget: 18}
-              - {lane: ocir, entry: ocir.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/ocir"}
+              - {lane: release-probation, entry: release-probation.sh, timeout: 7, budget: 17, packages: "./test/e2e/m1/release-probation"}
+              - {lane: pull-handover, entry: pull-handover.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/pull-update"}
+              - {lane: host-credentials, entry: host-credentials.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/host-credentials"}
           - group: 2
             deadline: 105
             lanes:
-              - {lane: readiness, entry: readiness.sh, timeout: 10, budget: 20, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
-              - {lane: oracle-regions, entry: oracle-regions.sh, timeout: 7, budget: 17, packages: "./test/e2e/m1/oracle-regions"}
-              - {lane: release-probation, entry: release-probation.sh, timeout: 7, budget: 17, packages: "./test/e2e/m1/release-probation"}
-              - {lane: regional, entry: regional.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/regional"}
-              - {lane: websocket, entry: websocket.sh, timeout: 8, budget: 18}
-          - group: 3
-            deadline: 123
-            lanes:
-              - {lane: updater-preflight, entry: updater-preflight.sh, timeout: 12, budget: 22}
+              - {lane: rollout, entry: rollout.sh, timeout: 10, budget: 20}
               - {lane: boot-order, entry: boot-order.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/boot-order"}
-              - {lane: pull-degraded, entry: pull-degraded.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/pull-update"}
-              - {lane: recovery, entry: recovery.sh, timeout: 5, budget: 15}
-              - {lane: core, entry: run.sh, timeout: 8, budget: 18}
-              - {lane: host-credentials, entry: host-credentials.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/host-credentials"}
-          - group: 4
-            deadline: 106
-            lanes:
-              - {lane: upgrade-next, entry: upgrade-next.sh, timeout: 14, budget: 24, packages: "./test/e2e/m1/upgrade-gate"}
-              - {lane: rollout-install, entry: rollout-install.sh, timeout: 10, budget: 20}
-              - {lane: pull-handover, entry: pull-handover.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/pull-update"}
-              - {lane: fleet, entry: fleet.sh, timeout: 4, budget: 14, packages: "./test/e2e/m1/regional"}
-              - {lane: postgres-preauth, entry: postgres-preauth.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/postgres-preauth"}
-          - group: 5
+              - {lane: node-upgrade, entry: node-upgrade.sh, timeout: 10, budget: 20}
+              - {lane: region-fallback, entry: region-fallback.sh, timeout: 4, budget: 14, packages: "./test/e2e/m1/oracle-regions"}
+              - {lane: ocir, entry: ocir.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/ocir"}
+          - group: 3
             deadline: 94
             lanes:
-              - {lane: upgrade-previous, entry: upgrade-previous.sh, timeout: 14, budget: 24, packages: "./test/e2e/m1/upgrade-gate"}
-              - {lane: autoscale-down, entry: autoscale-down.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
-              - {lane: autoscale-up, entry: autoscale-up.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
-              - {lane: node-upgrade, entry: node-upgrade.sh, timeout: 10, budget: 20}
-          - group: 6
-            deadline: 117
+              - {lane: rollout-install, entry: rollout-install.sh, timeout: 10, budget: 20}
+              - {lane: oracle-regions, entry: oracle-regions.sh, timeout: 7, budget: 17, packages: "./test/e2e/m1/oracle-regions"}
+              - {lane: host-logs, entry: host-logs.sh, timeout: 12, budget: 22}
+              - {lane: pull-degraded, entry: pull-degraded.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/pull-update"}
+          - group: 4
+            deadline: 119
             lanes:
-              - {lane: monitoring, entry: monitoring.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/monitoring"}
+              - {lane: readiness, entry: readiness.sh, timeout: 10, budget: 20, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
               - {lane: pull-update, entry: pull-update.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/pull-update"}
-              - {lane: data-volume, entry: data-volume.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
+              - {lane: pull-bake, entry: pull-bake.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/pull-update"}
               - {lane: fabric, entry: fabric/run.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/fabric"}
+              - {lane: websocket, entry: websocket.sh, timeout: 8, budget: 18}
+              - {lane: rollback, entry: rollback.sh, timeout: 8, budget: 18}
+          - group: 5
+            deadline: 88
+            lanes:
+              - {lane: updater-preflight, entry: updater-preflight.sh, timeout: 12, budget: 22}
+              - {lane: autoscale-down, entry: autoscale-down.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+              - {lane: data-volume, entry: data-volume.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
+              - {lane: regional, entry: regional.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/regional"}
+          - group: 6
+            deadline: 128
+            lanes:
+              - {lane: upgrade-next, entry: upgrade-next.sh, timeout: 14, budget: 24, packages: "./test/e2e/m1/upgrade-gate"}
+              - {lane: operator, entry: operator.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
+              - {lane: autoscale-up, entry: autoscale-up.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
+              - {lane: metadata-upgrade, entry: metadata-upgrade.sh, timeout: 8, budget: 18}
               - {lane: restarts, entry: restarts.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
               - {lane: release-contracts, entry: release-contracts.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/revision-gate ./test/e2e/m1/vault-policy"}
           - group: 7
-            deadline: 105
+            deadline: 122
             lanes:
-              - {lane: operator, entry: operator.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/operator-truth ./test/e2e/m1/startup"}
-              - {lane: rollout, entry: rollout.sh, timeout: 10, budget: 20}
-              - {lane: pull-bake, entry: pull-bake.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/pull-update"}
-              - {lane: region-fallback, entry: region-fallback.sh, timeout: 4, budget: 14, packages: "./test/e2e/m1/oracle-regions"}
-              - {lane: metadata-upgrade, entry: metadata-upgrade.sh, timeout: 8, budget: 18}
+              - {lane: upgrade-previous, entry: upgrade-previous.sh, timeout: 14, budget: 24, packages: "./test/e2e/m1/upgrade-gate"}
+              - {lane: monitoring, entry: monitoring.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/monitoring"}
+              - {lane: fleet, entry: fleet.sh, timeout: 4, budget: 14, packages: "./test/e2e/m1/regional"}
+              - {lane: core, entry: run.sh, timeout: 8, budget: 18}
+              - {lane: recovery, entry: recovery.sh, timeout: 5, budget: 15}
+              - {lane: postgres-preauth, entry: postgres-preauth.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/postgres-preauth"}
     name: e2e-m1 / group ${{ matrix.group }}
     concurrency:
       group: e2e-m1-group-${{ matrix.group }}-${{ github.event_name }}-${{ github.ref }}
@@ -296,9 +296,9 @@ jobs:
           path: ${{ runner.temp }}/rerun/
           if-no-files-found: ignore
           retention-days: 30
-      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.group == 3 && steps.go.outputs.cache-hit != 'true' }}
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.group == 7 && steps.go.outputs.cache-hit != 'true' }}
         run: python3 scripts/ci/trim-go-cache.py
-      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.group == 3 && steps.go.outputs.cache-hit != 'true' }}
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.group == 7 && steps.go.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ steps.go.outputs.cache-paths }}

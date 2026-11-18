@@ -134,7 +134,7 @@ if [[ ${1:-} == check ]]; then
 fi
 [[ $# == 0 || ${1:-} == prepare ]]
 
-unit_names=$(systemctl list-units --all --plain --no-legend "${unit_patterns[@]}" | awk '$1 !~ /^containerd/ {print $1}')
+unit_names=$(systemctl list-units --all --plain --no-legend --state=loaded "${unit_patterns[@]}" | awk '$1 !~ /^containerd/ {print $1}')
 if [[ -n $unit_names ]]; then
 	mapfile -t units <<<"$unit_names"
 	sudo systemctl stop "${units[@]}"
@@ -170,7 +170,7 @@ if sudo test -S /run/containerd/containerd.sock; then
 		done <<<"$containers"
 	done <<<"$namespaces"
 fi
-unit_names=$(systemctl list-units --all --plain --no-legend 'containerd*' | awk '{print $1}')
+unit_names=$(systemctl list-units --all --plain --no-legend --state=loaded 'containerd*' | awk '{print $1}')
 if [[ -n $unit_names ]]; then
 	mapfile -t units <<<"$unit_names"
 	sudo systemctl stop "${units[@]}"

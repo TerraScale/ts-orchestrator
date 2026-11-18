@@ -9,7 +9,7 @@ mount -t cgroup2 none /sys/fs/cgroup
 mount -t tmpfs none /var/lib
 mkdir -p /var/lib/containerd "$root/containerd"
 mount --bind "$root/containerd" /var/lib/containerd
-mkdir -p "$root/run" "$root/peers" "$root/nri" /run/ts-orch/peers /run/nri
+mkdir -p "$root/run" "$root/peers" "$root/nri" /run/containerd /run/ts-orch/peers /run/nri
 mount --bind "$root/run" /run/containerd
 mount --bind "$root/peers" /run/ts-orch/peers
 mount --bind "$root/nri" /run/nri
