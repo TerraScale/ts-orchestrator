@@ -68,10 +68,23 @@ it does not stop the serving node.
 
 The fixed binary order is sjc, fra, gru. Staging precedes sjc once C16 founds
 that catalog cell. Before taking a tag, the leader reads its predecessor's
-record from the same fabric store: that exact tag must be complete and its
-five-minute bake elapsed. Missing, unreadable or failed predecessor evidence
-blocks admission. During the bake the predecessor checks host and region
-health and rolls back on failure, which blocks subsequent regions.
+record from the same fabric store: that exact tag must be complete and have
+passed its regional gate. Missing, unreadable or failed predecessor evidence
+blocks admission.
+
+The gate compares with the region before the release. When a region takes a
+tag its leader records a baseline: each host's health conditions and the
+services below desired replicas. A host installs while every other host is no
+worse than its baseline, so a region that was already degraded still takes a
+release that may fix it. After the last host the gate samples every 2 s: every
+host runs the release and is no worse than its baseline, no service is below
+desired replicas unless it was before, no task of a steady service is replaced
+and no host's orchestrator restarts. It passes after 20 s of such samples
+(two swarm readiness probe intervals); three failed samples over 15 s, a
+restart, or no passing window within 55 s roll the release back and block
+subsequent regions. Each stage's time is in the record:
+`ts-orch observe releases` prints published, discovered, installed and ready
+per host, gate start, gate end and complete for every region.
 
 Inside one region the updater admits one host at a time through the private
 PullInstall subject. Each host verifies the main workflow's Sigstore identity,

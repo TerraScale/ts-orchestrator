@@ -77,7 +77,10 @@ type Reply struct {
 	Arch       string          `json:"arch,omitempty"`
 	Degraded   []string        `json:"degraded,omitempty"`
 	Seq        uint64          `json:"seq,omitempty"`
+	Started    time.Time       `json:"started,omitzero"`
 }
+
+var processStarted = time.Now().UTC()
 
 type HealthRequest struct {
 	Service string `json:"service"`
@@ -125,14 +128,17 @@ type Handler struct {
 	Regional                *ocirelease.Regional
 	SeqFile                 string
 
-	RefusalFile  string
-	DegradedFile string
-	mu           sync.Mutex
-	pending      releaseID
-	recovery     recoveryWindow
-	rolledBack   atomic.Pointer[Rollback]
-	exitOnce     sync.Once
-	lastHealth   atomic.Pointer[string]
+	RefusalFile   string
+	DegradedFile  string
+	mu            sync.Mutex
+	pending       releaseID
+	recovery      recoveryWindow
+	rolledBack    atomic.Pointer[Rollback]
+	exitOnce      sync.Once
+	lastHealth    atomic.Pointer[string]
+	subscribed    sync.Mutex
+	subscriptions []*nats.Subscription
+	inflight      sync.WaitGroup
 }
 
 func NewHandler(state string) (*Handler, error) {
@@ -188,8 +194,10 @@ func Revision() string {
 
 func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Context, []byte) Reply) error {
 	for subject, handle := range subjects {
-		if _, err := conn.Subscribe(subject, func(m *nats.Msg) {
+		subscription, err := conn.Subscribe(subject, func(m *nats.Msg) {
+			h.inflight.Add(1)
 			go func() {
+				defer h.inflight.Done()
 				ctx, cancel := context.WithTimeout(context.Background(), HandlerWait)
 				defer cancel()
 				reply := handle(ctx, m.Data)
@@ -211,17 +219,33 @@ func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Contex
 					}
 				}
 			}()
-		}); err != nil {
+		})
+		if err != nil {
 			return err
 		}
+		h.subscribed.Lock()
+		h.subscriptions = append(h.subscriptions, subscription)
+		h.subscribed.Unlock()
 	}
 	return conn.Flush()
+}
+
+func (h *Handler) Close(conn *nats.Conn) error {
+	h.subscribed.Lock()
+	var failed error
+	for _, subscription := range h.subscriptions {
+		failed = errors.Join(failed, subscription.Unsubscribe())
+	}
+	h.subscriptions = nil
+	h.subscribed.Unlock()
+	h.inflight.Wait()
+	return errors.Join(failed, conn.Flush())
 }
 
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }
 
 func (h *Handler) version() Reply {
-	reply := Reply{Version: h.Revision, SHA256: h.Digest, Arch: runtime.GOARCH}
+	reply := Reply{Version: h.Revision, SHA256: h.Digest, Arch: runtime.GOARCH, Started: processStarted}
 	reply.State, reply.Error = h.probation.status()
 	if rollback := h.rolledBack.Load(); rollback != nil {
 		reply.RolledBack, reply.Error = rollback.SHA, rollback.Reason

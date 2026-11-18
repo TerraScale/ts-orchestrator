@@ -20,18 +20,29 @@ type Updater struct {
 	Apply  Apply
 }
 
+const (
+	checkEvery = 10 * time.Second
+	sweepEvery = 5 * time.Minute
+)
+
+type turn struct {
+	swept bool
+	err   error
+}
+
 func (u Updater) Run(ctx context.Context) error {
 	var store *pullrelease.Store
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
-	finished := make(chan error, 1)
+	finished := make(chan turn, 1)
 	var stop context.CancelFunc
 	defer func() {
 		if stop != nil {
 			stop()
 		}
 	}()
-	var next time.Time
+	var next, sweep time.Time
+	seen := map[string]string{}
 	for {
 		if store == nil {
 			opened, err := pullrelease.Open(ctx, u.Fabric, "apps")
@@ -52,27 +63,56 @@ func (u Updater) Run(ctx context.Context) error {
 			stop()
 		}
 		if leading && stop == nil && !time.Now().Before(next) {
-			turn, cancel := context.WithCancel(ctx)
+			checking, cancel := context.WithCancel(ctx)
 			stop = cancel
-			go func() { finished <- u.Cycle(turn) }()
+			due := !time.Now().Before(sweep)
+			go func() { finished <- u.turn(checking, due, seen) }()
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case err := <-finished:
+		case done := <-finished:
 			stop()
 			stop = nil
-			next = time.Now().Add(pullrelease.DefaultPoll)
-			if err != nil && ctx.Err() == nil {
-				slog.ErrorContext(ctx, "app release discovery failed", "error", err)
+			next = time.Now().Add(checkEvery)
+			if done.swept {
+				sweep = time.Now().Add(sweepEvery)
+			}
+			if done.err != nil && ctx.Err() == nil {
+				slog.ErrorContext(ctx, "app release discovery failed", "error", done.err)
 			}
 		case <-tick.C:
 		}
 	}
 }
 
-func (u Updater) Cycle(ctx context.Context) error {
+func (u Updater) turn(ctx context.Context, due bool, seen map[string]string) turn {
+	moved := []Target{}
 	for _, target := range Targets {
+		check, cancel := context.WithTimeout(ctx, checkEvery)
+		digest, err := u.Source.Digest(check, target)
+		cancel()
+		if err != nil {
+			slog.WarnContext(ctx, "app release tag unreadable", "service", target.Service, "error", err)
+			continue
+		}
+		if seen[target.Service] != digest {
+			seen[target.Service] = digest
+			moved = append(moved, target)
+		}
+	}
+	if due {
+		return turn{swept: true, err: u.Cycle(ctx)}
+	}
+	return turn{err: u.cycle(ctx, moved)}
+}
+
+func (u Updater) Cycle(ctx context.Context) error {
+	return u.cycle(ctx, Targets)
+}
+
+func (u Updater) cycle(ctx context.Context, targets []Target) error {
+	for _, target := range targets {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}

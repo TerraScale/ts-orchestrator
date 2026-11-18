@@ -28,7 +28,7 @@ transparency evidence and exact binary digest before installation.
 
 Binary rollout order is fixed: sjc, fra, gru. A leader can take a tag only after
 its predecessor records that exact tag complete in the fabric pull store and
-finishes a five-minute regional bake. The first region has no predecessor.
+passes its regional health gate. The first region has no predecessor.
 Hosts update one at a time inside their region. The completion timestamp is persisted; a new owner restarts any unfinished
 bake before recording its verdict. During the bake the leader checks every host
 and regional health; a failed bake starts rollback and blocks later regions.

@@ -2,8 +2,10 @@ package hostdashboard
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 )
 
@@ -30,9 +33,10 @@ var (
 
 // sources are what the loop needs from the host; tests replace them.
 type sources struct {
-	port    int
-	address func() (string, error)
-	token   func(context.Context) (string, error)
+	port     int
+	address  func() (string, error)
+	token    func(context.Context) (string, error)
+	releases http.Handler
 }
 
 // Run serves the dashboard until ctx ends. A missing NetBird address, an
@@ -67,7 +71,7 @@ func Run(ctx context.Context, state, region string) error {
 		Events:  observability.NewEventBus(observability.DefaultEventCapacity), LocalSessions: true}
 	serve(ctx, deps, sources{port: Port, address: mesh.NetBirdAddress, token: func(ctx context.Context) (string, error) {
 		return readToken(ctx, region)
-	}})
+	}, releases: releaseRecord(state)})
 	return ctx.Err()
 }
 
@@ -109,7 +113,7 @@ func serve(ctx context.Context, deps observability.ServerDeps, from sources) {
 			stop()
 		}
 		if server == nil && want.address != "" && want.token != "" {
-			server, serving, err = start(ctx, deps, want)
+			server, serving, err = start(ctx, deps, want, from.releases)
 			if err == nil {
 				running = want
 				slog.InfoContext(ctx, "dashboard serving on the NetBird address", observability.ComponentKey, "dashboard",
@@ -136,12 +140,13 @@ func serve(ctx context.Context, deps observability.ServerDeps, from sources) {
 }
 
 // start binds one listener with its own dashboard over deps.
-func start(ctx context.Context, deps observability.ServerDeps, want listener) (*observability.Server, <-chan error, error) {
+func start(ctx context.Context, deps observability.ServerDeps, want listener, releases http.Handler) (*observability.Server, <-chan error, error) {
 	config := observability.Config{ListenAddress: want.address}
 	server, err := observability.NewTokenServer(config, want.token, deps)
 	if err != nil {
 		return nil, nil, err
 	}
+	server.Handle("GET /v1/releases", releases)
 	dashboard.New(dashboard.Options{Health: deps.Health, Events: deps.Events, Snapshots: deps.Snapshots,
 		Cluster: deps.Cluster, SignOut: true}).Mount(server)
 	serving, err := server.Start(ctx, config)
@@ -149,4 +154,18 @@ func start(ctx context.Context, deps observability.ServerDeps, want listener) (*
 		return nil, nil, err
 	}
 	return server, serving, nil
+}
+
+func releaseRecord(state string) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		status, err := pullrelease.Read(state)
+		if err != nil || status == nil {
+			http.Error(writer, "release record unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(writer).Encode(status); err != nil {
+			slog.WarnContext(request.Context(), "release record not sent", observability.ComponentKey, "dashboard", "error", err)
+		}
+	})
 }
