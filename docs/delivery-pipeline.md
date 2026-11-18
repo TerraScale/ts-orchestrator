@@ -115,6 +115,21 @@ ping matrix and desired/running images. It has no mutation operation.
 - release digests --out FILE records complete, agreeing running digests.
 - release mesh-check verifies mesh and HTTPS evidence without NATS access.
 
+The app-release wait and mesh check compare validated SHA-256 manifest digests. Legacy GHCR,
+package-only and regional OCIR references to the same digest satisfy the same
+gate. Missing, mutable, malformed and different digests fail the comparison.
+The mesh check includes both observed and desired references in a mismatch.
+
+`release hosts` and `release wait` log a `Region release observation` record on
+stderr whenever a region's readiness, host inventory or app images change.
+Each record includes its region, UTC `observed_at`, HTTP status, health,
+registered host versions, desired/running images and readiness. A down host
+cannot confirm a host release. The first `ready:true` record for a region is
+its first observed healthy target proof. Subtract the PR's `mergedAt` from that
+timestamp for merge-to-region time; retain the workflow run and target revision
+with the measurement. Pending records expose the blocking state before a
+workflow deadline. Observation budgets and release gates are unchanged.
+
 Transport failures and undecodable responses during host restart remain pending
 until the existing observation deadline; authentication failure is terminal.
 The canary waits for the revision encoded in the downloaded release tag, so a

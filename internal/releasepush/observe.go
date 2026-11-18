@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 	"github.com/TerraScale/ts-orchestrator/internal/datamount"
 	"github.com/nats-io/nats.go"
 )
@@ -29,6 +30,15 @@ type Observation struct {
 	Ping           json.RawMessage   `json:"ping"`
 	Images         map[string]string `json:"images"`
 	Error          string            `json:"error,omitempty"`
+}
+
+func (o Observation) CheckImages() error {
+	for service, desired := range o.Images {
+		if !appregistry.SameDigest(o.Running[service], desired) {
+			return fmt.Errorf("%s is not serving the desired digest: running %q, desired %q", service, o.Running[service], desired)
+		}
+	}
+	return nil
 }
 
 func (h *Handler) Observe(w http.ResponseWriter, r *http.Request) {

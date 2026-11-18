@@ -55,10 +55,8 @@ func Check(ctx context.Context, args []string, output io.Writer) error {
 				return fmt.Errorf("mesh ping from %s: missing %s", region.Region, expected.Region)
 			}
 		}
-		for name, image := range observation.Images {
-			if observation.Running[name] != image {
-				return fmt.Errorf("%s: %s is not serving the desired digest", region.Region, name)
-			}
+		if err := observation.CheckImages(); err != nil {
+			return fmt.Errorf("%s: %w", region.Region, err)
 		}
 	}
 	return nil

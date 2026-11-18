@@ -27,6 +27,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/apppull"
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -273,6 +274,22 @@ func main() {
 	resolved, descriptor, err := resolver.Resolve(ctx, selected.Image)
 	must(err)
 	require(resolved == selected.Image && descriptor.Digest.String() == digest.String(), "executor changed the fleet digest reference")
+	regional, err := client.Image(selected.Image)
+	must(err)
+	observation := releasepush.Observation{Images: map[string]string{"terrabase": selected.Image}, Running: map[string]string{}}
+	for _, running := range []string{selected.Image, "ghcr.io/terrascale/" + selected.Image, regional} {
+		observation.Running["terrabase"] = running
+		must(observation.CheckImages())
+	}
+	for _, desired := range []string{selected.Image, "ghcr.io/terrascale/" + selected.Image, regional} {
+		observation.Images["terrabase"] = desired
+		must(observation.CheckImages())
+	}
+	for _, running := range []string{"", "terrabase:release", "terrabase@sha256:bad", "terrabase@sha256:" + strings.Repeat("f", 64)} {
+		observation.Running["terrabase"] = running
+		require(observation.CheckImages() != nil, "mesh gate accepted a missing, mutable, malformed or different digest")
+	}
+	fmt.Println("ok: mesh gate accepts reference aliases and refuses missing, mutable, malformed and different digests")
 	fetcher, err := resolver.Fetcher(ctx, selected.Image)
 	must(err)
 	manifest, err := image.Manifest()
