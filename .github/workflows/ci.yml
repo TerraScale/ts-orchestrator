@@ -12,14 +12,6 @@ on:
         description: Run the full PR gate on this ref without publication
         type: boolean # zero-config: input name and type fixed by the shared revert-red-main dispatch; every dispatch runs the PR gate
         default: false
-      push_main_run:
-        description: Green main CI run of this commit whose published release this dispatch pushes to the regions running d360f05de
-        type: string
-        default: ''
-      push_regions:
-        description: Regions still running d360f05de to push, in order (a subsequence of sjc fra gru)
-        type: string
-        default: sjc fra gru
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -636,90 +628,6 @@ jobs:
             -f message="ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}" -f object="${GITHUB_SHA}" -f type=commit --jq .sha)
           gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/upgrade-gate/previous" -f sha="$object" -F force=true --jq .object.sha
 
-
-  release-push-once:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.push_main_run != '' }}
-    name: deploy/release-push-once
-    concurrency:
-      group: production-ts-orch
-      cancel-in-progress: false
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    permissions:
-      contents: write
-      id-token: write
-      actions: read
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - id: go
-        uses: ./.github/actions/go
-        with:
-          cache: release-push-once
-          modules-only: 'true'
-      - name: Take the published binaries of this commit's green main run
-        shell: bash
-        env:
-          RUN: ${{ inputs.push_main_run }}
-        run: |
-          set -euo pipefail
-          [[ $RUN =~ ^[0-9]+$ ]]
-          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN}" --jq '[.head_sha, .event, .head_branch, .path, .conclusion] | join(" ")')" = "${GITHUB_SHA} push main .github/workflows/ci.yml success"
-          mkdir dist published
-          gh release download "ci-${GITHUB_SHA}-run-${RUN}" --repo "${GITHUB_REPOSITORY}" --dir published \
-            --pattern terrascale-orchestrator-linux-amd64 --pattern terrascale-orchestrator-linux-arm64 --pattern qualification.json
-          jq -e --arg sha "$GITHUB_SHA" --argjson run "$RUN" '.source_revision == $sha and .verification.run_id == $run' published/qualification.json
-          for architecture in amd64 arm64; do
-            name="terrascale-orchestrator-linux-${architecture}"
-            test "$(sha256sum "published/${name}" | awk '{print $1}')" = "$(jq -r --arg name "$name" '.artifacts[] | select(.name == $name) | .sha256' published/qualification.json)"
-            cp "published/${name}" "dist/${name}"
-          done
-          sha256sum dist/* | tee -a "${GITHUB_STEP_SUMMARY}"
-      - name: Publish the same binaries under this run
-        shell: bash
-        env:
-          GH_READ_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/publish-qualification.sh
-      - name: Push each region with the running fleet's release client and confirm it with this build
-        shell: bash
-        env:
-          FLEET_SHA: d360f05deb329f04d2ebad17216393a723f73fef
-          FLEET_RUN: '43970746718'
-          REGIONS: ${{ inputs.push_regions }}
-        run: |
-          set -euo pipefail
-          [[ -n $REGIONS && $REGIONS =~ ^(sjc( |$))?(fra( |$))?(gru)?$ && $REGIONS != *" " ]]
-          mkdir pusher
-          gh release download "ci-${FLEET_SHA}-run-${FLEET_RUN}" --repo "${GITHUB_REPOSITORY}" --dir pusher \
-            --pattern terrascale-orchestrator-linux-amd64 --pattern qualification.json
-          jq -e --arg sha "$FLEET_SHA" '.source_revision == $sha' pusher/qualification.json
-          test "$(sha256sum pusher/terrascale-orchestrator-linux-amd64 | awk '{print $1}')" = "$(jq -r '.artifacts[] | select(.name == "terrascale-orchestrator-linux-amd64") | .sha256' pusher/qualification.json)"
-          chmod +x pusher/terrascale-orchestrator-linux-amd64 dist/terrascale-orchestrator-linux-amd64
-          gh api "repos/${GITHUB_REPOSITORY}/contents/deploy/m1/regions.json?ref=${FLEET_SHA}" --jq .content | base64 -d > pusher/regions.json
-          for region in $REGIONS; do
-            jq -e --arg region "$region" '[.[] | select(.region == $region)] | if length == 1 then . else error("unknown region") end' pusher/regions.json > "pusher/${region}.json"
-            status=0
-            pusher/terrascale-orchestrator-linux-amd64 release push --sha "${GITHUB_SHA}" --dir dist --regions "pusher/${region}.json" \
-              > "pusher/${region}.jsonl" || status=$?
-            tee -a "${RUNNER_TEMP}/release-push.jsonl" < "pusher/${region}.jsonl"
-            jq -se --arg sha "$GITHUB_SHA" --arg region "$region" --argjson status "$status" \
-              'length == 1 and .[0].region == $region and .[0].state == "installed" and
-              (if $status == 0 then (.[0].error // "") == "" else .[0].error == ("timed out waiting for the region to serve " + $sha) end)' \
-              "pusher/${region}.jsonl"
-            mkdir -p "observe/${region}/deploy/m1"
-            jq -n --arg region "$region" '[{region: $region}]' > "observe/${region}/deploy/m1/regions.json"
-            (cd "observe/${region}" && timeout 600 "${GITHUB_WORKSPACE}/dist/terrascale-orchestrator-linux-amd64" release hosts "${GITHUB_SHA}") \
-              | tee -a "${GITHUB_STEP_SUMMARY}"
-          done
-      - if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-push-once-${{ github.sha }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/release-push.jsonl
-          if-no-files-found: ignore
-          retention-days: 30
 
   all-green:
     name: all-green
