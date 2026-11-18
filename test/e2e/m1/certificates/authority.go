@@ -144,7 +144,11 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 		{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case strings.HasSuffix(r.URL.Path, "/instance/id"):
-				_, _ = io.WriteString(w, "ocid1.instance.oc1..journey")
+				instance := "ts-gru-1"
+				if strings.HasPrefix(r.RemoteAddr, "10.77.0.3:") {
+					instance = "ts-sjc-1"
+				}
+				_, _ = io.WriteString(w, instance)
 			case strings.HasSuffix(r.URL.Path, "/vnics/"):
 				address := "10.77.0.2"
 				if strings.HasPrefix(r.RemoteAddr, "10.77.0.3:") {
@@ -185,6 +189,15 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 				claims, _ := json.Marshal(map[string]any{"exp": time.Now().Add(time.Hour).Unix(), "opc-tenant": "ocid1.tenancy.oc1..journey"})
 				token := base64.RawURLEncoding.EncodeToString([]byte("{}")) + "." + base64.RawURLEncoding.EncodeToString(claims) + ".signature"
 				_ = json.NewEncoder(w).Encode(map[string]string{"token": token})
+			case strings.Contains(r.URL.Path, "secretbundles") && strings.HasPrefix(r.URL.Query().Get("secretName"), "ts-orch-join-"):
+				founder, ok := map[string]string{"ts-orch-join-gru": "ts-gru-1", "ts-orch-join-sjc": "ts-sjc-1"}[r.URL.Query().Get("secretName")]
+				if !ok || r.URL.Query().Get("vaultId") != vaultsecret.SharedVault {
+					http.NotFound(w, r)
+					return
+				}
+				claim, _ := json.Marshal(map[string]string{"founder": founder, "founderInstance": founder})
+				_ = json.NewEncoder(w).Encode(map[string]any{"secretId": "ocid1.vaultsecret.oc1.sa-saopaulo-1.journey" + strings.ReplaceAll(founder, "-", ""), "versionNumber": 1,
+					"secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString(claim)}})
 			case strings.Contains(r.URL.Path, "secretbundles"):
 				value, ok := map[string]string{"ts-orch-mesh-key": cfg.MeshSeed, "gru-1-terrabase-nats-token": cfg.DatabaseToken}[r.URL.Query().Get("secretName")]
 				if r.URL.Query().Get("secretName") == "gru-1-terrabase-nats-token" {
