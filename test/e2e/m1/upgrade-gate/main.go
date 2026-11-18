@@ -409,10 +409,6 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 	must(fleet.GitHub().Record(olderReleases(read(filepath.Join(work, "releases.json")), run), comparisons))
 	upgraded := fleet.Regions[1]
 	manager, worker := upgraded.Hosts[0], upgraded.Hosts[1]
-	for _, host := range fleet.Hosts {
-		must(os.MkdirAll(host.State("nats"), 0o700))
-	}
-	step("production host state: every host carries the old release listener's directory %s", "/var/lib/ts-orch/nats")
 	founders := []*oraclehost.Host{fleet.Regions[0].Hosts[0], manager, fleet.Regions[2].Hosts[0]}
 	must(fleet.Boot(founders...))
 	for _, host := range founders {
