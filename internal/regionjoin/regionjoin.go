@@ -23,11 +23,12 @@ import (
 )
 
 type Material struct {
-	Nodes       []string `json:"nodes,omitempty"`
-	Founder     string   `json:"founder"`
-	WorkerToken string   `json:"workerToken,omitempty"`
-	Managers    []string `json:"managers,omitempty"`
-	Routes      []string `json:"routes,omitempty"`
+	Nodes           []string `json:"nodes,omitempty"`
+	Founder         string   `json:"founder"`
+	FounderInstance string   `json:"founderInstance,omitempty"`
+	WorkerToken     string   `json:"workerToken,omitempty"`
+	Managers        []string `json:"managers,omitempty"`
+	Routes          []string `json:"routes,omitempty"`
 }
 
 // Read returns the region's current join material.
@@ -99,7 +100,7 @@ func Claim(ctx context.Context, region, hostname, instanceID string) (Material, 
 	if !vaultsecret.Absent(err) {
 		return Material{}, err
 	}
-	claim, err := json.Marshal(Material{Founder: hostname})
+	claim, err := json.Marshal(Material{Founder: hostname, FounderInstance: instanceID})
 	if err != nil {
 		return Material{}, err
 	}
@@ -115,29 +116,33 @@ func Claim(ctx context.Context, region, hostname, instanceID string) (Material, 
 	return decode(region, value)
 }
 
-// Publish stores m as the region's join material unless Vault holds it already.
-func Publish(ctx context.Context, region string, m Material) error {
+func ReadCurrent(ctx context.Context, region string) (Material, vaultsecret.Current, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	v, err := open(ctx, region)
+	if err != nil {
+		return Material{}, vaultsecret.Current{}, err
+	}
+	current, err := vaultsecret.ReadCurrent(ctx, v.bundles, vaultsecret.Ref{Vault: v.target.VaultID, Name: SecretName(region)})
+	if err != nil {
+		return Material{}, vaultsecret.Current{}, err
+	}
+	material, err := decode(region, current.Value())
+	return material, current, err
+}
+
+func Publish(ctx context.Context, region string, over vaultsecret.Current, m Material) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
+	value, err := json.Marshal(m)
+	if err != nil || over.Value() == string(value) {
+		return err
+	}
 	v, err := open(ctx, region)
 	if err != nil {
 		return err
 	}
-	value, err := json.Marshal(m)
-	if err != nil {
-		return err
-	}
-	ref := vaultsecret.Ref{Vault: v.target.VaultID, Name: SecretName(region)}
-	current, err := vaultsecret.ReadCurrent(ctx, v.bundles, ref)
-	if vaultsecret.Absent(err) {
-		_, err = vaultsecret.Ensure(ctx, v.management, v.target, ref.Name, "ts-orch in-region join material",
-			func(context.Context) (string, error) { return string(value), nil })
-		return err // a concurrent creator's value is compared on the next round
-	}
-	if err != nil || current.Value() == string(value) {
-		return err
-	}
-	_, err = vaultsecret.Publish(ctx, v.factory, ref, current.ID, current.Version, value)
+	_, err = vaultsecret.Publish(ctx, v.factory, vaultsecret.Ref{Vault: v.target.VaultID, Name: SecretName(region)}, over.ID, over.Version, value)
 	return err
 }
 

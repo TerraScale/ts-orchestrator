@@ -32,7 +32,7 @@ func fallbackPair(ctx context.Context, fleet *oraclehost.Fleet, from, to *oracle
 func fallbackJourney(binary, work string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
-	fleet, err := oraclehost.New(ctx, work, binary, filepath.Join(work, "registry"), []string{"gru", "sjc", "fra"}, []int{3, 2, 1})
+	fleet, err := oraclehost.New(ctx, work, binary, filepath.Join(work, "registry"), []string{"gru", "sjc", "fra"}, []int{3, 2, 2})
 	must(err)
 	defer fleet.Close()
 	defer func() {
@@ -45,6 +45,10 @@ func fallbackJourney(binary, work string) {
 			panic(value)
 		}
 	}()
+	fra := fleet.Regions[2]
+	late := fra.Hosts[1]
+	fra.Hosts = fra.Hosts[:1]
+	fleet.Hosts = slices.DeleteFunc(fleet.Hosts, func(host *oraclehost.Host) bool { return host == late })
 	managers, workers := roles(fleet)
 	must(fleet.Boot(managers...))
 	for _, manager := range managers {
@@ -105,5 +109,15 @@ func fallbackJourney(binary, work string) {
 		}
 	}
 	step("VCN :6222 remains rejected: manager and worker connected over NetBird and delivered all three accounts both ways")
+	reattachSwarm(sjc.Hosts[0], late, func(admission map[string]any) {
+		admission["HostID"], admission["InstanceID"], admission["FounderID"] = late.Name, late.InstanceID, late.Name
+	})
+	fra.Hosts = append(fra.Hosts, late)
+	fleet.Hosts = append(fleet.Hosts, late)
+	must(fleet.Boot(late))
+	_, err = late.WaitReady(ctx, 0, revision(binary))
+	must(err)
+	rejoinedFrom(late, late.Name, regionjoin.SecretName(fra.Name)+" names another cluster than this host's stored admission")
+	step("%s booted on a stale cluster's swarm state carrying its own hostname and OCID: it kept that state aside and joined %s's live cluster", late.Name, fra.Name)
 	step("region fallback lane passed in %s", time.Since(started).Round(time.Second))
 }

@@ -21,9 +21,6 @@ func seed() error {
 	if os.Args[2] == "rebuilt-region" {
 		return rebuiltRegion(ctx, state)
 	}
-	if os.Args[2] == "reattached-volume" {
-		return reattachedVolume(ctx, state)
-	}
 	executor, err := swarmruntime.NewExecutor(swarmruntime.HostContainerdSocket, state)
 	if err != nil {
 		return err

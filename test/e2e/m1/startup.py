@@ -17,7 +17,6 @@ SEED_CASE_SECONDS = {
     "promotion": 60,
     "node-scale": 120,
     "rebuilt-region": 60,
-    "reattached-volume": 60,
 }
 SJC = next(
     region
@@ -27,16 +26,14 @@ SJC = next(
     if region["label"] == "sjc"
 )
 CASES = (
-    "reattached-volume",
     "rebuilt-region",
     "promotion",
     "node-scale",
     "fresh-outage",
     "worker-outage",
-    "manager-match",
-    "manager-mismatch",
-    "manager-no-identity",
-    "manager-no-record",
+    "manager-outage",
+    "worker-foreign-host-delay",
+    "worker-foreign-instance-delay",
     "fresh-record",
     "fresh-delay",
     "worker-delay",
@@ -116,16 +113,7 @@ def run_case(binary, seed_binary, root, case):
         return
     firmware = work / "sys/class/dmi/id"
     firmware.mkdir(parents=True)
-    for field in ("board_asset_tag", "product_serial", "product_uuid"):
-        (firmware / field).write_text("unknown\n")
-    if case == "manager-no-identity":
-        for field in ("board_asset_tag", "product_serial", "product_uuid"):
-            (firmware / field).unlink()
     (firmware / "chassis_asset_tag").write_text("OracleCloud.com\n")
-    if case == "manager-match":
-        (firmware / "board_asset_tag").write_text("instance\n")
-    if case == "manager-mismatch":
-        (firmware / "board_asset_tag").write_text("another-instance\n")
     subprocess.run(["mount", "--bind", str(work / "sys"), "/sys"], check=True)
     state = work / "state"
     state.mkdir()
@@ -138,6 +126,13 @@ def run_case(binary, seed_binary, root, case):
     environment = dict(os.environ, NOTIFY_SOCKET=str(work / "notify.sock"))
     began = time.monotonic()
     delayed = case.endswith("-delay")
+    role = "manager" if case.startswith("manager-") else "worker"
+    hostname = "replacement" if case == "worker-foreign-host-delay" else role
+    instance_id = {
+        "worker-foreign-instance-delay": "other-instance",
+        "manager-outage": "manager",
+        "manager-delay": "manager",
+    }.get(case, "instance")
 
     class Metadata(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -150,7 +145,7 @@ def run_case(binary, seed_binary, root, case):
             values = {
                 "/opc/v2/instance/canonicalRegionName": SJC["oci_region"],
                 "/opc/v2/instance/compartmentId": SJC["compartment_id"],
-                "/opc/v2/instance/id": "instance",
+                "/opc/v2/instance/id": instance_id,
                 "/opc/v2/vnics/": '[{"privateIp":"127.0.0.2","vcnCidrBlock":"127.0.0.0/16"}]',
             }
             value = values.get(self.path)
@@ -188,7 +183,6 @@ def run_case(binary, seed_binary, root, case):
         if case not in (
             "fresh-outage",
             "fresh-delay",
-            "manager-no-record",
             "cancel",
             "local",
         ):
@@ -265,7 +259,18 @@ def run_case(binary, seed_binary, root, case):
             record_events = record_watch(state)
         began = time.monotonic()
         process = subprocess.Popen(
-            [binary, "node", "--state", str(state)],
+            [
+                "unshare",
+                "--uts",
+                "sh",
+                "-c",
+                'hostname "$0" && exec "$@"',
+                hostname,
+                binary,
+                "node",
+                "--state",
+                str(state),
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             env=environment,
@@ -302,20 +307,29 @@ def run_case(binary, seed_binary, root, case):
                 )
             output = read_until(process, b"retrying within startup window", 5)
             require(process.poll() is None, "fresh host did not proceed to admission")
-        elif delayed or case in ("worker-outage", "manager-match"):
-            output = read_until(process, b"ready; advertise", 340)
-            role = "container" if case.startswith("worker-") else "manager"
-            address = (
-                "127.0.0.1:4242"
-                if case in ("worker-outage", "manager-match")
-                else "127.0.0.2:4242"
-            )
+        elif case.startswith("worker-foreign-"):
+            output = read_until(process, b"set aside the stored cluster state at", 30)
             require(
-                re.search(
-                    rf"node {role} \w+ ready; advertise {re.escape(address)}",
-                    output,
-                ),
-                f"wrong recovered role or address: {output[-1000:]}",
+                f"stored admission belongs to worker (instance), not this host {hostname} ({instance_id})"
+                in output
+                and "set aside the stored cluster state at" in output,
+                f"foreign state was not set aside: {output[-1000:]}",
+            )
+            asides = list((state / "set-aside").iterdir())
+            require(
+                len(asides) == 1
+                and (asides[0] / "admission.json").read_bytes() == previous_admission
+                and not (state / "swarm").exists()
+                and process.poll() is None,
+                "foreign swarm state was not kept aside intact",
+            )
+        elif delayed:
+            output = read_until(process, b"until its cluster is verified", 120)
+            require(
+                process.poll() is None
+                and "until its cluster is verified" in output
+                and "ready; advertise" not in output,
+                f"restart resumed without verifying its cluster: {output[-1000:]}",
             )
         else:
             data, _ = process.communicate(timeout=320)
@@ -324,29 +338,11 @@ def run_case(binary, seed_binary, root, case):
                 process.returncode != 0 and "read host metadata:" in output,
                 f"accepted metadata outage: {output[-1000:]}",
             )
-            if case in ("manager-mismatch", "manager-no-identity"):
-                require(
-                    "does not match a network-independent firmware identity" in output,
-                    "missing identity contradiction",
-                )
-            if case == "manager-no-record":
-                require(
-                    "read stored host metadata:" in output,
-                    "missing recovery record error",
-                )
         elapsed = time.monotonic() - began
         require(
             output.count("retrying within startup window") <= 11,
             "metadata failures logged too often",
         )
-        if (delayed and case != "fresh-delay") or case in (
-            "worker-outage",
-            "manager-match",
-        ):
-            require(
-                notify.recv(4096).startswith(b"READY=1"),
-                "recovered host did not notify readiness",
-            )
         attempts = [
             at - began
             for at, path in samples
@@ -371,7 +367,7 @@ def run_case(binary, seed_binary, root, case):
                 json.loads(record.read_text())
                 == {
                     "Region": "sjc",
-                    "ID": "instance",
+                    "ID": instance_id,
                     "PrivateIP": "127.0.0.2",
                     "VCNCIDR": "127.0.0.0/16",
                 },
@@ -386,7 +382,7 @@ def run_case(binary, seed_binary, root, case):
                 json.loads(record.read_text()) == old,
                 "failed lookup changed recovery record",
             )
-        if previous_admission is not None:
+        if previous_admission is not None and not case.startswith("worker-foreign-"):
             require(
                 admission.read_bytes() == previous_admission,
                 "restart changed stored admission",

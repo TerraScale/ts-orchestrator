@@ -67,7 +67,7 @@ func reclaim(ctx context.Context, vault vault, region, hostname, instanceID stri
 	if len(candidates) == 0 || *candidates[0].Id != instanceID {
 		return Material{}, fmt.Errorf("waiting for the oldest document node to reclaim %s", SecretName(region))
 	}
-	material = Material{Founder: hostname}
+	material = Material{Founder: hostname, FounderInstance: instanceID}
 	value, err := json.Marshal(material)
 	if err != nil {
 		return Material{}, err

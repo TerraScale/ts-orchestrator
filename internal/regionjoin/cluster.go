@@ -19,9 +19,13 @@ func ClusterMaterial(ctx context.Context, client api.ControlClient, founder stri
 	if err != nil {
 		return Material{}, err
 	}
-	names := make([]string, 0, len(listed.Nodes))
+	return ClusterMaterialOf(ctx, client, listed.Nodes, founder)
+}
+
+func ClusterMaterialOf(ctx context.Context, client api.ControlClient, nodes []*api.Node, founder string) (Material, error) {
+	names := make([]string, 0, len(nodes))
 	leader := ""
-	for _, node := range listed.Nodes {
+	for _, node := range nodes {
 		if node.Description != nil {
 			names = append(names, node.Description.Hostname)
 			if node.Status.State == api.NodeStatus_READY && node.Role == api.NodeRoleManager && node.ManagerStatus != nil && node.ManagerStatus.Leader {
@@ -45,7 +49,7 @@ func ClusterMaterial(ctx context.Context, client api.ControlClient, founder stri
 
 func NamesStored(material Material, stateDir string, stored swarmruntime.Admission) (bool, error) {
 	if material.WorkerToken == "" {
-		return stored.HostID == stored.FounderID && material.Founder == stored.HostID, nil
+		return stored.HostID == stored.FounderID && material.Founder == stored.HostID && material.FounderInstance == stored.InstanceID, nil
 	}
 	parsed, err := ca.ParseJoinToken(material.WorkerToken)
 	if err != nil {

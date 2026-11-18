@@ -825,9 +825,13 @@ func main() {
 	step("%s left: %s refuses an inventory signed with its still-valid manager certificate, follows a current manager's inventory and still serves whoami", departed.Name, follower.Name)
 	gru.Hosts = []*oraclehost.Host{gru.Hosts[0], gru.Hosts[1], replacement}
 	fleet.Hosts = append(slices.DeleteFunc(fleet.Hosts, func(host *oraclehost.Host) bool { return host == departed }), replacement)
+	reattachSwarm(departed, replacement, nil)
 	must(fleet.Boot(replacement))
 	_, err = replacement.WaitReady(ctx, 0, first)
 	must(err)
+	rejoinedFrom(replacement, departed.Name, "stored admission belongs to "+departed.Name+" ("+departed.InstanceID+"), not this host "+replacement.Name)
+	restartResumes(ctx, replacement, first)
+	step("%s booted on %s's reattached swarm state: it kept that state aside, joined %s's live cluster as itself, and its own restart resumed", replacement.Name, departed.Name, gru.Name)
 	meshRoutes(ctx, fleet)
 	for _, host := range gru.Hosts {
 		until(ctx, host.Name+" retires "+departed.Name+"'s route", func() error {

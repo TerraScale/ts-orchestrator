@@ -2,13 +2,10 @@ package app
 
 import (
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -50,27 +47,6 @@ func readHostMetadata(ctx context.Context, output io.Writer) (regionjoin.Instanc
 		}
 		backoff = min(2*backoff, 5*time.Second)
 	}
-}
-
-func storedHostMetadata(state string) (regionjoin.Instance, error) {
-	data, err := os.ReadFile(filepath.Join(state, hostMetadataFile))
-	if err != nil {
-		return regionjoin.Instance{}, fmt.Errorf("read stored host metadata: %w", err)
-	}
-	var instance regionjoin.Instance
-	if err := json.Unmarshal(data, &instance); err != nil {
-		return regionjoin.Instance{}, fmt.Errorf("read stored host metadata: %w", err)
-	}
-	if err := validateHostMetadata(instance); err != nil {
-		return regionjoin.Instance{}, err
-	}
-	for _, field := range []string{"board_asset_tag", "product_serial", "product_uuid"} {
-		identity, err := os.ReadFile(filepath.Join("/sys/class/dmi/id", field))
-		if err == nil && strings.TrimSpace(string(identity)) == instance.ID {
-			return instance, nil
-		}
-	}
-	return regionjoin.Instance{}, errors.New("stored host metadata instance ID does not match a network-independent firmware identity")
 }
 
 func validateHostMetadata(instance regionjoin.Instance) error {

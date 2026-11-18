@@ -53,21 +53,38 @@ func SwarmAddresses(privateIP string) (listen, advertise string) {
 // StoredAdmission returns the admission the host started with before, so a
 // restart keeps its role and identity without Vault.
 func StoredAdmission(stateDir string) (Admission, bool, error) {
-	data, err := os.ReadFile(filepath.Join(SwarmDir(stateDir), "admission.json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return Admission{}, false, nil
-	}
-	if err != nil {
-		return Admission{}, false, err
-	}
-	var stored admittedIdentity
-	if err := json.Unmarshal(data, &stored); err != nil {
-		return Admission{}, false, fmt.Errorf("read swarm admission: %w", err)
+	stored, found, err := readAdmission(stateDir)
+	if err != nil || !found {
+		return Admission{}, found, err
 	}
 	if err := reconcileAdmissionRole(context.Background(), SwarmDir(stateDir), &stored); err != nil {
 		return Admission{}, false, err
 	}
-	return Admission{Region: stored.Region, HostID: stored.HostID, InstanceID: stored.InstanceID, FounderID: stored.FounderID, Role: stored.Role}, true, nil
+	return stored.admission(), true, nil
+}
+
+func ReadAdmission(stateDir string) (Admission, bool, error) {
+	stored, found, err := readAdmission(stateDir)
+	return stored.admission(), found, err
+}
+
+func readAdmission(stateDir string) (admittedIdentity, bool, error) {
+	data, err := os.ReadFile(filepath.Join(SwarmDir(stateDir), "admission.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return admittedIdentity{}, false, nil
+	}
+	if err != nil {
+		return admittedIdentity{}, false, err
+	}
+	var stored admittedIdentity
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return admittedIdentity{}, false, fmt.Errorf("read swarm admission: %w", err)
+	}
+	return stored, true, nil
+}
+
+func (i admittedIdentity) admission() Admission {
+	return Admission{Region: i.Region, HostID: i.HostID, InstanceID: i.InstanceID, FounderID: i.FounderID, Role: i.Role}
 }
 
 func SwarmDir(stateDir string) string { return filepath.Join(stateDir, "swarm") }

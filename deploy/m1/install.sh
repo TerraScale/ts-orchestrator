@@ -33,11 +33,13 @@ set -euo pipefail
 if ! command -v netbird >/dev/null; then
 	curl -fsSL https://pkgs.netbird.io/debian/public.key | gpg --dearmor --yes -o /usr/share/keyrings/netbird-archive-keyring.gpg
 	echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' > /etc/apt/sources.list.d/netbird.list
-	apt_lists=\$(mktemp -d)
-	chmod 0755 "\$apt_lists"
-	apt-get -o Dir::State::Lists="\$apt_lists" update -qq
-	DEBIAN_FRONTEND=noninteractive apt-get -o Dir::State::Lists="\$apt_lists" -o DPkg::Lock::Timeout=300 install -y -qq netbird
-	rm -rf "\$apt_lists"
+	(
+		apt_dir=\$(mktemp -d)
+		trap 'rm -rf "\$apt_dir"' EXIT
+		install -d -m 0755 "\$apt_dir" "\$apt_dir/lists/partial" "\$apt_dir/cache/archives/partial"
+		apt-get -o Dir::State::Lists="\$apt_dir/lists" -o Dir::Cache="\$apt_dir/cache" update -qq
+		DEBIAN_FRONTEND=noninteractive apt-get -o Dir::State::Lists="\$apt_dir/lists" -o Dir::Cache="\$apt_dir/cache" -o DPkg::Lock::Timeout=300 install -y -qq netbird
+	)
 fi
 systemctl is-enabled --quiet netbird || netbird service install
 systemctl enable --now netbird

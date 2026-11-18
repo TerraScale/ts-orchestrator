@@ -279,7 +279,7 @@ type hostPlan struct {
 func (p hostPlan) joiner() bool { return p.admission.HostID != p.admission.FounderID }
 
 func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, error) {
-	stored, restarted, err := swarmruntime.StoredAdmission(state)
+	stored, restarted, err := swarmruntime.ReadAdmission(state)
 	if err != nil {
 		return hostPlan{}, err
 	}
@@ -315,48 +315,37 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 			if stored.HostID != stored.FounderID {
 				return hostPlan{}, errors.New("host platform is not Oracle but stored mesh worker admission exists")
 			}
-			local.admission = stored
+			if local.admission, _, err = swarmruntime.StoredAdmission(state); err != nil {
+				return hostPlan{}, err
+			}
 		}
 		fmt.Fprintln(output, "local host; using a loopback-only cluster")
 		return local, nil
 	}
-	instance, metadataErr := readHostMetadata(ctx, output)
-	if err := ctx.Err(); err != nil {
-		return hostPlan{}, err
+	instance, err := readHostMetadata(ctx, output)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return hostPlan{}, ctxErr
 	}
-	if metadataErr != nil {
-		if !restarted {
-			return hostPlan{}, fmt.Errorf("read host metadata: %w", metadataErr)
-		}
-		if stored.Role == "manager" {
-			instance, err = storedHostMetadata(state)
-			if err != nil {
-				return hostPlan{}, fmt.Errorf("read host metadata: %w", errors.Join(metadataErr, err))
-			}
-			fmt.Fprintf(output, "using stored host metadata; advertise %s\n", net.JoinHostPort(instance.PrivateIP, strconv.Itoa(swarmruntime.SwarmPort)))
-		} else {
-			fmt.Fprintln(output, "host metadata unavailable; restarting worker from stored admission")
-		}
+	if err != nil {
+		return hostPlan{}, fmt.Errorf("read host metadata: %w", err)
 	}
-	if metadataErr == nil {
-		data, err := json.Marshal(instance)
-		if err == nil {
-			err = writeOwnerOnlyFile(state, hostMetadataFile, data)
-		}
-		if err != nil {
-			return hostPlan{}, fmt.Errorf("persist host metadata: %w", err)
-		}
+	data, err := json.Marshal(instance)
+	if err == nil {
+		err = writeOwnerOnlyFile(state, hostMetadataFile, data)
+	}
+	if err != nil {
+		return hostPlan{}, fmt.Errorf("persist host metadata: %w", err)
 	}
 	plan := hostPlan{region: instance.Region, address: instance.PrivateIP, vcnCIDR: instance.VCNCIDR}
 	plan.listen, plan.advertise = swarmruntime.SwarmAddresses(instance.PrivateIP)
 	if restarted {
-		resumes, err := storedAdmissionHolds(ctx, state, stored, hostname, instance, metadataErr == nil, output)
+		resumes, err := storedAdmissionHolds(ctx, state, stored, hostname, instance, output)
 		if err != nil {
 			return hostPlan{}, err
 		}
 		if resumes {
-			plan.admission = stored
-			return plan, nil
+			plan.admission, _, err = swarmruntime.StoredAdmission(state)
+			return plan, err
 		}
 		aside, err := swarmruntime.SetAsideSwarm(state, time.Now())
 		if err != nil {
@@ -382,7 +371,7 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 				}
 				fmt.Fprintf(output, "joining %s at %s as a worker\n", regionjoin.SecretName(instance.Region), manager)
 				return plan, nil
-			case material.Founder == hostname && material.WorkerToken == "":
+			case material.Founder == hostname && material.FounderInstance == instance.ID && material.WorkerToken == "":
 				plan.admission = swarmruntime.FoundingAdmission(hostname, instance.ID)
 				return plan, nil
 			case material.WorkerToken != "":
@@ -399,27 +388,27 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 	}
 }
 
-func storedAdmissionHolds(ctx context.Context, state string, stored swarmruntime.Admission, hostname string, instance regionjoin.Instance, metadata bool, output io.Writer) (bool, error) {
-	if !metadata {
-		if stored.HostID == hostname && (instance.ID == "" || stored.InstanceID == instance.ID) {
-			return true, nil
-		}
-		return false, fmt.Errorf("stored admission of %s (%s) is not this host %s and host metadata is unavailable", stored.HostID, stored.InstanceID, hostname)
-	}
+func storedAdmissionHolds(ctx context.Context, state string, stored swarmruntime.Admission, hostname string, instance regionjoin.Instance, output io.Writer) (bool, error) {
 	if !stored.BelongsTo(hostname, instance.ID) {
 		fmt.Fprintf(output, "stored admission belongs to %s (%s), not this host %s (%s)\n", stored.HostID, stored.InstanceID, hostname, instance.ID)
 		return false, nil
 	}
-	material, err := regionjoin.Read(ctx, instance.Region)
-	if err != nil {
-		fmt.Fprintf(output, "read %s: %v; resuming this host's stored admission\n", regionjoin.SecretName(instance.Region), err)
-		return true, nil
+	for {
+		material, _, err := regionjoin.ReadCurrent(ctx, instance.Region)
+		if err == nil {
+			named, err := regionjoin.NamesStored(material, state, stored)
+			if err == nil && !named {
+				fmt.Fprintf(output, "%s names another cluster than this host's stored admission\n", regionjoin.SecretName(instance.Region))
+			}
+			return named, err
+		}
+		fmt.Fprintf(output, "read %s: %v; stored admission kept in place until its cluster is verified\n", regionjoin.SecretName(instance.Region), err)
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(30 * time.Second):
+		}
 	}
-	named, err := regionjoin.NamesStored(material, state, stored)
-	if err == nil && !named {
-		fmt.Fprintf(output, "%s names another cluster than this host's stored admission\n", regionjoin.SecretName(instance.Region))
-	}
-	return named, err
 }
 
 func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string) {
@@ -458,7 +447,7 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 			for _, member := range members {
 				routes = append(routes, meshRoute(member))
 			}
-			current, err := regionjoin.Read(ctx, plan.region)
+			current, version, err := regionjoin.ReadCurrent(ctx, plan.region)
 			if err != nil {
 				return err
 			}
@@ -473,12 +462,12 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 					}
 				}
 			}
-			own, err := regionjoin.ClusterMaterial(ctx, client, current.Founder)
+			own, err := regionjoin.ClusterMaterialOf(ctx, client, listed.Nodes, current.Founder)
 			if err != nil {
 				return err
 			}
 			own.Managers, own.Routes = managers, routes
-			return regionjoin.Publish(ctx, plan.region, own)
+			return regionjoin.Publish(ctx, plan.region, version, own)
 		}()
 		if err != nil {
 			slog.WarnContext(ctx, "region join material not published; retrying", "secret", regionjoin.SecretName(plan.region), "error", err)
