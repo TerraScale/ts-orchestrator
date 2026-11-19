@@ -220,6 +220,15 @@ func main() {
 			r = r.Clone(r.Context())
 			r.URL.Path = strings.Replace(r.URL.Path, "/referrers/sha256:", "/manifests/sha256-", 1)
 		}
+		if strings.Contains(r.URL.Path, "/ts-auth/manifests/") {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{"errors": []map[string]any{{"code": "MANIFEST_UNKNOWN", "message": opaqueCredential, "detail": opaqueSignature}}})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/terrascale-dashboard/manifests/") {
+			http.Error(w, opaqueCredential+" "+opaqueSignature, http.StatusBadRequest)
+			return
+		}
 		backend.ServeHTTP(w, r)
 	}))
 	defer server.Close()
@@ -335,12 +344,12 @@ func main() {
 		redirectOrigin = origin
 		redirectPath = "/v2/" + repository + "/blobs/" + configDigest.String()
 		_, err = source.Pull(ctx, apppull.Targets[0])
-		require(err != nil && strings.Contains(err.Error(), "request outside regional OCIR"), "discovery followed a config redirect outside regional OCIR")
+		require(err != nil && errors.Is(err, appregistry.ErrOutsideRegionalOCIR), "discovery followed a config redirect outside regional OCIR")
 		redirectPath = "/v2/" + repository + "/blobs/" + bundleDigest.String()
 		_, err = source.Pull(ctx, apppull.Targets[0])
-		require(err != nil && strings.Contains(err.Error(), "request outside regional OCIR"), "discovery followed a bundle redirect outside regional OCIR")
+		require(err != nil && errors.Is(err, appregistry.ErrOutsideRegionalOCIR), "discovery followed a bundle redirect outside regional OCIR")
 		_, _, err = resolver.Resolve(ctx, selected.Image)
-		require(err != nil && strings.Contains(err.Error(), "request outside regional OCIR"), "executor followed a bundle redirect outside regional OCIR")
+		require(err != nil && errors.Is(err, appregistry.ErrOutsideRegionalOCIR), "executor followed a bundle redirect outside regional OCIR")
 		redirectPath = "/v2/" + repository + "/blobs/" + manifest.Layers[0].Digest.String()
 		blob, err = fetcher.Fetch(ctx, imagespec.Descriptor{MediaType: string(manifest.Layers[0].MediaType), Digest: godigest.Digest(manifest.Layers[0].Digest.String()), Size: manifest.Layers[0].Size})
 		if err == nil {

@@ -44,6 +44,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 		return err
 	}
 	observability.ConfigureDefault(logger)
+	appEvents := apppull.NewEvents(plan.region, events)
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -158,7 +159,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 	subscribed := make(chan struct{})
 	if plan.region != "" {
 		go serveHostReleases(ctx, state, plan.region, node, releases, sync.OnceFunc(func() { close(subscribed) }))
-		go runPullUpdates(ctx, state, plan.region, node, releases, failed)
+		go runPullUpdates(ctx, state, plan.region, node, releases, appEvents, failed)
 	} else {
 		close(subscribed)
 	}
@@ -522,7 +523,7 @@ func serveHostReleases(ctx context.Context, state, region string, node *swarmrun
 	}
 }
 
-func runPullUpdates(ctx context.Context, state, region string, node *swarmruntime.Node, releases *releasepush.Handler, failed chan<- error) {
+func runPullUpdates(ctx context.Context, state, region string, node *swarmruntime.Node, releases *releasepush.Handler, events *apppull.Events, failed chan<- error) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for ctx.Err() == nil {
@@ -534,10 +535,18 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			continue
 		}
 		conn, err := mesh.Connect(state)
+		if err != nil {
+			events.Report(ctx, slog.LevelError, "app-pull startup failed", "apps", "release", "mesh connection", err)
+		} else {
+			events.Recover(ctx, "apps", "mesh connection")
+		}
 		var fabric *nats.Conn
 		if err == nil {
 			if fabric, err = mesh.ConnectFabric(state); err != nil {
+				events.Report(ctx, slog.LevelError, "app-pull startup failed", "apps", "release", "fabric connection", err)
 				conn.Close()
+			} else {
+				events.Recover(ctx, "apps", "fabric connection")
 			}
 		}
 		if err != nil {
@@ -548,6 +557,13 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			continue
 		}
 		managing, stop := context.WithCancel(ctx)
+		detach, err := events.Attach(managing, fabric)
+		if err != nil {
+			events.Report(ctx, slog.LevelError, "app-pull events unavailable", "apps", "release", "event store", err)
+		} else {
+			events.Recover(ctx, "apps", "event store")
+			context.AfterFunc(managing, detach)
+		}
 		go func() {
 			for managing.Err() == nil && node.IsManager() && !conn.IsClosed() && !fabric.IsClosed() {
 				select {
@@ -558,7 +574,7 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			stop()
 		}()
 		go func() {
-			apps := apppull.Updater{Self: node.ID(), Region: region, Fabric: fabric, Source: apppull.Source{Registry: func(ctx context.Context) (*appregistry.Client, error) { return appregistry.Regional(ctx, region) }}, Apply: apppull.Apply(mesh.Release(state)).Within(ctx)}
+			apps := apppull.Updater{Self: node.ID(), Region: region, Fabric: fabric, Events: events, Source: apppull.Source{Registry: func(ctx context.Context) (*appregistry.Client, error) { return appregistry.Regional(ctx, region) }}, Apply: apppull.Apply(mesh.Release(state)).Within(ctx)}
 			if err := apps.Run(managing); err != nil && managing.Err() == nil {
 				failed <- errors.Join(errors.New("app release updater stopped"), err)
 			}

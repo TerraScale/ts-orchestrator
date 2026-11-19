@@ -3,12 +3,17 @@ package apppull
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
+	"github.com/TerraScale/ts-orchestrator/internal/releasefailure"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats.go"
 )
 
@@ -20,6 +25,7 @@ type Updater struct {
 	Fabric *nats.Conn
 	Source Source
 	Apply  Apply
+	Events *Events
 }
 
 const (
@@ -50,6 +56,8 @@ func (u Updater) Run(ctx context.Context) error {
 			opened, err := pullrelease.Open(ctx, u.Fabric, u.Region, "apps")
 			if err != nil {
 				u.failure(ctx, slog.LevelError, "app rollout store unavailable", "apps", "release", err)
+			} else {
+				u.Events.Recover(ctx, "apps", "app rollout store unavailable")
 			}
 			store = opened
 		}
@@ -58,6 +66,8 @@ func (u Updater) Run(ctx context.Context) error {
 			owned, err := store.Lead(ctx, u.Self)
 			if err != nil {
 				u.failure(ctx, slog.LevelError, "app rollout lease not renewed", "apps", "release", err)
+			} else {
+				u.Events.Recover(ctx, "apps", "app rollout lease not renewed")
 			}
 			leading = owned && err == nil
 		}
@@ -98,6 +108,7 @@ func (u Updater) turn(ctx context.Context, due bool, seen map[string]string) tur
 			u.failure(ctx, slog.LevelWarn, "app release tag unreadable", target.Service, target.Package+":release", err)
 			continue
 		}
+		u.Events.Recover(ctx, target.Service, "release tag", "registry credentials")
 		if seen[target.Service] != digest {
 			seen[target.Service] = digest
 			moved = append(moved, target)
@@ -136,19 +147,33 @@ func (u Updater) cycle(ctx context.Context, targets []Target) error {
 			u.failure(ctx, slog.LevelWarn, "app release refused", target.Service, release, err)
 			continue
 		}
+		u.Events.Recover(ctx, target.Service, "release attestation", "image configuration", "image policy", "release manifest")
 		apply, cancel := context.WithTimeout(context.WithoutCancel(ctx), releasepush.HandlerWait)
 		_, err = u.Apply(apply, target.Service, candidate.Image, candidate.Claims, progress{ctx, target.Service})
 		cancel()
 		if err != nil {
 			u.failure(ctx, slog.LevelError, "pulled app release failed", target.Service, candidate.Image, err)
+		} else {
+			u.Events.Recover(ctx, target.Service)
 		}
 	}
 	return nil
 }
 
 func (u Updater) failure(ctx context.Context, level slog.Level, message, service, release string, err error) {
-	slog.Log(ctx, level, message, observability.ComponentKey, "apppull", "service", service,
-		"region", u.Region, "release", release, "reason", err)
+	stage := message
+	if message == "pulled app release failed" {
+		stage = "application rollout"
+		var readiness *swarmruntime.TaskReadinessError
+		if errors.As(err, &readiness) {
+			code := "request failed"
+			if status, parseErr := strconv.Atoi(strings.TrimPrefix(readiness.Status, "HTTP ")); parseErr == nil && status >= 100 && status <= 599 {
+				code = fmt.Sprintf("HTTP %d", status)
+			}
+			err = releasefailure.Policy("task readiness", code)
+		}
+	}
+	u.Events.Report(ctx, level, message, service, release, stage, err)
 }
 
 type progress struct {

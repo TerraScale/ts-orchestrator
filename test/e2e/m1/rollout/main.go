@@ -872,6 +872,9 @@ func signedRelease(ctx context.Context, _ *nats.Conn, image, run string) {
 }
 
 func selectService(ctx context.Context, image, run, service string) {
+	if err := os.Remove(filepath.Join(selectionState, "selection-"+run+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		must(err)
+	}
 	command := exec.CommandContext(ctx, "ip", "netns", "exec", selectionNamespace, os.Args[0], "pull", selectionState, image, run, service)
 	output, err := os.OpenFile(filepath.Join(selectionState, "selection-"+run+".log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	must(err)
@@ -925,7 +928,24 @@ func stagingCases(ctx context.Context, root, namespace, address, launcher, seedF
 	var peers []struct{ Region string }
 	must(json.Unmarshal(topology, &peers))
 	require(len(peers) == 1 && peers[0].Region == "stg", "staging peer topology crossed environments")
+	blocked := func(service, pkg, run, reason string) {
+		image := strings.Replace(strings.TrimPrefix(workload.Image, "ghcr.io/terrascale/"), "terrabase@", pkg+"@", 1)
+		selectService(ctx, image, run, service)
+		observe(ctx, conn, func(s map[string]state) bool {
+			result := selectionResult(root, run)
+			if result.State == "accepted" {
+				return false
+			}
+			require(result.State == "failed" && result.Error == reason, "first creation did not report its missing dependency: "+result.Error)
+			require(s["stg"].Desired[service] == nil, "missing dependency consumed a signed floor")
+			return true
+		})
+	}
+	blocked("ts-auth", "ts-auth", "201", "dependency: TerraBase must be ready before first creation")
 	for i, service := range []string{"terrabase", "ts-auth", "ts-dashboard"} {
+		if service == "ts-auth" {
+			blocked("ts-dashboard", "terrascale-dashboard", "202", "dependency: ts-auth must be ready before first creation")
+		}
 		pkg := service
 		if service == "ts-dashboard" {
 			pkg = "terrascale-dashboard"
@@ -959,11 +979,8 @@ func stagingCases(ctx context.Context, root, namespace, address, launcher, seedF
 			want.Image = image
 			require(reflect.DeepEqual(&want, after.Signed.Spec), "dashboard release changed fields other than its image")
 		}
-		if service == "ts-auth" {
-			must(mesh.Remove(ctx, conn, service, io.Discard))
-		}
 	}
-	for _, service := range []string{"ts-dashboard", "terrabase"} {
+	for _, service := range []string{"ts-dashboard", "ts-auth", "terrabase"} {
 		must(mesh.Remove(ctx, conn, service, io.Discard))
 	}
 	conn.Close()
