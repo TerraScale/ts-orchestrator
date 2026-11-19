@@ -15,12 +15,13 @@ import (
 )
 
 const (
-	Package       = "orchestrator-release"
-	Stable        = "stable"
-	manifestType  = "application/vnd.oci.image.manifest.v1+json"
-	titleKey      = "org.opencontainers.image.title"
-	manifestLimit = 64 << 10
-	requestWait   = 30 * time.Second
+	Package            = "orchestrator-release"
+	Stable             = "stable"
+	manifestType       = "application/vnd.oci.image.manifest.v1+json"
+	titleKey           = "org.opencontainers.image.title"
+	manifestLimit      = 64 << 10
+	requestWait        = 30 * time.Second
+	regionPublishBound = 2 * time.Minute
 )
 
 type Registry struct {
