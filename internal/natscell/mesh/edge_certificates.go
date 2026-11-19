@@ -9,8 +9,8 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-func (n *Node) EdgeCertificateStore() (*nats.Conn, []byte, error) {
-	return n.certificateConn, n.cfg.ca.key.Seed(), nil
+func (n *Node) EdgeCertificateStore() (*nats.Conn, int, []byte, error) {
+	return n.certificateConn, StoreReplicas(n.cfg.region), n.cfg.ca.key.Seed(), nil
 }
 
 func (n *Node) EdgeCertificateNodes() (string, []string, error) {
@@ -40,27 +40,27 @@ func (n *Node) EdgeCertificateNodes() (string, []string, error) {
 	return n.cfg.server, nodes, nil
 }
 
-func EdgeCertificateClient(ctx context.Context, state string) (*nats.Conn, []byte, error) {
+func EdgeCertificateClient(ctx context.Context, state string) (*nats.Conn, int, []byte, error) {
 	region, err := ownRegion(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, 0, nil, err
 	}
 	secret, err := loadSecret(ctx, EnvironmentOf(region), secretName, "ts-orch mesh CA seed")
 	if err != nil {
-		return nil, nil, err
+		return nil, 0, nil, err
 	}
 	ca, err := DeriveCA(secret)
 	clear(secret)
 	if err != nil {
-		return nil, nil, err
+		return nil, 0, nil, err
 	}
 	token, err := os.ReadFile(filepath.Join(state, "mesh", "fabric.token"))
 	if err != nil {
-		return nil, nil, err
+		return nil, 0, nil, err
 	}
 	conn, err := dialLocal(LocalPort, fabricUser, strings.TrimSpace(string(token)))
 	if err != nil {
-		return nil, nil, err
+		return nil, 0, nil, err
 	}
-	return conn, ca.key.Seed(), nil
+	return conn, StoreReplicas(region), ca.key.Seed(), nil
 }

@@ -21,7 +21,6 @@ const (
 	controlSubjectRoot   = protocol.ControlRoot
 	defaultLeaseDuration = 15 * time.Second
 	defaultRenewInterval = 3 * time.Second
-	defaultReplicas      = 3
 	maxControlPayload    = 1 << 20
 	maxPlacementIntents  = 10_000
 )

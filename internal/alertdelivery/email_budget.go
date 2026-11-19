@@ -200,6 +200,7 @@ func (b *emailBudget) openShared(ctx context.Context) (*sharedStore, error) {
 	if err != nil {
 		return nil, err
 	}
+	replicas := mesh.StoreReplicas(mesh.ConnRegion(conn))
 	js, err := jetstream.New(conn)
 	if err != nil {
 		conn.Close()
@@ -207,7 +208,7 @@ func (b *emailBudget) openShared(ctx context.Context) (*sharedStore, error) {
 	}
 	bucket, err := js.KeyValue(ctx, budgetBucket)
 	if errors.Is(err, jetstream.ErrBucketNotFound) {
-		bucket, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: budgetBucket, History: 1, Replicas: 3, MaxBytes: 4 << 20, MaxValueSize: 128 << 10, Storage: jetstream.FileStorage})
+		bucket, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: budgetBucket, History: 1, Replicas: replicas, MaxBytes: 4 << 20, MaxValueSize: 128 << 10, Storage: jetstream.FileStorage})
 	}
 	if err != nil {
 		conn.Close()

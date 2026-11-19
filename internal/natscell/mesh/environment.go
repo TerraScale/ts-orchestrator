@@ -35,12 +35,16 @@ func (d Environment) GHCRPullToken(ctx context.Context) (string, error) {
 	return vaultsecret.ReadGHCRPullToken(ctx, d.Vault.VaultID, d.Secret("ghcr-pull-token"))
 }
 
-func connRegion(conn *nats.Conn) string {
+func ConnRegion(conn *nats.Conn) string {
 	return serverRegion(conn.ConnectedServerName())
 }
 
 func ConnRegions(conn *nats.Conn) []string {
-	return Regions(connRegion(conn))
+	return Regions(ConnRegion(conn))
+}
+
+func StoreReplicas(region string) int {
+	return min(3, len(Regions(region)))
 }
 
 func Regions(region string) []string {

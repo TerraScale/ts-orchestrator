@@ -102,7 +102,7 @@ func (u *Updater) lead(ctx context.Context) {
 	defer tick.Stop()
 	for {
 		if u.store == nil {
-			store, err := Open(ctx, u.Fabric, u.Region)
+			store, err := Open(ctx, u.Fabric, u.Region, u.Region)
 			if err != nil {
 				slog.WarnContext(ctx, "pull rollout store unavailable", "error", err)
 			}

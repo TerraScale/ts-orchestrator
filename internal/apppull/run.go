@@ -15,6 +15,7 @@ type Apply func(context.Context, string, string, releasepush.Claims, releasepush
 
 type Updater struct {
 	Self   string
+	Region string
 	Fabric *nats.Conn
 	Source Source
 	Apply  Apply
@@ -45,7 +46,7 @@ func (u Updater) Run(ctx context.Context) error {
 	seen := map[string]string{}
 	for {
 		if store == nil {
-			opened, err := pullrelease.Open(ctx, u.Fabric, "apps")
+			opened, err := pullrelease.Open(ctx, u.Fabric, u.Region, "apps")
 			if err != nil {
 				slog.ErrorContext(ctx, "app rollout store unavailable", "error", err)
 			}

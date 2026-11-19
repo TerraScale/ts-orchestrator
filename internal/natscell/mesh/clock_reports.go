@@ -45,7 +45,7 @@ func (n *Node) serveClockReports() error {
 		var storeErr error
 		if bucket == nil {
 			bucket, storeErr = js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
-				Bucket: ClockReportBucket, History: 1, TTL: 15 * time.Second, Replicas: 3, MaxBytes: 1 << 20, MaxValueSize: 4096,
+				Bucket: ClockReportBucket, History: 1, TTL: 15 * time.Second, Replicas: StoreReplicas(n.cfg.region), MaxBytes: 1 << 20, MaxValueSize: 4096,
 			})
 		}
 		if storeErr == nil {

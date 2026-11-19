@@ -37,13 +37,13 @@ var errUnsupportedCertificate = errors.New("edge: unsupported certificate envelo
 var errLeaseLost = errors.New("edge: certificate issuance lease lost")
 
 type certificateStore interface {
-	EdgeCertificateStore() (*nats.Conn, []byte, error)
+	EdgeCertificateStore() (*nats.Conn, int, []byte, error)
 }
 
 type certificateCache struct {
 	dirty                 sync.Map
 	local                 autocert.DirCache
-	source                func() (*nats.Conn, []byte, error)
+	source                func() (*nats.Conn, int, []byte, error)
 	roster                func() (string, []string, error)
 	inventoryMu           sync.Mutex
 	pending               sync.Map
@@ -133,7 +133,7 @@ func openBucket(ctx context.Context, js jetstream.JetStream, config jetstream.Ke
 }
 
 func (c *certificateCache) open(ctx context.Context) error {
-	conn, secret, err := c.source()
+	conn, replicas, secret, err := c.source()
 	if err != nil {
 		return err
 	}
@@ -167,11 +167,11 @@ func (c *certificateCache) open(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	certs, err := openBucket(ctx, js, jetstream.KeyValueConfig{Bucket: "edge-certs", Replicas: 3, History: 1, MaxBytes: 16 << 20, MaxValueSize: 64 << 10})
+	certs, err := openBucket(ctx, js, jetstream.KeyValueConfig{Bucket: "edge-certs", Replicas: replicas, History: 1, MaxBytes: 16 << 20, MaxValueSize: 64 << 10})
 	if err != nil {
 		return err
 	}
-	tokens, err := openBucket(ctx, js, jetstream.KeyValueConfig{Bucket: "edge-cert-tokens", Replicas: 3, History: 1, TTL: issueTTL, MaxBytes: 1 << 20})
+	tokens, err := openBucket(ctx, js, jetstream.KeyValueConfig{Bucket: "edge-cert-tokens", Replicas: replicas, History: 1, TTL: issueTTL, MaxBytes: 1 << 20})
 	if err != nil {
 		return err
 	}
@@ -700,10 +700,10 @@ func (c *certificateCache) protect() error {
 	return nil
 }
 
-func (e *Edge) certificateStore() (*nats.Conn, []byte, error) {
+func (e *Edge) certificateStore() (*nats.Conn, int, []byte, error) {
 	source, ok := e.meshNode().(certificateStore)
 	if !ok {
-		return nil, nil, errors.New("edge: mesh certificate store unavailable")
+		return nil, 0, nil, errors.New("edge: mesh certificate store unavailable")
 	}
 	return source.EdgeCertificateStore()
 }
