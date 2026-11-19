@@ -434,7 +434,7 @@ func (l *lane) discoverDuringInstall(ctx context.Context, r117 channelRelease) {
 	for _, region := range []string{"fra", "gru"} {
 		l.waitStatus(ctx, region, region+" completes "+r121.tag, complete(r121.published))
 	}
-	l.requireVersions(ctx, r121.digest, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, l.revision, r121.digest, l.region("sjc", "fra", "gru")...)
 	fmt.Printf("%s discovered while sjc's install of %s was held, then rolled out from the same discovery\n", r121.tag, r120.tag)
 }
 

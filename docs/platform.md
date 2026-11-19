@@ -94,11 +94,12 @@ Every admission checks the withdrawal object after verifying the completion
 or dispatch approval. A signed withdrawal or unreadable withdrawal status
 blocks installation through either path.
 
-The gate adds no bake or fixed delay after a record exists. sjc rechecks on its
-existing discovery cadence: up to 15 seconds for the OCIR channel, or the existing
-five-minute GitHub cadence, plus verification and network time. Requests have
-one-minute bounds for each evidence source. Staging signs completion after the
-same 20-second healthy window used by the production regional health gate.
+Production discovers new releases through channel announcements and its
+five-minute discovery poll. Once sjc sees a candidate, it checks for staging
+evidence on the same two-second interval used for pending regional gates,
+plus verification and network time. Requests have one-minute bounds for each
+evidence source. Staging signs completion after the same 20-second healthy
+window used by the production regional health gate.
 
 `StagingGateBlocking` fires after an hour of ordinary blocking and on the next
 scrape for any host running a break-glass-admitted binary. Each use persists a
