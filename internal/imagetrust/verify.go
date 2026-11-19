@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/TerraScale/ts-orchestrator/internal/releasefailure"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -142,7 +143,10 @@ func (v Verifier) inspect(ctx context.Context, image, workflowRef, revision, ser
 	if newest.Repository != "" && built {
 		return newest, nil
 	}
-	return Provenance{}, fmt.Errorf("image %s refused: missing authorized build provenance or %s selection signed by https://github.com/%s for commit %s", image, service, workflowRef, revision)
+	if service == "" {
+		return Provenance{}, releasefailure.Policy("image provenance", "authorized build provenance required")
+	}
+	return Provenance{}, releasefailure.Policy("release attestation", "authorized build provenance and selection required")
 }
 
 func PublicGoodRoot() (*root.TrustedRoot, error) {

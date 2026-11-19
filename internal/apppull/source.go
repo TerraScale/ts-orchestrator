@@ -10,6 +10,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
+	"github.com/TerraScale/ts-orchestrator/internal/releasefailure"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -47,19 +48,19 @@ func (s Source) release(ctx context.Context, target Target) (release, error) {
 	}
 	registry, err := s.Registry(ctx)
 	if err != nil {
-		return release{}, err
+		return release{}, releasefailure.At("registry credentials", err)
 	}
 	repository, err := registry.Repository(target.Package)
 	if err != nil {
-		return release{}, err
+		return release{}, releasefailure.At("registry credentials", err)
 	}
 	keychain, err := registry.Keychain(ctx, target.Package)
 	if err != nil {
-		return release{}, err
+		return release{}, releasefailure.At("registry credentials", err)
 	}
 	ref, err := name.NewTag(repository+":release", name.StrictValidation)
 	if err != nil {
-		return release{}, err
+		return release{}, releasefailure.At("registry credentials", err)
 	}
 	return release{ref: ref, keychain: keychain, transport: registry.BoundTransport(s.Transport)}, nil
 }
@@ -67,11 +68,11 @@ func (s Source) release(ctx context.Context, target Target) (release, error) {
 func (s Source) Digest(ctx context.Context, target Target) (string, error) {
 	selected, err := s.release(ctx, target)
 	if err != nil {
-		return "", err
+		return "", releasefailure.At("release tag", err)
 	}
 	head, err := remote.Head(selected.ref, remote.WithContext(ctx), remote.WithTransport(selected.transport), remote.WithAuthFromKeychain(selected.keychain))
 	if err != nil {
-		return "", err
+		return "", releasefailure.At("release tag", err)
 	}
 	return head.Digest.String(), nil
 }
@@ -81,36 +82,37 @@ func (s Source) Pull(ctx context.Context, target Target) (Selection, error) {
 	defer cancel()
 	selected, err := s.release(ctx, target)
 	if err != nil {
-		return Selection{}, err
+		return Selection{}, releasefailure.At("release manifest", err)
 	}
 	ref, keychain, transport := selected.ref, selected.keychain, selected.transport
 	trusted := s.Root
 	if trusted == nil {
 		trusted, err = imagetrust.PublicGoodRoot()
 		if err != nil {
-			return Selection{}, err
+			return Selection{}, releasefailure.At("release manifest", err)
 		}
 	}
 	image, err := remote.Image(ref, remote.WithContext(ctx), remote.WithTransport(transport), remote.WithAuthFromKeychain(keychain), remote.WithPlatform(v1.Platform{OS: "linux", Architecture: runtime.GOARCH}))
 	if err != nil {
-		return Selection{}, err
+		return Selection{}, releasefailure.At("release manifest", err)
 	}
 	digest, err := image.Digest()
 	if err != nil {
-		return Selection{}, err
+		return Selection{}, releasefailure.At("release manifest", err)
 	}
+	selectedImage := Selection{Image: target.Package + "@" + digest.String()}
 	config, err := image.ConfigFile()
 	if err != nil {
-		return Selection{}, err
+		return selectedImage, releasefailure.At("image configuration", err)
 	}
 	sha := config.Config.Labels["org.opencontainers.image.revision"]
 	if config.OS != "linux" || config.Architecture != runtime.GOARCH || !revision.MatchString(sha) {
-		return Selection{}, fmt.Errorf("%s: release must select a native Linux image with a full revision", target.Service)
+		return selectedImage, releasefailure.Policy("image policy", "native Linux image and full revision required")
 	}
 	pinned := ref.Context().Digest(digest.String()).Name()
 	provenance, err := (imagetrust.Verifier{Root: trusted, Transport: transport}).Selection(ctx, pinned, target.Workflow, sha, target.Service, keychain)
 	if err != nil {
-		return Selection{}, err
+		return selectedImage, releasefailure.At("release attestation", err)
 	}
 	return Selection{Image: target.Package + "@" + digest.String(), Claims: releasepush.Claims{Repository: provenance.Repository, SHA: sha, RunID: provenance.RunID, RunAttempt: provenance.RunAttempt, JobWorkflowRef: provenance.Workflow}}, nil
 }

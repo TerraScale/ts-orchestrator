@@ -21,6 +21,8 @@ var repositoryPath = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}/terrascale(?:-
 var packageName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 var pinnedPath = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}@sha256:[0-9a-f]{64}$`)
 
+var ErrOutsideRegionalOCIR = errors.New("request outside regional OCIR")
+
 type credential struct {
 	token   string
 	expires time.Time
@@ -53,7 +55,7 @@ type regionalTransport struct {
 
 func (t regionalTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	if !t.allows(request.URL) {
-		return nil, errors.New("request outside regional OCIR")
+		return nil, ErrOutsideRegionalOCIR
 	}
 	response, err := t.base.RoundTrip(request)
 	if err != nil {
@@ -62,7 +64,7 @@ func (t regionalTransport) RoundTrip(request *http.Request) (*http.Response, err
 	if location := response.Header.Get("Location"); response.StatusCode >= 300 && response.StatusCode < 400 && location != "" {
 		destination, err := request.URL.Parse(location)
 		if err != nil || !t.allows(destination) {
-			return nil, errors.Join(errors.New("request outside regional OCIR"), response.Body.Close())
+			return nil, errors.Join(ErrOutsideRegionalOCIR, response.Body.Close())
 		}
 	}
 	return response, nil

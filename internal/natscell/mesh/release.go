@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/releasefailure"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -95,7 +96,19 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	}
 	next, err := releaseSpec(ConnRegion(conn), service, image, previous, deployment)
 	if err != nil {
-		return nil, err
+		return nil, releasefailure.At("declaration", err)
+	}
+	if previous == nil && (service == "ts-auth" || service == "ts-dashboard") {
+		running, err := runningImages(ctx, conn)
+		if err != nil {
+			return nil, releasefailure.At("dependency observation", err)
+		}
+		if running["terrabase"] == "" {
+			return nil, releasefailure.Policy("dependency", "TerraBase must be ready before first creation")
+		}
+		if service == "ts-dashboard" && running["ts-auth"] == "" {
+			return nil, releasefailure.Policy("dependency", "ts-auth must be ready before first creation")
+		}
 	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
 	hold := before.HoldAfter
@@ -216,7 +229,7 @@ func releaseSpec(region, service, image string, previous *swarmruntime.ServiceSp
 		}
 		data, err := m1.Files.ReadFile(path)
 		if errors.Is(err, fs.ErrNotExist) {
-			return next, fmt.Errorf("%s is not declared for region %s", service, region)
+			return next, releasefailure.Policy("declaration", "service is not declared for region")
 		}
 		if err != nil {
 			return next, err

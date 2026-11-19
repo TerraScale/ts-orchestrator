@@ -339,6 +339,17 @@ and pass them to the mesh release handler. For an absent service, that handler
 loads `services/<region>/<service>.json`, validates its identity and placement,
 and changes its image to the verified selection. A recreated staging region
 therefore needs no operator `service apply` or operator NetBird connection.
+First creation requires ready dependencies before publishing signed desired
+state: auth needs TerraBase; dashboard needs TerraBase and auth. A missing
+dependency produces an app-pull warning without consuming the candidate's
+signed floor. After the dependency becomes ready, the same signed selection
+can create the service. A selection already rolled back to absence remains
+held and requires a strictly newer signed run or attempt.
+App-pull warnings include service, region, release, failure stage and a safe
+reason, once per distinct service/release/reason tuple for the updater's
+lifetime. Regional visibility across managers is tracked in
+[design issue #484](https://github.com/TerraScale/ts-orchestrator/issues/484);
+these warnings use the existing logger.
 An existing service keeps every spec field except its image on release.
 The production regions have no regional declaration directories and gain no
 first-apply behavior; the existing shared app-canary declaration still applies.
