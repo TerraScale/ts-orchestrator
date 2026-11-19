@@ -52,6 +52,7 @@ type Nodes struct {
 	BootGB        int64
 	DataGB        int64
 	DataVPUsPerGB int64
+	External      []string
 	Min, Max      int
 	SubnetID      string
 	NSGID         string
@@ -424,7 +425,33 @@ func (p Pass) dataVolumes(ctx context.Context) (map[string]core.Volume, error) {
 			}
 		}
 	}
+	for _, host := range p.External {
+		name := "external-" + host
+		for _, volume := range listed {
+			if volume.LifecycleState == core.VolumeLifecycleStateTerminated || volume.LifecycleState == core.VolumeLifecycleStateTerminating || !p.ownsData(name, volume.FreeformTags) {
+				continue
+			}
+			if _, duplicate := slots[name]; duplicate {
+				return nil, fmt.Errorf("external host %s has multiple data volumes", host)
+			}
+			if err := p.checkSize(name, volume); err != nil {
+				return nil, err
+			}
+			slots[name] = volume
+		}
+		if _, found := slots[name]; !found {
+			return nil, fmt.Errorf("external host %s has no owned data volume", host)
+		}
+	}
 	return slots, nil
+}
+
+func (p Pass) ownsData(name string, tags map[string]string) bool {
+	if host, external := strings.CutPrefix(name, "external-"); external {
+		return slices.Contains(p.External, host) && tags["terrascale-managed-by"] == "ts-orchestrator" &&
+			tags["terrascale-resource"] == "data-volume" && tags["terrascale-host"] == host
+	}
+	return p.owns("volume", name, tags)
 }
 
 func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary, slots map[string]core.Volume) error {
@@ -435,6 +462,9 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary, slo
 	attachedTo := map[string]string{}
 	for _, attachment := range attachments {
 		attachedTo[deref(attachment.GetVolumeId())] = deref(attachment.GetInstanceId())
+	}
+	if err := p.growExternal(ctx, slots, attachments); err != nil {
+		return err
 	}
 	slices.SortFunc(instances, func(a, b core.InstanceSummary) int { return cmp.Compare(*a.Id, *b.Id) })
 	for _, instance := range instances {
@@ -493,8 +523,11 @@ func (p Pass) grow(ctx context.Context, chosen slot) (slot, error) {
 		return slot{}, fmt.Errorf("read %s before growth: %w", p.Key("volume", chosen.name), err)
 	}
 	volume := got.Volume
-	if !p.owns("volume", chosen.name, volume.FreeformTags) {
+	if !p.ownsData(chosen.name, volume.FreeformTags) {
 		return slot{}, fmt.Errorf("%s lost ownership before growth", p.Key("volume", chosen.name))
+	}
+	if strings.HasPrefix(chosen.name, "external-") && volume.FreeformTags[boundInstance] != chosen.volume.FreeformTags[boundInstance] {
+		return slot{}, fmt.Errorf("%s changed its external host binding before growth", p.Key("volume", chosen.name))
 	}
 	if err := p.checkSize(chosen.name, volume); err != nil {
 		return slot{}, err
@@ -524,6 +557,9 @@ func (p Pass) grow(ctx context.Context, chosen slot) (slot, error) {
 func (p Pass) pick(slots map[string]core.Volume, attachedTo map[string]string, instance core.Instance) (slot, bool) {
 	var free slot
 	for _, name := range slices.Sorted(maps.Keys(slots)) {
+		if strings.HasPrefix(name, "external-") {
+			continue
+		}
 		volume := slots[name]
 		switch {
 		case attachedTo[*volume.Id] == *instance.Id:

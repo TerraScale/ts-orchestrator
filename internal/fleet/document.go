@@ -66,14 +66,15 @@ func (f Fleet) DNSRegion() (Region, bool) {
 }
 
 type Nodes struct {
-	Min           int     `json:"min"`
-	Max           int     `json:"max"`
-	Shape         string  `json:"shape"`
-	OCPUs         float32 `json:"ocpus"`
-	MemoryGB      float32 `json:"memory_gb"`
-	BootGB        int64   `json:"boot_gb"`
-	DataGB        int64   `json:"data_gb"`
-	DataVPUsPerGB int64   `json:"data_vpus_per_gb"`
+	Min           int      `json:"min"`
+	Max           int      `json:"max"`
+	Shape         string   `json:"shape"`
+	OCPUs         float32  `json:"ocpus"`
+	MemoryGB      float32  `json:"memory_gb"`
+	BootGB        int64    `json:"boot_gb"`
+	DataGB        int64    `json:"data_gb"`
+	DataVPUsPerGB int64    `json:"data_vpus_per_gb"`
+	External      []string `json:"external,omitempty"`
 }
 
 func Load() (Fleet, error) {
