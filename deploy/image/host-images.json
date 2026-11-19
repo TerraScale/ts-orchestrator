@@ -1,1 +1,1 @@
-{"schema":"terrascale.host-images.v1","images":[{"label":"stg","arch":"arm64","image_ocid":"ocid1.image.oc1.us-sanjose-1.aaaaaaaapyepymixw2hxevuept3jaksltqe7wzaov4xvbxqxlkzzmrzzmjbq","debian":"13","sha256":"3fab51c5067b69d38e3eebae9d0a7fd7854a3ffdd1d3a13a8ad62d1f545c5721"}]}
+{"schema":"terrascale.host-images.v1","images":[]}

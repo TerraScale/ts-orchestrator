@@ -99,13 +99,22 @@ capability schemas.
 Add the printed entry to `deploy/image/host-images.json` in a pull request.
 `internal/nodeinit.PinnedHostImage` matches the entry's `label`, a fleet
 label (`stg`, `sjc`, `fra`, `gru`), and `arch`, and requires the image OCID
-to be in that label's OCI region. Once it is on main, the fleet reconciler
-(by the fleet region's label) and `ts-orch region add <code>` (by the catalog
-code) launch new hosts of that label and arch from the image with release
-metadata and no `user_data`. `stg` and `sjc` share `us-sanjose-1`, but a `stg`
-entry never matches `sjc`. Running hosts are not touched. Today only `stg`
-arm64 is pinned; production labels keep the Ubuntu first-boot path until the
-image is proven on staging.
+to be in that label's OCI region; an unknown requested label is an error.
+`stg` and `sjc` share `us-sanjose-1`, but a `stg` entry never matches `sjc`.
+
+The pin takes effect when a binary containing it handles
+`ts-orch region add <code>` (by the catalog code) or runs the fleet compute
+pass (by the fleet region's label). The compute pass then reuses or creates
+an instance configuration with the image and release metadata and no
+`user_data`, switches the pool to it once the pool is settled, and deletes
+the stale configuration; only members launched after that boot the image.
+Running hosts are not touched. Verify the rollout with the pass's
+`instance-configuration` lines and the next member's boot image.
+
+No label is pinned yet. The current image's `ts-node-init` exits when the
+pool has not bound the member's data volume at first boot, so a pool member
+can boot without `ts-orch`; a pin waits for an image whose first boot waits
+for that binding.
 
 ## The flow
 

@@ -46,6 +46,9 @@ type HostImage struct {
 }
 
 func PinnedHostImage(label, arch string) (HostImage, bool, error) {
+	if _, err := fleetregion.Lookup(label); err != nil {
+		return HostImage{}, false, fmt.Errorf("host image pin: %w", err)
+	}
 	var manifest struct {
 		Schema string      `json:"schema"`
 		Images []HostImage `json:"images"`
