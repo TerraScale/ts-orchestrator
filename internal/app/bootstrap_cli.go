@@ -13,13 +13,14 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 // RunBootstrapMaintenance arms stopped hosts offline or talks to the admitted
 // executor. It never launches another executor or synthesizes a task spec.
 func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) error {
-	const usage = "usage: ts-orch bootstrap-maintenance <status|arm|arm-stopped|pins-offline|arm-offline|stage|prepull|owner|replace|clear> --state DIR [--root MOUNT] [--manifest FILE | --id ID --source-task TASK --target-image REF@sha256:DIGEST --owner NODE --epoch EPOCH]"
+	const usage = "usage: ts-orch bootstrap-maintenance <status|arm|arm-stopped|pins-offline|arm-offline|stage|prepull|owner|replace|recover|clear> --state DIR [--root MOUNT] [--manifest FILE | --id ID [--accept-unclean-exit] --source-task TASK --target-image REF@sha256:DIGEST --owner NODE --epoch EPOCH]"
 	if len(args) == 0 || args[0] == "--help" {
 		fmt.Fprintln(out, usage)
 		return nil
@@ -39,7 +40,8 @@ func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) 
 	fs.StringVar(&request.TargetImage, "target-image", "", "green candidate immutable image")
 	fs.StringVar(&request.Owner, "owner", "", "retained regional owner member")
 	fs.Int64Var(&request.Epoch, "epoch", 0, "retained regional owner epoch")
-	peer := fs.String("node", "", "clear only: an admitted regional peer whose verified fence to clear")
+	peer := fs.String("node", "", "clear only: an admitted regional peer whose released or failed fence to clear")
+	acceptUnclean := fs.Bool("accept-unclean-exit", false, "replace only: start the target after the journaled unclean source exit; recorded in the journal")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -81,6 +83,10 @@ func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) 
 	if *manifest != "" {
 		return errors.New("manifest is only valid for arm-stopped and arm-offline")
 	}
+	if *acceptUnclean && action != "replace" {
+		return errors.New("--accept-unclean-exit is only valid for replace")
+	}
+	timeout := 5*time.Second + rolloutmaintenance.Budget
 	method := http.MethodPost
 	var data []byte
 	var err error
@@ -94,7 +100,14 @@ func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) 
 			ID   string `json:"id"`
 			Node string `json:"node,omitempty"`
 		}{request.ID, *peer})
-	case "stage", "replace", "owner", "prepull":
+	case "replace":
+		data, err = protocol.EncodeJSON(swarmruntime.BootstrapReplace{ID: request.ID, AcceptUnclean: *acceptUnclean})
+	case "recover":
+		timeout = 5*time.Second + rolloutmaintenance.RecoveryBudget
+		data, err = protocol.EncodeJSON(struct {
+			ID string `json:"id"`
+		}{request.ID})
+	case "stage", "owner", "prepull":
 		data, err = protocol.EncodeJSON(struct {
 			ID string `json:"id"`
 		}{request.ID})
@@ -108,7 +121,7 @@ func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) 
 		return (&net.Dialer{}).DialContext(ctx, "unix", swarmruntime.BootstrapSocket(*state))
 	}}
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: 65 * time.Second}
+	client := &http.Client{Transport: transport, Timeout: timeout}
 	req, err := http.NewRequestWithContext(ctx, method, "http://executor/"+action, bytes.NewReader(data))
 	if err != nil {
 		return err

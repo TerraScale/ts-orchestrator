@@ -157,6 +157,7 @@ jobs:
               - {lane: autoscale-down, entry: autoscale-down.sh, timeout: 5, budget: 15, packages: "./test/e2e/m1/lifecycle ./test/e2e/m1/lifecycle/server"}
               - {lane: data-volume, entry: data-volume.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/region-volume ./test/e2e/m1/data-mount ./test/e2e/m1/cloudinit"}
               - {lane: regional, entry: regional.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/regional"}
+              - {lane: maintenance, entry: maintenance.sh, timeout: 4, budget: 14, packages: "./test/e2e/m1/maintenance"}
           - group: 6
             deadline: 128
             lanes:
