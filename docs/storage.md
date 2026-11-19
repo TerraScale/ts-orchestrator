@@ -67,34 +67,58 @@ ts-orch region apply <label> compute
 The compute pass checks existing owned data volumes before changing the pool.
 A target below any existing volume size is refused with the current and
 requested sizes; storage never shrinks. It grows every undersized volume
-selected for a pool node and the attached data volume of every declared
-`nodes.external` host, with an
-ETag-conditional OCI update and waits for AVAILABLE at the requested size.
-Attachments and services stay in place. Detached retained volumes grow when
-selected for pool reuse. External volumes must carry the host lifecycle's
-ownership tags and instance binding, and have exactly one writable attachment
-at the data-device path. They cannot be assigned to pool nodes.
+selected for a pool node with an ETag-conditional OCI update and waits for
+AVAILABLE at the requested size. Attachments and services stay in place.
+Detached retained volumes grow when selected for pool reuse.
 
-At node startup and every five seconds while running, the node verifies that
-`/var/lib/ts-data` is a read-write ext4 root mount of the data block device.
-It holds both descriptors open and checks the device's UUID and serial against
-`/etc/ts-orch/data-volume-uuid` and `data-volume-serial`. It rescans the pinned
-device through its sysfs `device/rescan` attribute where the kernel exposes
-one, reads the capacity from the open device, then calls `EXT4_IOC_RESIZE_FS`
-on the verified mounted-directory descriptor. An alias replacement cannot
-redirect growth to an unmounted device. Drivers without the rescan attribute
-publish capacity directly. Repeated calls are harmless. This also runs on
-external hosts such as `ts-gru-1` with the same data-volume layout; it does
-not depend on pool membership or cloud-init. Startup errors refuse the node
-start; runtime failures are logged without stopping serving workloads, and
-successful growth logs `data filesystem grown`. No unmount, reformat or
-service restart is needed. Identity mismatches refuse growth before any resize.
+Hosts listed in `nodes.external` grow the same way. Compute first verifies
+each name (`fleet.VerifyExternal`): exactly one RUNNING instance with that
+name in the region compartment, its primary VNIC in the region VCN, outside
+every instance pool and without pool ownership. The data volume is then
+found through the verified instance OCID: the one attachment at
+`/dev/oracleoci/oraclevdb` on that instance, ATTACHED, writable and
+unshared, and the only attachment of its volume. No ownership tag is
+required, so `ts-gru-1`'s pre-existing data volume qualifies. These volumes
+are never offered to pool nodes.
+
+At node startup and every five seconds while running, the node checks that
+`/var/lib/ts-data` is a read-write ext4 root mount of the data block device
+and holds both descriptors open. It writes the sysfs `device/rescan`
+attribute of that device when the attribute exists, opening it without
+creating it; devices without one (virtio-blk, loop) publish their new
+capacity themselves. It reads the capacity from the open device. Only when
+the device is larger than the filesystem does it check the device's UUID and
+serial against `/etc/ts-orch/data-volume-uuid` and `data-volume-serial`, then
+call `EXT4_IOC_RESIZE_FS` on the verified mounted-directory descriptor. An
+alias replacement cannot redirect growth to an unmounted device, and
+repeated calls are harmless. This also runs on external hosts such as
+`ts-gru-1`; it does not depend on pool membership or cloud-init.
+
+A growth failure (rescan, identity mismatch, resize) never stops the node or
+delays its start: the mount was already verified by `data-mount-check.sh`
+before the unit started, so the node serves at the current size. The node
+logs `data filesystem growth failed` once per distinct cause, region health
+reports `degraded` with `data filesystem growth failed: <cause>`, and the
+first successful attempt logs `data filesystem growth recovered`. Successful
+growth logs `data filesystem grown`. No unmount, reformat or service restart
+is needed.
+
+Three sizes tell where growth stands: the OCI volume size (`oci bv volume
+get`, `size-in-gbs`), the device capacity the host sees (`blockdev
+--getsize64 /dev/oracleoci/oraclevdb`) and the filesystem size (`dumpe2fs -h`
+block count times block size). OCI below `nodes.data_gb`: the compute pass
+has not grown the volume. Device below OCI: the host has not seen the new
+capacity, usually a failed rescan. Filesystem below the device: the resize
+was refused or failed. The [M1 runbook](m1-runbook.md#grow-database-storage)
+has the commands.
 
 Managed member volume initialization is a separate path. Its online-growth
 policy does not establish node data-volume growth; the node behavior above
 is exercised by the `e2e-m1` data-volume lane with startup growth to
-32 GiB and live mounted growth to 33 GiB, checking retained bytes and service
-identity.
+32 GiB, live mounted growth to 33 GiB, and a restart after the device grew
+with a failing rescan: the node serves at its old size, then grows online to
+34 GiB once the device has no rescan attribute. Each step checks retained
+bytes and service identity.
 
 Signed production manifests bind all three managed regional inputs. Removing
 the unmanaged startup path remains part of the discovery slice.

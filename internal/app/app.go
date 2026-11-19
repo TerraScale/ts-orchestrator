@@ -60,9 +60,7 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 		return fmt.Errorf("another ts-orch node already runs on %s", *state)
 	}
 	defer stateLock.Unlock()
-	if err := datamount.Grow(ctx); err != nil {
-		return fmt.Errorf("grow node data filesystem: %w", err)
-	}
+	datamount.Observe(ctx)
 	startupErr := sdnotify.Process().ExtendStart(2 * hostMetadataWindow)
 	probation, err := releasepush.Probe(*state, output)
 	if err != nil {

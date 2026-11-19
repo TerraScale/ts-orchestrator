@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/datamount"
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -44,7 +45,7 @@ func Run(ctx context.Context, state string) {
 	tick := time.NewTicker(checkEvery)
 	defer tick.Stop()
 	for {
-		report := releaseDegraded(check(ctx, state), state)
+		report := dataGrowth(releaseDegraded(check(ctx, state), state))
 		report.Server = server
 		hosts, err := HostVersions(ctx, state, "")
 		report.Hosts = hosts
@@ -254,6 +255,18 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 		return err
 	}
 	return write(output, regions, reports, reconcile)
+}
+
+func dataGrowth(report Report) Report {
+	failure := datamount.Failure()
+	if failure == "" {
+		return report
+	}
+	report.Reasons = append(report.Reasons, "data filesystem growth failed: "+failure)
+	if report.State == StateOK {
+		report.State = StateDegraded
+	}
+	return report
 }
 
 func releaseDegraded(report Report, state string) Report {
