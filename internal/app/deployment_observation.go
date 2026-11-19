@@ -16,7 +16,8 @@ func observeDeploymentTargets(ctx context.Context, h *releasepush.Handler, regio
 		service string
 		target  releasepush.DeploymentTarget
 	}
-	answers := make(chan answer, len(appregistry.Targets)+1)
+	deployed := appregistry.Deployed()
+	answers := make(chan answer, len(deployed)+1)
 	count := 1
 	go func() {
 		target := releasepush.DeploymentTarget{}
@@ -36,10 +37,7 @@ func observeDeploymentTargets(ctx context.Context, h *releasepush.Handler, regio
 		}
 		answers <- answer{"ts-orchestrator", target}
 	}()
-	for _, app := range appregistry.Targets {
-		if app.Service == "app-canary" {
-			continue
-		}
+	for _, app := range deployed {
 		count++
 		go func() {
 			source := apppull.Source{Registry: func(ctx context.Context) (*appregistry.Client, error) { return appregistry.Regional(ctx, region) }}

@@ -43,7 +43,7 @@ func appImageResolver(registry func(context.Context) (*appregistry.Client, error
 	if err := deployment.Validate(); err != nil {
 		return nil, err
 	}
-	for _, target := range appregistry.Targets {
+	for _, target := range appregistry.Targets() {
 		if target.Package == appregistry.Package(deployment.Image) && deployment.Workflow == target.Workflow {
 			return &regionalResolver{registry: registry, deployment: deployment, target: target, verifier: verifier}, nil
 		}

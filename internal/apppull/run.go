@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutlease"
 	"github.com/nats-io/nats.go"
@@ -89,8 +90,8 @@ func (u Updater) Run(ctx context.Context) error {
 }
 
 func (u Updater) turn(ctx context.Context, due bool, seen map[string]string) turn {
-	moved := []Target{}
-	for _, target := range Targets {
+	moved := []appregistry.Target{}
+	for _, target := range appregistry.Targets() {
 		check, cancel := context.WithTimeout(ctx, checkEvery)
 		digest, err := u.Source.Digest(check, target)
 		cancel()
@@ -119,10 +120,10 @@ func (a Apply) Within(host context.Context) Apply {
 }
 
 func (u Updater) Cycle(ctx context.Context) error {
-	return u.cycle(ctx, Targets)
+	return u.cycle(ctx, appregistry.Targets())
 }
 
-func (u Updater) cycle(ctx context.Context, targets []Target) error {
+func (u Updater) cycle(ctx context.Context, targets []appregistry.Target) error {
 	for _, target := range targets {
 		if ctx.Err() != nil {
 			return ctx.Err()
