@@ -5,14 +5,16 @@
     { self, nixpkgs }:
     let
       inherit (nixpkgs) lib;
-      nixFiles =
+      regularNixFiles =
+        dir: lib.filterAttrs (name: type: type == "regular" && lib.hasSuffix ".nix" name) (builtins.readDir dir);
+      discoverNixFiles =
         dir:
-        lib.mapAttrs' (name: _: lib.nameValuePair (lib.removeSuffix ".nix" name) (dir + "/${name}")) (
-          lib.filterAttrs (name: type: type == "regular" && lib.hasSuffix ".nix" name) (builtins.readDir dir)
-        );
+        lib.mapAttrs' (
+          name: _: lib.nameValuePair (lib.removeSuffix ".nix" name) (dir + "/${name}")
+        ) (regularNixFiles dir);
     in
     {
-      nixosModules = nixFiles ./nix/modules;
+      nixosModules = discoverNixFiles ./nix/modules;
 
       nixosConfigurations = lib.mapAttrs (
         _: host:
@@ -20,7 +22,7 @@
           modules = [ host ];
           specialArgs.flake = self;
         }
-      ) (nixFiles ./nix/hosts);
+      ) (discoverNixFiles ./nix/hosts);
 
       packages.aarch64-linux.oci-image = self.nixosConfigurations.node-arm64.config.system.build.ociImage;
 

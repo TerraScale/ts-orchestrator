@@ -1,26 +1,14 @@
 name: Nix image
 
 on:
-  pull_request:
-    paths:
-      - flake.nix
-      - flake.lock
-      - "nix/**"
-      - .github/workflows/nix-image.yml
-  push:
-    branches: [main]
-    paths:
-      - flake.nix
-      - flake.lock
-      - "nix/**"
-      - .github/workflows/nix-image.yml
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call:
 
 permissions:
   contents: read
+
+env:
+  NIX_INSTALLER_URL: https://releases.nixos.org/nix/nix-2.35.6/install
+  NIX_INSTALLER_SHA256: 6f7bf206efb54cd4941fb274930dbc74fdfc16fcb06757ef261c8d7d69cfd60e
 
 jobs:
   oci-image:
@@ -28,7 +16,13 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Fetch and verify the Nix 2.35.6 installer
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/nix-install" "$NIX_INSTALLER_URL"
+          echo "$NIX_INSTALLER_SHA256  $RUNNER_TEMP/nix-install" | sha256sum -c
       - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086
+        with:
+          install_url: file://${{ runner.temp }}/nix-install
       - name: Allow unprivileged user namespaces for systemd-repart
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Build packages.aarch64-linux.oci-image

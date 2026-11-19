@@ -1,12 +1,12 @@
 {
-  lib,
   stdenvNoCC,
   fetchurl,
   autoPatchelfHook,
   pname,
   version,
+  format,
   archives,
-  install,
+  installCommand,
 }:
 let
   arch =
@@ -16,6 +16,10 @@ let
     }
     .${stdenvNoCC.hostPlatform.system};
   archive = archives.${arch};
+  unpackCommands = {
+    tarball = "tar -xzf $curSrc";
+    executable = "cp $curSrc ./${pname}";
+  };
 in
 stdenvNoCC.mkDerivation {
   inherit pname version;
@@ -23,14 +27,14 @@ stdenvNoCC.mkDerivation {
     inherit (archive) url sha256;
   };
   sourceRoot = ".";
-  unpackCmd = if lib.hasSuffix ".tar.gz" archive.url then "tar -xzf $curSrc" else "cp $curSrc ./${pname}";
+  unpackCmd = unpackCommands.${format};
   nativeBuildInputs = [ autoPatchelfHook ];
   dontConfigure = true;
   dontBuild = true;
   dontStrip = true;
   installPhase = ''
     runHook preInstall
-    ${install}
+    ${installCommand}
     runHook postInstall
   '';
   meta.platforms = [

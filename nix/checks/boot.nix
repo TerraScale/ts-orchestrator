@@ -67,14 +67,31 @@ pkgs.testers.runNixOSTest {
           machine.succeed("containerd --version | grep -F ' v2.4.2 '")
           machine.succeed("runc --version | grep -x 'runc version 1.5.2'")
           machine.succeed("netbird version | grep -x 0.81.3")
-          machine.wait_for_unit("containerd.service")
-          machine.succeed("ctr version | grep -F 'Version:  v2.4.2'")
+          machine.fail("systemctl is-active containerd.service")
+          t.assertEqual(machine.succeed("systemctl show -p WantedBy -p RequiredBy --value containerd.service").split(), [])
+          machine.succeed("systemctl start containerd.service")
+          ctr = machine.succeed("ctr version")
+          t.assertIn("Version:  v2.4.2", ctr.split("Server:", 1)[1])
           machine.wait_for_unit("netbird.service")
 
       with subtest("time and firewall"):
           machine.wait_for_unit("chronyd.service")
-          machine.succeed("chronyc -n sources | grep -F 169.254.169.254")
+          sources = machine.succeed("chronyc -n sources | grep '^[\\^=#]' | awk '{print $2}'").split()
+          t.assertEqual(sources, ["169.254.169.254"])
+          config = machine.succeed("tr '\\0' '\\n' < /proc/$(pidof chronyd)/cmdline | sed -n '/^-f$/{n;p}' | xargs grep -E '^(server|pool|peer|makestep|initstepslew) '")
+          t.assertEqual(config.splitlines(), ["makestep 0.100000 3", "server 169.254.169.254 iburst minpoll 4 maxpoll 6"])
           machine.wait_for_unit("nftables.service")
+
+      with subtest("SSH listens on TCP 22 only, keys of terrascale only"):
+          machine.succeed("test \"$(readlink /etc/systemd/system-generators/systemd-ssh-generator)\" = /dev/null")
+          listeners = set(machine.succeed("ss -Hltn | awk '{print $4}' | grep -v -e '^127\\.' -e '^\\[::1\\]'").split())
+          t.assertEqual(listeners, {"0.0.0.0:22", "[::]:22"})
+          machine.succeed("test -z \"$(ss -Hl --vsock)\"")
+          sshd = machine.succeed("sshd -T").lower()
+          for line in ["permitrootlogin no", "passwordauthentication no", "kbdinteractiveauthentication no"]:
+              t.assertIn(line, sshd.splitlines())
+          keyFiles = next(line for line in sshd.splitlines() if line.startswith("authorizedkeysfile ")).split()[1:]
+          t.assertEqual(set(keyFiles), {"/etc/ssh/authorized_keys.d/%u", "/var/lib/terrascale-ssh/%u"})
 
       with subtest("user terrascale with sudo"):
           machine.succeed("id terrascale | grep -F '(wheel)'")
@@ -82,7 +99,13 @@ pkgs.testers.runNixOSTest {
           machine.fail("id ubuntu")
 
       with subtest("boot chain"):
+          machine.wait_until_succeeds("journalctl -u ts-node-init.service -o cat | grep -F 'node-init: read instance metadata'")
+          machine.fail("journalctl -u ts-node-init.service -o cat | grep -F 'unknown command'")
           machine.succeed("systemctl cat ts-node-init.service ts-orch-units.service")
+          units = machine.succeed("cat $(systemctl show -p ExecStart --value ts-orch-units.service | grep -o '/nix/store/[^ ;]*-unit-script-ts-orch-units-start/bin/ts-orch-units-start')")
+          t.assertIn("if [ -e /usr/local/bin/terrascale-orchestrator.recovery ]; then", units)
+          t.assertIn("exec /usr/local/bin/terrascale-orchestrator.recovery host-units --dir /run/systemd/system --start", units)
+          t.assertIn("exec /usr/local/bin/terrascale-orchestrator host-units --dir /run/systemd/system --start", units)
           machine.succeed("test -d /usr/local/bin")
           restart = machine.succeed("systemctl show -p Type -p Restart -p RestartMode -p RestartUSec -p StartLimitIntervalUSec ts-node-init.service")
           for setting in ["Type=oneshot", "Restart=on-failure", "RestartMode=direct", "RestartUSec=10s", "StartLimitIntervalUSec=0"]:

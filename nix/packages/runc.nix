@@ -2,6 +2,7 @@
 callPackage ./pinned-archive.nix {
   pname = "runc";
   version = "1.5.2";
+  format = "executable";
   archives = {
     arm64 = {
       url = "https://github.com/opencontainers/runc/releases/download/v1.5.2/runc.arm64";
@@ -12,5 +13,5 @@ callPackage ./pinned-archive.nix {
       sha256 = "599f6f94ff8c5057241eff0d54c3c74f95c34935b6457b33fe545defc61e9488";
     };
   };
-  install = "install -Dm0755 runc $out/bin/runc";
+  installCommand = "install -Dm0755 runc $out/bin/runc";
 }

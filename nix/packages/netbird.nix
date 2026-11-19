@@ -2,6 +2,7 @@
 callPackage ./pinned-archive.nix {
   pname = "netbird";
   version = "0.81.3";
+  format = "tarball";
   archives = {
     arm64 = {
       url = "https://github.com/netbirdio/netbird/releases/download/v0.81.3/netbird_0.81.3_linux_arm64.tar.gz";
@@ -12,5 +13,5 @@ callPackage ./pinned-archive.nix {
       sha256 = "cbdea310068e35449f034544d5137fefee8f6d948fffd020883ffc8b3bab63b1";
     };
   };
-  install = "install -Dm0755 netbird $out/bin/netbird";
+  installCommand = "install -Dm0755 netbird $out/bin/netbird";
 }

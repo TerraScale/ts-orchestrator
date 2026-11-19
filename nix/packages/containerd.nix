@@ -2,6 +2,7 @@
 callPackage ./pinned-archive.nix {
   pname = "containerd";
   version = "2.4.2";
+  format = "tarball";
   archives = {
     arm64 = {
       url = "https://github.com/containerd/containerd/releases/download/v2.4.2/containerd-2.4.2-linux-arm64.tar.gz";
@@ -12,5 +13,5 @@ callPackage ./pinned-archive.nix {
       sha256 = "35880c1dd4627e8ce56526bfabb39c144e83458ffdb197ce6f05d17d94d7d91e";
     };
   };
-  install = "install -Dm0755 -t $out/bin bin/*";
+  installCommand = "install -Dm0755 -t $out/bin bin/*";
 }

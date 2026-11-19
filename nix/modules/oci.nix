@@ -7,13 +7,19 @@
 }:
 let
   efiArch = pkgs.stdenv.hostPlatform.efiArch;
-  deviceLetters =
-    lib.genList (index: lib.elemAt lib.lowerChars index) 26
-    ++ lib.genList (index: "a" + lib.elemAt lib.lowerChars index) 6;
-  deviceRules = lib.imap1 (
-    lun: letter: ''ENV{ID_PATH}=="pci-*-scsi-0:0:0:${toString lun}", SYMLINK+="oracleoci/oraclevd${letter}"''
-  ) deviceLetters;
-  keysFile = "/var/lib/terrascale-ssh/authorized_keys";
+  volumeSuffixesByLun = lib.lowerChars ++ [
+    "aa"
+    "ab"
+    "ac"
+    "ad"
+    "ae"
+    "af"
+  ];
+  ociVolumeRulesByLun = lib.imap1 (
+    lun: suffix: ''ENV{ID_PATH}=="pci-*-scsi-0:0:0:${toString lun}", SYMLINK+="oracleoci/oraclevd${suffix}"''
+  ) volumeSuffixesByLun;
+  keysDirectory = "/var/lib/terrascale-ssh";
+  keysFile = "${keysDirectory}/terrascale";
 in
 {
   imports = [
@@ -33,14 +39,20 @@ in
     GOTO="terrascale_oci_device_paths_end"
     LABEL="terrascale_oci_block_volume"
     IMPORT{builtin}="path_id"
-    ${lib.concatStringsSep "\n" deviceRules}
+    ${lib.concatStringsSep "\n" ociVolumeRulesByLun}
     LABEL="terrascale_oci_device_paths_end"
   '';
 
+  systemd.generators.systemd-ssh-generator = "/dev/null";
+
   services.openssh = {
-    settings.PasswordAuthentication = false;
-    settings.KbdInteractiveAuthentication = false;
-    authorizedKeysFiles = [ keysFile ];
+    settings = {
+      PasswordAuthentication = false;
+      KbdInteractiveAuthentication = false;
+      PermitRootLogin = "no";
+    };
+    authorizedKeysInHomedir = false;
+    authorizedKeysFiles = [ "${keysDirectory}/%u" ];
   };
 
   systemd.services.terrascale-ssh-keys = {
@@ -55,11 +67,10 @@ in
       pkgs.curl
     ];
     script = ''
-      install -d -m 0755 ${dirOf keysFile}
+      install -d -m 0755 ${keysDirectory}
       curl -fsS --max-time 10 -H "Authorization: Bearer Oracle" \
         -o ${keysFile}.new http://169.254.169.254/opc/v2/instance/metadata/ssh_authorized_keys
-      chown terrascale: ${keysFile}.new
-      chmod 0600 ${keysFile}.new
+      chmod 0644 ${keysFile}.new
       mv ${keysFile}.new ${keysFile}
     '';
     serviceConfig = {

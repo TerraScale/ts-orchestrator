@@ -1,11 +1,11 @@
 {
-  "tag": "ci-7e9e29d6d243bf9b84b7c27139a8f6400ffc6b5e-run-44401772622",
+  "tag": "ci-1ebdb700ca68443a9110405c374345d2022ffe84-run-44434485677",
   "arm64": {
-    "url": "https://github.com/TerraScale/ts-orchestrator/releases/download/ci-7e9e29d6d243bf9b84b7c27139a8f6400ffc6b5e-run-44401772622/terrascale-orchestrator-linux-arm64",
-    "sha256": "3e582ce76440408bef5d1153d60968645d6b3528dc0fb2c69c52be937fb16192"
+    "url": "https://github.com/TerraScale/ts-orchestrator/releases/download/ci-1ebdb700ca68443a9110405c374345d2022ffe84-run-44434485677/terrascale-orchestrator-linux-arm64",
+    "sha256": "6d0c2a826a837c1d3cc5a720f5a2f359134689211be00553ee9f5eaaf90a42f0"
   },
   "amd64": {
-    "url": "https://github.com/TerraScale/ts-orchestrator/releases/download/ci-7e9e29d6d243bf9b84b7c27139a8f6400ffc6b5e-run-44401772622/terrascale-orchestrator-linux-amd64",
-    "sha256": "07b347d381593d9e2033eeb03b653a150d7f19d4948070a031087524a5fae1a2"
+    "url": "https://github.com/TerraScale/ts-orchestrator/releases/download/ci-1ebdb700ca68443a9110405c374345d2022ffe84-run-44434485677/terrascale-orchestrator-linux-amd64",
+    "sha256": "f13d9b4a81a0b0238ff83dbb129db393cb5bfca8bddefe4afd420898dd377683"
   }
 }

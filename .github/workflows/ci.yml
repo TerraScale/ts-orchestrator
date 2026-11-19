@@ -33,6 +33,7 @@ jobs:
       runtime: ${{ steps.paths.outputs.runtime }}
       certificates: ${{ steps.paths.outputs.certificates }}
       caller: ${{ steps.paths.outputs.caller }}
+      nix: ${{ steps.paths.outputs.nix }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -50,6 +51,7 @@ jobs:
           from pathlib import Path
 
           runtime = certificates = caller = True
+          nix = False
           if os.environ["EVENT"] == "pull_request":
               base = os.environ["CHANGE_BASE"]
               paths = subprocess.check_output([
@@ -67,10 +69,18 @@ jobs:
                   r"^(cmd/|internal/(app/|edge/|natscell/mesh/|cli/)|deploy/|third_party/|docs/edge-certificates\.md$)", path
               ) for path in paths)
               caller = runtime or any(path in {"docs/caller-keys.md", "docs/e2e-ci.md"} for path in paths)
+              nix = any(path.startswith("nix/") or path in {
+                  "flake.nix", "flake.lock", ".github/workflows/nix-image.yml"
+              } for path in paths)
           with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
-              for name, value in {"runtime": runtime, "certificates": certificates, "caller": caller}.items():
+              for name, value in {"runtime": runtime, "certificates": certificates, "caller": caller, "nix": nix}.items():
                   output.write(f"{name}={str(value).lower()}\n")
           PYTHON
+
+  nix-image:
+    needs: paths
+    if: ${{ needs.paths.outputs.nix == 'true' }}
+    uses: ./.github/workflows/nix-image.yml
 
   lint:
     needs: paths
@@ -702,7 +712,7 @@ jobs:
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [paths, lint, e2e-build, e2e-lane, e2e-rerun-plan, e2e-lane-rerun, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-publish, release-publish-after-lanes]
+    needs: [paths, nix-image, lint, e2e-build, e2e-lane, e2e-rerun-plan, e2e-lane-rerun, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-publish, release-publish-after-lanes]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
