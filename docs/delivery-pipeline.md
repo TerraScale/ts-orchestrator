@@ -17,12 +17,15 @@ and the dependency audit of the source graphs and of both binaries) and
 (`test/e2e/m1/run.sh`) on a disposable GitHub-hosted ARM64 runner. The last
 job, `all-green`, is the one required check; it fails when any job failed or
 was cancelled. `gh pr merge --auto --squash` merges once it passes; the branch
-need not be up to date with main. New PR pushes cancel older PR runs. On main,
-a newer push cancels an older run's `verify/go + artifact/linux-amd64-arm64`
-and `e2e-m1` jobs while they run or wait, so that run skips
-`deploy/release-publish` and fails `all-green`; the newer run's commit carries
-both changes. `deploy/release-publish` jobs share the `production-ts-orch` lock
-and never cancel a running rollout.
+need not be up to date with main. New PR pushes cancel older PR runs. Each
+main run owns its M1 groups, automatic reruns and aggregate gate, so a newer
+push does not cancel those jobs in an older run. The artifact build still
+shares the `fast-build-refs/heads/main` key: a newer push can cancel an older
+run's `verify/go + artifact/linux-amd64-arm64` job while it runs or waits,
+preventing that run from publishing and leaving its `all-green` red.
+Both `deploy/release-publish` paths share the `production-ts-orch` lock with
+`cancel-in-progress: false` and `queue: max`. A late older publisher cannot
+evict a newer pending publisher, and neither cancels a running rollout.
 
 Every main push runs `e2e-m1` again on the merged tree, beside the
 `verify/go + artifact/linux-amd64-arm64` job. `lint` runs in `ci.yml` only on
