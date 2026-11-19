@@ -86,7 +86,6 @@ jobs:
       - uses: ./.github/actions/go
         with:
           cache: lint-v2
-      - run: python3 test/e2e/m1/runtime-inputs.py --check
       - run: make lint GO=go CHANGE_BASE="${CHANGE_BASE:-$(git merge-base origin/main HEAD)}"
       - run: make --jobs=2 release-check GO=go
       - run: bash scripts/ci/audit-dependencies.sh source
@@ -127,6 +126,13 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Select the newest available qualified main image
+        id: image
+        run: python3 test/e2e/m1/image-inputs.py
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ steps.image.outputs.directory }}
+          key: m1-host-image-amd64-${{ steps.image.outputs.identity }}
       - name: Install QEMU and libguestfs
         run: |
           set -euo pipefail
@@ -135,6 +141,11 @@ jobs:
           sudo chmod a+r /boot/vmlinuz-*
           if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; fi
       - name: Boot the pre-built Debian image
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          IMAGE_SOURCE: ${{ steps.image.outputs.source }}
+          IMAGE_URL: ${{ steps.image.outputs.url }}
+          IMAGE_DIRECTORY: ${{ steps.image.outputs.directory }}
         run: bash test/e2e/m1/image-smoke.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: ${{ always() }}

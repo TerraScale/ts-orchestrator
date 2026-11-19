@@ -29,15 +29,6 @@ done
 # shellcheck disable=SC2087 # url, sum and units expand locally on purpose; all are validated or base64.
 ssh "$host" sudo bash -s <<REMOTE
 set -euo pipefail
-# The NetBird client (netbird-server.service enrolls this host with it).
-if ! command -v netbird >/dev/null; then
-	curl -fsSL https://pkgs.netbird.io/debian/public.key | gpg --dearmor --yes -o /usr/share/keyrings/netbird-archive-keyring.gpg
-	echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' > /etc/apt/sources.list.d/netbird.list
-	apt-get update -qq
-	DEBIAN_FRONTEND=noninteractive apt-get install -y -qq netbird
-fi
-systemctl is-enabled --quiet netbird || netbird service install
-systemctl enable --now netbird
 tmp=\$(mktemp)
 trap 'rm -f "\$tmp"' EXIT
 curl -fsSL --retry 3 -o "\$tmp" '$url'
