@@ -777,7 +777,7 @@ func (c *controller) stopTask(ctx context.Context) error {
 		return c.Terminate(ctx)
 	}
 	if c.regionalTerraBase() && !rolloutmaintenance.PinnedStop(ctx, c.bootstrapPin()) {
-		if err := handoff.DrainTask(ctx, c.task.ID); err != nil {
+		if err := c.executor.drainRegionalTask(ctx, c.task.ID); err != nil {
 			// A missing/restarting coordinator never makes a live process a failed
 			// terminal task: retain its assignment and retry once the mesh returns.
 			return exec.MakeTemporary(err)

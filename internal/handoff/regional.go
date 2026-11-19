@@ -8,22 +8,28 @@ import (
 
 type taskDrainer func(context.Context, string) error
 
-var regionalDrainer atomic.Pointer[taskDrainer]
-var regionalReady = make(chan struct{})
-var regionalAttached sync.Once
-
-func SetTaskDrainer(drain func(context.Context, string) error) {
-	fn := taskDrainer(drain)
-	regionalDrainer.Store(&fn)
-	regionalAttached.Do(func() { close(regionalReady) })
+type RegionalDrain struct {
+	drainer  atomic.Pointer[taskDrainer]
+	ready    chan struct{}
+	attached sync.Once
 }
 
-func DrainTask(ctx context.Context, task string) error {
+func NewRegionalDrain() *RegionalDrain {
+	return &RegionalDrain{ready: make(chan struct{})}
+}
+
+func (d *RegionalDrain) SetTaskDrainer(drain func(context.Context, string) error) {
+	fn := taskDrainer(drain)
+	d.drainer.Store(&fn)
+	d.attached.Do(func() { close(d.ready) })
+}
+
+func (d *RegionalDrain) DrainTask(ctx context.Context, task string) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-regionalReady:
+	case <-d.ready:
 	}
-	drain := regionalDrainer.Load()
+	drain := d.drainer.Load()
 	return (*drain)(ctx, task)
 }
