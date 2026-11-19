@@ -24,6 +24,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"golang.org/x/crypto/acme"
 )
@@ -186,7 +187,8 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 				token := base64.RawURLEncoding.EncodeToString([]byte("{}")) + "." + base64.RawURLEncoding.EncodeToString(claims) + ".signature"
 				_ = json.NewEncoder(w).Encode(map[string]string{"token": token})
 			case strings.Contains(r.URL.Path, "secretbundles"):
-				value, ok := map[string]string{"ts-orch-mesh-key": cfg.MeshSeed, "gru-1-terrabase-nats-token": cfg.DatabaseToken}[r.URL.Query().Get("secretName")]
+				value, ok := map[string]string{"ts-orch-mesh-key": cfg.MeshSeed, "gru-1-terrabase-nats-token": cfg.DatabaseToken,
+					regionjoin.SecretName("gru"): `{"founder":"ts-gru-1"}`, regionjoin.SecretName("sjc"): `{"founder":"ts-sjc-1"}`}[r.URL.Query().Get("secretName")]
 				if r.URL.Query().Get("secretName") == "gru-1-terrabase-nats-token" {
 					a.mu.Lock()
 					databaseReads++
