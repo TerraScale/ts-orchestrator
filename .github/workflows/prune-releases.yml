@@ -1,0 +1,32 @@
+name: Prune expired release drafts
+
+on:
+  schedule:
+    - cron: '43 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prune:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: production-ts-orch
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: scripts/ci/prune-drafts.sh
+          sparse-checkout-cone-mode: false
+      - name: Delete drafts older than one day under the publication lock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/prune-drafts.sh "$GITHUB_REPOSITORY"

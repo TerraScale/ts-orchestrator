@@ -25,6 +25,11 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 			unknown[x.name] = true
 		}
 	}
+	declared, err := declaredServices(regions)
+	if err != nil {
+		fmt.Println("cannot observe service declarations:", err)
+		return false
+	}
 	reports := map[string]releasepush.DeploymentObservation{}
 	observationErrors := map[string]error{}
 	targets := map[string]releasepush.DeploymentTarget{}
@@ -36,6 +41,9 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 			continue
 		}
 		for _, x := range artifacts {
+			if !declared[region.Region][x.name] {
+				continue
+			}
 			target := report.Targets[x.name]
 			candidate, parseErr := strconv.ParseUint(target.RunID, 10, 64)
 			selected, _ := strconv.ParseUint(targets[x.name].RunID, 10, 64)
@@ -58,10 +66,20 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 	placements := agreedPlacements(regions, reports, observationErrors)
 	for _, region := range regions {
 		report, observeErr := reports[region.Region], observationErrors[region.Region]
+		for _, x := range artifacts {
+			if !declared[region.Region][x.name] {
+				line := fmt.Sprintf("%s %s: not declared", x.name, region.Region)
+				fmt.Println(line)
+				rows[x.name] = append(rows[x.name], line)
+			}
+		}
 		if observeErr != nil {
 			line := fmt.Sprintf("cannot observe %s: %s", region.Region, observeErr)
 			fmt.Println(line)
 			for _, x := range artifacts {
+				if !declared[region.Region][x.name] {
+					continue
+				}
 				unknown[x.name] = true
 				rows[x.name] = append(rows[x.name], line)
 				if report.Region != region.Region {
@@ -78,6 +96,9 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 		}
 		report.Targets = targets
 		for _, x := range artifacts {
+			if !declared[region.Region][x.name] {
+				continue
+			}
 			result := a.verdict(ctx, x, region.Region, report, placements[x.name], now)
 			fmt.Println(result.line)
 			rows[x.name] = append(rows[x.name], result.line)

@@ -1,21 +1,4 @@
 #!/usr/bin/env bash
-# Delete old CI pre-releases of one repository through the GitHub API (TS-608),
-# which also removes their release assets. Git tags
-# stay. CI pre-releases are the ci-<sha>-run-<id> and
-# image-<sha>-run-<id>-attempt-<n> releases; every other release is left alone.
-#
-# usage: prune-releases.sh REPOSITORY PINS
-#   REPOSITORY  owner/name, e.g. TerraScale/ts-orchestrator
-#   PINS        file of pinned source revisions (40 hex), binary digests
-#               (64 hex) and release tags, separated by any whitespace or
-#               JSON; it must name at least one pin
-#
-# Kept: the newest TS_PRUNE_KEEP (default 20) CI pre-releases, any published in
-# the last TS_PRUNE_KEEP_DAYS (default 7) days, and any release whose tag
-# names a pinned revision or tag, or whose small manifests (*.json, *.sha256,
-# SHA256SUMS) name a pinned digest. A manifest that cannot be read keeps its
-# release. TS_PRUNE_DRY_RUN=true only logs. Environment: GH_TOKEN,
-# which may delete the repository's releases.
 set -euo pipefail
 
 fail() { echo "$*" >&2; exit 1; }
@@ -28,8 +11,6 @@ keep=${TS_PRUNE_KEEP:-20} keep_days=${TS_PRUNE_KEEP_DAYS:-7} dry_run=${TS_PRUNE_
 [[ $keep =~ ^[0-9]+$ && $keep_days =~ ^[0-9]+$ && $dry_run =~ ^(true|false)$ ]] ||
 	fail 'TS_PRUNE_KEEP and TS_PRUNE_KEEP_DAYS must be numbers, TS_PRUNE_DRY_RUN true or false'
 
-# A pin is any revision, digest or CI tag in the file: the same words whether
-# it is fleet-status JSON or a plain list.
 mapfile -t pins < <(grep -oE '\b((ci|image)-[0-9a-f]{40}-run-[0-9]+(-attempt-[0-9]+)?|[0-9a-f]{64}|[0-9a-f]{40})\b' \
 	"$pins_file" | sort -u)
 ((${#pins[@]} > 0)) || fail "$pins_file names no pin; refusing to prune without the live releases"
@@ -50,16 +31,13 @@ done
 
 cutoff=$(date -u -d "-$keep_days days" +%s)
 jq -c --argjson keep "$keep" --argjson cutoff "$cutoff" '
-	[.[] | select(.prerelease and (.tag_name | test("^(ci|image)-[0-9a-f]{40}-run-[0-9]+(-attempt-[0-9]+)?$")))]
-	| ((map(select(.draft | not)) | sort_by(.published_at) | reverse | .[$keep:][]),
-		(.[] | select(.draft and (.tag_name | startswith("ci-")))))
-	| select(((.published_at // .created_at) | fromdateiso8601) < $cutoff)
-	| {id, tag: .tag_name, published_at: (.published_at // .created_at), bytes: ([.assets[].size] | add // 0),
+	[.[] | select(.prerelease and (.draft | not) and (.tag_name | test("^(ci|image)-[0-9a-f]{40}-run-[0-9]+(-attempt-[0-9]+)?$")))]
+	| sort_by(.published_at) | reverse | .[$keep:][]
+	| select((.published_at | fromdateiso8601) < $cutoff)
+	| {id, tag: .tag_name, published_at, bytes: ([.assets[].size] | add // 0),
 		manifests: [.assets[] | select((.name | test("(\\.json|\\.sha256|^SHA256SUMS)$")) and .size <= 1048576)
 			| .name]}' "$work/releases.json" > "$work/candidates.json"
 
-# names_pin TAG MANIFEST_NAME...: whether the release is pinned; an unreadable
-# manifest counts as pinned.
 names_pin() {
 	local tag=$1 name word
 	shift

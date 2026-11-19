@@ -178,7 +178,7 @@ jobs:
     name: e2e-m1 / group ${{ matrix.group }}
     concurrency:
       group: e2e-m1-group-${{ matrix.group }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: ${{ matrix.deadline }}
     steps:
@@ -369,7 +369,7 @@ jobs:
     name: e2e-m1 / ${{ matrix.lane }} (rerun)
     concurrency:
       group: e2e-m1-rerun-${{ matrix.lane }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: ${{ matrix.job_timeout }}
     steps:
@@ -409,7 +409,7 @@ jobs:
     needs: [paths, e2e-lane, e2e-rerun-plan, e2e-lane-rerun]
     concurrency:
       group: e2e-m1-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
@@ -557,8 +557,8 @@ jobs:
 
   build:
     concurrency:
-      group: fast-build-${{ github.ref }}
-      cancel-in-progress: true
+      group: fast-build-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
