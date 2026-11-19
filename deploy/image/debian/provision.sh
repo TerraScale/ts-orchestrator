@@ -37,7 +37,7 @@ cd "$work"
 curl -fsSL -o containerd.tar.gz \
 	"https://github.com/containerd/containerd/releases/download/v$containerd_version/containerd-$containerd_version-linux-$TS_ARCH.tar.gz"
 echo "$TS_CONTAINERD_SHA256  containerd.tar.gz" | sha256sum -c --quiet
-tar -C /usr/local -xzf containerd.tar.gz
+tar --no-same-owner -C /usr/local -xzf containerd.tar.gz
 curl -fsSL -o runc \
 	"https://github.com/opencontainers/runc/releases/download/v$runc_version/runc.$TS_ARCH"
 echo "$TS_RUNC_SHA256  runc" | sha256sum -c --quiet
@@ -71,7 +71,7 @@ systemctl enable containerd
 
 curl -fsSL -o netbird.tar.gz "$TS_NETBIRD_TARBALL_URL"
 echo "$TS_NETBIRD_SHA256  netbird.tar.gz" | sha256sum -c --quiet
-tar -C /usr/local/bin -xzf netbird.tar.gz netbird
+tar --no-same-owner -C /usr/local/bin -xzf netbird.tar.gz netbird
 install -d /run/systemd/system
 netbird service install
 rmdir /run/systemd/system
@@ -101,8 +101,22 @@ Name=en* eth*
 DHCP=yes
 IPv6AcceptRA=yes
 NETWORK
+install -d /etc/systemd/system/ssh.service.d /etc/ssh/sshd_config.d
+cat > /etc/systemd/system/ssh.service.d/10-host-keys.conf <<'HOSTKEYS'
+[Service]
+ExecStartPre=
+ExecStartPre=/usr/bin/ssh-keygen -A
+ExecStartPre=/usr/sbin/sshd -t
+HOSTKEYS
+cat > /etc/ssh/sshd_config.d/10-terrascale.conf <<'SSH'
+Match User terrascale
+    AuthorizedKeysCommand /usr/local/sbin/ts-ssh-keys
+    AuthorizedKeysCommandUser terrascale
+Match all
+SSH
 systemctl enable systemd-networkd systemd-networkd-wait-online systemd-resolved ssh
 truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id /etc/ssh/ssh_host_*
+rm -f /var/lib/systemd/random-seed /var/lib/urandom/random-seed
 apt-get clean
 rm -rf /var/lib/apt/lists/* /var/lib/cloud /var/log/cloud-init* /run/ts-image-env /run/ts-image-provision.sh

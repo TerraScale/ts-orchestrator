@@ -6,7 +6,9 @@ Before=ssh.service
 
 [Service]
 Type=oneshot
-ExecStartPre=/usr/bin/ssh-keygen -A
+User=terrascale
+Group=terrascale
+TimeoutStartSec=10s
 ExecStart=/usr/local/sbin/ts-ssh-keys
 
 [Install]
