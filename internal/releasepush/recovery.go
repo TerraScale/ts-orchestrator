@@ -202,8 +202,16 @@ func recoveryExpired(ctx context.Context, pending trial) (bool, error) {
 		if err != nil || started < 0 || started > now.Nano()/1000 {
 			return false, fmt.Errorf("invalid candidate monotonic start %q", output)
 		}
+		window := 20 * time.Minute
+		if !pending.RecoverAfter.IsZero() {
+			window = pending.RecoverAfter.Sub(pending.Installed)
+		}
+		if window <= 0 {
+			return false, errors.New("invalid recovery window")
+		}
 		if started == 0 {
-			return false, nil
+			booted := time.Now().Add(-time.Duration(now.Nano()))
+			return pending.Installed.Before(booted) && time.Duration(now.Nano()) >= window, nil
 		}
 		pid, err := strconv.ParseUint(properties["MainPID"], 10, 32)
 		if err != nil {
@@ -221,13 +229,6 @@ func recoveryExpired(ctx context.Context, pending trial) (bool, error) {
 			if !os.SameFile(running, installed) {
 				return false, nil
 			}
-		}
-		window := 20 * time.Minute
-		if !pending.RecoverAfter.IsZero() {
-			window = pending.RecoverAfter.Sub(pending.Installed)
-		}
-		if window <= 0 {
-			return false, errors.New("invalid recovery window")
 		}
 		runtime = recoveryRuntime{SHA: pending.SHA, SHA256: pending.SHA256, RunID: pending.RunID, BootID: strings.TrimSpace(string(boot)), Started: started * 1000, Window: window}
 		if err := writeJSON(path, runtime); err != nil {
@@ -354,5 +355,13 @@ func Recovery(ctx context.Context, output io.Writer) (result error) {
 		return rollback
 	}
 	fmt.Fprintln(output, rollback)
+	if hostos.NixOS() {
+		if err := recoveryCommand(ctx, recoveryBinary, "host-units", "--dir", hostos.UnitDirectory()); err != nil {
+			return err
+		}
+		if err := recoveryCommand(ctx, "systemctl", "daemon-reload"); err != nil {
+			return err
+		}
+	}
 	return nil
 }
