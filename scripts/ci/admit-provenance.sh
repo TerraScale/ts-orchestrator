@@ -34,8 +34,10 @@ has_provenance() {
     jq -e 'any(.assets[]; .name == "provenance.sigstore.json" and .state == "uploaded" and .size > 0)' >/dev/null
 }
 
-download_provenance() {
-    gh release download "$tag" --repo "$repository" --pattern provenance.sigstore.json --output "$bundle"
+reuse_provenance() {
+    if [[ ! -e $bundle ]]; then
+        gh release download "$tag" --repo "$repository" --pattern provenance.sigstore.json --output "$bundle"
+    fi
     verify "$bundle" "$amd64" "$arm64"
 }
 
@@ -43,7 +45,7 @@ case ${1:?} in
 check)
     release=$(view)
     if jq -e 'any(.assets[]; .name == "provenance.sigstore.json" and .state == "uploaded" and .size > 0)' <<<"$release" >/dev/null; then
-        download_provenance
+        reuse_provenance
         echo "need_attest=false" >> "$GITHUB_OUTPUT"
     else
         echo "need_attest=true" >> "$GITHUB_OUTPUT"
@@ -58,7 +60,7 @@ finalize)
     release=$(view)
     draft=$(jq -r '.isDraft' <<<"$release")
     if has_provenance <<<"$release"; then
-        download_provenance
+        reuse_provenance
     else
         [[ $draft == true ]]
         [[ -n ${BUNDLE:-} && -f $BUNDLE ]]
