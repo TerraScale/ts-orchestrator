@@ -18,8 +18,6 @@ labels=("$@")
 ((${#labels[@]})) || mapfile -t labels < <(jq -r '.staging.label, .regions[].label' "$fleet")
 
 namespace=$(oci os ns get --query data --raw-output)
-schema_id=$(oci compute global-image-capability-schema list --query 'data[0].id' --raw-output)
-schema_version=$(oci compute global-image-capability-schema list --query 'data[0]."current-version-name"' --raw-output)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -78,12 +76,13 @@ wait_available() {
 }
 
 set_capabilities() {
-	local region=$1 compartment=$2 image=$3 existing
+	local region=$1 compartment=$2 image=$3 existing version
 	existing=$(oci --region "$region" compute image-capability-schema list --compartment-id "$compartment" --image-id "$image" \
-		--query 'length(data)' --raw-output)
+		| jq -s '.[0].data // [] | length')
 	[[ $existing == 0 ]] || return 0
+	version=$(oci --region "$region" compute global-image-capability-schema list --query 'data[0]."current-version-name"' --raw-output)
 	oci --region "$region" compute image-capability-schema create --compartment-id "$compartment" --image-id "$image" \
-		--global-image-capability-schema-version-name "$schema_version" --schema-data "$(jq -cn '{
+		--global-image-capability-schema-version-name "$version" --schema-data "$(jq -cn '{
 			"Compute.Firmware": {descriptorType: "enumstring", source: "IMAGE", values: ["UEFI_64"], defaultValue: "UEFI_64"},
 			"Compute.LaunchMode": {descriptorType: "enumstring", source: "IMAGE", values: ["PARAVIRTUALIZED"], defaultValue: "PARAVIRTUALIZED"},
 			"Storage.BootVolumeType": {descriptorType: "enumstring", source: "IMAGE", values: ["PARAVIRTUALIZED"], defaultValue: "PARAVIRTUALIZED"},
@@ -91,7 +90,7 @@ set_capabilities() {
 			"Network.AttachmentType": {descriptorType: "enumstring", source: "IMAGE", values: ["PARAVIRTUALIZED"], defaultValue: "PARAVIRTUALIZED"},
 			"Storage.ConsistentVolumeNaming": {descriptorType: "boolean", source: "IMAGE", defaultValue: true}
 		}')" >/dev/null
-	echo "$region: set image capabilities from global schema $schema_id" >&2
+	echo "$region: set image capabilities from global schema version $version" >&2
 }
 
 set_shapes() {
@@ -110,7 +109,7 @@ set_shapes() {
 		oci --region "$region" compute image-shape-compatibility-entry add --image-id "$image" --shape-name "$shape" >/dev/null
 	done
 	for shape in "${current[@]}"; do
-		[[ " ${wanted[*]} " == *" $shape "* ]] ||
+		[[ " ${wanted[*]} " == *" $shape "* || $shape == *.Generic ]] ||
 			oci --region "$region" compute image-shape-compatibility-entry remove --image-id "$image" --shape-name "$shape" --force >/dev/null
 	done
 }
