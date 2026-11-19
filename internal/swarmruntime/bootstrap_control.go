@@ -26,6 +26,20 @@ type BootstrapRequest struct {
 	Epoch       int64  `json:"epoch"`
 }
 
+type BootstrapReplace struct {
+	ID            string `json:"id"`
+	AcceptUnclean bool   `json:"acceptUncleanExit,omitzero"`
+}
+
+type bootstrapStatus struct {
+	Next string `json:"next"`
+}
+
+type armedStatus struct {
+	Job  rolloutmaintenance.Job `json:",inline"`
+	Next string                 `json:"next"`
+}
+
 func BootstrapSocket(state string) string {
 	return filepath.Join(state, "terrabase-bootstrap", "control.sock")
 }
@@ -89,7 +103,10 @@ func (e *Executor) ServeBootstrap(ctx context.Context, state string) error {
 			http.Error(w, err.Error(), 409)
 			return
 		}
-		data, err := protocol.EncodeJSON(j)
+		data, err := protocol.EncodeJSON(bootstrapStatus{Next: "no transaction is armed"})
+		if j != nil {
+			data, err = protocol.EncodeJSON(armedStatus{Job: *j, Next: j.Next()})
+		}
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -196,6 +213,18 @@ func (e *Executor) ServeBootstrap(ctx context.Context, state string) error {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /replace", func(w http.ResponseWriter, r *http.Request) {
+		var input BootstrapReplace
+		if err := readBootstrap(r, &input, 4096); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		if err := e.BootstrapDriver().Replace(r.Context(), input.ID, input.AcceptUnclean); err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /recover", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID string `json:"id"`
 		}
@@ -203,7 +232,7 @@ func (e *Executor) ServeBootstrap(ctx context.Context, state string) error {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		if err := e.BootstrapDriver().Replace(r.Context(), input.ID); err != nil {
+		if err := e.BootstrapDriver().Recover(r.Context(), input.ID); err != nil {
 			http.Error(w, err.Error(), 409)
 			return
 		}

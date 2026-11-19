@@ -190,6 +190,16 @@ func (e *Edge) Bootstrap(ctx context.Context, action string, j rolloutmaintenanc
 		e.bootstrapBarrier.id = ""
 		e.bootstrapBarrier.release = nil
 		return nil
+	case "abort":
+		if err := e.bootstrap.AbandonIngress(ctx, j); err != nil {
+			return err
+		}
+		if e.bootstrapBarrier.id == j.ID {
+			e.bootstrapBarrier.release()
+			e.bootstrapBarrier.id = ""
+			e.bootstrapBarrier.release = nil
+		}
+		return nil
 	default:
 		return errors.New("invalid bootstrap operation")
 	}

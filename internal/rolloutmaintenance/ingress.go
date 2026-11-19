@@ -3,6 +3,7 @@ package rolloutmaintenance
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"os"
 	"path/filepath"
@@ -88,6 +89,32 @@ func (s *Store) ReleaseIngress(ctx context.Context, j Job) error {
 	}
 	return syncDir(s.root)
 }
+func (s *Store) AbandonIngress(ctx context.Context, j Job) error {
+	unlock, err := s.lock(ctx, false)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	path := filepath.Join(s.root, "ingress.json")
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var held Job
+	if err = protocolDecode(data, &held); err != nil {
+		return err
+	}
+	if held.ID != j.ID || held.Source != j.Source || held.Owner != j.Owner || held.Epoch != j.Epoch {
+		return nil
+	}
+	if err = os.Remove(path); err != nil {
+		return err
+	}
+	return syncDir(s.root)
+}
 func syncDir(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -103,9 +130,6 @@ func protocolDecode(data []byte, j *Job) error {
 	return j.validate()
 }
 
-// Clear ends one verified transaction after the no-op reconciliation: it is the
-// only way to lift the fence, refuses any unfinished or different job, and
-// removes its candidate and same-epoch ingress hold before the job record.
 func (s *Store) Clear(ctx context.Context, id string) error {
 	unlock, err := s.lock(ctx, false)
 	if err != nil {
@@ -116,8 +140,11 @@ func (s *Store) Clear(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if j == nil || j.ID != id || j.Phase != "verified" {
+	if j == nil || j.ID != id {
 		return ErrFenced
+	}
+	if j.Phase != "released" && j.Phase != "failed" {
+		return fmt.Errorf("bootstrap transaction is %s; next: %s: %w", j.Phase, j.Next(), ErrFenced)
 	}
 	if err = os.Remove(filepath.Join(s.root, "candidate.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

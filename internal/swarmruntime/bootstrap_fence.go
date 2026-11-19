@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
@@ -80,22 +81,59 @@ func (r BootstrapRuntime) Prepare(ctx context.Context, p rolloutmaintenance.Pin)
 	}
 	return err
 }
-func (r BootstrapRuntime) Quiesce(ctx context.Context, j rolloutmaintenance.Job) (func(context.Context) error, error) {
-	if err := handoff.Bootstrap(ctx, "hold", j); err != nil {
-		return nil, err
-	}
-	return func(ctx context.Context) error { return handoff.Bootstrap(ctx, "release", j) }, nil
+func (r BootstrapRuntime) Quiesce(ctx context.Context, j rolloutmaintenance.Job) error {
+	return handoff.Bootstrap(ctx, "hold", j)
+}
+func (r BootstrapRuntime) Release(ctx context.Context, j rolloutmaintenance.Job) error {
+	return handoff.Bootstrap(ctx, "release", j)
+}
+func (r BootstrapRuntime) Abort(ctx context.Context, j rolloutmaintenance.Job) error {
+	return handoff.Bootstrap(ctx, "abort", j)
 }
 func (r BootstrapRuntime) Stop(ctx context.Context, p rolloutmaintenance.Pin) error {
 	c, err := r.find(p)
 	if err != nil {
 		j, e := r.executor.bootstrap.Status(ctx)
 		if e == nil && j != nil && j.Source == p {
-			return r.Exited(ctx, p, j.Process)
+			_, err = r.Exited(ctx, p, j.Process)
 		}
 		return err
 	}
 	return c.stopTask(ctx)
+}
+func (r BootstrapRuntime) Halt(ctx context.Context, p rolloutmaintenance.Pin) error {
+	c, err := r.find(p)
+	if err != nil {
+		_, err = r.stopped(ctx, p)
+		return err
+	}
+	t, err := c.runtimeTask(ctx)
+	if errdefs.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	status, err := t.Status(runtimeContext(ctx))
+	if err != nil {
+		return err
+	}
+	if status.Status != containerd.Created {
+		return c.stopTask(ctx)
+	}
+	wait, err := t.Wait(runtimeContext(ctx))
+	if err != nil {
+		return err
+	}
+	if err = t.Kill(runtimeContext(ctx), syscall.SIGKILL, containerd.WithKillAll); err != nil && !errdefs.IsNotFound(err) {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-wait:
+		return nil
+	}
 }
 func (r BootstrapRuntime) Start(ctx context.Context, p rolloutmaintenance.Pin) error {
 	c, err := r.find(p)
@@ -108,43 +146,57 @@ func (r BootstrapRuntime) Start(ctx context.Context, p rolloutmaintenance.Pin) e
 	}
 	return err
 }
-func (r BootstrapRuntime) Exited(ctx context.Context, p rolloutmaintenance.Pin, process rolloutmaintenance.Process) error {
+func (r BootstrapRuntime) Exited(ctx context.Context, p rolloutmaintenance.Pin, process rolloutmaintenance.Process) (rolloutmaintenance.Exit, error) {
 	current, err := processIdentity(process.PID)
 	if err == nil && current == process {
-		return errors.New("retained source process is still alive")
+		return rolloutmaintenance.Exit{}, errors.New("retained source process is still alive")
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return rolloutmaintenance.Exit{}, err
 	}
+	return r.stopped(ctx, p)
+}
+
+func (r BootstrapRuntime) stopped(ctx context.Context, p rolloutmaintenance.Pin) (rolloutmaintenance.Exit, error) {
 	ctr, err := r.executor.client.LoadContainer(runtimeContext(ctx), "ts-"+p.Task)
 	if errdefs.IsNotFound(err) {
-		return nil
+		return rolloutmaintenance.Exit{}, nil
 	}
 	if err != nil {
-		return err
+		return rolloutmaintenance.Exit{}, err
 	}
 	labels, err := ctr.Labels(runtimeContext(ctx))
 	if err != nil {
-		return err
+		return rolloutmaintenance.Exit{}, err
 	}
 	if labels["terrascale.task"] != p.Task || labels["terrascale.service"] != p.Service || labels["terrascale.spec"] != p.Fingerprint {
-		return rolloutmaintenance.ErrFenced
+		return rolloutmaintenance.Exit{}, rolloutmaintenance.ErrFenced
 	}
 	task, err := ctr.Task(runtimeContext(ctx), nil)
 	if errdefs.IsNotFound(err) {
-		return nil
+		return rolloutmaintenance.Exit{}, nil
 	}
 	if err != nil {
-		return err
+		return rolloutmaintenance.Exit{}, err
 	}
 	status, err := task.Status(runtimeContext(ctx))
 	if err != nil {
-		return err
+		return rolloutmaintenance.Exit{}, err
 	}
 	if status.Status != containerd.Stopped {
-		return errors.New("retained source runtime has not exited")
+		return rolloutmaintenance.Exit{}, errors.New("pinned runtime has not exited")
 	}
-	return nil
+	return exitOf(status.ExitStatus), nil
+}
+
+const linuxSignals = 64
+
+func exitOf(status uint32) rolloutmaintenance.Exit {
+	exit := rolloutmaintenance.Exit{Observed: true, Code: status}
+	if status > 128 && status <= 128+linuxSignals {
+		exit.Signal = status - 128
+	}
+	return exit
 }
 
 // bootstrapUnstarted completes Shutdown for a held regional TerraBase task that
@@ -191,9 +243,12 @@ func (c *controller) bootstrapSourceCompleted(ctx context.Context) (bool, error)
 		return false, nil
 	}
 	switch j.Phase {
-	case "exited", "preparing", "starting", "verified":
-		err = (BootstrapRuntime{executor: c.executor}).Exited(ctx, j.Source, j.Process)
+	case "exited", "preparing", "starting", "verified", "released":
+		_, err = (BootstrapRuntime{executor: c.executor}).Exited(ctx, j.Source, j.Process)
 		return err == nil, err
+	case "failing", "failed":
+		_, err = (BootstrapRuntime{executor: c.executor}).Exited(ctx, j.Source, j.Process)
+		return err == nil, nil
 	default:
 		return false, nil
 	}
@@ -250,7 +305,7 @@ func (c *controller) bootstrapTargetRunning(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if j == nil || j.Phase != "verified" || j.Target != c.bootstrapPin() {
+	if j == nil || j.Phase != "verified" && j.Phase != "released" || j.Target != c.bootstrapPin() {
 		return false, nil
 	}
 	task, err := c.runtimeTask(ctx)

@@ -19,7 +19,17 @@ import (
 
 var ErrFenced = errors.New("TerraBase bootstrap transaction holds automatic execution")
 
-const Budget = 60 * time.Second
+const (
+	Budget           = 60 * time.Second
+	WriterLeaseTTL   = 6 * time.Second
+	HomeLeaseTTL     = 10 * time.Second
+	ActivationBudget = 10 * time.Second
+	WriterWindow     = WriterLeaseTTL + HomeLeaseTTL + ActivationBudget
+	SourceStopGrace  = 2 * time.Minute
+	RecoveryBudget   = SourceStopGrace + WriterWindow + 30*time.Second
+	verifyEvery      = 500 * time.Millisecond
+	maxReason        = 1024
+)
 
 type Pin struct {
 	Node        string `json:"node"`
@@ -34,16 +44,65 @@ type Process struct {
 	Start uint64 `json:"start"`
 }
 
+type Exit struct {
+	Observed bool   `json:"observed"`
+	Code     uint32 `json:"code"`
+	Signal   uint32 `json:"signal"`
+}
+
+func (e Exit) Clean() bool { return e.Observed && e.Code == 0 && e.Signal == 0 }
+
+func (e Exit) String() string {
+	if !e.Observed {
+		return "exit status unobserved"
+	}
+	return fmt.Sprintf("exit code %d signal %d", e.Code, e.Signal)
+}
+
 type Job struct {
-	Member   string    `json:"member"`
-	ID       string    `json:"id"`
-	Source   Pin       `json:"source"`
-	Target   Pin       `json:"target"`
-	Process  Process   `json:"process"`
-	Owner    string    `json:"owner"`
-	Epoch    int64     `json:"epoch"`
-	Phase    string    `json:"phase"`
-	Deadline time.Time `json:"deadline"`
+	Member        string    `json:"member"`
+	ID            string    `json:"id"`
+	Source        Pin       `json:"source"`
+	Target        Pin       `json:"target"`
+	Process       Process   `json:"process"`
+	Owner         string    `json:"owner"`
+	Epoch         int64     `json:"epoch"`
+	Phase         string    `json:"phase"`
+	Deadline      time.Time `json:"deadline"`
+	SourceExit    Exit      `json:"sourceExit,omitzero"`
+	AcceptUnclean bool      `json:"acceptUncleanExit,omitzero"`
+	Reason        string    `json:"reason,omitzero"`
+}
+
+func (j Job) unresolved() bool {
+	switch j.Phase {
+	case "held", "quiescing", "stopping", "exited", "failing", "failed":
+		return true
+	}
+	return false
+}
+
+func (j Job) Next() string {
+	command := func(action string) string {
+		return "ts-orch bootstrap-maintenance " + action + " --id " + j.ID
+	}
+	expired := !j.Deadline.IsZero() && !time.Now().Before(j.Deadline)
+	switch {
+	case j.Phase == "released":
+		return command("clear") + ": NEW is the verified writer and ingress is released; this lifts the fence"
+	case j.Phase == "failed":
+		return command("clear") + ": the target is stopped and ingress is released; read the reason, then this lifts the fence and returns the service to Swarm"
+	case j.Phase == "failing", expired:
+		return command("recover") + ": verifies NEW as writer, or stops the target, releases ingress and ends failed"
+	case j.Phase == "verified":
+		return command("recover") + ": releases ingress for the verified writer"
+	case j.Phase == "exited" && !j.SourceExit.Clean() && !j.AcceptUnclean:
+		return command("replace") + " --accept-unclean-exit starts the target despite the " + j.SourceExit.String() + ", or " + command("recover") + " ends the job failed without starting it"
+	case j.Phase == "held" && j.Deadline.IsZero():
+		return command("replace") + " starts the 60 s replacement, or " + command("recover") + " ends the job failed with the source untouched"
+	default:
+		return command("replace") + " resumes before " + j.Deadline.UTC().Format(time.RFC3339) + ", or " + command("recover") + " ends it now"
+	}
 }
 
 type Store struct{ root string }
@@ -108,7 +167,7 @@ func validPin(p Pin) bool {
 }
 func (j Job) validate() error {
 	targetValid := validPin(j.Target)
-	if j.Target.Task == "" && j.Target.Fingerprint == "" && (j.Phase == "held" || j.Phase == "quiescing" || j.Phase == "stopping" || j.Phase == "exited") {
+	if j.Target.Task == "" && j.Target.Fingerprint == "" && j.unresolved() {
 		trial := j.Target
 		trial.Task = "unassigned"
 		trial.Fingerprint = j.Source.Fingerprint
@@ -120,8 +179,11 @@ func (j Job) validate() error {
 	if j.Member == "" || j.ID == "" || len(j.ID) > 128 || !validPin(j.Source) || !targetValid || j.Source.Node != j.Target.Node || j.Source.Service != j.Target.Service || j.Source.Task == j.Target.Task || j.Source.Image == j.Target.Image || j.Process.PID == 0 || j.Process.Start == 0 || j.Owner == "" || j.Epoch < 1 {
 		return errors.New("invalid pinned TerraBase bootstrap transaction")
 	}
+	if len(j.Reason) > maxReason || j.Phase == "failed" && j.Reason == "" {
+		return errors.New("invalid bootstrap failure reason")
+	}
 	switch j.Phase {
-	case "held", "preparing", "prepared", "quiescing", "stopping", "exited", "starting", "verified":
+	case "held", "preparing", "quiescing", "stopping", "exited", "starting", "verified", "released", "failing", "failed":
 	default:
 		return errors.New("invalid bootstrap phase")
 	}
@@ -174,6 +236,8 @@ func (s *Store) Arm(ctx context.Context, j Job) error {
 	}
 	j.Phase = "held"
 	j.Deadline = time.Time{}
+	j.SourceExit = Exit{}
+	j.Reason = ""
 	if previous != nil {
 		retained := *previous
 		retained.Phase = "held"
@@ -246,22 +310,26 @@ type grant struct {
 }
 
 func (g *grant) permits(p Pin, a string) bool {
-	if g.action == "stop" {
+	switch g.action {
+	case "stop":
 		return p == g.job.Source && a == "stop"
+	case "halt":
+		return p == g.job.Target && a == "stop"
+	default:
+		return p == g.job.Target && a == g.action
 	}
-	return p == g.job.Target && a == g.action
 }
 
-// Runtime keeps admitted task/image/secret verification in the normal executor.
-// Exited must inspect the captured process identity; a missing API response is
-// not evidence that its process has exited. Quiesce retains ingress until done.
 type Runtime interface {
 	Staged(context.Context, Job) error
 	Resolve(context.Context, Job) (Pin, error)
 	Prepare(context.Context, Pin) error
-	Quiesce(context.Context, Job) (func(context.Context) error, error)
+	Quiesce(context.Context, Job) error
+	Release(context.Context, Job) error
+	Abort(context.Context, Job) error
 	Stop(context.Context, Pin) error
-	Exited(context.Context, Pin, Process) error
+	Halt(context.Context, Pin) error
+	Exited(context.Context, Pin, Process) (Exit, error)
 	Start(context.Context, Pin) error
 	Verify(context.Context, Job) error
 }
@@ -271,102 +339,160 @@ type Driver struct {
 	Runtime Runtime
 }
 
-// Replace serializes operators across reconnect/restart. Every phase is durable
-// before its side effect; retries re-inspect physical state, never assume a lost
-// response means exit. Deadline expiry retains the fence and never kills data.
-func (d Driver) Replace(ctx context.Context, id string) error {
+func (d Driver) begin(ctx context.Context, id string) (*Job, func(), error) {
 	if d.Store == nil || d.Runtime == nil {
-		return errors.New("bootstrap driver unavailable")
+		return nil, nil, errors.New("bootstrap driver unavailable")
 	}
 	operation := flock.New(filepath.Join(d.Store.root, "operator.lock"))
 	ok, err := operation.TryLockContext(ctx, 10*time.Millisecond)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if !ok {
-		return ctx.Err()
+		return nil, nil, ctx.Err()
 	}
-	defer operation.Unlock()
 	j, err := d.Store.Status(ctx)
+	if err == nil && (j == nil || j.ID != id) {
+		err = ErrFenced
+	}
+	if err != nil {
+		_ = operation.Unlock()
+		return nil, nil, err
+	}
+	return j, func() { _ = operation.Unlock() }, nil
+}
+
+func (d Driver) save(ctx context.Context, j *Job) error {
+	unlock, err := d.Store.lock(ctx, false)
 	if err != nil {
 		return err
 	}
-	if j == nil || j.ID != id {
+	defer unlock()
+	current, err := d.Store.read()
+	if err != nil {
+		return err
+	}
+	if current == nil || current.ID != j.ID || current.Source != j.Source || current.Target.Task != "" && current.Target != j.Target {
 		return ErrFenced
 	}
+	return d.Store.write(*j)
+}
 
+func (d Driver) phase(ctx context.Context, j *Job, name string) error {
+	j.Phase = name
+	return d.save(ctx, j)
+}
+
+func limitReason(reason string) string {
+	if len(reason) > maxReason {
+		return strings.ToValidUTF8(reason[:maxReason], "")
+	}
+	return reason
+}
+
+func (d Driver) note(ctx context.Context, j *Job, cause error) error {
+	j.Reason = limitReason(cause.Error())
+	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return errors.Join(fmt.Errorf("%w; next: %s", cause, j.Next()), d.save(journal, j))
+}
+
+func (d Driver) act(ctx context.Context, j *Job, action string, p Pin, run func(context.Context, Pin) error) error {
+	unlock, err := d.Store.lock(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return run(context.WithValue(ctx, grantKey{}, &grant{store: d.Store.root, job: *j, action: action}), p)
+}
+
+func (d Driver) verify(ctx context.Context, j *Job) error {
+	window, cancel := context.WithTimeout(ctx, WriterWindow)
+	defer cancel()
+	for {
+		err := d.Runtime.Verify(window, *j)
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-window.Done():
+			return fmt.Errorf("NEW was not verified as the regional writer within its %s writer window: %w", WriterWindow, err)
+		case <-time.After(verifyEvery):
+		}
+	}
+}
+
+func (d Driver) release(ctx context.Context, j *Job, reacquire bool) error {
+	if reacquire {
+		if err := d.Runtime.Quiesce(ctx, *j); err != nil {
+			return err
+		}
+	}
+	if err := d.Runtime.Release(ctx, *j); err != nil {
+		return err
+	}
+	if err := d.Store.AbandonIngress(ctx, *j); err != nil {
+		return err
+	}
+	return d.phase(ctx, j, "released")
+}
+
+func (d Driver) Replace(ctx context.Context, id string, acceptUnclean bool) error {
+	j, done, err := d.begin(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer done()
+	switch j.Phase {
+	case "released", "failing", "failed":
+		return fmt.Errorf("bootstrap transaction is %s; next: %s: %w", j.Phase, j.Next(), ErrFenced)
+	}
+	if acceptUnclean && (j.Phase != "exited" || j.SourceExit.Clean()) {
+		return errors.New("--accept-unclean-exit applies only to a journaled unclean source exit")
+	}
 	if j.Deadline.IsZero() {
 		j.Deadline = time.Now().Add(Budget)
 	}
 	if !time.Now().Before(j.Deadline) {
-		return fmt.Errorf("bootstrap recovery budget exceeded; fence retained: %w", ErrFenced)
+		return fmt.Errorf("bootstrap budget expired at %s; next: %s: %w", j.Deadline.UTC().Format(time.RFC3339), j.Next(), ErrFenced)
 	}
 	ctx, cancel := context.WithDeadline(ctx, j.Deadline)
 	defer cancel()
-	// Persist the budget even if assignment resolution or preparation fails.
-	unlockBudget, e := d.Store.lock(ctx, false)
-	if e != nil {
-		return e
+	j.AcceptUnclean = j.AcceptUnclean || acceptUnclean
+	if err = d.save(ctx, j); err != nil {
+		return err
 	}
-	e = d.Store.write(*j)
-	unlockBudget()
-	if e != nil {
-		return e
-	}
-
-	phase := func(name string) error {
-		unlock, e := d.Store.lock(ctx, false)
-		if e != nil {
-			return e
-		}
-		defer unlock()
-		current, e := d.Store.read()
-		if e != nil {
-			return e
-		}
-		if current == nil || current.ID != j.ID || current.Source != j.Source || current.Target != j.Target {
-			return ErrFenced
-		}
-		j.Phase = name
-		return d.Store.write(*j)
-	}
-	act := func(action string, p Pin, run func(context.Context, Pin) error) error {
-		unlock, e := d.Store.lock(ctx, true)
-		if e != nil {
-			return e
-		}
-		defer unlock()
-		cap := &grant{store: d.Store.root, job: *j, action: action}
-		return run(context.WithValue(ctx, grantKey{}, cap), p)
+	if j.Phase == "verified" {
+		return d.release(ctx, j, true)
 	}
 	if err = d.Runtime.Staged(ctx, *j); err != nil {
 		return err
 	}
-
-	if err = phase("quiescing"); err != nil {
+	if err = d.phase(ctx, j, "quiescing"); err != nil {
 		return err
 	}
-	release, err := d.Runtime.Quiesce(ctx, *j)
+	if err = d.Runtime.Quiesce(ctx, *j); err != nil {
+		return err
+	}
+	if err = d.phase(ctx, j, "stopping"); err != nil {
+		return err
+	}
+	if err = d.act(ctx, j, "stop", j.Source, d.Runtime.Stop); err != nil {
+		return err
+	}
+	exit, err := d.Runtime.Exited(ctx, j.Source, j.Process)
 	if err != nil {
 		return err
 	}
-	// On resume, Stop is idempotent, but its exact old process identity must still
-	// be inspected before Start. The private stop grant never covers Terminate.
-	if err = phase("stopping"); err != nil {
+	if !j.SourceExit.Observed {
+		j.SourceExit = exit
+	}
+	if err = d.phase(ctx, j, "exited"); err != nil {
 		return err
 	}
-	if err = act("stop", j.Source, d.Runtime.Stop); err != nil {
-		return err
+	if !j.SourceExit.Clean() && !j.AcceptUnclean {
+		return d.note(ctx, j, fmt.Errorf("source %s is not a clean storage shutdown; the target was not started", j.SourceExit))
 	}
-	if err = d.Runtime.Exited(ctx, j.Source, j.Process); err != nil {
-		return err
-	}
-	if err = phase("exited"); err != nil {
-		return err
-	}
-	// Swarm's normal STOP_FIRST updater can assign the candidate only once
-	// the selected old task reports its verified physical exit. Every other
-	// executor remains held; no task/spec is synthesized by this driver.
 	if j.Target.Task == "" {
 		var target Pin
 		for {
@@ -383,44 +509,87 @@ func (d Driver) Replace(ctx context.Context, id string) error {
 		if !validPin(target) || target.Node != j.Source.Node || target.Service != j.Source.Service || target.Image != j.Target.Image || target.Task == j.Source.Task {
 			return ErrFenced
 		}
-		unlock, e := d.Store.lock(ctx, false)
-		if e != nil {
-			return e
-		}
 		j.Target = target
-		e = d.Store.write(*j)
-		unlock()
-		if e != nil {
-			return e
+		if err = d.save(ctx, j); err != nil {
+			return err
 		}
 	}
-	if err = phase("preparing"); err != nil {
+	if err = d.phase(ctx, j, "preparing"); err != nil {
 		return err
 	}
-	if err = act("prepare", j.Target, d.Runtime.Prepare); err != nil {
+	if err = d.act(ctx, j, "prepare", j.Target, d.Runtime.Prepare); err != nil {
 		return err
 	}
-	if err = phase("starting"); err != nil {
+	if err = d.phase(ctx, j, "starting"); err != nil {
 		return err
 	}
-	if err = d.Runtime.Exited(ctx, j.Source, j.Process); err != nil {
+	if _, err = d.Runtime.Exited(ctx, j.Source, j.Process); err != nil {
 		return err
 	}
-	if err = act("start", j.Target, d.Runtime.Start); err != nil {
+	if err = d.act(ctx, j, "start", j.Target, d.Runtime.Start); err != nil {
 		return err
 	}
-	if err = d.Runtime.Verify(ctx, *j); err != nil {
+	if err = d.verify(ctx, j); err != nil {
+		return d.note(ctx, j, err)
+	}
+	j.Reason = ""
+	if err = d.phase(ctx, j, "verified"); err != nil {
 		return err
 	}
-	if err = phase("verified"); err != nil {
+	return d.release(ctx, j, false)
+}
+
+func (d Driver) Recover(ctx context.Context, id string) error {
+	j, done, err := d.begin(ctx, id)
+	if err != nil {
 		return err
 	}
-	return release(ctx)
+	defer done()
+	ctx, cancel := context.WithTimeout(ctx, RecoveryBudget)
+	defer cancel()
+	switch j.Phase {
+	case "released", "failed":
+		return nil
+	case "verified":
+		return d.release(ctx, j, true)
+	case "starting":
+		err = d.verify(ctx, j)
+		if err == nil {
+			j.Reason = ""
+			if err = d.phase(ctx, j, "verified"); err != nil {
+				return err
+			}
+			return d.release(ctx, j, true)
+		}
+		j.Reason = err.Error()
+	}
+	if j.Phase != "failing" {
+		cause := j.Reason
+		if cause == "" {
+			cause = "the operator ended the job"
+		}
+		j.Reason = limitReason("recovered from " + j.Phase + ": " + cause)
+		if err = d.phase(ctx, j, "failing"); err != nil {
+			return err
+		}
+	}
+	if j.Target.Task != "" {
+		if err = d.act(ctx, j, "halt", j.Target, d.Runtime.Halt); err != nil {
+			return err
+		}
+	}
+	if err = d.Runtime.Abort(ctx, *j); err != nil {
+		return err
+	}
+	if err = d.Store.AbandonIngress(ctx, *j); err != nil {
+		return err
+	}
+	return d.phase(ctx, j, "failed")
 }
 
 // PinnedStop excludes legacy ownership handoff only inside the selected old
 // controller's graceful stop, after Driver has acquired the ingress barrier.
 func PinnedStop(ctx context.Context, p Pin) bool {
 	g, ok := ctx.Value(grantKey{}).(*grant)
-	return ok && g.action == "stop" && g.permits(p, "stop")
+	return ok && (g.action == "stop" || g.action == "halt") && g.permits(p, "stop")
 }
