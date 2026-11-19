@@ -153,22 +153,31 @@ func (u *Updater) settleRestart(ctx context.Context) string {
 
 func (u *Updater) caughtUp(ctx context.Context, id string) string {
 	name := id
-	if row := u.status.host(id); row != nil {
+	row := u.status.host(id)
+	if row != nil {
 		name = row.Host
-		if row.State == HostInstalling || row.State == HostGating || row.State == HostRestoring {
-			return name + " is restarting"
-		}
 	}
 	reply, err := u.ask(ctx, id, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
 	switch {
 	case err != nil:
 		return name + " does not answer after its restart: " + err.Error()
-	case reply.Health == restartPending || reply.State != "":
+	case reply.Health == restartPending || reply.State != "" || row != nil && !u.restarted(*row, reply):
 		return name + " is restarting"
 	case reply.Mesh != meshCaughtUp:
 		return name + " is catching up: " + cmp.Or(reply.Mesh, "no mesh health")
 	}
 	return ""
+}
+
+func (u *Updater) restarted(row HostProgress, reply releasepush.Reply) bool {
+	onTarget := u.status.Target != nil && reply.Version == u.status.Target.SHA && builds(*u.status.Target, reply.SHA256)
+	switch row.State {
+	case HostInstalling, HostGating:
+		return onTarget
+	case HostRestoring:
+		return !onTarget
+	}
+	return true
 }
 
 func (s *Store) loadFromLeader(ctx context.Context, region string) (Status, error) {

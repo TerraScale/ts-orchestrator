@@ -180,6 +180,9 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 	if u.status.Phase == PhaseComplete && u.status.Target != nil && !u.status.settled() {
 		return u.bake(ctx)
 	}
+	if u.status.Target != nil && slices.ContainsFunc(u.status.Hosts, func(row HostProgress) bool { return u.inFlight(row.ID) }) {
+		return u.roll(ctx, true)
+	}
 
 	discovered := u.found.Load()
 	if discovered == nil {
@@ -254,7 +257,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			if rows != nil {
 				now := time.Now().UTC()
 				u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseComplete, Target: &attested, Hosts: rows, Bad: u.status.Bad, Checked: u.status.Checked,
-					Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: now, Adopted: now}
+					Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: now, Adopted: now, Restart: u.status.Restart}
 				slog.InfoContext(ctx, "the region formed on the attested release: every host booted it and none holds an install receipt; adopted without a rollout or a gate", "release", attested.Tag())
 				if !u.save(ctx) {
 					return renewEvery
@@ -282,7 +285,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			seen = discovered.seenAt
 		}
 		u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Checked: u.status.Checked,
-			Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: seen}
+			Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: seen, Restart: u.status.Restart}
 		if !u.save(ctx) {
 			return renewEvery
 		}
@@ -293,7 +296,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 	if u.status.Phase == PhaseComplete && u.status.settled() && time.Now().Before(u.sweepAfter) {
 		return time.Until(u.sweepAfter)
 	}
-	return u.roll(ctx)
+	return u.roll(ctx, false)
 }
 
 func (u *Updater) formed(ctx context.Context, release releaseattest.Release) ([]HostProgress, string, string) {
@@ -407,7 +410,7 @@ func (u *Updater) verified(ctx context.Context, release releaseattest.Release) (
 	return attested, err
 }
 
-func (u *Updater) roll(ctx context.Context) time.Duration {
+func (u *Updater) roll(ctx context.Context, finishing bool) time.Duration {
 	target := *u.status.Target
 	if reason := u.recordBaseline(ctx); reason != "" {
 		return u.wait(ctx, reason)
@@ -469,6 +472,10 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			return u.rolledBack(ctx, row, "rolled back by its own probation: "+reply.Error)
 		}
 		if (!onTarget || unrecorded) && reply.Health != restartPending {
+			if finishing && !u.inFlight(host.ID) {
+				u.save(ctx)
+				return checkEvery
+			}
 			if reason := u.regionReady(ctx, host.ID); reason != "" {
 				return u.wait(ctx, reason)
 			}

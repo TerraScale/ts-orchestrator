@@ -2,7 +2,7 @@
 source "$(dirname "$0")/common.sh"
 trap 'rm -rf "$work"' EXIT
 
-begin "ordered pull updates: owner handover"
+begin "ordered pull updates: owner handover and a newer release during a peer restart"
 pids=()
 for sample in {1..2}; do
 	nice -n 19 "$(dirname "$bin")/pull-update" "$bin" handover >"$work/push-$sample.log" 2>&1 &
@@ -19,4 +19,4 @@ for i in "${!pids[@]}"; do
 	cat "$work/push-$((i + 1)).log"
 done
 test "$result" -eq 0
-end "a killed owner hands the same durable pull rollout to its successor"
+end "a killed owner hands the same durable pull rollout to its successor; a region whose JetStream peer restarts when a newer release lands finishes that host, releases the fleet restart lease, and the canary takes it"
