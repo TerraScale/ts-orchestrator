@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 )
 
@@ -142,7 +143,11 @@ func (a *api) region(ctx context.Context, region string) (releasepush.Deployment
 	if a.observationToken == "" {
 		return report, errors.New("GitHub observation identity unavailable")
 	}
-	request, err := http.NewRequestWithContext(ctx, "GET", "https://"+region+".mesh.terrascale.tech"+releasepush.ObservationPath+"?view=deployments", nil)
+	host := region + ".mesh.terrascale.tech"
+	if region == fleet.Embedded().Staging.Label {
+		host = region + ".api.terrascale.tech"
+	}
+	request, err := http.NewRequestWithContext(ctx, "GET", "https://"+host+releasepush.ObservationPath+"?view=deployments", nil)
 	if err != nil {
 		return report, errors.New("observation request invalid")
 	}

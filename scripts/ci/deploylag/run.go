@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 )
 
@@ -29,6 +30,7 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 	targets := map[string]releasepush.DeploymentTarget{}
 	for _, region := range regions {
 		report, observeErr := a.region(ctx, region.Region)
+		printDeploymentDiagnostics(region.Region, report, observeErr)
 		reports[region.Region], observationErrors[region.Region] = report, observeErr
 		if observeErr != nil {
 			continue
@@ -108,6 +110,9 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 			}
 		}
 	}
+	staging := fleet.Embedded().Staging.Label
+	report, observeErr := a.region(ctx, staging)
+	printDeploymentDiagnostics(staging, report, observeErr)
 	if len(affected) > 0 {
 		fmt.Println("DEPLOY red", strings.Join(affected, ","))
 		return false
