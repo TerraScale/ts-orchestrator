@@ -87,13 +87,18 @@ For each it reports three sets of 100 fresh and 100 kept-alive first-byte
 samples, TLS 1.2/1.3 resumption and h2 negotiation, and the upstream connection
 count in the second 16-request burst. The PR must reuse the warm pool without
 opening connections and reports histogram total, upstream and edge time.
-It measures 100 fresh cached NLB probes with HTTP and Postgres work held,
-checks readiness 503 while fresh HTTPS requests succeed during the six-second
-withdrawal bound, then checks admission closes. A finite HTTP response and
-Postgres query complete at fifteen seconds, across that cutoff; idle Postgres
-closes separately. Held SSE and WebSocket retain bounded closure at the 25 s
-edge share, inside the 30 s process budget. Production policy reads retain a
-20 s window until matching fast NLB settings are verified.
+It also holds an in-flight response across drain, checks readiness returns 503
+while fresh HTTPS requests still succeed, waits for shutdown after the real
+20-second propagation interval, then checks HTTPS admission has stopped and
+the held response finishes successfully.
+
+C33 phase 1 changes only the desired NLB probe policy. This journey and the
+runtime retain the 20 s propagation window and 5 s HTTP shutdown allowance.
+The six-second bound in `internal/nlbhealth` is unused by runtime code. C33b
+must cover public admission closure separately from established work, including
+the dependent loopback :8081 path and Postgres command/idle transitions, before
+shortening that window. Observation cadences and their checks are listed in
+`docs/host-install.md`; none changes in phase 1.
 
 The same lane runs `edge-upstream.py` against an edge child with the production
 65,536 descriptor limit. Clients and backends run outside the edge process. Dedicated Go HTTP/2 load

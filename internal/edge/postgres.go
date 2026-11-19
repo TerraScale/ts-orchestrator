@@ -268,10 +268,6 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool, rel
 		}
 	}()
 	activity := &postgresActivity{authenticated: func() { conn.SetDeadline(time.Time{}) }}
-	activity.closeIdle = func() {
-		backend.Close()
-		client.Close()
-	}
 	activity.pending.Store(1)
 	activity.idle = time.AfterFunc(postgresIdleTimeout, func() {
 		if activity.pending.Load() == 0 {
@@ -282,14 +278,6 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool, rel
 	})
 	activity.idle.Stop()
 	defer activity.idle.Stop()
-	if tracked := trackedConnection(conn); tracked != nil {
-		tracked.drainWhenIdle(func() {
-			activity.draining.Store(true)
-			if activity.pending.Load() == 0 && !activity.transaction.Load() {
-				activity.closeIdle()
-			}
-		})
-	}
 	observer := &postgresObserver{activity: activity, key: func(key [8]byte) error {
 		var err error
 		release, err = e.pgKeys.add(key, port)
@@ -297,7 +285,7 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool, rel
 	}}
 	input := &postgresInput{Reader: client, activity: activity, skip: binary.BigEndian.Uint32(head[:4]) - 8}
 	go func() { io.Copy(backend, input); done <- struct{}{} }()
-	go func() { io.Copy(postgresOutput{Writer: client, observer: observer}, backend); done <- struct{}{} }()
+	go func() { io.Copy(client, io.TeeReader(backend, observer)); done <- struct{}{} }()
 	<-done
 	backend.Close()
 	client.Close()

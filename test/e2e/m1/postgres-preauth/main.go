@@ -25,9 +25,6 @@ const failAfter = 10 * time.Second
 
 var started = time.Now()
 
-var postgresDrainEntered = make(chan struct{})
-var postgresDrainRelease = make(chan struct{})
-
 func step(name string, err error) {
 	if err != nil {
 		fmt.Printf("FAIL %s after %s: %v\n", name, time.Since(started).Round(time.Millisecond), err)
@@ -474,10 +471,6 @@ func handleBackend(conn net.Conn) {
 		}
 		if string(payload) == "SELECT edge_slow\x00" {
 			<-time.NewTimer(10*time.Minute + time.Second).C
-		}
-		if string(payload) == "SELECT edge_drain\x00" {
-			close(postgresDrainEntered)
-			<-postgresDrainRelease
 		}
 		if string(payload) == "COPY edge_stream\x00" {
 			if err := copyBackend(conn); err != nil {

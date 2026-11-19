@@ -70,13 +70,18 @@ fabric, alerts, membership, monitor), so no rollout, apply or rollback
 publishes through a stopping node. The embedded server itself stays open for
 TerraBase's token-authenticated loopback clients and for mesh routes until the
 edge reports its listeners drained, and then shuts down. The stop budget is
-split: the edge gets `plannedstop.EdgeShare` (25 seconds, including the verified
-six-second withdrawal bound or twenty seconds when the live policy is
-unverified, followed by established HTTP/Postgres completion), and the
-server's shutdown and store flush get the
+split: the edge gets `plannedstop.EdgeShare` (the 20-second drain plus 5
+seconds of HTTP shutdown), and the server's shutdown and store flush get the
 remaining 5 seconds of `plannedstop.Limit` (30 seconds), even when an edge
 worker never finishes. After a successful handoff, the replicated groups this
 server led or followed are observers: they vote and replicate but cannot lead.
+
+C33 phase 1 updates the NLB probe policy before changing runtime shutdown.
+The 20 s propagation window, 25 s edge share and 30 s process budget above
+remain unchanged. No OCI read occurs at stop. A later short-drain runtime
+must preserve NATS, Postgres sessions and dependent loopback :8081 work through
+their completion budget; the six-second candidate withdrawal bound is not
+used by the runtime in this release.
 That holds only for groups that existed at the handoff. The stopping peer
 stays eligible for new placement, and a group created on it during the drain
 can elect it. After a refused handoff, the stop still proceeds within the

@@ -80,11 +80,6 @@ func listenerBit(protocol string) uint32 {
 
 func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request, detail bool) {
 	w.Header().Set("Cache-Control", "no-store")
-	window := time.Duration(e.withdrawalWindow.Load())
-	if window == 0 {
-		window = drainGrace
-	}
-	w.Header().Set("X-TerraScale-Drain-Milliseconds", strconv.FormatInt(window.Milliseconds(), 10))
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -93,10 +88,7 @@ func (e *Edge) serveReady(w http.ResponseWriter, r *http.Request, detail bool) {
 	if e.drainingHealth(w, r) {
 		return
 	}
-	readiness := e.report()
-	if detail || !addressHost(r.Host) {
-		readiness = e.Readiness(r.Context())
-	}
+	readiness := e.Readiness(r.Context())
 	status := http.StatusServiceUnavailable
 	if readiness.Ready {
 		status = http.StatusOK
@@ -271,7 +263,7 @@ type readinessVerdict struct {
 }
 
 func (e *Edge) reconcileReadiness(ctx context.Context) {
-	tick := time.NewTicker(time.Second)
+	tick := time.NewTicker(3 * time.Second)
 	defer tick.Stop()
 	var reported *bool
 	for {

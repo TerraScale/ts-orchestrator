@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ocirelease"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
@@ -101,7 +102,7 @@ func (u *Updater) lead(ctx context.Context) {
 	defer tick.Stop()
 	for {
 		if u.store == nil {
-			store, err := Open(ctx, u.Fabric, u.Region)
+			store, err := Open(ctx, u.Fabric, u.Region, u.Region)
 			if err != nil {
 				slog.WarnContext(ctx, "pull rollout store unavailable", "error", err)
 			}
@@ -396,8 +397,6 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		}
 		row.State, row.Error, row.Version, row.SHA256, row.Ready = HostDone, "", target.SHA, want.SHA256, time.Now().UTC()
 		u.save(ctx)
-		slog.InfoContext(ctx, "host release gate passed", "release", target.Tag(), "host", host.Name,
-			"installed", row.Installed, "elapsed", row.Ready.Sub(row.Installed))
 	}
 	u.status.Phase, u.status.Reason = PhaseComplete, ""
 	if u.status.Done.IsZero() {
@@ -462,7 +461,7 @@ func (u *Updater) gate(ctx context.Context, host Host, target releaseattest.Rele
 	deadline := time.Now().Add(u.Deadline)
 	var healthySince time.Time
 	last := "no answer"
-	tick := time.NewTicker(time.Second)
+	tick := time.NewTicker(checkEvery)
 	defer tick.Stop()
 	for {
 		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
@@ -668,7 +667,7 @@ func (u *Updater) predecessor(ctx context.Context, tag string) string {
 	if u.Region == fleet.Embedded().Staging.Label {
 		return ""
 	}
-	order := []string{"sjc", "fra", "gru"}
+	order := catalog.RolloutOrder()
 	index := slices.Index(order, u.Region)
 	if index < 0 {
 		return "region has no reviewed binary rollout position"

@@ -92,39 +92,16 @@ type postgresActivity struct {
 	pending       atomic.Int64
 	idle          *time.Timer
 	authenticated func()
-	draining      atomic.Bool
-	transaction   atomic.Bool
-	closeIdle     func()
 }
 
-func (a *postgresActivity) ready(status byte) {
+func (a *postgresActivity) ready() {
 	if a.authenticated != nil {
 		a.authenticated()
 		a.authenticated = nil
 	}
-	a.transaction.Store(status != 'I')
 	if a.pending.Add(-1) == 0 {
-		if a.draining.Load() && !a.transaction.Load() {
-			a.closeIdle()
-		} else {
-			a.idle.Reset(postgresIdleTimeout)
-		}
+		a.idle.Reset(postgresIdleTimeout)
 	}
-}
-
-type postgresOutput struct {
-	io.Writer
-	observer *postgresObserver
-}
-
-func (w postgresOutput) Write(p []byte) (int, error) {
-	n, err := w.Writer.Write(p)
-	if n != 0 {
-		if _, observed := w.observer.Write(p[:n]); observed != nil && err == nil {
-			err = observed
-		}
-	}
-	return n, err
 }
 
 type postgresObserver struct {
@@ -160,9 +137,6 @@ func (s *postgresObserver) Write(p []byte) (int, error) {
 		if s.head[0] == 'K' && s.left <= 8 && binary.BigEndian.Uint32(s.head[1:]) == 12 {
 			copy(s.data[8-int(s.left):], p[:n])
 		}
-		if s.head[0] == 'Z' && s.left == 1 && n == 1 {
-			s.data[0] = p[0]
-		}
 		s.left -= uint32(n)
 		p = p[n:]
 		if s.left == 0 {
@@ -179,7 +153,7 @@ func (s *postgresObserver) Write(p []byte) (int, error) {
 				if binary.BigEndian.Uint32(s.head[1:]) != 5 {
 					return 0, errors.New("edge: invalid postgres ready frame")
 				}
-				s.activity.ready(s.data[0])
+				s.activity.ready()
 			}
 			s.n = 0
 		}

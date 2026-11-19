@@ -158,7 +158,7 @@ func FleetForgeEdgeInventory(node *Node, state string, older []byte) error {
 	return nil
 }
 
-func RegionalPeersJourney(root string, health func(context.Context, string, *Node) error) error {
+func RegionalPeersJourney(root string, health func(context.Context, string, *Node) error, rollout func(context.Context, *nats.Conn, bool) error) error {
 	logrus.SetLevel(logrus.WarnLevel)
 	began := time.Now()
 	defer func() { fmt.Printf("regional peers lane elapsed: %s\n", time.Since(began).Round(time.Millisecond)) }()
@@ -236,7 +236,7 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 	if err != nil {
 		return err
 	}
-	ports := make([]int, 6)
+	ports := make([]int, 10)
 	for i := range ports {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
@@ -255,6 +255,9 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 			seeds:   map[string][]string{other: {fmt.Sprintf("nats://127.0.0.1:%d", remote)}},
 			applier: swarmApplier{state: managerState, region: region}, every: time.Second, peersEvery: 250 * time.Millisecond,
 			peersDir: filepath.Join(root, name+"-files"), address: func() (string, error) { return ip, nil }}
+	}
+	if err := singleRegionJourney(ctx, root, managerState, workerState, manager.ID(), worker.ID(), ca, ports[6:], rollout); err != nil {
+		return err
 	}
 	ownCfg := cfg("gru", "gru-founder", "127.0.0.2", ports[0], ports[1], ports[3])
 	peerCfg := cfg("sjc", "sjc-founder", "127.0.0.3", ports[2], ports[3], ports[1])
@@ -571,6 +574,86 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 		return fmt.Errorf("removed worker drain accepted: %+v, %v", reply, err)
 	}
 	fmt.Println("ok regional peers: explicit membership removal drops worker immediately and rejects stale announcements and drains")
+	return nil
+}
+
+func singleRegionJourney(ctx context.Context, root, managerState, workerState, managerID, workerID string, ca *CA, ports []int, rollout func(context.Context, *nats.Conn, bool) error) error {
+	member := func(name, nodeID, ip string, local, cluster int) config {
+		return config{region: "stg", server: name, nodeID: nodeID, dir: filepath.Join(root, "stg-"+name), ca: ca, terrabaseToken: strings.Repeat("t", 32),
+			clusterHost: "127.0.0.1", clusterPort: cluster, clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", cluster), localPort: local,
+			every: time.Second, peersEvery: 250 * time.Millisecond, peersDir: filepath.Join(root, "stg-"+name+"-files"),
+			address: func() (string, error) { return ip, nil }}
+	}
+	founderCfg := member("founder", managerID, "127.0.0.2", ports[0], ports[1])
+	founderCfg.founder, founderCfg.applier = true, swarmApplier{state: managerState, region: "stg"}
+	founder, err := start(founderCfg)
+	if err != nil {
+		return err
+	}
+	defer func() { stopNode(founder) }()
+	joinerCfg := member("regional-worker", workerID, "127.0.0.4", ports[2], ports[3])
+	joinerCfg.routes = []string{fmt.Sprintf("nats://127.0.0.1:%d", ports[1])}
+	joiner, err := start(joinerCfg)
+	if err != nil {
+		return err
+	}
+	defer stopNode(joiner)
+	joinerName := serverName(joinerCfg)
+	routedToJoiner := func() bool {
+		return slices.ContainsFunc(founder.routes(), func(route *server.RouteInfo) bool { return route.RemoteName == joinerName })
+	}
+	if err := regionalAwait(ctx, func() bool { return routedToJoiner() && len(founder.joinedWorkers()) == 1 }); err != nil {
+		return fmt.Errorf("single-region joiner never routed to its founder's cluster listener: %w (founder routes %d, joined %d)", err, founder.server.NumRoutes(), len(founder.joinedWorkers()))
+	}
+	follow := joiner.FollowEdgeInventory(workerState)
+	defer os.Remove(filepath.Join(workerState, edgeInventoryFile))
+	subscribed := func() bool {
+		routez, err := founder.server.Routez(&server.RoutezOptions{SubscriptionsDetail: true})
+		return err == nil && slices.ContainsFunc(routez.Routes, func(route *server.RouteInfo) bool {
+			return route.RemoteName == joinerName && slices.ContainsFunc(route.SubsDetail, func(sub server.SubDetail) bool {
+				return sub.Subject == joiner.edgeInventorySubject()
+			})
+		})
+	}
+	if err := regionalAwait(ctx, subscribed); err != nil {
+		return fmt.Errorf("founder never saw the joiner's edge inventory subscription: %w", err)
+	}
+	inventory := EdgeInventory{Web: map[string]int{"stg.dash.e2e.test": 18090}, Services: map[string]string{"stg.dash.e2e.test": "ts-dashboard"}}
+	if err := founder.PublishEdgeInventory(managerState, inventory); err != nil {
+		return fmt.Errorf("single-region founder edge inventory: %w", err)
+	}
+	if err := regionalAwait(ctx, func() bool {
+		received, ok := follow()
+		return ok && received.Web["stg.dash.e2e.test"] == 18090
+	}); err != nil {
+		return fmt.Errorf("single-region joiner's edge never received its founder's route inventory: %w", err)
+	}
+	served := func(save bool) error {
+		if err := regionalAwait(ctx, founder.server.JetStreamIsLeader); err != nil {
+			return fmt.Errorf("single-region founder never led its JetStream metadata: %w", err)
+		}
+		if err := rollout(ctx, founder.fabric, save); err != nil {
+			return fmt.Errorf("single-region pull rollout record: %w", err)
+		}
+		if err := founder.ReleaseHealth(ctx); err != nil {
+			return fmt.Errorf("single-region founder release health: %w", err)
+		}
+		return nil
+	}
+	if err := served(true); err != nil {
+		return err
+	}
+	stopNode(founder)
+	if founder, err = start(founderCfg); err != nil {
+		return fmt.Errorf("single-region founder restart on its mesh directory: %w", err)
+	}
+	if err := regionalAwait(ctx, routedToJoiner); err != nil {
+		return fmt.Errorf("single-region joiner never routed to its restarted founder: %w", err)
+	}
+	if err := served(false); err != nil {
+		return fmt.Errorf("after a founder restart: %w", err)
+	}
+	fmt.Println("ok single region: a founder without seeds listens for its joiner, the joiner's edge follows the founder's inventory, the R1 pull rollout record serves, and a founder restart keeps the record, the route and release health")
 	return nil
 }
 

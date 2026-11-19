@@ -22,7 +22,6 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
@@ -78,11 +77,6 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	edgeDone := make(chan struct{})
 	var edgeErr error
 	public := edge.New(*state)
-	if plan.region != "" {
-		public.GuardWithdrawal(ctx, func(ctx context.Context) (time.Duration, error) {
-			return fleet.WithdrawalWindow(ctx, plan.region)
-		})
-	}
 	go func() {
 		defer close(edgeDone)
 		edgeErr = public.Run(ctx)

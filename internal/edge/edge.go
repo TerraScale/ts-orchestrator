@@ -84,9 +84,8 @@ type Edge struct {
 	requestProofSecret atomic.Pointer[[]byte]
 	netbirdDashboard   *netbirddashboard.Handler
 	draining           atomic.Bool
+	lastHealthProbe    atomic.Int64
 	drainStarted       atomic.Pointer[time.Time]
-	withdrawal         func(context.Context) (time.Duration, error)
-	withdrawalWindow   atomic.Int64
 	drained            chan struct{}
 	drainedOnce        sync.Once
 	requestDurations   sync.Map
@@ -275,11 +274,7 @@ func (e *Edge) Drain() {
 	if !e.draining.Swap(true) {
 		started := time.Now()
 		e.drainStarted.Store(&started)
-		window := time.Duration(e.withdrawalWindow.Load())
-		if window == 0 {
-			window = drainGrace
-		}
-		slog.Info("edge health drain started", "window", window)
+		slog.Info("edge health drain started", "window", drainGrace)
 		e.announceReady()
 	}
 }
@@ -287,6 +282,11 @@ func (e *Edge) Drain() {
 func (e *Edge) drainingHealth(w http.ResponseWriter, r *http.Request) bool {
 	if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" && r.URL.Path != "/edge/ready" {
 		return false
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
+			e.lastHealthProbe.Store(time.Now().UnixNano())
+		}
 	}
 	if !e.draining.Load() {
 		return false
@@ -332,18 +332,18 @@ func (e *Edge) Run(ctx context.Context) error {
 	<-ctx.Done()
 	plannedstop.Begin(ctx)
 	e.Drain()
-	window := e.checkWithdrawal(plannedstop.Begin(ctx))
-	remaining := window
-	if started := e.drainStarted.Load(); started != nil {
-		remaining -= time.Since(*started)
+	if time.Since(time.Unix(0, e.lastHealthProbe.Load())) < time.Minute {
+		remaining := drainGrace
+		if started := e.drainStarted.Load(); started != nil {
+			remaining -= time.Since(*started)
+		}
+		timer := time.NewTimer(remaining)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-plannedstop.Begin(ctx).Done():
+		}
 	}
-	timer := time.NewTimer(remaining)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-	case <-plannedstop.Begin(ctx).Done():
-	}
-	slog.Info("edge withdrawal bound elapsed; closing admission", "window", window)
 	stop()
 	for _, name := range serving {
 		plannedstop.Wait(ctx, name, done[name])

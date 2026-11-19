@@ -1,92 +1,64 @@
-# Host install timing
+# Host install timing: policy first
 
-At stop the edge first fails its NLB health endpoint, keeps accepting and
-serving during withdrawal, then closes admission. Established work drains
-separately. `internal/nlbhealth` defines a 2 s interval, 1 s timeout and two
-failures (one retry). Its bound is `2 s × 2 + 1 s + 1 s = 6 s`, including
-the final timeout and one second for scheduling/propagation. A stop just after
-a successful probe needs both failed observations. This is not a promise of
-withdrawal within 2–3 s; data-plane convergence still needs ops verification.
+C33 phase 1 changes the desired NLB health policy only: 2 s interval, 1 s
+timeout, two failed observations (one retry). `internal/nlbhealth` derives a
+candidate bound of `interval × threshold + timeout + margin = 2 × 2 + 1 + 1
+= 6 s`. The one-second margin is a scheduling/propagation allowance, not an
+OCI data-plane SLA. No runtime code uses this bound in phase 1.
 
-The address-Host `/readyz` reads cached readiness; a background worker probes
-backends. A healthy backend taking 1.2 s no longer makes the NLB request wait
-1.2 s. Named-host and detailed operator checks remain synchronous. Draining
-health returns 503 before the stop-time policy API read begins.
+Runtime remains exactly on main: 20 s propagation, then 5 s of HTTP shutdown,
+25 s edge share and a 30 s process budget. Listeners, Postgres proxy/key
+handling, readiness, observation cadences and the restarts lane are unchanged.
+There is no startup or stop-time OCI read guard. Phase 1 claims no measured
+per-host install speedup and does not change existing connection handling.
 
-A bounded SJC production read on 2026-11-19 captured 131 HTTP 200 responses
-from loopback `/readyz`: p50 105.232 ms, p99 283.939 ms, max 449.645 ms.
-These are current-binary samples under ordinary traffic, not stress or network
-latency guarantees. The journey also measures 100 fresh cached NLB probes
-with HTTP responses and a Postgres query held.
+## Apply after release
 
-## Admission and established work
+After the joint release and phase-1 merge/release are green, ops uses the new
+CLI's `ts-orch region apply <label> nlb`. The PR contains exact read-before,
+apply and settings/health verification commands for GRU, SJC and FRA.
+Read back all three sets in every region: interval 2000 ms, timeout 1000 ms,
+retries 1, FIVE_TUPLE, instant failover false, active preference false, with
+healthy peers. Observe withdrawal through the public NLB and complete requests
+on existing flows under healthy-peer load. Do not infer convergence from
+settings alone. No worker production mutation is authorized by this change.
 
-C27's edge share stays 25 s and the process budget stays 30 s. HTTP closes
-idle connections and waits for active responses within that share. Verified
-fast withdrawal closes admission at 6 s while a 15 s response still finishes.
-The unverified 20 s window retains at least five seconds for completion.
-Indefinite SSE and hijacked WebSockets retain bounded closure at 25 s. The
-final five seconds remain for NATS and cleanup. The one-second systemd
-restart backoff is unchanged.
+Old reconcilers can restore slow probes until their leaders run the new
+policy. Verify again after those writers are gone. The unchanged 20 s runtime
+remains throughout this phase, including rollback and mixed versions.
 
-Postgres accept-loop exit no longer closes established connections. Idle
-sessions close; active queries finish and ReadyForQuery reaches the client
-before an idle session closes. Idle-in-transaction sessions remain until idle
-outside the transaction or client closure. Session overruns are reported at
-the edge share rather than force-closed on accept-loop return.
+Oracle's SDK model/reference describes milliseconds and retry semantics
+without numeric timing minima. Ops must confirm API acceptance and measured
+withdrawal. The old configuration remains available in the read-before record.
+Fail-open remains true: if every peer is unhealthy, new flows can reach
+unhealthy hosts. Instant failover remains off, preserving existing-flow routing.
 
-The planned-stop journey holds HTTP and a Postgres query across admission
-closure, releases them at 15 s and checks complete responses, plus idle
-Postgres closure. Held SSE and WebSocket retain bounded exit. The manager
-restarts lane reads the effective window from the health response header,
-checks health 503 with successful application responses during propagation,
-and retains normal exit under 30 s.
+## Measurement and observation cadences
 
-## Policy first, binary second
+The baseline journal and retained rollout record show SJC shutdown-to-host-gate
+42.584 s, with installed-to-ready samples 42.586 s and 46.247 s. The PR retains
+the phase table. A later read of the current synchronous loopback `/readyz`
+captured 131 HTTP 200 samples: p50 105.232 ms, p99 283.939 ms, max 449.645 ms.
+Those ordinary-traffic samples are not stress or network latency guarantees.
+The historical two abandoned HTTPS connections cannot be classified from the
+old warning; phase 1 adds no connection-state tracking.
 
-Ops must apply and verify the new NLB policy in every production region
-before COS opens this PR's merge hold. The PR has exact read-before, apply
-and verify commands for the approved candidate CLI's `region apply <label>
-nlb` pass. Faster probes with today's 20 s runtime are safe.
+| Journal phase | Observation | Main → phase 1 cadence | Actual check | C33b candidate |
+| --- | --- | --- | --- | --- |
+| Startup → routes ready | Inventory consumer | 5 s → 5 s | Read inventory, refresh due proof, probe local services, update routes | 1 s |
+| Startup → health ready | Readiness worker | 3 s → 3 s | Probe routes, ingress and listeners | 1 s |
+| Health OK → host gate | Host gate | 2 s → 2 s | Compare host/regional health; retain four healthy seconds | 1 s |
+| Swarm ready → inventory published | Manager producer | 5 s → 5 s | Read control-plane services and publish inventory | unchanged |
 
-The production binary reads the owned regional NLB through fleet at startup
-and again after health withdrawal begins. All three sets must match the new
-health policy, FIVE_TUPLE, instant failover false and active preference false.
-Unreadable, missing or differing settings retain 20 s with a warning. The
-stop-time recheck covers an old reconciler restoring slow probes after
-startup. Recheck/reapply after old leaders upgrade and during rollback.
-There are no new runtime OCI writes or drain permissions. The effective
-window appears in `X-TerraScale-Drain-Milliseconds`.
+These observation ticks do real checks. The 20 s propagation allowance does
+not read OCI state. Any later speedup must distinguish those phases and be
+measured from the journal's shutdown start to the retained host-gate timestamp.
 
-Oracle's [SDK reference](https://docs.oracle.com/en-us/iaas/tools/python/latest/api/network_load_balancer/models/oci.network_load_balancer.models.HealthCheckerDetails.html)
-and Go model document units/retries without numeric timing minima. API
-acceptance and measured convergence remain ops gates; the worker made no
-production changes. Existing flows stay on the unhealthy host with instant
-failover off. New flows avoid it while a peer stays healthy. Fail-open still
-routes to unhealthy backends if all fail; a config read cannot prove traffic
-withdrawal or exclude simultaneous failures. Verify public NLB traffic under
-load with healthy peers before relying on the bound.
+## C33b boundary
 
-## Timing attribution
-
-The baseline journal and retained rollout record show 42.584 s shutdown to
-host-gate pass on SJC, with another installed-to-ready sample of 46.247 s.
-The PR retains the full phase table. These observation cadences do real work:
-
-| Journal phase | Observation | Old → new cadence | Actual check |
-| --- | --- | --- | --- |
-| Startup → routes ready | Inventory consumer | 5 s → 1 s | Read inventory, refresh due proof, probe local services, update routes |
-| Startup → health ready | Readiness worker | 3 s → 1 s | Probe routes/ingress/listeners and cache the verdict |
-| Health OK → host gate pass | Host gate | 2 s → 1 s | Compare host/regional health, retaining four healthy seconds |
-| Swarm ready → inventory published | Manager producer | 5 s → 5 s | Read services and publish inventory |
-
-Shorter propagation saves fourteen seconds when established work does not
-extend stop: roughly 29–32 s per host before observation savings, about 30 s
-as an estimate. Work can still retain the edge until 25 s. Timing is never
-achieved by shortening its completion budget. Measure from `node shutdown
-started` to `host release gate passed`, distinct from the regional bake gate.
-The gate log includes installed timestamp and elapsed time.
-
-The historical two abandoned HTTPS connections cannot be classified.
-New warnings count new/active/idle/hijacked states; the deliberate local
-held streams identify one active SSE and one hijacked WebSocket.
+Shorten runtime only after the fast policy is verified everywhere. Design the
+dependent loopback :8081 drain and race-free Postgres command admission/idle
+closing first. Register BackendKeyData before the client can use it, but count
+ReadyForQuery completion after successful client writes. Cover these boundaries
+in the existing journey, retain C27's NATS ordering and normal exit under 30 s,
+then update restarts expectations alongside the runtime change.

@@ -89,6 +89,14 @@ starts its metadata node as an observer, so it never campaigns; the embedding
 mesh ends observer mode once the node has seen a leader, or once every founder is
 reachable and none has metadata state. Unset, behavior is unchanged.
 
+`server/jetstream_cluster.go` also starts JetStream clustering with no
+configured route when the server has a named cluster listener and
+`JetStreamMetaBootSize` is 1. That is a one-region environment's founder: it has
+no seed regions and no join routes, and its metadata group is itself. Upstream
+refuses to start clustering without a configured route, so that founder had no
+JetStream and its joiners had no cluster listener to route to. A server with a
+multi-peer bootstrap size, or without the option, keeps upstream's check.
+
 `server/route.go` keeps a known server's JetStream configuration and usage
 stats when a route connection to that same server ID registers again. Upstream
 rebuilt the server's node entry without them, so after a route pool closed and

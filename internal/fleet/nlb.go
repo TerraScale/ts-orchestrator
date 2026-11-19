@@ -212,7 +212,6 @@ func backendSet(backends []nlbBackend, port int) networkloadbalancer.BackendSetD
 	health := healthChecker()
 	set := networkloadbalancer.BackendSetDetails{
 		Policy: nlbPolicy, IsPreserveSource: common.Bool(true), IsFailOpen: common.Bool(true), IsInstantFailoverEnabled: common.Bool(false),
-		AreOperationallyActiveBackendsPreferred: common.Bool(false),
 		HealthChecker: &networkloadbalancer.HealthChecker{Protocol: health.Protocol, Port: health.Port, UrlPath: health.UrlPath, ReturnCode: health.ReturnCode,
 			IntervalInMillis: health.IntervalInMillis, TimeoutInMillis: health.TimeoutInMillis, Retries: health.Retries},
 	}
@@ -241,7 +240,6 @@ func sameSet(have networkloadbalancer.BackendSet, want networkloadbalancer.Backe
 	return h != nil && h.Protocol == w.Protocol && deref(h.UrlPath) == deref(w.UrlPath) && deref(h.Port) == deref(w.Port) && deref(h.ReturnCode) == deref(w.ReturnCode) &&
 		deref(h.IntervalInMillis) == deref(w.IntervalInMillis) && deref(h.TimeoutInMillis) == deref(w.TimeoutInMillis) && deref(h.Retries) == deref(w.Retries) &&
 		have.Policy == want.Policy && deref(have.IsPreserveSource) && deref(have.IsFailOpen) && !deref(have.IsInstantFailoverEnabled) &&
-		!deref(have.AreOperationallyActiveBackendsPreferred) &&
 		slices.Equal(addresses(have.Backends), addresses(want.Backends))
 }
 
@@ -326,8 +324,7 @@ func (p nlbPass) converge(ctx context.Context, nlb networkloadbalancer.NetworkLo
 			if err := p.write(ctx, fmt.Sprintf("create backend set %s: %s", name, names), func() (*string, error) {
 				r, err := p.balancers.CreateBackendSet(ctx, networkloadbalancer.CreateBackendSetRequest{NetworkLoadBalancerId: id, CreateBackendSetDetails: networkloadbalancer.CreateBackendSetDetails{
 					Name: common.String(name), Policy: want.Policy, IsPreserveSource: want.IsPreserveSource, IsFailOpen: want.IsFailOpen,
-					AreOperationallyActiveBackendsPreferred: want.AreOperationallyActiveBackendsPreferred,
-					IsInstantFailoverEnabled:                want.IsInstantFailoverEnabled, HealthChecker: new(healthChecker()), Backends: backendDetails(backends, port)}})
+					IsInstantFailoverEnabled: want.IsInstantFailoverEnabled, HealthChecker: new(healthChecker()), Backends: backendDetails(backends, port)}})
 				return r.OpcWorkRequestId, err
 			}); err != nil {
 				return err
@@ -337,8 +334,7 @@ func (p nlbPass) converge(ctx context.Context, nlb networkloadbalancer.NetworkLo
 			if err := p.write(ctx, fmt.Sprintf("update backend set %s: %s -> %s", name, strings.Join(addresses(have.Backends), " "), names), func() (*string, error) {
 				r, err := p.balancers.UpdateBackendSet(ctx, networkloadbalancer.UpdateBackendSetRequest{NetworkLoadBalancerId: id, BackendSetName: common.String(name),
 					UpdateBackendSetDetails: networkloadbalancer.UpdateBackendSetDetails{Policy: common.String(string(want.Policy)), IsPreserveSource: want.IsPreserveSource,
-						AreOperationallyActiveBackendsPreferred: want.AreOperationallyActiveBackendsPreferred,
-						IsFailOpen:                              want.IsFailOpen, IsInstantFailoverEnabled: want.IsInstantFailoverEnabled, HealthChecker: new(healthChecker()), Backends: backendDetails(backends, port)}})
+						IsFailOpen: want.IsFailOpen, IsInstantFailoverEnabled: want.IsInstantFailoverEnabled, HealthChecker: new(healthChecker()), Backends: backendDetails(backends, port)}})
 				return r.OpcWorkRequestId, err
 			}); err != nil {
 				return err

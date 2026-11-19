@@ -9,6 +9,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
 const (
@@ -42,16 +44,16 @@ func Observe(ctx context.Context, fabric *nats.Conn, region string) (Status, err
 	return status, err
 }
 
-func Open(ctx context.Context, fabric *nats.Conn, region string) (*Store, error) {
+func Open(ctx context.Context, fabric *nats.Conn, region, key string) (*Store, error) {
 	js, err := jetstream.New(fabric)
 	if err != nil {
 		return nil, err
 	}
-	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: Bucket, Replicas: 3, History: 1, MaxValueSize: 256 << 10, Storage: jetstream.FileStorage})
+	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: Bucket, Replicas: mesh.StoreReplicas(region), History: 1, MaxValueSize: 256 << 10, Storage: jetstream.FileStorage})
 	if err != nil {
 		return nil, fmt.Errorf("pull rollout store: %w", err)
 	}
-	return &Store{kv: kv, region: region}, nil
+	return &Store{kv: kv, region: key}, nil
 }
 
 func (s *Store) Load(ctx context.Context) (Status, uint64, error) {

@@ -99,14 +99,11 @@ func limitsMain() {
 	if !roots.AppendCertsFromPEM(pem) {
 		step("CA", errors.New("empty CA"))
 	}
-	step("trust journey CA", os.Setenv("SSL_CERT_FILE", caPath))
 	pgBackend, err := net.Listen("tcp", "127.0.0.1:0")
 	step("postgres backend", err)
 	go serveBackend(pgBackend)
 	entered, release := make(chan struct{}, 32), make(chan struct{})
 	streamRelease := make(chan struct{})
-	drainComplete := make(chan struct{})
-	completeDrain := sync.OnceFunc(func() { close(drainComplete) })
 	poolEntered := make(chan struct{}, 16)
 	poolRelease := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
 	var backendConnections atomic.Uint64
@@ -161,17 +158,6 @@ func limitsMain() {
 			fmt.Fprint(w, "data: held\n\n")
 			http.NewResponseController(w).Flush()
 			<-r.Context().Done()
-			return
-		}
-		if r.URL.Path == "/drain-complete" {
-			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprint(w, "data: held\n\n")
-			http.NewResponseController(w).Flush()
-			select {
-			case <-drainComplete:
-				fmt.Fprint(w, "data: complete\n\n")
-			case <-r.Context().Done():
-			}
 			return
 		}
 		if r.URL.Path == "/pool" {
@@ -239,7 +225,7 @@ func limitsMain() {
 	})
 	c := edgeClient{roots, host}
 	if os.Args[4] == "shutdown" {
-		step("bounded streaming shutdown", c.drain(public, stopEdge, errCh, completeDrain))
+		step("bounded streaming shutdown", c.drain(public, stopEdge, errCh))
 		return
 	}
 	var failures []error
@@ -261,7 +247,7 @@ func limitsMain() {
 	check("upstream pool", c.pool(poolEntered, poolRelease, &backendConnections, os.Args[4] != "baseline"))
 	check("edge duration histograms", c.latencyMetrics(public))
 	if os.Args[4] == "latency" || os.Args[4] == "baseline" {
-		check("drain in-flight request", c.drain(public, stopEdge, errCh, completeDrain))
+		check("drain in-flight request", c.drain(public, stopEdge, errCh))
 		step("latency lane", errors.Join(failures...))
 		return
 	}
@@ -323,7 +309,7 @@ func limitsMain() {
 			check("refusal metric "+reason, errors.New("missing reason series"))
 		}
 	}
-	check("drain in-flight request", c.drain(public, stopEdge, errCh, completeDrain))
+	check("drain in-flight request", c.drain(public, stopEdge, errCh))
 	step("edge abuse lane", errors.Join(failures...))
 }
 
