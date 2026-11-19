@@ -23,8 +23,12 @@ stop_data_volume() {
  umount /var/lib/ts-data 2>/dev/null || true
  rm -f /dev/oracleoci/oraclevdb
  losetup -d "$data_loop"
+ if test -n "${replacement_loop:-}"; then losetup -d "$replacement_loop"; fi
 }
 trap stop_data_volume EXIT
+truncate -s 1G "$work/replacement.img"
+replacement_loop=$(losetup --find --show "$work/replacement.img")
+replacement_minor=$(stat -c %T "$replacement_loop")
 if [[ $(readlink /proc/self/ns/mnt) != $(readlink /proc/1/ns/mnt) ]]; then
 mount --make-rprivate /
 mount -t tmpfs tmpfs /var/lib
@@ -34,6 +38,7 @@ mount -t tmpfs tmpfs /dev
 mkdir -p /dev/oracleoci /var/lib/ts-orch /var/lib/ts-data /etc/systemd/system /usr/local/lib/ts-orch
 touch /etc/fstab
 mknod "$data_loop" b 7 "$loop_minor"
+mknod "$replacement_loop" b 7 "$((16#$replacement_minor))"
 mknod /dev/null c 1 3
 mknod /dev/zero c 1 5
 mknod /dev/random c 1 8
@@ -113,7 +118,10 @@ case "$probe" in
  lsblk-types) test "$("$("$PROBE_CAT" "$0.path")" "$@")" = loop; echo disk; exit 0 ;;
  wait) exit 0 ;;
  disk-model) echo BlockVolume; exit 0 ;;
- disk-serial) echo 0123456789abcdef0123456789abcdef; exit 0 ;;
+ disk-serial)
+  if test -n "${GROW_REPLACEMENT:-}"; then ln -sfn "$GROW_REPLACEMENT" /dev/oracleoci/oraclevdb; fi
+  echo 0123456789abcdef0123456789abcdef
+  exit 0 ;;
  disk-wwn) echo 0x0123456789abcdef0123456789abcdef; exit 0 ;;
  binding-instance)
   args=()
@@ -214,14 +222,28 @@ printf 'retained database bytes\n' > /var/lib/ts-data/terrabase/kept
 before_growth=$(stat -f -c %b /var/lib/ts-data)
 truncate -s 4G "$work/data-volume.img"
 losetup --set-capacity "$data_loop"
-"$binaries/data-mount" grow
+printf '%s\n' 22222222-2222-4222-8222-222222222222 > /etc/ts-orch/data-volume-uuid
+if "$binaries/data-mount" grow; then exit 1; fi
+printf '%s\n' "$uuid" > /etc/ts-orch/data-volume-uuid
+printf '%s\n' fedcba9876543210fedcba9876543210 > /etc/ts-orch/data-volume-serial
+if "$binaries/data-mount" grow; then exit 1; fi
+printf '%s\n' 0123456789abcdef0123456789abcdef > /etc/ts-orch/data-volume-serial
+test "$(stat -f -c %b /var/lib/ts-data)" = "$before_growth"
+"$(cat "$work/probe-bin/mkfs.ext4.path")" -q "$replacement_loop"
+replacement_before=$(sha256sum "$replacement_loop" | cut -d' ' -f1)
+GROW_REPLACEMENT="$replacement_loop" "$binaries/data-mount" grow
+test "$(readlink -f /dev/oracleoci/oraclevdb)" = "$replacement_loop"
+test "$(sha256sum "$replacement_loop" | cut -d' ' -f1)" = "$replacement_before"
+ln -sfn "$data_loop" /dev/oracleoci/oraclevdb
+losetup -d "$replacement_loop"
+replacement_loop=""
 after_growth=$(stat -f -c %b /var/lib/ts-data)
 test "$after_growth" -gt "$before_growth"
 test "$(cat /var/lib/ts-data/terrabase/kept)" = 'retained database bytes'
 test "$(findmnt -rn -M /var/lib/ts-data -o UUID)" = "$uuid"
 "$binaries/data-mount" grow
 test "$(stat -f -c %b /var/lib/ts-data)" = "$after_growth"
-echo "data volume: online growth fills the mounted device, preserves bytes and UUID, and is idempotent"
+echo "data volume: UUID/serial mismatch refuses; an alias swap preserves the replacement device; online growth preserves bytes and UUID and is idempotent"
 printf '%s\n' 22222222-2222-4222-8222-222222222222 > /etc/ts-orch/data-volume-uuid
 if bash /usr/local/lib/ts-orch/data-mount-check.sh; then exit 1; fi
 printf '%s\n' "$uuid" > /etc/ts-orch/data-volume-uuid

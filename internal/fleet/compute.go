@@ -91,7 +91,7 @@ func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Fact
 	nodes := region.Nodes
 	return compute.Pass{Clients: clients, Ownership: ownership, Out: out, Nodes: compute.Nodes{
 		Label: region.Label, Compartment: region.CompartmentID, Shape: nodes.Shape, OCPUs: nodes.OCPUs, MemoryGB: nodes.MemoryGB,
-		BootGB: nodes.BootGB, DataGB: nodes.DataGB, DataVPUsPerGB: nodes.DataVPUsPerGB, Min: nodes.Min, Max: nodes.Max,
+		BootGB: nodes.BootGB, DataGB: nodes.DataGB, DataVPUsPerGB: nodes.DataVPUsPerGB, Min: nodes.Min, Max: nodes.Max, External: nodes.External,
 		SubnetID: deref(subnets[subnet].Id), NSGID: deref(nsgs[nsg].Id), Places: places, Key: region.Key,
 		Launch: func(ctx context.Context) (compute.Launch, error) { return launch(ctx, clients.Compute, region) },
 	}}.Run(ctx)

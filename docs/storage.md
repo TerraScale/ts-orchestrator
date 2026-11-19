@@ -67,22 +67,28 @@ ts-orch region apply <label> compute
 The compute pass checks existing owned data volumes before changing the pool.
 A target below any existing volume size is refused with the current and
 requested sizes; storage never shrinks. It grows every undersized volume
-selected for a pool node, including an already attached volume, with an
+selected for a pool node and the attached data volume of every declared
+`nodes.external` host, with an
 ETag-conditional OCI update and waits for AVAILABLE at the requested size.
 Attachments and services stay in place. Detached retained volumes grow when
-selected for reuse.
+selected for pool reuse. External volumes must carry the host lifecycle's
+ownership tags and instance binding, and have exactly one writable attachment
+at the data-device path. They cannot be assigned to pool nodes.
 
 At node startup and every five seconds while running, the node verifies that
-`/var/lib/ts-data` is a read-write ext4 mount of the data block device. It
-rescans that device through its sysfs `device/rescan` attribute where the
-kernel exposes one, then runs `resize2fs` without a size argument to grow the
-mounted filesystem to the device capacity. Drivers without that attribute
+`/var/lib/ts-data` is a read-write ext4 root mount of the data block device.
+It holds both descriptors open and checks the device's UUID and serial against
+`/etc/ts-orch/data-volume-uuid` and `data-volume-serial`. It rescans the pinned
+device through its sysfs `device/rescan` attribute where the kernel exposes
+one, reads the capacity from the open device, then calls `EXT4_IOC_RESIZE_FS`
+on the verified mounted-directory descriptor. An alias replacement cannot
+redirect growth to an unmounted device. Drivers without the rescan attribute
 publish capacity directly. Repeated calls are harmless. This also runs on
 external hosts such as `ts-gru-1` with the same data-volume layout; it does
 not depend on pool membership or cloud-init. Startup errors refuse the node
 start; runtime failures are logged without stopping serving workloads, and
 successful growth logs `data filesystem grown`. No unmount, reformat or
-service restart is needed. `e2fsprogs` supplies `resize2fs` on the host image.
+service restart is needed. Identity mismatches refuse growth before any resize.
 
 Managed member volume initialization is a separate path. Its online-growth
 policy does not establish node data-volume growth; the node behavior above

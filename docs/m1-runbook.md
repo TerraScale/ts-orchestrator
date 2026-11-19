@@ -29,6 +29,24 @@ Fixed on ts-gru-1 2026-10-21 and saved with `netfilter-persistent save`:
 ssh ts-gru-1 sudo iptables -S INPUT   # 80 and 443 ACCEPT before the REJECT
 ```
 
+## Grow database storage
+
+Increase the region's `nodes.data_gb` in `deploy/fleet/fleet.json`, then run
+the orchestrator built with that document:
+
+```sh
+ts-orch region apply <label> compute
+```
+
+This grows owned pool data volumes and the bound data volume of hosts declared
+in `nodes.external`, including `ts-gru-1`. A target below an existing volume's
+size is refused; account for external volumes when choosing the new size.
+The node checks its recorded UUID and serial, rescans the device and grows its
+mounted ext4 filesystem online at startup and every five seconds. Services
+keep running. Check `df -h /var/lib/ts-data` on the host and its journal for
+`data filesystem grown`; growth failures log their cause. See
+[storage policy](storage.md#grow-node-storage).
+
 ## Install or upgrade
 
 Every main push publishes a CI release `ci-<sha>-run-<id>` with
