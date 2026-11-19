@@ -821,6 +821,7 @@ type ServiceSpecStatus struct {
 	Name, Image       string
 	Running, Replicas uint64
 	Generation        int64
+	Releasing         bool
 }
 
 func ListServiceSpecs(ctx context.Context, client api.ControlClient) ([]ServiceSpecStatus, error) {
@@ -850,6 +851,13 @@ func ListServiceSpecs(ctx context.Context, client api.ControlClient) ([]ServiceS
 		}
 		row := ServiceSpecStatus{Name: service.Spec.Annotations.Name, Replicas: service.Spec.GetReplicated().Replicas}
 		row.Generation, _ = strconv.ParseInt(service.Spec.Annotations.Labels[LabelGeneration], 10, 64)
+		if update := service.UpdateStatus; update != nil && (update.State == api.UpdateStatus_UPDATING || update.State == api.UpdateStatus_ROLLBACK_STARTED) {
+			previous := int64(0)
+			if service.PreviousSpec != nil {
+				previous, _ = strconv.ParseInt(service.PreviousSpec.Annotations.Labels[LabelGeneration], 10, 64)
+			}
+			row.Releasing = previous != row.Generation
+		}
 		if container, err := containerOf(service.Spec); err == nil {
 			row.Image = container.Image
 		}

@@ -219,21 +219,25 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			u.save(ctx)
 			return u.Poll
 		}
-		u.prefetch(ctx, attested)
-		reason := u.admission(ctx, attested.Tag())
-		if reason == "" {
-			decided, err := u.store.admit(ctx, attested.Tag(), u.Region)
-			if err != nil {
-				decided = "rollout decision of " + attested.Tag() + " unreadable: " + err.Error()
+		if u.status.Target == nil && u.runsEverywhere(ctx, attested) {
+			slog.InfoContext(ctx, "the region has no release record and every host already runs the attested release; adopting it without a rollout", "release", attested.Tag())
+		} else {
+			u.prefetch(ctx, attested)
+			reason := u.admission(ctx, attested.Tag())
+			if reason == "" {
+				decided, err := u.store.admit(ctx, attested.Tag(), u.Region)
+				if err != nil {
+					decided = "rollout decision of " + attested.Tag() + " unreadable: " + err.Error()
+				}
+				reason = decided
 			}
-			reason = decided
+			if reason != "" {
+				u.status.Reason = reason
+				u.save(ctx)
+				return checkEvery
+			}
+			slog.InfoContext(ctx, "attested release found; rolling it out", "release", attested.Tag())
 		}
-		if reason != "" {
-			u.status.Reason = reason
-			u.save(ctx)
-			return checkEvery
-		}
-		slog.InfoContext(ctx, "attested release found; rolling it out", "release", attested.Tag())
 		discovered := time.Now().UTC()
 		if u.seenTag == attested.Tag() {
 			discovered = u.seenAt
@@ -248,6 +252,21 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		return u.pollInterval()
 	}
 	return u.roll(ctx)
+}
+
+func (u *Updater) runsEverywhere(ctx context.Context, release releaseattest.Release) bool {
+	hosts, err := u.Hosts(ctx)
+	if err != nil || len(hosts) == 0 {
+		return false
+	}
+	for _, host := range hosts {
+		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
+		want, built := release.Binaries[reply.Arch]
+		if err != nil || !built || reply.Version != release.SHA || reply.SHA256 != want.SHA256 {
+			return false
+		}
+	}
+	return true
 }
 
 func (u *Updater) pollInterval() time.Duration {
@@ -367,6 +386,17 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		if onTarget && row.State == HostDone && !unrecorded {
 			continue
 		}
+		if onTarget && reply.State == "" && reply.Health != restartPending && !u.inFlight(host.ID) {
+			if unrecorded {
+				recorded, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullInstall, Release: target}, installWait)
+				if err != nil || recorded.State != "current" {
+					return u.wait(ctx, fmt.Sprintf("%s already runs %s but did not record its seq: %v %s", host.Name, target.Tag(), err, cmp.Or(refusalReason(recorded), recorded.Error, recorded.State)))
+				}
+			}
+			row.State, row.Error = HostDone, ""
+			u.save(ctx)
+			continue
+		}
 		if !onTarget && reply.Health != restartPending && row.State == HostGating {
 			return u.rolledBack(ctx, row, "rolled back by its own probation: "+reply.Error)
 		}
@@ -424,6 +454,9 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 	u.status.Phase, u.status.Reason = PhaseComplete, ""
 	if u.status.Done.IsZero() {
 		u.status.Done = time.Now().UTC()
+		if !slices.ContainsFunc(u.status.Hosts, func(row HostProgress) bool { return !row.Installed.IsZero() }) {
+			u.status.Passed = u.status.Done
+		}
 	}
 	if !slices.ContainsFunc(u.status.Hosts, func(row HostProgress) bool { return row.State != HostNewer }) {
 		u.status.Phase, u.status.Reason = PhaseNewer, "every host already runs a release that descends from "+target.Tag()
@@ -478,7 +511,7 @@ func (u *Updater) regionReady(ctx context.Context, except string) string {
 			return host.Name + " is worse than before the release: " + worse
 		}
 	}
-	if _, worse := u.servicesWorse(ctx); worse != "" {
+	if _, worse, _ := u.servicesWorse(ctx); worse != "" {
 		return "region worse than before the release: " + worse
 	}
 	return ""
@@ -505,7 +538,7 @@ func (u *Updater) gate(ctx context.Context, host Host, target releaseattest.Rele
 		default:
 			if worse := u.status.Baseline.worseHost(host.ID, reply.Health); worse != "" {
 				last = worse
-			} else if _, worse := u.servicesWorse(ctx); worse != "" {
+			} else if _, worse, _ := u.servicesWorse(ctx); worse != "" {
 				last = "region: " + worse
 			} else {
 				healthy = true
@@ -748,9 +781,12 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 		return checkEvery
 	}
 	now := time.Now().UTC()
-	row, check, failure, restarted := u.bakeSample(ctx)
+	row, check, failure, excluded, restarted := u.bakeSample(ctx)
 	if restarted {
 		return u.rolledBack(ctx, row, "regional gate: "+failure)
+	}
+	if failure != "" && excluded != "" {
+		failure += "; " + excluded
 	}
 	if failure != "" {
 		slog.WarnContext(ctx, "regional gate sample failed", "release", u.status.Target.Tag(), "host", row.Host, "check", check, "failure", failure)
@@ -770,8 +806,8 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 		u.save(ctx)
 		return checkEvery
 	}
-	if u.status.Failed != 0 || u.status.Healthy.IsZero() {
-		u.status.Failing, u.status.Failed, u.status.Reason = time.Time{}, 0, ""
+	if u.status.Failed != 0 || u.status.Healthy.IsZero() || u.status.Reason != excluded {
+		u.status.Failing, u.status.Failed, u.status.Reason = time.Time{}, 0, excluded
 		if u.status.Healthy.IsZero() {
 			u.status.Healthy = now
 		}
@@ -790,7 +826,7 @@ func (u *Updater) bakeBound() time.Duration {
 	return 2*u.BakeFor + rollout.BakeFailureDuration
 }
 
-func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string, string, bool) {
+func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string, string, string, bool) {
 	if !u.watched.done.Equal(u.status.Done) {
 		u.watched = watch{done: u.status.Done, tasks: map[string][]string{}, versions: map[string][2]int64{}}
 	}
@@ -803,7 +839,7 @@ func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string, string
 		}
 		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
 		if err == nil && reply.Started.After(u.status.Done) {
-			return host, "restart", fmt.Sprintf("%s orchestrator restarted at %s, after the gate began", host.Host, reply.Started.UTC().Format(time.RFC3339)), true
+			return host, "restart", fmt.Sprintf("%s orchestrator restarted at %s, after the gate began", host.Host, reply.Started.UTC().Format(time.RFC3339)), "", true
 		}
 		if failure != "" {
 			continue
@@ -814,12 +850,12 @@ func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string, string
 			row, check, failure = host, "host health", worse
 		}
 	}
-	services, worse := u.servicesWorse(ctx)
+	services, worse, excluded := u.servicesWorse(ctx)
 	if restart := u.watched.restarted(u.status.Baseline, services); restart != "" {
-		return &u.status.Hosts[0], "restart", restart, true
+		return &u.status.Hosts[0], "restart", restart, "", true
 	}
 	if failure == "" && worse != "" {
 		row, check, failure = &u.status.Hosts[0], "region services", worse
 	}
-	return row, check, failure, false
+	return row, check, failure, excluded, false
 }

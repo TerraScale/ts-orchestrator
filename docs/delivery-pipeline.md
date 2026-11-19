@@ -111,14 +111,27 @@ verifies the release when its region first sees it, so the install that
 follows the previous host's gate starts from the fetched binary. A region's
 gate end is written once, when its gate passes.
 
+A region with no release record whose hosts all already run the release it
+discovers, such as a region that just formed from the image, adopts that
+release as complete without admission, install or gate. In any rollout, a
+host that already runs the target before the rollout installed it is recorded
+done without a gate: it has no previous binary of this rollout to restore. A
+rollout that installed no host has nothing to gate, so its gate end is its
+gate start.
+
 The gate compares with the region before the release. When a region takes a
-tag its leader records a baseline: each host's health conditions and the
-services below desired replicas. A host installs while every other host is no
-worse than its baseline, so a region that was already degraded still takes a
-release that may fix it. After the last host the gate samples every 2 s: every
-host runs the release and is no worse than its baseline, no service is below
-desired replicas unless it was before, no task of a steady service is replaced
-and no host's orchestrator restarts. It passes after 20 s of such samples
+tag its leader records a baseline: each host's health conditions, the
+services below desired replicas and each service's mesh generation. A host
+installs while every other host is no worse than its baseline, so a region
+that was already degraded still takes a release that may fix it. The gate
+judges only what the ts-orch release changed: a service whose mesh generation
+differs from the baseline, or whose swarm update to a new generation is still
+running, is in its own release, which its own gate judges; ts-orch's gate
+leaves it out and names it in the record as `excluded: own release`. After
+the last host the gate samples every 2 s: every host runs the release and is
+no worse than its baseline, no other service is below desired replicas unless
+it was before, no task of a steady service is replaced and no host's
+orchestrator restarts. It passes after 20 s of such samples
 (two swarm readiness probe intervals); three failed samples over 15 s, a
 restart, or no passing window within 55 s roll the release back and block
 subsequent regions. Each stage's time is in the record:
