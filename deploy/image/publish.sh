@@ -97,8 +97,9 @@ ensure_bucket() {
 
 acquire_lock() {
 	local region=$1 name=$2 status owner
-	oci --region "$region" os object put --namespace "$namespace" --bucket-name "$bucket" --name "$name" --file - \
-		--metadata "$(jq -cn --arg owner "$token" '{owner: $owner}')" --no-overwrite <<<"$token" >/dev/null
+	echo "$token" >"$work/lock-token"
+	oci --region "$region" os object put --namespace "$namespace" --bucket-name "$bucket" --name "$name" --file "$work/lock-token" \
+		--metadata "$(jq -cn --arg owner "$token" '{owner: $owner}')" --no-multipart --no-overwrite >/dev/null
 	status=$(oci_status "$work/lock" --region "$region" os object head --namespace "$namespace" --bucket-name "$bucket" --name "$name")
 	[[ $status == 200 ]] || {
 		cat "$work/lock.err" >&2
@@ -163,18 +164,29 @@ bad_image() {
 	die "$1: image $3 is $4. Check that its import work request has finished, delete it with: oci --region $1 compute image delete --image-id $3, and rerun"
 }
 
+import_request() {
+	oci --region "$1" work-requests work-request list --compartment-id "$2" --resource-id "$3" --all |
+		jq -r '[.data[]? | select(."operation-type" == "CreateImage")] | max_by(."time-accepted") | .status // "NONE"'
+}
+
 image_state() {
 	oci --region "$1" compute image get --image-id "$2" --query 'data."lifecycle-state"' --raw-output
 }
 
 wait_available() {
-	local region=$1 compartment=$2 image=$3 state
+	local region=$1 compartment=$2 image=$3 state request
 	for _ in $(seq 120); do
 		state=$(image_state "$region" "$image")
-		case $state in
-		AVAILABLE) return 0 ;;
-		PROVISIONING | IMPORTING | EXPORTING) sleep 30 ;;
-		*) bad_image "$region" "$compartment" "$image" "$state" ;;
+		[[ $state == AVAILABLE ]] && return 0
+		[[ $state == PROVISIONING || $state == IMPORTING ]] || bad_image "$region" "$compartment" "$image" "$state"
+		request=$(import_request "$region" "$compartment" "$image")
+		case $request in
+		ACCEPTED | IN_PROGRESS) sleep 30 ;;
+		*)
+			state=$(image_state "$region" "$image")
+			[[ $state == AVAILABLE ]] && return 0
+			bad_image "$region" "$compartment" "$image" "$state with import work request $request"
+			;;
 		esac
 	done
 	die "$region: image $image is still $state after an hour; rerun to keep waiting"
@@ -235,7 +247,7 @@ publish() {
 	if [[ -n $image ]]; then
 		state=$(image_state "$region" "$image")
 		case $state in
-		AVAILABLE | PROVISIONING | IMPORTING | EXPORTING) ;;
+		AVAILABLE | PROVISIONING | IMPORTING) ;;
 		*) bad_image "$region" "$compartment" "$image" "$state" ;;
 		esac
 		tagged=$(oci --region "$region" compute image get --image-id "$image" --query 'data."freeform-tags"."terrascale-sha256"' --raw-output)
