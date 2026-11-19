@@ -471,6 +471,9 @@ jobs:
   e2e-certificates:
     needs: certificate-paths
     if: ${{ needs.certificate-paths.outputs.changed == 'true' }}
+    concurrency:
+      group: e2e-certificates-${{ github.event_name }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
@@ -493,6 +496,9 @@ jobs:
   caller-key-build:
     needs: [caller-key-changes]
     if: ${{ needs.caller-key-changes.outputs.changed == 'true' }}
+    concurrency:
+      group: caller-key-build-${{ github.event_name }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -540,6 +546,9 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     name: caller-key / ${{ matrix.shard }}
+    concurrency:
+      group: caller-key-shard-${{ matrix.shard }}-${{ github.event_name }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
