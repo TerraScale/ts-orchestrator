@@ -221,10 +221,14 @@ func (a *api) publication(ctx context.Context, x artifact, target releasepush.De
 }
 
 func (a *api) verdict(ctx context.Context, x artifact, region string, report releasepush.DeploymentObservation, placement *releasepush.Placement, now time.Time) (result finding) {
+	var rollout *pullRollout
+	if x.name == "ts-orchestrator" {
+		rollout = parsePullRollout(report.Pull)
+	}
 	var pipelineFailures []string
 	defer func() {
 		if result.unknown {
-			if failures := append(reportedFailures(x, report), pipelineFailures...); len(failures) > 0 {
+			if failures := append(reportedFailures(x, report, rollout), pipelineFailures...); len(failures) > 0 {
 				result.red = true
 				result.line += " state=red " + strings.Join(failures, "; ")
 			}
@@ -249,8 +253,9 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 	excluded := false
 	if x.name == "ts-orchestrator" {
 		for _, host := range report.Hosts {
+			reason := hostFailure(host)
 			state := "RUNNING"
-			if hostFailure(host) != "" {
+			if reason != "" {
 				state = "FAILED"
 			}
 			tasks = append(tasks, releasepush.DeploymentTask{Host: host.Host, Revision: host.Version, State: state})
@@ -258,36 +263,29 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 				pending = true
 				reasons = append(reasons, host.Host+": "+host.State)
 			}
-			if reason := hostFailure(host); reason != "" {
+			if reason != "" {
 				failed = true
 				reasons = append(reasons, reason)
 			}
 		}
-		var pull struct {
-			Target *struct {
-				SHA string `json:"sha"`
-			} `json:"target"`
-			Phase  string `json:"phase"`
-			Reason string `json:"reason"`
-			Hosts  []struct {
-				Host  string `json:"host"`
-				Error string `json:"error"`
-			} `json:"hosts"`
+		var hosts []struct {
+			Host  string `json:"host"`
+			Error string `json:"error"`
 		}
-		if err := json.Unmarshal(report.Pull, &pull); err != nil {
+		if rollout == nil || len(rollout.Hosts) != 0 && json.Unmarshal(rollout.Hosts, &hosts) != nil {
 			return finding{line: fmt.Sprintf("%s %s: cannot observe %s: pull rollout unreadable", x.name, region, region), unknown: true}
 		}
-		if pull.Target != nil && pull.Target.SHA == target.Revision && !slices.Contains([]string{"idle", "complete", "newer"}, pull.Phase) {
+		if rollout.pending(target.Revision) {
 			pending = true
 		}
-		if (pull.Target == nil || pull.Target.SHA == target.Revision) && slices.Contains([]string{"refused", "rolled_back", "rollback_stalled"}, pull.Phase) {
+		if rollout.failed(target.Revision) {
 			failed = true
 		}
-		if (pull.Target == nil || pull.Target.SHA == target.Revision) && pull.Reason != "" {
-			reasons = append(reasons, report.Host+": "+pull.Reason)
+		if rollout.matches(target.Revision) && rollout.Reason != "" {
+			reasons = append(reasons, report.Host+": "+rollout.Reason)
 		}
-		for _, host := range pull.Hosts {
-			if (pull.Target == nil || pull.Target.SHA == target.Revision) && host.Error != "" {
+		for _, host := range hosts {
+			if rollout.matches(target.Revision) && host.Error != "" {
 				reasons = append(reasons, host.Host+": "+host.Error)
 			}
 		}

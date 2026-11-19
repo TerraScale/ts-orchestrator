@@ -59,13 +59,14 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 		if observeErr != nil {
 			line := fmt.Sprintf("cannot observe %s: %s", region.Region, observeErr)
 			fmt.Println(line)
+			rollout := parsePullRollout(report.Pull)
 			for _, x := range artifacts {
 				unknown[x.name] = true
 				rows[x.name] = append(rows[x.name], line)
 				if report.Region != region.Region {
 					continue
 				}
-				if failures := reportedFailures(x, report); len(failures) > 0 {
+				if failures := reportedFailures(x, report, rollout); len(failures) > 0 {
 					failure := fmt.Sprintf("%s %s: state=red %s", x.name, region.Region, strings.Join(failures, "; "))
 					fmt.Println(failure)
 					rows[x.name] = append(rows[x.name], failure)
