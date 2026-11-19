@@ -16,28 +16,62 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-const (
-	portsLabel     = "terrascale.ports"
-	hostPortsLabel = "terrascale.host-ports"
-)
+const portsLabel = "terrascale.ports"
 
-// SwarmKit's inert network allocator leaves generic task ports unallocated;
-// container metadata reserves them locally. An exited container releases its
-// ports at once: its task never runs again, and SwarmKit retains stopped
-// tasks (and their containers) long after a replacement needs the port.
-func (c *controller) reservePorts(ctx context.Context, starting bool) (string, func(), error) {
-	var requested []string
+type hostPortDeclaration struct {
+	owner   *controller
+	service string
+	ports   []string
+}
+
+func (e *Executor) declareHostPorts(c *controller) {
+	ports := c.declaredHostPorts()
+	if len(ports) == 0 || c.task.Status.State >= api.TaskStateCompleted {
+		return
+	}
+	if e.hostPorts == nil {
+		e.hostPorts = make(map[string]hostPortDeclaration)
+	}
+	e.hostPorts[c.task.ID] = hostPortDeclaration{owner: c, service: c.task.ServiceID, ports: ports}
+}
+
+func (e *Executor) releaseHostPorts(c *controller) {
+	if e.hostPorts[c.task.ID].owner == c {
+		delete(e.hostPorts, c.task.ID)
+	}
+}
+
+func (c *controller) publishedPorts() []string {
+	var published []string
 	if c.task.Endpoint != nil {
 		ports := c.task.Endpoint.Ports
 		if c.task.Endpoint.Spec != nil {
 			ports = c.task.Endpoint.Spec.Ports
 		}
 		for _, port := range ports {
-			requested = append(requested, strconv.FormatUint(uint64(port.PublishedPort), 10))
+			published = append(published, strconv.FormatUint(uint64(port.PublishedPort), 10))
 		}
 	}
-	slices.Sort(requested)
+	slices.Sort(published)
+	return published
+}
+
+func (c *controller) declaredHostPorts() []string {
+	if c.stateful == nil && usesTaskPort(c.spec.Env) {
+		if port, err := strconv.ParseUint(c.task.ServiceAnnotations.Labels[LabelPort], 10, 16); err == nil {
+			return []string{strconv.FormatUint(port, 10)}
+		}
+		return nil
+	}
+	return c.publishedPorts()
+}
+
+func (c *controller) reservePorts(ctx context.Context, starting bool) (string, func(), error) {
+	requested := c.publishedPorts()
 	encoded := strings.Join(requested, ",")
+	if !starting {
+		requested = c.declaredHostPorts()
+	}
 	if len(requested) == 0 {
 		return encoded, func() {}, nil
 	}
@@ -58,6 +92,13 @@ func (c *controller) reservePorts(ctx context.Context, starting bool) (string, f
 }
 
 func (c *controller) checkPortHolders(ctx context.Context, requested []string, starting bool) error {
+	if !starting {
+		for _, declaration := range c.executor.hostPorts {
+			if declaration.service != c.task.ServiceID && slices.ContainsFunc(declaration.ports, func(port string) bool { return slices.Contains(requested, port) }) {
+				return fmt.Errorf("host port %s is reserved by service %s", strings.Join(declaration.ports, ","), declaration.service)
+			}
+		}
+	}
 	containers, err := c.executor.client.Containers(ctx)
 	if err != nil {
 		return err
@@ -74,11 +115,7 @@ func (c *controller) checkPortHolders(ctx context.Context, requested []string, s
 		if !known {
 			return fmt.Errorf("container %s has unknown host-port ownership", container.ID())
 		}
-		held := strings.Split(claimed, ",")
-		if !starting {
-			held = append(held, strings.Split(labels[hostPortsLabel], ",")...)
-		}
-		if !slices.ContainsFunc(held, func(port string) bool { return slices.Contains(requested, port) }) {
+		if !slices.ContainsFunc(strings.Split(claimed, ","), func(port string) bool { return slices.Contains(requested, port) }) {
 			continue
 		}
 		holder, err := portHolderState(ctx, container, labels)
@@ -183,6 +220,9 @@ func (c *controller) releaseFailedPorts(ctx context.Context, err error) {
 	ctx = runtimeContext(context.WithoutCancel(ctx))
 	if container, loadErr := c.executor.client.LoadContainer(ctx, c.id); loadErr == nil {
 		// containerd deletes a label set to "", which would read as unknown ownership.
-		_, _ = container.SetLabels(ctx, map[string]string{portsLabel: releasedPorts, hostPortsLabel: releasedPorts})
+		_, _ = container.SetLabels(ctx, map[string]string{portsLabel: releasedPorts})
 	}
+	c.executor.mu.Lock()
+	c.executor.releaseHostPorts(c)
+	c.executor.mu.Unlock()
 }

@@ -180,11 +180,10 @@ port_label() {
 	[[ -n $container ]] || return 1
 	sudo ctr --namespace terrascale containers info "$container" | jq -r --arg label "$2" '.Labels[$label] // "none"'
 }
-neighbour_port() {
-	local task
-	task=$(running_tasks e2e-neighbour)
-	[[ -n $task ]] || return 1
-	port_label "$task" terrascale.ports
+neighbour_refused() {
+	orch service ps e2e-neighbour >"$work/neighbour-ps.txt"
+	[[ -z $(running_tasks e2e-neighbour) ]] || fail "a task-port service on 18090 runs beside the fixed-port service"
+	grep -q 'host port 18090 is reserved' "$work/neighbour-ps.txt"
 }
 rollout_waits() {
 	orch events | grep "service e2e-linger updated" | tail -1 | grep -Eq "update=updating message=\"task $1[a-z0-9]* waits for task $lingering[a-z0-9]* to stop and release its host ports\""
@@ -199,10 +198,7 @@ held() {
 	awk -v id="$waiting" '$1 == id' "$work/linger-ps.txt" | grep -Eq ' (assigned|accepted|preparing|ready) +ready ' || fail "the replacement left READY while its predecessor held the ports"
 	claim=$(port_label "$waiting" terrascale.ports) || return 1
 	[[ $claim == released ]] || fail "the waiting replacement claims host ports: $claim"
-	declared=$(port_label "$waiting" terrascale.host-ports) || return 1
-	[[ $declared == 18090 ]] || fail "the waiting replacement declares host ports $declared"
-	neighbour=$(neighbour_port) || return 1
-	[[ $neighbour != 18090 ]] || fail "a task-port service took the waiting replacement's port"
+	neighbour_refused || return 1
 	rollout_waits "$waiting" || return 1
 	((SECONDS >= stopping + 65))
 }
@@ -217,10 +213,11 @@ fi
 cat "$work/room.txt"
 grep -q "update refused: start-first candidate .* cannot be placed (no suitable node (insufficient resources on 1 node))" "$work/room.txt"
 orch service rm e2e-room
-fit_spec e2e-neighbour 18092 1 50 1 >"$work/neighbour.json"
-orch service apply -f "$work/neighbour.json"
+fit_spec e2e-neighbour 18090 1 50 1 >"$work/neighbour.json"
+orch service apply -f "$work/neighbour.json" >"$work/neighbour.txt" 2>&1 &
+neighbouring=$!
 wait_for 90 held
-echo "held for $((SECONDS - stopping)) s past SIGTERM: predecessor $lingering serves release-1 on 18090; replacement $waiting READY, terrascale.ports=$claim, terrascale.host-ports=$declared; task-port neighbour on $neighbour; rollout updating with the wait message"
+echo "held for $((SECONDS - stopping)) s past SIGTERM: predecessor $lingering serves release-1 on 18090; replacement $waiting READY, terrascale.ports=$claim; task-port neighbour on 18090 refused: $(grep -o 'host port 18090 is reserved[^"]*' "$work/neighbour-ps.txt" | head -1); rollout updating with the wait message"
 orch events | grep "service e2e-linger updated" | tail -1
 kill -0 "$replacing"
 sudo touch "$handoff/handoff-1"
@@ -233,7 +230,7 @@ replaced=$(running_tasks e2e-linger)
 [[ $replaced == "$waiting" ]]
 wait_for 20 serving 2
 [[ $(port_label "$replaced" terrascale.ports) == 18090 ]]
-[[ $(neighbour_port) != 18090 ]]
+[[ -z $(running_tasks e2e-neighbour) ]]
 orch service ps e2e-linger >"$work/linger-ps.txt"
 if grep -q 'is reserved' "$work/linger-ps.txt"; then
 	fail "the replacement contended for host ports"
@@ -244,5 +241,9 @@ update_completed() {
 wait_for 30 update_completed
 sudo touch "$handoff/handoff-2"
 orch service rm e2e-neighbour
+if wait "$neighbouring"; then
+	cat "$work/neighbour.txt"
+	fail "a task-port service on 18090 reported ready beside the fixed-port service"
+fi
 orch service rm e2e-linger
-end "predecessor refuses its handoff 65 s past SIGTERM -> it serves release 1 on 18090, the replacement stays READY with no claim and a 18090 declaration, a task-port neighbour gets another port, the rollout reports the wait and another service is refused its room; handoff accepted -> the same replacement claims 18090, serves release 2 and the update completes"
+end "predecessor refuses its handoff 65 s past SIGTERM -> it serves release 1 on 18090, the replacement stays READY with no claim, a task-port service on 18090 is refused and never serves, the rollout reports the wait and another service is refused its room; handoff accepted -> the same replacement claims 18090, serves release 2 and the update completes"

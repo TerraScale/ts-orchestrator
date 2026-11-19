@@ -145,7 +145,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
-	declared, unlock, err := c.reservePorts(ctx, false)
+	_, unlock, err := c.reservePorts(ctx, false)
 	if err != nil {
 		return err
 	}
@@ -258,9 +258,6 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 			opts = append(opts, oci.WithMounts(dataMounts))
 		}
 		labels := map[string]string{LabelServiceSpec: c.task.ServiceAnnotations.Labels[LabelServiceSpec], "terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: cmp.Or(claimed, releasedPorts), credentialExpiryLabel: c.credentialExpiryLabel()}
-		if declared != "" {
-			labels[hostPortsLabel] = declared
-		}
 		if c.diskAccounted() {
 			witness, err := c.prepareDisk(ctx, image)
 			if err != nil {
@@ -960,6 +957,7 @@ func (c *controller) Remove(ctx context.Context) error {
 func (c *controller) Close() error {
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
+	c.executor.releaseHostPorts(c)
 	if c.executor.loadTasks[c.task.ID] == c {
 		delete(c.executor.loadTasks, c.task.ID)
 	}

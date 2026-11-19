@@ -66,6 +66,7 @@ type Executor struct {
 	loadSampler       *hostload.Sampler
 	pulls             sync.Map               // image reference -> *sync.Mutex
 	restarts          map[string]slotRestart // guarded by mu
+	hostPorts         map[string]hostPortDeclaration
 }
 
 func NewExecutor(socket, stateDir string) (*Executor, error) {
@@ -187,6 +188,9 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 		base := &controller{executor: e, task: t.Copy(), spec: spec, id: "ts-" + t.ID, fingerprint: fingerprint}
 		stateful := &statefulController{controller: base, source: source, hooks: source.Hooks()}
 		base.stateful = stateful
+		e.mu.Lock()
+		e.declareHostPorts(base)
+		e.mu.Unlock()
 		return stateful, nil
 	}
 	s, err := DecodeContainer(t)
@@ -196,6 +200,7 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 	controller := &controller{executor: e, task: t.Copy(), spec: s, id: "ts-" + t.ID, fingerprint: taskFingerprint(t)}
 	e.mu.Lock()
 	e.trackLoadTask(controller)
+	e.declareHostPorts(controller)
 	if e.bootstrap != nil && controller.regionalTerraBase() {
 		if len(e.bootstrapTasks) >= 128 && e.bootstrapTasks[t.ID] == nil {
 			e.mu.Unlock()
