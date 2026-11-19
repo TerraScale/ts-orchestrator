@@ -1,7 +1,6 @@
 [Unit]
 Description=Host image E2E first boot assertions
 DefaultDependencies=no
-Wants=ts-orch.service ts-node-init.service
 After=multi-user.target ts-orch.service ts-node-init.service
 
 [Service]

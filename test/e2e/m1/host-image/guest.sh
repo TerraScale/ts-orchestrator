@@ -21,13 +21,15 @@ installed=$(sha256sum /usr/local/bin/terrascale-orchestrator | cut -d' ' -f1)
 if [[ $case == wrong-sha256 ]]; then
  systemctl is-failed --quiet ts-node-init.service
  test "$(systemctl show ts-node-init.service -p ExecMainStatus --value)" -ne 0
- ! systemctl is-active --quiet ts-orch.service
+ active_at=$(systemctl show ts-orch.service -p ActiveEnterTimestampMonotonic --value)
+ test "$active_at" = 0
  test "$installed" = "$baked"
  journalctl -b -u ts-node-init.service --no-pager | grep -F 'nothing installed'
  test "$(cat /opt/host-image/downloads)" = wrong-sha256
  test ! -e /etc/ts-orch/data-volume-uuid
  test ! -e /var/lib/ts-orch-bootstrap/format-consumed
- test -z "$(wipefs --no-act --noheadings --output TYPE /dev/oracleoci/oraclevdb)"
+ signatures=$(wipefs --no-act --noheadings --output TYPE /dev/oracleoci/oraclevdb)
+ test -z "$signatures"
  exit 0
 fi
 systemctl is-active --quiet ts-node-init.service
