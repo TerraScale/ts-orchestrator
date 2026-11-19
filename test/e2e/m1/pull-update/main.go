@@ -742,6 +742,7 @@ func (l *lane) handover(ctx context.Context) {
 	})
 	l.hosts[owner].releaseRestart()
 	done := l.waitStatus(ctx, "gru", "gru completes the inherited rollout", complete(candidate))
+	l.waitStatus(ctx, "fra", "fra completes its concurrent rollout", complete(candidate))
 	l.requireVersions(ctx, candidate.digest, l.region("sjc", "fra", "gru")...)
 	for _, id := range l.region("gru") {
 		want := starts[id] + 1
