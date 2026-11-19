@@ -210,6 +210,18 @@ touch /var/lib/ts-data/terrabase/kept /var/lib/ts-orch/identity-kept
 bash /usr/local/lib/ts-orch/data-mount-check.sh
 "$binaries/data-mount" > "$work/mount-report.json"
 python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["mount_point"]=="/var/lib/ts-data" and r["device"]=="/dev/oracleoci/oraclevdb" and r["uuid"]==sys.argv[2] and r["filesystem_type"]=="ext4" and r["size_bytes"]==3221225472 and r["serial"]=="0123456789abcdef0123456789abcdef"' "$work/mount-report.json" "$uuid"
+printf 'retained database bytes\n' > /var/lib/ts-data/terrabase/kept
+before_growth=$(stat -f -c %b /var/lib/ts-data)
+truncate -s 4G "$work/data-volume.img"
+losetup --set-capacity "$data_loop"
+"$binaries/data-mount" grow
+after_growth=$(stat -f -c %b /var/lib/ts-data)
+test "$after_growth" -gt "$before_growth"
+test "$(cat /var/lib/ts-data/terrabase/kept)" = 'retained database bytes'
+test "$(findmnt -rn -M /var/lib/ts-data -o UUID)" = "$uuid"
+"$binaries/data-mount" grow
+test "$(stat -f -c %b /var/lib/ts-data)" = "$after_growth"
+echo "data volume: online growth fills the mounted device, preserves bytes and UUID, and is idempotent"
 printf '%s\n' 22222222-2222-4222-8222-222222222222 > /etc/ts-orch/data-volume-uuid
 if bash /usr/local/lib/ts-orch/data-mount-check.sh; then exit 1; fi
 printf '%s\n' "$uuid" > /etc/ts-orch/data-volume-uuid

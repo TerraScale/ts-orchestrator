@@ -5,8 +5,6 @@ data_loop=$(cat "$work/data-loop")
 uuid=$(cat "$work/data-uuid")
 truncate -s 32G "$work/data-volume.img"
 losetup --set-capacity "$data_loop"
-e2fsck -f -p "$data_loop"
-resize2fs "$data_loop"
 install -d -m 0755 /dev/oracleoci /usr/local/lib/ts-orch
 ln -s "$data_loop" /dev/oracleoci/oraclevdb
 export PROBE_CAT="$(command -v cat)"

@@ -349,6 +349,7 @@ func run() error {
 		return err
 	}
 	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	computeGrowth(string(keyBytes))
 	keyPath := filepath.Join(dir, "key")
 	if err := os.WriteFile(keyPath, keyBytes, 0600); err != nil {
 		return err

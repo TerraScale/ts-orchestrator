@@ -19,7 +19,13 @@ sudo --preserve-env=PATH unshare --mount --net --fork bash -c 'ip link set lo up
 sudo --preserve-env=PATH bash "$here/volume-install.sh" "$work"
 end "volume refusals preserve bytes; format once and adoption preserve identity"
 (
+	volume_work=$work
 	source "$here/setup.sh"
+
+	begin "node startup and live volume growth preserve mounted data"
+	sudo python3 "$here/volume-growth.py" "$volume_work" "$first"
+	test "$(edge data.e2e.test /boots | head -1)" = "$first"
+	end "startup grows to 32 GiB; live growth reaches 33 GiB without restarting services"
 
 	begin "data mount loss stops both dependent units and mounting restores state"
 	sudo systemctl stop netbird-server.service

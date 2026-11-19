@@ -84,6 +84,10 @@ func (p Pass) say(verb, kind, name, detail string) {
 }
 
 func (p Pass) Run(ctx context.Context) error {
+	slots, err := p.dataVolumes(ctx)
+	if err != nil {
+		return err
+	}
 	configuration, stale, err := p.configuration(ctx)
 	if err != nil {
 		return err
@@ -102,7 +106,7 @@ func (p Pass) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return p.volumes(ctx, instances)
+	return p.volumes(ctx, instances, slots)
 }
 
 func (p Pass) configuration(ctx context.Context) (string, []string, error) {
@@ -400,23 +404,30 @@ type slot struct {
 	volume core.Volume
 }
 
-func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) error {
+func (p Pass) dataVolumes(ctx context.Context) (map[string]core.Volume, error) {
 	listed, err := all(func(page *string) ([]core.Volume, *string, error) {
 		r, err := p.Storage.ListVolumes(ctx, core.ListVolumesRequest{CompartmentId: &p.Compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return fmt.Errorf("list volumes: %w", err)
+		return nil, fmt.Errorf("list volumes: %w", err)
 	}
 	slots := map[string]core.Volume{}
 	for n := 1; n <= p.Max+len(listed); n++ {
 		name := fmt.Sprintf("data-%d", n)
 		for _, volume := range listed {
 			if volume.LifecycleState != core.VolumeLifecycleStateTerminated && volume.LifecycleState != core.VolumeLifecycleStateTerminating && p.owns("volume", name, volume.FreeformTags) {
+				if err := p.checkSize(name, volume); err != nil {
+					return nil, err
+				}
 				slots[name] = volume
 			}
 		}
 	}
+	return slots, nil
+}
+
+func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary, slots map[string]core.Volume) error {
 	attachments, err := p.attachments(ctx)
 	if err != nil {
 		return err
@@ -436,6 +447,12 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) err
 			return fmt.Errorf("pool instance %s lacks %s", *instance.Id, p.Key("instance", "node"))
 		}
 		chosen, attached := p.pick(slots, attachedTo, current)
+		if chosen.name != "" {
+			if chosen, err = p.grow(ctx, chosen); err != nil {
+				return err
+			}
+			slots[chosen.name] = chosen.volume
+		}
 		if !attached {
 			if chosen.name == "" {
 				if chosen, err = p.create(ctx, slots, current); err != nil {
@@ -458,6 +475,50 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) err
 		}
 	}
 	return nil
+}
+
+func (p Pass) checkSize(name string, volume core.Volume) error {
+	if volume.SizeInGBs == nil || *volume.SizeInGBs <= 0 {
+		return fmt.Errorf("%s has no observed data volume size", p.Key("volume", name))
+	}
+	if *volume.SizeInGBs > p.DataGB {
+		return fmt.Errorf("%s is %d GB: nodes.data_gb=%d would decrease storage; data volumes cannot shrink", p.Key("volume", name), *volume.SizeInGBs, p.DataGB)
+	}
+	return nil
+}
+
+func (p Pass) grow(ctx context.Context, chosen slot) (slot, error) {
+	got, err := p.Storage.GetVolume(ctx, core.GetVolumeRequest{VolumeId: chosen.volume.Id})
+	if err != nil {
+		return slot{}, fmt.Errorf("read %s before growth: %w", p.Key("volume", chosen.name), err)
+	}
+	volume := got.Volume
+	if !p.owns("volume", chosen.name, volume.FreeformTags) {
+		return slot{}, fmt.Errorf("%s lost ownership before growth", p.Key("volume", chosen.name))
+	}
+	if err := p.checkSize(chosen.name, volume); err != nil {
+		return slot{}, err
+	}
+	if *volume.SizeInGBs == p.DataGB {
+		return slot{chosen.name, volume}, nil
+	}
+	if got.Etag == nil || *got.Etag == "" || volume.LifecycleState != core.VolumeLifecycleStateAvailable {
+		return slot{}, fmt.Errorf("%s needs an AVAILABLE volume with an ETag for online growth", p.Key("volume", chosen.name))
+	}
+	before := *volume.SizeInGBs
+	if _, err := p.Storage.UpdateVolume(ctx, core.UpdateVolumeRequest{VolumeId: volume.Id, IfMatch: got.Etag,
+		UpdateVolumeDetails: core.UpdateVolumeDetails{SizeInGBs: &p.DataGB}}); err != nil {
+		return slot{}, fmt.Errorf("grow %s to %d GB: %w", p.Key("volume", chosen.name), p.DataGB, err)
+	}
+	if err := waitFor(ctx, func() (bool, error) {
+		got, err := p.Storage.GetVolume(ctx, core.GetVolumeRequest{VolumeId: volume.Id})
+		volume = got.Volume
+		return volume.LifecycleState == core.VolumeLifecycleStateAvailable && volume.SizeInGBs != nil && *volume.SizeInGBs >= p.DataGB, err
+	}); err != nil {
+		return slot{}, fmt.Errorf("confirm growth of %s: %w", p.Key("volume", chosen.name), err)
+	}
+	p.say("grown", "volume", chosen.name, fmt.Sprintf("%s %d -> %d GB online", *volume.Id, before, *volume.SizeInGBs))
+	return slot{chosen.name, volume}, nil
 }
 
 func (p Pass) pick(slots map[string]core.Volume, attachedTo map[string]string, instance core.Instance) (slot, bool) {
