@@ -358,11 +358,11 @@ or interrupted return re-drains before the next status or health check, so an
 unhealthy observation cannot prevent retrying that fence. Relay artifact files
 and their rename are synced before publishing installation intent.
 
-## T3 NixOS dev hosts
+## T3 dev hosts
 
 `delta`, `beta` and `mariogk-dev` are dev hosts, outside this cell reconciler.
-Change their package through each host's NixOS configuration, nixpkgs pin or
-NetBird overlay/module. Keep a working Tailscale session as the second access
+Change their package through each host's Debian configuration, package pin or
+NetBird module. Keep a working Tailscale session as the second access
 path, rebuild one host at a time, and verify its daemon version, mesh peers
 and T3 connections before moving to the next. Do not install the managed
 server worker or replace `/usr/local/bin/netbird` on these hosts. If the

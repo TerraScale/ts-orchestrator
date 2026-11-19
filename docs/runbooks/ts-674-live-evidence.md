@@ -87,26 +87,27 @@ chunk downloads.
 
 | Development host/client | Before | Observed state | Tailscale address |
 | --- | --- | --- | --- |
-| delta, NixOS netbird-wt0 | v0.71.4 | Connected, 10.200.87.10 | 100.77.52.68 |
-| beta, NixOS netbird-wt0 | v0.71.4 | Connected, 10.200.186.149 | 100.115.156.95 |
-| mariogk-dev, NixOS netbird-wt0 | v0.71.4 | NeedsLogin, no NetBird IP | 100.89.133.91 |
+| delta, netbird-wt0 | v0.71.4 | Connected, 10.200.87.10 | 100.77.52.68 |
+| beta, netbird-wt0 | v0.71.4 | Connected, 10.200.186.149 | 100.115.156.95 |
+| mariogk-dev, netbird-wt0 | v0.71.4 | NeedsLogin, no NetBird IP | 100.89.133.91 |
 | mariogk-dev, ts-netbird-ops container | 0.79.0 | Connected, 10.200.35.107 | Same host |
 
 Development-host observations were refreshed at 20:53–20:54 UTC. All three
 Tailscale peers were online, SSH access worked, and `sudo -n` was available.
 Native NetBird DNS and the beta Tailscale FQDN resolved on delta and
-mariogk-dev. The NixOS client and operator container are distinct clients;
+mariogk-dev. The system client and operator container are distinct clients;
 updating only the container leaves mariogk-dev's system client unchanged.
 
-**NEEDS-USER — NixOS configuration scope.** The system closures identify
+**NEEDS-USER — host configuration scope.** The system closures identify
 HomeLab configuration; the documented module is HomeLab
-`fleet/nix/modules/common/netbird-vm.nix`. `/etc/nixos` is empty on
-delta/beta, and mariogk-dev's configuration has an empty imports list.
+`fleet/nix/modules/common/netbird-vm.nix`. No host-level configuration
+directory is present on delta/beta, and mariogk-dev's configuration has an
+empty imports list.
 This ticket forbids touching homelab, so its source was not opened or
-changed. Either authorize the specific NixOS NetBird module/package change
+changed. Either authorize the specific NetBird module/package change
 there or provide an approved configuration repository. Sudo availability
 is not the blocker. Apply eventual host changes one at a time with a live
-Tailscale session; do not replace NixOS binaries imperatively.
+Tailscale session; do not replace system binaries imperatively.
 
 ## Coordination and remaining acceptance
 
