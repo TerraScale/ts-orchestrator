@@ -43,7 +43,8 @@ func (t registryTransport) RoundTrip(request *http.Request) (*http.Response, err
 }
 
 func runPulled(ctx context.Context, state, image, run, service string) error {
-	target := apppull.Targets[slices.IndexFunc(apppull.Targets, func(target apppull.Target) bool { return target.Service == service })]
+	targets := appregistry.Targets()
+	target := targets[slices.IndexFunc(targets, func(target appregistry.Target) bool { return target.Service == service })]
 	ctx = namespaces.WithNamespace(ctx, "terrascale")
 	client, err := containerd.New(filepath.Join(state, "run", "containerd.sock"))
 	must(err)

@@ -67,10 +67,7 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 		}
 	}
 	desired := n.stateDesired.Load()
-	for _, target := range appregistry.Targets {
-		if target.Service == "app-canary" {
-			continue
-		}
+	for _, target := range appregistry.Deployed() {
 		app := releasepush.AppDeployment{Host: n.cfg.server}
 		entry := (*desired)[target.Service].entry()
 		if entry.Spec != nil {

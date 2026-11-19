@@ -18,14 +18,10 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/root"
 )
 
-type Target = appregistry.Target
-
 type Selection struct {
 	Image  string
 	Claims releasepush.Claims
 }
-
-var Targets = appregistry.Targets
 
 var revision = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
@@ -41,7 +37,7 @@ type release struct {
 	transport http.RoundTripper
 }
 
-func (s Source) release(ctx context.Context, target Target) (release, error) {
+func (s Source) release(ctx context.Context, target appregistry.Target) (release, error) {
 	if s.Registry == nil {
 		return release{}, fmt.Errorf("app release registry is unavailable")
 	}
@@ -64,7 +60,7 @@ func (s Source) release(ctx context.Context, target Target) (release, error) {
 	return release{ref: ref, keychain: keychain, transport: registry.BoundTransport(s.Transport)}, nil
 }
 
-func (s Source) Digest(ctx context.Context, target Target) (string, error) {
+func (s Source) Digest(ctx context.Context, target appregistry.Target) (string, error) {
 	selected, err := s.release(ctx, target)
 	if err != nil {
 		return "", err
@@ -76,7 +72,7 @@ func (s Source) Digest(ctx context.Context, target Target) (string, error) {
 	return head.Digest.String(), nil
 }
 
-func (s Source) Pull(ctx context.Context, target Target) (Selection, error) {
+func (s Source) Pull(ctx context.Context, target appregistry.Target) (Selection, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	selected, err := s.release(ctx, target)
