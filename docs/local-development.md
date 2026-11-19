@@ -56,6 +56,4 @@ Placement runs every five seconds. Managed placement can create region-bound hos
 and, after confirmed attachment, publish signed TerraBase desired state; it
 then holds at `awaiting-healthy`. Host image, first-boot configuration, and
 enrollment remain operator-provided, the orchestrator does not mount the guest
-volume, and no TerraBase serving claim is made. See [`internal/app/managed_config.go`](../internal/app/managed_config.go)
-and [`internal/placement/controller.go`](../internal/placement/controller.go)
-for the strict parser and lifecycle boundary.
+volume, and no TerraBase serving claim is made.
