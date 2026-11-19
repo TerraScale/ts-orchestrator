@@ -8,7 +8,8 @@ import (
 )
 
 const DrainWindow = 20 * time.Second
-const Limit = DrainWindow + 10*time.Second
+const EdgeShare = DrainWindow + 5*time.Second
+const Limit = EdgeShare + 5*time.Second
 
 type budgetKey struct{}
 
@@ -53,6 +54,15 @@ func Begin(ctx context.Context) context.Context {
 		slog.Info("node shutdown started", "deadline", deadline(b.ctx))
 	}
 	return b.ctx
+}
+
+func Share(ctx context.Context, share time.Duration) (context.Context, context.CancelFunc) {
+	stop := Begin(ctx)
+	end, ok := stop.Deadline()
+	if !ok {
+		return context.WithCancel(stop)
+	}
+	return context.WithDeadline(stop, end.Add(share-Limit))
 }
 
 func deadline(ctx context.Context) time.Time {

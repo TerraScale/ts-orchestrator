@@ -115,6 +115,7 @@ type stateReply struct {
 	Admission    map[string]AdmissionDecision `json:"admission,omitempty"`
 	Failed       map[string]int64             `json:"failed,omitempty"`
 	Unsaved      map[string]int64             `json:"unsaved,omitempty"`
+	Rollout      []string                     `json:"rollout,omitempty"`
 }
 
 // Applier changes this host's services.
@@ -209,6 +210,7 @@ type Node struct {
 	announced       map[string]announcement
 	joined          []WorkerPeer
 	listening       time.Time
+	auth            *clientAuth
 	settled         chan struct{}
 	regionReached   chan struct{}
 }
@@ -322,7 +324,7 @@ func start(cfg config) (_ *Node, err error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, membershipConn: membershipConn, gossip: gossip, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
+	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, auth: auth, conn: conn, membershipConn: membershipConn, gossip: gossip, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
 		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{}), regionReached: make(chan struct{})}
 	if err := node.loadWorkers(); err != nil {
 		node.closeConns()
@@ -364,7 +366,8 @@ func start(cfg config) (_ *Node, err error) {
 				}
 				return
 			}
-			state := stateReply{Nonce: request.Nonce, Region: cfg.region, Desired: maps.Clone(*node.stateDesired.Load()), Ready: map[string]int64{}, Serving: node.servingSnapshot()}
+			state := stateReply{Nonce: request.Nonce, Region: cfg.region, Desired: maps.Clone(*node.stateDesired.Load()), Ready: map[string]int64{}, Serving: node.servingSnapshot(),
+				Rollout: EnvironmentOf(cfg.region).Rollout}
 			for name, result := range state.Serving {
 				if result.fresh() {
 					state.Ready[name] = result.Generation
@@ -469,14 +472,6 @@ func (n *Node) Close() error {
 	return n.close(context.Background())
 }
 
-func (n *Node) CloseContext(ctx context.Context) error {
-	if ctx.Err() != nil {
-		n.ForceClose()
-		return nil
-	}
-	return n.close(ctx)
-}
-
 func (n *Node) close(ctx context.Context) error {
 	err := n.PrepareStop(ctx)
 	n.ForceClose()
@@ -484,14 +479,18 @@ func (n *Node) close(ctx context.Context) error {
 }
 
 func (n *Node) ForceClose() {
+	n.stopWork()
+	n.server.Shutdown()
+	n.server.WaitForShutdown()
+	n.work.Wait()
+}
+
+func (n *Node) stopWork() {
 	n.workMu.Lock()
 	n.closing = true
 	n.workMu.Unlock()
 	n.cancel()
 	n.closeConns()
-	n.server.Shutdown()
-	n.server.WaitForShutdown()
-	n.work.Wait()
 }
 
 func (n *Node) regions() []string {
@@ -747,14 +746,12 @@ func (n *Node) statesOf(ctx context.Context, want []string, wait time.Duration) 
 }
 
 func rolloutOrder(region string, spec *swarmruntime.ServiceSpec) []string {
-	if len(spec.Regions) != 0 {
-		return spec.Regions
+	order := EnvironmentOf(region).Rollout
+	if len(spec.Regions) == 0 {
+		return order
 	}
-	founded := Regions(region)
-	if len(founded) == 0 {
-		return nil
-	}
-	return append(slices.Clone(founded[1:]), founded[0])
+	unreviewed := slices.DeleteFunc(slices.Clone(spec.Regions), func(name string) bool { return slices.Contains(order, name) })
+	return append(unreviewed, slices.DeleteFunc(order, func(name string) bool { return !slices.Contains(spec.Regions, name) })...)
 }
 
 // earlier is the target regions of spec rolled before this one.
@@ -767,6 +764,21 @@ func (n *Node) earlier(spec *swarmruntime.ServiceSpec) []string {
 		return slices.Clone(order[:i])
 	}
 	return nil // first, untargeted or outside the order: waits for nobody
+}
+
+func fenced(name string) bool {
+	return name == "terrabase"
+}
+
+func (n *Node) participants(spec *swarmruntime.ServiceSpec) []string {
+	if spec == nil {
+		return nil
+	}
+	order := rolloutOrder(n.cfg.region, spec)
+	if !slices.Contains(order, n.cfg.region) {
+		return nil
+	}
+	return slices.DeleteFunc(order, func(region string) bool { return region == n.cfg.region })
 }
 
 func regionWindow(spec *swarmruntime.ServiceSpec) time.Duration {
@@ -817,6 +829,15 @@ func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int6
 		}
 		n.admission[name] = decision
 	}()
+	if fenced(name) {
+		rule := EnvironmentOf(n.cfg.region).Rollout
+		for _, region := range n.participants(spec) {
+			if reply, answered := states[region]; !answered || !slices.Equal(reply.Rollout, rule) {
+				decision.Earlier, decision.Evidence = region, "rollout order not agreed"
+				return fmt.Errorf("%s does not run the rollout order %v yet", region, rule)
+			}
+		}
+	}
 	for _, region := range n.earlier(spec) {
 		decision.Earlier = region
 		reply, answered := states[region]
@@ -887,12 +908,15 @@ func (n *Node) awaitDependents(ctx context.Context, name string) (time.Duration,
 
 // awaitTurn waits until turn allows this region to apply.
 func (n *Node) awaitTurn(ctx context.Context, name string, spec *swarmruntime.ServiceSpec, generation int64) error {
-	earlier := n.earlier(spec)
-	if len(earlier) == 0 {
+	asked := n.earlier(spec)
+	if fenced(name) {
+		asked = n.participants(spec)
+	}
+	if len(asked) == 0 {
 		return nil
 	}
 	for {
-		err := n.turn(name, spec, generation, n.statesOf(ctx, earlier, time.Second))
+		err := n.turn(name, spec, generation, n.statesOf(ctx, asked, time.Second))
 		if err == nil || errors.Is(err, errEarlierFailed) {
 			return err
 		}

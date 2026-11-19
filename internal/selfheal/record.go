@@ -9,6 +9,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -50,7 +51,7 @@ func openStore(ctx context.Context, conn *nats.Conn, region string) (*store, err
 	if err != nil {
 		return nil, err
 	}
-	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucket, Replicas: 3, History: 1, MaxValueSize: maxRecordBytes, Storage: jetstream.FileStorage})
+	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucket, Replicas: mesh.StoreReplicas(region), History: 1, MaxValueSize: maxRecordBytes, Storage: jetstream.FileStorage})
 	if err != nil {
 		return nil, fmt.Errorf("self-heal store: %w", err)
 	}

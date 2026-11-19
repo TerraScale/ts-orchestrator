@@ -25,13 +25,13 @@ func RunCertificateCLI(ctx context.Context, args []string, output io.Writer) err
 	if args[4] == "rsa" {
 		key += "+rsa"
 	}
-	conn, seed, err := mesh.EdgeCertificateClient(ctx, state)
+	conn, replicas, seed, err := mesh.EdgeCertificateClient(ctx, state)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 	defer clear(seed)
-	cache := &certificateCache{local: autocert.DirCache(filepath.Join(state, "edge-certs")), source: func() (*nats.Conn, []byte, error) { return conn, append([]byte(nil), seed...), nil }}
+	cache := &certificateCache{local: autocert.DirCache(filepath.Join(state, "edge-certs")), source: func() (*nats.Conn, int, []byte, error) { return conn, replicas, append([]byte(nil), seed...), nil }}
 	defer cache.stopWatch()
 	if err := cache.repair(ctx, key); err != nil {
 		return err

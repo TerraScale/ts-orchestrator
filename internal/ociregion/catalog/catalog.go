@@ -96,6 +96,16 @@ func Entries() []Entry { return append([]Entry(nil), entries[:]...) }
 
 func Founded() []Entry { return append([]Entry(nil), entries[:foundedCount]...) }
 
+var rollout = [foundedCount]string{SJC, FRA, GRU}
+
+func RolloutOrder() []string {
+	names := make([]string, 0, len(rollout))
+	for _, cell := range rollout {
+		names = append(names, strings.ToLower(cell))
+	}
+	return names
+}
+
 // Names returns the ordered lower-case cell tokens used in NATS subjects.
 func Names() []string {
 	names := make([]string, 0, Len)

@@ -93,7 +93,7 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	if resume && failedAnywhere(ctx, conn, service, before.Generation) {
 		return nil, fmt.Errorf("%s held at failed generation %d by release %+v; refused release %+v; repair the cause and release again from a strictly newer signed run or attempt", service, before.Generation, before.Deployment, deployment)
 	}
-	next, err := releaseSpec(connRegion(conn), service, image, previous, deployment)
+	next, err := releaseSpec(ConnRegion(conn), service, image, previous, deployment)
 	if err != nil {
 		return nil, err
 	}
@@ -107,13 +107,13 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 		generation = before.Generation
 		request.Entry = before
 	}
-	rollout, rollback := max(wait, rolloutWait(connRegion(conn), &next)), max(rollbackWait, regionWindow(previous))
+	rollout, rollback := max(wait, rolloutWait(ConnRegion(conn), &next)), max(rollbackWait, regionWindow(previous))
 	deadline := time.Now().Add(rollout + rollback + 2*stateWait)
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	progress.Deadline(deadline)
 	progress.Event(fmt.Sprintf("%s %s rolls out to %s one region at a time; other regions answer at once; outcome by %s (rollout %s, rollback %s)",
-		service, image, strings.Join(rolloutOrder(connRegion(conn), &next), ", "), deadline.UTC().Format(time.RFC3339), rollout, rollback))
+		service, image, strings.Join(rolloutOrder(ConnRegion(conn), &next), ", "), deadline.UTC().Format(time.RFC3339), rollout, rollback))
 	rows, failed := sendObserved(ctx, conn, request, rollout, func(reply Reply) { progress.Event(regionEvent("", reply)) })
 	if failed == nil || bakeHeld(rows, service) {
 		return rows, failed
@@ -171,7 +171,7 @@ func failedAnywhere(ctx context.Context, conn *nats.Conn, name string, generatio
 		return false
 	}
 	failed := false
-	_ = collect(ctx, conn, StateSubject, nil, len(Regions(connRegion(conn))), stateWait, func(data []byte) bool {
+	_ = collect(ctx, conn, StateSubject, nil, len(Regions(ConnRegion(conn))), stateWait, func(data []byte) bool {
 		var reply stateReply
 		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && reply.Failed[name] == generation {
 			failed = true
@@ -185,11 +185,11 @@ func failedAnywhere(ctx context.Context, conn *nats.Conn, name string, generatio
 func desiredStates(ctx context.Context, conn *nats.Conn) (map[string]desiredState, error) {
 	newest := map[string]desiredState{}
 	var conflict error
-	err := collect(ctx, conn, StateSubject, nil, len(Regions(connRegion(conn))), stateWait, func(data []byte) bool {
+	err := collect(ctx, conn, StateSubject, nil, len(Regions(ConnRegion(conn))), stateWait, func(data []byte) bool {
 		var reply stateReply
 		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
 			for name, entry := range reply.Desired {
-				if validState(connRegion(conn), name, entry) == nil {
+				if validState(ConnRegion(conn), name, entry) == nil {
 					merged, err := mergeState(newest[name], entry)
 					if err != nil {
 						conflict = errors.Join(conflict, fmt.Errorf("%s: %w", name, err))
@@ -243,7 +243,7 @@ func runningImages(ctx context.Context, conn *nats.Conn) (map[string]string, err
 		return nil, err
 	}
 	replies := map[string]stateReply{}
-	err = collect(ctx, conn, StateSubject, nil, len(Regions(connRegion(conn))), stateWait, func(data []byte) bool {
+	err = collect(ctx, conn, StateSubject, nil, len(Regions(ConnRegion(conn))), stateWait, func(data []byte) bool {
 		var reply stateReply
 		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
 			replies[reply.Region] = reply
@@ -260,7 +260,7 @@ func runningImages(ctx context.Context, conn *nats.Conn) (map[string]string, err
 			continue
 		}
 		ready := true
-		for _, region := range rolloutOrder(connRegion(conn), entry.Spec) {
+		for _, region := range rolloutOrder(ConnRegion(conn), entry.Spec) {
 			reply, ok := replies[region]
 			serving := reply.Serving[name]
 			if !ok || reply.Ready[name] != entry.Generation || reply.Failed[name] == entry.Generation || reply.Unsaved[name] == entry.Generation || serving.Generation != entry.Generation || !serving.fresh() {

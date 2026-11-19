@@ -15,6 +15,7 @@ type Apply func(context.Context, string, string, releasepush.Claims, releasepush
 
 type Updater struct {
 	Self   string
+	Region string
 	Fabric *nats.Conn
 	Source Source
 	Apply  Apply
@@ -45,7 +46,7 @@ func (u Updater) Run(ctx context.Context) error {
 	seen := map[string]string{}
 	for {
 		if store == nil {
-			opened, err := pullrelease.Open(ctx, u.Fabric, "apps")
+			opened, err := pullrelease.Open(ctx, u.Fabric, u.Region, "apps")
 			if err != nil {
 				slog.ErrorContext(ctx, "app rollout store unavailable", "error", err)
 			}
@@ -105,6 +106,15 @@ func (u Updater) turn(ctx context.Context, due bool, seen map[string]string) tur
 		return turn{swept: true, err: u.Cycle(ctx)}
 	}
 	return turn{err: u.cycle(ctx, moved)}
+}
+
+func (a Apply) Within(host context.Context) Apply {
+	return func(ctx context.Context, service, image string, claims releasepush.Claims, progress releasepush.Progress) (json.RawMessage, error) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		defer context.AfterFunc(host, cancel)()
+		return a(ctx, service, image, claims, progress)
+	}
 }
 
 func (u Updater) Cycle(ctx context.Context) error {

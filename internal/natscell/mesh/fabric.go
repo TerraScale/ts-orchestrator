@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/nats-io/nats-server/v2/logger"
 	"github.com/nats-io/nats-server/v2/server"
@@ -77,14 +78,12 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 		}
 		options.Routes = append(options.Routes, address)
 	}
-	if len(options.Routes) > 0 {
-		options.Cluster = server.ClusterOpts{
-			Name: ClusterName, Host: cfg.clusterHost, Port: cfg.clusterPort, Advertise: cfg.clusterAdvertise,
-			TLSConfig: tlsConfig, TLSTimeout: 5, PinnedAccounts: []string{FabricAccount},
-			SolicitImplicitRoute: gossip.solicit,
-		}
+	options.Cluster = server.ClusterOpts{
+		Name: ClusterName, Host: cfg.clusterHost, Port: cfg.clusterPort, Advertise: cfg.clusterAdvertise,
+		TLSConfig: tlsConfig, TLSTimeout: 5, PinnedAccounts: []string{FabricAccount},
+		SolicitImplicitRoute: gossip.solicit,
 	}
-	if cfg.applier != nil && len(options.Routes) > 0 {
+	if cfg.applier != nil {
 		options.JetStream = true
 		options.SyncAlways = true
 		options.StoreDir = cfg.dir
@@ -125,6 +124,7 @@ type clientAuth struct {
 	server    *server.Server
 	users     map[string]credential
 	terrabase credential
+	quiesced  atomic.Bool
 }
 
 func (a *clientAuth) Check(c server.ClientAuthentication) bool {
@@ -134,6 +134,9 @@ func (a *clientAuth) Check(c server.ClientAuthentication) bool {
 	}
 	name, want, presented := terrabaseUser, a.terrabase, opts.Token
 	if opts.Username != "" {
+		if a.quiesced.Load() {
+			return false
+		}
 		user, ok := a.users[opts.Username]
 		if !ok {
 			return false

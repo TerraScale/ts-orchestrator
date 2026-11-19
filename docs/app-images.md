@@ -49,7 +49,12 @@ attestation over the exact raw manifest bytes, whose SHA-256 is the image
 digest. Its subject filename does not change the digest or workflow identity.
 CI verifies the published build provenance before moving each single-platform
 `:release` tag, and waits for the production rollout using the package-only
-reference. Login uses the local `ocir-login` action and GitHub OIDC exchange.
+reference. The region order is ts-orch's, not CI's: the app release leader
+reads its own region's `:release` tag and, once it selects a new digest,
+releases it to every region the service targets in the order sjc, fra, gru.
+CI therefore moves every region's tag before it waits; a release that moves
+one region's tag and waits for that region alone stalls whenever the leader
+runs in another region. Login uses the local `ocir-login` action and GitHub OIDC exchange.
 
 Verification uses the embedded Sigstore trust root, certificate identity of
 the producing GitHub Actions workflow on `refs/heads/main`, source revision,

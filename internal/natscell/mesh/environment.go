@@ -13,6 +13,7 @@ import (
 type Environment struct {
 	Founder     string
 	Regions     []string
+	Rollout     []string
 	VaultRegion string
 	Vault       vaultsecret.Target
 }
@@ -20,10 +21,10 @@ type Environment struct {
 func EnvironmentOf(region string) Environment {
 	staging := fleet.Embedded().Staging
 	if region == staging.Label {
-		return Environment{Founder: staging.Label, Regions: []string{staging.Label}, VaultRegion: staging.OCIRegion,
+		return Environment{Founder: staging.Label, Regions: []string{staging.Label}, Rollout: []string{staging.Label}, VaultRegion: staging.OCIRegion,
 			Vault: vaultsecret.Target{CompartmentID: staging.CompartmentID, VaultID: staging.VaultID, KeyID: staging.KeyID}}
 	}
-	return Environment{Founder: strings.ToLower(catalog.Bootstrap), Regions: founded(), VaultRegion: vaultRegion, Vault: SharedVault}
+	return Environment{Founder: strings.ToLower(catalog.Bootstrap), Regions: founded(), Rollout: catalog.RolloutOrder(), VaultRegion: vaultRegion, Vault: SharedVault}
 }
 
 func (d Environment) Secret(purpose string) string {
@@ -34,12 +35,16 @@ func (d Environment) GHCRPullToken(ctx context.Context) (string, error) {
 	return vaultsecret.ReadGHCRPullToken(ctx, d.Vault.VaultID, d.Secret("ghcr-pull-token"))
 }
 
-func connRegion(conn *nats.Conn) string {
+func ConnRegion(conn *nats.Conn) string {
 	return serverRegion(conn.ConnectedServerName())
 }
 
 func ConnRegions(conn *nats.Conn) []string {
-	return Regions(connRegion(conn))
+	return Regions(ConnRegion(conn))
+}
+
+func StoreReplicas(region string) int {
+	return min(3, len(Regions(region)))
 }
 
 func Regions(region string) []string {
