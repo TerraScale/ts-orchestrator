@@ -36,9 +36,11 @@ with this one, this file wins.
     `<region>-node-<n>`); other hostnames are refused and logged. A missing,
     unreadable or invalid record leaves that region with its last good seeds,
     or none, and never stops the local server or the other regions' seeds.
-  - A route dialed to a seed address must present a certificate of a region
-    that claims the address, through a seed record or route gossip; otherwise
-    the TLS handshake fails.
+  - Once a route to a seed address registers, its server name, which only a
+    holder of the mesh CA can present, must belong to the region whose seed
+    record supplied the address. Otherwise the seed is retired and counted in
+    `ts_orch_mesh_seed_routes_refused_total`, and stays retired until that
+    record changes.
   - Each server advertises its NetBird IPv4. Route gossip adds every other
     server, so a region the user orders joins without a release.
 - An in-region worker also dials its founder's VCN address, which it reads
@@ -294,8 +296,9 @@ Activate one region at a time, in order sjc, gru, fra:
   observer and leaves that state when it sees a leader, so it joins the group
   it can reach instead of forming a second one. A founder record is stale when
   it names this founder's region with another SwarmKit cluster, or a region
-  whose seed record is missing or names another cluster, as a record left by
-  a wiped cell does. A region founder replaces a stale record with a
+  whose seed record names another cluster, as a record left by a wiped and
+  refounded cell does. A missing or unreadable seed record proves nothing, so
+  it never makes a founder record stale. A region founder replaces a stale record with a
   compare-and-swap on its Vault version, only while no reachable server holds
   metadata, and restarts its mesh to found the group. A server with metadata
   state recovers its group from disk as before, so a full-fleet restart

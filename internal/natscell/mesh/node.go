@@ -17,7 +17,6 @@ import (
 	"maps"
 	"math"
 	"net/netip"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -173,6 +172,7 @@ type Node struct {
 	membershipConn  *nats.Conn
 	gossip          *inRegionGossip
 	seeds           *seedBook
+	refusedSeeds    atomic.Int64
 	rejectedRoutes  atomic.Int64
 	fabric          *nats.Conn
 	monitor         *nats.Conn
@@ -255,7 +255,7 @@ func start(cfg config) (_ *Node, err error) {
 	seedCtx, seedCancel := context.WithTimeout(context.Background(), seedsEvery)
 	initialSeeds, _ := seeds.install(seeds.read(seedCtx, cfg.records))
 	seedCancel()
-	tlsConfig := cfg.ca.TLS(cfg.region, seeds.claims)
+	tlsConfig := cfg.ca.TLS(cfg.region + "." + Domain)
 	monitorSecret, err := randomHex()
 	if err != nil {
 		return nil, err
@@ -276,10 +276,6 @@ func start(cfg config) (_ *Node, err error) {
 		return nil, err
 	}
 	options.Routes = append(options.Routes, initialSeeds...)
-	options.Cluster.SolicitImplicitRoute = func(name string, route *url.URL, account string) bool {
-		seeds.learn(name, route)
-		return gossip.solicit(name, route, account)
-	}
 	embedded, err := server.NewServer(options)
 	if err != nil {
 		return nil, err

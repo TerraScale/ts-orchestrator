@@ -218,6 +218,7 @@ func (n *Node) reconcileRegionRoutes(members []string) {
 
 func (n *Node) writeRouteMetrics(w io.Writer) {
 	fmt.Fprintf(w, "ts_orch_mesh_region_routes_rejected_total %d\n", n.rejectedRoutes.Load())
+	fmt.Fprintf(w, "ts_orch_mesh_seed_routes_refused_total %d\n", n.refusedSeeds.Load())
 	fmt.Fprintf(w, "ts_orch_mesh_region_routes_rounds_total %d\n", n.gossip.rounds.Load())
 	live := 0
 	if n.membershipLive() {

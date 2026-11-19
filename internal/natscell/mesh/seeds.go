@@ -127,29 +127,24 @@ type seedBook struct {
 	region  string
 	mu      sync.Mutex
 	routes  map[string]string
-	learned map[string]string
+	refused map[string]string
 }
 
 func newSeedBook(region string) *seedBook {
-	return &seedBook{region: region, routes: map[string]string{}, learned: map[string]string{}}
+	return &seedBook{region: region, routes: map[string]string{}, refused: map[string]string{}}
 }
 
-func (b *seedBook) claims(address string) []string {
+func (b *seedBook) regionOf(address string) string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	var regions []string
-	for _, region := range []string{b.routes[address], b.learned[address]} {
-		if region != "" && !slices.Contains(regions, region) {
-			regions = append(regions, region)
-		}
-	}
-	return regions
+	return b.routes[address]
 }
 
-func (b *seedBook) learn(name string, route *url.URL) {
+func (b *seedBook) refuse(address string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.learned[route.Hostname()] = serverRegion(name)
+	b.refused[address] = b.routes[address]
+	delete(b.routes, address)
 }
 
 func (b *seedBook) read(ctx context.Context, records Records) map[string]string {
@@ -209,6 +204,13 @@ func seedURL(address string) *url.URL {
 func (b *seedBook) install(next map[string]string) (added []*url.URL, retired map[string]bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	for address, region := range b.refused {
+		if next[address] == region {
+			delete(next, address)
+		} else {
+			delete(b.refused, address)
+		}
+	}
 	retired = map[string]bool{}
 	for address := range b.routes {
 		if _, kept := next[address]; !kept {
@@ -225,14 +227,20 @@ func (b *seedBook) install(next map[string]string) (added []*url.URL, retired ma
 }
 
 func (n *Node) refreshSeeds() {
-	tick := time.NewTicker(seedsEvery)
+	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
+	read := time.Now()
 	for {
 		select {
 		case <-n.ctx.Done():
 			return
 		case <-tick.C:
 		}
+		n.checkSeedRoutes()
+		if time.Since(read) < seedsEvery {
+			continue
+		}
+		read = time.Now()
 		ctx, cancel := context.WithTimeout(n.ctx, seedsEvery)
 		added, retired := n.seeds.install(n.seeds.read(ctx, n.cfg.records))
 		cancel()
@@ -242,5 +250,18 @@ func (n *Node) refreshSeeds() {
 		if len(added) != 0 {
 			n.server.AddRoutes(added)
 		}
+	}
+}
+
+func (n *Node) checkSeedRoutes() {
+	for _, route := range n.routes() {
+		expected := n.seeds.regionOf(route.IP)
+		if !route.DidSolicit || !route.IsConfigured || expected == "" || serverRegion(route.RemoteName) == expected {
+			continue
+		}
+		n.seeds.refuse(route.IP)
+		n.refusedSeeds.Add(1)
+		slog.Warn("mesh seed reached a server of another region; seed retired", "region", expected, "address", route.IP, "server", route.RemoteName)
+		n.server.RetainRoutes(func(configured *url.URL) bool { return configured.Hostname() != route.IP })
 	}
 }

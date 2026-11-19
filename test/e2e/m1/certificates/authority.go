@@ -186,7 +186,12 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 				token := base64.RawURLEncoding.EncodeToString([]byte("{}")) + "." + base64.RawURLEncoding.EncodeToString(claims) + ".signature"
 				_ = json.NewEncoder(w).Encode(map[string]string{"token": token})
 			case strings.Contains(r.URL.Path, "secretbundles"):
-				value, ok := map[string]string{"ts-orch-mesh-key": cfg.MeshSeed, "gru-1-terrabase-nats-token": cfg.DatabaseToken}[r.URL.Query().Get("secretName")]
+				records := map[string]string{"ts-orch-mesh-key": cfg.MeshSeed, "gru-1-terrabase-nats-token": cfg.DatabaseToken}
+				for _, region := range []string{"sjc", "fra"} {
+					seeds, _ := json.Marshal(mesh.Seeds{Region: region, Version: 1, Cluster: region + "-store", Hosts: []string{"ts-" + region + "-1"}})
+					records[mesh.SeedRecord(region)] = string(seeds)
+				}
+				value, ok := records[r.URL.Query().Get("secretName")]
 				if r.URL.Query().Get("secretName") == "gru-1-terrabase-nats-token" {
 					a.mu.Lock()
 					databaseReads++
@@ -202,7 +207,7 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 					http.Error(w, "production nodes read "+r.URL.Query().Get("secretName")+" from gru-vault, asked "+vault, http.StatusBadRequest)
 					return
 				}
-				_ = json.NewEncoder(w).Encode(map[string]any{"secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString([]byte(value))}, "versionNumber": 1})
+				_ = json.NewEncoder(w).Encode(map[string]any{"secretId": "ocid1.vaultsecret.oc1.sa-saopaulo-1.journey", "secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString([]byte(value))}, "versionNumber": 1})
 			default:
 				http.NotFound(w, r)
 			}

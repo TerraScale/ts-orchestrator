@@ -853,7 +853,6 @@ func main() {
 	}
 	require(dialed.Load() == 0, "a host dialed the forged member %s %d times", oraclehost.GatewayAddress, dialed.Load())
 	step("%s left and was replaced by %s at %s: every %s host routes to it over the VCN and no longer configures %s", departed.Name, replacement.Name, replacement.Address, gru.Name, departed.Address)
-	must(decoy.Close())
 	badPeerRecords(ctx, fleet, first)
 	step("oracle-regions lane passed in %s", time.Since(started).Round(time.Second))
 }

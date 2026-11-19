@@ -2,17 +2,12 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"slices"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
@@ -107,58 +102,28 @@ func vaultGrants(ctx context.Context, fleet *oraclehost.Fleet) {
 	step("the Vault stand-in enforces the shipped host policy per caller compartment: %s reads %s's seed record but not its join bundle, and no host was denied anything else", home.Name, peer.Name)
 }
 
-type seedDecoy struct {
-	listener net.Listener
-	mu       sync.Mutex
-	refused  map[string]bool
-}
-
-func startSeedDecoy(fleet *oraclehost.Fleet, region string) *seedDecoy {
-	value, _ := fleet.Secret("ts-orch-mesh-key")
-	secret, err := hex.DecodeString(strings.TrimSpace(value))
-	must(err)
-	ca, err := mesh.DeriveCA(secret)
-	must(err)
-	leaf, err := ca.Issue(region+"."+mesh.Domain, time.Now())
-	must(err)
-	listener, err := net.Listen("tcp", net.JoinHostPort(oraclehost.GatewayAddress, fmt.Sprint(mesh.ClusterPort)))
-	must(err)
-	decoy := &seedDecoy{listener: listener, refused: map[string]bool{}}
-	config := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{*leaf}, ClientAuth: tls.RequireAnyClientCert}
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			go func() {
-				defer conn.Close()
-				_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-				err := tls.Server(conn, config).Handshake()
-				if err != nil && strings.Contains(err.Error(), "bad certificate") {
-					address, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
-					decoy.mu.Lock()
-					decoy.refused[address] = true
-					decoy.mu.Unlock()
-				}
-			}()
+func refusedSeeds(ctx context.Context, host *oraclehost.Host) int {
+	var count int
+	until(ctx, host.Name+" metrics", func() error {
+		text, err := metrics(ctx, host)
+		if err != nil {
+			return err
 		}
-	}()
-	return decoy
-}
-
-func (d *seedDecoy) refusedBy(address string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.refused[address]
+		for _, line := range strings.Split(text, "\n") {
+			if value, ok := strings.CutPrefix(line, "ts_orch_mesh_seed_routes_refused_total "); ok {
+				_, err := fmt.Sscan(value, &count)
+				return err
+			}
+		}
+		return errors.New("no refused-seed counter")
+	})
+	return count
 }
 
 func badPeerRecords(ctx context.Context, fleet *oraclehost.Fleet, release string) {
 	gru, sjc, pool := fleet.Regions[0], fleet.Regions[1], fleet.Regions[len(fleet.Regions)-1]
-	decoy := startSeedDecoy(fleet, gru.Name)
-	defer decoy.listener.Close()
 	disguised := sjc.Name + "-node-97"
-	must(fleet.Alias(disguised, oraclehost.GatewayAddress))
+	must(fleet.Alias(disguised, gru.Hosts[0].NetBird))
 	current := seedsOf(fleet, sjc.Name)
 	wrong, err := json.Marshal(mesh.Seeds{Region: sjc.Name, Version: current.Version + 1, Cluster: current.Cluster, Hosts: []string{disguised, gru.Hosts[0].Name}})
 	must(err)
@@ -171,19 +136,19 @@ func badPeerRecords(ctx context.Context, fleet *oraclehost.Fleet, release string
 	must(manager.Restart())
 	_, err = manager.WaitReady(ctx, after, release)
 	must(err)
-	until(ctx, manager.Name+" refuses the disguised seed's certificate", func() error {
-		if !decoy.refusedBy(manager.Address) {
-			return errors.New("no refused handshake yet")
+	until(ctx, manager.Name+" retires the disguised seed", func() error {
+		if count := refusedSeeds(ctx, manager); count == 0 {
+			return errors.New("no seed refused yet")
 		}
 		return nil
 	})
 	journal := tail(manager.Dir+"/journal.log", 4000)
-	for _, line := range []string{"mesh peer seed hosts from another region refused", "mesh peer seeds unavailable"} {
+	for _, line := range []string{"mesh peer seed hosts from another region refused", "mesh peer seeds unavailable", "mesh seed reached a server of another region; seed retired"} {
 		require(strings.Contains(journal, line), "%s journal lacks %q", manager.Name, line)
 	}
 	meshRoutes(ctx, fleet)
 	healthy(ctx, manager, release)
 	fleet.UnpinSecret(mesh.SeedRecord(sjc.Name))
 	fleet.UnpinSecret(mesh.SeedRecord(gru.Name))
-	step("%s restarted with %s's seed record naming %s and a disguised %s host, and %s's record missing its version and cluster: it refused the other region's host and the disguised seed's %s certificate, started its local NATS and routes to every manager", manager.Name, sjc.Name, gru.Hosts[0].Name, disguised, gru.Name, gru.Name)
+	step("%s restarted with %s's seed record naming %s and a disguised %s host, and %s's record missing its version and cluster: it refused the other region's host, retired the disguised seed once its route reached %s's manager, started its local NATS and routes to every manager", manager.Name, sjc.Name, gru.Hosts[0].Name, disguised, gru.Name, gru.Name)
 }

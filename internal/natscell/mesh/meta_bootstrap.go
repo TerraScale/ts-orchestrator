@@ -74,10 +74,10 @@ func (n *Node) staleFounding(ctx context.Context, record founding) (bool, error)
 	}
 	value, version, err := n.cfg.records.Read(ctx, SeedRecord(record.Region))
 	if err != nil || version == 0 {
-		return version == 0 && err == nil, err
+		return false, err
 	}
 	seeds, _, err := parseSeeds(record.Region, value)
-	return err != nil || seeds.Cluster != record.Cluster, nil
+	return err == nil && seeds.Cluster != record.Cluster, nil
 }
 
 func (n *Node) found(meta server.RaftNode) bool {
