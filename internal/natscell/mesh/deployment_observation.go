@@ -112,12 +112,19 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 			continue
 		}
 		for _, task := range tasks.Tasks {
-			if task.Status.State != api.TaskStateRunning && task.DesiredState != api.TaskStateRunning {
-				continue
+			row := releasepush.DeploymentTask{ID: task.ID, Host: hosts[task.NodeID], State: task.Status.State.String(), Error: secretpreflight.Scrub(task.Status.Err), StatusAt: swarmruntime.TaskTime(task)}
+			if !row.StatusAt.IsZero() {
+				row.StatusAgeSeconds = max(0, int64(time.Since(row.StatusAt).Seconds()))
 			}
-			row := releasepush.DeploymentTask{Host: hosts[task.NodeID], State: task.Status.State.String(), Reason: secretpreflight.Scrub(task.Status.Err)}
+			row.Reason = row.Error
 			if task.Status.State != api.TaskStateRunning && row.Reason == "" {
 				row.Reason = secretpreflight.Scrub(task.Status.Message)
+			}
+			if task.Status.State == api.TaskStateFailed || task.Status.State == api.TaskStateRejected {
+				app.FailedTasks = append(app.FailedTasks, row)
+			}
+			if task.Status.State != api.TaskStateRunning && task.DesiredState != api.TaskStateRunning {
+				continue
 			}
 			container, err := swarmruntime.DecodeContainer(task)
 			if err == nil && task.Status.State == api.TaskStateRunning {
@@ -161,6 +168,9 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 		}
 		slices.SortFunc(app.Tasks, func(a, b releasepush.DeploymentTask) int {
 			return slices.Compare([]string{a.Host, a.Revision, a.State}, []string{b.Host, b.Revision, b.State})
+		})
+		slices.SortFunc(app.FailedTasks, func(a, b releasepush.DeploymentTask) int {
+			return slices.Compare([]string{a.Host, a.ID}, []string{b.Host, b.ID})
 		})
 		if len(app.Tasks) == 0 {
 			app.Reason = fmt.Sprintf("%s reports no running or pending %s task", n.cfg.server, target.Service)

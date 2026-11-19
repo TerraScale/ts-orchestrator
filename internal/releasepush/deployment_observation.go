@@ -11,22 +11,27 @@ import (
 )
 
 type DeploymentTask struct {
-	Image    string `json:"image"`
-	Host     string `json:"host"`
-	Revision string `json:"revision"`
-	State    string `json:"state"`
-	Reason   string `json:"reason,omitempty"`
+	ID               string    `json:"id"`
+	Image            string    `json:"image"`
+	Host             string    `json:"host"`
+	Revision         string    `json:"revision"`
+	State            string    `json:"state"`
+	Reason           string    `json:"reason,omitempty"`
+	Error            string    `json:"error,omitempty"`
+	StatusAt         time.Time `json:"status_at,omitzero"`
+	StatusAgeSeconds int64     `json:"status_age_seconds"`
 }
 
 type AppDeployment struct {
-	Complete  bool             `json:"complete"`
-	Placement *Placement       `json:"placement,omitempty"`
-	Replicas  uint64           `json:"replicas"`
-	Tasks     []DeploymentTask `json:"tasks"`
-	Host      string           `json:"host"`
-	Reason    string           `json:"reason,omitempty"`
-	Error     string           `json:"error,omitempty"`
-	Failed    bool             `json:"failed"`
+	Complete    bool             `json:"complete"`
+	Placement   *Placement       `json:"placement,omitempty"`
+	Replicas    uint64           `json:"replicas"`
+	Tasks       []DeploymentTask `json:"tasks"`
+	FailedTasks []DeploymentTask `json:"failed_tasks,omitempty"`
+	Host        string           `json:"host"`
+	Reason      string           `json:"reason,omitempty"`
+	Error       string           `json:"error,omitempty"`
+	Failed      bool             `json:"failed"`
 }
 
 type Placement struct {
