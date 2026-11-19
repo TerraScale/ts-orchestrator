@@ -70,6 +70,7 @@ type Updater struct {
 	takeover   chan struct{}
 	announced  *nats.Subscription
 	found      atomic.Pointer[found]
+	considered *found
 	finding    sync.Mutex
 	finder     finder
 	watched    watch
@@ -97,7 +98,11 @@ func (u *Updater) Run(ctx context.Context) error {
 		case <-timer.C:
 		case <-u.wake:
 		}
-		timer.Reset(u.turn(ctx))
+		next := u.turn(ctx)
+		if u.found.Load().differs(u.considered) {
+			next = min(next, checkEvery)
+		}
+		timer.Reset(next)
 	}
 }
 
@@ -180,6 +185,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 	if discovered == nil {
 		return u.Poll
 	}
+	u.considered = discovered
 	release, err := discovered.release, discovered.err
 	u.status.Checked = discovered.checked
 	if release.Seq != 0 {

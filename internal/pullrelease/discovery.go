@@ -95,13 +95,17 @@ func (u *Updater) find(ctx context.Context, fresh bool) (*found, time.Duration) 
 	}
 	result := &found{release: release, err: err, checked: now, seenTag: f.seenTag, seenAt: f.seenAt}
 	u.found.Store(result)
-	if previous == nil || previous.release.Tag() != release.Tag() || previous.release.Seq != release.Seq || errorText(previous.err) != errorText(err) {
+	if result.differs(previous) {
 		select {
 		case u.wake <- struct{}{}:
 		default:
 		}
 	}
 	return result, u.Poll
+}
+
+func (f *found) differs(other *found) bool {
+	return f != nil && (other == nil || other.release.Tag() != f.release.Tag() || other.release.Seq != f.release.Seq || errorText(other.err) != errorText(f.err))
 }
 
 func errorText(err error) string {
