@@ -29,22 +29,22 @@ type Config struct {
 }
 
 type ControllerConfig struct {
-	CandidateID                 string                     `json:"candidate_id"`
-	ArtifactStoreMaxBytes       int64                      `json:"artifact_store_max_bytes,omitzero"`
-	LeaseSeconds                int                        `json:"lease_seconds,omitzero"`
-	RenewSeconds                int                        `json:"renew_seconds,omitzero"`
-	ResponseKeyFile             string                     `json:"response_key_file,omitempty"`
-	BrokerTicketKeyFile         string                     `json:"broker_ticket_key_file,omitempty"`
-	HostNATSIssuerSeedFile      string                     `json:"host_nats_issuer_seed_file,omitempty"`
-	HostTLSIssuerKeyFile        string                     `json:"host_tls_issuer_key_file,omitempty"`
-	HostTLSIssuerCertFile       string                     `json:"host_tls_issuer_cert_file,omitempty"`
-	HostEnrollmentListenAddress string                     `json:"host_enrollment_listen_address,omitempty"`
-	TrustKeyFile                string                     `json:"trust_key_file,omitempty"`
-	OciRegionConfig             string                     `json:"oci_region_config,omitempty"`
-	OciRegionIntentFile         string                     `json:"oci_region_intent_file,omitempty"`
-	PlacementConfig             string                     `json:"placement_config,omitempty"`
-	TrustedSigners              []TrustedSignerConfig      `json:"trusted_signers,omitempty"`
-	Workloads                   map[string]WorkloadProfile `json:"workloads,omitempty"`
+	CandidateID                 string                      `json:"candidate_id"`
+	ArtifactStoreMaxBytes       int64                       `json:"artifact_store_max_bytes,omitzero"`
+	LeaseSeconds                int                         `json:"lease_seconds,omitzero"`
+	RenewSeconds                int                         `json:"renew_seconds,omitzero"`
+	ResponseKeyFile             string                      `json:"response_key_file,omitempty"`
+	BrokerTicketKeyFile         string                      `json:"broker_ticket_key_file,omitempty"`
+	HostNATSIssuerSeedFile      string                      `json:"host_nats_issuer_seed_file,omitempty"`
+	HostTLSIssuerKeyFile        string                      `json:"host_tls_issuer_key_file,omitempty"`
+	HostTLSIssuerCertFile       string                      `json:"host_tls_issuer_cert_file,omitempty"`
+	HostEnrollmentListenAddress string                      `json:"host_enrollment_listen_address,omitempty"`
+	TrustKeyFile                string                      `json:"trust_key_file,omitempty"`
+	OciRegionConfig             string                      `json:"oci_region_config,omitempty"`
+	OciRegionIntentFile         string                      `json:"oci_region_intent_file,omitempty"`
+	PlacementConfig             string                      `json:"placement_config,omitempty"`
+	TrustedSigners              []cellspec.TrustedSigner    `json:"trusted_signers,omitempty"`
+	Workloads                   map[string]cellspec.Profile `json:"workloads,omitempty"`
 	// TerraBaseCACertFile and TerraBaseCAKeyFile are the cell's C# TerraBase
 	// member CA (ts-orch terrabase member-ca). Hosts' member certificate
 	// requests are refused while they are unset.
@@ -77,10 +77,6 @@ type ControllerConfig struct {
 	MachinesAPI *machinesapi.Config `json:"machines_api,omitempty"`
 }
 
-// WorkloadProfile is the cell spec's profile type, so a signed controller
-// config and a signed cell spec describe a role the same way.
-type WorkloadProfile = cellspec.Profile
-
 // SpecTrustConfig lets a lab controller, which has no image trust roots,
 // verify cell specs. Signed production configs refuse it: production
 // controllers use the image's baked roots and deployment identity.
@@ -89,10 +85,6 @@ type SpecTrustConfig struct {
 	DeploymentID      string `json:"deployment_id"`
 	Environment       string `json:"environment"`
 }
-
-// TrustedSignerConfig is the cell spec's signer type, so the signed config
-// and a cell spec signers section grant actors alike.
-type TrustedSignerConfig = cellspec.TrustedSigner
 
 type OperatorConfig struct {
 	Actor                     string `json:"actor"`

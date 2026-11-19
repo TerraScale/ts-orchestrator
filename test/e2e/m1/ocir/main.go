@@ -256,10 +256,11 @@ func main() {
 	must(err)
 	subject := &v1.Descriptor{MediaType: types.OCIManifestSchema1, Digest: digest, Size: int64(len(raw))}
 	subjects := map[string][]byte{host + "/" + repository: raw}
-	identity := sigstore.Identity{Workflow: apppull.Targets[0].Workflow, Ref: "refs/heads/main", Trigger: "push"}
-	_, err = source.Pull(ctx, apppull.Targets[0])
+	terrabaseTarget := appregistry.Targets()[0]
+	identity := sigstore.Identity{Workflow: terrabaseTarget.Workflow, Ref: "refs/heads/main", Trigger: "push"}
+	_, err = source.Pull(ctx, terrabaseTarget)
 	require(err != nil, "unsigned image accepted")
-	unsigned := swarmruntime.Deployment{Repository: "TerraScale/terrascale", RunID: "2", RunAttempt: 1, Revision: revision, Image: "terrabase@" + digest.String(), Workflow: apppull.Targets[0].Workflow}
+	unsigned := swarmruntime.Deployment{Repository: "TerraScale/terrascale", RunID: "2", RunAttempt: 1, Revision: revision, Image: "terrabase@" + digest.String(), Workflow: terrabaseTarget.Workflow}
 	unsignedResolver, err := swarmruntime.AppImageResolver(client, unsigned, imagetrust.Verifier{Root: trusted, Transport: t})
 	must(err)
 	_, _, err = unsignedResolver.Resolve(ctx, unsigned.Image)
@@ -269,7 +270,7 @@ func main() {
 	attach(ctx, subject, buildBundle, t)
 	identity.Trigger = "workflow_dispatch"
 	attach(ctx, subject, authority.Selection(identity, revision, "2", "terrabase", map[string][]byte{"app-canary-manifest.json": raw}), t)
-	selected, err := source.Pull(ctx, apppull.Targets[0])
+	selected, err := source.Pull(ctx, terrabaseTarget)
 	must(err)
 	require(selected.Image == "terrabase@"+digest.String(), "fleet image gained a region or changed digest")
 	deployment := swarmruntime.Deployment{Repository: selected.Claims.Repository, RunID: selected.Claims.RunID, RunAttempt: 1, Revision: revision, Image: selected.Image, Workflow: selected.Claims.JobWorkflowRef}
@@ -328,10 +329,10 @@ func main() {
 	for _, origin := range []string{"https://another-region.ocir.io", "http://" + host} {
 		redirectOrigin = origin
 		redirectPath = "/v2/" + repository + "/blobs/" + configDigest.String()
-		_, err = source.Pull(ctx, apppull.Targets[0])
+		_, err = source.Pull(ctx, terrabaseTarget)
 		require(err != nil && strings.Contains(err.Error(), "request outside regional OCIR"), "discovery followed a config redirect outside regional OCIR")
 		redirectPath = "/v2/" + repository + "/blobs/" + bundleDigest.String()
-		_, err = source.Pull(ctx, apppull.Targets[0])
+		_, err = source.Pull(ctx, terrabaseTarget)
 		require(err != nil && strings.Contains(err.Error(), "request outside regional OCIR"), "discovery followed a bundle redirect outside regional OCIR")
 		_, _, err = resolver.Resolve(ctx, selected.Image)
 		require(err != nil && strings.Contains(err.Error(), "request outside regional OCIR"), "executor followed a bundle redirect outside regional OCIR")
@@ -346,7 +347,7 @@ func main() {
 	redirectPath = ""
 	fmt.Println("ok: discovery, offline verification and executor refuse cross-host and HTTP redirects")
 	fallback = false
-	selected, err = source.Pull(ctx, apppull.Targets[0])
+	selected, err = source.Pull(ctx, terrabaseTarget)
 	must(err)
 	require(selected.Claims.RunID == "2", "referrers API changed verified identity")
 	fmt.Println("ok: offline OCI referrers API provenance also verifies")
@@ -361,7 +362,7 @@ func main() {
 	changedSubject := &v1.Descriptor{MediaType: types.OCIManifestSchema1, Digest: changedDigest, Size: int64(len(changedRaw))}
 	attach(ctx, changedSubject, authority.Bundle(identity, revision, "1", subjects), t)
 	attach(ctx, changedSubject, authority.Selection(identity, revision, "2", "terrabase", map[string][]byte{"app-canary-manifest.json": raw}), t)
-	_, err = source.Pull(ctx, apppull.Targets[0])
+	_, err = source.Pull(ctx, terrabaseTarget)
 	require(err != nil, "tampered image accepted another digest provenance")
 	deployment.Image = "terrabase@" + changedDigest.String()
 	resolver, err = swarmruntime.AppImageResolver(client, deployment, imagetrust.Verifier{Root: trusted, Transport: t})

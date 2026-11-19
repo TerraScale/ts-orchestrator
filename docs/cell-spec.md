@@ -11,8 +11,7 @@ A cell spec is a running cell's signed desired state. Operators change it on
 running controllers with `ts-orch get`, `diff` and `apply`; nothing is
 rebuilt and no controller config is edited. Package
 [`internal/cellspec`](../internal/cellspec) holds the model and its
-signatures. The controller side is
-[`internal/app/cell_spec_registry.go`](../internal/app/cell_spec_registry.go).
+signatures.
 
 ## Model
 

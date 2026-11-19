@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutlease"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -174,13 +175,13 @@ func (u *Updater) caughtUp(ctx context.Context, id string) string {
 func (s *Store) loadFromLeader(ctx context.Context, region string) (Status, error) {
 	request, err := json.Marshal(struct {
 		LastBySubject string `json:"last_by_subj"`
-	}{"$KV." + Bucket + "." + region})
+	}{"$KV." + rolloutlease.Bucket + "." + region})
 	if err != nil {
 		return Status{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, askWait)
 	defer cancel()
-	message, err := s.fabric.RequestWithContext(ctx, "$JS.API.STREAM.MSG.GET.KV_"+Bucket, request)
+	message, err := s.fabric.RequestWithContext(ctx, "$JS.API.STREAM.MSG.GET.KV_"+rolloutlease.Bucket, request)
 	if err != nil {
 		return Status{}, err
 	}

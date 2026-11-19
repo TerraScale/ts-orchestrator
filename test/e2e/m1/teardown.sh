@@ -15,6 +15,12 @@ enabled_units() {
 	systemctl list-unit-files --plain --no-legend | awk '$2 ~ /^(enabled|enabled-runtime)$/ && $1 ~ /^(ts-orch.*|containerd.*|netbird.*|terrascale-.*|ts-e2e-.*|docker\.(service|socket))$/ {print $1}'
 }
 
+lane_unit_files() {
+	sudo find /etc/systemd/system /run/systemd/system \
+		\( -name 'ts-orch*' -o -name 'containerd*' -o -name 'netbird*' -o -name 'terrascale-*' -o -name 'ts-e2e-*' \) \
+		-prune "$@"
+}
+
 volume_mounts() {
 	findmnt --raw --noheadings --output TARGET | awk '$0 ~ "^/((run|var/lib)/containerd(/|$)|var/lib/ts-(data|orch)(/|$))"' | sort -r
 }
@@ -82,6 +88,11 @@ check_clean() {
 	units=$(enabled_units)
 	if [[ -n $units ]]; then
 		echo "::error::Lane found leftover enabled units: $units"
+		failed=1
+	fi
+	units=$(lane_unit_files -print)
+	if [[ -n $units ]]; then
+		echo "::error::Lane found leftover unit files: $units"
 		failed=1
 	fi
 	if processes=$(pgrep -l -f "$process_pattern"); then
@@ -240,9 +251,7 @@ if [[ -f $baseline/ip-forward ]]; then
 	sudo sysctl -q -w "net.ipv4.ip_forward=$(cat "$baseline/ip-forward")"
 fi
 
-sudo find /etc/systemd/system /run/systemd/system \
-	\( -name 'ts-orch*' -o -name 'containerd*' -o -name 'netbird-server*' -o -name 'terrascale-*' -o -name 'ts-e2e-*' \) \
-	-prune -exec rm -rf {} +
+lane_unit_files -exec rm -rf {} +
 sudo systemctl daemon-reload
 sudo rm -rf /var/lib/ts-orch /var/lib/ts-data /var/lib/ts-orch-bootstrap /var/lib/containerd /run/containerd \
 	/etc/ts-orch/data-volume-* /usr/local/lib/ts-orch /dev/oracleoci/oraclevdb \

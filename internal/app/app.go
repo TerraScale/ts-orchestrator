@@ -141,8 +141,9 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	meshDone := make(chan struct{})
 	meshServing := make(chan struct{})
 	served := sync.OnceFunc(func() { close(meshServing) })
+	drain := handoff.NewRegionalDrain()
 	if plan.region == "" || plan.joiner() && plan.address == "" {
-		handoff.SetTaskDrainer(func(context.Context, string) error {
+		drain.SetTaskDrainer(func(context.Context, string) error {
 			return errors.New("regional TerraBase drain is unavailable")
 		})
 		served()
@@ -174,7 +175,7 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 					follow := node.FollowEdgeInventory(*state)
 					inventory.Store(&follow)
 				}
-				handoff.SetTaskDrainer(node.DrainTask)
+				drain.SetTaskDrainer(node.DrainTask)
 			})
 			close(meshDone)
 		}()
@@ -183,7 +184,7 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	var nodeErr error
 	go func() {
 		defer close(nodeDone)
-		nodeErr = serveNode(ctx, *state, output, plan, public, probation, swarmReady, meshServing, func() {
+		nodeErr = serveNode(ctx, *state, output, plan, public, probation, swarmReady, meshServing, drain, func() {
 			plannedstop.Begin(ctx)
 			cancel()
 		}, func(ctx context.Context, service string) releasepush.HealthResult {
