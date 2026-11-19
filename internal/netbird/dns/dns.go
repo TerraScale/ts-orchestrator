@@ -32,7 +32,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("netbird dns", flag.ContinueOnError)
 	fs.SetOutput(out)
 	command := fs.String("netbird", "netbird", "NetBird command, split on spaces")
-	configDir := fs.String("config-dir", "", "native client config.d directory (prebuilt image)")
+	configDir := fs.String("config-dir", "", "native client config.d directory")
 	split := fs.Bool("split-resolver", false, "route nb.ts.internal to a host-network container resolver")
 	upstream := fs.String("upstream", "", "existing default DNS server (required for split-resolver)")
 	apply := fs.Bool("apply", false, "install and start persistent DNS configuration")

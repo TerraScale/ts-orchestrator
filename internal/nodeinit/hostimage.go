@@ -1,13 +1,11 @@
 package nodeinit
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"regexp"
+
+	json "encoding/json/v2"
 
 	image "github.com/TerraScale/ts-orchestrator/deploy/image"
 )
@@ -52,13 +50,8 @@ func PinnedHostImage(region, arch string) (HostImage, bool, error) {
 		Schema string      `json:"schema"`
 		Images []HostImage `json:"images"`
 	}
-	decoder := json.NewDecoder(bytes.NewReader(image.HostImages))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&manifest); err != nil {
+	if err := json.Unmarshal(image.HostImages, &manifest, json.RejectUnknownMembers(true)); err != nil {
 		return HostImage{}, false, fmt.Errorf("deploy/image/host-images.json: %w", err)
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return HostImage{}, false, errors.New("deploy/image/host-images.json has data after its manifest")
 	}
 	if manifest.Schema != hostImagesSchema || manifest.Images == nil {
 		return HostImage{}, false, fmt.Errorf("deploy/image/host-images.json needs schema %s and an images list", hostImagesSchema)

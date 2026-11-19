@@ -270,6 +270,94 @@ test -f /var/lib/ts-orch/identity-kept
 cmp /etc/systemd/system/ts-orch.service.d/data-volume.conf /etc/systemd/system/netbird-server.service.d/data-volume.conf
 echo "data volume: format once; consumed stale permission and second first boot refuse unchanged; adoption preserves UUID, data and identity"
 echo "data volume: real mount report and serial verified; adoption serial mismatch refuses with zero disk writes; unmounted host and UUID service precondition refuse"
+rm -f /etc/ts-orch/data-volume-uuid /etc/ts-orch/data-volume-serial
+printf 'terrascale-orchestrator baked image release\n' > "$work/binary-baked"
+printf 'terrascale-orchestrator launch release\n' > "$work/launch-release"
+printf 'terrascale-orchestrator pushed release\n' > "$work/binary-pushed"
+baked_sum=$(sha256sum "$work/binary-baked" | cut -d' ' -f1)
+launch_sum=$(sha256sum "$work/launch-release" | cut -d' ' -f1)
+pushed_sum=$(sha256sum "$work/binary-pushed" | cut -d' ' -f1)
+nodeinit_cleanup() {
+ kill "$release_pid" "$nodeinit_metadata_pid" 2>/dev/null || true
+ wait "$release_pid" "$nodeinit_metadata_pid" 2>/dev/null || true
+ ip addr del 169.254.169.254/32 dev lo 2>/dev/null || true
+}
+trap nodeinit_cleanup EXIT
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj /CN=ts-e2e-ca -keyout "$work/ca.key" -out "$work/ca.pem" 2>/dev/null
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -subj /CN=127.0.0.1 -keyout "$work/localhost.key" -out "$work/localhost.csr" 2>/dev/null
+openssl x509 -req -in "$work/localhost.csr" -CA "$work/ca.pem" -CAkey "$work/ca.key" -days 2 -extfile <(echo "subjectAltName=IP:127.0.0.1") -out "$work/localhost.pem" 2>/dev/null
+(cd "$work" && exec openssl s_server -quiet -WWW -accept 8443 -cert localhost.pem -key localhost.key) >/dev/null 2>&1 &
+release_pid=$!
+cat > "$work/nodeinit-metadata.py" <<'PY'
+import http.server, json, sys
+class Metadata(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+    def do_GET(self):
+        if self.path != "/opc/v2/instance/metadata/":
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({
+            "terrascale-release-url": "https://127.0.0.1:8443/launch-release",
+            "terrascale-release-sha256": sys.argv[1],
+            "terrascale-data-volume": "ocid1.volume.oc1.test.data",
+            "terrascale-data-may-format": "false",
+            "terrascale-data-uuid": sys.argv[2],
+        }).encode())
+server = http.server.ThreadingHTTPServer(("169.254.169.254", 80), Metadata)
+with open(sys.argv[3], "w") as ready:
+    ready.write("ready\n")
+server.serve_forever()
+PY
+ip addr replace 169.254.169.254/32 dev lo
+mkfifo "$work/nodeinit-ready"
+python3 "$work/nodeinit-metadata.py" "$launch_sum" "$uuid" "$work/nodeinit-ready" >"$work/nodeinit-metadata.log" 2>&1 &
+nodeinit_metadata_pid=$!
+exec {nodeinit_ready}<>"$work/nodeinit-ready"
+read -r -t 10 -u "$nodeinit_ready" nodeinit_ready_line
+exec {nodeinit_ready}>&-
+nodeinit_drill() {
+ local binary=$1 marker=$2 log=$3 mode=$4 expected_sum=$5 pattern=$6
+ unshare --mount --fork bash -c '
+  set -euo pipefail
+  umount /var/lib/ts-orch /var/lib/ts-data 2>/dev/null || true
+  mount -t tmpfs tmpfs /usr/local/bin
+  install -m 0755 "$1" /usr/local/bin/terrascale-orchestrator
+  printf "%s\n" "$2" > /usr/local/lib/ts-orch/image-release.sha256
+  export SSL_CERT_FILE="$3" NO_PROXY="*" no_proxy="*"
+  if "$4" node-init > "$5" 2>&1; then
+   ran=0
+  else
+   ran=$?
+  fi
+  sed -i "s|serial=\$(lsblk |serial=\$("$8"/probe-bin/lsblk |" /usr/local/lib/ts-orch/data-mount-check.sh
+  if test "$6" = keep; then
+   test "$ran" = 0
+   test "$(sha256sum /usr/local/bin/terrascale-orchestrator | cut -d" " -f1)" = "$7"
+   mountpoint -q /var/lib/ts-data
+   mountpoint -q /var/lib/ts-orch
+   test -f /var/lib/ts-data/terrabase/kept
+   bash /usr/local/lib/ts-orch/data-mount-check.sh
+  else
+   test "$ran" != 0
+   test "$(sha256sum /usr/local/bin/terrascale-orchestrator | cut -d" " -f1)" = "$7"
+   if mountpoint -q /var/lib/ts-data; then exit 1; fi
+  fi
+  grep -q "$9" "$5"
+ ' bash "$binary" "$marker" "$work/ca.pem" "$binaries/terrascale-orchestrator" "$log" "$mode" "$expected_sum" "$work" "$pattern"
+}
+nodeinit_drill "$work/binary-baked" "$baked_sum" "$work/nodeinit-first.log" keep "$launch_sum" "replaced the image's binary sha256 $baked_sum with launch release $launch_sum"
+install -d -m 0755 /var/lib/ts-orch/nats
+printf '{"sha256":["%s"]}\n' "$baked_sum" > /var/lib/ts-orch/nats/release-installed
+nodeinit_drill "$work/binary-baked" "$baked_sum" "$work/nodeinit-rebind.log" keep "$baked_sum" "has sha256 $baked_sum, not launch release $launch_sum"
+nodeinit_drill "$work/binary-pushed" "$baked_sum" "$work/nodeinit-foreign.log" refuse "$pushed_sum" "neither the launch release nor the self-update record"
+rm -f /etc/ts-orch/data-volume-uuid /etc/ts-orch/data-volume-serial
+nodeinit_drill "$work/binary-pushed" "$baked_sum" "$work/nodeinit-unbound.log" refuse "$pushed_sum" "nothing is bound or formatted"
+nodeinit_cleanup
+echo "node-init: first bind replaces the baked image binary with the launch release and mounts the volume; a recorded rebind keeps the baked binary; a foreign digest refuses with and without records"
 sed -i "s|serial=\$(lsblk |serial=\$($work/probe-bin/lsblk |" /usr/local/lib/ts-orch/data-mount-check.sh
 export PATH="$original_path"
 kill "$metadata_pid"
