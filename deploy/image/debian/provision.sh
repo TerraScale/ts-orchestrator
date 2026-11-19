@@ -4,8 +4,6 @@ export DEBIAN_FRONTEND=noninteractive
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 source /run/ts-image-env
-stat -c 'Build resolver mode=%a owner=%u:%g' /etc/resolv.conf
-cat /etc/resolv.conf /etc/nsswitch.conf
 
 rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
 echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/$TS_SNAPSHOT/ trixie main" > /etc/apt/sources.list.d/ts-snapshot.list

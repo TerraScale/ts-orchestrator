@@ -48,7 +48,7 @@ for unit in "${units[@]}"; do
 	uploads+=(--upload "$unit:/etc/systemd/system/${unit##*/}" --run-command "chown root:root /etc/systemd/system/${unit##*/}")
 done
 
-LIBGUESTFS_BACKEND=direct virt-customize --verbose \
+LIBGUESTFS_BACKEND=direct virt-customize \
 	-a "$work/base.qcow2" \
 	--network \
 	"${uploads[@]}" \

@@ -53,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64, amd64]
+        arch: [amd64]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -64,7 +64,6 @@ jobs:
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libguestfs-tools guestfish jq
           sudo chmod a+r /boot/vmlinuz-*
-          passt --version
       - name: Build the image
         env:
           LIBGUESTFS_BACKEND: direct
@@ -123,7 +122,7 @@ jobs:
           set -euo pipefail
           tag="host-image-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
           files=("$RUNNER_TEMP"/out/ts-host-debian13-*/*.qcow2 "$RUNNER_TEMP"/out/ts-host-debian13-*/*.qcow2.sha256)
-          test "${#files[@]}" -eq 4
+          test "${#files[@]}" -eq 2
           gh release create "$tag" "${files[@]}" -R "${{ github.repository }}" --target "$GITHUB_SHA" --title "$tag" \
             --draft --prerelease --latest=false \
             --notes "Debian 13 host image candidates from ${GITHUB_SHA}. C2t must qualify OCI image capabilities and guest device aliases before promotion."
