@@ -108,7 +108,7 @@ func launch(ctx context.Context, client core.ComputeClient, region Region) (comp
 	if !ok {
 		return compute.Launch{}, fmt.Errorf("attested release %s has no %s binary", release.attested.Tag(), arch)
 	}
-	pinned, prebuilt, err := nodeinit.PinnedHostImage(region.OCIRegion, arch)
+	pinned, prebuilt, err := nodeinit.PinnedHostImage(region.Label, arch)
 	if err != nil {
 		return compute.Launch{}, err
 	}

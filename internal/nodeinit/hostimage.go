@@ -8,6 +8,7 @@ import (
 	json "encoding/json/v2"
 
 	image "github.com/TerraScale/ts-orchestrator/deploy/image"
+	"github.com/TerraScale/ts-orchestrator/internal/fleetregion"
 )
 
 const (
@@ -17,7 +18,6 @@ const (
 )
 
 var (
-	ociRegion     = regexp.MustCompile(`^[a-z]+-[a-z]+-[0-9]+$`)
 	imageOCID     = regexp.MustCompile(`^ocid1\.image\.oc1\.([a-z0-9-]+)\.[a-z0-9]+$`)
 	debianRelease = regexp.MustCompile(`^[0-9]+$`)
 	hostArches    = map[string]bool{"amd64": true, "arm64": true}
@@ -38,14 +38,17 @@ func imageInRegion(imageID, region string) bool {
 }
 
 type HostImage struct {
-	Region  string `json:"region"`
+	Label   string `json:"label"`
 	Arch    string `json:"arch"`
 	ImageID string `json:"image_ocid"`
 	Debian  string `json:"debian"`
 	SHA256  string `json:"sha256"`
 }
 
-func PinnedHostImage(region, arch string) (HostImage, bool, error) {
+func PinnedHostImage(label, arch string) (HostImage, bool, error) {
+	if _, err := fleetregion.Lookup(label); err != nil {
+		return HostImage{}, false, fmt.Errorf("host image pin: %w", err)
+	}
 	var manifest struct {
 		Schema string      `json:"schema"`
 		Images []HostImage `json:"images"`
@@ -60,13 +63,14 @@ func PinnedHostImage(region, arch string) (HostImage, bool, error) {
 	found := false
 	seen := map[[2]string]bool{}
 	for index, entry := range manifest.Images {
-		key := [2]string{entry.Region, entry.Arch}
-		if !ociRegion.MatchString(entry.Region) || !hostArches[entry.Arch] ||
-			!imageInRegion(entry.ImageID, entry.Region) || !debianRelease.MatchString(entry.Debian) || !sha256Hex.MatchString(entry.SHA256) || seen[key] {
-			return HostImage{}, false, fmt.Errorf("deploy/image/host-images.json image %d needs an OCI region, amd64 or arm64, an image OCID of that region, a Debian release and a lowercase sha256, once per region and arch", index)
+		key := [2]string{entry.Label, entry.Arch}
+		location, err := fleetregion.Lookup(entry.Label)
+		if err != nil || !hostArches[entry.Arch] ||
+			!imageInRegion(entry.ImageID, location.OCIRegion) || !debianRelease.MatchString(entry.Debian) || !sha256Hex.MatchString(entry.SHA256) || seen[key] {
+			return HostImage{}, false, fmt.Errorf("deploy/image/host-images.json image %d needs a fleet label, amd64 or arm64, an image OCID of that label's OCI region, a Debian release and a lowercase sha256, once per label and arch", index)
 		}
 		seen[key] = true
-		if entry.Region == region && entry.Arch == arch {
+		if entry.Label == label && entry.Arch == arch {
 			pinned, found = entry, true
 		}
 	}

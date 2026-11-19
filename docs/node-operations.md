@@ -34,7 +34,7 @@ runc 1.5.2, chrony and the units installed. First boot runs only
 the baked binary when the launch release differs, and binds and mounts the
 data volume. It runs no apt and installs no packages. The image is built by
 `.github/workflows/host-image.yml` from `deploy/image/debian/` and pinned per
-region and arch in `deploy/image/host-images.json`. A region with no pinned
+fleet label and arch in `deploy/image/host-images.json`. A label with no pinned
 entry still uses the Ubuntu first-boot path until it is removed.
 
 ### Publish a host image
@@ -97,12 +97,24 @@ capability schemas.
 ### Pin a host image
 
 Add the printed entry to `deploy/image/host-images.json` in a pull request.
-`internal/nodeinit.PinnedHostImage` matches the entry's `region`, an OCI
-region name, and `arch`; once it is on main, `ts-orch region add <code>` and
-the fleet reconciler launch new hosts of that region and arch from the image
-with release metadata and no `user_data`. Running hosts are not touched.
-The staging entry and `sjc` share the OCI region `us-sanjose-1`, so a pin
-there applies to both: pin it only once the image is proven for production.
+`internal/nodeinit.PinnedHostImage` matches the entry's `label`, a fleet
+label (`stg`, `sjc`, `fra`, `gru`), and `arch`, and requires the image OCID
+to be in that label's OCI region; an unknown requested label is an error.
+`stg` and `sjc` share `us-sanjose-1`, but a `stg` entry never matches `sjc`.
+
+The pin takes effect when a binary containing it handles
+`ts-orch region add <code>` (by the catalog code) or runs the fleet compute
+pass (by the fleet region's label). The compute pass then reuses or creates
+an instance configuration with the image and release metadata and no
+`user_data`, switches the pool to it once the pool is settled, and deletes
+the stale configuration; only members launched after that boot the image.
+Running hosts are not touched. Verify the rollout with the pass's
+`instance-configuration` lines and the next member's boot image.
+
+No label is pinned yet. The current image's `ts-node-init` exits when the
+pool has not bound the member's data volume at first boot, so a pool member
+can boot without `ts-orch`; a pin waits for an image whose first boot waits
+for that binding.
 
 ## The flow
 

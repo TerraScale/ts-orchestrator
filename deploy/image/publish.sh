@@ -268,8 +268,8 @@ publish() {
 	set_capabilities "$region" "$compartment" "$image"
 	set_shapes "$region" "$image" "$arch"
 	release_lock
-	jq -cn --arg region "$region" --arg arch "$arch" --arg image "$image" --arg debian "$debian" --arg sum "$sum" \
-		'{region: $region, arch: $arch, image_ocid: $image, debian: $debian, sha256: $sum}'
+	jq -cn --arg label "$label" --arg arch "$arch" --arg image "$image" --arg debian "$debian" --arg sum "$sum" \
+		'{label: $label, arch: $arch, image_ocid: $image, debian: $debian, sha256: $sum}'
 }
 
 for label in "${labels[@]}"; do
