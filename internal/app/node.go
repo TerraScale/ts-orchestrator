@@ -147,7 +147,18 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 		report.Targets = observeDeploymentTargets(ctx, releases, plan.region)
 		return report, err
 	}
-	public.SetObserver(http.HandlerFunc(releases.Observe))
+	releases.Discover = func(ctx context.Context) (releasepush.Discovery, error) {
+		conn, err := mesh.Connect(state)
+		if err != nil {
+			return releasepush.Discovery{}, err
+		}
+		defer conn.Close()
+		return pullrelease.Ask(ctx, conn, plan.region)
+	}
+	releaseRoutes := http.NewServeMux()
+	releaseRoutes.HandleFunc(releasepush.ObservationPath, releases.Observe)
+	releaseRoutes.HandleFunc(releasepush.AnnouncePath, releases.Announce)
+	public.SetObserver(releaseRoutes)
 	subscribed := make(chan struct{})
 	if plan.region != "" {
 		go serveHostReleases(ctx, state, plan.region, node, releases, sync.OnceFunc(func() { close(subscribed) }))

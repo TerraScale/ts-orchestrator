@@ -93,23 +93,24 @@ func OpenTarget(ctx context.Context, repository string, auth authn.Authenticator
 		Registry: Registry{Base: "https://" + repo.RegistryStr(), Repository: repo.RepositoryStr(), Client: &http.Client{Transport: pull, Timeout: requestWait}}}, nil
 }
 
-func Destinations(ctx context.Context) ([]*appregistry.Client, error) {
+type Destination struct {
+	Label   string
+	Client  *appregistry.Client
+	Staging bool
+}
+
+func Destinations(ctx context.Context) ([]Destination, error) {
 	document := fleet.Embedded()
-	labels := []string{}
-	for _, region := range document.Regions {
-		labels = append(labels, region.Label)
-	}
-	labels = append(labels, document.Staging.Label)
-	destinations := []*appregistry.Client{}
-	for _, label := range labels {
-		client, err := appregistry.Regional(ctx, label)
+	destinations := []Destination{}
+	for _, region := range document.All() {
+		client, err := appregistry.Regional(ctx, region.Label)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", label, err)
+			return nil, fmt.Errorf("%s: %w", region.Label, err)
 		}
 		if _, err := client.Repository(Package); err != nil {
-			return nil, fmt.Errorf("%s: %w", label, err)
+			return nil, fmt.Errorf("%s: %w", region.Label, err)
 		}
-		destinations = append(destinations, client)
+		destinations = append(destinations, Destination{Label: region.Label, Client: client, Staging: region.Label == document.Staging.Label})
 	}
 	return destinations, nil
 }
@@ -131,26 +132,26 @@ func (t Target) Push(tag string, image Image) error {
 	return nil
 }
 
-func Publish(ctx context.Context, target Target, attest releaseattest.Verifier, artifact Image, signed releaseattest.SignedChannel, output io.Writer) error {
+func Publish(ctx context.Context, target Target, attest releaseattest.Verifier, artifact Image, signed releaseattest.SignedChannel, output io.Writer) (time.Time, error) {
 	channel, err := attest.Channel(signed)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if artifact.Digest() != channel.Artifact {
-		return fmt.Errorf("channel seq %d names artifact %s, the release is %s", channel.Seq, channel.Artifact, artifact.Digest())
+		return time.Time{}, fmt.Errorf("channel seq %d names artifact %s, the release is %s", channel.Seq, channel.Artifact, artifact.Digest())
 	}
 	if err := target.Push(channel.Tag(), artifact); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if _, digest, err := target.Registry.Manifest(ctx, channel.Tag()); err != nil || digest != channel.Artifact {
-		return fmt.Errorf("artifact %s reads back as %s: %v", channel.Tag(), digest, err)
+		return time.Time{}, fmt.Errorf("artifact %s reads back as %s: %v", channel.Tag(), digest, err)
 	}
 	current, _, err := Read(ctx, target.Registry, Stable)
 	var missing *releaseattest.NotFoundError
 	switch {
 	case errors.As(err, &missing):
 	case err != nil:
-		return fmt.Errorf("current channel: %w", err)
+		return time.Time{}, fmt.Errorf("current channel: %w", err)
 	default:
 		published, err := attest.Channel(current)
 		if err != nil {
@@ -160,29 +161,30 @@ func Publish(ctx context.Context, target Target, attest releaseattest.Verifier, 
 		if published.Seq > channel.Seq || published.Seq == channel.Seq && published.Tag() == channel.Tag() {
 			fmt.Fprintf(output, "%s: channel already at seq %d (%s); left unchanged\n", target.Repository, published.Seq, published.Tag())
 			_, err := Resolve(ctx, target.Registry, attest, current)
-			return err
+			return time.Time{}, err
 		}
 		if published.Seq == channel.Seq {
-			return fmt.Errorf("channel seq %d already names %s, not %s", channel.Seq, published.Tag(), channel.Tag())
+			return time.Time{}, fmt.Errorf("channel seq %d already names %s, not %s", channel.Seq, published.Tag(), channel.Tag())
 		}
 	}
 	image := ChannelImage(signed)
 	if err := target.Push(Stable, image); err != nil {
-		return err
+		return time.Time{}, err
 	}
+	moved := time.Now().UTC()
 	readBack, digest, err := Read(ctx, target.Registry, Stable)
 	if err != nil {
-		return fmt.Errorf("channel reads back: %w", err)
+		return time.Time{}, fmt.Errorf("channel reads back: %w", err)
 	}
 	if digest != image.Digest() {
-		return fmt.Errorf("channel reads back as %s, pushed %s", digest, image.Digest())
+		return time.Time{}, fmt.Errorf("channel reads back as %s, pushed %s", digest, image.Digest())
 	}
 	release, err := Resolve(ctx, target.Registry, attest, readBack)
 	if err != nil {
-		return fmt.Errorf("channel read back does not verify: %w", err)
+		return time.Time{}, fmt.Errorf("channel read back does not verify: %w", err)
 	}
-	fmt.Fprintf(output, "%s: channel seq %d -> %s artifact %s verified\n", target.Repository, release.Seq, release.Tag(), channel.Artifact)
-	return nil
+	fmt.Fprintf(output, "%s: channel seq %d -> %s artifact %s accepted at %s, verified\n", target.Repository, release.Seq, release.Tag(), channel.Artifact, moved.Format(time.RFC3339Nano))
+	return moved, nil
 }
 
 func ReadDist(dist string) (map[string][]byte, []byte, error) {
@@ -222,7 +224,9 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 
 const usage = "usage: ts-orch release channel prepare <dist> <sha> <run> <seq> <channel.json> | publish <dist> <channel dir>"
 
-func Run(ctx context.Context, args []string, output io.Writer) error {
+type Announce func(ctx context.Context, region string, seq uint64, moved time.Time, output io.Writer) error
+
+func Run(ctx context.Context, args []string, output io.Writer, announce Announce) error {
 	switch {
 	case len(args) == 6 && args[0] == "prepare":
 		binaries, provenance, err := ReadDist(args[1])
@@ -258,24 +262,35 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		if err != nil {
 			return err
 		}
+		channel, err := attest.Channel(signed)
+		if err != nil {
+			return err
+		}
 		artifact := ArtifactImage(binaries, provenance)
 		out := &lineWriter{w: output}
 		failed := make([]error, len(destinations))
 		var wg sync.WaitGroup
-		for i, client := range destinations {
+		for i, destination := range destinations {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				repository, _ := client.Repository(Package)
+				repository, _ := destination.Client.Repository(Package)
 				regionCtx, cancel := context.WithTimeout(ctx, regionPublishBound)
 				defer cancel()
-				err := publishTo(regionCtx, client, attest, artifact, signed, out)
+				moved, err := publishTo(regionCtx, destination.Client, attest, artifact, signed, out)
 				if err != nil {
 					if errors.Is(err, context.DeadlineExceeded) {
 						err = fmt.Errorf("registry operation timed out")
 					}
 					fmt.Fprintf(out, "%s: FAILED: %v\n", repository, err)
 					failed[i] = fmt.Errorf("%s: %w", repository, err)
+					return
+				}
+				if !destination.Staging {
+					if err := announce(ctx, destination.Label, channel.Seq, moved, out); err != nil {
+						fmt.Fprintf(out, "%s: FAILED: %v\n", repository, err)
+						failed[i] = fmt.Errorf("%s: %w", repository, err)
+					}
 				}
 			}()
 		}
@@ -285,22 +300,22 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	return errors.New(usage)
 }
 
-func publishTo(ctx context.Context, client *appregistry.Client, attest releaseattest.Verifier, artifact Image, signed releaseattest.SignedChannel, output io.Writer) error {
+func publishTo(ctx context.Context, client *appregistry.Client, attest releaseattest.Verifier, artifact Image, signed releaseattest.SignedChannel, output io.Writer) (time.Time, error) {
 	repository, err := client.Repository(Package)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	repo, err := name.NewRepository(repository)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	auth, err := authn.DefaultKeychain.Resolve(repo.Registry)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	target, err := OpenTarget(ctx, repository, auth, client.BoundTransport(nil))
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	return Publish(ctx, target, attest, artifact, signed, output)
 }

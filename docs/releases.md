@@ -68,6 +68,19 @@ release's own amd64 binary:
    late older run never moves the channel back or writes a seq twice; the same
    seq for another release fails the job. Every region is tried; any failed
    region makes the job red.
+4. Once a fleet region's channel verifies, the job announces it: it posts to
+   `https://<region>.mesh.terrascale.tech/orchestrator/release` with a GitHub
+   OIDC token (audience `ts-orch`) that only `ci.yml` on main may present. The
+   host that receives it asks the region's rollout owner over NATS
+   (`ts.mesh.pull-discover.<region>`); the owner reads `stable` at once and
+   answers with the release it found and when it first saw it, and the job
+   prints that time and how long after the registry accepted the channel it
+   came. When no host owns the rollout, the job says so; the next owner reads
+   the channel when it takes over. A refused announcement, an owner that cannot
+   read the channel or an owner that reads an older seq makes the job red. The
+   announcement carries no release: the owner trusts only what it reads and
+   verifies itself. Staging has no mesh name, so it is not announced and reads
+   its channel on the poll.
 
 The GitHub Release assets stay as they are for people; hosts no longer read
 them.
@@ -77,12 +90,14 @@ them.
 the app registry client it shares with app pulls: a request to
 `/20180419/docker/token` signed by the instance principal (with a signed
 `Date` header) returns the bearer token. No file credential or GitHub token
-exists on a host. After reading a signed OCIR release, the leader checks for
-channel changes every 15 seconds. A poll that finds the same channel manifest
-digest as the last one costs one small manifest read. The GitHub fallback keeps
-its five-minute discovery interval and existing channel retry backoff. Once the
-release is baked, unchanged-channel discovery skips host and regional health
-sampling until the existing five-minute sweep is due. Active bake samples and
+exists on a host. The leader reads the channel beside its rollout, never
+inside it: when an announcement arrives, when it takes over the region, and
+otherwise every five minutes, which catches a missed announcement. An install
+request, a health gate or a bake in progress does not delay that read. A new
+channel, or a new error reading it, wakes the rollout, which applies the
+checks below to what the read found. The GitHub fallback keeps its five-minute
+discovery interval and existing channel retry backoff. Once the release is
+baked, the next health sweep is due five minutes later. Active bake samples and
 post-action waits keep their original cadence. A new channel is
 verified in this order:
 

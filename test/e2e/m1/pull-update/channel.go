@@ -55,9 +55,17 @@ const (
 
 var signatureField = regexp.MustCompile(`(\w+)="([^"]*)"`)
 
+type held struct {
+	digest  string
+	arrived chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
 type regionRegistry struct {
 	server *httptest.Server
 	key    *rsa.PublicKey
+	held   atomic.Pointer[held]
 	mu     sync.Mutex
 	tokens map[string]bool
 	issued atomic.Int32
@@ -76,11 +84,25 @@ func newRegionRegistry(key *rsa.PublicKey, certificate tls.Certificate) *regionR
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		if hold := r.held.Load(); hold != nil && request.Method == http.MethodGet && strings.HasSuffix(request.URL.Path, "/blobs/"+hold.digest) {
+			hold.once.Do(func() { close(hold.arrived) })
+			select {
+			case <-hold.release:
+			case <-request.Context().Done():
+				return
+			}
+		}
 		backend.ServeHTTP(w, request)
 	}))
 	r.server.TLS = &tls.Config{Certificates: []tls.Certificate{certificate}}
 	r.server.StartTLS()
 	return r
+}
+
+func (r *regionRegistry) hold(binary []byte) *held {
+	hold := &held{digest: "sha256:" + hex.EncodeToString(sha256Of(binary)), arrived: make(chan struct{}), release: make(chan struct{})}
+	r.held.Store(hold)
+	return hold
 }
 
 func (r *regionRegistry) repository() string {
@@ -220,16 +242,52 @@ func (l *lane) channelRelease(seq uint64, run string, binary, served []byte) cha
 	return channelRelease{published: published{tag: releaseattest.Tag(l.revision, run), sha: l.revision, run: run, digest: hex.EncodeToString(sha256Of(binary))}, signed: signed, image: image}
 }
 
-func (l *lane) publishChannel(ctx context.Context, release channelRelease) {
+func (l *lane) write(ctx context.Context, region string, release channelRelease) time.Time {
+	moved, err := ocirelease.Publish(ctx, l.target(ctx, region), l.verifier(), release.image, release.signed, os.Stdout)
+	must(err)
+	return moved
+}
+
+func (l *lane) receive() {
+	verifier := releasepush.NewVerifier()
+	verifier.JWKSURL = l.github.server.URL + "/jwks"
+	l.receivers = map[string]*httptest.Server{}
 	for _, region := range []string{"sjc", "fra", "gru"} {
-		must(ocirelease.Publish(ctx, l.target(ctx, region), l.verifier(), release.image, release.signed, os.Stdout))
+		handler := &releasepush.Handler{Verifier: verifier, Discover: func(ctx context.Context) (releasepush.Discovery, error) {
+			return pullrelease.Ask(ctx, l.conn, region)
+		}}
+		l.receivers[region] = httptest.NewServer(http.HandlerFunc(handler.Announce))
 	}
+}
+
+func (l *lane) announce(ctx context.Context, region string, release channelRelease) (releasepush.Discovery, error) {
+	receiver := l.receivers[region]
+	return releasepush.Announce(ctx, receiver.Client(), receiver.URL+releasepush.AnnouncePath, l.github.oidc(l.revision, release.run))
+}
+
+func (l *lane) publishChannel(ctx context.Context, release channelRelease) map[string]releasepush.Discovery {
+	channel, err := releaseattest.ParseChannel(release.signed.Document)
+	must(err)
+	discoveries := map[string]releasepush.Discovery{}
+	for _, region := range []string{"sjc", "fra", "gru"} {
+		moved := l.write(ctx, region, release)
+		discovery, err := l.announce(ctx, region, release)
+		must(err)
+		must(releasepush.Report(discovery, channel.Seq, moved, os.Stdout))
+		require(discovery.Owner != "" && discovery.Seq == channel.Seq && discovery.Release == release.tag && discovery.Discovered.Sub(moved) <= 5*time.Second,
+			"%s's owner must discover %s within 5s of the registry accepting its channel at %s: %+v", region, release.tag, moved.Format(time.RFC3339Nano), discovery)
+		discoveries[region] = discovery
+	}
+	return discoveries
 }
 
 func (l *lane) pushRaw(ctx context.Context, region string, release channelRelease) {
 	target := l.target(ctx, region)
 	must(target.Push(release.tag, release.image))
 	must(target.Push(ocirelease.Stable, ocirelease.ChannelImage(release.signed)))
+	discovery, err := l.announce(ctx, region, release)
+	require(discovery.Owner != "" && (err == nil || discovery.Error != ""), "%s's owner must answer the announcement of %s: %+v %v", region, release.tag, discovery, err)
+	fmt.Printf("%s: owner %s answered the announcement of %s: seq %d %s %s\n", region, discovery.Owner, release.tag, discovery.Seq, discovery.Release, discovery.Error)
 }
 
 func (l *lane) channelReleaseOf(ctx context.Context, region string, release channelRelease) releaseattest.Release {
@@ -320,6 +378,33 @@ func (l *lane) channel(ctx context.Context) {
 	require(issued > 0, "hosts must read their channel with registry tokens from signed requests")
 	require(l.offline.calls.Load() == 0, "the channel lane made %d GitHub calls", l.offline.calls.Load())
 	fmt.Printf("0 GitHub calls; %d registry tokens issued for instance-principal-signed requests; every host reports installed seq 117\n", issued)
+	l.discoverDuringInstall(ctx)
+	require(l.offline.calls.Load() == 0, "the channel lane made %d GitHub calls", l.offline.calls.Load())
+}
+
+func (l *lane) discoverDuringInstall(ctx context.Context) {
+	c120, c121 := l.candidate("c120"), l.candidate("c121")
+	r120, r121 := l.channelRelease(120, "120", c120, c120), l.channelRelease(121, "121", c121, c121)
+	hold := l.registries["sjc"].hold(c120)
+	l.publishChannel(ctx, r120)
+	select {
+	case <-hold.arrived:
+	case <-ctx.Done():
+		panic("no sjc host downloaded " + r120.tag)
+	}
+	installing := l.waitStatus(ctx, "sjc", "sjc's owner waits on its install request for "+r120.tag, func(s pullrelease.Status) bool {
+		return s.Phase == pullrelease.PhaseRolling && s.Target != nil && s.Target.Tag() == r120.tag && slices.ContainsFunc(s.Hosts, func(row pullrelease.HostProgress) bool { return row.State == pullrelease.HostInstalling })
+	})
+	fmt.Printf("sjc's owner %s is inside the install request of %s; the lane holds its download\n", installing.Owner, r120.tag)
+	discoveries := l.publishChannel(ctx, r121)
+	close(hold.release)
+	done := l.waitStatus(ctx, "sjc", "sjc completes "+r121.tag, complete(r121.published))
+	require(done.Discovered.Equal(discoveries["sjc"].Discovered), "sjc's rollout of %s must carry the discovery its owner answered, %s, not %s", r121.tag, discoveries["sjc"].Discovered, done.Discovered)
+	for _, region := range []string{"fra", "gru"} {
+		l.waitStatus(ctx, region, region+" completes "+r121.tag, complete(r121.published))
+	}
+	l.requireVersions(ctx, r121.digest, l.region("sjc", "fra", "gru")...)
+	fmt.Printf("%s discovered while sjc's install of %s was held, then rolled out from the same discovery\n", r121.tag, r120.tag)
 }
 
 func sortedStarts(starts map[string]int32) []string {

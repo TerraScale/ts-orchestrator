@@ -7,10 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,7 +30,6 @@ const (
 	DefaultDeadline   = 3 * time.Minute
 	DefaultBakeFor    = 20 * time.Second
 
-	channelPoll  = 10 * time.Second
 	checkEvery   = 2 * time.Second
 	bakeFailures = 3
 	askWait      = 8 * time.Second
@@ -66,14 +65,13 @@ type Updater struct {
 	status     Status
 	revision   uint64
 	leading    atomic.Bool
-	newest     releaseattest.Release
-	newestErr  error
-	listed     time.Time
-	failures   int
-	retry      time.Time
 	sweepAfter time.Time
-	seenTag    string
-	seenAt     time.Time
+	wake       chan struct{}
+	takeover   chan struct{}
+	announced  *nats.Subscription
+	found      atomic.Pointer[found]
+	finding    sync.Mutex
+	finder     finder
 	watched    watch
 	fetched    string
 	checked    releaseattest.Release
@@ -87,7 +85,9 @@ func New(region, self, state string, conn, fabric *nats.Conn, handler *releasepu
 }
 
 func (u *Updater) Run(ctx context.Context) error {
+	u.wake, u.takeover = make(chan struct{}, 1), make(chan struct{}, 1)
 	go u.lead(ctx)
+	go u.watch(ctx)
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	for {
@@ -95,6 +95,7 @@ func (u *Updater) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-timer.C:
+		case <-u.wake:
 		}
 		timer.Reset(u.turn(ctx))
 	}
@@ -118,7 +119,14 @@ func (u *Updater) lead(ctx context.Context) {
 			}
 			if u.leading.Swap(leading) != leading {
 				slog.InfoContext(ctx, "pull rollout ownership changed", "region", u.Region, "owner", leading)
+				if leading {
+					select {
+					case u.takeover <- struct{}{}:
+					default:
+					}
+				}
 			}
+			u.listen(ctx)
 			if !leading {
 				if status, _, err := u.store.Load(ctx); err == nil {
 					u.mirror(ctx, status)
@@ -168,7 +176,12 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		return u.bake(ctx)
 	}
 
-	release, err := u.discover(ctx)
+	discovered := u.found.Load()
+	if discovered == nil {
+		return u.Poll
+	}
+	release, err := discovered.release, discovered.err
+	u.status.Checked = discovered.checked
 	if release.Seq != 0 {
 		if release.Seq < u.status.Seq || release.Seq == u.status.Seq && (u.status.Target == nil || u.status.Target.Tag() != release.Tag()) {
 			return u.ignore(ctx, fmt.Sprintf("channel seq %d (%s) is not newer than the region's seq %d; a replayed or rolled-back channel document is refused", release.Seq, release.Tag(), u.status.Seq))
@@ -235,7 +248,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 				if !u.save(ctx) {
 					return renewEvery
 				}
-				return u.pollInterval()
+				return u.Poll
 			}
 		}
 		u.prefetch(ctx, attested)
@@ -253,12 +266,12 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			return checkEvery
 		}
 		slog.InfoContext(ctx, "attested release found; rolling it out", "release", attested.Tag())
-		discovered := time.Now().UTC()
-		if u.seenTag == attested.Tag() {
-			discovered = u.seenAt
+		seen := time.Now().UTC()
+		if discovered.seenTag == attested.Tag() {
+			seen = discovered.seenAt
 		}
 		u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Checked: u.status.Checked,
-			Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: discovered}
+			Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: seen}
 		if !u.save(ctx) {
 			return renewEvery
 		}
@@ -267,7 +280,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		return u.adoptedSweep(ctx)
 	}
 	if u.status.Phase == PhaseComplete && u.status.settled() && time.Now().Before(u.sweepAfter) {
-		return u.pollInterval()
+		return time.Until(u.sweepAfter)
 	}
 	return u.roll(ctx)
 }
@@ -315,7 +328,7 @@ func (u *Updater) adoptedSweep(ctx context.Context) time.Duration {
 	if err != nil {
 		u.status.Reason = "host inventory unavailable: " + err.Error()
 		u.save(ctx)
-		return u.pollInterval()
+		return u.Poll
 	}
 	var reasons []string
 	for _, host := range hosts {
@@ -346,46 +359,7 @@ func (u *Updater) adoptedSweep(ctx context.Context) time.Duration {
 	}
 	u.status.Reason = strings.Join(reasons, "; ")
 	u.save(ctx)
-	return u.pollInterval()
-}
-
-func (u *Updater) pollInterval() time.Duration {
-	if u.newest.Channel != nil {
-		return min(u.Poll, channelPoll)
-	}
 	return u.Poll
-}
-
-func (u *Updater) discover(ctx context.Context) (releaseattest.Release, error) {
-	if !u.listed.IsZero() && time.Since(u.listed) < u.pollInterval() {
-		return u.newest, u.newestErr
-	}
-	u.status.Checked = time.Now().UTC()
-	discover, cancel := context.WithTimeout(ctx, discoverWait)
-	defer cancel()
-	u.newest, u.newestErr = u.newestRelease(discover)
-	u.listed = time.Now()
-	if u.newest.SHA != "" && u.newest.Tag() != u.seenTag {
-		u.seenTag, u.seenAt = u.newest.Tag(), u.listed.UTC()
-	}
-	return u.newest, u.newestErr
-}
-
-func (u *Updater) newestRelease(ctx context.Context) (releaseattest.Release, error) {
-	if u.Channel != nil && !time.Now().Before(u.retry) {
-		release, err := u.Channel.Newest(ctx)
-		if err == nil || errors.Is(err, releaseattest.ErrRefused) {
-			u.failures, u.retry = 0, time.Time{}
-			return release, err
-		}
-		u.failures++
-		backoff := u.Poll << min(u.failures-1, 3)
-		u.retry = time.Now().Add(backoff + rand.N(backoff/2+1))
-		slog.WarnContext(ctx, "release channel unreachable; using the GitHub release fallback", "region", u.Region, "error", err, "failures", u.failures, "channel_retry", u.retry)
-	} else if u.Channel != nil {
-		slog.WarnContext(ctx, "release channel backing off; using the GitHub release fallback", "region", u.Region, "channel_retry", u.retry)
-	}
-	return u.Source.Newest(ctx)
 }
 
 func published(release releaseattest.Release) time.Time {
@@ -544,7 +518,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		return u.bake(ctx)
 	case u.status.Phase == PhaseComplete:
 		u.sweepAfter = time.Now().Add(u.Poll)
-		return u.pollInterval()
+		return u.Poll
 	}
 	return u.Poll
 }
@@ -856,7 +830,7 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 		u.status.Adopted = time.Now().UTC()
 		u.status.Reason = "no host installed " + u.status.Target.Tag() + " in this rollout; nothing to gate or roll back"
 		u.save(ctx)
-		return u.pollInterval()
+		return u.Poll
 	}
 	if reason := u.recordBaseline(ctx); reason != "" {
 		u.status.Reason = reason
@@ -900,7 +874,7 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 			slog.WarnContext(ctx, "regional gate withheld: an app's own release did not settle within the bound", "release", u.status.Target.Tag(), "excluded", found.excluded)
 			u.save(ctx)
 			u.sweepAfter = time.Now().Add(u.Poll)
-			return u.pollInterval()
+			return u.Poll
 		}
 		u.status.Reason = "regional bake waits for services in their own release to settle: " + found.excluded
 		u.save(ctx)
@@ -919,7 +893,7 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 	u.status.Passed = now
 	u.save(ctx)
 	u.sweepAfter = time.Now().Add(u.Poll)
-	return u.pollInterval()
+	return u.Poll
 }
 
 func installedHere(row HostProgress) bool {
