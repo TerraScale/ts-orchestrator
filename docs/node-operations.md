@@ -52,22 +52,46 @@ The arguments are fleet labels from `deploy/fleet/fleet.json`, the `staging`
 entry included; with none it publishes to every one, staging first. For each
 label the script takes the OCI region, compartment and node shape from the
 fleet document and the arch from the shape (`A<n>` shapes are arm64). It
-downloads `ts-host-debian13-<arch>.qcow2` and its `.sha256` from the release
-and checks both the file and GitHub's asset digest. It uploads the file to
-the region's private `ts-host-images` bucket, creating the bucket on first
-use, and imports a QCOW2 custom image named
-`ts-host-debian13-<arch>-<tag>` in paravirtualized launch mode. It waits for
-`AVAILABLE`, sets UEFI firmware, paravirtualized boot, data volume and VNIC
-attachments and consistent device naming, and limits shape compatibility to
-the fleet's shapes of that arch. The last line for each label is the
-`host-images.json` entry. A second run for the same tag finds the existing
-image, checks its `terrascale-sha256` tag and prints the same entry.
+downloads `ts-host-debian13-<arch>.qcow2` and its `.sha256` into an empty
+directory, hashes the download and requires that hash to match the sidecar
+and GitHub's asset digest, and the sidecar to match its own asset digest.
+
+It uploads the file as `<tag>/<file>` to the region's `ts-host-images`
+bucket. The bucket belongs to the compartment of the first fleet entry in
+that OCI region (`stg-1-control` for `us-sanjose-1`, which `stg` and `sjc`
+share); the script creates it there with `NoPublicAccess` and refuses a
+bucket in another compartment, a public one, or an object of that name with
+a different `sha256`. It never overwrites an object.
+
+It imports a QCOW2 custom image named `ts-host-debian13-<arch>-<tag>` in
+paravirtualized launch mode, tagged `terrascale-host-image`, `terrascale-arch`
+and `terrascale-sha256`. It waits for `AVAILABLE`, sets UEFI firmware,
+paravirtualized boot, data volume and VNIC attachments and consistent device
+naming, and resets a capability schema that differs. It adds the fleet's
+shapes of that arch to the image's shape compatibility and removes the shapes
+of the other arch. The last line for each label is the `host-images.json`
+entry.
+
+A rerun selects the image by its tags in the label's compartment, checks its
+`sha256` tag against the release and prints the same entry. It keeps waiting
+for an import in progress, prints OCI's work request errors for a failed one
+and replaces a `DISABLED` import on the next run. It fails on two images with
+the same tags. A lock file in `$XDG_RUNTIME_DIR` keeps two runs on one server
+apart; run it from the ops server only.
+
+The script uses the operator's API key profile (`~/.oci/config` `DEFAULT`).
+OCI imports from an object directly only for an API key user; federated users
+and instance principals would need a pre-authenticated request. The user
+needs, in the bucket owner compartment, `manage buckets` and `manage objects`
+for `ts-host-images`, and in each label's compartment `manage instance-images`
+and `read work-requests`, plus `inspect` on the tenancy's global image
+capability schemas.
 
 ### Pin a host image
 
 Add the printed entry to `deploy/image/host-images.json` in a pull request.
 `internal/nodeinit.PinnedHostImage` matches the entry's `region`, an OCI
-region name, and `arch`; once it is on main, `ts-orch region host add` and
+region name, and `arch`; once it is on main, `ts-orch region add <code>` and
 the fleet reconciler launch new hosts of that region and arch from the image
 with release metadata and no `user_data`. Running hosts are not touched.
 The staging entry and `sjc` share the OCI region `us-sanjose-1`, so a pin
