@@ -88,6 +88,11 @@ func render(output string) error {
 		}
 		source.Groups = append(source.Groups, part.Groups...)
 	}
+	latency, err := latencyRules()
+	if err != nil {
+		return err
+	}
+	source.Groups = append(source.Groups, latency)
 	for _, g := range source.Groups {
 		for _, r := range g.Rules {
 			if r.Record != "" {
@@ -497,6 +502,15 @@ func metricCatalog() (map[string]bool, error) {
 		if err != nil {
 			return err
 		}
+		histograms := false
+		ast.Inspect(source, func(node ast.Node) bool {
+			if call, ok := node.(*ast.CallExpr); ok {
+				if selector, ok := call.Fun.(*ast.SelectorExpr); ok && (selector.Sel.Name == "NewPrometheusHistogramExt" || selector.Sel.Name == "NewPrometheusHistogram") {
+					histograms = true
+				}
+			}
+			return true
+		})
 		ast.Inspect(source, func(node ast.Node) bool {
 			if binary, ok := node.(*ast.BinaryExpr); ok && binary.Op == token.ADD {
 				prefix, ok := binary.X.(*ast.SelectorExpr)
@@ -518,6 +532,11 @@ func metricCatalog() (map[string]bool, error) {
 			}
 			for _, metric := range metricName.FindAllString(value, -1) {
 				catalog[metric] = true
+				if histograms && strings.HasSuffix(metric, "_duration_seconds") {
+					for _, suffix := range []string{"_bucket", "_sum", "_count"} {
+						catalog[metric+suffix] = true
+					}
+				}
 			}
 			return true
 		})

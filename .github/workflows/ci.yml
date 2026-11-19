@@ -699,10 +699,62 @@ jobs:
           client-secret: ${{ secrets.OCI_TOKEN_EXCHANGE_CLIENT_SECRET }}
 
 
+  staging-latency:
+    needs: [release-publish, release-publish-after-lanes]
+    if: ${{ always() && (needs.release-publish.result == 'success' || needs.release-publish-after-lanes.result == 'success') }}
+    name: deploy/staging-latency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the released revision
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/go
+        with:
+          cache: staging-latency
+      - name: Read staging latency proof for this release
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: staging-latency-${{ github.sha }}
+          path: ${{ runner.temp }}/staging-latency
+      - name: Run the staging latency lane
+        id: lane
+        shell: bash
+        run: |
+          go run ./scripts/latency deploy/observability/production/latency-budgets.json "${RUNNER_TEMP}/staging-latency/manifest.json" > "${RUNNER_TEMP}/staging-latency/ci.json"
+          python3 scripts/latency/verify.py deploy/observability/production/latency-budgets.json "${RUNNER_TEMP}/staging-latency" | tee -a "${GITHUB_STEP_SUMMARY}"
+      - name: Write the staging bake latency input
+        if: ${{ always() }}
+        shell: bash
+        env:
+          LANE_OUTCOME: ${{ steps.lane.outcome }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          run = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          if not run.startswith("https://"):
+              raise ValueError("latency run URL must use HTTPS")
+          verdict = {"verdict": "pass" if os.environ["LANE_OUTCOME"] == "success" else "fail", "run": run}
+          Path(os.environ["RUNNER_TEMP"], "staging-latency.json").write_text(json.dumps(verdict) + "\n")
+          print(json.dumps(verdict))
+          PYTHON
+      - name: Upload the latency verdict to the released tag
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}" "${RUNNER_TEMP}/staging-latency.json" --repo "${GITHUB_REPOSITORY}" --clobber
+
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [paths, lint, e2e-build, e2e-lane, e2e-rerun-plan, e2e-lane-rerun, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-publish, release-publish-after-lanes]
+    needs: [paths, lint, e2e-build, e2e-lane, e2e-rerun-plan, e2e-lane-rerun, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-publish, release-publish-after-lanes, staging-latency]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
