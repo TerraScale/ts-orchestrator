@@ -182,8 +182,7 @@ func (g *fakeGitHub) serveStaging(w http.ResponseWriter, r *http.Request, tag st
 	if g.gateModes[tag] == "old" {
 		now = now.Add(-24 * time.Hour)
 	}
-	record := releasegate.StagingRecord{Binaries: g.gateBinaries[tag], BakeFor: healthyFor, Region: fleet.Embedded().Staging.Label, Tag: tag, Done: now.Add(-2 * healthyFor), Baked: now.Add(-healthyFor), Signed: now,
-		Latency: releasegate.LatencyVerdict{Verdict: releasegate.LatencyPass, Run: "https://github.com/TerraScale/ts-orchestrator/actions/runs/1"}}
+	record := releasegate.StagingRecord{Binaries: g.gateBinaries[tag], BakeFor: healthyFor, Region: fleet.Embedded().Staging.Label, Tag: tag, Done: now.Add(-2 * healthyFor), Baked: now.Add(-healthyFor), Signed: now}
 	if g.gateModes[tag] == "another" {
 		record.Tag = "ci-" + strings.Repeat("f", 40) + "-run-999"
 	}

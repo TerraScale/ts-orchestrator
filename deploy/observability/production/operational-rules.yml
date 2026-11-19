@@ -377,7 +377,7 @@ groups:
           severity: critical
         annotations:
           summary: Production is blocked by staging or admitted a release without staging
-          description: admitted_without_staging fires immediately for every host running a release admitted by the main dispatch workflow; run names its authorizing GitHub run. Otherwise the reason label says why a leader, receiver or node-launch path has waited an hour; new tags do not reset that timer. missing means stg never completed and baked the release (it failed, rolled back or is down); withdrawn means stg signed a rollback for the tag; unsigned means the record does not verify with staging.signer_public_key; latency means C22's staging latency verdict is not pass; unreadable means the gate bucket did not answer. Production keeps its current release until stg finishes the newest one. Read stg's pull rollout with ts-orch status on a staging node (docs/platform.md, Releases).
+          description: admitted_without_staging fires immediately for every host running a release admitted by the main dispatch workflow; run names its authorizing GitHub run. Otherwise the reason label says why a leader, receiver or node-launch path has waited an hour; new tags do not reset that timer. missing means stg never completed and baked the release (it failed, rolled back or is down); withdrawn means stg signed a rollback for the tag; unsigned means the record does not verify with staging.signer_public_key; unreadable means the gate bucket did not answer. Production keeps its current release until stg finishes the newest one. Read stg's pull rollout with ts-orch status on a staging node (docs/platform.md, Releases).
 
   - name: self-heal
     rules:

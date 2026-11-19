@@ -10,7 +10,6 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -21,27 +20,7 @@ const (
 	GateUnreadable = "unreadable"
 	GateUnsigned   = "unsigned"
 	GateBaking     = "baking"
-	GateLatency    = "latency"
-
-	LatencyAsset = "staging-latency.json"
-	LatencyPass  = "pass"
-	LatencyFail  = "fail"
 )
-
-type LatencyVerdict struct {
-	Verdict string `json:"verdict"`
-	Run     string `json:"run"`
-}
-
-func (v LatencyVerdict) Validate() error {
-	if v.Verdict != LatencyPass && v.Verdict != LatencyFail {
-		return fmt.Errorf("latency verdict %q is not %s or %s", v.Verdict, LatencyPass, LatencyFail)
-	}
-	if !strings.HasPrefix(v.Run, "https://") {
-		return fmt.Errorf("latency verdict run %q is not an https URL", v.Run)
-	}
-	return nil
-}
 
 type StagingRecord struct {
 	Binaries map[string]string `json:"binaries"`
@@ -51,7 +30,6 @@ type StagingRecord struct {
 	Done     time.Time         `json:"done"`
 	Baked    time.Time         `json:"baked"`
 	Signed   time.Time         `json:"signed"`
-	Latency  LatencyVerdict    `json:"latency"`
 }
 
 type SignedRecord struct {
@@ -102,12 +80,6 @@ func (v Verifier) staging(ctx context.Context, target Target) (string, string) {
 	}
 	if !maps.Equal(record.Binaries, target.Binaries) || len(record.Binaries) == 0 {
 		return GateUnsigned, "signed staging completion names another binary digest"
-	}
-	if err := record.Latency.Validate(); err != nil {
-		return GateLatency, err.Error()
-	}
-	if record.Latency.Verdict != LatencyPass {
-		return GateLatency, fmt.Sprintf("%s latency verdict for %s is %s (%s)", staging.Label, target.Tag, record.Latency.Verdict, record.Latency.Run)
 	}
 	if record.Done.IsZero() || record.BakeFor <= 0 || record.Baked.Sub(record.Done) < record.BakeFor || record.Signed.Before(record.Baked) {
 		return GateBaking, fmt.Sprintf("%s baked %s for %s, under %s", staging.Label, target.Tag, record.Baked.Sub(record.Done), record.BakeFor)

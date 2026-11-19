@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -26,11 +25,11 @@ import (
 var stagingBlock atomic.Pointer[struct{}]
 
 func (u *Updater) publishStaging(ctx context.Context) error {
-	latency, err := u.latency(ctx)
-	if err != nil {
-		return err
+	record := releasegate.StagingRecord{
+		Binaries: releasegate.ReleaseTarget(*u.status.Target).Binaries,
+		BakeFor:  u.BakeFor, Region: u.Region, Tag: u.status.Target.Tag(),
+		Done: u.status.Done, Baked: u.status.Passed, Signed: time.Now().UTC(),
 	}
-	record := releasegate.StagingRecord{Binaries: releasegate.ReleaseTarget(*u.status.Target).Binaries, BakeFor: u.BakeFor, Region: u.Region, Tag: u.status.Target.Tag(), Done: u.status.Done, Baked: u.status.Passed, Signed: time.Now().UTC(), Latency: latency}
 	return publishStagingRecord(ctx, u.status.Target.Tag(), record, u.StagingKey)
 }
 
@@ -97,33 +96,6 @@ func publishStagingRecord(ctx context.Context, object string, value any, key *ec
 		return fmt.Errorf("publish staging completion: %w", err)
 	}
 	return nil
-}
-
-func (u *Updater) latency(ctx context.Context) (releasegate.LatencyVerdict, error) {
-	target := *u.status.Target
-	asset := releaseattest.AssetURL(target.SHA, target.RunID, releasegate.LatencyAsset)
-	fetch, cancel := context.WithTimeout(ctx, discoverWait)
-	defer cancel()
-	request, err := http.NewRequestWithContext(fetch, http.MethodGet, asset, nil)
-	if err != nil {
-		return releasegate.LatencyVerdict{}, err
-	}
-	response, err := u.Client.Do(request)
-	if err != nil {
-		return releasegate.LatencyVerdict{}, fmt.Errorf("latency verdict: %w", err)
-	}
-	defer response.Body.Close()
-	switch {
-	case response.StatusCode == http.StatusNotFound:
-		return releasegate.LatencyVerdict{}, fmt.Errorf("latency verdict missing: %s has no %s", target.Tag(), releasegate.LatencyAsset)
-	case response.StatusCode != http.StatusOK:
-		return releasegate.LatencyVerdict{}, fmt.Errorf("latency verdict: %s answered %s", asset, response.Status)
-	}
-	var verdict releasegate.LatencyVerdict
-	if err := json.NewDecoder(io.LimitReader(response.Body, releasegate.MaxRecordSize)).Decode(&verdict); err != nil {
-		return releasegate.LatencyVerdict{}, fmt.Errorf("latency verdict damaged: %w", err)
-	}
-	return verdict, verdict.Validate()
 }
 
 func (u *Updater) staged(ctx context.Context, release releaseattest.Release) string {

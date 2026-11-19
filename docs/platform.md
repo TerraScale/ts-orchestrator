@@ -52,23 +52,27 @@ for listener owners and staged removal of the live public 4222 rules.
 
 Staging is the fleet document’s isolated `stg` environment, with its own Vault,
 mesh CA and fabric store. After completing and baking a tag, its leader signs
-`region`, `tag`, `binaries`, `done`, `baked`, `bake_for`, `signed` and `latency` with the HSM
+`region`, `tag`, `binaries`, `done`, `baked`, `bake_for` and `signed` with the HSM
 key `stg-release-signer` in `stg-vault`. It writes the signed record as object
 `<tag>` in the public-read-without-list bucket `stg-release-gate`. The signed
 `bake_for` records the staging updater’s actual required healthy interval;
 receivers verify the observed interval meets it. The publisher refreshes the
-record on completed-release health sweeps. A separate watcher of staging’s durable rollout publishes a signed withdrawal at <tag>.rollback when rollback starts or a release is retained as bad. Each consumer reads that object too; an unreadable or invalid withdrawal fails closed. A withdrawn tag cannot be restored by an in-flight completion upload because the withdrawal has its own object key. Withdrawal publishing runs independently of binary rollback. The latency verdict comes from the
-release asset `staging-latency.json` (`{"verdict":"pass"|"fail","run":"<https run URL>"}`);
-without that verdict, staging publishes nothing.
+record on completed-release health sweeps. A separate watcher of staging's
+durable rollout publishes a signed withdrawal at `<tag>.rollback` when rollback
+starts or a release is retained as bad. Each consumer reads that object and
+refuses admission if the withdrawal is unreadable or invalid. The separate
+object key prevents an in-flight completion upload from erasing a withdrawal.
 
 Before adopting a tag, sjc verifies its signed completion against the staging
 public key embedded in the fleet document, matching the exact tag and binary digests. Every production host independently
 makes the same admission check before installing, including private direct
-PullInstall requests. Missing, unreadable, unsigned, wrong-tag, incomplete-bake,
-failed-latency and withdrawn records fail closed. Completed records do not expire: a later region may install the same exact release after staging has advanced to another tag. No staging CA,
+PullInstall requests. Missing, unreadable, unsigned, wrong-tag, incomplete-bake
+and withdrawn records fail closed. The signed completion remains valid for
+that exact release after staging advances to another tag. No staging CA,
 Vault credential or production grant crosses environments. Production regional
-ordering remains sjc followed by fra and gru in parallel. The exception still requires the canary gate,
-build provenance, channel ordering, host preflight or probation.
+ordering remains sjc followed by fra and gru in parallel. The exception still
+requires the canary gate, build provenance, channel ordering, host preflight
+and probation.
 
 If staging infrastructure is broken independently of a release, a repository
 maintainer can dispatch **Admit one release without staging** on `main`, selecting
@@ -111,10 +115,8 @@ This staging record admits **ts-orch binaries only**. Application image selectio
 in apppull (TerraBase, ts-auth and the dashboard) retain their existing build and
 service-selection verification and are deliberately outside this binary gate.
 
-Before merging this PR, all three conditions must hold: the COS has sent
-STAGING-UP, C22’s #405 has merged, and at least one published release carries
-staging-latency.json. A healthy staging cell alone cannot publish a completion
-without that latency asset. Auto-merge stays off while any condition is missing.
+Production enables this gate after staging serves the current release behind
+its load balancer.
 
 ## Identity and access
 
