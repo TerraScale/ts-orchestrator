@@ -212,3 +212,22 @@ The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
 `755a9a42071f531d53bb82fcc80a1a2602d8a7e122b460cf54b6cd5309afe396`; the
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.
+
+## 2026-11-19: updater takes slots with an existing candidate first
+
+C18b changes `manager/orchestrator/update/updater.go`. `Run` used to queue the
+dirty slots in the order the replicated orchestrator built them from a map.
+After the stop-first fallback rewrote a start-first update's order, a
+restarted updater could stop the old task of a slot without a candidate while
+another slot's pending start-first candidate still waited for room. Both
+candidates then claimed the freed room, and when the older one won, the new
+slot's candidate never fit. `Run` now queues first the dirty slots that hold
+an up-to-date task with a desired state of at most running, which the worker
+adopts, and then the slots that need a new task. Which slots update and how is
+unchanged. Upstream master was not checked for this change.
+
+The e2e-m1 rollback lane exercises this with real containerd tasks.
+The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
+`069ea94d21a06c79743f8d1077cbbfb16f1bf66387221e0c0af8ec32cc8556fb`; the
+v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
+remain unchanged.
