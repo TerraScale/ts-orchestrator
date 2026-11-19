@@ -86,8 +86,12 @@ func (u *Updater) find(ctx context.Context, fresh bool) (*found, time.Duration) 
 	now := f.listed.UTC()
 	previous := u.found.Load()
 	if release.SHA != "" && release.Tag() != f.seenTag {
-		f.seenTag, f.seenAt = release.Tag(), now
-		slog.InfoContext(ctx, "release discovered", "region", u.Region, "release", release.Tag(), "seq", release.Seq, "published", published(release), "discovered", now)
+		seen, err := u.store.Seen(ctx, release.Tag(), release.Seq, now)
+		if err != nil {
+			slog.WarnContext(ctx, "release discovery not recorded for the region; this process keeps its own time", "region", u.Region, "release", release.Tag(), "error", err)
+		}
+		f.seenTag, f.seenAt = release.Tag(), seen
+		slog.InfoContext(ctx, "release discovered", "region", u.Region, "release", release.Tag(), "seq", release.Seq, "published", published(release), "discovered", seen)
 	}
 	result := &found{release: release, err: err, checked: now, seenTag: f.seenTag, seenAt: f.seenAt}
 	u.found.Store(result)
