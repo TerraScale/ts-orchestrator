@@ -1,0 +1,96 @@
+name: host-image
+
+on:
+  pull_request:
+    paths:
+      - deploy/image/debian/**
+      - .github/workflows/host-image.yml
+  push:
+    branches: [main]
+    paths:
+      - deploy/image/debian/**
+      - .github/workflows/host-image.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  build:
+    name: ${{ matrix.arch }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, amd64]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Install libguestfs-tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libguestfs-tools jq
+          sudo chmod a+r /boot/vmlinuz-*
+      - name: Resolve the newest ci- release
+        id: release
+        run: |
+          set -euo pipefail
+          tag=$(gh release list -R "${{ github.repository }}" --exclude-drafts -L 100 --json tagName --jq '[.[].tagName|select(startswith("ci-"))][0] // empty')
+          test -n "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          gh release download "$tag" -R "${{ github.repository }}" --pattern "terrascale-orchestrator-linux-${{ matrix.arch }}" --dir "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP/terrascale-orchestrator-linux-${{ matrix.arch }}" "$RUNNER_TEMP/terrascale-orchestrator"
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/terrascale-orchestrator" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Build the image
+        env:
+          LIBGUESTFS_BACKEND: direct
+        run: |
+          set -euo pipefail
+          deploy/image/debian/build.sh "${{ matrix.arch }}" "$RUNNER_TEMP/out" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ steps.release.outputs.tag }}/terrascale-orchestrator-linux-${{ matrix.arch }}" \
+            "${{ steps.release.outputs.sha256 }}"
+          virt-cat -a "$RUNNER_TEMP/out/ts-host-debian13-${{ matrix.arch }}.qcow2" /usr/local/lib/ts-orch/image-release.sha256 \
+            | tee "$RUNNER_TEMP/out/image-release.sha256"
+          virt-ls -a "$RUNNER_TEMP/out/ts-host-debian13-${{ matrix.arch }}.qcow2" /etc/systemd/system/multi-user.target.wants | tee "$RUNNER_TEMP/out/wants.txt"
+          stat --printf='%n %s bytes\n' "$RUNNER_TEMP/out/ts-host-debian13-${{ matrix.arch }}.qcow2" | tee "$RUNNER_TEMP/out/size.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ts-host-debian13-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/out/ts-host-debian13-${{ matrix.arch }}.qcow2
+            ${{ runner.temp }}/out/ts-host-debian13-${{ matrix.arch }}.qcow2.sha256
+            ${{ runner.temp }}/out/wants.txt
+            ${{ runner.temp }}/out/size.txt
+            ${{ runner.temp }}/out/image-release.sha256
+          retention-days: 14
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: ${{ runner.temp }}/out
+      - name: Create the host-image release
+        run: |
+          set -euo pipefail
+          tag="host-image-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          files=("$RUNNER_TEMP"/out/ts-host-debian13-*/*.qcow2 "$RUNNER_TEMP"/out/ts-host-debian13-*/*.qcow2.sha256)
+          test "${#files[@]}" -eq 4
+          gh release create "$tag" "${files[@]}" -R "${{ github.repository }}" --target "$GITHUB_SHA" --title "$tag" --notes "Pre-built Debian 13 host images from ${GITHUB_SHA}."

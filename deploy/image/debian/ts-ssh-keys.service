@@ -1,0 +1,13 @@
+[Unit]
+Description=TerraScale instance SSH keys
+Wants=network-online.target
+After=network-online.target
+Before=ssh.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/ssh-keygen -A
+ExecStart=/usr/local/sbin/ts-ssh-keys
+
+[Install]
+WantedBy=multi-user.target
