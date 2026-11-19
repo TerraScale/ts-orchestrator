@@ -278,15 +278,32 @@ baked_sum=$(sha256sum "$work/binary-baked" | cut -d' ' -f1)
 launch_sum=$(sha256sum "$work/launch-release" | cut -d' ' -f1)
 pushed_sum=$(sha256sum "$work/binary-pushed" | cut -d' ' -f1)
 nodeinit_cleanup() {
- kill "$release_pid" "$nodeinit_metadata_pid" 2>/dev/null || true
- wait "$release_pid" "$nodeinit_metadata_pid" 2>/dev/null || true
+ kill ${release_pid:-} ${nodeinit_metadata_pid:-} 2>/dev/null || true
+ wait ${release_pid:-} ${nodeinit_metadata_pid:-} 2>/dev/null || true
  ip addr del 169.254.169.254/32 dev lo 2>/dev/null || true
 }
-trap nodeinit_cleanup EXIT
-openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj /CN=ts-e2e-ca -keyout "$work/ca.key" -out "$work/ca.pem" 2>/dev/null
-openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -subj /CN=127.0.0.1 -keyout "$work/localhost.key" -out "$work/localhost.csr" 2>/dev/null
-openssl x509 -req -in "$work/localhost.csr" -CA "$work/ca.pem" -CAkey "$work/ca.key" -days 2 -extfile <(echo "subjectAltName=IP:127.0.0.1") -out "$work/localhost.pem" 2>/dev/null
-(cd "$work" && exec openssl s_server -quiet -WWW -accept 8443 -cert localhost.pem -key localhost.key) >/dev/null 2>&1 &
+trap 'stop_data_volume; nodeinit_cleanup' EXIT
+cat > "$work/nodeinit-release.py" <<'PY'
+import http.server, ssl, sys
+class Release(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+    def do_GET(self):
+        if self.path != "/launch-release":
+            self.send_error(404)
+            return
+        body = open(sys.argv[1], "rb").read()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 8443), Release)
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain(sys.argv[2], sys.argv[3])
+server.socket = context.wrap_socket(server.socket, server_side=True)
+server.serve_forever()
+PY
+python3 "$work/nodeinit-release.py" "$work/launch-release" "$work/localhost.pem" "$work/localhost.key" >"$work/nodeinit-release.log" 2>&1 &
 release_pid=$!
 cat > "$work/nodeinit-metadata.py" <<'PY'
 import http.server, json, sys
