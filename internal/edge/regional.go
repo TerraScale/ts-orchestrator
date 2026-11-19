@@ -610,7 +610,8 @@ func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source
 		}
 		var refusal struct {
 			Error struct {
-				Code string `json:"code"`
+				Code    string `json:"code"`
+				Message string `json:"message"`
 			} `json:"error"`
 		}
 		decodeErr := json.NewDecoder(io.LimitReader(response.Body, 16<<10)).Decode(&refusal)
@@ -621,6 +622,9 @@ func (e *Edge) regionalDrain(ctx context.Context, router *regionalRouter, source
 		lastErr = &regionalRefusal{code: fmt.Sprintf("drain_http_%d", response.StatusCode), err: fmt.Errorf("regional handoff HTTP %d", response.StatusCode)}
 		if refusal.Error.Code != "" {
 			lastErr = &regionalRefusal{code: refusal.Error.Code, err: fmt.Errorf("%w: %s", lastErr.err, refusal.Error.Code)}
+		}
+		if refusal.Error.Message != "" {
+			lastErr.err = fmt.Errorf("%w: %s", lastErr.err, refusal.Error.Message)
 		}
 		delay, ok := regionalDrainDelay(response.Header.Get("Retry-After"))
 		if response.StatusCode != http.StatusServiceUnavailable || !ok || refusal.Error.Code != "source_retiring" {
