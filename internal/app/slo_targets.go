@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
@@ -90,7 +91,7 @@ func writeSLOTargets(path string, targets []swarmruntime.SLOTarget) error {
 func refreshStorageTargets(ctx context.Context, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	data, err := exec.CommandContext(ctx, "/usr/local/bin/netbird", "status", "--json").Output()
+	data, err := exec.CommandContext(ctx, netbird.ClientBinary(), "status", "--json").Output()
 	if err != nil {
 		return err
 	}

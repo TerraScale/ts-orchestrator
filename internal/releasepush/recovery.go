@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/hostos"
 	"golang.org/x/sys/unix"
 )
 
@@ -19,7 +20,8 @@ const (
 	recoveryBinary      = "/usr/local/bin/terrascale-orchestrator"
 	recoveryState       = "/var/lib/ts-orch"
 	recoveryUnit        = "ts-orch-release-recovery.service"
-	recoveryTimer       = "ts-orch-release-recovery.timer"
+	RecoveryTimer       = "ts-orch-release-recovery.timer"
+	RecoveryBinary      = recoveryBinary + ".recovery"
 	recoveryServiceText = `[Unit]
 Description=Recover an unconfirmed orchestrator binary
 After=local-fs.target
@@ -28,7 +30,7 @@ Type=oneshot
 ExecStart=/usr/local/bin/terrascale-orchestrator.recovery release recover
 TimeoutStartSec=30min
 `
-	recoveryTimerText = `[Unit]
+	RecoveryTimerText = `[Unit]
 Description=Check unconfirmed orchestrator binary deadlines
 [Timer]
 OnBootSec=15s
@@ -38,6 +40,8 @@ AccuracySec=1s
 WantedBy=timers.target
 `
 )
+
+var RecoveryUnits = map[string]string{recoveryUnit: recoveryServiceText, RecoveryTimer: RecoveryTimerText}
 
 func recoveryCommand(ctx context.Context, name string, args ...string) error {
 	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
@@ -86,7 +90,7 @@ func (h *Handler) prepareRecovery(ctx context.Context) (recoveryWindow, error) {
 		return recoveryWindow{}, err
 	}
 	defer os.RemoveAll(directory)
-	for name, text := range map[string]string{recoveryUnit: recoveryServiceText, recoveryTimer: recoveryTimerText} {
+	for name, text := range RecoveryUnits {
 		if err := os.WriteFile(filepath.Join(directory, name), []byte(text), 0644); err != nil {
 			return recoveryWindow{}, err
 		}
@@ -94,10 +98,10 @@ func (h *Handler) prepareRecovery(ctx context.Context) (recoveryWindow, error) {
 	status, _ := h.probation.status()
 	_, recoveryErr := os.Stat(h.Binary + ".recovery")
 	if status != "" && recoveryErr == nil {
-		if err := recoveryCommand(ctx, "systemctl", "is-enabled", "--quiet", recoveryTimer); err != nil {
+		if err := recoveryCommand(ctx, "systemctl", "is-enabled", "--quiet", RecoveryTimer); err != nil {
 			return recoveryWindow{}, err
 		}
-		if err := recoveryCommand(ctx, "systemctl", "start", recoveryTimer); err != nil {
+		if err := recoveryCommand(ctx, "systemctl", "start", RecoveryTimer); err != nil {
 			return recoveryWindow{}, err
 		}
 		return recoveryWindow{after: time.Now().Add(wait), installedBy: invocation}, nil
@@ -126,25 +130,30 @@ func (h *Handler) prepareRecovery(ctx context.Context) (recoveryWindow, error) {
 			return recoveryWindow{}, err
 		}
 	}
-	if err := recoveryCommand(ctx, "systemd-analyze", "verify", "--man=no", filepath.Join(directory, recoveryUnit), filepath.Join(directory, recoveryTimer)); err != nil {
+	if err := recoveryCommand(ctx, "systemd-analyze", "verify", "--man=no", filepath.Join(directory, recoveryUnit), filepath.Join(directory, RecoveryTimer)); err != nil {
 		return recoveryWindow{}, err
 	}
-	units := filepath.Join(filepath.Dir(h.Binary), "ts-orch-release-recovery")
+	units, enable := filepath.Join(filepath.Dir(h.Binary), "ts-orch-release-recovery"), []string{"enable", "--now", RecoveryTimer}
+	if hostos.NixOS() {
+		units, enable = hostos.UnitDirectory(), []string{"enable", "--runtime", "--now", RecoveryTimer}
+	}
 	if err := os.MkdirAll(units, 0755); err != nil {
 		return recoveryWindow{}, err
 	}
-	for name, text := range map[string]string{recoveryUnit: recoveryServiceText, recoveryTimer: recoveryTimerText} {
+	for name, text := range RecoveryUnits {
 		if err := writeState(filepath.Join(units, name), []byte(text)); err != nil {
 			return recoveryWindow{}, err
 		}
 	}
-	if err := recoveryCommand(ctx, "systemctl", "link", filepath.Join(units, recoveryUnit), filepath.Join(units, recoveryTimer)); err != nil {
-		return recoveryWindow{}, err
+	if !hostos.NixOS() {
+		if err := recoveryCommand(ctx, "systemctl", "link", filepath.Join(units, recoveryUnit), filepath.Join(units, RecoveryTimer)); err != nil {
+			return recoveryWindow{}, err
+		}
 	}
 	if err := recoveryCommand(ctx, "systemctl", "daemon-reload"); err != nil {
 		return recoveryWindow{}, err
 	}
-	if err := recoveryCommand(ctx, "systemctl", "enable", "--now", recoveryTimer); err != nil {
+	if err := recoveryCommand(ctx, "systemctl", enable...); err != nil {
 		return recoveryWindow{}, err
 	}
 	return recoveryWindow{after: time.Now().Add(wait), installedBy: invocation}, nil

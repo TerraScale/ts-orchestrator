@@ -53,10 +53,10 @@ func Run(ctx context.Context, args []string, output io.Writer, loadPlan func(str
 	}
 	switch args[0] {
 	case "metadata-unit":
-		_, err := io.WriteString(output, metadataUnit)
+		_, err := io.WriteString(output, MetadataUnit())
 		return err
 	case "metadata-rules":
-		_, err := io.WriteString(output, metadataRules)
+		_, err := io.WriteString(output, MetadataRules)
 		return err
 	case "secrets":
 		if *plan == "" {

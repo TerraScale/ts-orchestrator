@@ -13,6 +13,7 @@ import (
 
 type unit struct {
 	ExecStart              []string
+	Environment            []string
 	RestartSec             time.Duration
 	TimeoutStartSec        time.Duration
 	TimeoutStopSec         time.Duration
@@ -64,6 +65,8 @@ func parseUnit(data []byte) (unit, error) {
 		switch key {
 		case "ExecStart":
 			u.ExecStart = strings.Fields(value)
+		case "Environment":
+			u.Environment = append(u.Environment, strings.Fields(value)...)
 		case "RestartSec":
 			u.RestartSec, err = time.ParseDuration(value)
 		case "TimeoutStartSec":

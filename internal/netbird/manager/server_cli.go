@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/hostos"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
@@ -116,10 +117,24 @@ func serveOnce(ctx context.Context, vault ServerVault, setupKey, dir string) err
 			return err
 		}
 	}
+	if hostos.NixOS() {
+		return errors.Join(checkClientPin(ctx), enrollHost(ctx, vault, setupKey))
+	}
 	if err := ensureClient(ctx); err != nil {
 		return err
 	}
 	return enrollHost(ctx, vault, setupKey)
+}
+
+func checkClientPin(ctx context.Context) error {
+	output, err := exec.CommandContext(ctx, netbird.ClientBinary(), "version").Output()
+	if err != nil {
+		return fmt.Errorf("netbird version: %w", err)
+	}
+	if version := strings.TrimSpace(string(output)); version != clientPin.Version {
+		return fmt.Errorf("NetBird client %s on this NixOS host differs from pin %s: its Nix configuration must ship the pin", version, clientPin.Version)
+	}
+	return nil
 }
 
 const admissionFile = "/var/lib/ts-orch/swarm/admission.json"
@@ -184,8 +199,6 @@ var clientPin = func() client.Pin {
 	return p
 }()
 
-const clientBinary = "/usr/local/bin/netbird"
-
 // ensureClient keeps this host's pinned NetBird client installed, its daemon
 // enabled and running, and restarts it after an upgrade.
 func ensureClient(ctx context.Context) error {
@@ -194,21 +207,21 @@ func ensureClient(ctx context.Context) error {
 		return err
 	}
 	upgraded := false
-	if current, err := client.SHA256(clientBinary); err != nil || current != archive.BinarySHA256 {
-		if err := client.Fetch(ctx, clientPin, runtime.GOARCH, clientBinary, "", &http.Client{Timeout: 5 * time.Minute}); err != nil {
+	if current, err := client.SHA256(netbird.ClientBinary()); err != nil || current != archive.BinarySHA256 {
+		if err := client.Fetch(ctx, clientPin, runtime.GOARCH, netbird.ClientBinary(), "", &http.Client{Timeout: 5 * time.Minute}); err != nil {
 			return fmt.Errorf("install NetBird client %s: %w", clientPin.Version, err)
 		}
 		// Fetch writes the binary owner-only; the CLI must run for every user.
-		if err := os.Chmod(clientBinary, 0o755); err != nil {
+		if err := os.Chmod(netbird.ClientBinary(), 0o755); err != nil {
 			return err
 		}
 		upgraded = true
 	}
 	// The daemon must run the pinned binary, not a distribution package's.
 	unit, _ := exec.CommandContext(ctx, "systemctl", "show", "--property", "ExecStart", "--value", "netbird").Output()
-	if !strings.Contains(string(unit), clientBinary) {
-		_ = exec.CommandContext(ctx, clientBinary, "service", "uninstall").Run()
-		if output, err := exec.CommandContext(ctx, clientBinary, "service", "install").CombinedOutput(); err != nil {
+	if !strings.Contains(string(unit), netbird.ClientBinary()) {
+		_ = exec.CommandContext(ctx, netbird.ClientBinary(), "service", "uninstall").Run()
+		if output, err := exec.CommandContext(ctx, netbird.ClientBinary(), "service", "install").CombinedOutput(); err != nil {
 			return fmt.Errorf("netbird service install: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 		upgraded = true
@@ -233,14 +246,14 @@ func enrollHost(ctx context.Context, vault ServerVault, setupKey string) error {
 			Connected bool `json:"connected"`
 		} `json:"management"`
 	}
-	output, err := exec.CommandContext(ctx, clientBinary, "status", "--json").Output()
+	output, err := exec.CommandContext(ctx, netbird.ClientBinary(), "status", "--json").Output()
 	connected := err == nil && json.Unmarshal(output, &status) == nil && status.Management.Connected
 	if connected {
 		applied, err := serverSSHApplied(ctx)
 		if err != nil || applied {
 			return err
 		}
-		if output, err := exec.CommandContext(ctx, clientBinary, "down").CombinedOutput(); err != nil {
+		if output, err := exec.CommandContext(ctx, netbird.ClientBinary(), "down").CombinedOutput(); err != nil {
 			return fmt.Errorf("netbird down: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 	}
@@ -248,7 +261,7 @@ func enrollHost(ctx context.Context, vault ServerVault, setupKey string) error {
 	for _, setting := range serverSSHSettings {
 		args = append(args, setting.flag+"="+strconv.FormatBool(setting.want))
 	}
-	up := exec.CommandContext(ctx, clientBinary, args...)
+	up := exec.CommandContext(ctx, netbird.ClientBinary(), args...)
 	if !connected {
 		key, err := vaultsecret.Read(ctx, vault.Bundles, vault.Target.VaultID, setupKey)
 		if err != nil {
@@ -272,7 +285,7 @@ var serverSSHSettings = []struct {
 }
 
 func serverSSHApplied(ctx context.Context) (bool, error) {
-	output, err := exec.CommandContext(ctx, clientBinary, "debug", "config").Output()
+	output, err := exec.CommandContext(ctx, netbird.ClientBinary(), "debug", "config").Output()
 	defer clear(output)
 	if err != nil {
 		return false, fmt.Errorf("netbird debug config: %w", err)

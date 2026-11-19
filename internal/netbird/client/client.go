@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
+	"github.com/TerraScale/ts-orchestrator/internal/hostos"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 )
 
@@ -535,6 +536,9 @@ func Install(ctx context.Context, repo string, o InstallOptions, out io.Writer) 
 		return e
 	}
 	live := root == "/"
+	if live && hostos.NixOS() {
+		return errors.New("NixOS owns this host's NetBird client and its units")
+	}
 	if live && os.Geteuid() != 0 {
 		return errors.New("live NetBird installation must run as root")
 	}

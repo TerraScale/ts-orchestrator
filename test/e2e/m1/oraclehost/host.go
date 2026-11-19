@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -439,6 +440,10 @@ func runService(invocation string) error {
 		"NOTIFY_SOCKET=" + notifySocket,
 		"INVOCATION_ID=" + invocation,
 		"SYSTEMD_EXEC_PID=" + fmt.Sprint(os.Getpid()),
+	}
+	for _, assignment := range u.Environment {
+		key, _, _ := strings.Cut(assignment, "=")
+		env = append(slices.DeleteFunc(env, func(entry string) bool { return strings.HasPrefix(entry, key+"=") }), assignment)
 	}
 	return unix.Exec(u.ExecStart[0], u.ExecStart, env)
 }

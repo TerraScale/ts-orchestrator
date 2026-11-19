@@ -14,26 +14,27 @@ import (
 	"strings"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/hostos"
 )
 
 const (
-	installedUnit = "/etc/systemd/system/ts-orch.service"
 	installedBin  = "/usr/local/bin/terrascale-orchestrator"
 	unitPairs     = "/var/lib/ts-orch/units"
 	pairingDropin = "/run/systemd/system/ts-orch.service.d/ts-orch-unit.conf"
 )
 
 var pairedUnits = []struct {
-	embedded  string
-	installed string
-	suffix    string
+	embedded string
+	name     string
+	suffix   string
 }{
-	{embedded: "ts-orch.service", installed: installedUnit, suffix: ".service"},
-	{embedded: "services/netbird-server.service", installed: "/etc/systemd/system/netbird-server.service", suffix: ".netbird-server.service"},
+	{embedded: "ts-orch.service", name: "ts-orch.service", suffix: ".service"},
+	{embedded: "services/netbird-server.service", name: "netbird-server.service", suffix: ".netbird-server.service"},
 }
 
 func pairUnit(ctx context.Context) error {
-	installed, err := os.ReadFile(installedUnit)
+	units := hostos.UnitDirectory()
+	installed, err := os.ReadFile(filepath.Join(units, "ts-orch.service"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -83,7 +84,7 @@ func pairUnit(ctx context.Context) error {
 			}
 			continue
 		}
-		running, err := os.ReadFile(paired.installed)
+		running, err := os.ReadFile(filepath.Join(units, paired.name))
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}

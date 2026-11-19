@@ -20,6 +20,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard/accesscheck"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/hostunits"
 	"github.com/TerraScale/ts-orchestrator/internal/imagetrust"
 	"github.com/TerraScale/ts-orchestrator/internal/liveverify"
 	"github.com/TerraScale/ts-orchestrator/internal/logscan"
@@ -79,6 +80,7 @@ Operator tooling:
   terrabase              C# TerraBase member CA and member data volumes
   ts-auth                Provision ts-auth's Vault secrets and host firewall
   node-init              Install the launch release and bind the data volume at every NixOS boot
+  host-units             Write this host's systemd units to a directory; --start reloads and starts them
   caller-key             Add, activate, retire, recover and list regional caller keys
   vault                  Store secrets in OCI Vault once; render host files from them
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
@@ -240,6 +242,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return terrabase.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "node-init":
 		return nodeinit.Boot(ctx, args[1:], output)
+	case "host-units":
+		return hostunits.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "ts-auth":
 		return tsauth.Run(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
 	case "caller-key":

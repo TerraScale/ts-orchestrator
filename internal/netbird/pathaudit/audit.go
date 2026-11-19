@@ -35,7 +35,7 @@ or failover. It never restarts a daemon, changes DNS or blocks traffic.
 // existing client, so an audit needs no server installation or daemon restart.
 // Socket data enters jq on stdin to avoid Linux's per-argument size limit.
 const RemoteCommand = `set -eu
-status=$(/usr/local/bin/netbird status --json | jq '{daemonStatus,management,signal,relays}')
+status=$(netbird status --json | jq '{daemonStatus,management,signal,relays}')
 pid=$(systemctl show --property=MainPID --value netbird.service)
 addresses=$(getent ahosts netbird.terrascale.tech)
 sockets=$(ss -Hnpt state established '( dport = :443 )')
