@@ -118,16 +118,19 @@ The verifier and regional report must be released to the hosts before the new
 guard can observe them.
 
 Every artifact (ts-orchestrator, terrabase, ts-auth, ts-dashboard) has a row in
-every production region: main commit, selected release, running revisions by host,
-lag in minutes, budget and verdict. Each region reports the placement it holds
-for an application: its desired spec's generation and `regions`. A missing
-deployment is expected only where that placement leaves the region out (ts-auth
-runs only in gru). Every configured region must report the identical placement
-(generation, rollback ancestry and `regions`), so the guard never ranks one
-generation over another, and the region must have no service, task or failure
-for the application. Its row
-then reads `running=none (not declared in <region> by placement generation N)`.
-The publisher checks still apply to that row. In every other case a missing
+every production region. A service is judged only where
+`deploy/m1/services/<app>.json` lists the region. An omitted or empty `regions`
+list means every region. An undeclared region is `state=ok not-declared` and has
+no lag. A declared region whose report says the service is not declared is red
+and names the mismatch. A declared region keeps its row: main commit, selected
+release, running revisions by host, lag in minutes, budget and verdict. A
+declared region with no tasks stays red. Each region also reports the placement
+it holds for an application: its desired spec's generation and `regions`. For a
+region the declaration still judges, a missing deployment is expected only where
+every region reports that same placement and it leaves this region out, and the
+region has no service, task or failure for the application. Its row then reads
+`running=none (not declared in <region> by placement generation N)`. The
+publisher checks still apply to that row. In every other judged case a missing
 deployment stays pending and turns red after the fifteen-minute budget. That
 includes a region with no desired spec (reason `this region holds no desired
 spec for the service`), a region on a ts-orch release that reports no

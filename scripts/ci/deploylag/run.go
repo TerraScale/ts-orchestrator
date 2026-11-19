@@ -15,6 +15,7 @@ import (
 
 func run(ctx context.Context, a *api, now time.Time) bool {
 	regions, err := releasepush.LoadRegions("deploy/m1/regions.json")
+	declared, declErr := loadDeclarations("deploy/m1/services")
 	rows, red, unknown := map[string][]string{}, map[string]bool{}, map[string]bool{}
 	if err != nil {
 		line := "cannot observe regions: " + err.Error()
@@ -23,6 +24,15 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 			rows[x.name] = []string{line}
 			unknown[x.name] = true
 		}
+	}
+	if declErr != nil {
+		line := "cannot read service declarations: " + declErr.Error()
+		fmt.Println(line)
+		for _, x := range artifacts {
+			unknown[x.name] = true
+			rows[x.name] = append(rows[x.name], line)
+		}
+		regions = nil
 	}
 	reports := map[string]releasepush.DeploymentObservation{}
 	observationErrors := map[string]error{}
@@ -76,6 +86,12 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 		}
 		report.Targets = targets
 		for _, x := range artifacts {
+			if result, handled := declarationFinding(declared, x.name, region.Region, report.Apps[x.name]); handled {
+				fmt.Println(result.line)
+				rows[x.name] = append(rows[x.name], result.line)
+				red[x.name] = red[x.name] || result.red
+				continue
+			}
 			result := a.verdict(ctx, x, region.Region, report, placements[x.name], now)
 			fmt.Println(result.line)
 			rows[x.name] = append(rows[x.name], result.line)
