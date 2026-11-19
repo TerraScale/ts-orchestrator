@@ -172,7 +172,7 @@ func sendObserved(ctx context.Context, conn *nats.Conn, request ApplyRequest, wa
 		rows = append(rows, reply)
 		if reply.Error == "" {
 			succeeded = append(succeeded, region)
-		} else if request.Entry.Spec == nil || len(request.Entry.Spec.Regions) == 0 || slices.Contains(request.Entry.Spec.Regions, region) {
+		} else if request.Entry.Spec == nil || request.Entry.Spec.RunsIn(region) {
 			failed = append(failed, region+" ("+reply.Error+")")
 		}
 	}

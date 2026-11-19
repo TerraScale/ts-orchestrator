@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/secretpreflight"
@@ -18,13 +19,24 @@ type DeploymentTask struct {
 }
 
 type AppDeployment struct {
-	Complete bool             `json:"complete"`
-	Replicas uint64           `json:"replicas"`
-	Tasks    []DeploymentTask `json:"tasks"`
-	Host     string           `json:"host"`
-	Reason   string           `json:"reason,omitempty"`
-	Error    string           `json:"error,omitempty"`
-	Failed   bool             `json:"failed"`
+	Complete  bool             `json:"complete"`
+	Placement *Placement       `json:"placement,omitempty"`
+	Replicas  uint64           `json:"replicas"`
+	Tasks     []DeploymentTask `json:"tasks"`
+	Host      string           `json:"host"`
+	Reason    string           `json:"reason,omitempty"`
+	Error     string           `json:"error,omitempty"`
+	Failed    bool             `json:"failed"`
+}
+
+type Placement struct {
+	Generation int64    `json:"generation"`
+	RollbackOf int64    `json:"rollback_of,omitempty"`
+	Regions    []string `json:"regions,omitempty"`
+}
+
+func (p Placement) Excludes(region string) bool {
+	return len(p.Regions) != 0 && !slices.Contains(p.Regions, region)
 }
 
 type DeploymentObservation struct {

@@ -177,7 +177,7 @@ func (n *Node) attestPeers() {
 	defer n.peers.mu.Unlock()
 	reports := map[string]PeerAttestation{}
 	for name, entry := range *n.topologyDesired.Load() {
-		if entry.Spec == nil || !entry.Spec.NeedsPeers() || len(entry.Spec.Regions) > 0 && !slices.Contains(entry.Spec.Regions, n.cfg.region) {
+		if entry.Spec == nil || !entry.Spec.NeedsPeers() || !entry.Spec.RunsIn(n.cfg.region) {
 			continue
 		}
 		regions := entry.Spec.Regions

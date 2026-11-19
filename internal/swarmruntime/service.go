@@ -241,6 +241,10 @@ func (s ServiceSpec) EveryNode() bool {
 	return slices.Contains(everyNodeServices, s.Name)
 }
 
+func (s ServiceSpec) RunsIn(region string) bool {
+	return len(s.Regions) == 0 || slices.Contains(s.Regions, region)
+}
+
 func (s ServiceSpec) onePerNode() bool {
 	return s.EveryNode() || len(s.Mounts) != 0 && s.Replicas > 1
 }

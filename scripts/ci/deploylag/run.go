@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -52,6 +53,7 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 			}
 		}
 	}
+	placements := agreedPlacements(regions, reports, observationErrors)
 	for _, region := range regions {
 		report, observeErr := reports[region.Region], observationErrors[region.Region]
 		if observeErr != nil {
@@ -74,7 +76,7 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 		}
 		report.Targets = targets
 		for _, x := range artifacts {
-			result := a.verdict(ctx, x, region.Region, report, now)
+			result := a.verdict(ctx, x, region.Region, report, placements[x.name], now)
 			fmt.Println(result.line)
 			rows[x.name] = append(rows[x.name], result.line)
 			red[x.name] = red[x.name] || result.red
@@ -112,4 +114,27 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 	}
 	fmt.Println("DEPLOY ok", cmp.Or(strings.Join(healthy, ","), "-"))
 	return complete
+}
+
+func agreedPlacements(regions []releasepush.Region, reports map[string]releasepush.DeploymentObservation, observationErrors map[string]error) map[string]*releasepush.Placement {
+	agreed := map[string]*releasepush.Placement{}
+	for _, x := range artifacts {
+		var placement *releasepush.Placement
+		for i, region := range regions {
+			app, ok := reports[region.Region].Apps[x.name]
+			if observationErrors[region.Region] != nil || !ok || app.Placement == nil || i > 0 && !samePlacement(*app.Placement, *placement) {
+				placement = nil
+				break
+			}
+			placement = app.Placement
+		}
+		if placement != nil {
+			agreed[x.name] = placement
+		}
+	}
+	return agreed
+}
+
+func samePlacement(a, b releasepush.Placement) bool {
+	return a.Generation == b.Generation && a.RollbackOf == b.RollbackOf && slices.Equal(a.Regions, b.Regions)
 }
