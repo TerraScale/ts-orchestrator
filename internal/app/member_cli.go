@@ -34,7 +34,7 @@ func runMemberCLI(ctx context.Context, args []string, output io.Writer, state st
 	switch {
 	case len(args) == 1 && args[0] == "ls":
 		run = func(ctx context.Context, client api.ControlClient) error {
-			members, err := swarmruntime.ListMembers(ctx, client)
+			members, quorum, err := swarmruntime.ListMembers(ctx, client)
 			if err != nil {
 				return err
 			}
@@ -44,10 +44,6 @@ func runMemberCLI(ctx context.Context, args []string, output io.Writer, state st
 				fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", m.Hostname, m.Role, m.State, m.Availability, m.Address)
 			}
 			if err := table.Flush(); err != nil {
-				return err
-			}
-			quorum, err := swarmruntime.ReadManagerQuorum(ctx, client)
-			if err != nil {
 				return err
 			}
 			_, err = fmt.Fprintf(output, "quorum: %s\n", quorum)

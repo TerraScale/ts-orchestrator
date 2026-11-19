@@ -166,7 +166,7 @@ func (n *Node) regionMembers(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	defer conn.Close()
-	listed, err := swarmruntime.ListMembers(ctx, client)
+	listed, _, err := swarmruntime.ListMembers(ctx, client)
 	if err != nil {
 		return nil, err
 	}

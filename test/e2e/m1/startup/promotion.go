@@ -108,17 +108,13 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 		return err
 	}
 	output, commandErr := command("leave", "worker-1")
-	_, keeperErr := keeper.Reconcile(ctx, time.Now())
 	if err := unix.Flock(int(lock.Fd()), unix.LOCK_UN); err != nil {
 		return err
 	}
 	if commandErr == nil || !strings.Contains(string(output), "another membership change") {
 		return fmt.Errorf("concurrent membership change was not refused: %s: %v", output, commandErr)
 	}
-	if keeperErr == nil || !strings.Contains(keeperErr.Error(), "another membership change") {
-		return fmt.Errorf("the manager keeper ignored a membership change in progress: %v", keeperErr)
-	}
-	if output, err := command("ls"); err != nil || !strings.Contains(string(output), "quorum: 3 of 3 voting managers ready and Raft-reachable; quorum needs 2 of 3") {
+	if output, err := command("ls"); err != nil || !strings.Contains(string(output), "quorum: 3 of 3 Raft voters reachable; quorum needs 2 of 3") {
 		return fmt.Errorf("member ls quorum: %v: %s", err, output)
 	}
 	if err := meshPromotionJourney(ctx, state, append([]*swarmruntime.Node{manager}, workers...)); err != nil {

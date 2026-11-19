@@ -15,14 +15,20 @@ type Member struct {
 	Hostname, Role, State, Availability, Address string
 }
 
-// ListMembers lists the cluster's hosts by hostname.
-func ListMembers(ctx context.Context, client api.ControlClient) ([]Member, error) {
+func ListMembers(ctx context.Context, client api.ControlClient) ([]Member, ManagerQuorum, error) {
 	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 	if err != nil {
-		return nil, err
+		return nil, ManagerQuorum{}, err
 	}
+	var quorum ManagerQuorum
 	members := make([]Member, 0, len(listed.Nodes))
 	for _, node := range listed.Nodes {
+		if node.Role == api.NodeRoleManager && node.ManagerStatus != nil {
+			quorum.Voters++
+			if node.ManagerStatus.Reachability == api.RaftMemberStatus_REACHABLE {
+				quorum.Reachable++
+			}
+		}
 		member := Member{Role: strings.ToLower(node.Role.String()), State: node.Status.State.String(),
 			Availability: node.Spec.Availability.String(), Address: node.Status.Addr}
 		if node.Description != nil {
@@ -34,7 +40,7 @@ func ListMembers(ctx context.Context, client api.ControlClient) ([]Member, error
 		members = append(members, member)
 	}
 	slices.SortFunc(members, func(a, b Member) int { return strings.Compare(a.Hostname, b.Hostname) })
-	return members, nil
+	return members, quorum, nil
 }
 
 func RemoveMember(ctx context.Context, client api.ControlClient, hostname string, guard func(context.Context) error) error {
@@ -122,8 +128,8 @@ func SetMemberAvailability(ctx context.Context, client api.ControlClient, hostna
 	if err != nil {
 		return err
 	}
-	if node.Role == api.NodeRoleManager {
-		return fmt.Errorf("%s is the region's manager; only workers drain", hostname)
+	if node.Role == api.NodeRoleManager || node.Spec.DesiredRole == api.NodeRoleManager {
+		return fmt.Errorf("%s is or is becoming a voting manager; only workers drain", hostname)
 	}
 	if _, scaled := node.Spec.Annotations.Labels[LabelDrainSince]; node.Spec.Availability == availability && !scaled {
 		return nil
@@ -186,23 +192,5 @@ type ManagerQuorum struct {
 }
 
 func (q ManagerQuorum) String() string {
-	return fmt.Sprintf("%d of %d voting managers ready and Raft-reachable; quorum needs %d of %d", q.Reachable, q.Voters, q.Voters/2+1, q.Voters)
-}
-
-func ReadManagerQuorum(ctx context.Context, client api.ControlClient) (ManagerQuorum, error) {
-	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
-	if err != nil {
-		return ManagerQuorum{}, err
-	}
-	var quorum ManagerQuorum
-	for _, node := range listed.Nodes {
-		if node.Role != api.NodeRoleManager {
-			continue
-		}
-		quorum.Voters++
-		if managerReady(node) {
-			quorum.Reachable++
-		}
-	}
-	return quorum, nil
+	return fmt.Sprintf("%d of %d Raft voters reachable; quorum needs %d of %d", q.Reachable, q.Voters, q.Voters/2+1, q.Voters)
 }

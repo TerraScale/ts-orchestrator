@@ -384,19 +384,14 @@ func inventoryState(ctx context.Context, host *oraclehost.Host) (int, string, []
 	return refused, publisher, trusted
 }
 
-func promoteManagers(ctx context.Context, leader *oraclehost.Host, hosts ...*oraclehost.Host) {
+func promotedManagers(ctx context.Context, leader *oraclehost.Host, hosts ...*oraclehost.Host) {
 	client, conn, err := swarmruntime.DialControl(leader.State(""))
 	must(err)
 	defer conn.Close()
 	for _, host := range hosts {
-		current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeCertificate(host.State("")).Subject.CommonName})
-		must(err)
-		spec := current.Node.Spec.Copy()
-		spec.DesiredRole = api.NodeRoleManager
-		_, err = client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: current.Node.ID, NodeVersion: &current.Node.Meta.Version, Spec: spec})
-		must(err)
-		until(ctx, host.Name+" is a Raft-reachable manager", func() error {
-			current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: current.Node.ID})
+		nodeID := nodeCertificate(host.State("")).Subject.CommonName
+		until(ctx, host.Name+" is a Raft-reachable manager the leader's manager keeper promoted", func() error {
+			current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
 			if err != nil {
 				return err
 			}
@@ -629,9 +624,9 @@ func main() {
 		}
 	}()
 	gru := fleet.Regions[0]
-	replacement := gru.Hosts[3]
-	gru.Hosts = gru.Hosts[:3]
-	fleet.Hosts = slices.DeleteFunc(fleet.Hosts, func(host *oraclehost.Host) bool { return host == replacement })
+	held, replacement := gru.Hosts[2], gru.Hosts[3]
+	gru.Hosts = gru.Hosts[:2]
+	fleet.Hosts = slices.DeleteFunc(fleet.Hosts, func(host *oraclehost.Host) bool { return host == held || host == replacement })
 	managers, workers := roles(fleet)
 	step("%d hosts in their own network namespaces; IMDS, OCI federation, Vault, GitHub OIDC key and registry stand-ins up", len(fleet.Hosts))
 	must(fleet.Boot(managers...))
@@ -653,10 +648,10 @@ func main() {
 	step("each founder claimed and published its region's join material in Vault")
 	var stale regionjoin.Material
 	must(json.Unmarshal([]byte(fleet.PinSecret(regionjoin.SecretName(gru.Name))), &stale))
-	for _, worker := range gru.Hosts[1:] {
+	for _, worker := range []*oraclehost.Host{gru.Hosts[1], held} {
 		require(!strings.Contains(strings.Join(stale.Routes, " "), "//"+worker.Address+":"), "%s pinned join material lists %s: %v", gru.Name, worker.Name, stale.Routes)
 	}
-	step("%s join material pinned at a version that lists neither %s nor %s: %v", gru.Name, gru.Hosts[1].Name, gru.Hosts[2].Name, stale.Routes)
+	step("%s join material pinned at a version that lists neither %s nor %s: %v", gru.Name, gru.Hosts[1].Name, held.Name, stale.Routes)
 	regionRouteFirewall(ctx, gru.Hosts[0], "-I")
 	must(fleet.Boot(workers...))
 	for _, worker := range workers {
@@ -683,10 +678,6 @@ func main() {
 		}
 	}
 	step("before any service apply, every host serves its native regional mesh name with verified TLS, authenticated observation and every peer RTT; unsigned reads and mutations refuse")
-	delivered(ctx, fleet, gru.Hosts[1], gru.Hosts[2])
-	delivered(ctx, fleet, gru.Hosts[2], gru.Hosts[1])
-	fleet.UnpinSecret(regionjoin.SecretName(gru.Name))
-	step("%s and %s, joined from material that lists neither, route to each other over the VCN and deliver ORCH, TERRABASE and ALERTS both ways", gru.Hosts[1].Name, gru.Hosts[2].Name)
 	decoy, err := net.Listen("tcp", net.JoinHostPort(oraclehost.GatewayAddress, "6222"))
 	must(err)
 	defer decoy.Close()
@@ -755,6 +746,22 @@ func main() {
 	}))
 	step("%s refuses inventories signed by a self-signed certificate naming %s's founder and by %s's real manager certificate, and never routes their forged name", follower.Name, gru.Name, sjc.Name)
 
+	gru.Hosts = append(gru.Hosts, held)
+	fleet.Hosts = append(fleet.Hosts, held)
+	regionRouteFirewall(ctx, gru.Hosts[0], "-I")
+	must(fleet.Boot(held))
+	_, err = held.WaitReady(ctx, 0, first)
+	must(err)
+	awaitIsolatedRoutes(ctx, gru)
+	regionRouteFirewall(ctx, gru.Hosts[0], "-D")
+	step("%s joined last from the pinned material, completed five discovery rounds without its manager's route port and never dialed an in-region NetBird route", held.Name)
+	delivered(ctx, fleet, gru.Hosts[1], held)
+	delivered(ctx, fleet, held, gru.Hosts[1])
+	fleet.UnpinSecret(regionjoin.SecretName(gru.Name))
+	step("%s and %s, joined from material that lists neither, route to each other over the VCN and deliver ORCH, TERRABASE and ALERTS both ways", gru.Hosts[1].Name, held.Name)
+	promotedManagers(ctx, gru.Hosts[0], follower, held)
+	step("with two eligible workers, %s's manager keeper promoted %s and %s with no release and no operator command; both are Raft-reachable managers", gru.Name, follower.Name, held.Name)
+
 	flapped, survivor := gru.Hosts[2], gru.Hosts[1]
 	configured := fmt.Sprintf("ts_orch_mesh_region_route_configured{address=%q}", flapped.Address)
 	must(flapped.Signal(syscall.SIGSTOP))
@@ -784,9 +791,7 @@ func main() {
 	meshRoutes(ctx, fleet)
 	step("%s went not READY and back: its route stayed configured, and after %d route sockets to %s were reset ORCH, TERRABASE and ALERTS deliver both ways over the VCN", flapped.Name, reset, survivor.Name)
 
-	departed := gru.Hosts[2]
-	promoteManagers(ctx, gru.Hosts[0], follower, departed)
-	step("%s's SwarmKit managers promoted %s and %s with no release; both are Raft-reachable managers", gru.Name, follower.Name, departed.Name)
+	departed := held
 	removed, departedID := filepath.Join(work, "departed-state"), nodeCertificate(departed.State("")).Subject.CommonName
 	promotedIDs := []string{nodeCertificate(follower.State("")).Subject.CommonName, departedID}
 	until(ctx, follower.Name+" trusts the inventories of both promoted managers", func() error {
