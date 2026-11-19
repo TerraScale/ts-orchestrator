@@ -337,7 +337,9 @@ func (l *lane) channel(ctx context.Context) {
 	})
 	l.requireVersions(ctx, base, l.region("fra", "gru")...)
 	worker.releaseRestart()
-	l.waitStatus(ctx, "gru", "the fleet completes "+r117.tag+" after the worker returns", complete(r117.published))
+	for _, region := range []string{"fra", "gru"} {
+		l.waitStatus(ctx, region, region+" completes "+r117.tag+" after the worker returns", complete(r117.published))
+	}
 	l.requireVersions(ctx, r117.digest, l.region("sjc", "fra", "gru")...)
 	fmt.Printf("unavailable first-region worker blocks later regions; return permits the ordered rollout\n%s\n", waiting)
 	fmt.Printf("release %s with %d MiB of change over the installed binary installed from each region's channel after its forged document was refused\n", r117.tag, len(padding)>>20)
