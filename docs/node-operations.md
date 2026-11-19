@@ -55,7 +55,7 @@ downloads `ts-host-debian13-<arch>.qcow2` and its `.sha256` into an empty
 directory, hashes the download and requires that hash to match the sidecar
 and GitHub's asset digest, and the sidecar to match its own asset digest.
 
-It uploads the file as `<tag>/<file>` to the region's `ts-host-images`
+It uploads the file as `<tag>/<file>` to the region's `ts-host-images-prod`
 bucket. The bucket belongs to the compartment of the first fleet entry in
 that OCI region (`sjc-1-control` for `us-sanjose-1`); the script creates it there with `NoPublicAccess` and refuses a
 bucket in another compartment or a public one. It uploads in one part with
@@ -88,7 +88,7 @@ The script uses the operator's API key profile (`~/.oci/config` `DEFAULT`).
 OCI imports from an object directly only for an API key user; federated users
 and instance principals would need a pre-authenticated request. The user
 needs, in the bucket owner compartment, `manage buckets` and `manage objects`
-for `ts-host-images`, and in each label's compartment `manage instance-images`
+for `ts-host-images-prod`, and in each label's compartment `manage instance-images`
 and `read work-requests`, plus `inspect` on the tenancy's global image
 capability schemas.
 
