@@ -86,6 +86,7 @@ jobs:
       - uses: ./.github/actions/go
         with:
           cache: lint-v2
+      - run: python3 test/e2e/m1/runtime-inputs.py --check
       - run: make lint GO=go CHANGE_BASE="${CHANGE_BASE:-$(git merge-base origin/main HEAD)}"
       - run: make --jobs=2 release-check GO=go
       - run: bash scripts/ci/audit-dependencies.sh source
@@ -111,6 +112,37 @@ jobs:
           name: e2e-m1-bin
           path: ${{ runner.temp }}/m1-bin/terrascale-orchestrator
           retention-days: 1
+
+  e2e-host-image:
+    permissions:
+      contents: read
+      actions: read
+    needs: paths
+    if: ${{ github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.paths.outputs.runtime == 'true') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install QEMU and libguestfs
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libguestfs-tools qemu-system-x86
+          sudo chmod a+r /boot/vmlinuz-*
+          if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; fi
+      - name: Boot the pre-built Debian image
+        run: bash test/e2e/m1/image-smoke.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() }}
+        with:
+          name: e2e-host-image
+          path: ${{ runner.temp }}/host-image-smoke/boot
+          if-no-files-found: error
+          retention-days: 14
 
   e2e-lane:
     needs: [paths, e2e-build]
@@ -407,7 +439,7 @@ jobs:
 
   e2e-m1:
     if: ${{ always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.paths.outputs.runtime == 'true') }}
-    needs: [paths, e2e-lane, e2e-rerun-plan, e2e-lane-rerun]
+    needs: [paths, e2e-host-image, e2e-lane, e2e-rerun-plan, e2e-lane-rerun]
     concurrency:
       group: e2e-m1-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -416,11 +448,13 @@ jobs:
     steps:
       - name: Check upstream results
         env:
+          IMAGE: ${{ needs.e2e-host-image.result }}
           LANES: ${{ needs.e2e-lane.result }}
           PLAN: ${{ needs.e2e-rerun-plan.result }}
           RERUNS: ${{ needs.e2e-rerun-plan.outputs.count }}
           RERUN: ${{ needs.e2e-lane-rerun.result }}
         run: |
+          test "$IMAGE" = success
           test "$LANES" = success
           test "$PLAN" = success
           test "$RERUNS" = 0 || test "$RERUN" = success
@@ -732,7 +766,7 @@ jobs:
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [paths, lint, e2e-build, e2e-lane, e2e-rerun-plan, e2e-lane-rerun, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-publish, release-publish-after-lanes]
+    needs: [paths, lint, e2e-build, e2e-host-image, e2e-lane, e2e-rerun-plan, e2e-lane-rerun, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-publish, release-publish-after-lanes]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:

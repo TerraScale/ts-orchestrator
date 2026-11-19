@@ -2,6 +2,10 @@
 
 The ARM journeys run as independent matrix jobs. Every lane runs on each push to main. On pull requests, the paths job selects the runtime lane group for executable inputs; documentation and ops notes skip it. Workflow files, module files, build tooling and the shared E2E harness select every lane. Schedule retains its existing certificate and caller-key proofs and does not run the ARM matrix. In the table, Runtime inputs means this shared path selection, with main always selected.
 
+The runner lanes consume containerd and runc versions from `deploy/image/debian/provision.sh` and archive checksums and NetBird metadata from `deploy/image/debian/base.json`. Both cold and warm caches install these verified archives before exercising the installer. Cache keys include those image inputs. The lint job checks the existing standalone installer and embedded NetBird manager pins against the image; `python3 test/e2e/m1/runtime-inputs.py --write` regenerates the standalone installer's pin assignments.
+
+One parallel `e2e-host-image` job downloads the host-image release assets produced by the newest successful main image workflow (so artifact retention does not expire the gate), verifies its checksum, records its source and provisioning changes since that source, then runs C2t's amd64 VM assertions for first boot, persistent-volume reboot, launch-release replacement and checksum rejection. Its result is required by `e2e-m1`. Changes to image inputs continue to build and boot the candidate through the existing `host-image` workflow; the pre-built smoke always exercises the last successful main image. The 35 runner lanes and their single automatic rerun keep their existing deadlines and assertions. This is runtime archive parity plus Debian boot coverage: the runner lanes still use Ubuntu's kernel and distro packages.
+
 | Lane | What it proves | Timeout | Path condition |
 |---|---|---|---|
 | core | Install, serving, DNS, service status, removal and persistent data | 8 minutes | Runtime inputs |
