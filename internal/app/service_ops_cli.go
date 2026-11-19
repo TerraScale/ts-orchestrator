@@ -271,10 +271,13 @@ func runServiceOps(ctx context.Context, args []string, output io.Writer, state s
 			return err
 		}
 		read := func(output io.Writer, task swarmruntime.TaskRow, follow bool) error {
-			if task.NodeID == localID {
+			if task.NodeID == "" || task.NodeID == localID {
 				return writeTaskLogs(ctx, output, state, task, follow)
 			}
-			return writeRemoteTaskLogs(ctx, output, api.NewLogsClient(conn), task, follow)
+			if follow {
+				return fmt.Errorf("task %s: follow works only on the node that runs the task: run it on %s", task.ID, task.Node)
+			}
+			return writeRemoteTaskLogs(ctx, output, api.NewLogsClient(conn), task)
 		}
 		if previous {
 			return writePreviousTaskLogs(output, rows, read)
@@ -307,17 +310,12 @@ func writePreviousTaskLogs(output io.Writer, rows []swarmruntime.TaskRow, read f
 	return errors.New("no retained previous task logs; check `ts-orch service ps` for task nodes and history")
 }
 
-func writeRemoteTaskLogs(ctx context.Context, output io.Writer, client api.LogsClient, task swarmruntime.TaskRow, follow bool) error {
-	if !follow {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-	}
-	ctx, cancel := context.WithCancel(ctx)
+func writeRemoteTaskLogs(ctx context.Context, output io.Writer, client api.LogsClient, task swarmruntime.TaskRow) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	stream, err := client.SubscribeLogs(ctx, &api.SubscribeLogsRequest{
 		Selector: &api.LogSelector{TaskIDs: []string{task.ID}},
-		Options:  &api.LogSubscriptionOptions{Follow: follow},
+		Options:  &api.LogSubscriptionOptions{},
 	})
 	if err != nil {
 		return err
@@ -332,9 +330,6 @@ func writeRemoteTaskLogs(ctx context.Context, output io.Writer, client api.LogsC
 			return nil
 		}
 		if err != nil {
-			if follow && ctx.Err() != nil {
-				return nil
-			}
 			return fmt.Errorf("read task %s logs from node %s: %w", task.ID, task.Node, err)
 		}
 		for _, log := range message.Messages {

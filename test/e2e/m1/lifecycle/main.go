@@ -534,7 +534,8 @@ func run(ctx context.Context, root, image string) error {
 	if err != nil {
 		return err
 	}
-	if err := j.remoteLogs(image); err != nil {
+	remoteLogsAfterRestart, err := j.remoteLogs(image)
+	if err != nil {
 		return err
 	}
 	owner, first, second := ownerSet[0], firstSet[0], secondSet[0]
@@ -558,6 +559,9 @@ func run(ctx context.Context, root, image string) error {
 		}
 	}
 	fmt.Printf("agent stop/start retained PIDs %d %d %d %d %d; all served while stopped and after start\n", owner.process.Pid(), first.process.Pid(), second.process.Pid(), twins[0].process.Pid(), twins[1].process.Pid())
+	if err := remoteLogsAfterRestart(); err != nil {
+		return err
+	}
 	if len(os.Args) > 3 && os.Args[3] == "quick" {
 		return j.quickContinuity(owner, keys)
 	}

@@ -15,9 +15,8 @@ import (
 )
 
 type subscription struct {
-	mu       sync.RWMutex
-	done     chan struct{}
-	doneOnce sync.Once
+	mu   sync.RWMutex
+	done chan struct{}
 
 	store   *store.MemoryStore
 	message *api.SubscriptionMessage
@@ -84,32 +83,49 @@ func (s *subscription) Stop() {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	s.doneOnce.Do(func() { close(s.done) })
 }
 
 func (s *subscription) Wait(_ context.Context) <-chan struct{} {
+	// Follow subscriptions never end
+	if s.follow() {
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.follow() && len(s.nodes) == 0 {
-		s.doneOnce.Do(func() { close(s.done) })
-	}
+	s.closeWhenComplete()
 	return s.done
+}
+
+func (s *subscription) closeWhenComplete() {
+	if len(s.nodes) != 0 {
+		return
+	}
+	select {
+	case <-s.done:
+	default:
+		close(s.done)
+	}
 }
 
 func (s *subscription) Done(nodeID string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	if err != nil {
 		s.errors = append(s.errors, err)
-		s.doneOnce.Do(func() { close(s.done) })
 	}
+
 	if s.follow() {
 		return
 	}
-	delete(s.nodes, nodeID)
-	if len(s.nodes) == 0 {
-		s.doneOnce.Do(func() { close(s.done) })
+
+	if _, ok := s.nodes[nodeID]; !ok {
+		return
 	}
+
+	delete(s.nodes, nodeID)
+	s.closeWhenComplete()
 }
 
 func (s *subscription) Err() error {

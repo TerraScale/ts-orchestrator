@@ -156,7 +156,7 @@ cluster channel. None changes state. Known failures end in `. Fix: <next step>`.
 | Command | Shows |
 |---|---|
 | `ts-orch service ps <svc>` | Tasks newest first: ID, node, state, desired state, time in state, last error; then `Fix:` for the newest task's error |
-| `ts-orch service logs [-f \| --previous] <svc>` | Newest task's stdout then stderr from its node, including STARTING tasks; `-f` follows appended output, `--previous` reads a retained ended task |
+| `ts-orch service logs [-f \| --previous] <svc>` | Newest task's stdout then stderr from its node, including STARTING tasks; `--previous` reads a retained ended task; `-f` follows only a task on this host |
 | `ts-orch service inspect <svc>` | JSON: service ID, version, created/updated, image digest, and the declared spec. Secrets show env keys and OCI Vault refs only; values never enter the spec |
 | `ts-orch events [-f]` | Latest 100 task and service state records, oldest first; `-f` streams changes from the manager's watch API |
 
@@ -167,11 +167,11 @@ Deploy check: `service apply -f x.json`, then `events -f` until the task shows
 including while a failed readiness probe holds the task in STARTING. Use
 `--previous` after it exits. SSH to the worker is unnecessary.
 
-Remote reads report an incomplete-stream error if the owner is unavailable or
-disconnects, including during follow. A stalled snapshot ends at 30 seconds.
-Slow consumers receive a subscriber-overflow error instead of buffering logs
-without a bound. Follow reports a gap if compaction drops unread bytes; see
-[task log retention](task-log-retention.md). Errors can follow already-printed output.
+A task on another node is read as a snapshot and the command exits. `-f` on
+such a task fails at once with `follow works only on the node that runs the
+task: run it on <node>`. An unavailable node is reported as an incomplete log
+stream; a stalled read ends at 30 seconds. See
+[task log retention](task-log-retention.md).
 
 Common errors and fixes:
 

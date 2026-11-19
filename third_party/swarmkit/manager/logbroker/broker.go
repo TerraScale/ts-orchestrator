@@ -26,6 +26,7 @@ var (
 type logMessage struct {
 	*api.PublishLogsMessage
 	completed bool
+	err       error
 }
 
 // LogBroker coordinates log subscriptions to services and tasks. Clients can
@@ -186,14 +187,14 @@ func (lb *LogBroker) watchSubscriptions(nodeID string) ([]*subscription, chan ev
 	return subscriptions, ch, cancel
 }
 
-func (lb *LogBroker) subscribe(id string) (chan events.Event, func(), <-chan struct{}) {
+func (lb *LogBroker) subscribe(id string) (chan events.Event, func()) {
 	lb.mu.RLock()
 	defer lb.mu.RUnlock()
 
-	return lb.logQueue.CallbackWatchBoundedLimit(events.MatcherFunc(func(event events.Event) bool {
+	return lb.logQueue.CallbackWatch(events.MatcherFunc(func(event events.Event) bool {
 		publish := event.(*logMessage)
 		return publish.SubscriptionID == id
-	}), 256)
+	}))
 }
 
 func (lb *LogBroker) publish(log *api.PublishLogsMessage) {
@@ -245,55 +246,37 @@ func (lb *LogBroker) SubscribeLogs(request *api.SubscribeLogsRequest, stream api
 	)
 	logger.Debug("subscribed")
 
-	publishCh, publishCancel, overflow := lb.subscribe(subscription.message.ID)
+	publishCh, publishCancel := lb.subscribe(subscription.message.ID)
 	defer publishCancel()
 
 	lb.registerSubscription(subscription)
 	defer lb.unregisterSubscription(subscription)
 
 	completed := subscription.Wait(ctx)
-	result := make(chan error, 1)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-pctx.Done():
-				return
-			case event, ok := <-publishCh:
-				if !ok {
-					return
-				}
-				publish := event.(*logMessage)
-				if publish.completed {
-					result <- nil
-					return
-				}
-				if err := stream.Send(&api.SubscribeLogsMessage{Messages: publish.Messages}); err != nil {
-					result <- err
-					return
-				}
-			}
-		}
-	}()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-pctx.Done():
 			return pctx.Err()
-		case <-overflow:
-			return status.Error(codes.ResourceExhausted, "log subscriber overflow: output consumer is too slow")
-		case err := <-result:
-			return err
-		case <-completed:
-			completed = nil
-			if err := subscription.Err(); err != nil {
+		case event := <-publishCh:
+			publish := event.(*logMessage)
+			if publish.completed {
+				return publish.err
+			}
+			if err := stream.Send(&api.SubscribeLogsMessage{
+				Messages: publish.Messages,
+			}); err != nil {
 				return err
 			}
+		case <-completed:
+			completed = nil
 			lb.logQueue.Publish(&logMessage{
-				PublishLogsMessage: &api.PublishLogsMessage{SubscriptionID: subscription.message.ID},
-				completed:          true,
+				PublishLogsMessage: &api.PublishLogsMessage{
+					SubscriptionID: subscription.message.ID,
+				},
+				completed: true,
+				err:       subscription.Err(),
 			})
 		}
 	}
@@ -415,9 +398,6 @@ func (lb *LogBroker) PublishLogs(stream api.LogBroker_PublishLogsServer) (err er
 			return err
 		}
 
-		if logMsg.Size() > 64<<10 {
-			return status.Error(codes.ResourceExhausted, "log publication exceeds 64 KiB")
-		}
 		if logMsg.SubscriptionID == "" {
 			return status.Errorf(codes.InvalidArgument, "missing subscription ID")
 		}
