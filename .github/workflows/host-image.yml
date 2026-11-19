@@ -6,6 +6,7 @@ on:
       - deploy/image/debian/**
       - deploy/m1/ts-orch.service
       - deploy/m1/services/*.service
+      - deploy/m1/services/*.json
       - internal/nodeinit/boot.go
       - .github/workflows/host-image.yml
   push:
@@ -14,6 +15,7 @@ on:
       - deploy/image/debian/**
       - deploy/m1/ts-orch.service
       - deploy/m1/services/*.service
+      - deploy/m1/services/*.json
       - internal/nodeinit/boot.go
       - .github/workflows/host-image.yml
   workflow_dispatch:
@@ -50,6 +52,9 @@ jobs:
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 45
     needs: resolve
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -61,10 +66,10 @@ jobs:
       - name: Install libguestfs-tools with the appliance DHCP client and QEMU user networking
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libguestfs-tools guestfish isc-dhcp-client jq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq passt
-          sudo chmod a+r /boot/vmlinuz-*
+          sudo -n apt-get update -qq
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libguestfs-tools guestfish isc-dhcp-client jq
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq passt
+          sudo -n chmod a+r /boot/vmlinuz-*
       - name: Build the image
         env:
           LIBGUESTFS_BACKEND: direct
@@ -93,6 +98,23 @@ jobs:
           echo ssh-key-command-ownership
           statns /usr/local/sbin/ts-ssh-keys
           GUESTFS
+      - name: Verify baked arm64 boot images
+        if: ${{ matrix.arch == 'arm64' }}
+        env:
+          LIBGUESTFS_BACKEND: direct
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/out/ts-host-debian13-arm64.qcow2"
+          virt-cat -a "$image" /usr/local/lib/ts-orch/boot-images.txt | cmp - "$RUNNER_TEMP/out/boot-images.txt"
+          virt-ls -a "$image" /var/lib/containerd/io.containerd.metadata.v1.bolt | grep -Fx meta.db
+          virt-ls -a "$image" /var/lib/containerd/io.containerd.content.v1.content/blobs/sha256 \
+            | sort > "$RUNNER_TEMP/out/boot-images-baked-content.txt"
+          sort "$RUNNER_TEMP/out/boot-images-content.txt" | cmp - "$RUNNER_TEMP/out/boot-images-baked-content.txt"
+          while IFS= read -r ref; do
+            digest=${ref##*@sha256:}
+            virt-cat -a "$image" "/var/lib/containerd/io.containerd.content.v1.content/blobs/sha256/$digest" \
+              | sha256sum | awk -v expected="$digest" '$1 != expected { exit 1 }'
+          done < "$RUNNER_TEMP/out/boot-images.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ts-host-debian13-${{ matrix.arch }}
@@ -103,6 +125,7 @@ jobs:
             ${{ runner.temp }}/out/size.txt
             ${{ runner.temp }}/out/image-release.sha256
             ${{ runner.temp }}/out/identity.txt
+            ${{ runner.temp }}/out/boot-images*.txt
           retention-days: 14
           if-no-files-found: error
 

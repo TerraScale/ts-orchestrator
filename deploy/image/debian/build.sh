@@ -9,7 +9,7 @@ arch=$1 out=$2 binary_url=$3 binary_sha256=$4
 [[ $arch == arm64 || $arch == amd64 ]] || { echo "arch must be arm64 or amd64" >&2; exit 2; }
 [[ $binary_sha256 =~ ^[0-9a-f]{64}$ ]] || { echo "binary sha256 must be 64 lowercase hex characters" >&2; exit 2; }
 [[ $binary_url =~ ^https://[A-Za-z0-9./_:%-]+$ ]] || { echo "binary URL must be a plain https URL" >&2; exit 2; }
-for tool in curl jq virt-customize virt-sparsify; do
+for tool in curl jq guestfish virt-customize virt-sparsify; do
 	command -v "$tool" >/dev/null || { echo "$tool is required to build the image" >&2; exit 1; }
 done
 
@@ -21,6 +21,12 @@ repo=$(cd "$here/../../.." && pwd)
 units=("$repo/deploy/m1/ts-orch.service" "$repo"/deploy/m1/services/*.service)
 
 install -d "$out"
+if [[ $arch == arm64 ]]; then
+	bash "$here/preload.sh" "$out"
+else
+	echo 'amd64: skipping boot image preload; production service pins are arm64-only'
+	printf 'amd64: boot image preload skipped; image growth 0 bytes\n' > "$out/boot-images-size.txt"
+fi
 work=$(mktemp -d /tmp/ts-host-image.XXXXXX)
 trap 'rm -rf "$work"' EXIT
 export XDG_RUNTIME_DIR="$work"
@@ -57,5 +63,21 @@ LIBGUESTFS_BACKEND=direct virt-customize \
 	--run-command 'bash /run/ts-image-provision.sh'
 
 image="$out/ts-host-debian13-$arch.qcow2"
-LIBGUESTFS_BACKEND=direct virt-sparsify --compress "$work/base.qcow2" "$image"
+if [[ $arch == arm64 ]]; then
+	LIBGUESTFS_BACKEND=direct virt-sparsify --compress "$work/base.qcow2" "$work/baseline.qcow2"
+	baseline_bytes=$(stat -c %s "$work/baseline.qcow2")
+	LIBGUESTFS_BACKEND=direct guestfish --rw -a "$work/baseline.qcow2" -i \
+		mkdir-p /var/lib/containerd : \
+		tar-in "$out/boot-images-store.tar" /var/lib/containerd xattrs:true acls:true : \
+		upload "$out/boot-images.txt" /usr/local/lib/ts-orch/boot-images.txt : \
+		chown 0 0 /usr/local/lib/ts-orch/boot-images.txt : \
+		chmod 0644 /usr/local/lib/ts-orch/boot-images.txt
+	LIBGUESTFS_BACKEND=direct virt-sparsify --compress "$work/baseline.qcow2" "$image"
+	image_bytes=$(stat -c %s "$image")
+	printf 'arch=arm64 baseline_bytes=%s preloaded_bytes=%s growth_bytes=%s\n' \
+		"$baseline_bytes" "$image_bytes" "$((image_bytes - baseline_bytes))" | tee "$out/boot-images-size.txt"
+	rm "$out/boot-images-store.tar"
+else
+	LIBGUESTFS_BACKEND=direct virt-sparsify --compress "$work/base.qcow2" "$image"
+fi
 (cd "$out" && sha256sum "ts-host-debian13-$arch.qcow2" > "ts-host-debian13-$arch.qcow2.sha256")
