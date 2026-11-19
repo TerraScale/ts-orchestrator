@@ -6,6 +6,17 @@ from pathlib import Path
 from qualified_release import REPOSITORY, api, command, require
 
 
+def job_passed(job, verified):
+    if job["conclusion"] == "success":
+        return True
+    if job["name"] != "e2e-certificates" or job["conclusion"] != "skipped":
+        return False
+    reasons = [step for step in verified["certificate-paths"]["steps"]
+               if step["name"] == "Prove certificate lane is inapplicable"]
+    return (len(reasons) == 1 and reasons[0]["status"] == "completed" and
+            reasons[0]["conclusion"] == "success")
+
+
 def qualification():
     require(os.environ["GITHUB_EVENT_NAME"] == "push" and
             os.environ["GITHUB_REF"] == "refs/heads/main" and
@@ -41,18 +52,19 @@ def qualification():
                 "incomplete PR job evidence")
         required = ("all-green", "lint", "e2e-m1", "certificate-paths", "e2e-certificates",
                     "caller-key-changes", *(f"caller-key / {shard}" for shard in range(8)))
-        passed = {}
+        verified = {}
         for name in required:
             matches = [job for job in jobs if job["name"] == name]
             if (len(matches) != 1 or matches[0]["run_id"] != run["id"] or
-                    matches[0]["status"] != "completed" or matches[0]["conclusion"] != "success"):
+                    matches[0]["status"] != "completed" or not job_passed(matches[0], verified)):
                 break
-            passed[name] = matches[0]["html_url"]
+            verified[name] = matches[0]
         else:
             return {"qualified": "true", "source": source, "tree": tree,
                     "pr": heads[run["head_sha"]],
                     "pr_head": run["head_sha"], "pr_run": run["html_url"],
-                    "pr_attempt": run["run_attempt"], "gates": passed}
+                    "pr_attempt": run["run_attempt"],
+                    "gates": {name: job["html_url"] for name, job in verified.items()}}
     return {"qualified": "false", "source": source, "tree": tree}
 
 
