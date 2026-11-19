@@ -12,17 +12,18 @@ import hashlib
 import ipaddress
 import json
 import os
-from pathlib import Path
 import secrets
 import shutil
 import signal
 import socket
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
 import urllib.parse
+from pathlib import Path
 
 TABLE = 'ts_zdt_20261105'
 PEERS = ('10.200.165.148', '10.200.101.28', '10.200.109.193',
@@ -574,6 +575,8 @@ DRIVE_SCRIPT = 'usr/local/lib/ts-zdt/cold.py'
 OWNER_WAIT_SECONDS = 900
 STAGE_WAIT_SECONDS = 300
 PREPULL_WAIT_SECONDS = 300
+REPLACE_SECONDS = 70
+RECOVER_SECONDS = 220
 IMDS = 'http://169.254.169.254/opc/v2/instance/id'
 
 
@@ -781,11 +784,18 @@ def boot_drive(args):
                 require(time.monotonic() < end, 'pinned owner did not become the ready writer')
                 time.sleep(5)
     step('owner', owner_ready)
-    step('replace', lambda: command([*tool, 'replace', '--state', STATE, '--id', config['id']], timeout=70))
-    def verified():
+    def replace():
+        try:
+            command([*tool, 'replace', '--state', STATE, '--id', config['id']], timeout=REPLACE_SECONDS)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            result['recovered'] = True
+            command([*tool, 'recover', '--state', STATE, '--id', config['id']], timeout=RECOVER_SECONDS)
+    step('replace', replace)
+    def released():
         job = json.loads(command([*tool, 'status', '--state', STATE], timeout=10))
-        require(job['id'] == config['id'] and job['phase'] == 'verified', 'replacement not verified')
-    step('verified', verified)
+        result['final'] = {'phase': job['phase'], 'reason': job.get('reason', ''), 'sourceExit': job.get('sourceExit'), 'next': job['next']}
+        require(job['id'] == config['id'] and job['phase'] == 'released', 'replacement not released: ' + job['phase'] + ': ' + job.get('reason', ''))
+    step('released', released)
 
 
 def oci_stopped(args):
@@ -821,12 +831,9 @@ def main():
         raise TimeoutError('step hard deadline exceeded')
     signal.signal(signal.SIGALRM, expired)
     signal.alarm({'backup': 150, 'row-hash': 120, 'runtime-labels': 30, 'watch-baseline': 30,
-                  'watch': 72, 'watch-check': 15, 'kv-tombstoned': 20, 'oci-stopped': 40, 'offline-install': 60, 'offline-verify': 30, 'boot-drive': 2050, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
-    try:
-        args.run(args)
-    except Exception as error:
-        # Never echo subprocess output/arguments: they may contain session material.
-        raise SystemExit(type(error).__name__ + ': operation failed; retain receipts and hold maintenance') from None
+                  'watch': 72, 'watch-check': 15, 'kv-tombstoned': 20, 'oci-stopped': 40, 'offline-install': 60, 'offline-verify': 30, 'boot-drive': 2300, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
+    sys.excepthook = lambda kind, error, trace: print(kind.__name__ + ': operation failed; retain receipts and hold maintenance', file=sys.stderr)
+    args.run(args)
 
 
 if __name__ == '__main__':

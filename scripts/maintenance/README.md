@@ -236,7 +236,8 @@ and the enabled oneshot `ts-orch-cold-drive.service`. Both receipts are required
 before the clone is attached as the worker's boot volume. On first boot the unit
 runs `cold.py boot-drive` once: IMDS instance check, 60 s rebooted watch, `stage`
 (≤300 s), best-effort `prepull` (≤300 s), followers poll `owner` (≤900 s), then
-`replace` and require `verified`. Receipts stay in `/var/lib/ts-orch/zdt-drive/`
+`replace` (and `recover` if `replace` fails, since a worker has no shell) and
+require `released`. Receipts stay in `/var/lib/ts-orch/zdt-drive/`
 on the volume; read them by stopping the worker and attaching its volume read-only.
 
 The operator uses the same new executor actions on founders:
@@ -245,7 +246,50 @@ writer and released ingress) and `prepull --id <job>`.
 
 Rehearsal on clones only: `python3 qualify-offline-worker.py TARGETS.json BINARY
 OLD_SHA256 3 OUT.json` (clone, attach, install, verify, detach, delete; founders
-checked clean). Boot-drive ordering: `python3 -I qualify-boot-drive.py`.
+checked clean).
+
+## In-place swap: journal states and recovery
+
+`ts-orch bootstrap-maintenance status --id <job>` prints the journal and `next`,
+the next safe command for its current state. Every state has one, and no state
+leaves ingress held without one. `replace` has a 60 s budget from its first call.
+After that, only `recover` moves the job on. `recover` has its own budget: the
+2 min data stop grace, the writer window and 30 s.
+
+The driver checks the writer after start for up to the writer window. That
+window is 26 s: TerraBase's writer-lease TTL (6 s), its home-lease TTL (10 s)
+and its activation budget (10 s). An exited writer's key and home leases expire
+before NEW can activate. It polls `/v1/rollout/status` every 500 ms. The
+member must report the pinned owner and epoch, `writer`, and `ready`. TerraBase
+sets `writer` only after it holds the exclusive writer lease and finishes
+activation, so a passing `/readyz` alone never verifies NEW.
+
+| Phase | Ingress | Meaning | Next safe command |
+|---|---|---|---|
+| `held` | held only for a cold-armed owner | armed, nothing stopped | `replace --id J`, or `recover --id J` to end it with the source untouched |
+| `quiescing`, `stopping` | held | the barrier is taken and the source is stopping | `replace --id J` before the deadline, else `recover --id J` |
+| `exited` | held | the source exit is journaled in `sourceExit` (`observed`, `code`, `signal`) | clean: `replace --id J`; unclean: `replace --id J --accept-unclean-exit` or `recover --id J` |
+| `preparing`, `starting` | held | the target is prepared or started; a failed writer check journals `reason` | `replace --id J` before the deadline, else `recover --id J` |
+| `verified` | held | NEW is the verified writer | `recover --id J` (or `replace` before the deadline) releases ingress |
+| `released` | released | ingress release is journaled after `verified` | `clear --id J` |
+| `failing` | being released | `recover` journaled a reason and is stopping the target | `recover --id J` again |
+| `failed` | released | target stopped, ingress released, fence kept, `reason` says why | read `reason`, then `clear --id J` returns the service to Swarm |
+
+`recover` first checks the writer again for one window when the job is
+`starting`. If NEW is the writer, it journals `verified`, takes the barrier
+again, releases it and journals `released`. Otherwise it journals `failing` with
+the reason, stops the target with TERM (never KILL once it runs, within the data
+stop grace), releases this job's ingress hold at the edge and locally, and
+journals `failed`. A crash at any point resumes with the same command. `clear`
+refuses every state but `released` and `failed`.
+
+A non-clean source exit is any exit but code 0 without a signal, or an exit
+ts-orch could not observe. That stops the job at `exited` before the target
+starts. `--accept-unclean-exit` is accepted only then. It is journaled as
+`acceptUncleanExit`. Cold and offline arming happen after the source exited
+while ts-orch was stopped, so ts-orch never observes that exit. Their manifest's
+`local.acceptUncleanExit: true` is the operator's journaled acceptance. Set it
+only with the exit receipt (`cold.py stop` or `oci-stopped`) in hand.
 
 ## Local qualification
 
