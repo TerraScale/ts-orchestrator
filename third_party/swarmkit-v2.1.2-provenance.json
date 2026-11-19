@@ -221,10 +221,10 @@
       "upstream_sha256": "f0facedf6fd82cf83547979d9db2ecf1a44bf60bded169a24b622590d2ba9d43"
     },
     {
-      "bytes": 20545,
+      "bytes": 21813,
       "path": "manager/orchestrator/update/updater.go",
-      "rationale": "Adopt a start-first candidate only once it runs before stopping the slot's other tasks, and update the slots that already hold an up-to-date task before slots that need a new one, so a candidate created under an earlier update order never competes for the room another slot frees.",
-      "sha256": "aeada74448f6296122f080356192eaf236e0734bd88e5337a88ff868c13d1a06",
+      "rationale": "Adopt a start-first candidate only once it runs before stopping the slot's other tasks; re-read the slots' tasks once the superseded updater has stopped, and update the slots that already hold an up-to-date task before slots that need a new one, so a candidate created under an earlier update order never competes for the room another slot frees.",
+      "sha256": "716f46fd408866891c4d81676f189977fcd19391c636c6a35d77bbf2b6cffeee",
       "source_history": [
         "e71792358 [fix] C1b: a release never stops a serving task before its replacement serves (#442)",
         "[fix] C18b: a fitting two-replica update is placed again after a stop-first transition (#491)"

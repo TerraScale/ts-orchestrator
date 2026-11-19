@@ -133,6 +133,11 @@ func (u *Updater) Run(ctx context.Context, slots []orchestrator.Slot) {
 		return
 	}
 
+	slots, err := u.currentSlots(slots)
+	if err != nil {
+		log.G(ctx).WithError(err).Error("update failed to read the service's current tasks")
+		return
+	}
 	var dirtySlots, freshSlots []orchestrator.Slot
 	for _, slot := range slots {
 		switch {
@@ -592,6 +597,53 @@ func (u *Updater) isTaskDirty(t *api.Task) bool {
 		n = store.GetNode(tx, t.NodeID)
 	})
 	return orchestrator.IsTaskDirty(u.newService, t, n)
+}
+
+func (u *Updater) currentSlots(slots []orchestrator.Slot) ([]orchestrator.Slot, error) {
+	var (
+		tasks []*api.Task
+		err   error
+	)
+	u.store.View(func(tx store.ReadTx) {
+		tasks, err = store.FindTasks(tx, store.ByServiceID(u.newService.ID))
+	})
+	if err != nil {
+		return nil, err
+	}
+	stored := make(map[string]*api.Task, len(tasks))
+	for _, t := range tasks {
+		stored[t.ID] = t
+	}
+	current := make([]orchestrator.Slot, 0, len(slots))
+	for _, slot := range slots {
+		if len(slot) == 0 {
+			continue
+		}
+		var refreshed orchestrator.Slot
+		member := make(map[string]bool, len(slot))
+		for _, t := range slot {
+			if latest, ok := stored[t.ID]; ok {
+				refreshed = append(refreshed, latest)
+				member[t.ID] = true
+			}
+		}
+		for _, t := range tasks {
+			if !member[t.ID] && t.DesiredState <= api.TaskStateRunning && sameSlot(t, slot[0]) {
+				refreshed = append(refreshed, t)
+			}
+		}
+		if len(refreshed) != 0 {
+			current = append(current, refreshed)
+		}
+	}
+	return current, nil
+}
+
+func sameSlot(a, b *api.Task) bool {
+	if b.Slot != 0 {
+		return a.Slot == b.Slot
+	}
+	return a.Slot == 0 && a.NodeID == b.NodeID
 }
 
 func (u *Updater) holdsCleanTask(slot orchestrator.Slot) bool {

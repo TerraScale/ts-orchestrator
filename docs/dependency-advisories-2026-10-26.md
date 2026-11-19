@@ -223,11 +223,15 @@ another slot's pending start-first candidate still waited for room. Both
 candidates then claimed the freed room, and when the older one won, the new
 slot's candidate never fit. `Run` now queues first the dirty slots that hold
 an up-to-date task with a desired state of at most running, which the worker
-adopts, and then the slots that need a new task. Which slots update and how is
-unchanged. Upstream master was not checked for this change.
+adopts, and then the slots that need a new task. `Supervisor.Update` builds the
+new updater from slots the orchestrator read before it cancelled and joined the
+superseded updater, which may have created or started a candidate meanwhile, so
+`Run` first re-reads each slot's tasks from the store: the current version of
+every task it was given, plus every task of the same slot or node with a
+desired state of at most running. Which slots update and how is unchanged. Upstream master was not checked for this change.
 
 The e2e-m1 rollback lane exercises this with real containerd tasks.
 The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
-`069ea94d21a06c79743f8d1077cbbfb16f1bf66387221e0c0af8ec32cc8556fb`; the
+`ac0f9bcb8394f3bcf3362cd833485458dc39f9a000d78cd35dac048ac40d9c36`; the
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.
