@@ -248,8 +248,15 @@ The ts-orch-hosts dynamic group matches every instance in the three region
 compartments, so a pool node has the instance principal the join needs.
 
 A pool size below `nodes.min` is raised. The compute kind never shrinks the
-pool; the `nodes` kind below removes one drained node at a time. A node without a data volume gets
-a kept one from its availability domain, or a new one. Image and release
+pool; the `nodes` kind below removes one drained node at a time. A node keeps
+the volume its metadata or data-device attachment names, or else the one
+already tagged with its instance; conflicting claims refuse the pass before any
+write. A node without one gets an unclaimed volume from its availability
+domain (waiting for one still provisioning), or a new one while the region has
+fewer than `nodes.max` data volumes in any state but terminated. A volume
+tagged with another instance, such as one kept by Remove or Retire, is never
+attached, retagged or deleted; when all `nodes.max` volumes are allocated the
+pass fails and lists them. Image and release
 are fixed when the configuration is made; a newer release reaches the nodes
 through the release self-pull, so a second apply changes nothing.
 

@@ -445,6 +445,10 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) err
 					return err
 				}
 				slots[chosen.name] = chosen.volume
+			} else if chosen.volume.LifecycleState != core.VolumeLifecycleStateAvailable {
+				if chosen.volume, err = p.available(ctx, chosen.volume); err != nil {
+					return fmt.Errorf("wait for %s: %w", p.Key("volume", chosen.name), err)
+				}
 			}
 			volume, err := p.bindingVolume(ctx, current, chosen)
 			if err != nil {
@@ -480,8 +484,21 @@ func (p Pass) pick(slots map[string]core.Volume, attachedTo map[string]string, a
 		}
 		target = id
 	}
+	names := slices.Sorted(maps.Keys(slots))
+	for _, name := range names {
+		volume := slots[name]
+		if volume.FreeformTags[boundInstance] != *instance.Id {
+			continue
+		}
+		if target == "" {
+			target = *volume.Id
+		}
+		if *volume.Id != target {
+			return slot{}, false, fmt.Errorf("%s %s is claimed by instance %s, which binds %s; refusing conflicting data volume claims", p.Key("volume", name), *volume.Id, *instance.Id, target)
+		}
+	}
 	var free slot
-	for _, name := range slices.Sorted(maps.Keys(slots)) {
+	for _, name := range names {
 		volume := slots[name]
 		if target != "" && *volume.Id == target {
 			if owner := attachedTo[target]; owner != "" && owner != *instance.Id {
@@ -494,10 +511,18 @@ func (p Pass) pick(slots map[string]core.Volume, attachedTo map[string]string, a
 			}
 			return slot{name, volume}, attachedTo[target] == *instance.Id, nil
 		}
-		owner := volume.FreeformTags[boundInstance]
-		if free.name == "" && attachedTo[*volume.Id] == "" && volume.LifecycleState == core.VolumeLifecycleStateAvailable &&
-			deref(volume.AvailabilityDomain) == deref(instance.AvailabilityDomain) && (owner == "" || owner == *instance.Id) {
-			free = slot{name, volume}
+		if attachedTo[*volume.Id] != "" || volume.FreeformTags[boundInstance] != "" || deref(volume.AvailabilityDomain) != deref(instance.AvailabilityDomain) {
+			continue
+		}
+		switch volume.LifecycleState {
+		case core.VolumeLifecycleStateAvailable:
+			if free.name == "" || free.volume.LifecycleState != core.VolumeLifecycleStateAvailable {
+				free = slot{name, volume}
+			}
+		case core.VolumeLifecycleStateProvisioning:
+			if free.name == "" {
+				free = slot{name, volume}
+			}
 		}
 	}
 	if target != "" {
@@ -507,8 +532,17 @@ func (p Pass) pick(slots map[string]core.Volume, attachedTo map[string]string, a
 }
 
 func (p Pass) create(ctx context.Context, slots map[string]core.Volume, instance core.Instance) (slot, error) {
+	if len(slots) >= p.Max {
+		allocated := make([]string, 0, len(slots))
+		for _, name := range slices.Sorted(maps.Keys(slots)) {
+			volume := slots[name]
+			allocated = append(allocated, fmt.Sprintf("%s %s in %s claimed by %q", name, volume.LifecycleState, deref(volume.AvailabilityDomain), volume.FreeformTags[boundInstance]))
+		}
+		return slot{}, fmt.Errorf("node %s in %s has no data volume and nodes.max allows %d data volumes, all allocated: %s; a volume claimed by another instance is never reused or deleted by the pass",
+			*instance.Id, deref(instance.AvailabilityDomain), p.Max, strings.Join(allocated, ", "))
+	}
 	name := ""
-	for n := 1; n <= len(slots)+1 && name == ""; n++ {
+	for n := 1; n <= p.Max && name == ""; n++ {
 		if _, used := slots[fmt.Sprintf("data-%d", n)]; !used {
 			name = fmt.Sprintf("data-%d", n)
 		}
@@ -522,16 +556,24 @@ func (p Pass) create(ctx context.Context, slots map[string]core.Volume, instance
 	if err != nil {
 		return slot{}, fmt.Errorf("create %s: %w", p.Key("volume", name), err)
 	}
-	volume := created.Volume
-	if err := waitFor(ctx, func() (bool, error) {
-		got, err := p.Storage.GetVolume(ctx, core.GetVolumeRequest{VolumeId: volume.Id})
-		volume = got.Volume
-		return volume.LifecycleState == core.VolumeLifecycleStateAvailable, err
-	}); err != nil {
+	volume, err := p.available(ctx, created.Volume)
+	if err != nil {
 		return slot{}, err
 	}
 	p.say("created", "volume", name, fmt.Sprintf("%s %d GB %d VPU/GB in %s", *volume.Id, p.DataGB, p.DataVPUsPerGB, deref(volume.AvailabilityDomain)))
 	return slot{name, volume}, nil
+}
+
+func (p Pass) available(ctx context.Context, volume core.Volume) (core.Volume, error) {
+	err := waitFor(ctx, func() (bool, error) {
+		got, err := p.Storage.GetVolume(ctx, core.GetVolumeRequest{VolumeId: volume.Id})
+		if err != nil {
+			return false, err
+		}
+		volume = got.Volume
+		return volume.LifecycleState == core.VolumeLifecycleStateAvailable, nil
+	})
+	return volume, err
 }
 
 func (p Pass) attach(ctx context.Context, instance core.Instance, chosen slot) error {
