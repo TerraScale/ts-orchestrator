@@ -198,6 +198,13 @@ func (g *fakeGitHub) mint(sha, run string) {
 	g.mu.Unlock()
 }
 
+func (g *fakeGitHub) oidc(sha, run string) string {
+	g.mint(sha, run)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.token
+}
+
 const callerHeader = "X-E2E-Caller"
 
 type rewrite struct {

@@ -119,8 +119,12 @@ func ReadHostObservation(ctx context.Context, region Region, address, token stri
 	return observation, err
 }
 
+func meshURL(region, path string) string {
+	return "https://" + region + ".mesh.terrascale.tech" + path
+}
+
 func fetchObservation(ctx context.Context, region Region, address, token string) (Observation, int, error) {
-	endpoint := "https://" + region.Region + ".mesh.terrascale.tech" + ObservationPath
+	endpoint := meshURL(region.Region, ObservationPath)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return Observation{}, 0, err

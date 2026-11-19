@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -267,6 +268,7 @@ type lane struct {
 	github     *fakeGitHub
 	offline    *offlineGitHub
 	registries map[string]*regionRegistry
+	receivers  map[string]*httptest.Server
 	first      channelRelease
 	keyFile    string
 	sigstore   *sigstore.Authority
@@ -367,7 +369,7 @@ func journey(bin, part string) {
 			registryURLs[region] = l.registries[region].server.URL
 		}
 		l.first = l.channelRelease(100, "100", l.self, l.self)
-		l.publishChannel(ctx, l.first)
+		l.publishBeforeReceivers(ctx, l.first)
 	}
 	rootFile := filepath.Join(work, "trusted-root.json")
 	must(os.WriteFile(rootFile, l.sigstore.TrustedRoot(), 0o600))
@@ -389,6 +391,13 @@ func journey(bin, part string) {
 	})
 	must(err)
 	polls := map[string]string{"gru": poll.String(), "fra": poll.String(), "sjc": poll.String()}
+	if part == "degraded" {
+		l.receive()
+		for region, receiver := range l.receivers {
+			defer receiver.Close()
+			polls[region] = pullrelease.DefaultPoll.String()
+		}
+	}
 	for _, region := range []string{"sjc", "fra", "gru"} {
 		statuses := make(chan pullrelease.Status, 256)
 		l.progress[region] = statuses

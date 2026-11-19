@@ -26,6 +26,12 @@ type lease struct {
 	Until time.Time `json:"until"`
 }
 
+type sighting struct {
+	Release string    `json:"release"`
+	Seq     uint64    `json:"seq"`
+	At      time.Time `json:"at"`
+}
+
 type Store struct {
 	kv     jetstream.KeyValue
 	fabric *nats.Conn
@@ -112,4 +118,24 @@ func (s *Store) Lead(ctx context.Context, self string) (bool, error) {
 		return false, nil
 	}
 	return err == nil, err
+}
+
+func (s *Store) Seen(ctx context.Context, release string, seq uint64, at time.Time) (time.Time, error) {
+	key := fmt.Sprintf("%s.discovered.%s.%d", s.region, release, seq)
+	data, err := json.Marshal(sighting{Release: release, Seq: seq, At: at})
+	if err != nil {
+		return at, err
+	}
+	if _, err := s.kv.Create(ctx, key, data); !errors.Is(err, jetstream.ErrKeyExists) {
+		return at, err
+	}
+	entry, err := s.kv.Get(ctx, key)
+	if err != nil {
+		return at, err
+	}
+	var seen sighting
+	if err := json.Unmarshal(entry.Value(), &seen); err != nil {
+		return at, fmt.Errorf("release sighting %s damaged: %w", key, err)
+	}
+	return seen.At, nil
 }

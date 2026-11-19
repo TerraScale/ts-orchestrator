@@ -196,7 +196,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 			return signedrelease.Run(ctx, args[1:], output)
 		}
 		if len(args) > 1 && args[1] == "channel" {
-			return ocirelease.Run(ctx, args[2:], output)
+			return ocirelease.Run(ctx, args[2:], output, releasepush.AnnounceChannel)
 		}
 		if len(args) > 1 && args[1] == "verify-provenance" {
 			return imagetrust.VerifyImage(ctx, args[2:], output)
