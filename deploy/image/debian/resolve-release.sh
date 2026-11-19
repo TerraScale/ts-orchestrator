@@ -7,7 +7,7 @@ tag=$(gh api "repos/$repo/releases?per_page=100" --jq '
    | select(.tag_name | test("^ci-[0-9a-f]{40}-run-[1-9][0-9]*$"))
    | select(any(.assets[]; .name == "terrascale-orchestrator-linux-amd64"))
    | select(any(.assets[]; .name == "terrascale-orchestrator-linux-arm64"))
-   | select(any(.assets[]; .name == "provenance.sigstore.json"))][0].tag_name // empty')
+   | select(any(.assets[]; .name == "provenance.sigstore.json"))] | max_by(.published_at).tag_name // empty')
 [[ -n $tag ]] || { echo 'No published CI release has both binaries and signed provenance' >&2; exit 1; }
 source=${tag#ci-}
 source=${source%-run-*}
