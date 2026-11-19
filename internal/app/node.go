@@ -26,7 +26,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostdashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
@@ -38,13 +37,6 @@ import (
 )
 
 func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, public *edge.Edge, probation *releasepush.Probation, swarmReady chan struct{}, meshServing <-chan struct{}, stopping func(), health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
-	events := observability.NewEventBus(observability.DefaultEventCapacity)
-	logger, err := observability.NewLogger(os.Stderr, observability.LogConfig{}, events, observability.Identity("node", plan.region)...)
-	if err != nil {
-		return err
-	}
-	observability.ConfigureDefault(logger)
-	appEvents := apppull.NewEvents(plan.region, events)
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -86,7 +78,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 			failed <- errors.Join(errors.New("bootstrap executor endpoint stopped"), err)
 		}
 	}()
-	go runManagerServices(healthCtx, state, plan, node, executor, events, failed)
+	go runManagerServices(healthCtx, state, plan, node, executor, failed)
 	for _, port := range []int{80, 443, edge.PostgresPort, hostmetrics.Port, hostdashboard.Port} {
 		if err := releasepush.OpenTCP(ctx, port); err != nil {
 			fmt.Fprintf(output, "edge firewall: %v\n", err)
@@ -159,7 +151,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 	subscribed := make(chan struct{})
 	if plan.region != "" {
 		go serveHostReleases(ctx, state, plan.region, node, releases, sync.OnceFunc(func() { close(subscribed) }))
-		go runPullUpdates(ctx, state, plan.region, node, releases, appEvents, failed)
+		go runPullUpdates(ctx, state, plan.region, node, releases, failed)
 	} else {
 		close(subscribed)
 	}
@@ -203,7 +195,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 	}
 }
 
-func runManagerServices(ctx context.Context, state string, plan hostPlan, node *swarmruntime.Node, executor *swarmruntime.Executor, events *observability.EventBus, failed chan<- error) {
+func runManagerServices(ctx context.Context, state string, plan hostPlan, node *swarmruntime.Node, executor *swarmruntime.Executor, failed chan<- error) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for ctx.Err() == nil {
@@ -213,7 +205,7 @@ func runManagerServices(ctx context.Context, state string, plan hostPlan, node *
 		go func() {
 			defer close(done)
 			if manager {
-				serveManagerRole(serving, ctx, state, plan, node, executor, events, failed)
+				serveManagerRole(serving, ctx, state, plan, node, executor, failed)
 			} else {
 				syncHostTargets(serving)
 			}
@@ -229,7 +221,7 @@ func runManagerServices(ctx context.Context, state string, plan hostPlan, node *
 	}
 }
 
-func serveManagerRole(ctx, lifetime context.Context, state string, plan hostPlan, node *swarmruntime.Node, executor *swarmruntime.Executor, events *observability.EventBus, failed chan<- error) {
+func serveManagerRole(ctx, lifetime context.Context, state string, plan hostPlan, node *swarmruntime.Node, executor *swarmruntime.Executor, failed chan<- error) {
 	serving, stop := context.WithCancel(ctx)
 	defer stop()
 	go regionhealth.Run(serving, state)
@@ -260,7 +252,7 @@ func serveManagerRole(ctx, lifetime context.Context, state string, plan hostPlan
 		go runOCIReconcile(serving, state, plan.region, node)
 		go publishJoin(serving, state, plan, node.ID())
 		go func() {
-			if err := hostdashboard.Run(serving, state, plan.region, events); serving.Err() == nil {
+			if err := hostdashboard.Run(serving, state, plan.region); serving.Err() == nil {
 				select {
 				case failed <- errors.Join(errors.New("host dashboard stopped"), err):
 				case <-ctx.Done():
@@ -523,7 +515,7 @@ func serveHostReleases(ctx context.Context, state, region string, node *swarmrun
 	}
 }
 
-func runPullUpdates(ctx context.Context, state, region string, node *swarmruntime.Node, releases *releasepush.Handler, events *apppull.Events, failed chan<- error) {
+func runPullUpdates(ctx context.Context, state, region string, node *swarmruntime.Node, releases *releasepush.Handler, failed chan<- error) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for ctx.Err() == nil {
@@ -535,18 +527,10 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			continue
 		}
 		conn, err := mesh.Connect(state)
-		if err != nil {
-			events.Report(ctx, slog.LevelError, "app-pull startup failed", "apps", "release", "mesh connection", err)
-		} else {
-			events.Recover(ctx, "apps", "mesh connection")
-		}
 		var fabric *nats.Conn
 		if err == nil {
 			if fabric, err = mesh.ConnectFabric(state); err != nil {
-				events.Report(ctx, slog.LevelError, "app-pull startup failed", "apps", "release", "fabric connection", err)
 				conn.Close()
-			} else {
-				events.Recover(ctx, "apps", "fabric connection")
 			}
 		}
 		if err != nil {
@@ -557,13 +541,6 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			continue
 		}
 		managing, stop := context.WithCancel(ctx)
-		detach, err := events.Attach(managing, fabric)
-		if err != nil {
-			events.Report(ctx, slog.LevelError, "app-pull events unavailable", "apps", "release", "event store", err)
-		} else {
-			events.Recover(ctx, "apps", "event store")
-			context.AfterFunc(managing, detach)
-		}
 		go func() {
 			for managing.Err() == nil && node.IsManager() && !conn.IsClosed() && !fabric.IsClosed() {
 				select {
@@ -574,7 +551,7 @@ func runPullUpdates(ctx context.Context, state, region string, node *swarmruntim
 			stop()
 		}()
 		go func() {
-			apps := apppull.Updater{Self: node.ID(), Region: region, Fabric: fabric, Events: events, Source: apppull.Source{Registry: func(ctx context.Context) (*appregistry.Client, error) { return appregistry.Regional(ctx, region) }}, Apply: apppull.Apply(mesh.Release(state)).Within(ctx)}
+			apps := apppull.Updater{Self: node.ID(), Region: region, Fabric: fabric, Source: apppull.Source{Registry: func(ctx context.Context) (*appregistry.Client, error) { return appregistry.Regional(ctx, region) }}, Apply: apppull.Apply(mesh.Release(state)).Within(ctx)}
 			if err := apps.Run(managing); err != nil && managing.Err() == nil {
 				failed <- errors.Join(errors.New("app release updater stopped"), err)
 			}

@@ -16,7 +16,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
-	"github.com/TerraScale/ts-orchestrator/internal/releasefailure"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
@@ -713,7 +712,7 @@ func applyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 		values, err := resolve(ctx, s.Name, s.Secrets)
 		clear(values)
 		if err != nil {
-			return nil, fmt.Errorf("preflight Vault secrets for service %s: %w", s.Name, releasefailure.At("Vault secret preflight", err))
+			return nil, fmt.Errorf("preflight Vault secrets for service %s: %w", s.Name, err)
 		}
 	}
 	unlock, err := lockServiceSpecs(ctx, client)

@@ -273,7 +273,7 @@ func main() {
 	identity := sigstore.Identity{Workflow: apppull.Targets[0].Workflow, Ref: "refs/heads/main", Trigger: "push"}
 	_, err = source.Pull(ctx, apppull.Targets[0])
 	require(err != nil, "unsigned image accepted")
-	observeRefusals(ctx, source, "terrabase@"+digest.String())
+	verifyRefusalLogs(ctx, source, "terrabase@"+digest.String())
 	unsigned := swarmruntime.Deployment{Repository: "TerraScale/terrascale", RunID: "2", RunAttempt: 1, Revision: revision, Image: "terrabase@" + digest.String(), Workflow: apppull.Targets[0].Workflow}
 	unsignedResolver, err := swarmruntime.AppImageResolver(client, unsigned, imagetrust.Verifier{Root: trusted, Transport: t})
 	must(err)

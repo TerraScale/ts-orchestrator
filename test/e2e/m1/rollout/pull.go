@@ -140,13 +140,14 @@ func runPulled(ctx context.Context, state, image, run, service string) error {
 	require(selected.Image == strings.TrimPrefix(image, "ghcr.io/terrascale/") && selected.Claims.RunID == run && selected.Claims.Repository == "TerraScale/terrascale", "host changed the verified release identity")
 	var applied error
 	apply := mesh.Release(state)
-	err = (apppull.Updater{Source: source, Events: apppull.NewEvents("stg", nil), Apply: func(ctx context.Context, service, image string, claims releasepush.Claims, progress releasepush.Progress) (json.RawMessage, error) {
+	updater := apppull.Updater{Source: source, Apply: func(ctx context.Context, service, image string, claims releasepush.Claims, progress releasepush.Progress) (json.RawMessage, error) {
 		data, failure := apply(ctx, service, image, claims, progress)
 		if service == target.Service {
 			applied = failure
 		}
 		return data, failure
-	}}).Cycle(ctx)
+	}}
+	err = updater.Cycle(ctx)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
