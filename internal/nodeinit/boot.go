@@ -43,8 +43,10 @@ func Boot(ctx context.Context, args []string, out io.Writer) error {
 	tail := "installed_sha=" + updated + "\n" + directMounts + updatedRelease + nixosUnits
 	if recorded(recordedUUID) && recorded(recordedSerial) {
 		err = runScript(ctx, "data-volume-rebind", rebindProbe+tail, out)
+	} else if updated != "" {
+		err = fmt.Errorf("node-init: %s has sha256 %s, not launch release %s, before this instance's first bind; nothing is bound or formatted", binaryPath, updated, metadata[ReleaseSHA256Key])
 	} else if err = checkBootBinding(volume, metadata[UUIDKey], metadata[SerialKey], metadata[FormatKey]); err == nil {
-		err = runScript(ctx, "data-volume", dataVolumeProbe+tail, out, metadata[FormatKey], volume, metadata[UUIDKey], metadata[SerialKey])
+		err = runScript(ctx, "data-volume", unmountedTargets+dataVolumeProbe+tail, out, metadata[FormatKey], volume, metadata[UUIDKey], metadata[SerialKey])
 	}
 	if err != nil {
 		return err
@@ -100,7 +102,7 @@ func installRelease(ctx context.Context, url, sum string, out io.Writer) (string
 		fmt.Fprintf(out, "node-init: %s already has sha256 %s\n", binaryPath, sum)
 		return "", nil
 	case err == nil:
-		fmt.Fprintf(out, "node-init: %s has sha256 %s, not launch release %s; the data volume's release records must name it\n", binaryPath, installed, sum)
+		fmt.Fprintf(out, "node-init: %s has sha256 %s, not launch release %s; the self-update's release-installed record must name it\n", binaryPath, installed, sum)
 		return installed, nil
 	case errors.Is(err, fs.ErrNotExist):
 		if err := download(ctx, url, sum); err != nil {
@@ -279,25 +281,27 @@ fi
 install -d -m 0755 /usr/local/lib/ts-orch
 `
 
+const unmountedTargets = `for target in /var/lib/ts-data /var/lib/ts-orch; do
+ if mountpoint -q "$target"; then
+  echo "data volume refused: $target is already mounted before this instance's first bind" >&2
+  exit 1
+ fi
+done
+`
+
 const updatedRelease = `if test -n "$installed_sha"; then
  timeout 10 python3 -c '
 import json, sys
 installed = sys.argv[1]
-named = set()
-for path in ("/var/lib/ts-orch/nats/release-seq.json", "/var/lib/ts-orch/nats/release-trial"):
- try:
-  with open(path) as file:
-   record = json.load(file)
- except FileNotFoundError:
-  continue
- if not isinstance(record, dict):
-  sys.exit(path + " is not a release record")
- named.add(record.get("sha256"))
- previous = record.get("previous")
- if isinstance(previous, dict):
-  named.add(previous.get("sha256"))
-if installed not in named:
- sys.exit("/usr/local/bin/terrascale-orchestrator has sha256 " + installed + ", which neither the launch release nor a verified release record names")
+path = "/var/lib/ts-orch/nats/release-installed"
+try:
+ with open(path) as file:
+  record = json.load(file)
+except FileNotFoundError:
+ sys.exit("/usr/local/bin/terrascale-orchestrator has sha256 " + installed + ", not the launch release, and the self-update recorded no install in " + path)
+digests = record.get("sha256") if isinstance(record, dict) else None
+if not isinstance(digests, list) or installed not in digests:
+ sys.exit("/usr/local/bin/terrascale-orchestrator has sha256 " + installed + ", which neither the launch release nor the self-update record " + path + " names")
 ' "$installed_sha" || probe_failed installed-binary
 fi
 `

@@ -419,6 +419,9 @@ func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims
 			return errors.Join(err, h.unstage())
 		}
 	}
+	if err := recordInstall(h.TrialFile, h.Binary, next); err != nil {
+		return errors.Join(err, h.unstage())
+	}
 	if err := os.Rename(next, h.Binary); err != nil {
 		return errors.Join(err, h.unstage())
 	}
