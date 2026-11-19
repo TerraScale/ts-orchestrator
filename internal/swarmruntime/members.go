@@ -180,3 +180,29 @@ func memberNode(ctx context.Context, client api.ControlClient, hostname string) 
 	}
 	return found, nil
 }
+
+type ManagerQuorum struct {
+	Voters, Reachable int
+}
+
+func (q ManagerQuorum) String() string {
+	return fmt.Sprintf("%d of %d voting managers ready and Raft-reachable; quorum needs %d of %d", q.Reachable, q.Voters, q.Voters/2+1, q.Voters)
+}
+
+func ReadManagerQuorum(ctx context.Context, client api.ControlClient) (ManagerQuorum, error) {
+	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return ManagerQuorum{}, err
+	}
+	var quorum ManagerQuorum
+	for _, node := range listed.Nodes {
+		if node.Role != api.NodeRoleManager {
+			continue
+		}
+		quorum.Voters++
+		if managerReady(node) {
+			quorum.Reachable++
+		}
+	}
+	return quorum, nil
+}

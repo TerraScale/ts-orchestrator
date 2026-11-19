@@ -258,8 +258,8 @@ deadline, for the apply to record its data volume in the instance metadata,
 formats it only when the volume was never bound to another node, mounts it,
 installs the pinned release the way `deploy/m1/install.sh` does, and starts
 ts-orch. ts-orch reads `ts-orch-join-<region>` from the gru Vault (`internal/regionjoin`),
-joins as a worker and is promoted until the region has three managers
-(`internal/swarmruntime/manager_promotion.go`).
+joins as a worker, and the region's Raft leader promotes workers until the
+region has three voting managers (`internal/swarmruntime/manager_promotion.go`).
 
 ### Node count: the nodes kind
 

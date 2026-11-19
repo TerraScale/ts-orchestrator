@@ -5,21 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
-	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/grpclog"
 )
 
 const memberCLIUsage = `usage:
-  ts-orch member ls                  List the managers and workers of this region's cluster
-  ts-orch member promote             On the leader, promote eligible workers to three managers
+  ts-orch member ls                  List the managers and workers of this region's cluster and its Raft quorum
   ts-orch member leave <hostname>    On the leader, preserve quorum, drain and remove a host
   ts-orch member drain <hostname>     Run no task on a worker; it stays joined
   ts-orch member activate <hostname>  Let a worker run its region's per-node services again
@@ -47,24 +43,15 @@ func runMemberCLI(ctx context.Context, args []string, output io.Writer, state st
 			for _, m := range members {
 				fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", m.Hostname, m.Role, m.State, m.Availability, m.Address)
 			}
-			return table.Flush()
-		}
-	case len(args) == 1 && args[0] == "promote":
-		membershipChange = true
-		run = func(ctx context.Context, client api.ControlClient) error {
-			nodeID, err := swarmruntime.LocalNodeID(ctx, state)
+			if err := table.Flush(); err != nil {
+				return err
+			}
+			quorum, err := swarmruntime.ReadManagerQuorum(ctx, client)
 			if err != nil {
 				return err
 			}
-			watchClient, conn, err := swarmruntime.DialControl(state)
-			if err != nil {
-				return err
-			}
-			defer conn.Close()
-			if err := swarmruntime.PromoteManagers(ctx, watchClient, api.NewWatchClient(conn), nodeID); err != nil {
-				return err
-			}
-			return runMemberCLI(ctx, []string{"ls"}, output, state)
+			_, err = fmt.Fprintf(output, "quorum: %s\n", quorum)
+			return err
 		}
 	case len(args) == 2 && args[0] == "leave":
 		membershipChange = true
@@ -103,15 +90,11 @@ func runMemberCLI(ctx context.Context, args []string, output io.Writer, state st
 		return errors.Join(err, errors.New("unknown member command"))
 	}
 	if membershipChange {
-		lock, err := os.OpenFile(filepath.Join(state, "membership.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+		unlock, err := swarmruntime.LockMembership(state)
 		if err != nil {
 			return err
 		}
-		defer lock.Close()
-		if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-			return fmt.Errorf("another membership change is in progress: %w", err)
-		}
-		defer unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+		defer unlock()
 	}
 	client, conn, err := swarmruntime.DialControl(state)
 	if err != nil {
