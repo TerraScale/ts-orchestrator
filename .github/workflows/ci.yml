@@ -177,7 +177,7 @@ jobs:
               - {lane: postgres-preauth, entry: postgres-preauth.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/postgres-preauth"}
     name: e2e-m1 / group ${{ matrix.group }}
     concurrency:
-      group: e2e-m1-group-${{ matrix.group }}-${{ github.event_name }}-${{ github.ref }}
+      group: e2e-m1-group-${{ matrix.group }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
     runs-on: ubuntu-24.04-arm
     timeout-minutes: ${{ matrix.deadline }}
@@ -368,7 +368,7 @@ jobs:
       matrix: ${{ fromJSON(needs.e2e-rerun-plan.outputs.lanes) }}
     name: e2e-m1 / ${{ matrix.lane }} (rerun)
     concurrency:
-      group: e2e-m1-rerun-${{ matrix.lane }}-${{ github.event_name }}-${{ github.ref }}
+      group: e2e-m1-rerun-${{ matrix.lane }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
     runs-on: ubuntu-24.04-arm
     timeout-minutes: ${{ matrix.job_timeout }}
@@ -408,7 +408,7 @@ jobs:
     if: ${{ always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.paths.outputs.runtime == 'true') }}
     needs: [paths, e2e-lane, e2e-rerun-plan, e2e-lane-rerun]
     concurrency:
-      group: e2e-m1-${{ github.event_name }}-${{ github.ref }}
+      group: e2e-m1-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
     runs-on: ubuntu-24.04
     timeout-minutes: 1
