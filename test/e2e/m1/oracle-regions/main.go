@@ -88,12 +88,14 @@ func until(ctx context.Context, what string, check func() error) {
 
 func healthy(ctx context.Context, host *oraclehost.Host, want string) {
 	until(ctx, host.Name+" release health", func() error {
-		reply, err := host.Health(ctx)
+		attempt, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		reply, err := host.Health(attempt)
 		if err != nil {
 			return err
 		}
 		if reply.Health != "ok" || reply.Version != want {
-			return fmt.Errorf("health %q version %s", reply.Health, reply.Version)
+			return fmt.Errorf("health %q version %s node %q mesh %q", reply.Health, reply.Version, reply.Node, reply.Mesh)
 		}
 		return nil
 	})

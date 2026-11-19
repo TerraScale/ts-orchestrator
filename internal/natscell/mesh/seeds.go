@@ -140,11 +140,14 @@ func (b *seedBook) regionOf(address string) string {
 	return b.routes[address]
 }
 
-func (b *seedBook) refuse(address string) {
+func (b *seedBook) refuse(address, region string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.refused[address] = b.routes[address]
-	delete(b.routes, address)
+	if b.refused[address] == region {
+		return false
+	}
+	b.refused[address] = region
+	return true
 }
 
 func (b *seedBook) read(ctx context.Context, records Records) map[string]string {
@@ -205,9 +208,7 @@ func (b *seedBook) install(next map[string]string) (added []*url.URL, retired ma
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for address, region := range b.refused {
-		if next[address] == region {
-			delete(next, address)
-		} else {
+		if next[address] != region {
 			delete(b.refused, address)
 		}
 	}
@@ -256,12 +257,10 @@ func (n *Node) refreshSeeds() {
 func (n *Node) checkSeedRoutes() {
 	for _, route := range n.routes() {
 		expected := n.seeds.regionOf(route.IP)
-		if !route.DidSolicit || !route.IsConfigured || expected == "" || serverRegion(route.RemoteName) == expected {
+		if !route.DidSolicit || !route.IsConfigured || expected == "" || serverRegion(route.RemoteName) == expected || !n.seeds.refuse(route.IP, expected) {
 			continue
 		}
-		n.seeds.refuse(route.IP)
 		n.refusedSeeds.Add(1)
-		slog.Warn("mesh seed reached a server of another region; seed retired", "region", expected, "address", route.IP, "server", route.RemoteName)
-		n.server.RetainRoutes(func(configured *url.URL) bool { return configured.Hostname() != route.IP })
+		slog.Warn("mesh seed reached a server of another region; it does not count as that region's seed", "region", expected, "address", route.IP, "server", route.RemoteName)
 	}
 }

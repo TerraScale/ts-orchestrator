@@ -136,19 +136,19 @@ func badPeerRecords(ctx context.Context, fleet *oraclehost.Fleet, release string
 	must(manager.Restart())
 	_, err = manager.WaitReady(ctx, after, release)
 	must(err)
-	until(ctx, manager.Name+" retires the disguised seed", func() error {
+	until(ctx, manager.Name+" refuses the disguised seed", func() error {
 		if count := refusedSeeds(ctx, manager); count == 0 {
 			return errors.New("no seed refused yet")
 		}
 		return nil
 	})
 	journal := tail(manager.Dir+"/journal.log", 4000)
-	for _, line := range []string{"mesh peer seed hosts from another region refused", "mesh peer seeds unavailable", "mesh seed reached a server of another region; seed retired"} {
+	for _, line := range []string{"mesh peer seed hosts from another region refused", "mesh peer seeds unavailable", "mesh seed reached a server of another region; it does not count as that region's seed"} {
 		require(strings.Contains(journal, line), "%s journal lacks %q", manager.Name, line)
 	}
 	meshRoutes(ctx, fleet)
 	healthy(ctx, manager, release)
 	fleet.UnpinSecret(mesh.SeedRecord(sjc.Name))
 	fleet.UnpinSecret(mesh.SeedRecord(gru.Name))
-	step("%s restarted with %s's seed record naming %s and a disguised %s host, and %s's record missing its version and cluster: it refused the other region's host, retired the disguised seed once its route reached %s's manager, started its local NATS and routes to every manager", manager.Name, sjc.Name, gru.Hosts[0].Name, disguised, gru.Name, gru.Name)
+	step("%s restarted with %s's seed record naming %s and a disguised %s host, and %s's record missing its version and cluster: it refused the other region's host, refused the disguised seed once its route reached %s's manager, started its local NATS and routes to every manager", manager.Name, sjc.Name, gru.Hosts[0].Name, disguised, gru.Name, gru.Name)
 }

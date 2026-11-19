@@ -38,9 +38,11 @@ with this one, this file wins.
     or none, and never stops the local server or the other regions' seeds.
   - Once a route to a seed address registers, its server name, which only a
     holder of the mesh CA can present, must belong to the region whose seed
-    record supplied the address. Otherwise the seed is retired and counted in
-    `ts_orch_mesh_seed_routes_refused_total`, and stays retired until that
-    record changes.
+    record supplied the address. Otherwise it does not count as that region's
+    seed: it is logged and counted once in
+    `ts_orch_mesh_seed_routes_refused_total`. The route itself stays, because
+    it reaches a mesh member and retiring a configured route while NATS opens
+    its connection pool would leave the pool incomplete.
   - Each server advertises its NetBird IPv4. Route gossip adds every other
     server, so a region the user orders joins without a release.
 - An in-region worker also dials its founder's VCN address, which it reads
