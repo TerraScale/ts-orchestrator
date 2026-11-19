@@ -24,7 +24,14 @@ func main() {
 		}
 		return
 	}
-	if err := mesh.RegionalPeersJourney(os.Args[1], app.WorkerReleaseJourney, app.PullRolloutJourney); err != nil {
+	if os.Args[1] == "single-region" {
+		if err := mesh.RegionalPeersJourney(os.Args[2], true, app.WorkerReleaseJourney, app.PullRolloutJourney); err != nil {
+			fmt.Fprintln(os.Stderr, "FAIL single region:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if err := mesh.RegionalPeersJourney(os.Args[1], false, app.WorkerReleaseJourney, app.PullRolloutJourney); err != nil {
 		fmt.Fprintln(os.Stderr, "FAIL regional peers:", err)
 		os.Exit(1)
 	}

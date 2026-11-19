@@ -158,7 +158,7 @@ func FleetForgeEdgeInventory(node *Node, state string, older []byte) error {
 	return nil
 }
 
-func RegionalPeersJourney(root string, health func(context.Context, string, *Node) error, rollout func(context.Context, *nats.Conn, bool) error) error {
+func RegionalPeersJourney(root string, single bool, health func(context.Context, string, *Node) error, rollout func(context.Context, *nats.Conn, bool) error) error {
 	logrus.SetLevel(logrus.WarnLevel)
 	began := time.Now()
 	defer func() { fmt.Printf("regional peers lane elapsed: %s\n", time.Since(began).Round(time.Millisecond)) }()
@@ -256,8 +256,8 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 			applier: swarmApplier{state: managerState, region: region}, every: time.Second, peersEvery: 250 * time.Millisecond,
 			peersDir: filepath.Join(root, name+"-files"), address: func() (string, error) { return ip, nil }}
 	}
-	if err := singleRegionJourney(ctx, root, managerState, workerState, manager.ID(), worker.ID(), ca, ports[6:], rollout); err != nil {
-		return err
+	if single {
+		return singleRegionJourney(ctx, root, managerState, workerState, manager.ID(), worker.ID(), ca, ports[6:], rollout)
 	}
 	ownCfg := cfg("gru", "gru-founder", "127.0.0.2", ports[0], ports[1], ports[3])
 	peerCfg := cfg("sjc", "sjc-founder", "127.0.0.3", ports[2], ports[3], ports[1])
@@ -579,13 +579,13 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 
 func singleRegionJourney(ctx context.Context, root, managerState, workerState, managerID, workerID string, ca *CA, ports []int, rollout func(context.Context, *nats.Conn, bool) error) error {
 	member := func(name, nodeID, ip string, local, cluster int) config {
-		return config{region: "stg", server: name, nodeID: nodeID, dir: filepath.Join(root, "stg-"+name), ca: ca, terrabaseToken: strings.Repeat("t", 32),
+		return config{region: "gru", server: name, nodeID: nodeID, dir: filepath.Join(root, "gru-"+name), ca: ca, terrabaseToken: strings.Repeat("t", 32),
 			clusterHost: "127.0.0.1", clusterPort: cluster, clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", cluster), localPort: local,
-			every: time.Second, peersEvery: 250 * time.Millisecond, peersDir: filepath.Join(root, "stg-"+name+"-files"),
+			every: time.Second, peersEvery: 250 * time.Millisecond, peersDir: filepath.Join(root, "gru-"+name+"-files"),
 			address: func() (string, error) { return ip, nil }}
 	}
 	founderCfg := member("founder", managerID, "127.0.0.2", ports[0], ports[1])
-	founderCfg.founder, founderCfg.applier = true, swarmApplier{state: managerState, region: "stg"}
+	founderCfg.founder, founderCfg.applier = true, swarmApplier{state: managerState, region: "gru"}
 	founder, err := start(founderCfg)
 	if err != nil {
 		return err
@@ -618,13 +618,13 @@ func singleRegionJourney(ctx context.Context, root, managerState, workerState, m
 	if err := regionalAwait(ctx, subscribed); err != nil {
 		return fmt.Errorf("founder never saw the joiner's edge inventory subscription: %w", err)
 	}
-	inventory := EdgeInventory{Web: map[string]int{"stg.dash.e2e.test": 18090}, Services: map[string]string{"stg.dash.e2e.test": "ts-dashboard"}}
+	inventory := EdgeInventory{Web: map[string]int{"gru.dash.e2e.test": 18090}, Services: map[string]string{"gru.dash.e2e.test": "ts-dashboard"}}
 	if err := founder.PublishEdgeInventory(managerState, inventory); err != nil {
 		return fmt.Errorf("single-region founder edge inventory: %w", err)
 	}
 	if err := regionalAwait(ctx, func() bool {
 		received, ok := follow()
-		return ok && received.Web["stg.dash.e2e.test"] == 18090
+		return ok && received.Web["gru.dash.e2e.test"] == 18090
 	}); err != nil {
 		return fmt.Errorf("single-region joiner's edge never received its founder's route inventory: %w", err)
 	}

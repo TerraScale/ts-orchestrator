@@ -44,22 +44,20 @@ CI's OCI identity cannot import images, so an operator imports each
 `oci` and `gh` CLIs:
 
 ```sh
-deploy/image/publish.sh host-image-20261119-6b5cd82 stg
 deploy/image/publish.sh host-image-20261119-6b5cd82 sjc fra gru
 ```
 
-The arguments are fleet labels from `deploy/fleet/fleet.json`, the `staging`
-entry included; with none it publishes to every one, staging first. For each
+The arguments are fleet labels from `deploy/fleet/fleet.json`; with none it
+publishes to every region. For each
 label the script takes the OCI region, compartment and node shape from the
 fleet document and the arch from the shape (`A<n>` shapes are arm64). It
 downloads `ts-host-debian13-<arch>.qcow2` and its `.sha256` into an empty
 directory, hashes the download and requires that hash to match the sidecar
 and GitHub's asset digest, and the sidecar to match its own asset digest.
 
-It uploads the file as `<tag>/<file>` to the region's `ts-host-images`
+It uploads the file as `<tag>/<file>` to the region's `ts-host-images-prod`
 bucket. The bucket belongs to the compartment of the first fleet entry in
-that OCI region (`stg-1-control` for `us-sanjose-1`, which `stg` and `sjc`
-share); the script creates it there with `NoPublicAccess` and refuses a
+that OCI region (`sjc-1-control` for `us-sanjose-1`); the script creates it there with `NoPublicAccess` and refuses a
 bucket in another compartment or a public one. It uploads in one part with
 the file's MD5, so OCI rejects altered bytes, never overwrites an object, and
 imports only after the stored object's `content-md5` and `sha256` metadata
@@ -90,7 +88,7 @@ The script uses the operator's API key profile (`~/.oci/config` `DEFAULT`).
 OCI imports from an object directly only for an API key user; federated users
 and instance principals would need a pre-authenticated request. The user
 needs, in the bucket owner compartment, `manage buckets` and `manage objects`
-for `ts-host-images`, and in each label's compartment `manage instance-images`
+for `ts-host-images-prod`, and in each label's compartment `manage instance-images`
 and `read work-requests`, plus `inspect` on the tenancy's global image
 capability schemas.
 
@@ -98,9 +96,8 @@ capability schemas.
 
 Add the printed entry to `deploy/image/host-images.json` in a pull request.
 `internal/nodeinit.PinnedHostImage` matches the entry's `label`, a fleet
-label (`stg`, `sjc`, `fra`, `gru`), and `arch`, and requires the image OCID
+label (`sjc`, `fra`, `gru`), and `arch`, and requires the image OCID
 to be in that label's OCI region; an unknown requested label is an error.
-`stg` and `sjc` share `us-sanjose-1`, but a `stg` entry never matches `sjc`.
 
 The pin takes effect when a binary containing it handles
 `ts-orch region add <code>` (by the catalog code) or runs the fleet compute
@@ -115,6 +112,7 @@ No label is pinned yet. The current image's `ts-node-init` exits when the
 pool has not bound the member's data volume at first boot, so a pool member
 can boot without `ts-orch`; a pin waits for an image whose first boot waits
 for that binding.
+
 
 ## The flow
 

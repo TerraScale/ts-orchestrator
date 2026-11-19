@@ -408,13 +408,6 @@ data volume created at launch through `launchVolumeAttachments`, without
 with `AttachVolume`, never at launch, and terminations must pass
 `preserveDataVolumesCreatedAtLaunch=true`.
 
-Staging has its own dynamic group and policy, both named `ts-orch-stg`,
-written by `ts-orch region bootstrap`: the per-compartment statements below for
-`stg-1-control` only, plus Vault statements limited to `stg-vault` and
-`stg-key` and `read repos` in `stg-1-control` ([OCIR](ocir.md)). Neither production group nor policy names staging, and staging's
-names no production compartment
-([region bootstrap](region-bootstrap.md#staging-region)).
-
 ### Statements
 
 Read back from the live policy on 2026-11-16 after the C28 change (33 statements):

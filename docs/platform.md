@@ -49,14 +49,6 @@ the durable rollout, including its hold and rollback.
 CI reads authenticated observations on HTTPS 443. See [network exposure](network.md)
 for listener owners and staged removal of the live public 4222 rules.
 
-Staging is the fleet document's isolated `stg` environment, with its own Vault,
-mesh CA and fabric store. It is not in the serving release inventory yet.
-The production fabric cannot read its completion record. Staging-first pull
-admission requires an authenticated verdict bridge between these isolated
-environments before staging can qualify production releases; the C19 merge
-is held for that integration. No cross-environment credential or grant is
-introduced by this rebase. See [staging bootstrap](region-bootstrap.md#staging-region).
-
 ## Identity and access
 
 SSH keys are the identity. The roles are `read`, `operate`, `release` and
@@ -212,9 +204,8 @@ The loop authenticates as the instance (instance principal); `region apply`
 uses the operator's config when it has one.
 
 The commands are `ts-orch region add`, `ts-orch region edit`, `ts-orch region rm`,
-`ts-orch region plan` and `ts-orch region status`. `ts-orch region bootstrap`
-founds the first region from an operator machine. It is the disaster-recovery
-path.
+`ts-orch region plan` and `ts-orch region status`. The production bootstrap
+gap remains documented in [region bootstrap](region-bootstrap.md).
 
 The reconciler touches only resources that carry its ownership tags. It
 never deletes data volumes, buckets or backups by itself. Compartment quotas
@@ -313,7 +304,7 @@ stopped the new leader's `Decide` picks the same drained worker; the case then
 calls `RemoveMember` on the new leader. It feeds `Decide` chosen times, a pool and
 quiet demand. The full resume on a leader change (Authorize, Retire, then
 RemoveMember), tasks moving off a drained node and the `last-copy` refusal are
-proven in the staging region.
+not proven against live OCI here.
 
 
 A node that stays unhealthy for 5 minutes is rebooted once through OCI and,
@@ -459,7 +450,7 @@ categories, which rebuild them on `ts-orch node`.
 | 2 | Signed pull releases and the SSH CLI | Nodes accept only a signed manifest with a higher sequence, and the remote CLI signs a challenge (C3, C3b, C4) |
 | 3 | Three managers and the edge everywhere | Join material, the one edge hop and shared edge certificates match Cluster shape (C5a, C5b, C5c) |
 | 4 | Fleet document, reconciler, load balancers, private subnets | The fleet document reconciles those resources, and a region's only public address is its network load balancer |
-| 5 | New fleet from bootstrap, data restored, DNS switched, old servers deleted | `ts-orch region bootstrap` has founded the fleet, data is restored, DNS points at it and the old servers are gone |
+| 5 | New fleet from bootstrap, data restored, DNS switched, old servers deleted | The production bootstrap path has founded the fleet, data is restored, DNS points at it and the old servers are gone |
 | 6 | GeoDNS, regional names, Atlas, SDK resolvers, ts-auth step 1 | Routing, Atlas, the SDKs and ts-auth step 1 match this document |
 | 7 | Autoscaling of replicas, nodes and regions, ts-auth step 2 | Scaling and self-healing and ts-auth step 2 match this document |
 | 8 | Drills: node loss, region loss, bad release, Atlas down, region add and remove | Each drill has linked proof |

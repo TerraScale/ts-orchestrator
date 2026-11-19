@@ -1,5 +1,7 @@
 # Build and release boundaries
 
+Production has no staging gate (decided 2026-11-19).
+
 ## Candidate preflight
 
 After verifying fully received candidate bytes against the release digest, the
@@ -55,14 +57,14 @@ release's own amd64 binary:
    this commit and run) and the bundle is saved as `channel.sigstore.json`.
 3. After C41's `ocir-login` action logs Docker in to `us-sanjose-1.ocir.io`,
    `eu-frankfurt-1.ocir.io` and `sa-saopaulo-1.ocir.io` (the app registry's
-   hosts; staging shares us-sanjose-1) through GitHub OIDC token exchange,
+   hosts) through GitHub OIDC token exchange,
    `ts-orch release channel publish` pushes the artifact as
    `orchestrator-release:ci-<sha>-run-<run>` and then the channel manifest
    (layers `channel.json` and `channel.sigstore.json`) as
-   `orchestrator-release:stable` to every fleet region and to staging. Each
+   `orchestrator-release:stable` to every fleet region. Each
    destination is the app registry's repository for that region
    (`internal/appregistry`, namespace and prefix from `deploy/m1/registry.json`),
-   so staging, which shares us-sanjose-1, has its own repository. It reads both
+   and reads both
    back and verifies them the way a host does. A channel that already holds a
    higher seq, or this seq for this release, is left unchanged, so a rerun or a
    late older run never moves the channel back or writes a seq twice; the same
@@ -84,8 +86,7 @@ release's own amd64 binary:
    release on its five-minute poll. The receiver ships in the release that
    introduces it, so the first announcement that takes effect is the next
    release's. The announcement carries no release: the owner trusts only what
-   it reads and verifies itself. Staging has no mesh name, so it is not announced and reads
-   its channel on the poll.
+   it reads and verifies itself.
 
 The GitHub Release assets stay as they are for people; hosts no longer read
 them.

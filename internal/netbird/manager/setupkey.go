@@ -8,20 +8,15 @@ import (
 	"slices"
 )
 
-const stagingKeyUses = 6
-
 // CreateServerSetupKey plans the servers' setup key: reusable, never
 // expiring, unlimited and auto-assigning only the servers group, so every
 // revision and autoscaled host of the cell enrolls with it. On apply it
 // writes the key value to out; the value is never printed or logged. An
 // unrevoked key of the same name (a rotation) is reported, not revoked.
 func CreateServerSetupKey(ctx context.Context, api *API, d Desired, out io.Writer, apply bool) (Report, error) {
-	staging := d.ServersGroup == StagingServers()
-	if !staging {
-		var err error
-		if d, err = d.withServerGroups([]string{d.ServersGroup}); err != nil {
-			return Report{}, err
-		}
+	var err error
+	if d, err = d.withServerGroups([]string{d.ServersGroup}); err != nil {
+		return Report{}, err
 	}
 	if err := d.Validate(); err != nil {
 		return Report{}, err
@@ -57,10 +52,6 @@ func CreateServerSetupKey(ctx context.Context, api *API, d Desired, out io.Write
 	}
 	request := setupKeyRequest{Name: d.SetupKeyName, Type: "reusable"}
 	detail := "reusable, never expires, auto-group " + d.ServersGroup
-	if staging {
-		request.UsageLimit, request.ExpiresIn = stagingKeyUses, credentialDays*24*3600
-		detail = fmt.Sprintf("reusable, %d uses, expires in %d days, auto-group %s", stagingKeyUses, credentialDays, d.ServersGroup)
-	}
 	p.add(Change{"create", "setup-key", d.SetupKeyName, detail},
 		func(ctx context.Context, r *refs) error {
 			servers, err := r.group(d.ServersGroup)

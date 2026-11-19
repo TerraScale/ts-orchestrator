@@ -316,7 +316,7 @@ func ValidateDeliveryRefs(cell, service string, refs map[string]Ref, env map[str
 	location, locationErr := fleetregion.Lookup(cell)
 	files := map[string]bool{}
 	for key, ref := range refs {
-		if locationErr != nil || ref.region() != location.OCIRegion || location.VaultID != "" && ref.Vault != location.VaultID {
+		if locationErr != nil || ref.region() != location.OCIRegion {
 			return fmt.Errorf("Vault secret %s of %s must name a Vault in cell %s's region", key, service, cell)
 		}
 		if !envKeyRE.MatchString(key) {

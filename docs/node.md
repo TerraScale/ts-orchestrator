@@ -96,8 +96,7 @@ An app release needs a token from a workflow `appServices` allows to release
 the image name must equal the service. The receiving host reads the service's
 newest desired spec on the mesh, changes only its digest (same repository) and
 applies it to every region it targets, one region at a time in its
-environment's fixed order: sjc, fra, gru in production (`catalog.RolloutOrder`)
-and the single region stg in staging. The order of the spec's `regions` does
+fixed order: sjc, fra, gru (`catalog.RolloutOrder`). The order of the spec's `regions` does
 not matter for those regions. A catalog region of the same environment that
 has no reviewed position yet rolls out first, in the spec's order, ahead of
 the reviewed ones. Each region: pre-pull, fast replacement, ready path, bake. Every mesh node advertises its

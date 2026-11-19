@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -94,21 +92,9 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	if resume && failedAnywhere(ctx, conn, service, before.Generation) {
 		return nil, fmt.Errorf("%s held at failed generation %d by release %+v; refused release %+v; repair the cause and release again from a strictly newer signed run or attempt", service, before.Generation, before.Deployment, deployment)
 	}
-	next, err := releaseSpec(ConnRegion(conn), service, image, previous, deployment)
+	next, err := releaseSpec(service, image, previous, deployment)
 	if err != nil {
 		return nil, releasefailure.At("declaration", err)
-	}
-	if previous == nil && (service == "ts-auth" || service == "ts-dashboard") {
-		running, err := runningImages(ctx, conn)
-		if err != nil {
-			return nil, releasefailure.At("dependency observation", err)
-		}
-		if running["terrabase"] == "" {
-			return nil, releasefailure.Policy("dependency", "TerraBase must be ready before first creation")
-		}
-		if service == "ts-dashboard" && running["ts-auth"] == "" {
-			return nil, releasefailure.Policy("dependency", "ts-auth must be ready before first creation")
-		}
 	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
 	hold := before.HoldAfter
@@ -217,27 +203,23 @@ func desiredStates(ctx context.Context, conn *nats.Conn) (map[string]desiredStat
 	return newest, errors.Join(err, conflict)
 }
 
-func releaseSpec(region, service, image string, previous *swarmruntime.ServiceSpec, deployment *Deployment) (swarmruntime.ServiceSpec, error) {
+func releaseSpec(service, image string, previous *swarmruntime.ServiceSpec, deployment *Deployment) (swarmruntime.ServiceSpec, error) {
 	var next swarmruntime.ServiceSpec
 	if previous == nil {
 		if deployment == nil || !serviceName.MatchString(service) {
 			return next, fmt.Errorf("%s is not a mesh service", service)
 		}
-		path := "services/" + region + "/" + service + ".json"
-		if service == "app-canary" {
-			path = "services/app-canary.json"
-		}
-		data, err := m1.Files.ReadFile(path)
-		if errors.Is(err, fs.ErrNotExist) {
+		if service != "app-canary" {
 			return next, releasefailure.Policy("declaration", "service is not declared for region")
 		}
+		data, err := m1.Files.ReadFile("services/app-canary.json")
 		if err != nil {
 			return next, err
 		}
 		if err := protocol.DecodeStrict(data, &next, 64<<10); err != nil {
 			return next, err
 		}
-		if next.Name != service || service != "app-canary" && !slices.Contains(next.Regions, region) {
+		if next.Name != service {
 			return next, fmt.Errorf("%s: declaration identity or region mismatch", service)
 		}
 	} else {

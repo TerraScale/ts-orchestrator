@@ -32,7 +32,6 @@ const (
 	GRU = "GRU"
 	SJC = "SJC"
 	FRA = "FRA"
-	STG = "STG"
 	// Bootstrap is the only cell that may found a deployment until a
 	// separately reviewed migration exists.
 	Bootstrap = GRU
@@ -78,7 +77,6 @@ var entries = [...]Entry{
 	{MeshIndex: 36, Cell: "YUL", OCIRegion: "ca-montreal-1", OCIRegionKey: "YUL", City: "Montreal", Country: "CA", Latitude: 45.50, Longitude: -73.57},
 	{MeshIndex: 37, Cell: "YYZ", OCIRegion: "ca-toronto-1", OCIRegionKey: "YYZ", City: "Toronto", Country: "CA", Latitude: 43.65, Longitude: -79.38},
 	{MeshIndex: 38, Cell: "ZRH", OCIRegion: "eu-zurich-1", OCIRegionKey: "ZRH", City: "Zurich", Country: "CH", Latitude: 47.38, Longitude: 8.54},
-	{MeshIndex: 39, Cell: STG, OCIRegion: "us-sanjose-1", OCIRegionKey: "SJC", City: "San Jose", Country: "US", Latitude: 37.34, Longitude: -121.89},
 }
 
 // foundedCount is the number of leading entries with a reserved address plan.

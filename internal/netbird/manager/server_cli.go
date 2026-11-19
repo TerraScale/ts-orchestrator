@@ -30,7 +30,7 @@ const serverUsage = `Usage: ts-orch netbird server --dir DIR
 On every M1 host, as root, with the instance principal, keep the pinned NetBird
 client installed, running and enrolled with the servers' setup key, read from
 the Vault of the host's fleet document entry (production: gru-vault's
-gru-1-netbird-setup-key; staging: its own Vault's <label>-1-netbird-setup-key). On the host
+gru-1-netbird-setup-key). On the host
 whose node declares the netbird-server service, also create the
 server's generated secrets in Vault once, write DIR/config.yaml (mode 0600, owned by the
 container user) for the netbird-server service, wait for it on ` + ServerURL + `, claim the owner and

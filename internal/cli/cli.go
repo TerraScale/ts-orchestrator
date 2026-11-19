@@ -96,7 +96,7 @@ ts-orch release manifest --sha <sha> --sequence <n> --out <file> builds a signed
 ts-orch release sign --manifest <file> --key <keyfile> signs a manifest with an SSH key (namespace ts-orch-release);
 ts-orch release verify --manifest <file> [--sig <file>] [--allowed <file>] verifies a manifest against the allowed SSH keys.
 ts-orch release channel prepare <dist> <sha> <run> <seq> <channel.json> writes the channel document of a release for CI to sign;
-ts-orch release channel publish <dist> <channel dir> pushes the release and its channel to every region's and staging's OCIR and verifies them;
+ts-orch release channel publish <dist> <channel dir> pushes the release and its channel to every region's OCIR and verifies them;
 ts-orch release verify-provenance --image <ref@sha256> --workflow <path@ref> --revision <sha> verifies an image's provenance attestation;
 ts-orch release preflight [secrets] reads this host's service secrets with a candidate binary before it is accepted;
 ts-orch release recover finishes or rolls back this host's pending release trial (run by its recovery unit).

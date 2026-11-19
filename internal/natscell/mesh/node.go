@@ -1118,9 +1118,6 @@ func validEntry(region, name string, entry Entry) error {
 		if _, ok := catalog.LookupName(target); !ok {
 			return fmt.Errorf("unknown region %q", target)
 		}
-		if EnvironmentOf(target).Founder != EnvironmentOf(region).Founder {
-			return fmt.Errorf("target region %s belongs to another environment than %s", target, region)
-		}
 	}
 	_, err := entry.Spec.SwarmSpec()
 	return err

@@ -97,7 +97,7 @@ jobs:
           GUESTFS
       - name: Record arm64 boot coverage
         if: ${{ matrix.arch == 'arm64' }}
-        run: echo "arm64 QEMU boot skipped because TCG exceeded the 300-second deadline; real A1 boot coverage is provided by C2i throwaway staging and C6."
+        run: echo "arm64 QEMU boot skipped because TCG exceeded the 300-second deadline; real A1 boot coverage is provided by C2i throwaway image qualification and C6."
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ts-host-debian13-${{ matrix.arch }}
@@ -171,4 +171,4 @@ jobs:
           test "${#files[@]}" -eq 4
           gh release create "$tag" "${files[@]}" -R "${{ github.repository }}" --target "$GITHUB_SHA" --title "$tag" \
             --draft --prerelease --latest=false \
-            --notes "Debian 13 host image candidates from ${GITHUB_SHA}. The amd64 image passed VM first boot, persistent-volume reboot, launch-release replacement and checksum rejection. Arm64 QEMU boot is skipped because TCG exceeded the 300-second deadline; real A1 boot coverage is provided by C2i throwaway staging and C6. OCI image capability qualification is still required before promotion."
+            --notes "Debian 13 host image candidates from ${GITHUB_SHA}. The amd64 image passed VM first boot, persistent-volume reboot, launch-release replacement and checksum rejection. Arm64 QEMU boot is skipped because TCG exceeded the 300-second deadline; real A1 boot coverage is provided by C2i throwaway image qualification and C6. OCI image capability qualification is still required before promotion."

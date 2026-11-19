@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ocirelease"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -802,9 +801,6 @@ func (u *Updater) mirror(ctx context.Context, status Status) {
 }
 
 func (u *Updater) admission(ctx context.Context, tag string) string {
-	if u.Region == fleet.Embedded().Staging.Label {
-		return ""
-	}
 	order := catalog.RolloutOrder()
 	if !slices.Contains(order, u.Region) {
 		return "region has no reviewed binary rollout position"

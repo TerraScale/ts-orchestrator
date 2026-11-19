@@ -31,7 +31,7 @@ func secretGate(values map[string]string, seen *map[string]bool, denied *string,
 		must(os.MkdirAll("/sys/class/dmi/id", 0o755))
 		must(os.WriteFile("/sys/class/dmi/id/chassis_asset_tag", []byte("OracleCloud.com\n"), 0o644))
 	}
-	for _, directory := range []string{"services", "services/stg"} {
+	for _, directory := range []string{"services"} {
 		entries, err := m1.Files.ReadDir(directory)
 		must(err)
 		for _, entry := range entries {
@@ -77,19 +77,6 @@ func secretGate(values map[string]string, seen *map[string]bool, denied *string,
 	*seen = map[string]bool{}
 	must(cli.Run(ctx, []string{"release", "preflight", "secrets"}, io.Discard))
 	require(!(*seen)["gru-1-ts-auth-master-key"] && !(*seen)["gru-1-ts-alerts-ntfy-topic"], "manual gate must use only the host region's requirements")
-	region = fleet.Embedded().Staging.Region
-	*seen = map[string]bool{}
-	must(cli.Run(ctx, []string{"release", "preflight", "secrets"}, io.Discard))
-	require((*seen)["stg-1-ts-auth-master-key"] && (*seen)["stg-1-terrabase-master-key"] && (*seen)["stg-1-stripe-secret-key"] && (*seen)["stg-1-stripe-webhook-secret"], "staging gate must read each declared service and both Stripe secrets")
-	for name := range *seen {
-		require(strings.HasPrefix(name, "stg-1-"), "staging gate read a production reference")
-	}
-	staging := fleet.Embedded().Staging
-	ref := vaultsecret.Ref{Vault: staging.VaultID, Name: "stg-1-ts-auth-master-key"}
-	must(vaultsecret.ValidateServiceRefs("stg", staging.VaultID, "ts-auth", map[string]vaultsecret.Ref{"TS_AUTH_MASTER_KEY_FILE": ref}))
-	require(vaultsecret.ValidateServiceRefs("sjc", staging.VaultID, "ts-auth", map[string]vaultsecret.Ref{"TS_AUTH_MASTER_KEY_FILE": ref}) != nil, "sjc accepted a staging secret")
-	ref.Vault = vaultsecret.SharedVault
-	require(vaultsecret.ValidateServiceRefs("stg", vaultsecret.SharedVault, "ts-auth", map[string]vaultsecret.Ref{"TS_AUTH_MASTER_KEY_FILE": ref}) != nil, "staging accepted a production Vault")
 	region = gru
 	*denied = "gru-1-ts-alerts-ntfy-topic"
 	gateCtx, cancel := context.WithCancel(ctx)
@@ -101,5 +88,5 @@ func secretGate(values map[string]string, seen *map[string]bool, denied *string,
 	for _, value := range values {
 		require(!strings.Contains(err.Error(), value), "manual gate must not expose values")
 	}
-	fmt.Println("ok secret gate: production and staging scope; exact staging Vault; shared auth and relay references; identical activation reads; value-free named refusal")
+	fmt.Println("ok secret gate: production regional scope; shared auth and relay references; identical activation reads; value-free named refusal")
 }

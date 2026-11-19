@@ -146,34 +146,6 @@ jobs:
           trap 'rm -rf "$DOCKER_CONFIG"' EXIT
           bash scripts/ci/publish-app-canary.sh us-sanjose-1 eu-frankfurt-1 sa-saopaulo-1
 
-      - name: Log in to staging only
-        uses: ./.github/actions/ocir-login
-        env:
-          DOCKER_CONFIG: ${{ runner.temp }}/ocir-stg
-        with:
-          regions: us-sanjose-1
-          repository: ${{ vars.OCIR_NAMESPACE }}/terrascale-stg/app-canary
-          domain-url: ${{ vars.OCI_IDENTITY_DOMAIN_URL }}
-          client-id: ${{ vars.OCI_TOKEN_EXCHANGE_CLIENT_ID }}
-          client-secret: ${{ secrets.OCI_TOKEN_EXCHANGE_CLIENT_SECRET }}
-
-      - name: Publish staging and select its release
-        shell: bash
-        env:
-          DOCKER_CONFIG: ${{ runner.temp }}/ocir-stg
-          REPOSITORY: ${{ vars.OCIR_NAMESPACE }}/terrascale-stg/app-canary
-          DIGEST: ${{ steps.image.outputs.arm64 }}
-          BUILD_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
-          SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
-        run: |
-          set -euo pipefail
-          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
-          test ! -e "$RUNNER_TEMP/ocir-prod/config.json"
-          bash scripts/ci/publish-app-canary.sh us-sanjose-1
-          repo="us-sanjose-1.ocir.io/$REPOSITORY"
-          oras tag "$repo@$DIGEST" release
-          test "$(oras resolve "$repo:release")" = "$DIGEST"
-
       - name: Log in to production for release selection
         uses: ./.github/actions/ocir-login
         env:
@@ -194,7 +166,6 @@ jobs:
         run: |
           set -euo pipefail
           trap 'rm -rf "$DOCKER_CONFIG"' EXIT
-          test ! -e "$RUNNER_TEMP/ocir-stg/config.json"
           for region in us-sanjose-1 eu-frankfurt-1 sa-saopaulo-1; do
             repo="$region.ocir.io/$REPOSITORY"
             oras tag "$repo@$DIGEST" release
@@ -211,4 +182,4 @@ jobs:
 
       - name: Remove registry credentials
         if: ${{ always() }}
-        run: rm -rf "$RUNNER_TEMP/ocir-prod" "$RUNNER_TEMP/ocir-stg"
+        run: rm -rf "$RUNNER_TEMP/ocir-prod"

@@ -20,7 +20,6 @@ compartment with the freeform ownership tags the reconciler uses:
 | sjc | `us-sanjose-1` | `sjc-1-control` | `us-sanjose-1.ocir.io/grxnmoqvrcdv/terrascale/` |
 | fra | `eu-frankfurt-1` | `fra-1-control` | `eu-frankfurt-1.ocir.io/grxnmoqvrcdv/terrascale/` |
 | gru | `sa-saopaulo-1` | `gru-1-control` | `sa-saopaulo-1.ocir.io/grxnmoqvrcdv/terrascale/` |
-| stg | `us-sanjose-1` | `stg-1-control` | `us-sanjose-1.ocir.io/grxnmoqvrcdv/terrascale-stg/` |
 
 Each prefix holds five repositories:
 
@@ -32,11 +31,9 @@ Each prefix holds five repositories:
 | `terrascale-dashboard` | Dashboard image |
 | `app-canary` | App canary image |
 
-So the sjc release repository is
-`us-sanjose-1.ocir.io/grxnmoqvrcdv/terrascale/orchestrator-release` and the
-staging one `us-sanjose-1.ocir.io/grxnmoqvrcdv/terrascale-stg/orchestrator-release`.
-A repository name is unique per namespace and region, not per compartment, and
-staging shares `us-sanjose-1` with sjc, so staging uses its own prefix.
+The sjc release repository is
+`us-sanjose-1.ocir.io/grxnmoqvrcdv/terrascale/orchestrator-release`.
+A repository name is unique per namespace and region.
 
 ## Host read
 
@@ -47,13 +44,6 @@ Policy `ts-orch-hosts-ocir` in compartment `TerraScale`
 Allow dynamic-group ts-orch-hosts to read repos in compartment sjc-1-control
 Allow dynamic-group ts-orch-hosts to read repos in compartment fra-1-control
 Allow dynamic-group ts-orch-hosts to read repos in compartment gru-1-control
-```
-
-Staging's policy `ts-orch-stg`, written by `ts-orch region bootstrap`
-(`internal/fleet/bootstrap_policy.go`), adds:
-
-```text
-Allow dynamic-group ts-orch-stg to read repos in compartment id <stg-1-control>
 ```
 
 `read repos` lists, reads and pulls; it cannot push or delete. No host has a
@@ -148,7 +138,6 @@ Policy `ts-ci-ocir` in compartment `TerraScale`
 Allow group 'Default'/'ts-ci-ocir' to manage repos in compartment sjc-1-control
 Allow group 'Default'/'ts-ci-ocir' to manage repos in compartment fra-1-control
 Allow group 'Default'/'ts-ci-ocir' to manage repos in compartment gru-1-control
-Allow group 'Default'/'ts-ci-ocir' to manage repos in compartment stg-1-control
 ```
 
 The identity domain authenticates the token-exchange call only with a
@@ -173,9 +162,9 @@ deletes the rest. App images follow the same rule in their release pipeline
 OCIR storage is billed as Object Storage, about USD 0.0255 per GB-month at
 list price. An orchestrator release is two Linux binaries (amd64 about 100 MB,
 arm64 about 92 MB) plus small bundles and the channel document, about 0.2 GB
-uncompressed. 20 releases in four repositories (sjc, fra, gru, stg) are about
-16 GB. App images with shared layers add an expected 10 to 20 GB across the
-four regions. Expected total: 25 to 35 GB, under USD 1 a month. Pulls inside a
+uncompressed. 20 releases in three repositories (sjc, fra, gru) are about
+12 GB. App images with shared layers add an expected 10 to 20 GB across the
+three regions. Expected total: 22 to 32 GB, under USD 1 a month. Pulls inside a
 region are free. Nothing else is billed: no new compute, network or capacity.
 
 ## Proof (2026-11-17)
