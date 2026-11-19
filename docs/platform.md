@@ -258,8 +258,14 @@ deadline, for the apply to record its data volume in the instance metadata,
 formats it only when the volume was never bound to another node, mounts it,
 installs the pinned release the way `deploy/m1/install.sh` does, and starts
 ts-orch. ts-orch reads `ts-orch-join-<region>` from the gru Vault (`internal/regionjoin`),
-joins as a worker, and the region's Raft leader promotes workers until the
-region has three voting managers (`internal/swarmruntime/manager_promotion.go`).
+joins as a worker. The region leader's `nodes` pass then admits every
+SwarmKit node that has no admission labels, the founder included
+(`internal/fleet/admission.go`): exactly one running instance in the region
+compartment, pool-owned or listed in `nodes.external`, must carry the node's
+hostname, and that instance's primary private address must be an address the
+node connects from. It then names the node and labels its instance, region and
+host role. The Raft leader then promotes admitted workers until the region has
+three voting managers (`internal/swarmruntime/manager_promotion.go`).
 
 ### Node count: the nodes kind
 

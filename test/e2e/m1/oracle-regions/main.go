@@ -384,6 +384,32 @@ func inventoryState(ctx context.Context, host *oraclehost.Host) (int, string, []
 	return refused, publisher, trusted
 }
 
+func admittedHosts(ctx context.Context, region *oraclehost.Region) {
+	client, conn, err := swarmruntime.DialControl(region.Hosts[0].State(""))
+	must(err)
+	defer conn.Close()
+	for _, host := range region.Hosts {
+		until(ctx, host.Name+" admitted with its name, instance, region and role labels", func() error {
+			listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+			if err != nil {
+				return err
+			}
+			for _, node := range listed.Nodes {
+				if node.Description == nil || node.Description.Hostname != host.Name {
+					continue
+				}
+				labels := node.Spec.Annotations.Labels
+				if node.Spec.Annotations.Name != host.Name || labels[swarmruntime.LabelInstanceID] != host.InstanceID || labels[swarmruntime.LabelRegion] != region.OCIRegion ||
+					!slices.Contains([]string{"manager", "container"}, labels[swarmruntime.LabelHostRole]) {
+					return fmt.Errorf("name %q labels %v", node.Spec.Annotations.Name, labels)
+				}
+				return nil
+			}
+			return errors.New("not in the swarm")
+		})
+	}
+}
+
 func promotedManagers(ctx context.Context, leader *oraclehost.Host, hosts ...*oraclehost.Host) {
 	client, conn, err := swarmruntime.DialControl(leader.State(""))
 	must(err)
@@ -738,6 +764,10 @@ func main() {
 	}
 	must(errors.Join(<-applies, <-applies))
 	ready(ctx, fleet, first, ca)
+	for _, region := range fleet.Regions {
+		admittedHosts(ctx, region)
+	}
+	step("every founder and joined pool node carries its name and instance, region and role labels: its region leader admitted it from OCI inventory and its address")
 	step("with no release enrolling any key, every worker serves its region's names from inventories its manager signed with its SwarmKit manager certificate")
 	follower, founder := gru.Hosts[1], nodeCertificate(gru.Hosts[0].State(""))
 	refusedInventory(ctx, follower, gru.Name, "a self-signed manager certificate naming its founder", forgedInventory(follower, selfSigned(founder)))
@@ -759,6 +789,7 @@ func main() {
 	delivered(ctx, fleet, held, gru.Hosts[1])
 	fleet.UnpinSecret(regionjoin.SecretName(gru.Name))
 	step("%s and %s, joined from material that lists neither, route to each other over the VCN and deliver ORCH, TERRABASE and ALERTS both ways", gru.Hosts[1].Name, held.Name)
+	admittedHosts(ctx, gru)
 	promotedManagers(ctx, gru.Hosts[0], follower, held)
 	step("with two eligible workers, %s's manager keeper promoted %s and %s with no release and no operator command; both are Raft-reachable managers", gru.Name, follower.Name, held.Name)
 
