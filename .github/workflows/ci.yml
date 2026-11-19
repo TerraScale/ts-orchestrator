@@ -93,7 +93,10 @@ jobs:
 
   e2e-build:
     needs: paths
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.paths.outputs.runtime == 'true' }}
+    if: ${{ github.event_name != 'schedule' && needs.paths.outputs.runtime == 'true' }}
+    concurrency:
+      group: e2e-build-${{ github.event_name }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -104,11 +107,12 @@ jobs:
       - uses: ./.github/actions/go
         with:
           cache: e2e-arm64
-      - name: Build the PR agent once
+      - name: Build the shared M1 agent once
         run: test/e2e/m1/build.sh "$RUNNER_TEMP/m1-bin" ./cmd/terrascale-orchestrator
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: e2e-m1-bin
+          overwrite: true
           path: ${{ runner.temp }}/m1-bin/terrascale-orchestrator
           retention-days: 1
 
@@ -191,10 +195,17 @@ jobs:
         uses: ./.github/actions/go
         with:
           cache: e2e-arm64
-      - name: Prepare the hosted runner
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: e2e-m1-bin
+          path: ${{ runner.temp }}/m1-bin
+      - name: Make the shared M1 agent executable
+        run: chmod +x "$RUNNER_TEMP/m1-bin/terrascale-orchestrator"
+      - id: prepare
+        name: Prepare the hosted runner
         run: timeout --foreground 180 bash test/e2e/m1/teardown.sh prepare
       - id: lane0
-        if: ${{ !cancelled() && matrix.lanes[0] != null }}
+        if: ${{ success() && matrix.lanes[0] != null }}
         name: e2e-m1 / ${{ matrix.lanes[0].lane }}
         timeout-minutes: ${{ matrix.lanes[0].budget }}
         uses: ./.github/actions/e2e-lane
@@ -205,7 +216,7 @@ jobs:
           packages: ${{ matrix.lanes[0].packages }}
           timeout: ${{ matrix.lanes[0].timeout }}
       - id: lane1
-        if: ${{ !cancelled() && matrix.lanes[1] != null }}
+        if: ${{ success() && matrix.lanes[1] != null }}
         name: e2e-m1 / ${{ matrix.lanes[1].lane }}
         timeout-minutes: ${{ matrix.lanes[1].budget }}
         uses: ./.github/actions/e2e-lane
@@ -216,7 +227,7 @@ jobs:
           packages: ${{ matrix.lanes[1].packages }}
           timeout: ${{ matrix.lanes[1].timeout }}
       - id: lane2
-        if: ${{ !cancelled() && matrix.lanes[2] != null }}
+        if: ${{ success() && matrix.lanes[2] != null }}
         name: e2e-m1 / ${{ matrix.lanes[2].lane }}
         timeout-minutes: ${{ matrix.lanes[2].budget }}
         uses: ./.github/actions/e2e-lane
@@ -227,7 +238,7 @@ jobs:
           packages: ${{ matrix.lanes[2].packages }}
           timeout: ${{ matrix.lanes[2].timeout }}
       - id: lane3
-        if: ${{ !cancelled() && matrix.lanes[3] != null }}
+        if: ${{ success() && matrix.lanes[3] != null }}
         name: e2e-m1 / ${{ matrix.lanes[3].lane }}
         timeout-minutes: ${{ matrix.lanes[3].budget }}
         uses: ./.github/actions/e2e-lane
@@ -238,7 +249,7 @@ jobs:
           packages: ${{ matrix.lanes[3].packages }}
           timeout: ${{ matrix.lanes[3].timeout }}
       - id: lane4
-        if: ${{ !cancelled() && matrix.lanes[4] != null }}
+        if: ${{ success() && matrix.lanes[4] != null }}
         name: e2e-m1 / ${{ matrix.lanes[4].lane }}
         timeout-minutes: ${{ matrix.lanes[4].budget }}
         uses: ./.github/actions/e2e-lane
@@ -249,7 +260,7 @@ jobs:
           packages: ${{ matrix.lanes[4].packages }}
           timeout: ${{ matrix.lanes[4].timeout }}
       - id: lane5
-        if: ${{ !cancelled() && matrix.lanes[5] != null }}
+        if: ${{ success() && matrix.lanes[5] != null }}
         name: e2e-m1 / ${{ matrix.lanes[5].lane }}
         timeout-minutes: ${{ matrix.lanes[5].budget }}
         uses: ./.github/actions/e2e-lane
@@ -260,7 +271,7 @@ jobs:
           packages: ${{ matrix.lanes[5].packages }}
           timeout: ${{ matrix.lanes[5].timeout }}
       - name: Record each lane and queue only its existing automatic rerun
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         env:
           LANES: ${{ toJSON(matrix.lanes) }}
           RESULTS: ${{ toJSON(steps) }}
@@ -381,6 +392,12 @@ jobs:
       - uses: ./.github/actions/go
         with:
           cache: e2e-arm64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: e2e-m1-bin
+          path: ${{ runner.temp }}/m1-bin
+      - name: Make the shared M1 agent executable
+        run: chmod +x "$RUNNER_TEMP/m1-bin/terrascale-orchestrator"
       - name: Prepare the hosted runner
         run: timeout --foreground 180 bash test/e2e/m1/teardown.sh prepare
       - name: e2e-m1 / ${{ matrix.lane }} (rerun)
@@ -525,6 +542,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: caller-key-bin
+          overwrite: true
           path: |
             ${{ runner.temp }}/caller-key-bin/callerkey
             ${{ runner.temp }}/caller-key-bin/terrascale-orchestrator
