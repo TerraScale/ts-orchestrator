@@ -220,7 +220,7 @@ func (a *api) publication(ctx context.Context, x artifact, target releasepush.De
 	return time.Time{}, errors.New("selected release publication timestamp is unavailable")
 }
 
-func (a *api) verdict(ctx context.Context, x artifact, region string, report releasepush.DeploymentObservation, now time.Time) (result finding) {
+func (a *api) verdict(ctx context.Context, x artifact, region string, report releasepush.DeploymentObservation, placement *releasepush.Placement, now time.Time) (result finding) {
 	var pipelineFailures []string
 	defer func() {
 		if result.unknown {
@@ -246,6 +246,7 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 	var reasons []string
 	failed := false
 	pending := false
+	excluded := false
 	if x.name == "ts-orchestrator" {
 		for _, host := range report.Hosts {
 			state := "RUNNING"
@@ -295,17 +296,16 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 		if !ok || app.Error != "" {
 			return finding{line: fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, cmp.Or(app.Error, "application deployment inventory missing")), unknown: true}
 		}
-		if app.Undeclared {
-			return finding{line: fmt.Sprintf("%s %s: main=%s release=%s not declared in %s state=ok", x.name, region, main.SHA, target.Revision, region)}
-		}
 		tasks, failed = app.Tasks, app.Failed
+		excluded = placement != nil && placement.Excludes(region) && app.Placement != nil && app.Placement.Generation == placement.Generation &&
+			slices.Equal(app.Placement.Regions, placement.Regions) && len(tasks) == 0 && app.Replicas == 0 && !failed
 		if app.Reason != "" {
 			reasons = append(reasons, app.Host+": "+app.Reason)
 		}
 	}
 	var running []string
 	var lag time.Duration
-	if x.name != "ts-orchestrator" {
+	if x.name != "ts-orchestrator" && !excluded {
 		pending = !report.Apps[x.name].Complete || uint64(len(tasks)) < report.Apps[x.name].Replicas
 	}
 	if x.name == "ts-auth" || x.name == "ts-dashboard" {
@@ -350,7 +350,10 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 			lag = max(lag, now.Sub(release.Commit.Committer.Date))
 		}
 	}
-	if len(running) == 0 {
+	switch {
+	case len(running) == 0 && excluded:
+		running = []string{fmt.Sprintf("none (not declared in %s by placement generation %d)", region, placement.Generation)}
+	case len(running) == 0:
 		running = []string{"none"}
 		pending = true
 	}

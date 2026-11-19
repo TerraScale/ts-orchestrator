@@ -1001,7 +1001,7 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 		}
 	}
 	entry := state.entry()
-	if entry.Spec == nil || len(entry.Spec.Regions) != 0 && !slices.Contains(entry.Spec.Regions, n.cfg.region) {
+	if entry.Spec == nil || !entry.Spec.RunsIn(n.cfg.region) {
 		if _, err := n.cfg.applier.Remove(ctx, name); err != nil {
 			return applyResult{}, err
 		}

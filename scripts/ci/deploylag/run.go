@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -52,6 +53,7 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 			}
 		}
 	}
+	placements := newestPlacements(reports, observationErrors)
 	for _, region := range regions {
 		report, observeErr := reports[region.Region], observationErrors[region.Region]
 		if observeErr != nil {
@@ -74,7 +76,7 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 		}
 		report.Targets = targets
 		for _, x := range artifacts {
-			result := a.verdict(ctx, x, region.Region, report, now)
+			result := a.verdict(ctx, x, region.Region, report, placements[x.name], now)
 			fmt.Println(result.line)
 			rows[x.name] = append(rows[x.name], result.line)
 			red[x.name] = red[x.name] || result.red
@@ -112,4 +114,30 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 	}
 	fmt.Println("DEPLOY ok", cmp.Or(strings.Join(healthy, ","), "-"))
 	return complete
+}
+
+func newestPlacements(reports map[string]releasepush.DeploymentObservation, observationErrors map[string]error) map[string]*releasepush.Placement {
+	newest, missing, conflicting := map[string]*releasepush.Placement{}, map[string]bool{}, map[string]bool{}
+	for region, report := range reports {
+		if observationErrors[region] != nil {
+			return nil
+		}
+		for name, app := range report.Apps {
+			current := newest[name]
+			switch {
+			case app.Placement == nil:
+				missing[name] = true
+			case current == nil || app.Placement.Generation > current.Generation:
+				newest[name], conflicting[name] = app.Placement, false
+			case app.Placement.Generation == current.Generation && !slices.Equal(app.Placement.Regions, current.Regions):
+				conflicting[name] = true
+			}
+		}
+	}
+	for name := range newest {
+		if missing[name] || conflicting[name] {
+			delete(newest, name)
+		}
+	}
+	return newest
 }
