@@ -56,11 +56,17 @@ if ! gh release view "$tag" --repo "$repository" --json tagName,targetCommitish,
         --title "$tag" --notes ''
     gh release view "$tag" --repo "$repository" --json tagName,targetCommitish,isDraft,isPrerelease,assets > "$work/view.json"
 fi
+if jq -e 'any(.assets[]; .name == "provenance.sigstore.json")' "$work/view.json" >/dev/null; then
+    gh release download "$tag" --repo "$repository" --pattern provenance.sigstore.json --output "$work/provenance.sigstore.json"
+    bash "$repo/scripts/ci/admit-provenance.sh" verify "$work/provenance.sigstore.json" \
+        dist/terrascale-orchestrator-linux-amd64 dist/terrascale-orchestrator-linux-arm64
+fi
 jq -e --arg tag "$tag" '.tagName == $tag and .isPrerelease == true and
     (.assets | all(.name == "terrascale-orchestrator-linux-amd64" or
       .name == "terrascale-orchestrator-linux-arm64" or
       .name == "qualification.json" or
       .name == "staging-latency.json" or
+      .name == "provenance.sigstore.json" or
       (.name | test("^production-[A-Z]{3}-(amd64|arm64)(-delegation)?\\.json$")) or
       (.name | test("^production-evidence-[0-9a-f]{64}$")) or
       (.name | test("^image-production-[0-9a-f]{64}-[A-Z]{3}-(amd64|arm64)(-delegation)?\\.json$")) or
@@ -79,13 +85,15 @@ else
     }
 fi
 mkdir -m 0700 "$work/readback"
-retain() {
-    local name=$1 delay matched attempt readback
+names=(terrascale-orchestrator-linux-amd64 terrascale-orchestrator-linux-arm64 qualification.json)
+upload_asset() {
+    local name=$1
     if ! jq -e --arg name "$name" 'any(.assets[]; .name == $name)' "$work/view.json" >/dev/null; then
         gh release upload "$tag" "dist/$name" --repo "$repository"
     fi
-    delay=1
-    matched=false
+}
+read_asset() {
+    local name=$1 delay=1 matched=false attempt readback
     for attempt in 1 2 3 4 5 6; do
         readback="$work/readback/$name.$attempt"
         if gh release download "$tag" --repo "$repository" --pattern "$name" --output "$readback" &&
@@ -106,9 +114,22 @@ retain() {
     done
     [[ $matched == true ]] || { echo "release asset readback never matched: $name" >&2; exit 1; }
 }
-retain terrascale-orchestrator-linux-amd64
-retain terrascale-orchestrator-linux-arm64
-retain qualification.json
+pids=()
+for name in "${names[@]}"; do
+    upload_asset "$name" &
+    pids+=("$!")
+done
+for pid in "${pids[@]}"; do
+    wait "$pid"
+done
+pids=()
+for name in "${names[@]}"; do
+    read_asset "$name" &
+    pids+=("$!")
+done
+for pid in "${pids[@]}"; do
+    wait "$pid"
+done
 printf 'TS_RELEASE_QUALIFICATION_V1 source_sha=%s run_id=%s run_number=%s manifest_sha256=%s\n' \
     "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" \
     "$(sha256sum dist/qualification.json | awk '{print $1}')"

@@ -23,8 +23,15 @@ runs:
           --pattern terrascale-orchestrator-linux-amd64 --pattern terrascale-orchestrator-linux-arm64
         chmod +x dist/terrascale-orchestrator-linux-amd64
 
+    - id: provenance
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: bash scripts/ci/admit-provenance.sh check
+
     - name: Attest the published binaries
       id: attest
+      if: ${{ steps.provenance.outputs.need_attest == 'true' }}
       uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
       with:
         subject-path: |
@@ -32,23 +39,12 @@ runs:
           dist/terrascale-orchestrator-linux-arm64
         show-summary: false
 
-    - name: Publish the attestation with the release
+    - name: Publish the signed GitHub release
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         BUNDLE: ${{ steps.attest.outputs.bundle-path }}
-      run: |
-        set -euo pipefail
-        cp "$BUNDLE" dist/provenance.sigstore.json
-        gh release upload "ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}" dist/provenance.sigstore.json --repo "${GITHUB_REPOSITORY}" --clobber
-
-    - name: Publish the signed GitHub release
-      shell: bash
-      run: |
-        set -euo pipefail
-        tag="ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}"
-        gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
-        test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)" = "$GITHUB_SHA"
+      run: bash scripts/ci/admit-provenance.sh finalize
 
     - name: Write the release's channel document
       shell: bash

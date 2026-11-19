@@ -563,6 +563,8 @@ jobs:
     permissions:
       contents: write
       actions: read
+      id-token: write
+      attestations: write
     name: verify/go + artifact/linux-amd64-arm64
     outputs:
       publication: ${{ steps.inputs.outputs.publication }}
@@ -575,14 +577,17 @@ jobs:
         with:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
+          fetch-tags: false
           persist-credentials: false
-      - name: Prove this tree passed its PR gate
-        id: qualification
-        run: python3 -B scripts/ci/qualified-pr-tree.py
       - id: go
         uses: ./.github/actions/go
         with:
           cache: release
+      - name: Prove this tree passed its PR gate
+        id: qualification
+        env:
+          GITHUB_SHA: ${{ env.SOURCE_SHA }}
+        run: python3 -B scripts/ci/qualified-pr-tree.py
       - name: Scan legacy terms within CI
         run: |
           scanner="$RUNNER_TEMP/legacy-scanner"
@@ -618,22 +623,40 @@ jobs:
             3) echo 'publication=unchanged' >> "$GITHUB_OUTPUT" ;;
             *) exit "$status" ;;
           esac
-
       - name: Build and verify this revision's static release binaries
         if: ${{ steps.inputs.outputs.publication == 'required' }}
         shell: bash
         run: make --jobs=2 release-check GO=go
-      - name: Audit both actual release binaries before publication
-        if: ${{ steps.inputs.outputs.publication == 'required' }}
-        run: bash scripts/ci/audit-dependencies.sh release
-
-      - name: Retain verified binaries and qualification manifest
+      - name: Audit and retain the verified release
         if: ${{ steps.inputs.outputs.publication == 'required' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_READ_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/publish-qualification.sh
+          GITHUB_SHA: ${{ env.SOURCE_SHA }}
+        run: bash scripts/ci/retain-release.sh
+      - id: provenance
+        if: ${{ steps.qualification.outputs.qualified == 'true' && steps.inputs.outputs.publication == 'required' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_SHA: ${{ env.SOURCE_SHA }}
+        run: bash scripts/ci/admit-provenance.sh check
+      - name: Attest the release binaries
+        if: ${{ steps.qualification.outputs.qualified == 'true' && steps.inputs.outputs.publication == 'required' && steps.provenance.outputs.need_attest == 'true' }}
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: |
+            dist/terrascale-orchestrator-linux-amd64
+            dist/terrascale-orchestrator-linux-arm64
+          show-summary: false
+      - name: Publish the signed GitHub release
+        if: ${{ steps.qualification.outputs.qualified == 'true' && steps.inputs.outputs.publication == 'required' }}
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_SHA: ${{ env.SOURCE_SHA }}
+        run: bash scripts/ci/publish-github-release.sh
       - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -661,7 +684,9 @@ jobs:
           sparse-checkout: |
             deploy/m1/regions.json
             .github/actions/ocir-login
+            .github/actions/ocir-login/login.sh
             .github/actions/release-publish
+            scripts/ci/admit-provenance.sh
           sparse-checkout-cone-mode: false
       - uses: ./.github/actions/release-publish
         with:
@@ -690,7 +715,9 @@ jobs:
           sparse-checkout: |
             deploy/m1/regions.json
             .github/actions/ocir-login
+            .github/actions/ocir-login/login.sh
             .github/actions/release-publish
+            scripts/ci/admit-provenance.sh
           sparse-checkout-cone-mode: false
       - uses: ./.github/actions/release-publish
         with:

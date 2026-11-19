@@ -6,9 +6,39 @@ import re
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from qualified_release import TAG, admit, api, command
+
+
+def architecture_paths(root, architecture):
+    paths = set()
+    packages = 0
+    decoder = json.JSONDecoder()
+    env = os.environ | {"GOPROXY": "off", "GOSUMDB": "off", "GOTOOLCHAIN": "local",
+                        "GOOS": "linux", "GOARCH": architecture, "CGO_ENABLED": "0"}
+    graph = command("go", "list", "-mod=readonly", "-deps", "-json",
+                    "./cmd/terrascale-orchestrator", env=env, text=True)
+    while graph.strip():
+        package, end = decoder.raw_decode(graph.lstrip())
+        graph = graph.lstrip()[end:]
+        directory = Path(package["Dir"])
+        if not directory.is_relative_to(root):
+            continue
+        packages += 1
+        relative = directory.relative_to(root).as_posix()
+        for suffix in ("go", "s", "S", "h", "c", "cc", "cpp", "m", "mm", "syso"):
+            paths.add(f":(glob){relative}/*.{suffix}")
+        for pattern in package.get("EmbedPatterns", []):
+            prefix = re.split(r"[*?\[]", pattern.removeprefix("all:"), maxsplit=1)[0]
+            if prefix != pattern.removeprefix("all:"):
+                prefix = prefix.rpartition("/")[0]
+            paths.add(f":(literal){relative}/{prefix}".rstrip("/"))
+        module = package.get("Module") or {}
+        if module.get("GoMod") and Path(module["GoMod"]).is_relative_to(root):
+            paths.add(":(literal)" + Path(module["GoMod"]).relative_to(root).as_posix())
+    return paths, packages
 
 
 def inputs():
@@ -18,32 +48,16 @@ def inputs():
              ".github/actions/release-publish/action.yml", "scripts/ci/qualified-pr-tree.py",
              "scripts/ci/audit-dependencies.sh",
              "scripts/ci/check-release-binaries.sh", "scripts/ci/publish-qualification.sh",
-             "scripts/ci/qualified_release.py", "scripts/ci/release-inputs-changed.py"}
-    decoder = json.JSONDecoder()
+             "scripts/ci/qualified_release.py", "scripts/ci/release-inputs-changed.py",
+             "scripts/ci/admit-provenance.sh", "scripts/ci/publish-github-release.sh",
+             "scripts/ci/retain-release.sh"}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        parts = list(pool.map(lambda architecture: architecture_paths(root, architecture),
+                              ("amd64", "arm64")))
     packages = 0
-    for architecture in ("amd64", "arm64"):
-        env = os.environ | {"GOPROXY": "off", "GOSUMDB": "off", "GOTOOLCHAIN": "local",
-                            "GOOS": "linux", "GOARCH": architecture, "CGO_ENABLED": "0"}
-        graph = command("go", "list", "-mod=readonly", "-deps", "-json",
-                        "./cmd/terrascale-orchestrator", env=env, text=True)
-        while graph.strip():
-            package, end = decoder.raw_decode(graph.lstrip())
-            graph = graph.lstrip()[end:]
-            directory = Path(package["Dir"])
-            if not directory.is_relative_to(root):
-                continue
-            packages += 1
-            relative = directory.relative_to(root).as_posix()
-            for suffix in ("go", "s", "S", "h", "c", "cc", "cpp", "m", "mm", "syso"):
-                paths.add(f":(glob){relative}/*.{suffix}")
-            for pattern in package.get("EmbedPatterns", []):
-                prefix = re.split(r"[*?\[]", pattern.removeprefix("all:"), maxsplit=1)[0]
-                if prefix != pattern.removeprefix("all:"):
-                    prefix = prefix.rpartition("/")[0]
-                paths.add(f":(literal){relative}/{prefix}".rstrip("/"))
-            module = package.get("Module") or {}
-            if module.get("GoMod") and Path(module["GoMod"]).is_relative_to(root):
-                paths.add(":(literal)" + Path(module["GoMod"]).relative_to(root).as_posix())
+    for part, count in parts:
+        paths.update(part)
+        packages += count
     if not packages or any("\n" in path or "\r" in path for path in paths):
         raise ValueError("unreadable executable input graph")
     return sorted(paths) + [":(exclude,glob)**/*_test.go"]

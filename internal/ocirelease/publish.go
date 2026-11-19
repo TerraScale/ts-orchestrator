@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
@@ -208,6 +209,17 @@ func Document(artifact Image, sha, run string, seq uint64, at time.Time) ([]byte
 	return data, nil
 }
 
+type lineWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.w.Write(p)
+}
+
 const usage = "usage: ts-orch release channel prepare <dist> <sha> <run> <seq> <channel.json> | publish <dist> <channel dir>"
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
@@ -247,15 +259,22 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 			return err
 		}
 		artifact := ArtifactImage(binaries, provenance)
-		var failed []error
-		for _, client := range destinations {
-			repository, _ := client.Repository(Package)
-			err := publishTo(ctx, client, attest, artifact, signed, output)
-			if err != nil {
-				fmt.Fprintf(output, "%s: FAILED: %v\n", repository, err)
-				failed = append(failed, fmt.Errorf("%s: %w", repository, err))
-			}
+		out := &lineWriter{w: output}
+		failed := make([]error, len(destinations))
+		var wg sync.WaitGroup
+		for i, client := range destinations {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				repository, _ := client.Repository(Package)
+				err := publishTo(ctx, client, attest, artifact, signed, out)
+				if err != nil {
+					fmt.Fprintf(out, "%s: FAILED: %v\n", repository, err)
+					failed[i] = fmt.Errorf("%s: %w", repository, err)
+				}
+			}()
 		}
+		wg.Wait()
 		return errors.Join(failed...)
 	}
 	return errors.New(usage)
