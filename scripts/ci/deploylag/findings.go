@@ -2,9 +2,11 @@ package main
 
 import (
 	"cmp"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"slices"
 
+	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 )
 
@@ -24,7 +26,36 @@ func hostFailure(host releasepush.HostVersion) string {
 	return host.Host + ": " + reason
 }
 
-func reportedFailures(x artifact, report releasepush.DeploymentObservation) []string {
+type pullRollout struct {
+	Target *struct {
+		SHA string `json:"sha"`
+	} `json:"target"`
+	Phase  string         `json:"phase"`
+	Reason string         `json:"reason"`
+	Hosts  jsontext.Value `json:"hosts"`
+}
+
+func parsePullRollout(raw []byte) *pullRollout {
+	var rollout pullRollout
+	if err := json.Unmarshal(raw, &rollout); err != nil {
+		return nil
+	}
+	return &rollout
+}
+
+func (p pullRollout) matches(revision string) bool {
+	return p.Target == nil || p.Target.SHA == revision
+}
+
+func (p pullRollout) pending(revision string) bool {
+	return p.Target != nil && p.Target.SHA == revision && !slices.Contains([]string{pullrelease.PhaseIdle, pullrelease.PhaseComplete, pullrelease.PhaseNewer}, p.Phase)
+}
+
+func (p pullRollout) failed(revision string) bool {
+	return p.matches(revision) && slices.Contains([]string{pullrelease.PhaseRefused, pullrelease.PhaseRolledBack, pullrelease.PhaseStalled}, p.Phase)
+}
+
+func reportedFailures(x artifact, report releasepush.DeploymentObservation, rollout *pullRollout) []string {
 	var reasons []string
 	if x.name != "ts-orchestrator" {
 		app := report.Apps[x.name]
@@ -43,15 +74,8 @@ func reportedFailures(x artifact, report releasepush.DeploymentObservation) []st
 			reasons = append(reasons, reason)
 		}
 	}
-	var pull struct {
-		Target *struct {
-			SHA string `json:"sha"`
-		} `json:"target"`
-		Phase  string `json:"phase"`
-		Reason string `json:"reason"`
-	}
-	if json.Unmarshal(report.Pull, &pull) == nil && (pull.Target == nil || pull.Target.SHA == report.Targets[x.name].Revision) && slices.Contains([]string{"refused", "rolled_back", "rollback_stalled"}, pull.Phase) {
-		reasons = append(reasons, report.Host+": "+cmp.Or(pull.Reason, pull.Phase))
+	if rollout != nil && rollout.failed(report.Targets[x.name].Revision) {
+		reasons = append(reasons, report.Host+": "+cmp.Or(rollout.Reason, rollout.Phase))
 	}
 	return reasons
 }
