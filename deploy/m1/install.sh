@@ -18,10 +18,6 @@ host=$1 url=$2 sum=$3
 # Every unit beside this script and under services/ is installed, enabled and
 # restarted; ts-orch.service comes first because the others order after it.
 dir=$(dirname "$0")
-if ssh "$host" test -e /etc/NIXOS; then
-	echo "$host runs NixOS: its image and ts-orch-units.service install ts-orch; $0 is for Ubuntu hosts only" >&2
-	exit 1
-fi
 ssh "$host" sudo bash -s < "$dir/host-runtime.sh"
 units=""
 for unit in "$dir"/ts-orch.service "$dir"/services/*.service; do

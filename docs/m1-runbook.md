@@ -46,7 +46,7 @@ deploy/m1/install.sh ts-gru-1 "$url" "$sum"
 `install.sh` verifies the sha256, installs `/usr/local/bin/terrascale-orchestrator`
 (alias `ts-orch`), creates the state and data directories, installs
 `ts-orch.service` and restarts it. Re-running it is the upgrade.
-`install.sh` is for Ubuntu hosts only and refuses a host that has `/etc/NIXOS`.
+`install.sh` is for Ubuntu hosts only; never run it against a NixOS host.
 
 ### NixOS hosts
 
