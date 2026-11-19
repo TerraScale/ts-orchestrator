@@ -13,6 +13,10 @@ const MaxBakeWindow = 10 * time.Minute
 const BakeFailureDuration = 15 * time.Second
 const sampleBudget = 5 * time.Second
 
+func BakeFailed(failures int, since, now time.Time) bool {
+	return failures >= 3 && now.Sub(since) >= BakeFailureDuration
+}
+
 type DependencyFailure struct{ Service, Status string }
 
 func (f *DependencyFailure) Error() string {
@@ -117,7 +121,7 @@ func RunBake(ctx context.Context, v BakeVerdict, probe func(context.Context) (ma
 		}
 		v.ConsecutiveFailures, v.FailureSince = failed, since
 		for key, count := range failed {
-			if count >= 3 && time.Now().Sub(since[key]) >= BakeFailureDuration {
+			if BakeFailed(count, since[key], time.Now()) {
 				return fail("bake probe " + key + " failed continuously for at least 15 seconds: " + v.LastFailure)
 			}
 		}

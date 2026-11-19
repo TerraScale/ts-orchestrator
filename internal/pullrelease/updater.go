@@ -31,7 +31,6 @@ const (
 
 	channelPoll  = 10 * time.Second
 	checkEvery   = 2 * time.Second
-	bakeFailures = 3
 	askWait      = 8 * time.Second
 	installWait  = 3*time.Minute + 30*time.Second
 	discoverWait = time.Minute
@@ -760,7 +759,7 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 		u.status.Failed++
 		u.status.Failures++
 		u.status.Healthy = time.Time{}
-		if u.status.Failed >= bakeFailures && now.Sub(u.status.Failing) >= rollout.BakeFailureDuration {
+		if rollout.BakeFailed(u.status.Failed, u.status.Failing, now) {
 			return u.rolledBack(ctx, row, fmt.Sprintf("regional bake failed in %d samples over %s: %s", u.status.Failed, now.Sub(u.status.Failing).Round(time.Second), failure))
 		}
 		if bound := u.bakeBound(); now.Sub(u.status.Done) >= bound {
