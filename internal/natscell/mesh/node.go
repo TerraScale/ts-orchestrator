@@ -827,7 +827,9 @@ func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int6
 		if n.admission == nil {
 			n.admission = map[string]AdmissionDecision{}
 		}
-		n.admission[name] = decision
+		if n.admission[name].Generation <= generation {
+			n.admission[name] = decision
+		}
 	}()
 	if fenced(name) {
 		rule := EnvironmentOf(n.cfg.region).Rollout
@@ -916,6 +918,9 @@ func (n *Node) awaitTurn(ctx context.Context, name string, spec *swarmruntime.Se
 		return nil
 	}
 	for {
+		if newer := n.newerGeneration(name, generation); newer != 0 {
+			return fmt.Errorf("%s generation %d superseded by generation %d", name, generation, newer)
+		}
 		err := n.turn(name, spec, generation, n.statesOf(ctx, asked, time.Second))
 		if err == nil || errors.Is(err, errEarlierFailed) {
 			return err
@@ -926,6 +931,20 @@ func (n *Node) awaitTurn(ctx context.Context, name string, spec *swarmruntime.Se
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+func (n *Node) newerGeneration(name string, generation int64) int64 {
+	var newest int64
+	if desired := n.stateDesired.Load(); desired != nil {
+		newest = (*desired)[name].entry().Generation
+	}
+	n.admissionMu.Lock()
+	newest = max(newest, n.admission[name].Generation)
+	n.admissionMu.Unlock()
+	if newest > generation {
+		return newest
+	}
+	return 0
 }
 
 type applyResult struct {
