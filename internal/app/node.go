@@ -36,15 +36,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, public *edge.Edge, probation *releasepush.Probation, swarmReady chan struct{}, meshServing <-chan struct{}, stopping func(), health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
-	releases, err := releasepush.NewHandler(state)
-	if err != nil {
-		return err
-	}
-	releases.Regional.In(plan.region)
-	if err := releases.CompleteBootAdmission(ctx, plan.region, plan.releaseAdmission); err != nil {
-		return err
-	}
+func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, public *edge.Edge, releases *releasepush.Handler, probation *releasepush.Probation, swarmReady chan struct{}, meshServing <-chan struct{}, stopping func(), health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err

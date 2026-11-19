@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -10,21 +9,21 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"github.com/TerraScale/ts-orchestrator/internal/datamount"
+	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
 )
 
 const serial = "0123456789abcdef0123456789abcdef"
@@ -315,23 +314,20 @@ func invoke(c *cloud, args ...string) (string, error) {
 			_, _ = w.Write(data)
 			return
 		}
+		if serveRelease(w, r) {
+			return
+		}
 		c.ServeHTTP(w, r)
 	}))
 	defer api.Close()
-	transport := &http.Transport{DialTLSContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "tcp", api.Listener.Addr().String())
-	}}
-	old := http.DefaultTransport
-	http.DefaultTransport = transport
-	defer func() {
-		http.DefaultTransport = old
-		transport.CloseIdleConnections()
-	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	var out bytes.Buffer
-	err := regionhost.Run(ctx, args, &out)
-	return out.String(), err
+	command := exec.CommandContext(ctx, admittedExecutable, append([]string{"region-command", api.Listener.Addr().String()}, args...)...)
+	out, err := command.CombinedOutput()
+	if err != nil {
+		return string(out), errors.New(string(out))
+	}
+	return string(out), nil
 }
 
 var reportMu sync.Mutex
@@ -363,11 +359,9 @@ func run() error {
 	os.Setenv("HTTP_PROXY", "")
 	os.Setenv("ALL_PROXY", "")
 	os.Setenv("NO_PROXY", "*")
-	gh := "#!/bin/sh\nif [ \"$2\" = list ]; then printf '[{\"tagName\":\"journey\"}]'; else printf '{\"assets\":[{\"Name\":\"terrascale-orchestrator-linux-arm64\",\"URL\":\"https://example.com/ts-orch\",\"Digest\":\"sha256:" + strings.Repeat("0", 64) + "\"}]}'; fi\n"
-	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(gh), 0700); err != nil {
+	if err := prepareRelease(dir); err != nil {
 		return err
 	}
-	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	token := observationToken
 	oidc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		must(r.Header.Get("Authorization") == "bearer local", "missing OIDC authentication")
@@ -472,6 +466,9 @@ func run() error {
 	_, err = invoke(c, "add", "gru", "--host", "extra")
 	must(err == nil, fmt.Sprint("adopted replacement: ", err))
 	launched := c.resources["instances"][2]
+	var receipt releasegate.Receipt
+	must(json.Unmarshal([]byte(launched["metadata"].(object)["release_admission"].(string)), &receipt) == nil, "launch lacks admission receipt")
+	must(receipt.Region == "gru" && receipt.Tag == admittedTag && receipt.Binaries["arm64"] == admittedDigest && !receipt.At.IsZero(), "replacement launch has another release admission")
 	must(launched["metadata"].(object)["terrascale-data-may-format"] == "false", "adopted launch granted format")
 	must(c.resources["volumes"][0]["freeformTags"].(object)["terrascale-data-instance"] == launched["id"], "missing instance binding")
 	fmt.Println("region volume: adoption needs initialised UUID tags; replacement launch denies format and binds before attachment")
@@ -519,6 +516,13 @@ func run() error {
 }
 
 func main() {
+	if len(os.Args) > 2 && os.Args[1] == "region-command" {
+		if err := regionCommand(os.Args[2], os.Args[3:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

@@ -34,7 +34,6 @@ const (
 	repositoryAPI = "https://api.github.com/repos/" + releaseattest.Repository
 	region        = "sjc"
 	probeWait     = 10 * time.Second
-	trustedMarker = `"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1"`
 )
 
 var (
@@ -339,26 +338,8 @@ func olderReleases(recorded []byte, run uint64) []byte {
 }
 
 func trusting(binary, trusted []byte) []byte {
-	out := bytes.Clone(binary)
-	patched := 0
-	for offset := 0; ; {
-		found := bytes.Index(out[offset:], []byte(trustedMarker))
-		if found < 0 {
-			break
-		}
-		start := bytes.LastIndexByte(out[:offset+found], '{')
-		require(start >= offset && len(bytes.TrimSpace(out[start+1:offset+found])) == 0, "the embedded Sigstore trusted root does not open with its media type")
-		decoder := json.NewDecoder(bytes.NewReader(out[start:]))
-		var root json.RawMessage
-		must(decoder.Decode(&root))
-		length := int(decoder.InputOffset())
-		require(len(trusted) <= length, "the lane's trusted root (%d bytes) is larger than the embedded one (%d bytes)", len(trusted), length)
-		copy(out[start:], trusted)
-		copy(out[start+len(trusted):start+length], bytes.Repeat([]byte(" "), length-len(trusted)))
-		patched++
-		offset = start + length
-	}
-	require(patched > 0, "the binary embeds no Sigstore trusted root")
+	out, err := sigstore.TrustBinary(binary, trusted)
+	must(err)
 	return oraclehost.StagingSigned(out)
 }
 

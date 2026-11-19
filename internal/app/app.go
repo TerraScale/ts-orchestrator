@@ -71,6 +71,14 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	releases, err := releasepush.NewHandler(*state)
+	if err != nil {
+		return err
+	}
+	releases.Regional.In(plan.region)
+	if err := releases.CompleteBootAdmission(ctx, plan.region, plan.releaseAdmission); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	swarmReady := make(chan struct{})
@@ -183,7 +191,7 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	var nodeErr error
 	go func() {
 		defer close(nodeDone)
-		nodeErr = serveNode(ctx, *state, output, plan, public, probation, swarmReady, meshServing, func() {
+		nodeErr = serveNode(ctx, *state, output, plan, public, releases, probation, swarmReady, meshServing, func() {
 			plannedstop.Begin(ctx)
 			cancel()
 		}, func(ctx context.Context, service string) releasepush.HealthResult {

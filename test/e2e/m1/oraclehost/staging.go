@@ -60,13 +60,21 @@ func (s *standIn) staging(w http.ResponseWriter, tag string) {
 		serviceError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
 		return
 	}
-	digest := sha256.Sum256(record)
-	signature, err := ecdsa.SignASN1(rand.Reader, stagingKey, digest[:])
+	envelope, err := SignStaging(record)
 	if err != nil {
 		serviceError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, releasegate.SignedRecord{Record: record, Signature: signature})
+	writeJSON(w, http.StatusOK, envelope)
+}
+
+func SignStaging(record []byte) (releasegate.SignedRecord, error) {
+	digest := sha256.Sum256(record)
+	signature, err := ecdsa.SignASN1(rand.Reader, stagingKey, digest[:])
+	if err != nil {
+		return releasegate.SignedRecord{}, err
+	}
+	return releasegate.SignedRecord{Record: record, Signature: signature}, nil
 }
 
 func stagingTag(host, path string) (string, bool) {

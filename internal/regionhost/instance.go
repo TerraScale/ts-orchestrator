@@ -2,6 +2,7 @@ package regionhost
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -212,7 +213,14 @@ func hostMetadata(prebuilt bool, url, sum string, volume *core.Volume, mayFormat
 	if err != nil {
 		return nil, err
 	}
-	return map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script)), dataVolumeTag: id, dataFormatTag: fmt.Sprint(mayFormat)}, nil
+	admission, err := json.Marshal(receipt)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		"user_data": base64.StdEncoding.EncodeToString([]byte(script)), dataVolumeTag: id, dataFormatTag: fmt.Sprint(mayFormat),
+		nodeinit.ReleaseAdmissionKey: string(admission),
+	}, nil
 }
 
 func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Instance, *core.Volume, error) {
