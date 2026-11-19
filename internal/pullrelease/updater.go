@@ -240,7 +240,12 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			return u.Poll
 		}
 		if u.status.Target == nil {
-			rows, refusal := u.formed(ctx, attested)
+			rows, refusal, waiting := u.formed(ctx, attested)
+			if waiting != "" {
+				u.status.Reason = "adoption of " + attested.Tag() + " waits: " + waiting
+				u.save(ctx)
+				return u.HealthyFor
+			}
 			if refusal != "" {
 				u.status.Reason = "adoption of " + attested.Tag() + " refused: " + refusal
 				u.save(ctx)
@@ -291,22 +296,22 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 	return u.roll(ctx)
 }
 
-func (u *Updater) formed(ctx context.Context, release releaseattest.Release) ([]HostProgress, string) {
+func (u *Updater) formed(ctx context.Context, release releaseattest.Release) ([]HostProgress, string, string) {
 	hosts, err := u.Hosts(ctx)
 	if err != nil || len(hosts) == 0 {
-		return nil, fmt.Sprintf("host inventory unavailable: %v", err)
+		return nil, "", fmt.Sprintf("host inventory unavailable: %v", err)
 	}
 	rows := make([]HostProgress, 0, len(hosts))
-	var unknown []string
+	var unknown, silent []string
 	for _, host := range hosts {
 		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
 		if err != nil {
-			unknown = append(unknown, host.Name+" does not answer: "+err.Error())
+			silent = append(silent, host.Name+" does not answer: "+err.Error())
 			continue
 		}
 		want, built := release.Binaries[reply.Arch]
 		if !built || reply.Version != release.SHA || reply.SHA256 != want.SHA256 || reply.Provenance == releasepush.ProvenanceInstalled {
-			return nil, ""
+			return nil, "", ""
 		}
 		switch {
 		case reply.State != "":
@@ -317,15 +322,18 @@ func (u *Updater) formed(ctx context.Context, release releaseattest.Release) ([]
 		rows = append(rows, HostProgress{ID: host.ID, Host: host.Name, State: HostDone, Version: release.SHA, SHA256: want.SHA256})
 	}
 	if len(unknown) != 0 {
-		return nil, strings.Join(unknown, "; ")
+		return nil, strings.Join(unknown, "; "), ""
+	}
+	if len(silent) != 0 {
+		return nil, "", strings.Join(silent, "; ")
 	}
 	for _, row := range rows {
 		reply, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullAdopt, Release: release}, installWait)
 		if err != nil || reply.State != releasepush.StateAdopted {
-			return nil, fmt.Sprintf("%s did not record the release it booted: %v %s", row.Host, err, reply.Error)
+			return nil, fmt.Sprintf("%s did not record the release it booted: %v %s", row.Host, err, reply.Error), ""
 		}
 	}
-	return rows, ""
+	return rows, "", ""
 }
 
 func (u *Updater) adoptedSweep(ctx context.Context) time.Duration {
