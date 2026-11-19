@@ -4,21 +4,31 @@ import os
 import socket
 import ssl
 import threading
+import time
 from pathlib import Path
 
 root = Path('/opt/host-image')
 case = Path('/etc/host-image-case').read_text().strip()
 baked = Path('/usr/local/lib/ts-orch/image-release.sha256').read_text().strip()
 launch = (root / 'launch.sha256').read_text().strip()
-metadata = {
+started = time.monotonic()
+volume = {
+    'terrascale-data-volume': 'ocid1.volume.oc1.phx.c2t',
+    'terrascale-data-may-format': 'true',
+}
+static = {
     'ssh_authorized_keys': (root / 'ssh-key.pub').read_text(),
     'terrascale-release-url': 'https://localhost:8443/release',
     'terrascale-release-sha256': (
         '0' * 64 if case == 'wrong-sha256' else launch if case == 'launch-release' else baked
     ),
-    'terrascale-data-volume': 'ocid1.volume.oc1.phx.c2t',
-    'terrascale-data-may-format': 'true',
 }
+
+
+def current():
+    if case == 'late-bind' and time.monotonic() - started < 20:
+        return static
+    return static | volume
 
 
 class Metadata(http.server.BaseHTTPRequestHandler):
@@ -27,6 +37,7 @@ class Metadata(http.server.BaseHTTPRequestHandler):
             self.send_error(401)
             return
         prefix = '/opc/v2/instance/metadata/'
+        metadata = current()
         if self.path == '/opc/v2/instance/':
             body = json.dumps({'id': 'ocid1.instance.oc1.phx.c2t', 'metadata': metadata})
         elif self.path == prefix:

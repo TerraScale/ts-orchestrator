@@ -40,6 +40,7 @@ uploads=(
 	--upload "$here/ts-node-init.service:/etc/systemd/system/ts-node-init.service"
 	--upload "$here/ts-ssh-keys.service:/etc/systemd/system/ts-ssh-keys.service"
 	--upload "$here/ts-ssh-keys.sh:/usr/local/sbin/ts-ssh-keys"
+	--upload "$here/ts-await-data-volume.sh:/usr/local/sbin/ts-await-data-volume"
 	--upload "$here/fstab-growroot.sh:/usr/local/sbin/fstab-growroot"
 	--mkdir /etc/systemd/system/ts-orch.service.d
 	--upload "$here/ts-orch-node-init.conf:/etc/systemd/system/ts-orch.service.d/10-node-init.conf"
@@ -52,8 +53,8 @@ LIBGUESTFS_BACKEND=direct virt-customize \
 	-a "$work/base.qcow2" \
 	--network \
 	"${uploads[@]}" \
-	--run-command 'chown root:root /usr/local/sbin/ts-ssh-keys /usr/local/sbin/fstab-growroot /etc/systemd/system/ts-node-init.service /etc/systemd/system/ts-ssh-keys.service /etc/systemd/system/ts-orch.service.d/10-node-init.conf' \
-	--run-command 'chmod 0755 /usr/local/sbin/ts-ssh-keys /usr/local/sbin/fstab-growroot' \
+	--run-command 'chown root:root /usr/local/sbin/ts-ssh-keys /usr/local/sbin/ts-await-data-volume /usr/local/sbin/fstab-growroot /etc/systemd/system/ts-node-init.service /etc/systemd/system/ts-ssh-keys.service /etc/systemd/system/ts-orch.service.d/10-node-init.conf' \
+	--run-command 'chmod 0755 /usr/local/sbin/ts-ssh-keys /usr/local/sbin/ts-await-data-volume /usr/local/sbin/fstab-growroot' \
 	--run-command 'bash /run/ts-image-provision.sh'
 
 image="$out/ts-host-debian13-$arch.qcow2"

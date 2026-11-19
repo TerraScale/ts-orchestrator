@@ -41,7 +41,7 @@ func Boot(ctx context.Context, args []string, out io.Writer) error {
 	}
 	volume := metadata[VolumeKey]
 	if volume == "" {
-		return errors.New("node-init: no data volume is bound to this instance yet; ts-orch region apply binds one, and ts-node-init.service starts again")
+		return errors.New("node-init: instance metadata binds no data volume")
 	}
 	tail := "installed_sha=" + updated + "\n" + directMounts + updatedRelease + prebuiltUnits
 	if !firstBind {

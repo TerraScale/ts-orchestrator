@@ -64,7 +64,7 @@ def main():
                    '| Case | Boot to ts-orch active | Observed at | VM wall time |',
                    '| --- | ---: | --- | ---: |']
         first_root = first_data = None
-        for case in ('first-boot', 'reboot', 'launch-release', 'wrong-sha256'):
+        for case in ('first-boot', 'reboot', 'launch-release', 'late-bind', 'wrong-sha256'):
             if case == 'reboot':
                 root, data = first_root, first_data
             else:
@@ -104,7 +104,7 @@ def main():
             elapsed = time.monotonic() - began
             print(f'host-image {case}: PASS ({elapsed:.2f}s VM wall time)', flush=True)
             for line in content.splitlines():
-                if re.search(r'BOOT-TIME|UUID=|replaced the image|nothing installed|ActiveEnterTimestamp', line):
+                if re.search(r'BOOT-TIME|UUID=|replaced the image|nothing installed|ActiveEnterTimestamp|data volume', line):
                     print(line, flush=True)
             timing = re.search(rf'BOOT-TIME {case} (\d+) us; (\S+)', content)
             if case != 'wrong-sha256' and (not timing or int(timing[1]) <= 0):
