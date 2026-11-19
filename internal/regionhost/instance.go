@@ -217,7 +217,7 @@ func hostMetadata(prebuilt bool, url, sum string, volume *core.Volume, mayFormat
 }
 
 func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Instance, *core.Volume, error) {
-	pinned, prebuilt, err := nodeinit.PinnedHostImage(r.region, m.arch)
+	pinned, prebuilt, err := nodeinit.PinnedHostImage(r.code, m.arch)
 	if err != nil {
 		return nil, nil, err
 	}

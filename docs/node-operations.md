@@ -34,7 +34,7 @@ runc 1.5.2, chrony and the units installed. First boot runs only
 the baked binary when the launch release differs, and binds and mounts the
 data volume. It runs no apt and installs no packages. The image is built by
 `.github/workflows/host-image.yml` from `deploy/image/debian/` and pinned per
-region and arch in `deploy/image/host-images.json`. A region with no pinned
+fleet label and arch in `deploy/image/host-images.json`. A label with no pinned
 entry still uses the Ubuntu first-boot path until it is removed.
 
 ### Publish a host image
@@ -97,12 +97,15 @@ capability schemas.
 ### Pin a host image
 
 Add the printed entry to `deploy/image/host-images.json` in a pull request.
-`internal/nodeinit.PinnedHostImage` matches the entry's `region`, an OCI
-region name, and `arch`; once it is on main, `ts-orch region add <code>` and
-the fleet reconciler launch new hosts of that region and arch from the image
-with release metadata and no `user_data`. Running hosts are not touched.
-The staging entry and `sjc` share the OCI region `us-sanjose-1`, so a pin
-there applies to both: pin it only once the image is proven for production.
+`internal/nodeinit.PinnedHostImage` matches the entry's `label`, a fleet
+label (`stg`, `sjc`, `fra`, `gru`), and `arch`, and requires the image OCID
+to be in that label's OCI region. Once it is on main, the fleet reconciler
+(by the fleet region's label) and `ts-orch region add <code>` (by the catalog
+code) launch new hosts of that label and arch from the image with release
+metadata and no `user_data`. `stg` and `sjc` share `us-sanjose-1`, but a `stg`
+entry never matches `sjc`. Running hosts are not touched. Today only `stg`
+arm64 is pinned; production labels keep the Ubuntu first-boot path until the
+image is proven on staging.
 
 ## The flow
 

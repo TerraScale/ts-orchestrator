@@ -262,7 +262,7 @@ runc 1.5.2, chrony and the units installed. First boot runs only
 the baked binary when the launch release differs, and binds and mounts the
 data volume. It runs no apt and installs no packages. The image is built by
 `.github/workflows/host-image.yml` from `deploy/image/debian/` and pinned per
-region and arch in `deploy/image/host-images.json`. A region with no pinned
+fleet label and arch in `deploy/image/host-images.json`. A label with no pinned
 entry still uses the Ubuntu first-boot path until it is removed.
 
 ## Operator commands
