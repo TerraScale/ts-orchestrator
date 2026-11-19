@@ -45,6 +45,7 @@ const (
 	fabricUser   = "ts-orch"
 	fabricSecret = "e2e-fabric-secret"
 	deadline     = 20 * time.Second
+	leaseBound   = 5 * time.Minute
 )
 
 func must(err error) {
@@ -176,6 +177,7 @@ type host struct {
 	mu                    sync.Mutex
 	cmd                   *exec.Cmd
 	hold                  chan struct{}
+	held                  chan struct{}
 }
 
 func (h *host) supervise(ctx context.Context) {
@@ -184,9 +186,10 @@ func (h *host) supervise(ctx context.Context) {
 	defer log.Close()
 	for ctx.Err() == nil {
 		h.mu.Lock()
-		hold := h.hold
+		hold, held := h.hold, h.held
 		h.mu.Unlock()
 		if hold != nil {
+			close(held)
 			select {
 			case <-hold:
 			case <-ctx.Done():
@@ -211,7 +214,18 @@ func (h *host) supervise(ctx context.Context) {
 func (h *host) holdRestart() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.hold = make(chan struct{})
+	h.hold, h.held = make(chan struct{}), make(chan struct{})
+}
+
+func (h *host) stopped(ctx context.Context) {
+	h.mu.Lock()
+	held := h.held
+	h.mu.Unlock()
+	select {
+	case <-held:
+	case <-ctx.Done():
+		panic("timed out waiting for " + h.id + " to stop")
+	}
 }
 
 func (h *host) releaseRestart() {
@@ -760,6 +774,52 @@ func (l *lane) handover(ctx context.Context) {
 		require(l.hosts[id].starts.Load() == want, "%s started %d times, want %d", id, l.hosts[id].starts.Load(), want)
 	}
 	fmt.Printf("owner %s killed: %s inherited the durable rollout; every host installed once\n%s\n", owner, handover.Owner, done)
+	l.finishBeforeNewer(ctx)
+}
+
+func (l *lane) finishBeforeNewer(ctx context.Context) {
+	peer := l.hosts["gru-m"]
+	peer.holdRestart()
+	current := l.publishGood("115", "c115")
+	peer.stopped(ctx)
+	restarting := l.waitStatus(ctx, "gru", "gru restarts its JetStream peer gru-m on "+current.tag+" with the fleet restart lease", func(s pullrelease.Status) bool {
+		return s.Target != nil && s.Target.Tag() == current.tag && s.Restart == peer.id && slices.ContainsFunc(s.Hosts, func(h pullrelease.HostProgress) bool {
+			return h.ID == peer.id && (h.State == pullrelease.HostInstalling || h.State == pullrelease.HostGating)
+		})
+	})
+	held := time.Now()
+	newer := l.publishGood("116", "c116")
+	interrupted := []*host{peer}
+	if restarting.Owner != peer.id {
+		owner := l.hosts[restarting.Owner]
+		owner.holdRestart()
+		owner.kill()
+		owner.stopped(ctx)
+		interrupted = append(interrupted, owner)
+	}
+	for _, h := range interrupted {
+		h.releaseRestart()
+	}
+	finished := l.waitStatus(ctx, "gru", "gru finishes the gate of gru-m on "+current.tag+" and releases the fleet restart lease before it waits on "+newer.tag, func(s pullrelease.Status) bool {
+		require(s.Target != nil && s.Target.Tag() == current.tag, "gru left %s before it finished gru-m's gate and released the fleet restart lease:\n%s", current.tag, s)
+		i := slices.IndexFunc(s.Hosts, func(h pullrelease.HostProgress) bool { return h.ID == peer.id })
+		return s.Restart == "" && i >= 0 && s.Hosts[i].State == pullrelease.HostDone
+	})
+	leased := time.Since(held)
+	row := finished.Hosts[slices.IndexFunc(finished.Hosts, func(h pullrelease.HostProgress) bool { return h.ID == peer.id })]
+	require(leased < leaseBound && row.Version == current.sha && row.SHA256 == current.digest && !row.Ready.Before(held) && row.Ready.After(row.Installed),
+		"gru must gate gru-m on %s after its owner was interrupted, then release the fleet restart lease within %s; held %s:\n%s", current.tag, leaseBound, leased, finished)
+	took := false
+	canary := l.waitStatus(ctx, "sjc", "the canary takes the fleet restart lease for sjc-m and passes "+newer.tag, func(s pullrelease.Status) bool {
+		took = took || s.Target != nil && s.Target.Tag() == newer.tag && s.Restart == "sjc-m"
+		return took && passed(newer)(s)
+	})
+	proceeds := l.waitStatus(ctx, "gru", "gru takes "+newer.tag+" and installs it after the canary passed it", func(s pullrelease.Status) bool {
+		return s.Target != nil && s.Target.Tag() == newer.tag && !started(s).IsZero()
+	})
+	require(!started(proceeds).Before(canary.Passed), "gru started %s before the canary passed it:\n%s\n%s", newer.tag, canary, proceeds)
+	fmt.Printf("%s published while gru-m restarted onto %s and its owner was interrupted -> gru finished gru-m's gate, released the fleet restart lease after %s, the canary took it and passed %s, and gru proceeds with it\n%s\n%s\n",
+		newer.tag, current.tag, leased.Round(time.Second), newer.tag, finished, strings.Join(slices.Concat(canary.Timeline(), proceeds.Timeline()), "\n"))
 }
 
 func ownerInstalling(release published) func(pullrelease.Status) bool {
