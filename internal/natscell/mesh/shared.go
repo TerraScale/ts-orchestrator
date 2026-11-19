@@ -19,7 +19,8 @@ const (
 )
 
 type Cluster struct {
-	Routes func(ctx context.Context, region string) ([]string, error)
-	VCN    netip.Prefix
-	Worker bool
+	Routes      func(ctx context.Context, region string) ([]string, error)
+	RegionHosts func(ctx context.Context, region string) ([]string, error)
+	VCN         netip.Prefix
+	Worker      bool
 }

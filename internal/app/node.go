@@ -646,7 +646,7 @@ func meshRoute(address string) string {
 }
 
 func meshCluster(plan hostPlan) mesh.Cluster {
-	cluster := mesh.Cluster{Worker: plan.admission.Role != "manager"}
+	cluster := mesh.Cluster{Worker: plan.admission.Role != "manager", RegionHosts: regionjoin.Hosts}
 	cluster.VCN, _, _ = swarmruntime.VCNPrefix(plan.address, plan.vcnCIDR)
 	if plan.joiner() {
 		cluster.Routes = func(ctx context.Context, region string) ([]string, error) {

@@ -23,8 +23,12 @@ with this one, this file wins.
   over the private NetBird network. The NetBird policy `servers-mesh-routes`
   admits tcp/6222 between every regional servers group, in both directions,
   and gains each new group the manager discovers (`internal/netbird/manager`).
-  - Each server dials `ts-<region>-1.nb.ts.internal:6222` for every founded
-    region as a seed.
+  - Each server dials `<hostname>.nb.ts.internal:6222` for every host of every
+    other region as a seed. The hosts are the founder and the SwarmKit nodes
+    that region's leader publishes in its join material
+    (`ts-orch-join-<region>` in gru-vault), read once at mesh start, so
+    hand-made `ts-<region>-<n>` hosts and pool `<label>-node-<n>` hosts are
+    both seeds and no single host carries a region's first contact.
   - Each server advertises its NetBird IPv4. Route gossip adds every other
     server, so a region the user orders joins without a release.
 - An in-region worker also dials its founder's VCN address, which it reads

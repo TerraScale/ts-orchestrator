@@ -94,7 +94,7 @@ func New(ctx context.Context, work, binary string, registry string, regions []st
 			octet := 10*(r+1) + i
 			netBird := netBirdMesh.Addr().As4()
 			netBird[3] = byte(octet)
-			host := &Host{Name: fmt.Sprintf("ts-%s-%d", name, i), Region: region, Namespace: fmt.Sprintf("osh-%s-%d", name, i),
+			host := &Host{Name: hostName(name, r, i), Region: region, Namespace: fmt.Sprintf("osh-%s-%d", name, i),
 				Address: fmt.Sprintf("10.204.0.%d", octet), NetBird: netip.AddrFrom4(netBird).String(),
 				InstanceID: fmt.Sprintf("ocid1.instance.oc1.%s.oracleregions%d", entry.OCIRegion, octet), fleet: f, changed: make(chan struct{})}
 			host.Dir = filepath.Join(work, host.Name)
@@ -131,6 +131,16 @@ func New(ctx context.Context, work, binary string, registry string, regions []st
 		}
 	}
 	return f, nil
+}
+
+func hostName(region string, r, i int) string {
+	if r == 0 {
+		if i == 1 {
+			return fmt.Sprintf("ts-%s-1", region)
+		}
+		i--
+	}
+	return fmt.Sprintf("%s-node-%d", region, i)
 }
 
 func ip(ctx context.Context, args ...string) error {

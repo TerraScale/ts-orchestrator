@@ -84,6 +84,21 @@ func fallbackJourney(binary, work string) {
 	step("gru manager stopped before its workers ever reached their region; pinned material lists neither worker; sjc VCN :6222 rejected while NetBird remains open")
 	fallbackPair(ctx, fleet, gru.Hosts[1], gru.Hosts[2])
 	step("manager remains down: workers connected over NetBird and delivered ORCH, TERRABASE and ALERTS both ways")
+	for _, worker := range gru.Hosts[1:] {
+		until(ctx, worker.Name+" routes into every other region without "+manager.Name, func() error {
+			peers, err := worker.Established(ctx, 6222)
+			if err != nil {
+				return err
+			}
+			for _, region := range fleet.Regions[1:] {
+				if !slices.ContainsFunc(region.Hosts, func(host *oraclehost.Host) bool { return slices.Contains(peers, host.NetBird) }) {
+					return fmt.Errorf("no NetBird route into %s in %v", region.Name, peers)
+				}
+			}
+			return nil
+		})
+	}
+	step("%s down: %s and %s keep NetBird routes into sjc and fra, whose hosts are all pool-named", manager.Name, gru.Hosts[1].Name, gru.Hosts[2].Name)
 	until(ctx, sjc.Hosts[0].Name+" live membership with VCN routes blocked", func() error {
 		text, err := metrics(ctx, sjc.Hosts[0])
 		if err != nil {

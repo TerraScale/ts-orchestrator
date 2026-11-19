@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -43,6 +44,19 @@ func Read(ctx context.Context, region string) (Material, error) {
 		return Material{}, err
 	}
 	return decode(region, value)
+}
+
+func Hosts(ctx context.Context, region string) ([]string, error) {
+	material, err := Read(ctx, region)
+	if vaultsecret.Absent(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	hosts := append([]string{material.Founder}, material.Nodes...)
+	slices.Sort(hosts)
+	return slices.Compact(hosts), nil
 }
 
 func SecretName(region string) string { return "ts-orch-join-" + region }

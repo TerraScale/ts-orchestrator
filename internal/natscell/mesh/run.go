@@ -207,8 +207,16 @@ func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseTok
 		if peer == region {
 			continue
 		}
-		for _, manager := range []string{"1", "2", "3"} {
-			seeds[peer] = append(seeds[peer], fmt.Sprintf("nats://ts-%s-%s.%s:%d", peer, manager, netBirdDomain, ClusterPort))
+		seeds[peer] = []string{}
+		if cluster.RegionHosts == nil {
+			continue
+		}
+		hosts, err := cluster.RegionHosts(ctx, peer)
+		if err != nil {
+			return nil, err
+		}
+		for _, host := range hosts {
+			seeds[peer] = append(seeds[peer], fmt.Sprintf("nats://%s.%s:%d", host, netBirdDomain, ClusterPort))
 		}
 	}
 	var advertise string
