@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-SEED_CASE_SECONDS = {"promotion": 60, "node-scale": 120, "rebuilt-region": 60}
+SEED_CASE_SECONDS = {"promotion": 60, "node-scale": 120, "manager-quorum": 180, "rebuilt-region": 60}
 SJC = next(
     region
     for region in json.loads(
@@ -25,6 +25,7 @@ CASES = (
     "rebuilt-region",
     "promotion",
     "node-scale",
+    "manager-quorum",
     "fresh-outage",
     "worker-outage",
     "manager-match",

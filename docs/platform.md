@@ -258,8 +258,14 @@ deadline, for the apply to record its data volume in the instance metadata,
 formats it only when the volume was never bound to another node, mounts it,
 installs the pinned release the way `deploy/m1/install.sh` does, and starts
 ts-orch. ts-orch reads `ts-orch-join-<region>` from the gru Vault (`internal/regionjoin`),
-joins as a worker and is promoted until the region has three managers
-(`internal/swarmruntime/manager_promotion.go`).
+joins as a worker. The region leader's `nodes` pass then admits every
+SwarmKit node that has no admission labels, the founder included
+(`internal/fleet/admission.go`): exactly one running instance in the region
+compartment, pool-owned or listed in `nodes.external`, must carry the node's
+hostname, and that instance's primary private address must be an address the
+node connects from. It then names the node and labels its instance, region and
+host role. The Raft leader then promotes admitted workers until the region has
+three voting managers (`internal/swarmruntime/manager_promotion.go`).
 
 ### Node count: the nodes kind
 
@@ -408,8 +414,9 @@ keeps 3 voting hosts, so it survives losing one: sjc and fra hold 3 pool
 nodes (`nodes.min` = `nodes.max` = 3); gru holds 2 pool nodes plus the
 external host `ts-gru-1` (`nodes.external`), which runs NetBird management
 and monitoring outside the pool. The document refuses a region whose
-`nodes.min` plus its external hosts is below 3. All three hosts are promoted
-to managers (`ts-orch member promote`). Load beyond that is absorbed by
+`nodes.min` plus its external hosts is below 3. The Raft leader's manager keeper
+promotes the hosts to three voting managers by itself
+(`internal/swarmruntime/manager_promotion.go`). Load beyond that is absorbed by
 replicas and the shape.
 
 ## What was removed

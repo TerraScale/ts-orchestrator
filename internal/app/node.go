@@ -259,6 +259,7 @@ func serveManagerRole(ctx, lifetime context.Context, state string, plan hostPlan
 		stop()
 		plannedstop.Join(lifetime, "SLO targets", targetsDone)
 	}()
+	go swarmruntime.NewManagerKeeper(state, node).Run(serving)
 	if plan.region != "" {
 		go runOCIReconcile(serving, state, plan.region, node)
 		go publishJoin(serving, state, plan, node.ID())

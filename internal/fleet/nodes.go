@@ -31,6 +31,7 @@ const (
 
 type SwarmNode struct {
 	ID, Hostname, InstanceID string
+	Addresses                []string
 	Manager, ManagerReady    bool
 	Leader, Ready, Active    bool
 	DrainSince               time.Time
@@ -56,6 +57,7 @@ type Cluster interface {
 	SwarmView(ctx context.Context) (SwarmView, error)
 	Cordon(ctx context.Context, nodeID string, since time.Time) error
 	Remove(ctx context.Context, hostname string, guard func(context.Context) error) error
+	Admit(ctx context.Context, nodeID, hostname, instanceID, region string) error
 }
 
 type NodeDecision struct {
@@ -146,6 +148,32 @@ func applyNodes(ctx context.Context, _ Fleet, region Region, f *ociclient.Factor
 	view, err := cluster.SwarmView(ctx)
 	if err != nil {
 		return err
+	}
+	network, err := f.Network()
+	if err != nil {
+		return err
+	}
+	admissions, refused := verifyAdmissions(ctx, pass.Compute, network, region, view)
+	if refused != nil && len(admissions) > 0 {
+		slog.WarnContext(ctx, "node admission refused unverified nodes", "region", region.Label, "error", refused)
+	}
+	for _, a := range admissions {
+		if _, err := fmt.Fprintln(out.Changed, a.line(region)); err != nil {
+			return err
+		}
+		if !out.Apply {
+			continue
+		}
+		if err := ociclient.Authorize(ctx); err != nil {
+			return err
+		}
+		if err := cluster.Admit(ctx, a.node.ID, a.node.Hostname, a.instanceID, region.OCIRegion); err != nil {
+			return fmt.Errorf("admit node %s: %w", a.node.Hostname, err)
+		}
+		slog.InfoContext(ctx, "node admitted", "region", region.Label, "node", a.node.Hostname, "instance", a.instanceID)
+	}
+	if len(admissions) > 0 || refused != nil {
+		return refused
 	}
 	pool, pooled, err := pass.Pool(ctx)
 	if err != nil {

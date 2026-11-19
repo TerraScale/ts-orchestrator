@@ -39,6 +39,9 @@ func seed() error {
 	if os.Args[2] == "promotion" {
 		return promotionJourney(ctx, state, manager)
 	}
+	if os.Args[2] == "manager-quorum" {
+		return managerQuorumJourney(ctx, state, manager)
+	}
 	if os.Args[2] == "node-scale" {
 		return nodeScaleJourney(ctx, state, manager)
 	}
