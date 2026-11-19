@@ -31,6 +31,7 @@ type AppDeployment struct {
 
 type Placement struct {
 	Generation int64    `json:"generation"`
+	RollbackOf int64    `json:"rollback_of,omitempty"`
 	Regions    []string `json:"regions,omitempty"`
 }
 

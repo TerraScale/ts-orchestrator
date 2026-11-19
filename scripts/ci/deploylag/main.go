@@ -297,8 +297,7 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 			return finding{line: fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, cmp.Or(app.Error, "application deployment inventory missing")), unknown: true}
 		}
 		tasks, failed = app.Tasks, app.Failed
-		excluded = placement != nil && placement.Excludes(region) && app.Placement != nil && app.Placement.Generation == placement.Generation &&
-			slices.Equal(app.Placement.Regions, placement.Regions) && len(tasks) == 0 && app.Replicas == 0 && !failed
+		excluded = placement != nil && placement.Excludes(region) && len(tasks) == 0 && app.Replicas == 0 && !failed
 		if app.Reason != "" {
 			reasons = append(reasons, app.Host+": "+app.Reason)
 		}

@@ -122,15 +122,17 @@ every production region: main commit, selected release, running revisions by hos
 lag in minutes, budget and verdict. Each region reports the placement it holds
 for an application: its desired spec's generation and `regions`. A missing
 deployment is expected only where that placement leaves the region out (ts-auth
-runs only in gru). Every observed region must report a placement, the newest
-generation must be the same everywhere, this region's copy must match it, and
-the region must have no service, task or failure for the application. Its row
+runs only in gru). Every configured region must report the identical placement
+(generation, rollback ancestry and `regions`), so the guard never ranks one
+generation over another, and the region must have no service, task or failure
+for the application. Its row
 then reads `running=none (not declared in <region> by placement generation N)`.
 The publisher checks still apply to that row. In every other case a missing
 deployment stays pending and turns red after the fifteen-minute budget. That
 includes a region with no desired spec (reason `this region holds no desired
 spec for the service`), a region on a ts-orch release that reports no
-placement, and a region whose placement is older than another region's. Each artifact's budget lives in the guard's
+placement, and any disagreement between regions, such as an older apply or a
+rollback held in some regions and a later apply in others. Each artifact's budget lives in the guard's
 artifact table and is fifteen minutes. The newest signed selection observed in
 any region is the target everywhere. An unserved target's age starts at channel
 publication (or the selected application's OCIR publication step), rather than

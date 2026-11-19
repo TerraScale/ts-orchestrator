@@ -53,7 +53,7 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 			}
 		}
 	}
-	placements := newestPlacements(reports, observationErrors)
+	placements := agreedPlacements(regions, reports, observationErrors)
 	for _, region := range regions {
 		report, observeErr := reports[region.Region], observationErrors[region.Region]
 		if observeErr != nil {
@@ -116,28 +116,25 @@ func run(ctx context.Context, a *api, now time.Time) bool {
 	return complete
 }
 
-func newestPlacements(reports map[string]releasepush.DeploymentObservation, observationErrors map[string]error) map[string]*releasepush.Placement {
-	newest, missing, conflicting := map[string]*releasepush.Placement{}, map[string]bool{}, map[string]bool{}
-	for region, report := range reports {
-		if observationErrors[region] != nil {
-			return nil
-		}
-		for name, app := range report.Apps {
-			current := newest[name]
-			switch {
-			case app.Placement == nil:
-				missing[name] = true
-			case current == nil || app.Placement.Generation > current.Generation:
-				newest[name], conflicting[name] = app.Placement, false
-			case app.Placement.Generation == current.Generation && !slices.Equal(app.Placement.Regions, current.Regions):
-				conflicting[name] = true
+func agreedPlacements(regions []releasepush.Region, reports map[string]releasepush.DeploymentObservation, observationErrors map[string]error) map[string]*releasepush.Placement {
+	agreed := map[string]*releasepush.Placement{}
+	for _, x := range artifacts {
+		var placement *releasepush.Placement
+		for i, region := range regions {
+			app, ok := reports[region.Region].Apps[x.name]
+			if observationErrors[region.Region] != nil || !ok || app.Placement == nil || i > 0 && !samePlacement(*app.Placement, *placement) {
+				placement = nil
+				break
 			}
+			placement = app.Placement
+		}
+		if placement != nil {
+			agreed[x.name] = placement
 		}
 	}
-	for name := range newest {
-		if missing[name] || conflicting[name] {
-			delete(newest, name)
-		}
-	}
-	return newest
+	return agreed
+}
+
+func samePlacement(a, b releasepush.Placement) bool {
+	return a.Generation == b.Generation && a.RollbackOf == b.RollbackOf && slices.Equal(a.Regions, b.Regions)
 }

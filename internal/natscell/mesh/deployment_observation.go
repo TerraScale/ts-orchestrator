@@ -74,7 +74,7 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 		app := releasepush.AppDeployment{Host: n.cfg.server}
 		entry := (*desired)[target.Service].entry()
 		if entry.Spec != nil {
-			app.Placement = &releasepush.Placement{Generation: entry.Generation, Regions: entry.Spec.Regions}
+			app.Placement = &releasepush.Placement{Generation: entry.Generation, RollbackOf: entry.RollbackOf, Regions: entry.Spec.Regions}
 		}
 		services, err := client.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{target.Service}}})
 		if err != nil {
