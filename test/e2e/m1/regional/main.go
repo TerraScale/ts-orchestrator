@@ -48,6 +48,7 @@ type writers struct {
 	epoch         int
 	refused       int
 	refusal       string
+	message       string
 }
 
 func (s *writers) node(name string) http.Handler {
@@ -57,7 +58,7 @@ func (s *writers) node(name string) http.Handler {
 			return
 		}
 		s.mu.Lock()
-		owner, epoch, refusal := s.owner, s.epoch, s.refusal
+		owner, epoch, refusal, message := s.owner, s.epoch, s.refusal, s.message
 		refuse := r.URL.Path == "/v1/rollout/drain" && name == "n2"
 		if refuse {
 			s.refused++
@@ -70,7 +71,11 @@ func (s *writers) node(name string) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"error":{"code":%q}}`, refusal)
+			if message == "" {
+				fmt.Fprintf(w, `{"error":{"code":%q}}`, refusal)
+			} else {
+				fmt.Fprintf(w, `{"error":{"code":%q,"message":%q}}`, refusal, message)
+			}
 		case r.URL.Path == "/v1/rollout/status":
 			fmt.Fprintf(w, `{"node":%q,"owner":%q,"epoch":%d,"writer":%t,"ready":true}`, name, owner, epoch, owner == name)
 		case r.URL.Path == "/v1/rollout/prime" || r.URL.Path == "/v1/rollout/drain":
@@ -392,10 +397,10 @@ func main() {
 	}
 	step("ts_orch_regional_drain_refused reports n2's drain_unavailable", nil)
 	writer.mu.Lock()
-	writer.refusal = "source_retiring"
+	writer.refusal, writer.message = "source_retiring", "the source is still retiring; waiting for the retired writer's lease"
 	writer.mu.Unlock()
 	code, body, err = drainNode("node=n2&task=t3")
-	if err == nil && (code != http.StatusServiceUnavailable || !strings.Contains(body, "regional handoff HTTP 503: source_retiring") || !strings.Contains(body, "refused (1 in a row on this manager)") || !strings.Contains(body, "this manager's next attempt in 30s") || refusedDrains() != 2) {
+	if err == nil && (code != http.StatusServiceUnavailable || !strings.Contains(body, "regional handoff HTTP 503: source_retiring: the source is still retiring; waiting for the retired writer's lease") || !strings.Contains(body, "refused (1 in a row on this manager)") || !strings.Contains(body, "this manager's next attempt in 30s") || refusedDrains() != 2) {
 		err = fmt.Errorf("answered %d %q after %d drain requests, want 503 with source_retiring and its next attempt after 2", code, body, refusedDrains())
 	}
 	step("a source_retiring drain of the follower n2 while the writer n1 already serves is a refusal with this manager's next attempt", err)
