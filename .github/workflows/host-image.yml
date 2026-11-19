@@ -1,0 +1,128 @@
+name: host-image
+
+on:
+  pull_request:
+    paths:
+      - deploy/image/debian/**
+      - deploy/m1/ts-orch.service
+      - deploy/m1/services/*.service
+      - internal/nodeinit/boot.go
+      - .github/workflows/host-image.yml
+  push:
+    branches: [main]
+    paths:
+      - deploy/image/debian/**
+      - deploy/m1/ts-orch.service
+      - deploy/m1/services/*.service
+      - internal/nodeinit/boot.go
+      - .github/workflows/host-image.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      arm64: ${{ steps.release.outputs.arm64 }}
+      amd64: ${{ steps.release.outputs.amd64 }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve and verify one release for both architectures
+        id: release
+        run: deploy/image/debian/resolve-release.sh
+
+  build:
+    name: ${{ matrix.arch }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 45
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Install libguestfs-tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libguestfs-tools guestfish jq
+          sudo chmod a+r /boot/vmlinuz-*
+      - name: Build the image
+        env:
+          LIBGUESTFS_BACKEND: direct
+        run: |
+          set -euo pipefail
+          deploy/image/debian/build.sh "${{ matrix.arch }}" "$RUNNER_TEMP/out" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ needs.resolve.outputs.tag }}/terrascale-orchestrator-linux-${{ matrix.arch }}" \
+            "${{ needs.resolve.outputs[matrix.arch] }}"
+          virt-cat -a "$RUNNER_TEMP/out/ts-host-debian13-${{ matrix.arch }}.qcow2" /usr/local/lib/ts-orch/image-release.sha256 \
+            | tee "$RUNNER_TEMP/out/image-release.sha256"
+          virt-ls -a "$RUNNER_TEMP/out/ts-host-debian13-${{ matrix.arch }}.qcow2" /etc/systemd/system/multi-user.target.wants | tee "$RUNNER_TEMP/out/wants.txt"
+          stat --printf='%n %s bytes\n' "$RUNNER_TEMP/out/ts-host-debian13-${{ matrix.arch }}.qcow2" | tee "$RUNNER_TEMP/out/size.txt"
+          guestfish --ro -a "$RUNNER_TEMP/out/ts-host-debian13-${{ matrix.arch }}.qcow2" -i <<'GUESTFS' | tee "$RUNNER_TEMP/out/identity.txt"
+          echo machine-id-bytes
+          filesize /etc/machine-id
+          echo ssh-host-keys
+          glob-expand /etc/ssh/ssh_host_*
+          echo systemd-random-seed
+          exists /var/lib/systemd/random-seed
+          echo urandom-random-seed
+          exists /var/lib/urandom/random-seed
+          echo netbird-config
+          exists /etc/netbird/config.json
+          echo netbird-state
+          ls /var/lib/netbird
+          echo ssh-key-command-ownership
+          statns /usr/local/sbin/ts-ssh-keys
+          GUESTFS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ts-host-debian13-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/out/ts-host-debian13-${{ matrix.arch }}.qcow2
+            ${{ runner.temp }}/out/ts-host-debian13-${{ matrix.arch }}.qcow2.sha256
+            ${{ runner.temp }}/out/wants.txt
+            ${{ runner.temp }}/out/size.txt
+            ${{ runner.temp }}/out/image-release.sha256
+            ${{ runner.temp }}/out/identity.txt
+          retention-days: 14
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: ${{ runner.temp }}/out
+      - name: Create the host-image release
+        run: |
+          set -euo pipefail
+          tag="host-image-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          files=("$RUNNER_TEMP"/out/ts-host-debian13-*/*.qcow2 "$RUNNER_TEMP"/out/ts-host-debian13-*/*.qcow2.sha256)
+          test "${#files[@]}" -eq 2
+          gh release create "$tag" "${files[@]}" -R "${{ github.repository }}" --target "$GITHUB_SHA" --title "$tag" \
+            --draft --prerelease --latest=false \
+            --notes "Debian 13 host image candidates from ${GITHUB_SHA}. C2t must qualify OCI image capabilities and guest device aliases before promotion."

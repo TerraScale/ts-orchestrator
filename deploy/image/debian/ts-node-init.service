@@ -1,0 +1,13 @@
+[Unit]
+Description=TerraScale node initialization
+Wants=network-online.target
+After=network-online.target
+Before=ts-orch.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/terrascale-orchestrator node-init
+
+[Install]
+WantedBy=multi-user.target
