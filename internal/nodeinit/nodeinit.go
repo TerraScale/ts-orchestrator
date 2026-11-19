@@ -73,14 +73,6 @@ set -euo pipefail
 install -d -m 0755 /usr/local/lib/ts-orch
 echo '%s' | base64 -d > /usr/local/lib/ts-orch/data-volume.sh
 %secho '%s' | base64 -d | bash
-if ! command -v netbird >/dev/null; then
-	curl -fsSL https://pkgs.netbird.io/debian/public.key | gpg --dearmor --yes -o /usr/share/keyrings/netbird-archive-keyring.gpg
-	echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' > /etc/apt/sources.list.d/netbird.list
-	apt-get update -qq
-	DEBIAN_FRONTEND=noninteractive apt-get install -y -qq netbird
-fi
-systemctl is-enabled --quiet netbird || netbird service install
-systemctl enable --now netbird
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 curl -fsSL --retry 3 -o "$tmp" '%s'

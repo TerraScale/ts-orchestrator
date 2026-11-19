@@ -333,7 +333,7 @@ wait_for 30 activation_done
 test "$(systemctl show systemd-journald.service -p InvocationID --value)" != "$journal_started"
 systemctl is-active --quiet rsyslog.service
 test "$(systemctl is-enabled rsyslog.service)" = enabled
-sudo bash "$runtime_pins"
+sudo bash "$repo/deploy/m1/host-runtime.sh"
 systemctl is-active --quiet rsyslog.service
 test "$(systemctl is-enabled rsyslog.service)" = enabled
 sudo systemctl disable --now ts-e2e-syslog-required@proof.service
