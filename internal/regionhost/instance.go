@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -30,15 +29,13 @@ type machine struct {
 // sized is today's host (A1 2 OCPU/12 GB) or, with --shape, that shape's
 // smallest host.
 func sized(shape string) machine {
-	m := machine{shape: shape, ocpus: 1, gb: 8, arch: "amd64"}
+	m := machine{shape: shape, ocpus: 1, gb: 8}
 	if shape == "" {
 		m = machine{shape: defaultShape, ocpus: 2, gb: 12}
 	}
-	if regexp.MustCompile(`\.A\d+\.`).MatchString(m.shape) { // Ampere A1/A2/A4
-		m.arch = "arm64"
-		if shape != "" {
-			m.gb = 6
-		}
+	m.arch = nodeinit.ShapeArch(m.shape)
+	if m.arch == "arm64" && shape != "" {
+		m.gb = 6
 	}
 	return m
 }

@@ -328,6 +328,9 @@ func (p *Probation) rollBack(reason string) error {
 		recorded = err == nil
 	}
 	if err == nil {
+		err = recordInstall(trialFile(p.state), p.binary, previous)
+	}
+	if err == nil {
 		err = os.Rename(previous, p.binary)
 	}
 	if err != nil {
