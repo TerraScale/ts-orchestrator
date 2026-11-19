@@ -14,6 +14,8 @@
     "TERRABASE_BACKUP_RETENTION_DAYS": "hobby=7,pro=7,enterprise=7",
     "TERRABASE_FILES_S3_ENDPOINT": "https://6cd3f3639e928077593d9b470765efeb.r2.cloudflarestorage.com",
     "TERRABASE_POSTGRES_PORT": "6432",
+    "TERRABASE_SHAPES_BUCKET": "terrascale-stg-terrabase-shapes",
+    "TERRABASE_SHAPES_CDN_HOST": "shapes-terrascale-stg-terrabase-shapes.terrascale.tech",
     "TS_NATS_URL": "nats://127.0.0.1:4223"
   },
   "secrets": {
@@ -32,6 +34,14 @@
     "AWS_SECRET_ACCESS_KEY_FILE": {
       "vault": "ocid1.vault.oc1.us-sanjose-1.grvpxk2yaaeck.abzwuljrayi4xmphstdgedoqqh562pnp5pha6nocgn2fxu3uaoa7clrfaxra",
       "name": "stg-1-terrabase-backup-secret-key"
+    },
+    "TERRABASE_SHAPES_ACCESS_KEY_ID_FILE": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvpxk2yaaeck.abzwuljrayi4xmphstdgedoqqh562pnp5pha6nocgn2fxu3uaoa7clrfaxra",
+      "name": "stg-1-terrabase-shapes-access-key-id"
+    },
+    "TERRABASE_SHAPES_SECRET_ACCESS_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.us-sanjose-1.grvpxk2yaaeck.abzwuljrayi4xmphstdgedoqqh562pnp5pha6nocgn2fxu3uaoa7clrfaxra",
+      "name": "stg-1-terrabase-shapes-secret-access-key"
     },
     "TERRABASE_MASTER_KEY_FILE": {
       "vault": "ocid1.vault.oc1.us-sanjose-1.grvpxk2yaaeck.abzwuljrayi4xmphstdgedoqqh562pnp5pha6nocgn2fxu3uaoa7clrfaxra",

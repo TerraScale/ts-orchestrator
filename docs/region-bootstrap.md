@@ -360,6 +360,9 @@ capacity or placement changes require an explicit `ts-orch service apply -f`
 on a manager in the matching mesh, using the reviewed declaration with the
 current image from `ts-orch service inspect <service>` at `.spec.image`.
 Follow the [configuration change procedure](runbooks/regional-app-capacity.md#apply-a-deliberate-configuration-change).
+The [staging service procedure](runbooks/staging-service-configuration.md)
+prepares TerraBase and auth declarations, applies them in dependency order,
+and preserves each service's current image.
 Image releases subsequently retain that applied configuration. Staging
 declarations cannot be applied in the production mesh: target-environment
 validation rejects them before desired-state or service mutation.
