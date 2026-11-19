@@ -259,6 +259,9 @@ func RegionalPeersJourney(root string, single bool, health func(context.Context,
 			return err
 		}
 	}
+	if err := records.Create(ctx, FounderRecord, encodeRecord(founding{Region: "gru", Cluster: "cluster-gru", Cells: map[string]string{"gru": "cluster-gru"}})); err != nil {
+		return err
+	}
 	cfg := func(region, name, ip string, local, cluster, remote int) config {
 		other := "gru"
 		if region == "gru" {

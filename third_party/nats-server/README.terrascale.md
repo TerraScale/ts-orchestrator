@@ -102,6 +102,24 @@ to. Its metadata node starts as an observer and joins a group once routes
 arrive, unless it is the one founder the mesh's create-once founder record
 names. A server without the option keeps upstream's check.
 
+`server/raft.go` starts a Raft node's run loop at once when its cluster size is
+1, instead of waiting for a first route, leaf or gateway connection. A group of
+one needs no peer to elect itself, and the mesh's one founder of a brand-new
+fleet may start before any other host exists, so upstream's wait left that
+founder without a metadata leader until a second host came up. Groups of two or
+more still wait for routing.
+
+`server/route.go` no longer reuses a configured route's hostname as the TLS
+server name of a route dialed to a bare IP (a gossiped route) when the cluster
+TLS config sets `InsecureSkipVerify`. Upstream borrows that name only so
+hostname verification of gossiped routes can pass; a config that skips
+hostname verification does not need it. The mesh skips it and checks its CA in
+`VerifyConnection`, where it also binds a seed hostname's region to the
+region the peer certificate names, so a borrowed name would bind a gossiped
+route to the region of whichever seed was configured first. Routes dialed by
+hostname still send that hostname, and configs that verify hostnames keep
+upstream's behavior.
+
 `server/route.go` keeps a known server's JetStream configuration and usage
 stats when a route connection to that same server ID registers again. Upstream
 rebuilt the server's node entry without them, so after a route pool closed and

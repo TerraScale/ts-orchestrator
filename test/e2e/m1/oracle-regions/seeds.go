@@ -89,17 +89,17 @@ func vaultGrants(ctx context.Context, fleet *oraclehost.Fleet) {
 	self, err := os.Executable()
 	must(err)
 	home, peer := fleet.Regions[1].Hosts[0], fleet.Regions[0]
-	for name, want := range map[string]bool{regionjoin.SecretName(peer.Name): false, mesh.SeedRecord(peer.Name): true} {
-		output, err := home.Exec(ctx, self, "vault-read", name)
-		require(err == nil && strings.Contains(string(output), "version 0") != want, "%s reading %s: %v: %s", home.Name, name, err, output)
-	}
+	output, err := home.Exec(ctx, self, "vault-read", regionjoin.SecretName(peer.Name))
+	require(err != nil && strings.Contains(string(output), "exists but this host's Vault grants do not let it read it"), "%s reading %s: %v: %s", home.Name, regionjoin.SecretName(peer.Name), err, output)
+	output, err = home.Exec(ctx, self, "vault-read", mesh.SeedRecord(peer.Name))
+	require(err == nil && strings.HasPrefix(string(output), "version ") && !strings.Contains(string(output), "version 0"), "%s reading %s: %v: %s", home.Name, mesh.SeedRecord(peer.Name), err, output)
 	access := fleet.VaultAccess()
 	probe := "denied " + regionjoin.SecretName(peer.Name) + " for " + home.Address
 	require(access[probe] > 0, "the stand-in did not deny %s: %v", probe, access)
 	for entry := range access {
 		require(!strings.HasPrefix(entry, "denied ") || entry == probe, "a host was denied a Vault read the shipped policy must grant: %s", entry)
 	}
-	step("the Vault stand-in enforces the shipped host policy per caller compartment: %s reads %s's seed record but not its join bundle, and no host was denied anything else", home.Name, peer.Name)
+	step("the Vault stand-in enforces the shipped host policy per caller compartment: %s reads %s's seed record; its join bundle exists and reads as denied, not absent; no host was denied anything else", home.Name, peer.Name)
 }
 
 func refusedSeeds(ctx context.Context, host *oraclehost.Host) int {
@@ -136,19 +136,19 @@ func badPeerRecords(ctx context.Context, fleet *oraclehost.Fleet, release string
 	must(manager.Restart())
 	_, err = manager.WaitReady(ctx, after, release)
 	must(err)
-	until(ctx, manager.Name+" refuses the disguised seed", func() error {
+	until(ctx, manager.Name+" refuses the disguised seed's certificate", func() error {
 		if count := refusedSeeds(ctx, manager); count == 0 {
 			return errors.New("no seed refused yet")
 		}
 		return nil
 	})
 	journal := tail(manager.Dir+"/journal.log", 4000)
-	for _, line := range []string{"mesh peer seed hosts from another region refused", "mesh peer seeds unavailable", "mesh seed reached a server of another region; it does not count as that region's seed"} {
+	for _, line := range []string{"mesh peer seed hosts from another region refused", "mesh peer seeds unavailable", "mesh seed host presented another region's certificate; connection refused"} {
 		require(strings.Contains(journal, line), "%s journal lacks %q", manager.Name, line)
 	}
 	meshRoutes(ctx, fleet)
 	healthy(ctx, manager, release)
 	fleet.UnpinSecret(mesh.SeedRecord(sjc.Name))
 	fleet.UnpinSecret(mesh.SeedRecord(gru.Name))
-	step("%s restarted with %s's seed record naming %s and a disguised %s host, and %s's record missing its version and cluster: it refused the other region's host, refused the disguised seed once its route reached %s's manager, started its local NATS and routes to every manager", manager.Name, sjc.Name, gru.Hosts[0].Name, disguised, gru.Name, gru.Name)
+	step("%s restarted with %s's seed record naming %s and a disguised %s host, and %s's record missing its version and cluster: it refused the other region's host, refused the TLS connection to the disguised seed because %s's manager presented a %s certificate, started its local NATS, routes to every manager and is release-healthy", manager.Name, sjc.Name, gru.Hosts[0].Name, disguised, gru.Name, gru.Name, gru.Name)
 }

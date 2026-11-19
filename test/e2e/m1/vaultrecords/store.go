@@ -8,22 +8,36 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 )
 
-type Store struct{ dir string }
+type Store struct {
+	dir   string
+	mu    sync.Mutex
+	reads map[string]int
+}
 
 func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	return &Store{dir: dir}, nil
+	return &Store{dir: dir, reads: map[string]int{}}, nil
 }
 
 func (s *Store) version(name string, version int64) string {
 	return filepath.Join(s.dir, name+"."+strconv.FormatInt(version, 10))
 }
 
+func (s *Store) Reads(name string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reads[name]
+}
+
 func (s *Store) Read(_ context.Context, name string) (string, int64, error) {
+	s.mu.Lock()
+	s.reads[name]++
+	s.mu.Unlock()
 	value, version := "", int64(0)
 	for {
 		data, err := os.ReadFile(s.version(name, version+1))
@@ -35,6 +49,11 @@ func (s *Store) Read(_ context.Context, name string) (string, int64, error) {
 		}
 		value, version = string(data), version+1
 	}
+}
+
+func (s *Store) Exists(ctx context.Context, name string) (bool, error) {
+	_, version, err := s.Read(ctx, name)
+	return version != 0, err
 }
 
 func (s *Store) write(name string, version int64, value string) error {

@@ -2,8 +2,7 @@ package mesh
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -14,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -42,15 +42,7 @@ func HostRegion(hostname string) string {
 }
 
 func decodeStrict(value string, into any) error {
-	decoder := json.NewDecoder(strings.NewReader(value))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(into); err != nil {
-		return err
-	}
-	if decoder.More() {
-		return errors.New("trailing data")
-	}
-	return nil
+	return json.Unmarshal([]byte(value), into, json.RejectUnknownMembers(true))
 }
 
 func parseSeeds(region, value string) (Seeds, []string, error) {
@@ -128,58 +120,69 @@ type seedBook struct {
 	mu      sync.Mutex
 	routes  map[string]string
 	refused map[string]string
+	total   atomic.Int64
 }
 
 func newSeedBook(region string) *seedBook {
 	return &seedBook{region: region, routes: map[string]string{}, refused: map[string]string{}}
 }
 
-func (b *seedBook) regionOf(address string) string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.routes[address]
+func seedName(host string) string { return host + "." + netBirdDomain }
+
+func namedRegion(serverName string) string {
+	host, ok := strings.CutSuffix(serverName, "."+netBirdDomain)
+	if !ok {
+		return ""
+	}
+	return HostRegion(host)
 }
 
-func (b *seedBook) refuse(address, region string) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.refused[address] == region {
-		return false
+func (b *seedBook) verify(serverName, certificate string) error {
+	named := namedRegion(serverName)
+	presented, _ := strings.CutSuffix(certificate, "."+Domain)
+	if named == "" || named == presented || named == b.region {
+		return nil
 	}
-	b.refused[address] = region
-	return true
+	b.total.Add(1)
+	b.mu.Lock()
+	first := b.refused[serverName] != presented
+	b.refused[serverName] = presented
+	b.mu.Unlock()
+	if first {
+		slog.Warn("mesh seed host presented another region's certificate; connection refused", "host", serverName, "region", named, "certificate", certificate)
+	}
+	return fmt.Errorf("mesh seed %s is a %s host but its peer presented %s", serverName, named, certificate)
 }
 
 func (b *seedBook) read(ctx context.Context, records Records) map[string]string {
+	peers := slices.DeleteFunc(Regions(b.region), func(peer string) bool { return peer == b.region })
+	hosts := make([][]string, len(peers))
+	failures := make([]error, len(peers))
+	var wg sync.WaitGroup
+	for i, peer := range peers {
+		wg.Go(func() {
+			peerCtx, cancel := context.WithTimeout(ctx, seedsEvery)
+			defer cancel()
+			hosts[i], failures[i] = peerHosts(peerCtx, records, peer)
+		})
+	}
+	wg.Wait()
 	b.mu.Lock()
 	previous := maps.Clone(b.routes)
 	b.mu.Unlock()
 	next := map[string]string{}
-	for _, peer := range Regions(b.region) {
-		if peer == b.region {
-			continue
-		}
-		hosts, err := peerHosts(ctx, records, peer)
-		if err != nil {
-			slog.WarnContext(ctx, "mesh peer seeds unavailable; keeping the last good seeds", "region", peer, "error", err)
-			for address, region := range previous {
+	for i, peer := range peers {
+		if failures[i] != nil {
+			slog.WarnContext(ctx, "mesh peer seeds unavailable; keeping the last good seeds", "region", peer, "error", failures[i])
+			for name, region := range previous {
 				if region == peer {
-					next[address] = peer
+					next[name] = peer
 				}
 			}
 			continue
 		}
-		for _, host := range hosts {
-			addresses, err := net.DefaultResolver.LookupHost(ctx, host+"."+netBirdDomain)
-			if err != nil {
-				slog.WarnContext(ctx, "mesh peer seed host does not resolve", "region", peer, "host", host, "error", err)
-				continue
-			}
-			for _, address := range addresses {
-				if ip := net.ParseIP(address); ip != nil && ip.To4() != nil {
-					next[address] = peer
-				}
-			}
+		for _, host := range hosts[i] {
+			next[seedName(host)] = peer
 		}
 	}
 	return next
@@ -200,27 +203,22 @@ func peerHosts(ctx context.Context, records Records, peer string) ([]string, err
 	return seeds.Hosts, err
 }
 
-func seedURL(address string) *url.URL {
-	return &url.URL{Scheme: "nats", Host: net.JoinHostPort(address, strconv.Itoa(ClusterPort))}
+func seedURL(name string) *url.URL {
+	return &url.URL{Scheme: "nats", Host: net.JoinHostPort(name, strconv.Itoa(ClusterPort))}
 }
 
 func (b *seedBook) install(next map[string]string) (added []*url.URL, retired map[string]bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for address, region := range b.refused {
-		if next[address] != region {
-			delete(b.refused, address)
-		}
-	}
 	retired = map[string]bool{}
-	for address := range b.routes {
-		if _, kept := next[address]; !kept {
-			retired[address] = true
+	for name := range b.routes {
+		if _, kept := next[name]; !kept {
+			retired[name] = true
 		}
 	}
-	for _, address := range slices.Sorted(maps.Keys(next)) {
-		if _, known := b.routes[address]; !known {
-			added = append(added, seedURL(address))
+	for _, name := range slices.Sorted(maps.Keys(next)) {
+		if _, known := b.routes[name]; !known {
+			added = append(added, seedURL(name))
 		}
 	}
 	b.routes = next
@@ -228,39 +226,20 @@ func (b *seedBook) install(next map[string]string) (added []*url.URL, retired ma
 }
 
 func (n *Node) refreshSeeds() {
-	tick := time.NewTicker(time.Second)
+	tick := time.NewTicker(seedsEvery)
 	defer tick.Stop()
-	read := time.Now()
 	for {
 		select {
 		case <-n.ctx.Done():
 			return
 		case <-tick.C:
 		}
-		n.checkSeedRoutes()
-		if time.Since(read) < seedsEvery {
-			continue
-		}
-		read = time.Now()
-		ctx, cancel := context.WithTimeout(n.ctx, seedsEvery)
-		added, retired := n.seeds.install(n.seeds.read(ctx, n.cfg.records))
-		cancel()
+		added, retired := n.seeds.install(n.seeds.read(n.ctx, n.cfg.records))
 		if len(retired) != 0 {
 			n.server.RetainRoutes(func(route *url.URL) bool { return !retired[route.Hostname()] })
 		}
 		if len(added) != 0 {
 			n.server.AddRoutes(added)
 		}
-	}
-}
-
-func (n *Node) checkSeedRoutes() {
-	for _, route := range n.routes() {
-		expected := n.seeds.regionOf(route.IP)
-		if !route.DidSolicit || !route.IsConfigured || expected == "" || serverRegion(route.RemoteName) == expected || !n.seeds.refuse(route.IP, expected) {
-			continue
-		}
-		n.refusedSeeds.Add(1)
-		slog.Warn("mesh seed reached a server of another region; it does not count as that region's seed", "region", expected, "address", route.IP, "server", route.RemoteName)
 	}
 }

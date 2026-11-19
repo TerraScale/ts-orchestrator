@@ -62,7 +62,7 @@ func storeMain(ctx context.Context, cfg configuration) error {
 		options.JetStreamUniqueTag = "region:"
 		options.Tags.Add(fmt.Sprintf("region:store-%d", i))
 		options.Routes = routes
-		options.Cluster = server.ClusterOpts{Name: mesh.ClusterName, Host: address, Port: mesh.ClusterPort, TLSConfig: ca.TLS(options.ServerName), TLSTimeout: 5, PinnedAccounts: []string{mesh.FabricAccount}}
+		options.Cluster = server.ClusterOpts{Name: mesh.ClusterName, Host: address, Port: mesh.ClusterPort, TLSConfig: ca.TLS(options.ServerName, func(string, string) error { return nil }), TLSTimeout: 5, PinnedAccounts: []string{mesh.FabricAccount}}
 		node, err := server.NewServer(options)
 		if err != nil {
 			return err

@@ -3,7 +3,10 @@ package mesh
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"time"
 
@@ -11,20 +14,35 @@ import (
 )
 
 const (
-	FounderRecord = "ts-orch-mesh-founder"
-	foundingEvery = 5 * time.Second
+	FounderRecord    = "ts-orch-mesh-founder"
+	joinRecordPrefix = "ts-orch-join-"
+	foundingEvery    = 5 * time.Second
 )
 
 type founding struct {
-	Region  string `json:"region"`
-	Cluster string `json:"cluster"`
-	Formed  bool   `json:"formed"`
+	Region  string            `json:"region"`
+	Cluster string            `json:"cluster"`
+	Formed  bool              `json:"formed"`
+	Cells   map[string]string `json:"cells,omitempty"`
 }
 
-func (cfg config) candidate() bool { return cfg.founder && cfg.applier != nil }
+func JoinRecord(region string) string { return joinRecordPrefix + region }
+
+func (record founding) members() map[string]string {
+	if len(record.Cells) == 0 {
+		return map[string]string{record.Region: record.Cluster}
+	}
+	return maps.Clone(record.Cells)
+}
+
+func (cfg config) candidate() bool { return cfg.founder && cfg.applier != nil && cfg.cluster != "" }
 
 func (cfg config) owns(record founding) bool {
 	return record.Region == cfg.region && record.Cluster == cfg.cluster
+}
+
+func (cfg config) cell() founding {
+	return founding{Region: cfg.region, Cluster: cfg.cluster, Cells: map[string]string{cfg.region: cfg.cluster}}
 }
 
 func (cfg config) metaBootSize() int {
@@ -40,8 +58,11 @@ func readFounding(ctx context.Context, records Records) (founding, int64, error)
 		return founding{}, version, err
 	}
 	var record founding
-	if decodeStrict(value, &record) != nil || record.Region == "" || record.Cluster == "" {
-		return founding{}, version, nil
+	if err := decodeStrict(value, &record); err != nil {
+		return founding{}, version, fmt.Errorf("%s is malformed: %w", FounderRecord, err)
+	}
+	if record.Region == "" || record.Cluster == "" || slices.Contains(slices.Collect(maps.Values(record.Cells)), "") {
+		return founding{}, version, fmt.Errorf("%s names no cell: %s", FounderRecord, value)
 	}
 	return record, version, nil
 }
@@ -49,35 +70,81 @@ func readFounding(ctx context.Context, records Records) (founding, int64, error)
 func claimFounding(cfg config) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := ensureOwnSeeds(ctx, cfg); err != nil {
-		slog.Warn("mesh own seed record not published", "region", cfg.region, "error", err)
-	}
 	record, version, err := readFounding(ctx, cfg.records)
 	if err == nil && version == 0 {
-		if err = cfg.records.Create(ctx, FounderRecord, encodeRecord(founding{Region: cfg.region, Cluster: cfg.cluster})); err == nil {
-			record, _, err = readFounding(ctx, cfg.records)
+		if err = peerCells(ctx, cfg, nil); err == nil {
+			if err = cfg.records.Create(ctx, FounderRecord, encodeRecord(cfg.cell())); err == nil {
+				record, _, err = readFounding(ctx, cfg.records)
+			}
 		}
 	}
 	if err != nil {
-		slog.Warn("mesh founder record unavailable", "region", cfg.region, "error", err)
-		return false
+		slog.Info("mesh founder record not claimed before the mesh starts", "region", cfg.region, "reason", err)
 	}
-	return cfg.owns(record) && !record.Formed
+	if err := ensureOwnSeeds(ctx, cfg); err != nil {
+		slog.Warn("mesh own seed record not published", "region", cfg.region, "error", err)
+	}
+	return err == nil && cfg.owns(record) && !record.Formed
 }
 
-func (n *Node) staleFounding(ctx context.Context, record founding) (bool, error) {
-	if record.Region == "" || !slices.Contains(Regions(n.cfg.region), record.Region) {
-		return true, nil
+func peerCells(ctx context.Context, cfg config, routed map[string]bool) error {
+	for _, peer := range Regions(cfg.region) {
+		if peer == cfg.region {
+			continue
+		}
+		_, version, err := cfg.records.Read(ctx, SeedRecord(peer))
+		if err != nil {
+			return err
+		}
+		if version != 0 {
+			if !routed[peer] {
+				return fmt.Errorf("%s has a cell and no route reaches it", peer)
+			}
+			continue
+		}
+		joined, err := cfg.records.Exists(ctx, JoinRecord(peer))
+		if err != nil {
+			return err
+		}
+		if joined {
+			return fmt.Errorf("%s has a cell that publishes no seed record", peer)
+		}
 	}
-	if record.Region == n.cfg.region {
-		return record.Cluster != n.cfg.cluster, nil
+	return nil
+}
+
+func (n *Node) replaced(ctx context.Context, record founding) error {
+	for region, cluster := range record.members() {
+		if region == n.cfg.region {
+			if cluster == n.cfg.cluster {
+				return fmt.Errorf("cell %s of %s still runs here", cluster, region)
+			}
+			continue
+		}
+		value, version, err := n.cfg.records.Read(ctx, SeedRecord(region))
+		if err != nil {
+			return err
+		}
+		if version == 0 {
+			return fmt.Errorf("%s is absent, so cell %s of %s is not known to be replaced", SeedRecord(region), cluster, region)
+		}
+		seeds, _, err := parseSeeds(region, value)
+		if err != nil {
+			return err
+		}
+		if seeds.Cluster == cluster {
+			return fmt.Errorf("cell %s of %s still publishes its seeds", cluster, region)
+		}
 	}
-	value, version, err := n.cfg.records.Read(ctx, SeedRecord(record.Region))
-	if err != nil || version == 0 {
-		return false, err
+	return nil
+}
+
+func (n *Node) routedRegions() map[string]bool {
+	routed := map[string]bool{}
+	for _, route := range n.routes() {
+		routed[serverRegion(route.RemoteName)] = true
 	}
-	seeds, _, err := parseSeeds(record.Region, value)
-	return err == nil && seeds.Cluster != record.Cluster, nil
+	return routed
 }
 
 func (n *Node) found(meta server.RaftNode) bool {
@@ -96,22 +163,23 @@ func (n *Node) found(meta server.RaftNode) bool {
 		slog.Warn("mesh founder record unavailable", "error", err)
 		return false
 	}
-	ours := founding{Region: n.cfg.region, Cluster: n.cfg.cluster}
 	if n.cfg.lone && n.cfg.owns(record) && !record.Formed {
 		meta.SetObserver(false)
 		slog.Info("mesh JetStream metadata forms a new group", "region", n.cfg.region, "cluster", n.cfg.cluster)
 		return true
 	}
 	if version == 0 {
-		err = n.cfg.records.Create(ctx, FounderRecord, encodeRecord(ours))
-	} else if stale, staleErr := n.staleFounding(ctx, record); staleErr != nil || !stale {
-		if staleErr != nil {
-			slog.Warn("mesh founder record not checked", "founder", record.Region, "error", staleErr)
+		if err := peerCells(ctx, n.cfg, n.routedRegions()); err != nil {
+			slog.Info("mesh JetStream metadata not founded here", "region", n.cfg.region, "reason", err)
+			return false
 		}
+		err = n.cfg.records.Create(ctx, FounderRecord, encodeRecord(n.cfg.cell()))
+	} else if err := n.replaced(ctx, record); err != nil {
+		slog.Info("mesh founder record kept", "founder", record.Region, "reason", err)
 		return false
 	} else {
-		slog.Warn("mesh founder record names a cell that no longer runs; replacing it", "founder", record.Region, "cluster", record.Cluster)
-		err = n.cfg.records.Swap(ctx, FounderRecord, version, encodeRecord(ours))
+		slog.Warn("mesh founder record names cells that were all replaced; replacing it", "founder", record.Region, "cells", record.members())
+		err = n.cfg.records.Swap(ctx, FounderRecord, version, encodeRecord(n.cfg.cell()))
 	}
 	if err != nil {
 		slog.Warn("mesh founder record not claimed", "error", err)
@@ -125,18 +193,47 @@ func (n *Node) found(meta server.RaftNode) bool {
 	return false
 }
 
-func (n *Node) markFormed() {
+func (n *Node) enroll() error {
+	if n.cfg.cluster == "" {
+		return errors.New("this host has no SwarmKit cluster to enroll")
+	}
 	ctx, cancel := context.WithTimeout(n.ctx, time.Minute)
 	defer cancel()
-	value, version, err := n.cfg.records.Read(ctx, FounderRecord)
-	var record founding
-	if err == nil && version != 0 && decodeStrict(value, &record) == nil && n.cfg.owns(record) && !record.Formed {
-		record.Formed = true
+	record, version, err := readFounding(ctx, n.cfg.records)
+	if err != nil {
+		return err
+	}
+	switch {
+	case version == 0:
+		adopted := n.cfg.cell()
+		adopted.Formed = true
+		err = n.cfg.records.Create(ctx, FounderRecord, encodeRecord(adopted))
+	case record.members()[n.cfg.region] == n.cfg.cluster:
+		return nil
+	default:
+		record.Cells = record.members()
+		record.Cells[n.cfg.region] = n.cfg.cluster
 		err = n.cfg.records.Swap(ctx, FounderRecord, version, encodeRecord(record))
 	}
 	if err != nil {
-		slog.Warn("mesh founder record not marked formed", "error", err)
+		return err
 	}
+	if record, _, err = readFounding(ctx, n.cfg.records); err != nil || record.members()[n.cfg.region] != n.cfg.cluster {
+		return errors.Join(err, fmt.Errorf("%s does not list cell %s of %s yet", FounderRecord, n.cfg.cluster, n.cfg.region))
+	}
+	slog.Info("mesh cell enrolled in the JetStream metadata group's founder record", "region", n.cfg.region, "cluster", n.cfg.cluster)
+	return nil
+}
+
+func (n *Node) markFormed() error {
+	ctx, cancel := context.WithTimeout(n.ctx, time.Minute)
+	defer cancel()
+	record, version, err := readFounding(ctx, n.cfg.records)
+	if err != nil || !n.cfg.owns(record) || record.Formed {
+		return err
+	}
+	record.Formed = true
+	return n.cfg.records.Swap(ctx, FounderRecord, version, encodeRecord(record))
 }
 
 func (n *Node) formMeta() {
@@ -144,20 +241,37 @@ func (n *Node) formMeta() {
 	defer tick.Stop()
 	var checked time.Time
 	formed := false
+	settle := func() bool {
+		if time.Since(checked) < foundingEvery {
+			return false
+		}
+		checked = time.Now()
+		if err := n.enroll(); err != nil {
+			slog.Warn("mesh cell not enrolled in the founder record; it does not vote yet", "region", n.cfg.region, "error", err)
+			return false
+		}
+		if !n.cfg.lone {
+			return true
+		}
+		if err := n.markFormed(); err != nil {
+			slog.Warn("mesh founder record not marked formed", "error", err)
+			return false
+		}
+		return true
+	}
 	for {
 		if meta := n.metaNode(); meta != nil {
 			switch {
 			case formed || !meta.IsObserver():
-				if meta.GroupLeader() != "" {
-					if n.cfg.lone {
-						n.markFormed()
-					}
+				if meta.GroupLeader() != "" && settle() {
 					return
 				}
 			case meta.HadPreviousLeader():
-				meta.SetObserver(false)
-				slog.Info("mesh JetStream metadata joined its group", "region", n.cfg.region, "leader", meta.GroupLeader())
-				return
+				if settle() {
+					meta.SetObserver(false)
+					slog.Info("mesh JetStream metadata joined its group", "region", n.cfg.region, "leader", meta.GroupLeader())
+					return
+				}
 			case n.cfg.candidate() && time.Since(checked) >= foundingEvery:
 				checked = time.Now()
 				formed = n.found(meta)
@@ -200,12 +314,22 @@ func (n *Node) metaPeers(parent context.Context) ([]string, error) {
 	if err := n.monitor.PublishRequest("$SYS.REQ.SERVER.PING.RAFTZ", inbox, payload); err != nil {
 		return nil, err
 	}
+	expected := map[string]bool{serverName(n.cfg): true}
+	for _, route := range n.routes() {
+		expected[route.RemoteName] = true
+	}
 	seen := map[string]bool{}
 	var stateful []string
 	for {
+		if !slices.ContainsFunc(slices.Collect(maps.Keys(expected)), func(name string) bool { return !seen[name] }) {
+			return stateful, nil
+		}
 		message, err := sub.NextMsgWithContext(ctx)
 		if err != nil {
-			return stateful, parent.Err()
+			if len(stateful) != 0 {
+				return stateful, nil
+			}
+			return nil, errors.Join(parent.Err(), fmt.Errorf("routed servers did not all answer for metadata state: %d of %d", len(seen), len(expected)))
 		}
 		var reply struct {
 			Server struct {

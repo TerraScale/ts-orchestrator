@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -227,10 +228,10 @@ func MetaBootJourney(root string) error {
 	case <-ctx.Done():
 		return fmt.Errorf("a founder record left by a wiped cell was never replaced: %+v", metaOf(fleet.nodes[rest[0]]))
 	}
-	if record, _, err := readFounding(ctx, fleet.records); err != nil || record != (founding{Region: founder, Cluster: "cluster-" + founder}) {
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || record.Region != founder || record.Cluster != "cluster-"+founder || record.Formed || !maps.Equal(record.members(), map[string]string{founder: "cluster-" + founder}) {
 		return fmt.Errorf("founder record after %s replaced it: %+v, %v", founder, record, err)
 	}
-	fleet.stop(founder)
+	fleet.stop(rest...)
 	if err := fleet.start(founder); err != nil {
 		return err
 	}
@@ -238,16 +239,19 @@ func MetaBootJourney(root string) error {
 		group := metaOf(fleet.nodes[founder])
 		return group.Leader == group.ID && group.Leader != ""
 	}); err != nil {
-		return fmt.Errorf("%s never led the metadata group it claimed: %w (%+v)", founder, err, metaOf(fleet.nodes[founder]))
+		return fmt.Errorf("%s never led the metadata group it claimed with no other server up: %w (%+v)", founder, err, metaOf(fleet.nodes[founder]))
+	}
+	if routes := fleet.nodes[founder].routes(); len(routes) != 0 {
+		return fmt.Errorf("%s led with %d routes; the lone founder must elect with none", founder, len(routes))
 	}
 	select {
 	case again := <-fleet.restarts:
 		return fmt.Errorf("%s also restarted to found a group after %s claimed the record", again, founder)
 	default:
 	}
-	fmt.Println("ok metadata: a founder record left by a wiped cell is replaced by one compare-and-swap while no server holds metadata;", founder, "restarts and forms the group alone")
+	fmt.Println("ok metadata: a founder record left by a wiped cell is replaced by one compare-and-swap while no server holds metadata;", founder, "restarts and leads the group alone with no route and no other server up")
 
-	if err := fleet.start(alone); err != nil {
+	if err := fleet.start(slices.DeleteFunc(slices.Clone(regions), func(region string) bool { return region == founder })...); err != nil {
 		return err
 	}
 	leader, err := fleet.await(ctx, "every founder joins the claimed founder's group", regions)
@@ -257,7 +261,11 @@ func MetaBootJourney(root string) error {
 	if count := fleet.leaders(); len(count) != 1 {
 		return fmt.Errorf("metadata leaders after first election: %v", count)
 	}
-	if record, _, err := readFounding(ctx, fleet.records); err != nil || record != (founding{Region: founder, Cluster: "cluster-" + founder, Formed: true}) {
+	cells := map[string]string{}
+	for _, region := range regions {
+		cells[region] = "cluster-" + region
+	}
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || record.Region != founder || record.Cluster != "cluster-"+founder || !record.Formed || !maps.Equal(record.members(), cells) {
 		return fmt.Errorf("founder record after the group formed: %+v, %v", record, err)
 	}
 	kv, err := fleet.kv(ctx, alone)
@@ -318,6 +326,52 @@ func MetaBootJourney(root string) error {
 		return fmt.Errorf("stream replicas after empty rejoin: %w", err)
 	}
 	fmt.Println("ok metadata: the founder the record names, with an empty log, joined the existing group instead of forming a second one")
+
+	rebuilt := fleet.cfgs[founder]
+	fleet.stop(founder)
+	if err := os.RemoveAll(rebuilt.dir); err != nil {
+		return err
+	}
+	connected, port, advertise := rebuilt.seeds, rebuilt.clusterPort, rebuilt.clusterAdvertise
+	unreachable, err := freePorts(1)
+	if err != nil {
+		return err
+	}
+	rebuilt.cluster, rebuilt.seeds = "cluster-"+founder+"-rebuilt", map[string][]string{}
+	rebuilt.clusterPort, rebuilt.clusterAdvertise = unreachable[0], fmt.Sprintf("127.0.0.1:%d", unreachable[0])
+	fleet.cfgs[founder] = rebuilt
+	checks := fleet.records.Reads(FounderRecord)
+	if err := fleet.start(founder); err != nil {
+		return err
+	}
+	if err := regionalAwait(ctx, func() bool { return fleet.records.Reads(FounderRecord) >= checks+3 }); err != nil {
+		return fmt.Errorf("%s, rebuilt and cut off from the group, never checked the founder record: %w", founder, err)
+	}
+	select {
+	case again := <-fleet.restarts:
+		return fmt.Errorf("%s restarted to found a second group while the cells of the intact group still run", again)
+	default:
+	}
+	if group := metaOf(fleet.nodes[founder]); group.Leader != "" {
+		return fmt.Errorf("%s, cut off from the intact group, has metadata leader %s", founder, group.Leader)
+	}
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || !maps.Equal(record.members(), cells) {
+		return fmt.Errorf("founder record while %s was cut off: %+v, %v", founder, record, err)
+	}
+	fleet.stop(founder)
+	rebuilt.seeds, rebuilt.clusterPort, rebuilt.clusterAdvertise = connected, port, advertise
+	fleet.cfgs[founder] = rebuilt
+	if err := fleet.start(founder); err != nil {
+		return err
+	}
+	if _, err := fleet.await(ctx, "the rebuilt founder joins the intact group once it reaches it", regions); err != nil {
+		return err
+	}
+	cells[founder] = rebuilt.cluster
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || !maps.Equal(record.members(), cells) {
+		return fmt.Errorf("founder record after the rebuilt %s joined: %+v, %v", founder, record, err)
+	}
+	fmt.Println("ok metadata: a rebuilt", founder, "cut off from the intact group kept the founder record and formed nothing, because the other cells still publish their seeds; reconnected, it enrolled its new cell and joined")
 
 	spec := &swarmruntime.ServiceSpec{Name: "terrabase", Regions: []string{"gru", "sjc", "fra"}}
 	generation := time.Now().UnixNano()

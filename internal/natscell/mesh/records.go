@@ -3,6 +3,7 @@ package mesh
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -12,6 +13,7 @@ import (
 
 type Records interface {
 	Read(ctx context.Context, name string) (value string, version int64, err error)
+	Exists(ctx context.Context, name string) (bool, error)
 	Create(ctx context.Context, name, value string) error
 	Swap(ctx context.Context, name string, version int64, value string) error
 }
@@ -58,14 +60,31 @@ func (vaultRecords) current(ctx context.Context, name string) (vaultClients, vau
 func (r vaultRecords) Read(ctx context.Context, name string) (string, int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	_, current, err := r.current(ctx, name)
+	clients, current, err := r.current(ctx, name)
 	if vaultsecret.Absent(err) {
+		exists, listErr := vaultsecret.Exists(ctx, clients.management, SharedVault, name)
+		if listErr != nil {
+			return "", 0, listErr
+		}
+		if exists {
+			return "", 0, fmt.Errorf("%s exists but this host's Vault grants do not let it read it", name)
+		}
 		return "", 0, nil
 	}
 	if err != nil {
 		return "", 0, err
 	}
 	return current.Value(), current.Version, nil
+}
+
+func (vaultRecords) Exists(ctx context.Context, name string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	clients, err := openVault(ctx)
+	if err != nil {
+		return false, err
+	}
+	return vaultsecret.Exists(ctx, clients.management, SharedVault, name)
 }
 
 func (vaultRecords) Create(ctx context.Context, name, value string) error {

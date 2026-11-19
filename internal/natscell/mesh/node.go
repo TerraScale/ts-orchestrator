@@ -172,7 +172,6 @@ type Node struct {
 	membershipConn  *nats.Conn
 	gossip          *inRegionGossip
 	seeds           *seedBook
-	refusedSeeds    atomic.Int64
 	rejectedRoutes  atomic.Int64
 	fabric          *nats.Conn
 	monitor         *nats.Conn
@@ -252,10 +251,8 @@ func start(cfg config) (_ *Node, err error) {
 	if cfg.candidate() {
 		cfg.lone = claimFounding(cfg)
 	}
-	seedCtx, seedCancel := context.WithTimeout(context.Background(), seedsEvery)
-	initialSeeds, _ := seeds.install(seeds.read(seedCtx, cfg.records))
-	seedCancel()
-	tlsConfig := cfg.ca.TLS(cfg.region + "." + Domain)
+	initialSeeds, _ := seeds.install(seeds.read(context.Background(), cfg.records))
+	tlsConfig := cfg.ca.TLS(cfg.region+"."+Domain, seeds.verify)
 	monitorSecret, err := randomHex()
 	if err != nil {
 		return nil, err
