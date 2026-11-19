@@ -23,7 +23,7 @@ type canaryTarget struct {
 	Generation          uint64
 	Canary              cellspec.Canary
 	Baseline            bool
-	Profile             WorkloadProfile
+	Profile             cellspec.Profile
 }
 
 // canaryGate runs live checks against a release's canary and returns each

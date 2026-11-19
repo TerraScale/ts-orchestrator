@@ -960,7 +960,7 @@ releases/services/<role>/status.json         the region leader's report
 `TS_NATIVE_RELEASES` retains ten distinct successful binary/profile pairs per
 native role, plus the active candidate, its recorded predecessor and any
 recovery target. A pair includes the admitted artifact identity, complete
-`WorkloadProfile` (arguments, environment, resource profile and Vault
+`cellspec.Profile` (arguments, environment, resource profile and Vault
 references), signed profile provenance, and the exact accepted intent
 fingerprint. Binary staging or intent submission alone does not mark a pair
 good: every expected committed replica must have a fresh, verified report

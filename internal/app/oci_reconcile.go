@@ -16,7 +16,7 @@ type OciReconcileConfig struct {
 	// Desired publishes desired specs listed in this controller
 	// configuration (bound to the signed controller manifest on baked
 	// controllers) into the protected foundation journal before every pass.
-	Desired *OciDesiredConfig `json:"desired,omitempty"`
+	Desired *cellspec.OCIDesired `json:"desired,omitempty"`
 }
 
 // OciReconcileNLBConfig names the NLB backend set synced to placement.
@@ -40,10 +40,3 @@ type OciReconcileLBConfig struct {
 	// catalogs until TS-561 replicates them; drop the list then.
 	Seats []string `json:"seats,omitempty"`
 }
-
-// OciDesiredEntry and OciDesiredConfig are the cell spec's types, so the
-// signed config and a cell spec oci_desired section list resources alike.
-type (
-	OciDesiredEntry[S any] = cellspec.OCIDesiredEntry[S]
-	OciDesiredConfig       = cellspec.OCIDesired
-)
