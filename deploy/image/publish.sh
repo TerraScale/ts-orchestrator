@@ -26,17 +26,13 @@ capabilities=$(jq -cn '{
 	"Storage.ConsistentVolumeNaming": {descriptorType: "boolean", source: "IMAGE", defaultValue: true}
 }')
 
-lock=${XDG_RUNTIME_DIR:-/tmp}/ts-host-images.lock
-exec 9>"$lock"
-flock --nonblock 9 || {
-	echo "another publish.sh holds $lock" >&2
-	exit 1
-}
-
 namespace=$(oci os ns get --query data --raw-output)
 assets=$(gh release view "$tag" --repo "$repo" --json assets)
+token="$(hostname)/${USER:-operator}/$$/$(date -u +%Y%m%dT%H%M%SZ)"
+lock_region=
+lock_name=
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'release_lock; rm -rf "$work"' EXIT
 
 die() {
 	echo "$*" >&2
@@ -99,26 +95,48 @@ ensure_bucket() {
 		"$work/bucket" >/dev/null || die "$region: bucket $bucket must be NoPublicAccess in compartment $owner"
 }
 
+acquire_lock() {
+	local region=$1 name=$2 status owner
+	oci --region "$region" os object put --namespace "$namespace" --bucket-name "$bucket" --name "$name" --file - \
+		--metadata "$(jq -cn --arg owner "$token" '{owner: $owner}')" --no-overwrite <<<"$token" >/dev/null
+	status=$(oci_status "$work/lock" --region "$region" os object head --namespace "$namespace" --bucket-name "$bucket" --name "$name")
+	[[ $status == 200 ]] || {
+		cat "$work/lock.err" >&2
+		die "$region: lock $name returned $status"
+	}
+	owner=$(jq -r '."opc-meta-owner" // empty' "$work/lock")
+	[[ $owner == "$token" ]] ||
+		die "$region: $name is held by '$owner' since $(jq -r '."last-modified"' "$work/lock"). Wait for that run; if it is older than the one-hour import wait and no publish runs, remove it with: oci --region $region os object delete --namespace $namespace --bucket-name $bucket --name $name --force"
+	lock_region=$region
+	lock_name=$name
+}
+
+release_lock() {
+	[[ -n $lock_name ]] || return 0
+	if [[ $(oci --region "$lock_region" os object head --namespace "$namespace" --bucket-name "$bucket" --name "$lock_name" |
+		jq -r '."opc-meta-owner" // empty') == "$token" ]]; then
+		oci --region "$lock_region" os object delete --namespace "$namespace" --bucket-name "$bucket" --name "$lock_name" --force
+	fi
+	lock_name=
+}
+
 ensure_object() {
-	local region=$1 file=$2 sum=$3 status stored
+	local region=$1 file=$2 sum=$3 status md5
 	local object=$tag/$2
-	ensure_bucket "$region"
+	md5=$(openssl dgst -md5 -binary "$work/release-$file/$file" | base64)
 	status=$(oci_status "$work/object" --region "$region" os object head --namespace "$namespace" --bucket-name "$bucket" --name "$object")
-	case $status in
-	200)
-		stored=$(jq -r '."opc-meta-sha256" // empty' "$work/object")
-		[[ $stored == "$sum" ]] || die "$region: $object exists with sha256 '$stored', the release has $sum"
-		;;
-	404)
+	if [[ $status == 404 ]]; then
 		oci --region "$region" os object put --namespace "$namespace" --bucket-name "$bucket" --name "$object" \
-			--file "$work/release-$file/$file" --metadata "{\"sha256\":\"$sum\"}" --no-overwrite >/dev/null
-		echo "$region: uploaded $object" >&2
-		;;
-	*)
+			--file "$work/release-$file/$file" --metadata "{\"sha256\":\"$sum\"}" --content-md5 "$md5" --no-multipart --no-overwrite >/dev/null
+		status=$(oci_status "$work/object" --region "$region" os object head --namespace "$namespace" --bucket-name "$bucket" --name "$object")
+	fi
+	[[ $status == 200 ]] || {
 		cat "$work/object.err" >&2
 		die "$region: $object returned $status"
-		;;
-	esac
+	}
+	jq -e --arg sum "$sum" --arg md5 "$md5" '."opc-meta-sha256" == $sum and ."content-md5" == $md5' "$work/object" >/dev/null ||
+		die "$region: $object does not hold the release bytes (sha256 $sum, MD5 $md5). Delete it with: oci --region $region os object delete --namespace $namespace --bucket-name $bucket --name $object --force, and rerun"
+	echo "$region: $object holds sha256 $sum, MD5 $md5" >&2
 }
 
 find_image() {
@@ -140,6 +158,11 @@ import_failure() {
 	done
 }
 
+bad_image() {
+	import_failure "$1" "$2" "$3"
+	die "$1: image $3 is $4. Check that its import work request has finished, delete it with: oci --region $1 compute image delete --image-id $3, and rerun"
+}
+
 image_state() {
 	oci --region "$1" compute image get --image-id "$2" --query 'data."lifecycle-state"' --raw-output
 }
@@ -151,10 +174,7 @@ wait_available() {
 		case $state in
 		AVAILABLE) return 0 ;;
 		PROVISIONING | IMPORTING | EXPORTING) sleep 30 ;;
-		*)
-			import_failure "$region" "$compartment" "$image"
-			die "$region: import $image ended $state; rerun to replace it"
-			;;
+		*) bad_image "$region" "$compartment" "$image" "$state" ;;
 		esac
 	done
 	die "$region: image $image is still $state after an hour; rerun to keep waiting"
@@ -209,19 +229,18 @@ publish() {
 	arch=$(shape_arch "$shape")
 	file=ts-host-debian$debian-$arch.qcow2
 	sum=$(verified_sum "$file")
+	ensure_bucket "$region"
+	acquire_lock "$region" "locks/$tag-$label-$arch"
 	image=$(find_image "$region" "$compartment" "$arch")
 	if [[ -n $image ]]; then
 		state=$(image_state "$region" "$image")
-		if [[ $state == DISABLED ]]; then
-			import_failure "$region" "$compartment" "$image"
-			oci --region "$region" compute image delete --image-id "$image" --force
-			echo "$label: deleted failed import $image" >&2
-			image=
-		else
-			tagged=$(oci --region "$region" compute image get --image-id "$image" --query 'data."freeform-tags"."terrascale-sha256"' --raw-output)
-			[[ $tagged == "$sum" ]] || die "$label: image $image is tagged sha256 $tagged, the release has $sum"
-			echo "$label: found $file of $tag as $image ($state)" >&2
-		fi
+		case $state in
+		AVAILABLE | PROVISIONING | IMPORTING | EXPORTING) ;;
+		*) bad_image "$region" "$compartment" "$image" "$state" ;;
+		esac
+		tagged=$(oci --region "$region" compute image get --image-id "$image" --query 'data."freeform-tags"."terrascale-sha256"' --raw-output)
+		[[ $tagged == "$sum" ]] || die "$label: image $image is tagged sha256 $tagged, the release has $sum"
+		echo "$label: found $file of $tag as $image ($state)" >&2
 	fi
 	if [[ -z $image ]]; then
 		ensure_object "$region" "$file" "$sum"
@@ -236,6 +255,7 @@ publish() {
 	wait_available "$region" "$compartment" "$image"
 	set_capabilities "$region" "$compartment" "$image"
 	set_shapes "$region" "$image" "$arch"
+	release_lock
 	jq -cn --arg region "$region" --arg arch "$arch" --arg image "$image" --arg debian "$debian" --arg sum "$sum" \
 		'{region: $region, arch: $arch, image_ocid: $image, debian: $debian, sha256: $sum}'
 }

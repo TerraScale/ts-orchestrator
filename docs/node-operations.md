@@ -60,8 +60,10 @@ It uploads the file as `<tag>/<file>` to the region's `ts-host-images`
 bucket. The bucket belongs to the compartment of the first fleet entry in
 that OCI region (`stg-1-control` for `us-sanjose-1`, which `stg` and `sjc`
 share); the script creates it there with `NoPublicAccess` and refuses a
-bucket in another compartment, a public one, or an object of that name with
-a different `sha256`. It never overwrites an object.
+bucket in another compartment or a public one. It uploads in one part with
+the file's MD5, so OCI rejects altered bytes, never overwrites an object, and
+imports only after the stored object's `content-md5` and `sha256` metadata
+both match the release.
 
 It imports a QCOW2 custom image named `ts-host-debian13-<arch>-<tag>` in
 paravirtualized launch mode, tagged `terrascale-host-image`, `terrascale-arch`
@@ -72,12 +74,17 @@ shapes of that arch to the image's shape compatibility and removes the shapes
 of the other arch. The last line for each label is the `host-images.json`
 entry.
 
+Each label runs under a lock object `locks/<tag>-<label>-<arch>` in that
+bucket, written without overwrite and owned by the run whose token it holds;
+the run removes it when it finishes or fails. A held lock stops the run with
+its owner and age; one older than the one-hour import wait with no publish
+running is removed by hand with the command the script prints.
+
 A rerun selects the image by its tags in the label's compartment, checks its
 `sha256` tag against the release and prints the same entry. It keeps waiting
-for an import in progress, prints OCI's work request errors for a failed one
-and replaces a `DISABLED` import on the next run. It fails on two images with
-the same tags. A lock file in `$XDG_RUNTIME_DIR` keeps two runs on one server
-apart; run it from the ops server only.
+for an import in progress. An image in any other state, or two images with
+the same tags, stop the run with OCI's work request errors and the delete
+command; the script never deletes an image.
 
 The script uses the operator's API key profile (`~/.oci/config` `DEFAULT`).
 OCI imports from an object directly only for an API key user; federated users
