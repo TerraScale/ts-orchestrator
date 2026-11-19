@@ -69,8 +69,9 @@ if ! echo "$netbird_binary_sha256  /usr/local/bin/netbird" | sha256sum -c --stat
 	curl -fsSL -o "$tmp/netbird.tar.gz" "$netbird"
 	echo "$netbird_sha256  $tmp/netbird.tar.gz" | sha256sum -c --quiet
 	tar --no-same-owner -C "$tmp" -xzf "$tmp/netbird.tar.gz" netbird
-	install -m 0755 "$tmp/netbird" /usr/local/bin/netbird
+	echo "$netbird_binary_sha256  $tmp/netbird" | sha256sum -c --quiet
+	install -m 0755 "$tmp/netbird" /usr/local/bin/netbird.next
+	mv -f /usr/local/bin/netbird.next /usr/local/bin/netbird
 fi
 [[ $(/usr/local/bin/netbird version) == "$netbird_version" ]]
-systemctl is-enabled --quiet netbird || /usr/local/bin/netbird service install
-systemctl enable --now netbird
+@netbird_service@

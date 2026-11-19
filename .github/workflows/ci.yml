@@ -174,7 +174,7 @@ jobs:
             lanes:
               - {lane: rollout, entry: rollout.sh, timeout: 10, budget: 20}
               - {lane: boot-order, entry: boot-order.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/boot-order"}
-              - {lane: node-upgrade, entry: node-upgrade.sh, timeout: 10, budget: 20}
+              - {lane: node-upgrade, entry: node-upgrade.sh, timeout: 10, budget: 20, packages: "./test/e2e/m1/netbird-upgrade"}
               - {lane: region-fallback, entry: region-fallback.sh, timeout: 4, budget: 14, packages: "./test/e2e/m1/oracle-regions"}
               - {lane: ocir, entry: ocir.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/ocir"}
           - group: 3

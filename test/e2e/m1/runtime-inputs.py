@@ -61,10 +61,30 @@ def generated():
         raise SystemExit(
             "host-runtime.sh.in must contain exactly one runtime pin insertion"
         )
+    service = (repo / "deploy/m1/netbird-service.sh").read_text()
+    if template.count("@netbird_service@") != 1:
+        raise SystemExit(
+            "host-runtime.sh.in must contain exactly one service insertion"
+        )
+    template = template.replace(
+        "@netbird_service@",
+        'bash -s -- /usr/local/bin/netbird "$netbird_binary_sha256" <<'
+        + "'NETBIRD_SERVICE'"
+        + "\n"
+        + service
+        + "NETBIRD_SERVICE",
+    )
     go += ["\treturn p", "}()\n"]
     return {
         repo / "deploy/m1/host-runtime.sh": template.replace(
             "@runtime_pins@", "\n".join(shell)
+        ),
+        repo / "internal/netbird/client/service_script.go": subprocess.check_output(
+            ["gofmt"],
+            input="package client\n\nconst serviceScript = "
+            + json.dumps(service)
+            + "\n",
+            text=True,
         ),
         repo / "internal/netbird/manager/client_pin.go": subprocess.check_output(
             ["gofmt"], input="\n".join(go), text=True
