@@ -69,6 +69,9 @@ func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Fact
 		return fmt.Errorf("%s has no document-made private subnet %s or NSG %s; run ts-orch region apply %s network first",
 			region.Label, region.Key("subnet", "private-subnet"), region.Key("nsg", nodeNSG), region.Label)
 	}
+	if _, err := VerifyExternal(ctx, region, clients.Compute, clients.Management, network, deref(subnets[subnet].VcnId)); err != nil {
+		return fmt.Errorf("refusing compute minimum %d: %w", region.Nodes.Min, err)
+	}
 	domains, err := ids.ListAvailabilityDomains(ctx, identity.ListAvailabilityDomainsRequest{CompartmentId: compartment})
 	if err != nil {
 		return fmt.Errorf("list availability domains: %w", err)

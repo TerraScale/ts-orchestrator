@@ -114,16 +114,22 @@ func factory(ctx context.Context, ociRegion string) (*ociclient.Factory, error) 
 	return ociclient.InstancePrincipalContext(ctx, ociRegion)
 }
 
-func Plan(ctx context.Context, fleet Fleet) ([]Report, error) {
+func Plan(ctx context.Context, fleet Fleet, quorums map[string]QuorumObservation, label string) ([]Report, error) {
 	var reports []Report
 	release, found := newestNodeRelease(ctx)
 	for _, region := range fleet.All() {
-		report, err := observeRegion(ctx, region)
+		if label != "" && label != region.Label {
+			continue
+		}
+		report, err := observeRegion(ctx, region, quorums[region.OCIRegion])
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", region.Label, err)
 		}
 		report.Checks = append(report.Checks, releaseCheck(release, found, region))
 		reports = append(reports, report)
+	}
+	if label != "" {
+		return reports, nil
 	}
 	dns, err := observeDNS(ctx, fleet)
 	if err != nil {
@@ -146,7 +152,7 @@ func collect[T any](values []T, view func(T) (item, string)) []item {
 	return items
 }
 
-func observeRegion(ctx context.Context, region Region) (Report, error) {
+func observeRegion(ctx context.Context, region Region, quorum QuorumObservation) (Report, error) {
 	report := Report{Name: region.Label, Scope: region.OCIRegion}
 	f, err := factory(ctx, region.OCIRegion)
 	if err != nil {
@@ -322,6 +328,23 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 		}
 	}
 	report.Checks = append(report.Checks, nodes(region, instances, subnetOf, subnetIDs[true], key("instance", "node")))
+	management, err := f.ComputeManagement()
+	if err != nil {
+		return report, err
+	}
+	eligible, externalErr := VerifyExternal(ctx, region, compute, management, network, vcn)
+	if externalErr != nil {
+		report.Checks = append(report.Checks, Check{Kind: "external hosts", State: Missing, Details: []string{externalErr.Error()}})
+		quorum.Error = externalErr.Error()
+	} else {
+		for _, instance := range instances {
+			if instance.LifecycleState == core.InstanceLifecycleStateRunning && deref(instance.CompartmentId) == region.CompartmentID &&
+				region.owns("instance", "node", instance.FreeformTags) && subnetIDs[true] != "" && subnetOf[deref(instance.Id)] == subnetIDs[true] {
+				eligible[deref(instance.Id)] = deref(instance.DisplayName)
+			}
+		}
+	}
+	report.Checks = append(report.Checks, QuorumCheck(region, quorum, eligible))
 	nlbs, err := list("nlb", func(page *string) ([]networkloadbalancer.NetworkLoadBalancerSummary, *string, error) {
 		r, err := balancers.ListNetworkLoadBalancers(ctx, networkloadbalancer.ListNetworkLoadBalancersRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
@@ -388,11 +411,13 @@ func nodes(region Region, instances []core.Instance, subnetOf map[string]string,
 	result.Details = append([]string{fmt.Sprintf("%d found, document wants %s x %s %g/%g in private subnet", len(items), count, want.Shape, want.OCPUs, want.MemoryGB)}, result.Details...)
 	for _, host := range want.External {
 		state, ok := external[host]
-		if !ok {
+		if !ok || state != "running" {
 			result.State = Differs
-			state = "missing"
+			if !ok {
+				state = "missing"
+			}
 		}
-		result.Details = append(result.Details, fmt.Sprintf("external %s %s, counted toward the region's %d voting hosts", host, state, MinNodes))
+		result.Details = append(result.Details, fmt.Sprintf("external %s %s; voting readiness is checked by swarm quorum", host, state))
 	}
 	if len(items) < want.Min || len(items) > want.Max {
 		result.State = Differs
