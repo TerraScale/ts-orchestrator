@@ -21,6 +21,7 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/moby/swarmkit/v2/api"
 
+	"github.com/TerraScale/ts-orchestrator/internal/datamount"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
@@ -59,6 +60,9 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 		return fmt.Errorf("another ts-orch node already runs on %s", *state)
 	}
 	defer stateLock.Unlock()
+	if err := datamount.Grow(ctx); err != nil {
+		return fmt.Errorf("grow node data filesystem: %w", err)
+	}
 	startupErr := sdnotify.Process().ExtendStart(2 * hostMetadataWindow)
 	probation, err := releasepush.Probe(*state, output)
 	if err != nil {
@@ -73,6 +77,7 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	go datamount.Maintain(ctx)
 	swarmReady := make(chan struct{})
 	edgeDone := make(chan struct{})
 	var edgeErr error

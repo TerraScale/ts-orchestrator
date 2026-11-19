@@ -51,11 +51,44 @@ and proven-terminated sources become eligible after 30 days from backup creation
 Every eligible deletion checks exact ownership, current authority and a fresh
 ETag; orphan deletion also requires durable source-termination proof.
 
-Filesystem growth rescans the pinned device, reads its size from sysfs and
-uses `EXT4_IOC_RESIZE_FS` for ext4 or `xfs_growfs` for xfs. Growth begins when
-the device exceeds the filesystem by at least 512 MiB. The volume initializer
-unit grants `CAP_SYS_RESOURCE` for ext4 growth. Placement runs every five
-seconds; its file carries only `environment`, `member_role` and `resources`.
+The node data volume is separate from managed member volumes. Pool nodes put
+`/var/lib/ts-data` on the attached OCI block volume at
+`/dev/oracleoci/oraclevdb`, with `/var/lib/ts-orch` bind-mounted from its
+`ts-orch` directory. The boot SSD holds the OS, binaries and bounded logs.
+
+### Grow node storage
+
+Increase `nodes.data_gb` in the fleet document for the region, then run:
+
+```sh
+ts-orch region apply <label> compute
+```
+
+The compute pass checks existing owned data volumes before changing the pool.
+A target below any existing volume size is refused with the current and
+requested sizes; storage never shrinks. It grows every undersized volume
+selected for a pool node, including an already attached volume, with an
+ETag-conditional OCI update and waits for AVAILABLE at the requested size.
+Attachments and services stay in place. Detached retained volumes grow when
+selected for reuse.
+
+At node startup and every five seconds while running, the node verifies that
+`/var/lib/ts-data` is a read-write ext4 mount of the data block device. It
+rescans that device through its sysfs `device/rescan` attribute where the
+kernel exposes one, then runs `resize2fs` without a size argument to grow the
+mounted filesystem to the device capacity. Drivers without that attribute
+publish capacity directly. Repeated calls are harmless. This also runs on
+external hosts such as `ts-gru-1` with the same data-volume layout; it does
+not depend on pool membership or cloud-init. Startup errors refuse the node
+start; runtime failures are logged without stopping serving workloads, and
+successful growth logs `data filesystem grown`. No unmount, reformat or
+service restart is needed. `e2fsprogs` supplies `resize2fs` on the host image.
+
+Managed member volume initialization is a separate path. Its online-growth
+policy does not establish node data-volume growth; the node behavior above
+is exercised by the `e2e-m1` data-volume lane with startup growth to
+32 GiB and live mounted growth to 33 GiB, checking retained bytes and service
+identity.
 
 Signed production manifests bind all three managed regional inputs. Removing
 the unmanaged startup path remains part of the discovery slice.
