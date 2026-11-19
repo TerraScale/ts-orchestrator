@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -86,13 +85,6 @@ func (v Verifier) staging(ctx context.Context, target Target) (string, string) {
 	}
 	if record.Signed.IsZero() || record.Signed.After(time.Now().Add(time.Minute)) {
 		return GateUnsigned, "completion signing time is invalid"
-	}
-	if err := v.withdrawal(ctx, target.Tag); err != nil {
-		var refusal *Refusal
-		if errors.As(err, &refusal) {
-			return refusal.Code, refusal.Reason
-		}
-		return GateUnreadable, err.Error()
 	}
 	return "", ""
 }

@@ -73,6 +73,13 @@ func (l *lane) admissionGate(ctx context.Context, release published, original, b
 	}
 	l.requireVersions(ctx, original, base, l.region("sjc", "fra", "gru")...)
 	l.github.admission(release.tag, l.sigstore.Admission(identity, l.build, "9001", admission))
+	for _, mode := range []string{"rolled_back", "withdrawn_without_completion"} {
+		l.github.gateMode(release.tag, mode)
+		reply := l.ask(ctx, "sjc-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: target})
+		require(reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalHost && strings.Contains(reply.Refusal.Reason, "staging gate withdrawn"),
+			"valid main dispatch admitted a signed withdrawal in %s: %+v", mode, reply)
+	}
+	l.github.gateMode(release.tag, "missing")
 	reply := l.ask(ctx, "sjc-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: target})
 	require(reply.State == "installed", "valid main dispatch admission must install: %+v", reply)
 	l.waitReady(ctx, "sjc.sjc-w", release.digest)

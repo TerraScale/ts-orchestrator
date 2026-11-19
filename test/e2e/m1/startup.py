@@ -144,7 +144,7 @@ def run_case(binary, seed_binary, root, case):
             values = {
                 "/opc/v2/instance/canonicalRegionName": SJC["oci_region"],
                 "/opc/v2/instance/compartmentId": SJC["compartment_id"],
-                "/opc/v2/instance/id": "instance",
+                "/opc/v2/instance/": '{"id":"instance","metadata":{}}',
                 "/opc/v2/vnics/": '[{"privateIp":"127.0.0.2","vcnCidrBlock":"127.0.0.0/16"}]',
             }
             value = values.get(self.path)
@@ -243,7 +243,7 @@ def run_case(binary, seed_binary, root, case):
             require(
                 not record.exists()
                 and all(
-                    path not in ("/opc/v2/instance/id", "/opc/v2/vnics/")
+                    path not in ("/opc/v2/instance/", "/opc/v2/vnics/")
                     for _, path in samples
                 ),
                 "local planning queried metadata",

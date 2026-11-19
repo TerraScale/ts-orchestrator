@@ -94,15 +94,21 @@ func (v Verifier) Check(ctx context.Context, region string, release releaseattes
 		return Receipt{}, errors.New("release admission verifier is incomplete")
 	}
 	code, reason := v.staging(ctx, receipt.Target)
-	if code == "" {
-		return receipt, nil
+	var approvalErr error
+	if code != "" {
+		receipt.RunID, approvalErr = v.withoutStaging(ctx, receipt.Target)
 	}
-	run, err := v.withoutStaging(ctx, receipt.Target)
-	if err == nil {
-		receipt.RunID = run
-		return receipt, nil
+	if err := v.withdrawal(ctx, receipt.Tag); err != nil {
+		var refusal *Refusal
+		if errors.As(err, &refusal) {
+			return Receipt{}, refusal
+		}
+		return Receipt{}, &Refusal{Code: GateUnreadable, Reason: err.Error()}
 	}
-	return Receipt{}, &Refusal{Code: code, Reason: reason + "; admit-without-staging: " + err.Error()}
+	if approvalErr != nil {
+		return Receipt{}, &Refusal{Code: code, Reason: reason + "; admit-without-staging: " + approvalErr.Error()}
+	}
+	return receipt, nil
 }
 
 func (v Verifier) withoutStaging(ctx context.Context, target Target) (string, error) {

@@ -162,7 +162,7 @@ func (g *fakeGitHub) admission(tag string, bundle []byte) {
 func (g *fakeGitHub) serveStaging(w http.ResponseWriter, r *http.Request, tag string) {
 	if strings.HasSuffix(tag, releasegate.WithdrawalSuffix) {
 		release := strings.TrimSuffix(tag, releasegate.WithdrawalSuffix)
-		if g.gateModes[release] != "rolled_back" {
+		if mode := g.gateModes[release]; mode != "rolled_back" && mode != "withdrawn_without_completion" {
 			http.NotFound(w, r)
 			return
 		}
@@ -174,7 +174,7 @@ func (g *fakeGitHub) serveStaging(w http.ResponseWriter, r *http.Request, tag st
 		must(json.NewEncoder(w).Encode(releasegate.SignedRecord{Record: data, Signature: signature}))
 		return
 	}
-	if g.gateModes[tag] == "missing" {
+	if mode := g.gateModes[tag]; mode == "missing" || mode == "withdrawn_without_completion" {
 		http.NotFound(w, r)
 		return
 	}

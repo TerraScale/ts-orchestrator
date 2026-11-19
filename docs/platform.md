@@ -90,6 +90,10 @@ cannot authorize any other tag or digest. Expiry is checked for every new instal
 it does not roll back an already admitted release. No approval means no install,
 regardless of how long staging has been unavailable.
 
+Every admission checks the withdrawal object after verifying the completion
+or dispatch approval. A signed withdrawal or unreadable withdrawal status
+blocks installation through either path.
+
 The gate adds no bake or fixed delay after a record exists. sjc rechecks on its
 existing discovery cadence: up to 15 seconds for the OCIR channel, or the existing
 five-minute GitHub cadence, plus verification and network time. Requests have

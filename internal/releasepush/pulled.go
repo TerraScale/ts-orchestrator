@@ -87,7 +87,7 @@ func (h *Handler) installPulled(ctx context.Context, region string, release rele
 	claims := Claims{SHA: release.SHA, RunID: release.RunID}
 	binary, err := h.verifyPulled(ctx, release)
 	if err == nil && release.Channel != nil {
-		err = h.recordSeq(release, binary)
+		err = h.checkSeq(release)
 	}
 	if errors.Is(err, releaseattest.ErrOlder) {
 		return Reply{State: StateNewer, Version: h.Revision}
@@ -102,6 +102,11 @@ func (h *Handler) installPulled(ctx context.Context, region string, release rele
 	candidate := releaseID{release.SHA, binary.SHA256}
 	if h.pending != candidate && (h.Revision != release.SHA || h.Digest != binary.SHA256) {
 		if err := h.admit(ctx, region, release, binary); err != nil {
+			return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
+		}
+	}
+	if release.Channel != nil {
+		if err := h.recordSeq(release, binary); err != nil {
 			return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
 		}
 	}

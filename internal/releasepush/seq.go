@@ -26,10 +26,10 @@ func channelSeqFile(state string) string { return filepath.Join(state, "nats", "
 func readSeq(path string) (installedSeq, error) {
 	var record installedSeq
 	present, err := readRecord(path, &record)
-	if !present {
-		return installedSeq{}, nil
+	if err != nil || !present {
+		return installedSeq{}, err
 	}
-	return record, err
+	return record, nil
 }
 
 func (h *Handler) verifyChannel(ctx context.Context, release releaseattest.Release, artifact releaseattest.Artifact) (Binary, error) {
@@ -46,7 +46,7 @@ func (h *Handler) verifyChannel(ctx context.Context, release releaseattest.Relea
 	return Binary{URL: artifact.URL, SHA256: artifact.SHA256}, nil
 }
 
-func (h *Handler) recordSeq(release releaseattest.Release, binary Binary) error {
+func (h *Handler) checkSeq(release releaseattest.Release) error {
 	installed, err := readSeq(h.SeqFile)
 	if err != nil {
 		return fmt.Errorf("installed seq unreadable: %w", err)
@@ -55,6 +55,10 @@ func (h *Handler) recordSeq(release releaseattest.Release, binary Binary) error 
 		return fmt.Errorf("%w: channel seq %d (%s) is not newer than the installed seq %d (%s); a replayed or rolled-back channel document is refused",
 			releaseattest.ErrRefused, release.Seq, release.Tag(), installed.Seq, installed.Tag)
 	}
+	return nil
+}
+
+func (h *Handler) recordSeq(release releaseattest.Release, binary Binary) error {
 	if err := writeJSON(h.SeqFile, installedSeq{Seq: release.Seq, Tag: release.Tag(), SHA256: binary.SHA256}); err != nil {
 		return fmt.Errorf("installed seq not saved: %w", err)
 	}
