@@ -126,7 +126,7 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Select the newest available qualified main image
+      - name: Select the pinned qualified main image
         id: image
         run: python3 test/e2e/m1/image-inputs.py
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830

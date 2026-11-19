@@ -6,6 +6,7 @@ from pathlib import Path
 
 repository = os.environ["GITHUB_REPOSITORY"]
 repo = Path(__file__).resolve().parents[3]
+tag = "host-image-20261119-11d7827"
 
 
 def pages(endpoint):
@@ -17,50 +18,40 @@ def pages(endpoint):
     )
 
 
-runs = {}
-for page in pages(
-    "actions/workflows/host-image.yml/runs?branch=main&status=success&event=push&per_page=100"
+release = json.loads(
+    subprocess.check_output(
+        ["gh", "api", f"repos/{repository}/releases/tags/{tag}"], text=True
+    )
+)
+source = release["target_commitish"]
+assets = {asset["name"]: asset for asset in release["assets"]}
+if (
+    release["draft"]
+    or release["tag_name"] != tag
+    or not re.fullmatch(r"[0-9a-f]{40}", source)
+    or not {
+        "ts-host-debian13-amd64.qcow2",
+        "ts-host-debian13-amd64.qcow2.sha256",
+    }
+    <= assets.keys()
 ):
-    for run in page["workflow_runs"]:
-        if run["head_sha"] not in runs:
-            runs[run["head_sha"]] = run
-
-candidates = []
-for page in pages("releases?per_page=100"):
-    for release in page:
-        source = release["target_commitish"]
-        assets = {asset["name"]: asset for asset in release["assets"]}
-        if (
-            release["draft"]
-            or not release["tag_name"].startswith("host-image-")
-            or not re.fullmatch(r"[0-9a-f]{40}", source)
-            or source not in runs
-            or not {
-                "ts-host-debian13-amd64.qcow2",
-                "ts-host-debian13-amd64.qcow2.sha256",
-            }
-            <= assets.keys()
-        ):
-            continue
-        result = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo),
-                "merge-base",
-                "--is-ancestor",
-                source,
-                "origin/main",
-            ],
-            check=False,
-        )
-        if result.returncode == 1:
-            continue
-        result.check_returncode()
-        candidates.append((runs[source]["id"], release["id"], release, assets))
-if not candidates:
-    raise SystemExit("no published qualified main host image has both amd64 assets")
-_, _, release, assets = max(candidates, key=lambda candidate: candidate[:2])
+    raise SystemExit(f"pinned host image {tag} is not published with both amd64 assets")
+subprocess.run(
+    ["git", "-C", str(repo), "merge-base", "--is-ancestor", source, "origin/main"],
+    check=True,
+)
+runs = [
+    run
+    for page in pages(
+        "actions/workflows/host-image.yml/runs?branch=main&status=success&event=push"
+        f"&head_sha={source}&per_page=100"
+    )
+    for run in page["workflow_runs"]
+    if run["head_sha"] == source
+]
+if not runs:
+    raise SystemExit(f"pinned host image {tag} has no successful main qualification")
+run = max(runs, key=lambda run: run["id"])
 identity = "-".join(
     str(assets[name]["id"])
     for name in ("ts-host-debian13-amd64.qcow2", "ts-host-debian13-amd64.qcow2.sha256")
@@ -68,7 +59,7 @@ identity = "-".join(
 values = {
     "tag": release["tag_name"],
     "source": release["target_commitish"],
-    "url": runs[release["target_commitish"]]["html_url"],
+    "url": run["html_url"],
     "identity": identity,
     "directory": str(Path.home() / ".cache/ts-m1-host-image" / identity),
 }
