@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"
 	"golang.org/x/sys/unix"
@@ -18,11 +19,11 @@ const credentialExpiryLabel = "terrascale.credential-expires-at"
 const runtimeGuardPIDLabel = "terrascale.runtime-guard-pid"
 
 type runtimeCredentialGuard struct {
-	Socket              string                `json:"socket"`
-	TaskID              string                `json:"taskID"`
-	Fingerprint         string                `json:"fingerprint"`
-	CredentialExpiresAt time.Time             `json:"credentialExpiresAt,omitzero"`
-	State               *StatefulRuntimeGuard `json:"state,omitzero"`
+	Socket              string                 `json:"socket"`
+	TaskID              string                 `json:"taskID"`
+	Fingerprint         string                 `json:"fingerprint"`
+	CredentialExpiresAt time.Time              `json:"credentialExpiresAt,omitzero"`
+	State               *execution.WorkerGuard `json:"state,omitzero"`
 }
 
 type runtimeLoggerInvocation struct {
@@ -87,7 +88,7 @@ func parseRuntimeLoggerInvocation(argument string) (string, *runtimeCredentialGu
 		if guard.State.TaskSHA256 != guard.Fingerprint {
 			return "", nil, nil, errors.New("stateful guard differs from exact task binding")
 		}
-		if _, _, err := verifyStatefulRuntimeGuard(*guard.State, guard.State.Revision, guard.State.Deadline); err != nil {
+		if _, _, err := execution.VerifyWorkerGuard(*guard.State, guard.State.Revision, guard.State.Deadline); err != nil {
 			return "", nil, nil, err
 		}
 	}
@@ -170,7 +171,7 @@ func guardRuntimeCredential(ctx context.Context, guard runtimeCredentialGuard) e
 		deadline := guard.CredentialExpiresAt
 		if guard.State != nil {
 			var err error
-			leaseDeadline, revision, err = verifyStatefulRuntimeGuard(*guard.State, revision, leaseDeadline)
+			leaseDeadline, revision, err = execution.VerifyWorkerGuard(*guard.State, revision, leaseDeadline)
 			if err != nil {
 				return err
 			}

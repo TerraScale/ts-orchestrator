@@ -3,18 +3,11 @@ package swarmruntime
 import (
 	"context"
 	"path/filepath"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 )
 
-type StatefulRuntimeGuard = execution.WorkerGuard
-
-func verifyStatefulRuntimeGuard(guard StatefulRuntimeGuard, revision uint64, deadline time.Time) (time.Time, uint64, error) {
-	return execution.VerifyWorkerGuard(guard, revision, deadline)
-}
-
-func (c *controller) statefulRuntimeGuard(ctx context.Context) (*StatefulRuntimeGuard, error) {
+func (c *controller) statefulRuntimeGuard(ctx context.Context) (*execution.WorkerGuard, error) {
 	if !execution.Stateful(c.task) && c.stateful == nil {
 		return nil, nil
 	}
