@@ -485,6 +485,17 @@ func (u *Updater) useExistingTask(ctx context.Context, slot orchestrator.Slot, e
 			return err
 		})
 	}
+	if len(removeTasks) == 0 && existing.DesiredState != api.TaskStateRunning {
+		if started := u.restarts.InFlight(existing.ID); started != nil {
+			select {
+			case <-started:
+			case <-u.stopChan:
+				return nil
+			}
+			u.waitRunning(existing.ID, taskUpdates)
+			return nil
+		}
+	}
 	if len(removeTasks) != 0 || existing.DesiredState != api.TaskStateRunning {
 		var delayStartCh <-chan struct{}
 		err := u.store.Batch(func(batch *store.Batch) error {
@@ -590,24 +601,13 @@ func (u *Updater) isTaskDirty(t *api.Task) bool {
 }
 
 func (u *Updater) isSlotDirty(slot orchestrator.Slot) bool {
-	return len(slot) > 1 || (len(slot) == 1 && (u.isTaskDirty(slot[0]) || u.awaitsHostPorts(slot[0])))
+	return len(slot) > 1 || (len(slot) == 1 && (u.isTaskDirty(slot[0]) || u.awaitsHostPortStart(slot[0])))
 }
 
-func (u *Updater) awaitsHostPorts(t *api.Task) bool {
+func (u *Updater) awaitsHostPortStart(t *api.Task) bool {
 	status := u.newService.UpdateStatus
-	if status == nil || status.State != api.UpdateStatus_UPDATING && status.State != api.UpdateStatus_ROLLBACK_STARTED {
-		return false
-	}
-	var holder *api.Task
-	var err error
-	u.store.View(func(tx store.ReadTx) {
-		holder, err = restart.HostPortHolder(tx, t.ID)
-	})
-	if err != nil {
-		log.L.WithError(err).WithField("task.id", t.ID).Error("host port holders unreadable; the update keeps supervising the task")
-		return true
-	}
-	return holder != nil
+	return status != nil && (status.State == api.UpdateStatus_UPDATING || status.State == api.UpdateStatus_ROLLBACK_STARTED) &&
+		t.DesiredState <= api.TaskStateRunning && t.Status.State < api.TaskStateRunning && restart.PublishesHostPorts(t)
 }
 
 func (u *Updater) startUpdate(ctx context.Context, serviceID string) {

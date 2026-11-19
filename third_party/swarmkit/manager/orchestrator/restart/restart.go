@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -434,22 +435,14 @@ func (r *Supervisor) RecordRestartHistory(tuple orchestrator.SlotTuple, replacem
 func (r *Supervisor) DelayStart(ctx context.Context, _ store.Tx, oldTask *api.Task, newTaskID string, delay time.Duration, waitStop bool) <-chan struct{} {
 	ctx, cancel := context.WithCancel(context.Background())
 	doneCh := make(chan struct{})
+	current := &delayedStart{cancel: cancel, doneCh: doneCh}
 
 	r.mu.Lock()
-	for {
-		oldDelay, ok := r.delays[newTaskID]
-		if !ok {
-			break
-		}
-		oldDelay.cancel()
-		r.mu.Unlock()
-		// Note that this channel read should only block for a very
-		// short time, because we cancelled the existing delay and
-		// that should cause it to stop immediately.
-		<-oldDelay.doneCh
-		r.mu.Lock()
+	previous := r.delays[newTaskID]
+	if previous != nil {
+		previous.cancel()
 	}
-	r.delays[newTaskID] = &delayedStart{cancel: cancel, doneCh: doneCh}
+	r.delays[newTaskID] = current
 	r.mu.Unlock()
 
 	var watch chan events.Event
@@ -481,10 +474,20 @@ func (r *Supervisor) DelayStart(ctx context.Context, _ store.Tx, oldTask *api.Ta
 		defer func() {
 			cancelWatch()
 			r.mu.Lock()
-			delete(r.delays, newTaskID)
+			if r.delays[newTaskID] == current {
+				delete(r.delays, newTaskID)
+			}
 			r.mu.Unlock()
 			close(doneCh)
 		}()
+
+		if previous != nil {
+			select {
+			case <-previous.doneCh:
+			case <-ctx.Done():
+				return
+			}
+		}
 
 		oldTaskTimer := time.NewTimer(r.TaskTimeout)
 		defer oldTaskTimer.Stop()
@@ -498,6 +501,11 @@ func (r *Supervisor) DelayStart(ctx context.Context, _ store.Tx, oldTask *api.Ta
 			}
 		}
 
+		if serviceID := r.hostPortService(ctx, newTaskID); serviceID != "" {
+			r.startAfterHostPortRelease(ctx, serviceID, newTaskID)
+			return
+		}
+
 		if waitForTask {
 			select {
 			case <-watch:
@@ -505,10 +513,6 @@ func (r *Supervisor) DelayStart(ctx context.Context, _ store.Tx, oldTask *api.Ta
 			case <-ctx.Done():
 				return
 			}
-		}
-
-		if waitStop && !r.awaitHostPortRelease(ctx, newTaskID) {
-			return
 		}
 
 		err := r.store.Update(func(tx store.Tx) error {
@@ -526,16 +530,30 @@ func (r *Supervisor) DelayStart(ctx context.Context, _ store.Tx, oldTask *api.Ta
 	return doneCh
 }
 
-func (r *Supervisor) awaitHostPortRelease(ctx context.Context, taskID string) bool {
+func (r *Supervisor) InFlight(taskID string) <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if delay, ok := r.delays[taskID]; ok {
+		return delay.doneCh
+	}
+	return nil
+}
+
+func (r *Supervisor) hostPortService(ctx context.Context, taskID string) string {
 	var serviceID string
-	r.store.View(func(tx store.ReadTx) {
+	err := r.store.Update(func(tx store.Tx) error {
 		if t := store.GetTask(tx, taskID); t != nil && PublishesHostPorts(t) {
 			serviceID = t.ServiceID
 		}
+		return nil
 	})
-	if serviceID == "" {
-		return true
+	if err != nil {
+		log.G(ctx).WithError(err).WithField("task.id", taskID).Error("delayed task unreadable")
 	}
+	return serviceID
+}
+
+func (r *Supervisor) startAfterHostPortRelease(ctx context.Context, serviceID, taskID string) {
 	watch, cancelWatch := state.Watch(r.store.WatchQueue(),
 		api.EventUpdateTask{Task: &api.Task{ServiceID: serviceID}, Checks: []api.TaskCheckFunc{api.TaskCheckServiceID}},
 		api.EventDeleteTask{Task: &api.Task{ServiceID: serviceID}, Checks: []api.TaskCheckFunc{api.TaskCheckServiceID}},
@@ -543,51 +561,65 @@ func (r *Supervisor) awaitHostPortRelease(ctx context.Context, taskID string) bo
 		api.EventDeleteNode{},
 	)
 	defer cancelWatch()
-	var waiting string
+	reported := ""
 	for {
 		var holder *api.Task
-		var err error
-		r.store.View(func(tx store.ReadTx) {
-			holder, err = HostPortHolder(tx, taskID)
+		done := false
+		err := r.store.Update(func(tx store.Tx) error {
+			t := store.GetTask(tx, taskID)
+			if t == nil || t.DesiredState != api.TaskStateReady || t.Status.State > api.TaskStateRunning {
+				done = true
+				return nil
+			}
+			var err error
+			if holder, err = HostPortHolder(tx, t); err != nil {
+				return err
+			}
+			if holder == nil {
+				done = true
+				if reported != "" {
+					if err := recordRolloutWait(tx, t, "update in progress"); err != nil {
+						return err
+					}
+				}
+				return r.StartNow(tx, taskID)
+			}
+			if holder.ID != reported {
+				return recordRolloutWait(tx, t, fmt.Sprintf("task %s waits for task %s to stop and release its host ports", taskID, holder.ID))
+			}
+			return nil
 		})
-		if err != nil {
-			log.G(ctx).WithError(err).WithField("task.id", taskID).Error("host port holders unreadable")
-			return true
-		}
-		if holder == nil {
-			return true
-		}
-		if holder.ID != waiting {
-			waiting = holder.ID
+		switch {
+		case err != nil:
+			log.G(ctx).WithError(err).WithField("task.id", taskID).Error("host-port start gate transaction failed")
+		case done:
+			return
+		case holder.ID != reported:
+			reported = holder.ID
 			log.G(ctx).WithFields(map[string]interface{}{"task.id": taskID, "predecessor": holder.ID, "node.id": holder.NodeID}).Info("waiting for handoff: the predecessor still holds the host ports")
-			r.reportHostPortWait(ctx, serviceID, taskID, holder.ID)
 		}
 		select {
 		case <-watch:
 		case <-ctx.Done():
-			return false
+			return
 		}
 	}
 }
 
-func (r *Supervisor) reportHostPortWait(ctx context.Context, serviceID, taskID, holderID string) {
-	err := r.store.Update(func(tx store.Tx) error {
-		service := store.GetService(tx, serviceID)
-		if service == nil || service.UpdateStatus == nil ||
-			service.UpdateStatus.State != api.UpdateStatus_UPDATING && service.UpdateStatus.State != api.UpdateStatus_ROLLBACK_STARTED {
-			return nil
-		}
-		service.UpdateStatus.Message = fmt.Sprintf("task %s waits for task %s to stop and release its host ports", taskID, holderID)
-		return store.UpdateService(tx, service)
-	})
-	if err != nil {
-		log.G(ctx).WithError(err).WithField("service.id", serviceID).Error("rollout wait not recorded")
+func recordRolloutWait(tx store.Tx, t *api.Task, message string) error {
+	service := store.GetService(tx, t.ServiceID)
+	if service == nil || service.UpdateStatus == nil || service.UpdateStatus.State != api.UpdateStatus_UPDATING ||
+		service.SpecVersion == nil || t.SpecVersion == nil || service.SpecVersion.Index != t.SpecVersion.Index ||
+		service.UpdateStatus.Message == message {
+		return nil
 	}
+	service.UpdateStatus.Message = message
+	return store.UpdateService(tx, service)
 }
 
-func HostPortHolder(tx store.ReadTx, taskID string) (*api.Task, error) {
-	t := store.GetTask(tx, taskID)
-	if t == nil || t.DesiredState != api.TaskStateReady || !PublishesHostPorts(t) {
+func HostPortHolder(tx store.ReadTx, t *api.Task) (*api.Task, error) {
+	ports := hostPorts(t)
+	if len(ports) == 0 {
 		return nil, nil
 	}
 	siblings, err := store.FindTasks(tx, store.ByServiceID(t.ServiceID))
@@ -602,6 +634,9 @@ func HostPortHolder(tx store.ReadTx, taskID string) (*api.Task, error) {
 		if (t.Slot == 0 || sibling.Slot != t.Slot) && sibling.NodeID != t.NodeID {
 			continue
 		}
+		if !slices.ContainsFunc(hostPorts(sibling), func(port uint32) bool { return slices.Contains(ports, port) }) {
+			continue
+		}
 		if node := store.GetNode(tx, sibling.NodeID); node == nil || node.Status.State == api.NodeStatus_DOWN {
 			continue
 		}
@@ -611,19 +646,24 @@ func HostPortHolder(tx store.ReadTx, taskID string) (*api.Task, error) {
 }
 
 func PublishesHostPorts(t *api.Task) bool {
+	return len(hostPorts(t)) != 0
+}
+
+func hostPorts(t *api.Task) []uint32 {
 	if t.Endpoint == nil {
-		return false
+		return nil
 	}
 	ports := t.Endpoint.Ports
 	if t.Endpoint.Spec != nil {
 		ports = t.Endpoint.Spec.Ports
 	}
+	var published []uint32
 	for _, port := range ports {
 		if port.PublishMode == api.PublishModeHost && port.PublishedPort != 0 {
-			return true
+			published = append(published, port.PublishedPort)
 		}
 	}
-	return false
+	return published
 }
 
 // StartNow moves the task into the RUNNING state so it will proceed to start
