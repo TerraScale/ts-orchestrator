@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -28,6 +29,39 @@ type bindingJourney struct {
 	failAttach        bool
 	volumeWrites      int
 	instanceETag      int
+	interrupt         string
+	reached           string
+	conflictingVolume string
+}
+
+func (b *bindingJourney) checkpoint(w http.ResponseWriter, step string) {
+	if b.interrupt == step {
+		b.reached = step
+		w.Header().Set("X-Journey-Interrupt", "true")
+	}
+}
+
+type bindingTransport struct {
+	cancel context.CancelFunc
+}
+
+func (t bindingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	response, err := http.DefaultTransport.RoundTrip(r)
+	if err == nil && response.Header.Get("X-Journey-Interrupt") == "true" {
+		response.Body = &bindingResponse{ReadCloser: response.Body, cancel: t.cancel}
+	}
+	return response, err
+}
+
+type bindingResponse struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *bindingResponse) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
 }
 
 func (b *bindingJourney) request(c *cloud, w http.ResponseWriter, r *http.Request, parts []string, reply func(any)) bool {
@@ -47,12 +81,14 @@ func (b *bindingJourney) request(c *cloud, w http.ResponseWriter, r *http.Reques
 		}
 	}
 	if r.Method == http.MethodGet && kind == "volumeAttachments" && len(parts) == 3 && c.resources[kind][0]["lifecycleState"] == "ATTACHING" {
+		b.checkpoint(w, "attachment")
 		c.events = append(c.events, "attachment-settling")
 		reply(c.resources[kind][0])
 		c.resources[kind][0]["lifecycleState"] = "ATTACHED"
 		return true
 	}
 	if r.Method == http.MethodPost && kind == "volumeAttachments" && b.failAttach {
+		b.checkpoint(w, "attach")
 		http.Error(w, "attach interrupted", http.StatusBadRequest)
 		return true
 	}
@@ -62,10 +98,17 @@ func (b *bindingJourney) request(c *cloud, w http.ResponseWriter, r *http.Reques
 	c.events = append(c.events, r.Method+" "+kind)
 	if kind == "volumes" {
 		if b.failTag {
+			b.checkpoint(w, "tag")
 			http.Error(w, "tag interrupted", http.StatusBadRequest)
 			return true
 		}
-		old := c.resources["volumes"][0]["freeformTags"].(object)
+		var old object
+		for _, volume := range c.resources["volumes"] {
+			if volume["id"] == parts[2] {
+				old = volume["freeformTags"].(object)
+			}
+		}
+		must(old != nil, "missing volume to update")
 		if old["terrascale-data-instance"] != nil && old["terrascale-data-instance"] != "" {
 			w.WriteHeader(http.StatusBadRequest)
 			reply(object{"code": "InvalidParameter", "message": "owner tag is already written"})
@@ -78,14 +121,19 @@ func (b *bindingJourney) request(c *cloud, w http.ResponseWriter, r *http.Reques
 		must(c.resources["volumeAttachments"][0]["lifecycleState"] == "ATTACHED", "metadata updated before attachment settled")
 		must(r.Header.Get("If-Match") == fmt.Sprint(b.instanceETag), "metadata update used stale instance ETag")
 		if b.failMetadata {
+			b.checkpoint(w, "metadata")
 			http.Error(w, "metadata interrupted", http.StatusBadRequest)
 			return true
 		}
 		if b.conflicts > 0 {
+			b.checkpoint(w, "conflict")
 			b.conflicts--
 			b.conflictCount++
 			b.instanceETag++
 			c.resources["instances"][0]["metadata"].(object)["concurrent"] = "retained"
+			if b.conflictingVolume != "" {
+				c.resources["instances"][0]["metadata"].(object)[nodeinit.VolumeKey] = b.conflictingVolume
+			}
 			w.WriteHeader(http.StatusConflict)
 			reply(object{"code": "Conflict", "message": "attachment update still in progress"})
 			return true
@@ -93,11 +141,16 @@ func (b *bindingJourney) request(c *cloud, w http.ResponseWriter, r *http.Reques
 	}
 	var update object
 	must(json.UnmarshalRead(r.Body, &update) == nil, "decode compute update")
-	for key, value := range update {
-		c.resources[kind][0][key] = value
+	for _, item := range c.resources[kind] {
+		if item["id"] == parts[2] {
+			for key, value := range update {
+				item[key] = value
+			}
+			reply(item)
+			return true
+		}
 	}
-	reply(c.resources[kind][0])
-	return true
+	panic("missing update resource")
 }
 
 func bindingCloud() (*cloud, compute.Pass) {
@@ -134,7 +187,13 @@ func applyBinding(ctx context.Context, c *cloud, pass compute.Pass) error {
 	pass.Compute.Host = api.URL
 	pass.Management.Host = api.URL
 	pass.Storage.Host = api.URL
-	return pass.Run(ctx)
+	invocation, cancel := context.WithCancel(ctx)
+	defer cancel()
+	client := &http.Client{Transport: bindingTransport{cancel: cancel}}
+	pass.Compute.HTTPClient = client
+	pass.Management.HTTPClient = client
+	pass.Storage.HTTPClient = client
+	return pass.Run(invocation)
 }
 
 func bound(c *cloud) {
@@ -171,13 +230,16 @@ func computeBindings() {
 		if step == "conflict" {
 			c.binding.conflicts = 1
 		}
-		interrupted, stop := context.WithTimeout(ctx, 500*time.Millisecond)
-		err = applyBinding(interrupted, c, pass)
-		stop()
-		must(err != nil, "missing interruption after "+step)
-		if step == "conflict" {
-			must(c.binding.conflictCount == 1 && strings.Contains(err.Error(), "last OCI conflict"), "interruption did not follow 409")
+		c.binding.interrupt = step
+		err = applyBinding(ctx, c, pass)
+		must(err != nil && c.binding.reached == step, fmt.Sprint("missing interruption after ", step, ": ", err))
+		if step == "metadata" || step == "conflict" {
+			must(c.binding.volumeWrites == 1 && c.resources["volumes"][0]["freeformTags"].(object)["terrascale-data-instance"] == "pool-node", "owner tag was not written before "+step)
 		}
+		if step == "conflict" {
+			must(c.binding.conflictCount == 1, "interruption did not follow 409")
+		}
+		c.binding.interrupt = ""
 		c.binding.failAttach = false
 		c.binding.failTag = false
 		c.binding.failMetadata = false
@@ -188,17 +250,15 @@ func computeBindings() {
 	}
 	fmt.Println("compute binding: failures at attach, attachment settling, tag, metadata and attach->409 all resume without duplicate attachments or tag writes")
 
-	for _, state := range []string{"detached", "attached", "metadata-bound"} {
+	for _, state := range []string{"attached", "metadata-bound"} {
 		c, pass = bindingCloud()
 		c.binding.failMetadata = true
-		interrupted, stop := context.WithTimeout(ctx, 500*time.Millisecond)
-		_ = applyBinding(interrupted, c, pass)
-		stop()
+		c.binding.interrupt = "metadata"
+		err = applyBinding(ctx, c, pass)
+		must(err != nil && c.binding.reached == "metadata" && c.binding.volumeWrites == 1, "missing written owner before foreign-owner scenario")
+		c.binding.interrupt = ""
 		c.binding.failMetadata = false
 		c.resources["volumes"][0]["freeformTags"].(object)["terrascale-data-instance"] = "different-instance"
-		if state == "detached" {
-			c.resources["volumeAttachments"] = nil
-		}
 		if state == "metadata-bound" {
 			c.resources["instances"][0]["metadata"].(object)[nodeinit.VolumeKey] = c.resources["volumes"][0]["id"]
 		}
@@ -207,5 +267,110 @@ func computeBindings() {
 		must(err != nil && strings.Contains(err.Error(), "different-instance") && strings.Contains(err.Error(), "pool-node"), fmt.Sprint("foreign owner accepted: ", err))
 		must(len(c.events) == writes, "foreign owner changed cloud resources")
 	}
-	fmt.Println("compute binding: different owner refuses before attach or metadata update, including an already attached volume")
+	fmt.Println("compute binding: different attached owner refuses before owner or metadata writes, including metadata already bound")
+	computeSelection(ctx)
+	computeConflicts(ctx)
+}
+
+func poolVolume(c *cloud, pass compute.Pass, name, owner string) object {
+	tags := object{}
+	for key, value := range pass.Ownership.Stamp(pass.Key("volume", name), 1, "").Freeform {
+		tags[key] = value
+	}
+	tags["terrascale-data-uuid"] = uuid
+	if owner != "" {
+		tags["terrascale-data-instance"] = owner
+	}
+	volume := object{"id": "ocid1.volume.oc1.test." + name, "availabilityDomain": "AD", "lifecycleState": "AVAILABLE", "sizeInGBs": 50, "freeformTags": tags}
+	c.resources["volumes"] = append(c.resources["volumes"], volume)
+	return volume
+}
+
+func poolAttachment(c *cloud, volume object, device string) object {
+	attachment := object{"id": fmt.Sprintf("attachment-%d", len(c.resources["volumeAttachments"])), "instanceId": "pool-node", "volumeId": volume["id"],
+		"device": device, "attachmentType": "paravirtualized", "isReadOnly": false, "isShareable": false, "lifecycleState": "ATTACHED"}
+	c.resources["volumeAttachments"] = append(c.resources["volumeAttachments"], attachment)
+	return attachment
+}
+
+func computeSelection(ctx context.Context) {
+	for _, retained := range []int{1, 3} {
+		c, pass := bindingCloud()
+		for n := 1; n <= retained; n++ {
+			poolVolume(c, pass, fmt.Sprintf("data-%d", n), "retired-node")
+		}
+		if retained == 1 {
+			poolVolume(c, pass, "data-2", "")
+		}
+		before, err := json.Marshal(c.resources["volumes"][:retained], json.Deterministic(true))
+		must(err == nil, fmt.Sprint(err))
+		err = applyBinding(ctx, c, pass)
+		must(err == nil, fmt.Sprint("retained volume blocks capacity: ", err))
+		must(len(c.resources["volumes"]) == retained+1 && len(c.resources["volumeAttachments"]) == 1, "incorrect retained-volume capacity")
+		selected := c.resources["volumes"][retained]
+		must(c.resources["instances"][0]["metadata"].(object)[nodeinit.VolumeKey] == selected["id"], "retained disk selected instead of eligible slot")
+		after, err := json.Marshal(c.resources["volumes"][:retained], json.Deterministic(true))
+		must(err == nil && string(before) == string(after), "retained volumes changed")
+	}
+	fmt.Println("compute binding: retired-owner slots stay untouched; select a later unclaimed slot or create beyond retained slots at Max")
+
+	c, pass := bindingCloud()
+	other := poolVolume(c, pass, "data-1", "")
+	data := poolVolume(c, pass, "data-3", "pool-node")
+	poolAttachment(c, other, "/dev/oracleoci/oraclevdc")
+	poolAttachment(c, data, "/dev/oracleoci/oraclevdb")
+	metadata := c.resources["instances"][0]["metadata"].(object)
+	metadata[nodeinit.VolumeKey], metadata[nodeinit.FormatKey] = data["id"], "false"
+	before := maps.Clone(metadata)
+	err := applyBinding(ctx, c, pass)
+	must(err == nil, fmt.Sprint("secondary attachment changed data binding: ", err))
+	must(maps.Equal(metadata, before) && len(c.resources["volumeAttachments"]) == 2 && c.binding.volumeWrites == 0 &&
+		!slices.Contains(c.events, "PUT instances") && !slices.Contains(c.events, "POST volumeAttachments"), "secondary volume replaced existing binding")
+	must(other["freeformTags"].(object)["terrascale-data-instance"] == nil, "secondary volume was claimed")
+	fmt.Println("compute binding: data-3 at the data device and its format refusal survive a sorted data-1 secondary attachment")
+}
+
+func computeConflicts(ctx context.Context) {
+	for _, conflict := range []string{"metadata", "device", "read-only", "shared"} {
+		c, pass := bindingCloud()
+		volume := poolVolume(c, pass, "data-1", "")
+		attachment := poolAttachment(c, volume, "/dev/oracleoci/oraclevdb")
+		metadata := c.resources["instances"][0]["metadata"].(object)
+		metadata[nodeinit.VolumeKey] = volume["id"]
+		switch conflict {
+		case "metadata":
+			metadata[nodeinit.VolumeKey] = "ocid1.volume.oc1.test.recorded"
+		case "device":
+			attachment["device"] = "/dev/oracleoci/oraclevdc"
+		case "read-only":
+			attachment["isReadOnly"] = true
+		case "shared":
+			attachment["isShareable"] = true
+		}
+		before, err := json.Marshal([]any{volume, attachment, metadata}, json.Deterministic(true))
+		must(err == nil, fmt.Sprint(err))
+		err = applyBinding(ctx, c, pass)
+		must(err != nil, "accepted conflicting "+conflict)
+		after, marshalErr := json.Marshal([]any{volume, attachment, metadata}, json.Deterministic(true))
+		must(marshalErr == nil && string(before) == string(after) && c.binding.volumeWrites == 0 &&
+			!slices.Contains(c.events, "PUT instances") && !slices.Contains(c.events, "POST volumeAttachments"), "conflict mutated binding: "+conflict)
+	}
+	fmt.Println("compute binding: conflicting metadata, wrong device, read-only and shared attachments refuse before owner or metadata writes")
+
+	c, pass := bindingCloud()
+	c.binding.conflicts = 1
+	c.binding.conflictingVolume = "ocid1.volume.oc1.test.concurrent"
+	err := applyBinding(ctx, c, pass)
+	must(err != nil && strings.Contains(err.Error(), c.binding.conflictingVolume), fmt.Sprint("409 overwrote conflicting identity: ", err))
+	metadata := c.resources["instances"][0]["metadata"].(object)
+	must(metadata[nodeinit.VolumeKey] == c.binding.conflictingVolume && metadata[nodeinit.FormatKey] == nil &&
+		c.binding.conflictCount == 1 && c.binding.volumeWrites == 1 && len(c.resources["volumeAttachments"]) == 1, "409 retry mutated conflicting identity")
+	updates := 0
+	for _, event := range c.events {
+		if event == "PUT instances" {
+			updates++
+		}
+	}
+	must(updates == 1, "409 retry submitted metadata after identity changed")
+	fmt.Println("compute binding: metadata OCID changed by a concurrent 409 is preserved; no second metadata update or owner write")
 }

@@ -23,47 +23,47 @@ func (p Pass) bindingVolume(ctx context.Context, instance core.Instance, chosen 
 }
 
 func (p Pass) bind(ctx context.Context, instance core.Instance, chosen slot) error {
-	volume, err := p.bindingVolume(ctx, instance, chosen)
-	if err != nil {
-		return err
-	}
 	changed := false
-	if volume.FreeformTags[boundInstance] == "" {
-		tags := maps.Clone(volume.FreeformTags)
-		if tags == nil {
-			tags = map[string]string{}
-		}
-		tags[boundInstance] = *instance.Id
-		if _, err := p.Storage.UpdateVolume(ctx, core.UpdateVolumeRequest{VolumeId: volume.Id, IfMatch: volume.Etag,
-			UpdateVolumeDetails: core.UpdateVolumeDetails{FreeformTags: tags}}); err != nil {
-			return fmt.Errorf("record %s on %s: %w", *instance.Id, p.Key("volume", chosen.name), err)
-		}
-		changed = true
-	}
 	var conflict error
-	err = waitFor(ctx, func() (bool, error) {
+	err := waitFor(ctx, func() (bool, error) {
 		attachments, err := all(func(page *string) ([]core.VolumeAttachment, *string, error) {
 			got, err := p.Compute.ListVolumeAttachments(ctx, core.ListVolumeAttachmentsRequest{
-				CompartmentId: &p.Compartment, InstanceId: instance.Id, VolumeId: volume.Id, Page: page,
+				CompartmentId: &p.Compartment, InstanceId: instance.Id, Page: page,
 			})
 			return got.Items, got.OpcNextPage, err
 		})
 		if err != nil {
 			return false, err
 		}
-		attached := false
-		for _, attachment := range attachments {
-			if deref(attachment.GetInstanceId()) == *instance.Id && deref(attachment.GetVolumeId()) == *volume.Id &&
-				attachment.GetLifecycleState() == core.VolumeAttachmentLifecycleStateAttached {
-				attached = true
-			}
+		attached, err := bindingAttachment(*instance.Id, *chosen.volume.Id, attachments)
+		if err != nil {
+			return false, err
 		}
 		got, err := p.Compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: instance.Id})
 		if err != nil {
 			return false, err
 		}
+		if target := got.Metadata[nodeinit.VolumeKey]; target != "" && target != *chosen.volume.Id {
+			return false, fmt.Errorf("instance %s records data volume %s; refusing replacement with %s", *instance.Id, target, *chosen.volume.Id)
+		}
 		if !attached || got.LifecycleState != core.InstanceLifecycleStateRunning {
 			return false, nil
+		}
+		volume, err := p.bindingVolume(ctx, got.Instance, chosen)
+		if err != nil {
+			return false, err
+		}
+		if volume.FreeformTags[boundInstance] == "" {
+			tags := maps.Clone(volume.FreeformTags)
+			if tags == nil {
+				tags = map[string]string{}
+			}
+			tags[boundInstance] = *instance.Id
+			if _, err := p.Storage.UpdateVolume(ctx, core.UpdateVolumeRequest{VolumeId: volume.Id, IfMatch: volume.Etag,
+				UpdateVolumeDetails: core.UpdateVolumeDetails{FreeformTags: tags}}); err != nil {
+				return false, fmt.Errorf("record %s on %s: %w", *instance.Id, p.Key("volume", chosen.name), err)
+			}
+			changed = true
 		}
 		if got.Metadata[nodeinit.VolumeKey] == *volume.Id {
 			return true, nil
@@ -93,6 +93,27 @@ func (p Pass) bind(ctx context.Context, instance core.Instance, chosen slot) err
 	if changed {
 		verb = "bound"
 	}
-	p.say(verb, "volume", chosen.name, *volume.Id+" to "+deref(instance.DisplayName))
+	p.say(verb, "volume", chosen.name, *chosen.volume.Id+" to "+deref(instance.DisplayName))
 	return nil
+}
+
+func bindingAttachment(instance, volume string, attachments []core.VolumeAttachment) (bool, error) {
+	var selected core.VolumeAttachment
+	for _, attachment := range attachments {
+		if deref(attachment.GetInstanceId()) != instance || attachment.GetLifecycleState() == core.VolumeAttachmentLifecycleStateDetached {
+			continue
+		}
+		id, device := deref(attachment.GetVolumeId()), deref(attachment.GetDevice())
+		if id == volume && device != dataDevice || device == dataDevice && id != volume {
+			return false, fmt.Errorf("instance %s has conflicting volume %s at %s; expected %s at %s", instance, id, device, volume, dataDevice)
+		}
+		if device != dataDevice {
+			continue
+		}
+		if selected != nil || deref(attachment.GetIsReadOnly()) || deref(attachment.GetIsShareable()) {
+			return false, fmt.Errorf("instance %s requires one exclusive writable attachment for %s at %s", instance, volume, dataDevice)
+		}
+		selected = attachment
+	}
+	return selected != nil && selected.GetLifecycleState() == core.VolumeAttachmentLifecycleStateAttached, nil
 }

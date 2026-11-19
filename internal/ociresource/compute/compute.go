@@ -12,6 +12,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/TerraScale/ts-orchestrator/internal/nodeinit"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -434,7 +435,10 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) err
 		if !p.owns("instance", "node", current.FreeformTags) {
 			return fmt.Errorf("pool instance %s lacks %s", *instance.Id, p.Key("instance", "node"))
 		}
-		chosen, attached := p.pick(slots, attachedTo, current)
+		chosen, attached, err := p.pick(slots, attachedTo, attachments, current)
+		if err != nil {
+			return err
+		}
 		if !attached {
 			if chosen.name == "" {
 				if chosen, err = p.create(ctx, slots, current); err != nil {
@@ -464,30 +468,50 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) err
 	return nil
 }
 
-func (p Pass) pick(slots map[string]core.Volume, attachedTo map[string]string, instance core.Instance) (slot, bool) {
+func (p Pass) pick(slots map[string]core.Volume, attachedTo map[string]string, attachments []core.VolumeAttachment, instance core.Instance) (slot, bool, error) {
+	target := instance.Metadata[nodeinit.VolumeKey]
+	for _, attachment := range attachments {
+		if deref(attachment.GetInstanceId()) != *instance.Id || deref(attachment.GetDevice()) != dataDevice {
+			continue
+		}
+		id := deref(attachment.GetVolumeId())
+		if target != "" && target != id {
+			return slot{}, false, fmt.Errorf("instance %s records data volume %s but %s has %s; refusing conflicting binding", *instance.Id, target, dataDevice, id)
+		}
+		target = id
+	}
 	var free slot
 	for _, name := range slices.Sorted(maps.Keys(slots)) {
 		volume := slots[name]
-		switch {
-		case attachedTo[*volume.Id] == *instance.Id:
-			return slot{name, volume}, true
-		case free.name == "" && attachedTo[*volume.Id] == "" && volume.LifecycleState == core.VolumeLifecycleStateAvailable &&
-			deref(volume.AvailabilityDomain) == deref(instance.AvailabilityDomain):
+		if target != "" && *volume.Id == target {
+			if owner := attachedTo[target]; owner != "" && owner != *instance.Id {
+				return slot{}, false, fmt.Errorf("instance %s records data volume %s attached to %s", *instance.Id, target, owner)
+			}
+			if attachedTo[target] == *instance.Id {
+				if _, err := bindingAttachment(*instance.Id, target, attachments); err != nil {
+					return slot{}, false, err
+				}
+			}
+			return slot{name, volume}, attachedTo[target] == *instance.Id, nil
+		}
+		owner := volume.FreeformTags[boundInstance]
+		if free.name == "" && attachedTo[*volume.Id] == "" && volume.LifecycleState == core.VolumeLifecycleStateAvailable &&
+			deref(volume.AvailabilityDomain) == deref(instance.AvailabilityDomain) && (owner == "" || owner == *instance.Id) {
 			free = slot{name, volume}
 		}
 	}
-	return free, false
+	if target != "" {
+		return slot{}, false, fmt.Errorf("instance %s records data volume %s without a matching owned slot; refusing replacement", *instance.Id, target)
+	}
+	return free, false, nil
 }
 
 func (p Pass) create(ctx context.Context, slots map[string]core.Volume, instance core.Instance) (slot, error) {
 	name := ""
-	for n := 1; n <= p.Max && name == ""; n++ {
+	for n := 1; n <= len(slots)+1 && name == ""; n++ {
 		if _, used := slots[fmt.Sprintf("data-%d", n)]; !used {
 			name = fmt.Sprintf("data-%d", n)
 		}
-	}
-	if name == "" {
-		return slot{}, fmt.Errorf("node %s in %s has no data volume and all %d data volumes are in use or in other availability domains", *instance.Id, deref(instance.AvailabilityDomain), p.Max)
 	}
 	tags := p.tags("volume", name)
 	tags[filesystemTag] = uuid.New().String()
@@ -519,6 +543,9 @@ func (p Pass) attach(ctx context.Context, instance core.Instance, chosen slot) e
 	}
 	if err := waitFor(ctx, func() (bool, error) {
 		got, err := p.Compute.GetVolumeAttachment(ctx, core.GetVolumeAttachmentRequest{VolumeAttachmentId: attached.VolumeAttachment.GetId()})
+		if err != nil {
+			return false, err
+		}
 		return got.VolumeAttachment.GetLifecycleState() == core.VolumeAttachmentLifecycleStateAttached, err
 	}); err != nil {
 		return err
