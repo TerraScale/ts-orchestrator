@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nats-io/nats.go/jetstream"
 	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/releasegate"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func RunStagingWithdrawals(ctx context.Context, region string, fabric *nats.Conn) error {
@@ -22,7 +22,7 @@ func RunStagingWithdrawals(ctx context.Context, region string, fabric *nats.Conn
 	if err != nil {
 		return err
 	}
-	store, err := Open(ctx, fabric, region)
+	store, err := Open(ctx, fabric, region, region)
 	if err != nil {
 		return err
 	}
@@ -83,7 +83,6 @@ func RunStagingWithdrawals(ctx context.Context, region string, fabric *nats.Conn
 				return fmt.Errorf("publish withdrawal for %s: %w", tag, err)
 			}
 			published[tag] = struct{}{}
-
 		}
 	}
 }

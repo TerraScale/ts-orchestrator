@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"os/exec"
 	"slices"
 	"strings"
 	"time"
