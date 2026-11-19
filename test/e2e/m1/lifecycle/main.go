@@ -50,6 +50,8 @@ func main() {
 		})
 	case "node":
 		err = node(ctx, os.Args[2], os.Args[3])
+	case "service-logs":
+		err = serviceLogs(ctx, os.Args[2], os.Args[3:])
 	case "every-node":
 		err = everyNode(ctx, os.Args[2], os.Args[3], os.Args[4])
 	default:
@@ -532,6 +534,10 @@ func run(ctx context.Context, root, image string) error {
 	if err != nil {
 		return err
 	}
+	remoteLogsAfterRestart, err := j.remoteLogs(image)
+	if err != nil {
+		return err
+	}
 	owner, first, second := ownerSet[0], firstSet[0], secondSet[0]
 	keys, err := j.keys()
 	if err != nil {
@@ -553,6 +559,9 @@ func run(ctx context.Context, root, image string) error {
 		}
 	}
 	fmt.Printf("agent stop/start retained PIDs %d %d %d %d %d; all served while stopped and after start\n", owner.process.Pid(), first.process.Pid(), second.process.Pid(), twins[0].process.Pid(), twins[1].process.Pid())
+	if err := remoteLogsAfterRestart(); err != nil {
+		return err
+	}
 	if len(os.Args) > 3 && os.Args[3] == "quick" {
 		return j.quickContinuity(owner, keys)
 	}

@@ -149,20 +149,29 @@ psql "host=sjc.pg.terrascale.tech port=5432 sslmode=verify-full sslrootcert=syst
 
 ## Operator commands
 
-Run on the host as root. Every command reads `/var/lib/ts-orch` over the
-control socket; none changes state. Known failures end in `. Fix: <next step>`.
+Run on a manager as root. Every command uses the existing `/var/lib/ts-orch`
+control socket; log reads reach the task-owning node over the authenticated
+cluster channel. None changes state. Known failures end in `. Fix: <next step>`.
 
 | Command | Shows |
 |---|---|
 | `ts-orch service ps <svc>` | Tasks newest first: ID, node, state, desired state, time in state, last error; then `Fix:` for the newest task's error |
-| `ts-orch service logs [-f] <svc>` | Newest task's container stdout then stderr (`<state>/runtime-logs/ts-<task>/`); `-f` follows appended output |
+| `ts-orch service logs [-f \| --previous] <svc>` | Newest task's stdout then stderr from its node, including STARTING tasks; `--previous` reads a retained ended task; `-f` follows only a task on this host |
 | `ts-orch service inspect <svc>` | JSON: service ID, version, created/updated, image digest, and the declared spec. Secrets show env keys and OCI Vault refs only; values never enter the spec |
 | `ts-orch events [-f]` | Latest 100 task and service state records, oldest first; `-f` streams changes from the manager's watch API |
 
 The release listener's NATS carries only releases, so `events` reads SwarmKit's watch API.
 
 Deploy check: `service apply -f x.json`, then `events -f` until the task shows
-`running`, then `service logs <svc>`.
+`running`. Read `sudo ts-orch service logs <svc>` on the manager at any point,
+including while a failed readiness probe holds the task in STARTING. Use
+`--previous` after it exits. SSH to the worker is unnecessary.
+
+A task on another node is read as a snapshot and the command exits. `-f` on
+such a task fails at once with `follow works only on the node that runs the
+task: run it on <node>`. An unavailable node is reported as an incomplete log
+stream; a stalled read ends at 30 seconds. See
+[task log retention](task-log-retention.md).
 
 Common errors and fixes:
 

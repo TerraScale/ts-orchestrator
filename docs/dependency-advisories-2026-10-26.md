@@ -196,3 +196,19 @@ The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
 `babf9117ecc5f0e744f168e2a8d04cd02e0533126e99706d814c8dbbd0539217`; the
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.
+
+## 2026-11-19: log snapshot completion without a detached waiter
+
+C17 changes `manager/logbroker/subscription.go`. Upstream v2.1.2 waits for a
+snapshot subscription with a goroutine blocked on a `sync.WaitGroup`. When a
+reader gives up before a connected node finishes publishing, that goroutine
+stays blocked. Now the subscription closes a channel when the last owning node
+reports `Done`. Completion still waits for every owning node, and the
+incomplete-stream error still follows the queued output. Follow subscriptions
+are unchanged. Upstream master was not checked for this change.
+
+The e2e-m1 lifecycle lane reads a worker task's snapshot from the manager.
+The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
+`755a9a42071f531d53bb82fcc80a1a2602d8a7e122b460cf54b6cd5309afe396`; the
+v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
+remain unchanged.

@@ -414,12 +414,39 @@ func keepLogTail(file *os.File, size int64) (int64, error) {
 	if i := bytes.IndexByte(tail, '\n'); i >= 0 {
 		tail = tail[i+1:]
 	}
-	if err := file.Truncate(0); err != nil {
-		return 0, err
-	}
 	kept := slices.Concat(head, logGap, tail)
-	if _, err := file.Write(kept); err != nil {
+	err := withLogLock(file, unix.LOCK_EX, func() error {
+		if err := file.Truncate(0); err != nil {
+			return err
+		}
+		_, err := file.Write(kept)
+		return err
+	})
+	if err != nil {
 		return 0, err
 	}
 	return int64(len(kept)), nil
+}
+
+func readRuntimeLog(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	var data []byte
+	err = withLogLock(file, unix.LOCK_SH|unix.LOCK_NB, func() (err error) {
+		data, err = io.ReadAll(io.LimitReader(file, logSegmentBytes))
+		return err
+	})
+	if errors.Is(err, unix.EWOULDBLOCK) {
+		err = errors.New("the task logger is rewriting this log to stay under its cap; read it again")
+	}
+	return data, errors.Join(err, file.Close())
+}
+
+func withLogLock(file *os.File, how int, locked func() error) error {
+	if err := unix.Flock(int(file.Fd()), how); err != nil {
+		return err
+	}
+	return errors.Join(locked(), unix.Flock(int(file.Fd()), unix.LOCK_UN))
 }

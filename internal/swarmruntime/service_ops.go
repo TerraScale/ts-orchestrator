@@ -40,6 +40,7 @@ func ServiceByName(ctx context.Context, client api.ControlClient, name string) (
 // retains; Exit is -1 until the container reports a status.
 type TaskRow struct {
 	ID, Node, State, Desired, Error string
+	NodeID                          string
 	Since                           time.Time
 	Slot                            uint64
 	Restarts                        int
@@ -71,7 +72,7 @@ func TaskRows(tasks []*api.Task, hosts map[string]string, now time.Time) []TaskR
 	restarts, recent := map[uint64]int{}, map[uint64]int{}
 	rows := make([]TaskRow, 0, len(tasks))
 	for _, task := range tasks {
-		row := TaskRow{ID: task.ID, Node: hosts[task.NodeID], State: task.Status.State.String(), Slot: task.Slot,
+		row := TaskRow{ID: task.ID, NodeID: task.NodeID, Node: hosts[task.NodeID], State: task.Status.State.String(), Slot: task.Slot,
 			Desired: task.DesiredState.String(), Error: task.Status.Err, Since: TaskTime(task), Exit: -1,
 			Terminal: task.Status.State > api.TaskStateRunning}
 		if container := task.Status.GetContainer(); container != nil {

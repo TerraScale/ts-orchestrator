@@ -15,8 +15,8 @@ import (
 )
 
 type subscription struct {
-	mu sync.RWMutex
-	wg sync.WaitGroup
+	mu   sync.RWMutex
+	done chan struct{}
 
 	store   *store.MemoryStore
 	message *api.SubscriptionMessage
@@ -33,6 +33,7 @@ type subscription struct {
 func newSubscription(store *store.MemoryStore, message *api.SubscriptionMessage, changed *watch.Queue) *subscription {
 	return &subscription{
 		store:        store,
+		done:         make(chan struct{}),
 		message:      message,
 		changed:      changed,
 		nodes:        make(map[string]struct{}),
@@ -90,12 +91,21 @@ func (s *subscription) Wait(_ context.Context) <-chan struct{} {
 		return nil
 	}
 
-	ch := make(chan struct{})
-	go func() {
-		defer close(ch)
-		s.wg.Wait()
-	}()
-	return ch
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closeWhenComplete()
+	return s.done
+}
+
+func (s *subscription) closeWhenComplete() {
+	if len(s.nodes) != 0 {
+		return
+	}
+	select {
+	case <-s.done:
+	default:
+		close(s.done)
+	}
 }
 
 func (s *subscription) Done(nodeID string, err error) {
@@ -115,7 +125,7 @@ func (s *subscription) Done(nodeID string, err error) {
 	}
 
 	delete(s.nodes, nodeID)
-	s.wg.Done()
+	s.closeWhenComplete()
 }
 
 func (s *subscription) Err() error {
@@ -160,7 +170,6 @@ func (s *subscription) match() {
 		}
 		if _, ok := s.nodes[t.NodeID]; !ok {
 			s.nodes[t.NodeID] = struct{}{}
-			s.wg.Add(1)
 		}
 	}
 

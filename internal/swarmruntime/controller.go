@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -989,10 +988,20 @@ func (c *controller) Metrics(ctx context.Context) (*types.Metric, error) {
 	return t.Metrics(runtimeContext(ctx))
 }
 
-// shortcut: snapshots omit original timestamps; frame records before adding time-filtered log subscriptions.
-func (c *controller) Logs(ctx context.Context, publisher exec.LogPublisher, options api.LogSubscriptionOptions) error {
-	if options.Follow || options.Since != nil || options.Tail != 0 {
-		return fmt.Errorf("runtime logs support bounded snapshots only")
+const LogErrorAttribute = "terrascale.log.error"
+
+func (c *controller) Logs(ctx context.Context, publisher exec.LogPublisher, options api.LogSubscriptionOptions) (err error) {
+	logContext := api.LogContext{NodeID: c.task.NodeID, ServiceID: c.task.ServiceID, TaskID: c.task.ID}
+	defer func() {
+		if err != nil && ctx.Err() == nil {
+			err = errors.Join(err, publisher.Publish(ctx, api.LogMessage{Context: logContext, Attrs: []api.LogAttr{{Key: LogErrorAttribute, Value: err.Error()}}}))
+		}
+	}()
+	if options.Follow {
+		return errors.New("follow works only on the node that runs the task")
+	}
+	if options.Since != nil || options.Tail != 0 {
+		return errors.New("runtime logs do not support time or tail filters")
 	}
 	for _, stream := range []struct {
 		name string
@@ -1001,18 +1010,16 @@ func (c *controller) Logs(ctx context.Context, publisher exec.LogPublisher, opti
 		if len(options.Streams) != 0 && !slices.Contains(options.Streams, stream.kind) {
 			continue
 		}
-		f, err := os.Open(filepath.Join(c.executor.logRoot, c.id, stream.name))
+		data, err := readRuntimeLog(filepath.Join(c.executor.logRoot, c.id, stream.name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			return err
 		}
-		data, err := io.ReadAll(io.LimitReader(f, logSegmentBytes))
-		err = errors.Join(err, f.Close())
-		if err != nil {
-			return err
-		}
-		for len(data) > 0 {
+		for present := true; present || len(data) > 0; present = false {
 			n := min(len(data), 16<<10)
-			if err := publisher.Publish(ctx, api.LogMessage{Context: api.LogContext{NodeID: c.task.NodeID, ServiceID: c.task.ServiceID, TaskID: c.task.ID}, Stream: stream.kind, Data: data[:n]}); err != nil {
+			if err := publisher.Publish(ctx, api.LogMessage{Context: logContext, Stream: stream.kind, Data: data[:n]}); err != nil {
 				return err
 			}
 			data = data[n:]
