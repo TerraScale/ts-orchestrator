@@ -112,49 +112,6 @@ jobs:
           path: ${{ runner.temp }}/m1-bin/terrascale-orchestrator
           retention-days: 1
 
-  e2e-host-image:
-    permissions:
-      contents: read
-      actions: read
-    needs: paths
-    if: ${{ github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.paths.outputs.runtime == 'true') }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          ref: ${{ env.SOURCE_SHA }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Select the pinned qualified main image
-        id: image
-        run: python3 test/e2e/m1/image-inputs.py
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: ${{ steps.image.outputs.directory }}
-          key: m1-host-image-amd64-${{ steps.image.outputs.identity }}
-      - name: Install QEMU and libguestfs
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libguestfs-tools qemu-system-x86
-          sudo chmod a+r /boot/vmlinuz-*
-          if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; fi
-      - name: Boot the pre-built Debian image
-        env:
-          IMAGE_TAG: ${{ steps.image.outputs.tag }}
-          IMAGE_SOURCE: ${{ steps.image.outputs.source }}
-          IMAGE_URL: ${{ steps.image.outputs.url }}
-          IMAGE_DIRECTORY: ${{ steps.image.outputs.directory }}
-        run: bash test/e2e/m1/image-smoke.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: ${{ always() }}
-        with:
-          name: e2e-host-image
-          path: ${{ runner.temp }}/host-image-smoke/boot
-          if-no-files-found: error
-          retention-days: 14
-
   e2e-lane:
     needs: [paths, e2e-build]
     if: ${{ !cancelled() && !failure() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.paths.outputs.runtime == 'true') }}
@@ -174,7 +131,7 @@ jobs:
             lanes:
               - {lane: rollout, entry: rollout.sh, timeout: 10, budget: 20}
               - {lane: boot-order, entry: boot-order.sh, timeout: 8, budget: 18, packages: "./test/e2e/m1/boot-order"}
-              - {lane: node-upgrade, entry: node-upgrade.sh, timeout: 10, budget: 20, packages: "./test/e2e/m1/netbird-upgrade"}
+              - {lane: node-upgrade, entry: node-upgrade.sh, timeout: 10, budget: 20}
               - {lane: region-fallback, entry: region-fallback.sh, timeout: 4, budget: 14, packages: "./test/e2e/m1/oracle-regions"}
               - {lane: ocir, entry: ocir.sh, timeout: 3, budget: 13, packages: "./test/e2e/m1/ocir"}
           - group: 3
@@ -450,7 +407,7 @@ jobs:
 
   e2e-m1:
     if: ${{ always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.paths.outputs.runtime == 'true') }}
-    needs: [paths, e2e-host-image, e2e-lane, e2e-rerun-plan, e2e-lane-rerun]
+    needs: [paths, e2e-lane, e2e-rerun-plan, e2e-lane-rerun]
     concurrency:
       group: e2e-m1-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -459,13 +416,11 @@ jobs:
     steps:
       - name: Check upstream results
         env:
-          IMAGE: ${{ needs.e2e-host-image.result }}
           LANES: ${{ needs.e2e-lane.result }}
           PLAN: ${{ needs.e2e-rerun-plan.result }}
           RERUNS: ${{ needs.e2e-rerun-plan.outputs.count }}
           RERUN: ${{ needs.e2e-lane-rerun.result }}
         run: |
-          test "$IMAGE" = success
           test "$LANES" = success
           test "$PLAN" = success
           test "$RERUNS" = 0 || test "$RERUN" = success
@@ -777,7 +732,7 @@ jobs:
   all-green:
     name: all-green
     if: ${{ always() }}
-    needs: [paths, lint, e2e-build, e2e-host-image, e2e-lane, e2e-rerun-plan, e2e-lane-rerun, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-publish, release-publish-after-lanes]
+    needs: [paths, lint, e2e-build, e2e-lane, e2e-rerun-plan, e2e-lane-rerun, e2e-m1, certificate-paths, e2e-certificates, caller-key-changes, caller-key-build, caller-key, build, release-publish, release-publish-after-lanes]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:

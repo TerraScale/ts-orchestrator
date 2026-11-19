@@ -1,5 +1,6 @@
 source "$(dirname "$0")/common.sh"
 source "$here/runtime.sh"
+cache_pins
 restore_runtime
 lane="$(dirname "$bin")/oracle-regions"
 begin "never-reached regions: manager down and VCN blocked"

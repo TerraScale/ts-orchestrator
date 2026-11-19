@@ -14,21 +14,6 @@
     "sha256": {
       "arm64": "980eef938177108bdfa7d802566b6309123592a58631349a78f11cd97c76c22d",
       "amd64": "cbdea310068e35449f034544d5137fefee8f6d948fffd020883ffc8b3bab63b1"
-    },
-    "bytes": {
-      "arm64": 14607827,
-      "amd64": 15954874
-    },
-    "binary_sha256": {
-      "arm64": "da0c759ba50c0e1fd652d6f584587db3d3523dcc6bd18c11fab479969a3057ce",
-      "amd64": "2bef5a5a44249443c0c492883e1b243ff5bc9d835266a8c5644a2a664bb3b846"
-    },
-    "previous": {
-      "version": "0.81.2",
-      "sha256": {
-        "arm64": "8152afcc5b5609463d304f8c5ce835fa0d645cc745b0b689c19b1cc4acd1197c",
-        "amd64": "a3a5f97d67c8854b33aa562c0bf2244430f07c724cde5ab522f211b49c75c354"
-      }
     }
   },
   "base": {

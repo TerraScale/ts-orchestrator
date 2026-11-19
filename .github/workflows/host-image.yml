@@ -170,5 +170,5 @@ jobs:
           files=("$RUNNER_TEMP"/out/ts-host-debian13-*/*.qcow2 "$RUNNER_TEMP"/out/ts-host-debian13-*/*.qcow2.sha256)
           test "${#files[@]}" -eq 4
           gh release create "$tag" "${files[@]}" -R "${{ github.repository }}" --target "$GITHUB_SHA" --title "$tag" \
-            --prerelease --latest=false \
+            --draft --prerelease --latest=false \
             --notes "Debian 13 host image candidates from ${GITHUB_SHA}. The amd64 image passed VM first boot, persistent-volume reboot, launch-release replacement and checksum rejection. Arm64 QEMU boot is skipped because TCG exceeded the 300-second deadline; real A1 boot coverage is provided by C2i throwaway image qualification and C6. OCI image capability qualification is still required before promotion."

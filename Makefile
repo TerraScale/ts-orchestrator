@@ -37,12 +37,10 @@ format-check:
 TEMPL_SOURCES = $(shell find . -type f -name '*.templ' -not -path './.git/*' -not -path './third_party/*' -not -path './docs/*')
 
 generate:
-	python3 test/e2e/m1/runtime-inputs.py --write
 	$(if $(TEMPL_SOURCES),$(GO) tool templ fmt $(TEMPL_SOURCES))
 	$(GO) tool templ generate
 
 generate-check:
-	python3 test/e2e/m1/runtime-inputs.py --check
 	GO="$(GO)" bash scripts/ci/check-templ.sh
 
 vet:

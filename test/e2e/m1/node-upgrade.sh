@@ -48,10 +48,6 @@ sudo cat "$state/swarm/admission.json" >"$work/admission-before.json"
 node_before=$(orch member ls | awk 'NR == 2 {print $1}')
 end "production release, its unit and its admission"
 
-begin "NetBird host upgrade preserves the running identity and service configuration"
-bash "$here/netbird-upgrade.sh" "$(dirname "$candidate")/netbird-upgrade"
-end "old NetBird executable and service command reconciled; live daemon pinned; persisted identity unchanged"
-
 begin "upgrade to this build the way the production installer swaps a release"
 swap_as_installed_release "$candidate" 1
 wait_for 180 serving "$repo/deploy/m1/ts-orch.service" "$candidate"

@@ -1,10 +1,15 @@
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
 work=$1
-inputs=$(python3 "$repo/test/e2e/m1/runtime-inputs.py")
-eval "$inputs"
-version=$containerd_version
-sha=$containerd_sha256
+runtime_pins=$repo/deploy/m1/host-runtime.sh
+version=$(sed -n 's/^containerd_version=//p' "$runtime_pins")
+host_arch=$(uname -m)
+case "$host_arch" in
+aarch64) arch=arm64 ;;
+x86_64) arch=amd64 ;;
+*) echo "regional peers needs a pinned containerd architecture" >&2; exit 1 ;;
+esac
+sha=$(sed -n "/^$host_arch)/,/;;/s/^\tcontainerd_sha256=//p" "$runtime_pins")
 archive=$HOME/.cache/ts-m1-runtime/containerd-$version-linux-$arch.tar.gz
 if [[ ! -e $archive ]]; then
 	archive=$work/containerd.tar.gz

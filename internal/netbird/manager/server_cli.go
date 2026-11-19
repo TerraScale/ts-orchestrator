@@ -171,6 +171,19 @@ func runServerSide(ctx context.Context, vault ServerVault, dir string) error {
 	return BootstrapServer(ctx, vault, ServerURL)
 }
 
+// clientPin is the NetBird client every TerraScale host runs, the same
+// release as the server image.
+var clientPin = func() client.Pin {
+	p := client.Pin{Version: "0.81.3"}
+	p.Archives.Arm64 = client.Archive{URL: "https://github.com/netbirdio/netbird/releases/download/v0.81.3/netbird_0.81.3_linux_arm64.tar.gz",
+		Bytes: 14607827, SHA256: "980eef938177108bdfa7d802566b6309123592a58631349a78f11cd97c76c22d",
+		BinarySHA256: "da0c759ba50c0e1fd652d6f584587db3d3523dcc6bd18c11fab479969a3057ce"}
+	p.Archives.AMD64 = client.Archive{URL: "https://github.com/netbirdio/netbird/releases/download/v0.81.3/netbird_0.81.3_linux_amd64.tar.gz",
+		Bytes: 15954874, SHA256: "cbdea310068e35449f034544d5137fefee8f6d948fffd020883ffc8b3bab63b1",
+		BinarySHA256: "2bef5a5a44249443c0c492883e1b243ff5bc9d835266a8c5644a2a664bb3b846"}
+	return p
+}()
+
 const clientBinary = "/usr/local/bin/netbird"
 
 // ensureClient keeps this host's pinned NetBird client installed, its daemon
@@ -180,6 +193,7 @@ func ensureClient(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	upgraded := false
 	if current, err := client.SHA256(clientBinary); err != nil || current != archive.BinarySHA256 {
 		if err := client.Fetch(ctx, clientPin, runtime.GOARCH, clientBinary, "", &http.Client{Timeout: 5 * time.Minute}); err != nil {
 			return fmt.Errorf("install NetBird client %s: %w", clientPin.Version, err)
@@ -188,8 +202,27 @@ func ensureClient(ctx context.Context) error {
 		if err := os.Chmod(clientBinary, 0o755); err != nil {
 			return err
 		}
+		upgraded = true
 	}
-	return client.ReconcileService(ctx, clientBinary, archive.BinarySHA256)
+	// The daemon must run the pinned binary, not a distribution package's.
+	unit, _ := exec.CommandContext(ctx, "systemctl", "show", "--property", "ExecStart", "--value", "netbird").Output()
+	if !strings.Contains(string(unit), clientBinary) {
+		_ = exec.CommandContext(ctx, clientBinary, "service", "uninstall").Run()
+		if output, err := exec.CommandContext(ctx, clientBinary, "service", "install").CombinedOutput(); err != nil {
+			return fmt.Errorf("netbird service install: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		upgraded = true
+	}
+	action := "start"
+	if upgraded {
+		action = "restart"
+	}
+	for _, args := range [][]string{{"enable", "netbird"}, {action, "netbird"}} {
+		if output, err := exec.CommandContext(ctx, "systemctl", args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("systemctl %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+		}
+	}
+	return nil
 }
 
 // enrollHost joins this host's NetBird daemon with the servers' setup key

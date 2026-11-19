@@ -3,6 +3,10 @@ mode=$2
 begin "$mode"
 source "$here/runtime.sh"
 restore_runtime
+if ! $cache_hit; then
+	cache_pins
+	restore_runtime
+fi
 image=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image"])' "$here/data.json")
 tools=$(mktemp -d /tmp/autoscale-tools.XXXXXX)
 chmod 0755 "$tools"
