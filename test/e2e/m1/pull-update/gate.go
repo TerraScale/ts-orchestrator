@@ -187,6 +187,7 @@ func (l *lane) gate(ctx context.Context) {
 	})
 	l.setService("ts-auth", 3, swarmruntime.UpdateRunning, 0, 1)
 	holder, contender := waiting["region"], waiting["next"]
+	l.waitReady(ctx, holder+"."+holder+"-m", degraded.digest)
 	behind := l.ask(ctx, holder+"-m", releasepush.PullRequest{Op: releasepush.PullStatus})
 	up := l.ask(ctx, contender+"-m", releasepush.PullRequest{Op: releasepush.PullStatus})
 	require(behind.SHA256 == degraded.digest && behind.Mesh != "ok" && up.SHA256 != degraded.digest && up.Error == "",
