@@ -403,6 +403,7 @@ func start(cfg config) (_ *Node, err error) {
 	if cfg.applier == nil {
 		handlers = map[string]nats.MsgHandler{}
 	}
+	handlers[metaSubject(cfg.server)] = func(m *nats.Msg) { node.goWork(func() { node.serveMetaView(m) }) }
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".fence"] = func(m *nats.Msg) { node.handleBootstrapFence(m) }
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".clear"] = func(m *nats.Msg) { node.handleBootstrapClear(m) }
 	if cfg.applier == nil {

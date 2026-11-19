@@ -66,7 +66,18 @@ membership and obtains current-replica facts from its leader through NATS's
 existing RAFTZ system request. Metadata, streams, and replicated consumers
 must retain their quorum without this member. Unknown leadership, unsettled
 membership, or insufficient current replicas refuse the stop and name the
-Raft group. Unreplicated groups do not have a remote handoff.
+Raft group. An unsettled membership refusal names each peer being added or
+removed, by server name and Raft peer id, and how long that change has been
+pending. An insufficient-replicas refusal names each member that is not
+current and when its leader last heard from it. Unreplicated groups do not
+have a remote handoff.
+
+`sudo ts-orch mesh meta` (or `--json`) reads the `_meta_` group through the
+host's own mesh node: each JetStream server that answers a RAFTZ request
+within a second, with its state, term, leader, size, quorum and peer ids, and
+the leader's peers with their names, whether their membership is committed
+(`KNOWN`), when the leader last heard from them, and their replicated index.
+It needs root to read the host's mesh client token, and changes nothing.
 
 The agent uses NATS's lame-duck leadership transfer step while keeping
 listeners and clients open. Every 20 ms it hands each elected Raft leader to
