@@ -30,6 +30,7 @@ const (
 	DefaultBakeFor    = 20 * time.Second
 
 	channelPoll  = 10 * time.Second
+	legacyBake   = 5 * time.Minute
 	checkEvery   = 2 * time.Second
 	bakeFailures = 3
 	askWait      = 8 * time.Second
@@ -74,9 +75,6 @@ type Updater struct {
 	seenTag    string
 	seenAt     time.Time
 	watched    watch
-	fetched    string
-	checked    releaseattest.Release
-	failed     string
 }
 
 func New(region, self, state string, conn, fabric *nats.Conn, handler *releasepush.Handler, hosts func(context.Context) ([]Host, error), services func(context.Context) ([]Service, error)) *Updater {
@@ -159,12 +157,15 @@ func (u *Updater) turn(ctx context.Context) time.Duration {
 }
 
 func (u *Updater) cycle(ctx context.Context) time.Duration {
-	u.settleRestart(ctx)
 	if u.status.Phase == PhaseRollingBack && u.status.Target != nil {
 		return u.restore(ctx)
 	}
 	if u.status.Phase == PhaseComplete && u.status.Target != nil && !u.status.passed() {
 		return u.bake(ctx)
+	}
+	if u.status.Phase == PhaseComplete && u.status.Baked.IsZero() && time.Since(u.status.Done) >= legacyBake {
+		u.status.Baked = time.Now().UTC()
+		u.save(ctx)
 	}
 
 	release, err := u.discover(ctx)
@@ -208,7 +209,12 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		slog.InfoContext(ctx, "the release channel names the current target; adopting its seq", "release", release.Tag(), "seq", release.Seq)
 	}
 	if u.status.Target == nil || u.status.Target.Tag() != release.Tag() {
-		attested, err := u.verified(ctx, release)
+		if reason := u.predecessor(ctx, release.Tag()); reason != "" {
+			u.status.Reason = reason
+			u.save(ctx)
+			return checkEvery
+		}
+		attested, err := u.attested(ctx, release)
 		var missing *releaseattest.NotFoundError
 		if errors.Is(err, releaseattest.ErrRefused) || errors.As(err, &missing) {
 			u.refuse(ctx, release, err.Error())
@@ -218,20 +224,6 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			u.status.Reason = "attestation check: " + err.Error()
 			u.save(ctx)
 			return u.Poll
-		}
-		u.prefetch(ctx, attested)
-		reason := u.admission(ctx, attested.Tag())
-		if reason == "" {
-			decided, err := u.store.admit(ctx, attested.Tag(), u.Region)
-			if err != nil {
-				decided = "rollout decision of " + attested.Tag() + " unreadable: " + err.Error()
-			}
-			reason = decided
-		}
-		if reason != "" {
-			u.status.Reason = reason
-			u.save(ctx)
-			return checkEvery
 		}
 		slog.InfoContext(ctx, "attested release found; rolling it out", "release", attested.Tag())
 		discovered := time.Now().UTC()
@@ -309,17 +301,6 @@ func (u *Updater) attested(ctx context.Context, release releaseattest.Release) (
 	return u.Attest.Attested(verify, u.Client, release)
 }
 
-func (u *Updater) verified(ctx context.Context, release releaseattest.Release) (releaseattest.Release, error) {
-	if u.checked.SHA == release.SHA && u.checked.Tag() == release.Tag() && u.checked.Seq == release.Seq {
-		return u.checked, nil
-	}
-	attested, err := u.attested(ctx, release)
-	if err == nil {
-		u.checked = attested
-	}
-	return attested, err
-}
-
 func (u *Updater) roll(ctx context.Context) time.Duration {
 	target := *u.status.Target
 	if reason := u.recordBaseline(ctx); reason != "" {
@@ -374,9 +355,6 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			if reason := u.regionReady(ctx, host.ID); reason != "" {
 				return u.wait(ctx, reason)
 			}
-			if reason := u.claimRestart(ctx, host.ID, reply); reason != "" {
-				return u.wait(ctx, reason)
-			}
 			row.State, row.Error = HostInstalling, ""
 			if !u.save(ctx) {
 				return renewEvery
@@ -419,7 +397,6 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		}
 		row.State, row.Error, row.Version, row.SHA256, row.Ready = HostDone, "", target.SHA, want.SHA256, time.Now().UTC()
 		u.save(ctx)
-		u.settleRestart(ctx)
 	}
 	u.status.Phase, u.status.Reason = PhaseComplete, ""
 	if u.status.Done.IsZero() {
@@ -429,12 +406,8 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		u.status.Phase, u.status.Reason = PhaseNewer, "every host already runs a release that descends from "+target.Tag()
 	}
 	u.save(ctx)
-	switch {
-	case u.status.Phase == PhaseComplete && !u.status.passed():
+	if u.status.Phase == PhaseComplete {
 		return u.bake(ctx)
-	case u.status.Phase == PhaseComplete:
-		u.sweepAfter = time.Now().Add(u.Poll)
-		return u.pollInterval()
 	}
 	return u.Poll
 }
@@ -514,7 +487,6 @@ func (u *Updater) gate(ctx context.Context, host Host, target releaseattest.Rele
 		if !u.leading.Load() {
 			return errChanged
 		}
-		u.settleRestart(ctx)
 		now := time.Now()
 		if !healthy {
 			healthySince = time.Time{}
@@ -539,14 +511,12 @@ func (u *Updater) rolledBack(ctx context.Context, row *HostProgress, reason stri
 	row.State, row.Error = HostRestoring, reason
 	u.status.Phase, u.status.Reason, u.status.Since = PhaseRollingBack, row.Host+": "+reason, time.Now().UTC()
 	u.save(ctx)
-	u.recordFailure(ctx)
 	slog.WarnContext(ctx, "release failed on a host; restoring its previous binary", "release", u.status.Target.Tag(), "host", row.Host, "reason", reason)
 	return checkEvery
 }
 
 func (u *Updater) restore(ctx context.Context) time.Duration {
 	target := *u.status.Target
-	u.recordFailure(ctx)
 	var row *HostProgress
 	for i := range u.status.Hosts {
 		if u.status.Hosts[i].State == HostRestoring {
@@ -580,9 +550,6 @@ func (u *Updater) restore(ctx context.Context) time.Duration {
 			return u.restoring(ctx, row, "does not answer: "+err.Error())
 		case reply.Health == restartPending:
 			return u.restoring(ctx, row, "restoring the previous binary")
-		}
-		if reason := u.claimRestart(ctx, row.ID, reply); reason != "" {
-			return u.restoring(ctx, row, reason)
 		}
 		if !u.save(ctx) {
 			return renewEvery
@@ -696,49 +663,27 @@ func (u *Updater) mirror(ctx context.Context, status Status) {
 	}
 }
 
-func (u *Updater) admission(ctx context.Context, tag string) string {
+func (u *Updater) predecessor(ctx context.Context, tag string) string {
 	if u.Region == fleet.Embedded().Staging.Label {
 		return ""
 	}
 	order := catalog.RolloutOrder()
-	if !slices.Contains(order, u.Region) {
+	index := slices.Index(order, u.Region)
+	if index < 0 {
 		return "region has no reviewed binary rollout position"
 	}
-	if reason, err := u.store.failed(ctx, tag); err != nil || reason != "" {
-		return cmp.Or(reason, "rollout decision of "+tag+" unreadable: "+fmt.Sprint(err))
-	}
-	canary := order[0]
-	if u.Region == canary {
+	if index == 0 {
 		return ""
 	}
-	status, err := u.store.loadFromLeader(ctx, canary)
-	switch {
-	case err != nil:
-		return canary + ": rollout record unreadable: " + err.Error()
-	case status.Target == nil || status.Target.Tag() != tag || status.Phase != PhaseComplete || status.Done.IsZero() || !status.passed():
-		return canary + ": waiting for the canary region to pass the regional gate of the same release"
+	previous := order[index-1]
+	status, _, err := (&Store{kv: u.store.kv, region: previous}).Load(ctx)
+	if err != nil {
+		return previous + ": predecessor rollout unreadable: " + err.Error()
+	}
+	if status.Target == nil || status.Target.Tag() != tag || status.Phase != PhaseComplete || status.Done.IsZero() || !status.passed() {
+		return previous + ": waiting for the same release to pass its regional gate"
 	}
 	return ""
-}
-
-func (u *Updater) prefetch(ctx context.Context, release releaseattest.Release) {
-	if u.fetched == release.Tag() {
-		return
-	}
-	hosts, err := u.Hosts(ctx)
-	if err != nil {
-		slog.WarnContext(ctx, "release not fetched in advance; each host downloads it at its install", "release", release.Tag(), "error", err)
-		return
-	}
-	u.fetched = release.Tag()
-	for _, host := range hosts {
-		go func() {
-			reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullFetch, Release: release}, installWait)
-			if err != nil || reply.Error != "" {
-				slog.WarnContext(ctx, "release not fetched in advance; the host downloads it at its install", "release", release.Tag(), "host", host.Name, "error", err, "reply", reply.Error)
-			}
-		}()
-	}
 }
 
 func (u *Updater) bake(ctx context.Context) time.Duration {

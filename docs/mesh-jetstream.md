@@ -346,29 +346,12 @@ not the global account) all differ. There is no bridge. Reasons:
 
 ## Orchestrator releases
 
-Production binaries go to sjc first, the canary, then to fra and gru at the
-same time. Isolated stg admission has no local predecessor; authenticating its
-verdict for production remains the merge blocker described in
-[platform releases](platform.md#releases).
-
-Each tag has one durable decision, `decision.<tag>` in `TS_ORCH_PULL_ROLLOUT`,
-changed only by compare-and-set: a region admits itself by adding its name while
-no region has failed the tag, and a failed gate records the first failing
-region before the rollback starts. A region already admitted finishes; one
-admitted after a failure holds. fra and gru also need sjc's record, read from
-the stream leader, to show the same tag complete with a passed gate.
-
-fra and gru restart at the same time, and every R3 asset keeps one replica per
-region, so a JetStream peer (a manager) restarts only under the fleet restart
-lease `restart` in the same bucket. Its region's pull updater claims the lease
-before the peer's install or restore starts and holds it through the drain, the
-stop, the restart and the peer's catch-up (its pull status reports every raft
-group with all replicas current), then hands it to the waiting region or
-deletes it. A contender waits in its updater with nothing started. A lease that
-expired (2 minutes without renewal) is taken over only when the host about to
-restart reports every raft group with all replicas current. Workers hold no
-replicas and take no lease.
-
+Production binary pull order is sjc, fra, gru. Isolated stg admission has no
+local predecessor; authenticating its verdict for production remains the
+merge blocker described in [platform releases](platform.md#releases).
+The regional leader reads its predecessor's record from the fabric pull store.
+It takes a tag only after that exact tag has completed and passed its
+predecessor's regional health gate. A failed or unavailable predecessor blocks later regions.
 Within a region, hosts install one at a time through PullInstall, downloading
 and verifying the attested binary themselves. Host probation and the regional
 health gate must pass before completion. Bake failures roll back the affected

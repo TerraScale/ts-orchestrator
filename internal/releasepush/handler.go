@@ -78,8 +78,6 @@ type Reply struct {
 	Degraded   []string        `json:"degraded,omitempty"`
 	Seq        uint64          `json:"seq,omitempty"`
 	Started    time.Time       `json:"started,omitzero"`
-	Peer       bool            `json:"peer,omitempty"`
-	Mesh       string          `json:"mesh,omitempty"`
 }
 
 var processStarted = time.Now().UTC()
@@ -108,7 +106,6 @@ type Handler struct {
 	Hosts       func(context.Context) ([]HostVersion, error)
 	probation   *Probation
 	Health      func(context.Context, string) HealthResult
-	Peer        func() bool
 	Verifier    *Verifier
 	PrepareStop func(context.Context) error
 	AbortStop   func()
@@ -134,7 +131,6 @@ type Handler struct {
 	RefusalFile   string
 	DegradedFile  string
 	mu            sync.Mutex
-	fetching      sync.Mutex
 	pending       releaseID
 	recovery      recoveryWindow
 	rolledBack    atomic.Pointer[Rollback]
@@ -267,7 +263,7 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 	}
 	ctx, cancel := context.WithTimeout(ctx, healthHandlerBudget)
 	defer cancel()
-	text, node, mesh := "no health check", "", ""
+	text, node := "no health check", ""
 	if !h.mu.TryLock() {
 		return Reply{Version: h.Revision, Health: "release install in progress"}
 	}
@@ -278,10 +274,7 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 	}
 	if h.Health != nil {
 		result := h.Health(ctx, request.Service)
-		text, node, mesh = "ok", "ok", "ok"
-		if result.Mesh != nil {
-			mesh = result.Mesh.Error()
-		}
+		text, node = "ok", "ok"
 		if err := result.Err(); err != nil {
 			text = err.Error()
 		}
@@ -297,7 +290,7 @@ func (h *Handler) health(ctx context.Context, data []byte) Reply {
 	if err != nil {
 		mountError = err.Error()
 	}
-	reply := Reply{Version: h.Revision, Health: text, Node: node, Mesh: mesh, DataMount: mount, DataMountError: mountError}
+	reply := Reply{Version: h.Revision, Health: text, Node: node, DataMount: mount, DataMountError: mountError}
 	if state, reason := h.probation.status(); state == "unconfirmed" {
 		reply.State, reply.Error = state, reason
 	}
@@ -390,8 +383,15 @@ func (h *Handler) olderRun(runID string) (bool, error) {
 
 func (h *Handler) install(ctx context.Context, binary Binary, sha string, claims Claims, beforeSwap func() error) error {
 	next := h.Binary + ".next"
+	data, err := h.download(ctx, binary.URL)
+	if err != nil {
+		return err
+	}
+	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != binary.SHA256 {
+		return &integrityError{errors.New("downloaded binary sha256 differs")}
+	}
 	defer os.Remove(next)
-	if err := h.claim(ctx, binary, next); err != nil {
+	if err := writeFresh(next, data); err != nil {
 		return err
 	}
 	if err := preflight(ctx, next); err != nil {
@@ -457,56 +457,6 @@ func preflight(ctx context.Context, candidate string) error {
 }
 
 var downloadStall = 30 * time.Second
-
-func (h *Handler) fetch(ctx context.Context, binary Binary) error {
-	h.fetching.Lock()
-	defer h.fetching.Unlock()
-	fetched := h.Binary + ".fetched"
-	if fileDigest(fetched) == binary.SHA256 {
-		return nil
-	}
-	return h.downloadTo(ctx, binary, fetched)
-}
-
-func (h *Handler) claim(ctx context.Context, binary Binary, next string) error {
-	h.fetching.Lock()
-	defer h.fetching.Unlock()
-	fetched := h.Binary + ".fetched"
-	if fileDigest(fetched) == binary.SHA256 {
-		return os.Rename(fetched, next)
-	}
-	return h.downloadTo(ctx, binary, next)
-}
-
-func (h *Handler) downloadTo(ctx context.Context, binary Binary, path string) error {
-	data, err := h.download(ctx, binary.URL)
-	if err != nil {
-		return err
-	}
-	sum := sha256.Sum256(data)
-	if hex.EncodeToString(sum[:]) != binary.SHA256 {
-		return &integrityError{errors.New("downloaded binary sha256 differs")}
-	}
-	return writeFresh(path, data)
-}
-
-func fileDigest(path string) string {
-	file, err := os.Open(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return ""
-	}
-	if err != nil {
-		slog.Warn("fetched release unreadable; downloading it again", "path", path, "error", err)
-		return ""
-	}
-	defer file.Close()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		slog.Warn("fetched release unreadable; downloading it again", "path", path, "error", err)
-		return ""
-	}
-	return hex.EncodeToString(hash.Sum(nil))
-}
 
 func (h *Handler) download(ctx context.Context, url string) ([]byte, error) {
 	ctx, cancel := context.WithCancel(ctx)

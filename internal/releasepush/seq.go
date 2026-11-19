@@ -43,22 +43,18 @@ func (h *Handler) verifyChannel(ctx context.Context, release releaseattest.Relea
 	if err := ocirelease.Verify(ctx, registry, h.Attest, release); err != nil {
 		return Binary{}, err
 	}
-	return Binary{URL: artifact.URL, SHA256: artifact.SHA256}, nil
-}
-
-func (h *Handler) recordSeq(release releaseattest.Release, binary Binary) error {
 	installed, err := readSeq(h.SeqFile)
 	if err != nil {
-		return fmt.Errorf("installed seq unreadable: %w", err)
+		return Binary{}, fmt.Errorf("installed seq unreadable: %w", err)
 	}
 	if release.Seq < installed.Seq || release.Seq == installed.Seq && release.Tag() != installed.Tag {
-		return fmt.Errorf("%w: channel seq %d (%s) is not newer than the installed seq %d (%s); a replayed or rolled-back channel document is refused",
+		return Binary{}, fmt.Errorf("%w: channel seq %d (%s) is not newer than the installed seq %d (%s); a replayed or rolled-back channel document is refused",
 			releaseattest.ErrRefused, release.Seq, release.Tag(), installed.Seq, installed.Tag)
 	}
-	if err := writeJSON(h.SeqFile, installedSeq{Seq: release.Seq, Tag: release.Tag(), SHA256: binary.SHA256}); err != nil {
-		return fmt.Errorf("installed seq not saved: %w", err)
+	if err := writeJSON(h.SeqFile, installedSeq{Seq: release.Seq, Tag: release.Tag(), SHA256: artifact.SHA256}); err != nil {
+		return Binary{}, fmt.Errorf("installed seq not saved: %w", err)
 	}
-	return nil
+	return Binary{URL: artifact.URL, SHA256: artifact.SHA256}, nil
 }
 
 func RecordChannelSeq(state string, seq uint64) error {

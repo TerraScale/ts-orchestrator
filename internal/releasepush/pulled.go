@@ -16,7 +16,6 @@ import (
 const (
 	PullStatus   = "status"
 	PullInstall  = "install"
-	PullFetch    = "fetch"
 	PullRollback = "rollback"
 
 	StateNewer = "newer"
@@ -54,8 +53,7 @@ func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 		reply := h.version()
 		payload, _ := json.Marshal(HealthRequest{Service: request.Service})
 		health := h.health(ctx, payload)
-		reply.Health, reply.Node, reply.Mesh = health.Health, health.Node, health.Mesh
-		reply.Peer = h.Peer != nil && h.Peer()
+		reply.Health, reply.Node = health.Health, health.Node
 		if installed, err := readSeq(h.SeqFile); err != nil {
 			reply.Error = "installed seq unreadable: " + err.Error()
 		} else {
@@ -64,8 +62,6 @@ func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 		return reply
 	case PullInstall:
 		return h.installPulled(ctx, request.Release)
-	case PullFetch:
-		return h.fetchPulled(ctx, request.Release)
 	case PullRollback:
 		return h.rollbackPulled(ctx, request.Release, request.Reason)
 	}
@@ -77,9 +73,6 @@ func (h *Handler) installPulled(ctx context.Context, release releaseattest.Relea
 	defer h.mu.Unlock()
 	claims := Claims{SHA: release.SHA, RunID: release.RunID}
 	binary, err := h.verifyPulled(ctx, release)
-	if err == nil && release.Channel != nil {
-		err = h.recordSeq(release, binary)
-	}
 	if errors.Is(err, releaseattest.ErrOlder) {
 		return Reply{State: StateNewer, Version: h.Revision}
 	}
@@ -91,21 +84,6 @@ func (h *Handler) installPulled(ctx context.Context, release releaseattest.Relea
 		return refusalReply(RefusalHost, release.SHA, binary.SHA256, claims, err)
 	}
 	return h.installRelease(ctx, release.SHA, binary, claims)
-}
-
-func (h *Handler) fetchPulled(ctx context.Context, release releaseattest.Release) Reply {
-	binary, err := h.verifyPulled(ctx, release)
-	if errors.Is(err, releaseattest.ErrOlder) {
-		return Reply{State: StateNewer, Version: h.Revision}
-	}
-	if err == nil {
-		err = h.fetch(ctx, binary)
-	}
-	if err != nil {
-		return Reply{State: "rejected", Version: h.Revision, Error: "release not fetched: " + err.Error()}
-	}
-	slog.InfoContext(ctx, "release fetched in advance", "release", release.Tag(), "sha256", binary.SHA256)
-	return Reply{State: "fetched", Version: h.Revision}
 }
 
 func (h *Handler) verifyPulled(ctx context.Context, release releaseattest.Release) (Binary, error) {

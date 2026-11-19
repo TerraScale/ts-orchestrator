@@ -54,6 +54,7 @@ type Status struct {
 	Reason   string                 `json:"reason,omitempty"`
 	Bad      []string               `json:"bad,omitempty"`
 	Since    time.Time              `json:"since,omitzero"`
+	Baked    time.Time              `json:"baked,omitzero"`
 	Healthy  time.Time              `json:"healthy,omitzero"`
 	Failing  time.Time              `json:"failing,omitzero"`
 	Failed   int                    `json:"failed,omitempty"`
@@ -68,7 +69,6 @@ type Status struct {
 	Discovered time.Time `json:"discovered,omitzero"`
 	Passed     time.Time `json:"passed,omitzero"`
 	Baseline   *Baseline `json:"baseline,omitempty"`
-	Restart    string    `json:"restart,omitempty"`
 }
 
 func statusFile(state string) string { return filepath.Join(state, "nats", "pull-rollout.json") }
@@ -111,7 +111,7 @@ func (s Status) active() bool {
 }
 
 func (s Status) passed() bool {
-	return !s.Passed.IsZero()
+	return !s.Passed.IsZero() || !s.Baked.IsZero()
 }
 
 func (s Status) Timeline() []string {
