@@ -72,7 +72,7 @@ func (c *controller) reservePorts(ctx context.Context, starting bool) (string, f
 	if !starting {
 		requested = c.declaredHostPorts()
 	}
-	if len(requested) == 0 {
+	if len(requested) == 0 && (starting || c.stateful != nil || !usesTaskPort(c.spec.Env)) {
 		return encoded, func() {}, nil
 	}
 	lock := flock.New(c.executor.socket + ".ports.lock")

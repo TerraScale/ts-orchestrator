@@ -7,10 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
-	"github.com/gofrs/flock"
 )
 
 // TaskPortEnv in a spec's env value stands for the task's own port. Such a task
@@ -35,19 +33,7 @@ func withTaskPort(env []string, port uint16) []string {
 	return out
 }
 
-// pickTaskPort returns a free port no other container claims. The port lock
-// serializes it with every other reservation.
-// shortcut: a free port can be taken by another socket before the task binds it; the task then fails to start and SwarmKit replaces it.
 func (c *controller) pickTaskPort(ctx context.Context) (uint16, error) {
-	lock := flock.New(c.executor.socket + ".ports.lock")
-	locked, err := lock.TryLockContext(ctx, 25*time.Millisecond)
-	if err != nil {
-		return 0, err
-	}
-	if !locked {
-		return 0, fmt.Errorf("runtime port reservation interrupted")
-	}
-	defer func() { _ = lock.Unlock() }()
 	containers, err := c.executor.client.Containers(runtimeContext(ctx))
 	if err != nil {
 		return 0, err
