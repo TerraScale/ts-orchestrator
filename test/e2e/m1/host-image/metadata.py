@@ -11,7 +11,8 @@ root = Path('/opt/host-image')
 case = Path('/etc/host-image-case').read_text().strip()
 baked = Path('/usr/local/lib/ts-orch/image-release.sha256').read_text().strip()
 launch = (root / 'launch.sha256').read_text().strip()
-started = time.monotonic()
+unbound_since = None
+binding = threading.Lock()
 volume = {
     'terrascale-data-volume': 'ocid1.volume.oc1.phx.c2t',
     'terrascale-data-may-format': 'true',
@@ -25,10 +26,21 @@ static = {
 }
 
 
-def current():
-    if case == 'late-bind' and time.monotonic() - started < 20:
+def current(path):
+    global unbound_since
+    if case != 'late-bind':
+        return static | volume
+    with binding:
+        if unbound_since is not None and time.monotonic() - unbound_since >= 15:
+            return static | volume
+        if unbound_since is None and path in (
+            '/opc/v2/instance/metadata/terrascale-data-volume',
+            '/opc/v2/instance/metadata/',
+            '/opc/v2/instance/metadata',
+            '/opc/v2/instance/',
+        ):
+            unbound_since = time.monotonic()
         return static
-    return static | volume
 
 
 class Metadata(http.server.BaseHTTPRequestHandler):
@@ -37,7 +49,7 @@ class Metadata(http.server.BaseHTTPRequestHandler):
             self.send_error(401)
             return
         prefix = '/opc/v2/instance/metadata/'
-        metadata = current()
+        metadata = current(self.path)
         if self.path == '/opc/v2/instance/':
             body = json.dumps({'id': 'ocid1.instance.oc1.phx.c2t', 'metadata': metadata})
         elif self.path == prefix:
