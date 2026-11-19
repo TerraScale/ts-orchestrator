@@ -2,5 +2,5 @@ package image
 
 import _ "embed"
 
-//go:embed nixos-images.json
-var NixOSImages []byte
+//go:embed host-images.json
+var HostImages []byte

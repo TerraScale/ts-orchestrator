@@ -78,7 +78,7 @@ Operator tooling:
   source-digest          Compute the versioned TerraBase source-tree digest
   terrabase              C# TerraBase member CA and member data volumes
   ts-auth                Provision ts-auth's Vault secrets and host firewall
-  node-init              Install the launch release and bind the data volume at every NixOS boot
+  node-init              Install the launch release and bind the data volume at every host boot
   caller-key             Add, activate, retire, recover and list regional caller keys
   vault                  Store secrets in OCI Vault once; render host files from them
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner

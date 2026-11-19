@@ -108,12 +108,12 @@ func launch(ctx context.Context, client core.ComputeClient, region Region) (comp
 	if !ok {
 		return compute.Launch{}, fmt.Errorf("attested release %s has no %s binary", release.attested.Tag(), arch)
 	}
-	pinned, nixos, err := nodeinit.PinnedNixOSImage(region.OCIRegion, arch)
+	pinned, prebuilt, err := nodeinit.PinnedHostImage(region.OCIRegion, arch)
 	if err != nil {
 		return compute.Launch{}, err
 	}
-	if nixos {
-		metadata, err := nodeinit.NixOSMetadata(binary.URL, binary.SHA256)
+	if prebuilt {
+		metadata, err := nodeinit.HostMetadata(binary.URL, binary.SHA256)
 		return compute.Launch{ImageID: pinned.ImageID, Metadata: metadata}, err
 	}
 	images, err := client.ListImages(ctx, core.ListImagesRequest{CompartmentId: common.String(region.CompartmentID),

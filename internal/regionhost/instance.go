@@ -204,10 +204,10 @@ func (r *run) faultDomains(ad string) ([]string, error) {
 	return names, nil
 }
 
-func hostMetadata(nixos bool, url, sum string, volume *core.Volume, mayFormat bool) (map[string]string, error) {
+func hostMetadata(prebuilt bool, url, sum string, volume *core.Volume, mayFormat bool) (map[string]string, error) {
 	id, uuid, serial := deref(volume.Id), volume.FreeformTags[dataUUIDTag], volume.FreeformTags[dataSerialTag]
-	if nixos {
-		return nodeinit.NixOSHostMetadata(url, sum, id, uuid, serial, mayFormat)
+	if prebuilt {
+		return nodeinit.HostVolumeMetadata(url, sum, id, uuid, serial, mayFormat)
 	}
 	script, err := nodeinit.CloudInit(m1.Files, url, sum, id, uuid, serial, mayFormat)
 	if err != nil {
@@ -217,12 +217,12 @@ func hostMetadata(nixos bool, url, sum string, volume *core.Volume, mayFormat bo
 }
 
 func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Instance, *core.Volume, error) {
-	pinned, nixos, err := nodeinit.PinnedNixOSImage(r.region, m.arch)
+	pinned, prebuilt, err := nodeinit.PinnedHostImage(r.region, m.arch)
 	if err != nil {
 		return nil, nil, err
 	}
 	imageID := pinned.ImageID
-	if !nixos {
+	if !prebuilt {
 		images, err := r.compute.ListImages(r.ctx, core.ListImagesRequest{CompartmentId: &r.compartment, OperatingSystem: new("Canonical Ubuntu"),
 			OperatingSystemVersion: new("24.04"), Shape: &m.shape, SortBy: core.ListImagesSortByTimecreated, SortOrder: core.ListImagesSortOrderDesc})
 		if err != nil {
@@ -322,7 +322,7 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 			continue
 		}
 		mayFormat := r.createdVolumes[deref(volume.Id)]
-		metadata, metadataErr := hostMetadata(nixos, url, sum, volume, mayFormat)
+		metadata, metadataErr := hostMetadata(prebuilt, url, sum, volume, mayFormat)
 		if metadataErr != nil {
 			return nil, nil, metadataErr
 		}
