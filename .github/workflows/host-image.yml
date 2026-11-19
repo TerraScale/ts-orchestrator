@@ -64,6 +64,7 @@ jobs:
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libguestfs-tools guestfish jq
           sudo chmod a+r /boot/vmlinuz-*
+          passt --version
       - name: Build the image
         env:
           LIBGUESTFS_BACKEND: direct

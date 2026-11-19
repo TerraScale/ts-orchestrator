@@ -24,11 +24,6 @@ install -d "$out"
 work=$(mktemp -d /tmp/ts-host-image.XXXXXX)
 trap 'rm -rf "$work"' EXIT
 export XDG_RUNTIME_DIR="$work"
-resolver=/etc/resolv.conf
-if grep -Eq '^[[:space:]]*nameserver[[:space:]]+(127[.]|::1([[:space:]]|$))' "$resolver"; then
-	resolver=/run/systemd/resolve/resolv.conf
-fi
-cp "$resolver" "$work/resolv.conf"
 printf 'TS_ARCH=%q\nTS_SNAPSHOT=%q\nTS_BINARY_URL=%q\nTS_BINARY_SHA256=%q\nTS_NETBIRD_TARBALL_URL=%q\n' \
 	"$arch" "$snapshot" "$binary_url" "$binary_sha256" \
 	"$(jq -r --arg arch "$arch" '.netbird.url | sub("<arch>"; $arch)' "$here/base.json")" > "$work/image-env"
@@ -41,7 +36,6 @@ echo "$base_sha512  $work/base.qcow2" | sha512sum -c --quiet
 
 uploads=(
 	--upload "$work/image-env:/run/ts-image-env"
-	--upload "$work/resolv.conf:/run/ts-image-resolv.conf"
 	--upload "$here/provision.sh:/run/ts-image-provision.sh"
 	--upload "$here/ts-node-init.service:/etc/systemd/system/ts-node-init.service"
 	--upload "$here/ts-ssh-keys.service:/etc/systemd/system/ts-ssh-keys.service"
@@ -54,7 +48,7 @@ for unit in "${units[@]}"; do
 	uploads+=(--upload "$unit:/etc/systemd/system/${unit##*/}" --run-command "chown root:root /etc/systemd/system/${unit##*/}")
 done
 
-LIBGUESTFS_BACKEND=direct virt-customize \
+LIBGUESTFS_BACKEND=direct virt-customize --verbose \
 	-a "$work/base.qcow2" \
 	--network \
 	"${uploads[@]}" \

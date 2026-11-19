@@ -4,7 +4,8 @@ export DEBIAN_FRONTEND=noninteractive
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 source /run/ts-image-env
-cp /run/ts-image-resolv.conf /etc/resolv.conf
+stat -c 'Build resolver mode=%a owner=%u:%g' /etc/resolv.conf
+cat /etc/resolv.conf /etc/nsswitch.conf
 
 rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
 echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/$TS_SNAPSHOT/ trixie main" > /etc/apt/sources.list.d/ts-snapshot.list
@@ -120,4 +121,4 @@ truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id /etc/ssh/ssh_host_*
 rm -f /var/lib/systemd/random-seed /var/lib/urandom/random-seed
 apt-get clean
-rm -rf /var/lib/apt/lists/* /var/lib/cloud /var/log/cloud-init* /run/ts-image-env /run/ts-image-provision.sh /run/ts-image-resolv.conf
+rm -rf /var/lib/apt/lists/* /var/lib/cloud /var/log/cloud-init* /run/ts-image-env /run/ts-image-provision.sh
