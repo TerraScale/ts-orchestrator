@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 type Service struct {
@@ -17,6 +18,7 @@ type Service struct {
 	Running    uint64
 	Replicas   uint64
 	Generation int64
+	Update     string
 	Releasing  bool
 	Tasks      []string
 }
@@ -35,6 +37,7 @@ type Baseline struct {
 type judgement struct {
 	worse, excluded string
 	released        map[string]bool
+	unsettled       []string
 	settled         bool
 }
 
@@ -140,12 +143,21 @@ func (b *Baseline) judge(services []Service) judgement {
 		floor := b.floor(service)
 		if b.ownRelease(service) {
 			found.released[service.Name] = true
-			if service.Releasing || service.Running < floor {
+			switch service.Update {
+			case swarmruntime.UpdateCompleted:
+				b.settle(service)
+				found.settled = true
+				excluded = append(excluded, replicas+" settled")
+			case swarmruntime.UpdateRunning:
 				excluded = append(excluded, replicas)
-				continue
+				found.unsettled = append(found.unsettled, service.Name)
+			case swarmruntime.UpdateFailed:
+				excluded = append(excluded, replicas+" failed")
+				found.unsettled = append(found.unsettled, service.Name)
+			default:
+				excluded = append(excluded, replicas+" unconfirmed")
+				found.unsettled = append(found.unsettled, service.Name)
 			}
-			b.settle(service)
-			found.settled = true
 			continue
 		}
 		if service.Running < floor {

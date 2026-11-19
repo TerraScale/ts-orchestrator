@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -220,11 +221,17 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			return u.Poll
 		}
 		if u.status.Target == nil {
-			if rows := u.formed(ctx, attested); rows != nil {
+			rows, refusal := u.formed(ctx, attested)
+			if refusal != "" {
+				u.status.Reason = "adoption of " + attested.Tag() + " refused: " + refusal
+				u.save(ctx)
+				return u.Poll
+			}
+			if rows != nil {
 				now := time.Now().UTC()
 				u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseComplete, Target: &attested, Hosts: rows, Bad: u.status.Bad, Checked: u.status.Checked,
 					Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: now, Adopted: now}
-				slog.InfoContext(ctx, "the region formed on the attested release: every host booted it and none has a previous binary; adopted without a rollout or a gate", "release", attested.Tag())
+				slog.InfoContext(ctx, "the region formed on the attested release: every host booted it and none holds an install receipt; adopted without a rollout or a gate", "release", attested.Tag())
 				if !u.save(ctx) {
 					return renewEvery
 				}
@@ -257,36 +264,89 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		}
 	}
 	if !u.status.Adopted.IsZero() {
-		return u.pollInterval()
+		return u.adoptedSweep(ctx)
 	}
-	if u.status.Phase == PhaseComplete && u.status.passed() && time.Now().Before(u.sweepAfter) {
+	if u.status.Phase == PhaseComplete && u.status.settled() && time.Now().Before(u.sweepAfter) {
 		return u.pollInterval()
 	}
 	return u.roll(ctx)
 }
 
-func (u *Updater) formed(ctx context.Context, release releaseattest.Release) []HostProgress {
+func (u *Updater) formed(ctx context.Context, release releaseattest.Release) ([]HostProgress, string) {
 	hosts, err := u.Hosts(ctx)
 	if err != nil || len(hosts) == 0 {
-		return nil
+		return nil, fmt.Sprintf("host inventory unavailable: %v", err)
 	}
 	rows := make([]HostProgress, 0, len(hosts))
+	var unknown []string
 	for _, host := range hosts {
 		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
+		if err != nil {
+			unknown = append(unknown, host.Name+" does not answer: "+err.Error())
+			continue
+		}
 		want, built := release.Binaries[reply.Arch]
-		if err != nil || !built || !reply.Booted || reply.State != "" || reply.Version != release.SHA || reply.SHA256 != want.SHA256 {
-			return nil
+		if !built || reply.Version != release.SHA || reply.SHA256 != want.SHA256 || reply.Provenance == releasepush.ProvenanceInstalled {
+			return nil, ""
+		}
+		switch {
+		case reply.State != "":
+			unknown = append(unknown, host.Name+" is in release "+reply.State)
+		case reply.Provenance != releasepush.ProvenanceBooted:
+			unknown = append(unknown, host.Name+" install history unknown: "+cmp.Or(reply.Provenance, "not reported"))
 		}
 		rows = append(rows, HostProgress{ID: host.ID, Host: host.Name, State: HostDone, Version: release.SHA, SHA256: want.SHA256})
+	}
+	if len(unknown) != 0 {
+		return nil, strings.Join(unknown, "; ")
 	}
 	for _, row := range rows {
 		reply, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullAdopt, Release: release}, installWait)
 		if err != nil || reply.State != releasepush.StateAdopted {
-			slog.WarnContext(ctx, "a formed host did not adopt the release it booted; the region takes it through the rollout", "release", release.Tag(), "host", row.Host, "error", err, "reply", reply.Error)
-			return nil
+			return nil, fmt.Sprintf("%s did not record the release it booted: %v %s", row.Host, err, reply.Error)
 		}
 	}
-	return rows
+	return rows, ""
+}
+
+func (u *Updater) adoptedSweep(ctx context.Context) time.Duration {
+	target := *u.status.Target
+	hosts, err := u.Hosts(ctx)
+	if err != nil {
+		u.status.Reason = "host inventory unavailable: " + err.Error()
+		u.save(ctx)
+		return u.pollInterval()
+	}
+	var reasons []string
+	for _, host := range hosts {
+		if u.status.host(host.ID) == nil {
+			u.status.Hosts = append(u.status.Hosts, HostProgress{ID: host.ID, Host: host.Name, State: HostPending})
+		}
+		row := u.status.host(host.ID)
+		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
+		if err != nil {
+			reasons = append(reasons, host.Name+" does not answer: "+err.Error())
+			continue
+		}
+		row.Version, row.SHA256 = reply.Version, reply.SHA256
+		want, built := target.Binaries[reply.Arch]
+		if !built || reply.Version != target.SHA || reply.SHA256 != want.SHA256 {
+			row.State = HostPending
+			reasons = append(reasons, host.Name+" runs "+reply.Version+", not the adopted "+target.Tag()+"; it takes the next release")
+			continue
+		}
+		if target.Seq != 0 && reply.Seq != target.Seq {
+			recorded, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullAdopt, Release: target}, installWait)
+			if err != nil || recorded.State != releasepush.StateAdopted {
+				reasons = append(reasons, fmt.Sprintf("%s did not record seq %d of %s: %v %s", host.Name, target.Seq, target.Tag(), err, recorded.Error))
+				continue
+			}
+		}
+		row.State, row.Error = HostDone, ""
+	}
+	u.status.Reason = strings.Join(reasons, "; ")
+	u.save(ctx)
+	return u.pollInterval()
 }
 
 func (u *Updater) pollInterval() time.Duration {
@@ -825,7 +885,7 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 		if u.status.Failed >= bakeFailures && now.Sub(u.status.Failing) >= rollout.BakeFailureDuration {
 			return u.rolledBack(ctx, u.rollbackTarget(failed), fmt.Sprintf("regional bake failed in %d samples over %s: %s", u.status.Failed, now.Sub(u.status.Failing).Round(time.Second), failure))
 		}
-		if bound := u.bakeBound(); now.Sub(u.judgedSince()) >= bound {
+		if bound := u.bakeBound(); now.Sub(u.status.Done) >= bound {
 			return u.rolledBack(ctx, u.rollbackTarget(failed), fmt.Sprintf("regional bake found no healthy %s window within %s: %d failed samples, the last: %s", u.BakeFor, bound, u.status.Failures, failure))
 		}
 		u.status.Reason = "regional bake sample failed: " + failure
@@ -833,7 +893,15 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 		return checkEvery
 	}
 	if found.excluded != "" {
-		u.status.Failing, u.status.Failed, u.status.Healthy, u.status.Overlap = time.Time{}, 0, time.Time{}, now
+		u.status.Failing, u.status.Failed, u.status.Healthy = time.Time{}, 0, time.Time{}
+		if bound := u.bakeBound(); len(found.unsettled) != 0 && now.Sub(u.status.Done) >= bound {
+			u.status.Withheld = "app " + strings.Join(found.unsettled, ", ") + " unsettled"
+			u.status.Reason = fmt.Sprintf("withheld: %s within %s of the gate start (%s); later regions hold %s and this region takes the next release", u.status.Withheld, bound, found.excluded, u.status.Target.Tag())
+			slog.WarnContext(ctx, "regional gate withheld: an app's own release did not settle within the bound", "release", u.status.Target.Tag(), "excluded", found.excluded)
+			u.save(ctx)
+			u.sweepAfter = time.Now().Add(u.Poll)
+			return u.pollInterval()
+		}
 		u.status.Reason = "regional bake waits for services in their own release to settle: " + found.excluded
 		u.save(ctx)
 		return checkEvery
@@ -856,13 +924,6 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 
 func installedHere(row HostProgress) bool {
 	return !row.Installed.IsZero()
-}
-
-func (u *Updater) judgedSince() time.Time {
-	if u.status.Overlap.After(u.status.Done) {
-		return u.status.Overlap
-	}
-	return u.status.Done
 }
 
 func (u *Updater) rollbackTarget(failed *HostProgress) *HostProgress {

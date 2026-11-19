@@ -69,7 +69,7 @@ type Status struct {
 	Discovered time.Time `json:"discovered,omitzero"`
 	Passed     time.Time `json:"passed,omitzero"`
 	Adopted    time.Time `json:"adopted,omitzero"`
-	Overlap    time.Time `json:"overlap,omitzero"`
+	Withheld   string    `json:"withheld,omitempty"`
 	Excluded   string    `json:"excluded,omitempty"`
 	Baseline   *Baseline `json:"baseline,omitempty"`
 	Restart    string    `json:"restart,omitempty"`
@@ -119,7 +119,7 @@ func (s Status) passed() bool {
 }
 
 func (s Status) settled() bool {
-	return s.passed() || !s.Adopted.IsZero()
+	return s.passed() || !s.Adopted.IsZero() || s.Withheld != ""
 }
 
 func (s Status) Timeline() []string {
@@ -193,6 +193,9 @@ func (s Status) String() string {
 	parts := []string{line}
 	if s.Excluded != "" {
 		parts = append(parts, "    gate "+s.Excluded)
+	}
+	if s.Withheld != "" {
+		parts = append(parts, "    withheld: "+s.Withheld)
 	}
 	for _, host := range s.Hosts {
 		row := "    " + host.Host + ": " + host.State

@@ -80,7 +80,7 @@ type Reply struct {
 	Started    time.Time       `json:"started,omitzero"`
 	Peer       bool            `json:"peer,omitempty"`
 	Mesh       string          `json:"mesh,omitempty"`
-	Booted     bool            `json:"booted,omitempty"`
+	Provenance string          `json:"provenance,omitempty"`
 }
 
 var processStarted = time.Now().UTC()

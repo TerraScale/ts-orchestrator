@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"runtime"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -22,6 +23,9 @@ const (
 
 	StateNewer   = "newer"
 	StateAdopted = "adopted"
+
+	ProvenanceBooted    = "booted"
+	ProvenanceInstalled = "installed"
 
 	stateRestoring = "restoring"
 	bundleLimit    = 4 << 20
@@ -58,8 +62,7 @@ func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 		health := h.health(ctx, payload)
 		reply.Health, reply.Node, reply.Mesh = health.Health, health.Node, health.Mesh
 		reply.Peer = h.Peer != nil && h.Peer()
-		_, previous := binaryIdentity(h.Binary + ".prev")
-		reply.Booted = previous != nil
+		reply.Provenance = h.provenance()
 		if installed, err := readSeq(h.SeqFile); err != nil {
 			reply.Error = "installed seq unreadable: " + err.Error()
 		} else {
@@ -145,6 +148,17 @@ func (h *Handler) verifyPulled(ctx context.Context, release releaseattest.Releas
 		return Binary{}, err
 	}
 	return Binary{URL: artifact.URL, SHA256: digest}, nil
+}
+
+func (h *Handler) provenance() string {
+	_, err := os.ReadFile(h.RunIDFile)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return ProvenanceBooted
+	case err != nil:
+		return "unknown: install receipt unreadable: " + err.Error()
+	}
+	return ProvenanceInstalled
 }
 
 func (h *Handler) adoptPulled(ctx context.Context, release releaseattest.Release) Reply {
