@@ -13,15 +13,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 const (
-	metadataURL    = "http://169.254.169.254/opc/v2/instance/metadata/"
-	binaryPath     = "/usr/local/bin/terrascale-orchestrator"
-	binaryLink     = "/usr/local/bin/ts-orch"
-	recordedUUID   = "/etc/ts-orch/data-volume-uuid"
-	recordedSerial = "/etc/ts-orch/data-volume-serial"
+	metadataURL      = "http://169.254.169.254/opc/v2/instance/metadata/"
+	binaryPath       = "/usr/local/bin/terrascale-orchestrator"
+	binaryLink       = "/usr/local/bin/ts-orch"
+	imageReleasePath = "/usr/local/lib/ts-orch/image-release.sha256"
+	recordedUUID     = "/etc/ts-orch/data-volume-uuid"
+	recordedSerial   = "/etc/ts-orch/data-volume-serial"
 )
 
 func Boot(ctx context.Context, args []string, out io.Writer) error {
@@ -32,7 +34,8 @@ func Boot(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	updated, err := installRelease(ctx, metadata[ReleaseURLKey], metadata[ReleaseSHA256Key], out)
+	firstBind := !recorded(recordedUUID) || !recorded(recordedSerial)
+	updated, err := installRelease(ctx, metadata[ReleaseURLKey], metadata[ReleaseSHA256Key], firstBind, out)
 	if err != nil {
 		return err
 	}
@@ -40,8 +43,8 @@ func Boot(ctx context.Context, args []string, out io.Writer) error {
 	if volume == "" {
 		return errors.New("node-init: no data volume is bound to this instance yet; ts-orch region apply binds one, and ts-node-init.service starts again")
 	}
-	tail := "installed_sha=" + updated + "\n" + directMounts + updatedRelease + nixosUnits
-	if recorded(recordedUUID) && recorded(recordedSerial) {
+	tail := "installed_sha=" + updated + "\n" + directMounts + updatedRelease + prebuiltUnits
+	if !firstBind {
 		err = runScript(ctx, "data-volume-rebind", rebindProbe+tail, out)
 	} else if updated != "" {
 		err = fmt.Errorf("node-init: %s has sha256 %s, not launch release %s, before this instance's first bind; nothing is bound or formatted", binaryPath, updated, metadata[ReleaseSHA256Key])
@@ -92,7 +95,7 @@ func instanceMetadata(ctx context.Context) (map[string]string, error) {
 	return metadata, nil
 }
 
-func installRelease(ctx context.Context, url, sum string, out io.Writer) (string, error) {
+func installRelease(ctx context.Context, url, sum string, firstBind bool, out io.Writer) (string, error) {
 	if !sha256Hex.MatchString(sum) || !plainURL.MatchString(url) {
 		return "", fmt.Errorf("node-init: instance metadata %s and %s need a plain https URL and a lowercase sha256", ReleaseURLKey, ReleaseSHA256Key)
 	}
@@ -102,6 +105,16 @@ func installRelease(ctx context.Context, url, sum string, out io.Writer) (string
 		fmt.Fprintf(out, "node-init: %s already has sha256 %s\n", binaryPath, sum)
 		return "", nil
 	case err == nil:
+		if firstBind {
+			baked, readErr := os.ReadFile(imageReleasePath)
+			if readErr == nil && strings.TrimSpace(string(baked)) == installed {
+				if err := download(ctx, url, sum); err != nil {
+					return "", err
+				}
+				fmt.Fprintf(out, "node-init: replaced the image's binary sha256 %s with launch release %s\n", installed, sum)
+				return "", nil
+			}
+		}
 		fmt.Fprintf(out, "node-init: %s has sha256 %s, not launch release %s; the self-update's release-installed record must name it\n", binaryPath, installed, sum)
 		return installed, nil
 	case errors.Is(err, fs.ErrNotExist):
@@ -306,4 +319,4 @@ if not isinstance(digests, list) or installed not in digests:
 fi
 `
 
-var nixosUnits = mountCheck + "bash /usr/local/lib/ts-orch/data-mount-check.sh || probe_failed mount-check\n" + dropIns("/run/systemd/system", "/usr/bin/env bash")
+var prebuiltUnits = mountCheck + "bash /usr/local/lib/ts-orch/data-mount-check.sh || probe_failed mount-check\n" + dropIns("/run/systemd/system", "/usr/bin/env bash")

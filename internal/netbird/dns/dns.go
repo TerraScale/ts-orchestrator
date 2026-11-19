@@ -19,8 +19,6 @@ import (
 
 const binary = "/usr/local/lib/ts-orch-netbird-dns"
 
-// system.control is a persistent systemd unit search path and remains writable
-// when NixOS owns /etc/systemd/system as an immutable store symlink.
 const unitDir = "/etc/systemd/system.control"
 
 const subscriber = "/etc/ts-orch-netbird-dns-resolv.conf"
@@ -34,7 +32,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("netbird dns", flag.ContinueOnError)
 	fs.SetOutput(out)
 	command := fs.String("netbird", "netbird", "NetBird command, split on spaces")
-	configDir := fs.String("config-dir", "", "native client config.d directory (NixOS)")
+	configDir := fs.String("config-dir", "", "native client config.d directory")
 	split := fs.Bool("split-resolver", false, "route nb.ts.internal to a host-network container resolver")
 	upstream := fs.String("upstream", "", "existing default DNS server (required for split-resolver)")
 	apply := fs.Bool("apply", false, "install and start persistent DNS configuration")
@@ -123,7 +121,6 @@ func install(ctx context.Context, command, upstream string) error {
 		if _, err := os.Stat("/run/current-system/sw/lib/systemd/systemd-resolved"); err != nil {
 			return errors.New("systemd-resolved must be installed before split-resolver setup")
 		}
-		// NixOS disabled services retain their executable but have no unit.
 		if _, err := os.Lstat(filepath.Join(unitDir, "systemd-resolved.service")); errors.Is(err, os.ErrNotExist) {
 			unit := "[Unit]\nDescription=Network Name Resolution (ts-orch operator DNS)\nAfter=network.target\n[Service]\nType=notify\nExecStart=/run/current-system/sw/lib/systemd/systemd-resolved\nRestart=on-failure\n[Install]\nWantedBy=multi-user.target\n"
 			if err := write(filepath.Join(unitDir, "systemd-resolved.service"), []byte(unit), 0644); err != nil {
