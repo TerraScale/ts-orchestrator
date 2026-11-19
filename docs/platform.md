@@ -26,14 +26,17 @@ Hosts discover the newest attested orchestrator release. CI publishes binaries,
 qualification and Sigstore provenance; hosts verify the workflow, main source,
 transparency evidence and exact binary digest before installation.
 
-Binary rollout order is fixed: sjc, fra, gru. It is written once, as
-`catalog.RolloutOrder` in the region catalog, and app releases (TerraBase,
-ts-auth, ts-dashboard) follow the same list. A leader can take a tag only after
-its predecessor records that exact tag complete in the fabric pull store and
-passes its regional health gate. The first region has no predecessor.
+The region list is `catalog.RolloutOrder` (sjc, fra, gru), written once in the
+region catalog. App releases (TerraBase, ts-auth, ts-dashboard) follow it one
+region after another. Orchestrator binaries use it in two phases: its first
+entry, sjc, is the canary; fra and gru take a tag only after sjc records that
+exact tag complete in the fabric pull store and passes its regional health
+gate, and then roll out at the same time. A tag that any region is rolling back
+or has rolled back is held by every region that has not started it.
 Hosts update one at a time inside their region. The completion timestamp is persisted; a new owner restarts any unfinished
-bake before recording its verdict. During the bake the leader checks every host
-and regional health; a failed bake starts rollback and blocks later regions.
+bake before recording its verdict, and a passed gate keeps its end time. During
+the bake the leader checks every host and regional health; a failed bake starts
+rollback in that region and holds the regions that have not started.
 Probation still restores a binary that never serves.
 
 Application hosts pull the existing package's release pointer and require both

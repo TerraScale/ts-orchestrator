@@ -113,6 +113,9 @@ func runHost(args []string) {
 		if mode == "unhealthy" {
 			return releasepush.HealthResult{Service: errors.New("candidate is unhealthy")}
 		}
+		if _, err := os.Stat(filepath.Join(dir, "mesh-behind")); err == nil {
+			return releasepush.HealthResult{Mesh: errors.New("jetstream: raft group _meta_: 2/3 current replicas")}
+		}
 		if _, err := os.Stat(filepath.Join(dir, "backend-down")); err == nil {
 			return releasepush.HealthResult{Edge: errors.New("edge not ready: backend unavailable")}
 		}
@@ -124,6 +127,7 @@ func runHost(args []string) {
 		}
 		return releasepush.HealthResult{}
 	}
+	h.Peer = func() bool { return strings.HasSuffix(id, "-m") }
 	h.PrepareStop = func(context.Context) error {
 		if _, err := os.Stat(filepath.Join(dir, "refuse-stop")); err == nil {
 			return errors.New("the region's raft quorum would be lost")
@@ -470,13 +474,20 @@ func (l *lane) pulls(ctx context.Context) {
 	sjc := l.waitStatus(ctx, "sjc", "sjc completes "+r1.tag, complete(r1))
 	fra := l.waitStatus(ctx, "fra", "fra completes "+r1.tag, complete(r1))
 	gru := l.waitStatus(ctx, "gru", "gru completes "+r1.tag, complete(r1))
-	require(!fra.Done.Before(sjc.Done.Add(healthyFor)) && !gru.Done.Before(fra.Done.Add(healthyFor)), "a region bypassed its predecessor completion and bake")
+	require(!fra.Done.Before(sjc.Done.Add(healthyFor)) && !gru.Done.Before(sjc.Done.Add(healthyFor)), "a region bypassed the canary's completion and gate")
 	l.requireVersions(ctx, r1.digest, l.region("sjc", "fra", "gru")...)
+	for _, region := range []pullrelease.Status{fra, gru} {
+		for _, row := range region.Hosts {
+			fetched := l.fetchedAt(row.ID, r1.tag)
+			require(!fetched.IsZero() && !fetched.After(row.Installed), "%s must fetch %s while its region waits for the canary, before its install at %s; fetched at %s", row.Host, r1.tag, row.Installed, fetched)
+		}
+	}
+	fmt.Printf("every fra and gru host fetched %s while its region waited for the canary, before its install\n", r1.tag)
 	l.github.mu.Lock()
 	compared, replied := l.github.compared[lineage], l.github.replied[lineage]
 	l.github.mu.Unlock()
 	require(replied > 1<<20 && compared >= 1 && compared <= len(l.hosts), "every host must check %s once against a comparison over 1 MiB: %d checks of %d bytes", lineage, compared, replied)
-	fmt.Printf("attested release %s pulled in sjc, fra, gru order; predecessor completion and bake persisted across hosts; %d lineage checks for %d hosts, each reply %d bytes\n%s\n%s\n%s\n",
+	fmt.Printf("attested release %s pulled in sjc, then fra and gru; the canary's completion and gate persisted across hosts; %d lineage checks for %d hosts, each reply %d bytes\n%s\n%s\n%s\n",
 		r1.tag, compared, len(l.hosts), replied, sjc, fra, gru)
 
 	wrongWorkflow := sigstore.Identity{Workflow: "TerraScale/ts-orchestrator/.github/workflows/lint-cache.yml@refs/heads/main", Ref: "refs/heads/main", Trigger: "push"}
@@ -575,6 +586,19 @@ func (l *lane) pulls(ctx context.Context) {
 	listings, unchanged, shortest := l.github.listingGaps()
 	require(unchanged > 0 && shortest >= poll, "an owner may list releases once per %s and repeat with its ETag: %d listings, %d unchanged, shortest gap %s", poll, listings, unchanged, shortest)
 	fmt.Printf("release discovery: %d listings by the region owners, %d answered 304, at least %s apart in each process\n", listings, unchanged, shortest)
+}
+
+func (l *lane) fetchedAt(id, tag string) time.Time {
+	data, err := os.ReadFile(filepath.Join(l.hosts[id].dir, "host.log"))
+	must(err)
+	for line := range strings.Lines(string(data)) {
+		if len(line) > 19 && strings.Contains(line, "release fetched in advance") && strings.Contains(line, "release="+tag+" ") {
+			at, err := time.ParseInLocation("2006/01/02 15:04:05", line[:19], time.Local)
+			must(err)
+			return at
+		}
+	}
+	return time.Time{}
 }
 
 func (l *lane) waitDown(ctx context.Context, who string) {

@@ -28,6 +28,7 @@ type lease struct {
 
 type Store struct {
 	kv     jetstream.KeyValue
+	fabric *nats.Conn
 	region string
 }
 
@@ -40,7 +41,7 @@ func Observe(ctx context.Context, fabric *nats.Conn, region string) (Status, err
 	if err != nil {
 		return Status{}, err
 	}
-	status, _, err := (&Store{kv: kv, region: region}).Load(ctx)
+	status, _, err := (&Store{kv: kv, fabric: fabric, region: region}).Load(ctx)
 	return status, err
 }
 
@@ -53,7 +54,7 @@ func Open(ctx context.Context, fabric *nats.Conn, region, key string) (*Store, e
 	if err != nil {
 		return nil, fmt.Errorf("pull rollout store: %w", err)
 	}
-	return &Store{kv: kv, region: key}, nil
+	return &Store{kv: kv, fabric: fabric, region: key}, nil
 }
 
 func (s *Store) Load(ctx context.Context) (Status, uint64, error) {

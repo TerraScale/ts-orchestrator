@@ -95,6 +95,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 		return err
 	}
 	releases.Health = health
+	releases.Peer = node.IsManager
 	releases.Regional.In(plan.region)
 	releases.PrepareStop = prepareStop
 	releases.AbortStop = abortStop

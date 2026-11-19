@@ -225,7 +225,7 @@ with its own SwarmKit node and its own NATS cluster (`internal/natscell/mesh`).
   regions' maps at start and every 30 s (`ts.svc.state`), so a region that
   was down catches up by itself. `regions` in a spec limits it (M1 specs: `["gru"]`).
 - Auto-deploy: ci.yml deploy/release-publish publishes attested binaries. Hosts
-  pull in sjc, fra, gru order after predecessor completion and regional bake.
+  pull in sjc first; fra and gru follow together once sjc completed and passed its regional gate.
 - Live check: `.github/workflows/multi-region.yml` (every 6 h, after main CI,
   or `gh workflow run multi-region.yml --ref main`) runs `ts-orch release
   mesh-check`: authenticated observations of every peer with RTTs, over each region’s native HTTPS endpoint; no service apply.
@@ -405,8 +405,9 @@ A removed host cannot rejoin with its old identity. Terminate it, or stop ts-orc
 ### ts-orch itself: green main -> live on every region
 
 Every green main push with a changed binary publishes an attested release.
-Hosts discover and verify it, then update one host at a time and one region
-at a time after the predecessor passes its regional health gate. CI observes
+Hosts discover, verify and download it, then update one host at a time per
+region: sjc first, then fra and gru at the same time once sjc passes its
+regional health gate. CI observes
 through authenticated HTTPS. See [delivery-pipeline.md](delivery-pipeline.md).
 
 The following measurements are historical results of the retired delivery path.
