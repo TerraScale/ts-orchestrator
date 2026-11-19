@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
@@ -58,6 +59,7 @@ type Executor struct {
 	functionNodeID    string
 	node              *api.Node
 	registry          RegistryResolver
+	regionalDrain     *handoff.RegionalDrain
 	stateful          *execution.Source
 	replicaMu         sync.Mutex
 	replicaSampler    *hostload.Sampler
@@ -162,6 +164,30 @@ func (e *Executor) SetRegistryResolver(resolver RegistryResolver) error {
 	}
 	e.registry = resolver
 	return nil
+}
+
+func (e *Executor) BindRegionalDrain(drain *handoff.RegionalDrain) error {
+	if drain == nil {
+		return errors.New("regional drain is required")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.regionalDrain != nil {
+		return errors.New("regional drain binding is immutable")
+	}
+	e.regionalDrain = drain
+	return nil
+}
+
+func (e *Executor) drainRegionalTask(ctx context.Context, task string) error {
+	e.mu.Lock()
+	drain := e.regionalDrain
+	e.mu.Unlock()
+	if drain == nil {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return drain.DrainTask(ctx, task)
 }
 
 // SwarmKit broadcasts overlay keys to every agent; host-only tasks never use them.

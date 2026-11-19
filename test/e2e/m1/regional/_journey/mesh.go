@@ -484,12 +484,13 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 	})
 	cancelled, cancelDrain := context.WithCancel(ctx)
 	cancelDrain()
-	if err := handoff.DrainTask(cancelled, "restart-task"); !errors.Is(err, context.Canceled) {
+	drain := handoff.NewRegionalDrain()
+	if err := drain.DrainTask(cancelled, "restart-task"); !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("unattached drainer ignored cancellation: %v", err)
 	}
 	pendingDrain := make(chan error, 1)
-	go func() { pendingDrain <- handoff.DrainTask(ctx, "restart-task") }()
-	handoff.SetTaskDrainer(workerAgent.DrainTask)
+	go func() { pendingDrain <- drain.DrainTask(ctx, "restart-task") }()
+	drain.SetTaskDrainer(workerAgent.DrainTask)
 	if err := <-pendingDrain; err != nil {
 		return fmt.Errorf("restarted worker task drain: %w", err)
 	}
@@ -498,8 +499,8 @@ func RegionalPeersJourney(root string, health func(context.Context, string, *Nod
 	if err != nil {
 		return err
 	}
-	handoff.SetTaskDrainer(workerAgent.DrainTask)
-	if err := handoff.DrainTask(ctx, "restart-task"); err != nil {
+	drain.SetTaskDrainer(workerAgent.DrainTask)
+	if err := drain.DrainTask(ctx, "restart-task"); err != nil {
 		return fmt.Errorf("reattached worker task drain: %w", err)
 	}
 	fmt.Println("ok regional peers: restarted worker waits for drainer attachment and drains through its regional peer; replacement reattaches")
