@@ -133,12 +133,17 @@ func (u *Updater) Run(ctx context.Context, slots []orchestrator.Slot) {
 		return
 	}
 
-	var dirtySlots []orchestrator.Slot
+	var dirtySlots, freshSlots []orchestrator.Slot
 	for _, slot := range slots {
-		if u.isSlotDirty(slot) {
+		switch {
+		case !u.isSlotDirty(slot):
+		case u.holdsCleanTask(slot):
 			dirtySlots = append(dirtySlots, slot)
+		default:
+			freshSlots = append(freshSlots, slot)
 		}
 	}
+	dirtySlots = append(dirtySlots, freshSlots...)
 	// Abort immediately if all tasks are clean.
 	if len(dirtySlots) == 0 {
 		if service.UpdateStatus != nil &&
@@ -587,6 +592,15 @@ func (u *Updater) isTaskDirty(t *api.Task) bool {
 		n = store.GetNode(tx, t.NodeID)
 	})
 	return orchestrator.IsTaskDirty(u.newService, t, n)
+}
+
+func (u *Updater) holdsCleanTask(slot orchestrator.Slot) bool {
+	for _, t := range slot {
+		if t.DesiredState <= api.TaskStateRunning && !u.isTaskDirty(t) {
+			return true
+		}
+	}
+	return false
 }
 
 func (u *Updater) isSlotDirty(slot orchestrator.Slot) bool {

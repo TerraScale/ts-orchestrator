@@ -487,8 +487,12 @@ its own port, the update starts the new task first, and the executor serves the
 service port from the newest ready task while the old one drains. When the
 node has no room for both tasks (E16: a 2-CPU host), a candidate still unplaced
 for insufficient resources 5 s after it was created falls back to stop-first for
-that update: the old task stops, the candidate starts, and the release reply says
-`stop-first: candidate did not fit`. The fallback runs only while another task
+that update, and the release reply says `stop-first: candidate did not fit`. The
+restarted updater first takes the slots whose candidate already exists: their
+old task stops and that candidate starts. Only then does it take a slot without
+a candidate: it creates the candidate in `READY`, tells the old task to stop and
+starts the candidate once that task has stopped. An existing candidate therefore
+never competes for the room another slot frees. The fallback runs only while another task
 keeps serving: the updater moves to the next slot only after the replacement in
 the current slot runs. When stopping first would stop the last serving task, or
 a candidate is still unplaced 5 s after its slot's old task stopped, the update
