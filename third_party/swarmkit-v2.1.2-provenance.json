@@ -221,6 +221,18 @@
       "upstream_sha256": "f0facedf6fd82cf83547979d9db2ecf1a44bf60bded169a24b622590d2ba9d43"
     },
     {
+      "bytes": 21813,
+      "path": "manager/orchestrator/update/updater.go",
+      "rationale": "Adopt a start-first candidate only once it runs before stopping the slot's other tasks; re-read the slots' tasks once the superseded updater has stopped, and update the slots that already hold an up-to-date task before slots that need a new one, so a candidate created under an earlier update order never competes for the room another slot frees.",
+      "sha256": "716f46fd408866891c4d81676f189977fcd19391c636c6a35d77bbf2b6cffeee",
+      "source_history": [
+        "e71792358 [fix] C1b: a release never stops a serving task before its replacement serves (#442)",
+        "[fix] C18b: a fitting two-replica update is placed again after a stop-first transition (#491)"
+      ],
+      "upstream_bytes": 18625,
+      "upstream_sha256": "a34864a86ba40ced6bc07efb1a2fd413aa7bbb0f6901aa4fb354a59efae0ed91"
+    },
+    {
       "bytes": 5461,
       "path": "manager/state/raft/membership/cluster.go",
       "rationale": "Replace a Raft member on an address update instead of mutating the shared *Member that Members() hands to unlocked readers (data race on a manager's own address move).",
