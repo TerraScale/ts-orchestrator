@@ -16,10 +16,17 @@ var (
 )
 
 func CloudInit(files fs.FS, binaryURL, sum, volumeID, expectedUUID, expectedSerial string, mayFormat bool) (string, error) {
-	if !volumeIdentity.MatchString(volumeID) || (expectedUUID != "" && !FilesystemUUID.MatchString(expectedUUID)) || (!mayFormat && expectedUUID == "") || (expectedSerial != "" && !DiskSerial.MatchString(expectedSerial)) || (mayFormat && (expectedUUID != "" || expectedSerial != "")) {
-		return "", fmt.Errorf("data volume requires an identity and an expected UUID unless created in this run")
+	if err := checkBinding(volumeID, expectedUUID, expectedSerial, mayFormat); err != nil {
+		return "", err
 	}
 	return hostScript(files, binaryURL, sum, fmt.Sprintf("bash /usr/local/lib/ts-orch/data-volume.sh %t '%s' '%s' '%s'\n", mayFormat, volumeID, expectedUUID, expectedSerial))
+}
+
+func checkBinding(volumeID, expectedUUID, expectedSerial string, mayFormat bool) error {
+	if !volumeIdentity.MatchString(volumeID) || (expectedUUID != "" && !FilesystemUUID.MatchString(expectedUUID)) || (!mayFormat && expectedUUID == "") || (expectedSerial != "" && !DiskSerial.MatchString(expectedSerial)) || (mayFormat && (expectedUUID != "" || expectedSerial != "")) {
+		return fmt.Errorf("data volume requires an identity and an expected UUID unless created in this run")
+	}
+	return nil
 }
 
 func PoolCloudInit(files fs.FS, binaryURL, sum string) (string, error) {
@@ -30,6 +37,7 @@ const (
 	VolumeKey = "terrascale-data-volume"
 	FormatKey = "terrascale-data-may-format"
 	UUIDKey   = "terrascale-data-uuid"
+	SerialKey = "terrascale-data-serial"
 )
 
 func PoolBinding(volumeID, filesystem string, mayFormat bool) map[string]string {
@@ -95,7 +103,9 @@ systemctl restart ts-orch.service netbird-server.service
 		base64.StdEncoding.EncodeToString(companion)), nil
 }
 
-const dataVolumeSetup = `#!/usr/bin/env bash
+var dataVolumeSetup = dataVolumeProbe + fstabMounts + mountCheck + dropIns("/etc/systemd/system", "/bin/bash")
+
+const dataVolumeProbe = `#!/usr/bin/env bash
 set -euo pipefail
 may_format=$1
 expected_volume=$2
@@ -215,7 +225,9 @@ test -z "$contents" || probe_failed data-directory
 install -d -m 0755 /etc/ts-orch
 printf '%s\n' "$uuid" > /etc/ts-orch/data-volume-uuid
 printf '%s\n' "$serial" > /etc/ts-orch/data-volume-serial
-entry="UUID=$uuid /var/lib/ts-data ext4 defaults 0 2"
+`
+
+const fstabMounts = `entry="UUID=$uuid /var/lib/ts-data ext4 defaults 0 2"
 grep -Fxq "$entry" /etc/fstab || printf '%s\n' "$entry" >> /etc/fstab
 mount /var/lib/ts-data
 install -d -m 0755 /var/lib/ts-data/terrabase
@@ -225,7 +237,9 @@ test -z "$contents" || probe_failed state-directory
 entry='/var/lib/ts-data/ts-orch /var/lib/ts-orch none bind 0 0'
 grep -Fxq "$entry" /etc/fstab || printf '%s\n' "$entry" >> /etc/fstab
 mount /var/lib/ts-orch
-cat > /usr/local/lib/ts-orch/data-mount-check.sh <<'CHECK'
+`
+
+const mountCheck = `cat > /usr/local/lib/ts-orch/data-mount-check.sh <<'CHECK'
 set -euo pipefail
 mountpoint -q /var/lib/ts-data
 mountpoint -q /var/lib/ts-orch
@@ -258,17 +272,21 @@ state_root=$(findmnt -rn -M /var/lib/ts-orch -o FSROOT) || exit 1
 test -n "$state_root" || exit 1
 test "$state_root" = /ts-orch || exit 1
 CHECK
-for unit in ts-orch netbird-server; do
-install -d -m 0755 "/etc/systemd/system/$unit.service.d"
-cat > "/etc/systemd/system/$unit.service.d/data-volume.conf" <<'UNIT'
+`
+
+func dropIns(dir, bash string) string {
+	return `for unit in ts-orch netbird-server; do
+install -d -m 0755 "` + dir + `/$unit.service.d"
+cat > "` + dir + `/$unit.service.d/data-volume.conf" <<'UNIT'
 [Unit]
 RequiresMountsFor=/var/lib/ts-data /var/lib/ts-orch
 BindsTo=var-lib-ts\x2ddata.mount var-lib-ts\x2dorch.mount
 After=var-lib-ts\x2ddata.mount var-lib-ts\x2dorch.mount
 
 [Service]
-ExecStartPre=/bin/bash /usr/local/lib/ts-orch/data-mount-check.sh
+ExecStartPre=` + bash + ` /usr/local/lib/ts-orch/data-mount-check.sh
 UNIT
 done
 systemctl daemon-reload
 `
+}

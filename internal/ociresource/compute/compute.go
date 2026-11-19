@@ -3,7 +3,6 @@ package compute
 import (
 	"cmp"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"maps"
@@ -41,7 +40,7 @@ type Place struct {
 
 type Launch struct {
 	ImageID  string
-	UserData string
+	Metadata map[string]string
 }
 
 type Nodes struct {
@@ -146,7 +145,7 @@ func (p Pass) configuration(ctx context.Context) (string, []string, error) {
 				ShapeConfig:       &core.InstanceConfigurationLaunchInstanceShapeConfigDetails{Ocpus: &p.OCPUs, MemoryInGBs: &p.MemoryGB},
 				SourceDetails:     core.InstanceConfigurationInstanceSourceViaImageDetails{ImageId: &launch.ImageID, BootVolumeSizeInGBs: &p.BootGB},
 				CreateVnicDetails: &core.InstanceConfigurationCreateVnicDetails{SubnetId: &p.SubnetID, AssignPublicIp: common.Bool(false), NsgIds: []string{p.NSGID}},
-				Metadata:          map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(launch.UserData))},
+				Metadata:          launch.Metadata,
 				FreeformTags:      p.tags("instance", "node"),
 			}},
 		},
@@ -167,7 +166,7 @@ func (p Pass) matches(configuration core.InstanceConfiguration, want Launch) boo
 	launch := details.LaunchDetails
 	source, ok := launch.SourceDetails.(core.InstanceConfigurationInstanceSourceViaImageDetails)
 	vnic := launch.CreateVnicDetails
-	return ok && deref(source.ImageId) == want.ImageID && launch.Metadata["user_data"] == base64.StdEncoding.EncodeToString([]byte(want.UserData)) &&
+	return ok && deref(source.ImageId) == want.ImageID && maps.Equal(launch.Metadata, want.Metadata) &&
 		deref(launch.Shape) == p.Shape && launch.ShapeConfig != nil &&
 		deref(launch.ShapeConfig.Ocpus) == p.OCPUs && deref(launch.ShapeConfig.MemoryInGBs) == p.MemoryGB &&
 		deref(source.BootVolumeSizeInGBs) == p.BootGB && vnic != nil && deref(vnic.SubnetId) == p.SubnetID &&

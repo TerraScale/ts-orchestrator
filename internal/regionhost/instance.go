@@ -207,18 +207,38 @@ func (r *run) faultDomains(ad string) ([]string, error) {
 	return names, nil
 }
 
+func hostMetadata(nixos bool, url, sum string, volume *core.Volume, mayFormat bool) (map[string]string, error) {
+	id, uuid, serial := deref(volume.Id), volume.FreeformTags[dataUUIDTag], volume.FreeformTags[dataSerialTag]
+	if nixos {
+		return nodeinit.NixOSHostMetadata(url, sum, id, uuid, serial, mayFormat)
+	}
+	script, err := nodeinit.CloudInit(m1.Files, url, sum, id, uuid, serial, mayFormat)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script)), dataVolumeTag: id, dataFormatTag: fmt.Sprint(mayFormat)}, nil
+}
+
 func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Instance, *core.Volume, error) {
-	images, err := r.compute.ListImages(r.ctx, core.ListImagesRequest{CompartmentId: &r.compartment, OperatingSystem: new("Canonical Ubuntu"),
-		OperatingSystemVersion: new("24.04"), Shape: &m.shape, SortBy: core.ListImagesSortByTimecreated, SortOrder: core.ListImagesSortOrderDesc})
+	pinned, nixos, err := nodeinit.PinnedNixOSImage(r.region, m.arch)
 	if err != nil {
 		return nil, nil, err
 	}
-	i := slices.IndexFunc(images.Items, func(i core.Image) bool {
-		n := deref(i.DisplayName)
-		return strings.Contains(n, "aarch64") == (m.arch == "arm64") && !strings.Contains(n, "Minimal")
-	})
-	if i < 0 {
-		return nil, nil, fmt.Errorf("no Ubuntu 24.04 %s image for %s", m.arch, m.shape)
+	imageID := pinned.ImageID
+	if !nixos {
+		images, err := r.compute.ListImages(r.ctx, core.ListImagesRequest{CompartmentId: &r.compartment, OperatingSystem: new("Canonical Ubuntu"),
+			OperatingSystemVersion: new("24.04"), Shape: &m.shape, SortBy: core.ListImagesSortByTimecreated, SortOrder: core.ListImagesSortOrderDesc})
+		if err != nil {
+			return nil, nil, err
+		}
+		i := slices.IndexFunc(images.Items, func(i core.Image) bool {
+			n := deref(i.DisplayName)
+			return strings.Contains(n, "aarch64") == (m.arch == "arm64") && !strings.Contains(n, "Minimal")
+		})
+		if i < 0 {
+			return nil, nil, fmt.Errorf("no Ubuntu 24.04 %s image for %s", m.arch, m.shape)
+		}
+		imageID = deref(images.Items[i].Id)
 	}
 	subnet, err := r.subnet()
 	if err != nil {
@@ -305,20 +325,16 @@ func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Insta
 			continue
 		}
 		mayFormat := r.createdVolumes[deref(volume.Id)]
-		script, scriptErr := nodeinit.CloudInit(m1.Files, url, sum, deref(volume.Id), volume.FreeformTags[dataUUIDTag], volume.FreeformTags[dataSerialTag], mayFormat)
-		if scriptErr != nil {
-			return nil, nil, scriptErr
-		}
-		permission := "false"
-		if mayFormat {
-			permission = "true"
+		metadata, metadataErr := hostMetadata(nixos, url, sum, volume, mayFormat)
+		if metadataErr != nil {
+			return nil, nil, metadataErr
 		}
 		launched, err = r.compute.LaunchInstance(r.ctx, core.LaunchInstanceRequest{LaunchInstanceDetails: core.LaunchInstanceDetails{
 			AvailabilityDomain: at.ad, FaultDomain: at.fd, CompartmentId: &r.compartment, DisplayName: &name, Shape: &m.shape,
 			ShapeConfig:       &core.LaunchInstanceShapeConfigDetails{Ocpus: &m.ocpus, MemoryInGBs: &m.gb},
-			SourceDetails:     core.InstanceSourceViaImageDetails{ImageId: images.Items[i].Id, BootVolumeSizeInGBs: new(int64(50))},
+			SourceDetails:     core.InstanceSourceViaImageDetails{ImageId: &imageID, BootVolumeSizeInGBs: new(int64(50))},
 			CreateVnicDetails: &core.CreateVnicDetails{SubnetId: &subnet, AssignPublicIp: new(true), NsgIds: nsgs, HostnameLabel: &name},
-			Metadata:          map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script)), dataVolumeTag: deref(volume.Id), dataFormatTag: permission},
+			Metadata:          metadata,
 		}})
 		if err == nil {
 			break

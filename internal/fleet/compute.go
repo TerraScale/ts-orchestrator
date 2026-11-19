@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"slices"
 	"strings"
@@ -98,6 +99,25 @@ func launch(ctx context.Context, client core.ComputeClient, region Region) (comp
 	if strings.Contains(region.Nodes.Shape, ".A1.") {
 		arch, image = "arm64", "aarch64"
 	}
+	release, err := newestNodeRelease(ctx)
+	if err != nil {
+		return compute.Launch{}, err
+	}
+	if err := release.knows(region); err != nil {
+		return compute.Launch{}, fmt.Errorf("%w; refusing to launch %s nodes on it", err, region.Label)
+	}
+	binary, ok := release.attested.Binaries[arch]
+	if !ok {
+		return compute.Launch{}, fmt.Errorf("attested release %s has no %s binary", release.attested.Tag(), arch)
+	}
+	pinned, nixos, err := nodeinit.PinnedNixOSImage(region.OCIRegion, arch)
+	if err != nil {
+		return compute.Launch{}, err
+	}
+	if nixos {
+		metadata, err := nodeinit.NixOSMetadata(binary.URL, binary.SHA256)
+		return compute.Launch{ImageID: pinned.ImageID, Metadata: metadata}, err
+	}
 	images, err := client.ListImages(ctx, core.ListImagesRequest{CompartmentId: common.String(region.CompartmentID),
 		OperatingSystem: common.String("Canonical Ubuntu"), OperatingSystemVersion: common.String("24.04"), Shape: common.String(region.Nodes.Shape),
 		SortBy: core.ListImagesSortByTimecreated, SortOrder: core.ListImagesSortOrderDesc})
@@ -111,20 +131,9 @@ func launch(ctx context.Context, client core.ComputeClient, region Region) (comp
 	if chosen < 0 {
 		return compute.Launch{}, fmt.Errorf("no Canonical Ubuntu 24.04 %s image for %s", arch, region.Nodes.Shape)
 	}
-	release, err := newestNodeRelease(ctx)
-	if err != nil {
-		return compute.Launch{}, err
-	}
-	if err := release.knows(region); err != nil {
-		return compute.Launch{}, fmt.Errorf("%w; refusing to launch %s nodes on it", err, region.Label)
-	}
-	binary, ok := release.attested.Binaries[arch]
-	if !ok {
-		return compute.Launch{}, fmt.Errorf("attested release %s has no %s binary", release.attested.Tag(), arch)
-	}
 	script, err := nodeinit.PoolCloudInit(m1.Files, binary.URL, binary.SHA256)
 	if err != nil {
 		return compute.Launch{}, err
 	}
-	return compute.Launch{ImageID: deref(images.Items[chosen].Id), UserData: script}, nil
+	return compute.Launch{ImageID: deref(images.Items[chosen].Id), Metadata: map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(script))}}, nil
 }
