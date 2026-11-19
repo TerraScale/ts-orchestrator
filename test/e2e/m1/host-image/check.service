@@ -1,0 +1,13 @@
+[Unit]
+Description=Host image E2E first boot assertions
+DefaultDependencies=no
+After=multi-user.target ts-orch.service ts-node-init.service
+
+[Service]
+Type=exec
+ExecStart=/bin/bash /opt/host-image/guest.sh
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

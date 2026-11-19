@@ -7,6 +7,7 @@ on:
       - deploy/m1/ts-orch.service
       - deploy/m1/services/*.service
       - internal/nodeinit/boot.go
+      - test/e2e/m1/host-image/**
       - .github/workflows/host-image.yml
   push:
     branches: [main]
@@ -15,6 +16,7 @@ on:
       - deploy/m1/ts-orch.service
       - deploy/m1/services/*.service
       - internal/nodeinit/boot.go
+      - test/e2e/m1/host-image/**
       - .github/workflows/host-image.yml
   workflow_dispatch:
 
@@ -93,6 +95,9 @@ jobs:
           echo ssh-key-command-ownership
           statns /usr/local/sbin/ts-ssh-keys
           GUESTFS
+      - name: Record arm64 boot coverage
+        if: ${{ matrix.arch == 'arm64' }}
+        run: echo "arm64 QEMU boot skipped because TCG exceeded the 300-second deadline; real A1 boot coverage is provided by C2i throwaway staging and C6."
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ts-host-debian13-${{ matrix.arch }}
@@ -106,10 +111,50 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  boot:
+    name: boot-${{ matrix.arch }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ts-host-debian13-${{ matrix.arch }}
+          path: ${{ runner.temp }}/image
+      - name: Install QEMU and libguestfs
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libguestfs-tools qemu-system-x86
+          sudo chmod a+r /boot/vmlinuz-*
+          if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; fi
+      - name: Boot the image and prove first boot, reboot and release verification
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/image"
+          sha256sum -c "ts-host-debian13-${{ matrix.arch }}.qcow2.sha256"
+          cd "$GITHUB_WORKSPACE"
+          python3 test/e2e/m1/host-image/run.py "${{ matrix.arch }}" \
+            "$RUNNER_TEMP/image/ts-host-debian13-${{ matrix.arch }}.qcow2" "$RUNNER_TEMP/boot"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() }}
+        with:
+          name: host-image-boot-${{ matrix.arch }}
+          path: ${{ runner.temp }}/boot
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: publish
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    needs: build
+    needs: boot
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -126,4 +171,4 @@ jobs:
           test "${#files[@]}" -eq 4
           gh release create "$tag" "${files[@]}" -R "${{ github.repository }}" --target "$GITHUB_SHA" --title "$tag" \
             --draft --prerelease --latest=false \
-            --notes "Debian 13 host image candidates from ${GITHUB_SHA}. C2t must qualify OCI image capabilities and guest device aliases before promotion."
+            --notes "Debian 13 host image candidates from ${GITHUB_SHA}. The amd64 image passed VM first boot, persistent-volume reboot, launch-release replacement and checksum rejection. Arm64 QEMU boot is skipped because TCG exceeded the 300-second deadline; real A1 boot coverage is provided by C2i throwaway staging and C6. OCI image capability qualification is still required before promotion."
