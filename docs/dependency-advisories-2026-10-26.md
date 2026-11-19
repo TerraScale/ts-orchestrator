@@ -205,22 +205,30 @@ at master `a34f01e8c` (2026-11-03).
 - `manager/orchestrator/restart/restart.go`: `DelayStart` used to start a
   stop-first replacement once its one-minute old-task timer fired, even while
   its predecessor still ran. A replacement that publishes host ports now
-  waits, with no time limit, until no sibling told to stop is STARTING or
-  RUNNING in its slot or on its node, unless that node is DOWN or deleted.
-  While it waits, an in-progress update's status message names the wait.
+  starts only when no sibling told to stop is STARTING or RUNNING on a node
+  that is up, in its slot or on its node, with one of the same published
+  ports. The check and `StartNow` share one store transaction. The wait has no
+  time limit and ends without a start if the candidate fails or is no longer
+  READY. During an UPDATING update of the candidate's spec version, the
+  update's status message names the wait from its start and is reset when the
+  wait ends. `DelayStart` no longer joins a superseded delay inside the
+  caller's store transaction; the new delay waits for it in its own goroutine.
 - `manager/orchestrator/taskinit/init.go`: after a leader change, a READY
   candidate that publishes host ports goes through the same wait instead of
   `StartNow`.
-- `manager/orchestrator/update/updater.go`: while an update is in progress,
-  a slot whose READY candidate still waits on a host-port holder counts as
-  dirty, so the updater adopts the candidate and its failure action still
-  applies. Tasks without host ports are unchanged.
-- `manager/dispatcher/dispatcher.go`: `processUpdates` used to drop the task
-  statuses of a failed store batch after `UpdateTaskStatus` had acknowledged
-  them. They are now re-queued unless the store already holds them or a newer
-  status has arrived.
+- `manager/orchestrator/update/updater.go`: while an update or rollback is in
+  progress, a slot whose candidate publishes host ports and is not yet RUNNING
+  counts as dirty. The updater adopts that candidate, reuses a start already in
+  flight, and keeps its failure action until the candidate runs. Tasks without
+  host ports are unchanged.
+- `manager/dispatcher/dispatcher.go`: `UpdateTaskStatus` bounds a status's
+  message and error to 4 KiB before acknowledging it. When a store batch
+  fails, `processUpdates` used to drop its acknowledged task statuses. It now
+  writes each one the store does not already hold on its own. A status that
+  raft can never store is dropped and logged; the others are re-queued
+  unless a newer status has arrived.
 
 The e2e-m1 rollback lane exercises the wait with real containerd tasks.
 The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
-`ff640f62edd7c1c9406e64fbd75dd92784647ac3cd105780726829cb6955dd0a`; the v2.1.2 baseline and upstream commit
+`11ff7be12eeaff37753c8c7d0b2a809d759c97afae8af48c2528a8dc8af6f4af`; the v2.1.2 baseline and upstream commit
 `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb` remain unchanged.
