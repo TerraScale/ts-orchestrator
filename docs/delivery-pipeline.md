@@ -58,8 +58,9 @@ plus `qualification.json` on a draft GitHub release `ci-<sha>-run-<id>`. Use
 Before building, main checks GitHub's merged-PR association for its exact
 commit, the PR head's tree against main's Git tree and the successful
 `all-green` job in a completed PR run of `ci.yml`. That same attempt must
-have successful `lint`, `e2e-m1`, certificate detector/lane, caller-key
-detector and all eight caller-key shards. A skipped lane does not qualify.
+have successful `lint`, `e2e-m1`, certificate detector, caller-key detector
+and all eight caller-key shards. The certificate lane must pass or be skipped
+with the certificate detector's successful inapplicability proof in that attempt.
 Only same-repository PRs qualify. The search considers the latest 100 successful PR runs; no match
 uses main's lanes. API errors, timeouts and incomplete job lists select main's
 lanes and record the reason without failing the build. The proof, including

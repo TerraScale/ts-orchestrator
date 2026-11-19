@@ -449,6 +449,9 @@ jobs:
       changed: ${{ needs.paths.outputs.certificates }}
     steps:
       - run: test -n "${{ needs.paths.outputs.certificates }}"
+      - name: Prove certificate lane is inapplicable
+        if: ${{ needs.paths.outputs.certificates == 'false' }}
+        run: test "${{ needs.paths.outputs.certificates }}" = false
 
   caller-key-changes:
     needs: paths
