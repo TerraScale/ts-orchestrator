@@ -1,0 +1,44 @@
+name: Nix image
+
+on:
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - "nix/**"
+      - .github/workflows/nix-image.yml
+  push:
+    branches: [main]
+    paths:
+      - flake.nix
+      - flake.lock
+      - "nix/**"
+      - .github/workflows/nix-image.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  oci-image:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086
+      - name: Build packages.aarch64-linux.oci-image
+        run: nix build -L .#packages.aarch64-linux.oci-image
+      - name: Image size
+        run: |
+          image=result/terrascale-node.qcow2
+          nix shell --inputs-from . nixpkgs#qemu-utils -c qemu-img info "$image" | tee info.txt
+          {
+            echo "### OCI image"
+            echo '```'
+            ls -l "$image"
+            cat info.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
