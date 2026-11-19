@@ -589,6 +589,8 @@ func (a *Agent) Publisher(ctx context.Context, subscriptionID string) (exec.LogP
 	var (
 		err       error
 		publisher api.LogBroker_PublishLogsClient
+		sendMu    sync.Mutex
+		closeOnce sync.Once
 	)
 
 	err = a.withSession(ctx, func(session *session) error {
@@ -599,33 +601,24 @@ func (a *Agent) Publisher(ctx context.Context, subscriptionID string) (exec.LogP
 		return nil, nil, err
 	}
 
-	// make little closure for ending the log stream
 	sendCloseMsg := func() {
-		// send a close message, to tell the manager our logs are done
-		publisher.Send(&api.PublishLogsMessage{
-			SubscriptionID: subscriptionID,
-			Close:          true,
+		closeOnce.Do(func() {
+			sendMu.Lock()
+			defer sendMu.Unlock()
+			publisher.Send(&api.PublishLogsMessage{SubscriptionID: subscriptionID, Close: true})
+			publisher.CloseAndRecv()
 		})
-		// close the stream forreal. ignore the return value and the error,
-		// because we don't care.
-		publisher.CloseAndRecv()
 	}
-
 	return exec.LogPublisherFunc(func(ctx context.Context, message api.LogMessage) error {
-			select {
-			case <-ctx.Done():
-				sendCloseMsg()
-				return ctx.Err()
-			default:
-			}
-
-			return publisher.Send(&api.PublishLogsMessage{
-				SubscriptionID: subscriptionID,
-				Messages:       []api.LogMessage{message},
-			})
-		}), func() {
-			sendCloseMsg()
-		}, nil
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		return publisher.Send(&api.PublishLogsMessage{SubscriptionID: subscriptionID, Messages: []api.LogMessage{message}})
+	}), sendCloseMsg, nil
 }
 
 // nodeDescriptionWithHostname retrieves node description, and overrides hostname if available

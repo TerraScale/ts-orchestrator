@@ -316,6 +316,15 @@ func RunRuntimeLogger(argument string) {
 			return err
 		}
 		defer stderr.Close()
+		for _, file := range []*os.File{out, stderr} {
+			if _, exists, err := readLogCursor(file); err != nil {
+				return err
+			} else if !exists {
+				if err := writeLogCursor(file, logCursor{}); err != nil {
+					return err
+				}
+			}
+		}
 		if err := ready(); err != nil {
 			return err
 		}
@@ -368,15 +377,9 @@ func copyBoundedLog(file *os.File, src io.Reader) error {
 	for {
 		n, readErr := src.Read(buffer)
 		if n > 0 {
-			if size+int64(n) > logSegmentBytes {
-				if size, err = keepLogTail(file, size); err != nil {
-					return err
-				}
-			}
-			if _, err := file.Write(buffer[:n]); err != nil {
+			if size, err = appendRuntimeLog(file, buffer[:n], size); err != nil {
 				return err
 			}
-			size += int64(n)
 		}
 		if errors.Is(readErr, io.EOF) {
 			return nil
@@ -404,7 +407,7 @@ func keepLogTail(file *os.File, size int64) (int64, error) {
 	}
 	head = head[:bytes.LastIndexByte(head, '\n')+1]
 	if i := bytes.Index(head, logGap); i >= 0 {
-		head = head[:i] // already compacted: the head ends at the gap
+		head = head[:i]
 	}
 	keep := min(size-int64(len(head)), logSegmentBytes/2-int64(len(head)+len(logGap)))
 	tail := make([]byte, keep)
@@ -414,11 +417,21 @@ func keepLogTail(file *os.File, size int64) (int64, error) {
 	if i := bytes.IndexByte(tail, '\n'); i >= 0 {
 		tail = tail[i+1:]
 	}
+	cursor, _, err := readLogCursor(file)
+	if err != nil {
+		return 0, err
+	}
+	if err := writeLogCursor(file, logCursor{Tail: ^uint64(0)}); err != nil {
+		return 0, err
+	}
 	if err := file.Truncate(0); err != nil {
 		return 0, err
 	}
 	kept := slices.Concat(head, logGap, tail)
 	if _, err := file.Write(kept); err != nil {
+		return 0, err
+	}
+	if err := writeLogCursor(file, logCursor{Base: cursor.Base + uint64(size) - uint64(len(kept)), Tail: uint64(len(head) + len(logGap))}); err != nil {
 		return 0, err
 	}
 	return int64(len(kept)), nil

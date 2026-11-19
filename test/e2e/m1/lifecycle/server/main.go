@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -34,6 +36,10 @@ func main() {
 	var slowReady atomic.Bool
 	var notReady atomic.Bool
 	server := &http.Server{Addr: ":" + port, ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/log-burst" {
+			io.WriteString(os.Stdout, strings.Repeat("service-log-burst\n", 128<<10)+"service-log-burst-end\n")
+			return
+		}
 		if r.URL.Path == "/log-follow" {
 			fmt.Fprintln(os.Stdout, "service-log-follow")
 			return

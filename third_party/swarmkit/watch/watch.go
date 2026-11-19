@@ -103,8 +103,12 @@ func (q *Queue) CallbackWatch(matcher events.Matcher) (eventq chan events.Event,
 // CallbackWatchBounded closes the subscription on overflow instead of dropping
 // observation events or allowing an unbounded slow-consumer queue.
 func (q *Queue) CallbackWatchBounded(matcher events.Matcher) (eventq chan events.Event, cancel func(), closed <-chan struct{}) {
+	return q.CallbackWatchBoundedLimit(matcher, 1024)
+}
+
+func (q *Queue) CallbackWatchBoundedLimit(matcher events.Matcher, limit uint64) (eventq chan events.Event, cancel func(), closed <-chan struct{}) {
 	done := make(chan struct{})
-	eventq, cancel = q.callbackWatch(matcher, 1024, true, done)
+	eventq, cancel = q.callbackWatch(matcher, limit, true, done)
 	return eventq, cancel, done
 }
 

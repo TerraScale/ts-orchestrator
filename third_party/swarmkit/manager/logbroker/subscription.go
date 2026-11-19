@@ -15,8 +15,9 @@ import (
 )
 
 type subscription struct {
-	mu sync.RWMutex
-	wg sync.WaitGroup
+	mu       sync.RWMutex
+	done     chan struct{}
+	doneOnce sync.Once
 
 	store   *store.MemoryStore
 	message *api.SubscriptionMessage
@@ -33,6 +34,7 @@ type subscription struct {
 func newSubscription(store *store.MemoryStore, message *api.SubscriptionMessage, changed *watch.Queue) *subscription {
 	return &subscription{
 		store:        store,
+		done:         make(chan struct{}),
 		message:      message,
 		changed:      changed,
 		nodes:        make(map[string]struct{}),
@@ -82,40 +84,32 @@ func (s *subscription) Stop() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.doneOnce.Do(func() { close(s.done) })
 }
 
 func (s *subscription) Wait(_ context.Context) <-chan struct{} {
-	// Follow subscriptions never end
-	if s.follow() {
-		return nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.follow() && len(s.nodes) == 0 {
+		s.doneOnce.Do(func() { close(s.done) })
 	}
-
-	ch := make(chan struct{})
-	go func() {
-		defer close(ch)
-		s.wg.Wait()
-	}()
-	return ch
+	return s.done
 }
 
 func (s *subscription) Done(nodeID string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	if err != nil {
 		s.errors = append(s.errors, err)
+		s.doneOnce.Do(func() { close(s.done) })
 	}
-
 	if s.follow() {
 		return
 	}
-
-	if _, ok := s.nodes[nodeID]; !ok {
-		return
-	}
-
 	delete(s.nodes, nodeID)
-	s.wg.Done()
+	if len(s.nodes) == 0 {
+		s.doneOnce.Do(func() { close(s.done) })
+	}
 }
 
 func (s *subscription) Err() error {
@@ -160,7 +154,6 @@ func (s *subscription) match() {
 		}
 		if _, ok := s.nodes[t.NodeID]; !ok {
 			s.nodes[t.NodeID] = struct{}{}
-			s.wg.Add(1)
 		}
 	}
 

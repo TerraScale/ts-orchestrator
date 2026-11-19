@@ -149,20 +149,29 @@ psql "host=sjc.pg.terrascale.tech port=5432 sslmode=verify-full sslrootcert=syst
 
 ## Operator commands
 
-Run on the host as root. Every command reads `/var/lib/ts-orch` over the
-control socket; none changes state. Known failures end in `. Fix: <next step>`.
+Run on a manager as root. Every command uses the existing `/var/lib/ts-orch`
+control socket; log reads reach the task-owning node over the authenticated
+cluster channel. None changes state. Known failures end in `. Fix: <next step>`.
 
 | Command | Shows |
 |---|---|
 | `ts-orch service ps <svc>` | Tasks newest first: ID, node, state, desired state, time in state, last error; then `Fix:` for the newest task's error |
-| `ts-orch service logs [-f] <svc>` | Newest task's container stdout then stderr (`<state>/runtime-logs/ts-<task>/`); `-f` follows appended output |
+| `ts-orch service logs [-f \| --previous] <svc>` | Newest task's stdout then stderr from its node, including STARTING tasks; `-f` follows appended output, `--previous` reads a retained ended task |
 | `ts-orch service inspect <svc>` | JSON: service ID, version, created/updated, image digest, and the declared spec. Secrets show env keys and OCI Vault refs only; values never enter the spec |
 | `ts-orch events [-f]` | Latest 100 task and service state records, oldest first; `-f` streams changes from the manager's watch API |
 
 The release listener's NATS carries only releases, so `events` reads SwarmKit's watch API.
 
 Deploy check: `service apply -f x.json`, then `events -f` until the task shows
-`running`, then `service logs <svc>`.
+`running`. Read `sudo ts-orch service logs <svc>` on the manager at any point,
+including while a failed readiness probe holds the task in STARTING. Use
+`--previous` after it exits. SSH to the worker is unnecessary.
+
+Remote reads report an incomplete-stream error if the owner is unavailable or
+disconnects, including during follow. A stalled snapshot ends at 30 seconds.
+Slow consumers receive a subscriber-overflow error instead of buffering logs
+without a bound. Follow reports a gap if compaction drops unread bytes; see
+[task log retention](task-log-retention.md). Errors can follow already-printed output.
 
 Common errors and fixes:
 

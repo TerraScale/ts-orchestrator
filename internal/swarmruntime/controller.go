@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -989,11 +988,17 @@ func (c *controller) Metrics(ctx context.Context) (*types.Metric, error) {
 	return t.Metrics(runtimeContext(ctx))
 }
 
-func (c *controller) Logs(ctx context.Context, publisher exec.LogPublisher, options api.LogSubscriptionOptions) error {
+func (c *controller) Logs(ctx context.Context, publisher exec.LogPublisher, options api.LogSubscriptionOptions) (err error) {
+	logContext := api.LogContext{NodeID: c.task.NodeID, ServiceID: c.task.ServiceID, TaskID: c.task.ID}
+	defer func() {
+		if err != nil && ctx.Err() == nil {
+			err = errors.Join(err, publisher.Publish(ctx, api.LogMessage{Context: logContext, Attrs: []api.LogAttr{{Key: LogErrorAttribute, Value: err.Error()}}}))
+		}
+	}()
 	if options.Since != nil || options.Tail != 0 {
 		return fmt.Errorf("runtime logs do not support time or tail filters")
 	}
-	offsets := map[string]int64{}
+	offsets := map[string]uint64{}
 	for {
 		for _, stream := range []struct {
 			name string
@@ -1009,25 +1014,37 @@ func (c *controller) Logs(ctx context.Context, publisher exec.LogPublisher, opti
 			if err != nil {
 				return err
 			}
-			offset, seen := offsets[stream.name]
-			info, err := f.Stat()
-			if err == nil && info.Size() < offset {
-				offset = 0
-			}
-			if err == nil {
-				_, err = f.Seek(offset, io.SeekStart)
-			}
-			var data []byte
-			if err == nil {
-				data, err = io.ReadAll(io.LimitReader(f, logSegmentBytes))
-			}
+			data, cursor, synchronized, err := readRuntimeLog(f, options.Follow)
 			if err := errors.Join(err, f.Close()); err != nil {
 				return err
 			}
-			offsets[stream.name] = offset + int64(len(data))
+			end := cursor.Base + uint64(len(data))
+			offset, seen := offsets[stream.name]
+			if seen {
+				if offset > end {
+					return fmt.Errorf("%s log cursor moved backwards", stream.name)
+				}
+				tail := cursor.Base + cursor.Tail
+				if offset < tail {
+					head := cursor.Tail - uint64(len(logGap))
+					var unreadHead []byte
+					if offset < head {
+						unreadHead = data[offset:head]
+						offset = head
+					}
+					gap := []byte(fmt.Sprintf("\n--- ts-orch: %s output gap: %d bytes dropped during log compaction ---\n", stream.name, tail-offset))
+					data = slices.Concat(unreadHead, gap, data[cursor.Tail:])
+				} else {
+					data = data[offset-cursor.Base:]
+				}
+			}
+			offsets[stream.name] = end
+			if !synchronized && len(data) == 0 {
+				continue
+			}
 			for len(data) > 0 || !seen {
 				n := min(len(data), 16<<10)
-				if err := publisher.Publish(ctx, api.LogMessage{Context: api.LogContext{NodeID: c.task.NodeID, ServiceID: c.task.ServiceID, TaskID: c.task.ID}, Stream: stream.kind, Data: data[:n]}); err != nil {
+				if err := publisher.Publish(ctx, api.LogMessage{Context: logContext, Stream: stream.kind, Data: data[:n]}); err != nil {
 					return err
 				}
 				data = data[n:]

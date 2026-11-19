@@ -287,7 +287,7 @@ var errNoTaskLogs = errors.New("no container logs yet")
 
 func writePreviousTaskLogs(output io.Writer, rows []swarmruntime.TaskRow, read func(io.Writer, swarmruntime.TaskRow, bool) error) error {
 	for _, row := range rows {
-		if !row.Terminal {
+		if !row.Terminal || row.NodeID == "" {
 			continue
 		}
 		var data bytes.Buffer
@@ -338,6 +338,11 @@ func writeRemoteTaskLogs(ctx context.Context, output io.Writer, client api.LogsC
 			return fmt.Errorf("read task %s logs from node %s: %w", task.ID, task.Node, err)
 		}
 		for _, log := range message.Messages {
+			for _, attr := range log.Attrs {
+				if attr.Key == swarmruntime.LogErrorAttribute {
+					return fmt.Errorf("read task %s logs from node %s: %s", task.ID, task.Node, attr.Value)
+				}
+			}
 			found = true
 			if _, err := output.Write(log.Data); err != nil {
 				return err

@@ -60,7 +60,7 @@ this host's.
 | `ts-orch service ls` | List this host's services: name, running replicas, image |
 | `ts-orch service rm <name>` | Remove the service in every region over the mesh and on this host |
 | `ts-orch service ps <name>` | Print the service's tasks on this host |
-| `ts-orch service logs [-f \| --previous] <name>` | Print the service's task logs on this host; `-f` follows the current task, `--previous` prints the ended task's snapshot |
+| `ts-orch service logs [-f \| --previous] <name>` | On a manager, read the newest task's stdout/stderr from its node, including STARTING output; `-f` follows appended output, `--previous` selects a retained ended task |
 | `ts-orch service inspect <name>` | Print the service's live spec and state as JSON |
 
 ## Fleet deployment
