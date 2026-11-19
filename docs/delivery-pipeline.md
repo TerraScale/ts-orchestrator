@@ -111,32 +111,44 @@ verifies the release when its region first sees it, so the install that
 follows the previous host's gate starts from the fetched binary. A region's
 gate end is written once, when its gate passes.
 
-A region with no release record whose hosts all already run the release it
-discovers, such as a region that just formed from the image, adopts that
-release as complete without admission, install or gate. In any rollout, a
-host that already runs the target before the rollout installed it is recorded
-done without a gate: it has no previous binary of this rollout to restore. A
-rollout that installed no host has nothing to gate, so its gate end is its
-gate start.
+A region with no release record whose hosts all run the release it
+discovers and report `booted` (no previous binary, so no rollout ever
+installed them), such as a region that just formed from the image, adopts that
+release without admission, install or gate: each host records the release's
+channel seq through the pull op `adopt`, which never installs, and the record
+carries `adopted` instead of a gate end. An adopted record is not gate
+evidence: it never admits another region, and the region never installs that
+release afterwards. In any rollout, a host that already runs the target before
+the rollout installed it is recorded done without a gate, and a rollout that
+installed no host is recorded adopted rather than passed. A failed regional
+gate rolls back the failing host when this rollout installed it, otherwise the
+host this rollout installed last; the record names the failing host or service.
 
 The gate compares with the region before the release. When a region takes a
 tag its leader records a baseline: each host's health conditions, the
-services below desired replicas and each service's mesh generation. A host
-installs while every other host is no worse than its baseline, so a region
-that was already degraded still takes a release that may fix it. The gate
-judges only what the ts-orch release changed: a service whose mesh generation
-differs from the baseline, or whose swarm update to a new generation is still
-running, is in its own release, which its own gate judges; ts-orch's gate
-leaves it out and names it in the record as `excluded: own release`. After
-the last host the gate samples every 2 s: every host runs the release and is
-no worse than its baseline, no other service is below desired replicas unless
-it was before, no task of a steady service is replaced and no host's
-orchestrator restarts. It passes after 20 s of such samples
-(two swarm readiness probe intervals); three failed samples over 15 s, a
-restart, or no passing window within 55 s roll the release back and block
-subsequent regions. Each stage's time is in the record:
+services below desired replicas, and each service's mesh generation and
+running replicas. A host installs while every other host is no worse than its
+baseline, so a region that was already degraded still takes a release that
+may fix it. A service is worse when fewer replicas run than before the
+release, so a scale-up that keeps the mesh generation is no regression. The
+gate judges only what the ts-orch release changed: a service whose mesh
+generation differs from the baseline, or whose swarm update to a new
+generation is still running, is in its own release. Until that release
+settles (its update finished and its replicas back to the baseline count) the
+gate leaves it out and names it as `excluded: own release` in the record's
+`excluded`, and the regional bake waits instead of passing; a settled service
+is judged again from its new generation. A baseline without per-service
+evidence exempts nothing. After the last host the gate samples every 2 s:
+every host runs the release and is no worse than its baseline, no other
+service runs fewer replicas than before, no task of a steady service is
+replaced and no host's orchestrator restarts. It passes after 20 s of such
+samples (two swarm readiness probe intervals); three failed samples over
+15 s, a restart, or no passing window within 55 s of the gate start or the
+last wait for an own release roll the release back and block subsequent
+regions. Each stage's time is in the record:
 `ts-orch observe releases` prints published, discovered, installed and ready
 per host, gate start, gate end and complete for every region.
+
 
 Inside one region the updater admits one host at a time through the private
 PullInstall subject. Each host verifies the main workflow's Sigstore identity,

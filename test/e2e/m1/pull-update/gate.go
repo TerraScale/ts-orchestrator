@@ -92,6 +92,21 @@ func (l *lane) rolledBack(ctx context.Context, release published) pullrelease.St
 }
 
 func (l *lane) dropBaseline(ctx context.Context, region string) {
+	l.editRecord(ctx, region, func(record map[string]json.RawMessage) { delete(record, "baseline") })
+}
+
+func (l *lane) dropBaselineServices(ctx context.Context, region string) {
+	l.editRecord(ctx, region, func(record map[string]json.RawMessage) {
+		baseline := map[string]json.RawMessage{}
+		must(json.Unmarshal(record["baseline"], &baseline))
+		delete(baseline, "services")
+		data, err := json.Marshal(baseline)
+		must(err)
+		record["baseline"] = data
+	})
+}
+
+func (l *lane) editRecord(ctx context.Context, region string, edit func(map[string]json.RawMessage)) {
 	fabric, err := nats.Connect(l.conn.ConnectedUrl(), nats.UserInfo(fabricUser, fabricSecret))
 	must(err)
 	defer fabric.Close()
@@ -104,7 +119,7 @@ func (l *lane) dropBaseline(ctx context.Context, region string) {
 		must(err)
 		record := map[string]json.RawMessage{}
 		must(json.Unmarshal(entry.Value(), &record))
-		delete(record, "baseline")
+		edit(record)
 		data, err := json.Marshal(record)
 		must(err)
 		if _, err = kv.Update(ctx, region, data, entry.Revision()); !errors.Is(err, jetstream.ErrKeyExists) {
@@ -117,18 +132,20 @@ func (l *lane) dropBaseline(ctx context.Context, region string) {
 func (l *lane) formed(ctx context.Context) {
 	starts := l.starts()
 	booted := l.github.publish(l.revision, "114", asset, l.self, l.self, l.sigstore.Bundle(sigstore.MainIdentity, l.revision, "114", map[string][]byte{asset: l.self}))
+	require(l.hosts["fra-m"].role == "manager" && l.hosts["fra-n"].role == "worker" && l.hosts["fra-w"].role == "worker", "fra must be a founder and two workers")
 	for _, region := range []string{"sjc", "fra", "gru"} {
 		adopted := l.waitStatus(ctx, region, region+" adopts "+booted.tag+", the release its hosts booted", func(s pullrelease.Status) bool {
-			require(s.Target == nil || s.Target.Tag() != booted.tag || s.Healthy.IsZero() && s.Failures == 0 && s.Phase != pullrelease.PhaseRollingBack && s.Phase != pullrelease.PhaseStalled,
-				"%s gated or rolled back %s, the release every host booted:\n%s", region, booted.tag, s)
-			return passed(booted)(s)
+			require(s.Target == nil || s.Target.Tag() != booted.tag || s.Phase == pullrelease.PhaseComplete && !s.Adopted.IsZero(),
+				"%s rolled out %s, the release every host booted, instead of adopting it:\n%s", region, booted.tag, s)
+			return s.Target != nil && s.Target.Tag() == booted.tag
 		})
-		require(adopted.Passed.Equal(adopted.Done) && len(adopted.Hosts) == 3 && !slices.ContainsFunc(adopted.Hosts, func(h pullrelease.HostProgress) bool {
+		require(adopted.Passed.IsZero() && adopted.Done.IsZero() && adopted.Baseline == nil && len(adopted.Hosts) == 3 && !slices.ContainsFunc(adopted.Hosts, func(h pullrelease.HostProgress) bool {
 			return h.State != pullrelease.HostDone || !h.Installed.IsZero() || !h.Ready.IsZero()
-		}), "%s must record %s complete with every host done and none installed or gated:\n%s\n%s", region, booted.tag, adopted, strings.Join(adopted.Timeline(), "\n"))
-		fmt.Printf("%s records %s, the release every host booted, complete with no rollout\n%s\n", region, booted.tag, strings.Join(adopted.Timeline(), "\n"))
+		}), "%s must record %s adopted with every host done, none installed or gated, and no gate pass that admits other regions:\n%s\n%s", region, booted.tag, adopted, strings.Join(adopted.Timeline(), "\n"))
+		fmt.Printf("%s records %s, the release every host booted, adopted with no rollout and no gate\n%s\n", region, booted.tag, strings.Join(adopted.Timeline(), "\n"))
 	}
 	require(maps.Equal(l.starts(), starts), "adopting the booted release restarted a host: %v, before %v", l.starts(), starts)
+	fmt.Println("fra, a founder (fra-m) and two workers (fra-n, fra-w), adopted the release it formed on")
 }
 
 func (l *lane) gate(ctx context.Context) {
@@ -148,12 +165,16 @@ func (l *lane) gate(ctx context.Context) {
 		return s.Target != nil && s.Target.Tag() == degraded.tag && s.Baseline != nil
 	})
 	l.setService("ts-auth", 2, 0, 1)
-	regions := map[string]pullrelease.Status{}
-	regions["sjc"] = l.waitStatus(ctx, "sjc", "sjc passes the regional gate of "+degraded.tag+" while ts-auth's own release replaces its task", passed(degraded))
+	overlap := l.waitStatus(ctx, "sjc", "sjc's gate of "+degraded.tag+" waits while ts-auth's own release has it at 0/1", func(s pullrelease.Status) bool {
+		require(s.Passed.IsZero() && s.Phase != pullrelease.PhaseRollingBack, "sjc passed or rolled back %s while ts-auth's own release had not settled:\n%s", degraded.tag, s)
+		return s.Phase == pullrelease.PhaseComplete && strings.Contains(s.Reason, "waits for services in their own release to settle: excluded: own release: ts-auth 0/1")
+	})
 	l.setService("ts-auth", 2, 1, 1, "auth-1")
-	require(strings.Contains(regions["sjc"].Reason, "excluded: own release: ts-auth 0/1"),
-		"an app release that dips its own replicas during the gate must be excluded and named, not fail the gate:\n%s", regions["sjc"])
-	fmt.Printf("ts-auth's own release took it to 0/1 during sjc's gate of %s -> sjc passes: %s\n", degraded.tag, regions["sjc"].Reason)
+	regions := map[string]pullrelease.Status{}
+	regions["sjc"] = l.waitStatus(ctx, "sjc", "sjc passes the regional gate of "+degraded.tag+" once ts-auth's own release settles", passed(degraded))
+	require(regions["sjc"].Excluded == "excluded: own release: ts-auth 0/1" && regions["sjc"].Baseline.Services["ts-auth"] == pullrelease.ServiceBaseline{Generation: 2, Running: 1},
+		"an app release that dips its own replicas during the gate must be excluded and named, then judged from its new generation once settled:\n%s\n%+v", regions["sjc"], regions["sjc"].Baseline)
+	fmt.Printf("ts-auth's own release took it to 0/1 during sjc's gate of %s -> sjc waits (%s), then passes once it settles at 1/1\n", degraded.tag, overlap.Reason)
 	waiting := l.restartLease(ctx, func(hold map[string]string) bool {
 		return (hold["region"] == "fra" || hold["region"] == "gru") && hold["next"] != "" && hold["next"] != hold["region"]
 	})
@@ -219,16 +240,21 @@ func (l *lane) gate(ctx context.Context) {
 	fmt.Printf("fra-w restarted during the gate of %s -> fra rolled back alone; the canary keeps it; gru, whose managers were down until then, holds it: %s\n%s\n", resumed.tag, gruResumed.Reason, strings.Join(slices.Concat(sjcResumed.Timeline(), fraResumed.Timeline()), "\n"))
 
 	second := l.publishGood("117", "c117")
+	l.waitStatus(ctx, "sjc", "sjc records its state before "+second.tag, func(s pullrelease.Status) bool {
+		return s.Target != nil && s.Target.Tag() == second.tag && s.Baseline != nil
+	})
+	l.setService("ts-auth", 3, 1, 1, "auth-1")
 	l.waitStatus(ctx, "sjc", "sjc samples the regional gate of "+second.tag, gating(second))
 	for _, id := range l.region("sjc") {
 		must(os.WriteFile(filepath.Join(l.hosts[id].dir, "refuse-stop"), nil, 0o600))
 	}
-	l.setService("ts-auth", 2, 1, 2, "auth-1")
+	l.setService("ts-auth", 3, 0, 1, "auth-1")
 	down := time.Now()
 	failed := l.waitStatus(ctx, "sjc", "sjc fails the gate of "+second.tag+" with ts-auth down", settled(second))
-	require(failed.Passed.IsZero() && strings.Contains(failed.Reason, "regional bake failed in ") && strings.Contains(failed.Reason, "ts-auth") && !failed.Since.Before(down.Add(rollout.BakeFailureDuration)),
-		"a release that takes a second service down must fail the gate after 15 seconds of failed samples:\n%s", failed)
-	l.setService("ts-auth", 2, 1, 1, "auth-1")
+	require(failed.Passed.IsZero() && strings.Contains(failed.Reason, "regional bake failed in ") && strings.Contains(failed.Reason, "ts-auth 0/1") && !failed.Since.Before(down.Add(rollout.BakeFailureDuration)) &&
+		failed.Baseline.Services["ts-auth"].Generation == 3,
+		"ts-auth's own release settled healthy at generation 3; a later replica loss at the same target must fail the gate after 15 seconds of failed samples:\n%s\n%+v", failed, failed.Baseline)
+	l.setService("ts-auth", 3, 1, 1, "auth-1")
 	for _, region := range []string{"fra", "gru"} {
 		pending := l.waitStatus(ctx, region, region+" holds "+second.tag+" while the canary's rollback is pending", func(s pullrelease.Status) bool {
 			require(s.Target == nil || s.Target.Tag() != second.tag, "%s took %s while the canary rolls it back:\n%s", region, second.tag, s)
@@ -251,12 +277,13 @@ func (l *lane) gate(ctx context.Context) {
 
 	restart := l.publishGood("118", "c118")
 	l.waitStatus(ctx, "sjc", "sjc samples the regional gate of "+restart.tag, gating(restart))
-	l.setService("ts-auth", 2, 1, 1, "auth-2")
+	l.dropBaselineServices(ctx, "sjc")
+	l.setService("ts-auth", 3, 1, 1, "auth-2")
 	restarted := l.waitStatus(ctx, "sjc", "sjc fails the gate of "+restart.tag+" on a restarted task", settled(restart))
-	require(restarted.Passed.IsZero() && strings.Contains(restarted.Reason, "ts-auth task auth-1 stopped during the gate"),
-		"a task that restarts during the gate must fail it at once:\n%s", restarted)
+	require(restarted.Passed.IsZero() && strings.Contains(restarted.Reason, "ts-auth task auth-1 stopped during the gate") && restarted.Baseline != nil && restarted.Baseline.Services == nil,
+		"a task that restarts during the gate must fail it at once, also with a baseline saved without its services, as an older build saves it:\n%s", restarted)
 	l.rolledBack(ctx, restart)
-	fmt.Printf("ts-auth task replaced during the gate of %s -> rolled back at once\n%s\n", restart.tag, restarted)
+	fmt.Printf("ts-auth task replaced during the gate of %s, baseline saved without its services -> rolled back at once\n%s\n", restart.tag, restarted)
 
 }
 

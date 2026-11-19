@@ -18,8 +18,10 @@ const (
 	PullInstall  = "install"
 	PullFetch    = "fetch"
 	PullRollback = "rollback"
+	PullAdopt    = "adopt"
 
-	StateNewer = "newer"
+	StateNewer   = "newer"
+	StateAdopted = "adopted"
 
 	stateRestoring = "restoring"
 	bundleLimit    = 4 << 20
@@ -56,6 +58,8 @@ func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 		health := h.health(ctx, payload)
 		reply.Health, reply.Node, reply.Mesh = health.Health, health.Node, health.Mesh
 		reply.Peer = h.Peer != nil && h.Peer()
+		_, previous := binaryIdentity(h.Binary + ".prev")
+		reply.Booted = previous != nil
 		if installed, err := readSeq(h.SeqFile); err != nil {
 			reply.Error = "installed seq unreadable: " + err.Error()
 		} else {
@@ -68,6 +72,8 @@ func (h *Handler) pulled(ctx context.Context, data []byte) Reply {
 		return h.fetchPulled(ctx, request.Release)
 	case PullRollback:
 		return h.rollbackPulled(ctx, request.Release, request.Reason)
+	case PullAdopt:
+		return h.adoptPulled(ctx, request.Release)
 	}
 	return rejected(fmt.Errorf("unknown pull operation %q", request.Op))
 }
@@ -139,6 +145,29 @@ func (h *Handler) verifyPulled(ctx context.Context, release releaseattest.Releas
 		return Binary{}, err
 	}
 	return Binary{URL: artifact.URL, SHA256: digest}, nil
+}
+
+func (h *Handler) adoptPulled(ctx context.Context, release releaseattest.Release) Reply {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	artifact, ok := release.Binaries[runtime.GOARCH]
+	installed, err := binaryIdentity(h.Binary)
+	if err != nil {
+		return rejected(err)
+	}
+	if !ok || installed != (releaseID{release.SHA, artifact.SHA256}) {
+		return Reply{State: "rejected", Version: h.Revision, Error: "this host does not run the release being adopted"}
+	}
+	if release.Channel != nil {
+		binary, err := h.verifyPulled(ctx, release)
+		if err == nil {
+			err = h.recordSeq(release, binary)
+		}
+		if err != nil {
+			return rejected(err)
+		}
+	}
+	return Reply{State: StateAdopted, Version: h.Revision, Seq: release.Seq}
 }
 
 func (h *Handler) rollbackPulled(ctx context.Context, release releaseattest.Release, reason string) Reply {
