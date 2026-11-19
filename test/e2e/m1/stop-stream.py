@@ -29,9 +29,11 @@ try:
         "127.0.0.1", 80, timeout=5, source_address=(source, 0)
     )
     try:
-        probe.request("GET", "/healthz", headers={"Host": "data.e2e.test"})
+        probe.request("GET", "/readyz", headers={"Host": "127.0.0.1"})
         response = probe.getresponse()
-        assert response.status in (200, 404), response.status
+        assert response.status == 200, response.status
+        window = int(response.getheader("X-TerraScale-Drain-Milliseconds")) / 1000
+        assert 0 < window <= 20, window
         response.read()
     finally:
         probe.close()
@@ -48,9 +50,39 @@ try:
         assert response.status == 200, response.status
         assert response.read(12) == b"data: held\n\n"
         started = time.monotonic()
-        subprocess.run(["sudo", "systemctl", "stop", "ts-orch"], check=True, timeout=30)
+        stopping = subprocess.Popen(["sudo", "systemctl", "stop", "ts-orch"])
+        withdrew = False
+        samples = 0
+        while time.monotonic() - started < window - 1:
+            health = http.client.HTTPConnection(
+                "127.0.0.1", 80, timeout=1, source_address=(source, 0)
+            )
+            try:
+                health.request("GET", "/readyz", headers={"Host": "127.0.0.1"})
+                reply = health.getresponse()
+                if withdrew:
+                    assert reply.status == 503, reply.status
+                else:
+                    assert reply.status in (200, 503), reply.status
+                    withdrew = reply.status == 503
+                reply.read()
+            finally:
+                health.close()
+            with (
+                socket.create_connection(("127.0.0.1", 443), timeout=2) as application_raw,
+                context.wrap_socket(application_raw, server_hostname="data.e2e.test") as application,
+            ):
+                application.sendall(b"GET /boots HTTP/1.1\r\nHost: data.e2e.test\r\nConnection: close\r\n\r\n")
+                reply = http.client.HTTPResponse(application)
+                reply.begin()
+                assert reply.status == 200, reply.status
+                assert reply.read(), "empty application response during propagation"
+                samples += 1
+        assert withdrew and samples > 0, (withdrew, samples)
+        stopping.wait(timeout=30 - (time.monotonic() - started))
+        assert stopping.returncode == 0, stopping.returncode
         elapsed = time.monotonic() - started
-        assert 20 <= elapsed < 30, elapsed
+        assert window <= elapsed < 30, (window, elapsed)
         exit_code = subprocess.check_output(
             [
                 "sudo",
@@ -70,7 +102,7 @@ try:
         except http.client.IncompleteRead as error:
             assert not error.partial, error.partial
         print(
-            f"probed manager stop with held SSE: {elapsed:.3f}s; 20s health drain kept; stream closed; no SIGKILL",
+            f"probed manager stop with held SSE: {elapsed:.3f}s; {window:g}s withdrawal window; health 503 while application responses completed ({samples} samples); stream closed; no SIGKILL",
             flush=True,
         )
 finally:

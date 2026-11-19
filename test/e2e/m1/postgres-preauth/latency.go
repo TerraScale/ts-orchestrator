@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -207,7 +209,7 @@ func (c edgeClient) latencyMetrics(public *edge.Edge) error {
 	return nil
 }
 
-func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) error {
+func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error, complete func()) error {
 	if os.Args[4] == "baseline" {
 		return nil
 	}
@@ -247,7 +249,7 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 		return err
 	}
 	defer finite.Close()
-	finite.SetDeadline(time.Now().Add(failAfter))
+	finite.SetDeadline(time.Now().Add(plannedstop.Limit - 5*time.Second))
 	fmt.Fprintf(finite, "GET /drain-complete HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", c.host)
 	completed, err := http.ReadResponse(bufio.NewReader(finite), nil)
 	if err != nil {
@@ -256,6 +258,31 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 	defer completed.Body.Close()
 	if _, err := io.ReadFull(completed.Body, payload[:]); err != nil || string(payload[:]) != "data: held\n\n" {
 		return fmt.Errorf("finite request not held: %q: %w", payload, err)
+	}
+	pg, err := connect(net.ParseIP("198.18.2.1"), c.host, c.roots)
+	if err != nil {
+		return err
+	}
+	defer pg.Close()
+	sql := []byte("SELECT edge_drain\x00")
+	if _, err := pg.Write(append(binary.BigEndian.AppendUint32([]byte{'Q'}, uint32(len(sql)+4)), sql...)); err != nil {
+		return err
+	}
+	select {
+	case <-postgresDrainEntered:
+	case <-time.After(failAfter):
+		return errors.New("postgres query did not begin")
+	}
+	idlePG, err := connect(net.ParseIP("198.18.2.1"), c.host, c.roots)
+	if err != nil {
+		return err
+	}
+	defer idlePG.Close()
+	if err := query(idlePG); err != nil {
+		return err
+	}
+	if err := probeLatency(); err != nil {
+		return err
 	}
 	started := time.Now()
 	public.Drain()
@@ -303,13 +330,35 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("late propagation HTTP %d", response.StatusCode)
 	}
-	conn, response, err = c.requestPath("198.18.2.1", 443, "/drain-release", "Connection: close\r\n")
-	if err != nil {
-		return err
+	select {
+	case err := <-done:
+		return fmt.Errorf("active work ended before admission closure: %v", err)
+	case <-time.After(plannedstop.DrainWindow + 250*time.Millisecond - time.Since(started)):
 	}
-	conn.Close()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("release in-flight request HTTP %d", response.StatusCode)
+	for _, port := range []int{80, 443, 5432} {
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), failAfter)
+		if err == nil {
+			conn.Close()
+			return fmt.Errorf("admission on %d still open after withdrawal bound", port)
+		}
+	}
+	idlePG.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := idlePG.Read(payload[:]); err != io.EOF {
+		return fmt.Errorf("idle postgres session not closed at admission shutdown: %v", err)
+	}
+	select {
+	case err := <-done:
+		return fmt.Errorf("active HTTP and Postgres did not retain their completion budget: %v", err)
+	case <-time.After(15*time.Second - time.Since(started)):
+	}
+	complete()
+	close(postgresDrainRelease)
+	pg.SetReadDeadline(time.Now().Add(failAfter))
+	if body, err := readUntilReady(pg); err != nil || !bytes.Contains(body, []byte("preauth-ok")) {
+		return fmt.Errorf("postgres query crossing admission closure incomplete: %q: %w", body, err)
+	}
+	if _, err := pg.Read(payload[:]); err != io.EOF {
+		return fmt.Errorf("postgres session not closed after query became idle: %v", err)
 	}
 	body, err := io.ReadAll(completed.Body)
 	if err != nil || string(body) != "data: complete\n\n" {
@@ -320,7 +369,7 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 		if err != nil {
 			return err
 		}
-	case <-time.After(11 * time.Second):
+	case <-time.After(plannedstop.Limit - time.Since(started)):
 		return errors.New("edge did not stop with a held stream")
 	}
 	elapsed := time.Since(started)
@@ -340,7 +389,30 @@ func (c edgeClient) drain(public *edge.Edge, stop func(), done <-chan error) err
 		conn.Close()
 		return errors.New("HTTPS admission continued after shutdown")
 	}
-	fmt.Printf("edge stop: health 503 and HTTPS application 200 during propagation; in-flight response completed; held SSE and hijacked WebSocket closed; elapsed=%s\n", elapsed.Round(time.Millisecond))
+	fmt.Printf("edge stop: health 503 and HTTPS application 200 during propagation; HTTP response and Postgres query completed at 15s across admission closure; idle Postgres closed; held SSE and hijacked WebSocket closed; elapsed=%s\n", elapsed.Round(time.Millisecond))
+	return nil
+}
+
+func probeLatency() error {
+	transport := &http.Transport{DisableKeepAlives: true, DialContext: (&net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP("198.18.2.1")}}).DialContext}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: time.Second}
+	samples := make([]time.Duration, 100)
+	for i := range samples {
+		started := time.Now()
+		response, err := client.Get("http://127.0.0.1/readyz")
+		if err != nil {
+			return err
+		}
+		io.Copy(io.Discard, response.Body)
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			return fmt.Errorf("healthy NLB probe HTTP %d", response.StatusCode)
+		}
+		samples[i] = time.Since(started)
+	}
+	slices.Sort(samples)
+	fmt.Printf("NLB probe latency with held HTTP and Postgres: n=100 p99=%s max=%s timeout=%s\n", samples[98], samples[99], time.Second)
 	return nil
 }
 

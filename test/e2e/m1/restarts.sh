@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/setup.sh"
 
-begin "restart ts-orch"
+begin "restart ts-orch: withdraw, serve through propagation, drain, normal exit under 30 seconds"
 identity=$state/swarm/certificates
 sudo test -s "$identity/swarm-node.key"
 sudo sha256sum "$identity/swarm-node.key" "$identity/swarm-node.crt" | tee "$work/node-identity-before.sha256" >/dev/null
@@ -23,7 +23,7 @@ test "$(edge data.e2e.test /boots | wc -l)" -eq 1
 test "$(edge data.e2e.test /boots | head -1)" = "$first"
 sudo sha256sum --check "$work/node-identity-before.sha256"
 test "$(sudo stat -c %a "$identity/swarm-node.key")" = 600
-end "ts-orch restart -> same processes serve throughout; SwarmKit node identity kept"
+end "ts-orch restart -> effective withdrawal window kept; application responses complete; same processes and SwarmKit identity kept"
 
 begin "restart the e2e-data task"
 before=$(edge data.e2e.test /boots | wc -l)

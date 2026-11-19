@@ -302,12 +302,20 @@ a crashed host after the binary rename and before the trial rename finds the
 replaced binary's trial, removes it as not its own and serves without
 probation. A watchdog armed when the
 installed reply has been sent ends the old process 45 seconds later if its
-ordinary shutdown (up to 30 seconds, closing edge connections in order) is
+ordinary shutdown (up to 30 seconds, including the edge's 25-second share) is
 stuck; it takes no lock. With the service manager's 1-second restart and the
 two-minute probation of the next start, the candidate serves or is rolled back
 at most 166 seconds after the reply. The pull leader checks the actual running
 revision, digest and health after restart. A second restart request while one is queued is
 coalesced.
+
+Apply and verify the fast NLB policy before publishing the short-drain binary.
+The edge fails health first, accepts during the shared six-second withdrawal
+bound, then closes admission while established HTTP and Postgres work retain
+their completion share. Startup and stop-time fleet reads retain twenty seconds
+of propagation if any live set differs or cannot be read. This protects mixed
+versions and probation rollback without shortening the 30-second process budget.
+See `docs/host-install.md`.
 
 Staging and the rename hold the same lock as probation confirmation and the
 probation deadline. A request is `current` only when the installed binary has

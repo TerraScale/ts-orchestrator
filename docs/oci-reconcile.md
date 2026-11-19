@@ -58,7 +58,7 @@ document-made public subnet (`subnet/host-subnet`) and both NSGs
 | Reserved public IP `<label>-1-nlb-ip` | `<CELL>/public-ip/nlb` | Created once, owned by the reconciler, never released by it. |
 | Network load balancer `<label>-1-nlb` | `<CELL>/network-load-balancer/nlb` | Public, IPv4, in the public subnet, the reserved IP, NSGs edge and host, source/destination preservation off. |
 | Backend sets `tcp-80`, `tcp-443`, `tcp-5432` | inside the NLB | Five-tuple hash, source address preserved, fail-open, no instant failover. Backends are every RUNNING instance whose primary VNIC is in the region's VCN, on its private address and the same port, weight 1. |
-| Health check | each backend set | HTTP :80 `/readyz`, 200, every 10 s, 5 s timeout, 1 retry. |
+| Health check | each backend set | HTTP :80 `/readyz`, 200, every 2 s, 1 s timeout, 2 failures (1 retry). |
 | Listeners `tcp-80`, `tcp-443`, `tcp-5432` | inside the NLB | TCP on the same port to the backend set of the same name. |
 
 Every resource carries `terrascale-managed-by`, `terrascale-owner` and
@@ -70,8 +70,12 @@ subnet, address or source mode cannot be changed by OCI and is reported.
 
 The edge answers `/readyz` over :80 for an address Host (what the NLB checker
 sends: no SNI, no name) with its own readiness: 503 while draining or not
-ready, 200 when ready. A draining node leaves rotation within about 15 s, inside
-the edge's 20 s drain grace; existing connections finish on it. When every
+ready, 200 when ready. NLB probes read cached readiness while the background
+worker probes backends. The edge keeps admission open for the derived six-second
+withdrawal bound when the live policy matches, or twenty seconds when it is
+unverified or differs. Startup and stop-time fleet reads protect mixed versions
+and rollback. Existing flows retain the edge's 25 s completion share. Apply
+and verify the new policy before the binary; see `docs/host-install.md`. When every
 backend of a set is unhealthy, OCI's default (`isFailOpen` false) drops all
 traffic; the pass sets fail-open so the NLB keeps distributing to every backend
 and the region's DNS health check decides whether the region gets traffic.
