@@ -591,7 +591,7 @@ func (n *Node) sync(ctx context.Context) {
 				"error", fmt.Errorf("invalid desired state for %s: %w", name, err))
 			continue
 		}
-		if entry := n.desired[name].entry(); entry.Spec != nil && entry.Spec.NeedsPeers() && (len(entry.Spec.Regions) == 0 || slices.Contains(entry.Spec.Regions, n.cfg.region)) {
+		if entry := n.desired[name].entry(); entry.Spec != nil && entry.Spec.NeedsPeers() && entry.Spec.RunsIn(n.cfg.region) {
 			if err := n.peers.track(name, entry.Spec.Regions, PerNode(entry.Spec)); err != nil {
 				slog.WarnContext(ctx, "mesh peers file track failed", "service", name, "error", err)
 			}
@@ -636,7 +636,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 	}
 	var pulled time.Duration
 	var pullErr error
-	if spec := request.Entry.Spec; err == nil && spec != nil && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
+	if spec := request.Entry.Spec; err == nil && spec != nil && spec.RunsIn(n.cfg.region) {
 		pullSpec := *spec
 		pullSpec.Generation, pullSpec.RollbackOf = request.Entry.Generation, request.Entry.RollbackOf
 		pullSpec.Deployment, pullSpec.DeploymentFloor = request.Entry.Deployment, request.Entry.Deployment

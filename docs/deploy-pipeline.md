@@ -119,7 +119,10 @@ guard can observe them.
 
 Every artifact (ts-orchestrator, terrabase, ts-auth, ts-dashboard) has a row in
 every production region: main commit, selected release, running revisions by host,
-lag in minutes, budget and verdict. Each artifact's budget lives in the guard's
+lag in minutes, budget and verdict. A region whose desired spec for an
+application leaves that region out of its `regions` (ts-auth runs only in gru)
+reports it `undeclared`, and its row reads `not declared in <region>` with
+verdict ok; a region with no desired spec for it stays red. Each artifact's budget lives in the guard's
 artifact table and is fifteen minutes. The newest signed selection observed in
 any region is the target everywhere. An unserved target's age starts at channel
 publication (or the selected application's OCIR publication step), rather than

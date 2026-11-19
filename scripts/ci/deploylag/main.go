@@ -295,6 +295,9 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 		if !ok || app.Error != "" {
 			return finding{line: fmt.Sprintf("%s %s: cannot observe %s: %s", x.name, region, region, cmp.Or(app.Error, "application deployment inventory missing")), unknown: true}
 		}
+		if app.Undeclared {
+			return finding{line: fmt.Sprintf("%s %s: main=%s release=%s not declared in %s state=ok", x.name, region, main.SHA, target.Revision, region)}
+		}
 		tasks, failed = app.Tasks, app.Failed
 		if app.Reason != "" {
 			reasons = append(reasons, app.Host+": "+app.Reason)

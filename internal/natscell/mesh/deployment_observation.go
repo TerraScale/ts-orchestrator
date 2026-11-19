@@ -72,6 +72,12 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 			continue
 		}
 		app := releasepush.AppDeployment{Host: n.cfg.server}
+		entry := (*desired)[target.Service].entry()
+		if entry.Spec != nil && !entry.Spec.RunsIn(n.cfg.region) {
+			app.Undeclared, app.Reason = true, "service is not declared in this region"
+			report.Apps[target.Service] = app
+			continue
+		}
 		services, err := client.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{target.Service}}})
 		if err != nil {
 			app.Error = err.Error()
@@ -90,7 +96,7 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 			}
 		}
 		if len(ids) == 0 {
-			app.Reason = "service is not declared in this region"
+			app.Reason = "service is declared in this region but not created"
 			report.Apps[target.Service] = app
 			continue
 		}
@@ -119,8 +125,7 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 			app.Failed = app.Failed || task.Status.State == api.TaskStateFailed || task.Status.State == api.TaskStateRejected
 			app.Tasks = append(app.Tasks, row)
 		}
-		entry := (*desired)[target.Service].entry()
-		if entry.Spec != nil && (len(entry.Spec.Regions) == 0 || slices.Contains(entry.Spec.Regions, n.cfg.region)) {
+		if entry.Spec != nil {
 			generation := entry.Generation
 			if entry.RollbackOf != 0 {
 				generation = entry.RollbackOf

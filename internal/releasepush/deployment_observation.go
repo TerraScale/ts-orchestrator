@@ -18,13 +18,14 @@ type DeploymentTask struct {
 }
 
 type AppDeployment struct {
-	Complete bool             `json:"complete"`
-	Replicas uint64           `json:"replicas"`
-	Tasks    []DeploymentTask `json:"tasks"`
-	Host     string           `json:"host"`
-	Reason   string           `json:"reason,omitempty"`
-	Error    string           `json:"error,omitempty"`
-	Failed   bool             `json:"failed"`
+	Complete   bool             `json:"complete"`
+	Undeclared bool             `json:"undeclared,omitempty"`
+	Replicas   uint64           `json:"replicas"`
+	Tasks      []DeploymentTask `json:"tasks"`
+	Host       string           `json:"host"`
+	Reason     string           `json:"reason,omitempty"`
+	Error      string           `json:"error,omitempty"`
+	Failed     bool             `json:"failed"`
 }
 
 type DeploymentObservation struct {
