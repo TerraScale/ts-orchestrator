@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	document "github.com/TerraScale/ts-orchestrator/deploy/fleet"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
@@ -66,14 +67,15 @@ func (f Fleet) DNSRegion() (Region, bool) {
 }
 
 type Nodes struct {
-	Min           int     `json:"min"`
-	Max           int     `json:"max"`
-	Shape         string  `json:"shape"`
-	OCPUs         float32 `json:"ocpus"`
-	MemoryGB      float32 `json:"memory_gb"`
-	BootGB        int64   `json:"boot_gb"`
-	DataGB        int64   `json:"data_gb"`
-	DataVPUsPerGB int64   `json:"data_vpus_per_gb"`
+	Min           int      `json:"min"`
+	Max           int      `json:"max"`
+	Shape         string   `json:"shape"`
+	OCPUs         float32  `json:"ocpus"`
+	MemoryGB      float32  `json:"memory_gb"`
+	BootGB        int64    `json:"boot_gb"`
+	DataGB        int64    `json:"data_gb"`
+	DataVPUsPerGB int64    `json:"data_vpus_per_gb"`
+	External      []string `json:"external,omitempty"`
 }
 
 func Load() (Fleet, error) {
@@ -216,8 +218,18 @@ func (r Region) validate(field string) []error {
 		}
 	}
 	n := r.Nodes
-	if n.Min < MinNodes {
-		errs = append(errs, fmt.Errorf("%s.nodes.min %d is below the minimum of %d nodes per region", field, n.Min, MinNodes))
+	if n.Min < 1 {
+		errs = append(errs, fmt.Errorf("%s.nodes.min %d is below one pool node", field, n.Min))
+	}
+	if n.Min+len(n.External) < MinNodes {
+		errs = append(errs, fmt.Errorf("%s.nodes.min %d plus %d external hosts is below the %d voting hosts a region needs to survive losing one", field, n.Min, len(n.External), MinNodes))
+	}
+	for i, host := range n.External {
+		if !naming.IsNode(host, r.Label) {
+			errs = append(errs, fmt.Errorf("%s.nodes.external[%d] %q is not a node name of region %s", field, i, host, r.Label))
+		} else if slices.Contains(n.External[:i], host) {
+			errs = append(errs, fmt.Errorf("%s.nodes.external[%d] %q is named twice", field, i, host))
+		}
 	}
 	if n.Max < n.Min {
 		errs = append(errs, fmt.Errorf("%s.nodes.max %d is below nodes.min %d", field, n.Max, n.Min))

@@ -403,9 +403,14 @@ it is empty.
 
 A node that stays unhealthy for too long is replaced.
 
-Today: replicas and the node count scale on the region leader. Production's
-document holds every region at 3 nodes (`nodes.min` = `nodes.max` = 3); load
-beyond that is absorbed by replicas and the shape.
+Today: replicas and the node count scale on the region leader. Every region
+keeps 3 voting hosts, so it survives losing one: sjc and fra hold 3 pool
+nodes (`nodes.min` = `nodes.max` = 3); gru holds 2 pool nodes plus the
+external host `ts-gru-1` (`nodes.external`), which runs NetBird management
+and monitoring outside the pool. The document refuses a region whose
+`nodes.min` plus its external hosts is below 3. All three hosts are promoted
+to managers (`ts-orch member promote`). Load beyond that is absorbed by
+replicas and the shape.
 
 ## What was removed
 
