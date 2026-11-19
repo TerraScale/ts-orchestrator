@@ -21,8 +21,9 @@ repo=$(cd "$here/../../.." && pwd)
 units=("$repo/deploy/m1/ts-orch.service" "$repo"/deploy/m1/services/*.service)
 
 install -d "$out"
-work=$(mktemp -d)
+work=$(mktemp -d /tmp/ts-host-image.XXXXXX)
 trap 'rm -rf "$work"' EXIT
+export XDG_RUNTIME_DIR="$work"
 printf 'TS_ARCH=%q\nTS_SNAPSHOT=%q\nTS_BINARY_URL=%q\nTS_BINARY_SHA256=%q\nTS_NETBIRD_TARBALL_URL=%q\n' \
 	"$arch" "$snapshot" "$binary_url" "$binary_sha256" \
 	"$(jq -r --arg arch "$arch" '.netbird.url | sub("<arch>"; $arch)' "$here/base.json")" > "$work/image-env"
@@ -47,7 +48,7 @@ for unit in "${units[@]}"; do
 	uploads+=(--upload "$unit:/etc/systemd/system/${unit##*/}" --run-command "chown root:root /etc/systemd/system/${unit##*/}")
 done
 
-LIBGUESTFS_BACKEND=direct virt-customize --verbose \
+LIBGUESTFS_BACKEND=direct virt-customize \
 	-a "$work/base.qcow2" \
 	--network \
 	"${uploads[@]}" \
