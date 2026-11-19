@@ -65,7 +65,7 @@ func attest(ctx context.Context, r request) error {
 		return err
 	}
 	staging := document.Staging
-	if staging.Label != r.Region || !document.IsStaging(staging.OCIRegion, r.Compartment) ||
+	if staging.Label != r.Region || staging.CompartmentID != r.Compartment ||
 		staging.VaultID != r.Vault || staging.KeyID != r.Key || staging.Nodes.Max > fleet.StagingMaxNodes {
 		return errors.New("request outside embedded fleet staging authority")
 	}
@@ -213,7 +213,8 @@ func run() error {
 			return err
 		}
 		region, err := document.Region(r.Region)
-		if err != nil || region.Label != document.Staging.Label || !document.IsStaging(region.OCIRegion, r.Compartment) ||
+		if err != nil || region.Label != document.Staging.Label || region.OCIRegion != document.Staging.OCIRegion ||
+			document.Staging.CompartmentID != r.Compartment ||
 			document.Staging.VaultID != r.Vault || document.Staging.KeyID != r.Key || region.Nodes.Max > fleet.StagingMaxNodes {
 			return errors.New("compute recovery outside staging authority")
 		}

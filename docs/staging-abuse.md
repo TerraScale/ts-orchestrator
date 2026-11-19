@@ -9,8 +9,8 @@ python3 test/e2e/abuse/run.py
 One command runs all twelve named cases, including the nine workload/fault
 cases. Every case prints PASS or FAIL with elapsed seconds and measurements;
 any failure makes the command exit 1. Preflight refusal prints attempted=0
-for every case and exits 2. The PR stays draft until the full staging output
-has been pasted into its body and each failure routed to its owning category.
+for every case and exits 2. Production abuse readiness requires the full
+staging output as evidence and each failure routed to its owning category.
 
 The runner needs Go, Python, iproute2, the authenticated OCI CLI and existing
 SSH access as ubuntu with passwordless sudo on staging's NetBird names.
