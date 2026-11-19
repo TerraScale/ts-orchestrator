@@ -37,6 +37,42 @@ data volume. It runs no apt and installs no packages. The image is built by
 region and arch in `deploy/image/host-images.json`. A region with no pinned
 entry still uses the Ubuntu first-boot path until it is removed.
 
+### Publish a host image
+
+CI's OCI identity cannot import images, so an operator imports each
+`host-image-<yyyymmdd>-<sha>` release from the ops server with the operator
+`oci` and `gh` CLIs:
+
+```sh
+deploy/image/debian/publish.sh host-image-20261119-6b5cd82 stg
+deploy/image/debian/publish.sh host-image-20261119-6b5cd82 sjc fra gru
+```
+
+The arguments are fleet labels from `deploy/fleet/fleet.json`, the `staging`
+entry included; with none it publishes to every one, staging first. For each
+label the script takes the OCI region, compartment and node shape from the
+fleet document and the arch from the shape (`A<n>` shapes are arm64). It
+downloads `ts-host-debian13-<arch>.qcow2` and its `.sha256` from the release
+and checks both the file and GitHub's asset digest. It uploads the file to
+the region's private `ts-host-images` bucket, creating the bucket on first
+use, and imports a QCOW2 custom image named
+`ts-host-debian13-<arch>-<tag>` in paravirtualized launch mode. It waits for
+`AVAILABLE`, sets UEFI firmware, paravirtualized boot, data volume and VNIC
+attachments and consistent device naming, and limits shape compatibility to
+the fleet's shapes of that arch. The last line for each label is the
+`host-images.json` entry. A second run for the same tag finds the existing
+image, checks its `terrascale-sha256` tag and prints the same entry.
+
+### Pin a host image
+
+Add the printed entry to `deploy/image/host-images.json` in a pull request.
+`internal/nodeinit.PinnedHostImage` matches the entry's `region`, an OCI
+region name, and `arch`; once it is on main, `ts-orch region host add` and
+the fleet reconciler launch new hosts of that region and arch from the image
+with release metadata and no `user_data`. Running hosts are not touched.
+The staging entry and `sjc` share the OCI region `us-sanjose-1`, so a pin
+there applies to both: pin it only once the image is proven for production.
+
 ## The flow
 
 The leader runs one operation at a time, oldest first, each in the same
