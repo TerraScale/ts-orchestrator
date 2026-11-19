@@ -95,10 +95,8 @@ func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Fact
 }
 
 func launch(ctx context.Context, client core.ComputeClient, region Region) (compute.Launch, error) {
-	arch, image := "amd64", "x86_64"
-	if strings.Contains(region.Nodes.Shape, ".A1.") {
-		arch, image = "arm64", "aarch64"
-	}
+	arch := nodeinit.ShapeArch(region.Nodes.Shape)
+	image := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[arch]
 	release, err := newestNodeRelease(ctx)
 	if err != nil {
 		return compute.Launch{}, err
