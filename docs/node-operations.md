@@ -44,8 +44,8 @@ CI's OCI identity cannot import images, so an operator imports each
 `oci` and `gh` CLIs:
 
 ```sh
-deploy/image/debian/publish.sh host-image-20261119-6b5cd82 stg
-deploy/image/debian/publish.sh host-image-20261119-6b5cd82 sjc fra gru
+deploy/image/publish.sh host-image-20261119-6b5cd82 stg
+deploy/image/publish.sh host-image-20261119-6b5cd82 sjc fra gru
 ```
 
 The arguments are fleet labels from `deploy/fleet/fleet.json`, the `staging`

@@ -10,7 +10,7 @@ tag=$1
 shift
 
 here=$(cd "$(dirname "$0")" && pwd)
-fleet=$here/../../fleet/fleet.json
+fleet=$here/../fleet/fleet.json
 repo=TerraScale/ts-orchestrator
 debian=13
 bucket=ts-host-images
