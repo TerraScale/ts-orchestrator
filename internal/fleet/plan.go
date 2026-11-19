@@ -359,6 +359,14 @@ func observeRegion(ctx context.Context, region Region) (Report, error) {
 
 func nodes(region Region, instances []core.Instance, subnetOf map[string]string, privateSubnet string, keys []ociresource.Key) Check {
 	want := region.Nodes
+	external := map[string]string{}
+	instances = slices.DeleteFunc(slices.Clone(instances), func(in core.Instance) bool {
+		if !slices.Contains(want.External, deref(in.DisplayName)) || gone(string(in.LifecycleState)) {
+			return false
+		}
+		external[deref(in.DisplayName)] = strings.ToLower(string(in.LifecycleState))
+		return true
+	})
 	items := collect(instances, func(in core.Instance) (item, string) {
 		var ocpus, memory float32
 		if in.ShapeConfig != nil && in.ShapeConfig.Ocpus != nil && in.ShapeConfig.MemoryInGBs != nil {
@@ -378,6 +386,14 @@ func nodes(region Region, instances []core.Instance, subnetOf map[string]string,
 		count = fmt.Sprintf("%d-%d", want.Min, want.Max)
 	}
 	result.Details = append([]string{fmt.Sprintf("%d found, document wants %s x %s %g/%g in private subnet", len(items), count, want.Shape, want.OCPUs, want.MemoryGB)}, result.Details...)
+	for _, host := range want.External {
+		state, ok := external[host]
+		if !ok {
+			result.State = Differs
+			state = "missing"
+		}
+		result.Details = append(result.Details, fmt.Sprintf("external %s %s, counted toward the region's %d voting hosts", host, state, MinNodes))
+	}
 	if len(items) < want.Min || len(items) > want.Max {
 		result.State = Differs
 	}
