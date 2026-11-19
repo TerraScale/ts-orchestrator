@@ -22,6 +22,21 @@ signer; the others need the signer's `can_register_hosts` grant. A
 command prints the leader's reply as JSON; `--wait D` then polls until the
 operation is `done` (exit 0) or `failed` (exit 1, with the reason).
 
+Adding a node is one command, `ts-orch node add --config operator.json --node <name> --wait 30m`.
+Measured launch-to-serving time: pending (C6).
+
+## Host image
+
+New hosts launch from a pre-built Debian 13 image, built for arm64 and amd64.
+The image already has the ts-orch binary, NetBird 0.81.3, containerd 2.4.2,
+runc 1.5.2, chrony and the units installed. First boot runs only
+`terrascale-orchestrator node-init`: it reads the instance metadata, replaces
+the baked binary when the launch release differs, and binds and mounts the
+data volume. It runs no apt and installs no packages. The image is built by
+`.github/workflows/host-image.yml` from `deploy/image/debian/` and pinned per
+region and arch in `deploy/image/host-images.json`. A region with no pinned
+entry still uses the Ubuntu first-boot path until it is removed.
+
 ## The flow
 
 The leader runs one operation at a time, oldest first, each in the same

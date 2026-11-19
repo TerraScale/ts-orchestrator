@@ -97,7 +97,7 @@ Never run checks, SSH, NetBird login/up, browser automation or SSO prompts on
 mariogk-dev. Use plain HTTP over NetBird for acceptance; if remote access to
 an allowed operator host is needed, use `netbird ssh --no-browser`.
 
-Use `NB='sudo -n netbird-wt0'` on a NixOS dev VM or set `NB` to the connected
+Use `NB='sudo -n netbird-wt0'` on a Debian dev VM or set `NB` to the connected
 client command and `TS_ORCH` to an existing binary. For the host-network
 automation container, use `NB='sudo -n podman exec -i ts-netbird-ops netbird'`.
 A failed DNS curl (exit status 6) needs NetBird DNS enabled for that peer; a
@@ -109,7 +109,7 @@ token for that region. Do not add public ingress or hide a DNS failure with
 ### TS-740 strict acceptance checker
 
 Run `nice -n 19 bash scripts/check-dashboard-netbird` locally on delta, beta
-or mariogk-dev (`NB='sudo -n netbird-wt0'` on the NixOS dev VM). Other
+or mariogk-dev (`NB='sudo -n netbird-wt0'` on the Debian dev VM). Other
 source hosts are rejected before any network command.
 It checks A/AAAA peer identity, TCP 9463 and HTTP over IPv4, IPv6 and native
 DNS, fetching regional tokens privately from OCI Vault. All DNS answers must

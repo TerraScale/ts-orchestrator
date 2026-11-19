@@ -29,7 +29,7 @@ internet.
 - State: `/var/lib/ts-data/netbird` (SQLite store, IdP keys, `config.yaml`).
 - `exposedAddress` is `https://netbird.terrascale.tech:443`. ts-orch sets the
   peer range to `10.200.0.0/16` so it never overlaps Tailscale's
-  `100.64.0.0/10` on the NixOS hosts.
+  `100.64.0.0/10` on the dev hosts.
 
 ### What the edge (W5) must do for `netbird.terrascale.tech`
 
@@ -107,7 +107,7 @@ deleted at first start.
 | Host | OS | How it is enrolled |
 |---|---|---|
 | ts-gru-1, ts-sjc-1, ts-fra-1 | Ubuntu 24.04 arm64 | `ts-orch netbird server` (unit on every M1 host) installs the pinned client and runs `netbird up` with `gru-1-netbird-setup-key` on stdin; only the host declaring the `netbird-server` service also runs the server side |
-| delta, mariogk-dev, beta | NixOS | Homelab fleet module `services.netbird.clients.terrascale` with `gru-1-netbird-operators-setup-key` |
+| delta, mariogk-dev, beta | Debian | Homelab fleet module `services.netbird.clients.terrascale` with `gru-1-netbird-operators-setup-key` |
 | operator PC | any | the one command below |
 
 ### NetBird SSH is off on M1 hosts
