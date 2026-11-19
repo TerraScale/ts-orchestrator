@@ -20,6 +20,21 @@ upst=$(curl -sSf -u "$CLIENT_ID:$CLIENT_SECRET" "$DOMAIN_URL/oauth2/v1/token" \
     --data-urlencode "subject_token=$jwt" \
     --data-urlencode "public_key=$public_key" | jq -r .token)
 echo "::add-mask::$upst"
+region_login_seconds=30
+run_region() {
+    local region=$1
+    shift
+    local status=0
+    timeout "${region_login_seconds}s" "$@" || status=$?
+    if [[ $status -eq 124 ]]; then
+        echo "$region: OCIR login timed out" >&2
+        exit 1
+    fi
+    if [[ $status -ne 0 ]]; then
+        echo "$region: OCIR login failed" >&2
+        exit "$status"
+    fi
+}
 read -r -a regions <<< "$REGIONS"
 for region in "${regions[@]}"; do
     host="$region.ocir.io"
@@ -32,9 +47,9 @@ for region in "${regions[@]}"; do
     fi
     date=$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S GMT')
     signature=$(printf 'date: %s\n(request-target): get %s\nhost: %s' "$date" "$target" "$host" | openssl dgst -sha256 -sign "$work/key.pem" | base64 -w0)
-    curl -sSf -H "date: $date" \
+    run_region "$region" curl -sSf -H "date: $date" \
         -H "Authorization: Signature version=\"1\",headers=\"date (request-target) host\",keyId=\"ST\$$upst\",algorithm=\"rsa-sha256\",signature=\"$signature\"" \
-        "https://$host$target" > "$work/token.json"
+        -o "$work/token.json" "https://$host$target"
     jq -e --arg scope "$scope" '.scope == $scope and (.token | type == "string" and length > 0)' "$work/token.json" > /dev/null
     token=$(jq -er .token "$work/token.json")
     echo "::add-mask::$token"
@@ -43,6 +58,6 @@ for region in "${regions[@]}"; do
             '.auths[$host] = {registrytoken: $token[0].token}' "$DOCKER_CONFIG/config.json" > "$work/config.json"
         mv "$work/config.json" "$DOCKER_CONFIG/config.json"
     else
-        printf '%s' "$token" | docker login "$host" -u BEARER_TOKEN --password-stdin
+        run_region "$region" docker login "$host" -u BEARER_TOKEN --password-stdin <<<"$token"
     fi
 done

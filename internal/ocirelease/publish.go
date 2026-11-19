@@ -267,8 +267,13 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 			go func() {
 				defer wg.Done()
 				repository, _ := client.Repository(Package)
-				err := publishTo(ctx, client, attest, artifact, signed, out)
+				regionCtx, cancel := context.WithTimeout(ctx, regionPublishBound)
+				defer cancel()
+				err := publishTo(regionCtx, client, attest, artifact, signed, out)
 				if err != nil {
+					if errors.Is(err, context.DeadlineExceeded) {
+						err = fmt.Errorf("registry operation timed out")
+					}
 					fmt.Fprintf(out, "%s: FAILED: %v\n", repository, err)
 					failed[i] = fmt.Errorf("%s: %w", repository, err)
 				}
