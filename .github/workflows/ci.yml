@@ -52,12 +52,16 @@ jobs:
 
           runtime = certificates = caller = True
           nix = False
-          if os.environ["EVENT"] == "pull_request":
+          if os.environ["EVENT"] in ("pull_request", "push"):
               base = os.environ["CHANGE_BASE"]
               paths = subprocess.check_output([
                   "git", "diff", "--name-only", "--no-renames", "-z", base + "...HEAD"
               ], text=True).split("\0")
               paths = [path for path in paths if path]
+              nix = any(path.startswith("nix/") or path in {
+                  "flake.nix", "flake.lock", ".github/workflows/nix-image.yml"
+              } for path in paths)
+          if os.environ["EVENT"] == "pull_request":
               shared = any(path.startswith((".github/", "test/e2e/")) or path in {
                   "go.mod", "go.sum", "Makefile", "mise.toml", ".mise.toml"
               } for path in paths)
@@ -69,9 +73,6 @@ jobs:
                   r"^(cmd/|internal/(app/|edge/|natscell/mesh/|cli/)|deploy/|third_party/|docs/edge-certificates\.md$)", path
               ) for path in paths)
               caller = runtime or any(path in {"docs/caller-keys.md", "docs/e2e-ci.md"} for path in paths)
-              nix = any(path.startswith("nix/") or path in {
-                  "flake.nix", "flake.lock", ".github/workflows/nix-image.yml"
-              } for path in paths)
           with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
               for name, value in {"runtime": runtime, "certificates": certificates, "caller": caller, "nix": nix}.items():
                   output.write(f"{name}={str(value).lower()}\n")

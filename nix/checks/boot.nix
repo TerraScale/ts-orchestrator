@@ -102,10 +102,8 @@ pkgs.testers.runNixOSTest {
           machine.wait_until_succeeds("journalctl -u ts-node-init.service -o cat | grep -F 'node-init: read instance metadata'")
           machine.fail("journalctl -u ts-node-init.service -o cat | grep -F 'unknown command'")
           machine.succeed("systemctl cat ts-node-init.service ts-orch-units.service")
-          units = machine.succeed("cat $(systemctl show -p ExecStart --value ts-orch-units.service | grep -o '/nix/store/[^ ;]*-unit-script-ts-orch-units-start/bin/ts-orch-units-start')")
-          t.assertIn("if [ -e /usr/local/bin/terrascale-orchestrator.recovery ]; then", units)
-          t.assertIn("exec /usr/local/bin/terrascale-orchestrator.recovery host-units --dir /run/systemd/system --start", units)
-          t.assertIn("exec /usr/local/bin/terrascale-orchestrator host-units --dir /run/systemd/system --start", units)
+          execStart = machine.succeed("systemctl show -p ExecStart --value ts-orch-units.service")
+          t.assertIn("argv[]=/usr/local/bin/terrascale-orchestrator host-units --dir /run/systemd/system --start ;", execStart)
           machine.succeed("test -d /usr/local/bin")
           restart = machine.succeed("systemctl show -p Type -p Restart -p RestartMode -p RestartUSec -p StartLimitIntervalUSec ts-node-init.service")
           for setting in ["Type=oneshot", "Restart=on-failure", "RestartMode=direct", "RestartUSec=10s", "StartLimitIntervalUSec=0"]:

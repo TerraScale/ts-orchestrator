@@ -24,9 +24,8 @@ Nix owns (`nix/modules/node.nix`, `nix/modules/oci.nix`):
      pool host boots before its data volume is bound. Its start job stays
      queued until it succeeds, so `multi-user.target` waits for it.
   2. `ts-orch-units.service`: oneshot after and requiring `ts-node-init`; its
-     queued start job runs once node-init succeeds: `host-units --dir
-     /run/systemd/system --start` from `/usr/local/bin/terrascale-orchestrator.recovery`
-     when it exists, else from `/usr/local/bin/terrascale-orchestrator`.
+     queued start job runs once node-init succeeds:
+     `/usr/local/bin/terrascale-orchestrator host-units --dir /run/systemd/system --start`.
 
 ts-orch owns `/usr/local/bin/terrascale-orchestrator` and the
 `/usr/local/bin/ts-orch` symlink (Nix only creates `/usr/local/bin`),

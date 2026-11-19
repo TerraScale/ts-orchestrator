@@ -134,12 +134,7 @@ in
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
+      ExecStart = "/usr/local/bin/terrascale-orchestrator host-units --dir /run/systemd/system --start";
     };
-    script = ''
-      if [ -e /usr/local/bin/terrascale-orchestrator.recovery ]; then
-        exec /usr/local/bin/terrascale-orchestrator.recovery host-units --dir /run/systemd/system --start
-      fi
-      exec /usr/local/bin/terrascale-orchestrator host-units --dir /run/systemd/system --start
-    '';
   };
 }
