@@ -99,18 +99,19 @@ func (s Source) Pull(ctx context.Context, target Target) (Selection, error) {
 	if err != nil {
 		return Selection{}, err
 	}
+	selectedImage := Selection{Image: target.Package + "@" + digest.String()}
 	config, err := image.ConfigFile()
 	if err != nil {
-		return Selection{}, err
+		return selectedImage, err
 	}
 	sha := config.Config.Labels["org.opencontainers.image.revision"]
 	if config.OS != "linux" || config.Architecture != runtime.GOARCH || !revision.MatchString(sha) {
-		return Selection{}, fmt.Errorf("%s: release must select a native Linux image with a full revision", target.Service)
+		return selectedImage, fmt.Errorf("%s: release must select a native Linux image with a full revision", target.Service)
 	}
 	pinned := ref.Context().Digest(digest.String()).Name()
 	provenance, err := (imagetrust.Verifier{Root: trusted, Transport: transport}).Selection(ctx, pinned, target.Workflow, sha, target.Service, keychain)
 	if err != nil {
-		return Selection{}, err
+		return selectedImage, err
 	}
 	return Selection{Image: target.Package + "@" + digest.String(), Claims: releasepush.Claims{Repository: provenance.Repository, SHA: sha, RunID: provenance.RunID, RunAttempt: provenance.RunAttempt, JobWorkflowRef: provenance.Workflow}}, nil
 }

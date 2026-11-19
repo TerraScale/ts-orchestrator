@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/nats-io/nats.go"
@@ -48,7 +49,7 @@ func (u Updater) Run(ctx context.Context) error {
 		if store == nil {
 			opened, err := pullrelease.Open(ctx, u.Fabric, u.Region, "apps")
 			if err != nil {
-				slog.ErrorContext(ctx, "app rollout store unavailable", "error", err)
+				u.failure(ctx, slog.LevelError, "app rollout store unavailable", "apps", "release", err)
 			}
 			store = opened
 		}
@@ -56,7 +57,7 @@ func (u Updater) Run(ctx context.Context) error {
 		if store != nil {
 			owned, err := store.Lead(ctx, u.Self)
 			if err != nil {
-				slog.ErrorContext(ctx, "app rollout lease not renewed", "error", err)
+				u.failure(ctx, slog.LevelError, "app rollout lease not renewed", "apps", "release", err)
 			}
 			leading = owned && err == nil
 		}
@@ -80,7 +81,7 @@ func (u Updater) Run(ctx context.Context) error {
 				sweep = time.Now().Add(sweepEvery)
 			}
 			if done.err != nil && ctx.Err() == nil {
-				slog.ErrorContext(ctx, "app release discovery failed", "error", done.err)
+				u.failure(ctx, slog.LevelError, "app release discovery failed", "apps", "release", done.err)
 			}
 		case <-tick.C:
 		}
@@ -94,7 +95,7 @@ func (u Updater) turn(ctx context.Context, due bool, seen map[string]string) tur
 		digest, err := u.Source.Digest(check, target)
 		cancel()
 		if err != nil {
-			slog.WarnContext(ctx, "app release tag unreadable", "service", target.Service, "error", err)
+			u.failure(ctx, slog.LevelWarn, "app release tag unreadable", target.Service, target.Package+":release", err)
 			continue
 		}
 		if seen[target.Service] != digest {
@@ -128,17 +129,26 @@ func (u Updater) cycle(ctx context.Context, targets []Target) error {
 		}
 		candidate, err := u.Source.Pull(ctx, target)
 		if err != nil {
-			slog.WarnContext(ctx, "app release refused", "service", target.Service, "error", err)
+			release := candidate.Image
+			if release == "" {
+				release = target.Package + ":release"
+			}
+			u.failure(ctx, slog.LevelWarn, "app release refused", target.Service, release, err)
 			continue
 		}
 		apply, cancel := context.WithTimeout(context.WithoutCancel(ctx), releasepush.HandlerWait)
 		_, err = u.Apply(apply, target.Service, candidate.Image, candidate.Claims, progress{ctx, target.Service})
 		cancel()
 		if err != nil {
-			slog.ErrorContext(ctx, "pulled app release failed", "service", target.Service, "image", candidate.Image, "error", err)
+			u.failure(ctx, slog.LevelError, "pulled app release failed", target.Service, candidate.Image, err)
 		}
 	}
 	return nil
+}
+
+func (u Updater) failure(ctx context.Context, level slog.Level, message, service, release string, err error) {
+	slog.Log(ctx, level, message, observability.ComponentKey, "apppull", "service", service,
+		"region", u.Region, "release", release, "reason", err)
 }
 
 type progress struct {

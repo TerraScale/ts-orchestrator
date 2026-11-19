@@ -23,6 +23,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/apppull"
@@ -160,12 +161,16 @@ func main() {
 	backend := registry.New(registry.Logger(log.New(io.Discard, "", 0)), registry.WithReferrersSupport(false))
 	fallback := true
 	redirectPath, redirectOrigin := "", ""
-	requests := 0
+	requests := map[string]int{}
 	signedHeaders := regexp.MustCompile(`headers="([^"]+)"`)
 	signature := regexp.MustCompile(`signature="([^"]+)"`)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/20180419/docker/token" {
-			require(r.Method == http.MethodGet && r.URL.Query().Get("service") == host && r.URL.Query().Get("scope") == "repository:"+repository+":pull", "token request escaped pull scope")
+			scope := r.URL.Query().Get("scope")
+			allowed := slices.ContainsFunc(apppull.Targets, func(target apppull.Target) bool {
+				return scope == "repository:journey/terrascale/"+target.Package+":pull"
+			})
+			require(r.Method == http.MethodGet && r.URL.Query().Get("service") == host && allowed, "token request escaped pull scope")
 			authorization := r.Header.Get("Authorization")
 			headers := signedHeaders.FindStringSubmatch(authorization)
 			sig := signature.FindStringSubmatch(authorization)
@@ -192,7 +197,7 @@ func main() {
 			value, err := base64.StdEncoding.DecodeString(sig[1])
 			must(err)
 			must(rsa.VerifyPKCS1v15(&key.PublicKey, crypto.SHA256, hash[:], value))
-			requests++
+			requests[scope]++
 			_ = json.NewEncoder(w).Encode(map[string]any{"token": "journey-regional-token", "access_token": "journey-regional-token", "scope": "", "expires_in": 3600})
 			return
 		}
@@ -259,6 +264,7 @@ func main() {
 	identity := sigstore.Identity{Workflow: apppull.Targets[0].Workflow, Ref: "refs/heads/main", Trigger: "push"}
 	_, err = source.Pull(ctx, apppull.Targets[0])
 	require(err != nil, "unsigned image accepted")
+	observeRefusals(ctx, source, "terrabase@"+digest.String())
 	unsigned := swarmruntime.Deployment{Repository: "TerraScale/terrascale", RunID: "2", RunAttempt: 1, Revision: revision, Image: "terrabase@" + digest.String(), Workflow: apppull.Targets[0].Workflow}
 	unsignedResolver, err := swarmruntime.AppImageResolver(client, unsigned, imagetrust.Verifier{Root: trusted, Transport: t})
 	must(err)
@@ -369,7 +375,9 @@ func main() {
 	_, _, err = resolver.Resolve(ctx, deployment.Image)
 	require(err != nil, "executor accepted tampered image")
 	fmt.Println("ok: tampered image with copied bundles refused by discovery and executor")
-	require(requests == 1, "token was not cached across pulls")
+	for _, target := range apppull.Targets {
+		require(requests["repository:journey/terrascale/"+target.Package+":pull"] == 1, "token was not cached across pulls")
+	}
 	fmt.Println("ok: instance-principal token cached in memory")
 	for _, label := range []string{"gru", "sjc", "fra", "stg"} {
 		configuration, err := appregistry.ConfigurationFor(label)

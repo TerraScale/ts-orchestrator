@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostdashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
@@ -37,6 +38,12 @@ import (
 )
 
 func serveNode(ctx context.Context, state string, output io.Writer, plan hostPlan, public *edge.Edge, probation *releasepush.Probation, swarmReady chan struct{}, meshServing <-chan struct{}, stopping func(), health func(context.Context, string) releasepush.HealthResult, prepareStop func(context.Context) error, abortStop func()) error {
+	events := observability.NewEventBus(observability.DefaultEventCapacity)
+	logger, err := observability.NewLogger(os.Stderr, observability.LogConfig{}, events, observability.Identity("node", plan.region)...)
+	if err != nil {
+		return err
+	}
+	observability.ConfigureDefault(logger)
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -78,7 +85,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 			failed <- errors.Join(errors.New("bootstrap executor endpoint stopped"), err)
 		}
 	}()
-	go runManagerServices(healthCtx, state, plan, node, executor, failed)
+	go runManagerServices(healthCtx, state, plan, node, executor, events, failed)
 	for _, port := range []int{80, 443, edge.PostgresPort, hostmetrics.Port, hostdashboard.Port} {
 		if err := releasepush.OpenTCP(ctx, port); err != nil {
 			fmt.Fprintf(output, "edge firewall: %v\n", err)
@@ -195,7 +202,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 	}
 }
 
-func runManagerServices(ctx context.Context, state string, plan hostPlan, node *swarmruntime.Node, executor *swarmruntime.Executor, failed chan<- error) {
+func runManagerServices(ctx context.Context, state string, plan hostPlan, node *swarmruntime.Node, executor *swarmruntime.Executor, events *observability.EventBus, failed chan<- error) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for ctx.Err() == nil {
@@ -205,7 +212,7 @@ func runManagerServices(ctx context.Context, state string, plan hostPlan, node *
 		go func() {
 			defer close(done)
 			if manager {
-				serveManagerRole(serving, ctx, state, plan, node, executor, failed)
+				serveManagerRole(serving, ctx, state, plan, node, executor, events, failed)
 			} else {
 				syncHostTargets(serving)
 			}
@@ -221,7 +228,7 @@ func runManagerServices(ctx context.Context, state string, plan hostPlan, node *
 	}
 }
 
-func serveManagerRole(ctx, lifetime context.Context, state string, plan hostPlan, node *swarmruntime.Node, executor *swarmruntime.Executor, failed chan<- error) {
+func serveManagerRole(ctx, lifetime context.Context, state string, plan hostPlan, node *swarmruntime.Node, executor *swarmruntime.Executor, events *observability.EventBus, failed chan<- error) {
 	serving, stop := context.WithCancel(ctx)
 	defer stop()
 	go regionhealth.Run(serving, state)
@@ -252,7 +259,7 @@ func serveManagerRole(ctx, lifetime context.Context, state string, plan hostPlan
 		go runOCIReconcile(serving, state, plan.region, node)
 		go publishJoin(serving, state, plan, node.ID())
 		go func() {
-			if err := hostdashboard.Run(serving, state, plan.region); serving.Err() == nil {
+			if err := hostdashboard.Run(serving, state, plan.region, events); serving.Err() == nil {
 				select {
 				case failed <- errors.Join(errors.New("host dashboard stopped"), err):
 				case <-ctx.Done():

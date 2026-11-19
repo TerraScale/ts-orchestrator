@@ -43,7 +43,7 @@ type sources struct {
 // unreadable token or a port it cannot bind is logged and retried; it never
 // stops the host. While Vault is unavailable the token read last keeps
 // serving.
-func Run(ctx context.Context, state, region string) error {
+func Run(ctx context.Context, state, region string, events *observability.EventBus) error {
 	host, err := os.Hostname()
 	if err != nil {
 		return err
@@ -68,7 +68,7 @@ func Run(ctx context.Context, state, region string) error {
 	defer reports.close()
 	deps := observability.ServerDeps{Registry: registry, Health: health, Snapshots: collector,
 		Cluster: &meshCluster{region: region, local: collector, regions: func() []string { return mesh.Regions(region) }, ask: reports.ask},
-		Events:  observability.NewEventBus(observability.DefaultEventCapacity), LocalSessions: true}
+		Events:  events, LocalSessions: true}
 	serve(ctx, deps, sources{port: Port, address: mesh.NetBirdAddress, token: func(ctx context.Context) (string, error) {
 		return readToken(ctx, region)
 	}, releases: releaseRecord(state)})
