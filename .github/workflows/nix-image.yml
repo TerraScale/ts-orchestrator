@@ -29,6 +29,8 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086
+      - name: Allow unprivileged user namespaces for systemd-repart
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Build packages.aarch64-linux.oci-image
         run: nix build -L .#packages.aarch64-linux.oci-image
       - name: Image size
