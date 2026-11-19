@@ -142,9 +142,12 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 	servers := []*http.Server{
 		{Handler: http.HandlerFunc(a.serve)},
 		{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			const instanceID = "ocid1.instance.oc1..journey"
 			switch {
+			case strings.HasSuffix(r.URL.Path, "/instance/"):
+				_ = json.NewEncoder(w).Encode(map[string]string{"id": instanceID})
 			case strings.HasSuffix(r.URL.Path, "/instance/id"):
-				_, _ = io.WriteString(w, "ocid1.instance.oc1..journey")
+				_, _ = io.WriteString(w, instanceID)
 			case strings.HasSuffix(r.URL.Path, "/vnics/"):
 				address := "10.77.0.2"
 				if strings.HasPrefix(r.RemoteAddr, "10.77.0.3:") {
