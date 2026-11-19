@@ -6,6 +6,7 @@ import (
 	"net"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,11 +18,13 @@ import (
 	"github.com/moby/swarmkit/v2/ca"
 	"github.com/moby/swarmkit/v2/log"
 	"github.com/moby/swarmkit/v2/manager/drivers"
+	"github.com/moby/swarmkit/v2/manager/state/raft"
 	"github.com/moby/swarmkit/v2/manager/state/store"
 	"github.com/moby/swarmkit/v2/protobuf/ptypes"
 	"github.com/moby/swarmkit/v2/remotes"
 	"github.com/moby/swarmkit/v2/watch"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -37,6 +40,8 @@ const (
 	// maxBatchItems is the threshold of queued writes that should
 	// trigger an actual transaction to commit them to the shared store.
 	maxBatchItems = 10000
+
+	maxStatusText = 4 << 10
 
 	// maxBatchInterval needs to strike a balance between keeping
 	// latency low, and realizing opportunities to combine many writes
@@ -658,6 +663,7 @@ func (d *Dispatcher) UpdateTaskStatus(ctx context.Context, r *api.UpdateTaskStat
 			return nil, err
 		}
 
+		boundStatusText(u.Status)
 		validTaskUpdates = append(validTaskUpdates, u)
 	}
 
@@ -762,49 +768,7 @@ func (d *Dispatcher) processUpdates(ctx context.Context) {
 
 	err := d.store.Batch(func(batch *store.Batch) error {
 		for taskID, taskStatus := range taskUpdates {
-			err := batch.Update(func(tx store.Tx) error {
-				logger := logr.WithField("task.id", taskID)
-				task := store.GetTask(tx, taskID)
-				if task == nil {
-					// Task may have been deleted
-					logger.Debug("cannot find target task in store")
-					return nil
-				}
-
-				logger = logger.WithField("state.transition", fmt.Sprintf("%v->%v", task.Status.State, taskStatus.State))
-
-				if task.Status == *taskStatus {
-					logger.Debug("task status identical, ignoring")
-					return nil
-				}
-
-				if task.Status.State > taskStatus.State {
-					logger.Debug("task status invalid transition")
-					return nil
-				}
-
-				// Update scheduling delay metric for running tasks.
-				// We use the status update time on the leader to calculate the scheduling delay.
-				// Because of this, the recorded scheduling delay will be an overestimate and include
-				// the network delay between the worker and the leader.
-				// This is not ideal, but its a known overestimation, rather than using the status update time
-				// from the worker node, which may cause unknown incorrect results due to possible clock skew.
-				if taskStatus.State == api.TaskStateRunning {
-					start := time.Unix(taskStatus.AppliedAt.GetSeconds(), int64(taskStatus.AppliedAt.GetNanos()))
-					schedulingDelayTimer.UpdateSince(start)
-				}
-
-				task.Status = *taskStatus
-				task.Status.AppliedBy = d.securityConfig.ClientTLSCreds.NodeID()
-				task.Status.AppliedAt = ptypes.MustTimestampProto(time.Now())
-				logger.Debugf("state for task %v updated to %v", task.GetID(), task.Status.State)
-				if err := store.UpdateTask(tx, task); err != nil {
-					logger.WithError(err).Error("failed to update task status")
-					return nil
-				}
-				logger.Debug("dispatcher committed status update to store")
-				return nil
-			})
+			err := batch.Update(d.applyTaskStatus(logr, taskID, taskStatus))
 			if err != nil {
 				logr.WithError(err).Error("dispatcher task update transaction failed")
 			}
@@ -877,13 +841,59 @@ func (d *Dispatcher) processUpdates(ctx context.Context) {
 	})
 	if err != nil {
 		logr.WithError(err).Error("dispatcher batch failed")
-		d.requeueUnappliedTaskUpdates(taskUpdates)
+		d.applyTaskUpdatesSeparately(logr, taskUpdates)
 	}
 
 	d.processUpdatesCond.Broadcast()
 }
 
-func (d *Dispatcher) requeueUnappliedTaskUpdates(taskUpdates map[string]*api.TaskStatus) {
+func (d *Dispatcher) applyTaskStatus(logr *logrus.Entry, taskID string, taskStatus *api.TaskStatus) func(store.Tx) error {
+	return func(tx store.Tx) error {
+		logger := logr.WithField("task.id", taskID)
+		task := store.GetTask(tx, taskID)
+		if task == nil {
+			// Task may have been deleted
+			logger.Debug("cannot find target task in store")
+			return nil
+		}
+
+		logger = logger.WithField("state.transition", fmt.Sprintf("%v->%v", task.Status.State, taskStatus.State))
+
+		if task.Status == *taskStatus {
+			logger.Debug("task status identical, ignoring")
+			return nil
+		}
+
+		if task.Status.State > taskStatus.State {
+			logger.Debug("task status invalid transition")
+			return nil
+		}
+
+		// Update scheduling delay metric for running tasks.
+		// We use the status update time on the leader to calculate the scheduling delay.
+		// Because of this, the recorded scheduling delay will be an overestimate and include
+		// the network delay between the worker and the leader.
+		// This is not ideal, but its a known overestimation, rather than using the status update time
+		// from the worker node, which may cause unknown incorrect results due to possible clock skew.
+		if taskStatus.State == api.TaskStateRunning {
+			start := time.Unix(taskStatus.AppliedAt.GetSeconds(), int64(taskStatus.AppliedAt.GetNanos()))
+			schedulingDelayTimer.UpdateSince(start)
+		}
+
+		task.Status = *taskStatus
+		task.Status.AppliedBy = d.securityConfig.ClientTLSCreds.NodeID()
+		task.Status.AppliedAt = ptypes.MustTimestampProto(time.Now())
+		logger.Debugf("state for task %v updated to %v", task.GetID(), task.Status.State)
+		if err := store.UpdateTask(tx, task); err != nil {
+			logger.WithError(err).Error("failed to update task status")
+			return nil
+		}
+		logger.Debug("dispatcher committed status update to store")
+		return nil
+	}
+}
+
+func (d *Dispatcher) applyTaskUpdatesSeparately(logr *logrus.Entry, taskUpdates map[string]*api.TaskStatus) {
 	unapplied := make(map[string]*api.TaskStatus, len(taskUpdates))
 	d.store.View(func(tx store.ReadTx) {
 		for taskID, taskStatus := range taskUpdates {
@@ -898,13 +908,36 @@ func (d *Dispatcher) requeueUnappliedTaskUpdates(taskUpdates map[string]*api.Tas
 			}
 		}
 	})
-	d.taskUpdatesLock.Lock()
+	requeue := make(map[string]*api.TaskStatus, len(unapplied))
 	for taskID, taskStatus := range unapplied {
+		err := d.store.Update(d.applyTaskStatus(logr, taskID, taskStatus))
+		switch {
+		case err == nil:
+		case errors.Is(err, raft.ErrRequestTooLarge):
+			logr.WithError(err).WithField("task.id", taskID).Error("task status can never be stored; dropped")
+		default:
+			requeue[taskID] = taskStatus
+		}
+	}
+	d.taskUpdatesLock.Lock()
+	for taskID, taskStatus := range requeue {
 		if _, newer := d.taskUpdates[taskID]; !newer {
 			d.taskUpdates[taskID] = taskStatus
 		}
 	}
 	d.taskUpdatesLock.Unlock()
+}
+
+func boundStatusText(status *api.TaskStatus) {
+	status.Message = boundText(status.Message)
+	status.Err = boundText(status.Err)
+}
+
+func boundText(text string) string {
+	if len(text) <= maxStatusText {
+		return text
+	}
+	return strings.ToValidUTF8(text[:maxStatusText], "")
 }
 
 // Tasks is a stream of tasks state for node. Each message contains full list
