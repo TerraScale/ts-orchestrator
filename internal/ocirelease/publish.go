@@ -226,6 +226,19 @@ const usage = "usage: ts-orch release channel prepare <dist> <sha> <run> <seq> <
 
 type Announce func(ctx context.Context, region string, seq uint64, moved time.Time, output io.Writer) error
 
+var ErrNoReceiver = errors.New("the region's edge has no release receiver yet")
+
+func Announced(ctx context.Context, announce Announce, region string, seq uint64, moved time.Time, output io.Writer) {
+	err := announce(ctx, region, seq, moved, output)
+	switch {
+	case err == nil:
+	case errors.Is(err, ErrNoReceiver):
+		fmt.Fprintf(output, "%s: channel seq %d published; %v, so its owner finds it on its poll\n", region, seq, err)
+	default:
+		fmt.Fprintf(output, "::warning::%s: channel seq %d published, but its announcement failed and its owner finds it on its poll: %v\n", region, seq, err)
+	}
+}
+
 func Run(ctx context.Context, args []string, output io.Writer, announce Announce) error {
 	switch {
 	case len(args) == 6 && args[0] == "prepare":
@@ -287,10 +300,7 @@ func Run(ctx context.Context, args []string, output io.Writer, announce Announce
 					return
 				}
 				if !destination.Staging {
-					if err := announce(ctx, destination.Label, channel.Seq, moved, out); err != nil {
-						fmt.Fprintf(out, "%s: FAILED: %v\n", repository, err)
-						failed[i] = fmt.Errorf("%s: %w", repository, err)
-					}
+					Announced(ctx, announce, destination.Label, channel.Seq, moved, out)
 				}
 			}()
 		}

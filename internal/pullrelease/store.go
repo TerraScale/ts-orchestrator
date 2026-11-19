@@ -121,22 +121,21 @@ func (s *Store) Lead(ctx context.Context, self string) (bool, error) {
 }
 
 func (s *Store) Seen(ctx context.Context, release string, seq uint64, at time.Time) (time.Time, error) {
-	key := s.region + ".discovered"
-	entry, err := s.kv.Get(ctx, key)
-	switch {
-	case errors.Is(err, jetstream.ErrKeyNotFound):
-	case err != nil:
-		return at, err
-	default:
-		var seen sighting
-		if json.Unmarshal(entry.Value(), &seen) == nil && seen.Release == release && seen.Seq == seq {
-			return seen.At, nil
-		}
-	}
+	key := fmt.Sprintf("%s.discovered.%s.%d", s.region, release, seq)
 	data, err := json.Marshal(sighting{Release: release, Seq: seq, At: at})
 	if err != nil {
 		return at, err
 	}
-	_, err = s.kv.Put(ctx, key, data)
-	return at, err
+	if _, err := s.kv.Create(ctx, key, data); !errors.Is(err, jetstream.ErrKeyExists) {
+		return at, err
+	}
+	entry, err := s.kv.Get(ctx, key)
+	if err != nil {
+		return at, err
+	}
+	var seen sighting
+	if err := json.Unmarshal(entry.Value(), &seen); err != nil {
+		return at, fmt.Errorf("release sighting %s damaged: %w", key, err)
+	}
+	return seen.At, nil
 }

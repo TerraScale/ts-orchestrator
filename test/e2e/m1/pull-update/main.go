@@ -369,9 +369,7 @@ func journey(bin, part string) {
 			registryURLs[region] = l.registries[region].server.URL
 		}
 		l.first = l.channelRelease(100, "100", l.self, l.self)
-		for region := range registryURLs {
-			l.write(ctx, region, l.first)
-		}
+		l.publishBeforeReceivers(ctx, l.first)
 	}
 	rootFile := filepath.Join(work, "trusted-root.json")
 	must(os.WriteFile(rootFile, l.sigstore.TrustedRoot(), 0o600))

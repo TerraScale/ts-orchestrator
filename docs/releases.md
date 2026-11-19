@@ -76,10 +76,15 @@ release's own amd64 binary:
    answers with the release it found and when it first saw it, and the job
    prints that time and how long after the registry accepted the channel it
    came. When no host owns the rollout, the job says so; the next owner reads
-   the channel when it takes over. A refused announcement, an owner that cannot
-   read the channel or an owner that reads an older seq makes the job red. The
-   announcement carries no release: the owner trusts only what it reads and
-   verifies itself. Staging has no mesh name, so it is not announced and reads
+   the channel when it takes over. An announcement never undoes a publish:
+   `stable` has already moved. An edge that answers 404 or 501 has no receiver
+   yet (a host still on a release before this one) and is logged as such; any
+   other failure (refused token, an owner that cannot read the channel or that
+   reads an older seq) is a job warning. Either way the region's owner finds the
+   release on its five-minute poll. The receiver ships in the release that
+   introduces it, so the first announcement that takes effect is the next
+   release's. The announcement carries no release: the owner trusts only what
+   it reads and verifies itself. Staging has no mesh name, so it is not announced and reads
    its channel on the poll.
 
 The GitHub Release assets stay as they are for people; hosts no longer read
@@ -95,7 +100,13 @@ inside it: when an announcement arrives, when it takes over the region, and
 otherwise every five minutes, which catches a missed announcement. An install
 request, a health gate or a bake in progress does not delay that read. A new
 channel, or a new error reading it, wakes the rollout, which applies the
-checks below to what the read found. The GitHub fallback keeps its five-minute
+checks below to what the read found. The first time the region's owner reads
+a fully verified channel release, it records that time under
+`<region>.discovered.<tag>.<seq>` in the rollout bucket, create-only. Later
+reads, a new owner after a restart or takeover, and a replayed older channel
+reuse it or write their own key, so a sighting is never re-stamped and the
+rollout record's `discovered` is the region's first sighting. A GitHub
+fallback release, verified only by the rollout, keeps the process's own time. The GitHub fallback keeps its five-minute
 discovery interval and existing channel retry backoff. Once the release is
 baked, the next health sweep is due five minutes later. Active bake samples and
 post-action waits keep their original cadence. A new channel is

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/ocirelease"
 )
 
 const (
@@ -65,6 +67,9 @@ func Announce(ctx context.Context, client *http.Client, endpoint, token string) 
 	body, err := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 	if err != nil {
 		return Discovery{}, err
+	}
+	if response.StatusCode == http.StatusNotFound || response.StatusCode == http.StatusNotImplemented {
+		return Discovery{}, fmt.Errorf("%s: HTTP %s: %w", endpoint, response.Status, ocirelease.ErrNoReceiver)
 	}
 	if response.StatusCode != http.StatusOK {
 		return Discovery{}, fmt.Errorf("%s: HTTP %s: %s", endpoint, response.Status, strings.TrimSpace(string(body)))

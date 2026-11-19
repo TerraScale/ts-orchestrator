@@ -281,13 +281,33 @@ func (l *lane) publishChannel(ctx context.Context, release channelRelease) map[s
 	return discoveries
 }
 
-func (l *lane) pushRaw(ctx context.Context, region string, release channelRelease) {
+func (l *lane) publishBeforeReceivers(ctx context.Context, release channelRelease) {
+	edge := httptest.NewServer(http.NotFoundHandler())
+	defer edge.Close()
+	channel, err := releaseattest.ParseChannel(release.signed.Document)
+	must(err)
+	announce := func(ctx context.Context, region string, seq uint64, moved time.Time, output io.Writer) error {
+		discovery, err := releasepush.Announce(ctx, edge.Client(), edge.URL+releasepush.AnnouncePath, l.github.oidc(l.revision, release.run))
+		if err != nil {
+			return err
+		}
+		return releasepush.Report(discovery, seq, moved, output)
+	}
+	for _, region := range []string{"sjc", "fra", "gru"} {
+		var output bytes.Buffer
+		ocirelease.Announced(ctx, announce, region, channel.Seq, l.write(ctx, region, release), io.MultiWriter(os.Stdout, &output))
+		require(strings.Contains(output.String(), ocirelease.ErrNoReceiver.Error()), "%s: an edge without the release receiver must leave the publish in place: %s", region, output.String())
+	}
+}
+
+func (l *lane) pushRaw(ctx context.Context, region string, release channelRelease) releasepush.Discovery {
 	target := l.target(ctx, region)
 	must(target.Push(release.tag, release.image))
 	must(target.Push(ocirelease.Stable, ocirelease.ChannelImage(release.signed)))
 	discovery, err := l.announce(ctx, region, release)
 	require(discovery.Owner != "" && (err == nil || discovery.Error != ""), "%s's owner must answer the announcement of %s: %+v %v", region, release.tag, discovery, err)
 	fmt.Printf("%s: owner %s answered the announcement of %s: seq %d %s %s\n", region, discovery.Owner, release.tag, discovery.Seq, discovery.Release, discovery.Error)
+	return discovery
 }
 
 func (l *lane) channelReleaseOf(ctx context.Context, region string, release channelRelease) releaseattest.Release {
@@ -380,11 +400,11 @@ func (l *lane) channel(ctx context.Context) {
 	require(issued > 0, "hosts must read their channel with registry tokens from signed requests")
 	require(l.offline.calls.Load() == 0, "the channel lane made %d GitHub calls", l.offline.calls.Load())
 	fmt.Printf("0 GitHub calls; %d registry tokens issued for instance-principal-signed requests; every host reports installed seq 117\n", issued)
-	l.discoverDuringInstall(ctx)
+	l.discoverDuringInstall(ctx, r117)
 	require(l.offline.calls.Load() == 0, "the channel lane made %d GitHub calls", l.offline.calls.Load())
 }
 
-func (l *lane) discoverDuringInstall(ctx context.Context) {
+func (l *lane) discoverDuringInstall(ctx context.Context, r117 channelRelease) {
 	c120, c121 := l.candidate("c120"), l.candidate("c121")
 	r120, r121 := l.channelRelease(120, "120", c120, c120), l.channelRelease(121, "121", c121, c121)
 	hold := l.registries["sjc"].hold(c120)
@@ -399,6 +419,12 @@ func (l *lane) discoverDuringInstall(ctx context.Context) {
 	})
 	fmt.Printf("sjc's owner %s is inside the install request of %s; the lane holds its download\n", installing.Owner, r120.tag)
 	discoveries := l.publishChannel(ctx, r121)
+	replayed := l.pushRaw(ctx, "sjc", r117)
+	require(replayed.Seq == 117, "sjc's owner must read the replayed channel: %+v", replayed)
+	restored := l.pushRaw(ctx, "sjc", r121)
+	require(restored.Seq == 121 && restored.Discovered.Equal(discoveries["sjc"].Discovered),
+		"a replayed older channel must not re-stamp %s: first seen %s, after the replay %s", r121.tag, discoveries["sjc"].Discovered, restored.Discovered)
+	fmt.Printf("an older signed channel replayed and %s restored before adoption keep its first sighting %s\n", r121.tag, restored.Discovered.Format(time.RFC3339Nano))
 	close(hold.release)
 	done := l.waitStatus(ctx, "sjc", "sjc completes "+r121.tag, complete(r121.published))
 	require(done.Discovered.Equal(discoveries["sjc"].Discovered), "sjc's rollout of %s must carry the discovery its owner answered, %s, not %s", r121.tag, discoveries["sjc"].Discovered, done.Discovered)

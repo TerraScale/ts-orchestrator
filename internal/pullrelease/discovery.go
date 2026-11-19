@@ -27,7 +27,9 @@ type finder struct {
 	failures int
 	retry    time.Time
 	seenTag  string
+	seenSeq  uint64
 	seenAt   time.Time
+	recorded bool
 }
 
 func DiscoverSubject(region string) string { return protocol.MeshPullDiscoverPrefix + region }
@@ -85,13 +87,17 @@ func (u *Updater) find(ctx context.Context, fresh bool) (*found, time.Duration) 
 	f.listed = time.Now()
 	now := f.listed.UTC()
 	previous := u.found.Load()
-	if release.SHA != "" && release.Tag() != f.seenTag {
-		seen, err := u.store.Seen(ctx, release.Tag(), release.Seq, now)
-		if err != nil {
-			slog.WarnContext(ctx, "release discovery not recorded for the region; this process keeps its own time", "region", u.Region, "release", release.Tag(), "error", err)
+	if release.SHA != "" && (release.Tag() != f.seenTag || release.Seq != f.seenSeq) {
+		f.seenTag, f.seenSeq, f.seenAt, f.recorded = release.Tag(), release.Seq, now, false
+	}
+	if release.SHA != "" && !f.recorded && err == nil && release.Channel != nil {
+		seen, recordErr := u.store.Seen(ctx, release.Tag(), release.Seq, f.seenAt)
+		if recordErr != nil {
+			slog.WarnContext(ctx, "release discovery not recorded for the region; this process keeps its own time", "region", u.Region, "release", release.Tag(), "seq", release.Seq, "error", recordErr)
+		} else {
+			f.seenAt, f.recorded = seen, true
+			slog.InfoContext(ctx, "release discovered", "region", u.Region, "release", release.Tag(), "seq", release.Seq, "published", published(release), "discovered", seen)
 		}
-		f.seenTag, f.seenAt = release.Tag(), seen
-		slog.InfoContext(ctx, "release discovered", "region", u.Region, "release", release.Tag(), "seq", release.Seq, "published", published(release), "discovered", seen)
 	}
 	result := &found{release: release, err: err, checked: now, seenTag: f.seenTag, seenAt: f.seenAt}
 	u.found.Store(result)
