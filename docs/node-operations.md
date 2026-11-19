@@ -37,6 +37,73 @@ data volume. It runs no apt and installs no packages. The image is built by
 region and arch in `deploy/image/host-images.json`. A region with no pinned
 entry still uses the Ubuntu first-boot path until it is removed.
 
+### Publish a host image
+
+CI's OCI identity cannot import images, so an operator imports each
+`host-image-<yyyymmdd>-<sha>` release from the ops server with the operator
+`oci` and `gh` CLIs:
+
+```sh
+deploy/image/publish.sh host-image-20261119-6b5cd82 stg
+deploy/image/publish.sh host-image-20261119-6b5cd82 sjc fra gru
+```
+
+The arguments are fleet labels from `deploy/fleet/fleet.json`, the `staging`
+entry included; with none it publishes to every one, staging first. For each
+label the script takes the OCI region, compartment and node shape from the
+fleet document and the arch from the shape (`A<n>` shapes are arm64). It
+downloads `ts-host-debian13-<arch>.qcow2` and its `.sha256` into an empty
+directory, hashes the download and requires that hash to match the sidecar
+and GitHub's asset digest, and the sidecar to match its own asset digest.
+
+It uploads the file as `<tag>/<file>` to the region's `ts-host-images`
+bucket. The bucket belongs to the compartment of the first fleet entry in
+that OCI region (`stg-1-control` for `us-sanjose-1`, which `stg` and `sjc`
+share); the script creates it there with `NoPublicAccess` and refuses a
+bucket in another compartment or a public one. It uploads in one part with
+the file's MD5, so OCI rejects altered bytes, never overwrites an object, and
+imports only after the stored object's `content-md5` and `sha256` metadata
+both match the release.
+
+It imports a QCOW2 custom image named `ts-host-debian13-<arch>-<tag>` in
+paravirtualized launch mode, tagged `terrascale-host-image`, `terrascale-arch`
+and `terrascale-sha256`. It waits for `AVAILABLE`, sets UEFI firmware,
+paravirtualized boot, data volume and VNIC attachments and consistent device
+naming, and resets a capability schema that differs. It adds the fleet's
+shapes of that arch to the image's shape compatibility and removes the shapes
+of the other arch. The last line for each label is the `host-images.json`
+entry.
+
+Each label runs under a lock object `locks/<tag>-<label>-<arch>` in that
+bucket, written without overwrite and owned by the run whose token it holds;
+the run removes it when it finishes or fails. A held lock stops the run with
+its owner and age; one older than the one-hour import wait with no publish
+running is removed by hand with the command the script prints.
+
+A rerun selects the image by its tags in the label's compartment, checks its
+`sha256` tag against the release and prints the same entry. It keeps waiting
+for an import in progress. An image in any other state, or two images with
+the same tags, stop the run with OCI's work request errors and the delete
+command; the script never deletes an image.
+
+The script uses the operator's API key profile (`~/.oci/config` `DEFAULT`).
+OCI imports from an object directly only for an API key user; federated users
+and instance principals would need a pre-authenticated request. The user
+needs, in the bucket owner compartment, `manage buckets` and `manage objects`
+for `ts-host-images`, and in each label's compartment `manage instance-images`
+and `read work-requests`, plus `inspect` on the tenancy's global image
+capability schemas.
+
+### Pin a host image
+
+Add the printed entry to `deploy/image/host-images.json` in a pull request.
+`internal/nodeinit.PinnedHostImage` matches the entry's `region`, an OCI
+region name, and `arch`; once it is on main, `ts-orch region add <code>` and
+the fleet reconciler launch new hosts of that region and arch from the image
+with release metadata and no `user_data`. Running hosts are not touched.
+The staging entry and `sjc` share the OCI region `us-sanjose-1`, so a pin
+there applies to both: pin it only once the image is proven for production.
+
 ## The flow
 
 The leader runs one operation at a time, oldest first, each in the same
