@@ -625,7 +625,7 @@ func regionServices(ctx context.Context, state string) ([]pullrelease.Service, e
 	}
 	services := make([]pullrelease.Service, 0, len(specs))
 	for _, spec := range specs {
-		services = append(services, pullrelease.Service{Name: spec.Name, Running: spec.Running, Replicas: spec.Replicas, Generation: spec.Generation, Tasks: running[spec.Name]})
+		services = append(services, pullrelease.Service{Name: spec.Name, Running: spec.Running, Replicas: spec.Replicas, Generation: spec.Generation, Update: spec.Update, Releasing: spec.Releasing, Tasks: running[spec.Name]})
 	}
 	return services, nil
 }

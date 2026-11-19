@@ -1,6 +1,7 @@
 package pullrelease
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,6 +68,9 @@ type Status struct {
 	Published  time.Time `json:"published,omitzero"`
 	Discovered time.Time `json:"discovered,omitzero"`
 	Passed     time.Time `json:"passed,omitzero"`
+	Adopted    time.Time `json:"adopted,omitzero"`
+	Withheld   string    `json:"withheld,omitempty"`
+	Excluded   string    `json:"excluded,omitempty"`
 	Baseline   *Baseline `json:"baseline,omitempty"`
 	Restart    string    `json:"restart,omitempty"`
 }
@@ -114,6 +118,10 @@ func (s Status) passed() bool {
 	return !s.Passed.IsZero()
 }
 
+func (s Status) settled() bool {
+	return s.passed() || !s.Adopted.IsZero() || s.Withheld != ""
+}
+
 func (s Status) Timeline() []string {
 	if s.Target == nil {
 		return nil
@@ -133,7 +141,10 @@ func (s Status) Timeline() []string {
 		lines = append(lines, stamp(host.Host+" installed", host.Installed), stamp(host.Host+" ready", host.Ready))
 	}
 	lines = append(lines, stamp("gate start", s.Done), stamp("gate end", s.Passed))
-	complete := s.Passed
+	if !s.Adopted.IsZero() {
+		lines = append(lines, stamp("adopted without a gate", s.Adopted))
+	}
+	complete := cmp.Or(s.Passed, s.Adopted)
 	if s.Phase != PhaseComplete {
 		complete = time.Time{}
 	}
@@ -180,6 +191,12 @@ func (s Status) String() string {
 		line += " by " + s.Owner
 	}
 	parts := []string{line}
+	if s.Excluded != "" {
+		parts = append(parts, "    gate "+s.Excluded)
+	}
+	if s.Withheld != "" {
+		parts = append(parts, "    withheld: "+s.Withheld)
+	}
 	for _, host := range s.Hosts {
 		row := "    " + host.Host + ": " + host.State
 		if host.Version != "" {

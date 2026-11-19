@@ -111,19 +111,55 @@ verifies the release when its region first sees it, so the install that
 follows the previous host's gate starts from the fetched binary. A region's
 gate end is written once, when its gate passes.
 
+A region with no release record adopts the release it discovers when every
+host runs it and reports `provenance: booted`: the host's install receipt, the
+run fence `nats/release-run-id` that every install writes before it swaps, is
+absent, so no rollout ever installed it. Such a region just formed from the
+image. A host whose receipt is unreadable reports its history as unknown, and
+the region refuses the adoption with that reason until it reads; a host with
+a receipt sends the region through the normal rollout. Each host records the
+release's channel seq through the pull op `adopt`, which checks the running
+binary and never installs, and the record carries `adopted` instead of a gate
+end. An adopted record is not gate evidence: it never admits another region,
+and the region never installs that release afterwards. While a region stays
+adopted, its sweep saves a newer signed seq of the same tag and records it on
+every host that runs that release, including workers that join later; a host
+on another release takes the next one. In any rollout, a host that already
+runs the target before the rollout installed it is recorded done without a
+gate, and a rollout that installed no host is recorded adopted rather than
+passed. A failed regional gate rolls back the failing host when this rollout
+installed it, otherwise the host this rollout installed last; the record
+names the failing host or service.
+
 The gate compares with the region before the release. When a region takes a
-tag its leader records a baseline: each host's health conditions and the
-services below desired replicas. A host installs while every other host is no
-worse than its baseline, so a region that was already degraded still takes a
-release that may fix it. After the last host the gate samples every 2 s: every
-host runs the release and is no worse than its baseline, no service is below
-desired replicas unless it was before, no task of a steady service is replaced
-and no host's orchestrator restarts. It passes after 20 s of such samples
-(two swarm readiness probe intervals); three failed samples over 15 s, a
-restart, or no passing window within 55 s roll the release back and block
-subsequent regions. Each stage's time is in the record:
+tag its leader records a baseline: each host's health conditions, the
+services below desired replicas, and each service's mesh generation and
+running replicas. A host installs while every other host is no worse than its
+baseline, so a region that was already degraded still takes a release that
+may fix it. A service is worse when fewer replicas run than before the
+release, so a scale-up that keeps the mesh generation is no regression. The
+gate judges only what the ts-orch release changed: a service whose mesh
+generation differs from the baseline, or whose swarm update to a new
+generation is still running, is in its own release, and the gate names it as
+`excluded: own release` in the record's `excluded`. It settles only on
+affirmative evidence, swarm's update state `completed`; from then on its new
+generation and running replicas are its baseline and it is judged like any
+other service. An update that is paused or rolled back (`failed`), or with no
+update state, keeps the service named and unsettled. A baseline without
+per-service evidence exempts nothing. After the last host the gate samples
+every 2 s: every host runs the release and is no worse than its baseline, no
+other service runs fewer replicas than before, no task of a steady service is
+replaced and no host's orchestrator restarts. It passes after 20 s of such
+samples (two swarm readiness probe intervals); while a service is unsettled
+the bake waits. Three failed samples over 15 s, a restart, or no passing
+window within 55 s of the gate start roll the release back and block
+subsequent regions. When the 55 s pass with no failure but an app still
+unsettled, the region records `withheld: app <name> unsettled`: the release
+stays installed, later regions do not take it, and the region takes the next
+release. Each stage's time is in the record:
 `ts-orch observe releases` prints published, discovered, installed and ready
 per host, gate start, gate end and complete for every region.
+
 
 Inside one region the updater admits one host at a time through the private
 PullInstall subject. Each host verifies the main workflow's Sigstore identity,

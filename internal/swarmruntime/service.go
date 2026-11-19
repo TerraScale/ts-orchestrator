@@ -821,6 +821,29 @@ type ServiceSpecStatus struct {
 	Name, Image       string
 	Running, Replicas uint64
 	Generation        int64
+	Update            string
+	Releasing         bool
+}
+
+const (
+	UpdateRunning   = "updating"
+	UpdateCompleted = "completed"
+	UpdateFailed    = "failed"
+)
+
+func updateOutcome(status *api.UpdateStatus) string {
+	if status == nil {
+		return ""
+	}
+	switch status.State {
+	case api.UpdateStatus_UPDATING, api.UpdateStatus_ROLLBACK_STARTED:
+		return UpdateRunning
+	case api.UpdateStatus_COMPLETED:
+		return UpdateCompleted
+	case api.UpdateStatus_PAUSED, api.UpdateStatus_ROLLBACK_PAUSED, api.UpdateStatus_ROLLBACK_COMPLETED:
+		return UpdateFailed
+	}
+	return ""
 }
 
 func ListServiceSpecs(ctx context.Context, client api.ControlClient) ([]ServiceSpecStatus, error) {
@@ -850,6 +873,14 @@ func ListServiceSpecs(ctx context.Context, client api.ControlClient) ([]ServiceS
 		}
 		row := ServiceSpecStatus{Name: service.Spec.Annotations.Name, Replicas: service.Spec.GetReplicated().Replicas}
 		row.Generation, _ = strconv.ParseInt(service.Spec.Annotations.Labels[LabelGeneration], 10, 64)
+		row.Update = updateOutcome(service.UpdateStatus)
+		if row.Update == UpdateRunning {
+			previous := int64(0)
+			if service.PreviousSpec != nil {
+				previous, _ = strconv.ParseInt(service.PreviousSpec.Annotations.Labels[LabelGeneration], 10, 64)
+			}
+			row.Releasing = previous != row.Generation
+		}
 		if container, err := containerOf(service.Spec); err == nil {
 			row.Image = container.Image
 		}

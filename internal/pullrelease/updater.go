@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -147,7 +148,7 @@ func (u *Updater) turn(ctx context.Context) time.Duration {
 		slog.InfoContext(ctx, "taking over the region's pull rollout", "region", u.Region, "from", u.status.Owner, "phase", u.status.Phase)
 		u.status.Owner = u.Self
 		u.sweepAfter = time.Time{}
-		if u.status.Phase == PhaseComplete && !u.status.passed() {
+		if u.status.Phase == PhaseComplete && !u.status.settled() {
 			u.status.Done = time.Now().UTC()
 			u.status.Healthy, u.status.Failing, u.status.Failed, u.status.Failures = time.Time{}, time.Time{}, 0, 0
 		}
@@ -163,7 +164,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 	if u.status.Phase == PhaseRollingBack && u.status.Target != nil {
 		return u.restore(ctx)
 	}
-	if u.status.Phase == PhaseComplete && u.status.Target != nil && !u.status.passed() {
+	if u.status.Phase == PhaseComplete && u.status.Target != nil && !u.status.settled() {
 		return u.bake(ctx)
 	}
 
@@ -219,6 +220,24 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			u.save(ctx)
 			return u.Poll
 		}
+		if u.status.Target == nil {
+			rows, refusal := u.formed(ctx, attested)
+			if refusal != "" {
+				u.status.Reason = "adoption of " + attested.Tag() + " refused: " + refusal
+				u.save(ctx)
+				return u.Poll
+			}
+			if rows != nil {
+				now := time.Now().UTC()
+				u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseComplete, Target: &attested, Hosts: rows, Bad: u.status.Bad, Checked: u.status.Checked,
+					Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: now, Adopted: now}
+				slog.InfoContext(ctx, "the region formed on the attested release: every host booted it and none holds an install receipt; adopted without a rollout or a gate", "release", attested.Tag())
+				if !u.save(ctx) {
+					return renewEvery
+				}
+				return u.pollInterval()
+			}
+		}
 		u.prefetch(ctx, attested)
 		reason := u.admission(ctx, attested.Tag())
 		if reason == "" {
@@ -244,10 +263,90 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			return renewEvery
 		}
 	}
-	if u.status.Phase == PhaseComplete && u.status.passed() && time.Now().Before(u.sweepAfter) {
+	if !u.status.Adopted.IsZero() {
+		return u.adoptedSweep(ctx)
+	}
+	if u.status.Phase == PhaseComplete && u.status.settled() && time.Now().Before(u.sweepAfter) {
 		return u.pollInterval()
 	}
 	return u.roll(ctx)
+}
+
+func (u *Updater) formed(ctx context.Context, release releaseattest.Release) ([]HostProgress, string) {
+	hosts, err := u.Hosts(ctx)
+	if err != nil || len(hosts) == 0 {
+		return nil, fmt.Sprintf("host inventory unavailable: %v", err)
+	}
+	rows := make([]HostProgress, 0, len(hosts))
+	var unknown []string
+	for _, host := range hosts {
+		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
+		if err != nil {
+			unknown = append(unknown, host.Name+" does not answer: "+err.Error())
+			continue
+		}
+		want, built := release.Binaries[reply.Arch]
+		if !built || reply.Version != release.SHA || reply.SHA256 != want.SHA256 || reply.Provenance == releasepush.ProvenanceInstalled {
+			return nil, ""
+		}
+		switch {
+		case reply.State != "":
+			unknown = append(unknown, host.Name+" is in release "+reply.State)
+		case reply.Provenance != releasepush.ProvenanceBooted:
+			unknown = append(unknown, host.Name+" install history unknown: "+cmp.Or(reply.Provenance, "not reported"))
+		}
+		rows = append(rows, HostProgress{ID: host.ID, Host: host.Name, State: HostDone, Version: release.SHA, SHA256: want.SHA256})
+	}
+	if len(unknown) != 0 {
+		return nil, strings.Join(unknown, "; ")
+	}
+	for _, row := range rows {
+		reply, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullAdopt, Release: release}, installWait)
+		if err != nil || reply.State != releasepush.StateAdopted {
+			return nil, fmt.Sprintf("%s did not record the release it booted: %v %s", row.Host, err, reply.Error)
+		}
+	}
+	return rows, ""
+}
+
+func (u *Updater) adoptedSweep(ctx context.Context) time.Duration {
+	target := *u.status.Target
+	hosts, err := u.Hosts(ctx)
+	if err != nil {
+		u.status.Reason = "host inventory unavailable: " + err.Error()
+		u.save(ctx)
+		return u.pollInterval()
+	}
+	var reasons []string
+	for _, host := range hosts {
+		if u.status.host(host.ID) == nil {
+			u.status.Hosts = append(u.status.Hosts, HostProgress{ID: host.ID, Host: host.Name, State: HostPending})
+		}
+		row := u.status.host(host.ID)
+		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
+		if err != nil {
+			reasons = append(reasons, host.Name+" does not answer: "+err.Error())
+			continue
+		}
+		row.Version, row.SHA256 = reply.Version, reply.SHA256
+		want, built := target.Binaries[reply.Arch]
+		if !built || reply.Version != target.SHA || reply.SHA256 != want.SHA256 {
+			row.State = HostPending
+			reasons = append(reasons, host.Name+" runs "+reply.Version+", not the adopted "+target.Tag()+"; it takes the next release")
+			continue
+		}
+		if target.Seq != 0 && reply.Seq != target.Seq {
+			recorded, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullAdopt, Release: target}, installWait)
+			if err != nil || recorded.State != releasepush.StateAdopted {
+				reasons = append(reasons, fmt.Sprintf("%s did not record seq %d of %s: %v %s", host.Name, target.Seq, target.Tag(), err, recorded.Error))
+				continue
+			}
+		}
+		row.State, row.Error = HostDone, ""
+	}
+	u.status.Reason = strings.Join(reasons, "; ")
+	u.save(ctx)
+	return u.pollInterval()
 }
 
 func (u *Updater) pollInterval() time.Duration {
@@ -367,6 +466,17 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		if onTarget && row.State == HostDone && !unrecorded {
 			continue
 		}
+		if onTarget && reply.State == "" && reply.Health != restartPending && !u.inFlight(host.ID) {
+			if unrecorded {
+				recorded, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullAdopt, Release: target}, installWait)
+				if err != nil || recorded.State != releasepush.StateAdopted {
+					return u.wait(ctx, fmt.Sprintf("%s already runs %s but did not record its seq: %v %s", host.Name, target.Tag(), err, cmp.Or(refusalReason(recorded), recorded.Error, recorded.State)))
+				}
+			}
+			row.State, row.Error = HostDone, ""
+			u.save(ctx)
+			continue
+		}
 		if !onTarget && reply.Health != restartPending && row.State == HostGating {
 			return u.rolledBack(ctx, row, "rolled back by its own probation: "+reply.Error)
 		}
@@ -430,7 +540,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 	}
 	u.save(ctx)
 	switch {
-	case u.status.Phase == PhaseComplete && !u.status.passed():
+	case u.status.Phase == PhaseComplete && !u.status.settled():
 		return u.bake(ctx)
 	case u.status.Phase == PhaseComplete:
 		u.sweepAfter = time.Now().Add(u.Poll)
@@ -478,8 +588,8 @@ func (u *Updater) regionReady(ctx context.Context, except string) string {
 			return host.Name + " is worse than before the release: " + worse
 		}
 	}
-	if _, worse := u.servicesWorse(ctx); worse != "" {
-		return "region worse than before the release: " + worse
+	if _, found := u.judgeServices(ctx); found.worse != "" {
+		return "region worse than before the release: " + found.worse
 	}
 	return ""
 }
@@ -505,8 +615,8 @@ func (u *Updater) gate(ctx context.Context, host Host, target releaseattest.Rele
 		default:
 			if worse := u.status.Baseline.worseHost(host.ID, reply.Health); worse != "" {
 				last = worse
-			} else if _, worse := u.servicesWorse(ctx); worse != "" {
-				last = "region: " + worse
+			} else if _, found := u.judgeServices(ctx); found.worse != "" {
+				last = "region: " + found.worse
 			} else {
 				healthy = true
 			}
@@ -742,18 +852,30 @@ func (u *Updater) prefetch(ctx context.Context, release releaseattest.Release) {
 }
 
 func (u *Updater) bake(ctx context.Context) time.Duration {
+	if !slices.ContainsFunc(u.status.Hosts, installedHere) {
+		u.status.Adopted = time.Now().UTC()
+		u.status.Reason = "no host installed " + u.status.Target.Tag() + " in this rollout; nothing to gate or roll back"
+		u.save(ctx)
+		return u.pollInterval()
+	}
 	if reason := u.recordBaseline(ctx); reason != "" {
 		u.status.Reason = reason
 		u.save(ctx)
 		return checkEvery
 	}
 	now := time.Now().UTC()
-	row, check, failure, restarted := u.bakeSample(ctx)
+	failed, check, failure, found, restarted := u.bakeSample(ctx)
+	if found.excluded != "" {
+		u.status.Excluded = found.excluded
+	}
 	if restarted {
-		return u.rolledBack(ctx, row, "regional gate: "+failure)
+		return u.rolledBack(ctx, u.rollbackTarget(failed), "regional gate: "+failure)
+	}
+	if failure != "" && found.excluded != "" {
+		failure += "; " + found.excluded
 	}
 	if failure != "" {
-		slog.WarnContext(ctx, "regional gate sample failed", "release", u.status.Target.Tag(), "host", row.Host, "check", check, "failure", failure)
+		slog.WarnContext(ctx, "regional gate sample failed", "release", u.status.Target.Tag(), "check", check, "failure", failure)
 		if u.status.Failed == 0 {
 			u.status.Failing = now
 		}
@@ -761,16 +883,30 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 		u.status.Failures++
 		u.status.Healthy = time.Time{}
 		if u.status.Failed >= bakeFailures && now.Sub(u.status.Failing) >= rollout.BakeFailureDuration {
-			return u.rolledBack(ctx, row, fmt.Sprintf("regional bake failed in %d samples over %s: %s", u.status.Failed, now.Sub(u.status.Failing).Round(time.Second), failure))
+			return u.rolledBack(ctx, u.rollbackTarget(failed), fmt.Sprintf("regional bake failed in %d samples over %s: %s", u.status.Failed, now.Sub(u.status.Failing).Round(time.Second), failure))
 		}
 		if bound := u.bakeBound(); now.Sub(u.status.Done) >= bound {
-			return u.rolledBack(ctx, row, fmt.Sprintf("regional bake found no healthy %s window within %s: %d failed samples, the last: %s", u.BakeFor, bound, u.status.Failures, failure))
+			return u.rolledBack(ctx, u.rollbackTarget(failed), fmt.Sprintf("regional bake found no healthy %s window within %s: %d failed samples, the last: %s", u.BakeFor, bound, u.status.Failures, failure))
 		}
 		u.status.Reason = "regional bake sample failed: " + failure
 		u.save(ctx)
 		return checkEvery
 	}
-	if u.status.Failed != 0 || u.status.Healthy.IsZero() {
+	if found.excluded != "" {
+		u.status.Failing, u.status.Failed, u.status.Healthy = time.Time{}, 0, time.Time{}
+		if bound := u.bakeBound(); len(found.unsettled) != 0 && now.Sub(u.status.Done) >= bound {
+			u.status.Withheld = "app " + strings.Join(found.unsettled, ", ") + " unsettled"
+			u.status.Reason = fmt.Sprintf("withheld: %s within %s of the gate start (%s); later regions hold %s and this region takes the next release", u.status.Withheld, bound, found.excluded, u.status.Target.Tag())
+			slog.WarnContext(ctx, "regional gate withheld: an app's own release did not settle within the bound", "release", u.status.Target.Tag(), "excluded", found.excluded)
+			u.save(ctx)
+			u.sweepAfter = time.Now().Add(u.Poll)
+			return u.pollInterval()
+		}
+		u.status.Reason = "regional bake waits for services in their own release to settle: " + found.excluded
+		u.save(ctx)
+		return checkEvery
+	}
+	if u.status.Failed != 0 || u.status.Healthy.IsZero() || u.status.Reason != "" {
 		u.status.Failing, u.status.Failed, u.status.Reason = time.Time{}, 0, ""
 		if u.status.Healthy.IsZero() {
 			u.status.Healthy = now
@@ -786,15 +922,33 @@ func (u *Updater) bake(ctx context.Context) time.Duration {
 	return u.pollInterval()
 }
 
+func installedHere(row HostProgress) bool {
+	return !row.Installed.IsZero()
+}
+
+func (u *Updater) rollbackTarget(failed *HostProgress) *HostProgress {
+	if failed != nil && installedHere(*failed) {
+		return failed
+	}
+	var target *HostProgress
+	for i := range u.status.Hosts {
+		row := &u.status.Hosts[i]
+		if installedHere(*row) && (target == nil || row.Installed.After(target.Installed)) {
+			target = row
+		}
+	}
+	return target
+}
+
 func (u *Updater) bakeBound() time.Duration {
 	return 2*u.BakeFor + rollout.BakeFailureDuration
 }
 
-func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string, string, bool) {
+func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string, string, judgement, bool) {
 	if !u.watched.done.Equal(u.status.Done) {
 		u.watched = watch{done: u.status.Done, tasks: map[string][]string{}, versions: map[string][2]int64{}}
 	}
-	var row *HostProgress
+	var failed *HostProgress
 	check, failure := "", ""
 	for i := range u.status.Hosts {
 		host := &u.status.Hosts[i]
@@ -803,23 +957,23 @@ func (u *Updater) bakeSample(ctx context.Context) (*HostProgress, string, string
 		}
 		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
 		if err == nil && reply.Started.After(u.status.Done) {
-			return host, "restart", fmt.Sprintf("%s orchestrator restarted at %s, after the gate began", host.Host, reply.Started.UTC().Format(time.RFC3339)), true
+			return host, "restart", fmt.Sprintf("%s orchestrator restarted at %s, after the gate began", host.Host, reply.Started.UTC().Format(time.RFC3339)), judgement{}, true
 		}
 		if failure != "" {
 			continue
 		}
 		if err != nil || reply.State != "" || reply.Version != host.Version || reply.SHA256 != host.SHA256 {
-			row, check, failure = host, "host status", fmt.Sprintf("%v %s %s %s", err, reply.State, reply.Health, reply.Error)
+			failed, check, failure = host, "host status", fmt.Sprintf("%s: %v %s %s %s", host.Host, err, reply.State, reply.Health, reply.Error)
 		} else if worse := u.status.Baseline.worseHost(host.ID, reply.Health); worse != "" {
-			row, check, failure = host, "host health", worse
+			failed, check, failure = host, "host health", host.Host+": "+worse
 		}
 	}
-	services, worse := u.servicesWorse(ctx)
-	if restart := u.watched.restarted(u.status.Baseline, services); restart != "" {
-		return &u.status.Hosts[0], "restart", restart, true
+	services, found := u.judgeServices(ctx)
+	if restart := u.watched.restarted(u.status.Baseline, services, found.released); restart != "" {
+		return nil, "restart", restart, found, true
 	}
-	if failure == "" && worse != "" {
-		row, check, failure = &u.status.Hosts[0], "region services", worse
+	if failure == "" && found.worse != "" {
+		check, failure = "region services", found.worse
 	}
-	return row, check, failure, false
+	return failed, check, failure, found, false
 }

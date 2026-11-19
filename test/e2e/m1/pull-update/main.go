@@ -400,7 +400,7 @@ func journey(bin, part string) {
 		must(err)
 		for _, suffix := range []string{"m", "n", "w"} {
 			id, role := region+"-"+suffix, "manager"
-			if suffix == "w" {
+			if suffix == "w" || part == "bake" && id == "fra-n" {
 				role = "worker"
 			}
 			dir := filepath.Join(work, id)
