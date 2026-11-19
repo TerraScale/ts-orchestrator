@@ -27,7 +27,7 @@ func verifyRefusalLogs(ctx context.Context, source apppull.Source, image string)
 	previous := slog.Default()
 	observability.ConfigureDefault(logger)
 	defer observability.ConfigureDefault(previous)
-	updater := apppull.Updater{Region: "stg", Source: source, Apply: mesh.Release(directory)}
+	updater := apppull.Updater{Region: "sjc", Source: source, Apply: mesh.Release(directory)}
 	for range 3 {
 		must(updater.Cycle(ctx))
 	}
@@ -44,7 +44,7 @@ func verifyRefusalLogs(ctx context.Context, source apppull.Source, image string)
 		var record map[string]string
 		must(json.Unmarshal(line[start:], &record))
 		want, ok := expected[record["service"]]
-		require(ok && record["level"] == "WARN" && record["component"] == "apppull" && record["region"] == "stg" && record["msg"] == "app release refused", "refusal warning lacks its scope")
+		require(ok && record["level"] == "WARN" && record["component"] == "apppull" && record["region"] == "sjc" && record["msg"] == "app release refused", "refusal warning lacks its scope")
 		require(record["release"] == want.release && record["stage"] == want.stage && record["reason"] == want.reason, "refusal warning lost its release, stage or safe reason")
 		counts[record["service"]]++
 	}

@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/TerraScale/ts-orchestrator/deploy/m1"
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -33,11 +32,7 @@ func ConfigurationFor(label string) (Configuration, error) {
 	if err := json.Unmarshal(data, &document); err != nil {
 		return Configuration{}, err
 	}
-	environment := "prod"
-	if label == fleet.Embedded().Staging.Label {
-		environment = "stg"
-	}
-	item, ok := document[environment]
+	item, ok := document["prod"]
 	if !ok || !repositoryPath.MatchString(item.Namespace+"/"+item.Prefix+"/app-canary") {
 		return Configuration{}, errors.New("fleet OCIR namespace or repository prefix is unset or invalid")
 	}

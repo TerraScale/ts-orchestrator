@@ -9,10 +9,10 @@ the native Linux child manifest, currently arm64 in the fleet, rather than a
 multi-platform index. The image bytes and digest are identical in every region.
 Each host expands it to
 `<oci-region>.ocir.io/<namespace>/<repo-prefix>/<pkg>@sha256:<manifest digest>`.
-The embedded registry document contains separate `prod` and `stg` mappings:
-namespace `grxnmoqvrcdv`, prefixes `terrascale` and `terrascale-stg` respectively.
+The embedded registry document contains the `prod` mapping:
+namespace `grxnmoqvrcdv` and prefix `terrascale`.
 Production uses `sa-saopaulo-1`, `us-sanjose-1` and `eu-frankfurt-1`.
-Staging uses `us-sanjose-1` and its separate repository prefix. The fleet reference and containerd image
+The fleet reference and containerd image
 record retain the hostless form; registry requests use the regional form.
 containerd parses a pull reference as `host/path`, so the executor pulls the
 regional form and the regional resolver names the stored image with the
@@ -43,7 +43,7 @@ tag `sha256-<manifest hex digest>` in the same repository. `remote.Referrers`
 reads that tag; registries supporting the API also work.
 
 App-canary CI builds once, copies the identical arm64 child manifest to all
-three production repositories and staging, and attaches the same build,
+three production repositories, and attaches the same build,
 selection and SBOM bundles using ORAS 1.3.6. Selection is a cosign v3.0.2
 attestation over the exact raw manifest bytes, whose SHA-256 is the image
 digest. Its subject filename does not change the digest or workflow identity.
@@ -86,7 +86,7 @@ A second PR removes GHCR resolution, the old dashboard package handoff and
 Vault token paths after no live fleet document, retained deployment floor or
 rollback image requires GHCR. GHCR pull-token secrets are then removed, one
 region at a time, with a metadata read before deletion and a serving-state
-check after each region. The staging secret is `stg-1-ghcr-pull-token`.
+check after each region.
 Reports list names and verification outcomes, never credential values.
 
 ## Local proof
@@ -98,5 +98,5 @@ the referrers API and fallback tag, checks the token is reused in memory, and
 refuses unsigned images and tampered images carrying copied bundles. Its
 transport permits requests only to the selected regional registry. The lane
 requires a signed Date, uses the production token response shape, and checks
-that production and staging expand the same package digest into their own
+that production regions expand the same package digest into their regional
 repositories. Empty namespace or repository-prefix declarations fail the lane.

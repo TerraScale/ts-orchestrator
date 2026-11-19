@@ -14,7 +14,7 @@ fleet=$here/../fleet/fleet.json
 repo=TerraScale/ts-orchestrator
 debian=13
 bucket=ts-host-images
-entries=$(jq -c '[.staging, .regions[]]' "$fleet")
+entries=$(jq -c '[.regions[]]' "$fleet")
 labels=("$@")
 ((${#labels[@]})) || mapfile -t labels < <(jq -r '.[].label' <<<"$entries")
 capabilities=$(jq -cn '{

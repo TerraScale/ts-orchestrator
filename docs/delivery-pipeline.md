@@ -113,9 +113,8 @@ the target, each host's progress, failures and a stable completion timestamp.
 A successor resumes the same record. Lease failure relinquishes ownership;
 it does not stop the serving node.
 
-sjc is the canary region; fra and gru follow it together. Staging precedes sjc
-once C16 founds that catalog cell. Before taking a tag, the leader reads the
-other production regions' records from the same fabric store: the canary must
+sjc is the canary region; fra and gru follow it together. Before taking a tag,
+the leader reads the other production regions' records from the same fabric store: the canary must
 have completed that exact tag and passed its regional gate, and no region may
 have rolled it back. Missing, unreadable or failed evidence blocks admission.
 Once admitted, a region keeps rolling even if another region later rolls the

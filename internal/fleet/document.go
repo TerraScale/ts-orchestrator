@@ -12,27 +12,17 @@ import (
 	document "github.com/TerraScale/ts-orchestrator/deploy/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
-
-const StagingMaxNodes = 3
 
 const MinNodes = 3
 
 type Fleet struct {
 	DNS     DNS      `json:"dns"`
 	Regions []Region `json:"regions"`
-	Staging Staging  `json:"staging"`
-}
-
-type Staging struct {
-	Region  `json:",inline"`
-	VaultID string `json:"vault_id"`
-	KeyID   string `json:"key_id"`
 }
 
 func (f Fleet) All() []Region {
-	return append(slices.Clone(f.Regions), f.Staging.Region)
+	return slices.Clone(f.Regions)
 }
 
 type DNS struct {
@@ -180,44 +170,7 @@ func (f Fleet) Validate() error {
 			errs = append(errs, fmt.Errorf("geo_continents: no region answers %s", continent))
 		}
 	}
-	compartments := map[string]string{f.DNS.CompartmentID: "dns.compartment_id"}
-	for _, region := range f.Regions {
-		compartments[region.CompartmentID] = fmt.Sprintf("regions[%s].compartment_id", region.Label)
-	}
-	return errors.Join(append(errs, f.Staging.validate(labels, vcns, compartments)...)...)
-}
-
-func (s Staging) validate(labels map[string]bool, production []labelled, compartments map[string]string) []error {
-	errs := s.Region.validate("staging")
-	if labels[s.Label] {
-		errs = append(errs, fmt.Errorf("staging.label %q is also a production region", s.Label))
-	}
-	if owner, ok := compartments[s.CompartmentID]; ok {
-		errs = append(errs, fmt.Errorf("staging.compartment_id %q is also %s: its nodes would become staging", s.CompartmentID, owner))
-	}
-	if s.VaultID == vaultsecret.SharedVault {
-		errs = append(errs, fmt.Errorf("staging.vault_id %q is the production shared Vault", s.VaultID))
-	}
-	if s.Nodes.Max > StagingMaxNodes {
-		errs = append(errs, fmt.Errorf("staging.nodes.max %d is over staging's %d nodes", s.Nodes.Max, StagingMaxNodes))
-	}
-	if vcn, err := netip.ParsePrefix(s.VCNCIDR); err == nil {
-		for _, other := range production {
-			if other.prefix.Overlaps(vcn) {
-				errs = append(errs, fmt.Errorf("staging.vcn_cidr %s overlaps regions[%s].vcn_cidr %s", vcn, other.label, other.prefix))
-			}
-		}
-	}
-	if len(s.GeoContinents) != 0 {
-		errs = append(errs, errors.New("staging.geo_continents must be empty: staging answers no client"))
-	}
-	if slices.Contains(s.Reconcile, "dns") {
-		errs = append(errs, errors.New("staging reconciles dns, which only the DNS region runs"))
-	}
-	if !strings.HasPrefix(s.VaultID, "ocid1.vault.") || !strings.HasPrefix(s.KeyID, "ocid1.key.") {
-		errs = append(errs, fmt.Errorf("staging.vault_id %q and staging.key_id %q must be a Vault and a key OCID", s.VaultID, s.KeyID))
-	}
-	return errs
+	return errors.Join(errs...)
 }
 
 type labelled struct {

@@ -388,13 +388,10 @@ func main() {
 		require(requests["repository:journey/terrascale/"+target.Package+":pull"] == 1, "token was not cached across pulls")
 	}
 	fmt.Println("ok: instance-principal token cached in memory")
-	for _, label := range []string{"gru", "sjc", "fra", "stg"} {
+	for _, label := range []string{"gru", "sjc", "fra"} {
 		configuration, err := appregistry.ConfigurationFor(label)
 		must(err)
 		expected := "terrascale"
-		if label == "stg" {
-			expected = "terrascale-stg"
-		}
 		require(configuration.Namespace == "grxnmoqvrcdv" && configuration.Prefix == expected, "embedded registry environment is incorrect")
 		registry, err := appregistry.Regional(ctx, label)
 		must(err)
@@ -402,7 +399,7 @@ func main() {
 		must(err)
 		require(strings.Contains(physical, "/grxnmoqvrcdv/"+expected+"/terrabase@"), "host expanded the wrong environment repository")
 	}
-	fmt.Println("ok: prod and staging expand the same package digest into separate repositories")
+	fmt.Println("ok: production regions expand the same package digest into regional repositories")
 }
 
 func privatePEM(key *rsa.PrivateKey) []byte {

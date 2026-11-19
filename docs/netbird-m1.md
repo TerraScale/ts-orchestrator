@@ -73,8 +73,7 @@ target.secret.name = /gru-1-netbird-*/` and `use keys` on `gru-vault-master`.
   and enrolls ts-gru-1's own NetBird client. It repeats every 10 minutes.
   On every other host it only enrolls the host, with the setup key from the
   Vault of the host's fleet document entry: `gru-1-netbird-setup-key` in
-  gru-vault for production regions, `stg-1-netbird-setup-key` in `stg-vault`
-  for staging.
+  gru-vault for production regions.
 - A rendered config change rolls the existing server task in GRU with a
   computed config digest, preserving its image, resource limits and data mount.
   This activates the dashboard's static IdP clients without resetting the

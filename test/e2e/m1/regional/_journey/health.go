@@ -32,20 +32,20 @@ func WorkerReleaseJourney(ctx context.Context, state string, node *mesh.Node) er
 
 func PullRolloutJourney(ctx context.Context, fabric *nats.Conn, save bool) error {
 	if save {
-		store, err := pullrelease.Open(ctx, fabric, "stg", "stg")
+		store, err := pullrelease.Open(ctx, fabric, "gru", "gru")
 		if err != nil {
 			return err
 		}
-		if lead, err := store.Lead(ctx, "stg-founder"); err != nil || !lead {
-			return fmt.Errorf("founder did not lead the stg rollout: %t, %v", lead, err)
+		if lead, err := store.Lead(ctx, "gru-founder"); err != nil || !lead {
+			return fmt.Errorf("founder did not lead the gru rollout: %t, %v", lead, err)
 		}
-		if _, err := store.Save(ctx, pullrelease.Status{Region: "stg", Owner: "stg-founder", Phase: pullrelease.PhaseIdle}, 0); err != nil {
+		if _, err := store.Save(ctx, pullrelease.Status{Region: "gru", Owner: "gru-founder", Phase: pullrelease.PhaseIdle}, 0); err != nil {
 			return err
 		}
 	}
-	status, err := pullrelease.Observe(ctx, fabric, "stg")
-	if err != nil || status.Owner != "stg-founder" {
-		return fmt.Errorf("stg release record: %+v, %v", status, err)
+	status, err := pullrelease.Observe(ctx, fabric, "gru")
+	if err != nil || status.Owner != "gru-founder" {
+		return fmt.Errorf("gru release record: %+v, %v", status, err)
 	}
 	js, err := jetstream.New(fabric)
 	if err != nil {
@@ -56,8 +56,8 @@ func PullRolloutJourney(ctx context.Context, fabric *nats.Conn, save bool) error
 		return err
 	}
 	info, err := stream.Info(ctx)
-	if err != nil || info.Config.Replicas != mesh.StoreReplicas("stg") || info.Config.Replicas != 1 {
-		return fmt.Errorf("stg pull rollout store replicas: %+v, %v", info, err)
+	if err != nil || info.Config.Replicas != mesh.StoreReplicas("gru") || info.Config.Replicas != 1 {
+		return fmt.Errorf("gru pull rollout store replicas: %+v, %v", info, err)
 	}
 	return nil
 }

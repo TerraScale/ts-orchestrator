@@ -12,7 +12,6 @@ type Location struct {
 	Label         string `json:"label"`
 	OCIRegion     string `json:"oci_region"`
 	CompartmentID string `json:"compartment_id"`
-	VaultID       string `json:"vault_id"`
 }
 
 func Of(ociRegion, compartmentID string) (string, error) {
@@ -22,12 +21,11 @@ func Of(ociRegion, compartmentID string) (string, error) {
 func In(fleet []byte, ociRegion, compartmentID string) (string, error) {
 	var listed struct {
 		Regions []Location `json:"regions"`
-		Staging Location   `json:"staging"`
 	}
 	if err := json.Unmarshal(fleet, &listed); err != nil {
 		return "", fmt.Errorf("fleet document: %w", err)
 	}
-	for _, region := range append(listed.Regions, listed.Staging) {
+	for _, region := range listed.Regions {
 		if region.OCIRegion == ociRegion && region.CompartmentID == compartmentID {
 			return region.Label, nil
 		}
@@ -38,12 +36,11 @@ func In(fleet []byte, ociRegion, compartmentID string) (string, error) {
 func locations() ([]Location, error) {
 	var listed struct {
 		Regions []Location `json:"regions"`
-		Staging Location   `json:"staging"`
 	}
 	if err := json.Unmarshal(document.Document, &listed); err != nil {
 		return nil, fmt.Errorf("fleet document: %w", err)
 	}
-	return append(listed.Regions, listed.Staging), nil
+	return listed.Regions, nil
 }
 
 func Lookup(label string) (Location, error) {
@@ -62,16 +59,7 @@ func Lookup(label string) (Location, error) {
 	return Location{}, fmt.Errorf("unknown region %q", label)
 }
 
-func OfVault(vault, physicalRegion string) (string, error) {
-	listed, err := locations()
-	if err != nil {
-		return "", err
-	}
-	for _, location := range listed {
-		if location.VaultID != "" && location.VaultID == vault && location.OCIRegion == physicalRegion {
-			return location.Label, nil
-		}
-	}
+func OfVault(physicalRegion string) (string, error) {
 	if entry, ok := catalog.CellForOCIRegion(physicalRegion); ok {
 		return entry.Name(), nil
 	}

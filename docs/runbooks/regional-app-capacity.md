@@ -11,7 +11,7 @@ rollback restores the entire previous spec and retains the signed release floor.
 The production dashboard declaration omits `regions`, so an explicit apply
 targets all regions in the production mesh, including future admitted regions.
 Production auth retains `regions: ["gru"]`; do not expand it without qualifying
-regional auth startup and write safety. Staging has its own declarations and mesh.
+regional auth startup and write safety.
 
 ## Apply a deliberate configuration change
 
@@ -20,12 +20,11 @@ to the appropriate declaration. Coordinate new variables with the application
 release that supports them. For an existing service, a matching operator must
 then explicitly apply that declaration with the service's **current image**;
 the checked-in image can be older and must not replace the active release.
-Automatic first apply is only for an absent service with a regional declaration.
-The production root auth/dashboard declarations are not an automatic first-apply
-path.
+The production root auth/dashboard declarations require an explicit apply.
+Only app-canary has automatic first apply.
 
-Run as root on a manager in the intended environment with its mesh running and
-the reviewed declaration available. This example changes staging dashboard
+Run as root on a production manager with its mesh running and
+the reviewed declaration available. This example changes dashboard
 configuration without changing its image:
 
 ```sh
@@ -35,22 +34,18 @@ configuration without changing its image:
   prepared_spec=$(mktemp)
   trap 'rm -f "$prepared_spec"' EXIT
   current_image=$(ts-orch service inspect ts-dashboard | jq -er '.spec.image')
-  jq --arg image "$current_image" '.image = $image' deploy/m1/services/stg/ts-dashboard.json > "$prepared_spec"
+  jq --arg image "$current_image" '.image = $image' deploy/m1/services/ts-dashboard.json > "$prepared_spec"
   ts-orch service apply -f "$prepared_spec"
   ts-orch service inspect ts-dashboard
 )
 ```
 
-Verify the resulting spec and readiness. Production configuration changes use
-the reviewed production declaration on a production manager, preserving its
-intended production placement. Never substitute a staging declaration: mesh
-admission rejects targets from another environment before updating desired state
-or changing, creating or removing a service. This procedure is not part of
-normal image release or automatic staging bootstrap.
+Verify the resulting spec, placement and readiness. Image releases preserve the
+applied configuration.
 
 Provision every newly referenced secret and its read permission before shipping
 the binary that embeds it. Secret preflight checks the whole region's applicable
-declarations; one missing staging reference refuses the staging orchestrator
+declarations; one missing reference refuses that region's orchestrator
 binary release. An individual app-pull failure does not stop the updater from
 trying the other services. A failed first apply can roll back to absence and
 retain its signed floor: fixing the secret alone does not admit that same signed

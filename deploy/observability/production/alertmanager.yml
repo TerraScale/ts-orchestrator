@@ -11,12 +11,6 @@ route:
       group_wait: 0s
       group_interval: 5m
       repeat_interval: 5m
-    - matchers: ['region="stg"']
-      receiver: daily-digest
-      group_by: [region]
-      group_wait: 1h
-      group_interval: 24h
-      repeat_interval: 24h
     # Warnings never page: one digest of every open warning, at most daily.
     - matchers: ['severity="warning"']
       receiver: daily-digest

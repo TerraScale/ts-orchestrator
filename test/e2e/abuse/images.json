@@ -1,6 +1,0 @@
-{
-  "postgres": {
-    "amd64": "docker.io/library/postgres@sha256:fa1b61f5a4844f4d4b73c9b15716cfc75fe70c931f2d32723630f3b900056366",
-    "arm64": "docker.io/library/postgres@sha256:aea692538b8982646f587a0dc0263986ac063c043ab28a43076a07d099a0ef53"
-  }
-}

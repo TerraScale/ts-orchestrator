@@ -94,9 +94,8 @@ func OpenTarget(ctx context.Context, repository string, auth authn.Authenticator
 }
 
 type Destination struct {
-	Label   string
-	Client  *appregistry.Client
-	Staging bool
+	Label  string
+	Client *appregistry.Client
 }
 
 func Destinations(ctx context.Context) ([]Destination, error) {
@@ -110,7 +109,7 @@ func Destinations(ctx context.Context) ([]Destination, error) {
 		if _, err := client.Repository(Package); err != nil {
 			return nil, fmt.Errorf("%s: %w", region.Label, err)
 		}
-		destinations = append(destinations, Destination{Label: region.Label, Client: client, Staging: region.Label == document.Staging.Label})
+		destinations = append(destinations, Destination{Label: region.Label, Client: client})
 	}
 	return destinations, nil
 }
@@ -299,9 +298,7 @@ func Run(ctx context.Context, args []string, output io.Writer, announce Announce
 					failed[i] = fmt.Errorf("%s: %w", repository, err)
 					return
 				}
-				if !destination.Staging {
-					Announced(ctx, announce, destination.Label, channel.Seq, moved, out)
-				}
+				Announced(ctx, announce, destination.Label, channel.Seq, moved, out)
 			}()
 		}
 		wg.Wait()

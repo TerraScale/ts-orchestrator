@@ -347,9 +347,7 @@ not the global account) all differ. There is no bridge. Reasons:
 ## Orchestrator releases
 
 Production binaries go to sjc first, the canary, then to fra and gru at the
-same time. Isolated stg admission has no local predecessor; authenticating its
-verdict for production remains the merge blocker described in
-[platform releases](platform.md#releases).
+same time.
 
 Each tag has one durable decision, `decision.<tag>` in `TS_ORCH_PULL_ROLLOUT`,
 changed only by compare-and-set: a region admits itself by adding its name while

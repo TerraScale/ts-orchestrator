@@ -56,7 +56,7 @@ func ValidateServiceRefs(cell, vaultID, service string, refs map[string]Ref) err
 		if vaultID == "" {
 			vaultID = ref.Vault
 		}
-		if locationErr != nil || ref.Vault != vaultID || ref.region() != location.OCIRegion || location.VaultID != "" && ref.Vault != location.VaultID {
+		if locationErr != nil || ref.Vault != vaultID || ref.region() != location.OCIRegion {
 			return fmt.Errorf("Vault secret %s of %s must name cell %s's Vault", key, service, cell)
 		}
 		// Alert delivery reads only its exact topic and two approved shared GRU references.
@@ -196,7 +196,7 @@ func instanceMetadata(ctx context.Context) (metadata, error) {
 
 func refsVault(service string, refs map[string]Ref) (string, string, error) {
 	ref := refs[slices.Min(slices.Collect(maps.Keys(refs)))]
-	cell, err := fleetregion.OfVault(ref.Vault, ref.region())
+	cell, err := fleetregion.OfVault(ref.region())
 	if err != nil {
 		return "", "", fmt.Errorf("Vault secrets of %s: %w", service, err)
 	}

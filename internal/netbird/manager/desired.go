@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
@@ -106,7 +105,6 @@ func GRU() Desired {
 			{Name: "operators"},
 			{Name: "gru-servers", RenamedFrom: []string{"ts-orch-servers"}},
 			{Name: "ops-automation"},
-			{Name: StagingServers()},
 		},
 		ServersGroup: "gru-servers",
 		Network: NetworkSpec{
@@ -125,8 +123,7 @@ func GRU() Desired {
 			{Name: "operators-to-gru-servers-openssh",
 				Description: "Operators and operator automation → GRU servers: OpenSSH 22 on their NetBird addresses",
 				Protocol:    "tcp", Ports: []string{"22"}, Sources: []string{"operators", "ops-automation"}, Destinations: []string{"gru-servers"}},
-		}, serverAccessPolicies([]string{"gru-servers"}), []PolicySpec{meshRoutesPolicy([]string{"gru-servers"}), metricsScrapePolicy([]string{"gru-servers"}), monitoringGossipPolicy([]string{"gru-servers"})},
-			stagingPolicies(StagingServers())),
+		}, serverAccessPolicies([]string{"gru-servers"}), []PolicySpec{meshRoutesPolicy([]string{"gru-servers"}), metricsScrapePolicy([]string{"gru-servers"}), monitoringGossipPolicy([]string{"gru-servers"})}),
 
 		NetworkRange:      networkplan.Mesh,
 		PeerDNSDomain:     "nb.ts.internal",
@@ -145,32 +142,10 @@ func GRU() Desired {
 	}
 }
 
-func StagingServers() string {
-	return fleet.Embedded().Staging.Label + "-servers"
-}
-
-func stagingPolicies(group string) []PolicySpec {
-	cell := strings.ToUpper(strings.TrimSuffix(group, "-servers"))
-	return []PolicySpec{
-		{Name: "operators-to-" + group + "-ssh",
-			Description: "Operators → " + cell + " servers: NetBird SSH with identity-provider login",
-			Protocol:    "netbird-ssh", Sources: []string{"operators"}, Destinations: []string{group}},
-		{Name: "ops-automation-to-" + group + "-ssh",
-			Description: "Operator automation peers → " + cell + " servers: NetBird SSH with identity-provider login",
-			Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{group}},
-		{Name: "operators-to-" + group + "-openssh",
-			Description: "Operators and operator automation → " + cell + " servers: OpenSSH 22 on their NetBird addresses",
-			Protocol:    "tcp", Ports: []string{"22"}, Sources: []string{"operators", "ops-automation"}, Destinations: []string{group}},
-		{Name: "operators-to-" + group + "-dashboard",
-			Description: "Operators and operator automation → " + cell + " servers: operator dashboard 9463 on their NetBird addresses",
-			Protocol:    "tcp", Ports: []string{"9463"}, Sources: []string{"operators", "ops-automation"}, Destinations: []string{group}},
-	}
-}
-
 func regionServerGroup(name string) bool {
 	cell, ok := strings.CutSuffix(name, "-servers")
 	_, known := catalog.LookupName(cell)
-	return ok && known && name != StagingServers()
+	return ok && known
 }
 
 func (d Desired) withServerGroups(names []string) (Desired, error) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/nats.go"
@@ -19,11 +18,6 @@ type Environment struct {
 }
 
 func EnvironmentOf(region string) Environment {
-	staging := fleet.Embedded().Staging
-	if region == staging.Label {
-		return Environment{Founder: staging.Label, Regions: []string{staging.Label}, Rollout: []string{staging.Label}, VaultRegion: staging.OCIRegion,
-			Vault: vaultsecret.Target{CompartmentID: staging.CompartmentID, VaultID: staging.VaultID, KeyID: staging.KeyID}}
-	}
 	return Environment{Founder: strings.ToLower(catalog.Bootstrap), Regions: founded(), Rollout: catalog.RolloutOrder(), VaultRegion: vaultRegion, Vault: SharedVault}
 }
 

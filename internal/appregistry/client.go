@@ -17,7 +17,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
-var repositoryPath = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}/terrascale(?:-stg)?/[a-z0-9][a-z0-9._-]{0,127}$`)
+var repositoryPath = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}/terrascale/[a-z0-9][a-z0-9._-]{0,127}$`)
 var packageName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 var pinnedPath = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}@sha256:[0-9a-f]{64}$`)
 
