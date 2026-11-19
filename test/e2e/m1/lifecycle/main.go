@@ -50,6 +50,8 @@ func main() {
 		})
 	case "node":
 		err = node(ctx, os.Args[2], os.Args[3])
+	case "service-logs":
+		err = serviceLogs(ctx, os.Args[2], os.Args[3:])
 	case "every-node":
 		err = everyNode(ctx, os.Args[2], os.Args[3], os.Args[4])
 	default:
@@ -530,6 +532,9 @@ func run(ctx context.Context, root, image string) error {
 	}
 	twins, err := j.create(image, "c18-twins", "10.231.0.3", 18086, false, 2, nil)
 	if err != nil {
+		return err
+	}
+	if err := j.remoteLogs(image); err != nil {
 		return err
 	}
 	owner, first, second := ownerSet[0], firstSet[0], secondSet[0]

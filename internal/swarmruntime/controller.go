@@ -989,36 +989,60 @@ func (c *controller) Metrics(ctx context.Context) (*types.Metric, error) {
 	return t.Metrics(runtimeContext(ctx))
 }
 
-// shortcut: snapshots omit original timestamps; frame records before adding time-filtered log subscriptions.
 func (c *controller) Logs(ctx context.Context, publisher exec.LogPublisher, options api.LogSubscriptionOptions) error {
-	if options.Follow || options.Since != nil || options.Tail != 0 {
-		return fmt.Errorf("runtime logs support bounded snapshots only")
+	if options.Since != nil || options.Tail != 0 {
+		return fmt.Errorf("runtime logs do not support time or tail filters")
 	}
-	for _, stream := range []struct {
-		name string
-		kind api.LogStream
-	}{{"stdout", api.LogStreamStdout}, {"stderr", api.LogStreamStderr}} {
-		if len(options.Streams) != 0 && !slices.Contains(options.Streams, stream.kind) {
-			continue
-		}
-		f, err := os.Open(filepath.Join(c.executor.logRoot, c.id, stream.name))
-		if err != nil {
-			return err
-		}
-		data, err := io.ReadAll(io.LimitReader(f, logSegmentBytes))
-		err = errors.Join(err, f.Close())
-		if err != nil {
-			return err
-		}
-		for len(data) > 0 {
-			n := min(len(data), 16<<10)
-			if err := publisher.Publish(ctx, api.LogMessage{Context: api.LogContext{NodeID: c.task.NodeID, ServiceID: c.task.ServiceID, TaskID: c.task.ID}, Stream: stream.kind, Data: data[:n]}); err != nil {
+	offsets := map[string]int64{}
+	for {
+		for _, stream := range []struct {
+			name string
+			kind api.LogStream
+		}{{"stdout", api.LogStreamStdout}, {"stderr", api.LogStreamStderr}} {
+			if len(options.Streams) != 0 && !slices.Contains(options.Streams, stream.kind) {
+				continue
+			}
+			f, err := os.Open(filepath.Join(c.executor.logRoot, c.id, stream.name))
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if err != nil {
 				return err
 			}
-			data = data[n:]
+			offset, seen := offsets[stream.name]
+			info, err := f.Stat()
+			if err == nil && info.Size() < offset {
+				offset = 0
+			}
+			if err == nil {
+				_, err = f.Seek(offset, io.SeekStart)
+			}
+			var data []byte
+			if err == nil {
+				data, err = io.ReadAll(io.LimitReader(f, logSegmentBytes))
+			}
+			if err := errors.Join(err, f.Close()); err != nil {
+				return err
+			}
+			offsets[stream.name] = offset + int64(len(data))
+			for len(data) > 0 || !seen {
+				n := min(len(data), 16<<10)
+				if err := publisher.Publish(ctx, api.LogMessage{Context: api.LogContext{NodeID: c.task.NodeID, ServiceID: c.task.ServiceID, TaskID: c.task.ID}, Stream: stream.kind, Data: data[:n]}); err != nil {
+					return err
+				}
+				data = data[n:]
+				seen = true
+			}
+		}
+		if !options.Follow {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	return nil
 }
 
 // canceledAsRetry returns the bare context error when the agent canceled the

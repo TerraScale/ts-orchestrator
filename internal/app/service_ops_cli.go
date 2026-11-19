@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -265,38 +266,84 @@ func runServiceOps(ctx context.Context, args []string, output io.Writer, state s
 		if len(rows) == 0 {
 			return fmt.Errorf("service %q has no tasks yet; check `ts-orch service ps %s`", rest[0], rest[0])
 		}
-		if previous {
-			return writePreviousTaskLogs(ctx, output, state, rows)
+		localID, err := swarmruntime.LocalNodeID(lookup, state)
+		if err != nil {
+			return err
 		}
-		// shortcut: follow replacement tasks when restarts during -f need it.
-		return writeTaskLogs(ctx, output, state, rows[0], follow)
+		read := func(output io.Writer, task swarmruntime.TaskRow, follow bool) error {
+			if task.NodeID == localID {
+				return writeTaskLogs(ctx, output, state, task, follow)
+			}
+			return writeRemoteTaskLogs(ctx, output, api.NewLogsClient(conn), task, follow)
+		}
+		if previous {
+			return writePreviousTaskLogs(output, rows, read)
+		}
+		return read(output, rows[0], follow)
 	}
 }
 
-// SwarmKit retains exited task containers and their bounded logs until its
-// task-history reaper removes them. Read the most recently stopped local task
-// with output, including when newer rejected tasks never reached the logger.
-func writePreviousTaskLogs(ctx context.Context, output io.Writer, state string, rows []swarmruntime.TaskRow) error {
+var errNoTaskLogs = errors.New("no container logs yet")
+
+func writePreviousTaskLogs(output io.Writer, rows []swarmruntime.TaskRow, read func(io.Writer, swarmruntime.TaskRow, bool) error) error {
 	for _, row := range rows {
 		if !row.Terminal {
 			continue
 		}
-		for _, stream := range []string{"stdout", "stderr"} {
-			_, err := os.Stat(swarmruntime.RuntimeLogFile(state, row.ID, stream))
-			if errors.Is(err, os.ErrNotExist) {
+		var data bytes.Buffer
+		if err := read(&data, row, false); err != nil {
+			if errors.Is(err, errNoTaskLogs) {
 				continue
 			}
-			if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(output, "== task %s node=%s slot=%d state=%s stopped=%s ==\n",
+			row.ID, row.Node, row.Slot, strings.ToLower(row.State), row.Since.UTC().Format(time.RFC3339)); err != nil {
+			return err
+		}
+		_, err := data.WriteTo(output)
+		return err
+	}
+	return errors.New("no retained previous task logs; check `ts-orch service ps` for task nodes and history")
+}
+
+func writeRemoteTaskLogs(ctx context.Context, output io.Writer, client api.LogsClient, task swarmruntime.TaskRow, follow bool) error {
+	if !follow {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stream, err := client.SubscribeLogs(ctx, &api.SubscribeLogsRequest{
+		Selector: &api.LogSelector{TaskIDs: []string{task.ID}},
+		Options:  &api.LogSubscriptionOptions{Follow: follow},
+	})
+	if err != nil {
+		return err
+	}
+	found := false
+	for {
+		message, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			if !found {
+				return fmt.Errorf("task %s (%s): %w; check `ts-orch service ps`", task.ID, strings.ToLower(task.State), errNoTaskLogs)
+			}
+			return nil
+		}
+		if err != nil {
+			if follow && ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("read task %s logs from node %s: %w", task.ID, task.Node, err)
+		}
+		for _, log := range message.Messages {
+			found = true
+			if _, err := output.Write(log.Data); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintf(output, "== task %s node=%s slot=%d state=%s stopped=%s ==\n",
-				row.ID, row.Node, row.Slot, strings.ToLower(row.State), row.Since.UTC().Format(time.RFC3339)); err != nil {
-				return err
-			}
-			return writeTaskLogs(ctx, output, state, row, false)
 		}
 	}
-	return errors.New("no retained previous task logs on this host; check `ts-orch service ps` for task nodes and history")
 }
 
 func writeTaskRows(output io.Writer, rows []swarmruntime.TaskRow, now time.Time) error {
@@ -352,7 +399,7 @@ func writeTaskLogs(ctx context.Context, output io.Writer, state string, task swa
 			}
 		}
 		if !found && !follow {
-			return fmt.Errorf("task %s (%s) has no container logs yet; check `ts-orch service ps`", task.ID, strings.ToLower(task.State))
+			return fmt.Errorf("task %s (%s) has %w; check `ts-orch service ps`", task.ID, strings.ToLower(task.State), errNoTaskLogs)
 		}
 		if !follow {
 			return nil
