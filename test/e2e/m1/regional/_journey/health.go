@@ -9,6 +9,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutlease"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
@@ -32,7 +33,7 @@ func WorkerReleaseJourney(ctx context.Context, state string, node *mesh.Node) er
 
 func PullRolloutJourney(ctx context.Context, fabric *nats.Conn, save bool) error {
 	if save {
-		store, err := pullrelease.Open(ctx, fabric, "stg", "stg")
+		store, err := pullrelease.Open(ctx, fabric, "stg")
 		if err != nil {
 			return err
 		}
@@ -51,7 +52,7 @@ func PullRolloutJourney(ctx context.Context, fabric *nats.Conn, save bool) error
 	if err != nil {
 		return err
 	}
-	stream, err := js.Stream(ctx, "KV_"+pullrelease.Bucket)
+	stream, err := js.Stream(ctx, "KV_"+rolloutlease.Bucket)
 	if err != nil {
 		return err
 	}

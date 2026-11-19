@@ -6,9 +6,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutlease"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 type Apply func(context.Context, string, string, releasepush.Claims, releasepush.Progress) (json.RawMessage, error)
@@ -32,8 +33,8 @@ type turn struct {
 }
 
 func (u Updater) Run(ctx context.Context) error {
-	var store *pullrelease.Store
-	tick := time.NewTicker(5 * time.Second)
+	var store jetstream.KeyValue
+	tick := time.NewTicker(rolloutlease.RenewEvery)
 	defer tick.Stop()
 	finished := make(chan turn, 1)
 	var stop context.CancelFunc
@@ -46,7 +47,7 @@ func (u Updater) Run(ctx context.Context) error {
 	seen := map[string]string{}
 	for {
 		if store == nil {
-			opened, err := pullrelease.Open(ctx, u.Fabric, u.Region, "apps")
+			opened, err := rolloutlease.Open(ctx, u.Fabric, u.Region)
 			if err != nil {
 				slog.ErrorContext(ctx, "app rollout store unavailable", "error", err)
 			}
@@ -54,7 +55,7 @@ func (u Updater) Run(ctx context.Context) error {
 		}
 		leading := false
 		if store != nil {
-			owned, err := store.Lead(ctx, u.Self)
+			owned, err := rolloutlease.Lead(ctx, store, "apps", u.Self)
 			if err != nil {
 				slog.ErrorContext(ctx, "app rollout lease not renewed", "error", err)
 			}

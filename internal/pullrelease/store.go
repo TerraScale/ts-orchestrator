@@ -5,26 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
-)
-
-const (
-	Bucket     = "TS_ORCH_PULL_ROLLOUT"
-	leaseFor   = 15 * time.Second
-	renewEvery = 5 * time.Second
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutlease"
 )
 
 var errChanged = errors.New("pull rollout record changed under this manager")
-
-type lease struct {
-	Owner string    `json:"owner"`
-	Until time.Time `json:"until"`
-}
 
 type Store struct {
 	kv     jetstream.KeyValue
@@ -37,7 +25,7 @@ func Observe(ctx context.Context, fabric *nats.Conn, region string) (Status, err
 	if err != nil {
 		return Status{}, err
 	}
-	kv, err := js.KeyValue(ctx, Bucket)
+	kv, err := js.KeyValue(ctx, rolloutlease.Bucket)
 	if err != nil {
 		return Status{}, err
 	}
@@ -45,16 +33,12 @@ func Observe(ctx context.Context, fabric *nats.Conn, region string) (Status, err
 	return status, err
 }
 
-func Open(ctx context.Context, fabric *nats.Conn, region, key string) (*Store, error) {
-	js, err := jetstream.New(fabric)
+func Open(ctx context.Context, fabric *nats.Conn, region string) (*Store, error) {
+	kv, err := rolloutlease.Open(ctx, fabric, region)
 	if err != nil {
 		return nil, err
 	}
-	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: Bucket, Replicas: mesh.StoreReplicas(region), History: 1, MaxValueSize: 256 << 10, Storage: jetstream.FileStorage})
-	if err != nil {
-		return nil, fmt.Errorf("pull rollout store: %w", err)
-	}
-	return &Store{kv: kv, fabric: fabric, region: key}, nil
+	return &Store{kv: kv, fabric: fabric, region: region}, nil
 }
 
 func (s *Store) Load(ctx context.Context) (Status, uint64, error) {
@@ -89,27 +73,5 @@ func (s *Store) Save(ctx context.Context, status Status, revision uint64) (uint6
 }
 
 func (s *Store) Lead(ctx context.Context, self string) (bool, error) {
-	key := s.region + ".lease"
-	now := time.Now()
-	next, err := json.Marshal(lease{Owner: self, Until: now.Add(leaseFor)})
-	if err != nil {
-		return false, err
-	}
-	entry, err := s.kv.Get(ctx, key)
-	switch {
-	case errors.Is(err, jetstream.ErrKeyNotFound):
-		_, err = s.kv.Create(ctx, key, next)
-	case err != nil:
-		return false, err
-	default:
-		var held lease
-		if json.Unmarshal(entry.Value(), &held) == nil && held.Owner != self && now.Before(held.Until) {
-			return false, nil
-		}
-		_, err = s.kv.Update(ctx, key, next, entry.Revision())
-	}
-	if errors.Is(err, jetstream.ErrKeyExists) {
-		return false, nil
-	}
-	return err == nil, err
+	return rolloutlease.Lead(ctx, s.kv, s.region, self)
 }

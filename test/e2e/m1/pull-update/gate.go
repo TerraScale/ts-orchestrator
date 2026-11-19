@@ -17,6 +17,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutlease"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -92,7 +93,7 @@ func (l *lane) dropBaseline(ctx context.Context, region string) {
 	defer fabric.Close()
 	js, err := jetstream.New(fabric)
 	must(err)
-	kv, err := js.KeyValue(ctx, pullrelease.Bucket)
+	kv, err := js.KeyValue(ctx, rolloutlease.Bucket)
 	must(err)
 	for {
 		entry, err := kv.Get(ctx, region)
@@ -253,7 +254,7 @@ func (l *lane) restartLease(ctx context.Context, done func(map[string]string) bo
 	defer fabric.Close()
 	js, err := jetstream.New(fabric)
 	must(err)
-	kv, err := js.KeyValue(ctx, pullrelease.Bucket)
+	kv, err := js.KeyValue(ctx, rolloutlease.Bucket)
 	must(err)
 	watcher, err := kv.Watch(ctx, "restart")
 	must(err)

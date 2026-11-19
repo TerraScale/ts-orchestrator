@@ -20,6 +20,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutlease"
 	"github.com/nats-io/nats.go"
 )
 
@@ -99,11 +100,11 @@ func (u *Updater) Run(ctx context.Context) error {
 }
 
 func (u *Updater) lead(ctx context.Context) {
-	tick := time.NewTicker(renewEvery)
+	tick := time.NewTicker(rolloutlease.RenewEvery)
 	defer tick.Stop()
 	for {
 		if u.store == nil {
-			store, err := Open(ctx, u.Fabric, u.Region, u.Region)
+			store, err := Open(ctx, u.Fabric, u.Region)
 			if err != nil {
 				slog.WarnContext(ctx, "pull rollout store unavailable", "error", err)
 			}
@@ -133,12 +134,12 @@ func (u *Updater) lead(ctx context.Context) {
 
 func (u *Updater) turn(ctx context.Context) time.Duration {
 	if !u.leading.Load() {
-		return renewEvery
+		return rolloutlease.RenewEvery
 	}
 	status, revision, err := u.store.Load(ctx)
 	if err != nil {
 		slog.WarnContext(ctx, "pull rollout record unreadable", "error", err)
-		return renewEvery
+		return rolloutlease.RenewEvery
 	}
 	u.status, u.revision = status, revision
 	u.status.Region = u.Region
@@ -151,7 +152,7 @@ func (u *Updater) turn(ctx context.Context) time.Duration {
 			u.status.Healthy, u.status.Failing, u.status.Failed, u.status.Failures = time.Time{}, time.Time{}, 0, 0
 		}
 		if !u.save(ctx) {
-			return renewEvery
+			return rolloutlease.RenewEvery
 		}
 	}
 	return u.cycle(ctx)
@@ -240,7 +241,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 		u.status = Status{Region: u.Region, Owner: u.Self, Phase: PhaseRolling, Target: &attested, Bad: u.status.Bad, Checked: u.status.Checked,
 			Seq: max(u.status.Seq, attested.Seq), Channel: u.status.Channel, Published: published(attested), Discovered: discovered}
 		if !u.save(ctx) {
-			return renewEvery
+			return rolloutlease.RenewEvery
 		}
 	}
 	if u.status.Phase == PhaseComplete && u.status.passed() && time.Now().Before(u.sweepAfter) {
@@ -346,7 +347,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 	}
 	for _, host := range hosts {
 		if !u.leading.Load() {
-			return renewEvery
+			return rolloutlease.RenewEvery
 		}
 		row := u.status.host(host.ID)
 		reply, err := u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullStatus}, askWait)
@@ -378,7 +379,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 			}
 			row.State, row.Error = HostInstalling, ""
 			if !u.save(ctx) {
-				return renewEvery
+				return rolloutlease.RenewEvery
 			}
 			reply, err = u.ask(ctx, host.ID, releasepush.PullRequest{Op: releasepush.PullInstall, Release: target}, installWait)
 			if err != nil {
@@ -412,7 +413,7 @@ func (u *Updater) roll(ctx context.Context) time.Duration {
 		}
 		if err := u.gate(ctx, host, target, want); err != nil {
 			if errors.Is(err, errChanged) {
-				return renewEvery
+				return rolloutlease.RenewEvery
 			}
 			return u.rolledBack(ctx, row, err.Error())
 		}
@@ -584,7 +585,7 @@ func (u *Updater) restore(ctx context.Context) time.Duration {
 			return u.restoring(ctx, row, reason)
 		}
 		if !u.save(ctx) {
-			return renewEvery
+			return rolloutlease.RenewEvery
 		}
 		restored, err := u.ask(ctx, row.ID, releasepush.PullRequest{Op: releasepush.PullRollback, Release: target, Reason: row.Error}, askWait)
 		if err != nil || restored.State != "restoring" {
