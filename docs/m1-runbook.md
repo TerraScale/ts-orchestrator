@@ -46,6 +46,33 @@ deploy/m1/install.sh ts-gru-1 "$url" "$sum"
 `install.sh` verifies the sha256, installs `/usr/local/bin/terrascale-orchestrator`
 (alias `ts-orch`), creates the state and data directories, installs
 `ts-orch.service` and restarts it. Re-running it is the upgrade.
+`install.sh` is for Ubuntu hosts only and refuses a host that has `/etc/NIXOS`.
+
+### NixOS hosts
+
+A NixOS host is any host with `/etc/NIXOS`, and `internal/hostos` is the only
+code that reads that marker. The image installs no orchestrator units.
+`ts-node-init.service` installs the release binary and binds the data volume,
+and then `ts-orch-units.service` runs
+`/usr/local/bin/terrascale-orchestrator host-units --dir /run/systemd/system --start`
+at every boot. That writes this release's `ts-orch.service`,
+`netbird-server.service`, the ts-auth metadata unit and its rules, and the
+release recovery units, then starts them. Upgrades use the signed release push,
+as on Ubuntu: the new binary's unit lands next to the loaded `ts-orch.service`,
+which is `/run/systemd/system` here. Don't run `install.sh` or `apt`. NixOS
+owns containerd, runc, chrony and the NetBird client.
+
+The marker can be wrong in two ways:
+
+- **Missing on a NixOS host.** ts-orch takes the Ubuntu paths. It looks for
+  units in `/etc/systemd/system`, calls `/usr/sbin/nft` and
+  `/usr/local/bin/netbird`, and the NetBird reconciler tries to install its
+  client. The metadata unit fails and the release preflight finds no unit.
+  Restore `/etc/NIXOS` from the image.
+- **Present on an Ubuntu host.** ts-orch writes runtime units that disappear on
+  reboot, skips installing the NetBird client and calls
+  `/run/current-system/sw/bin/{nft,netbird}`, which don't exist. Delete the
+  stray marker.
 
 Check:
 

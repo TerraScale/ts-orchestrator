@@ -8,7 +8,7 @@ StartLimitIntervalSec=0
 Type=notify
 NotifyAccess=main
 TimeoutStartSec=5min
-ExecStartPre=+/bin/sh -c 'p=/var/lib/ts-orch/units/$$(sha256sum /usr/local/bin/terrascale-orchestrator | cut -c1-64).service; rm -f /run/systemd/system/ts-orch.service.d/ts-orch-unit.conf; [ -f "$$p" ] || exit 0; u=$$(systemctl show -P FragmentPath ts-orch.service); [ -n "$$u" ] || exit 1; cmp -s "$$p" "$$u" && exit 0; cp "$$p" "$$u.next" && chmod 0644 "$$u.next" && mv -f "$$u.next" "$$u" && systemctl daemon-reload && exit 1; exit 0'
+ExecStartPre=+/bin/sh -c 'p=/var/lib/ts-orch/units/$$(sha256sum /usr/local/bin/terrascale-orchestrator | cut -c1-64).service; rm -f /run/systemd/system/ts-orch.service.d/ts-orch-unit.conf; [ -f "$$p" ] || exit 0; u=$$(systemctl show -P FragmentPath ts-orch.service); [ -n "$$u" ] || exit 1; if cmp -s "$$p" "$$u"; then [ "$$(systemctl show -P NeedDaemonReload ts-orch.service)" = no ] && exit 0; else cp "$$p" "$$u.next" && chmod 0644 "$$u.next" && mv -f "$$u.next" "$$u" || exit 1; fi; systemctl daemon-reload; exit 1'
 ExecStartPre=+-/bin/sh -c 'p=/var/lib/ts-orch/units/$$(sha256sum /usr/local/bin/terrascale-orchestrator | cut -c1-64).netbird-server.service; [ -f "$$p" ] || exit 0; u=$$(systemctl show -P FragmentPath ts-orch.service); [ -n "$$u" ] || exit 1; u=$${u%/*}/netbird-server.service; cmp -s "$$p" "$$u" && exit 0; cp "$$p" "$$u.next" && chmod 0644 "$$u.next" && mv -f "$$u.next" "$$u" && systemctl daemon-reload && systemctl --no-block try-restart netbird-server.service'
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/run/current-system/sw/bin
 ExecStart=/usr/local/bin/terrascale-orchestrator node --state /var/lib/ts-orch

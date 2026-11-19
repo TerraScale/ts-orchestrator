@@ -35,6 +35,9 @@ var pairedUnits = []struct {
 func pairUnit(ctx context.Context) error {
 	units := hostos.UnitDirectory()
 	installed, err := os.ReadFile(filepath.Join(units, "ts-orch.service"))
+	if errors.Is(err, os.ErrNotExist) && hostos.NixOS() {
+		return fmt.Errorf("%s is missing: host-units has not installed this host's units", filepath.Join(units, "ts-orch.service"))
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

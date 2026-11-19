@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/hostos"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 )
@@ -35,6 +36,13 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	start := flags.Bool("start", false, "reload systemd and start the units")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || !filepath.IsAbs(*dir) {
 		return errors.New(usage)
+	}
+	*dir = filepath.Clean(*dir)
+	if hostos.NixOS() && (*dir == "/etc" || strings.HasPrefix(*dir, "/etc/")) {
+		return fmt.Errorf("host-units writes no persistent units on NixOS: %s is under /etc", *dir)
+	}
+	if *start && *dir != hostos.UnitDirectory() {
+		return fmt.Errorf("host-units --start needs --dir %s", hostos.UnitDirectory())
 	}
 	files, services, err := hostFiles(*dir)
 	if err != nil {

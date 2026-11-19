@@ -4,6 +4,7 @@ Wants=network-online.target
 After=network-online.target ts-orch.service
 
 [Service]
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/run/current-system/sw/bin
 ExecStart=/usr/local/bin/terrascale-orchestrator netbird server --dir /var/lib/ts-data/netbird
 Restart=always
 RestartSec=10s

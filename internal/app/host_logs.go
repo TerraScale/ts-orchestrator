@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/hostos"
 	"golang.org/x/sys/unix"
 )
 
@@ -88,6 +89,9 @@ func ensureHostLogs(ctx context.Context) error {
 	}
 	if len(requiredBy) != 0 {
 		return fmt.Errorf("syslog disable skipped: required by enabled units %s; journal settings applied", strings.Join(requiredBy, ", "))
+	}
+	if hostos.NixOS() {
+		return errors.New("syslog disable skipped: rsyslog.service belongs to this host's Nix configuration; journal settings applied")
 	}
 	var commands [][]string
 	if !strings.Contains(status, "UnitFileState=masked\n") {
