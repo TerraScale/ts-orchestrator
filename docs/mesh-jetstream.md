@@ -23,8 +23,22 @@ with this one, this file wins.
   over the private NetBird network. The NetBird policy `servers-mesh-routes`
   admits tcp/6222 between every regional servers group, in both directions,
   and gains each new group the manager discovers (`internal/netbird/manager`).
-  - Each server dials `ts-<region>-1.nb.ts.internal:6222` for every founded
-    region as a seed.
+  - Each region's SwarmKit leader publishes the seed record
+    `ts-orch-seeds-<region>` in gru-vault: the region, a version, its SwarmKit
+    cluster ID and the hostnames of its ready managers, and no token. A
+    region's founder publishes it before its mesh starts. Every host may read
+    every peer region's seed record and nothing else of that region; the join
+    bundle stays readable only inside its own region (`internal/regionhost`).
+  - Each server reads every peer region's seed record at start and every 30
+    seconds, and dials the NetBird address of each listed host on tcp/6222.
+    A record must name its own region, a version and a cluster, and each
+    hostname must follow that region's fleet naming (`ts-<region>-<n>` or
+    `<region>-node-<n>`); other hostnames are refused and logged. A missing,
+    unreadable or invalid record leaves that region with its last good seeds,
+    or none, and never stops the local server or the other regions' seeds.
+  - A route dialed to a seed address must present a certificate of a region
+    that claims the address, through a seed record or route gossip; otherwise
+    the TLS handshake fails.
   - Each server advertises its NetBird IPv4. Route gossip adds every other
     server, so a region the user orders joins without a release.
 - An in-region worker also dials its founder's VCN address, which it reads
@@ -269,16 +283,23 @@ Activate one region at a time, in order sjc, gru, fra:
   keeps one replica per region, regardless of the number of managers.
 - It runs only when the node is in the cluster. A server with no routes runs
   no JetStream.
-- A new metadata group forms only from founders. A server whose metadata log
-  is empty expects one peer per seeded region, including its own, and starts
-  as an observer: it never campaigns. It leaves that state when it sees
-  a leader (it joined the existing group), or, on a founder, when every founder
-  answers on the mesh and none has metadata state. NATS elects a group with
-  empty logs only when every expected peer votes, so a brand-new fleet elects
-  once all founders are up, and a node that lost its state, or stopped before
-  any leader existed, joins the group it can reach instead of forming a second
-  one. A server with metadata state recovers its group from disk as before, so
-  a full-fleet restart re-elects from the persisted peers.
+- A new metadata group forms only on the one region founder that the
+  create-once Vault record `ts-orch-mesh-founder` names: its region, its
+  SwarmKit cluster ID and whether the group has formed. A region founder
+  creates the record when it is absent; OCI keeps secret names unique, so one
+  founder wins. That founder starts with a metadata bootstrap size of 1 and
+  forms the group once no reachable server has metadata state and at least
+  one route is up, then marks the record formed. Every other server whose
+  metadata log is empty expects one peer per founded region, starts as an
+  observer and leaves that state when it sees a leader, so it joins the group
+  it can reach instead of forming a second one. A founder record is stale when
+  it names this founder's region with another SwarmKit cluster, or a region
+  whose seed record is missing or names another cluster, as a record left by
+  a wiped cell does. A region founder replaces a stale record with a
+  compare-and-swap on its Vault version, only while no reachable server holds
+  metadata, and restarts its mesh to found the group. A server with metadata
+  state recovers its group from disk as before, so a full-fleet restart
+  re-elects from the persisted peers.
 - Health on the metadata leader also waits until every metadata member accepts
   placement. NATS marks a route-connected peer placeable only after its first
   statsz, up to a second later, and a stream or bucket created in that window

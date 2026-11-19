@@ -9,7 +9,10 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"math/big"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -87,9 +90,8 @@ func (ca *CA) Issue(name string, now time.Time) (*tls.Certificate, error) {
 	return &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: private, Leaf: leaf}, nil
 }
 
-// TLS returns a config for both ends of every mesh connection: it presents
-// a leaf of name, re-issued at half life, and accepts only peers the CA signed.
-func (ca *CA) TLS(name string) *tls.Config {
+func (ca *CA) TLS(region string, claims func(address string) []string) *tls.Config {
+	name := region + "." + Domain
 	var mu sync.Mutex
 	var leaf *tls.Certificate
 	current := func() (*tls.Certificate, error) {
@@ -120,8 +122,14 @@ func (ca *CA) TLS(name string) *tls.Config {
 			if len(state.PeerCertificates) == 0 {
 				return errors.New("mesh peer presented no certificate")
 			}
-			_, err := state.PeerCertificates[0].Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}})
-			return err
+			peer := state.PeerCertificates[0]
+			if _, err := peer.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}); err != nil {
+				return err
+			}
+			if expected := claims(state.ServerName); len(expected) != 0 && !slices.Contains(expected, strings.TrimSuffix(peer.Subject.CommonName, "."+Domain)) {
+				return fmt.Errorf("mesh seed %s of region %v presented %s", state.ServerName, expected, peer.Subject.CommonName)
+			}
+			return nil
 		},
 	}
 }

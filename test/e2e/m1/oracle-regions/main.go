@@ -605,12 +605,16 @@ func main() {
 		fallbackJourney(os.Args[2], os.Args[3])
 		return
 	}
+	if os.Args[1] == "vault-read" {
+		vaultRead(os.Args[2])
+		return
+	}
 	binary, work, specFile, registry := os.Args[1], os.Args[2], os.Args[3], os.Args[4]
 	ctx, cancel := context.WithTimeout(context.Background(), 330*time.Second)
 	defer cancel()
 	first := revision(binary)
 	spec := workload(specFile, filepath.Join(os.Args[3], "..", "images.json"))
-	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{4, 2, 2})
+	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{4, 2, 2}, "fra")
 	must(err)
 	ca := installEdgeCert(fleet)
 	defer fleet.Close()
@@ -634,6 +638,7 @@ func main() {
 	fleet.Hosts = slices.DeleteFunc(fleet.Hosts, func(host *oraclehost.Host) bool { return host == replacement })
 	managers, workers := roles(fleet)
 	step("%d hosts in their own network namespaces; IMDS, OCI federation, Vault, GitHub OIDC key and registry stand-ins up", len(fleet.Hosts))
+	plantWipedFounder(fleet)
 	must(fleet.Boot(managers...))
 	for _, manager := range managers {
 		_, err := manager.WaitReady(ctx, 0, first)
@@ -683,6 +688,8 @@ func main() {
 		}
 	}
 	step("before any service apply, every host serves its native regional mesh name with verified TLS, authenticated observation and every peer RTT; unsigned reads and mutations refuse")
+	meshSeeds(ctx, fleet)
+	vaultGrants(ctx, fleet)
 	delivered(ctx, fleet, gru.Hosts[1], gru.Hosts[2])
 	delivered(ctx, fleet, gru.Hosts[2], gru.Hosts[1])
 	fleet.UnpinSecret(regionjoin.SecretName(gru.Name))
@@ -846,6 +853,8 @@ func main() {
 	}
 	require(dialed.Load() == 0, "a host dialed the forged member %s %d times", oraclehost.GatewayAddress, dialed.Load())
 	step("%s left and was replaced by %s at %s: every %s host routes to it over the VCN and no longer configures %s", departed.Name, replacement.Name, replacement.Address, gru.Name, departed.Address)
+	must(decoy.Close())
+	badPeerRecords(ctx, fleet, first)
 	step("oracle-regions lane passed in %s", time.Since(started).Round(time.Second))
 }
 

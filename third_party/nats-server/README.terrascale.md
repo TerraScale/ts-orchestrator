@@ -86,16 +86,21 @@ three seed URLs per peer region, most of which name hosts that do not exist on
 a new fleet, so three founders expected six peers and never elected a leader. With
 the option set, a server whose metadata log is empty expects that many peers and
 starts its metadata node as an observer, so it never campaigns; the embedding
-mesh ends observer mode once the node has seen a leader, or once every founder is
-reachable and none has metadata state. Unset, behavior is unchanged.
+mesh ends observer mode once the node has seen a leader, or, on the one region
+founder its Vault founder record names, once no reachable server has metadata
+state. Unset, behavior is unchanged.
 
 `server/jetstream_cluster.go` also starts JetStream clustering with no
-configured route when the server has a named cluster listener and
-`JetStreamMetaBootSize` is 1. That is a one-region environment's founder: it has
-no seed regions and no join routes, and its metadata group is itself. Upstream
-refuses to start clustering without a configured route, so that founder had no
-JetStream and its joiners had no cluster listener to route to. A server with a
-multi-peer bootstrap size, or without the option, keeps upstream's check.
+configured route when the server has a named cluster listener and sets
+`JetStreamMetaBootSize`. The mesh adds every cross-region route at runtime
+with `Server.AddRoutes`, from the seed records peer regions publish in Vault,
+so a region's first host may start before any peer region has published one:
+the founder of a brand-new fleet, or a region whose peers' records are missing
+or refused. Upstream refuses to start clustering without a configured route,
+so that host had no JetStream and its joiners had no cluster listener to route
+to. Its metadata node starts as an observer and joins a group once routes
+arrive, unless it is the one founder the mesh's create-once founder record
+names. A server without the option keeps upstream's check.
 
 `server/route.go` keeps a known server's JetStream configuration and usage
 stats when a route connection to that same server ID registers again. Upstream
