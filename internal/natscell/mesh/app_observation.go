@@ -93,8 +93,10 @@ func (n *Node) observeAppRelease(request stateRequest) releasepush.AppReleaseObs
 		return proof
 	}
 	defer close()
-	spec := *entry.Spec
-	spec.Generation, spec.Deployment, spec.DeploymentFloor = entry.Generation, entry.Deployment, state.Floor
+	spec, _, settled := n.regionalServiceSpec(state)
+	if !settled {
+		return proof
+	}
 	if _, err := swarmruntime.ProbeServiceSpecExact(ctx, client, spec); err != nil {
 		return proof
 	}
