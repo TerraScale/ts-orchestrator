@@ -62,11 +62,17 @@ func readServices(dir string) ([]pullrelease.Service, error) {
 }
 
 func (l *lane) setService(name string, generation int, update string, running, replicas int, tasks ...string) {
-	dir := filepath.Join(filepath.Dir(l.hosts["sjc-m"].dir), "services")
-	must(os.MkdirAll(dir, 0o700))
-	temporary := filepath.Join(dir, "."+name)
-	must(os.WriteFile(temporary, []byte(fmt.Sprintf("%d %d %d %s %s", running, replicas, generation, cmp.Or(update, "-"), strings.Join(tasks, " "))), 0o600))
-	must(os.Rename(temporary, filepath.Join(dir, name)))
+	l.setServiceIn([]string{"sjc", "fra", "gru"}, name, generation, update, running, replicas, tasks...)
+}
+
+func (l *lane) setServiceIn(regions []string, name string, generation int, update string, running, replicas int, tasks ...string) {
+	for _, region := range regions {
+		dir := filepath.Join(filepath.Dir(l.hosts["sjc-m"].dir), "services", region)
+		must(os.MkdirAll(dir, 0o700))
+		temporary := filepath.Join(dir, "."+name)
+		must(os.WriteFile(temporary, []byte(fmt.Sprintf("%d %d %d %s %s", running, replicas, generation, cmp.Or(update, "-"), strings.Join(tasks, " "))), 0o600))
+		must(os.Rename(temporary, filepath.Join(dir, name)))
+	}
 }
 
 func passed(release published) func(pullrelease.Status) bool {
@@ -152,7 +158,9 @@ func (l *lane) formed(ctx context.Context) {
 
 func (l *lane) gate(ctx context.Context) {
 	l.formed(ctx)
-	l.setService("ts-auth", 1, "", 1, 1, "auth-1")
+	canary, later := []string{"sjc"}, []string{"fra", "gru"}
+	l.setServiceIn(canary, "ts-auth", 1, "", 1, 1, "auth-1")
+	l.setServiceIn(later, "ts-auth", 3, swarmruntime.UpdateRunning, 0, 1)
 	l.setService("ts-dashboard", 1, "", 0, 1)
 	for _, id := range l.region("sjc") {
 		must(os.WriteFile(filepath.Join(l.hosts[id].dir, "backend-down"), nil, 0o600))
@@ -166,17 +174,17 @@ func (l *lane) gate(ctx context.Context) {
 	l.waitStatus(ctx, "sjc", "sjc records its state before "+degraded.tag, func(s pullrelease.Status) bool {
 		return s.Target != nil && s.Target.Tag() == degraded.tag && s.Baseline != nil
 	})
-	l.setService("ts-auth", 2, swarmruntime.UpdateRunning, 0, 1)
+	l.setServiceIn(canary, "ts-auth", 2, swarmruntime.UpdateRunning, 0, 1)
 	overlap := l.waitStatus(ctx, "sjc", "sjc's gate of "+degraded.tag+" waits while ts-auth's own release has it at 0/1", func(s pullrelease.Status) bool {
 		require(s.Passed.IsZero() && s.Phase != pullrelease.PhaseRollingBack, "sjc passed or rolled back %s while ts-auth's own release had not settled:\n%s", degraded.tag, s)
 		return s.Phase == pullrelease.PhaseComplete && strings.Contains(s.Reason, "waits for services in their own release to settle: excluded: own release: ts-auth 0/1")
 	})
-	l.setService("ts-auth", 2, swarmruntime.UpdateFailed, 1, 1, "auth-1")
+	l.setServiceIn(canary, "ts-auth", 2, swarmruntime.UpdateFailed, 1, 1, "auth-1")
 	paused := l.waitStatus(ctx, "sjc", "sjc keeps ts-auth named while its own release is paused, even with every replica running", func(s pullrelease.Status) bool {
 		require(s.Passed.IsZero() && s.Phase != pullrelease.PhaseRollingBack, "sjc passed or rolled back %s on a paused app release:\n%s", degraded.tag, s)
 		return strings.Contains(s.Reason, "excluded: own release: ts-auth 1/1 failed")
 	})
-	l.setService("ts-auth", 2, swarmruntime.UpdateCompleted, 1, 1, "auth-1")
+	l.setServiceIn(canary, "ts-auth", 2, swarmruntime.UpdateCompleted, 1, 1, "auth-1")
 	regions := map[string]pullrelease.Status{}
 	regions["sjc"] = l.waitStatus(ctx, "sjc", "sjc passes the regional gate of "+degraded.tag+" once ts-auth's own release completes", passed(degraded))
 	require(regions["sjc"].Excluded == "excluded: own release: ts-auth 1/1 settled" && regions["sjc"].Baseline.Services["ts-auth"] == pullrelease.ServiceBaseline{Generation: 2, Running: 1},
@@ -185,8 +193,13 @@ func (l *lane) gate(ctx context.Context) {
 	waiting := l.restartLease(ctx, func(hold map[string]string) bool {
 		return (hold["region"] == "fra" || hold["region"] == "gru") && hold["next"] != "" && hold["next"] != hold["region"]
 	})
-	l.setService("ts-auth", 3, swarmruntime.UpdateRunning, 0, 1)
 	holder, contender := waiting["region"], waiting["next"]
+	l.waitStatus(ctx, holder, holder+"-m runs "+degraded.tag+" after its restart with the fleet restart lease", func(s pullrelease.Status) bool {
+		require(s.Target == nil || s.Target.Tag() != degraded.tag || s.Passed.IsZero() && s.Phase != pullrelease.PhaseRollingBack, "%s passed or rolled back %s while ts-auth's own release never settled:\n%s", holder, degraded.tag, s)
+		return s.Target != nil && s.Target.Tag() == degraded.tag && slices.ContainsFunc(s.Hosts, func(h pullrelease.HostProgress) bool {
+			return h.ID == holder+"-m" && h.State == pullrelease.HostDone && h.SHA256 == degraded.digest
+		})
+	})
 	behind := l.ask(ctx, holder+"-m", releasepush.PullRequest{Op: releasepush.PullStatus})
 	up := l.ask(ctx, contender+"-m", releasepush.PullRequest{Op: releasepush.PullStatus})
 	require(behind.SHA256 == degraded.digest && behind.Mesh != "ok" && up.SHA256 != degraded.digest && up.Error == "",
@@ -204,7 +217,7 @@ func (l *lane) gate(ctx context.Context) {
 		require(regions[region].Withheld == "app ts-auth unsettled" && regions[region].Updated.Sub(regions[region].Done) >= 2*healthyFor+rollout.BakeFailureDuration,
 			"%s must withhold %s only once the bound expires with ts-auth still mid-release:\n%s", region, degraded.tag, regions[region])
 	}
-	l.setService("ts-auth", 3, swarmruntime.UpdateCompleted, 1, 1, "auth-1")
+	l.setServiceIn(later, "ts-auth", 3, swarmruntime.UpdateCompleted, 1, 1, "auth-1")
 	for _, row := range regions[contender].Hosts {
 		require(row.ID != contender+"-m" || !row.Installed.Before(caughtUp), "%s-m installed at %s, before %s-m caught up at %s", contender, row.Installed, holder, caughtUp)
 	}
