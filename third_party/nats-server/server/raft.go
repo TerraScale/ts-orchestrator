@@ -5419,6 +5419,71 @@ func (n *raft) committedPeerStateLocked(index uint64) *peerState {
 
 // sendPeerState will send our current peer state to the cluster.
 // Lock should be held.
+var (
+	errStaleTerm      = errors.New("raft: term changed")
+	errPeerActive     = errors.New("raft: peer is still active")
+	errQuorumInactive = errors.New("raft: active peers do not reach quorum")
+)
+
+func (n *raft) RealignPeerState(term uint64) error {
+	n.Lock()
+	defer n.Unlock()
+	switch {
+	case n.State() != Leader:
+		return errNotLeader
+	case n.term != term:
+		return errStaleTerm
+	case n.werr != nil:
+		return n.werr
+	case n.membChange != nil:
+		return errMembershipChange
+	}
+	if n.csz != len(n.peers) {
+		n.csz = len(n.peers)
+		n.recalcQuorum()
+		n.writePeerState(n.currentPeerStateLocked())
+	}
+	n.sendPeerState()
+	return nil
+}
+
+func (n *raft) ProposeRemoveSilentPeer(peer string, term uint64, silent time.Duration) error {
+	n.Lock()
+	defer n.Unlock()
+	switch {
+	case n.State() != Leader:
+		return errNotLeader
+	case n.term != term:
+		return errStaleTerm
+	case n.werr != nil:
+		return n.werr
+	case n.membChange != nil:
+		return errMembershipChange
+	case n.csz != len(n.peers):
+		return errMembershipChange
+	case len(n.peers) <= 1:
+		return errRemoveLastNode
+	}
+	removed, ok := n.peers[peer]
+	if !ok {
+		return errPeerNotFound
+	}
+	if peer == n.id || time.Since(removed.ts) < silent {
+		return errPeerActive
+	}
+	active := 0
+	for id, ps := range n.peers {
+		if id == n.id || id != peer && time.Since(ps.ts) < 2*hbInterval {
+			active++
+		}
+	}
+	if active < n.qn {
+		return errQuorumInactive
+	}
+	n.prop.push(newProposedEntry(newEntry(EntryRemovePeer, []byte(peer)), _EMPTY_, term))
+	return nil
+}
+
 func (n *raft) sendPeerState() {
 	n.sendAppendEntryLocked([]*Entry{{EntryPeerState, encodePeerState(n.currentPeerStateLocked())}}, true)
 }

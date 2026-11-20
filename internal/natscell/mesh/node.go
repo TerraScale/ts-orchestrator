@@ -269,7 +269,7 @@ func start(cfg config) (_ *Node, err error) {
 	auth := options.CustomClientAuthentication.(*clientAuth)
 	auth.server = embedded
 	auth.users["monitor"] = credential{secret: monitorSecret, account: server.DEFAULT_SYSTEM_ACCOUNT, permissions: &server.Permissions{
-		Publish:   &server.SubjectPermission{Allow: []string{"$SYS.REQ.SERVER.PING.RAFTZ"}},
+		Publish:   &server.SubjectPermission{Allow: []string{"$SYS.REQ.SERVER.PING.RAFTZ", metaStepdownAPI}},
 		Subscribe: &server.SubjectPermission{Allow: []string{"_INBOX.>"}},
 	}}
 	log := newContainedLog()
@@ -387,6 +387,7 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	handlers[protocol.MeshWorkerPrefix+cfg.region] = node.recordWorker
 	handlers[protocol.MeshDrainPrefix+cfg.region] = func(m *nats.Msg) { node.goWork(func() { node.handleDrain(m) }) }
+	handlers[protocol.MeshMetaClaimsPrefix+cfg.region] = func(m *nats.Msg) { node.goWork(func() { node.serveMetaClaims(m) }) }
 	if cfg.applier == nil {
 		handlers = map[string]nats.MsgHandler{}
 	}
