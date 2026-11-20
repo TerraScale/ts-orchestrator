@@ -29,8 +29,9 @@ Regional leaders read their region's OCIR release channel and send private
 PullInstall requests. Each host verifies Sigstore provenance, the allowed main
 workflow, transparency evidence, the channel seq, exact digest and revision
 before installation. There is no public
-push listener, worker relay or repair-push command. A refusal blocks that region;
-fra and gru wait for sjc's completed record of the same tag with a passed gate. See
+push listener, worker relay or repair-push command. A refusal blocks that region.
+Each later region waits for the completed record and passed gate of the same
+tag from each earlier region. See
 [platform releases](platform.md#releases) for the admission order.
 
 ## Regional OCIR release channel
@@ -460,8 +461,9 @@ Each lane boots real `ts-orch node` processes in Oracle mode (the `oraclehost`
 harness from the `oracle-regions` lane: IMDS, instance-principal federation,
 Vault and the production unit): the gru, sjc and fra founders, whose mesh forms
 the JetStream metadata group the pull updater stores its rollout in, and a
-worker in sjc. sjc is first in the rollout order, so its manager and worker are
-the hosts that must take the release. Like production regions, the fleet serves services
+worker. The previous-updater lane checks both SJC hosts for the release that
+starts under the installed updater. The next-updater lane checks both hosts
+in the first catalog region, GRU. Like production regions, the fleet serves services
 before the release appears: the lane applies `terrabase` and `e2e-whoami`
 through the mesh, because a release older than the native regional mesh name
 reports its edge unready without a route, and the updater rolls only while

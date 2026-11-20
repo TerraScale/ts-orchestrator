@@ -807,6 +807,8 @@ func (l *lane) finishBeforeNewer(ctx context.Context) {
 	peer.holdRestart()
 	current := l.publishGood("115", "c115")
 	peer.stopped(ctx)
+	behind := filepath.Join(peer.dir, "mesh-behind")
+	must(os.WriteFile(behind, nil, 0o600))
 	restarting := l.waitStatus(ctx, "sjc", "sjc restarts its JetStream peer sjc-m on "+current.tag+" with the fleet restart lease", func(s pullrelease.Status) bool {
 		return s.Target != nil && s.Target.Tag() == current.tag && s.Restart == peer.id && slices.ContainsFunc(s.Hosts, func(h pullrelease.HostProgress) bool {
 			return h.ID == peer.id && (h.State == pullrelease.HostInstalling || h.State == pullrelease.HostGating)
@@ -830,6 +832,12 @@ func (l *lane) finishBeforeNewer(ctx context.Context) {
 	for _, h := range interrupted {
 		h.releaseRestart()
 	}
+	l.waitReady(ctx, "sjc."+peer.id, current.digest)
+	stillBehind := l.ask(ctx, peer.id, releasepush.PullRequest{Op: releasepush.PullStatus})
+	heldBack = l.ask(ctx, "gru-m", releasepush.PullRequest{Op: releasepush.PullStatus})
+	require(stillBehind.SHA256 == current.digest && stillBehind.Mesh != "ok" && heldBack.SHA256 == current.digest && heldBack.Error == "",
+		"gru-m must stay on %s until the restarted sjc peer catches up: sjc %+v, gru %+v", current.tag, stillBehind, heldBack)
+	must(os.Remove(behind))
 	finished := l.waitStatus(ctx, "sjc", "sjc finishes the gate of sjc-m on "+current.tag+" and releases the fleet restart lease before it waits on "+newer.tag, func(s pullrelease.Status) bool {
 		require(s.Target != nil && s.Target.Tag() == current.tag, "sjc left %s before it finished sjc-m's gate and released the fleet restart lease:\n%s", current.tag, s)
 		i := slices.IndexFunc(s.Hosts, func(h pullrelease.HostProgress) bool { return h.ID == peer.id })
