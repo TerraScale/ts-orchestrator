@@ -153,7 +153,9 @@ func Sync(ctx context.Context, api *API, d Desired, apply bool, only ...string) 
 	if err != nil {
 		return Report{}, err
 	}
-	if err := p.planPolicies(ctx, api, d); err != nil {
+	gate := newSSHGate(groups)
+	p.planServerSSHFlags(api, gate, peers)
+	if err := p.planPolicies(ctx, api, d, gate); err != nil {
 		return Report{}, err
 	}
 	if err := p.planAccount(ctx, api, d); err != nil {
@@ -246,10 +248,14 @@ func hasGroup(groups []groupMinimum, id string) bool {
 	return id != "" && slices.ContainsFunc(groups, func(g groupMinimum) bool { return g.ID == id })
 }
 
-func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
+func (p *plan) planPolicies(ctx context.Context, api *API, d Desired, gate sshGate) error {
 	var policies []apiPolicy
 	if err := api.do(ctx, "GET", "/policies", nil, &policies); err != nil {
 		return err
+	}
+	offending := gate.outsideOps(policies)
+	if len(offending) > 0 {
+		p.warn("NetBird SSH stays closed: policies %s grant TCP 22 or 22022 on servers to peers outside %s", strings.Join(offending, ", "), strings.Join(opsGroups, " and "))
 	}
 	if err := p.verifyHistoricalFabric(d, policies); err != nil {
 		return err
@@ -270,7 +276,7 @@ func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
 			historical := PolicySpec{Name: policy.Name,
 				Description: "GRU servers (Prometheus runs on ts-gru-1) → regional servers in every region: host exporter 9108 and TerraBase metrics 9091",
 				Protocol:    "tcp", Ports: []string{"9108", "9091"}, Sources: []string{"gru-servers"}, Destinations: groups}
-			if policy.ID == "" || len(policy.SourcePostureChecks) != 0 || len(policy.Rules) != 1 || len(policy.Rules[0].AuthorizedGroups) != 0 || len(policyDiff(policy, historical, &p.refs)) != 0 {
+			if policy.ID == "" || len(policy.SourcePostureChecks) != 0 || len(policy.Rules) != 1 || len(policy.Rules[0].AuthorizedGroups) != 0 || len(policyDiff(policy, historical, true, &p.refs)) != 0 {
 				return errors.New("historical NetBird monitoring policy has a conflicting shape")
 			}
 			p.add(Change{"delete", "policy", policy.Name, "replaced by servers-to-servers-metrics"}, func(ctx context.Context, _ *refs) error {
@@ -289,6 +295,7 @@ func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
 		if current != nil {
 			managed[current.ID] = true
 		}
+		enabled := spec.Protocol != netbirdSSH || len(offending) == 0
 		build := func(r *refs, current *apiPolicy) (policyRequest, error) {
 			rule := ruleRequest{Name: spec.Name, Description: spec.Description, Enabled: true, Action: "accept",
 				Protocol: spec.Protocol, Ports: spec.Ports}
@@ -305,7 +312,7 @@ func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
 			} else if rule.Destinations, err = r.groupIDs(spec.Destinations); err != nil {
 				return policyRequest{}, err
 			}
-			request := policyRequest{Name: spec.Name, Description: spec.Description, Enabled: true,
+			request := policyRequest{Name: spec.Name, Description: spec.Description, Enabled: enabled,
 				Rules: []ruleRequest{rule}, SourcePostureChecks: []string{}}
 			if current != nil {
 				if current.SourcePostureChecks != nil {
@@ -328,7 +335,7 @@ func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
 			})
 			continue
 		}
-		diff := policyDiff(*current, spec, &p.refs)
+		diff := policyDiff(*current, spec, enabled, &p.refs)
 		if len(diff) == 0 {
 			continue
 		}
@@ -380,11 +387,11 @@ func (p *plan) verifyHistoricalFabric(d Desired, policies []apiPolicy) error {
 			}
 			if reverse && current.ID != "" && len(current.SourcePostureChecks) == 0 && len(current.Rules) == 1 && len(current.Rules[0].AuthorizedGroups) == 0 {
 				index := slices.IndexFunc(d.Policies, func(spec PolicySpec) bool { return spec.Name == current.Name })
-				if index >= 0 && len(policyDiff(*current, d.Policies[index], &p.refs)) == 0 {
+				if index >= 0 && len(policyDiff(*current, d.Policies[index], true, &p.refs)) == 0 {
 					continue
 				}
 			}
-			if current.ID == "" || len(current.SourcePostureChecks) != 0 || len(current.Rules) != 1 || len(current.Rules[0].AuthorizedGroups) != 0 || len(policyDiff(*current, historical, &p.refs)) != 0 {
+			if current.ID == "" || len(current.SourcePostureChecks) != 0 || len(current.Rules) != 1 || len(current.Rules[0].AuthorizedGroups) != 0 || len(policyDiff(*current, historical, true, &p.refs)) != 0 {
 				return fmt.Errorf("historical NetBird fabric policy %s has a conflicting shape", historical.Name)
 			}
 		}
@@ -404,7 +411,7 @@ func minimumIDs(groups []groupMinimum) []string {
 	return ids
 }
 
-func policyDiff(current apiPolicy, spec PolicySpec, r *refs) []string {
+func policyDiff(current apiPolicy, spec PolicySpec, enabled bool, r *refs) []string {
 	var diff []string
 	if len(current.Rules) == 1 && current.Rules[0].Name != spec.Name {
 		diff = append(diff, "rule name")
@@ -412,7 +419,10 @@ func policyDiff(current apiPolicy, spec PolicySpec, r *refs) []string {
 	if current.Description != spec.Description {
 		diff = append(diff, "description")
 	}
-	if !current.Enabled {
+	if current.Enabled && !enabled {
+		diff = append(diff, "disable")
+	}
+	if !current.Enabled && enabled {
 		diff = append(diff, "enable")
 	}
 	if len(current.Rules) != 1 {
