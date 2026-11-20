@@ -10,8 +10,9 @@ const (
 	MeshWorkerReleasePrefix = "ts.mesh.release."
 	MeshWorkerPrefix        = "ts.mesh.worker."
 	// MeshDrainPrefix + region asks its ingress to drain a TerraBase task.
-	MeshDrainPrefix = "ts.mesh.drain."
-	MeshMetaPrefix  = "ts.mesh.meta."
+	MeshDrainPrefix      = "ts.mesh.drain."
+	MeshMetaPrefix       = "ts.mesh.meta."
+	MeshMetaClaimsPrefix = "ts.mesh.meta-claims."
 	// MeshHealthSubject answers with the region's host and SwarmKit health
 	// (internal/regionhealth).
 	MeshHealthSubject      = "ts.mesh.health"

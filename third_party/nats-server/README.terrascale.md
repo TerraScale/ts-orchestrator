@@ -101,6 +101,17 @@ group that a worker count shaped could elect without every founder. With the
 option set, the size is the founders' count until the group commits a peer
 addition or removal.
 
+`server/raft.go` adds two leader-only calls the mesh uses to tend the metadata
+group, each checked under the Raft lock against the caller's term with no
+membership change in flight. `RealignPeerState` sets the cluster size back to
+the peer count when they differ and sends the leader's peer state, which every
+follower applies; a member that kept a size from a mixed-mode boot takes the
+real one. `ProposeRemoveSilentPeer` proposes removing a peer only while the
+leader has not heard from it for the given time and the leader plus the peers
+it heard from in the last two heartbeats still reach the current quorum.
+`server/events.go` exports `ServerNodeID`, the Raft peer id NATS derives from a
+server name, so the mesh can match a peer id to the managers a region lists.
+
 `server/jetstream_cluster.go` also starts JetStream clustering with no
 configured route when the server has a named cluster listener and sets
 `JetStreamMetaBootSize`. The mesh adds every cross-region route at runtime

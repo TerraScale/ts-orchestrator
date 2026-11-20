@@ -1165,6 +1165,10 @@ func (s *Server) startRemoteServerSweepTimer() {
 const sysHashLen = 8
 
 // Computes a hash of 8 characters for the name.
+func ServerNodeID(name string) string {
+	return getHash(name)
+}
+
 func getHash(name string) string {
 	return getHashSize(name, sysHashLen)
 }
