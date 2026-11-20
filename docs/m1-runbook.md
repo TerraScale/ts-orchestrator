@@ -267,8 +267,9 @@ The next signed release admits GRU, then FRA, then SJC. The pull-update
 transition scenario exercises both releases against local signed channels,
 starting with the SJC-first updater built from the base revision.
 
-For merge-to-ready timing, match the merged revision and release to
-`passed_at` in deployment observations. The GRU timestamp gives the first
+For merge-to-ready timing, match the merged revision and release in the
+deployment observation or its deployment-lag log. Read `pull.passed` for
+the binary or `apps.<service>.passed_at` for an app. The GRU timestamp gives the first
 regional gate. The latest timestamp for the same release across its targets
 gives the fleet gate. For apps match the selected digest, signed revision
 and placement generation to the running task rows. The deployment-lag log
