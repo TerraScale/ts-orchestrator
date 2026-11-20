@@ -23,7 +23,10 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
-const appReleaseView = "app-release"
+const (
+	appReleaseView        = "app-release"
+	appReadinessFreshness = 5 * time.Second
+)
 
 type AppReleaseObservation struct {
 	Nonce             string                   `json:"nonce"`
@@ -34,8 +37,11 @@ type AppReleaseObservation struct {
 	Placement         *Placement               `json:"placement,omitempty"`
 	Declared          bool                     `json:"declared"`
 	ServingGeneration int64                    `json:"serving_generation,omitempty"`
+	CheckedAt         time.Time                `json:"checked_at,omitzero"`
 	BakeGeneration    int64                    `json:"bake_generation,omitempty"`
 	PassedAt          time.Time                `json:"passed_at,omitzero"`
+	BakeFailure       string                   `json:"bake_failure,omitempty"`
+	RollbackTarget    string                   `json:"rollback_target,omitempty"`
 }
 
 func (h *Handler) observeAppRelease(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +145,8 @@ type appWaitResult struct {
 	Regions    []string             `json:"regions"`
 	GRUReady   bool                 `json:"gru_ready"`
 	Passed     map[string]time.Time `json:"passed_at"`
+	Checked    map[string]time.Time `json:"checked_at"`
+	started    time.Time
 }
 
 func (w appWait) wait(ctx context.Context) error {
@@ -149,11 +157,7 @@ func (w appWait) wait(ctx context.Context) error {
 	encoder := json.NewEncoder(w.output)
 	var reportedGRU int64
 	for {
-		observations, err := w.sample(ctx)
-		if err != nil {
-			return err
-		}
-		result, err := w.evaluate(observations)
+		result, err := w.sample(ctx)
 		if err != nil {
 			return err
 		}
@@ -165,8 +169,26 @@ func (w appWait) wait(ctx context.Context) error {
 			}
 		}
 		if len(result.Passed) == len(w.required) {
-			result.State = "done"
-			return encoder.Encode(result)
+			provisional := result
+			result, err = w.sample(ctx)
+			if result.Generation != 0 && result.Generation != provisional.Generation {
+				return fmt.Errorf("signed generation changed during final readiness verification from %d to %d", provisional.Generation, result.Generation)
+			}
+			if err != nil {
+				return err
+			}
+			now := time.Now()
+			for region, checked := range result.Checked {
+				age := now.Sub(checked)
+				if now.Sub(result.started) > appReadinessFreshness || age > appReadinessFreshness || !checked.After(provisional.Checked[region]) {
+					delete(result.Passed, region)
+					delete(result.Checked, region)
+				}
+			}
+			if len(result.Passed) == len(w.required) {
+				result.State = "done"
+				return encoder.Encode(result)
+			}
 		}
 		var pending []string
 		for _, region := range w.required {
@@ -182,28 +204,35 @@ func (w appWait) wait(ctx context.Context) error {
 	}
 }
 
-func (w appWait) sample(ctx context.Context) ([]AppReleaseObservation, error) {
+type appReleaseSample struct {
+	AppReleaseObservation
+	received time.Time
+}
+
+func (w appWait) sample(ctx context.Context) (appWaitResult, error) {
 	token, err := MintToken(ctx)
 	if err != nil {
-		return nil, err
+		return appWaitResult{}, err
 	}
 	var nonce [32]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return nil, err
+		return appWaitResult{}, err
 	}
 	challenge := hex.EncodeToString(nonce[:])
 	query := url.Values{"view": {appReleaseView}, "service": {w.service}, "nonce": {challenge}}
-	observed, failed := make([]AppReleaseObservation, len(w.required)), make([]error, len(w.required))
+	observed, failed := make([]appReleaseSample, len(w.required)), make([]error, len(w.required))
+	started := time.Now()
 	var group sync.WaitGroup
 	for i, region := range w.required {
 		group.Go(func() {
-			status, err := getObservation(ctx, Region{Region: region}, "", token, query, &observed[i])
+			sample := &observed[i]
+			status, err := getObservation(ctx, Region{Region: region}, "", token, query, &sample.AppReleaseObservation)
+			sample.received = time.Now()
 			switch status {
 			case 0, http.StatusServiceUnavailable:
-				observed[i] = AppReleaseObservation{}
+				sample.AppReleaseObservation = AppReleaseObservation{}
 			case http.StatusOK:
-				value := observed[i]
-				if err != nil || value.Service != w.service || value.Region != region || value.Nonce != challenge {
+				if err != nil || sample.Service != w.service || sample.Region != region || sample.Nonce != challenge {
 					failed[i] = fmt.Errorf("%s returned no fresh signed app observation", region)
 				}
 			default:
@@ -212,13 +241,18 @@ func (w appWait) sample(ctx context.Context) ([]AppReleaseObservation, error) {
 		})
 	}
 	group.Wait()
-	return observed, errors.Join(failed...)
+	if err := errors.Join(failed...); err != nil {
+		return appWaitResult{}, err
+	}
+	return w.evaluate(observed, started)
 }
 
-func (w appWait) evaluate(observations []AppReleaseObservation) (appWaitResult, error) {
-	result := appWaitResult{Service: w.service, Image: w.release.Image, Revision: w.release.Revision, RunID: w.release.RunID, RunAttempt: w.release.RunAttempt, Regions: w.required, Passed: map[string]time.Time{}}
+func (w appWait) evaluate(observations []appReleaseSample, started time.Time) (appWaitResult, error) {
+	result := appWaitResult{Service: w.service, Image: w.release.Image, Revision: w.release.Revision, RunID: w.release.RunID, RunAttempt: w.release.RunAttempt,
+		Regions: w.required, Passed: map[string]time.Time{}, Checked: map[string]time.Time{}, started: started}
+	var terminal error
 	for _, observed := range observations {
-		if observed.Release == nil || observed.Placement == nil || observed.Placement.RollbackOf != 0 || observed.Placement.Generation <= 0 {
+		if observed.Release == nil || observed.Placement == nil || observed.Placement.Generation <= 0 {
 			continue
 		}
 		release := *observed.Release
@@ -232,6 +266,22 @@ func (w appWait) evaluate(observations []AppReleaseObservation) (appWaitResult, 
 		configured, err := normalizeRegions(observed.Configured, observed.Configured)
 		if err != nil || !slices.Equal(configured, w.configured) {
 			return result, fmt.Errorf("%s reports configured targets %v, expected %v", observed.Region, observed.Configured, w.configured)
+		}
+		generation := observed.Placement.Generation
+		rolledBack := observed.Placement.RollbackOf > 0 && observed.Placement.RollbackOf < generation && observed.RollbackTarget != ""
+		if rolledBack {
+			generation = observed.Placement.RollbackOf
+		} else if observed.Placement.RollbackOf != 0 {
+			continue
+		}
+		if result.Generation != 0 && result.Generation != generation {
+			return result, fmt.Errorf("%s reports conflicting signed generation %d, already observed %d", observed.Region, generation, result.Generation)
+		}
+		result.Generation = generation
+		if rolledBack {
+			terminal = errors.Join(terminal, fmt.Errorf("%s: %s signed run %s attempt %d generation %d rolled back to %s in generation %d",
+				observed.Region, w.service, release.RunID, release.RunAttempt, generation, observed.RollbackTarget, observed.Placement.Generation))
+			continue
 		}
 		placement := w.configured
 		if len(observed.Placement.Regions) != 0 {
@@ -253,15 +303,18 @@ func (w appWait) evaluate(observations []AppReleaseObservation) (appWaitResult, 
 		if !slices.Equal(placement, w.required) {
 			return result, fmt.Errorf("requested scope %v differs from authorized placement %v", w.required, placement)
 		}
-		generation := observed.Placement.Generation
-		if result.Generation != 0 && result.Generation != generation {
-			return result, fmt.Errorf("%s reports conflicting signed generation %d, already observed %d", observed.Region, generation, result.Generation)
+		if observed.BakeFailure != "" && observed.BakeGeneration == generation {
+			terminal = errors.Join(terminal, fmt.Errorf("%s: %s signed run %s attempt %d generation %d held at failed bake: %s",
+				observed.Region, w.service, release.RunID, release.RunAttempt, generation, observed.BakeFailure))
+			continue
 		}
-		result.Generation = generation
-		if observed.ServingGeneration == generation && observed.BakeGeneration == generation && !observed.PassedAt.IsZero() {
+		age := observed.received.Sub(observed.CheckedAt)
+		if observed.ServingGeneration == generation && observed.BakeGeneration == generation && !observed.PassedAt.IsZero() &&
+			age >= -appReadinessFreshness && age <= appReadinessFreshness {
 			result.Passed[observed.Region] = observed.PassedAt
+			result.Checked[observed.Region] = observed.CheckedAt
 		}
 	}
 	_, result.GRUReady = result.Passed["gru"]
-	return result, nil
+	return result, terminal
 }

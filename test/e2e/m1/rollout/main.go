@@ -118,8 +118,11 @@ func prepareImage(ctx context.Context, root, specFile string) {
 	must(err)
 	_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(replacementName, "ghcr.io/terrascale/", "", 1), Target: replacement})
 	must(err)
-	_, err = client.ImageService().Create(ctx, images.Image{Name: strings.Replace(strings.TrimPrefix(replacementName, "ghcr.io/terrascale/"), "terrabase@", "terrascale-dashboard@", 1), Target: replacement})
-	must(err)
+	for _, name := range []string{"app-canary", "terrascale-dashboard"} {
+		ref := strings.Replace(strings.TrimPrefix(replacementName, "ghcr.io/terrascale/"), "terrabase@", name+"@", 1)
+		_, err = client.ImageService().Create(ctx, images.Image{Name: ref, Target: replacement})
+		must(err)
+	}
 	must(os.WriteFile(filepath.Join(root, "replacement-image"), []byte(replacementName), 0600))
 }
 
@@ -809,12 +812,15 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	must(os.Remove(filepath.Join(roots[0], "pull-selection")))
 	logStep("host pulls a selected image, rejects a wrong signer, verifies provenance and completes the rollout without CI delivery")
 	globalWaitCases(ctx, conn, root, spec.Image, generation)
+	gru := slices.Index(order, "gru")
+	freshWaitCase(ctx, conn, root, addresses[gru], spec.Image, generation)
 	signedRelease(ctx, releases, spec.Image, "102")
 	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > generation })
 	held = newGeneration(states(ctx, conn), order[0])
 	evidence(ctx, roots[0], held, func(r receipt) bool { return r.Bake.Samples >= 1 })
 	setHealth(ctx, addresses[0], 18085, "503")
 	evidence(ctx, roots[0], held, func(r receipt) bool { return r.Bake.Reason != "" })
+	heldWaitCases(ctx, conn, root, spec.Image, held)
 	output, err := serviceCLI(ctx, names[0], launcher, roots[0], "rm", spec.Name)
 	require(err == nil, fmt.Sprintf("remove a service held at failed bake: %v %s", err, output))
 	observe(ctx, conn, func(s map[string]state) bool {
@@ -834,7 +840,8 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	retained = evidence(ctx, roots[0], held, func(r receipt) bool { return r.Bake.Reason != "" })
 	require(retained.ReplacedBy == nil, "removal rewrote the failed bake as a replacement release")
 	logStep("a failed bake accepts service removal across every region, removes peers files and retains failure evidence")
-	scopedWaitCases(ctx, conn, root, roots[slices.Index(order, "gru")], spec)
+	scopedWaitCases(ctx, conn, root, roots[gru], names[gru], launcher, spec)
+	rollbackWaitCase(ctx, conn, roots[0], names[0], spec.Image)
 
 	fmt.Println("rollout journey passed")
 }
@@ -869,11 +876,15 @@ func signedRelease(ctx context.Context, _ *nats.Conn, image, run string) {
 }
 
 func selectService(ctx context.Context, image, run, service string) {
-	if err := os.Remove(filepath.Join(selectionState, "selection-"+run+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+	selectServiceAt(ctx, selectionState, selectionNamespace, image, run, service)
+}
+
+func selectServiceAt(ctx context.Context, state, namespace, image, run, service string) {
+	if err := os.Remove(filepath.Join(state, "selection-"+run+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		must(err)
 	}
-	command := exec.CommandContext(ctx, "ip", "netns", "exec", selectionNamespace, os.Args[0], "pull", selectionState, image, run, service)
-	output, err := os.OpenFile(filepath.Join(selectionState, "selection-"+run+".log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	command := exec.CommandContext(ctx, "ip", "netns", "exec", namespace, os.Args[0], "pull", state, image, run, service)
+	output, err := os.OpenFile(filepath.Join(state, "selection-"+run+".log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	must(err)
 	command.Stdout, command.Stderr = output, output
 	must(command.Start())
