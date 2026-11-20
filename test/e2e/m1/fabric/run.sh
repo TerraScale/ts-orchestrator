@@ -30,7 +30,7 @@ ip link set lo up
 ip link add fabric-br type bridge
 ip addr add 10.79.0.1/24 dev fabric-br
 ip link set fabric-br up
-for n in 1 2 3; do
+for n in 1 2 3 4 5; do
   ip netns add "fabric$n"
   ip link add "veth$n" type veth peer name peer
   ip link set "veth$n" master fabric-br

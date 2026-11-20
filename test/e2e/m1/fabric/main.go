@@ -209,7 +209,11 @@ type process struct {
 }
 
 func start(work string, i int) (*process, error) {
-	log, err := os.OpenFile(filepath.Join(work, names[i]+".log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	return launch(work, "node", names[i], i)
+}
+
+func launch(work, mode, name string, i int) (*process, error) {
+	log, err := os.OpenFile(filepath.Join(work, name+".log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +222,7 @@ func start(work string, i int) (*process, error) {
 		log.Close()
 		return nil, err
 	}
-	cmd := exec.Command("ip", "netns", "exec", fmt.Sprintf("fabric%d", i+1), binary, "node", work, fmt.Sprint(i))
+	cmd := exec.Command("ip", "netns", "exec", fmt.Sprintf("fabric%d", i+1), binary, mode, work, fmt.Sprint(i))
 	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Start(); err != nil {
 		log.Close()
@@ -830,16 +834,21 @@ func run(work string) error {
 
 func main() {
 	var err error
-	if len(os.Args) == 4 && os.Args[1] == "node" {
+	if len(os.Args) == 4 && (os.Args[1] == "node" || os.Args[1] == "meta-node") {
 		i := 0
 		_, err = fmt.Sscan(os.Args[3], &i)
-		if err == nil {
+		if err == nil && os.Args[1] == "node" {
 			err = node(os.Args[2], i)
+		} else if err == nil {
+			err = metaNode(os.Args[2], i)
 		}
 	} else if len(os.Args) == 2 {
-		err = run(os.Args[1])
+		err = metaPeers(os.Args[1])
+		if err == nil {
+			err = run(os.Args[1])
+		}
 	} else {
-		err = errors.New("usage: fabric WORK | fabric node WORK INDEX")
+		err = errors.New("usage: fabric WORK | fabric node WORK INDEX | fabric meta-node WORK INDEX")
 	}
 	if err != nil {
 		_, _ = io.WriteString(os.Stderr, "FAIL fabric: "+err.Error()+"\n")

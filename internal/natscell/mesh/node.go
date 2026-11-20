@@ -433,6 +433,9 @@ func start(cfg config) (_ *Node, err error) {
 		node.goWork(func() { node.refreshJoined(ctx) })
 	}
 	node.goWork(node.regionRoutes)
+	if options.JetStream {
+		node.goWork(func() { node.tendMeta(ctx) })
+	}
 	return node, nil
 }
 
