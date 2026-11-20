@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
@@ -204,7 +205,8 @@ func servePromotionMesh() error {
 	}
 	defer membership.Unsubscribe()
 	if err := regionhealth.Serve(conn, func() regionhealth.Report {
-		return regionhealth.Report{State: regionhealth.StateOK, At: time.Now().UTC()}
+		quorum := regionhealth.ReadQuorum(ctx, state)
+		return regionhealth.Report{State: regionhealth.StateOK, At: time.Now().UTC(), Quorum: &quorum}
 	}); err != nil {
 		return err
 	}
@@ -297,6 +299,13 @@ func oneRegionReply(conn *nats.Conn, subject string, payload []byte) error {
 			var report regionhealth.Report
 			if err := protocol.DecodeTolerant(message.Data, &report, 1<<20); err != nil || report.Region != "gru" || report.State != regionhealth.StateOK {
 				return fmt.Errorf("health returned an invalid region report: %s", message.Data)
+			}
+			if report.Quorum == nil {
+				return fmt.Errorf("health omitted live SwarmKit membership")
+			}
+			eligible := map[string]string{"manager": "manager", "instance-0": "worker-0", "instance-1": "worker-1"}
+			if check := fleet.QuorumCheck(fleet.Region{OCIRegion: "sa-saopaulo-1"}, *report.Quorum, eligible); check.State != fleet.Ok {
+				return fmt.Errorf("mesh health did not carry three ready managers: %+v", check)
 			}
 		}
 		replies++
