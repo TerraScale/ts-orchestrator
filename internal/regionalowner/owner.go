@@ -87,15 +87,31 @@ type Snapshot struct {
 type record struct {
 	Membership   Membership
 	Lease        Lease
-	CommitBefore time.Time
+	Candidate    *renewalCandidate
+	Confirmation *renewalConfirmation
+}
+
+type renewalCandidate struct {
+	Sequence  uint64
+	ExpiresAt time.Time
+}
+
+type renewalConfirmation struct {
+	CandidateRevision uint64
+	ObservedAt        time.Time
+	PreviousExpiry    time.Time
 }
 
 type loaded struct {
 	record
-	wire     []byte
-	revision uint64
-	last     uint64
-	timely   bool
+	wire       []byte
+	revision   uint64
+	last       uint64
+	observedAt time.Time
+}
+
+func (r loaded) snapshot() Snapshot {
+	return Snapshot{Membership: r.Membership, Lease: r.Lease, Revision: r.revision}
 }
 
 type Store struct {
@@ -156,8 +172,9 @@ func (s *Store) InstallMembership(ctx context.Context, view Membership, signatur
 	if view.Epoch <= current.Membership.Epoch {
 		return Snapshot{}, ErrFenced
 	}
-	next := record{Membership: view, Lease: Lease{OwnerEpoch: current.Lease.OwnerEpoch}, CommitBefore: view.ValidUntil}
-	return s.commit(ctx, current, next)
+	next := record{Membership: view, Lease: Lease{OwnerEpoch: current.Lease.OwnerEpoch}}
+	committed, err := s.commit(ctx, current, next, view.ValidUntil)
+	return committed.snapshot(), err
 }
 
 func (s *Store) Apply(ctx context.Context, request Request, proof Proof) (Snapshot, error) {
@@ -174,40 +191,59 @@ func (s *Store) Apply(ctx context.Context, request Request, proof Proof) (Snapsh
 	}
 	now := time.Now()
 	view, lease := current.Membership, current.Lease
-	if !current.timely || !now.Before(view.ValidUntil) || request.Cluster != view.Cluster || request.MembershipEpoch != view.Epoch ||
+	if !now.Before(view.ValidUntil) || request.Cluster != view.Cluster || request.MembershipEpoch != view.Epoch ||
 		request.OwnerEpoch != lease.OwnerEpoch || !slices.Contains(view.Managers, request.Node) {
 		return Snapshot{}, ErrFenced
 	}
 	next := current.record
-	next.CommitBefore = view.ValidUntil
+	deadline := lease.ExpiresAt
 	switch request.Operation {
 	case Acquire:
-		if request.Sequence != 1 || request.Digest != ([32]byte{}) || now.Before(lease.ExpiresAt) || lease.OwnerEpoch == math.MaxUint64 {
+		if request.Sequence != 1 || request.Digest != ([32]byte{}) || now.Before(lease.ExpiresAt) || bytes.Equal(lease.Session, request.Session) ||
+			lease.OwnerEpoch == math.MaxUint64 {
 			return Snapshot{}, ErrFenced
 		}
 		manager, err := s.authenticate(proof.ManagerChain, message, proof.ManagerSignature)
 		if err != nil || manager != (Manager{Cluster: view.Cluster, Node: request.Node}) {
 			return Snapshot{}, ErrFenced
 		}
-		next.Lease = Lease{OwnerEpoch: lease.OwnerEpoch + 1, Node: manager.Node, Session: slices.Clone(request.Session), Sequence: 1,
-			ExpiresAt: minTime(view.ValidUntil, now.Add(leaseDuration))}
-		next.CommitBefore = next.Lease.ExpiresAt
+		deadline = minTime(view.ValidUntil, now.Add(leaseDuration))
+		next = record{Membership: view, Lease: Lease{OwnerEpoch: lease.OwnerEpoch + 1, Node: manager.Node,
+			Session: slices.Clone(request.Session), Sequence: 1, ExpiresAt: deadline}}
 	case Renew, Publish:
-		if lease.Node != request.Node || !bytes.Equal(lease.Session, request.Session) || !now.Before(lease.ExpiresAt) ||
+		if current.Candidate != nil || lease.Node != request.Node || !bytes.Equal(lease.Session, request.Session) || !now.Before(lease.ExpiresAt) ||
 			lease.Sequence == math.MaxUint64 || request.Sequence != lease.Sequence+1 || (request.Digest == ([32]byte{})) != (request.Operation == Renew) {
 			return Snapshot{}, ErrFenced
 		}
-		next.CommitBefore = lease.ExpiresAt
-		next.Lease.Sequence = request.Sequence
 		if request.Operation == Renew {
-			next.Lease.ExpiresAt = minTime(view.ValidUntil, now.Add(leaseDuration))
-		} else {
-			next.Lease.Digest = request.Digest
+			return s.renew(ctx, current, request.Sequence, minTime(view.ValidUntil, now.Add(leaseDuration)))
 		}
+		next.Lease.Sequence, next.Lease.Digest = request.Sequence, request.Digest
 	default:
 		return Snapshot{}, ErrFenced
 	}
-	return s.commit(ctx, current, next)
+	committed, err := s.commit(ctx, current, next, deadline)
+	return committed.snapshot(), err
+}
+
+func (s *Store) renew(ctx context.Context, current loaded, sequence uint64, expiresAt time.Time) (Snapshot, error) {
+	previousExpiry := current.Lease.ExpiresAt
+	if !expiresAt.After(previousExpiry) {
+		return Snapshot{}, ErrFenced
+	}
+	next := current.record
+	next.Candidate = &renewalCandidate{Sequence: sequence, ExpiresAt: expiresAt}
+	candidate, err := s.commit(ctx, current, next, previousExpiry)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	next.Candidate = nil
+	next.Lease.Sequence, next.Lease.ExpiresAt = sequence, expiresAt
+	next.Confirmation = &renewalConfirmation{
+		CandidateRevision: candidate.revision, ObservedAt: candidate.observedAt, PreviousExpiry: previousExpiry,
+	}
+	confirmed, err := s.commit(ctx, candidate, next, previousExpiry)
+	return confirmed.snapshot(), err
 }
 
 func minTime(first, second time.Time) time.Time {
@@ -252,40 +288,45 @@ func (s *Store) load(ctx context.Context) (loaded, error) {
 	}
 	var record record
 	if err := protocol.DecodeStrict(stored.Data, &record, maxRecord); err != nil || stored.Subject != s.subject || stored.Sequence == 0 ||
-		stored.Time.IsZero() || record.Membership.Region != s.region || record.Membership.Epoch == 0 || record.CommitBefore.IsZero() {
+		record.Membership.Region != s.region || record.Membership.Epoch == 0 {
 		return loaded{}, ErrFenced
 	}
-	return loaded{record: record, wire: stored.Data, revision: stored.Sequence, last: info.State.LastSeq, timely: stored.Time.Before(record.CommitBefore)}, nil
+	if confirmed := record.Confirmation; confirmed != nil && (confirmed.CandidateRevision == 0 || confirmed.CandidateRevision >= stored.Sequence ||
+		confirmed.ObservedAt.IsZero() || !confirmed.ObservedAt.Before(confirmed.PreviousExpiry) || !record.Lease.ExpiresAt.After(confirmed.PreviousExpiry)) {
+		return loaded{}, ErrFenced
+	}
+	return loaded{record: record, wire: stored.Data, revision: stored.Sequence, last: info.State.LastSeq}, nil
 }
 
-func (s *Store) commit(ctx context.Context, before loaded, next record) (Snapshot, error) {
-	if !time.Now().Before(next.CommitBefore) {
-		return Snapshot{}, ErrFenced
+func (s *Store) commit(ctx context.Context, before loaded, next record, deadline time.Time) (loaded, error) {
+	if !time.Now().Before(deadline) {
+		return loaded{}, ErrFenced
 	}
 	data, err := protocol.EncodeJSON(next)
 	if err != nil {
-		return Snapshot{}, err
+		return loaded{}, err
 	}
-	write, cancel := context.WithDeadline(ctx, next.CommitBefore)
+	write, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	ack, err := s.js.Publish(write, s.subject, data, jetstream.WithExpectLastSequence(before.last),
 		jetstream.WithExpectLastSequencePerSubject(before.revision))
 	if err != nil {
 		var api *jetstream.APIError
-		if errors.As(err, &api) && api.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence {
-			return Snapshot{}, errors.Join(ErrConflict, err)
+		if errors.As(err, &api) && (api.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence || api.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant) {
+			return loaded{}, errors.Join(ErrConflict, err)
 		}
-		return Snapshot{}, errors.Join(ErrQuorum, err)
+		return loaded{}, errors.Join(ErrQuorum, err)
 	}
 	committed, err := s.load(write)
 	if err != nil {
-		return Snapshot{}, err
+		return loaded{}, err
 	}
 	if ack.Stream != streamName || committed.revision != ack.Sequence || !bytes.Equal(data, committed.wire) {
-		return Snapshot{}, ErrConflict
+		return loaded{}, ErrConflict
 	}
-	if !committed.timely || write.Err() != nil {
-		return Snapshot{}, ErrFenced
+	committed.observedAt = time.Now().UTC()
+	if !committed.observedAt.Before(deadline) || write.Err() != nil {
+		return loaded{}, ErrFenced
 	}
-	return Snapshot{Membership: committed.Membership, Lease: committed.Lease, Revision: committed.revision}, nil
+	return committed, nil
 }
