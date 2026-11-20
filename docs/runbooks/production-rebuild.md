@@ -5,6 +5,40 @@ discarded TerraBase customer data, auth users, and dashboard data. GRU
 restored public service first. Confirm the destructive scope and the release
 and access prerequisites before using this sequence for another reset.
 
+## Verify releases and join material
+
+- Resolve the newest qualified, attested release on `stable` for the
+  approved fleet. The resolver accepts qualified `ci-<sha>-run-<id>`
+  tags even when GitHub labels them prereleases. Verify the artifact
+  attestation and compare the architecture-specific binary checksum with
+  `qualification.json` before installing it. Record the founder and
+  operator releases separately when they differ.
+- In C45, the founder release was
+  `ci-05ff0b2036b8d60a4f833ec69892de27e0c67f6d-run-44582545260`.
+  Its attestation verified and the live ARM64 binary checksum matched
+  `qualification.json` (prefix `1fa779d5a0e2`).
+  [Founder release](https://github.com/TerraScale/ts-orchestrator/releases/tag/ci-05ff0b2036b8d60a4f833ec69892de27e0c67f6d-run-44582545260)
+- The CLI for GRU pool creation was built from the verified release revision
+  `ci-d1e665dab07ecef27fc3c76385e39982359aca17-run-44613725374`.
+  Before applying compute, the operator matched `ts-gru-1`'s IMDS
+  identity to its OCI instance and confirmed the manager was `READY`.
+  [Operator release for #512](https://github.com/TerraScale/ts-orchestrator/releases/tag/ci-d1e665dab07ecef27fc3c76385e39982359aca17-run-44613725374)
+- Before retiring hosts, record the current Vault version and creation
+  time for `ts-orch-join-{gru,sjc,fra}` using metadata only. Check version
+  capacity for every secret. Leave room for the founder marker and the
+  subsequent publication of usable manager and route addresses. FRA had
+  no free version slot during C45. The operator scheduled deletion of
+  approved deprecated versions before continuing. Confirm capacity is
+  available before relying on a new publication.
+- In SJC and FRA, check the regional compartment as well as the fleet
+  pool. Reclaim requires the previous manager to be unreachable and
+  every nonterminated instance to have a creation time later than the
+  current join material. Confirm that approved retired hand-made hosts
+  have reached OCI `TERMINATED`. The oldest eligible fleet node then
+  publishes the founder marker. C45 kept the external `ts-gru-1`, so the
+  operator verified the old GRU manager had stopped and explicitly
+  published the GRU founder marker.
+
 ## Preserve operator access
 
 - Keep the external GRU host `ts-gru-1`, its NetBird management store, and its
@@ -13,10 +47,10 @@ and access prerequisites before using this sequence for another reset.
 - Mount the dedicated OCI block volume at `/var/lib/ts-data` and bind
   `/var/lib/ts-data/ts-orch` to `/var/lib/ts-orch`. Check the mounts before
   starting the cell. The root disk still holds monitoring and the OS.
-- Stop the old cell, NetBird service, and release-recovery timer on
-  `ts-gru-1` within one logged systemd transaction. Keep the NetBird data
-  and edge certificates when replacing the old orchestrator state. Verify
-  an independent operator access path before stopping NetBird.
+- Verify independent operator access to `ts-gru-1` before stopping
+  NetBird. Stop the old cell, NetBird host services, and release-recovery
+  timer within one logged systemd transaction. Keep the NetBird data and
+  edge certificates when replacing the old orchestrator state.
 
 ## Rebuild in order
 
@@ -27,25 +61,40 @@ and access prerequisites before using this sequence for another reset.
    `terrascale-gru-terrabase-backups-b12` in Tigris and the specified
    retired-node OCI backups. Keep the buckets. Confirm the object sweeps
    finished before starting TerraBase.
-2. Use the newest verified stable orchestrator release that carries the
-   approved fleet definition. Publish the GRU founder entry for
-   `ts-gru-1` to `ts-orch-join-gru` and start the founder. Check the
-   Vault version quota before writing the join entry.
+2. Publish the GRU founder entry for `ts-gru-1` to `ts-orch-join-gru` and
+   start the verified founder binary. Confirm GRU publishes a fresh join
+   version with the new manager and route addresses.
 3. Run `ts-orch region apply sjc compute` and
    `ts-orch region apply fra compute` to bring up the remote founders.
-   Check the three regions with `ts-orch mesh ping` so the replicated
-   JetStream state can form. Reapply the preserved NetBird service.
-4. Use `ts-orch region apply gru compute` for the two GRU pool workers.
+   Confirm each region publishes fresh join material with the expected
+   manager and routes. Verify those addresses through the admitted hosts
+   without printing the worker token. Run `ts-orch mesh ping` to check
+   regional reachability. Before any workload apply, confirm the fresh
+   metadata group has a leader and that authenticated JetStream account
+   requests (`$JS.API.INFO`) through each region succeed without an API
+   error. Use an existing approved JetStream account identity. Stop if
+   join material is stale or JetStream readiness cannot be verified.
+4. On `ts-gru-1`, reapply `deploy/m1/services/netbird-server.json` with
+   `ts-orch service apply -f` using the preserved NetBird store. Verify
+   `ts-orch service ls` shows the SwarmKit `netbird-server` workload at
+   `1/1` and the public endpoint responds. Restore `netbird.service`, the
+   `netbird-server.service` companion, and `ts-orch-release-recovery.timer`.
+   Run `systemctl is-active <unit>` for each and confirm the next run in
+   `systemctl list-timers ts-orch-release-recovery.timer`. Prove operator
+   access through NetBird from a separate session before removing temporary
+   access. In C45, NetBird returned HTTP 200 before its companion and timer
+   were restored.
+5. Use `ts-orch region apply gru compute` for the two GRU pool workers.
    SJC and FRA each have three pool hosts. Confirm fresh volume bindings
    before counting a host as ready. Reconcile each region's NLB with
    `ts-orch region apply <region> nlb` and confirm production DNS points
    to the reserved NLB addresses before checking ACME and public TLS.
-5. Verify signed app images and current deployment generations. Establish
+6. Verify signed app images and current deployment generations. Establish
    a serving TerraBase writer in GRU, then start auth in GRU, then verify
    dashboard readiness. Resume the other regions only after the GRU
    baseline passes. Preserve signed deployment floors when a concurrent
    workflow supersedes an operator apply.
-6. Verify auth and dashboard readiness, the auth issuer and revision,
+7. Verify auth and dashboard readiness, the auth issuer and revision,
    the API, PG TLS, the multi-region mesh check, the deployment lag guard,
    and the production journey. Check the active managers per region
    separately from the number of running hosts.
@@ -117,8 +166,22 @@ source. The current main commit `ce4081b` changed only AI-review files,
 leaving both applications' release inputs unchanged.
 [Signed dashboard release](https://github.com/TerraScale/terrascale/actions/runs/44764950036/attempts/2)
 
-The current-source production journey was dispatched after the signed
-release. The latest executed deploy-lag check was red, and host revision
-convergence remains open.
-[Production journey](https://github.com/TerraScale/terrascale/actions/runs/44773500958)
-[Deploy-lag check](https://github.com/TerraScale/ts-orchestrator/actions/runs/44739092294)
+## Verification status at handoff
+
+- The production journey job started at 16:27 UTC on November 20 for
+  `ce4081b`. Its `Journey against production` step started at 16:29 UTC
+  and was still running at 16:50 UTC.
+  [Production journey job](https://github.com/TerraScale/terrascale/actions/runs/44773500958/job/136417102558)
+- The last executed deploy-lag check failed at 12:50 UTC before the GRU
+  app recovery. Run `44744094060` skipped its check. The latest qualified
+  orchestrator revision was
+  `fb83f90df`; only `sjc-node-2` and `sjc-node-3` ran it. The release
+  controller reported SJC waiting on `sjc-node-1` with `raft group
+  _meta_: membership is changing`. GRU and FRA waited at the SJC canary
+  gate. The refusal confirms a leader replied at a term at least as high
+  as the local term at the time of the check. The exact failing membership
+  predicate and current voter and replica state were unverified.
+  [Deploy-lag check job](https://github.com/TerraScale/ts-orchestrator/actions/runs/44739092294/job/136297846552)
+- All three receivers agreed on GRU-only placement for TerraBase, auth,
+  and dashboard. SJC and FRA reported zero declared replicas for those
+  services. Fleet-wide app and orchestrator convergence remain open.
