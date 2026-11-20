@@ -99,6 +99,7 @@ Managed by `manager.GRU()`; the upstream allow-all `Default` policy is
 deleted at first start.
 
 - `operators`, `ops-automation` -> `gru-servers`: TCP 22 (OpenSSH; M1 hosts run no NetBird SSH server, see [NetBird SSH is off on M1 hosts](#netbird-ssh-is-off-on-m1-hosts)).
+- `operators` -> `gru-servers` and `ops-automation` -> `gru-servers`: `netbird-ssh` (`operators-to-gru-servers-ssh`, `ops-automation-to-gru-servers-ssh`). Only pool nodes run the NetBird SSH server, see [NetBird SSH on pool nodes](#netbird-ssh-on-pool-nodes).
 - `gru-servers` <-> `gru-servers`: ICMP and service health ports.
 
 ## Clients
@@ -118,6 +119,73 @@ NetBird address to its own server on 22022, so operator OpenSSH
 (`ssh ts-<r>-1`, known host key) would be unreachable over NetBird. Operators
 reach M1 hosts with OpenSSH on the NetBird address; `ts-orch netbird ssh` and
 `ts-orch log-scan` have no NetBird SSH server to reach there.
+
+### NetBird SSH on pool nodes
+
+Pool nodes (`<label>-node-<n>`, made by `ts-orch region apply <r> compute`;
+today `gru-node-*`, `sjc-node-*`, `fra-node-*`) carry no operator key and lock
+every password, so NetBird SSH is their one login. `ts-orch netbird server`
+recognises a pool node by its hostname (`naming.IsPoolNode`, the same format
+the instance pool's hostname formatter uses) and enrolls it with:
+
+| Flag | Value |
+|---|---|
+| `--allow-server-ssh` | `true` |
+| `--enable-ssh-root` | `true` |
+| `--enable-ssh-sftp`, `--enable-ssh-local-port-forwarding`, `--enable-ssh-remote-port-forwarding` | `false` |
+| `--disable-ssh-auth` | `false`: every session needs a NetBird identity-provider login (JWT) |
+
+M1 hosts (`ts-<r>-<n>`) keep only `--allow-server-ssh=false`, so their
+OpenSSH path and their NetBird client are untouched.
+
+Who may connect is the manager's state, owned by `manager.GRU()`
+(`internal/netbird/manager/desired.go`): every server, pool nodes included,
+enrolls with `gru-1-netbird-setup-key`, which auto-assigns `gru-servers`, and
+the `netbird-ssh` policies `operators-to-gru-servers-ssh` and
+`ops-automation-to-gru-servers-ssh` let only the `operators` and
+`ops-automation` groups reach a server's NetBird SSH server. No policy lets
+`gru-servers`, `All` or another region's group reach TCP 22 or 22022, so a
+workload, a server or any other peer gets no SSH. The manager enables a
+peer's SSH server for every `netbird-ssh` policy that targets its group, so
+no manager change is needed: a pool node only has to allow it locally.
+
+The identity provider admits the account's users; today the account has one,
+the owner (`gru-1-netbird-owner-email`, `-password`). `ts-orch netbird ssh` signs in as `ssh-automation@terrascale.tech`,
+whose login secrets do not exist yet, so automation cannot open these
+sessions until that login is created.
+
+Existing pool nodes need no reinstall. Each host's `netbird-server.service`
+runs `ts-orch netbird server`, which restarts onto every new `ts-orch` binary
+the pull release installs and re-applies these flags whenever
+`netbird debug config` differs: it runs `netbird down` and `netbird up` with
+the flags once, a few seconds of NetBird reconnect on that node only. A new
+pool node gets them on its first boot through the same unit, which
+`nodeinit` installs.
+
+Check it from an `operators` peer, after the release reached the nodes:
+
+```sh
+NB=netbird scripts/netbird-pool-ssh-check.sh sjc-node-1 sjc-node-2
+```
+
+It opens NetBird SSH as root to both nodes (ops peer allowed), then from
+`sjc-node-1`, a `gru-servers` peer outside the ops groups, tries TCP 22 and
+22022 of `sjc-node-2`, which must both be refused. Each `netbird ssh` prints a
+login URL; sign in with a NetBird account login in the browser.
+
+#### Run `member promote` on a pool region leader
+
+From an `operators` peer:
+
+```sh
+netbird ssh root@sjc-node-1 ts-orch member ls
+netbird ssh root@<leader> ts-orch member promote
+```
+
+`member ls` lists the region's managers and workers. `member promote` runs
+only on the Raft leader; another manager answers `membership changes must run
+on the Raft leader`. The promotion rules are in
+[the M1 runbook](m1-runbook.md#a-second-host-in-a-region-joins-by-itself).
 
 ## Operator PC
 

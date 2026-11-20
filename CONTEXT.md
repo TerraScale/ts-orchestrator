@@ -168,7 +168,10 @@ OpenSSH is the one SSH path into M1 hosts: operators reach it on the
 server's NetBird address (`ssh ts-<r>-1`) with the owner's Ed25519 key. The
 NetBird SSH server stays off on M1 hosts because, while it runs, NetBird
 redirects port 22 of the NetBird address to itself; see
-`docs/netbird-m1.md` (NetBird SSH is off on M1 hosts).
+`docs/netbird-m1.md` (NetBird SSH is off on M1 hosts). Pool nodes
+(`<label>-node-<n>`) have no operator key; they run the NetBird SSH server,
+reachable only from the `operators` and `ops-automation` groups with an
+identity-provider login (`docs/netbird-m1.md`, NetBird SSH on pool nodes).
 
 **Production readiness**
 

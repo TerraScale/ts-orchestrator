@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
@@ -202,8 +203,12 @@ func enrollHost(ctx context.Context, vault ServerVault, setupKey string) error {
 	}
 	output, err := exec.CommandContext(ctx, clientBinary, "status", "--json").Output()
 	connected := err == nil && json.Unmarshal(output, &status) == nil && status.Management.Connected
+	settings, err := serverSSHSettings()
+	if err != nil {
+		return err
+	}
 	if connected {
-		applied, err := serverSSHApplied(ctx)
+		applied, err := serverSSHApplied(ctx, settings)
 		if err != nil || applied {
 			return err
 		}
@@ -212,7 +217,7 @@ func enrollHost(ctx context.Context, vault ServerVault, setupKey string) error {
 		}
 	}
 	args := []string{"up", "--management-url", DefaultManagementURL}
-	for _, setting := range serverSSHSettings {
+	for _, setting := range settings {
 		args = append(args, setting.flag+"="+strconv.FormatBool(setting.want))
 	}
 	up := exec.CommandContext(ctx, clientBinary, args...)
@@ -230,15 +235,31 @@ func enrollHost(ctx context.Context, vault ServerVault, setupKey string) error {
 	return nil
 }
 
-var serverSSHSettings = []struct {
+type serverSSHSetting struct {
 	flag string
 	key  string
 	want bool
-}{
-	{"--allow-server-ssh", "serverSSHAllowed", false},
 }
 
-func serverSSHApplied(ctx context.Context) (bool, error) {
+func serverSSHSettings() ([]serverSSHSetting, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, err
+	}
+	if !naming.IsPoolNode(hostname) {
+		return []serverSSHSetting{{"--allow-server-ssh", "serverSSHAllowed", false}}, nil
+	}
+	return []serverSSHSetting{
+		{"--allow-server-ssh", "serverSSHAllowed", true},
+		{"--enable-ssh-root", "enableSSHRoot", true},
+		{"--enable-ssh-sftp", "enableSSHSFTP", false},
+		{"--enable-ssh-local-port-forwarding", "enableSSHLocalPortForwarding", false},
+		{"--enable-ssh-remote-port-forwarding", "enableSSHRemotePortForwarding", false},
+		{"--disable-ssh-auth", "disableSSHAuth", false},
+	}, nil
+}
+
+func serverSSHApplied(ctx context.Context, settings []serverSSHSetting) (bool, error) {
 	output, err := exec.CommandContext(ctx, clientBinary, "debug", "config").Output()
 	defer clear(output)
 	if err != nil {
@@ -248,7 +269,7 @@ func serverSSHApplied(ctx context.Context) (bool, error) {
 	if err := json.Unmarshal(output, &config); err != nil {
 		return false, fmt.Errorf("netbird debug config: %w", err)
 	}
-	for _, setting := range serverSSHSettings {
+	for _, setting := range settings {
 		var value bool
 		if err := json.Unmarshal(config[setting.key], &value); err != nil {
 			return false, fmt.Errorf("netbird debug config %s: %w", setting.key, err)

@@ -12,6 +12,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/nodeinit"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -250,7 +251,7 @@ func (p Pass) pool(ctx context.Context, configuration string) (core.InstancePool
 		created, err := p.Management.CreateInstancePool(ctx, core.CreateInstancePoolRequest{CreateInstancePoolDetails: core.CreateInstancePoolDetails{
 			CompartmentId: &p.Compartment, InstanceConfigurationId: &configuration, PlacementConfigurations: places, Size: common.Int(p.Min),
 			DisplayName: common.String(p.Label + "-nodes"), FreeformTags: p.tags("instance-pool", "nodes"),
-			InstanceDisplayNameFormatter: common.String(p.Label + "-node-${launchCount}"), InstanceHostnameFormatter: common.String(p.Label + "-node-${launchCount}"),
+			InstanceDisplayNameFormatter: common.String(naming.PoolNodeFormatter(p.Label)), InstanceHostnameFormatter: common.String(naming.PoolNodeFormatter(p.Label)),
 		}, OpcRetryToken: common.String(uuid.New().String())})
 		if err != nil {
 			return core.InstancePool{}, fmt.Errorf("create instance pool: %w", err)

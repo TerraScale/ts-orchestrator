@@ -374,7 +374,9 @@ server; no `--disable-ssh-auth`.
 The peer is a NetBird 0.79.0 client in podman container `ts-netbird-ops`
 (host network, state `/var/lib/ts-netbird-ops`, interface `wt-tsops`,
 WireGuard port 51821), enrolled into `ops-automation` with a one-off setup key.
-That group may only open NetBird SSH to `gru-servers`, and the peer blocks
+That group may only open NetBird SSH to `gru-servers` (of which only pool
+nodes run a NetBird SSH server, see
+[NetBird SSH on pool nodes](../../docs/netbird-m1.md#netbird-ssh-on-pool-nodes)), and the peer blocks
 inbound connections. Legacy routing (`NB_DISABLE_CUSTOM_ROUTING`) adds no ip
 rules, and NetBird DNS rewrites only the container's own `resolv.conf`, so the
 host keeps its resolver and other VPNs; the host only gains the `10.200.0.0/16`
