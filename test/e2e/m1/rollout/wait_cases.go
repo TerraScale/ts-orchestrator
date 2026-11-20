@@ -176,6 +176,7 @@ func globalWaitCases(ctx context.Context, conn *nats.Conn, root, image string, g
 
 func scopedWaitCases(ctx context.Context, conn *nats.Conn, root, gruRoot string, spec swarmruntime.ServiceSpec) {
 	spec.Regions = []string{"gru"}
+	spec.Port, spec.Args = 18088, []string{"--port", "18088"}
 	release := &mesh.Deployment{Repository: "TerraScale/terrascale", Workflow: waitWorkflow, Image: spec.Image, Revision: revision, RunID: "103", RunAttempt: 1}
 	generation := declaration(ctx, conn, &spec, spec.Name, release)
 	evidence(ctx, gruRoot, generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() && r.Bake.Reason == "" })
