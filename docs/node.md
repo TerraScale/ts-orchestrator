@@ -101,9 +101,9 @@ spec's `regions` does not matter for those regions. A catalog region of the
 same environment that has no reviewed position yet rolls out first, in the
 spec's order, ahead of the reviewed ones. Each region pre-pulls, replaces,
 checks the ready path for the requested runtime and bakes. The signed app
-dispatcher checks the policy reported by all targeted regions before it
-sends a multi-region apply. A receiving region holds when a participant
-reports a conflicting order. TerraBase also holds if a participant has yet
+dispatcher and signed reconciler require a fresh policy response from every
+manager in each target region's receiver inventory. A receiving region holds
+when a participant reports a conflicting order. TerraBase also holds if a participant has yet
 to answer. A later region waits for the earlier targets' serving and bake
 evidence for this generation.
 Each region gets its readiness timeout

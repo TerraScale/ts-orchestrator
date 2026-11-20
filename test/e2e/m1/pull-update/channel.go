@@ -335,9 +335,11 @@ func (l *lane) transition(ctx context.Context) {
 		})
 	}
 	sjc := l.waitStatus(ctx, "sjc", "sjc passes the cutover release", passed(cutover.published))
+	cutoverPass := map[string]time.Time{"sjc": sjc.Passed}
 	for _, region := range []string{"fra", "gru"} {
 		status := l.waitStatus(ctx, region, region+" passes the cutover release", passed(cutover.published))
 		require(!started(status).IsZero() && !started(status).Before(sjc.Passed), "%s started the cutover ahead of sjc's gate:\n%s", region, status)
+		cutoverPass[region] = status.Passed
 	}
 	l.requireVersions(ctx, cutover.digest, l.region("gru", "fra", "sjc")...)
 	fmt.Printf("cutover %s: old SJC-first owners admitted SJC first, then all nine hosts confirmed the new binary\n", cutover.tag)
@@ -345,6 +347,13 @@ func (l *lane) transition(ctx context.Context) {
 	binary := l.candidate("post-cutover")
 	next := l.channelRelease(102, "102", binary, binary)
 	l.publishChannel(ctx, next)
+	for _, region := range []string{"fra", "sjc"} {
+		waiting := l.waitStatus(ctx, region, region+" records the next candidate separately from its prior pass", func(s pullrelease.Status) bool {
+			return holds(s, next.published, "waiting for the regional gate")
+		})
+		require(passed(cutover.published)(waiting) && waiting.Passed.Equal(cutoverPass[region]) && waiting.Candidate.Seq == 102,
+			"%s changed the cutover tag's pass while waiting to admit %s:\n%s", region, next.tag, waiting)
+	}
 	gru := l.waitStatus(ctx, "gru", "gru passes the first post-cutover release", passed(next.published))
 	fra := l.waitStatus(ctx, "fra", "fra passes the first post-cutover release", passed(next.published))
 	sjc = l.waitStatus(ctx, "sjc", "sjc passes the first post-cutover release", passed(next.published))

@@ -252,18 +252,29 @@ lease and regional gate. The SSH installer checks a supplied checksum and
 restarts units directly, outside that release sequence.
 
 A GRU-first production cutover needs a signed path reachable by the
-installed fleet that can admit GRU before SJC, retain the fleet restart
-lease and probation, and verify current JetStream membership, leadership and
-surviving quorum for each stop. Current SJC probation and the reported
-metadata membership refusal also need a verified recovery plan.
+installed fleet. A separately runnable operator component could reuse the
+updater's signed channel checks, regional gate and host probation only if it
+has exclusive regional rollout ownership. The installed owner renews its
+JetStream lease autonomously. The current announcement only asks that owner
+to discover the pointer, and the installed updater exposes no authorized
+handoff to another release controller. A second process using the same
+owner identity would share ownership with the old process. A different
+identity would have to wait for the old lease to expire. Neither gives an
+exclusive handoff from the running owner.
+
+The missing prerequisite is a reviewed, signed activation and exclusive
+ownership transfer that the installed fleet can honor before it sees the
+cutover tag. The bridge must reuse the updater's fleet restart lease,
+regional gate and probation and verify current JetStream membership,
+leadership and surviving quorum at each restart. Current SJC probation and
+its reported metadata membership refusal need a separate verified recovery
+plan before SJC can finish the roll.
 
 The local transition journey shows the ordinary SJC-first channel can
 carry one signed cutover build when SJC is healthy. After SJC passes, FRA
 and GRU resume their persisted rolls across binary restarts. The next tag
 passes in GRU, FRA, SJC order. Using that first lab sequence in production
-would require explicit approval for a one-time SJC-first exception and
-evidence that SJC can complete its gate. The lab does not verify either
-production prerequisite.
+would start SJC first. Keep this sequence for local proof only.
 
 During any approved cutover, keep signed TerraBase, ts-auth, ts-dashboard
 and app-canary selections pinned. Let in-flight applies settle and hold

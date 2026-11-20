@@ -674,6 +674,17 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	observe(ctx, conn, func(s map[string]state) bool { return s[order[0]].Ready[spec.Name] < generation })
 	apply(generation, "")
 	assertWaiting(ctx, conn, order[len(order)-1], spec.Name, generation, order[0], "fresh serving evidence missing")
+	query, err := json.Marshal(map[string]string{"view": "deployments", "region": order[len(order)-1]})
+	must(err)
+	observationCtx, stop := context.WithTimeout(ctx, 15*time.Second)
+	message, err := conn.RequestWithContext(observationCtx, mesh.StateSubject, query)
+	stop()
+	must(err)
+	var deployment releasepush.DeploymentObservation
+	must(json.Unmarshal(message.Data, &deployment))
+	hold := deployment.Apps[spec.Name].Admission
+	require(hold != nil && hold.Generation == generation && hold.Revision == revision && hold.Image == spec.Image && hold.Earlier == order[0] && hold.Reason == "fresh serving evidence missing",
+		fmt.Sprintf("held candidate lost its generation or identity in deployment observations: %+v", hold))
 	logStep("a previously successful bake stops admitting regions when A stops serving")
 	setHealth(ctx, addresses[0], 18085, "200")
 	next := evidence(ctx, roots[1], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() })

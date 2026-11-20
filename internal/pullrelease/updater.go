@@ -189,6 +189,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 	}
 	u.considered = discovered
 	release, err := discovered.release, discovered.err
+	u.status.Candidate = nil
 	u.status.Checked = discovered.checked
 	if release.Seq != 0 {
 		if release.Seq < u.status.Seq || release.Seq == u.status.Seq && (u.status.Target == nil || u.status.Target.Tag() != release.Tag()) {
@@ -274,7 +275,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			reason = decided
 		}
 		if reason != "" {
-			u.status.Reason = reason
+			u.status.Candidate = &HeldCandidate{Tag: attested.Tag(), Revision: attested.SHA, Seq: attested.Seq, Reason: reason}
 			u.save(ctx)
 			return checkEvery
 		}

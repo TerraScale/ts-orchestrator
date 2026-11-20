@@ -46,24 +46,32 @@ type HostProgress struct {
 	Ready     time.Time `json:"ready,omitzero"`
 }
 
+type HeldCandidate struct {
+	Tag      string `json:"tag"`
+	Revision string `json:"revision"`
+	Seq      uint64 `json:"seq,omitempty"`
+	Reason   string `json:"reason"`
+}
+
 type Status struct {
-	Region   string                 `json:"region"`
-	Owner    string                 `json:"owner,omitempty"`
-	Phase    string                 `json:"phase"`
-	Target   *releaseattest.Release `json:"target,omitempty"`
-	Hosts    []HostProgress         `json:"hosts,omitempty"`
-	Reason   string                 `json:"reason,omitempty"`
-	Bad      []string               `json:"bad,omitempty"`
-	Since    time.Time              `json:"since,omitzero"`
-	Healthy  time.Time              `json:"healthy,omitzero"`
-	Failing  time.Time              `json:"failing,omitzero"`
-	Failed   int                    `json:"failed,omitempty"`
-	Failures int                    `json:"failures,omitempty"`
-	Done     time.Time              `json:"done,omitzero"`
-	Checked  time.Time              `json:"checked,omitzero"`
-	Updated  time.Time              `json:"updated,omitzero"`
-	Seq      uint64                 `json:"seq,omitempty"`
-	Channel  uint64                 `json:"channel_seq,omitempty"`
+	Region    string                 `json:"region"`
+	Owner     string                 `json:"owner,omitempty"`
+	Phase     string                 `json:"phase"`
+	Target    *releaseattest.Release `json:"target,omitempty"`
+	Candidate *HeldCandidate         `json:"candidate,omitempty"`
+	Hosts     []HostProgress         `json:"hosts,omitempty"`
+	Reason    string                 `json:"reason,omitempty"`
+	Bad       []string               `json:"bad,omitempty"`
+	Since     time.Time              `json:"since,omitzero"`
+	Healthy   time.Time              `json:"healthy,omitzero"`
+	Failing   time.Time              `json:"failing,omitzero"`
+	Failed    int                    `json:"failed,omitempty"`
+	Failures  int                    `json:"failures,omitempty"`
+	Done      time.Time              `json:"done,omitzero"`
+	Checked   time.Time              `json:"checked,omitzero"`
+	Updated   time.Time              `json:"updated,omitzero"`
+	Seq       uint64                 `json:"seq,omitempty"`
+	Channel   uint64                 `json:"channel_seq,omitempty"`
 
 	Published  time.Time `json:"published,omitzero"`
 	Discovered time.Time `json:"discovered,omitzero"`
@@ -191,6 +199,9 @@ func (s Status) String() string {
 		line += " by " + s.Owner
 	}
 	parts := []string{line}
+	if s.Candidate != nil {
+		parts = append(parts, "    waiting to admit "+s.Candidate.Tag+": "+s.Candidate.Reason)
+	}
 	if s.Excluded != "" {
 		parts = append(parts, "    gate "+s.Excluded)
 	}

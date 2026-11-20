@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -137,22 +136,6 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 		return append(rows, back...), errors.Join(failed, fmt.Errorf("rollback to %s: %w", target, err))
 	}
 	return append(rows, back...), errors.Join(failed, errors.New("rolled back to "+target))
-}
-
-func requireRolloutOrder(ctx context.Context, conn *nats.Conn, spec *swarmruntime.ServiceSpec) error {
-	region := ConnRegion(conn)
-	targets := rolloutOrder(region, spec)
-	if len(targets) < 2 {
-		return nil
-	}
-	rule := EnvironmentOf(region).Rollout
-	states := regionStates(ctx, conn, len(targets), targets, stateWait)
-	for _, target := range targets {
-		if !slices.Equal(states[target].Rollout, rule) {
-			return fmt.Errorf("%s does not run the rollout order %v yet", target, rule)
-		}
-	}
-	return nil
 }
 
 // dashboardPackageCutover admits only the signed monorepo dashboard move.

@@ -299,7 +299,7 @@ func MetaBootJourney(root string) error {
 	turnWithin := func(region, name string, spec *swarmruntime.ServiceSpec, wait time.Duration) error {
 		turnCtx, stop := context.WithTimeout(ctx, wait)
 		defer stop()
-		return fleet.nodes[region].awaitTurn(turnCtx, name, spec, generation)
+		return fleet.nodes[region].awaitTurn(turnCtx, name, Entry{Spec: spec, Generation: generation})
 	}
 	decision := func(region, name string) AdmissionDecision {
 		node := fleet.nodes[region]
@@ -387,21 +387,63 @@ func MetaBootJourney(root string) error {
 	fmt.Println("ok order: one generation through the real admission path: sjc waited while fra advertised no rollout order, then for fra's verdict, and admitted itself once gru and fra passed")
 
 	app := &swarmruntime.ServiceSpec{Name: "app-canary", Regions: []string{"sjc", "fra", "gru"}}
-	stage("gru", []string{"sjc", "fra", "gru"}, generation-1)
+	var policyMu sync.Mutex
+	policies := map[string]rolloutPolicy{
+		"gru-m":   {Region: "gru", Receiver: "gru-m", Receivers: []string{"gru-m"}, Order: rule},
+		"fra-m":   {Region: "fra", Receiver: "fra-m", Receivers: []string{"fra-m"}, Order: rule},
+		"sjc-new": {Region: "sjc", Receiver: "sjc-new", Receivers: []string{"sjc-new", "sjc-old"}, Order: rule},
+	}
+	policyResponder, err := fleet.nodes["sjc"].conn.Subscribe(rolloutPolicySubject, func(m *nats.Msg) {
+		var query rolloutPolicyQuery
+		if protocol.DecodeTolerant(m.Data, &query, maxWire) != nil {
+			return
+		}
+		policyMu.Lock()
+		defer policyMu.Unlock()
+		for _, reply := range policies {
+			reply.Nonce = query.Nonce
+			if data, err := protocol.EncodeJSON(reply); err == nil {
+				_ = m.Respond(data)
+			}
+		}
+	})
+	if err != nil {
+		return err
+	}
+	defer policyResponder.Unsubscribe()
+	stagePolicy := func(order []string) {
+		policyMu.Lock()
+		defer policyMu.Unlock()
+		policies["sjc-old"] = rolloutPolicy{Region: "sjc", Receiver: "sjc-old", Receivers: []string{"sjc-new", "sjc-old"}, Order: order}
+	}
+	if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err == nil || !strings.Contains(err.Error(), "sjc receiver sjc-old has no receiver proof") {
+		return fmt.Errorf("one upgraded SJC manager concealed the second receiver: %v", err)
+	}
+	stagePolicy(nil)
+	if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err == nil || !strings.Contains(err.Error(), "sjc receiver sjc-old does not prove") {
+		return fmt.Errorf("empty policy counted as approval: %v", err)
+	}
+	stagePolicy([]string{"sjc", "fra", "gru"})
+	stage("gru", rule, generation-1)
 	for _, name := range []string{"terrabase", "ts-auth", "ts-dashboard", "app-canary"} {
 		app.Name = name
-		if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err == nil || !strings.Contains(err.Error(), "gru does not run the rollout order") {
+		if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err == nil || !strings.Contains(err.Error(), "sjc receiver sjc-old does not prove") {
 			return fmt.Errorf("%s signed apply must wait before dispatch while a recipient advertises the old order: %v", name, err)
 		}
 	}
 	if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, &swarmruntime.ServiceSpec{Name: "ts-auth", Regions: []string{"sjc"}}); err != nil {
 		return fmt.Errorf("single-region ts-auth should stay in sjc during a mixed fleet: %w", err)
 	}
-	go func() { admitted <- turnWithin("sjc", "app-canary", app, time.Minute) }()
-	if err := waitFor("app-canary", "gru", "rollout order not agreed"); err != nil {
-		return fmt.Errorf("sjc did not hold an app rollout while gru advertised the previous sjc-first order: %w, %+v", err, decision("sjc", "app-canary"))
+	entry := Entry{Spec: app, Generation: generation, Deployment: &Deployment{Revision: strings.Repeat("a", 40)}}
+	node := fleet.nodes["sjc"]
+	go func() { admitted <- node.awaitTurn(ctx, "app-canary", entry) }()
+	if err := regionalAwait(ctx, func() bool {
+		got := decision("sjc", "app-canary")
+		return got.Generation == generation && got.Deployment == entry.Deployment && strings.Contains(got.Evidence, "sjc receiver sjc-old does not prove")
+	}); err != nil {
+		return fmt.Errorf("sjc receiver lost the generation-matched mixed-policy hold: %w, %+v", err, decision("sjc", "app-canary"))
 	}
-	stage("gru", rule, generation-1)
+	stagePolicy(rule)
 	if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err != nil {
 		return fmt.Errorf("signed apply must dispatch once all targets report the new order: %w", err)
 	}

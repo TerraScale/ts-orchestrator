@@ -383,7 +383,8 @@ func start(cfg config) (_ *Node, err error) {
 			node.respond(m, state)
 		},
 		// An apply waits for its tasks to run, so it must not hold up the next message.
-		ApplySubject: func(m *nats.Msg) { node.goWork(func() { node.handleApply(m) }) },
+		ApplySubject:         func(m *nats.Msg) { node.goWork(func() { node.handleApply(m) }) },
+		rolloutPolicySubject: func(m *nats.Msg) { node.goWork(func() { node.reportRolloutPolicy(m) }) },
 	}
 	handlers[protocol.MeshWorkerPrefix+cfg.region] = node.recordWorker
 	handlers[protocol.MeshDrainPrefix+cfg.region] = func(m *nats.Msg) { node.goWork(func() { node.handleDrain(m) }) }
@@ -397,7 +398,7 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	for subject, handler := range handlers {
 		var err error
-		if subject == protocol.MeshWorkerPrefix+cfg.region || subject == regionRoutesSubject(cfg.region) {
+		if subject == protocol.MeshWorkerPrefix+cfg.region || subject == regionRoutesSubject(cfg.region) || subject == rolloutPolicySubject {
 			_, err = conn.Subscribe(subject, handler)
 		} else {
 			_, err = conn.QueueSubscribe(subject, cfg.region, handler)
@@ -602,7 +603,7 @@ func (n *Node) sync(ctx context.Context) {
 			}
 			continue
 		}
-		if entry := n.desired[name].entry(); n.held(entry) || entry.RollbackOf == 0 && n.turn(name, entry.Spec, entry.Generation, states) != nil {
+		if entry := n.desired[name].entry(); n.held(entry) || entry.RollbackOf == 0 && n.turn(ctx, name, entry, states) != nil {
 			continue // an earlier region still rolls this generation out
 		}
 		if record, err := n.readBake(name, n.desired[name].entry().Generation); err == nil && record.Bake.Reason != "" {
@@ -660,7 +661,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 		err = validEntry(n.cfg.region, request.Name, request.Entry)
 	}
 	if err == nil && request.ExpectedGeneration == 0 && request.Entry.RollbackOf == 0 {
-		err = n.awaitTurn(ctx, request.Name, request.Entry.Spec, request.Entry.Generation)
+		err = n.awaitTurn(ctx, request.Name, request.Entry)
 	}
 	if err == nil {
 		err = n.awaitPeerAdmission(ctx, request.Entry.Spec)
@@ -816,14 +817,16 @@ func (n *Node) held(entry Entry) bool {
 var errEarlierFailed = errors.New("an earlier region failed this rollout")
 
 type AdmissionDecision struct {
-	Generation int64     `json:"generation"`
-	At         time.Time `json:"at"`
-	Earlier    string    `json:"earlier,omitempty"`
-	Evidence   string    `json:"evidence"`
+	Generation int64       `json:"generation"`
+	At         time.Time   `json:"at"`
+	Earlier    string      `json:"earlier,omitempty"`
+	Evidence   string      `json:"evidence"`
+	Deployment *Deployment `json:"deployment,omitempty"`
 }
 
-func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int64, states map[string]stateReply) (err error) {
-	decision := AdmissionDecision{Generation: generation, At: time.Now(), Evidence: "admitted"}
+func (n *Node) turn(ctx context.Context, name string, entry Entry, states map[string]stateReply) (err error) {
+	spec, generation := entry.Spec, entry.Generation
+	decision := AdmissionDecision{Generation: generation, At: time.Now(), Evidence: "admitted", Deployment: entry.Deployment}
 	defer func() {
 		n.admissionMu.Lock()
 		defer n.admissionMu.Unlock()
@@ -834,6 +837,12 @@ func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int6
 			n.admission[name] = decision
 		}
 	}()
+	if entry.Deployment != nil && len(n.participants(spec)) != 0 {
+		if err := requireRolloutOrder(ctx, n.conn, spec); err != nil {
+			decision.Evidence = err.Error()
+			return err
+		}
+	}
 	rule := EnvironmentOf(n.cfg.region).Rollout
 	for _, region := range n.participants(spec) {
 		reply, answered := states[region]
@@ -911,16 +920,16 @@ func (n *Node) awaitDependents(ctx context.Context, name string) (time.Duration,
 }
 
 // awaitTurn waits until turn allows this region to apply.
-func (n *Node) awaitTurn(ctx context.Context, name string, spec *swarmruntime.ServiceSpec, generation int64) error {
-	asked := n.participants(spec)
+func (n *Node) awaitTurn(ctx context.Context, name string, entry Entry) error {
+	asked := n.participants(entry.Spec)
 	if len(asked) == 0 {
 		return nil
 	}
 	for {
-		if newer := n.newerGeneration(name, generation); newer != 0 {
-			return fmt.Errorf("%s generation %d superseded by generation %d", name, generation, newer)
+		if newer := n.newerGeneration(name, entry.Generation); newer != 0 {
+			return fmt.Errorf("%s generation %d superseded by generation %d", name, entry.Generation, newer)
 		}
-		err := n.turn(name, spec, generation, n.statesOf(ctx, asked, time.Second))
+		err := n.turn(ctx, name, entry, n.statesOf(ctx, asked, time.Second))
 		if err == nil || errors.Is(err, errEarlierFailed) {
 			return err
 		}

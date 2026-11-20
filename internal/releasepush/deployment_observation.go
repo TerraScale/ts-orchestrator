@@ -27,6 +27,7 @@ type AppDeployment struct {
 	Complete    bool             `json:"complete"`
 	PassedAt    time.Time        `json:"passed_at,omitzero"`
 	Placement   *Placement       `json:"placement,omitempty"`
+	Admission   *AppAdmission    `json:"admission,omitempty"`
 	Replicas    uint64           `json:"replicas"`
 	Tasks       []DeploymentTask `json:"tasks"`
 	FailedTasks []DeploymentTask `json:"failed_tasks,omitempty"`
@@ -34,6 +35,16 @@ type AppDeployment struct {
 	Reason      string           `json:"reason,omitempty"`
 	Error       string           `json:"error,omitempty"`
 	Failed      bool             `json:"failed"`
+}
+
+type AppAdmission struct {
+	Generation int64  `json:"generation"`
+	Image      string `json:"image"`
+	Revision   string `json:"revision"`
+	RunID      string `json:"run_id"`
+	Attempt    uint64 `json:"attempt"`
+	Earlier    string `json:"earlier,omitempty"`
+	Reason     string `json:"reason"`
 }
 
 type Placement struct {

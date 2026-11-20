@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
+	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
+	"github.com/TerraScale/ts-orchestrator/internal/releaseattest"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 )
 
@@ -264,17 +266,7 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 				reasons = append(reasons, reason)
 			}
 		}
-		var pull struct {
-			Target *struct {
-				SHA string `json:"sha"`
-			} `json:"target"`
-			Phase  string `json:"phase"`
-			Reason string `json:"reason"`
-			Hosts  []struct {
-				Host  string `json:"host"`
-				Error string `json:"error"`
-			} `json:"hosts"`
-		}
+		var pull pullrelease.Status
 		if err := json.Unmarshal(report.Pull, &pull); err != nil {
 			return finding{line: fmt.Sprintf("%s %s: cannot observe %s: pull rollout unreadable", x.name, region, region), unknown: true}
 		}
@@ -286,6 +278,10 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 		}
 		if (pull.Target == nil || pull.Target.SHA == target.Revision) && pull.Reason != "" {
 			reasons = append(reasons, report.Host+": "+pull.Reason)
+		}
+		if hold := pull.Candidate; hold != nil && hold.Tag == releaseattest.Tag(target.Revision, target.RunID) {
+			pending = true
+			reasons = append(reasons, report.Host+": "+hold.Reason)
 		}
 		for _, host := range pull.Hosts {
 			if (pull.Target == nil || pull.Target.SHA == target.Revision) && host.Error != "" {
@@ -302,11 +298,15 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 		if app.Reason != "" {
 			reasons = append(reasons, app.Host+": "+app.Reason)
 		}
+		if hold := app.Admission; hold != nil && hold.Revision == target.Revision && hold.RunID == target.RunID && hold.Attempt == target.Attempt && appregistry.SameDigest(hold.Image, target.Image) {
+			pending = true
+			reasons = append(reasons, app.Host+": "+strings.TrimPrefix(hold.Earlier+": "+hold.Reason, ": "))
+		}
 	}
 	var running []string
 	var lag time.Duration
 	if x.name != "ts-orchestrator" && !excluded {
-		pending = !report.Apps[x.name].Complete || uint64(len(tasks)) < report.Apps[x.name].Replicas
+		pending = pending || !report.Apps[x.name].Complete || uint64(len(tasks)) < report.Apps[x.name].Replicas
 	}
 	if x.name == "ts-auth" || x.name == "ts-dashboard" {
 		publication, err := a.applicationRelease(ctx, x, target)

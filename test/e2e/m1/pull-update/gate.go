@@ -194,8 +194,9 @@ func (l *lane) gate(ctx context.Context) {
 		"fra must withhold %s only once the bound expires with ts-auth still mid-release:\n%s", degraded.tag, fra)
 	sjc := l.waitStatus(ctx, "sjc", "sjc waits for fra's gate of "+degraded.tag, func(s pullrelease.Status) bool {
 		require(s.Target == nil || s.Target.Tag() != degraded.tag, "sjc took %s before fra passed:\n%s", degraded.tag, s)
-		return strings.HasPrefix(s.Reason, "fra: waiting for the regional gate") && s.Updated.After(fra.Updated)
+		return holds(s, degraded, "fra: waiting for the regional gate") && s.Updated.After(fra.Updated)
 	})
+	require(sjc.Target != nil && sjc.Target.Tag() != sjc.Candidate.Tag && sjc.Passed.IsZero(), "waiting candidate replaced SJC's adopted target or supplied a gate pass: %s", sjc)
 	l.requireVersions(ctx, hex.EncodeToString(sha256Of(l.self)), l.region("sjc")...)
 	l.setServiceIn(later, "ts-auth", 3, swarmruntime.UpdateCompleted, 1, 1, "auth-1")
 	elapsed := time.Since(published)
@@ -210,7 +211,7 @@ func (l *lane) gate(ctx context.Context) {
 	}
 	require(elapsed < gateBudget, "the release took %s to pass gru and withhold fra, over the %s budget:\n%s", elapsed, gateBudget, strings.Join(slices.Concat(gru.Timeline(), fra.Timeline()), "\n"))
 	fmt.Printf("gru passes %s despite its degraded baseline; fra withholds it; sjc keeps its previous binary (%s), in %s\n%s\n",
-		degraded.tag, sjc.Reason, elapsed.Round(time.Second), strings.Join(slices.Concat(gru.Timeline(), fra.Timeline()), "\n"))
+		degraded.tag, sjc.Candidate.Reason, elapsed.Round(time.Second), strings.Join(slices.Concat(gru.Timeline(), fra.Timeline()), "\n"))
 
 	resumed := l.publishGood("116", "c116")
 	l.waitStatus(ctx, "gru", "gru's owner installs "+resumed.tag+" on itself, after the other hosts", ownerInstalling(resumed))
@@ -228,12 +229,12 @@ func (l *lane) gate(ctx context.Context) {
 	})
 	sjcResumed := l.waitStatus(ctx, "sjc", "sjc holds "+resumed.tag, func(s pullrelease.Status) bool {
 		require(s.Target == nil || s.Target.Tag() != resumed.tag, "sjc took %s after fra failed its gate:\n%s", resumed.tag, s)
-		return strings.Contains(s.Reason, "fra: failed the gate of "+resumed.tag)
+		return holds(s, resumed, "fra: failed the gate of "+resumed.tag)
 	})
 	gruResumed := l.waitStatus(ctx, "gru", "the canary keeps "+resumed.tag+" after fra rolled it back", func(s pullrelease.Status) bool { return s.Updated.After(fraResumed.Updated) })
 	require(passed(resumed)(gruResumed) && gruResumed.Passed.Equal(inherited.Passed) && !slices.Contains(gruResumed.Bad, resumed.tag),
 		"a failed gate in fra must roll back fra only and leave the canary's record as it passed:\ngru %s", gruResumed)
-	fmt.Printf("fra-w restarted during the gate of %s -> fra rolled back alone; the canary keeps it; sjc holds it: %s\n%s\n", resumed.tag, sjcResumed.Reason, strings.Join(slices.Concat(gruResumed.Timeline(), fraResumed.Timeline()), "\n"))
+	fmt.Printf("fra-w restarted during the gate of %s -> fra rolled back alone; the canary keeps it; sjc holds it: %s\n%s\n", resumed.tag, sjcResumed.Candidate.Reason, strings.Join(slices.Concat(gruResumed.Timeline(), fraResumed.Timeline()), "\n"))
 
 	second := l.publishGood("117", "c117")
 	l.waitStatus(ctx, "gru", "gru records its state before "+second.tag, func(s pullrelease.Status) bool {
@@ -254,9 +255,9 @@ func (l *lane) gate(ctx context.Context) {
 	for _, region := range []string{"fra", "sjc"} {
 		pending := l.waitStatus(ctx, region, region+" holds "+second.tag+" while the canary's rollback is pending", func(s pullrelease.Status) bool {
 			require(s.Target == nil || s.Target.Tag() != second.tag, "%s took %s while the canary rolls it back:\n%s", region, second.tag, s)
-			return strings.Contains(s.Reason, "gru: failed the gate of "+second.tag)
+			return holds(s, second, "gru: failed the gate of "+second.tag)
 		})
-		fmt.Printf("%s holds %s while the canary's restore is refused: %s\n", region, pending.Target.Tag(), pending.Reason)
+		fmt.Printf("%s holds %s while the canary's restore is refused: %s\n", region, pending.Candidate.Tag, pending.Candidate.Reason)
 	}
 	for _, id := range l.region("gru") {
 		must(os.Remove(filepath.Join(l.hosts[id].dir, "refuse-stop")))
@@ -265,9 +266,9 @@ func (l *lane) gate(ctx context.Context) {
 	for _, region := range []string{"fra", "sjc"} {
 		blocked := l.waitStatus(ctx, region, region+" holds "+second.tag+" behind the canary", func(s pullrelease.Status) bool {
 			require(s.Target == nil || s.Target.Tag() != second.tag, "%s took %s, which the canary rolled back:\n%s", region, second.tag, s)
-			return s.Updated.After(rolled.Updated) && strings.Contains(s.Reason, "gru: failed the gate of "+second.tag)
+			return s.Updated.After(rolled.Updated) && holds(s, second, "gru: failed the gate of "+second.tag)
 		})
-		fmt.Printf("%s holds %s: %s\n", region, blocked.Target.Tag(), blocked.Reason)
+		fmt.Printf("%s holds %s: %s\n", region, blocked.Candidate.Tag, blocked.Candidate.Reason)
 	}
 	fmt.Printf("ts-auth's second replica never ready during the gate of %s -> rolled back and marked bad in the canary; fra and sjc hold the previous release\n%s\n", second.tag, rolled)
 
@@ -291,6 +292,10 @@ func started(s pullrelease.Status) time.Time {
 		}
 	}
 	return first
+}
+
+func holds(s pullrelease.Status, release published, reason string) bool {
+	return s.Candidate != nil && s.Candidate.Tag == release.tag && s.Candidate.Revision == release.sha && strings.Contains(s.Candidate.Reason, reason)
 }
 
 func ordered(gru, fra, sjc pullrelease.Status) {
