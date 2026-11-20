@@ -334,7 +334,16 @@ func (h *Host) Events() []Event {
 }
 
 func (h *Host) WaitEvent(ctx context.Context, match func(Event) bool) (Event, error) {
-	seen := 0
+	return h.WaitEventFrom(ctx, 0, match)
+}
+
+func (h *Host) EventCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.events)
+}
+
+func (h *Host) WaitEventFrom(ctx context.Context, seen int, match func(Event) bool) (Event, error) {
 	for {
 		h.mu.Lock()
 		events, changed := h.events[seen:], h.changed
@@ -630,6 +639,12 @@ func (f *Fleet) PinSecret(name string) string {
 	item := f.standIn.secrets[name]
 	f.standIn.pinned[name] = len(item.Versions)
 	return string(item.Versions[len(item.Versions)-1])
+}
+
+func (f *Fleet) Terminated(host *Host, gone bool) {
+	f.standIn.mu.Lock()
+	defer f.standIn.mu.Unlock()
+	f.standIn.gone[host.InstanceID] = gone
 }
 
 func (f *Fleet) UnpinSecret(name string) {

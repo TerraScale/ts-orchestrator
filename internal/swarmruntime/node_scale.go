@@ -2,6 +2,7 @@ package swarmruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -51,6 +52,7 @@ func (n *Node) SwarmView(ctx context.Context) (fleet.SwarmView, error) {
 		if node.Description != nil {
 			member.Hostname = node.Description.Hostname
 		}
+		member.Address, member.Version = node.Status.Addr, node.Meta.Version.Index
 		if since, ok := node.Spec.Annotations.Labels[LabelDrainSince]; ok && node.Spec.Availability == api.NodeAvailabilityDrain {
 			if member.DrainSince, err = time.Parse(time.RFC3339, since); err != nil {
 				return fleet.SwarmView{}, fmt.Errorf("node %s %s: %w", node.ID, LabelDrainSince, err)
@@ -124,4 +126,37 @@ func (n *Node) Remove(ctx context.Context, hostname string, guard func(context.C
 		return err
 	}
 	return RemoveMember(ctx, client, hostname, guard)
+}
+
+func (n *Node) Admit(ctx context.Context, verified fleet.SwarmNode, instanceID, region string) error {
+	client, err := n.ControlClient(ctx)
+	if err != nil {
+		return err
+	}
+	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return err
+	}
+	var node *api.Node
+	for _, current := range listed.Nodes {
+		switch {
+		case current.ID == verified.ID:
+			node = current
+		case current.Spec.Annotations.Labels[LabelInstanceID] == instanceID:
+			return fmt.Errorf("instance %s is bound to Swarm identity %s until that record is retired", instanceID, current.ID)
+		}
+	}
+	switch {
+	case node == nil:
+		return errors.New("node left the cluster after verification")
+	case node.Meta.Version.Index != verified.Version || node.Description == nil || node.Description.Hostname != verified.Hostname ||
+		node.Status.Addr != verified.Address || node.Status.State != api.NodeStatus_READY:
+		return fmt.Errorf("node changed after verification (version %d, verified %d)", node.Meta.Version.Index, verified.Version)
+	}
+	role := "container"
+	if node.Role == api.NodeRoleManager {
+		role = "manager"
+	}
+	_, err = admitNode(ctx, client, node, Admission{Region: region, HostID: verified.Hostname, InstanceID: instanceID, Role: role})
+	return err
 }
