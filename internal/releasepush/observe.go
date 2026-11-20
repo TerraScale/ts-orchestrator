@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -46,6 +47,10 @@ func (h *Handler) Observe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if r.URL.Query().Get("view") == appReleaseView {
+		h.observeAppRelease(w, r)
 		return
 	}
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -124,10 +129,19 @@ func meshURL(region, path string) string {
 }
 
 func fetchObservation(ctx context.Context, region Region, address, token string) (Observation, int, error) {
+	var observation Observation
+	status, err := getObservation(ctx, region, address, token, nil, &observation)
+	return observation, status, err
+}
+
+func getObservation(ctx context.Context, region Region, address, token string, query url.Values, result any) (int, error) {
 	endpoint := meshURL(region.Region, ObservationPath)
+	if encoded := query.Encode(); encoded != "" {
+		endpoint += "?" + encoded
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return Observation{}, 0, err
+		return 0, err
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	client := http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -142,14 +156,13 @@ func fetchObservation(ctx context.Context, region Region, address, token string)
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return Observation{}, 0, err
+		return 0, err
 	}
 	defer response.Body.Close()
-	var observation Observation
-	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&observation); err != nil {
-		return Observation{}, response.StatusCode, fmt.Errorf("%s: HTTP %s: %w", region.Region, response.Status, err)
+	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(result); err != nil {
+		return response.StatusCode, fmt.Errorf("%s: HTTP %s: %w", region.Region, response.Status, err)
 	}
-	return observation, response.StatusCode, nil
+	return response.StatusCode, nil
 }
 
 type hostInventory struct {

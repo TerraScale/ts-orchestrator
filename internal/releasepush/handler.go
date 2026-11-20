@@ -105,6 +105,7 @@ type Progress interface {
 }
 
 type Handler struct {
+	AppRelease  func(context.Context, string, string) (AppReleaseObservation, error)
 	Deployments func(context.Context) (DeploymentObservation, error)
 	Hosts       func(context.Context) ([]HostVersion, error)
 	Discover    func(context.Context) (Discovery, error)

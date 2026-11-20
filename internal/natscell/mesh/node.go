@@ -366,12 +366,14 @@ func start(cfg config) (_ *Node, err error) {
 				Workers: node.joinedWorkers()})
 		},
 		StateSubject: func(m *nats.Msg) {
-			var request struct {
-				Nonce  string `json:"nonce"`
-				View   string `json:"view"`
-				Region string `json:"region"`
-			}
+			var request stateRequest
 			_ = protocol.DecodeTolerant(m.Data, &request, maxWire)
+			if request.View == appReleaseView {
+				if request.Region == cfg.region && request.Nonce != "" && serviceName.MatchString(request.Service) {
+					node.goWork(func() { node.respond(m, node.observeAppRelease(request)) })
+				}
+				return
+			}
 			if request.View == "deployments" {
 				if request.Region == cfg.region {
 					node.goWork(func() { node.respond(m, node.observeDeployments()) })
