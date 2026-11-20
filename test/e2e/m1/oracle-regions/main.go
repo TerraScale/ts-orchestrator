@@ -793,6 +793,7 @@ func main() {
 	meshRoutes(ctx, fleet)
 	step("%s went not READY and back: its route stayed configured, and after %d route sockets to %s were reset ORCH, TERRABASE and ALERTS deliver both ways over the VCN", flapped.Name, reset, survivor.Name)
 
+	badPeerRecords(ctx, fleet, first)
 	departed := gru.Hosts[2]
 	promoteManagers(ctx, gru.Hosts[0], follower, departed)
 	step("%s's SwarmKit managers promoted %s and %s with no release; both are Raft-reachable managers", gru.Name, follower.Name, departed.Name)
@@ -855,7 +856,6 @@ func main() {
 	}
 	require(dialed.Load() == 0, "a host dialed the forged member %s %d times", oraclehost.GatewayAddress, dialed.Load())
 	step("%s left and was replaced by %s at %s: every %s host routes to it over the VCN and no longer configures %s", departed.Name, replacement.Name, replacement.Address, gru.Name, departed.Address)
-	badPeerRecords(ctx, fleet, first)
 	step("oracle-regions lane passed in %s", time.Since(started).Round(time.Second))
 }
 

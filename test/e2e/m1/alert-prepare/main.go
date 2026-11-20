@@ -93,6 +93,8 @@ func main() {
 			}
 			seen[name] = true
 			must(json.NewEncoder(w).Encode(map[string]any{"secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString([]byte(value))}}))
+		case "/20180608/secrets":
+			must(json.NewEncoder(w).Encode([]any{}))
 		default:
 			http.Error(w, "unknown endpoint", http.StatusNotFound)
 		}

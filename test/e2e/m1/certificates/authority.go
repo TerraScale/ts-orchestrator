@@ -139,6 +139,15 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 	tlsAPI := tls.NewListener(api, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}})
 	defer tlsAPI.Close()
 	var databaseReads int
+	written := map[string][][]byte{}
+	secretID := func(name string) string {
+		digest := sha256.Sum256([]byte(name))
+		return "ocid1.vaultsecret.oc1.sa-saopaulo-1." + hex.EncodeToString(digest[:12])
+	}
+	secretJSON := func(name string) map[string]any {
+		return map[string]any{"id": secretID(name), "secretName": name, "vaultId": vaultsecret.SharedVault, "compartmentId": "ocid1.compartment.oc1..journey",
+			"keyId": "ocid1.key.oc1.sa-saopaulo-1.journey", "lifecycleState": "ACTIVE", "currentVersionNumber": len(written[name])}
+	}
 	servers := []*http.Server{
 		{Handler: http.HandlerFunc(a.serve)},
 		{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +201,12 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 					records[mesh.SeedRecord(region)] = string(seeds)
 				}
 				value, ok := records[r.URL.Query().Get("secretName")]
+				a.mu.Lock()
+				versions := written[r.URL.Query().Get("secretName")]
+				a.mu.Unlock()
+				if len(versions) != 0 {
+					value, ok = string(versions[len(versions)-1]), true
+				}
 				if r.URL.Query().Get("secretName") == "gru-1-terrabase-nats-token" {
 					a.mu.Lock()
 					databaseReads++
@@ -207,13 +222,55 @@ func authorityMain(ctx context.Context, cfg configuration) error {
 					http.Error(w, "production nodes read "+r.URL.Query().Get("secretName")+" from gru-vault, asked "+vault, http.StatusBadRequest)
 					return
 				}
-				_ = json.NewEncoder(w).Encode(map[string]any{"secretId": "ocid1.vaultsecret.oc1.sa-saopaulo-1.journey", "secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString([]byte(value))}, "versionNumber": 1})
+				_ = json.NewEncoder(w).Encode(map[string]any{"secretId": secretID(r.URL.Query().Get("secretName")), "secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString([]byte(value))}, "versionNumber": max(1, len(versions))})
+			case strings.HasPrefix(r.URL.Path, "/20180608/secrets"):
+				id := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/20180608/secrets"), "/")
+				var body struct {
+					SecretName    string `json:"secretName"`
+					SecretContent struct {
+						Content string `json:"content"`
+					} `json:"secretContent"`
+				}
+				if r.Method == http.MethodPost || r.Method == http.MethodPut {
+					_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body)
+				}
+				content, _ := base64.StdEncoding.DecodeString(body.SecretContent.Content)
+				a.mu.Lock()
+				defer a.mu.Unlock()
+				name := ""
+				for candidate := range written {
+					if secretID(candidate) == id {
+						name = candidate
+					}
+				}
+				switch {
+				case id == "" && r.Method == http.MethodGet:
+					items := []map[string]any{}
+					if len(written[r.URL.Query().Get("name")]) != 0 {
+						items = append(items, secretJSON(r.URL.Query().Get("name")))
+					}
+					_ = json.NewEncoder(w).Encode(items)
+				case id == "" && r.Method == http.MethodPost && len(content) != 0 && len(written[body.SecretName]) == 0:
+					written[body.SecretName] = [][]byte{content}
+					w.Header().Set("etag", "1")
+					_ = json.NewEncoder(w).Encode(secretJSON(body.SecretName))
+				case name != "" && r.Method == http.MethodGet:
+					w.Header().Set("etag", strconv.Itoa(len(written[name])))
+					_ = json.NewEncoder(w).Encode(secretJSON(name))
+				case name != "" && r.Method == http.MethodPut && r.Header.Get("if-match") == strconv.Itoa(len(written[name])) && len(content) != 0:
+					written[name] = append(written[name], content)
+					w.Header().Set("etag", strconv.Itoa(len(written[name])))
+					_ = json.NewEncoder(w).Encode(secretJSON(name))
+				default:
+					w.WriteHeader(http.StatusConflict)
+					_ = json.NewEncoder(w).Encode(map[string]string{"code": "Conflict", "message": "stand-in refused " + r.Method + " " + r.URL.Path})
+				}
 			default:
 				http.NotFound(w, r)
 			}
 		})},
 		{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodConnect || r.Host != "auth.sa-saopaulo-1.oraclecloud.com:443" && r.Host != "secrets.vaults.sa-saopaulo-1.oci.oraclecloud.com:443" {
+			if r.Method != http.MethodConnect || r.Host != "auth.sa-saopaulo-1.oraclecloud.com:443" && r.Host != "secrets.vaults.sa-saopaulo-1.oci.oraclecloud.com:443" && r.Host != "vaults.sa-saopaulo-1.oci.oraclecloud.com:443" {
 				http.Error(w, "unexpected upstream", 403)
 				return
 			}
