@@ -141,19 +141,6 @@
   ],
   "configuration_policy": "Unavoidable upstream public configuration names remain unchanged for provenance; application exposes no new switch or setting.",
   "go_mod_sum": "h1:GQ6T0ij2oBbWX10OHwpvK449xfXkQMZ8J+B+eQ4mgp4=",
-  "local_membership_patch": {
-    "files": [
-      {
-        "bytes": 1754,
-        "path": "manager/voters.go",
-        "rationale": "Leader-only Raft voter view (membership, transport reachability, match index against the commit index) and a membership store transaction that re-reads the voters and fails on a changed term or leader, so an operator promotion's checks and its role write share one leadership epoch.",
-        "sha256": "8f9189c968bec25560d9b5c88f89c73939121dd2302983062887355f9fa26ded",
-        "source_history": [
-          "[fix] C52a: admission labels and operator promotion of one voting manager per call"
-        ]
-      }
-    ]
-  },
   "local_readonly_control_patch": {
     "archived_test_files": [
       "manager/state/raft/observation_test.go"

@@ -623,12 +623,6 @@ func (f *Fleet) PinSecret(name string) string {
 	return string(item.Versions[len(item.Versions)-1])
 }
 
-func (f *Fleet) Terminated(host *Host, gone bool) {
-	f.standIn.mu.Lock()
-	defer f.standIn.mu.Unlock()
-	f.standIn.gone[host.InstanceID] = gone
-}
-
 func (f *Fleet) UnpinSecret(name string) {
 	f.standIn.mu.Lock()
 	defer f.standIn.mu.Unlock()
