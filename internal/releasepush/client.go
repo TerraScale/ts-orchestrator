@@ -46,12 +46,14 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func MintToken(ctx context.Context) (string, error) {
+func MintToken(ctx context.Context) (string, error) { return MintTokenFor(ctx, Audience) }
+
+func MintTokenFor(ctx context.Context, audience string) (string, error) {
 	endpoint, bearer := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL"), os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
 	if endpoint == "" || bearer == "" {
 		return "", errors.New("GitHub OIDC is unavailable; the job needs permissions: id-token: write")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"&audience="+url.QueryEscape(Audience), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"&audience="+url.QueryEscape(audience), nil)
 	if err != nil {
 		return "", err
 	}

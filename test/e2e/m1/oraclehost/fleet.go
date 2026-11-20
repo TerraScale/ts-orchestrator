@@ -682,3 +682,34 @@ func (f *Fleet) Close() {
 	}
 	f.standIn.close()
 }
+
+func (f *Fleet) PromoteToken(region string, claims map[string]any) (string, error) {
+	workflow := "TerraScale/ts-orchestrator/.github/workflows/member-promote.yml@refs/heads/main"
+	values := map[string]any{"aud": releasepush.PromoteAudience + region, "job_workflow_ref": workflow, "workflow_ref": workflow,
+		"event_name": "workflow_dispatch", "iat": time.Now().Unix(), "exp": time.Now().Add(5 * time.Minute).Unix(), "jti": fmt.Sprintf("promote-%d", time.Now().UnixNano())}
+	for name, value := range claims {
+		values[name] = value
+	}
+	return f.standIn.identityToken(revisionOf(f.Binary), "1", values)
+}
+
+func (h *Host) Promote(ctx context.Context, token string) (int, []byte, error) {
+	roots := x509.NewCertPool()
+	roots.AddCert(h.fleet.standIn.caCert)
+	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		return h.Dial(network, h.Address+":443")
+	}}
+	defer transport.CloseIdleConnections()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+h.Region.Name+"."+mesh.Domain+releasepush.MemberPromotePath, strings.NewReader("{}"))
+	if err != nil {
+		return 0, nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := (&http.Client{Transport: transport, Timeout: 3 * time.Minute}).Do(request)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	return response.StatusCode, body, err
+}

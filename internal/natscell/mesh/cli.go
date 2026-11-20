@@ -22,6 +22,10 @@ import (
 // Connect opens the root CLI's connection to this host's mesh node.
 func Connect(state string) (*nats.Conn, error) { return connect(state, "client.token", OrchUser) }
 
+func ConnectPromoter(state string) (*nats.Conn, error) {
+	return connect(state, "promoter.token", PromoterUser)
+}
+
 func ConnectFabric(state string) (*nats.Conn, error) {
 	return connect(state, "fabric.token", fabricUser)
 }

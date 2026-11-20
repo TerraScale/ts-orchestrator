@@ -1,0 +1,50 @@
+name: Member promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: Region whose Raft leader promotes one eligible worker to a voting manager
+        required: true
+        type: choice
+        options:
+          - gru
+          - sjc
+          - fra
+
+concurrency:
+  group: member-promote
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Install the pinned Go toolchain
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Promote one worker in the region
+        shell: bash
+        env:
+          REGION: ${{ inputs.region }}
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/member-promote" ./scripts/ci/memberpromote
+          "$RUNNER_TEMP/member-promote" "$REGION"

@@ -35,6 +35,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
+	"github.com/TerraScale/ts-orchestrator/internal/regionmember"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/oraclehost"
@@ -415,6 +417,57 @@ func unadmitted(ctx context.Context, region *oraclehost.Region, host *oraclehost
 	node := current.Node
 	require(node.Status.State == api.NodeStatus_READY && node.Spec.Annotations.Name == "" && node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] == "",
 		"%s, whose instance is gone from OCI inventory, was admitted: state %v name %q labels %v", host.Name, node.Status.State, node.Spec.Annotations.Name, node.Spec.Annotations.Labels)
+}
+
+func refusedPromoteSubject(ctx context.Context, host *oraclehost.Host, region string) {
+	violations := make(chan error, 1)
+	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", mesh.LocalPort), nats.SetCustomDialer(host),
+		nats.UserInfo(mesh.OrchUser, meshToken(host, "client.token")),
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			select {
+			case violations <- err:
+			default:
+			}
+		}))
+	must(err)
+	defer conn.Close()
+	must(conn.Publish(protocol.MeshMemberSubject(region, "promote"), []byte(`{}`)))
+	must(conn.Flush())
+	select {
+	case err := <-violations:
+		require(strings.Contains(err.Error(), "Permissions Violation"), "%s ORCH promotion request: %v", host.Name, err)
+	case <-ctx.Done():
+		panic(fmt.Errorf("%s's ORCH principal published a %s promotion request without a permissions violation", host.Name, region))
+	}
+}
+
+func leaderRefusal(ctx context.Context, host *oraclehost.Host, region, token string) string {
+	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", mesh.LocalPort), nats.SetCustomDialer(host),
+		nats.UserInfo(mesh.PromoterUser, meshToken(host, "promoter.token")))
+	must(err)
+	defer conn.Close()
+	data, err := protocol.EncodeJSON(map[string]string{"token": token})
+	must(err)
+	response, err := conn.RequestWithContext(ctx, protocol.MeshMemberSubject(region, "promote"), data)
+	must(err)
+	var reply regionmember.Reply
+	must(json.Unmarshal(response.Data, &reply))
+	require(reply.Promotion == nil && reply.Error != "", "%s's leader accepted a promotion it should refuse: %s", region, response.Data)
+	return reply.Error
+}
+
+func regionVoters(ctx context.Context, ops *oraclehost.Host, region *oraclehost.Region) (int, string) {
+	output, err := ops.Exec(ctx, "/usr/local/bin/ts-orch", "member", "ls", "--region", region.Name)
+	listing := string(output)
+	require(err == nil, "member ls --region %s on %s: %v: %s", region.Name, ops.Name, err, listing)
+	for _, line := range strings.Split(listing, "\n") {
+		var voters, reachable int
+		if _, err := fmt.Sscanf(line, "voters: %d of 3, %d Raft-reachable", &voters, &reachable); err == nil {
+			require(voters == reachable, "%s voters %d, reachable %d: %s", region.Name, voters, reachable, listing)
+			return voters, listing
+		}
+	}
+	panic(fmt.Errorf("member ls --region %s printed no voter count: %s", region.Name, listing))
 }
 
 func promoteManagers(ctx context.Context, leader *oraclehost.Host, hosts ...*oraclehost.Host) {
@@ -835,6 +888,56 @@ func main() {
 	step("%s's SwarmKit managers promoted %s and %s with no release; both are Raft-reachable managers", gru.Name, follower.Name, departed.Name)
 	admittedHosts(ctx, sjc, gone)
 	step("once OCI lists %s's instance again, its region leader admits it too", gone.Name)
+	ops, edgeHost := gru.Hosts[0], sjc.Hosts[1]
+	refusedPromoteSubject(ctx, edgeHost, sjc.Name)
+	for _, wrong := range []struct {
+		what   string
+		claims map[string]any
+		reason string
+	}{
+		{"another region's audience", map[string]any{"aud": releasepush.PromoteAudience + "fra"}, "audience"},
+		{"another ref", map[string]any{"ref": "refs/heads/other"}, "refs/heads/main"},
+		{"another workflow", map[string]any{"job_workflow_ref": "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main", "workflow_ref": "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main"}, "member-promote"},
+	} {
+		token, err := fleet.PromoteToken(sjc.Name, wrong.claims)
+		must(err)
+		status, body, err := edgeHost.Promote(ctx, token)
+		must(err)
+		require(status == http.StatusUnauthorized, "%s edge accepted a promotion token with %s: HTTP %d %s", edgeHost.Name, wrong.what, status, body)
+		refusal := leaderRefusal(ctx, edgeHost, sjc.Name, token)
+		require(strings.Contains(refusal, wrong.reason), "%s's leader refusal of a token with %s: %s", sjc.Name, wrong.what, refusal)
+	}
+	voters, listing := regionVoters(ctx, ops, sjc)
+	require(voters == 1, "refused promotion requests changed %s voters: %s", sjc.Name, listing)
+	step("in %s, worker %s's ORCH principal cannot publish a promotion; tokens with another region's audience, another ref or another workflow are refused at the edge and by the Raft leader itself; it still has 1 voter", sjc.Name, edgeHost.Name)
+	firstToken, err := fleet.PromoteToken(sjc.Name, nil)
+	must(err)
+	for want := 2; want <= 3; want++ {
+		token := firstToken
+		if want == 3 {
+			status, body, err := edgeHost.Promote(ctx, firstToken)
+			must(err)
+			require(status == http.StatusConflict && strings.Contains(string(body), "used once"), "a replayed promotion token was not refused: HTTP %d %s", status, body)
+			token, err = fleet.PromoteToken(sjc.Name, nil)
+			must(err)
+		}
+		status, body, err := edgeHost.Promote(ctx, token)
+		must(err)
+		require(status == http.StatusOK && strings.Contains(string(body), fmt.Sprintf(`"voters":%d`, want)), "member-promote token %d: HTTP %d %s", want, status, body)
+		voters, listing := regionVoters(ctx, ops, sjc)
+		require(voters == want, "after promotion %d: %s", want, listing)
+		step("a member-promote workflow token for %s returned once one more voter caught up; %s has %d of 3 Raft-reachable voters", sjc.Name, sjc.Name, want)
+	}
+	fourth, err := fleet.PromoteToken(sjc.Name, nil)
+	must(err)
+	status, body, err := edgeHost.Promote(ctx, fourth)
+	must(err)
+	require(status == http.StatusConflict && strings.Contains(string(body), "already has 3 voting managers"), "a fourth %s voter was not refused: HTTP %d %s", sjc.Name, status, body)
+	_, listing = regionVoters(ctx, ops, sjc)
+	for _, host := range sjc.Hosts {
+		require(strings.Contains(listing, host.Name+"  "+host.Name+"  manager"), "%s is not a named manager: %s", host.Name, listing)
+	}
+	step("a replayed token and a fourth promotion in %s are refused; member ls --region %s on %s names its 3 voting managers:\n%s", sjc.Name, sjc.Name, ops.Name, listing)
 	removed, departedID := filepath.Join(work, "departed-state"), nodeCertificate(departed.State("")).Subject.CommonName
 	promotedIDs := []string{nodeCertificate(follower.State("")).Subject.CommonName, departedID}
 	until(ctx, follower.Name+" trusts the inventories of both promoted managers", func() error {
