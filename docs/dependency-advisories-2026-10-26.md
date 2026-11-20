@@ -235,3 +235,28 @@ The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
 `ac0f9bcb8394f3bcf3362cd833485458dc39f9a000d78cd35dac048ac40d9c36`; the
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.
+
+## 2026-11-20: Raft Join requires manager intent; leader voter view and membership transactions
+
+C52a changes `manager/state/raft/raft.go` and adds `manager/voters.go`. Neither
+behaviour exists upstream at v2.1.3 or at master `a34f01e8c` (2026-11-03).
+
+- `raft.go` `Join` refuses to add a new Raft member whose node record does not
+  carry `DesiredRole=Manager`, checked under the existing membership lock just
+  before `addMember`. A promotion whose intent was rolled back therefore cannot
+  still be admitted as a voter by a Join that started earlier. Re-registering an
+  existing member's address is unchanged. `WithMembershipLock` exposes the same
+  lock.
+- `voters.go` `ViewMembership` gives the Raft leader its voters from the Raft
+  member list, each with transport reachability and whether its match index has
+  reached the leader's commit index. `UpdateMembership` holds the membership
+  lock, reads the same voters again and validates the caller's observation (term
+  and leader) before the store write, so an operator promotion's checks, its role
+  write and its rollback share one leadership epoch and serialize with `Join`.
+
+The e2e-m1 startup `promotion`, `promotion-join` and `node-scale` cases and the
+`oracle-regions` lane exercise both with real SwarmKit managers. The reviewed
+SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
+`8fafae0ae7b6b1da7c9a4a9d31ef7c4d7b042e1d5da6a730ec2b64a419b4e745`; the
+v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
+remain unchanged.

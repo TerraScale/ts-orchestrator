@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats-server/v2/logger"
 	"github.com/nats-io/nats-server/v2/server"
 )
@@ -23,6 +24,7 @@ const (
 	FabricAccount  = "TERRABASE"
 	OrchAccount    = "ORCH"
 	OrchUser       = "orch"
+	PromoterUser   = "promoter"
 	membershipUser = "membership"
 	alertsAccount  = "ALERTS"
 	AlertsUser     = "ts-alerts"
@@ -36,7 +38,7 @@ const (
 	jetStreamMaxStore  = 16 << 30
 )
 
-func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, alertsSecret, membershipSecret string, gossip *inRegionGossip) (*server.Options, error) {
+func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, promoterSecret, fabricSecret, alertsSecret, membershipSecret string, gossip *inRegionGossip) (*server.Options, error) {
 	if len(cfg.terrabaseToken) < 16 {
 		return nil, errors.New("mesh needs TerraBase's NATS token")
 	}
@@ -45,7 +47,11 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 		return nil, fmt.Errorf("mesh accounts: %w", err)
 	}
 	users := map[string]credential{
-		OrchUser:   {secret: orchSecret, account: OrchAccount, permissions: &server.Permissions{Publish: &server.SubjectPermission{Deny: []string{regionRoutesSubject("*")}}}},
+		OrchUser: {secret: orchSecret, account: OrchAccount, permissions: &server.Permissions{Publish: &server.SubjectPermission{Deny: []string{regionRoutesSubject("*"), protocol.MeshMemberPromoteAny}}}},
+		PromoterUser: {secret: promoterSecret, account: OrchAccount, permissions: &server.Permissions{
+			Publish:   &server.SubjectPermission{Allow: []string{protocol.MeshMemberPromoteAny}},
+			Subscribe: &server.SubjectPermission{Allow: []string{"_INBOX.>"}},
+		}},
 		fabricUser: {secret: fabricSecret, account: FabricAccount},
 		AlertsUser: {secret: alertsSecret, account: alertsAccount},
 	}

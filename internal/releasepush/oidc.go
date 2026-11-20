@@ -61,6 +61,13 @@ const digestsWorkflow = orchRepository + "/.github/workflows/app-digests.yml@" +
 
 const deployLagWorkflow = orchRepository + "/.github/workflows/deploy-lag.yml@" + mainRef
 
+const (
+	promoteWorkflow     = orchRepository + "/.github/workflows/member-promote.yml@" + mainRef
+	PromoteAudience     = "ts-orch-promote:"
+	MemberPromotePath   = "/orchestrator/member/promote"
+	promoteTokenMaxLife = 10 * time.Minute
+)
+
 // Claims are the GitHub Actions OIDC claims ts-orch acts on.
 type Claims struct {
 	Issuer          string   `json:"iss"`
@@ -76,6 +83,8 @@ type Claims struct {
 	JobWorkflowRef  string   `json:"job_workflow_ref"`
 	WorkflowRef     string   `json:"workflow_ref"`
 	EventName       string   `json:"event_name"`
+	ID              string   `json:"jti"`
+	IssuedAt        int64    `json:"iat"`
 }
 
 var runID = regexp.MustCompile(`^[0-9]{1,20}$`)
@@ -153,6 +162,27 @@ func (v *Verifier) VerifyMesh(ctx context.Context, token string) (Claims, error)
 
 // verify checks the signature and every claim except the event and workflow.
 func (v *Verifier) verify(ctx context.Context, token string) (Claims, error) {
+	return v.verifyAudience(ctx, token, Audience)
+}
+
+func (v *Verifier) VerifyPromote(ctx context.Context, token, region string) (Claims, error) {
+	claims, err := v.verifyAudience(ctx, token, PromoteAudience+region)
+	switch {
+	case err != nil:
+		return Claims{}, err
+	case claims.Repository != orchRepository || claims.JobWorkflowRef != promoteWorkflow || claims.WorkflowRef != promoteWorkflow:
+		return Claims{}, errors.New("token is not from the main member-promote workflow")
+	case claims.EventName != "workflow_dispatch":
+		return Claims{}, errors.New("token is not from a workflow_dispatch")
+	case claims.ID == "" || len(claims.ID) > 63:
+		return Claims{}, errors.New("token has no usable jti")
+	case claims.IssuedAt == 0 || time.Unix(claims.Expires, 0).Sub(time.Unix(claims.IssuedAt, 0)) > promoteTokenMaxLife:
+		return Claims{}, fmt.Errorf("token lifetime is not at most %s", promoteTokenMaxLife)
+	}
+	return claims, nil
+}
+
+func (v *Verifier) verifyAudience(ctx context.Context, token, expected string) (Claims, error) {
 	if len(token) > maxTokenSize {
 		return Claims{}, errors.New("token too large")
 	}
@@ -193,8 +223,8 @@ func (v *Verifier) verify(ctx context.Context, token string) (Claims, error) {
 	switch {
 	case claims.Issuer != githubIssuer:
 		return Claims{}, errors.New("token issuer is not GitHub Actions")
-	case len(claims.Audience) != 1 || claims.Audience[0] != Audience:
-		return Claims{}, errors.New("token audience is not " + Audience)
+	case len(claims.Audience) != 1 || claims.Audience[0] != expected:
+		return Claims{}, errors.New("token audience is not " + expected)
 	case claims.Expires == 0 || !now.Before(time.Unix(claims.Expires, 0).Add(clockSkew)):
 		return Claims{}, errors.New("token expired")
 	case claims.NotBefore != 0 && now.Add(clockSkew).Before(time.Unix(claims.NotBefore, 0)):

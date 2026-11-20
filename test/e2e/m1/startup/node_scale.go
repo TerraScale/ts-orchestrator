@@ -60,11 +60,10 @@ func nodeScaleJourney(ctx context.Context, state string, manager *swarmruntime.N
 			return err
 		}
 	}
-	if err := swarmruntime.PromoteManagers(ctx, client, watcher, manager.ID()); err != nil {
-		return err
-	}
-	if err := awaitPromotionReady(ctx, client, watcher, 4, 3); err != nil {
-		return err
+	for _, operation := range []string{"node-scale-1", "node-scale-2"} {
+		if _, err := manager.PromoteManager(ctx, operation); err != nil {
+			return err
+		}
 	}
 	bounds := fleet.Nodes{Min: 3, Max: 4}
 	view, err := quietView(ctx, manager)

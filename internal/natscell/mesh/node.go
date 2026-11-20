@@ -242,6 +242,10 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
+	promoterSecret, err := persistentToken(cfg.dir, "promoter.token")
+	if err != nil {
+		return nil, err
+	}
 	tlsConfig := cfg.ca.TLS(cfg.region + "." + Domain)
 	monitorSecret, err := randomHex()
 	if err != nil {
@@ -258,7 +262,7 @@ func start(cfg config) (_ *Node, err error) {
 		}
 	}
 	gossip := newInRegionGossip(cfg.region, time.Now())
-	options, err := serverOptions(cfg, tlsConfig, secret, fabricSecret, alertsSecret, membershipSecret, gossip)
+	options, err := serverOptions(cfg, tlsConfig, secret, promoterSecret, fabricSecret, alertsSecret, membershipSecret, gossip)
 	if err != nil {
 		return nil, err
 	}

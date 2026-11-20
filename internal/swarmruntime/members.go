@@ -1,10 +1,14 @@
 package swarmruntime
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"github.com/moby/swarmkit/v2/manager"
+	"io"
 	"slices"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/moby/swarmkit/v2/api"
@@ -120,8 +124,8 @@ func SetMemberAvailability(ctx context.Context, client api.ControlClient, hostna
 	if err != nil {
 		return err
 	}
-	if node.Role == api.NodeRoleManager {
-		return fmt.Errorf("%s is the region's manager; only workers drain", hostname)
+	if node.Role == api.NodeRoleManager || node.Spec.DesiredRole == api.NodeRoleManager {
+		return fmt.Errorf("%s is or is becoming a manager; only workers drain", hostname)
 	}
 	if _, scaled := node.Spec.Annotations.Labels[LabelDrainSince]; node.Spec.Availability == availability && !scaled {
 		return nil
@@ -177,4 +181,66 @@ func memberNode(ctx context.Context, client api.ControlClient, hostname string) 
 		return nil, fmt.Errorf("no cluster host is named %s", hostname)
 	}
 	return found, nil
+}
+
+type MemberRow struct {
+	Hostname     string `json:"hostname"`
+	Name         string `json:"name"`
+	Role         string `json:"role"`
+	HostRole     string `json:"host_role"`
+	Raft         string `json:"raft"`
+	State        string `json:"state"`
+	Availability string `json:"availability"`
+	Address      string `json:"address"`
+}
+
+type MemberList struct {
+	Members   []MemberRow `json:"members"`
+	Voters    int         `json:"voters"`
+	Reachable int         `json:"reachable"`
+}
+
+func memberRows(nodes []*api.Node, voters []manager.Voter) MemberList {
+	list := MemberList{Voters: len(voters)}
+	raft := map[string]string{}
+	for _, voter := range voters {
+		state := "unreachable"
+		if voter.Reachable {
+			list.Reachable++
+			state = "reachable"
+			if !voter.CaughtUp {
+				state = "reachable-behind"
+			}
+		}
+		raft[voter.NodeID] = state
+	}
+	for _, node := range nodes {
+		row := MemberRow{Name: cmp.Or(node.Spec.Annotations.Name, "-"), Role: strings.ToLower(node.Role.String()), HostRole: cmp.Or(node.Spec.Annotations.Labels[LabelHostRole], "-"),
+			Raft: cmp.Or(raft[node.ID], "-"), State: node.Status.State.String(), Availability: node.Spec.Availability.String(), Address: node.Status.Addr}
+		if node.Description != nil {
+			row.Hostname = node.Description.Hostname
+		}
+		delete(raft, node.ID)
+		list.Members = append(list.Members, row)
+	}
+	for nodeID, state := range raft {
+		list.Members = append(list.Members, MemberRow{Hostname: "?", Name: nodeID, Role: "voter", HostRole: "-", Raft: state, State: "NO-RECORD", Availability: "-", Address: "-"})
+	}
+	slices.SortFunc(list.Members, func(a, b MemberRow) int {
+		return cmp.Or(strings.Compare(a.Hostname, b.Hostname), strings.Compare(a.Name, b.Name))
+	})
+	return list
+}
+
+func (l MemberList) Write(output io.Writer) error {
+	table := tabwriter.NewWriter(output, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "HOSTNAME\tNAME\tROLE\tHOST-ROLE\tRAFT\tSTATUS\tAVAILABILITY\tADDRESS")
+	for _, m := range l.Members {
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", m.Hostname, m.Name, m.Role, m.HostRole, m.Raft, m.State, m.Availability, m.Address)
+	}
+	if err := table.Flush(); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(output, "voters: %d of %d, %d Raft-reachable; quorum needs %d\n", l.Voters, VotingManagers, l.Reachable, l.Voters/2+1)
+	return err
 }

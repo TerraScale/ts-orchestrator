@@ -919,6 +919,12 @@ func (n *Node) caughtUp() bool {
 	return n.appliedIndex >= lastIndex
 }
 
+func (n *Node) WithMembershipLock(fn func() error) error {
+	n.membershipLock.Lock()
+	defer n.membershipLock.Unlock()
+	return fn()
+}
+
 // Join asks to a member of the raft to propose
 // a configuration change and add us as a member thus
 // beginning the log replication process. This method
@@ -1006,6 +1012,15 @@ func (n *Node) Join(ctx context.Context, req *api.JoinRequest) (*api.JoinRespons
 			logger.Info("updated node address")
 			return n.joinResponse(m.RaftID), nil
 		}
+	}
+
+	var managerIntent bool
+	n.memoryStore.View(func(tx store.ReadTx) {
+		node := store.GetNode(tx, nodeInfo.NodeID)
+		managerIntent = node != nil && node.Spec.DesiredRole == api.NodeRoleManager
+	})
+	if !managerIntent {
+		return nil, status.Errorf(codes.FailedPrecondition, "node %s has no manager intent", nodeInfo.NodeID)
 	}
 
 	// Find a unique ID for the joining member.

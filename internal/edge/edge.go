@@ -466,7 +466,7 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		e.serveChallenge(w, r)
 		return
 	}
-	if r.URL.Path == releasepush.ObservationPath || r.URL.Path == releasepush.AnnouncePath {
+	if r.URL.Path == releasepush.ObservationPath || r.URL.Path == releasepush.AnnouncePath || r.URL.Path == releasepush.MemberPromotePath {
 		if handler := e.observer.Load(); handler != nil {
 			(*handler).ServeHTTP(w, r)
 		} else {

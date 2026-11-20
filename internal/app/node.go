@@ -30,6 +30,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
+	"github.com/TerraScale/ts-orchestrator/internal/regionmember"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -158,6 +159,7 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 	releaseRoutes := http.NewServeMux()
 	releaseRoutes.HandleFunc(releasepush.ObservationPath, releases.Observe)
 	releaseRoutes.HandleFunc(releasepush.AnnouncePath, releases.Announce)
+	releaseRoutes.Handle(releasepush.MemberPromotePath, regionmember.Relay{Region: plan.region, State: state, Verifier: releasepush.NewVerifier()})
 	public.SetObserver(releaseRoutes)
 	subscribed := make(chan struct{})
 	if plan.region != "" {
@@ -236,6 +238,7 @@ func serveManagerRole(ctx, lifetime context.Context, state string, plan hostPlan
 	serving, stop := context.WithCancel(ctx)
 	defer stop()
 	go regionhealth.Run(serving, state)
+	go regionmember.Serve(serving, state, node, releasepush.NewVerifier())
 	autoscaleDone := make(chan struct{})
 	go func() {
 		defer close(autoscaleDone)

@@ -12,18 +12,23 @@ import (
 // AdmitNode is called by a manager with verified membership mapped to a node
 // certificate identity. Agent description labels never grant placement roles.
 func AdmitNode(ctx context.Context, client api.ControlClient, nodeID string, admitted Admission) (*api.Node, error) {
-	if nodeID == "" || !catalog.IsOCIRegion(admitted.Region) ||
-		!intentName.MatchString(admitted.HostID) && !entityid.Valid(admitted.HostID) || admitted.InstanceID == "" {
+	if nodeID == "" {
 		return nil, errors.New("node requires verified membership identity and region")
-	}
-	if admitted.Role != "manager" && admitted.Role != "container" && admitted.Role != "wasm" {
-		return nil, errors.New("invalid admitted host role")
 	}
 	response, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
 	if err != nil {
 		return nil, err
 	}
-	node := response.Node
+	return admitNode(ctx, client, response.Node, admitted)
+}
+
+func admitNode(ctx context.Context, client api.ControlClient, node *api.Node, admitted Admission) (*api.Node, error) {
+	if !catalog.IsOCIRegion(admitted.Region) || !intentName.MatchString(admitted.HostID) && !entityid.Valid(admitted.HostID) || admitted.InstanceID == "" {
+		return nil, errors.New("node requires verified membership identity and region")
+	}
+	if admitted.Role != "manager" && admitted.Role != "container" && admitted.Role != "wasm" {
+		return nil, errors.New("invalid admitted host role")
+	}
 	if (node.Role == api.NodeRoleManager) != (admitted.Role == "manager") {
 		return nil, errors.New("node does not match admitted certificate role")
 	}

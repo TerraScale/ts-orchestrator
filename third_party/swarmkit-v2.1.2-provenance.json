@@ -141,6 +141,19 @@
   ],
   "configuration_policy": "Unavoidable upstream public configuration names remain unchanged for provenance; application exposes no new switch or setting.",
   "go_mod_sum": "h1:GQ6T0ij2oBbWX10OHwpvK449xfXkQMZ8J+B+eQ4mgp4=",
+  "local_membership_patch": {
+    "files": [
+      {
+        "bytes": 1818,
+        "path": "manager/voters.go",
+        "rationale": "Leader-only Raft voter view (membership, transport reachability, match index against the commit index) and a membership store transaction that holds the Raft membership lock, re-reads the voters and fails on a changed term or leader, so a promotion's checks, its role write and its rollback share one leadership epoch and serialize with Join.",
+        "sha256": "52737856c7b8d0b1237be698c7f7feec5b520736065244f63c34ab889991d901",
+        "source_history": [
+          "[fix] C52a: operator promotion re-land (REV C52a r1)"
+        ]
+      }
+    ]
+  },
   "local_readonly_control_patch": {
     "archived_test_files": [
       "manager/state/raft/observation_test.go"
@@ -244,14 +257,15 @@
       "upstream_sha256": "eaa516fc90febb68a9747a371b2b6a8911106feb531a24f4ad58c74bf69c9d33"
     },
     {
-      "bytes": 66318,
+      "bytes": 66775,
       "path": "manager/state/raft/raft.go",
-      "rationale": "Bind proposal callbacks, follower applies and snapshot restoration to exact committed Raft indices; bound observation WAL replay and reject partial history.",
-      "sha256": "8a2346eaf1f59b62bef7f19bb38c011cb6b4590a57cccabd6b83eb9b9f34af11",
+      "rationale": "Bind proposal callbacks, follower applies and snapshot restoration to exact committed Raft indices; bound observation WAL replay and reject partial history. Join refuses to add a Raft member whose node record has no manager intent, under the membership lock, and WithMembershipLock lets a membership store transaction hold that lock so a rolled-back promotion cannot race a late Join.",
+      "sha256": "ca511db8512c1750f9459999a8b76446a8ec494fd60bd583c0c79b21af03333e",
       "source_history": [
         "f62521c541a675c7a71628c91595f36f1ffb50eb feat(management): proxy scoped exact snapshot and watch continuity",
         "f6e6a9aae9e11b661f064abb4deb32d66d92b09c feat(swarmkit): expose exact applied read-only observation boundary",
-        "3238ba2df53a40d2df976de5ba2f2f99f6f3a157 vendor(swarmkit): preserve pinned v2.1.2 source provenance"
+        "3238ba2df53a40d2df976de5ba2f2f99f6f3a157 vendor(swarmkit): preserve pinned v2.1.2 source provenance",
+        "[fix] C52a: operator promotion re-land (REV C52a r1)"
       ],
       "upstream_bytes": 64873,
       "upstream_sha256": "9ff63628321f676d6ea6776f1fa6d2cadf6d0536781aa9ad786493e2239292ed"
