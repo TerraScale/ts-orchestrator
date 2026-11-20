@@ -235,21 +235,3 @@ The reviewed SwarmKit source SHA-256 in `scripts/ci/audit-replacements.py` is
 `ac0f9bcb8394f3bcf3362cd833485458dc39f9a000d78cd35dac048ac40d9c36`; the
 v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
 remain unchanged.
-
-## 2026-11-19: leader-only Raft voter view and fenced membership writes
-
-C52a adds `manager/voters.go`, a new local file; no upstream file changes.
-`ViewMembership` gives the Raft leader its voters from the Raft member list,
-each with transport reachability and whether its match index has reached the
-leader's commit index. `UpdateMembership` runs one store transaction that reads
-the same voters again and validates the caller's observation (term and leader)
-before the write, so an operator promotion's checks and its role change share
-one leadership epoch, and a manager that is no longer the Raft leader cannot
-commit it. Upstream master was not checked for this change.
-
-The e2e-m1 startup `promotion` and `node-scale` cases and the `oracle-regions`
-lane exercise it with real SwarmKit managers. The reviewed SwarmKit source
-SHA-256 in `scripts/ci/audit-replacements.py` is
-`3cc56f60c83620deb105906ee398cc2a9b93c8c984bc5dd17a47541ce6fa8123`; the
-v2.1.2 baseline and upstream commit `12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb`
-remain unchanged.
