@@ -25,7 +25,7 @@ func (n *Node) SwarmView(ctx context.Context) (fleet.SwarmView, error) {
 	if err != nil {
 		return fleet.SwarmView{}, err
 	}
-	nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	nodes, err := readSwarmNodes(ctx, client)
 	if err != nil {
 		return fleet.SwarmView{}, err
 	}
@@ -43,12 +43,47 @@ func (n *Node) SwarmView(ctx context.Context) (fleet.SwarmView, error) {
 			view.Pending++
 		}
 	}
-	for _, node := range nodes.Nodes {
-		member := fleet.SwarmNode{ID: node.ID, InstanceID: node.Spec.Annotations.Labels[LabelInstanceID],
+	for i, node := range nodes.raw {
+		member := nodes.members[i]
+		member.Relocatable = scheduler.Relocatable(services.Services, nodes.raw, tasks.Tasks, node.ID)
+		for _, task := range tasks.Tasks {
+			if task.NodeID != node.ID || task.Status.State > api.TaskStateRunning {
+				continue
+			}
+			member.Tasks++
+			if member.Data == "" && execution.Stateful(task) {
+				member.Data = task.ServiceAnnotations.Name
+			}
+		}
+		view.Nodes = append(view.Nodes, member)
+	}
+	return view, nil
+}
+
+type swarmNodes struct {
+	raw     []*api.Node
+	members []fleet.SwarmNode
+}
+
+func SwarmManagers(ctx context.Context, client api.ControlClient) fleet.QuorumObservation {
+	nodes, err := readSwarmNodes(ctx, client)
+	if err != nil {
+		return fleet.QuorumObservation{Error: fmt.Sprintf("SwarmKit membership unavailable: %v", err)}
+	}
+	return fleet.QuorumObservation{Nodes: nodes.members}
+}
+
+func readSwarmNodes(ctx context.Context, client api.ControlClient) (swarmNodes, error) {
+	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return swarmNodes{}, err
+	}
+	result := swarmNodes{raw: listed.Nodes}
+	for _, node := range listed.Nodes {
+		member := fleet.SwarmNode{ID: node.ID, InstanceID: node.Spec.Annotations.Labels[LabelInstanceID], Region: node.Spec.Annotations.Labels[LabelRegion],
 			Manager: node.Role == api.NodeRoleManager || node.Spec.DesiredRole == api.NodeRoleManager, ManagerReady: managerReady(node),
 			Leader: node.ManagerStatus != nil && node.ManagerStatus.Leader, Ready: node.Status.State == api.NodeStatus_READY,
-			Active:      node.Spec.Availability == api.NodeAvailabilityActive,
-			Relocatable: scheduler.Relocatable(services.Services, nodes.Nodes, tasks.Tasks, node.ID)}
+			Active: node.Spec.Availability == api.NodeAvailabilityActive}
 		if node.Description != nil {
 			member.Hostname = node.Description.Hostname
 		}
@@ -62,21 +97,12 @@ func (n *Node) SwarmView(ctx context.Context) (fleet.SwarmView, error) {
 		}
 		if since, ok := node.Spec.Annotations.Labels[LabelDrainSince]; ok && node.Spec.Availability == api.NodeAvailabilityDrain {
 			if member.DrainSince, err = time.Parse(time.RFC3339, since); err != nil {
-				return fleet.SwarmView{}, fmt.Errorf("node %s %s: %w", node.ID, LabelDrainSince, err)
+				return swarmNodes{}, fmt.Errorf("node %s %s: %w", node.ID, LabelDrainSince, err)
 			}
 		}
-		for _, task := range tasks.Tasks {
-			if task.NodeID != node.ID || task.Status.State > api.TaskStateRunning {
-				continue
-			}
-			member.Tasks++
-			if member.Data == "" && execution.Stateful(task) {
-				member.Data = task.ServiceAnnotations.Name
-			}
-		}
-		view.Nodes = append(view.Nodes, member)
+		result.members = append(result.members, member)
 	}
-	return view, nil
+	return result, nil
 }
 
 func replicaDemand() fleet.Demand {

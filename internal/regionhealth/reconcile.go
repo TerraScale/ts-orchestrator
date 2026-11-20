@@ -78,7 +78,7 @@ func serveReconcile(conn *nats.Conn, latest func() (Reconcile, bool)) error {
 }
 
 func askReconcile(ctx context.Context, conn *nats.Conn) (map[string]Reconcile, error) {
-	return collect(ctx, conn, protocol.MeshReconcileSubject, len(mesh.ConnRegions(conn)), statusWait, func(r Reconcile) string { return r.Region })
+	return collect(ctx, conn, protocol.MeshReconcileSubject, len(mesh.ConnRegions(conn)), statusWait, func(r Reconcile) string { return r.Region }, nil)
 }
 
 func (r Reconcile) lines() []string {

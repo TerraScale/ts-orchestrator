@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
@@ -61,7 +62,14 @@ func Run(ctx context.Context, state string) {
 		if conn == nil || conn.IsClosed() {
 			// The mesh writes its token once it starts; until then this retries every tick.
 			if conn, _ = mesh.Connect(state); conn != nil {
-				if err := Serve(conn, func() Report { return *latest.Load() }); err != nil {
+				if err := Serve(conn, func(request string) Report {
+					report := *latest.Load()
+					if request == "quorum" {
+						quorum := ReadQuorum(ctx, state)
+						report.Quorum = &quorum
+					}
+					return report
+				}); err != nil {
 					slog.WarnContext(ctx, "region health responder failed", "error", err)
 					conn.Close()
 					conn = nil
@@ -76,21 +84,28 @@ func Run(ctx context.Context, state string) {
 	}
 }
 
-func Serve(conn *nats.Conn, latest func() Report) error {
+func Serve(conn *nats.Conn, latest func(string) Report) error {
 	region, _, _ := strings.Cut(conn.ConnectedServerName(), ".")
 	if region == "" {
 		return errors.New("mesh server has no region identity")
 	}
 	_, err := conn.QueueSubscribe(protocol.MeshHealthSubject, region, func(m *nats.Msg) {
-		report := latest()
-		report.Region = region
-		data, err := protocol.EncodeJSON(report)
-		if err == nil {
-			err = m.Respond(data)
+		reply := func() {
+			report := latest(string(m.Data))
+			report.Region = region
+			data, err := protocol.EncodeJSON(report)
+			if err == nil {
+				err = m.Respond(data)
+			}
+			if err != nil {
+				slog.Warn("region health reply failed", "error", err)
+			}
 		}
-		if err != nil {
-			slog.Warn("region health reply failed", "error", err)
+		if string(m.Data) == "quorum" {
+			go reply()
+			return
 		}
+		reply()
 	})
 	if err != nil {
 		return err
@@ -103,18 +118,50 @@ func Ask(ctx context.Context, conn *nats.Conn) (map[string]Report, error) {
 	return ask(ctx, conn, len(mesh.ConnRegions(conn)), statusWait)
 }
 
-func ask(ctx context.Context, conn *nats.Conn, want int, wait time.Duration) (map[string]Report, error) {
-	return collect(ctx, conn, protocol.MeshHealthSubject, want, wait, func(r Report) string { return r.Region })
+func AskQuorums(ctx context.Context, conn *nats.Conn) (map[string]Report, error) {
+	return collect(ctx, conn, protocol.MeshHealthSubject, len(mesh.ConnRegions(conn)), statusWait, func(r Report) string { return r.Region }, []byte("quorum"))
 }
 
-func collect[T any](ctx context.Context, conn *nats.Conn, subject string, want int, wait time.Duration, region func(T) string) (map[string]T, error) {
+func ReadQuorum(ctx context.Context, state string) fleet.QuorumObservation {
+	ctx, cancel := context.WithTimeout(ctx, statusWait)
+	defer cancel()
+	client, conn, err := swarmruntime.DialControl(state)
+	if err != nil {
+		return fleet.QuorumObservation{Error: fmt.Sprintf("SwarmKit membership unavailable: %v", err)}
+	}
+	defer conn.Close()
+	return swarmruntime.SwarmManagers(ctx, client)
+}
+
+func RegionQuorum(ctx context.Context, region fleet.Region) fleet.QuorumObservation {
+	observation := fleet.QuorumObservation{Error: "regional SwarmKit membership unavailable over the mesh"}
+	conn, err := mesh.Connect("/var/lib/ts-orch")
+	if err != nil {
+		observation.Error += ": " + err.Error()
+		return observation
+	}
+	defer conn.Close()
+	reports, err := AskQuorums(ctx, conn)
+	if err != nil {
+		observation.Error += ": " + err.Error()
+	} else if report, found := reports[region.Label]; found && report.Quorum != nil {
+		observation = *report.Quorum
+	}
+	return observation
+}
+
+func ask(ctx context.Context, conn *nats.Conn, want int, wait time.Duration) (map[string]Report, error) {
+	return collect(ctx, conn, protocol.MeshHealthSubject, want, wait, func(r Report) string { return r.Region }, nil)
+}
+
+func collect[T any](ctx context.Context, conn *nats.Conn, subject string, want int, wait time.Duration, region func(T) string, payload []byte) (map[string]T, error) {
 	inbox := conn.NewRespInbox()
 	sub, err := conn.SubscribeSync(inbox)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = sub.Unsubscribe() }()
-	if err := conn.PublishRequest(subject, inbox, nil); err != nil {
+	if err := conn.PublishRequest(subject, inbox, payload); err != nil {
 		return nil, err
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, wait)

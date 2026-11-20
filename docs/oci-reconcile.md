@@ -93,18 +93,38 @@ gives its address back to OCI for good.
 
 `ts-orch region apply <label> compute` reconciles a region's nodes from the
 fleet document with the operator's `~/.oci/config` (or the instance
-principal). It reads the document-made private subnet
-(`subnet/private-subnet`) and node NSG (`nsg/node-nsg`) and refuses to run
-without them. Keys are `<CELL>/instance-configuration/node`,
+principal). It reads the region's document-made private subnet
+(`subnet/private-subnet`) and node NSG (`nsg/node-nsg`) and refuses missing
+prerequisites. A region that declares external hosts first resolves the
+uniquely owned AVAILABLE regional VCN with the document CIDR, refuses an
+ambiguous one, and takes the subnet and NSG only from that VCN, so a copied
+ownership tag in another VCN cannot supply either resource. Keys are `<CELL>/instance-configuration/node`,
 `<CELL>/instance-pool/nodes`, `<CELL>/instance/node` (every pool instance,
 from the configuration's launch tags) and `<CELL>/volume/data-<n>`.
 
 | Step | Effect |
 | --- | --- |
 | Instance configuration | Kept when shape, OCPUs, memory, boot size, subnet, NSG and no public address match; otherwise a new one is made, the pool switched to it for new nodes, and the old one deleted. Running nodes are not replaced. |
-| Pool | Created at `nodes.min` across every availability domain and its fault domains; raised to `nodes.min` when below. The pass waits up to 20 minutes for the pool to be `RUNNING` with every instance running before it changes anything, and stops with the pool's state otherwise. |
-| Size | Never lowered by this pass. The `nodes` kind grows and shrinks the pool one drained node at a time (`docs/platform.md`, "Node count: the nodes kind"). |
+| Pool | Created at `nodes.min` across every availability domain and its fault domains. Before updating an existing pool, wait for `RUNNING` with every instance running. In a region with external hosts, read its current size/revision again, compute only the remaining increase to `nodes.min` and require that ETag; a concurrent change refuses the write. |
+| Size | Never lowered by this pass; in a region with external hosts, growth is recomputed after settling and protected by an ETag. The `nodes` kind grows and shrinks the pool one drained node at a time (`docs/platform.md`, "Node count: the nodes kind"). |
 | Data volumes | A node with an attached owned data volume keeps it. Otherwise it gets the lowest kept volume in its availability domain, or a new one (at most `nodes.max`). The volume records the node in `terrascale-data-instance`; the node's metadata gets `terrascale-data-volume`, `terrascale-data-may-format` (true only while `terrascale-data-instance` is empty or names this node) and `terrascale-data-uuid`, the filesystem UUID chosen at volume creation. |
+
+A reduced pool floor relies on each declared external host resolving uniquely
+to a RUNNING OCI instance in the compartment, with an attached primary VNIC
+in a subnet of the compartment and the owned regional VCN, and no regional
+pool-instance ownership or membership in a non-terminated compartment pool.
+The pass pins those OCIDs and rechecks their eligibility at pool writes,
+after settling and before successful completion. Completion also requires the
+pool to be `RUNNING` at its size with its running members exactly the instance
+IDs whose data volumes this pass bound; a member replaced after binding
+refuses completion until the next pass binds it. It refuses an identity
+replacement or lost capacity. Regions without external hosts run none of these
+checks: their pass ends once every settled member's volume is bound.
+
+Provisioning does not prove voting readiness. After manager promotion, use
+`ts-orch region quorum <label>` as the rebuild gate. Plan/status also check
+quorum for external-host regions; regions without external hosts retain their
+OCI-only comparison. A healthy backend that is only a worker supplies no vote.
 
 No step deletes a data volume; `VOLUME_DELETE` is not granted. A node waits
 for its binding with no deadline, so a pool that settles late still mounts and

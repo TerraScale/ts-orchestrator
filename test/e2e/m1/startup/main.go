@@ -18,6 +18,9 @@ func seed() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := os.Args[1]
+	if os.Args[2] == "external-compute" {
+		return externalIdentityJourney(ctx)
+	}
 	if os.Args[2] == "rebuilt-region" {
 		return rebuiltRegion(ctx, state)
 	}
