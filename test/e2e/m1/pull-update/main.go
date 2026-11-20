@@ -157,7 +157,7 @@ func runHost(args []string) {
 				return hosts, nil
 			},
 			Services: func(context.Context) ([]pullrelease.Service, error) {
-				return readServices(filepath.Join(filepath.Dir(dir), "services"))
+				return readServices(filepath.Join(filepath.Dir(dir), "services", region))
 			},
 			Source: h.Source, Channel: &ocirelease.Reader{Registry: h.Registry, Attest: h.Attest}, Attest: h.Attest, Client: h.Client,
 			Poll: every, HealthyFor: healthyFor, Deadline: deadline, BakeFor: healthyFor}
