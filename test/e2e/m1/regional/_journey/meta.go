@@ -320,10 +320,10 @@ func MetaBootJourney(root string) error {
 	fleet.stop("gru", "fra")
 	var stagedMu sync.Mutex
 	staged := map[string]stateReply{}
-	stage := func(region string, rollout []string, passed bool) {
+	stage := func(region string, rollout []string, readyGeneration int64) {
 		reply := stateReply{Region: region, Desired: map[string]desiredState{}, Ready: map[string]int64{}, Rollout: rollout}
-		if passed {
-			reply.Ready["terrabase"], reply.Ready["app-canary"] = generation, generation
+		if readyGeneration != 0 {
+			reply.Ready["terrabase"], reply.Ready["app-canary"] = readyGeneration, readyGeneration
 		}
 		stagedMu.Lock()
 		staged[region] = reply
@@ -345,9 +345,9 @@ func MetaBootJourney(root string) error {
 		stagedMu.Unlock()
 		for _, reply := range replies {
 			reply.Nonce = request.Nonce
-			if reply.Ready["terrabase"] == generation {
-				reply.Serving = map[string]ServingResult{"terrabase": {Generation: generation, Serving: true, At: time.Now()},
-					"app-canary": {Generation: generation, Serving: true, At: time.Now()}}
+			reply.Serving = map[string]ServingResult{}
+			for name, readyGeneration := range reply.Ready {
+				reply.Serving[name] = ServingResult{Generation: readyGeneration, Serving: true, At: time.Now()}
 			}
 			if data, err := protocol.EncodeJSON(reply); err == nil {
 				_ = m.Respond(data)
@@ -358,8 +358,8 @@ func MetaBootJourney(root string) error {
 		return err
 	}
 	defer responder.Unsubscribe()
-	stage("gru", rule, true)
-	stage("fra", nil, false)
+	stage("gru", rule, generation)
+	stage("fra", nil, 0)
 	admitted := make(chan error, 1)
 	go func() { admitted <- turnWithin("sjc", "terrabase", spec, time.Minute) }()
 	waitFor := func(name, earlier, evidence string) error {
@@ -371,11 +371,11 @@ func MetaBootJourney(root string) error {
 	if err := waitFor("terrabase", "fra", "rollout order not agreed"); err != nil {
 		return fmt.Errorf("sjc did not wait for fra advertising no rollout order: %w, %+v", err, decision("sjc", "terrabase"))
 	}
-	stage("fra", rule, false)
+	stage("fra", rule, 0)
 	if err := waitFor("terrabase", "fra", "fresh serving evidence missing"); err != nil {
 		return fmt.Errorf("sjc did not wait for fra's verdict once fra agreed on the order: %w, %+v", err, decision("sjc", "terrabase"))
 	}
-	stage("fra", rule, true)
+	stage("fra", rule, generation)
 	select {
 	case err := <-admitted:
 		if err != nil || decision("sjc", "terrabase").Evidence != "admitted" {
@@ -387,7 +387,7 @@ func MetaBootJourney(root string) error {
 	fmt.Println("ok order: one generation through the real admission path: sjc waited while fra advertised no rollout order, then for fra's verdict, and admitted itself once gru and fra passed")
 
 	app := &swarmruntime.ServiceSpec{Name: "app-canary", Regions: []string{"sjc", "fra", "gru"}}
-	stage("gru", []string{"sjc", "fra", "gru"}, true)
+	stage("gru", []string{"sjc", "fra", "gru"}, generation-1)
 	for _, name := range []string{"terrabase", "ts-auth", "ts-dashboard", "app-canary"} {
 		app.Name = name
 		if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err == nil || !strings.Contains(err.Error(), "gru does not run the rollout order") {
@@ -401,10 +401,14 @@ func MetaBootJourney(root string) error {
 	if err := waitFor("app-canary", "gru", "rollout order not agreed"); err != nil {
 		return fmt.Errorf("sjc did not hold an app rollout while gru advertised the previous sjc-first order: %w, %+v", err, decision("sjc", "app-canary"))
 	}
-	stage("gru", rule, true)
+	stage("gru", rule, generation-1)
 	if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err != nil {
 		return fmt.Errorf("signed apply must dispatch once all targets report the new order: %w", err)
 	}
+	if err := waitFor("app-canary", "gru", "fresh serving evidence missing"); err != nil {
+		return fmt.Errorf("sjc did not wait when only gru's previous generation served: %w, %+v", err, decision("sjc", "app-canary"))
+	}
+	stage("gru", rule, generation)
 	select {
 	case err := <-admitted:
 		if err != nil || decision("sjc", "app-canary").Evidence != "admitted" {
@@ -414,6 +418,7 @@ func MetaBootJourney(root string) error {
 		return ctx.Err()
 	}
 	fmt.Println("ok order: signed TerraBase, auth, dashboard and app-canary applies wait before dispatch on mixed order; single-region auth stays in sjc; apply proceeds once all targets advertise gru, fra, sjc")
+	fmt.Println("ok order: the preceding GRU generation serving cannot admit SJC for the selected generation")
 	return nil
 }
 
