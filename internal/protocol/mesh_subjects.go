@@ -18,4 +18,5 @@ const (
 	MeshPullPrefix         = "ts.mesh.pull."
 	MeshPullProgressPrefix = "ts.mesh.pull-progress."
 	MeshPullDiscoverPrefix = "ts.mesh.pull-discover."
+	MeshMemberPrefix       = "ts.mesh.member."
 )
