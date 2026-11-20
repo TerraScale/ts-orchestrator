@@ -43,7 +43,36 @@ membership and obtains current-replica facts from its leader through NATS's
 existing RAFTZ system request. Metadata, streams, and replicated consumers
 must retain their quorum without this member. Unknown leadership, unsettled
 membership, or insufficient current replicas refuse the stop and name the
-Raft group. Unreplicated groups do not have a remote handoff.
+Raft group. The membership and quorum come from the group's leader. A refusal
+says either "membership change in progress", naming the peer the leader has
+not committed adding or this server's uncommitted entry, or "membership views
+disagree", naming each peer one side lists and the other does not and a leader
+whose size differs from its member count; it says how long that state has
+held. A server whose own cluster size alone differs from its leader's, with the
+same members and nothing pending, is judged by the leader's quorum. An
+insufficient-replicas refusal names each member that is not current and when
+its leader last heard from it. A rollback restart takes the same path as an
+install. Unreplicated groups do not have a remote handoff.
+
+Every 30 seconds each JetStream server tends `_meta_` while no membership
+change is pending anywhere. If a member's own size or members disagree with its
+leader's, or the leader's size differs from its member count, the leader sets
+its size to its member count and sends its peer state again; a follower that
+sees the disagreement on two passes in a row asks to lead with the standard
+metadata stepdown request naming itself, so a leader running an older release
+is replaced. The leader removes one silent peer at a time when no region claims
+it: every region in the environment must answer with the Raft peer ids of its
+current SwarmKit managers (its founder name and `<region>.<node id>` for each
+node whose role or desired role is manager), and the removal is checked under
+the Raft lock against the leader's term, with the leader and the peers it
+heard from in the last two seconds still at the current quorum.
+
+`sudo ts-orch mesh meta` (or `--json`) reads the `_meta_` group through the
+host's own mesh node: each JetStream server that answers a RAFTZ request
+within a second, with its state, term, leader, size, quorum and peer ids, and
+the leader's peers with their names, whether their membership is committed
+(`KNOWN`), when the leader last heard from them, and their replicated index.
+It needs root to read the host's mesh client token, and changes nothing.
 
 The agent uses NATS's lame-duck leadership transfer step while keeping
 listeners and clients open. Every 20 ms it hands each elected Raft leader to

@@ -244,10 +244,10 @@ func ping(ctx context.Context, conn *nats.Conn, wait time.Duration) ([]Reply, er
 	return rows, nil
 }
 
-// RunCLI is `ts-orch mesh ping`.
 func RunCLI(ctx context.Context, args []string, state string, output io.Writer) error {
-	if len(args) != 1 || args[0] != "ping" {
-		_, err := io.WriteString(output, "usage:\n  ts-orch mesh ping\n")
+	command := strings.Join(args, " ")
+	if command != "ping" && command != "meta" && command != "meta --json" {
+		_, err := io.WriteString(output, "usage:\n  ts-orch mesh ping\n  ts-orch mesh meta [--json]\n")
 		if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 			return err
 		}
@@ -258,5 +258,8 @@ func RunCLI(ctx context.Context, args []string, state string, output io.Writer) 
 		return err
 	}
 	defer conn.Close()
-	return Ping(ctx, conn, 5*time.Second, output)
+	if command == "ping" {
+		return Ping(ctx, conn, 5*time.Second, output)
+	}
+	return Meta(ctx, conn, command == "meta --json", output)
 }

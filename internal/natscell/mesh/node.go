@@ -269,7 +269,7 @@ func start(cfg config) (_ *Node, err error) {
 	auth := options.CustomClientAuthentication.(*clientAuth)
 	auth.server = embedded
 	auth.users["monitor"] = credential{secret: monitorSecret, account: server.DEFAULT_SYSTEM_ACCOUNT, permissions: &server.Permissions{
-		Publish:   &server.SubjectPermission{Allow: []string{"$SYS.REQ.SERVER.PING.RAFTZ"}},
+		Publish:   &server.SubjectPermission{Allow: []string{"$SYS.REQ.SERVER.PING.RAFTZ", metaStepdownAPI}},
 		Subscribe: &server.SubjectPermission{Allow: []string{"_INBOX.>"}},
 	}}
 	log := newContainedLog()
@@ -387,9 +387,11 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	handlers[protocol.MeshWorkerPrefix+cfg.region] = node.recordWorker
 	handlers[protocol.MeshDrainPrefix+cfg.region] = func(m *nats.Msg) { node.goWork(func() { node.handleDrain(m) }) }
+	handlers[protocol.MeshMetaClaimsPrefix+cfg.region] = func(m *nats.Msg) { node.goWork(func() { node.serveMetaClaims(m) }) }
 	if cfg.applier == nil {
 		handlers = map[string]nats.MsgHandler{}
 	}
+	handlers[metaSubject(cfg.server)] = func(m *nats.Msg) { node.goWork(func() { node.serveMetaView(m) }) }
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".fence"] = func(m *nats.Msg) { node.handleBootstrapFence(m) }
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".clear"] = func(m *nats.Msg) { node.handleBootstrapClear(m) }
 	if cfg.applier == nil {
@@ -419,6 +421,9 @@ func start(cfg config) (_ *Node, err error) {
 		node.goWork(func() { node.refreshJoined(ctx) })
 	}
 	node.goWork(node.regionRoutes)
+	if options.JetStream {
+		node.goWork(func() { node.tendMeta(ctx) })
+	}
 	return node, nil
 }
 
