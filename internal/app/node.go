@@ -100,6 +100,14 @@ func serveNode(ctx context.Context, state string, output io.Writer, plan hostPla
 	releases.PrepareStop = prepareStop
 	releases.AbortStop = abortStop
 	releases.Mesh = mesh.Bridge(state)
+	releases.AppRelease = func(ctx context.Context, service, nonce string) (releasepush.AppReleaseObservation, error) {
+		conn, err := mesh.Connect(state)
+		if err != nil {
+			return releasepush.AppReleaseObservation{}, err
+		}
+		defer conn.Close()
+		return mesh.ReadAppRelease(ctx, conn, plan.region, service, nonce)
+	}
 	releases.Hosts = func(ctx context.Context) ([]releasepush.HostVersion, error) {
 		if !node.IsManager() {
 			conn, err := mesh.Connect(state)
