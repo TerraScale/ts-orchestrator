@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -522,8 +523,8 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	must(err)
 	seedFile := filepath.Join(root, "seed")
 	must(os.WriteFile(seedFile, seed, 0600))
-	regions := mesh.Regions("gru")
-	order := append(append([]string{}, regions[1:]...), regions[0])
+	order := mesh.EnvironmentOf("gru").Rollout
+	require(slices.Equal(order, []string{"gru", "fra", "sjc"}), "the rollout catalog must put gru before fra before sjc")
 	names := []string{"c21-first", "c21-second", "c21-third"}
 	addresses := []string{"10.203.21.2", "10.203.21.3", "10.203.21.4"}
 	roots := []string{filepath.Join(root, "first"), filepath.Join(root, "second"), filepath.Join(root, "third")}
@@ -645,6 +646,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	require(initial.Bake.Finished.IsZero(), "interruption did not happen during the bake")
 	assertWaiting(ctx, conn, order[1], spec.Name, generation, order[0], "passed bake missing")
 	assertRuntimeBefore(ctx, names[1], launcher, roots[1], spec.Name, generation)
+	assertRuntimeBefore(ctx, names[2], launcher, roots[2], spec.Name, generation)
 	initialReconnected := conn.StatusChanged(nats.CONNECTED)
 	nodes[0].kill()
 	nodes[0] = nil
@@ -660,6 +662,8 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 		result := s[order[0]].Serving[spec.Name]
 		return result.Serving && result.Generation == generation
 	})
+	assertRuntimeBefore(ctx, names[1], launcher, roots[1], spec.Name, generation)
+	assertRuntimeBefore(ctx, names[2], launcher, roots[2], spec.Name, generation)
 	assertWaiting(ctx, conn, order[1], spec.Name, generation, order[0], "passed bake missing")
 	complete := evidence(ctx, roots[0], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() })
 	require(complete.Bake.Reason == "", "restarted bake failed: "+complete.Bake.Reason)
@@ -670,6 +674,17 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	observe(ctx, conn, func(s map[string]state) bool { return s[order[0]].Ready[spec.Name] < generation })
 	apply(generation, "")
 	assertWaiting(ctx, conn, order[len(order)-1], spec.Name, generation, order[0], "fresh serving evidence missing")
+	query, err := json.Marshal(map[string]string{"view": "deployments", "region": order[len(order)-1]})
+	must(err)
+	observationCtx, stop := context.WithTimeout(ctx, 15*time.Second)
+	message, err := conn.RequestWithContext(observationCtx, mesh.StateSubject, query)
+	stop()
+	must(err)
+	var deployment releasepush.DeploymentObservation
+	must(json.Unmarshal(message.Data, &deployment))
+	hold := deployment.Apps[spec.Name].Admission
+	require(hold != nil && hold.Generation == generation && hold.Revision == revision && hold.Image == spec.Image && hold.Earlier == order[0] && hold.Reason == "fresh serving evidence missing",
+		fmt.Sprintf("held candidate lost its generation or identity in deployment observations: %+v", hold))
 	logStep("a previously successful bake stops admitting regions when A stops serving")
 	setHealth(ctx, addresses[0], 18085, "200")
 	next := evidence(ctx, roots[1], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() })
@@ -794,9 +809,15 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	evidence(ctx, roots[0], generation, func(r receipt) bool { return r.Bake.Samples >= 1 })
 	nodes[0].kill()
 	nodes[0] = boot(0)
-	evidence(ctx, roots[0], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() && r.Bake.Reason == "" })
-	for i := 1; i < len(roots); i++ {
-		evidence(ctx, roots[i], generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() && r.Bake.Reason == "" })
+	var predecessor receipt
+	for i, root := range roots {
+		current := evidence(ctx, root, generation, func(r receipt) bool { return !r.Bake.Finished.IsZero() && r.Bake.Reason == "" })
+		require(current.Release != nil && current.Release.RunID == "101" && current.Release.Revision == revision && current.Release.Image == spec.Image,
+			order[i]+" did not bake the same signed release")
+		if i > 0 {
+			require(!current.Bake.Started.Before(predecessor.Bake.Finished), order[i]+" started baking before "+order[i-1]+" passed")
+		}
+		predecessor = current
 	}
 	observe(ctx, conn, func(s map[string]state) bool { return s[order[len(order)-1]].Ready[spec.Name] == generation })
 	replaced := evidence(ctx, roots[0], held, func(r receipt) bool { return r.ReplacedBy != nil })
