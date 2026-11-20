@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
@@ -72,7 +73,8 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 			continue
 		}
 		app := releasepush.AppDeployment{Host: n.cfg.server}
-		entry := (*desired)[target.Service].entry()
+		state := (*desired)[target.Service]
+		entry := state.entry()
 		if entry.Spec != nil {
 			app.Placement = &releasepush.Placement{Generation: entry.Generation, RollbackOf: entry.RollbackOf, Regions: entry.Spec.Regions}
 		}
@@ -113,6 +115,7 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 		}
 		for _, task := range tasks.Tasks {
 			row := releasepush.DeploymentTask{ID: task.ID, Host: hosts[task.NodeID], State: task.Status.State.String(), Error: secretpreflight.Scrub(task.Status.Err), StatusAt: swarmruntime.TaskTime(task)}
+			row.Generation, _ = strconv.ParseInt(task.ServiceAnnotations.Labels[swarmruntime.LabelGeneration], 10, 64)
 			if !row.StatusAt.IsZero() {
 				row.StatusAgeSeconds = max(0, int64(time.Since(row.StatusAt).Seconds()))
 			}
@@ -154,7 +157,11 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 				app.Error = "bake record unreadable: " + err.Error()
 			}
 			if err == nil {
-				app.Complete = !record.Bake.Finished.IsZero() && record.Bake.Reason == "" && !record.Bake.Unsaved && entry.RollbackOf == 0
+				identity, identityErr := bakeIdentity(state)
+				app.Complete = identityErr == nil && record.Identity == identity && !record.Bake.Finished.IsZero() && record.Bake.Reason == "" && !record.Bake.Unsaved && entry.RollbackOf == 0
+				if app.Complete {
+					app.PassedAt = record.Bake.Finished
+				}
 				if !app.Complete && app.Reason == "" {
 					app.Reason = "regional bake has not completed"
 				}

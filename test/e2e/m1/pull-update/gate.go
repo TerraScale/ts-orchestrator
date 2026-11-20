@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
-	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/sigstore"
@@ -62,12 +62,12 @@ func readServices(dir string) ([]pullrelease.Service, error) {
 }
 
 func (l *lane) setService(name string, generation int, update string, running, replicas int, tasks ...string) {
-	l.setServiceIn([]string{"sjc", "fra", "gru"}, name, generation, update, running, replicas, tasks...)
+	l.setServiceIn([]string{"gru", "fra", "sjc"}, name, generation, update, running, replicas, tasks...)
 }
 
 func (l *lane) setServiceIn(regions []string, name string, generation int, update string, running, replicas int, tasks ...string) {
 	for _, region := range regions {
-		dir := filepath.Join(filepath.Dir(l.hosts["sjc-m"].dir), "services", region)
+		dir := filepath.Join(filepath.Dir(l.hosts["gru-m"].dir), "services", region)
 		must(os.MkdirAll(dir, 0o700))
 		temporary := filepath.Join(dir, "."+name)
 		must(os.WriteFile(temporary, []byte(fmt.Sprintf("%d %d %d %s %s", running, replicas, generation, cmp.Or(update, "-"), strings.Join(tasks, " "))), 0o600))
@@ -94,7 +94,7 @@ func gating(release published) func(pullrelease.Status) bool {
 }
 
 func (l *lane) rolledBack(ctx context.Context, release published) pullrelease.Status {
-	return l.waitStatus(ctx, "sjc", "sjc confirms the rollback of "+release.tag, func(s pullrelease.Status) bool {
+	return l.waitStatus(ctx, "gru", "gru confirms the rollback of "+release.tag, func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseRolledBack && s.Target != nil && s.Target.Tag() == release.tag && slices.Contains(s.Bad, release.tag)
 	})
 }
@@ -141,7 +141,7 @@ func (l *lane) formed(ctx context.Context) {
 	starts := l.starts()
 	booted := l.github.publish(l.revision, "114", asset, l.self, l.self, l.sigstore.Bundle(sigstore.MainIdentity, l.revision, "114", map[string][]byte{asset: l.self}))
 	require(l.hosts["fra-m"].role == "manager" && l.hosts["fra-n"].role == "worker" && l.hosts["fra-w"].role == "worker", "fra must be a founder and two workers")
-	for _, region := range []string{"sjc", "fra", "gru"} {
+	for _, region := range []string{"gru", "fra", "sjc"} {
 		adopted := l.waitStatus(ctx, region, region+" adopts "+booted.tag+", the release its hosts booted", func(s pullrelease.Status) bool {
 			require(s.Target == nil || s.Target.Tag() != booted.tag || s.Phase == pullrelease.PhaseComplete && !s.Adopted.IsZero(),
 				"%s rolled out %s, the release every host booted, instead of adopting it:\n%s", region, booted.tag, s)
@@ -158,92 +158,64 @@ func (l *lane) formed(ctx context.Context) {
 
 func (l *lane) gate(ctx context.Context) {
 	l.formed(ctx)
-	canary, later := []string{"sjc"}, []string{"fra", "gru"}
+	canary, later := []string{"gru"}, []string{"fra", "sjc"}
 	l.setServiceIn(canary, "ts-auth", 1, "", 1, 1, "auth-1")
 	l.setServiceIn(later, "ts-auth", 3, swarmruntime.UpdateRunning, 0, 1)
 	l.setService("ts-dashboard", 1, "", 0, 1)
-	for _, id := range l.region("sjc") {
+	for _, id := range l.region("gru") {
 		must(os.WriteFile(filepath.Join(l.hosts[id].dir, "backend-down"), nil, 0o600))
 	}
 
-	for _, id := range []string{"fra-m", "gru-m"} {
-		must(os.WriteFile(filepath.Join(l.hosts[id].dir, "mesh-behind"), nil, 0o600))
-	}
 	degraded := l.publishGood("115", "c115")
 	published := time.Now()
-	l.waitStatus(ctx, "sjc", "sjc records its state before "+degraded.tag, func(s pullrelease.Status) bool {
+	l.waitStatus(ctx, "gru", "gru records its state before "+degraded.tag, func(s pullrelease.Status) bool {
 		return s.Target != nil && s.Target.Tag() == degraded.tag && s.Baseline != nil
 	})
 	l.setServiceIn(canary, "ts-auth", 2, swarmruntime.UpdateRunning, 0, 1)
-	overlap := l.waitStatus(ctx, "sjc", "sjc's gate of "+degraded.tag+" waits while ts-auth's own release has it at 0/1", func(s pullrelease.Status) bool {
-		require(s.Passed.IsZero() && s.Phase != pullrelease.PhaseRollingBack, "sjc passed or rolled back %s while ts-auth's own release had not settled:\n%s", degraded.tag, s)
+	overlap := l.waitStatus(ctx, "gru", "gru's gate of "+degraded.tag+" waits while ts-auth's own release has it at 0/1", func(s pullrelease.Status) bool {
+		require(s.Passed.IsZero() && s.Phase != pullrelease.PhaseRollingBack, "gru passed or rolled back %s while ts-auth's own release had not settled:\n%s", degraded.tag, s)
 		return s.Phase == pullrelease.PhaseComplete && strings.Contains(s.Reason, "waits for services in their own release to settle: excluded: own release: ts-auth 0/1")
 	})
 	l.setServiceIn(canary, "ts-auth", 2, swarmruntime.UpdateFailed, 1, 1, "auth-1")
-	paused := l.waitStatus(ctx, "sjc", "sjc keeps ts-auth named while its own release is paused, even with every replica running", func(s pullrelease.Status) bool {
-		require(s.Passed.IsZero() && s.Phase != pullrelease.PhaseRollingBack, "sjc passed or rolled back %s on a paused app release:\n%s", degraded.tag, s)
+	paused := l.waitStatus(ctx, "gru", "gru keeps ts-auth named while its own release is paused, even with every replica running", func(s pullrelease.Status) bool {
+		require(s.Passed.IsZero() && s.Phase != pullrelease.PhaseRollingBack, "gru passed or rolled back %s on a paused app release:\n%s", degraded.tag, s)
 		return strings.Contains(s.Reason, "excluded: own release: ts-auth 1/1 failed")
 	})
 	l.setServiceIn(canary, "ts-auth", 2, swarmruntime.UpdateCompleted, 1, 1, "auth-1")
-	regions := map[string]pullrelease.Status{}
-	regions["sjc"] = l.waitStatus(ctx, "sjc", "sjc passes the regional gate of "+degraded.tag+" once ts-auth's own release completes", passed(degraded))
-	require(regions["sjc"].Excluded == "excluded: own release: ts-auth 1/1 settled" && regions["sjc"].Baseline.Services["ts-auth"] == pullrelease.ServiceBaseline{Generation: 2, Running: 1},
-		"an app release during the gate must stay named until swarm reports it completed, then be judged from its new generation:\n%s\n%+v", regions["sjc"], regions["sjc"].Baseline)
-	fmt.Printf("ts-auth's own release during sjc's gate of %s -> sjc waits (%s), keeps it named while paused (%s), and passes once it completes\n", degraded.tag, overlap.Reason, paused.Reason)
-	waiting := l.restartLease(ctx, func(hold map[string]string) bool {
-		return (hold["region"] == "fra" || hold["region"] == "gru") && hold["next"] != "" && hold["next"] != hold["region"]
+	gru := l.waitStatus(ctx, "gru", "gru passes the regional gate of "+degraded.tag+" once ts-auth's own release completes", passed(degraded))
+	require(gru.Excluded == "excluded: own release: ts-auth 1/1 settled" && gru.Baseline.Services["ts-auth"] == pullrelease.ServiceBaseline{Generation: 2, Running: 1},
+		"an app release during the gate must stay named until swarm reports it completed, then be judged from its new generation:\n%s\n%+v", gru, gru.Baseline)
+	fmt.Printf("ts-auth's own release during gru's gate of %s -> gru waits (%s), keeps it named while paused (%s), and passes once it completes\n", degraded.tag, overlap.Reason, paused.Reason)
+	fra := l.waitStatus(ctx, "fra", "fra withholds "+degraded.tag+" while ts-auth stays mid-release past the bound", func(s pullrelease.Status) bool {
+		require(s.Target == nil || s.Target.Tag() != degraded.tag || s.Passed.IsZero() && s.Phase != pullrelease.PhaseRollingBack, "fra passed or rolled back %s while ts-auth's own release never settled:\n%s", degraded.tag, s)
+		return s.Target != nil && s.Target.Tag() == degraded.tag && s.Withheld != ""
 	})
-	holder, contender := waiting["region"], waiting["next"]
-	l.waitStatus(ctx, holder, holder+"-m runs "+degraded.tag+" after its restart with the fleet restart lease", func(s pullrelease.Status) bool {
-		require(s.Target == nil || s.Target.Tag() != degraded.tag || s.Passed.IsZero() && s.Phase != pullrelease.PhaseRollingBack, "%s passed or rolled back %s while ts-auth's own release never settled:\n%s", holder, degraded.tag, s)
-		return s.Target != nil && s.Target.Tag() == degraded.tag && slices.ContainsFunc(s.Hosts, func(h pullrelease.HostProgress) bool {
-			return h.ID == holder+"-m" && h.State == pullrelease.HostDone && h.SHA256 == degraded.digest
-		})
+	require(fra.Withheld == "app ts-auth unsettled" && fra.Updated.Sub(fra.Done) >= 2*healthyFor+rollout.BakeFailureDuration,
+		"fra must withhold %s only once the bound expires with ts-auth still mid-release:\n%s", degraded.tag, fra)
+	sjc := l.waitStatus(ctx, "sjc", "sjc waits for fra's gate of "+degraded.tag, func(s pullrelease.Status) bool {
+		require(s.Target == nil || s.Target.Tag() != degraded.tag, "sjc took %s before fra passed:\n%s", degraded.tag, s)
+		return strings.HasPrefix(s.Reason, "fra: waiting for the regional gate") && s.Updated.After(fra.Updated)
 	})
-	behind := l.ask(ctx, holder+"-m", releasepush.PullRequest{Op: releasepush.PullStatus})
-	up := l.ask(ctx, contender+"-m", releasepush.PullRequest{Op: releasepush.PullStatus})
-	require(behind.SHA256 == degraded.digest && behind.Mesh != "ok" && up.SHA256 != degraded.digest && up.Error == "",
-		"while %s-m holds the fleet restart lease and catches up, %s-m must wait up on its previous binary:\nholder %+v\ncontender %+v", holder, contender, behind, up)
-	fmt.Printf("%s-m restarted with the fleet restart lease and is catching up (%s); %s-m waits for it, up on its previous binary\n", holder, behind.Mesh, contender)
-	for _, id := range []string{"fra-m", "gru-m"} {
-		must(os.Remove(filepath.Join(l.hosts[id].dir, "mesh-behind")))
-	}
-	caughtUp := time.Now()
-	for _, region := range []string{"fra", "gru"} {
-		regions[region] = l.waitStatus(ctx, region, region+" withholds "+degraded.tag+" while ts-auth stays mid-release past the bound", func(s pullrelease.Status) bool {
-			require(s.Target == nil || s.Target.Tag() != degraded.tag || s.Passed.IsZero() && s.Phase != pullrelease.PhaseRollingBack, "%s passed or rolled back %s while ts-auth's own release never settled:\n%s", region, degraded.tag, s)
-			return s.Target != nil && s.Target.Tag() == degraded.tag && s.Withheld != ""
-		})
-		require(regions[region].Withheld == "app ts-auth unsettled" && regions[region].Updated.Sub(regions[region].Done) >= 2*healthyFor+rollout.BakeFailureDuration,
-			"%s must withhold %s only once the bound expires with ts-auth still mid-release:\n%s", region, degraded.tag, regions[region])
-	}
+	l.requireVersions(ctx, hex.EncodeToString(sha256Of(l.self)), l.region("sjc")...)
 	l.setServiceIn(later, "ts-auth", 3, swarmruntime.UpdateCompleted, 1, 1, "auth-1")
-	for _, row := range regions[contender].Hosts {
-		require(row.ID != contender+"-m" || !row.Installed.Before(caughtUp), "%s-m installed at %s, before %s-m caught up at %s", contender, row.Installed, holder, caughtUp)
-	}
 	elapsed := time.Since(published)
-	sjc, fra, gru := regions["sjc"], regions["fra"], regions["gru"]
-	require(sjc.Baseline != nil && maps.Equal(sjc.Baseline.Lagging, map[string]uint64{"ts-dashboard": 0}) && len(sjc.Baseline.Hosts) == 3,
-		"sjc must record ts-dashboard down and its backend-down hosts as the state before the release:\n%+v", sjc.Baseline)
-	together(sjc, fra, gru)
-	for _, region := range regions {
+	require(gru.Baseline != nil && maps.Equal(gru.Baseline.Lagging, map[string]uint64{"ts-dashboard": 0}) && len(gru.Baseline.Hosts) == 3,
+		"gru must record ts-dashboard down and its backend-down hosts as the state before the release:\n%+v", gru.Baseline)
+	require(!started(fra).IsZero() && !started(fra).Before(gru.Passed), "fra started before gru passed %s:\n%s\n%s", degraded.tag, gru, fra)
+	for _, region := range []pullrelease.Status{gru, fra} {
 		require(cmp.Or(region.Passed, region.Updated).Sub(region.Done) >= healthyFor && !region.Discovered.IsZero() && !region.Discovered.After(region.Done), "%s gate or discovery timestamps are wrong:\n%s", region.Region, strings.Join(region.Timeline(), "\n"))
 		for _, host := range region.Hosts {
 			require(!host.Installed.IsZero() && !host.Ready.Before(host.Installed) && !region.Done.Before(host.Ready), "%s has no installed and ready time:\n%s", host.Host, strings.Join(region.Timeline(), "\n"))
 		}
 	}
-	require(elapsed < gateBudget, "the release took %s to settle every region, over the %s budget:\n%s", elapsed, gateBudget, strings.Join(slices.Concat(sjc.Timeline(), fra.Timeline(), gru.Timeline()), "\n"))
-	fmt.Printf("ts-dashboard down and every sjc host's edge degraded before %s -> it installs and passes sjc; fra and gru install it together and withhold it (%s) because ts-auth stayed mid-release past the bound, in %s\n%s\n",
-		degraded.tag, fra.Reason, elapsed.Round(time.Second), strings.Join(slices.Concat(sjc.Timeline(), fra.Timeline(), gru.Timeline()), "\n"))
+	require(elapsed < gateBudget, "the release took %s to pass gru and withhold fra, over the %s budget:\n%s", elapsed, gateBudget, strings.Join(slices.Concat(gru.Timeline(), fra.Timeline()), "\n"))
+	fmt.Printf("gru passes %s despite its degraded baseline; fra withholds it; sjc keeps its previous binary (%s), in %s\n%s\n",
+		degraded.tag, sjc.Reason, elapsed.Round(time.Second), strings.Join(slices.Concat(gru.Timeline(), fra.Timeline()), "\n"))
 
 	resumed := l.publishGood("116", "c116")
-	for _, id := range []string{"gru-m", "gru-n"} {
-		l.hosts[id].holdRestart()
-		l.hosts[id].kill()
-	}
-	l.waitStatus(ctx, "sjc", "sjc's owner installs "+resumed.tag+" on itself, after the other hosts", ownerInstalling(resumed))
-	l.dropBaseline(ctx, "sjc")
-	inherited := l.waitStatus(ctx, "sjc", "sjc passes "+resumed.tag+" from a record saved without its state before the release", settled(resumed))
+	l.waitStatus(ctx, "gru", "gru's owner installs "+resumed.tag+" on itself, after the other hosts", ownerInstalling(resumed))
+	l.dropBaseline(ctx, "gru")
+	inherited := l.waitStatus(ctx, "gru", "gru passes "+resumed.tag+" from a record saved without its state before the release", settled(resumed))
 	require(!inherited.Passed.IsZero() && inherited.Baseline != nil && maps.Equal(inherited.Baseline.Lagging, map[string]uint64{"ts-dashboard": 0}),
 		"a record an older build saved without a baseline must take the region as it is now and pass with ts-dashboard still down:\n%s\n%+v", inherited, inherited.Baseline)
 	fmt.Printf("record of %s saved without its baseline, as an older build saves it -> the owner records the region as it is and passes with ts-dashboard down\n%s\n", resumed.tag, inherited)
@@ -254,59 +226,56 @@ func (l *lane) gate(ctx context.Context) {
 	fraResumed = l.waitStatus(ctx, "fra", "fra confirms the rollback of "+resumed.tag, func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseRolledBack && s.Target != nil && s.Target.Tag() == resumed.tag && slices.Contains(s.Bad, resumed.tag)
 	})
-	for _, id := range []string{"gru-m", "gru-n"} {
-		l.hosts[id].releaseRestart()
-	}
-	gruResumed := l.waitStatus(ctx, "gru", "gru, whose admission was pending while fra failed, holds "+resumed.tag, func(s pullrelease.Status) bool {
-		require(s.Target == nil || s.Target.Tag() != resumed.tag, "gru took %s after fra failed its gate:\n%s", resumed.tag, s)
+	sjcResumed := l.waitStatus(ctx, "sjc", "sjc holds "+resumed.tag, func(s pullrelease.Status) bool {
+		require(s.Target == nil || s.Target.Tag() != resumed.tag, "sjc took %s after fra failed its gate:\n%s", resumed.tag, s)
 		return strings.Contains(s.Reason, "fra: failed the gate of "+resumed.tag)
 	})
-	sjcResumed := l.waitStatus(ctx, "sjc", "the canary keeps "+resumed.tag+" after fra rolled it back", func(s pullrelease.Status) bool { return s.Updated.After(fraResumed.Updated) })
-	require(passed(resumed)(sjcResumed) && sjcResumed.Passed.Equal(inherited.Passed) && !slices.Contains(sjcResumed.Bad, resumed.tag),
-		"a failed gate in fra must roll back fra only and leave the canary's record as it passed:\nsjc %s", sjcResumed)
-	fmt.Printf("fra-w restarted during the gate of %s -> fra rolled back alone; the canary keeps it; gru, whose managers were down until then, holds it: %s\n%s\n", resumed.tag, gruResumed.Reason, strings.Join(slices.Concat(sjcResumed.Timeline(), fraResumed.Timeline()), "\n"))
+	gruResumed := l.waitStatus(ctx, "gru", "the canary keeps "+resumed.tag+" after fra rolled it back", func(s pullrelease.Status) bool { return s.Updated.After(fraResumed.Updated) })
+	require(passed(resumed)(gruResumed) && gruResumed.Passed.Equal(inherited.Passed) && !slices.Contains(gruResumed.Bad, resumed.tag),
+		"a failed gate in fra must roll back fra only and leave the canary's record as it passed:\ngru %s", gruResumed)
+	fmt.Printf("fra-w restarted during the gate of %s -> fra rolled back alone; the canary keeps it; sjc holds it: %s\n%s\n", resumed.tag, sjcResumed.Reason, strings.Join(slices.Concat(gruResumed.Timeline(), fraResumed.Timeline()), "\n"))
 
 	second := l.publishGood("117", "c117")
-	l.waitStatus(ctx, "sjc", "sjc records its state before "+second.tag, func(s pullrelease.Status) bool {
+	l.waitStatus(ctx, "gru", "gru records its state before "+second.tag, func(s pullrelease.Status) bool {
 		return s.Target != nil && s.Target.Tag() == second.tag && s.Baseline != nil
 	})
 	l.setService("ts-auth", 4, swarmruntime.UpdateCompleted, 1, 1, "auth-1")
-	l.waitStatus(ctx, "sjc", "sjc samples the regional gate of "+second.tag, gating(second))
-	for _, id := range l.region("sjc") {
+	l.waitStatus(ctx, "gru", "gru samples the regional gate of "+second.tag, gating(second))
+	for _, id := range l.region("gru") {
 		must(os.WriteFile(filepath.Join(l.hosts[id].dir, "refuse-stop"), nil, 0o600))
 	}
 	l.setService("ts-auth", 4, swarmruntime.UpdateCompleted, 0, 1, "auth-1")
 	down := time.Now()
-	failed := l.waitStatus(ctx, "sjc", "sjc fails the gate of "+second.tag+" with ts-auth down", settled(second))
+	failed := l.waitStatus(ctx, "gru", "gru fails the gate of "+second.tag+" with ts-auth down", settled(second))
 	require(failed.Passed.IsZero() && strings.Contains(failed.Reason, "regional bake failed in ") && strings.Contains(failed.Reason, "ts-auth 0/1") && !failed.Since.Before(down.Add(rollout.BakeFailureDuration)) &&
 		failed.Baseline.Services["ts-auth"].Generation == 4,
 		"ts-auth's own release settled (swarm update completed) at generation 4; a later replica loss at the same target must fail the gate after 15 seconds of failed samples:\n%s\n%+v", failed, failed.Baseline)
 	l.setService("ts-auth", 4, swarmruntime.UpdateCompleted, 1, 1, "auth-1")
-	for _, region := range []string{"fra", "gru"} {
+	for _, region := range []string{"fra", "sjc"} {
 		pending := l.waitStatus(ctx, region, region+" holds "+second.tag+" while the canary's rollback is pending", func(s pullrelease.Status) bool {
 			require(s.Target == nil || s.Target.Tag() != second.tag, "%s took %s while the canary rolls it back:\n%s", region, second.tag, s)
-			return strings.Contains(s.Reason, "sjc: failed the gate of "+second.tag)
+			return strings.Contains(s.Reason, "gru: failed the gate of "+second.tag)
 		})
 		fmt.Printf("%s holds %s while the canary's restore is refused: %s\n", region, pending.Target.Tag(), pending.Reason)
 	}
-	for _, id := range l.region("sjc") {
+	for _, id := range l.region("gru") {
 		must(os.Remove(filepath.Join(l.hosts[id].dir, "refuse-stop")))
 	}
 	rolled := l.rolledBack(ctx, second)
-	for _, region := range []string{"fra", "gru"} {
+	for _, region := range []string{"fra", "sjc"} {
 		blocked := l.waitStatus(ctx, region, region+" holds "+second.tag+" behind the canary", func(s pullrelease.Status) bool {
 			require(s.Target == nil || s.Target.Tag() != second.tag, "%s took %s, which the canary rolled back:\n%s", region, second.tag, s)
-			return s.Updated.After(rolled.Updated) && strings.Contains(s.Reason, "sjc: failed the gate of "+second.tag)
+			return s.Updated.After(rolled.Updated) && strings.Contains(s.Reason, "gru: failed the gate of "+second.tag)
 		})
 		fmt.Printf("%s holds %s: %s\n", region, blocked.Target.Tag(), blocked.Reason)
 	}
-	fmt.Printf("ts-auth's second replica never ready during the gate of %s -> rolled back and marked bad in the canary; fra and gru hold the previous release\n%s\n", second.tag, rolled)
+	fmt.Printf("ts-auth's second replica never ready during the gate of %s -> rolled back and marked bad in the canary; fra and sjc hold the previous release\n%s\n", second.tag, rolled)
 
 	restart := l.publishGood("118", "c118")
-	l.waitStatus(ctx, "sjc", "sjc samples the regional gate of "+restart.tag, gating(restart))
-	l.dropBaselineServices(ctx, "sjc")
+	l.waitStatus(ctx, "gru", "gru samples the regional gate of "+restart.tag, gating(restart))
+	l.dropBaselineServices(ctx, "gru")
 	l.setService("ts-auth", 4, swarmruntime.UpdateCompleted, 1, 1, "auth-2")
-	restarted := l.waitStatus(ctx, "sjc", "sjc fails the gate of "+restart.tag+" on a restarted task", settled(restart))
+	restarted := l.waitStatus(ctx, "gru", "gru fails the gate of "+restart.tag+" on a restarted task", settled(restart))
 	require(restarted.Passed.IsZero() && strings.Contains(restarted.Reason, "ts-auth task auth-1 stopped during the gate") && restarted.Baseline != nil && restarted.Baseline.Services == nil,
 		"a task that restarts during the gate must fail it at once, also with a baseline saved without its services, as an older build saves it:\n%s", restarted)
 	l.rolledBack(ctx, restart)
@@ -324,13 +293,13 @@ func started(s pullrelease.Status) time.Time {
 	return first
 }
 
-func together(canary, fra, gru pullrelease.Status) {
-	fraStart, gruStart := started(fra), started(gru)
-	timelines := strings.Join(slices.Concat(canary.Timeline(), fra.Timeline(), gru.Timeline()), "\n")
-	require(!fraStart.IsZero() && !gruStart.IsZero() && !fraStart.Before(canary.Passed) && !gruStart.Before(canary.Passed),
-		"fra and gru must start only after the canary passed its gate:\n%s", timelines)
-	fraEnd, gruEnd := cmp.Or(fra.Passed, fra.Updated), cmp.Or(gru.Passed, gru.Updated)
-	require(fraStart.Before(gruEnd) && gruStart.Before(fraEnd), "fra and gru must roll out at the same time, not one after the other:\n%s", timelines)
+func ordered(gru, fra, sjc pullrelease.Status) {
+	fraStart, sjcStart := started(fra), started(sjc)
+	timelines := strings.Join(slices.Concat(gru.Timeline(), fra.Timeline(), sjc.Timeline()), "\n")
+	require(gru.Target != nil && fra.Target != nil && sjc.Target != nil && gru.Target.Tag() == fra.Target.Tag() && fra.Target.Tag() == sjc.Target.Tag() &&
+		!gru.Passed.IsZero() && !fra.Passed.IsZero() && !sjc.Passed.IsZero() &&
+		!fraStart.IsZero() && !sjcStart.IsZero() && !fraStart.Before(gru.Passed) && !sjcStart.Before(fra.Passed),
+		"gru must pass before fra starts, and fra must pass before sjc starts, for the same release:\n%s", timelines)
 }
 
 func (l *lane) restartLease(ctx context.Context, done func(map[string]string) bool) map[string]string {

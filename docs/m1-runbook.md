@@ -234,10 +234,44 @@ with its own SwarmKit node and its own NATS cluster (`internal/natscell/mesh`).
   regions' maps at start and every 30 s (`ts.svc.state`), so a region that
   was down catches up by itself. `regions` in a spec limits it (M1 specs: `["gru"]`).
 - Auto-deploy: ci.yml deploy/release-publish publishes attested binaries. Hosts
-  pull in sjc first; fra and gru follow together once sjc completed and passed its regional gate.
+  pull in gru first; fra then sjc wait for earlier regions to pass the same
+  release's gate. The first GRU-first build enters through the cutover below.
 - Live check: `.github/workflows/multi-region.yml` (every 6 h, after main CI,
   or `gh workflow run multi-region.yml --ref main`) runs `ts-orch release
   mesh-check`: authenticated observations of every peer with RTTs, over each region’s native HTTPS endpoint; no service apply.
+
+### Cutover from SJC-first binaries
+
+Before releasing the first GRU-first binary, confirm the SJC-first fleet
+can complete its normal signed roll and has no pending rollback. Keep the
+signed TerraBase, ts-auth, ts-dashboard and app-canary selections pinned,
+allow in-flight applies to settle, and hold manual multi-region app changes
+until the cutover is complete. Keep the current registry publication policy
+through this window. An old SJC auth or dashboard receiver can admit a
+generation before GRU serves it. New receivers and dispatchers cannot change
+the decisions made by the old process.
+
+Use a single signed channel release for the binary cutover. The existing
+SJC-first owners admit SJC first. FRA and GRU hold the same tag until SJC
+passes, then finish the rolls they admitted under the old policy. An owner
+that restarts during installation resumes its persisted roll. If SJC cannot
+pass, keep the app selections pinned and resolve its readiness or quorum
+hold before proceeding.
+
+Confirm the cutover revision and digest on every registered host, the same
+tag's successful regional gates, and GRU-first policy from every targeted
+mesh region before moving app selections or changing publication policy.
+The next signed release admits GRU, then FRA, then SJC. The pull-update
+transition scenario exercises both releases against local signed channels,
+starting with the SJC-first updater built from the base revision.
+
+For merge-to-ready timing, match the merged revision and release to
+`passed_at` in deployment observations. The GRU timestamp gives the first
+regional gate. The latest timestamp for the same release across its targets
+gives the fleet gate. For apps match the selected digest, signed revision
+and placement generation to the running task rows. The deployment-lag log
+also records binary host readiness, app task state and gate or rollback
+reasons. Compare the timestamps with the recorded main merge time.
 
 ### Infrastructure
 

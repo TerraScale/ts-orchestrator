@@ -716,8 +716,11 @@ func (n *Node) states(ctx context.Context) map[string]stateReply {
 // statesOf collects replies until every region in want answered (nil: all
 // known regions) or wait elapses.
 func (n *Node) statesOf(ctx context.Context, want []string, wait time.Duration) map[string]stateReply {
+	return regionStates(ctx, n.conn, len(n.regions()), want, wait)
+}
+
+func regionStates(ctx context.Context, conn *nats.Conn, count int, want []string, wait time.Duration) map[string]stateReply {
 	states := map[string]stateReply{}
-	count := len(n.regions())
 	if want != nil {
 		count = math.MaxInt
 	}
@@ -734,7 +737,7 @@ func (n *Node) statesOf(ctx context.Context, want []string, wait time.Duration) 
 		return states
 	}
 	sent := time.Now()
-	_ = collect(ctx, n.conn, StateSubject, payload, count, wait, func(data []byte) bool {
+	_ = collect(ctx, conn, StateSubject, payload, count, wait, func(data []byte) bool {
 		var reply stateReply
 		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && time.Since(sent) <= servingMaxAge && (reply.Nonce == challenge || reply.Nonce == "" && reply.Serving == nil && reply.BakeRequired == nil && reply.Admission == nil && reply.Unsaved == nil) {
 			reply.received = sent
@@ -831,13 +834,12 @@ func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int6
 			n.admission[name] = decision
 		}
 	}()
-	if fenced(name) {
-		rule := EnvironmentOf(n.cfg.region).Rollout
-		for _, region := range n.participants(spec) {
-			if reply, answered := states[region]; !answered || !slices.Equal(reply.Rollout, rule) {
-				decision.Earlier, decision.Evidence = region, "rollout order not agreed"
-				return fmt.Errorf("%s does not run the rollout order %v yet", region, rule)
-			}
+	rule := EnvironmentOf(n.cfg.region).Rollout
+	for _, region := range n.participants(spec) {
+		reply, answered := states[region]
+		if (fenced(name) || answered && len(reply.Rollout) != 0) && !slices.Equal(reply.Rollout, rule) {
+			decision.Earlier, decision.Evidence = region, "rollout order not agreed"
+			return fmt.Errorf("%s does not run the rollout order %v yet", region, rule)
 		}
 	}
 	for _, region := range n.earlier(spec) {
@@ -910,10 +912,7 @@ func (n *Node) awaitDependents(ctx context.Context, name string) (time.Duration,
 
 // awaitTurn waits until turn allows this region to apply.
 func (n *Node) awaitTurn(ctx context.Context, name string, spec *swarmruntime.ServiceSpec, generation int64) error {
-	asked := n.earlier(spec)
-	if fenced(name) {
-		asked = n.participants(spec)
-	}
+	asked := n.participants(spec)
 	if len(asked) == 0 {
 		return nil
 	}

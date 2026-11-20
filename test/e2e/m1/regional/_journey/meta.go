@@ -287,43 +287,49 @@ func MetaBootJourney(root string) error {
 	}
 	fmt.Println("ok metadata: a founder with an empty log joined the existing group instead of forming one")
 
-	spec := &swarmruntime.ServiceSpec{Name: "terrabase", Regions: []string{"gru", "sjc", "fra"}}
+	spec := &swarmruntime.ServiceSpec{Name: "terrabase", Regions: []string{"sjc", "gru", "fra"}}
 	generation := time.Now().UnixNano()
 	rule := EnvironmentOf("gru").Rollout
-	turnWithin := func(region string, wait time.Duration) error {
+	if !slices.Equal(rule, []string{"gru", "fra", "sjc"}) {
+		return fmt.Errorf("the reviewed rollout order is %v, want gru, fra, sjc", rule)
+	}
+	if !slices.Equal(rolloutOrder("gru", spec), rule) || !slices.Equal(rolloutOrder("gru", &swarmruntime.ServiceSpec{}), rule) {
+		return errors.New("default and explicit multi-region placement must use the catalog rollout order")
+	}
+	turnWithin := func(region, name string, spec *swarmruntime.ServiceSpec, wait time.Duration) error {
 		turnCtx, stop := context.WithTimeout(ctx, wait)
 		defer stop()
-		return fleet.nodes[region].awaitTurn(turnCtx, "terrabase", spec, generation)
+		return fleet.nodes[region].awaitTurn(turnCtx, name, spec, generation)
 	}
-	decision := func(region string) AdmissionDecision {
+	decision := func(region, name string) AdmissionDecision {
 		node := fleet.nodes[region]
 		node.admissionMu.Lock()
 		defer node.admissionMu.Unlock()
-		return node.admission["terrabase"]
+		return node.admission[name]
 	}
-	if err := turnWithin("sjc", 10*time.Second); err != nil {
-		return fmt.Errorf("sjc, first in the order, was not admitted with every founder on it: %w", err)
+	if err := turnWithin("gru", "terrabase", spec, 10*time.Second); err != nil {
+		return fmt.Errorf("gru, first in the order, was not admitted with every founder on it: %w", err)
 	}
-	for _, region := range []string{"fra", "gru"} {
-		if err := turnWithin(region, 3*time.Second); err == nil || decision(region).Earlier != "sjc" {
-			return fmt.Errorf("%s was admitted before sjc passed generation %d: %v, %+v", region, generation, err, decision(region))
+	for _, region := range []string{"fra", "sjc"} {
+		if err := turnWithin(region, "terrabase", spec, 3*time.Second); err == nil || decision(region, "terrabase").Earlier != "gru" {
+			return fmt.Errorf("%s was admitted before gru passed generation %d: %v, %+v", region, generation, err, decision(region, "terrabase"))
 		}
 	}
-	fmt.Println("ok order: a spec stored as gru, sjc, fra admits sjc first; fra and gru wait for sjc's verdict")
+	fmt.Println("ok order: a spec stored as sjc, gru, fra admits gru first; fra and sjc wait for gru's verdict")
 
-	fleet.stop("sjc", "fra")
+	fleet.stop("gru", "fra")
 	var stagedMu sync.Mutex
 	staged := map[string]stateReply{}
 	stage := func(region string, rollout []string, passed bool) {
 		reply := stateReply{Region: region, Desired: map[string]desiredState{}, Ready: map[string]int64{}, Rollout: rollout}
 		if passed {
-			reply.Ready["terrabase"] = generation
+			reply.Ready["terrabase"], reply.Ready["app-canary"] = generation, generation
 		}
 		stagedMu.Lock()
 		staged[region] = reply
 		stagedMu.Unlock()
 	}
-	responder, err := fleet.nodes["gru"].conn.Subscribe(StateSubject, func(m *nats.Msg) {
+	responder, err := fleet.nodes["sjc"].conn.Subscribe(StateSubject, func(m *nats.Msg) {
 		var request struct {
 			Nonce string `json:"nonce"`
 			View  string `json:"view"`
@@ -340,7 +346,8 @@ func MetaBootJourney(root string) error {
 		for _, reply := range replies {
 			reply.Nonce = request.Nonce
 			if reply.Ready["terrabase"] == generation {
-				reply.Serving = map[string]ServingResult{"terrabase": {Generation: generation, Serving: true, At: time.Now()}}
+				reply.Serving = map[string]ServingResult{"terrabase": {Generation: generation, Serving: true, At: time.Now()},
+					"app-canary": {Generation: generation, Serving: true, At: time.Now()}}
 			}
 			if data, err := protocol.EncodeJSON(reply); err == nil {
 				_ = m.Respond(data)
@@ -351,33 +358,62 @@ func MetaBootJourney(root string) error {
 		return err
 	}
 	defer responder.Unsubscribe()
-	stage("sjc", rule, true)
+	stage("gru", rule, true)
 	stage("fra", nil, false)
 	admitted := make(chan error, 1)
-	go func() { admitted <- turnWithin("gru", time.Minute) }()
-	waitFor := func(evidence string) error {
+	go func() { admitted <- turnWithin("sjc", "terrabase", spec, time.Minute) }()
+	waitFor := func(name, earlier, evidence string) error {
 		return regionalAwait(ctx, func() bool {
-			got := decision("gru")
-			return got.Generation == generation && got.Earlier == "fra" && got.Evidence == evidence
+			got := decision("sjc", name)
+			return got.Generation == generation && got.Earlier == earlier && got.Evidence == evidence
 		})
 	}
-	if err := waitFor("rollout order not agreed"); err != nil {
-		return fmt.Errorf("gru did not wait for fra advertising no rollout order: %w, %+v", err, decision("gru"))
+	if err := waitFor("terrabase", "fra", "rollout order not agreed"); err != nil {
+		return fmt.Errorf("sjc did not wait for fra advertising no rollout order: %w, %+v", err, decision("sjc", "terrabase"))
 	}
 	stage("fra", rule, false)
-	if err := waitFor("fresh serving evidence missing"); err != nil {
-		return fmt.Errorf("gru did not wait for fra's verdict once fra agreed on the order: %w, %+v", err, decision("gru"))
+	if err := waitFor("terrabase", "fra", "fresh serving evidence missing"); err != nil {
+		return fmt.Errorf("sjc did not wait for fra's verdict once fra agreed on the order: %w, %+v", err, decision("sjc", "terrabase"))
 	}
 	stage("fra", rule, true)
 	select {
 	case err := <-admitted:
-		if err != nil || decision("gru").Evidence != "admitted" {
-			return fmt.Errorf("gru was not admitted once sjc and fra passed: %v, %+v", err, decision("gru"))
+		if err != nil || decision("sjc", "terrabase").Evidence != "admitted" {
+			return fmt.Errorf("sjc was not admitted once gru and fra passed: %v, %+v", err, decision("sjc", "terrabase"))
 		}
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	fmt.Println("ok order: one generation through the real admission path: gru waited while fra advertised no rollout order, then for fra's verdict, and admitted itself once sjc and fra passed")
+	fmt.Println("ok order: one generation through the real admission path: sjc waited while fra advertised no rollout order, then for fra's verdict, and admitted itself once gru and fra passed")
+
+	app := &swarmruntime.ServiceSpec{Name: "app-canary", Regions: []string{"sjc", "fra", "gru"}}
+	stage("gru", []string{"sjc", "fra", "gru"}, true)
+	for _, name := range []string{"terrabase", "ts-auth", "ts-dashboard", "app-canary"} {
+		app.Name = name
+		if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err == nil || !strings.Contains(err.Error(), "gru does not run the rollout order") {
+			return fmt.Errorf("%s signed apply must wait before dispatch while a recipient advertises the old order: %v", name, err)
+		}
+	}
+	if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, &swarmruntime.ServiceSpec{Name: "ts-auth", Regions: []string{"sjc"}}); err != nil {
+		return fmt.Errorf("single-region ts-auth should stay in sjc during a mixed fleet: %w", err)
+	}
+	go func() { admitted <- turnWithin("sjc", "app-canary", app, time.Minute) }()
+	if err := waitFor("app-canary", "gru", "rollout order not agreed"); err != nil {
+		return fmt.Errorf("sjc did not hold an app rollout while gru advertised the previous sjc-first order: %w, %+v", err, decision("sjc", "app-canary"))
+	}
+	stage("gru", rule, true)
+	if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err != nil {
+		return fmt.Errorf("signed apply must dispatch once all targets report the new order: %w", err)
+	}
+	select {
+	case err := <-admitted:
+		if err != nil || decision("sjc", "app-canary").Evidence != "admitted" {
+			return fmt.Errorf("sjc was not admitted for app-canary once gru agreed on the order and passed: %v, %+v", err, decision("sjc", "app-canary"))
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	fmt.Println("ok order: signed TerraBase, auth, dashboard and app-canary applies wait before dispatch on mixed order; single-region auth stays in sjc; apply proceeds once all targets advertise gru, fra, sjc")
 	return nil
 }
 

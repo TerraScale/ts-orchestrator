@@ -802,22 +802,21 @@ func (u *Updater) mirror(ctx context.Context, status Status) {
 
 func (u *Updater) admission(ctx context.Context, tag string) string {
 	order := catalog.RolloutOrder()
-	if !slices.Contains(order, u.Region) {
+	position := slices.Index(order, u.Region)
+	if position < 0 {
 		return "region has no reviewed binary rollout position"
 	}
 	if reason, err := u.store.failed(ctx, tag); err != nil || reason != "" {
 		return cmp.Or(reason, "rollout decision of "+tag+" unreadable: "+fmt.Sprint(err))
 	}
-	canary := order[0]
-	if u.Region == canary {
-		return ""
-	}
-	status, err := u.store.loadFromLeader(ctx, canary)
-	switch {
-	case err != nil:
-		return canary + ": rollout record unreadable: " + err.Error()
-	case status.Target == nil || status.Target.Tag() != tag || status.Phase != PhaseComplete || status.Done.IsZero() || !status.passed():
-		return canary + ": waiting for the canary region to pass the regional gate of the same release"
+	for _, earlier := range order[:position] {
+		status, err := u.store.loadFromLeader(ctx, earlier)
+		switch {
+		case err != nil:
+			return earlier + ": rollout record unreadable: " + err.Error()
+		case status.Target == nil || status.Target.Tag() != tag || status.Phase != PhaseComplete || status.Done.IsZero() || !status.passed():
+			return earlier + ": waiting for the regional gate of the same release"
+		}
 	}
 	return ""
 }
