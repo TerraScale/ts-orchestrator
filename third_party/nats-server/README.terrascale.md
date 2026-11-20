@@ -89,6 +89,14 @@ starts its metadata node as an observer, so it never campaigns; the embedding
 mesh ends observer mode once the node has seen a leader, or once every founder is
 reachable and none has metadata state. Unset, behavior is unchanged.
 
+`server/monitor.go` adds `membership_change` to each RAFTZ group: the peer, its
+server name when known, whether it is being added or removed, and the log index
+of a membership change the node has appended but not committed. Upstream shows a
+pending addition only as a peer with `known: false` and drops a peer being
+removed from the peer list at append time, so a pending removal looked like a
+settled, smaller group. The mesh's planned-stop check refuses while any member
+reports one.
+
 `server/jetstream_cluster.go` also starts JetStream clustering with no
 configured route when the server has a named cluster listener and
 `JetStreamMetaBootSize` is 1. That is a one-region environment's founder: it has

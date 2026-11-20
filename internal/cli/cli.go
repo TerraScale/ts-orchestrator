@@ -68,7 +68,7 @@ Operator tooling:
   events                 Print recent task and service state changes on this node; -f streams them (read-only)
   service                Apply and remove services in every region, list this host's (apply -f FILE | ls | rm NAME)
   member                 List this region's cluster hosts; drain and remove a worker (ls | leave HOSTNAME)
-  mesh                   Show which regions answer on the cross-region mesh (ping)
+  mesh                   Show which regions answer on the mesh (ping); read the JetStream metadata group (meta)
   status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
   edge                   Inspect certificates (edge certificates inventory, repair)
   release                Prepare, sign, verify, and publish release receipts

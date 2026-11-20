@@ -1,6 +1,7 @@
 package mesh
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,10 +29,17 @@ type FabricLifecycle struct {
 	monitor      *nats.Conn
 	stopMu       sync.Mutex
 	stopPrepared bool
+	changeMu     sync.Mutex
+	changes      map[string]membershipChange
+}
+
+type membershipChange struct {
+	description string
+	since       time.Time
 }
 
 func NewFabricLifecycle(s *server.Server, monitor *nats.Conn) *FabricLifecycle {
-	return &FabricLifecycle{server: s, monitor: monitor}
+	return &FabricLifecycle{server: s, monitor: monitor, changes: map[string]membershipChange{}}
 }
 
 func (n *Node) PrepareStop(ctx context.Context) error {
@@ -102,6 +110,10 @@ type raftGroup struct {
 	Active     []string
 	Committed  uint64
 	Replicated map[string]uint64
+	Names      map[string]string
+	Seen       map[string]string
+	Pending    []string
+	Change     *server.RaftzMembershipChange
 	Quorum     int
 	Size       int
 	Changing   bool
@@ -180,9 +192,14 @@ func observeLeaders(leaders map[string]raftGroup, status server.RaftzStatus) {
 				continue
 			}
 			group := raftGroup{Group: name, ID: raft.ID, Leader: true, Term: raft.Term, Size: raft.Size, Quorum: raft.QuorumNeeded,
-				Members: []string{raft.ID}, Active: []string{raft.ID}, Committed: raft.Committed, Replicated: map[string]uint64{raft.ID: raft.Committed}}
+				Members: []string{raft.ID}, Active: []string{raft.ID}, Committed: raft.Committed, Replicated: map[string]uint64{raft.ID: raft.Committed},
+				Names: map[string]string{}, Seen: map[string]string{}, Change: raft.Change}
 			for id, peer := range raft.Peers {
 				group.Members = append(group.Members, id)
+				group.Names[id], group.Seen[id] = peer.Name, peer.LastSeen
+				if !peer.Known {
+					group.Pending = append(group.Pending, id)
+				}
 				age, err := time.ParseDuration(peer.LastSeen)
 				if peer.Known && err == nil && age < replicaActiveMax {
 					group.Active = append(group.Active, id)
@@ -214,9 +231,12 @@ func (n *FabricLifecycle) fabricQuorum(ctx context.Context, stopping bool, targe
 			}
 			return fmt.Errorf("raft group %s: no current leader observation: %v", group.Group, queryErr)
 		}
-		if group.Changing || leader.Changing || len(group.Members) != group.Size || !sameMembers(group.Members, leader.Members) {
-			return fmt.Errorf("raft group %s: membership is changing", group.Group)
+		if group.Changing || leader.Changing || leader.Change != nil || !sameMembers(group.Members, leader.Members) {
+			return n.membershipUnsettled(group, leader)
 		}
+		members := len(leader.Members)
+		quorum := max(leader.Quorum, members/2+1)
+		n.settled(group.Group)
 		target := leader.Committed
 		if targets != nil {
 			key := fmt.Sprintf("%s/%d", leader.Group, leader.Term)
@@ -236,22 +256,142 @@ func (n *FabricLifecycle) fabricQuorum(ctx context.Context, stopping bool, targe
 				current++
 			}
 		}
-		if stopping && current < group.Quorum {
-			message := fmt.Sprintf("raft group %s: planned stop refused: %d current replicas remain, quorum needs %d", group.Group, current, group.Quorum)
-			if active >= group.Quorum {
+		if stopping && current < quorum {
+			message := fmt.Sprintf("raft group %s: planned stop refused: %d current replicas remain, quorum needs %d; not current: %s",
+				group.Group, current, quorum, lagging(group, leader, target))
+			if active >= quorum {
 				return &replicaCatchup{message}
 			}
 			return fmt.Errorf("%s", message)
 		}
-		if !stopping && current != group.Size {
-			message := fmt.Sprintf("raft group %s: leader %s, %d/%d current replicas, quorum needs %d", group.Group, leader.ID, current, group.Size, group.Quorum)
-			if active == group.Size {
+		if !stopping && current != members {
+			message := fmt.Sprintf("raft group %s: leader %s, %d/%d current replicas, quorum needs %d", group.Group, leader.ID, current, members, quorum)
+			if active == members {
 				return &replicaCatchup{message}
 			}
 			return fmt.Errorf("%s", message)
 		}
 	}
 	return nil
+}
+
+func (n *FabricLifecycle) membershipUnsettled(local, leader raftGroup) error {
+	names, localChange, namesErr := n.localMembership(local.Group)
+	for id, name := range leader.Names {
+		if name != "" {
+			names[id] = name
+		}
+	}
+	label := func(id string) string {
+		if name := names[id]; name != "" {
+			return name + " (" + id + ")"
+		}
+		return id + " (name unknown)"
+	}
+	pendingEntry := func(who string, change *server.RaftzMembershipChange) string {
+		operation := "adding"
+		if change.Removing {
+			operation = "removing"
+		}
+		if change.Name != "" {
+			names[change.Peer] = change.Name
+		}
+		return fmt.Sprintf("%s has not committed %s %s at index %d", who, operation, label(change.Peer), change.Index)
+	}
+	var parts []string
+	if leader.Change != nil {
+		parts = append(parts, pendingEntry("the leader", leader.Change))
+	}
+	for _, id := range slices.Sorted(slices.Values(leader.Pending)) {
+		if leader.Change == nil || leader.Change.Peer != id {
+			parts = append(parts, "the leader has not committed adding "+label(id))
+		}
+	}
+	if localChange != nil && !local.Leader {
+		parts = append(parts, pendingEntry("this server", localChange))
+	} else if local.Changing && leader.Change == nil {
+		parts = append(parts, "this server holds an uncommitted membership entry")
+	}
+	state := "membership change in progress"
+	if len(parts) == 0 {
+		state = "membership views disagree"
+	}
+	changing := func(id string) bool {
+		return leader.Change != nil && leader.Change.Peer == id || localChange != nil && localChange.Peer == id
+	}
+	for _, id := range slices.Sorted(slices.Values(local.Members)) {
+		if !slices.Contains(leader.Members, id) && !changing(id) {
+			parts = append(parts, "this server lists "+label(id)+", the leader does not")
+		}
+	}
+	for _, id := range slices.Sorted(slices.Values(leader.Members)) {
+		if !slices.Contains(local.Members, id) && !slices.Contains(leader.Pending, id) && !changing(id) {
+			parts = append(parts, "the leader lists "+label(id)+", this server does not")
+		}
+	}
+	if len(leader.Members) != leader.Size {
+		parts = append(parts, fmt.Sprintf("the leader counts %d members for cluster size %d", len(leader.Members), leader.Size))
+	}
+	if namesErr != nil {
+		parts = append(parts, "local peer names unavailable: "+namesErr.Error())
+	}
+	description := strings.Join(parts, "; ")
+	n.changeMu.Lock()
+	change, ok := n.changes[local.Group]
+	if !ok || change.description != description {
+		change = membershipChange{description: description, since: time.Now()}
+		n.changes[local.Group] = change
+	}
+	n.changeMu.Unlock()
+	return fmt.Errorf("raft group %s: %s for %s: %s", local.Group, state, time.Since(change.since).Round(time.Second), description)
+}
+
+func (n *FabricLifecycle) settled(group string) {
+	n.changeMu.Lock()
+	delete(n.changes, group)
+	n.changeMu.Unlock()
+}
+
+func (n *FabricLifecycle) localMembership(group string) (map[string]string, *server.RaftzMembershipChange, error) {
+	names := map[string]string{}
+	var change *server.RaftzMembershipChange
+	accounts, err := n.server.Accountz(nil)
+	if err != nil {
+		return names, nil, err
+	}
+	for _, account := range accounts.Accounts {
+		status := n.server.Raftz(&server.RaftzOptions{AccountFilter: account, GroupFilter: group})
+		if status == nil {
+			continue
+		}
+		for _, groups := range *status {
+			if raft, ok := groups[group]; ok {
+				change = raft.Change
+				names[raft.ID] = n.server.Name()
+				for id, peer := range raft.Peers {
+					if peer.Name != "" {
+						names[id] = peer.Name
+					}
+				}
+			}
+		}
+	}
+	return names, change, nil
+}
+
+func lagging(group, leader raftGroup, target uint64) string {
+	var parts []string
+	for _, id := range slices.Sorted(slices.Values(leader.Members)) {
+		if id == group.ID || !slices.Contains(group.Members, id) || leader.Replicated[id] >= target && slices.Contains(leader.Active, id) {
+			continue
+		}
+		seen := cmp.Or(leader.Seen[id], "never")
+		parts = append(parts, fmt.Sprintf("%s (%s) last seen %s", cmp.Or(leader.Names[id], "name unknown"), id, seen))
+	}
+	if len(parts) == 0 {
+		return "none besides this server"
+	}
+	return strings.Join(parts, ", ")
 }
 
 type replicaCatchup struct {
@@ -314,6 +454,11 @@ func (n *FabricLifecycle) PrepareStop(ctx context.Context) error {
 			}
 		}
 		if len(remaining) == 0 {
+			if err := sustained(ctx, stopBudget, func() error { return n.fabricQuorum(ctx, true, nil) }); err != nil {
+				n.abortStopLocked()
+				slog.Warn("mesh planned stop refused after leadership handoff", "error", err)
+				return fmt.Errorf("planned stop refused after leadership handoff: %w", err)
+			}
 			n.stopPrepared = true
 			break
 		}
