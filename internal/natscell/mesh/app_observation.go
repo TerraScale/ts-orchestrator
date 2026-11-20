@@ -52,34 +52,49 @@ func (n *Node) observeAppRelease(request stateRequest) releasepush.AppReleaseObs
 	proof.Configured = slices.Compact(proof.Configured)
 	state := (*n.stateDesired.Load())[request.Service]
 	entry := state.entry()
-	if entry.Spec == nil || entry.Generation <= 0 {
-		return proof
-	}
-	proof.Declared = entry.Spec.RunsIn(n.cfg.region)
-	proof.Placement = &releasepush.Placement{Generation: entry.Generation, RollbackOf: entry.RollbackOf, Regions: entry.Spec.Regions}
-	if entry.Deployment == nil || state.Floor == nil || *entry.Deployment != *state.Floor || entry.RollbackOf != 0 ||
-		entry.Deployment.Validate() != nil || !appregistry.SameDigest(entry.Deployment.Image, entry.Spec.Image) {
+	if entry.Generation <= 0 || entry.Deployment == nil || state.Floor == nil || *entry.Deployment != *state.Floor || entry.Deployment.Validate() != nil {
 		return proof
 	}
 	proof.Release = entry.Deployment
+	proof.Placement = &releasepush.Placement{Generation: entry.Generation, RollbackOf: entry.RollbackOf}
+	if entry.Spec != nil {
+		proof.Declared = entry.Spec.RunsIn(n.cfg.region)
+		proof.Placement.Regions = entry.Spec.Regions
+	}
+	if entry.RollbackOf != 0 {
+		proof.RollbackTarget = "absence"
+		if entry.Spec != nil {
+			proof.RollbackTarget = entry.Spec.Image
+		}
+		return proof
+	}
+	if entry.Spec == nil || !appregistry.SameDigest(entry.Deployment.Image, entry.Spec.Image) {
+		proof.Release = nil
+		return proof
+	}
 	if !proof.Declared {
 		return proof
 	}
-	key := n.bakePath(request.Service, entry.Generation)
 	identity, err := bakeIdentity(state)
 	if err != nil {
 		return proof
 	}
 	record, err := n.readBake(request.Service, entry.Generation)
+	if pending := n.stateUnsaved.Load(); pending != nil {
+		if unsaved, exists := (*pending)[n.bakePath(request.Service, entry.Generation)]; exists {
+			record, err = unsaved, nil
+		}
+	}
 	if err != nil || record.Identity != identity || record.Generation != entry.Generation || record.Release == nil || *record.Release != *entry.Deployment ||
-		!appregistry.SameDigest(record.Image, entry.Spec.Image) || record.Rollout.Revision != entry.Deployment.Revision ||
-		record.Bake.Finished.IsZero() || record.Bake.Reason != "" || record.Bake.Unsaved {
+		!appregistry.SameDigest(record.Image, entry.Spec.Image) || record.Bake.Finished.IsZero() {
 		return proof
 	}
-	if pending := n.stateUnsaved.Load(); pending != nil {
-		if _, unsaved := (*pending)[key]; unsaved {
-			return proof
-		}
+	if record.Bake.Reason != "" {
+		proof.BakeGeneration, proof.BakeFailure = entry.Generation, record.Bake.Reason
+		return proof
+	}
+	if record.Bake.Unsaved || record.Rollout.Revision != entry.Deployment.Revision {
+		return proof
 	}
 	proof.BakeGeneration, proof.PassedAt = entry.Generation, record.Bake.Finished
 	a, ok := n.cfg.applier.(swarmApplier)
@@ -103,6 +118,7 @@ func (n *Node) observeAppRelease(request stateRequest) releasepush.AppReleaseObs
 	current, err := bakeIdentity((*n.stateDesired.Load())[request.Service])
 	if err == nil && current == identity {
 		proof.ServingGeneration = entry.Generation
+		proof.CheckedAt = time.Now().UTC()
 	}
 	return proof
 }

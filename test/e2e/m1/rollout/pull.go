@@ -60,6 +60,9 @@ func runPulled(ctx context.Context, state, image, run, service string) error {
 	trusted, err := root.NewTrustedRootFromJSON(authority.TrustedRoot())
 	must(err)
 	identity := sigstore.Identity{Workflow: target.Workflow, Ref: "refs/heads/main", Trigger: "push"}
+	if service == "app-canary" {
+		identity.Trigger = "workflow_run"
+	}
 	subjects := map[string][]byte{pullRegistry + "/journey/terrascale/" + target.Package: manifest}
 	provenance := authority.Bundle(identity, revision, "1", subjects)
 	bundles := [][]byte{provenance}
@@ -114,7 +117,9 @@ func runPulled(ctx context.Context, state, image, run, service string) error {
 	_, err = source.Pull(ctx, target)
 	require(err != nil, "a mutable tag selected a built image without release authorization")
 	selector := identity
-	selector.Trigger = "workflow_dispatch"
+	if service != "app-canary" {
+		selector.Trigger = "workflow_dispatch"
+	}
 	wrong := selector
 	wrong.Workflow = "TerraScale/terrascale/.github/workflows/untrusted.yml@refs/heads/main"
 	bundles = [][]byte{provenance, authority.Selection(wrong, revision, run, service, subjects)}
@@ -131,13 +136,18 @@ func runPulled(ctx context.Context, state, image, run, service string) error {
 		_, err = source.Pull(ctx, target)
 		require(err != nil, "TerraBase released without a manual dispatch")
 	}
-	bundles = [][]byte{provenance, authority.Selection(selector, revision, run, "app-canary", subjects)}
+	otherService := "app-canary"
+	if service == otherService {
+		otherService = "terrabase"
+	}
+	bundles = [][]byte{provenance, authority.Selection(selector, revision, run, otherService, subjects)}
 	_, err = source.Pull(ctx, target)
 	require(err != nil, "host accepted a selection for another service")
 	bundles = [][]byte{provenance, authority.Selection(selector, revision, run, service, subjects)}
 	selected, err := source.Pull(ctx, target)
 	must(err)
-	require(selected.Image == strings.TrimPrefix(image, "ghcr.io/terrascale/") && selected.Claims.RunID == run && selected.Claims.Repository == "TerraScale/terrascale", "host changed the verified release identity")
+	repository, _, _ := strings.Cut(target.Workflow, "/.github/")
+	require(selected.Image == strings.TrimPrefix(image, "ghcr.io/terrascale/") && selected.Claims.RunID == run && selected.Claims.Repository == repository, "host changed the verified release identity")
 	var applied error
 	apply := mesh.Release(state)
 	updater := apppull.Updater{Source: source, Apply: func(ctx context.Context, service, image string, claims releasepush.Claims, progress releasepush.Progress) (json.RawMessage, error) {

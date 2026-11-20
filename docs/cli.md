@@ -72,7 +72,7 @@ HTTPS; see [platform design](platform.md#releases).
 | --- | --- |
 | `ts-orch release hosts REVISION` | CI: wait until every registered host reports the published revision with its release confirmed and no rollback, over authenticated HTTPS |
 | `ts-orch release wait --service NAME --image REF@SHA256 [--regions F]` | CI observes the selected digest through each endpoint's aggregate serving view |
-| `ts-orch release wait-signed --service NAME --image REF@SHA256 [--revision SHA --run-id ID --run-attempt N] [--regions F] [--scope gru]` | CI proves the exact signed generation, authorized placement, runtime readiness and durable bake per required region |
+| `ts-orch release wait-signed --service NAME --image REF@SHA256 [--revision SHA --run-id ID --run-attempt N] [--regions F] [--scope gru]` | CI proves the exact signed generation, authorized placement, runtime readiness and durable bake per required region after [verifying live server capability](delivery-pipeline.md#read-only-release-proof) |
 | `ts-orch release digests --out F [--regions F]` | CI only (app digests): record agreeing, completed running images to a file |
 | `ts-orch release mesh-check [--regions F]` | CI only: read each native regional mesh endpoint over authenticated HTTPS and verify every peer observation, RTT and running image |
 | `ts-orch release verify-provenance --image REF@SHA256 --workflow OWNER/REPO/.github/workflows/W.yml@refs/heads/main --revision SHA` | Operators: verify the image's Sigstore provenance attestation is signed by that workflow for that commit (prints `ok`) |

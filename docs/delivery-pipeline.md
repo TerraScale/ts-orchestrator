@@ -227,7 +227,12 @@ same serving digest from every endpoint when the service only runs in GRU.
 The hosts still select and apply releases through their signed pull workflow.
 
 `release wait-signed` uses the same app workflow OIDC authorization with
-`view=app-release`. It takes the selection revision, run ID and attempt from
+`view=app-release`. Before switching CI, complete the GRU-first runtime
+cutover and verify that each required HTTPS endpoint returns a fresh,
+service-scoped response from its regional manager under the existing
+workflow identity. Keep using `release wait` until that capability is live.
+
+The signed waiter takes the selection revision, run ID and attempt from
 the GitHub Actions environment or from `--revision`, `--run-id` and
 `--run-attempt`. It checks the selected digest, runtime and durable bake
 against the same signed desired generation on every required target. The
@@ -235,9 +240,13 @@ regions file describes the configured fleet. An unscoped wait requires that
 whole fleet and reports any required target explicitly excluded by the
 signed generation. An approved recovery may pass `--scope gru` when the
 signed generation's placement is exactly GRU. The command prints
-`gru_ready` when GRU has matching evidence, and `done` only after every
-required region proves that same release and generation. Both events include
-the signed identity, target regions and recorded bake pass times.
+`gru_ready` when GRU has matching evidence. After all regions report ready,
+it probes them again and emits `done` only when every region returns newer
+live readiness evidence for that same generation within the freshness
+window. Both events include the signed identity, target regions, bake pass
+times and live check times. A held failed bake or rollback for the selected
+release ends the wait with the region, signed run and attempt, and the
+affected generation.
 
 `release hosts` and `release wait` log a `Region release observation` record on
 stderr whenever a region's readiness, host inventory or app images change.
