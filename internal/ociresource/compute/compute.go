@@ -63,8 +63,9 @@ type Nodes struct {
 type Pass struct {
 	Clients
 	Nodes
-	Ownership ociresource.Ownership
-	Out       ociresource.Out
+	Ownership      ociresource.Ownership
+	Out            ociresource.Out
+	VerifyCapacity func(context.Context) error
 }
 
 func (p Pass) tags(kind, name string) map[string]string {
@@ -102,7 +103,48 @@ func (p Pass) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return p.volumes(ctx, instances)
+	if p.VerifyCapacity == nil {
+		return p.volumes(ctx, instances)
+	}
+	return p.complete(ctx, pool, instances)
+}
+
+func (p Pass) complete(ctx context.Context, pool core.InstancePool, instances []core.InstanceSummary) error {
+	if err := p.VerifyCapacity(ctx); err != nil {
+		return err
+	}
+	if err := p.volumes(ctx, instances); err != nil {
+		return err
+	}
+	bound := make([]string, 0, len(instances))
+	for _, instance := range instances {
+		bound = append(bound, deref(instance.Id))
+	}
+	slices.Sort(bound)
+	bound = slices.Compact(bound)
+	if len(bound) < p.Min {
+		return fmt.Errorf("instance pool %s has %d bound running instances, below minimum %d", deref(pool.Id), len(bound), p.Min)
+	}
+	got, err := p.Management.GetInstancePool(ctx, core.GetInstancePoolRequest{InstancePoolId: pool.Id})
+	if err != nil {
+		return err
+	}
+	current, err := p.members(ctx, got.InstancePool)
+	if err != nil {
+		return err
+	}
+	var running []string
+	for _, instance := range current {
+		if deref(instance.State) == runningInstance {
+			running = append(running, deref(instance.Id))
+		}
+	}
+	slices.Sort(running)
+	if got.LifecycleState != core.InstancePoolLifecycleStateRunning || len(current) != deref(got.Size) || !slices.Equal(running, bound) {
+		return fmt.Errorf("instance pool %s members changed before compute completed: running %v at size %d, this pass bound %v",
+			deref(pool.Id), running, deref(got.Size), bound)
+	}
+	return p.VerifyCapacity(ctx)
 }
 
 func (p Pass) configuration(ctx context.Context) (string, []string, error) {
@@ -247,6 +289,11 @@ func (p Pass) pool(ctx context.Context, configuration string) (core.InstancePool
 			places = append(places, core.CreateInstancePoolPlacementConfigurationDetails{
 				AvailabilityDomain: common.String(place.AvailabilityDomain), FaultDomains: place.FaultDomains, PrimarySubnetId: &p.SubnetID})
 		}
+		if p.VerifyCapacity != nil {
+			if err := p.VerifyCapacity(ctx); err != nil {
+				return core.InstancePool{}, err
+			}
+		}
 		created, err := p.Management.CreateInstancePool(ctx, core.CreateInstancePoolRequest{CreateInstancePoolDetails: core.CreateInstancePoolDetails{
 			CompartmentId: &p.Compartment, InstanceConfigurationId: &configuration, PlacementConfigurations: places, Size: common.Int(p.Min),
 			DisplayName: common.String(p.Label + "-nodes"), FreeformTags: p.tags("instance-pool", "nodes"),
@@ -261,6 +308,15 @@ func (p Pass) pool(ctx context.Context, configuration string) (core.InstancePool
 	got, err := p.Management.GetInstancePool(ctx, core.GetInstancePoolRequest{InstancePoolId: summaries[0].Id})
 	if err != nil {
 		return core.InstancePool{}, err
+	}
+	if p.VerifyCapacity != nil && (deref(got.InstanceConfigurationId) != configuration || deref(got.Size) < p.Min) {
+		if _, err := p.settle(ctx, got.InstancePool); err != nil {
+			return core.InstancePool{}, err
+		}
+		got, err = p.Management.GetInstancePool(ctx, core.GetInstancePoolRequest{InstancePoolId: summaries[0].Id})
+		if err != nil {
+			return core.InstancePool{}, err
+		}
 	}
 	pool := got.InstancePool
 	update := core.UpdateInstancePoolDetails{}
@@ -277,10 +333,21 @@ func (p Pass) pool(ctx context.Context, configuration string) (core.InstancePool
 		p.say("unchanged", "instance-pool", "nodes", fmt.Sprintf("%s size %d", *pool.Id, deref(pool.Size)))
 		return pool, nil
 	}
-	if _, err := p.settle(ctx, pool); err != nil {
-		return core.InstancePool{}, err
+	var revision *string
+	if p.VerifyCapacity == nil {
+		if _, err := p.settle(ctx, pool); err != nil {
+			return core.InstancePool{}, err
+		}
+	} else {
+		if got.Etag == nil || *got.Etag == "" || pool.LifecycleState != core.InstancePoolLifecycleStateRunning {
+			return core.InstancePool{}, fmt.Errorf("instance pool %s has no stable RUNNING revision; refusing update", deref(pool.Id))
+		}
+		if err := p.VerifyCapacity(ctx); err != nil {
+			return core.InstancePool{}, err
+		}
+		revision = got.Etag
 	}
-	updated, err := p.Management.UpdateInstancePool(ctx, core.UpdateInstancePoolRequest{InstancePoolId: pool.Id, UpdateInstancePoolDetails: update})
+	updated, err := p.Management.UpdateInstancePool(ctx, core.UpdateInstancePoolRequest{InstancePoolId: pool.Id, IfMatch: revision, UpdateInstancePoolDetails: update})
 	if err != nil {
 		return core.InstancePool{}, fmt.Errorf("update instance pool: %w", err)
 	}

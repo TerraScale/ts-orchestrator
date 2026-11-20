@@ -30,14 +30,14 @@ const (
 )
 
 type SwarmNode struct {
-	ID, Hostname, InstanceID string
-	Addresses                []string
-	Manager, ManagerReady    bool
-	Leader, Ready, Active    bool
-	DrainSince               time.Time
-	Tasks                    int
-	Data                     string
-	Relocatable              bool
+	ID, Hostname, InstanceID, Region string
+	Addresses                        []string
+	Manager, ManagerReady            bool
+	Leader, Ready, Active            bool
+	DrainSince                       time.Time
+	Tasks                            int
+	Data                             string
+	Relocatable                      bool
 }
 
 type Demand struct {

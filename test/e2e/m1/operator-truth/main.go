@@ -70,7 +70,7 @@ func run() error {
 			return err
 		}
 		conns = append(conns, conn)
-		if err := regionhealth.Serve(conn, func() regionhealth.Report {
+		if err := regionhealth.Serve(conn, func(string) regionhealth.Report {
 			return regionhealth.Report{State: regionhealth.StateOK, At: time.Now().UTC()}
 		}); err != nil {
 			return err

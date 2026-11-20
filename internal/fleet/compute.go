@@ -44,15 +44,24 @@ func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Fact
 	owned := func(kind, name string, tags map[string]string) bool {
 		return ownership.Owns(region.Key(kind, name), ociresource.Tags{Freeform: tags})
 	}
+	var vcn *string
+	if len(region.Nodes.External) > 0 {
+		id, err := regionalVCN(ctx, region, network)
+		if err != nil {
+			return err
+		}
+		vcn = &id
+	}
+	inVCN := func(id *string) bool { return vcn == nil || deref(id) == *vcn }
 	subnets, err := list("subnet", func(page *string) ([]core.Subnet, *string, error) {
-		r, err := network.ListSubnets(ctx, core.ListSubnetsRequest{CompartmentId: compartment, Page: page})
+		r, err := network.ListSubnets(ctx, core.ListSubnetsRequest{CompartmentId: compartment, VcnId: vcn, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
 		return err
 	}
 	subnet := slices.IndexFunc(subnets, func(s core.Subnet) bool {
-		return s.LifecycleState == core.SubnetLifecycleStateAvailable && owned("subnet", "private-subnet", s.FreeformTags) &&
+		return inVCN(s.VcnId) && s.LifecycleState == core.SubnetLifecycleStateAvailable && owned("subnet", "private-subnet", s.FreeformTags) &&
 			deref(s.CidrBlock) == region.PrivateSubnetCIDR && s.ProhibitPublicIpOnVnic != nil && *s.ProhibitPublicIpOnVnic
 	})
 	nsgs, err := list("nsg", func(page *string) ([]core.NetworkSecurityGroup, *string, error) {
@@ -63,11 +72,21 @@ func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Fact
 		return err
 	}
 	nsg := slices.IndexFunc(nsgs, func(g core.NetworkSecurityGroup) bool {
-		return g.LifecycleState == core.NetworkSecurityGroupLifecycleStateAvailable && owned("nsg", nodeNSG, g.FreeformTags)
+		return inVCN(g.VcnId) && g.LifecycleState == core.NetworkSecurityGroupLifecycleStateAvailable && owned("nsg", nodeNSG, g.FreeformTags)
 	})
 	if subnet < 0 || nsg < 0 {
 		return fmt.Errorf("%s has no document-made private subnet %s or NSG %s; run ts-orch region apply %s network first",
 			region.Label, region.Key("subnet", "private-subnet"), region.Key("nsg", nodeNSG), region.Label)
+	}
+	var verifyCapacity func(context.Context) error
+	if vcn != nil {
+		external, err := VerifyExternal(ctx, region, clients.Compute, clients.Management, network, *vcn)
+		if err != nil {
+			return fmt.Errorf("refusing compute minimum %d: %w", region.Nodes.Min, err)
+		}
+		verifyCapacity = func(ctx context.Context) error {
+			return RecheckExternal(ctx, region, clients.Compute, clients.Management, network, *vcn, external)
+		}
 	}
 	domains, err := ids.ListAvailabilityDomains(ctx, identity.ListAvailabilityDomainsRequest{CompartmentId: compartment})
 	if err != nil {
@@ -86,7 +105,7 @@ func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Fact
 		places = append(places, place)
 	}
 	nodes := region.Nodes
-	return compute.Pass{Clients: clients, Ownership: ownership, Out: out, Nodes: compute.Nodes{
+	return compute.Pass{Clients: clients, Ownership: ownership, Out: out, VerifyCapacity: verifyCapacity, Nodes: compute.Nodes{
 		Label: region.Label, Compartment: region.CompartmentID, Shape: nodes.Shape, OCPUs: nodes.OCPUs, MemoryGB: nodes.MemoryGB,
 		BootGB: nodes.BootGB, DataGB: nodes.DataGB, DataVPUsPerGB: nodes.DataVPUsPerGB, Min: nodes.Min, Max: nodes.Max,
 		SubnetID: deref(subnets[subnet].Id), NSGID: deref(nsgs[nsg].Id), Places: places, Key: region.Key,

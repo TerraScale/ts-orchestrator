@@ -303,6 +303,25 @@ The next region gets its host with `ts-orch region add`
   signed config today. sjc-1 runs as its own cell until an in-place path
   exists.
 
+## Regional quorum gate
+
+After the regional hosts have joined, run these commands on a manager in the
+region being rebuilt (GRU shown):
+
+```sh
+ts-orch member promote
+ts-orch region plan gru
+ts-orch region quorum gru
+```
+
+`region quorum <label>` is the quorum gate: it fails until SwarmKit reports
+three distinct ready, Raft-reachable managers whose instance identities match
+the running regional OCI pool hosts or verified external hosts. Healthy NLB
+backends alone do not pass it. A worker-only external host supplies no vote;
+missing membership or an invalid external identity keeps the gate closed.
+Compute provisioning can precede manager promotion, but a successful compute
+apply does not establish voting readiness.
+
 ## Static names
 
 Every cell server has one static name from `internal/naming`. A cell is
