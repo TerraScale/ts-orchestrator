@@ -298,7 +298,10 @@ the first regional gate. The latest timestamp for the same release across its ta
 gives the fleet gate. For apps match the selected digest, signed revision
 and placement generation to the running task rows. The deployment-lag log
 also records binary host readiness, app task state and gate or rollback
-reasons. Compare the timestamps with the recorded main merge time.
+reasons. A held binary appears as `pull.candidate` with its own tag. A held
+signed app appears under `apps.<service>.admission` with its generation and
+release identity. The earlier admitted release retains its own pass time.
+Compare the timestamps with the recorded main merge time.
 
 ### Infrastructure
 

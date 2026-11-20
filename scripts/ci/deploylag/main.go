@@ -270,21 +270,23 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 		if err := json.Unmarshal(report.Pull, &pull); err != nil {
 			return finding{line: fmt.Sprintf("%s %s: cannot observe %s: pull rollout unreadable", x.name, region, region), unknown: true}
 		}
-		if pull.Target != nil && pull.Target.SHA == target.Revision && !slices.Contains([]string{"idle", "complete", "newer"}, pull.Phase) {
+		tag := releaseattest.Tag(target.Revision, target.RunID)
+		recorded := pull.Target != nil && pull.Target.Tag() == tag
+		if recorded && !slices.Contains([]string{"idle", "complete", "newer"}, pull.Phase) {
 			pending = true
 		}
-		if (pull.Target == nil || pull.Target.SHA == target.Revision) && slices.Contains([]string{"refused", "rolled_back", "rollback_stalled"}, pull.Phase) {
+		if recorded && slices.Contains([]string{"refused", "rolled_back", "rollback_stalled"}, pull.Phase) {
 			failed = true
 		}
-		if (pull.Target == nil || pull.Target.SHA == target.Revision) && pull.Reason != "" {
+		if (pull.Target == nil || recorded) && pull.Reason != "" {
 			reasons = append(reasons, report.Host+": "+pull.Reason)
 		}
-		if hold := pull.Candidate; hold != nil && hold.Tag == releaseattest.Tag(target.Revision, target.RunID) {
+		if hold := pull.Candidate; hold != nil && hold.Tag == tag {
 			pending = true
 			reasons = append(reasons, report.Host+": "+hold.Reason)
 		}
 		for _, host := range pull.Hosts {
-			if (pull.Target == nil || pull.Target.SHA == target.Revision) && host.Error != "" {
+			if recorded && host.Error != "" {
 				reasons = append(reasons, host.Host+": "+host.Error)
 			}
 		}
@@ -300,7 +302,11 @@ func (a *api) verdict(ctx context.Context, x artifact, region string, report rel
 		}
 		if hold := app.Admission; hold != nil && hold.Revision == target.Revision && hold.RunID == target.RunID && hold.Attempt == target.Attempt && appregistry.SameDigest(hold.Image, target.Image) {
 			pending = true
-			reasons = append(reasons, app.Host+": "+strings.TrimPrefix(hold.Earlier+": "+hold.Reason, ": "))
+			reason := hold.Reason
+			if hold.Earlier != "" {
+				reason = hold.Earlier + ": " + reason
+			}
+			reasons = append(reasons, app.Host+": "+reason)
 		}
 	}
 	var running []string
