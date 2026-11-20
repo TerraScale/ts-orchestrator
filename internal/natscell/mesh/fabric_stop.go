@@ -454,6 +454,11 @@ func (n *FabricLifecycle) PrepareStop(ctx context.Context) error {
 			}
 		}
 		if len(remaining) == 0 {
+			if err := sustained(ctx, stopBudget, func() error { return n.fabricQuorum(ctx, true, nil) }); err != nil {
+				n.abortStopLocked()
+				slog.Warn("mesh planned stop refused after leadership handoff", "error", err)
+				return fmt.Errorf("planned stop refused after leadership handoff: %w", err)
+			}
 			n.stopPrepared = true
 			break
 		}

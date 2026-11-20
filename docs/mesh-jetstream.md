@@ -45,13 +45,20 @@ must retain their quorum without this member. Unknown leadership, unsettled
 membership, or insufficient current replicas refuse the stop and name the
 Raft group. Membership and quorum come from the group's leader. A refusal says
 "membership change in progress" when the leader or this server has an
-uncommitted addition or removal, naming the peer, the operation and its log
-index, or "membership views disagree" when this server and the leader list
-different members or the leader's size differs from its member count, naming
-each difference; it says how long that state has held. A server whose own
-cluster size alone differs, with the leader settled and the same member ids, is
-judged by the leader's quorum: NATS sets a restarted server's size from routed
-servers until it hears a leader, so mesh workers can leave it stale. A rollback
+uncommitted addition or removal, or "membership views disagree" when this
+server and the leader list different member ids; it names each peer and says
+how long that state has held. A leader on this release reports the operation,
+peer and log index of an uncommitted change in RAFTZ `membership_change`. An
+older leader shows a pending addition only as a peer with `known: false`, and a
+pending removal only as a member this server lists and the leader does not;
+both still refuse. With nothing pending and the same member ids, the sizes are
+not compared: NATS sets a restarted server's size from the servers routed to it
+until it hears a leader, so mesh workers can leave this server's size, or a
+leader's, stale. The stop then needs the current voters other than this server
+to reach the larger of the leader's quorum and a majority of the member ids.
+After the leadership handoff the same check runs again against the successor,
+whose own size may need a larger quorum; if it fails, the stop is refused and
+election eligibility restored. A rollback
 restart takes the same path as an install. An insufficient-replicas refusal
 names each member that is not current and when its leader last heard from it.
 Unreplicated groups do not have a remote handoff.

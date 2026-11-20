@@ -25,7 +25,7 @@ const (
 	isolatedSeed = "nats://10.79.0.250:6222"
 )
 
-func metaNode(work string, i int, stale bool) error {
+func metaNode(work string, i int, staleSize int) error {
 	ctx, cancel := plannedstop.NotifyContext(context.Background())
 	defer cancel()
 	var routes []*url.URL
@@ -38,7 +38,7 @@ func metaNode(work string, i int, stale bool) error {
 	for _, route := range routes {
 		configured = append(configured, route.String())
 	}
-	if stale {
+	if staleSize > 0 {
 		configured = []string{isolatedSeed}
 	}
 	options := &server.Options{}
@@ -63,11 +63,11 @@ system_account: SYS
 	if !s.ReadyForConnections(10 * time.Second) {
 		return errors.New("embedded server did not start")
 	}
-	if stale {
+	if staleSize > 0 {
 		if err := bounded("metadata group on the isolated server", 10*time.Second, func() bool { return metaRaftNode(s) != nil }); err != nil {
 			return err
 		}
-		if err := metaRaftNode(s).AdjustBootClusterSize(2); err != nil {
+		if err := metaRaftNode(s).AdjustBootClusterSize(staleSize); err != nil {
 			return fmt.Errorf("stale boot size: %w", err)
 		}
 		s.AddRoutes(routes)
@@ -107,10 +107,11 @@ system_account: SYS
 				return
 			}
 			peer := r.URL.Query().Get("id")
-			err := meta.ProposeAddPeer(peer)
+			propose := meta.ProposeAddPeer
 			if remove {
-				err = meta.ProposeRemovePeer(peer)
+				propose = meta.ProposeRemovePeer
 			}
+			err := propose(peer)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
@@ -314,6 +315,21 @@ func metaPeers(work string) error {
 	if err := bounded("three founders settle on a 3-member metadata group", 30*time.Second, settled(all, without)); err != nil {
 		return err
 	}
+	founding, err := metaOf(0)
+	if err != nil {
+		return err
+	}
+	if err := bounded("every member compacts its metadata log past the founding peer state", 120*time.Second, func() bool {
+		for _, i := range all {
+			group, err := metaOf(i)
+			if err != nil || group.WAL.FirstSeq <= founding.Committed {
+				return false
+			}
+		}
+		return true
+	}); err != nil {
+		return err
+	}
 
 	_, followers, err := roles(all)
 	if err != nil {
@@ -321,18 +337,20 @@ func metaPeers(work string) error {
 	}
 	stale := followers[0]
 	stop(stale)
-	if err := launchAs(stale, "meta-node-stale"); err != nil {
+	if err := launchAs(stale, "meta-node-size-2"); err != nil {
 		return err
 	}
+	var last server.RaftzGroup
 	if err := bounded("a restarted follower keeps a stale local size of 2 for 3 members", 30*time.Second, func() bool {
 		group, err := metaOf(stale)
+		last = group
 		if err != nil || group.State != "FOLLOWER" || group.Leader == "" || group.Size != 2 || len(metaMembers(group)) != 3 {
 			return false
 		}
 		others := slices.DeleteFunc(slices.Clone(all), func(i int) bool { return i == stale })
 		return settled(others, without)()
 	}); err != nil {
-		return err
+		return fmt.Errorf("%w: last state %s, leader %q, size %d, members %v, observer %t", err, last.State, last.Leader, last.Size, metaMembers(last), last.Observer)
 	}
 	if err := restartAllowed([]int{stale}); err != nil {
 		return fmt.Errorf("stale local size under a settled leader: %w", err)
@@ -343,10 +361,35 @@ func metaPeers(work string) error {
 	if err != nil {
 		return err
 	}
+	for _, i := range followers {
+		stop(i)
+		if err := launchAs(i, "meta-node-size-4"); err != nil {
+			return err
+		}
+		last = server.RaftzGroup{}
+		if err := bounded(names[i]+" follows with a stale local size of 4 for 3 members", 30*time.Second, func() bool {
+			group, err := metaOf(i)
+			last = group
+			return err == nil && group.State == "FOLLOWER" && group.Leader != "" && group.Size == 4 && len(metaMembers(group)) == 3
+		}); err != nil {
+			return fmt.Errorf("%w: last state %s, leader %q, size %d, members %v, observer %t", err, last.State, last.Leader, last.Size, metaMembers(last), last.Observer)
+		}
+	}
+	if err := refused(leader, "after leadership handoff", "quorum needs 3"); err != nil {
+		return err
+	}
+	fmt.Println("ok a leader whose successor needs 3 of 3 members refuses its stop after the handoff")
+	if err := bounded("a metadata leader after the refused stop", 30*time.Second, func() bool {
+		leader, followers, err = roles(all)
+		return err == nil
+	}); err != nil {
+		return err
+	}
+
 	if err := post(leader, "resize?size=2"); err != nil {
 		return err
 	}
-	if err := bounded("every member takes the leader's stale size of 2 for 3 members", 30*time.Second, func() bool {
+	if err := bounded("every member takes the leader's stale size of 2 for 3 members, the successor's 4 replaced", 30*time.Second, func() bool {
 		for _, i := range all {
 			group, err := metaOf(i)
 			if err != nil || group.Size != 2 || len(metaMembers(group)) != 3 || group.Change != nil {
@@ -367,37 +410,48 @@ func metaPeers(work string) error {
 		return err
 	}
 	fmt.Println("ok with the leader's own size at 2 for 3 members, followers admit a release restart against a majority of the 3 members")
-
+	held := func(i int, removing bool) func() bool {
+		return func() bool {
+			group, err := metaOf(i)
+			return err == nil && group.Change != nil && group.Change.Peer == pendingPeer && group.Change.Removing == removing
+		}
+	}
 	leader, followers, err = roles(all)
 	if err != nil {
 		return err
 	}
-	silent := slices.DeleteFunc(slices.Clone(followers), func(i int) bool { return i == stale })[0]
-	stop(silent)
+	if err := post(leader, "resize?size=2"); err != nil {
+		return err
+	}
+	if err := bounded("every member takes a stale size of 2 for 3 members before the addition", 30*time.Second, func() bool {
+		for _, i := range all {
+			group, err := metaOf(i)
+			if err != nil || group.Size != 2 || len(metaMembers(group)) != 3 || group.Change != nil {
+				return false
+			}
+		}
+		return true
+	}); err != nil {
+		return err
+	}
+	stop(followers[1])
 	if err := post(leader, "propose-add?id="+pendingPeer); err != nil {
 		return err
 	}
-	if err := refused(stale, "membership change in progress", "has not committed adding", pendingPeer); err != nil {
+	if err := refused(followers[0], "membership change in progress", "has not committed adding", pendingPeer); err != nil {
 		return err
 	}
-	fmt.Println("ok a pending addition refuses release restarts and is named")
-	if err := launchAs(silent, "meta-node"); err != nil {
+	if !held(leader, false)() || !held(followers[0], false)() {
+		return errors.New("the pending addition did not stay pending at the leader and its follower")
+	}
+	fmt.Println("ok a pending addition held by the leader and one follower refuses release restarts and is named")
+	if err := launchAs(followers[1], "meta-node"); err != nil {
 		return err
 	}
-	if err := bounded("the metadata group settles after the addition", 60*time.Second, settled(all, func(members []string) bool { return with(members) || without(members) })); err != nil {
+	if err := bounded("the held addition commits once a third voter returns", 60*time.Second, settled(all, with)); err != nil {
 		return err
 	}
-	if !settled(all, with)() {
-		if leader, _, err = roles(all); err != nil {
-			return err
-		}
-		if err := post(leader, "propose-add?id="+pendingPeer); err != nil {
-			return err
-		}
-		if err := bounded("the addition commits", 30*time.Second, settled(all, with)); err != nil {
-			return err
-		}
-	}
+	fmt.Println("ok the committed addition sets every member's size of 2 to its member count of 4")
 
 	leader, followers, err = roles(all)
 	if err != nil {
@@ -412,25 +466,17 @@ func metaPeers(work string) error {
 	if err := refused(leader, "membership change in progress", "has not committed removing", pendingPeer); err != nil {
 		return err
 	}
-	fmt.Println("ok a pending removal refuses release restarts and is named")
+	if !held(leader, true)() {
+		return errors.New("the pending removal did not stay pending at the leader")
+	}
+	fmt.Println("ok a pending removal held by the leader alone refuses release restarts and is named")
 	for _, i := range followers {
 		if err := launchAs(i, "meta-node"); err != nil {
 			return err
 		}
 	}
-	if err := bounded("the metadata group settles after the removal", 60*time.Second, settled(all, func(members []string) bool { return with(members) || without(members) })); err != nil {
+	if err := bounded("the held removal commits once the voters return", 60*time.Second, settled(all, without)); err != nil {
 		return err
-	}
-	if !settled(all, without)() {
-		if leader, _, err = roles(all); err != nil {
-			return err
-		}
-		if err := post(leader, "propose-remove?id="+pendingPeer); err != nil {
-			return err
-		}
-		if err := bounded("the removal commits", 30*time.Second, settled(all, without)); err != nil {
-			return err
-		}
 	}
 	if err := restartAllowed(all); err != nil {
 		return fmt.Errorf("after the membership settled: %w", err)

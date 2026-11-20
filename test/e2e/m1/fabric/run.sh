@@ -1,5 +1,6 @@
 set -euo pipefail
 bin=$(realpath "$1")
+scenario=${2:-handoff}
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../../../.." && pwd)
 work=$(mktemp -d)
@@ -20,9 +21,10 @@ if [ -x "$helper" ]; then
 else
   go -C "$repo" build -o "$work/fabric" ./test/e2e/m1/fabric
 fi
-sudo unshare --mount --net bash -s -- "$work" <<'INNER'
+sudo unshare --mount --net bash -s -- "$work" "$scenario" <<'INNER'
 set -euo pipefail
 work=$1
+scenario=$2
 mount --make-rprivate /
 mkdir -p /run/netns
 mount -t tmpfs tmpfs /run/netns
@@ -40,5 +42,5 @@ for n in 1 2 3; do
   ip -n "fabric$n" link set peer up
   ip -n "fabric$n" link set lo up
 done
-"$work/fabric" "$work"
+"$work/fabric" "$work" "$scenario"
 INNER

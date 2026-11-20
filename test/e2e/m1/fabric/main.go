@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -834,21 +835,23 @@ func run(work string) error {
 
 func main() {
 	var err error
-	if len(os.Args) == 4 && slices.Contains([]string{"node", "meta-node", "meta-node-stale"}, os.Args[1]) {
-		i := 0
+	if len(os.Args) == 4 && (os.Args[1] == "node" || strings.HasPrefix(os.Args[1], "meta-node")) {
+		i, staleSize := 0, 0
 		_, err = fmt.Sscan(os.Args[3], &i)
+		if size, stale := strings.CutPrefix(os.Args[1], "meta-node-size-"); err == nil && stale {
+			staleSize, err = strconv.Atoi(size)
+		}
 		if err == nil && os.Args[1] == "node" {
 			err = node(os.Args[2], i)
 		} else if err == nil {
-			err = metaNode(os.Args[2], i, os.Args[1] == "meta-node-stale")
+			err = metaNode(os.Args[2], i, staleSize)
 		}
-	} else if len(os.Args) == 2 {
+	} else if len(os.Args) == 3 && os.Args[2] == "handoff" {
+		err = run(os.Args[1])
+	} else if len(os.Args) == 3 && os.Args[2] == "metadata" {
 		err = metaPeers(os.Args[1])
-		if err == nil {
-			err = run(os.Args[1])
-		}
 	} else {
-		err = errors.New("usage: fabric WORK | fabric node WORK INDEX | fabric meta-node[-stale] WORK INDEX")
+		err = errors.New("usage: fabric WORK handoff|metadata | fabric node WORK INDEX | fabric meta-node[-size-N] WORK INDEX")
 	}
 	if err != nil {
 		_, _ = io.WriteString(os.Stderr, "FAIL fabric: "+err.Error()+"\n")
