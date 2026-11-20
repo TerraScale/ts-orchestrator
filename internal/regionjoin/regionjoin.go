@@ -45,7 +45,7 @@ func Read(ctx context.Context, region string) (Material, error) {
 	return decode(region, value)
 }
 
-func SecretName(region string) string { return mesh.JoinRecord(region) }
+func SecretName(region string) string { return "ts-orch-join-" + region }
 
 type vault struct {
 	target     vaultsecret.Target

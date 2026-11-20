@@ -139,10 +139,6 @@ type config struct {
 	region, server, dir    string
 	nodeID                 string
 	founder                bool
-	lone                   bool
-	cluster                string
-	records                Records
-	restart                func()
 	clusterHost            string
 	clusterAdvertise       string
 	clusterPort, localPort int
@@ -171,7 +167,6 @@ type Node struct {
 	conn            *nats.Conn
 	membershipConn  *nats.Conn
 	gossip          *inRegionGossip
-	seeds           *seedBook
 	rejectedRoutes  atomic.Int64
 	fabric          *nats.Conn
 	monitor         *nats.Conn
@@ -247,12 +242,7 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
-	seeds := newSeedBook(cfg.region)
-	if cfg.candidate() {
-		cfg.lone = claimFounding(cfg)
-	}
-	initialSeeds, _ := seeds.install(seeds.read(context.Background(), cfg.records))
-	tlsConfig := cfg.ca.TLS(cfg.region+"."+Domain, seeds.verify)
+	tlsConfig := cfg.ca.TLS(cfg.region + "." + Domain)
 	monitorSecret, err := randomHex()
 	if err != nil {
 		return nil, err
@@ -272,7 +262,6 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
-	options.Routes = append(options.Routes, initialSeeds...)
 	embedded, err := server.NewServer(options)
 	if err != nil {
 		return nil, err
@@ -335,7 +324,7 @@ func start(cfg config) (_ *Node, err error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, auth: auth, conn: conn, membershipConn: membershipConn, gossip: gossip, seeds: seeds, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
+	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, auth: auth, conn: conn, membershipConn: membershipConn, gossip: gossip, fabric: fabric, monitor: monitor, certificateConn: certificateConn, ctx: ctx, cancel: cancel, desired: desired,
 		specInvalid: specInvalid, peers: peerFiles, listening: time.Now(), settled: make(chan struct{}), regionReached: make(chan struct{})}
 	if err := node.loadWorkers(); err != nil {
 		node.closeConns()
@@ -354,7 +343,6 @@ func start(cfg config) (_ *Node, err error) {
 	if options.JetStream {
 		go node.formMeta()
 	}
-	go node.refreshSeeds()
 	node.publishTopologyDesired()
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) {

@@ -1988,10 +1988,7 @@ func (s *Server) createRoute(conn net.Conn, rURL *url.URL, rtype RouteType, goss
 	authRequired := s.routeInfo.AuthRequired
 	tlsRequired := s.routeInfo.TLSRequired
 	clusterName := s.info.Cluster
-	tlsName := _EMPTY_
-	if opts.Cluster.TLSConfig != nil && !opts.Cluster.TLSConfig.InsecureSkipVerify {
-		tlsName = s.routeTLSName
-	}
+	tlsName := s.routeTLSName
 	s.mu.Unlock()
 
 	// Grab lock

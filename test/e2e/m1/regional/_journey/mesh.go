@@ -26,7 +26,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
-	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/vaultrecords"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -50,11 +49,7 @@ func FleetHostNode(root, region, name, address, peer string, seed []byte) (*Node
 	if err != nil {
 		return nil, err
 	}
-	records, err := vaultrecords.New(filepath.Join(root, name+"-vault"))
-	if err != nil {
-		return nil, err
-	}
-	cfg := config{region: region, server: name, founder: true, dir: filepath.Join(root, name), ca: ca, records: records,
+	cfg := config{region: region, server: name, founder: true, dir: filepath.Join(root, name), ca: ca,
 		terrabaseToken: strings.Repeat("t", 32), clusterHost: address, clusterPort: 6222, clusterAdvertise: address + ":6222", localPort: 4222,
 		peersEvery: FleetAdvertiseEvery, peersDir: filepath.Join(root, name+"-peers"), address: func() (string, error) {
 			if fleetMuted.Load() {
@@ -250,25 +245,12 @@ func RegionalPeersJourney(root string, single bool, health func(context.Context,
 		ports[i] = listener.Addr().(*net.TCPAddr).Port
 		_ = listener.Close()
 	}
-	records, err := vaultrecords.New(filepath.Join(root, "vault"))
-	if err != nil {
-		return err
-	}
-	for _, region := range []string{"gru", "sjc"} {
-		if err := PublishSeeds(ctx, records, region, "cluster-"+region, []string{"ts-" + region + "-99"}); err != nil {
-			return err
-		}
-	}
-	if err := records.Create(ctx, FounderRecord, encodeRecord(founding{Region: "gru", Cluster: "cluster-gru", Cells: map[string]string{"gru": "cluster-gru"}})); err != nil {
-		return err
-	}
 	cfg := func(region, name, ip string, local, cluster, remote int) config {
 		other := "gru"
 		if region == "gru" {
 			other = "sjc"
 		}
 		return config{region: region, server: name, nodeID: manager.ID(), founder: true, dir: filepath.Join(root, name), ca: ca, terrabaseToken: strings.Repeat("t", 32),
-			cluster: "cluster-" + region, records: records,
 			clusterHost: "127.0.0.1", clusterPort: cluster, clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", cluster), localPort: local,
 			seeds:   map[string][]string{other: {fmt.Sprintf("nats://127.0.0.1:%d", remote)}},
 			applier: swarmApplier{state: managerState, region: region}, every: time.Second, peersEvery: 250 * time.Millisecond,
@@ -596,16 +578,8 @@ func RegionalPeersJourney(root string, single bool, health func(context.Context,
 }
 
 func singleRegionJourney(ctx context.Context, root, managerState, workerState, managerID, workerID string, ca *CA, ports []int, rollout func(context.Context, *nats.Conn, bool) error) error {
-	records, err := vaultrecords.New(filepath.Join(root, "single-vault"))
-	if err != nil {
-		return err
-	}
-	if err := PublishSeeds(ctx, records, "gru", "cluster-gru", []string{"ts-gru-99"}); err != nil {
-		return err
-	}
 	member := func(name, nodeID, ip string, local, cluster int) config {
 		return config{region: "gru", server: name, nodeID: nodeID, dir: filepath.Join(root, "gru-"+name), ca: ca, terrabaseToken: strings.Repeat("t", 32),
-			cluster: "cluster-gru", records: records,
 			clusterHost: "127.0.0.1", clusterPort: cluster, clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", cluster), localPort: local,
 			every: time.Second, peersEvery: 250 * time.Millisecond, peersDir: filepath.Join(root, "gru-"+name+"-files"),
 			address: func() (string, error) { return ip, nil }}

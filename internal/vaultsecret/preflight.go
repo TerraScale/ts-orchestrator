@@ -33,9 +33,20 @@ func CheckRegionalSecrets(ctx context.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	region, err := OracleRegion(ctx)
-	if err != nil || region == "" {
+	asset, err := os.ReadFile("/sys/class/dmi/id/chassis_asset_tag")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("service secret preflight host identity: %w", err)
+	}
+	if strings.TrimSpace(string(asset)) != "OracleCloud.com" {
+		return nil
+	}
+	metadata, err := instanceMetadata(ctx)
+	if err != nil {
 		return err
+	}
+	region, err := fleetregion.Of(metadata.Region, metadata.CompartmentID)
+	if err != nil {
+		return fmt.Errorf("service secret preflight: %w", err)
 	}
 	directory := "services"
 	entries, err := m1.Files.ReadDir(directory)
@@ -75,25 +86,6 @@ func CheckRegionalSecrets(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func OracleRegion(ctx context.Context) (string, error) {
-	asset, err := os.ReadFile("/sys/class/dmi/id/chassis_asset_tag")
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("service secret preflight host identity: %w", err)
-	}
-	if strings.TrimSpace(string(asset)) != "OracleCloud.com" {
-		return "", nil
-	}
-	metadata, err := instanceMetadata(ctx)
-	if err != nil {
-		return "", err
-	}
-	region, err := fleetregion.Of(metadata.Region, metadata.CompartmentID)
-	if err != nil {
-		return "", fmt.Errorf("service secret preflight: %w", err)
-	}
-	return region, nil
 }
 
 func checkRelayUnit(ctx context.Context) error {

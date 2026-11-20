@@ -415,7 +415,7 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 			if !swarmruntime.IsLeader(listed.Nodes, nodeID) {
 				return nil
 			}
-			managers, members, hostnames := []string{}, []string{}, []string{}
+			managers, members := []string{}, []string{}
 			for _, node := range listed.Nodes {
 				if node.Status.State != api.NodeStatus_READY {
 					continue
@@ -426,9 +426,6 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 				}
 				if node.ManagerStatus == nil {
 					continue
-				}
-				if node.Description != nil {
-					hostnames = append(hostnames, node.Description.Hostname)
 				}
 				managers = append(managers, node.ManagerStatus.Addr)
 				members = append(members, hostOf(node.ManagerStatus.Addr))
@@ -448,17 +445,10 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 				return err
 			}
 			stored.Managers, stored.Routes = managers, routes
-			if err := regionjoin.Publish(ctx, plan.region, stored); err != nil {
-				return err
-			}
-			cluster, err := swarmruntime.LocalClusterID(ctx, state)
-			if err != nil {
-				return err
-			}
-			return mesh.PublishSeeds(ctx, mesh.VaultRecords(), plan.region, cluster, hostnames)
+			return regionjoin.Publish(ctx, plan.region, stored)
 		}()
 		if err != nil {
-			slog.WarnContext(ctx, "region join material or mesh seeds not published; retrying", "region", plan.region, "error", err)
+			slog.WarnContext(ctx, "region join material not published; retrying", "secret", regionjoin.SecretName(plan.region), "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -656,7 +646,7 @@ func meshRoute(address string) string {
 }
 
 func meshCluster(plan hostPlan) mesh.Cluster {
-	cluster := mesh.Cluster{Worker: plan.admission.Role != "manager", Records: mesh.VaultRecords()}
+	cluster := mesh.Cluster{Worker: plan.admission.Role != "manager"}
 	cluster.VCN, _, _ = swarmruntime.VCNPrefix(plan.address, plan.vcnCIDR)
 	if plan.joiner() {
 		cluster.Routes = func(ctx context.Context, region string) ([]string, error) {

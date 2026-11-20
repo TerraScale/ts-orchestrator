@@ -2779,11 +2779,8 @@ func (n *raft) run() {
 	// at least a route, leaf or gateway connection to be established before
 	// starting the run loop.
 	for gw := s.gateway; ; {
-		n.RLock()
-		alone := n.csz == 1
-		n.RUnlock()
 		s.mu.RLock()
-		ready, gwEnabled := alone || s.numRemotes()+len(s.leafs) > 0, gw.enabled
+		ready, gwEnabled := s.numRemotes()+len(s.leafs) > 0, gw.enabled
 		s.mu.RUnlock()
 		if !ready && gwEnabled {
 			gw.RLock()

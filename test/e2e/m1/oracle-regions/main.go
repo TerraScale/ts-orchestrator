@@ -88,14 +88,12 @@ func until(ctx context.Context, what string, check func() error) {
 
 func healthy(ctx context.Context, host *oraclehost.Host, want string) {
 	until(ctx, host.Name+" release health", func() error {
-		attempt, cancel := context.WithTimeout(ctx, 15*time.Second)
-		defer cancel()
-		reply, err := host.Health(attempt)
+		reply, err := host.Health(ctx)
 		if err != nil {
 			return err
 		}
 		if reply.Health != "ok" || reply.Version != want {
-			return fmt.Errorf("health %q version %s node %q mesh %q", reply.Health, reply.Version, reply.Node, reply.Mesh)
+			return fmt.Errorf("health %q version %s", reply.Health, reply.Version)
 		}
 		return nil
 	})
@@ -607,16 +605,12 @@ func main() {
 		fallbackJourney(os.Args[2], os.Args[3])
 		return
 	}
-	if os.Args[1] == "vault-read" {
-		vaultRead(os.Args[2])
-		return
-	}
 	binary, work, specFile, registry := os.Args[1], os.Args[2], os.Args[3], os.Args[4]
 	ctx, cancel := context.WithTimeout(context.Background(), 330*time.Second)
 	defer cancel()
 	first := revision(binary)
 	spec := workload(specFile, filepath.Join(os.Args[3], "..", "images.json"))
-	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{4, 2, 2}, "fra")
+	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{4, 2, 2})
 	must(err)
 	ca := installEdgeCert(fleet)
 	defer fleet.Close()
@@ -640,7 +634,6 @@ func main() {
 	fleet.Hosts = slices.DeleteFunc(fleet.Hosts, func(host *oraclehost.Host) bool { return host == replacement })
 	managers, workers := roles(fleet)
 	step("%d hosts in their own network namespaces; IMDS, OCI federation, Vault, GitHub OIDC key and registry stand-ins up", len(fleet.Hosts))
-	plantWipedFounder(fleet)
 	must(fleet.Boot(managers...))
 	for _, manager := range managers {
 		_, err := manager.WaitReady(ctx, 0, first)
@@ -690,8 +683,6 @@ func main() {
 		}
 	}
 	step("before any service apply, every host serves its native regional mesh name with verified TLS, authenticated observation and every peer RTT; unsigned reads and mutations refuse")
-	meshSeeds(ctx, fleet)
-	vaultGrants(ctx, fleet)
 	delivered(ctx, fleet, gru.Hosts[1], gru.Hosts[2])
 	delivered(ctx, fleet, gru.Hosts[2], gru.Hosts[1])
 	fleet.UnpinSecret(regionjoin.SecretName(gru.Name))
@@ -793,7 +784,6 @@ func main() {
 	meshRoutes(ctx, fleet)
 	step("%s went not READY and back: its route stayed configured, and after %d route sockets to %s were reset ORCH, TERRABASE and ALERTS deliver both ways over the VCN", flapped.Name, reset, survivor.Name)
 
-	badPeerRecords(ctx, fleet, first)
 	departed := gru.Hosts[2]
 	promoteManagers(ctx, gru.Hosts[0], follower, departed)
 	step("%s's SwarmKit managers promoted %s and %s with no release; both are Raft-reachable managers", gru.Name, follower.Name, departed.Name)

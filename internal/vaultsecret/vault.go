@@ -107,11 +107,6 @@ func Ensure(ctx context.Context, client VaultClient, target Target, name, descri
 	return stored, nil
 }
 
-func Exists(ctx context.Context, client VaultClient, target Target, name string) (bool, error) {
-	id, _, err := lookup(ctx, client, target, name)
-	return id != "", err
-}
-
 // lookup returns the OCID of the active secret name, or "" when the Vault has
 // none. A secret of that name in any other state needs an operator: it may be
 // pending deletion, and OCI refuses its name until it is deleted.

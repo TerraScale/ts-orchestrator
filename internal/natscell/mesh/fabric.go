@@ -89,7 +89,7 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret, 
 		options.StoreDir = cfg.dir
 		options.JetStreamMaxMemory, options.JetStreamMaxStore = jetStreamMaxMemory, jetStreamMaxStore
 		options.JetStreamUniqueTag = regionTag
-		options.JetStreamMetaBootSize = cfg.metaBootSize()
+		options.JetStreamMetaBootSize = len(cfg.founders())
 	}
 	return options, nil
 }

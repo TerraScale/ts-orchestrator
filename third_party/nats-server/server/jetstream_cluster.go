@@ -1290,8 +1290,8 @@ func (s *Server) enableJetStreamClustering() error {
 		return errors.New("JetStream cluster requires cluster name")
 	}
 	opts := s.getOpts()
-	namedListener := opts.Cluster.Name != _EMPTY_ && opts.Cluster.Port != 0 && opts.JetStreamMetaBootSize > 0
-	if s.configuredRoutes() == 0 && !hasLeafNodeSystemShare && !namedListener {
+	loneFounder := opts.Cluster.Name != _EMPTY_ && opts.Cluster.Port != 0 && opts.JetStreamMetaBootSize == 1
+	if s.configuredRoutes() == 0 && !hasLeafNodeSystemShare && !loneFounder {
 		return errors.New("JetStream cluster requires configured routes or solicited leafnode for the system account")
 	}
 

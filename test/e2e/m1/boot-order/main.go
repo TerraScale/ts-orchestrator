@@ -21,7 +21,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
-	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/vaultrecords"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
@@ -142,12 +141,7 @@ func agent(ctx context.Context, state string) error {
 			failure <- err
 			return
 		}
-		records, err := vaultrecords.New(filepath.Join(state, "vault"))
-		if err != nil {
-			failure <- err
-			return
-		}
-		meshNode, err := mesh.Start(ctx, state, "gru", "boot-host", ca, strings.Repeat("b", 64), mesh.Cluster{Records: records})
+		meshNode, err := mesh.Start(ctx, state, "gru", "boot-host", ca, strings.Repeat("b", 64), mesh.Cluster{})
 		if err != nil {
 			failure <- err
 			return

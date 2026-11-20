@@ -32,7 +32,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
-	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/vaultrecords"
 	"github.com/fsnotify/fsnotify"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -281,10 +280,8 @@ func runRegion(ctx context.Context, args []string) {
 	if peerRegion != region {
 		seeds[peerRegion] = []string{"nats://" + peerAddress + ":6222"}
 	}
-	records, err := vaultrecords.New(filepath.Join(filepath.Dir(seedFile), "vault"))
-	must(err)
 	node, err := mesh.StartRegionalHost(mesh.RegionalHost{State: root, Region: region, Server: serverName, CA: ca,
-		TerraBaseToken: fmt.Sprintf("%x", seed), Seeds: seeds, Records: records,
+		TerraBaseToken: fmt.Sprintf("%x", seed), Seeds: seeds,
 		ClusterAddress: address + ":6222", Address: func() (string, error) { return address, nil }})
 	must(err)
 	defer node.Close()
