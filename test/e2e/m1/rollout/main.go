@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -603,6 +604,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	}
 	topologyReady(ctx, roots)
 	if !installOnly {
+		ownerEpochCase(ctx, root, "gru", roots[slices.Index(order, "gru")], roots[slices.Index(order, "fra")])
 		for i, service := range []string{"ts-auth", "ts-dashboard"} {
 			pkg := service
 			if service == "ts-dashboard" {
