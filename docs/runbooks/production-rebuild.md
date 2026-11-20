@@ -168,9 +168,14 @@ leaving both applications' release inputs unchanged.
 
 ## Verification status at handoff
 
-- The production journey job started at 16:27 UTC on November 20 for
-  `ce4081b`. Its `Journey against production` step started at 16:29 UTC
-  and was still running at 16:50 UTC.
+- The production journey job for `ce4081b` failed at 16:54 UTC on November
+  20. The suite and teardown hit the 1,500-second limit. The redacted
+  report counted 236 expected results, 60 skipped, and 16 unexpected.
+  Thirteen unexpected cases could not obtain a mail.tm `POST /accounts`
+  slot before the run limit. Two hosted MFA cases reported aborted GET
+  requests. The hosted machine-credentials case failed a ts-auth
+  audit-event assertion. Auth and dashboard readiness returned `cd89fecd8`
+  before and after the suite.
   [Production journey job](https://github.com/TerraScale/terrascale/actions/runs/44773500958/job/136417102558)
 - The last executed deploy-lag check failed at 12:50 UTC before the GRU
   app recovery. Run `44744094060` skipped its check. The latest qualified
@@ -178,9 +183,10 @@ leaving both applications' release inputs unchanged.
   `fb83f90df`; only `sjc-node-2` and `sjc-node-3` ran it. The release
   controller reported SJC waiting on `sjc-node-1` with `raft group
   _meta_: membership is changing`. GRU and FRA waited at the SJC canary
-  gate. The refusal confirms a leader replied at a term at least as high
-  as the local term at the time of the check. The exact failing membership
-  predicate and current voter and replica state were unverified.
+  gate. The guard observed a leader at or above the local term before
+  rejecting membership. The source of the leader observation, the exact
+  failing membership check, and current voter and replica state were
+  unverified.
   [Deploy-lag check job](https://github.com/TerraScale/ts-orchestrator/actions/runs/44739092294/job/136297846552)
 - All three receivers agreed on GRU-only placement for TerraBase, auth,
   and dashboard. SJC and FRA reported zero declared replicas for those
