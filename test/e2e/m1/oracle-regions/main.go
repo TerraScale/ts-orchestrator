@@ -446,6 +446,7 @@ func reboundIdentity(ctx context.Context, fleet *oraclehost.Fleet, region *oracl
 	for _, dir := range []string{host.State(""), filepath.Join(host.Dir, "containerd")} {
 		aside[dir] = dir + ".identity-a"
 		must(os.Rename(dir, aside[dir]))
+		must(os.MkdirAll(dir, 0o755))
 	}
 	boot := func() {
 		from := host.EventCount()
