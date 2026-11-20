@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -833,6 +834,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	require(retained.ReplacedBy == nil, "removal rewrote the failed bake as a replacement release")
 	logStep("a failed bake accepts service removal across every region, removes peers files and retains failure evidence")
 
+	ownerEpochCase(ctx, root, "gru", roots[slices.Index(order, "gru")], roots[slices.Index(order, "fra")])
 	fmt.Println("rollout journey passed")
 }
 
