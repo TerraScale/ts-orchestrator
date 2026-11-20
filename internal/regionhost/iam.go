@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -49,7 +50,7 @@ func sameRule(live string, ids []string) bool {
 	return live == matchingRule(have) && slices.Equal(slices.Sorted(slices.Values(have)), slices.Sorted(slices.Values(ids)))
 }
 
-func statements(hosts map[string]string) ([]string, error) {
+func Statements(hosts map[string]string) ([]string, error) {
 	in := "in compartment id " + gruCompartment
 	vault := "target.vault.id = '" + gruVault + "'"
 	s := []string{
@@ -65,8 +66,13 @@ func statements(hosts map[string]string) ([]string, error) {
 	principals := map[string][]string{}
 	for _, region := range slices.Sorted(maps.Keys(hosts)) {
 		grants := map[string]string{}
-		for _, secret := range []string{"ts-orch-mesh-key", "gru-1-terrabase-nats-token", "ts-orch-join-" + region, dashboardSecret(region)} {
+		for _, secret := range []string{"ts-orch-mesh-key", "gru-1-terrabase-nats-token", "ts-orch-join-" + region, dashboardSecret(region), mesh.SeedRecord(region), mesh.FounderRecord} {
 			grants[secret] = "manage secret-family"
+		}
+		for _, peer := range mesh.Regions(region) {
+			if peer != region {
+				grants[mesh.SeedRecord(peer)] = "read secret-bundles"
+			}
 		}
 		for _, secret := range []string{
 			"gru-1-ghcr-pull-token", "gru-1-netbird-setup-key",
@@ -219,7 +225,7 @@ func (r *run) ensureIAM() error {
 	if len(groups.Items) == 1 && !sameRule(deref(groups.Items[0].MatchingRule), ids) && (groupETag == nil || *groupETag == "") {
 		return fmt.Errorf("host dynamic group has no concurrency token")
 	}
-	want, err := statements(hosts)
+	want, err := Statements(hosts)
 	if err != nil {
 		return err
 	}

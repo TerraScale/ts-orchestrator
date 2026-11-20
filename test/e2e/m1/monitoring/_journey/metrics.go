@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/vaultrecords"
 	"github.com/nats-io/nats-server/v2/server"
 )
 
@@ -15,7 +16,11 @@ func JourneyMonitoring(ctx context.Context, state string) error {
 	if err != nil {
 		return err
 	}
-	node, err := start(config{region: "sjc", server: "monitoring-journey", nodeID: strings.Repeat("a", 25), founder: true,
+	records, err := vaultrecords.New(filepath.Join(state, "vault"))
+	if err != nil {
+		return err
+	}
+	node, err := start(config{region: "sjc", server: "monitoring-journey", nodeID: strings.Repeat("a", 25), founder: true, records: records,
 		dir: filepath.Join(state, "mesh"), ca: ca, terrabaseToken: strings.Repeat("t", 32),
 		clusterHost: "127.0.0.1", clusterPort: 16222, localPort: 14222,
 		peersDir: filepath.Join(state, "peers"), every: time.Second, peersEvery: time.Second,
@@ -30,7 +35,11 @@ func JourneyMonitoring(ctx context.Context, state string) error {
 }
 
 func JourneyAlertBudget(ctx context.Context, state, region, address string, peers []string) error {
-	cfg := config{region: region, server: "budget", dir: state, terrabaseToken: strings.Repeat("t", 32), clusterHost: address, clusterAdvertise: address, clusterPort: 16223, localPort: LocalPort}
+	records, err := vaultrecords.New(filepath.Join(state, "vault"))
+	if err != nil {
+		return err
+	}
+	cfg := config{region: region, server: "budget", dir: state, records: records, terrabaseToken: strings.Repeat("t", 32), clusterHost: address, clusterAdvertise: address, clusterPort: 16223, localPort: LocalPort}
 	for _, peer := range peers {
 		cfg.routes = append(cfg.routes, "nats://"+peer+":16223")
 	}

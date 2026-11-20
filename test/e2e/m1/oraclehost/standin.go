@@ -21,12 +21,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -68,6 +70,53 @@ type standIn struct {
 	requests map[string]int
 	servers  []*http.Server
 	github   *GitHub
+	callers  map[string]string
+	grants   map[vaultGrant]string
+	access   map[string]int
+}
+
+type vaultGrant struct{ compartment, vault, secret string }
+
+var grantStatement = regexp.MustCompile(`^Allow dynamic-group \S+ to (read secret-bundles|manage secret-family) in compartment id \S+ where all \{target\.vault\.id = '([^']+)', (.+), target\.secret\.name = '([^']+)'\}$`)
+
+var grantPrincipal = regexp.MustCompile(`request\.principal\.compartment\.id = '([^']+)'`)
+
+func (s *standIn) loadGrants() error {
+	compartments := map[string]string{}
+	for _, region := range s.fleet.Regions {
+		compartments[region.Name] = region.CompartmentID
+		for _, host := range region.Hosts {
+			s.callers[host.Address] = region.CompartmentID
+		}
+	}
+	statements, err := regionhost.Statements(compartments)
+	if err != nil {
+		return err
+	}
+	for _, statement := range statements {
+		match := grantStatement.FindStringSubmatch(statement)
+		if match == nil {
+			continue
+		}
+		verb := strings.Fields(match[1])[0]
+		for _, principal := range grantPrincipal.FindAllStringSubmatch(match[3], -1) {
+			s.grants[vaultGrant{compartment: principal[1], vault: match[2], secret: match[4]}] = verb
+		}
+	}
+	return nil
+}
+
+func (s *standIn) granted(r *http.Request, vault, name string, manage bool) bool {
+	address, _, _ := net.SplitHostPort(r.RemoteAddr)
+	compartment := s.callers[address]
+	verb := s.grants[vaultGrant{compartment: compartment, vault: vault, secret: name}]
+	allowed := verb == "manage" || verb == "read" && !manage
+	verdict := "denied "
+	if allowed {
+		verdict = "granted "
+	}
+	s.access[verdict+name+" for "+address]++
+	return allowed
 }
 
 func certificate(template, parent *x509.Certificate, public crypto.PublicKey, signer crypto.Signer) ([]byte, error) {
@@ -112,7 +161,11 @@ func newStandIn(f *Fleet) (*standIn, *tls.Certificate, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	s := &standIn{fleet: f, names: names, caKey: caKey, secrets: map[string]*secret{}, pinned: map[string]int{}, changed: make(chan struct{}), requests: map[string]int{}, github: newGitHub()}
+	s := &standIn{fleet: f, names: names, caKey: caKey, secrets: map[string]*secret{}, pinned: map[string]int{}, changed: make(chan struct{}), requests: map[string]int{}, github: newGitHub(),
+		callers: map[string]string{}, grants: map[vaultGrant]string{}, access: map[string]int{}}
+	if err := s.loadGrants(); err != nil {
+		return nil, nil, err
+	}
 	ca := &x509.Certificate{Subject: pkix.Name{CommonName: "oracle-regions stand-in CA"}, IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
 	if s.caPEM, err = certificate(ca, nil, caKey.Public(), caKey); err != nil {
 		return nil, nil, err
@@ -334,7 +387,7 @@ func (s *standIn) bundle(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	item := s.secrets[query.Get("secretName")]
-	if item == nil || item.VaultID != query.Get("vaultId") {
+	if !s.granted(r, query.Get("vaultId"), query.Get("secretName"), false) || item == nil || item.VaultID != query.Get("vaultId") {
 		serviceError(w, http.StatusNotFound, "NotAuthorizedOrNotFound", "secret not found")
 		return
 	}
@@ -379,6 +432,10 @@ func (s *standIn) management(w http.ResponseWriter, r *http.Request) {
 			serviceError(w, http.StatusBadRequest, "InvalidParameter", "create needs base64 content")
 			return
 		}
+		if !s.granted(r, request.VaultID, request.SecretName, true) {
+			serviceError(w, http.StatusNotFound, "NotAuthorizedOrNotFound", "caller may not create "+request.SecretName)
+			return
+		}
 		if s.secrets[request.SecretName] != nil {
 			serviceError(w, http.StatusConflict, "Conflict", "secret name already exists")
 			return
@@ -396,7 +453,7 @@ func (s *standIn) management(w http.ResponseWriter, r *http.Request) {
 				item = candidate
 			}
 		}
-		if item == nil {
+		if item == nil || !s.granted(r, item.VaultID, item.Name, true) {
 			serviceError(w, http.StatusNotFound, "NotAuthorizedOrNotFound", "secret not found")
 			return
 		}

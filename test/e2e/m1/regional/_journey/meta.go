@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -16,15 +17,18 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/vaultrecords"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 )
 
 type metaFleet struct {
-	root    string
-	regions []string
-	cfgs    map[string]config
-	nodes   map[string]*Node
+	root     string
+	regions  []string
+	cfgs     map[string]config
+	nodes    map[string]*Node
+	records  *vaultrecords.Store
+	restarts chan string
 }
 
 func freePorts(count int) ([]int, error) {
@@ -56,8 +60,15 @@ func newMetaFleet(root string) (*metaFleet, error) {
 	if err != nil {
 		return nil, err
 	}
-	fleet := &metaFleet{root: root, regions: regions, cfgs: map[string]config{}, nodes: map[string]*Node{}}
+	records, err := vaultrecords.New(filepath.Join(root, "vault"))
+	if err != nil {
+		return nil, err
+	}
+	fleet := &metaFleet{root: root, regions: regions, cfgs: map[string]config{}, nodes: map[string]*Node{}, records: records, restarts: make(chan string, len(regions))}
 	for i, region := range regions {
+		if err := PublishSeeds(context.Background(), fleet.records, region, "cluster-"+region, []string{"ts-" + region + "-99"}); err != nil {
+			return nil, err
+		}
 		seeds := map[string][]string{}
 		for j, peer := range regions {
 			if peer != region {
@@ -66,6 +77,7 @@ func newMetaFleet(root string) (*metaFleet, error) {
 		}
 		address := fmt.Sprintf("127.0.0.%d", 10+i)
 		fleet.cfgs[region] = config{region: region, server: region + "-founder", nodeID: strings.Repeat(string(rune('a'+i)), 25), founder: true,
+			cluster: "cluster-" + region, records: fleet.records, restart: func() { fleet.restarts <- region },
 			dir: filepath.Join(root, region), ca: ca, terrabaseToken: strings.Repeat("t", 32),
 			clusterHost: "127.0.0.1", clusterPort: ports[4*i+1], clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", ports[4*i+1]), localPort: ports[4*i],
 			seeds: seeds, applier: swarmApplier{state: filepath.Join(root, region+"-swarm"), region: region}, every: time.Second, peersEvery: 250 * time.Millisecond,
@@ -204,29 +216,57 @@ func MetaBootJourney(root string) error {
 	regions := fleet.regions
 	alone, rest := regions[len(regions)-1], regions[:len(regions)-1]
 
-	if err := fleet.start(alone); err != nil {
+	if err := fleet.records.Create(ctx, FounderRecord, encodeRecord(founding{Region: rest[0], Cluster: "cluster-of-a-wiped-cell", Formed: true})); err != nil {
 		return err
 	}
-	window, closeWindow := context.WithTimeout(ctx, 3*time.Second)
-	defer closeWindow()
-	if err := regionalAwait(window, func() bool { group := metaOf(fleet.nodes[alone]); return group.Leader != "" || !group.Observer }); err == nil {
-		return fmt.Errorf("a lone founder left observer mode or found a leader: %+v", metaOf(fleet.nodes[alone]))
-	}
-	fleet.stop(alone)
-	fmt.Println("ok metadata: a lone fresh founder waits in observer mode and is stopped before any group exists")
-
 	if err := fleet.start(rest...); err != nil {
 		return err
 	}
-	if err := fleet.start(alone); err != nil {
+	var founder string
+	select {
+	case founder = <-fleet.restarts:
+	case <-ctx.Done():
+		return fmt.Errorf("a founder record left by a wiped cell was never replaced: %+v", metaOf(fleet.nodes[rest[0]]))
+	}
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || record.Region != founder || record.Cluster != "cluster-"+founder || record.Formed || !maps.Equal(record.members(), map[string]string{founder: "cluster-" + founder}) {
+		return fmt.Errorf("founder record after %s replaced it: %+v, %v", founder, record, err)
+	}
+	fleet.stop(rest...)
+	if err := fleet.start(founder); err != nil {
 		return err
 	}
-	leader, err := fleet.await(ctx, "a brand-new fleet with three seeds per region, one founder stopped before any leader", regions)
+	if err := regionalAwait(ctx, func() bool {
+		group := metaOf(fleet.nodes[founder])
+		return group.Leader == group.ID && group.Leader != ""
+	}); err != nil {
+		return fmt.Errorf("%s never led the metadata group it claimed with no other server up: %w (%+v)", founder, err, metaOf(fleet.nodes[founder]))
+	}
+	if routes := fleet.nodes[founder].routes(); len(routes) != 0 {
+		return fmt.Errorf("%s led with %d routes; the lone founder must elect with none", founder, len(routes))
+	}
+	select {
+	case again := <-fleet.restarts:
+		return fmt.Errorf("%s also restarted to found a group after %s claimed the record", again, founder)
+	default:
+	}
+	fmt.Println("ok metadata: a founder record left by a wiped cell is replaced by one compare-and-swap while no server holds metadata;", founder, "restarts and leads the group alone with no route and no other server up")
+
+	if err := fleet.start(slices.DeleteFunc(slices.Clone(regions), func(region string) bool { return region == founder })...); err != nil {
+		return err
+	}
+	leader, err := fleet.await(ctx, "every founder joins the claimed founder's group", regions)
 	if err != nil {
 		return err
 	}
 	if count := fleet.leaders(); len(count) != 1 {
 		return fmt.Errorf("metadata leaders after first election: %v", count)
+	}
+	cells := map[string]string{}
+	for _, region := range regions {
+		cells[region] = "cluster-" + region
+	}
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || record.Region != founder || record.Cluster != "cluster-"+founder || !record.Formed || !maps.Equal(record.members(), cells) {
+		return fmt.Errorf("founder record after the group formed: %+v, %v", record, err)
 	}
 	kv, err := fleet.kv(ctx, alone)
 	if err != nil {
@@ -235,7 +275,7 @@ func MetaBootJourney(root string) error {
 	if _, err := kv.Put("fleet", []byte("first")); err != nil {
 		return err
 	}
-	fmt.Println("ok metadata: brand-new fleet with production seeds elected", leader, "with", len(regions), "peers; health admitted an R3 KV")
+	fmt.Println("ok metadata: the other founders joined", leader, "for", len(regions), "peers, none replaced the live founder record; health admitted an R3 KV")
 
 	fleet.stop(regions...)
 	if err := fleet.start(regions...); err != nil {
@@ -259,11 +299,11 @@ func MetaBootJourney(root string) error {
 		return err
 	}
 
-	fleet.stop(alone)
-	if err := os.RemoveAll(fleet.cfgs[alone].dir); err != nil {
+	fleet.stop(founder)
+	if err := os.RemoveAll(fleet.cfgs[founder].dir); err != nil {
 		return err
 	}
-	if err := fleet.start(alone); err != nil {
+	if err := fleet.start(founder); err != nil {
 		return err
 	}
 	if _, err := fleet.await(ctx, "a founder with an empty log rejoins a reachable group", regions); err != nil {
@@ -272,11 +312,11 @@ func MetaBootJourney(root string) error {
 	if count := fleet.leaders(); len(count) != 1 {
 		return fmt.Errorf("metadata leaders after empty rejoin: %v", count)
 	}
-	if kv, err = fleet.kv(ctx, alone); err != nil {
+	if kv, err = fleet.kv(ctx, founder); err != nil {
 		return err
 	}
 	if err := regionalAwait(ctx, func() bool {
-		js, err := fleet.nodes[alone].fabric.JetStream()
+		js, err := fleet.nodes[founder].fabric.JetStream()
 		if err != nil {
 			return false
 		}
@@ -285,7 +325,53 @@ func MetaBootJourney(root string) error {
 	}); err != nil {
 		return fmt.Errorf("stream replicas after empty rejoin: %w", err)
 	}
-	fmt.Println("ok metadata: a founder with an empty log joined the existing group instead of forming one")
+	fmt.Println("ok metadata: the founder the record names, with an empty log, joined the existing group instead of forming a second one")
+
+	rebuilt := fleet.cfgs[founder]
+	fleet.stop(founder)
+	if err := os.RemoveAll(rebuilt.dir); err != nil {
+		return err
+	}
+	connected, port, advertise := rebuilt.seeds, rebuilt.clusterPort, rebuilt.clusterAdvertise
+	unreachable, err := freePorts(1)
+	if err != nil {
+		return err
+	}
+	rebuilt.cluster, rebuilt.seeds = "cluster-"+founder+"-rebuilt", map[string][]string{}
+	rebuilt.clusterPort, rebuilt.clusterAdvertise = unreachable[0], fmt.Sprintf("127.0.0.1:%d", unreachable[0])
+	fleet.cfgs[founder] = rebuilt
+	checks := fleet.records.Reads(FounderRecord)
+	if err := fleet.start(founder); err != nil {
+		return err
+	}
+	if err := regionalAwait(ctx, func() bool { return fleet.records.Reads(FounderRecord) >= checks+3 }); err != nil {
+		return fmt.Errorf("%s, rebuilt and cut off from the group, never checked the founder record: %w", founder, err)
+	}
+	select {
+	case again := <-fleet.restarts:
+		return fmt.Errorf("%s restarted to found a second group while the cells of the intact group still run", again)
+	default:
+	}
+	if group := metaOf(fleet.nodes[founder]); group.Leader != "" {
+		return fmt.Errorf("%s, cut off from the intact group, has metadata leader %s", founder, group.Leader)
+	}
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || !maps.Equal(record.members(), cells) {
+		return fmt.Errorf("founder record while %s was cut off: %+v, %v", founder, record, err)
+	}
+	fleet.stop(founder)
+	rebuilt.seeds, rebuilt.clusterPort, rebuilt.clusterAdvertise = connected, port, advertise
+	fleet.cfgs[founder] = rebuilt
+	if err := fleet.start(founder); err != nil {
+		return err
+	}
+	if _, err := fleet.await(ctx, "the rebuilt founder joins the intact group once it reaches it", regions); err != nil {
+		return err
+	}
+	cells[founder] = rebuilt.cluster
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || !maps.Equal(record.members(), cells) {
+		return fmt.Errorf("founder record after the rebuilt %s joined: %+v, %v", founder, record, err)
+	}
+	fmt.Println("ok metadata: a rebuilt", founder, "cut off from the intact group kept the founder record and formed nothing, because the other cells still publish their seeds; reconnected, it enrolled its new cell and joined")
 
 	spec := &swarmruntime.ServiceSpec{Name: "terrabase", Regions: []string{"gru", "sjc", "fra"}}
 	generation := time.Now().UnixNano()

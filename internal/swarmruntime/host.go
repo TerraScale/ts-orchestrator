@@ -201,3 +201,11 @@ func LocalNodeID(ctx context.Context, stateDir string) (string, error) {
 	}
 	return certificate.Subject.CommonName, nil
 }
+
+func LocalClusterID(ctx context.Context, stateDir string) (string, error) {
+	certificate, err := nodeCertificate(ctx, SwarmDir(stateDir))
+	if err != nil {
+		return "", err
+	}
+	return certificate.Subject.Organization[0], nil
+}
