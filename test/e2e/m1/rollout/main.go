@@ -831,6 +831,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	logStep("release journals the local held generation and deployment; restart retains it and every region completes")
 	must(os.Remove(filepath.Join(roots[0], "pull-selection")))
 	logStep("host pulls a selected image, rejects a wrong signer, verifies provenance and completes the rollout without CI delivery")
+	globalWaitCases(ctx, conn, root, spec.Image, generation)
 	signedRelease(ctx, releases, spec.Image, "102")
 	observe(ctx, conn, func(s map[string]state) bool { return newGeneration(s, order[0]) > generation })
 	held = newGeneration(states(ctx, conn), order[0])
@@ -856,6 +857,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	retained = evidence(ctx, roots[0], held, func(r receipt) bool { return r.Bake.Reason != "" })
 	require(retained.ReplacedBy == nil, "removal rewrote the failed bake as a replacement release")
 	logStep("a failed bake accepts service removal across every region, removes peers files and retains failure evidence")
+	scopedWaitCases(ctx, conn, root, roots[slices.Index(order, "gru")], spec)
 
 	ownerEpochCase(ctx, root, "gru", roots[slices.Index(order, "gru")], roots[slices.Index(order, "fra")])
 	fmt.Println("rollout journey passed")
