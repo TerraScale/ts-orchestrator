@@ -131,7 +131,7 @@ func promotionCandidate(nodes []*api.Node, voters []manager.Voter) (*api.Node, e
 		switch {
 		case node == nil:
 			return nil, fmt.Errorf("Raft voter %s has no node record; a membership change is pending", voter.NodeID)
-		case !voter.Reachable || !voter.CaughtUp || !managerReady(node):
+		case !voter.Reachable || !voter.CaughtUp || !votingReady(node):
 			return nil, fmt.Errorf("voting manager %s is not ready, Raft-reachable and caught up; a membership change is pending", memberName(node))
 		}
 	}
@@ -170,7 +170,7 @@ func awaitVoter(ctx context.Context, upstream *manager.Manager, observation *man
 				return errors.New("it left the cluster")
 			}
 			at := slices.IndexFunc(voters, func(voter manager.Voter) bool { return voter.NodeID == node.ID })
-			settled = at >= 0 && voters[at].Reachable && voters[at].CaughtUp && managerReady(node)
+			settled = at >= 0 && voters[at].Reachable && voters[at].CaughtUp && votingReady(node)
 			return nil
 		})
 		if err != nil || settled {
@@ -200,6 +200,10 @@ func promotionEligible(node *api.Node) bool {
 		node.Status.State == api.NodeStatus_READY && node.Spec.Availability == api.NodeAvailabilityActive &&
 		node.Spec.Membership == api.NodeMembershipAccepted && node.Spec.Annotations.Name != "" &&
 		labels[LabelHostRole] == "container" && labels[LabelInstanceID] != "" && labels[LabelDrainSince] == ""
+}
+
+func votingReady(node *api.Node) bool {
+	return node.Role == api.NodeRoleManager && node.Spec.DesiredRole == api.NodeRoleManager && node.Status.State == api.NodeStatus_READY
 }
 
 func managerReachable(node *api.Node) bool {
