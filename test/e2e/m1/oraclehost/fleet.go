@@ -334,7 +334,16 @@ func (h *Host) Events() []Event {
 }
 
 func (h *Host) WaitEvent(ctx context.Context, match func(Event) bool) (Event, error) {
-	seen := 0
+	return h.WaitEventFrom(ctx, 0, match)
+}
+
+func (h *Host) EventCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.events)
+}
+
+func (h *Host) WaitEventFrom(ctx context.Context, seen int, match func(Event) bool) (Event, error) {
 	for {
 		h.mu.Lock()
 		events, changed := h.events[seen:], h.changed

@@ -448,11 +448,9 @@ func reboundIdentity(ctx context.Context, fleet *oraclehost.Fleet, region *oracl
 		must(os.Rename(dir, aside[dir]))
 	}
 	boot := func() {
-		booted := time.Now()
+		from := host.EventCount()
 		must(fleet.Boot(host))
-		_, err := host.WaitEvent(ctx, func(e oraclehost.Event) bool {
-			return e.Kind == "ready" && e.Revision == revision && e.At.After(booted)
-		})
+		_, err := host.WaitEventFrom(ctx, from, func(e oraclehost.Event) bool { return e.Kind == "ready" && e.Revision == revision })
 		must(err)
 	}
 	boot()
