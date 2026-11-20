@@ -409,12 +409,21 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) err
 		return fmt.Errorf("list volumes: %w", err)
 	}
 	slots := map[string]core.Volume{}
-	for n := 1; n <= p.Max+len(listed); n++ {
-		name := fmt.Sprintf("data-%d", n)
-		for _, volume := range listed {
-			if volume.LifecycleState != core.VolumeLifecycleStateTerminated && volume.LifecycleState != core.VolumeLifecycleStateTerminating && p.owns("volume", name, volume.FreeformTags) {
-				slots[name] = volume
+	prefix := p.Key("volume", "data-").String()
+	for _, volume := range listed {
+		if volume.LifecycleState == core.VolumeLifecycleStateTerminated {
+			continue
+		}
+		for _, value := range volume.FreeformTags {
+			suffix, keyed := strings.CutPrefix(value, prefix)
+			name := "data-" + suffix
+			if !keyed || !p.owns("volume", name, volume.FreeformTags) {
+				continue
 			}
+			if held, ok := slots[name]; ok {
+				return fmt.Errorf("%s names both %s and %s; refusing ambiguous data volume identity", p.Key("volume", name), *held.Id, *volume.Id)
+			}
+			slots[name] = volume
 		}
 	}
 	attachments, err := p.attachments(ctx)

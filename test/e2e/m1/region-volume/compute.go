@@ -332,6 +332,28 @@ func computeSelection(ctx context.Context) {
 	}
 	fmt.Println("compute binding: retired-owner slots stay untouched; a later unclaimed slot or a new one below nodes.max is used; at nodes.max the pass refuses without creating a disk")
 
+	for _, allocation := range []string{"duplicate-key", "terminating"} {
+		c, pass := bindingCloud()
+		poolVolume(c, pass, "data-1", "retired-node")
+		want := "nodes.max allows 3 data volumes, all allocated"
+		if allocation == "duplicate-key" {
+			poolVolume(c, pass, "data-2", "retired-node")
+			poolVolume(c, pass, "data-1", "")["id"] = "ocid1.volume.oc1.test.data-1-twin"
+			want = "refusing ambiguous data volume identity"
+		} else {
+			poolVolume(c, pass, "data-2", "")["lifecycleState"] = "TERMINATING"
+			poolVolume(c, pass, "data-3", "retired-node")
+		}
+		before, err := json.Marshal(c.resources["volumes"], json.Deterministic(true))
+		must(err == nil, fmt.Sprint(err))
+		err = applyBinding(ctx, c, pass)
+		after, marshalErr := json.Marshal(c.resources["volumes"], json.Deterministic(true))
+		must(err != nil && strings.Contains(err.Error(), want), fmt.Sprint("allocation not counted by OCID for ", allocation, ": ", err))
+		must(marshalErr == nil && string(before) == string(after) && len(c.resources["volumes"]) == 3 && len(c.resources["volumeAttachments"]) == 0 &&
+			!slices.Contains(c.events, "POST volumes") && c.resources["instances"][0]["metadata"].(object)[nodeinit.VolumeKey] == nil, "ambiguous or terminating allocation created, attached or bound a volume: "+allocation)
+	}
+	fmt.Println("compute binding: two volumes with one data-1 key refuse before selection; a TERMINATING disk counts toward nodes.max and is never picked")
+
 	c, pass := bindingCloud()
 	provisioning := poolVolume(c, pass, "data-1", "")
 	provisioning["lifecycleState"] = "PROVISIONING"

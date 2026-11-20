@@ -253,7 +253,9 @@ the volume its metadata or data-device attachment names, or else the one
 already tagged with its instance; conflicting claims refuse the pass before any
 write. A node without one gets an unclaimed volume from its availability
 domain (waiting for one still provisioning), or a new one while the region has
-fewer than `nodes.max` data volumes in any state but terminated. A volume
+fewer than `nodes.max` data volume OCIDs in any state but terminated
+(terminating ones count, and are never picked). Two volumes with one
+`volume/data-<n>` key refuse the pass before any selection. A volume
 tagged with another instance, such as one kept by Remove or Retire, is never
 attached, retagged or deleted; when all `nodes.max` volumes are allocated the
 pass fails and lists them. Image and release
