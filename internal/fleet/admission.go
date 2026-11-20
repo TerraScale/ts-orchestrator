@@ -1,7 +1,6 @@
 package fleet
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -26,10 +25,9 @@ func verifyAdmissions(ctx context.Context, compute core.ComputeClient, network c
 	var unadmitted []SwarmNode
 	claimed := map[string]string{}
 	for _, node := range view.Nodes {
-		switch {
-		case node.InstanceID != "" && node.Ready:
-			claimed[node.InstanceID] = cmp.Or(node.Hostname, node.ID)
-		case node.InstanceID == "":
+		if node.InstanceID != "" {
+			claimed[node.InstanceID] = node.ID
+		} else {
 			unadmitted = append(unadmitted, node)
 		}
 	}
@@ -68,7 +66,7 @@ func verifyAdmissions(ctx context.Context, compute core.ComputeClient, network c
 		}
 		instanceID := *matches[0].Id
 		if holder, ok := claimed[instanceID]; ok {
-			refused = append(refused, fmt.Errorf("node %s (%q): instance %s already has the live Swarm identity %s", node.ID, node.Hostname, instanceID, holder))
+			refused = append(refused, fmt.Errorf("node %s (%q): instance %s is bound to Swarm identity %s until that record is retired", node.ID, node.Hostname, instanceID, holder))
 			continue
 		}
 		address, err := primaryAddress(ctx, compute, network, region, instanceID)

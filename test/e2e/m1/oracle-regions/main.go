@@ -419,6 +419,88 @@ func unadmitted(ctx context.Context, region *oraclehost.Region, host *oraclehost
 		"%s, whose instance is gone from OCI inventory, was admitted: state %v name %q labels %v", host.Name, node.Status.State, node.Spec.Annotations.Name, node.Spec.Annotations.Labels)
 }
 
+func reboundIdentity(ctx context.Context, fleet *oraclehost.Fleet, region *oraclehost.Region, host *oraclehost.Host, revision string) {
+	client, conn, err := swarmruntime.DialControl(region.Hosts[0].State(""))
+	must(err)
+	defer conn.Close()
+	nodeState := func(nodeID string) (*api.Node, error) {
+		current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
+		if err != nil {
+			return nil, err
+		}
+		return current.Node, nil
+	}
+	oldID := nodeCertificate(host.State("")).Subject.CommonName
+	must(host.Kill())
+	until(ctx, host.Name+"'s labelled identity "+oldID+" goes DOWN", func() error {
+		node, err := nodeState(oldID)
+		if err != nil {
+			return err
+		}
+		if node.Status.State == api.NodeStatus_READY || node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != host.InstanceID {
+			return fmt.Errorf("state %v labels %v", node.Status.State, node.Spec.Annotations.Labels)
+		}
+		return nil
+	})
+	aside := map[string]string{}
+	for _, dir := range []string{host.State(""), filepath.Join(host.Dir, "containerd")} {
+		aside[dir] = dir + ".identity-a"
+		must(os.Rename(dir, aside[dir]))
+	}
+	boot := func() {
+		booted := time.Now()
+		must(fleet.Boot(host))
+		_, err := host.WaitEvent(ctx, func(e oraclehost.Event) bool {
+			return e.Kind == "ready" && e.Revision == revision && e.At.After(booted)
+		})
+		must(err)
+	}
+	boot()
+	newID := nodeCertificate(host.State("")).Subject.CommonName
+	require(newID != oldID, "%s rejoined with its old identity %s", host.Name, oldID)
+	journal := filepath.Join(region.Hosts[0].Dir, "journal.log")
+	refusal := fmt.Sprintf("instance %s is bound to Swarm identity %s until that record is retired", host.InstanceID, oldID)
+	until(ctx, region.Name+"'s leader refuses "+newID+" for "+host.InstanceID, func() error {
+		data, err := os.ReadFile(journal)
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(data), refusal) || !strings.Contains(string(data), newID) {
+			return errors.New("no unadmitted refusal naming the bound identity yet")
+		}
+		return nil
+	})
+	node, err := nodeState(newID)
+	must(err)
+	require(node.Status.State == api.NodeStatus_READY && node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] == "" && node.Spec.Annotations.Name == "",
+		"new identity %s on %s was admitted while %s was DOWN: state %v name %q labels %v", newID, host.InstanceID, oldID, node.Status.State, node.Spec.Annotations.Name, node.Spec.Annotations.Labels)
+	must(host.Kill())
+	for dir, saved := range aside {
+		must(os.RemoveAll(dir))
+		must(os.Rename(saved, dir))
+	}
+	boot()
+	until(ctx, host.Name+"'s original identity "+oldID+" reconnects READY", func() error {
+		node, err := nodeState(oldID)
+		if err != nil {
+			return err
+		}
+		if node.Status.State != api.NodeStatus_READY {
+			return fmt.Errorf("state %v", node.Status.State)
+		}
+		return nil
+	})
+	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	must(err)
+	var bound []string
+	for _, node := range listed.Nodes {
+		if node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] == host.InstanceID {
+			bound = append(bound, node.ID)
+		}
+	}
+	require(slices.Equal(bound, []string{oldID}), "instance %s is bound to %v, want only %s", host.InstanceID, bound, oldID)
+}
+
 func promoteManagers(ctx context.Context, leader *oraclehost.Host, hosts ...*oraclehost.Host) {
 	client, conn, err := swarmruntime.DialControl(leader.State(""))
 	must(err)
@@ -845,6 +927,9 @@ func main() {
 	step("%s's SwarmKit managers promoted %s and %s with no release; both are Raft-reachable managers", gru.Name, follower.Name, departed.Name)
 	admittedHosts(ctx, sjc, gone)
 	step("once OCI lists %s's instance again, its region leader admits it too", gone.Name)
+	fra := fleet.Regions[2]
+	reboundIdentity(ctx, fleet, fra, fra.Hosts[1], first)
+	step("%s's labelled identity went DOWN, the same instance joined as a new READY identity and was refused as bound to the old one, then the old identity reconnected: %s stays bound to exactly one Swarm identity", fra.Hosts[1].Name, fra.Hosts[1].InstanceID)
 	removed, departedID := filepath.Join(work, "departed-state"), nodeCertificate(departed.State("")).Subject.CommonName
 	promotedIDs := []string{nodeCertificate(follower.State("")).Subject.CommonName, departedID}
 	until(ctx, follower.Name+" trusts the inventories of both promoted managers", func() error {

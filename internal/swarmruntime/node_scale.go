@@ -142,8 +142,8 @@ func (n *Node) Admit(ctx context.Context, verified fleet.SwarmNode, instanceID, 
 		switch {
 		case current.ID == verified.ID:
 			node = current
-		case current.Spec.Annotations.Labels[LabelInstanceID] == instanceID && current.Status.State == api.NodeStatus_READY:
-			return fmt.Errorf("instance %s already has the live Swarm identity %s", instanceID, current.ID)
+		case current.Spec.Annotations.Labels[LabelInstanceID] == instanceID:
+			return fmt.Errorf("instance %s is bound to Swarm identity %s until that record is retired", instanceID, current.ID)
 		}
 	}
 	switch {
