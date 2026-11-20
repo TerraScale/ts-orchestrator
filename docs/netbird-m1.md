@@ -99,6 +99,7 @@ Managed by `manager.GRU()`; the upstream allow-all `Default` policy is
 deleted at first start.
 
 - `operators`, `ops-automation` -> `gru-servers`: TCP 22 (OpenSSH; M1 hosts run no NetBird SSH server, see [NetBird SSH is off on M1 hosts](#netbird-ssh-is-off-on-m1-hosts)).
+- `operators` -> `gru-servers` and `ops-automation` -> `gru-servers`: `netbird-ssh` (`operators-to-gru-servers-ssh`, `ops-automation-to-gru-servers-ssh`). Only pool nodes run the NetBird SSH server, see [NetBird SSH on pool nodes](#netbird-ssh-on-pool-nodes).
 - `gru-servers` <-> `gru-servers`: ICMP and service health ports.
 
 ## Clients
@@ -118,6 +119,124 @@ NetBird address to its own server on 22022, so operator OpenSSH
 (`ssh ts-<r>-1`, known host key) would be unreachable over NetBird. Operators
 reach M1 hosts with OpenSSH on the NetBird address; `ts-orch netbird ssh` and
 `ts-orch log-scan` have no NetBird SSH server to reach there.
+
+### NetBird SSH on pool nodes
+
+Pool nodes (`<label>-node-<n>`, made by `ts-orch region apply <r> compute`;
+today `gru-node-*`, `sjc-node-*`, `fra-node-*`) carry no operator key and lock
+every password, so NetBird SSH is their one login. `ts-orch netbird server`
+recognises a pool node by its hostname (`naming.IsPoolNode`, the same format
+the instance pool's hostname formatter uses) and enrolls it with:
+
+| Flag | Value |
+|---|---|
+| `--allow-server-ssh` | `true` |
+| `--enable-ssh-root` | `true` |
+| `--enable-ssh-sftp`, `--enable-ssh-local-port-forwarding`, `--enable-ssh-remote-port-forwarding` | `false` |
+| `--disable-ssh-auth` | `false`: every session needs a NetBird identity-provider login (JWT) |
+
+M1 hosts (`ts-<r>-<n>`) keep only `--allow-server-ssh=false`, so their
+OpenSSH path and their NetBird client are untouched.
+
+Who may connect is the manager's state, owned by `manager.GRU()`
+(`internal/netbird/manager/desired.go`): every server, pool nodes included,
+enrolls with `gru-1-netbird-setup-key`, which auto-assigns `gru-servers`, and
+the `netbird-ssh` policies `operators-to-gru-servers-ssh` and
+`ops-automation-to-gru-servers-ssh` let the `operators` and `ops-automation`
+groups reach a server's NetBird SSH server. The manager starts a peer's SSH
+server only while a `netbird-ssh` policy targets one of its groups, or while
+the peer's legacy `ssh_enabled` flag is on and an `all` or TCP 22/22022 rule
+targets it.
+
+The NetBird SSH server authorizes the identity-provider user, not the source
+peer, so the network policies are the only source restriction. The
+controller's NetBird loop (`ts-orch netbird server` on the host running the
+NetBird server, every 10 minutes, admin PAT from Vault) therefore enforces it
+in `Sync` (`internal/netbird/manager/ssh_gate.go`):
+
+- every server peer's legacy `ssh_enabled` flag is turned off;
+- if any enabled accept rule (an upstream `Default`, an unmanaged policy, or a
+  drifted managed one) lets a group other than `operators` and
+  `ops-automation`, or a peer resource, reach TCP 22 or 22022 on a server
+  peer (protocol `all` or `netbird-ssh`, TCP without ports, or TCP ports or
+  ranges covering 22 or 22022, in either direction of a bidirectional rule),
+  the two ops `netbird-ssh` policies are disabled and the loop warns
+  `NetBird SSH stays closed: policies ... grant TCP 22 or 22022 on servers to
+  peers outside operators and ops-automation`. With no `netbird-ssh` policy
+  and no legacy flag, the manager stops every server's SSH server, whatever
+  the node allows locally. They are re-enabled on the first loop after the
+  grant is gone.
+
+A grant added by hand stays effective until the next loop, at most 10
+minutes. `ts-orch netbird sync --pat-file FILE` (no `--apply`) prints the
+same decision read-only.
+
+The identity provider admits the account's users; today the account has one,
+the owner (`gru-1-netbird-owner-email`, `-password`). `ts-orch netbird ssh`
+signs in as `ssh-automation@terrascale.tech`, whose login secrets do not exist
+yet, so automation cannot open these sessions until that login is created.
+
+#### Activation and rollback
+
+Existing pool nodes need no reinstall. Each host's `netbird-server.service`
+runs `ts-orch netbird server`. At the start of each loop it checks whether the
+installed `ts-orch` changed and, if so, exits so systemd starts it on the new
+binary. A node can therefore take up to one 10-minute loop after the pull
+release lands. The new companion compares `netbird debug config` with the
+flags above and, when they differ, runs `netbird down` and `netbird up` with
+them once: a few seconds of NetBird reconnect on that node only, with ts-orch
+untouched. A new pool node gets the flags on its first boot through the same
+unit, which `nodeinit` installs.
+
+A pool node is enabled when, on the node:
+
+```sh
+netbird debug config | jq '{serverSSHAllowed, enableSSHRoot, enableSSHSFTP, enableSSHLocalPortForwarding, enableSSHRemotePortForwarding, disableSSHAuth}'
+ss -ltn | grep ':22022 '
+```
+
+show `true, true, false, false, false, false` and one listener on the node's
+NetBird address. Rollback is the normal release path: revert this change on
+`main`, and once its pull release lands, each pool node's companion restarts
+onto the reverted binary within one loop and re-applies
+`--allow-server-ssh=false`. It is complete when `serverSSHAllowed` is
+`false` and `ss -ltn` shows no `:22022` listener on every pool node. M1 hosts
+are not touched in either direction.
+
+#### Prove ops-only access
+
+From an `operators` peer, after the release reached the nodes, with an
+inventory written at the management boundary by
+`ts-orch netbird inventory --pat-file FILE > inventory.json` (admin PAT in
+tmpfs, shredded afterwards):
+
+```sh
+NB=netbird scripts/netbird-pool-ssh-check.sh --inventory inventory.json sjc-node-1 sjc-node-2
+```
+
+It checks from the inventory that this peer is in an ops group and that
+`sjc-node-1` is a connected `gru-servers` peer in no ops group. It opens NetBird
+SSH as root to both nodes and requires the line `pool-ssh <node>` in each
+session's output, which ignores NetBird's `Authentication successful!` banner
+on a first login. From `sjc-node-1` it then requires `icmp reached` to
+`sjc-node-2`, so the mesh between them is healthy, while TCP 22 and 22022 time
+out (`exit 124`): the firewall drops them, rather than a closed port (exit 1)
+or an open one (exit 0). Each `netbird ssh` prints a login URL; sign in with a
+NetBird account login in the browser.
+
+#### Run `member promote` on a pool region leader
+
+From an `operators` peer:
+
+```sh
+netbird ssh root@sjc-node-1 ts-orch member ls
+netbird ssh root@<leader> ts-orch member promote
+```
+
+`member ls` lists the region's managers and workers. `member promote` runs
+only on the Raft leader; another manager answers `membership changes must run
+on the Raft leader`. The promotion rules are in
+[the M1 runbook](m1-runbook.md#a-second-host-in-a-region-joins-by-itself).
 
 ## Operator PC
 

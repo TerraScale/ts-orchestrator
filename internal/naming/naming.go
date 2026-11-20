@@ -41,6 +41,12 @@ var scheme = regexp.MustCompile(`^([a-z]+)-[1-9][0-9]{0,2}(?:-(?:ctl|gw)-[1-9][0
 
 var nodeScheme = regexp.MustCompile(`^ts-([a-z]+)-[1-9][0-9]{0,2}(?:-data)?$`)
 
+var poolNodeScheme = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-node-[1-9][0-9]*$`)
+
+func PoolNodeFormatter(label string) string { return label + "-node-${launchCount}" }
+
+func IsPoolNode(hostname string) bool { return poolNodeScheme.MatchString(hostname) }
+
 var apiPart = regexp.MustCompile(`^[a-z]+$`)
 
 // Cell is one region's cell.
