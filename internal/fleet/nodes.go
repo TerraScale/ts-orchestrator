@@ -31,6 +31,7 @@ const (
 
 type SwarmNode struct {
 	ID, Hostname, InstanceID string
+	Addresses                []string
 	Manager, ManagerReady    bool
 	Leader, Ready, Active    bool
 	DrainSince               time.Time
@@ -56,6 +57,7 @@ type Cluster interface {
 	SwarmView(ctx context.Context) (SwarmView, error)
 	Cordon(ctx context.Context, nodeID string, since time.Time) error
 	Remove(ctx context.Context, hostname string, guard func(context.Context) error) error
+	Admit(ctx context.Context, nodeID, hostname, instanceID, region string) error
 }
 
 type NodeDecision struct {
@@ -147,12 +149,44 @@ func applyNodes(ctx context.Context, _ Fleet, region Region, f *ociclient.Factor
 	if err != nil {
 		return err
 	}
+	network, err := f.Network()
+	if err != nil {
+		return err
+	}
+	admissions, unresolved := verifyAdmissions(ctx, pass.Compute, network, region, view)
+	for _, a := range admissions {
+		if _, err := fmt.Fprintln(out.Changed, a.line(region)); err != nil {
+			return err
+		}
+		if !out.Apply {
+			continue
+		}
+		if err := ociclient.Authorize(ctx); err != nil {
+			return err
+		}
+		if err := cluster.Admit(ctx, a.node.ID, a.node.Hostname, a.instanceID, region.OCIRegion); err != nil {
+			return fmt.Errorf("admit node %s: %w", a.node.Hostname, err)
+		}
+		slog.InfoContext(ctx, "node admitted", "region", region.Label, "node", a.node.Hostname, "instance", a.instanceID)
+	}
+	if len(admissions) > 0 {
+		return nil
+	}
+	s := scalerFor(region.Label)
+	now := time.Now()
+	if unresolved != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if !out.Apply {
+			s.record(region.Label, NodeDecision{At: now, Action: "hold", Actual: len(view.Nodes), Desired: len(view.Nodes), Min: region.Nodes.Min, Max: region.Nodes.Max,
+				Code: "unadmitted", Reason: unresolved.Error(), Refused: true})
+		}
+		return nil
+	}
 	pool, pooled, err := pass.Pool(ctx)
 	if err != nil {
 		return err
 	}
-	s := scalerFor(region.Label)
-	now := time.Now()
 	s.mu.Lock()
 	decision := s.Decide(now, region.Nodes, view, pool, pooled)
 	if !out.Apply {

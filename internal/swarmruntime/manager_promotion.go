@@ -5,12 +5,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/manager"
+	"github.com/moby/swarmkit/v2/manager/state/store"
+	"golang.org/x/sys/unix"
 )
+
+const (
+	VotingManagers   = 3
+	managerJoinWait  = 2 * time.Minute
+	membershipSample = 250 * time.Millisecond
+)
+
+var ErrNotRegionLeader = errors.New("membership changes run on the region's Raft leader")
+
+type Promotion struct {
+	Hostname string `json:"hostname"`
+	NodeID   string `json:"node_id"`
+	Voters   int    `json:"voters"`
+}
 
 func IsLeader(nodes []*api.Node, nodeID string) bool {
 	return slices.ContainsFunc(nodes, func(node *api.Node) bool {
@@ -18,65 +37,173 @@ func IsLeader(nodes []*api.Node, nodeID string) bool {
 	})
 }
 
-func PromoteManagers(ctx context.Context, client api.ControlClient, watcher api.WatchClient, nodeID string) error {
-	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+func LockMembership(state string) (func(), error) {
+	lock, err := os.OpenFile(filepath.Join(state, "membership.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if !IsLeader(listed.Nodes, nodeID) {
-		return errors.New("manager promotion must run on the Raft leader")
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		lock.Close()
+		return nil, fmt.Errorf("another membership change is in progress: %w", err)
 	}
-	managers := 0
+	return func() {
+		_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+		lock.Close()
+	}, nil
+}
+
+func (n *Node) RaftVoters() ([]manager.Voter, error) {
+	upstream := n.upstream.Manager()
+	if upstream == nil {
+		return nil, ErrNotRegionLeader
+	}
+	observation, err := upstream.Observe(nil, func(store.ReadTx) error { return nil })
+	if err != nil {
+		return nil, err
+	}
+	observation.Cancel()
+	var voters []manager.Voter
+	err = upstream.ViewMembership(observation, func(_ store.ReadTx, current []manager.Voter) error {
+		voters = current
+		return nil
+	})
+	if errors.Is(err, manager.ErrNotRaftLeader) {
+		return nil, ErrNotRegionLeader
+	}
+	return voters, err
+}
+
+func (n *Node) PromoteManager(ctx context.Context) (Promotion, error) {
+	unlock, err := LockMembership(filepath.Dir(n.stateDir))
+	if err != nil {
+		return Promotion{}, err
+	}
+	defer unlock()
+	upstream := n.upstream.Manager()
+	if upstream == nil {
+		return Promotion{}, ErrNotRegionLeader
+	}
+	observation, err := upstream.Observe(nil, func(store.ReadTx) error { return nil })
+	if err != nil {
+		return Promotion{}, err
+	}
+	observation.Cancel()
+	var promotion Promotion
+	err = upstream.UpdateMembership(observation, func(tx store.Tx, voters []manager.Voter) error {
+		nodes, err := store.FindNodes(tx, store.All)
+		if err != nil {
+			return err
+		}
+		candidate, err := promotionCandidate(nodes, voters)
+		if err != nil {
+			return err
+		}
+		promoted := candidate.Copy()
+		promoted.Spec.DesiredRole = api.NodeRoleManager
+		if err := store.UpdateNode(tx, promoted); err != nil {
+			return err
+		}
+		promotion = Promotion{Hostname: memberName(candidate), NodeID: candidate.ID, Voters: len(voters) + 1}
+		return nil
+	})
+	if errors.Is(err, manager.ErrNotRaftLeader) {
+		return Promotion{}, ErrNotRegionLeader
+	}
+	if err != nil {
+		return Promotion{}, err
+	}
+	if err := awaitVoter(ctx, upstream, observation, promotion); err != nil {
+		return promotion, fmt.Errorf("%s became voting manager %d of %d, but %w; it keeps its manager role and further promotions refuse until it settles", promotion.Hostname, promotion.Voters, VotingManagers, err)
+	}
+	return promotion, nil
+}
+
+func promotionCandidate(nodes []*api.Node, voters []manager.Voter) (*api.Node, error) {
+	if len(voters) >= VotingManagers {
+		return nil, fmt.Errorf("the region already has %d voting managers", len(voters))
+	}
+	byID := map[string]*api.Node{}
+	for _, node := range nodes {
+		byID[node.ID] = node
+	}
+	for _, voter := range voters {
+		node := byID[voter.NodeID]
+		switch {
+		case node == nil:
+			return nil, fmt.Errorf("Raft voter %s has no node record; a membership change is pending", voter.NodeID)
+		case !voter.Reachable || !voter.CaughtUp || !votingReady(node):
+			return nil, fmt.Errorf("voting manager %s is not ready, Raft-reachable and caught up; a membership change is pending", memberName(node))
+		}
+	}
 	var eligible []*api.Node
-	for _, node := range listed.Nodes {
-		if node.Role == api.NodeRoleManager || node.Spec.DesiredRole == api.NodeRoleManager {
-			if !managerReady(node) {
-				return fmt.Errorf("manager %s is not ready; membership must settle before promotion", node.ID)
-			}
-			managers++
-		} else if promotionEligible(node) {
+	for _, node := range nodes {
+		voting := slices.ContainsFunc(voters, func(voter manager.Voter) bool { return voter.NodeID == node.ID })
+		switch {
+		case node.Role != node.Spec.DesiredRole:
+			return nil, fmt.Errorf("%s is changing role from %s to %s; a membership change is pending", memberName(node), strings.ToLower(node.Role.String()), strings.ToLower(node.Spec.DesiredRole.String()))
+		case node.Role == api.NodeRoleManager && !voting:
+			return nil, fmt.Errorf("%s holds the manager role but is not a Raft voter; a membership change is pending", memberName(node))
+		case promotionEligible(node):
 			eligible = append(eligible, node)
 		}
 	}
-	needed := 3 - managers
-	if managers < 1 || needed < 1 || len(eligible) < needed {
-		return nil
+	if len(eligible) == 0 {
+		return nil, errors.New("no eligible worker: promotion needs an admitted container worker that is READY, active and not draining")
 	}
 	slices.SortFunc(eligible, func(a, b *api.Node) int {
 		at, bt := a.Meta.CreatedAt, b.Meta.CreatedAt
 		return cmp.Or(cmp.Compare(at.GetSeconds(), bt.GetSeconds()), cmp.Compare(at.GetNanos(), bt.GetNanos()), strings.Compare(a.ID, b.ID))
 	})
-	for _, candidate := range eligible[:needed] {
-		listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
-		if err != nil {
-			return err
-		}
-		if !IsLeader(listed.Nodes, nodeID) {
-			return errors.New("manager promotion lost local Raft leadership")
-		}
-		managers := 0
-		for _, node := range listed.Nodes {
-			if node.Role == api.NodeRoleManager || node.Spec.DesiredRole == api.NodeRoleManager {
-				if !managerReady(node) {
-					return fmt.Errorf("manager %s is not ready; membership must settle before promotion", node.ID)
-				}
-				managers++
+	return eligible[0], nil
+}
+
+func awaitVoter(ctx context.Context, upstream *manager.Manager, observation *manager.Observation, promotion Promotion) error {
+	ctx, cancel := context.WithTimeout(ctx, managerJoinWait)
+	defer cancel()
+	tick := time.NewTicker(membershipSample)
+	defer tick.Stop()
+	for {
+		settled := false
+		err := upstream.ViewMembership(observation, func(tx store.ReadTx, voters []manager.Voter) error {
+			node := store.GetNode(tx, promotion.NodeID)
+			if node == nil {
+				return errors.New("it left the cluster")
 			}
-		}
-		if managers >= 3 {
+			at := slices.IndexFunc(voters, func(voter manager.Voter) bool { return voter.NodeID == node.ID })
+			settled = at >= 0 && voters[at].Reachable && voters[at].CaughtUp && votingReady(node)
 			return nil
-		}
-		if err := promoteManager(ctx, client, watcher, candidate.ID); err != nil {
+		})
+		if err != nil || settled {
 			return err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("it is not a ready, Raft-reachable voter caught up to the leader's commit index after %s", managerJoinWait)
+		case <-tick.C:
 		}
 	}
-	return nil
+}
+
+func memberName(node *api.Node) string {
+	if node.Spec.Annotations.Name != "" {
+		return node.Spec.Annotations.Name
+	}
+	if node.Description != nil && node.Description.Hostname != "" {
+		return node.Description.Hostname
+	}
+	return node.ID
 }
 
 func promotionEligible(node *api.Node) bool {
-	return node.Role == api.NodeRoleWorker && node.Spec.DesiredRole != api.NodeRoleManager &&
+	labels := node.Spec.Annotations.Labels
+	return node.Role == api.NodeRoleWorker && node.Spec.DesiredRole == api.NodeRoleWorker &&
 		node.Status.State == api.NodeStatus_READY && node.Spec.Availability == api.NodeAvailabilityActive &&
-		node.Spec.Membership == api.NodeMembershipAccepted && node.Spec.Annotations.Labels[LabelHostRole] == "container"
+		node.Spec.Membership == api.NodeMembershipAccepted && node.Spec.Annotations.Name != "" &&
+		labels[LabelHostRole] == "container" && labels[LabelInstanceID] != "" && labels[LabelDrainSince] == ""
+}
+
+func votingReady(node *api.Node) bool {
+	return node.Role == api.NodeRoleManager && node.Spec.DesiredRole == api.NodeRoleManager && node.Status.State == api.NodeStatus_READY
 }
 
 func managerReachable(node *api.Node) bool {
@@ -85,64 +212,4 @@ func managerReachable(node *api.Node) bool {
 
 func managerReady(node *api.Node) bool {
 	return managerReachable(node) && node.Status.State == api.NodeStatus_READY && node.Spec.DesiredRole == api.NodeRoleManager
-}
-
-func promoteManager(ctx context.Context, client api.ControlClient, watcher api.WatchClient, nodeID string) error {
-	watchCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	stream, err := watcher.Watch(watchCtx, &api.WatchRequest{Entries: []*api.WatchRequest_WatchEntry{{
-		Kind: "node", Action: api.WatchActionKindUpdate,
-		Filters: []*api.SelectBy{{By: &api.SelectBy_ID{ID: nodeID}}},
-	}}})
-	if err != nil {
-		return err
-	}
-	if _, err := stream.Recv(); err != nil {
-		return err
-	}
-	current, err := client.GetNode(watchCtx, &api.GetNodeRequest{NodeID: nodeID})
-	if err != nil {
-		return err
-	}
-	node := current.Node
-	if node.Role != api.NodeRoleManager && node.Spec.DesiredRole != api.NodeRoleManager && !promotionEligible(node) {
-		return fmt.Errorf("promotion candidate %s is no longer an eligible container worker", nodeID)
-	}
-	if managerReachable(node) {
-		return nil
-	}
-	if node.Spec.DesiredRole != api.NodeRoleManager {
-		spec := node.Spec.Copy()
-		spec.DesiredRole = api.NodeRoleManager
-		if _, err := client.UpdateNode(watchCtx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec}); err != nil {
-			return fmt.Errorf("promote %s: %w", nodeID, err)
-		}
-	}
-	for node.Role != api.NodeRoleManager {
-		message, err := stream.Recv()
-		if err != nil {
-			return fmt.Errorf("wait for manager %s role: %w", nodeID, err)
-		}
-		for _, event := range message.Events {
-			if updated := event.Object.GetNode(); updated != nil && updated.ID == nodeID {
-				node = updated
-			}
-		}
-	}
-	tick := time.NewTicker(200 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		current, err := client.GetNode(watchCtx, &api.GetNodeRequest{NodeID: nodeID})
-		if err != nil {
-			return err
-		}
-		if managerReady(current.Node) {
-			return nil
-		}
-		select {
-		case <-watchCtx.Done():
-			return fmt.Errorf("wait for manager %s Raft reachability: %w", nodeID, watchCtx.Err())
-		case <-tick.C:
-		}
-	}
 }

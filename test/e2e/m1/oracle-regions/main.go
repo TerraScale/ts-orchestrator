@@ -238,8 +238,8 @@ func delivered(ctx context.Context, fleet *oraclehost.Fleet, from, to *oraclehos
 func memberState(ctx context.Context, manager *oraclehost.Host, hostname string) string {
 	output, _ := manager.Exec(ctx, "/usr/local/bin/ts-orch", "member", "ls")
 	for _, line := range strings.Split(string(output), "\n") {
-		if fields := strings.Fields(line); len(fields) >= 3 && fields[0] == hostname {
-			return fields[2]
+		if fields := strings.Fields(line); len(fields) >= 6 && fields[0] == hostname {
+			return fields[5]
 		}
 	}
 	return "absent"
@@ -382,6 +382,83 @@ func inventoryState(ctx context.Context, host *oraclehost.Host) (int, string, []
 		return nil
 	})
 	return refused, publisher, trusted
+}
+
+func admittedHosts(ctx context.Context, region *oraclehost.Region, hosts ...*oraclehost.Host) {
+	client, conn, err := swarmruntime.DialControl(region.Hosts[0].State(""))
+	must(err)
+	defer conn.Close()
+	for _, host := range hosts {
+		until(ctx, host.Name+" admitted with its name and instance, region and role labels", func() error {
+			current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeCertificate(host.State("")).Subject.CommonName})
+			if err != nil {
+				return err
+			}
+			labels, role := current.Node.Spec.Annotations.Labels, "container"
+			if current.Node.Role == api.NodeRoleManager {
+				role = "manager"
+			}
+			if current.Node.Spec.Annotations.Name != host.Name || labels[swarmruntime.LabelInstanceID] != host.InstanceID || labels[swarmruntime.LabelRegion] != region.OCIRegion || labels[swarmruntime.LabelHostRole] != role {
+				return fmt.Errorf("name %q labels %v", current.Node.Spec.Annotations.Name, labels)
+			}
+			return nil
+		})
+	}
+}
+
+func unadmitted(ctx context.Context, region *oraclehost.Region, host *oraclehost.Host) {
+	client, conn, err := swarmruntime.DialControl(region.Hosts[0].State(""))
+	must(err)
+	defer conn.Close()
+	current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeCertificate(host.State("")).Subject.CommonName})
+	must(err)
+	node := current.Node
+	require(node.Status.State == api.NodeStatus_READY && node.Spec.Annotations.Name == "" && node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] == "",
+		"%s, whose instance is gone from OCI inventory, was admitted: state %v name %q labels %v", host.Name, node.Status.State, node.Spec.Annotations.Name, node.Spec.Annotations.Labels)
+}
+
+func member(ctx context.Context, ops *oraclehost.Host, args ...string) (string, error) {
+	output, err := ops.Exec(ctx, append([]string{"/usr/local/bin/ts-orch", "member"}, args...)...)
+	return string(output), err
+}
+
+func regionVoters(ctx context.Context, ops *oraclehost.Host, region *oraclehost.Region) (voters, reachable int, listing string) {
+	listing, err := member(ctx, ops, "ls", "--region", region.Name)
+	require(err == nil, "member ls --region %s on %s: %v: %s", region.Name, ops.Name, err, listing)
+	for _, line := range strings.Split(listing, "\n") {
+		if strings.HasPrefix(line, "voters: ") {
+			_, err := fmt.Sscanf(line, "voters: %d of 3, %d Raft-reachable", &voters, &reachable)
+			must(err)
+			return voters, reachable, listing
+		}
+	}
+	panic(fmt.Errorf("member ls --region %s printed no voter count: %s", region.Name, listing))
+}
+
+func unauthorizedPromotion(ctx context.Context, host *oraclehost.Host, user, token, region string) string {
+	violations := make(chan error, 1)
+	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", mesh.LocalPort), nats.SetCustomDialer(host),
+		nats.UserInfo(user, meshToken(host, token)),
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			select {
+			case violations <- err:
+			default:
+			}
+		}))
+	must(err)
+	defer conn.Close()
+	data, err := protocol.EncodeJSON(map[string]string{"action": "promote"})
+	must(err)
+	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err = conn.RequestWithContext(requestCtx, protocol.MeshMemberPrefix+region, data)
+	select {
+	case violation := <-violations:
+		return violation.Error()
+	default:
+	}
+	require(err != nil, "%s %s promoted a %s manager", host.Name, user, region)
+	return err.Error()
 }
 
 func promoteManagers(ctx context.Context, leader *oraclehost.Host, hosts ...*oraclehost.Host) {
@@ -610,7 +687,7 @@ func main() {
 	defer cancel()
 	first := revision(binary)
 	spec := workload(specFile, filepath.Join(os.Args[3], "..", "images.json"))
-	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{4, 2, 2})
+	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{4, 3, 2})
 	must(err)
 	ca := installEdgeCert(fleet)
 	defer fleet.Close()
@@ -657,6 +734,14 @@ func main() {
 		require(!strings.Contains(strings.Join(stale.Routes, " "), "//"+worker.Address+":"), "%s pinned join material lists %s: %v", gru.Name, worker.Name, stale.Routes)
 	}
 	step("%s join material pinned at a version that lists neither %s nor %s: %v", gru.Name, gru.Hosts[1].Name, gru.Hosts[2].Name, stale.Routes)
+	sjc := fleet.Regions[1]
+	gone := sjc.Hosts[2]
+	fleet.Terminated(gone, true)
+	workers = slices.DeleteFunc(workers, func(host *oraclehost.Host) bool { return host == gone })
+	must(fleet.Boot(gone))
+	_, err = gone.WaitReady(ctx, 0, first)
+	must(err)
+	step("%s joined %s while OCI inventory no longer lists its instance, before any other %s worker", gone.Name, sjc.Name, sjc.Name)
 	regionRouteFirewall(ctx, gru.Hosts[0], "-I")
 	must(fleet.Boot(workers...))
 	for _, worker := range workers {
@@ -702,7 +787,6 @@ func main() {
 		}
 	}()
 	forged := []byte(`["` + oraclehost.GatewayAddress + `"]`)
-	sjc := fleet.Regions[1]
 	refused(ctx, gru.Hosts[1], mesh.OrchUser, "client.token", gru.Name, forged)
 	refused(ctx, gru.Hosts[0], mesh.OrchUser, "client.token", gru.Name, forged)
 	refused(ctx, sjc.Hosts[0], mesh.OrchUser, "client.token", gru.Name, forged)
@@ -748,6 +832,12 @@ func main() {
 	must(errors.Join(<-applies, <-applies))
 	ready(ctx, fleet, first, ca)
 	step("with no release enrolling any key, every worker serves its region's names from inventories its manager signed with its SwarmKit manager certificate")
+	for _, region := range fleet.Regions {
+		admittedHosts(ctx, region, slices.DeleteFunc(slices.Clone(region.Hosts), func(host *oraclehost.Host) bool { return host == gone })...)
+	}
+	unadmitted(ctx, sjc, gone)
+	step("every founder and pool node carries its name and its instance, region and role labels, admitted by its region leader from OCI inventory and its address; %s's unresolvable record, whose instance OCI no longer lists, did not hold back %s", gone.Name, sjc.Hosts[1].Name)
+	fleet.Terminated(gone, false)
 	follower, founder := gru.Hosts[1], nodeCertificate(gru.Hosts[0].State(""))
 	refusedInventory(ctx, follower, gru.Name, "a self-signed manager certificate naming its founder", forgedInventory(follower, selfSigned(founder)))
 	refusedInventory(ctx, follower, gru.Name, "another region's manager certificate", forgedInventory(follower, func(message []byte) ([][]byte, []byte, error) {
@@ -787,6 +877,30 @@ func main() {
 	departed := gru.Hosts[2]
 	promoteManagers(ctx, gru.Hosts[0], follower, departed)
 	step("%s's SwarmKit managers promoted %s and %s with no release; both are Raft-reachable managers", gru.Name, follower.Name, departed.Name)
+	ops := gru.Hosts[0]
+	admittedHosts(ctx, sjc, gone)
+	step("once OCI lists %s's instance again, its region leader admits it too", gone.Name)
+	violation := unauthorizedPromotion(ctx, ops, "membership", "membership.token", sjc.Name)
+	require(strings.Contains(violation, "Permissions Violation"), "%s membership publisher's promotion request: %s", ops.Name, violation)
+	noResponders := unauthorizedPromotion(ctx, ops, "ts-orch", "fabric.token", sjc.Name)
+	require(strings.Contains(noResponders, "no responders"), "%s TERRABASE fabric promotion request: %s", ops.Name, noResponders)
+	voters, _, listing := regionVoters(ctx, ops, sjc)
+	require(voters == 1, "unauthorized promotion requests changed %s voters: %s", sjc.Name, listing)
+	step("%s's membership publisher (permissions violation) and TERRABASE fabric user (no responders) cannot promote in %s; it still has 1 voter", ops.Name, sjc.Name)
+	for want := 2; want <= 3; want++ {
+		output, err := member(ctx, ops, "promote", "--region", sjc.Name)
+		require(err == nil && strings.Contains(output, fmt.Sprintf("to voting manager %d of 3", want)), "member promote --region %s on %s: %v: %s", sjc.Name, ops.Name, err, output)
+		voters, reachable, listing := regionVoters(ctx, ops, sjc)
+		require(voters == want && reachable == want, "after promotion %d: %s", want, listing)
+		step("member promote --region %s on %s returned once one more voter caught up; %s now has %d of 3 Raft-reachable voters", sjc.Name, ops.Name, sjc.Name, want)
+	}
+	output, err := member(ctx, ops, "promote", "--region", sjc.Name)
+	require(err != nil && strings.Contains(output, "already has 3 voting managers"), "a fourth %s voter was not refused: %v: %s", sjc.Name, err, output)
+	_, _, listing = regionVoters(ctx, ops, sjc)
+	for _, host := range sjc.Hosts {
+		require(strings.Contains(listing, host.Name+"  "+host.Name+"  manager"), "%s is not a named manager: %s", host.Name, listing)
+	}
+	step("a fourth promotion in %s is refused; member ls --region %s from %s names its 3 reachable voting managers:\n%s", sjc.Name, sjc.Name, ops.Name, listing)
 	removed, departedID := filepath.Join(work, "departed-state"), nodeCertificate(departed.State("")).Subject.CommonName
 	promotedIDs := []string{nodeCertificate(follower.State("")).Subject.CommonName, departedID}
 	until(ctx, follower.Name+" trusts the inventories of both promoted managers", func() error {

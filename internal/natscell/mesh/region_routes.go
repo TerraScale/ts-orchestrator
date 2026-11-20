@@ -166,10 +166,11 @@ func (n *Node) regionMembers(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	defer conn.Close()
-	listed, err := swarmruntime.ListMembers(ctx, client)
+	current, err := swarmruntime.ListMembers(ctx, client)
 	if err != nil {
 		return nil, err
 	}
+	listed := current.Members
 	ready := map[string]bool{}
 	for _, member := range listed {
 		if member.State == "READY" {

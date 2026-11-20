@@ -30,6 +30,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
+	"github.com/TerraScale/ts-orchestrator/internal/regionmember"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -236,6 +237,7 @@ func serveManagerRole(ctx, lifetime context.Context, state string, plan hostPlan
 	serving, stop := context.WithCancel(ctx)
 	defer stop()
 	go regionhealth.Run(serving, state)
+	go regionmember.Serve(serving, state, node)
 	autoscaleDone := make(chan struct{})
 	go func() {
 		defer close(autoscaleDone)

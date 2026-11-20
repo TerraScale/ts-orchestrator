@@ -16,6 +16,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"maps"
 	"math/big"
 	"net"
 	"net/http"
@@ -27,6 +28,8 @@ import (
 	"time"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -68,6 +71,8 @@ type standIn struct {
 	requests map[string]int
 	servers  []*http.Server
 	github   *GitHub
+	hosts    []*Host
+	gone     map[string]bool
 }
 
 func certificate(template, parent *x509.Certificate, public crypto.PublicKey, signer crypto.Signer) ([]byte, error) {
@@ -106,13 +111,13 @@ func (f *Fleet) EdgeMaterial(name string) ([]byte, error) {
 func newStandIn(f *Fleet) (*standIn, *tls.Certificate, error) {
 	names := slices.Clone(standInNames)
 	for _, region := range f.Regions {
-		names = append(names, "auth."+region.OCIRegion+".oraclecloud.com")
+		names = append(names, "auth."+region.OCIRegion+".oraclecloud.com", "iaas."+region.OCIRegion+".oraclecloud.com")
 	}
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
-	s := &standIn{fleet: f, names: names, caKey: caKey, secrets: map[string]*secret{}, pinned: map[string]int{}, changed: make(chan struct{}), requests: map[string]int{}, github: newGitHub()}
+	s := &standIn{fleet: f, names: names, caKey: caKey, secrets: map[string]*secret{}, pinned: map[string]int{}, changed: make(chan struct{}), requests: map[string]int{}, github: newGitHub(), hosts: slices.Clone(f.Hosts), gone: map[string]bool{}}
 	ca := &x509.Certificate{Subject: pkix.Name{CommonName: "oracle-regions stand-in CA"}, IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
 	if s.caPEM, err = certificate(ca, nil, caKey.Public(), caKey); err != nil {
 		return nil, nil, err
@@ -290,6 +295,8 @@ func (s *standIn) cloud(w http.ResponseWriter, r *http.Request) {
 		s.jwks(w)
 	case host == registryHost && strings.HasPrefix(r.URL.Path, "/v2/"):
 		s.registry(w, r)
+	case strings.HasPrefix(host, "iaas.") && slices.Contains(s.names, host) && r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/20160918/"):
+		s.compute(w, r, strings.TrimSuffix(strings.TrimPrefix(host, "iaas."), ".oraclecloud.com"))
 	case host == githubAPI || host == githubWeb || host == githubAssets:
 		s.github.serve(w, r, host)
 	default:
@@ -474,4 +481,47 @@ func (s *standIn) identityToken(sha, run string, identity map[string]any) (strin
 
 func (s *standIn) writeFiles(dir string) error {
 	return os.WriteFile(filepath.Join(dir, "ca.pem"), s.caPEM, 0o644)
+}
+
+func (s *standIn) compute(w http.ResponseWriter, r *http.Request, region string) {
+	query := r.URL.Query()
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/20160918/"), "/")
+	var items []map[string]any
+	s.mu.Lock()
+	gone := maps.Clone(s.gone)
+	s.mu.Unlock()
+	for _, host := range s.hosts {
+		if host.Region.OCIRegion != region || gone[host.InstanceID] || query.Has("compartmentId") && query.Get("compartmentId") != host.Region.CompartmentID {
+			continue
+		}
+		vnic := "ocid1.vnic.oc1." + region + "." + host.Name
+		switch {
+		case path == "instances":
+			tags := map[string]string{}
+			document, err := fleet.Embedded().Region(host.Region.Name)
+			if err != nil {
+				serviceError(w, http.StatusInternalServerError, "InternalError", err.Error())
+				return
+			}
+			if !slices.Contains(document.Nodes.External, host.Name) {
+				tags = ociresource.Ownership{Owner: fleet.Owner}.Stamp(document.Key("instance", "node"), 1, "stand-in").Freeform
+			}
+			items = append(items, map[string]any{"id": host.InstanceID, "displayName": host.Name, "compartmentId": host.Region.CompartmentID,
+				"region": region, "availabilityDomain": "stand-in:" + strings.ToUpper(region) + "-AD-1", "shape": "VM.Standard.A1.Flex",
+				"lifecycleState": "RUNNING", "timeCreated": "2026-11-19T00:00:00Z", "freeformTags": tags})
+		case path == "vnicAttachments" && query.Get("instanceId") == host.InstanceID:
+			items = append(items, map[string]any{"id": "ocid1.vnicattachment.oc1." + region + "." + host.Name, "instanceId": host.InstanceID, "vnicId": vnic,
+				"compartmentId": host.Region.CompartmentID, "availabilityDomain": "stand-in:" + strings.ToUpper(region) + "-AD-1", "lifecycleState": "ATTACHED",
+				"timeCreated": "2026-11-19T00:00:00Z"})
+		case path == "vnics/"+vnic:
+			writeJSON(w, http.StatusOK, map[string]any{"id": vnic, "privateIp": host.Address, "isPrimary": true, "lifecycleState": "AVAILABLE",
+				"compartmentId": host.Region.CompartmentID, "availabilityDomain": "stand-in:" + strings.ToUpper(region) + "-AD-1", "timeCreated": "2026-11-19T00:00:00Z"})
+			return
+		}
+	}
+	if path != "instances" && path != "vnicAttachments" {
+		serviceError(w, http.StatusNotFound, "NotAuthorizedOrNotFound", "stand-in has no compute "+r.URL.Path)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }

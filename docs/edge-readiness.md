@@ -123,7 +123,7 @@ inventory only when:
 
 Anything else is refused, counted in `ts_orch_mesh_edge_inventory_refused_total`
 and logged once per reason. A node the region admits as a manager, including one
-promoted by `ts-orch member promote`, publishes as soon as it holds its manager
+promoted by `ts-orch member promote --region <region>`, publishes as soon as it holds its manager
 certificate, with no release. A node the region demotes or removes leaves the
 manager list: its inventories are refused from then on and the follower drops
 the ones it holds from that node at once, falling back to the newest inventory
