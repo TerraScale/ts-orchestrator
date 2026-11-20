@@ -261,6 +261,8 @@ hold before proceeding.
 Confirm the cutover revision and digest on every registered host, the same
 tag's successful regional gates, and GRU-first policy from every targeted
 mesh region before moving app selections or changing publication policy.
+The app-canary workflow stages images before its host check and moves the
+selection only after every registered host confirms the orchestrator build.
 The next signed release admits GRU, then FRA, then SJC. The pull-update
 transition scenario exercises both releases against local signed channels,
 starting with the SJC-first updater built from the base revision.

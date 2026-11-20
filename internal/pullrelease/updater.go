@@ -813,9 +813,9 @@ func (u *Updater) admission(ctx context.Context, tag string) string {
 		status, err := u.store.loadFromLeader(ctx, earlier)
 		switch {
 		case err != nil:
-			return earlier + ": rollout record unreadable: " + err.Error()
+			return earlier + ": rollout record for " + tag + " unreadable: " + err.Error()
 		case status.Target == nil || status.Target.Tag() != tag || status.Phase != PhaseComplete || status.Done.IsZero() || !status.passed():
-			return earlier + ": waiting for the regional gate of the same release"
+			return earlier + ": waiting for the regional gate of " + tag
 		}
 	}
 	return ""
