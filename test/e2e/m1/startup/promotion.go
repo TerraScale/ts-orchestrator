@@ -74,8 +74,21 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 		if err := awaitPromotionReady(ctx, client, watcher, len(workers)+1, 1); err != nil {
 			return fmt.Errorf("joining workers changed manager roles without an operator command: %w", err)
 		}
-		if output, err := command("promote"); err != nil {
-			return fmt.Errorf("member promote: %w: %s", err, output)
+		promoted := make(chan error, 1)
+		go func() {
+			output, err := command("promote")
+			if err != nil {
+				err = fmt.Errorf("member promote: %w: %s", err, output)
+			}
+			promoted <- err
+		}()
+		if i == 1 {
+			if err := refusedDrainDuringPromotion(ctx, client, watcher, workers[0].ID(), command); err != nil {
+				return err
+			}
+		}
+		if err := <-promoted; err != nil {
+			return err
 		}
 		listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 		if err != nil {
@@ -147,7 +160,45 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	if len(listed.Nodes) != 2 {
 		return fmt.Errorf("refused departure changed membership: %d nodes", len(listed.Nodes))
 	}
-	fmt.Println("ok promotion: operator command reaches three managers; concurrent, follower and below-majority changes refused; admission follows demotion")
+	fmt.Println("ok promotion: operator command reaches three managers; drain refused during a promotion; concurrent, follower and below-majority changes refused; admission follows demotion")
+	return nil
+}
+
+func refusedDrainDuringPromotion(ctx context.Context, client api.ControlClient, watcher api.WatchClient, nodeID string, command func(...string) ([]byte, error)) error {
+	watchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stream, err := watcher.Watch(watchCtx, &api.WatchRequest{Entries: []*api.WatchRequest_WatchEntry{{
+		Kind: "node", Action: api.WatchActionKindUpdate, Filters: []*api.SelectBy{{By: &api.SelectBy_ID{ID: nodeID}}},
+	}}})
+	if err != nil {
+		return err
+	}
+	if _, err := stream.Recv(); err != nil {
+		return err
+	}
+	for {
+		current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
+		if err != nil {
+			return err
+		}
+		if current.Node.Spec.DesiredRole == api.NodeRoleManager {
+			break
+		}
+		if _, err := stream.Recv(); err != nil {
+			return fmt.Errorf("wait for worker-0's promotion intent: %w", err)
+		}
+	}
+	output, err := command("drain", "worker-0")
+	if err == nil || !strings.Contains(string(output), "becoming a manager") {
+		return fmt.Errorf("drain of worker-0 during its promotion was not refused: %s: %v", output, err)
+	}
+	current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
+	if err != nil {
+		return err
+	}
+	if current.Node.Spec.Availability != api.NodeAvailabilityActive {
+		return fmt.Errorf("refused drain changed worker-0's availability to %v", current.Node.Spec.Availability)
+	}
 	return nil
 }
 

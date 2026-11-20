@@ -386,6 +386,39 @@ func inventoryState(ctx context.Context, host *oraclehost.Host) (int, string, []
 	return refused, publisher, trusted
 }
 
+func admittedHosts(ctx context.Context, region *oraclehost.Region, hosts ...*oraclehost.Host) {
+	client, conn, err := swarmruntime.DialControl(region.Hosts[0].State(""))
+	must(err)
+	defer conn.Close()
+	for _, host := range hosts {
+		until(ctx, host.Name+" admitted with its name and instance, region and role labels", func() error {
+			current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeCertificate(host.State("")).Subject.CommonName})
+			if err != nil {
+				return err
+			}
+			labels, role := current.Node.Spec.Annotations.Labels, "container"
+			if current.Node.Role == api.NodeRoleManager {
+				role = "manager"
+			}
+			if current.Node.Spec.Annotations.Name != host.Name || labels[swarmruntime.LabelInstanceID] != host.InstanceID || labels[swarmruntime.LabelRegion] != region.OCIRegion || labels[swarmruntime.LabelHostRole] != role {
+				return fmt.Errorf("name %q labels %v", current.Node.Spec.Annotations.Name, labels)
+			}
+			return nil
+		})
+	}
+}
+
+func unadmitted(ctx context.Context, region *oraclehost.Region, host *oraclehost.Host) {
+	client, conn, err := swarmruntime.DialControl(region.Hosts[0].State(""))
+	must(err)
+	defer conn.Close()
+	current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeCertificate(host.State("")).Subject.CommonName})
+	must(err)
+	node := current.Node
+	require(node.Status.State == api.NodeStatus_READY && node.Spec.Annotations.Name == "" && node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] == "",
+		"%s, whose instance is gone from OCI inventory, was admitted: state %v name %q labels %v", host.Name, node.Status.State, node.Spec.Annotations.Name, node.Spec.Annotations.Labels)
+}
+
 func promoteManagers(ctx context.Context, leader *oraclehost.Host, hosts ...*oraclehost.Host) {
 	client, conn, err := swarmruntime.DialControl(leader.State(""))
 	must(err)
@@ -616,7 +649,7 @@ func main() {
 	defer cancel()
 	first := revision(binary)
 	spec := workload(specFile, filepath.Join(os.Args[3], "..", "images.json"))
-	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{4, 2, 2}, "fra")
+	fleet, err := oraclehost.New(ctx, work, binary, registry, []string{"gru", "sjc", "fra"}, []int{4, 3, 2}, "fra")
 	must(err)
 	ca := installEdgeCert(fleet)
 	defer fleet.Close()
@@ -664,6 +697,14 @@ func main() {
 		require(!strings.Contains(strings.Join(stale.Routes, " "), "//"+worker.Address+":"), "%s pinned join material lists %s: %v", gru.Name, worker.Name, stale.Routes)
 	}
 	step("%s join material pinned at a version that lists neither %s nor %s: %v", gru.Name, gru.Hosts[1].Name, gru.Hosts[2].Name, stale.Routes)
+	sjc := fleet.Regions[1]
+	gone := sjc.Hosts[2]
+	fleet.Terminated(gone, true)
+	workers = slices.DeleteFunc(workers, func(host *oraclehost.Host) bool { return host == gone })
+	must(fleet.Boot(gone))
+	_, err = gone.WaitReady(ctx, 0, first)
+	must(err)
+	step("%s joined %s while OCI inventory no longer lists its instance, before any other %s worker", gone.Name, sjc.Name, sjc.Name)
 	regionRouteFirewall(ctx, gru.Hosts[0], "-I")
 	must(fleet.Boot(workers...))
 	for _, worker := range workers {
@@ -711,7 +752,6 @@ func main() {
 		}
 	}()
 	forged := []byte(`["` + oraclehost.GatewayAddress + `"]`)
-	sjc := fleet.Regions[1]
 	refused(ctx, gru.Hosts[1], mesh.OrchUser, "client.token", gru.Name, forged)
 	refused(ctx, gru.Hosts[0], mesh.OrchUser, "client.token", gru.Name, forged)
 	refused(ctx, sjc.Hosts[0], mesh.OrchUser, "client.token", gru.Name, forged)
@@ -757,6 +797,12 @@ func main() {
 	must(errors.Join(<-applies, <-applies))
 	ready(ctx, fleet, first, ca)
 	step("with no release enrolling any key, every worker serves its region's names from inventories its manager signed with its SwarmKit manager certificate")
+	for _, region := range fleet.Regions {
+		admittedHosts(ctx, region, slices.DeleteFunc(slices.Clone(region.Hosts), func(host *oraclehost.Host) bool { return host == gone })...)
+	}
+	unadmitted(ctx, sjc, gone)
+	step("every founder and pool node carries its name and its instance, region and role labels, admitted by its region leader from OCI inventory and its address; %s's unresolvable record, whose instance OCI no longer lists, did not hold back %s", gone.Name, sjc.Hosts[1].Name)
+	fleet.Terminated(gone, false)
 	follower, founder := gru.Hosts[1], nodeCertificate(gru.Hosts[0].State(""))
 	refusedInventory(ctx, follower, gru.Name, "a self-signed manager certificate naming its founder", forgedInventory(follower, selfSigned(founder)))
 	refusedInventory(ctx, follower, gru.Name, "another region's manager certificate", forgedInventory(follower, func(message []byte) ([][]byte, []byte, error) {
@@ -797,6 +843,8 @@ func main() {
 	departed := gru.Hosts[2]
 	promoteManagers(ctx, gru.Hosts[0], follower, departed)
 	step("%s's SwarmKit managers promoted %s and %s with no release; both are Raft-reachable managers", gru.Name, follower.Name, departed.Name)
+	admittedHosts(ctx, sjc, gone)
+	step("once OCI lists %s's instance again, its region leader admits it too", gone.Name)
 	removed, departedID := filepath.Join(work, "departed-state"), nodeCertificate(departed.State("")).Subject.CommonName
 	promotedIDs := []string{nodeCertificate(follower.State("")).Subject.CommonName, departedID}
 	until(ctx, follower.Name+" trusts the inventories of both promoted managers", func() error {
