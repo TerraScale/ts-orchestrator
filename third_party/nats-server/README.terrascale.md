@@ -89,6 +89,17 @@ starts its metadata node as an observer, so it never campaigns; the embedding
 mesh ends observer mode once the node has seen a leader, or once every founder is
 reachable and none has metadata state. Unset, behavior is unchanged.
 
+With `JetStreamMetaBootSize` set, the metadata group also never resizes itself
+for mixed mode. Upstream counts every routed server, JetStream or not: during a
+cold boot it lowers the expected peer set to the JetStream servers it has seen
+once the routed total reaches that estimate, and its leader lowers the cluster
+size to the active JetStream servers when it knows fewer peers than the size.
+Mesh workers run no JetStream and route in at first start, so production's
+founders went from 3 expected peers to 2 and back to 3 (2026-11-19), and a
+group that a worker count shaped could elect without every founder. With the
+option set, the size is the founders' count until the group commits a peer
+addition or removal.
+
 `server/jetstream_cluster.go` also starts JetStream clustering with no
 configured route when the server has a named cluster listener and
 `JetStreamMetaBootSize` is 1. That is a one-region environment's founder: it has
