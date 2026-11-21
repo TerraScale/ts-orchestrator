@@ -1,15 +1,10 @@
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
 work=$1
-runtime_pins=$repo/deploy/m1/host-runtime.sh
-version=$(sed -n 's/^containerd_version=//p' "$runtime_pins")
-host_arch=$(uname -m)
-case "$host_arch" in
-aarch64) arch=arm64 ;;
-x86_64) arch=amd64 ;;
-*) echo "regional peers needs a pinned containerd architecture" >&2; exit 1 ;;
-esac
-sha=$(sed -n "/^$host_arch)/,/;;/s/^\tcontainerd_sha256=//p" "$runtime_pins")
+inputs=$(python3 "$repo/test/e2e/m1/runtime-inputs.py")
+eval "$inputs"
+version=$containerd_version
+sha=$containerd_sha256
 archive=$HOME/.cache/ts-m1-runtime/containerd-$version-linux-$arch.tar.gz
 if [[ ! -e $archive ]]; then
 	archive=$work/containerd.tar.gz
@@ -44,7 +39,7 @@ import sys
 repo, work = map(pathlib.Path, sys.argv[1:])
 catalog = repo / "internal/ociregion/catalog/catalog.go"
 content = catalog.read_text().replace("const foundedCount = 3", "const foundedCount = 1")
-content = content.replace("var rollout = [foundedCount]string{SJC, FRA, GRU}", "var rollout = [...]string{GRU}")
+content = content.replace("var rollout = [foundedCount]string{GRU, FRA, SJC}", "var rollout = [...]string{GRU}")
 target = work / "single-region-catalog.go"
 target.write_text(content)
 overlay = json.loads((work / "peers-overlay.json").read_text())

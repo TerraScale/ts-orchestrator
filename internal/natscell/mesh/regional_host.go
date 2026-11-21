@@ -23,6 +23,8 @@ type RegionalHost struct {
 	ClusterAddress        string
 	Address               func() (string, error)
 	Worker                bool
+	Records               Records
+	Restart               func()
 }
 
 func StartRegionalHost(host RegionalHost) (*Node, error) {
@@ -39,6 +41,10 @@ func StartRegionalHost(host RegionalHost) (*Node, error) {
 	if !stored {
 		return nil, errors.New("mesh requires stored SwarmKit admission")
 	}
+	cluster, err := swarmruntime.LocalClusterID(ctx, host.State)
+	if err != nil {
+		return nil, err
+	}
 	var applier Applier = swarmApplier{state: host.State, region: host.Region}
 	if host.Worker {
 		applier = nil
@@ -48,7 +54,7 @@ func StartRegionalHost(host RegionalHost) (*Node, error) {
 		return nil, err
 	}
 	return start(config{maintenance: fence,
-		nodeID: nodeID, founder: admission.HostID == admission.FounderID,
+		nodeID: nodeID, founder: admission.HostID == admission.FounderID, cluster: cluster, records: host.Records, restart: host.Restart,
 		region: host.Region, server: host.Server, dir: filepath.Join(host.State, "mesh"),
 		clusterHost: "0.0.0.0", clusterAdvertise: host.ClusterAddress, clusterPort: ClusterPort, localPort: LocalPort,
 		seeds: host.Seeds, routes: host.Routes, vcn: host.VCN, ca: host.CA, terrabaseToken: host.TerraBaseToken,

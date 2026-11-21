@@ -5,13 +5,11 @@ work=$(mktemp -d)
 python=$(python3 -c 'import sys; print(sys.executable)')
 trap 'sudo rm -rf "$work"' EXIT
 seed=$(realpath "$2")
-version=$(sed -n 's/^containerd_version=//p' "$here/../../../deploy/m1/host-runtime.sh")
-arch=$(uname -m)
-case $arch in
-	x86_64) arch=amd64 ;;
-	aarch64) arch=arm64 ;;
-esac
+inputs=$(python3 "$here/runtime-inputs.py")
+eval "$inputs"
+version=$containerd_version
 curl -fsSL "https://github.com/containerd/containerd/releases/download/v$version/containerd-$version-linux-$arch.tar.gz" -o "$work/containerd.tar.gz"
+echo "$containerd_sha256  $work/containerd.tar.gz" | sha256sum -c --quiet
 tar -C "$work" -xzf "$work/containerd.tar.gz" bin/containerd
 sudo unshare --mount --net bash -s -- "$bin" "$here" "$work" "$python" "$seed" <<'SH_INNER'
 set -euo pipefail

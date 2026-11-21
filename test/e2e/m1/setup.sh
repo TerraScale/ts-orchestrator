@@ -50,27 +50,23 @@ end "setup (CA, ssh, binary server)"
 begin "pinned containerd, runc and NetBird client from the Actions cache"
 source "$here/runtime.sh"
 restore_runtime
-end "pinned packages: cache hit $cache_hit (a miss leaves the downloads to install.sh)"
+end "image runtime packages verified and installed (cache hit $cache_hit)"
 
-begin "install.sh (containerd 2.4.2, runc, NetBird client, ts-orch)"
+begin "install.sh (image-pinned containerd, runc, NetBird client, ts-orch)"
 sudo install -d -o 65532 -g 65532 -m 0755 /var/lib/ts-data "$data"
 "${2:-$repo/deploy/m1}/install.sh" ts-e2e https://localhost:8443/terrascale-orchestrator-linux-arm64 \
 	"$(sha256sum "$bin" | cut -d' ' -f1)"
-/usr/local/bin/containerd --version | grep -q ' v2.4.2 '
+/usr/local/bin/containerd --version | grep -F " v$containerd_version " >/dev/null
+/usr/local/sbin/runc --version | grep -Fx "runc version $runc_version" >/dev/null
+netbird version | grep -Fx "$netbird_version" >/dev/null
 end "install -> ts-orch active (cache hit $cache_hit)"
-if $cache_hit; then
-	echo "NetBird client tested: $(netbird version), the pin restored from the runtime cache" | tee -a "$summary"
-else
-	echo "NetBird client tested: $(netbird version), apt's current release (runtime cache miss)" | tee -a "$summary"
-	begin "save the pinned packages for the next run"
-	cache_pins
-	end "cache miss -> pinned packages saved for the next run"
-fi
+echo "NetBird client tested: $(netbird version), the image pin (cache hit $cache_hit)" | tee -a "$summary"
 
 begin "service apply -> served through the edge"
 orch service apply -f "$here/whoami.json"
 wait_for 6 edge whoami.e2e.test /health
 end "apply -> e2e-whoami ready (edge 200 within one route sync)"
+begin "data service apply -> served through the edge"
 orch service apply -f "$here/data.json"
 wait_for 6 edge data.e2e.test /boots
 end "apply -> e2e-data ready (edge 200 within one route sync)"

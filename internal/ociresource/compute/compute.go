@@ -414,15 +414,24 @@ func (p Pass) dataVolumes(ctx context.Context) (map[string]core.Volume, error) {
 		return nil, fmt.Errorf("list volumes: %w", err)
 	}
 	slots := map[string]core.Volume{}
-	for n := 1; n <= p.Max+len(listed); n++ {
-		name := fmt.Sprintf("data-%d", n)
-		for _, volume := range listed {
-			if volume.LifecycleState != core.VolumeLifecycleStateTerminated && volume.LifecycleState != core.VolumeLifecycleStateTerminating && p.owns("volume", name, volume.FreeformTags) {
-				if err := p.checkSize(p.Key("volume", name).String(), volume); err != nil {
-					return nil, err
-				}
-				slots[name] = volume
+	prefix := p.Key("volume", "data-").String()
+	for _, volume := range listed {
+		if volume.LifecycleState == core.VolumeLifecycleStateTerminated {
+			continue
+		}
+		for _, value := range volume.FreeformTags {
+			suffix, keyed := strings.CutPrefix(value, prefix)
+			name := "data-" + suffix
+			if !keyed || !p.owns("volume", name, volume.FreeformTags) {
+				continue
 			}
+			if held, ok := slots[name]; ok {
+				return nil, fmt.Errorf("%s names both %s and %s; refusing ambiguous data volume identity", p.Key("volume", name), *held.Id, *volume.Id)
+			}
+			if err := p.checkSize(p.Key("volume", name).String(), volume); err != nil {
+				return nil, err
+			}
+			slots[name] = volume
 		}
 	}
 	return slots, nil
@@ -450,13 +459,9 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary, slo
 		if !p.owns("instance", "node", current.FreeformTags) {
 			return fmt.Errorf("pool instance %s lacks %s", *instance.Id, p.Key("instance", "node"))
 		}
-		chosen, attached := p.pick(slots, attachedTo, current)
-		if chosen.name != "" {
-			name := chosen.name
-			if chosen.volume, err = p.grow(ctx, p.Key("volume", name).String(), chosen.volume.Id, func(v core.Volume) bool { return p.owns("volume", name, v.FreeformTags) }); err != nil {
-				return err
-			}
-			slots[name] = chosen.volume
+		chosen, attached, err := p.pick(slots, attachedTo, attachments, current)
+		if err != nil {
+			return err
 		}
 		if !attached {
 			if chosen.name == "" {
@@ -464,12 +469,26 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary, slo
 					return err
 				}
 				slots[chosen.name] = chosen.volume
+			} else if chosen.volume.LifecycleState != core.VolumeLifecycleStateAvailable {
+				if chosen.volume, err = p.available(ctx, chosen.volume); err != nil {
+					return fmt.Errorf("wait for %s: %w", p.Key("volume", chosen.name), err)
+				}
 			}
+			volume, err := p.bindingVolume(ctx, current, chosen)
+			if err != nil {
+				return err
+			}
+			chosen.volume = volume.Volume
 			if err := p.attach(ctx, current, chosen); err != nil {
 				return err
 			}
 			attachedTo[*chosen.volume.Id] = *current.Id
 		}
+		name := chosen.name
+		if chosen.volume, err = p.grow(ctx, p.Key("volume", name).String(), chosen.volume.Id, func(v core.Volume) bool { return p.owns("volume", name, v.FreeformTags) }); err != nil {
+			return err
+		}
+		slots[name] = chosen.volume
 		if err := p.bind(ctx, current, chosen); err != nil {
 			return err
 		}
@@ -526,30 +545,80 @@ func (p Pass) grow(ctx context.Context, label string, id *string, owned func(cor
 	return volume, nil
 }
 
-func (p Pass) pick(slots map[string]core.Volume, attachedTo map[string]string, instance core.Instance) (slot, bool) {
-	var free slot
-	for _, name := range slices.Sorted(maps.Keys(slots)) {
+func (p Pass) pick(slots map[string]core.Volume, attachedTo map[string]string, attachments []core.VolumeAttachment, instance core.Instance) (slot, bool, error) {
+	target := instance.Metadata[nodeinit.VolumeKey]
+	for _, attachment := range attachments {
+		if deref(attachment.GetInstanceId()) != *instance.Id || deref(attachment.GetDevice()) != dataDevice {
+			continue
+		}
+		id := deref(attachment.GetVolumeId())
+		if target != "" && target != id {
+			return slot{}, false, fmt.Errorf("instance %s records data volume %s but %s has %s; refusing conflicting binding", *instance.Id, target, dataDevice, id)
+		}
+		target = id
+	}
+	names := slices.Sorted(maps.Keys(slots))
+	for _, name := range names {
 		volume := slots[name]
-		switch {
-		case attachedTo[*volume.Id] == *instance.Id:
-			return slot{name, volume}, true
-		case free.name == "" && attachedTo[*volume.Id] == "" && volume.LifecycleState == core.VolumeLifecycleStateAvailable &&
-			deref(volume.AvailabilityDomain) == deref(instance.AvailabilityDomain):
-			free = slot{name, volume}
+		if volume.FreeformTags[boundInstance] != *instance.Id {
+			continue
+		}
+		if target == "" {
+			target = *volume.Id
+		}
+		if *volume.Id != target {
+			return slot{}, false, fmt.Errorf("%s %s is claimed by instance %s, which binds %s; refusing conflicting data volume claims", p.Key("volume", name), *volume.Id, *instance.Id, target)
 		}
 	}
-	return free, false
+	var free slot
+	for _, name := range names {
+		volume := slots[name]
+		if target != "" && *volume.Id == target {
+			if owner := attachedTo[target]; owner != "" && owner != *instance.Id {
+				return slot{}, false, fmt.Errorf("instance %s records data volume %s attached to %s", *instance.Id, target, owner)
+			}
+			if attachedTo[target] == *instance.Id {
+				if _, err := bindingAttachment(*instance.Id, target, attachments); err != nil {
+					return slot{}, false, err
+				}
+			}
+			return slot{name, volume}, attachedTo[target] == *instance.Id, nil
+		}
+		if attachedTo[*volume.Id] != "" || volume.FreeformTags[boundInstance] != "" || deref(volume.AvailabilityDomain) != deref(instance.AvailabilityDomain) {
+			continue
+		}
+		switch volume.LifecycleState {
+		case core.VolumeLifecycleStateAvailable:
+			if free.name == "" || free.volume.LifecycleState != core.VolumeLifecycleStateAvailable {
+				free = slot{name, volume}
+			}
+		case core.VolumeLifecycleStateProvisioning:
+			if free.name == "" {
+				free = slot{name, volume}
+			}
+		}
+	}
+	if target != "" {
+		return slot{}, false, fmt.Errorf("instance %s records data volume %s without a matching owned slot; refusing replacement", *instance.Id, target)
+	}
+	return free, false, nil
 }
 
 func (p Pass) create(ctx context.Context, slots map[string]core.Volume, instance core.Instance) (slot, error) {
+	if len(slots) >= p.Max {
+		allocated := make([]string, 0, len(slots))
+		for _, name := range slices.Sorted(maps.Keys(slots)) {
+			volume := slots[name]
+			allocated = append(allocated, fmt.Sprintf("%s %s in %s claimed by %q", name, volume.LifecycleState, deref(volume.AvailabilityDomain), volume.FreeformTags[boundInstance]))
+		}
+		return slot{}, fmt.Errorf("node %s in %s has no data volume and nodes.max allows %d data volumes, all allocated: %s; a volume claimed by another instance is never reused or deleted by the pass",
+			*instance.Id, deref(instance.AvailabilityDomain), p.Max, strings.Join(allocated, ", "))
+	}
 	name := ""
 	for n := 1; n <= p.Max && name == ""; n++ {
 		if _, used := slots[fmt.Sprintf("data-%d", n)]; !used {
 			name = fmt.Sprintf("data-%d", n)
 		}
-	}
-	if name == "" {
-		return slot{}, fmt.Errorf("node %s in %s has no data volume and all %d data volumes are in use or in other availability domains", *instance.Id, deref(instance.AvailabilityDomain), p.Max)
 	}
 	tags := p.tags("volume", name)
 	tags[filesystemTag] = uuid.New().String()
@@ -560,16 +629,24 @@ func (p Pass) create(ctx context.Context, slots map[string]core.Volume, instance
 	if err != nil {
 		return slot{}, fmt.Errorf("create %s: %w", p.Key("volume", name), err)
 	}
-	volume := created.Volume
-	if err := waitFor(ctx, func() (bool, error) {
-		got, err := p.Storage.GetVolume(ctx, core.GetVolumeRequest{VolumeId: volume.Id})
-		volume = got.Volume
-		return volume.LifecycleState == core.VolumeLifecycleStateAvailable, err
-	}); err != nil {
+	volume, err := p.available(ctx, created.Volume)
+	if err != nil {
 		return slot{}, err
 	}
 	p.say("created", "volume", name, fmt.Sprintf("%s %d GB %d VPU/GB in %s", *volume.Id, p.DataGB, p.DataVPUsPerGB, deref(volume.AvailabilityDomain)))
 	return slot{name, volume}, nil
+}
+
+func (p Pass) available(ctx context.Context, volume core.Volume) (core.Volume, error) {
+	err := waitFor(ctx, func() (bool, error) {
+		got, err := p.Storage.GetVolume(ctx, core.GetVolumeRequest{VolumeId: volume.Id})
+		if err != nil {
+			return false, err
+		}
+		volume = got.Volume
+		return volume.LifecycleState == core.VolumeLifecycleStateAvailable, nil
+	})
+	return volume, err
 }
 
 func (p Pass) attach(ctx context.Context, instance core.Instance, chosen slot) error {
@@ -581,31 +658,14 @@ func (p Pass) attach(ctx context.Context, instance core.Instance, chosen slot) e
 	}
 	if err := waitFor(ctx, func() (bool, error) {
 		got, err := p.Compute.GetVolumeAttachment(ctx, core.GetVolumeAttachmentRequest{VolumeAttachmentId: attached.VolumeAttachment.GetId()})
+		if err != nil {
+			return false, err
+		}
 		return got.VolumeAttachment.GetLifecycleState() == core.VolumeAttachmentLifecycleStateAttached, err
 	}); err != nil {
 		return err
 	}
 	p.say("attached", "volume", chosen.name, *chosen.volume.Id+" to "+*instance.Id+" "+deref(instance.DisplayName))
-	return nil
-}
-
-func (p Pass) bind(ctx context.Context, instance core.Instance, chosen slot) error {
-	if instance.Metadata[nodeinit.VolumeKey] == *chosen.volume.Id {
-		p.say("unchanged", "volume", chosen.name, *chosen.volume.Id+" on "+deref(instance.DisplayName))
-		return nil
-	}
-	mayFormat := slices.Contains([]string{"", *instance.Id}, chosen.volume.FreeformTags[boundInstance])
-	tags := maps.Clone(chosen.volume.FreeformTags)
-	tags[boundInstance] = *instance.Id
-	if _, err := p.Storage.UpdateVolume(ctx, core.UpdateVolumeRequest{VolumeId: chosen.volume.Id, UpdateVolumeDetails: core.UpdateVolumeDetails{FreeformTags: tags}}); err != nil {
-		return fmt.Errorf("record %s on %s: %w", *instance.Id, p.Key("volume", chosen.name), err)
-	}
-	metadata := maps.Clone(instance.Metadata)
-	maps.Copy(metadata, nodeinit.PoolBinding(*chosen.volume.Id, chosen.volume.FreeformTags[filesystemTag], mayFormat))
-	if _, err := p.Compute.UpdateInstance(ctx, core.UpdateInstanceRequest{InstanceId: instance.Id, UpdateInstanceDetails: core.UpdateInstanceDetails{Metadata: metadata}}); err != nil {
-		return fmt.Errorf("bind %s to %s: %w", p.Key("volume", chosen.name), *instance.Id, err)
-	}
-	p.say("bound", "volume", chosen.name, fmt.Sprintf("%s to %s, may format %t", *chosen.volume.Id, deref(instance.DisplayName), mayFormat))
 	return nil
 }
 

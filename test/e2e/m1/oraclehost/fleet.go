@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -17,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -28,6 +32,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/nats.go"
 	"golang.org/x/sys/unix"
 )
@@ -74,7 +79,7 @@ type Fleet struct {
 	run      int
 }
 
-func New(ctx context.Context, work, binary string, registry string, regions []string, hostsPerRegion []int) (*Fleet, error) {
+func New(ctx context.Context, work, binary string, registry string, regions []string, hostsPerRegion []int, pooled ...string) (*Fleet, error) {
 	unix.Umask(0o022)
 	f := &Fleet{Work: work, Binary: binary, Registry: registry}
 	if err := os.MkdirAll(work, 0o755); err != nil {
@@ -94,7 +99,11 @@ func New(ctx context.Context, work, binary string, registry string, regions []st
 			octet := 10*(r+1) + i
 			netBird := netBirdMesh.Addr().As4()
 			netBird[3] = byte(octet)
-			host := &Host{Name: fmt.Sprintf("ts-%s-%d", name, i), Region: region, Namespace: fmt.Sprintf("osh-%s-%d", name, i),
+			hostname := fmt.Sprintf("ts-%s-%d", name, i)
+			if slices.Contains(pooled, name) {
+				hostname = fmt.Sprintf("%s-node-%d", name, i)
+			}
+			host := &Host{Name: hostname, Region: region, Namespace: fmt.Sprintf("osh-%s-%d", name, i),
 				Address: fmt.Sprintf("10.204.0.%d", octet), NetBird: netip.AddrFrom4(netBird).String(),
 				InstanceID: fmt.Sprintf("ocid1.instance.oc1.%s.oracleregions%d", entry.OCIRegion, octet), fleet: f, changed: make(chan struct{})}
 			host.Dir = filepath.Join(work, host.Name)
@@ -651,6 +660,41 @@ func (f *Fleet) WaitSecret(ctx context.Context, name string, match func(string) 
 }
 
 func (f *Fleet) Requests() map[string]int { return f.standIn.Requests() }
+
+func (f *Fleet) PutSecret(name, value string) {
+	f.standIn.mu.Lock()
+	defer f.standIn.mu.Unlock()
+	if item := f.standIn.secrets[name]; item != nil {
+		item.Versions = append(item.Versions, []byte(value))
+	} else {
+		digest := sha256.Sum256([]byte(name))
+		f.standIn.secrets[name] = &secret{ID: "ocid1.vaultsecret.oc1." + vaultRegion + "." + hex.EncodeToString(digest[:12]), Name: name, VaultID: vaultsecret.SharedVault, Versions: [][]byte{[]byte(value)}}
+	}
+	f.standIn.notify()
+}
+
+func (f *Fleet) VaultAccess() map[string]int {
+	f.standIn.mu.Lock()
+	defer f.standIn.mu.Unlock()
+	return maps.Clone(f.standIn.access)
+}
+
+func (f *Fleet) Alias(name, address string) error {
+	for _, host := range f.Hosts {
+		file, err := os.OpenFile(filepath.Join("/etc/netns", host.Namespace, "hosts"), os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(file, "%s %s.nb.ts.internal\n", address, name)
+		if closeErr := file.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func (f *Fleet) Close() {
 	for _, host := range f.Hosts {

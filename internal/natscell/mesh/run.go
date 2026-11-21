@@ -66,6 +66,7 @@ func run(ctx context.Context, state string, cluster Cluster, drained <-chan stru
 		}
 		runCtx, cancel := context.WithCancel(ctx)
 		var node *Node
+		cluster.restart = cancel
 		if err == nil {
 			node, err = startHost(runCtx, state, cluster)
 		}
@@ -204,11 +205,8 @@ func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseTok
 	}
 	seeds := map[string][]string{}
 	for _, peer := range Regions(region) {
-		if peer == region {
-			continue
-		}
-		for _, manager := range []string{"1", "2", "3"} {
-			seeds[peer] = append(seeds[peer], fmt.Sprintf("nats://ts-%s-%s.%s:%d", peer, manager, netBirdDomain, ClusterPort))
+		if peer != region {
+			seeds[peer] = nil
 		}
 	}
 	var advertise string
@@ -219,7 +217,7 @@ func Start(ctx context.Context, state, region, name string, ca *CA, terrabaseTok
 	}
 	return StartRegionalHost(RegionalHost{State: state, Region: region, Server: name, CA: ca,
 		TerraBaseToken: terrabaseToken, Seeds: seeds, Routes: routes, VCN: cluster.VCN,
-		ClusterAddress: advertise, Address: NetBirdAddress, Worker: cluster.Worker})
+		ClusterAddress: advertise, Address: NetBirdAddress, Worker: cluster.Worker, Records: cluster.Records, Restart: cluster.restart})
 }
 
 func ownRegion(ctx context.Context) (string, error) {

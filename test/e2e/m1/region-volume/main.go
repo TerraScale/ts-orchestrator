@@ -45,6 +45,7 @@ type cloud struct {
 	termination bool
 	failAfter   string
 	detachment  bool
+	binding     *bindingJourney
 }
 
 func newCloud() *cloud {
@@ -82,6 +83,9 @@ func (c *cloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 		w.Write(b)
+	}
+	if c.binding != nil && c.binding.request(c, w, r, parts, reply) {
+		return
 	}
 
 	if kind == "networkSecurityGroups" && len(parts) > 3 {
@@ -285,14 +289,24 @@ func (c *cloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		item["lifecycleState"] = "RUNNING"
 		item["timeCreated"] = "2022-01-01T00:00:00Z"
 	}
+	if kind == "instancePools" {
+		item["lifecycleState"] = "RUNNING"
+	}
 	if kind == "volumeAttachments" {
-		for _, instance := range c.resources["instances"] {
-			if instance["id"] == item["instanceId"] {
-				must(instance["metadata"].(object)["terrascale-data-volume"] == item["volumeId"], "attachment not launch-bound")
+		if c.binding == nil {
+			for _, instance := range c.resources["instances"] {
+				if instance["id"] == item["instanceId"] {
+					must(instance["metadata"].(object)["terrascale-data-volume"] == item["volumeId"], "attachment not launch-bound")
+				}
 			}
 		}
 		item["attachmentType"] = "paravirtualized"
 		item["lifecycleState"] = "ATTACHED"
+		if c.binding != nil && c.binding.settleAfterAttach {
+			item["lifecycleState"] = "ATTACHING"
+			c.resources["instances"][0]["lifecycleState"] = "STARTING"
+			c.binding.settling = true
+		}
 	}
 	c.resources[kind] = append(c.resources[kind], item)
 	reply(item)
@@ -515,6 +529,7 @@ func run() error {
 	must(err == nil, fmt.Sprint("replace stale format instance: ", err))
 	must(c.resources["instances"][3]["metadata"].(object)["terrascale-data-may-format"] == "false", "replacement granted stale permission")
 	fmt.Println("region volume: exact interrupted launch then adopted disk refuses attachment, terminates stale instance, replaces without format permission")
+	computeBindings()
 	return nil
 }
 

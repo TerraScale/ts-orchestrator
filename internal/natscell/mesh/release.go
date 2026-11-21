@@ -96,6 +96,11 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	if err != nil {
 		return nil, releasefailure.At("declaration", err)
 	}
+	if deployment != nil {
+		if err := requireRolloutOrder(ctx, conn, &next); err != nil {
+			return nil, err
+		}
+	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
 	hold := before.HoldAfter
 	if deployment != nil {

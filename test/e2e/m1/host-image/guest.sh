@@ -51,6 +51,10 @@ else
  echo preserved-across-reboot > /var/lib/ts-data/host-image-payload
  echo "first bind: formatted and mounted UUID=$uuid"
 fi
+if [[ $case == late-bind ]]; then
+ journalctl -b -u ts-node-init.service --no-pager | grep -F "waiting for the pool to bind this instance's data volume"
+ journalctl -b -u ts-node-init.service --no-pager | grep -F 'instance metadata binds a data volume'
+fi
 if [[ $case == launch-release ]]; then
  test "$installed" = "$(cat /opt/host-image/launch.sha256)"
  test "$installed" != "$baked"
