@@ -38,14 +38,35 @@ the orchestrator built with that document:
 ts-orch region apply <label> compute
 ```
 
-This grows owned pool data volumes and the bound data volume of hosts declared
-in `nodes.external`, including `ts-gru-1`. A target below an existing volume's
-size is refused; account for external volumes when choosing the new size.
-The node checks its recorded UUID and serial, rescans the device and grows its
-mounted ext4 filesystem online at startup and every five seconds. Services
-keep running. Check `df -h /var/lib/ts-data` on the host and its journal for
-`data filesystem grown`; growth failures log their cause. See
-[storage policy](storage.md#grow-node-storage).
+This grows owned pool data volumes and the data volume of every host listed in
+`nodes.external`, including `ts-gru-1`. The external host is the instance that
+`ts-orch region apply <label> compute` verifies for that name (one RUNNING
+instance in the region compartment, primary VNIC in the region VCN, outside
+every instance pool); its data volume is the one writable, unshared volume
+attached to that instance OCID at `/dev/oracleoci/oraclevdb`. A target below an
+existing volume's size is refused, external volumes included.
+
+The node then grows its mounted ext4 filesystem online, at startup and every
+five seconds. Services keep running, and a failed growth never stops or
+blocks the node: it logs `data filesystem growth failed` with the cause, the
+region health turns `degraded` with that reason, and the next successful
+attempt logs `data filesystem growth recovered`. Compare the three sizes:
+
+```sh
+oci bv volume get --volume-id <volume ocid> --query 'data."size-in-gbs"'
+ssh ts-gru-1 sudo blockdev --getsize64 /dev/oracleoci/oraclevdb
+ssh ts-gru-1 sudo dumpe2fs -h /dev/oracleoci/oraclevdb 2>/dev/null | grep -E '^Block (count|size)'
+```
+
+The first is the OCI volume size in GB, the second the device capacity the
+host sees in bytes, the third the filesystem size (block count times block
+size). Growth is complete when the OCI size equals `nodes.data_gb` and the
+filesystem fills the device to the last whole block. An OCI size below the
+target means the compute pass did not grow the volume; its output names the
+refusal. A device smaller than the OCI size means the host has not seen the
+new capacity: the journal shows the failed rescan. A filesystem smaller than
+the device means the resize was refused or failed: the journal shows the
+reason. See [storage policy](storage.md#grow-node-storage).
 
 ## Install or upgrade
 

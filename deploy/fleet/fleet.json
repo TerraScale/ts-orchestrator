@@ -21,14 +21,15 @@
       "public_subnet_cidr": "10.251.0.0/25",
       "private_subnet_cidr": "10.251.0.192/26",
       "nodes": {
-        "min": 3,
-        "max": 3,
+        "min": 2,
+        "max": 2,
         "shape": "VM.Standard.A1.Flex",
         "ocpus": 2,
         "memory_gb": 12,
         "boot_gb": 50,
         "data_gb": 50,
-        "data_vpus_per_gb": 10
+        "data_vpus_per_gb": 10,
+        "external": ["ts-gru-1"]
       },
       "geo_continents": [
         "SA",

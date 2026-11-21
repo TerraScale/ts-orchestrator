@@ -403,9 +403,31 @@ it is empty.
 
 A node that stays unhealthy for too long is replaced.
 
-Today: replicas and the node count scale on the region leader. Production's
-document holds every region at 3 nodes (`nodes.min` = `nodes.max` = 3); load
-beyond that is absorbed by replicas and the shape.
+Today: replicas and the node count scale on the region leader. Every region
+requires 3 voting hosts to survive losing one: sjc and fra hold 3 pool
+nodes (`nodes.min` = `nodes.max` = 3); gru holds 2 pool nodes plus the
+external host `ts-gru-1` (`nodes.external`), which runs NetBird management
+and monitoring outside the pool. The document refuses a region whose
+`nodes.min` plus its declared external hosts is below 3. Before compute apply
+uses those pool bounds, every external name must resolve to exactly one live
+OCI instance, re-read by its instance ID: RUNNING, in the region's compartment,
+with an attached primary VNIC in that compartment and the region's VCN. It
+must carry no regional pool-instance ownership and belong to no live instance
+pool in the compartment; an unavailable OCI check refuses the apply.
+
+Provisioning does not prove voting readiness. Promote the hosts with
+`ts-orch member promote`, then run `ts-orch region status <label>` on a host
+connected to that region's environment mesh. This is the rebuild's quorum
+gate and exits unsuccessfully until `swarm quorum` is `ok`. Both `region plan`
+and `region status` read live SwarmKit membership through regional health
+requests over NATS and require at least 3 distinct node IDs, OCI instance IDs
+and hostnames. Each must be a current and desired manager, READY and
+Raft-reachable, with the region's admission label and an identity matching a
+RUNNING regional pool host in the private subnet or a verified external host.
+A worker-only external host never supplies a vote. Missing membership or an
+invalid external host keeps the gate closed. Without a label, the commands
+report every fleet region. Load beyond the fixed host count is absorbed by
+replicas and the shape.
 
 ## What was removed
 

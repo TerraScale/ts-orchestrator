@@ -17,7 +17,7 @@ func backendHealth(ctx context.Context, pass nlbPass, balancers []networkloadbal
 	check := Check{Kind: "serving backends", State: Missing}
 	nodes := 0
 	for _, instance := range instances {
-		if !gone(string(instance.LifecycleState)) && region.owns("instance", "node", instance.FreeformTags) {
+		if !gone(string(instance.LifecycleState)) && (region.owns("instance", "node", instance.FreeformTags) || slices.Contains(region.Nodes.External, deref(instance.DisplayName))) {
 			nodes++
 			for _, attachment := range attachments {
 				if deref(attachment.InstanceId) != deref(instance.Id) || attachment.LifecycleState != core.VnicAttachmentLifecycleStateAttached {
@@ -57,7 +57,7 @@ func backendHealth(ctx context.Context, pass nlbPass, balancers []networkloadbal
 				check.Details = append(check.Details, fmt.Sprintf("%s members %v; node backends %v", name, have, want))
 			}
 			count := deref(health.TotalBackendCount)
-			if health.Status != networkloadbalancer.BackendSetHealthStatusOk || count != nodes || nodes < region.Nodes.Min {
+			if health.Status != networkloadbalancer.BackendSetHealthStatusOk || count != nodes || nodes < region.Nodes.Min+len(region.Nodes.External) {
 				check.State = Differs
 			}
 			check.Details = append(check.Details, fmt.Sprintf("%s %s %s: %d backends, %d nodes", deref(balancer.DisplayName), name, health.Status, count, nodes))
