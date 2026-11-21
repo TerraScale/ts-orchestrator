@@ -96,15 +96,17 @@ An app release needs a token from a workflow `appServices` allows to release
 the image name must equal the service. The receiving host reads the service's
 newest desired spec on the mesh, changes only its digest (same repository) and
 applies it to every region it targets, one region at a time in its
-fixed order: sjc, fra, gru (`catalog.RolloutOrder`). The order of the spec's `regions` does
-not matter for those regions. A catalog region of the same environment that
-has no reviewed position yet rolls out first, in the spec's order, ahead of
-the reviewed ones. Each region: pre-pull, fast replacement, ready path, bake. Every mesh node advertises its
-order in its state reply. A region admits a TerraBase generation only when
-every other region the spec targets answers with the same order. A peer
-still on a binary that advertises none holds it, with the admission evidence
-`rollout order not agreed`. The release continues on its own once every peer
-agrees, within its rollout window. Each region gets its readiness timeout
+fixed order of gru, fra, sjc (`catalog.RolloutOrder`). The order of the
+spec's `regions` does not matter for those regions. A catalog region of the
+same environment that has no reviewed position yet rolls out first, in the
+spec's order, ahead of the reviewed ones. Each region pre-pulls, replaces,
+checks the ready path for the requested runtime and bakes. The signed app
+dispatcher and signed reconciler require a fresh policy response from every
+manager in each target region's receiver inventory. A receiving region holds
+when a participant reports a conflicting order. TerraBase also holds if a participant has yet
+to answer. A later region waits for the earlier targets' serving and bake
+evidence for this generation.
+Each region gets its readiness timeout
 (`readyTimeoutSeconds`, 60 s by default) plus 30 s to pull and submit plus the
 bake budget; regions the spec does not place answer at once. If a targeted
 region fails or misses its window, the release re-applies the previous spec
