@@ -28,6 +28,11 @@ func computeMutationJourney(ctx context.Context, region fleet.Region, factory *o
 	pool := func() map[string]any {
 		return map[string]any{"id": "pool", "compartmentId": region.CompartmentID, "instanceConfigurationId": configuration, "size": size, "lifecycleState": "RUNNING", "freeformTags": ownership.Stamp(region.Key("instance-pool", "nodes"), 1, "journey").Freeform}
 	}
+	volume := func(index int) map[string]any {
+		tags := ownership.Stamp(region.Key("volume", fmt.Sprintf("data-%d", index+1)), 1, "journey").Freeform
+		tags["terrascale-data-instance"] = fmt.Sprintf("pool-instance-%d", index)
+		return map[string]any{"id": fmt.Sprintf("volume-%d", index), "availabilityDomain": "AD-1", "lifecycleState": "AVAILABLE", "freeformTags": tags}
+	}
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		id, state := "instance-0", "RUNNING"
@@ -39,7 +44,7 @@ func computeMutationJourney(ctx context.Context, region fleet.Region, factory *o
 		}
 		var body any
 		if member, found := strings.CutPrefix(r.URL.Path, "/20160918/instances/pool-instance-"); found {
-			body = map[string]any{"id": "pool-instance-" + member, "displayName": region.Label + "-node-" + member, "availabilityDomain": "AD-1",
+			body = map[string]any{"id": "pool-instance-" + member, "displayName": region.Label + "-node-" + member, "availabilityDomain": "AD-1", "lifecycleState": "RUNNING",
 				"freeformTags": ownership.Stamp(region.Key("instance", "node"), 1, "journey").Freeform, "metadata": map[string]string{nodeinit.VolumeKey: "volume-" + member}}
 			if err := json.NewEncoder(w).Encode(body); err != nil {
 				panic(err)
@@ -50,16 +55,23 @@ func computeMutationJourney(ctx context.Context, region fleet.Region, factory *o
 		case "/20160918/volumes":
 			body = []any{}
 			for i := range size {
-				body = append(body.([]any), map[string]any{"id": fmt.Sprintf("volume-%d", i), "availabilityDomain": "AD-1", "lifecycleState": "AVAILABLE",
-					"freeformTags": ownership.Stamp(region.Key("volume", fmt.Sprintf("data-%d", i+1)), 1, "journey").Freeform})
+				body = append(body.([]any), volume(i))
+			}
+		case "/20160918/volumes/volume-0", "/20160918/volumes/volume-1":
+			index, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/20160918/volumes/volume-"))
+			if err != nil {
+				panic(err)
+			}
+			body = volume(index)
+			if index == size-1 {
+				bound, replaced = true, mode == "member-replaced" || mode == "no-external-replaced"
 			}
 		case "/20160918/volumeAttachments":
 			body = []any{}
 			for i := range size {
 				body = append(body.([]any), map[string]any{"attachmentType": "paravirtualized", "id": fmt.Sprintf("attachment-%d", i), "availabilityDomain": "AD-1",
-					"instanceId": fmt.Sprintf("pool-instance-%d", i), "volumeId": fmt.Sprintf("volume-%d", i), "lifecycleState": "ATTACHED"})
+					"instanceId": fmt.Sprintf("pool-instance-%d", i), "volumeId": fmt.Sprintf("volume-%d", i), "lifecycleState": "ATTACHED", "device": "/dev/oracleoci/oraclevdb"})
 			}
-			bound, replaced = true, mode == "member-replaced" || mode == "no-external-replaced"
 		case "/launch":
 			resolved = true
 			body = compute.Launch{ImageID: "image"}

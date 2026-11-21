@@ -251,8 +251,17 @@ The ts-orch-hosts dynamic group matches every instance in the three region
 compartments, so a pool node has the instance principal the join needs.
 
 A pool size below `nodes.min` is raised. The compute kind never shrinks the
-pool; the `nodes` kind below removes one drained node at a time. A node without a data volume gets
-a kept one from its availability domain, or a new one. Image and release
+pool; the `nodes` kind below removes one drained node at a time. A node keeps
+the volume its metadata or data-device attachment names, or else the one
+already tagged with its instance; conflicting claims refuse the pass before any
+write. A node without one gets an unclaimed volume from its availability
+domain (waiting for one still provisioning), or a new one while the region has
+fewer than `nodes.max` data volume OCIDs in any state but terminated
+(terminating ones count, and are never picked). Two volumes with one
+`volume/data-<n>` key refuse the pass before any selection. A volume
+tagged with another instance, such as one kept by Remove or Retire, is never
+attached, retagged or deleted; when all `nodes.max` volumes are allocated the
+pass fails and lists them. Image and release
 are fixed when the configuration is made; a newer release reaches the nodes
 through the release self-pull, so a second apply changes nothing.
 
@@ -431,13 +440,14 @@ checks and keep the plain compute pass.
 After provisioning, run `ts-orch member promote` on the regional Raft leader
 to promote eligible workers to three voting managers. Then run
 `ts-orch region quorum <label>` on a host connected to the region's environment
-mesh. This is the rebuild's quorum
-gate and exits unsuccessfully until `swarm quorum` is `ok`. The explicit gate,
+mesh. The rebuild's quorum gate exits unsuccessfully until `swarm quorum` is
+`ok`. The explicit gate,
 and plan/status for a region with external hosts, read live SwarmKit membership
 through dedicated quorum requests on the existing NATS health subject after the
 region's OCI inventory and external-host checks finish. The gate requires
-at least 3 distinct node IDs, OCI instance IDs and hostnames. Each must be a current and desired manager, READY and
-Raft-reachable, with the region's admission label and an identity matching a
+at least 3 distinct node IDs, OCI instance IDs and hostnames. Each must be a
+current and desired manager, READY and Raft-reachable, with the region's
+admission label and an identity matching a
 RUNNING regional pool host in the private subnet or a verified external host.
 A worker-only external host never supplies a vote. Missing membership or an
 invalid external host keeps the gate closed. Regions without external hosts
