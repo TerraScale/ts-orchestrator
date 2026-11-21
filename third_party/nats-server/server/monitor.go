@@ -4249,6 +4249,14 @@ type RaftzGroup struct {
 	WAL           StreamState               `json:"wal"`
 	WALError      error                     `json:"wal_error,omitempty"`
 	Peers         map[string]RaftzGroupPeer `json:"peers"`
+	Change        *RaftzMembershipChange    `json:"membership_change,omitempty"`
+}
+
+type RaftzMembershipChange struct {
+	Peer     string `json:"peer"`
+	Name     string `json:"name,omitempty"`
+	Removing bool   `json:"removing"`
+	Index    uint64 `json:"index"`
 }
 
 type RaftzGroupPeer struct {
@@ -4360,6 +4368,9 @@ func (s *Server) Raftz(opts *RaftzOptions) *RaftzStatus {
 			Peers:         map[string]RaftzGroupPeer{},
 		}
 		n.wal.FastState(&info.WAL)
+		if change := n.membChange; change != nil {
+			info.Change = &RaftzMembershipChange{Peer: change.peer, Name: s.serverNameForNode(change.peer), Removing: change.prev != nil, Index: change.index}
+		}
 		for id, p := range n.peers {
 			if id == n.id {
 				continue

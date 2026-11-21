@@ -112,6 +112,14 @@ it heard from in the last two heartbeats still reach the current quorum.
 `server/events.go` exports `ServerNodeID`, the Raft peer id NATS derives from a
 server name, so the mesh can match a peer id to the managers a region lists.
 
+`server/monitor.go` adds `membership_change` to each RAFTZ group: the peer, its
+server name when known, whether it is being added or removed, and the log index
+of a membership change the node has appended but not committed. Upstream shows a
+pending addition only as a peer with `known: false` and drops a peer being
+removed from the peer list at append time, so a pending removal looked like a
+settled, smaller group. The mesh's planned-stop check refuses while the local
+server or the leader reports one.
+
 `server/jetstream_cluster.go` also starts JetStream clustering with no
 configured route when the server has a named cluster listener and sets
 `JetStreamMetaBootSize`. The mesh adds every cross-region route at runtime

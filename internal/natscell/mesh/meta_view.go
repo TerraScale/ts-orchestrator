@@ -30,17 +30,18 @@ type MetaView struct {
 }
 
 type MetaMember struct {
-	Server    string     `json:"server"`
-	ID        string     `json:"id"`
-	State     string     `json:"state"`
-	Leader    string     `json:"leader,omitempty"`
-	Term      uint64     `json:"term"`
-	Size      int        `json:"size"`
-	Quorum    int        `json:"quorum"`
-	Observer  bool       `json:"observer,omitempty"`
-	Committed uint64     `json:"committed"`
-	Applied   uint64     `json:"applied"`
-	Peers     []MetaPeer `json:"peers"`
+	Server    string                        `json:"server"`
+	ID        string                        `json:"id"`
+	State     string                        `json:"state"`
+	Leader    string                        `json:"leader,omitempty"`
+	Term      uint64                        `json:"term"`
+	Size      int                           `json:"size"`
+	Quorum    int                           `json:"quorum"`
+	Observer  bool                          `json:"observer,omitempty"`
+	Committed uint64                        `json:"committed"`
+	Applied   uint64                        `json:"applied"`
+	Peers     []MetaPeer                    `json:"peers"`
+	Change    *server.RaftzMembershipChange `json:"membership_change,omitempty"`
 }
 
 type MetaPeer struct {
@@ -53,7 +54,7 @@ type MetaPeer struct {
 
 func metaMember(name string, group server.RaftzGroup) MetaMember {
 	member := MetaMember{Server: name, ID: group.ID, State: group.State, Leader: group.Leader, Term: group.Term, Size: group.Size,
-		Quorum: group.QuorumNeeded, Observer: group.Observer, Committed: group.Committed, Applied: group.Applied, Peers: []MetaPeer{}}
+		Quorum: group.QuorumNeeded, Observer: group.Observer, Committed: group.Committed, Applied: group.Applied, Peers: []MetaPeer{}, Change: group.Change}
 	for id, peer := range group.Peers {
 		member.Peers = append(member.Peers, MetaPeer{ID: id, Name: peer.Name, Known: peer.Known, LastSeen: peer.LastSeen, Replicated: peer.LastReplicatedIndex})
 	}
@@ -178,6 +179,15 @@ func printMeta(view MetaView, output io.Writer) error {
 	}
 	if err := table.Flush(); err != nil {
 		return err
+	}
+	for _, member := range view.Members {
+		if change := member.Change; change != nil {
+			operation := "adding"
+			if change.Removing {
+				operation = "removing"
+			}
+			fmt.Fprintf(output, "%s has not committed %s %s (%s) at index %d\n", member.Server, operation, label(change.Peer), change.Peer, change.Index)
+		}
 	}
 	for _, member := range view.Members {
 		if member.State != "LEADER" {
