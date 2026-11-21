@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -68,39 +67,33 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 			return err
 		}
 		workers = append(workers, worker)
-		if err := awaitPromotionReady(ctx, client, watcher, len(workers)+1, i+1); err != nil {
+		if err := awaitPromotionReady(ctx, client, watcher, len(workers)+1, 1); err != nil {
 			return err
 		}
 		admission := swarmruntime.Admission{Region: "sa-saopaulo-1", HostID: fmt.Sprintf("worker-%d", i), InstanceID: fmt.Sprintf("instance-%d", i), FounderID: joining.FounderID, Role: "container"}
 		if _, err := swarmruntime.AdmitNode(ctx, client, worker.ID(), admission); err != nil {
 			return err
 		}
-		if err := awaitPromotionReady(ctx, client, watcher, len(workers)+1, i+1); err != nil {
+		if err := awaitPromotionReady(ctx, client, watcher, len(workers)+1, 1); err != nil {
 			return fmt.Errorf("joining workers changed manager roles without an operator command: %w", err)
 		}
-		promotion, err := manager.PromoteManager(ctx)
-		if err != nil {
-			return fmt.Errorf("promote worker-%d: %w", i, err)
-		}
-		if promotion.Hostname != fmt.Sprintf("worker-%d", i) || promotion.Voters != i+2 {
-			return fmt.Errorf("promotion %+v, want worker-%d as voter %d", promotion, i, i+2)
+		if output, err := command("promote"); err != nil {
+			return fmt.Errorf("member promote: %w: %s", err, output)
 		}
 		listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 		if err != nil {
 			return err
 		}
-		voters := 0
+		count := 0
 		for _, node := range listed.Nodes {
-			if node.Role == api.NodeRoleManager && node.ManagerStatus != nil && node.ManagerStatus.Reachability == api.RaftMemberStatus_REACHABLE {
-				voters++
+			if node.Role == api.NodeRoleManager {
+				count++
 			}
 		}
-		if voters != i+2 {
-			return fmt.Errorf("after promoting worker-%d: %d Raft-reachable managers, want %d", i, voters, i+2)
+		want := 1 + i*2
+		if count != want {
+			return fmt.Errorf("%d eligible workers: got %d managers, want %d", i+1, count, want)
 		}
-	}
-	if _, err := manager.PromoteManager(ctx); err == nil || !strings.Contains(err.Error(), "already has 3 voting managers") {
-		return fmt.Errorf("a fourth voting manager was not refused: %v", err)
 	}
 	if err := awaitPromotionReady(ctx, client, watcher, 3, 3); err != nil {
 		return err
@@ -108,8 +101,8 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	if err := regionalQuorumJourney(ctx, filepath.Join(state, "manager"), true, func(context.Context) error { return nil }); err != nil {
 		return err
 	}
-	if _, err := workers[0].PromoteManager(ctx); !errors.Is(err, swarmruntime.ErrNotRegionLeader) {
-		return fmt.Errorf("a follower was allowed to change manager membership: %v", err)
+	if err := swarmruntime.PromoteManagers(ctx, client, watcher, workers[0].ID()); err == nil {
+		return fmt.Errorf("a follower was allowed to change manager membership")
 	}
 	lock, err := os.OpenFile(filepath.Join(state, "manager", "membership.lock"), os.O_RDWR, 0)
 	if err != nil {
@@ -119,12 +112,12 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		return err
 	}
-	_, promoteErr := manager.PromoteManager(ctx)
+	output, commandErr := command("promote")
 	if err := unix.Flock(int(lock.Fd()), unix.LOCK_UN); err != nil {
 		return err
 	}
-	if promoteErr == nil || !strings.Contains(promoteErr.Error(), "another membership change") {
-		return fmt.Errorf("concurrent membership change was not refused: %v", promoteErr)
+	if commandErr == nil || !strings.Contains(string(output), "another membership change") {
+		return fmt.Errorf("concurrent membership change was not refused: %s: %v", output, commandErr)
 	}
 	if err := meshPromotionJourney(ctx, state, append([]*swarmruntime.Node{manager}, workers...)); err != nil {
 		return err
@@ -155,7 +148,7 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	if output, err := command("leave", "worker-0"); err != nil {
 		return fmt.Errorf("demoted member departure: %w: %s", err, output)
 	}
-	output, commandErr := command("leave", "worker-1")
+	output, commandErr = command("leave", "worker-1")
 	if commandErr == nil || !strings.Contains(string(output), "promote replacement managers first") {
 		return fmt.Errorf("below-majority departure was not refused: %s: %v", output, commandErr)
 	}
@@ -166,7 +159,7 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	if len(listed.Nodes) != 2 {
 		return fmt.Errorf("refused departure changed membership: %d nodes", len(listed.Nodes))
 	}
-	fmt.Println("ok promotion: each operator promotion adds one caught-up voter up to three; a fourth, a follower's, a concurrent and a below-majority change refused; admission follows demotion")
+	fmt.Println("ok promotion: operator command reaches three managers; concurrent, follower and below-majority changes refused; admission follows demotion")
 	return nil
 }
 

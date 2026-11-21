@@ -16,20 +16,19 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"maps"
 	"math/big"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	m1 "github.com/TerraScale/ts-orchestrator/deploy/m1"
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
-	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -71,8 +70,53 @@ type standIn struct {
 	requests map[string]int
 	servers  []*http.Server
 	github   *GitHub
-	hosts    []*Host
-	gone     map[string]bool
+	callers  map[string]string
+	grants   map[vaultGrant]string
+	access   map[string]int
+}
+
+type vaultGrant struct{ compartment, vault, secret string }
+
+var grantStatement = regexp.MustCompile(`^Allow dynamic-group \S+ to (read secret-bundles|manage secret-family) in compartment id \S+ where all \{target\.vault\.id = '([^']+)', (.+), target\.secret\.name = '([^']+)'\}$`)
+
+var grantPrincipal = regexp.MustCompile(`request\.principal\.compartment\.id = '([^']+)'`)
+
+func (s *standIn) loadGrants() error {
+	compartments := map[string]string{}
+	for _, region := range s.fleet.Regions {
+		compartments[region.Name] = region.CompartmentID
+		for _, host := range region.Hosts {
+			s.callers[host.Address] = region.CompartmentID
+		}
+	}
+	statements, err := regionhost.Statements(compartments)
+	if err != nil {
+		return err
+	}
+	for _, statement := range statements {
+		match := grantStatement.FindStringSubmatch(statement)
+		if match == nil {
+			continue
+		}
+		verb := strings.Fields(match[1])[0]
+		for _, principal := range grantPrincipal.FindAllStringSubmatch(match[3], -1) {
+			s.grants[vaultGrant{compartment: principal[1], vault: match[2], secret: match[4]}] = verb
+		}
+	}
+	return nil
+}
+
+func (s *standIn) granted(r *http.Request, vault, name string, manage bool) bool {
+	address, _, _ := net.SplitHostPort(r.RemoteAddr)
+	compartment := s.callers[address]
+	verb := s.grants[vaultGrant{compartment: compartment, vault: vault, secret: name}]
+	allowed := verb == "manage" || verb == "read" && !manage
+	verdict := "denied "
+	if allowed {
+		verdict = "granted "
+	}
+	s.access[verdict+name+" for "+address]++
+	return allowed
 }
 
 func certificate(template, parent *x509.Certificate, public crypto.PublicKey, signer crypto.Signer) ([]byte, error) {
@@ -111,13 +155,17 @@ func (f *Fleet) EdgeMaterial(name string) ([]byte, error) {
 func newStandIn(f *Fleet) (*standIn, *tls.Certificate, error) {
 	names := slices.Clone(standInNames)
 	for _, region := range f.Regions {
-		names = append(names, "auth."+region.OCIRegion+".oraclecloud.com", "iaas."+region.OCIRegion+".oraclecloud.com")
+		names = append(names, "auth."+region.OCIRegion+".oraclecloud.com")
 	}
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
-	s := &standIn{fleet: f, names: names, caKey: caKey, secrets: map[string]*secret{}, pinned: map[string]int{}, changed: make(chan struct{}), requests: map[string]int{}, github: newGitHub(), hosts: slices.Clone(f.Hosts), gone: map[string]bool{}}
+	s := &standIn{fleet: f, names: names, caKey: caKey, secrets: map[string]*secret{}, pinned: map[string]int{}, changed: make(chan struct{}), requests: map[string]int{}, github: newGitHub(),
+		callers: map[string]string{}, grants: map[vaultGrant]string{}, access: map[string]int{}}
+	if err := s.loadGrants(); err != nil {
+		return nil, nil, err
+	}
 	ca := &x509.Certificate{Subject: pkix.Name{CommonName: "oracle-regions stand-in CA"}, IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
 	if s.caPEM, err = certificate(ca, nil, caKey.Public(), caKey); err != nil {
 		return nil, nil, err
@@ -295,8 +343,6 @@ func (s *standIn) cloud(w http.ResponseWriter, r *http.Request) {
 		s.jwks(w)
 	case host == registryHost && strings.HasPrefix(r.URL.Path, "/v2/"):
 		s.registry(w, r)
-	case strings.HasPrefix(host, "iaas.") && slices.Contains(s.names, host) && r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/20160918/"):
-		s.compute(w, r, strings.TrimSuffix(strings.TrimPrefix(host, "iaas."), ".oraclecloud.com"))
 	case host == githubAPI || host == githubWeb || host == githubAssets:
 		s.github.serve(w, r, host)
 	default:
@@ -341,7 +387,7 @@ func (s *standIn) bundle(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	item := s.secrets[query.Get("secretName")]
-	if item == nil || item.VaultID != query.Get("vaultId") {
+	if !s.granted(r, query.Get("vaultId"), query.Get("secretName"), false) || item == nil || item.VaultID != query.Get("vaultId") {
 		serviceError(w, http.StatusNotFound, "NotAuthorizedOrNotFound", "secret not found")
 		return
 	}
@@ -386,6 +432,10 @@ func (s *standIn) management(w http.ResponseWriter, r *http.Request) {
 			serviceError(w, http.StatusBadRequest, "InvalidParameter", "create needs base64 content")
 			return
 		}
+		if !s.granted(r, request.VaultID, request.SecretName, true) {
+			serviceError(w, http.StatusNotFound, "NotAuthorizedOrNotFound", "caller may not create "+request.SecretName)
+			return
+		}
 		if s.secrets[request.SecretName] != nil {
 			serviceError(w, http.StatusConflict, "Conflict", "secret name already exists")
 			return
@@ -403,7 +453,7 @@ func (s *standIn) management(w http.ResponseWriter, r *http.Request) {
 				item = candidate
 			}
 		}
-		if item == nil {
+		if item == nil || !s.granted(r, item.VaultID, item.Name, true) {
 			serviceError(w, http.StatusNotFound, "NotAuthorizedOrNotFound", "secret not found")
 			return
 		}
@@ -481,47 +531,4 @@ func (s *standIn) identityToken(sha, run string, identity map[string]any) (strin
 
 func (s *standIn) writeFiles(dir string) error {
 	return os.WriteFile(filepath.Join(dir, "ca.pem"), s.caPEM, 0o644)
-}
-
-func (s *standIn) compute(w http.ResponseWriter, r *http.Request, region string) {
-	query := r.URL.Query()
-	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/20160918/"), "/")
-	var items []map[string]any
-	s.mu.Lock()
-	gone := maps.Clone(s.gone)
-	s.mu.Unlock()
-	for _, host := range s.hosts {
-		if host.Region.OCIRegion != region || gone[host.InstanceID] || query.Has("compartmentId") && query.Get("compartmentId") != host.Region.CompartmentID {
-			continue
-		}
-		vnic := "ocid1.vnic.oc1." + region + "." + host.Name
-		switch {
-		case path == "instances":
-			tags := map[string]string{}
-			document, err := fleet.Embedded().Region(host.Region.Name)
-			if err != nil {
-				serviceError(w, http.StatusInternalServerError, "InternalError", err.Error())
-				return
-			}
-			if !slices.Contains(document.Nodes.External, host.Name) {
-				tags = ociresource.Ownership{Owner: fleet.Owner}.Stamp(document.Key("instance", "node"), 1, "stand-in").Freeform
-			}
-			items = append(items, map[string]any{"id": host.InstanceID, "displayName": host.Name, "compartmentId": host.Region.CompartmentID,
-				"region": region, "availabilityDomain": "stand-in:" + strings.ToUpper(region) + "-AD-1", "shape": "VM.Standard.A1.Flex",
-				"lifecycleState": "RUNNING", "timeCreated": "2026-11-19T00:00:00Z", "freeformTags": tags})
-		case path == "vnicAttachments" && query.Get("instanceId") == host.InstanceID:
-			items = append(items, map[string]any{"id": "ocid1.vnicattachment.oc1." + region + "." + host.Name, "instanceId": host.InstanceID, "vnicId": vnic,
-				"compartmentId": host.Region.CompartmentID, "availabilityDomain": "stand-in:" + strings.ToUpper(region) + "-AD-1", "lifecycleState": "ATTACHED",
-				"timeCreated": "2026-11-19T00:00:00Z"})
-		case path == "vnics/"+vnic:
-			writeJSON(w, http.StatusOK, map[string]any{"id": vnic, "privateIp": host.Address, "isPrimary": true, "lifecycleState": "AVAILABLE",
-				"compartmentId": host.Region.CompartmentID, "availabilityDomain": "stand-in:" + strings.ToUpper(region) + "-AD-1", "timeCreated": "2026-11-19T00:00:00Z"})
-			return
-		}
-	}
-	if path != "instances" && path != "vnicAttachments" {
-		serviceError(w, http.StatusNotFound, "NotAuthorizedOrNotFound", "stand-in has no compute "+r.URL.Path)
-		return
-	}
-	writeJSON(w, http.StatusOK, items)
 }

@@ -32,7 +32,6 @@ import (
 
 const (
 	repositoryAPI = "https://api.github.com/repos/" + releaseattest.Repository
-	region        = "sjc"
 	probeWait     = 10 * time.Second
 	trustedMarker = `"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1"`
 )
@@ -441,7 +440,15 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 	decode(read(filepath.Join(work, "comparisons.json")), &comparisons)
 	registry := filepath.Join(work, "registry")
 	must(os.MkdirAll(registry, 0o755))
-	fleet, err := oraclehost.New(ctx, filepath.Join(work, "fleet"), installedPath, registry, []string{"gru", region, "fra"}, []int{1, 2, 1})
+	regions := mesh.Regions("gru")
+	workerRegion := "sjc"
+	if mode == "next" {
+		workerRegion = mesh.EnvironmentOf("gru").Rollout[0]
+	}
+	workerIndex := slices.Index(regions, workerRegion)
+	counts := []int{1, 1, 1}
+	counts[workerIndex] = 2
+	fleet, err := oraclehost.New(ctx, filepath.Join(work, "fleet"), installedPath, registry, regions, counts)
 	must(err)
 	defer fleet.Close()
 	defer func() {
@@ -456,9 +463,12 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 		}
 	}()
 	must(fleet.GitHub().Record(olderReleases(read(filepath.Join(work, "releases.json")), run), comparisons))
-	upgraded := fleet.Regions[1]
+	upgraded := fleet.Regions[workerIndex]
 	manager, worker := upgraded.Hosts[0], upgraded.Hosts[1]
-	founders := []*oraclehost.Host{fleet.Regions[0].Hosts[0], manager, fleet.Regions[2].Hosts[0]}
+	founders := make([]*oraclehost.Host, 0, len(fleet.Regions))
+	for _, region := range fleet.Regions {
+		founders = append(founders, region.Hosts[0])
+	}
 	must(fleet.Boot(founders...))
 	for _, host := range founders {
 		_, err := host.WaitReady(ctx, 0, from)
@@ -472,7 +482,7 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 	for _, host := range fleet.Hosts {
 		until(ctx, host.Name+" serves the installed release", func() error { return serving(ctx, host, from, installed) })
 	}
-	step("gru, sjc and fra founders and the %s worker serve %s sha256:%s; GitHub lists no release of ours yet", region, from, digest(installed))
+	step("gru, sjc and fra founders and the %s worker serve %s sha256:%s; GitHub lists no release of ours yet", workerRegion, from, digest(installed))
 	tag := releaseattest.Tag(sha, strconv.FormatUint(run, 10))
 	bundle := authority.Bundle(sigstore.MainIdentity, sha, strconv.FormatUint(run, 10), map[string][]byte{asset: target})
 	fleet.GitHub().Publish(tag, map[string][]byte{asset: target, releaseattest.BundleAsset: bundle})
@@ -484,7 +494,7 @@ func journey(mode, candidatePath, work string, run uint64, lane string) {
 	requests := strings.Join(fleet.GitHub().Requests(), "\n")
 	require(strings.Contains(requests, "200 GET release-assets.githubusercontent.com"), "no host downloaded the release from GitHub's asset host:\n%s", requests)
 	require(strings.Contains(requests, "200 GET api.github.com/repos/TerraScale/ts-orchestrator/compare/"+from+"..."+sha) || strings.Contains(requests, "200 GET api.github.com/repos/TerraScale/ts-orchestrator/compare/"+sha+"..."+from), "the installed updater never checked the release's lineage:\n%s", requests)
-	step("%s installed %s on both sjc hosts through discovery, lineage, provenance, preflight and probation; each keeps %s as its rollback target", from, tag, from)
+	step("%s installed %s on both %s hosts through discovery, lineage, provenance, preflight and probation; each keeps %s as its rollback target", from, tag, workerRegion, from)
 }
 
 func main() {

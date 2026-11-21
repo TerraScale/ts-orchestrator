@@ -23,8 +23,31 @@ with this one, this file wins.
   over the private NetBird network. The NetBird policy `servers-mesh-routes`
   admits tcp/6222 between every regional servers group, in both directions,
   and gains each new group the manager discovers (`internal/netbird/manager`).
-  - Each server dials `ts-<region>-1.nb.ts.internal:6222` for every founded
-    region as a seed.
+  - Each region's SwarmKit leader publishes the seed record
+    `ts-orch-seeds-<region>` in gru-vault: the region, a version, its SwarmKit
+    cluster ID and the hostnames of its ready managers, and no token. A
+    region's founder publishes it before its mesh starts. Every host may read
+    every peer region's seed record and nothing else of that region; the join
+    bundle stays readable only inside its own region (`internal/regionhost`).
+  - Each server reads every peer region's seed record at start and every 30
+    seconds, each peer region on its own 30-second budget and all at once, and
+    dials each listed host by its NetBird name on tcp/6222. A record must be one
+    JSON object with unique, known members and nothing after it; it must name
+    its own region, a version and a cluster, and each hostname must follow that
+    region's fleet naming (`ts-<region>-<n>` or `<region>-node-<n>`); other
+    hostnames are refused and logged. A missing, unreadable or invalid record,
+    or a read that runs out of time, leaves that region with its last good
+    seeds, or none, and never stops the local server or the other regions'
+    seeds. A record that exists but that this host's grants cannot read is an
+    error, never an absent record: the host lists the secret (every host may
+    inspect secrets in the compartment) before it treats a 404 as absent.
+  - A seed connection is bound to its region in the TLS handshake. The dialing
+    server sends the seed's NetBird name, and its certificate check refuses a
+    peer whose CA-signed certificate names a region other than the one that
+    name belongs to, so a wrong-region host never becomes a route. The refusal
+    is logged once per host and counted in
+    `ts_orch_mesh_seed_routes_refused_total`. Gossiped routes are dialed by IP
+    and carry no name, so only the CA check applies to them.
   - Each server advertises its NetBird IPv4. Route gossip adds every other
     server, so a region the user orders joins without a release.
 - An in-region worker also dials its founder's VCN address, which it reads
@@ -269,16 +292,35 @@ Activate one region at a time, in order sjc, gru, fra:
   keeps one replica per region, regardless of the number of managers.
 - It runs only when the node is in the cluster. A server with no routes runs
   no JetStream.
-- A new metadata group forms only from founders. A server whose metadata log
-  is empty expects one peer per seeded region, including its own, and starts
-  as an observer: it never campaigns. It leaves that state when it sees
-  a leader (it joined the existing group), or, on a founder, when every founder
-  answers on the mesh and none has metadata state. NATS elects a group with
-  empty logs only when every expected peer votes, so a brand-new fleet elects
-  once all founders are up, and a node that lost its state, or stopped before
-  any leader existed, joins the group it can reach instead of forming a second
-  one. A server with metadata state recovers its group from disk as before, so
-  a full-fleet restart re-elects from the persisted peers.
+- The create-once Vault record `ts-orch-mesh-founder` names the region and
+  SwarmKit cluster that founded the metadata group, whether it has formed, and
+  `cells`: every region cell (region and SwarmKit cluster ID) that has joined
+  the group. A server leaves observer mode and votes only after its cell is
+  listed; a server with metadata state that finds no record creates it as
+  formed, listing its own cell, which adopts a group formed by an earlier
+  release.
+- A new metadata group forms only on the region founder the record names, with
+  a metadata bootstrap size of 1, and needs no route: a Raft group of one
+  starts its election loop at once (`third_party/nats-server`). A founder
+  creates the record only when it is absent, every server it routes to has
+  answered that it holds no metadata, and every peer region either has no cell
+  (neither a seed record nor a join record exists) or publishes a seed record
+  and is routed. OCI keeps secret names unique, so one founder wins.
+- A founder replaces an existing record only with positive evidence that every
+  listed cell is gone: its own region's cell runs another SwarmKit cluster, and
+  each other listed region's seed record names another cluster. A missing,
+  unreadable or invalid seed record, or a listed cell that still publishes its
+  seeds, keeps the record, so a rebuilt region that cannot reach the intact
+  group waits for it and joins it instead of forming a second group. The
+  replacement is a compare-and-swap on the record's Vault version, done only
+  while every routed server reports no metadata state; the founder then
+  restarts its mesh to found the group. A server with metadata state recovers
+  its group from disk as before, so a full-fleet restart re-elects from the
+  persisted peers.
+- `ts-orch release preflight` refuses a candidate binary on an Oracle host that
+  cannot read the founder record or any region's seed record that exists, so a
+  host whose grants were not reconciled with `ts-orch region add` keeps its
+  running binary.
 - Health on the metadata leader also waits until every metadata member accepts
   placement. NATS marks a route-connected peer placeable only after its first
   statsz, up to a second later, and a stream or bucket created in that window

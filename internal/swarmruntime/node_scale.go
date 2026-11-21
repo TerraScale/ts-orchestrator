@@ -3,7 +3,6 @@ package swarmruntime
 import (
 	"context"
 	"fmt"
-	"net"
 	"slices"
 	"time"
 
@@ -87,14 +86,6 @@ func readSwarmNodes(ctx context.Context, client api.ControlClient) (swarmNodes, 
 		if node.Description != nil {
 			member.Hostname = node.Description.Hostname
 		}
-		if node.Status.Addr != "" {
-			member.Addresses = append(member.Addresses, node.Status.Addr)
-		}
-		if node.ManagerStatus != nil {
-			if host, _, err := net.SplitHostPort(node.ManagerStatus.Addr); err == nil {
-				member.Addresses = append(member.Addresses, host)
-			}
-		}
 		if since, ok := node.Spec.Annotations.Labels[LabelDrainSince]; ok && node.Spec.Availability == api.NodeAvailabilityDrain {
 			if member.DrainSince, err = time.Parse(time.RFC3339, since); err != nil {
 				return swarmNodes{}, fmt.Errorf("node %s %s: %w", node.ID, LabelDrainSince, err)
@@ -159,21 +150,4 @@ func (n *Node) Remove(ctx context.Context, hostname string, guard func(context.C
 		return err
 	}
 	return RemoveMember(ctx, client, hostname, guard)
-}
-
-func (n *Node) Admit(ctx context.Context, nodeID, hostname, instanceID, region string) error {
-	client, err := n.ControlClient(ctx)
-	if err != nil {
-		return err
-	}
-	got, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
-	if err != nil {
-		return err
-	}
-	role := "container"
-	if got.Node.Role == api.NodeRoleManager {
-		role = "manager"
-	}
-	_, err = AdmitNode(ctx, client, nodeID, Admission{Region: region, HostID: hostname, InstanceID: instanceID, Role: role})
-	return err
 }

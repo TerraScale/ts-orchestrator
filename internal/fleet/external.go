@@ -10,18 +10,22 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
-func RecheckExternal(ctx context.Context, region Region, compute core.ComputeClient, management core.ComputeManagementClient, network core.VirtualNetworkClient, vcn string, expected map[string]string) error {
-	current, err := VerifyExternal(ctx, region, compute, management, network, vcn)
+func RecheckExternal(ctx context.Context, region Region, compute core.ComputeClient, management core.ComputeManagementClient, network core.VirtualNetworkClient, vcn string, expected map[string]string, separatelyCheckedPool string) (map[string]string, error) {
+	current, err := verifyExternal(ctx, region, compute, management, network, vcn, separatelyCheckedPool)
 	if err != nil {
-		return fmt.Errorf("external capacity changed: %w", err)
+		return nil, fmt.Errorf("external capacity changed: %w", err)
 	}
 	if !maps.Equal(current, expected) {
-		return fmt.Errorf("external OCI identities changed during compute; refusing capacity credit")
+		return nil, fmt.Errorf("external OCI identities changed during compute; refusing capacity credit")
 	}
-	return nil
+	return current, nil
 }
 
 func VerifyExternal(ctx context.Context, region Region, compute core.ComputeClient, management core.ComputeManagementClient, network core.VirtualNetworkClient, vcn string) (map[string]string, error) {
+	return verifyExternal(ctx, region, compute, management, network, vcn, "")
+}
+
+func verifyExternal(ctx context.Context, region Region, compute core.ComputeClient, management core.ComputeManagementClient, network core.VirtualNetworkClient, vcn, separatelyCheckedPool string) (map[string]string, error) {
 	verified := map[string]string{}
 	if len(region.Nodes.External) == 0 {
 		return verified, nil
@@ -99,7 +103,7 @@ func VerifyExternal(ctx context.Context, region Region, compute core.ComputeClie
 		return nil, err
 	}
 	for _, pool := range pools {
-		if pool.LifecycleState == core.InstancePoolSummaryLifecycleStateTerminated {
+		if pool.LifecycleState == core.InstancePoolSummaryLifecycleStateTerminated || separatelyCheckedPool != "" && deref(pool.Id) == separatelyCheckedPool {
 			continue
 		}
 		members, err := list("external host pool members", func(page *string) ([]core.InstanceSummary, *string, error) {

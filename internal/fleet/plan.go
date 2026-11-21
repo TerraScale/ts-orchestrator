@@ -338,28 +338,6 @@ func observeRegion(ctx context.Context, region Region, quorum QuorumRead) (Repor
 		}
 	}
 	report.Checks = append(report.Checks, nodes(region, instances, subnetOf, subnetIDs[true], key("instance", "node")))
-	if quorum != nil {
-		management, err := f.ComputeManagement()
-		if err != nil {
-			return report, err
-		}
-		report.Checks = append(report.Checks, QuorumChecks(ctx, region, func(ctx context.Context) (map[string]string, error) {
-			if vcnError != nil {
-				return nil, vcnError
-			}
-			eligible, err := VerifyExternal(ctx, region, compute, management, network, vcn)
-			if err != nil {
-				return nil, err
-			}
-			for _, instance := range instances {
-				if instance.LifecycleState == core.InstanceLifecycleStateRunning && deref(instance.CompartmentId) == region.CompartmentID &&
-					region.owns("instance", "node", instance.FreeformTags) && subnetIDs[true] != "" && subnetOf[deref(instance.Id)] == subnetIDs[true] {
-					eligible[deref(instance.Id)] = deref(instance.DisplayName)
-				}
-			}
-			return eligible, nil
-		}, quorum)...)
-	}
 	nlbs, err := list("nlb", func(page *string) ([]networkloadbalancer.NetworkLoadBalancerSummary, *string, error) {
 		r, err := balancers.ListNetworkLoadBalancers(ctx, networkloadbalancer.ListNetworkLoadBalancersRequest{CompartmentId: compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
@@ -392,6 +370,28 @@ func observeRegion(ctx context.Context, region Region, quorum QuorumRead) (Repor
 	report.Checks = append(report.Checks, check("reserved address", collect(reserved, func(ip core.PublicIp) (item, string) {
 		return item{deref(ip.DisplayName) + " " + deref(ip.IpAddress), ip.FreeformTags, true, key("public-ip", "nlb")}, string(ip.LifecycleState)
 	}), false))
+	if quorum != nil {
+		management, err := f.ComputeManagement()
+		if err != nil {
+			return report, err
+		}
+		report.Checks = append(report.Checks, QuorumChecks(ctx, region, func(ctx context.Context) (map[string]string, error) {
+			if vcnError != nil {
+				return nil, vcnError
+			}
+			eligible, err := VerifyExternal(ctx, region, compute, management, network, vcn)
+			if err != nil {
+				return nil, err
+			}
+			for _, instance := range instances {
+				if instance.LifecycleState == core.InstanceLifecycleStateRunning && deref(instance.CompartmentId) == region.CompartmentID &&
+					region.owns("instance", "node", instance.FreeformTags) && subnetIDs[true] != "" && subnetOf[deref(instance.Id)] == subnetIDs[true] {
+					eligible[deref(instance.Id)] = deref(instance.DisplayName)
+				}
+			}
+			return eligible, nil
+		}, quorum)...)
+	}
 	return report, nil
 }
 

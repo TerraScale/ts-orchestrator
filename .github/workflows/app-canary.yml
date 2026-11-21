@@ -157,6 +157,9 @@ jobs:
           client-id: ${{ vars.OCI_TOKEN_EXCHANGE_CLIENT_ID }}
           client-secret: ${{ secrets.OCI_TOKEN_EXCHANGE_CLIENT_SECRET }}
 
+      - name: Observe the orchestrator on every registered host
+        run: dist/terrascale-orchestrator-linux-amd64 release hosts "$ORCHESTRATOR_REVISION"
+
       - name: Select the production release
         shell: bash
         env:
@@ -171,9 +174,6 @@ jobs:
             oras tag "$repo@$DIGEST" release
             test "$(oras resolve "$repo:release")" = "$DIGEST"
           done
-
-      - name: Observe the orchestrator on every registered host
-        run: dist/terrascale-orchestrator-linux-amd64 release hosts "$ORCHESTRATOR_REVISION"
 
       - name: Observe the pulled release over HTTPS
         env:

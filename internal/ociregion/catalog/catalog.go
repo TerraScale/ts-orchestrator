@@ -94,7 +94,7 @@ func Entries() []Entry { return append([]Entry(nil), entries[:]...) }
 
 func Founded() []Entry { return append([]Entry(nil), entries[:foundedCount]...) }
 
-var rollout = [foundedCount]string{SJC, FRA, GRU}
+var rollout = [foundedCount]string{GRU, FRA, SJC}
 
 func RolloutOrder() []string {
 	names := make([]string, 0, len(rollout))

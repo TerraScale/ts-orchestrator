@@ -30,7 +30,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
-	"github.com/TerraScale/ts-orchestrator/internal/regionmember"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -237,7 +236,6 @@ func serveManagerRole(ctx, lifetime context.Context, state string, plan hostPlan
 	serving, stop := context.WithCancel(ctx)
 	defer stop()
 	go regionhealth.Run(serving, state)
-	go regionmember.Serve(serving, state, node)
 	autoscaleDone := make(chan struct{})
 	go func() {
 		defer close(autoscaleDone)
@@ -417,7 +415,7 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 			if !swarmruntime.IsLeader(listed.Nodes, nodeID) {
 				return nil
 			}
-			managers, members := []string{}, []string{}
+			managers, members, hostnames := []string{}, []string{}, []string{}
 			for _, node := range listed.Nodes {
 				if node.Status.State != api.NodeStatus_READY {
 					continue
@@ -428,6 +426,9 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 				}
 				if node.ManagerStatus == nil {
 					continue
+				}
+				if node.Description != nil {
+					hostnames = append(hostnames, node.Description.Hostname)
 				}
 				managers = append(managers, node.ManagerStatus.Addr)
 				members = append(members, hostOf(node.ManagerStatus.Addr))
@@ -447,10 +448,17 @@ func publishJoin(ctx context.Context, state string, plan hostPlan, nodeID string
 				return err
 			}
 			stored.Managers, stored.Routes = managers, routes
-			return regionjoin.Publish(ctx, plan.region, stored)
+			if err := regionjoin.Publish(ctx, plan.region, stored); err != nil {
+				return err
+			}
+			cluster, err := swarmruntime.LocalClusterID(ctx, state)
+			if err != nil {
+				return err
+			}
+			return mesh.PublishSeeds(ctx, mesh.VaultRecords(), plan.region, cluster, hostnames)
 		}()
 		if err != nil {
-			slog.WarnContext(ctx, "region join material not published; retrying", "secret", regionjoin.SecretName(plan.region), "error", err)
+			slog.WarnContext(ctx, "region join material or mesh seeds not published; retrying", "region", plan.region, "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -648,7 +656,7 @@ func meshRoute(address string) string {
 }
 
 func meshCluster(plan hostPlan) mesh.Cluster {
-	cluster := mesh.Cluster{Worker: plan.admission.Role != "manager"}
+	cluster := mesh.Cluster{Worker: plan.admission.Role != "manager", Records: mesh.VaultRecords()}
 	cluster.VCN, _, _ = swarmruntime.VCNPrefix(plan.address, plan.vcnCIDR)
 	if plan.joiner() {
 		cluster.Routes = func(ctx context.Context, region string) ([]string, error) {

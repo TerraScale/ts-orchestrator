@@ -39,7 +39,7 @@ import sys
 repo, work = map(pathlib.Path, sys.argv[1:])
 catalog = repo / "internal/ociregion/catalog/catalog.go"
 content = catalog.read_text().replace("const foundedCount = 3", "const foundedCount = 1")
-content = content.replace("var rollout = [foundedCount]string{SJC, FRA, GRU}", "var rollout = [...]string{GRU}")
+content = content.replace("var rollout = [foundedCount]string{GRU, FRA, SJC}", "var rollout = [...]string{GRU}")
 target = work / "single-region-catalog.go"
 target.write_text(content)
 overlay = json.loads((work / "peers-overlay.json").read_text())

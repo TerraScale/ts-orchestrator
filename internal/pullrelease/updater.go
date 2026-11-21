@@ -189,6 +189,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 	}
 	u.considered = discovered
 	release, err := discovered.release, discovered.err
+	u.status.Candidate = nil
 	u.status.Checked = discovered.checked
 	if release.Seq != 0 {
 		if release.Seq < u.status.Seq || release.Seq == u.status.Seq && (u.status.Target == nil || u.status.Target.Tag() != release.Tag()) {
@@ -274,7 +275,7 @@ func (u *Updater) cycle(ctx context.Context) time.Duration {
 			reason = decided
 		}
 		if reason != "" {
-			u.status.Reason = reason
+			u.status.Candidate = &HeldCandidate{Tag: attested.Tag(), Revision: attested.SHA, Seq: attested.Seq, Reason: reason}
 			u.save(ctx)
 			return checkEvery
 		}
@@ -802,22 +803,21 @@ func (u *Updater) mirror(ctx context.Context, status Status) {
 
 func (u *Updater) admission(ctx context.Context, tag string) string {
 	order := catalog.RolloutOrder()
-	if !slices.Contains(order, u.Region) {
+	position := slices.Index(order, u.Region)
+	if position < 0 {
 		return "region has no reviewed binary rollout position"
 	}
 	if reason, err := u.store.failed(ctx, tag); err != nil || reason != "" {
 		return cmp.Or(reason, "rollout decision of "+tag+" unreadable: "+fmt.Sprint(err))
 	}
-	canary := order[0]
-	if u.Region == canary {
-		return ""
-	}
-	status, err := u.store.loadFromLeader(ctx, canary)
-	switch {
-	case err != nil:
-		return canary + ": rollout record unreadable: " + err.Error()
-	case status.Target == nil || status.Target.Tag() != tag || status.Phase != PhaseComplete || status.Done.IsZero() || !status.passed():
-		return canary + ": waiting for the canary region to pass the regional gate of the same release"
+	for _, earlier := range order[:position] {
+		status, err := u.store.loadFromLeader(ctx, earlier)
+		switch {
+		case err != nil:
+			return earlier + ": rollout record for " + tag + " unreadable: " + err.Error()
+		case status.Target == nil || status.Target.Tag() != tag || status.Phase != PhaseComplete || status.Done.IsZero() || !status.passed():
+			return earlier + ": waiting for the regional gate of " + tag
+		}
 	}
 	return ""
 }

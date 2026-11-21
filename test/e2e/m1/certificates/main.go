@@ -118,7 +118,7 @@ func fixtureCertificate(name string, key crypto.Signer, root *x509.Certificate, 
 	}
 	if name == "identity" {
 		leaf.Subject.OrganizationalUnit = []string{"opc-tenant:ocid1.tenancy.oc1..journey"}
-		leaf.DNSNames = []string{"auth.sa-saopaulo-1.oraclecloud.com", "secrets.vaults.sa-saopaulo-1.oci.oraclecloud.com", "acme-v02.api.letsencrypt.org"}
+		leaf.DNSNames = []string{"auth.sa-saopaulo-1.oraclecloud.com", "secrets.vaults.sa-saopaulo-1.oci.oraclecloud.com", "vaults.sa-saopaulo-1.oci.oraclecloud.com", "acme-v02.api.letsencrypt.org"}
 	}
 	der, err := x509.CreateCertificate(rand.Reader, leaf, root, key.Public(), signer)
 	if err != nil {

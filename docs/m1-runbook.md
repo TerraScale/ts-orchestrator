@@ -234,10 +234,74 @@ with its own SwarmKit node and its own NATS cluster (`internal/natscell/mesh`).
   regions' maps at start and every 30 s (`ts.svc.state`), so a region that
   was down catches up by itself. `regions` in a spec limits it (M1 specs: `["gru"]`).
 - Auto-deploy: ci.yml deploy/release-publish publishes attested binaries. Hosts
-  pull in sjc first; fra and gru follow together once sjc completed and passed its regional gate.
+  pull in gru first; fra then sjc wait for earlier regions to pass the same
+  release's gate once every region runs the GRU-first policy. See the
+  cutover prerequisites below.
 - Live check: `.github/workflows/multi-region.yml` (every 6 h, after main CI,
   or `gh workflow run multi-region.yml --ref main`) runs `ts-orch release
   mesh-check`: authenticated observations of every peer with RTTs, over each region’s native HTTPS endpoint; no service apply.
+
+### Cutover from SJC-first binaries
+
+The installed SJC-first updater admits GRU only after SJC passes the exact
+signed tag. Giving the new channel to GRU alone would leave it waiting for
+SJC. The release CLI has a fleet-wide publisher and no targeted signed
+install command. The private host install handler verifies the signature
+and runs its local stop guard. The regional updater owns the fleet restart
+lease and regional gate. The SSH installer checks a supplied checksum and
+restarts units directly, outside that release sequence.
+
+A GRU-first production cutover needs a signed path reachable by the
+installed fleet. A separately runnable operator component could reuse the
+updater's signed channel checks, regional gate and host probation only if it
+has exclusive regional rollout ownership. The installed owner renews its
+JetStream lease autonomously. The current announcement only asks that owner
+to discover the pointer, and the installed updater exposes no authorized
+handoff to another release controller. A second process using the same
+owner identity would share ownership with the old process. A different
+identity would have to wait for the old lease to expire. Neither gives an
+exclusive handoff from the running owner.
+
+The missing prerequisite is a reviewed, signed activation and exclusive
+ownership transfer that the installed fleet can honor before it sees the
+cutover tag. The bridge must reuse the updater's fleet restart lease,
+regional gate and probation and verify current JetStream membership,
+leadership and surviving quorum at each restart. Current SJC probation and
+its reported metadata membership refusal need a separate verified recovery
+plan before SJC can finish the roll.
+
+The local transition journey shows the ordinary SJC-first channel can
+carry one signed cutover build when SJC is healthy. After SJC passes, FRA
+and GRU resume their persisted rolls across binary restarts. The next tag
+passes in GRU, FRA, SJC order. Using that first lab sequence in production
+would start SJC first. Keep this sequence for local proof only.
+
+During any approved cutover, keep signed TerraBase, ts-auth, ts-dashboard
+and app-canary selections pinned. Let in-flight applies settle and hold
+manual multi-region app changes. An old SJC Auth or Dashboard receiver can
+start a new generation before GRU serves it. Keep the current registry
+publication policy in place until the host and policy checks below pass.
+
+Confirm the cutover revision and digest on every registered host, the same
+tag's successful regional gates, and GRU-first policy from every targeted
+mesh region before moving app selections or changing publication policy.
+The app-canary workflow stages images before its host check and moves the
+selection only after every registered host confirms the orchestrator build.
+The pull-update transition scenario exercises both releases against local
+signed channels, starting with the SJC-first updater built from the base
+revision.
+
+For merge-to-ready timing, match the merged revision and release in the
+deployment observation or its deployment-lag log. Read `pull.passed` for
+the binary or `apps.<service>.passed_at` for an app. The GRU timestamp gives
+the first regional gate. The latest timestamp for the same release across its targets
+gives the fleet gate. For apps match the selected digest, signed revision
+and placement generation to the running task rows. The deployment-lag log
+also records binary host readiness, app task state and gate or rollback
+reasons. A held binary appears as `pull.candidate` with its own tag. A held
+signed app appears under `apps.<service>.admission` with its generation and
+release identity. The earlier admitted release retains its own pass time.
+Compare the timestamps with the recorded main merge time.
 
 ### Infrastructure
 
@@ -388,7 +452,7 @@ regions.json PR. The compartment and network stay (free).
 
 OCI nodes configure 0.0.0.0:4242 and advertise their private VCN address, including workers that may be promoted. Only managers bind SwarmKit's remote API. Restarted managers use that address too, including promoted workers. At every manager start its Raft member address is re-registered with the existing cluster.
 
-Every manager runs the regional health, dashboard, member and release relay services. A release preserves every existing role. Each region leader's OCI reconcile `nodes` pass admits every joined node that has no instance label, the founder included: it matches the node's hostname to exactly one running regional instance (pool-owned or a declared external host) whose primary VNIC address the node connects from, then writes the node's name and its `terrascale.instance-id`, `terrascale.region`, `terrascale.host-role` (`manager` or `container`) and `terrascale.execution-scope` labels. Each verified node is admitted on its own; a record no instance verifies (a terminated instance, a duplicate name) is logged and holds node scaling with the refusal `unadmitted`, never the others' admission. Grow a region to three voting managers by hand from any mesh host, ts-gru-1 included: `sudo ts-orch member promote --region <region>`. The request travels over the mesh as the root CLI's ORCH user; only that region's Raft leader answers, and other NATS accounts and users cannot reach it. Each call promotes exactly one eligible worker (admitted container role, named, READY, active, not draining, oldest first) and returns once it is a Raft voter that is transport-reachable and whose match index reached the leader's commit index; SwarmKit's own join health check refuses a voter the leader cannot reach over the Raft transport. It refuses when the region already has 3 voters, when any role change is in flight or any voter is not ready, reachable and caught up, and when another membership change holds the leader's membership lock. Run it twice to go from 1 to 3 voters; nothing promotes, demotes or replaces managers automatically, so the operator can stop after any step. A promotion that does not settle within 2 minutes is reported and left as it is; resolve it (`member ls --region <region>`, `member leave <host>` on the leader) before the next one. A region with one host keeps serving as before.
+Every manager runs the regional health, dashboard and release relay services. A release preserves every existing role. Run `ts-orch member promote` explicitly on the Raft leader to grow a region to three managers. One manager needs two eligible workers; two managers need one. Only READY, active, accepted container workers are eligible, oldest first. Every existing manager must be READY and Raft-reachable with its role change complete before another promotion begins. Each promotion waits for the new manager's role and Raft reachability before advancing. A failed operation stops; an operator must resolve the failure before requesting another change. A region with one host keeps serving as before.
 
 The leader publishes sorted `managers` (`<private address>:4242`) and `routes` (`nats://<private address>:6222`) for READY managers while preserving `founder` and `workerToken`. Role changes switch regional services and rebuild the local mesh with the corresponding manager or worker duties. Vault failures are logged and publication runs again after 30 seconds. On the leader, `ts-orch member leave <host>` refuses pending role changes, leader removal, and any demotion whose remaining READY, reachable managers cannot retain the original majority. Promote replacements before attempting an unsafe departure. A safe departure demotes and drains one manager, waits for its worker role, and removes it after its tasks stop. Operator membership commands serialize on the leader.
 
@@ -403,8 +467,7 @@ The host NSG admits VCN traffic and the edge NSG opens neither 4242/tcp (SwarmKi
 Check and leave, on the manager:
 
 ```
-sudo ts-orch member ls                  # HOSTNAME NAME ROLE HOST-ROLE RAFT STATUS AVAILABILITY ADDRESS, then the voter count
-sudo ts-orch member ls --region sjc     # the same table from sjc's Raft leader, over the mesh
+sudo ts-orch member ls                  # HOSTNAME ROLE STATUS AVAILABILITY ADDRESS; the worker shows READY
 sudo ts-orch member leave <hostname>    # drain, wait until its tasks stop (max 5 min), remove
 ```
 

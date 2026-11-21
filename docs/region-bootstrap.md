@@ -305,8 +305,9 @@ The next region gets its host with `ts-orch region add`
 
 ## Regional quorum gate
 
-After the regional hosts have joined, run these commands on a manager in the
-region being rebuilt (GRU shown):
+After the regional hosts have joined, run these commands on the SwarmKit Raft
+leader in the region being rebuilt (GRU shown). The promotion command promotes
+eligible workers until three managers are ready.
 
 ```sh
 ts-orch member promote

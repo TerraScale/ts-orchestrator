@@ -65,7 +65,7 @@ type Pass struct {
 	Nodes
 	Ownership      ociresource.Ownership
 	Out            ociresource.Out
-	VerifyCapacity func(context.Context) error
+	VerifyCapacity func(context.Context, string) (map[string]string, error)
 }
 
 func (p Pass) tags(kind, name string) map[string]string {
@@ -110,7 +110,7 @@ func (p Pass) Run(ctx context.Context) error {
 }
 
 func (p Pass) complete(ctx context.Context, pool core.InstancePool, instances []core.InstanceSummary) error {
-	if err := p.VerifyCapacity(ctx); err != nil {
+	if _, err := p.VerifyCapacity(ctx, ""); err != nil {
 		return err
 	}
 	if err := p.volumes(ctx, instances); err != nil {
@@ -125,6 +125,10 @@ func (p Pass) complete(ctx context.Context, pool core.InstancePool, instances []
 	if len(bound) < p.Min {
 		return fmt.Errorf("instance pool %s has %d bound running instances, below minimum %d", deref(pool.Id), len(bound), p.Min)
 	}
+	external, err := p.VerifyCapacity(ctx, deref(pool.Id))
+	if err != nil {
+		return err
+	}
 	got, err := p.Management.GetInstancePool(ctx, core.GetInstancePoolRequest{InstancePoolId: pool.Id})
 	if err != nil {
 		return err
@@ -135,6 +139,9 @@ func (p Pass) complete(ctx context.Context, pool core.InstancePool, instances []
 	}
 	var running []string
 	for _, instance := range current {
+		if host, found := external[deref(instance.Id)]; found {
+			return fmt.Errorf("external host %s (%s): belongs to instance pool %s", host, deref(instance.Id), deref(pool.Id))
+		}
 		if deref(instance.State) == runningInstance {
 			running = append(running, deref(instance.Id))
 		}
@@ -144,7 +151,7 @@ func (p Pass) complete(ctx context.Context, pool core.InstancePool, instances []
 		return fmt.Errorf("instance pool %s members changed before compute completed: running %v at size %d, this pass bound %v",
 			deref(pool.Id), running, deref(got.Size), bound)
 	}
-	return p.VerifyCapacity(ctx)
+	return nil
 }
 
 func (p Pass) configuration(ctx context.Context) (string, []string, error) {
@@ -290,7 +297,7 @@ func (p Pass) pool(ctx context.Context, configuration string) (core.InstancePool
 				AvailabilityDomain: common.String(place.AvailabilityDomain), FaultDomains: place.FaultDomains, PrimarySubnetId: &p.SubnetID})
 		}
 		if p.VerifyCapacity != nil {
-			if err := p.VerifyCapacity(ctx); err != nil {
+			if _, err := p.VerifyCapacity(ctx, ""); err != nil {
 				return core.InstancePool{}, err
 			}
 		}
@@ -342,7 +349,7 @@ func (p Pass) pool(ctx context.Context, configuration string) (core.InstancePool
 		if got.Etag == nil || *got.Etag == "" || pool.LifecycleState != core.InstancePoolLifecycleStateRunning {
 			return core.InstancePool{}, fmt.Errorf("instance pool %s has no stable RUNNING revision; refusing update", deref(pool.Id))
 		}
-		if err := p.VerifyCapacity(ctx); err != nil {
+		if _, err := p.VerifyCapacity(ctx, ""); err != nil {
 			return core.InstancePool{}, err
 		}
 		revision = got.Etag

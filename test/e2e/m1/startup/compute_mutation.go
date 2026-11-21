@@ -190,8 +190,8 @@ func computeMutationJourney(ctx context.Context, region fleet.Region, factory *o
 					err = json.NewDecoder(response.Body).Decode(&launch)
 					return launch, err
 				}},
-			VerifyCapacity: func(ctx context.Context) error {
-				return fleet.RecheckExternal(ctx, region, clients.Compute, clients.Management, network, "regional-vcn", external)
+			VerifyCapacity: func(ctx context.Context, separatelyCheckedPool string) (map[string]string, error) {
+				return fleet.RecheckExternal(ctx, region, clients.Compute, clients.Management, network, "regional-vcn", external, separatelyCheckedPool)
 			}}
 		if scenario == "no-external-replaced" {
 			pass.VerifyCapacity = nil

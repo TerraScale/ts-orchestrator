@@ -26,13 +26,12 @@ Hosts discover the newest attested orchestrator release. CI publishes binaries,
 qualification and Sigstore provenance; hosts verify the workflow, main source,
 transparency evidence and exact binary digest before installation.
 
-The region list is `catalog.RolloutOrder` (sjc, fra, gru), written once in the
-region catalog. App releases (TerraBase, ts-auth, ts-dashboard) follow it one
-region after another. Orchestrator binaries use it in two phases: its first
-entry, sjc, is the canary; fra and gru take a tag only after sjc records that
-exact tag complete in the fabric pull store and passes its regional health
-gate, and then roll out at the same time. A tag that any region is rolling back
-or has rolled back is held by every region that has not started it.
+The region list is `catalog.RolloutOrder` (gru, fra, sjc). Multi-region apps
+and orchestrator binaries roll one region at a time in that order. A binary
+rollout waits for each earlier region to record the exact tag complete and
+pass its regional health gate in the fabric pull store. A tag that any
+region is rolling back or has rolled back is held by every region that has
+yet to start it. Registry staging and host prefetch can run in parallel.
 Hosts update one at a time inside their region. The completion timestamp is persisted; a new owner restarts any unfinished
 bake before recording its verdict, and a passed gate keeps its end time. During
 the bake the leader checks every host and regional health; a failed bake starts
@@ -429,17 +428,15 @@ from a fresh read and use its ETag, so a concurrent increase cannot become
 a reduction. Regions without external hosts (sjc, fra) run none of these
 checks and keep the plain compute pass.
 
-Provisioning does not prove voting readiness. An operator promotes all three
-hosts to voting managers one at a time (`ts-orch member promote --region
-<region>`, from any mesh host), then runs `ts-orch region quorum <label>` on a host
-connected to that region's environment mesh. This is the rebuild's quorum
+After provisioning, run `ts-orch member promote` on the regional Raft leader
+to promote eligible workers to three voting managers. Then run
+`ts-orch region quorum <label>` on a host connected to the region's environment
+mesh. This is the rebuild's quorum
 gate and exits unsuccessfully until `swarm quorum` is `ok`. The explicit gate,
 and plan/status for a region with external hosts, read live SwarmKit membership
-after the region's OCI inventory and external-host checks finish, and decide on
-that read alone,
-through dedicated quorum requests on the existing NATS health subject and
-require at least 3 distinct node IDs, OCI instance IDs
-and hostnames. Each must be a current and desired manager, READY and
+through dedicated quorum requests on the existing NATS health subject after the
+region's OCI inventory and external-host checks finish. The gate requires
+at least 3 distinct node IDs, OCI instance IDs and hostnames. Each must be a current and desired manager, READY and
 Raft-reachable, with the region's admission label and an identity matching a
 RUNNING regional pool host in the private subnet or a verified external host.
 A worker-only external host never supplies a vote. Missing membership or an

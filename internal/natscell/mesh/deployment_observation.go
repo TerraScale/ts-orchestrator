@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/appregistry"
@@ -72,9 +73,16 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 			continue
 		}
 		app := releasepush.AppDeployment{Host: n.cfg.server}
-		entry := (*desired)[target.Service].entry()
+		state := (*desired)[target.Service]
+		entry := state.entry()
 		if entry.Spec != nil {
 			app.Placement = &releasepush.Placement{Generation: entry.Generation, RollbackOf: entry.RollbackOf, Regions: entry.Spec.Regions}
+		}
+		n.admissionMu.Lock()
+		decision := n.admission[target.Service]
+		n.admissionMu.Unlock()
+		if d := decision.Deployment; d != nil && decision.Generation >= entry.Generation && decision.Evidence != "admitted" {
+			app.Admission = &releasepush.AppAdmission{Generation: decision.Generation, Image: d.Image, Revision: d.Revision, RunID: d.RunID, Attempt: d.RunAttempt, Earlier: decision.Earlier, Reason: decision.Evidence}
 		}
 		services, err := client.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{target.Service}}})
 		if err != nil {
@@ -112,7 +120,13 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 			continue
 		}
 		for _, task := range tasks.Tasks {
+			failed := task.Status.State == api.TaskStateFailed || task.Status.State == api.TaskStateRejected
+			current := task.Status.State == api.TaskStateRunning || task.DesiredState == api.TaskStateRunning
+			if !failed && !current {
+				continue
+			}
 			row := releasepush.DeploymentTask{ID: task.ID, Host: hosts[task.NodeID], State: task.Status.State.String(), Error: secretpreflight.Scrub(task.Status.Err), StatusAt: swarmruntime.TaskTime(task)}
+			row.Generation, _ = strconv.ParseInt(task.ServiceAnnotations.Labels[swarmruntime.LabelGeneration], 10, 64)
 			if !row.StatusAt.IsZero() {
 				row.StatusAgeSeconds = max(0, int64(time.Since(row.StatusAt).Seconds()))
 			}
@@ -120,22 +134,28 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 			if task.Status.State != api.TaskStateRunning && row.Reason == "" {
 				row.Reason = secretpreflight.Scrub(task.Status.Message)
 			}
-			if task.Status.State == api.TaskStateFailed || task.Status.State == api.TaskStateRejected {
-				app.FailedTasks = append(app.FailedTasks, row)
-			}
-			if task.Status.State != api.TaskStateRunning && task.DesiredState != api.TaskStateRunning {
-				continue
-			}
 			container, err := swarmruntime.DecodeContainer(task)
-			if err == nil && task.Status.State == api.TaskStateRunning {
+			if err == nil {
 				row.Image = container.Image
-				row.Revision, err = swarmruntime.ImageRevision(ctx, swarmruntime.HostContainerdSocket, container.Image)
+				if task.Status.State == api.TaskStateRunning {
+					row.Revision, err = swarmruntime.ImageRevision(ctx, swarmruntime.HostContainerdSocket, container.Image)
+				} else {
+					var deployment Deployment
+					if json.Unmarshal([]byte(task.ServiceAnnotations.Labels[swarmruntime.LabelDeployment]), &deployment) == nil && appregistry.SameDigest(deployment.Image, container.Image) {
+						row.Revision = deployment.Revision
+					}
+				}
 			}
-			if err != nil {
+			if err != nil && current {
 				app.Error = "task revision unavailable: " + err.Error()
 			}
-			app.Failed = app.Failed || task.Status.State == api.TaskStateFailed || task.Status.State == api.TaskStateRejected
-			app.Tasks = append(app.Tasks, row)
+			if failed {
+				app.FailedTasks = append(app.FailedTasks, row)
+			}
+			if current {
+				app.Failed = app.Failed || failed
+				app.Tasks = append(app.Tasks, row)
+			}
 		}
 		if entry.Spec != nil && entry.Spec.RunsIn(n.cfg.region) {
 			generation := entry.Generation
@@ -154,7 +174,11 @@ func (n *Node) observeDeployments() releasepush.DeploymentObservation {
 				app.Error = "bake record unreadable: " + err.Error()
 			}
 			if err == nil {
-				app.Complete = !record.Bake.Finished.IsZero() && record.Bake.Reason == "" && !record.Bake.Unsaved && entry.RollbackOf == 0
+				identity, identityErr := bakeIdentity(state)
+				app.Complete = identityErr == nil && record.Identity == identity && !record.Bake.Finished.IsZero() && record.Bake.Reason == "" && !record.Bake.Unsaved && entry.RollbackOf == 0
+				if app.Complete {
+					app.PassedAt = record.Bake.Finished
+				}
 				if !app.Complete && app.Reason == "" {
 					app.Reason = "regional bake has not completed"
 				}

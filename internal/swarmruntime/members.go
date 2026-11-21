@@ -1,76 +1,38 @@
 package swarmruntime
 
 import (
-	"cmp"
 	"context"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/moby/swarmkit/v2/api"
 )
 
 type Member struct {
-	Hostname     string `json:"hostname"`
-	Name         string `json:"name"`
-	Role         string `json:"role"`
-	HostRole     string `json:"host_role"`
-	Reachability string `json:"reachability"`
-	State        string `json:"state"`
-	Availability string `json:"availability"`
-	Address      string `json:"address"`
+	Hostname, Role, State, Availability, Address string
 }
 
-type MemberList struct {
-	Members   []Member `json:"members"`
-	Voters    int      `json:"voters"`
-	Reachable int      `json:"reachable"`
-}
-
-func (l MemberList) Quorum() string {
-	return fmt.Sprintf("voters: %d of %d, %d Raft-reachable; quorum needs %d", l.Voters, VotingManagers, l.Reachable, l.Voters/2+1)
-}
-
-func ListMembers(ctx context.Context, client api.ControlClient) (MemberList, error) {
+func ListMembers(ctx context.Context, client api.ControlClient) ([]Member, error) {
 	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 	if err != nil {
-		return MemberList{}, err
+		return nil, err
 	}
-	var list MemberList
+	members := make([]Member, 0, len(listed.Nodes))
 	for _, node := range listed.Nodes {
-		member := Member{Name: node.Spec.Annotations.Name, Role: strings.ToLower(node.Role.String()), HostRole: node.Spec.Annotations.Labels[LabelHostRole],
-			Reachability: "-", State: node.Status.State.String(), Availability: node.Spec.Availability.String(), Address: node.Status.Addr}
+		member := Member{Role: strings.ToLower(node.Role.String()), State: node.Status.State.String(),
+			Availability: node.Spec.Availability.String(), Address: node.Status.Addr}
 		if node.Description != nil {
 			member.Hostname = node.Description.Hostname
 		}
 		if node.ManagerStatus != nil {
 			member.Address = node.ManagerStatus.Addr
-			member.Reachability = strings.ToLower(node.ManagerStatus.Reachability.String())
-			list.Voters++
-			if node.ManagerStatus.Reachability == api.RaftMemberStatus_REACHABLE {
-				list.Reachable++
-			}
 		}
-		list.Members = append(list.Members, member)
+		members = append(members, member)
 	}
-	slices.SortFunc(list.Members, func(a, b Member) int { return strings.Compare(a.Hostname, b.Hostname) })
-	return list, nil
-}
-
-func (l MemberList) Write(output io.Writer) error {
-	table := tabwriter.NewWriter(output, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "HOSTNAME\tNAME\tROLE\tHOST-ROLE\tRAFT\tSTATUS\tAVAILABILITY\tADDRESS")
-	for _, m := range l.Members {
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", m.Hostname, cmp.Or(m.Name, "-"), m.Role, cmp.Or(m.HostRole, "-"), m.Reachability, m.State, m.Availability, m.Address)
-	}
-	if err := table.Flush(); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintln(output, l.Quorum())
-	return err
+	slices.SortFunc(members, func(a, b Member) int { return strings.Compare(a.Hostname, b.Hostname) })
+	return members, nil
 }
 
 func RemoveMember(ctx context.Context, client api.ControlClient, hostname string, guard func(context.Context) error) error {

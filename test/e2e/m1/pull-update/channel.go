@@ -252,7 +252,7 @@ func (l *lane) receive() {
 	verifier := releasepush.NewVerifier()
 	verifier.JWKSURL = l.github.server.URL + "/jwks"
 	l.receivers = map[string]*httptest.Server{}
-	for _, region := range []string{"sjc", "fra", "gru"} {
+	for _, region := range []string{"gru", "fra", "sjc"} {
 		handler := &releasepush.Handler{Verifier: verifier, Discover: func(ctx context.Context) (releasepush.Discovery, error) {
 			return pullrelease.Ask(ctx, l.conn, region)
 		}}
@@ -269,7 +269,7 @@ func (l *lane) publishChannel(ctx context.Context, release channelRelease) map[s
 	channel, err := releaseattest.ParseChannel(release.signed.Document)
 	must(err)
 	discoveries := map[string]releasepush.Discovery{}
-	for _, region := range []string{"sjc", "fra", "gru"} {
+	for _, region := range []string{"gru", "fra", "sjc"} {
 		moved := l.write(ctx, region, release)
 		discovery, err := l.announce(ctx, region, release)
 		must(err)
@@ -293,7 +293,7 @@ func (l *lane) publishBeforeReceivers(ctx context.Context, release channelReleas
 		}
 		return releasepush.Report(discovery, seq, moved, output)
 	}
-	for _, region := range []string{"sjc", "fra", "gru"} {
+	for _, region := range []string{"gru", "fra", "sjc"} {
 		var output bytes.Buffer
 		ocirelease.Announced(ctx, announce, region, channel.Seq, l.write(ctx, region, release), io.MultiWriter(os.Stdout, &output))
 		require(strings.Contains(output.String(), ocirelease.ErrNoReceiver.Error()), "%s: an edge without the release receiver must leave the publish in place: %s", region, output.String())
@@ -322,14 +322,55 @@ func (l *lane) seqs(id string) string {
 	return metrics.String()
 }
 
+func (l *lane) transition(ctx context.Context) {
+	for _, region := range []string{"sjc", "fra", "gru"} {
+		l.waitStatus(ctx, region, region+" adopts the signed boot binary", complete(l.first.published))
+	}
+	cutover := l.channelRelease(101, "101", l.self, l.self)
+	l.publishChannel(ctx, cutover)
+	for _, region := range []string{"fra", "gru"} {
+		l.waitStatus(ctx, region, region+" still uses the old SJC-first gate", func(s pullrelease.Status) bool {
+			require(s.Target == nil || s.Target.Tag() != cutover.tag, "%s took the cutover release before SJC passed:\n%s", region, s)
+			return strings.HasPrefix(s.Reason, "sjc: waiting for the canary region")
+		})
+	}
+	sjc := l.waitStatus(ctx, "sjc", "sjc passes the cutover release", passed(cutover.published))
+	cutoverPass := map[string]time.Time{"sjc": sjc.Passed}
+	for _, region := range []string{"fra", "gru"} {
+		status := l.waitStatus(ctx, region, region+" passes the cutover release", passed(cutover.published))
+		require(!started(status).IsZero() && !started(status).Before(sjc.Passed), "%s started the cutover ahead of sjc's gate:\n%s", region, status)
+		cutoverPass[region] = status.Passed
+	}
+	l.requireVersions(ctx, cutover.digest, l.region("gru", "fra", "sjc")...)
+	fmt.Printf("cutover %s: old SJC-first owners admitted SJC first, then all nine hosts confirmed the new binary\n", cutover.tag)
+
+	binary := l.candidate("post-cutover")
+	next := l.channelRelease(102, "102", binary, binary)
+	l.publishChannel(ctx, next)
+	for _, region := range []string{"fra", "sjc"} {
+		waiting := l.waitStatus(ctx, region, region+" records the next candidate separately from its prior pass", func(s pullrelease.Status) bool {
+			return holds(s, next.published, "waiting for the regional gate")
+		})
+		require(passed(cutover.published)(waiting) && waiting.Passed.Equal(cutoverPass[region]) && waiting.Candidate.Seq == 102,
+			"%s changed the cutover tag's pass while waiting to admit %s:\n%s", region, next.tag, waiting)
+	}
+	gru := l.waitStatus(ctx, "gru", "gru passes the first post-cutover release", passed(next.published))
+	fra := l.waitStatus(ctx, "fra", "fra passes the first post-cutover release", passed(next.published))
+	sjc = l.waitStatus(ctx, "sjc", "sjc passes the first post-cutover release", passed(next.published))
+	ordered(gru, fra, sjc)
+	l.requireVersions(ctx, next.digest, l.region("gru", "fra", "sjc")...)
+	require(l.offline.calls.Load() == 0, "the transition made %d GitHub calls", l.offline.calls.Load())
+	fmt.Printf("post-cutover %s: signed release passed in GRU, then FRA, then SJC; every host confirmed its digest; zero GitHub calls\n%s\n", next.tag, strings.Join(slices.Concat(gru.Timeline(), fra.Timeline(), sjc.Timeline()), "\n"))
+}
+
 func (l *lane) channel(ctx context.Context) {
 	base := hex.EncodeToString(sha256Of(l.self))
 	r100 := l.first
-	for _, region := range []string{"sjc", "fra", "gru"} {
+	for _, region := range []string{"gru", "fra", "sjc"} {
 		l.waitStatus(ctx, region, region+" records "+r100.tag+" from its channel", complete(r100.published))
 	}
-	l.requireVersions(ctx, base, l.region("sjc", "fra", "gru")...)
-	for _, id := range l.region("sjc", "fra", "gru") {
+	l.requireVersions(ctx, base, l.region("gru", "fra", "sjc")...)
+	for _, id := range l.region("gru", "fra", "sjc") {
 		require(strings.Contains(l.seqs(id), "ts_orch_release_installed_seq 100\n"), "%s must record channel seq 100 for the binary it runs:\n%s", id, l.seqs(id))
 	}
 	fmt.Println("channel seq 100 names the running binary: every host records seq 100 without a restart")
@@ -340,61 +381,61 @@ func (l *lane) channel(ctx context.Context) {
 	r117 := l.channelRelease(117, "117", large, large)
 	forged := r117
 	forged.signed.Bundle = l.channelRelease(118, "117", large, large).signed.Bundle
-	l.pushRaw(ctx, "sjc", forged)
-	unsigned := l.waitStatus(ctx, "sjc", "sjc refuses the channel document its bundle does not sign", func(s pullrelease.Status) bool {
+	l.pushRaw(ctx, "gru", forged)
+	unsigned := l.waitStatus(ctx, "gru", "gru refuses the channel document its bundle does not sign", func(s pullrelease.Status) bool {
 		return strings.Contains(s.Reason, "channel document seq 117 differs from its attestation")
 	})
 	require(unsigned.Phase == pullrelease.PhaseComplete && unsigned.Target != nil && unsigned.Target.Tag() == r100.tag && unsigned.Seq == 100 && unsigned.Channel == 100 && !slices.Contains(unsigned.Bad, r117.tag),
 		"an unsigned channel document must change nothing but the reason: %+v", unsigned)
 	fmt.Printf("channel document naming %s with a bundle that does not sign it refused without marking the release: %s\n", r117.tag, unsigned.Reason)
 
-	worker := l.hosts["sjc-w"]
+	worker := l.hosts["gru-w"]
 	worker.holdRestart()
 	worker.kill()
 	l.publishChannel(ctx, r117)
-	waiting := l.waitStatus(ctx, "sjc", "an unavailable worker holds the first region", func(s pullrelease.Status) bool {
+	waiting := l.waitStatus(ctx, "gru", "an unavailable worker holds the first region", func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseWaiting && s.Target != nil && s.Target.Tag() == r117.tag && strings.Contains(s.Reason, "does not answer")
 	})
-	l.requireVersions(ctx, base, l.region("fra", "gru")...)
+	l.requireVersions(ctx, base, l.region("fra", "sjc")...)
 	worker.releaseRestart()
-	for _, region := range []string{"fra", "gru"} {
+	for _, region := range []string{"fra", "sjc"} {
 		l.waitStatus(ctx, region, region+" completes "+r117.tag+" after the worker returns", complete(r117.published))
 	}
-	l.requireVersions(ctx, r117.digest, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, r117.digest, l.region("gru", "fra", "sjc")...)
 	fmt.Printf("unavailable first-region worker blocks later regions; return permits the ordered rollout\n%s\n", waiting)
 	fmt.Printf("release %s with %d MiB of change over the installed binary installed from each region's channel after its forged document was refused\n", r117.tag, len(padding)>>20)
 
 	before := l.starts()
-	l.pushRaw(ctx, "sjc", r100)
-	replayed := l.waitStatus(ctx, "sjc", "sjc refuses the replayed channel seq 100", func(s pullrelease.Status) bool {
+	l.pushRaw(ctx, "gru", r100)
+	replayed := l.waitStatus(ctx, "gru", "gru refuses the replayed channel seq 100", func(s pullrelease.Status) bool {
 		return strings.Contains(s.Reason, "channel seq 100 ("+r100.tag+") is not newer than the region's seq 117")
 	})
 	require(replayed.Target != nil && replayed.Target.Tag() == r117.tag && replayed.Channel == 117 && !slices.Contains(replayed.Bad, r100.tag),
 		"a replayed channel document must change nothing but the reason: %+v", replayed)
-	direct := l.ask(ctx, "gru-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: l.channelReleaseOf(ctx, "gru", r100)})
+	direct := l.ask(ctx, "sjc-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: l.channelReleaseOf(ctx, "sjc", r100)})
 	require(direct.Refusal != nil && direct.Refusal.Kind == releasepush.RefusalIntegrity && strings.Contains(direct.Refusal.Reason, "channel seq 100 (") && strings.Contains(direct.Refusal.Reason, "not newer than the installed seq 117"),
-		"gru-w must refuse the replayed seq itself, replied %+v", direct)
+		"sjc-w must refuse the replayed seq itself, replied %+v", direct)
 	fmt.Printf("replayed channel seq 100 refused: region %q; host %q\n", replayed.Reason, direct.Refusal.Reason)
 
 	c119 := l.candidate("c119")
 	tampered := l.channelRelease(119, "119", c119, append(bytes.Clone(c119[:len(c119)-1]), c119[len(c119)-1]^1))
-	l.pushRaw(ctx, "sjc", tampered)
-	status := l.waitStatus(ctx, "sjc", "sjc refuses the tampered artifact", func(s pullrelease.Status) bool {
+	l.pushRaw(ctx, "gru", tampered)
+	status := l.waitStatus(ctx, "gru", "gru refuses the tampered artifact", func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseRefused && s.Target != nil && s.Target.Tag() == tampered.tag
 	})
 	require(strings.Contains(status.Reason, "differs from its attestation"), "the tampered artifact refusal lacks its reason: %s", status.Reason)
 	fmt.Printf("tampered artifact refused: %s\n", status.Reason)
 
-	l.requireVersions(ctx, r117.digest, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, r117.digest, l.region("gru", "fra", "sjc")...)
 	require(slices.Equal(sortedStarts(before), sortedStarts(l.starts())), "no host may restart for a refused channel document: %v -> %v", before, l.starts())
-	for _, id := range l.region("sjc", "fra", "gru") {
+	for _, id := range l.region("gru", "fra", "sjc") {
 		require(strings.Contains(l.seqs(id), "ts_orch_release_installed_seq 117\n"), "%s must report installed seq 117:\n%s", id, l.seqs(id))
 	}
-	for _, id := range []string{"fra-m", "gru-n"} {
+	for _, id := range []string{"fra-m", "sjc-n"} {
 		require(strings.Contains(l.seqs(id), "ts_orch_release_channel_seq 117\n"), "%s must report channel seq 117:\n%s", id, l.seqs(id))
 	}
 	issued := 0
-	for _, region := range []string{"sjc", "fra", "gru"} {
+	for _, region := range []string{"gru", "fra", "sjc"} {
 		issued += int(l.registries[region].issued.Load())
 	}
 	require(issued > 0, "hosts must read their channel with registry tokens from signed requests")
@@ -407,32 +448,32 @@ func (l *lane) channel(ctx context.Context) {
 func (l *lane) discoverDuringInstall(ctx context.Context, r117 channelRelease) {
 	c120, c121 := l.candidate("c120"), l.candidate("c121")
 	r120, r121 := l.channelRelease(120, "120", c120, c120), l.channelRelease(121, "121", c121, c121)
-	hold := l.registries["sjc"].hold(c120)
+	hold := l.registries["gru"].hold(c120)
 	l.publishChannel(ctx, r120)
 	select {
 	case <-hold.arrived:
 	case <-ctx.Done():
-		panic("no sjc host downloaded " + r120.tag)
+		panic("no gru host downloaded " + r120.tag)
 	}
-	installing := l.waitStatus(ctx, "sjc", "sjc's owner waits on its install request for "+r120.tag, func(s pullrelease.Status) bool {
+	installing := l.waitStatus(ctx, "gru", "gru's owner waits on its install request for "+r120.tag, func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseRolling && s.Target != nil && s.Target.Tag() == r120.tag && slices.ContainsFunc(s.Hosts, func(row pullrelease.HostProgress) bool { return row.State == pullrelease.HostInstalling })
 	})
-	fmt.Printf("sjc's owner %s is inside the install request of %s; the lane holds its download\n", installing.Owner, r120.tag)
+	fmt.Printf("gru's owner %s is inside the install request of %s; the lane holds its download\n", installing.Owner, r120.tag)
 	discoveries := l.publishChannel(ctx, r121)
-	replayed := l.pushRaw(ctx, "sjc", r117)
-	require(replayed.Seq == 117, "sjc's owner must read the replayed channel: %+v", replayed)
-	restored := l.pushRaw(ctx, "sjc", r121)
-	require(restored.Seq == 121 && restored.Discovered.Equal(discoveries["sjc"].Discovered),
-		"a replayed older channel must not re-stamp %s: first seen %s, after the replay %s", r121.tag, discoveries["sjc"].Discovered, restored.Discovered)
+	replayed := l.pushRaw(ctx, "gru", r117)
+	require(replayed.Seq == 117, "gru's owner must read the replayed channel: %+v", replayed)
+	restored := l.pushRaw(ctx, "gru", r121)
+	require(restored.Seq == 121 && restored.Discovered.Equal(discoveries["gru"].Discovered),
+		"a replayed older channel must not re-stamp %s: first seen %s, after the replay %s", r121.tag, discoveries["gru"].Discovered, restored.Discovered)
 	fmt.Printf("an older signed channel replayed and %s restored before adoption keep its first sighting %s\n", r121.tag, restored.Discovered.Format(time.RFC3339Nano))
 	close(hold.release)
-	done := l.waitStatus(ctx, "sjc", "sjc completes "+r121.tag, complete(r121.published))
-	require(done.Discovered.Equal(discoveries["sjc"].Discovered), "sjc's rollout of %s must carry the discovery its owner answered, %s, not %s", r121.tag, discoveries["sjc"].Discovered, done.Discovered)
-	for _, region := range []string{"fra", "gru"} {
+	done := l.waitStatus(ctx, "gru", "gru completes "+r121.tag, complete(r121.published))
+	require(done.Discovered.Equal(discoveries["gru"].Discovered), "gru's rollout of %s must carry the discovery its owner answered, %s, not %s", r121.tag, discoveries["gru"].Discovered, done.Discovered)
+	for _, region := range []string{"fra", "sjc"} {
 		l.waitStatus(ctx, region, region+" completes "+r121.tag, complete(r121.published))
 	}
-	l.requireVersions(ctx, r121.digest, l.region("sjc", "fra", "gru")...)
-	fmt.Printf("%s discovered while sjc's install of %s was held, then rolled out from the same discovery\n", r121.tag, r120.tag)
+	l.requireVersions(ctx, r121.digest, l.region("gru", "fra", "sjc")...)
+	fmt.Printf("%s discovered while gru's install of %s was held, then rolled out from the same discovery\n", r121.tag, r120.tag)
 }
 
 func sortedStarts(starts map[string]int32) []string {

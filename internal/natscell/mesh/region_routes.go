@@ -166,11 +166,10 @@ func (n *Node) regionMembers(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	defer conn.Close()
-	current, err := swarmruntime.ListMembers(ctx, client)
+	listed, err := swarmruntime.ListMembers(ctx, client)
 	if err != nil {
 		return nil, err
 	}
-	listed := current.Members
 	ready := map[string]bool{}
 	for _, member := range listed {
 		if member.State == "READY" {
@@ -219,6 +218,7 @@ func (n *Node) reconcileRegionRoutes(members []string) {
 
 func (n *Node) writeRouteMetrics(w io.Writer) {
 	fmt.Fprintf(w, "ts_orch_mesh_region_routes_rejected_total %d\n", n.rejectedRoutes.Load())
+	fmt.Fprintf(w, "ts_orch_mesh_seed_routes_refused_total %d\n", n.seeds.total.Load())
 	fmt.Fprintf(w, "ts_orch_mesh_region_routes_rounds_total %d\n", n.gossip.rounds.Load())
 	live := 0
 	if n.membershipLive() {

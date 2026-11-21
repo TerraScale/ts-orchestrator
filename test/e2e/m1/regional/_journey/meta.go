@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -16,15 +17,18 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/plannedstop"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/vaultrecords"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 )
 
 type metaFleet struct {
-	root    string
-	regions []string
-	cfgs    map[string]config
-	nodes   map[string]*Node
+	root     string
+	regions  []string
+	cfgs     map[string]config
+	nodes    map[string]*Node
+	records  *vaultrecords.Store
+	restarts chan string
 }
 
 func freePorts(count int) ([]int, error) {
@@ -56,8 +60,15 @@ func newMetaFleet(root string) (*metaFleet, error) {
 	if err != nil {
 		return nil, err
 	}
-	fleet := &metaFleet{root: root, regions: regions, cfgs: map[string]config{}, nodes: map[string]*Node{}}
+	records, err := vaultrecords.New(filepath.Join(root, "vault"))
+	if err != nil {
+		return nil, err
+	}
+	fleet := &metaFleet{root: root, regions: regions, cfgs: map[string]config{}, nodes: map[string]*Node{}, records: records, restarts: make(chan string, len(regions))}
 	for i, region := range regions {
+		if err := PublishSeeds(context.Background(), fleet.records, region, "cluster-"+region, []string{"ts-" + region + "-99"}); err != nil {
+			return nil, err
+		}
 		seeds := map[string][]string{}
 		for j, peer := range regions {
 			if peer != region {
@@ -66,6 +77,7 @@ func newMetaFleet(root string) (*metaFleet, error) {
 		}
 		address := fmt.Sprintf("127.0.0.%d", 10+i)
 		fleet.cfgs[region] = config{region: region, server: region + "-founder", nodeID: strings.Repeat(string(rune('a'+i)), 25), founder: true,
+			cluster: "cluster-" + region, records: fleet.records, restart: func() { fleet.restarts <- region },
 			dir: filepath.Join(root, region), ca: ca, terrabaseToken: strings.Repeat("t", 32),
 			clusterHost: "127.0.0.1", clusterPort: ports[4*i+1], clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", ports[4*i+1]), localPort: ports[4*i],
 			seeds: seeds, applier: swarmApplier{state: filepath.Join(root, region+"-swarm"), region: region}, every: time.Second, peersEvery: 250 * time.Millisecond,
@@ -204,29 +216,57 @@ func MetaBootJourney(root string) error {
 	regions := fleet.regions
 	alone, rest := regions[len(regions)-1], regions[:len(regions)-1]
 
-	if err := fleet.start(alone); err != nil {
+	if err := fleet.records.Create(ctx, FounderRecord, encodeRecord(founding{Region: rest[0], Cluster: "cluster-of-a-wiped-cell", Formed: true})); err != nil {
 		return err
 	}
-	window, closeWindow := context.WithTimeout(ctx, 3*time.Second)
-	defer closeWindow()
-	if err := regionalAwait(window, func() bool { group := metaOf(fleet.nodes[alone]); return group.Leader != "" || !group.Observer }); err == nil {
-		return fmt.Errorf("a lone founder left observer mode or found a leader: %+v", metaOf(fleet.nodes[alone]))
-	}
-	fleet.stop(alone)
-	fmt.Println("ok metadata: a lone fresh founder waits in observer mode and is stopped before any group exists")
-
 	if err := fleet.start(rest...); err != nil {
 		return err
 	}
-	if err := fleet.start(alone); err != nil {
+	var founder string
+	select {
+	case founder = <-fleet.restarts:
+	case <-ctx.Done():
+		return fmt.Errorf("a founder record left by a wiped cell was never replaced: %+v", metaOf(fleet.nodes[rest[0]]))
+	}
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || record.Region != founder || record.Cluster != "cluster-"+founder || record.Formed || !maps.Equal(record.members(), map[string]string{founder: "cluster-" + founder}) {
+		return fmt.Errorf("founder record after %s replaced it: %+v, %v", founder, record, err)
+	}
+	fleet.stop(rest...)
+	if err := fleet.start(founder); err != nil {
 		return err
 	}
-	leader, err := fleet.await(ctx, "a brand-new fleet with three seeds per region, one founder stopped before any leader", regions)
+	if err := regionalAwait(ctx, func() bool {
+		group := metaOf(fleet.nodes[founder])
+		return group.Leader == group.ID && group.Leader != ""
+	}); err != nil {
+		return fmt.Errorf("%s never led the metadata group it claimed with no other server up: %w (%+v)", founder, err, metaOf(fleet.nodes[founder]))
+	}
+	if routes := fleet.nodes[founder].routes(); len(routes) != 0 {
+		return fmt.Errorf("%s led with %d routes; the lone founder must elect with none", founder, len(routes))
+	}
+	select {
+	case again := <-fleet.restarts:
+		return fmt.Errorf("%s also restarted to found a group after %s claimed the record", again, founder)
+	default:
+	}
+	fmt.Println("ok metadata: a founder record left by a wiped cell is replaced by one compare-and-swap while no server holds metadata;", founder, "restarts and leads the group alone with no route and no other server up")
+
+	if err := fleet.start(slices.DeleteFunc(slices.Clone(regions), func(region string) bool { return region == founder })...); err != nil {
+		return err
+	}
+	leader, err := fleet.await(ctx, "every founder joins the claimed founder's group", regions)
 	if err != nil {
 		return err
 	}
 	if count := fleet.leaders(); len(count) != 1 {
 		return fmt.Errorf("metadata leaders after first election: %v", count)
+	}
+	cells := map[string]string{}
+	for _, region := range regions {
+		cells[region] = "cluster-" + region
+	}
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || record.Region != founder || record.Cluster != "cluster-"+founder || !record.Formed || !maps.Equal(record.members(), cells) {
+		return fmt.Errorf("founder record after the group formed: %+v, %v", record, err)
 	}
 	kv, err := fleet.kv(ctx, alone)
 	if err != nil {
@@ -235,7 +275,7 @@ func MetaBootJourney(root string) error {
 	if _, err := kv.Put("fleet", []byte("first")); err != nil {
 		return err
 	}
-	fmt.Println("ok metadata: brand-new fleet with production seeds elected", leader, "with", len(regions), "peers; health admitted an R3 KV")
+	fmt.Println("ok metadata: the other founders joined", leader, "for", len(regions), "peers, none replaced the live founder record; health admitted an R3 KV")
 
 	fleet.stop(regions...)
 	if err := fleet.start(regions...); err != nil {
@@ -259,11 +299,11 @@ func MetaBootJourney(root string) error {
 		return err
 	}
 
-	fleet.stop(alone)
-	if err := os.RemoveAll(fleet.cfgs[alone].dir); err != nil {
+	fleet.stop(founder)
+	if err := os.RemoveAll(fleet.cfgs[founder].dir); err != nil {
 		return err
 	}
-	if err := fleet.start(alone); err != nil {
+	if err := fleet.start(founder); err != nil {
 		return err
 	}
 	if _, err := fleet.await(ctx, "a founder with an empty log rejoins a reachable group", regions); err != nil {
@@ -272,11 +312,11 @@ func MetaBootJourney(root string) error {
 	if count := fleet.leaders(); len(count) != 1 {
 		return fmt.Errorf("metadata leaders after empty rejoin: %v", count)
 	}
-	if kv, err = fleet.kv(ctx, alone); err != nil {
+	if kv, err = fleet.kv(ctx, founder); err != nil {
 		return err
 	}
 	if err := regionalAwait(ctx, func() bool {
-		js, err := fleet.nodes[alone].fabric.JetStream()
+		js, err := fleet.nodes[founder].fabric.JetStream()
 		if err != nil {
 			return false
 		}
@@ -285,45 +325,97 @@ func MetaBootJourney(root string) error {
 	}); err != nil {
 		return fmt.Errorf("stream replicas after empty rejoin: %w", err)
 	}
-	fmt.Println("ok metadata: a founder with an empty log joined the existing group instead of forming one")
+	fmt.Println("ok metadata: the founder the record names, with an empty log, joined the existing group instead of forming a second one")
 
-	spec := &swarmruntime.ServiceSpec{Name: "terrabase", Regions: []string{"gru", "sjc", "fra"}}
+	rebuilt := fleet.cfgs[founder]
+	fleet.stop(founder)
+	if err := os.RemoveAll(rebuilt.dir); err != nil {
+		return err
+	}
+	connected, port, advertise := rebuilt.seeds, rebuilt.clusterPort, rebuilt.clusterAdvertise
+	unreachable, err := freePorts(1)
+	if err != nil {
+		return err
+	}
+	rebuilt.cluster, rebuilt.seeds = "cluster-"+founder+"-rebuilt", map[string][]string{}
+	rebuilt.clusterPort, rebuilt.clusterAdvertise = unreachable[0], fmt.Sprintf("127.0.0.1:%d", unreachable[0])
+	fleet.cfgs[founder] = rebuilt
+	checks := fleet.records.Reads(FounderRecord)
+	if err := fleet.start(founder); err != nil {
+		return err
+	}
+	if err := regionalAwait(ctx, func() bool { return fleet.records.Reads(FounderRecord) >= checks+3 }); err != nil {
+		return fmt.Errorf("%s, rebuilt and cut off from the group, never checked the founder record: %w", founder, err)
+	}
+	select {
+	case again := <-fleet.restarts:
+		return fmt.Errorf("%s restarted to found a second group while the cells of the intact group still run", again)
+	default:
+	}
+	if group := metaOf(fleet.nodes[founder]); group.Leader != "" {
+		return fmt.Errorf("%s, cut off from the intact group, has metadata leader %s", founder, group.Leader)
+	}
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || !maps.Equal(record.members(), cells) {
+		return fmt.Errorf("founder record while %s was cut off: %+v, %v", founder, record, err)
+	}
+	fleet.stop(founder)
+	rebuilt.seeds, rebuilt.clusterPort, rebuilt.clusterAdvertise = connected, port, advertise
+	fleet.cfgs[founder] = rebuilt
+	if err := fleet.start(founder); err != nil {
+		return err
+	}
+	if _, err := fleet.await(ctx, "the rebuilt founder joins the intact group once it reaches it", regions); err != nil {
+		return err
+	}
+	cells[founder] = rebuilt.cluster
+	if record, _, err := readFounding(ctx, fleet.records); err != nil || !maps.Equal(record.members(), cells) {
+		return fmt.Errorf("founder record after the rebuilt %s joined: %+v, %v", founder, record, err)
+	}
+	fmt.Println("ok metadata: a rebuilt", founder, "cut off from the intact group kept the founder record and formed nothing, because the other cells still publish their seeds; reconnected, it enrolled its new cell and joined")
+
+	spec := &swarmruntime.ServiceSpec{Name: "terrabase", Regions: []string{"sjc", "gru", "fra"}}
 	generation := time.Now().UnixNano()
 	rule := EnvironmentOf("gru").Rollout
-	turnWithin := func(region string, wait time.Duration) error {
+	if !slices.Equal(rule, []string{"gru", "fra", "sjc"}) {
+		return fmt.Errorf("the reviewed rollout order is %v, want gru, fra, sjc", rule)
+	}
+	if !slices.Equal(rolloutOrder("gru", spec), rule) || !slices.Equal(rolloutOrder("gru", &swarmruntime.ServiceSpec{}), rule) {
+		return errors.New("default and explicit multi-region placement must use the catalog rollout order")
+	}
+	turnWithin := func(region, name string, spec *swarmruntime.ServiceSpec, wait time.Duration) error {
 		turnCtx, stop := context.WithTimeout(ctx, wait)
 		defer stop()
-		return fleet.nodes[region].awaitTurn(turnCtx, "terrabase", spec, generation)
+		return fleet.nodes[region].awaitTurn(turnCtx, name, Entry{Spec: spec, Generation: generation})
 	}
-	decision := func(region string) AdmissionDecision {
+	decision := func(region, name string) AdmissionDecision {
 		node := fleet.nodes[region]
 		node.admissionMu.Lock()
 		defer node.admissionMu.Unlock()
-		return node.admission["terrabase"]
+		return node.admission[name]
 	}
-	if err := turnWithin("sjc", 10*time.Second); err != nil {
-		return fmt.Errorf("sjc, first in the order, was not admitted with every founder on it: %w", err)
+	if err := turnWithin("gru", "terrabase", spec, 10*time.Second); err != nil {
+		return fmt.Errorf("gru, first in the order, was not admitted with every founder on it: %w", err)
 	}
-	for _, region := range []string{"fra", "gru"} {
-		if err := turnWithin(region, 3*time.Second); err == nil || decision(region).Earlier != "sjc" {
-			return fmt.Errorf("%s was admitted before sjc passed generation %d: %v, %+v", region, generation, err, decision(region))
+	for _, region := range []string{"fra", "sjc"} {
+		if err := turnWithin(region, "terrabase", spec, 3*time.Second); err == nil || decision(region, "terrabase").Earlier != "gru" {
+			return fmt.Errorf("%s was admitted before gru passed generation %d: %v, %+v", region, generation, err, decision(region, "terrabase"))
 		}
 	}
-	fmt.Println("ok order: a spec stored as gru, sjc, fra admits sjc first; fra and gru wait for sjc's verdict")
+	fmt.Println("ok order: a spec stored as sjc, gru, fra admits gru first; fra and sjc wait for gru's verdict")
 
-	fleet.stop("sjc", "fra")
+	fleet.stop("gru", "fra")
 	var stagedMu sync.Mutex
 	staged := map[string]stateReply{}
-	stage := func(region string, rollout []string, passed bool) {
+	stage := func(region string, rollout []string, readyGeneration int64) {
 		reply := stateReply{Region: region, Desired: map[string]desiredState{}, Ready: map[string]int64{}, Rollout: rollout}
-		if passed {
-			reply.Ready["terrabase"] = generation
+		if readyGeneration != 0 {
+			reply.Ready["terrabase"], reply.Ready["app-canary"] = readyGeneration, readyGeneration
 		}
 		stagedMu.Lock()
 		staged[region] = reply
 		stagedMu.Unlock()
 	}
-	responder, err := fleet.nodes["gru"].conn.Subscribe(StateSubject, func(m *nats.Msg) {
+	responder, err := fleet.nodes["sjc"].conn.Subscribe(StateSubject, func(m *nats.Msg) {
 		var request struct {
 			Nonce string `json:"nonce"`
 			View  string `json:"view"`
@@ -339,8 +431,9 @@ func MetaBootJourney(root string) error {
 		stagedMu.Unlock()
 		for _, reply := range replies {
 			reply.Nonce = request.Nonce
-			if reply.Ready["terrabase"] == generation {
-				reply.Serving = map[string]ServingResult{"terrabase": {Generation: generation, Serving: true, At: time.Now()}}
+			reply.Serving = map[string]ServingResult{}
+			for name, readyGeneration := range reply.Ready {
+				reply.Serving[name] = ServingResult{Generation: readyGeneration, Serving: true, At: time.Now()}
 			}
 			if data, err := protocol.EncodeJSON(reply); err == nil {
 				_ = m.Respond(data)
@@ -351,33 +444,109 @@ func MetaBootJourney(root string) error {
 		return err
 	}
 	defer responder.Unsubscribe()
-	stage("sjc", rule, true)
-	stage("fra", nil, false)
+	stage("gru", rule, generation)
+	stage("fra", nil, 0)
 	admitted := make(chan error, 1)
-	go func() { admitted <- turnWithin("gru", time.Minute) }()
-	waitFor := func(evidence string) error {
+	go func() { admitted <- turnWithin("sjc", "terrabase", spec, time.Minute) }()
+	waitFor := func(name, earlier, evidence string) error {
 		return regionalAwait(ctx, func() bool {
-			got := decision("gru")
-			return got.Generation == generation && got.Earlier == "fra" && got.Evidence == evidence
+			got := decision("sjc", name)
+			return got.Generation == generation && got.Earlier == earlier && got.Evidence == evidence
 		})
 	}
-	if err := waitFor("rollout order not agreed"); err != nil {
-		return fmt.Errorf("gru did not wait for fra advertising no rollout order: %w, %+v", err, decision("gru"))
+	if err := waitFor("terrabase", "fra", "rollout order not agreed"); err != nil {
+		return fmt.Errorf("sjc did not wait for fra advertising no rollout order: %w, %+v", err, decision("sjc", "terrabase"))
 	}
-	stage("fra", rule, false)
-	if err := waitFor("fresh serving evidence missing"); err != nil {
-		return fmt.Errorf("gru did not wait for fra's verdict once fra agreed on the order: %w, %+v", err, decision("gru"))
+	stage("fra", rule, 0)
+	if err := waitFor("terrabase", "fra", "fresh serving evidence missing"); err != nil {
+		return fmt.Errorf("sjc did not wait for fra's verdict once fra agreed on the order: %w, %+v", err, decision("sjc", "terrabase"))
 	}
-	stage("fra", rule, true)
+	stage("fra", rule, generation)
 	select {
 	case err := <-admitted:
-		if err != nil || decision("gru").Evidence != "admitted" {
-			return fmt.Errorf("gru was not admitted once sjc and fra passed: %v, %+v", err, decision("gru"))
+		if err != nil || decision("sjc", "terrabase").Evidence != "admitted" {
+			return fmt.Errorf("sjc was not admitted once gru and fra passed: %v, %+v", err, decision("sjc", "terrabase"))
 		}
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	fmt.Println("ok order: one generation through the real admission path: gru waited while fra advertised no rollout order, then for fra's verdict, and admitted itself once sjc and fra passed")
+	fmt.Println("ok order: one generation through the real admission path: sjc waited while fra advertised no rollout order, then for fra's verdict, and admitted itself once gru and fra passed")
+
+	app := &swarmruntime.ServiceSpec{Name: "app-canary", Regions: []string{"sjc", "fra", "gru"}}
+	var policyMu sync.Mutex
+	policies := map[string]rolloutPolicy{
+		"gru-m":   {Region: "gru", Receiver: "gru-m", Receivers: []string{"gru-m"}, Order: rule},
+		"fra-m":   {Region: "fra", Receiver: "fra-m", Receivers: []string{"fra-m"}, Order: rule},
+		"sjc-new": {Region: "sjc", Receiver: "sjc-new", Receivers: []string{"sjc-new", "sjc-old"}, Order: rule},
+	}
+	policyResponder, err := fleet.nodes["sjc"].conn.Subscribe(rolloutPolicySubject, func(m *nats.Msg) {
+		var query rolloutPolicyQuery
+		if protocol.DecodeTolerant(m.Data, &query, maxWire) != nil {
+			return
+		}
+		policyMu.Lock()
+		defer policyMu.Unlock()
+		for _, reply := range policies {
+			reply.Nonce = query.Nonce
+			if data, err := protocol.EncodeJSON(reply); err == nil {
+				_ = m.Respond(data)
+			}
+		}
+	})
+	if err != nil {
+		return err
+	}
+	defer policyResponder.Unsubscribe()
+	stagePolicy := func(order []string) {
+		policyMu.Lock()
+		defer policyMu.Unlock()
+		policies["sjc-old"] = rolloutPolicy{Region: "sjc", Receiver: "sjc-old", Receivers: []string{"sjc-new", "sjc-old"}, Order: order}
+	}
+	if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err == nil || !strings.Contains(err.Error(), "sjc receiver sjc-old has no receiver proof") {
+		return fmt.Errorf("one upgraded SJC manager concealed the second receiver: %v", err)
+	}
+	stagePolicy(nil)
+	if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err == nil || !strings.Contains(err.Error(), "sjc receiver sjc-old does not prove") {
+		return fmt.Errorf("empty policy counted as approval: %v", err)
+	}
+	stagePolicy([]string{"sjc", "fra", "gru"})
+	stage("gru", rule, generation-1)
+	for _, name := range []string{"terrabase", "ts-auth", "ts-dashboard", "app-canary"} {
+		app.Name = name
+		if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err == nil || !strings.Contains(err.Error(), "sjc receiver sjc-old does not prove") {
+			return fmt.Errorf("%s signed apply must wait before dispatch while a recipient advertises the old order: %v", name, err)
+		}
+	}
+	if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, &swarmruntime.ServiceSpec{Name: "ts-auth", Regions: []string{"sjc"}}); err != nil {
+		return fmt.Errorf("single-region ts-auth should stay in sjc during a mixed fleet: %w", err)
+	}
+	entry := Entry{Spec: app, Generation: generation, Deployment: &Deployment{Revision: strings.Repeat("a", 40)}}
+	node := fleet.nodes["sjc"]
+	go func() { admitted <- node.awaitTurn(ctx, "app-canary", entry) }()
+	if err := regionalAwait(ctx, func() bool {
+		got := decision("sjc", "app-canary")
+		return got.Generation == generation && got.Deployment == entry.Deployment && strings.Contains(got.Evidence, "sjc receiver sjc-old does not prove")
+	}); err != nil {
+		return fmt.Errorf("sjc receiver lost the generation-matched mixed-policy hold: %w, %+v", err, decision("sjc", "app-canary"))
+	}
+	stagePolicy(rule)
+	if err := requireRolloutOrder(ctx, fleet.nodes["sjc"].conn, app); err != nil {
+		return fmt.Errorf("signed apply must dispatch once all targets report the new order: %w", err)
+	}
+	if err := waitFor("app-canary", "gru", "fresh serving evidence missing"); err != nil {
+		return fmt.Errorf("sjc did not wait when only gru's previous generation served: %w, %+v", err, decision("sjc", "app-canary"))
+	}
+	stage("gru", rule, generation)
+	select {
+	case err := <-admitted:
+		if err != nil || decision("sjc", "app-canary").Evidence != "admitted" {
+			return fmt.Errorf("sjc was not admitted for app-canary once gru agreed on the order and passed: %v, %+v", err, decision("sjc", "app-canary"))
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	fmt.Println("ok order: signed TerraBase, auth, dashboard and app-canary applies wait before dispatch on mixed order; single-region auth stays in sjc; apply proceeds once all targets advertise gru, fra, sjc")
+	fmt.Println("ok order: the preceding GRU generation serving cannot admit SJC for the selected generation")
 	return nil
 }
 
