@@ -25,8 +25,6 @@ const memberCLIUsage = `usage:
   ts-orch member activate <hostname>  Let a worker run its region's per-node services again
 `
 
-// RunMemberCLI lists and removes the hosts of the region's SwarmKit cluster
-// from its manager's control socket (root).
 func RunMemberCLI(ctx context.Context, args []string, output io.Writer) error {
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
 	return explain(runMemberCLI(ctx, args, output, nodeState))

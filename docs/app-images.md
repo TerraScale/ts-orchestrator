@@ -51,7 +51,11 @@ CI verifies the published build provenance before moving each single-platform
 `:release` tag, and waits for the production rollout using the package-only
 reference. The region order is ts-orch's, not CI's: the app release leader
 reads its own region's `:release` tag and, once it selects a new digest,
-releases it to every region the service targets in the order sjc, fra, gru.
+releases it to each target in the catalog order gru, fra, sjc. Dispatch and
+reconciliation of a signed multi-region release require the order from
+every manager in each target's SwarmKit receiver inventory. Each later region needs the earlier targets'
+fresh serving and bake evidence for the same generation. A service with one
+target still releases to that region.
 CI therefore moves every region's tag before it waits; a release that moves
 one region's tag and waits for that region alone stalls whenever the leader
 runs in another region. Login uses the local `ocir-login` action and GitHub OIDC exchange.

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/datamount"
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
@@ -63,12 +62,7 @@ func Run(ctx context.Context, state string) {
 		if conn == nil || conn.IsClosed() {
 			// The mesh writes its token once it starts; until then this retries every tick.
 			if conn, _ = mesh.Connect(state); conn != nil {
-				if err := Serve(conn, func() Report {
-					report := *latest.Load()
-					quorum := ReadQuorum(ctx, state)
-					report.Quorum = &quorum
-					return report
-				}); err != nil {
+				if err := Serve(conn, func() Report { return *latest.Load() }); err != nil {
 					slog.WarnContext(ctx, "region health responder failed", "error", err)
 					conn.Close()
 					conn = nil
@@ -108,37 +102,6 @@ func Serve(conn *nats.Conn, latest func() Report) error {
 // Ask collects every region's report over the mesh within statusWait.
 func Ask(ctx context.Context, conn *nats.Conn) (map[string]Report, error) {
 	return ask(ctx, conn, len(mesh.ConnRegions(conn)), statusWait)
-}
-
-func ReadQuorum(ctx context.Context, state string) fleet.QuorumObservation {
-	ctx, cancel := context.WithTimeout(ctx, statusWait)
-	defer cancel()
-	client, conn, err := swarmruntime.DialControl(state)
-	if err != nil {
-		return fleet.QuorumObservation{Error: fmt.Sprintf("SwarmKit membership unavailable: %v", err)}
-	}
-	defer conn.Close()
-	return swarmruntime.SwarmManagers(ctx, client)
-}
-
-func FleetQuorums(ctx context.Context, document fleet.Fleet) map[string]fleet.QuorumObservation {
-	observations := map[string]fleet.QuorumObservation{}
-	conn, err := mesh.Connect("/var/lib/ts-orch")
-	var reports map[string]Report
-	if err == nil {
-		defer conn.Close()
-		reports, err = Ask(ctx, conn)
-	}
-	for _, region := range document.All() {
-		observation := fleet.QuorumObservation{Error: "regional SwarmKit membership unavailable over the mesh"}
-		if err != nil {
-			observation.Error += ": " + err.Error()
-		} else if report, found := reports[region.Label]; found && report.Quorum != nil {
-			observation = *report.Quorum
-		}
-		observations[region.OCIRegion] = observation
-	}
-	return observations
 }
 
 func ask(ctx context.Context, conn *nats.Conn, want int, wait time.Duration) (map[string]Report, error) {

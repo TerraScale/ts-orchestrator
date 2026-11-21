@@ -21,17 +21,15 @@ import (
 
 const usage = `Usage: ts-orch region <command> [flags]
 
-  plan [LABEL]
+  plan
       Compare every region of the fleet document (deploy/fleet/fleet.json)
       with what exists in OCI: network, gateways, NSGs, instances, network
       load balancer, reserved address, DNS zone and steering policies.
       Document-made resources carry the ownership tags; others are hand-made.
       Reads OCI with the operator's ~/.oci/config, or the instance principal
-      where there is none, and live SwarmKit membership over this host's mesh.
-      Changes nothing. LABEL limits the comparison to one region.
-  status [LABEL]
-      The same comparison, one line per region. Fails unless each selected
-      region has three distinct ready, Raft-reachable SwarmKit managers.
+      where there is none; changes nothing.
+  status
+      The same comparison, one line per region.
   validate
       Load and validate the embedded fleet document; reads nothing else.
   apply  LABEL KIND...
@@ -58,9 +56,8 @@ const usage = `Usage: ts-orch region <command> [flags]
       With --wait, retry until then.
 `
 
-type QuorumReader func(context.Context, fleet.Fleet) map[string]fleet.QuorumObservation
-
-func Run(ctx context.Context, args []string, out, errOut io.Writer, quorums QuorumReader) error {
+// Run dispatches the region commands.
+func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		_, err := io.WriteString(out, usage)
 		return err
@@ -68,7 +65,7 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, quorums Quor
 	command, args := args[0], args[1:]
 	switch command {
 	case "plan", "status", "validate":
-		return compareFleet(ctx, command, args, out, quorums)
+		return compareFleet(ctx, command, args, out)
 	case "apply":
 		return fleet.Apply(ctx, args, out)
 	}
@@ -118,12 +115,9 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer, quorums Quor
 	}
 }
 
-func compareFleet(ctx context.Context, command string, args []string, out io.Writer, quorums QuorumReader) error {
-	if command == "validate" && len(args) != 0 {
-		return fmt.Errorf("ts-orch region validate takes no arguments")
-	}
-	if len(args) > 1 {
-		return fmt.Errorf("usage: ts-orch region %s [LABEL]", command)
+func compareFleet(ctx context.Context, command string, args []string, out io.Writer) error {
+	if len(args) != 0 {
+		return fmt.Errorf("ts-orch region %s takes no arguments", command)
 	}
 	document, err := fleet.Load()
 	if err != nil {
@@ -133,19 +127,12 @@ func compareFleet(ctx context.Context, command string, args []string, out io.Wri
 		_, err := fmt.Fprintf(out, "fleet document valid: %d regions, zone %s\n", len(document.Regions), document.DNS.Zone)
 		return err
 	}
-	label := ""
-	if len(args) == 1 {
-		label = args[0]
-		if _, err := document.Region(label); err != nil {
-			return err
-		}
-	}
-	reports, err := fleet.Plan(ctx, document, quorums(ctx, document), label)
+	reports, err := fleet.Plan(ctx, document)
 	if err != nil {
 		return err
 	}
 	if command == "status" {
-		return errors.Join(fleet.PrintStatus(out, reports), fleet.RequireQuorum(reports))
+		return fleet.PrintStatus(out, reports)
 	}
 	return fleet.PrintPlan(out, reports)
 }

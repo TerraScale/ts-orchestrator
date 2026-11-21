@@ -26,13 +26,12 @@ Hosts discover the newest attested orchestrator release. CI publishes binaries,
 qualification and Sigstore provenance; hosts verify the workflow, main source,
 transparency evidence and exact binary digest before installation.
 
-The region list is `catalog.RolloutOrder` (sjc, fra, gru), written once in the
-region catalog. App releases (TerraBase, ts-auth, ts-dashboard) follow it one
-region after another. Orchestrator binaries use it in two phases: its first
-entry, sjc, is the canary; fra and gru take a tag only after sjc records that
-exact tag complete in the fabric pull store and passes its regional health
-gate, and then roll out at the same time. A tag that any region is rolling back
-or has rolled back is held by every region that has not started it.
+The region list is `catalog.RolloutOrder` (gru, fra, sjc). Multi-region apps
+and orchestrator binaries roll one region at a time in that order. A binary
+rollout waits for each earlier region to record the exact tag complete and
+pass its regional health gate in the fabric pull store. A tag that any
+region is rolling back or has rolled back is held by every region that has
+yet to start it. Registry staging and host prefetch can run in parallel.
 Hosts update one at a time inside their region. The completion timestamp is persisted; a new owner restarts any unfinished
 bake before recording its verdict, and a passed gate keeps its end time. During
 the bake the leader checks every host and regional health; a failed bake starts
@@ -248,8 +247,17 @@ The ts-orch-hosts dynamic group matches every instance in the three region
 compartments, so a pool node has the instance principal the join needs.
 
 A pool size below `nodes.min` is raised. The compute kind never shrinks the
-pool; the `nodes` kind below removes one drained node at a time. A node without a data volume gets
-a kept one from its availability domain, or a new one. Image and release
+pool; the `nodes` kind below removes one drained node at a time. A node keeps
+the volume its metadata or data-device attachment names, or else the one
+already tagged with its instance; conflicting claims refuse the pass before any
+write. A node without one gets an unclaimed volume from its availability
+domain (waiting for one still provisioning), or a new one while the region has
+fewer than `nodes.max` data volume OCIDs in any state but terminated
+(terminating ones count, and are never picked). Two volumes with one
+`volume/data-<n>` key refuse the pass before any selection. A volume
+tagged with another instance, such as one kept by Remove or Retire, is never
+attached, retagged or deleted; when all `nodes.max` volumes are allocated the
+pass fails and lists them. Image and release
 are fixed when the configuration is made; a newer release reaches the nodes
 through the release self-pull, so a second apply changes nothing.
 
@@ -404,29 +412,12 @@ it is empty.
 A node that stays unhealthy for too long is replaced.
 
 Today: replicas and the node count scale on the region leader. Every region
-requires 3 voting hosts to survive losing one: sjc and fra hold 3 pool
+keeps 3 voting hosts, so it survives losing one: sjc and fra hold 3 pool
 nodes (`nodes.min` = `nodes.max` = 3); gru holds 2 pool nodes plus the
 external host `ts-gru-1` (`nodes.external`), which runs NetBird management
 and monitoring outside the pool. The document refuses a region whose
-`nodes.min` plus its declared external hosts is below 3. Before compute apply
-uses those pool bounds, every external name must resolve to exactly one live
-OCI instance, re-read by its instance ID: RUNNING, in the region's compartment,
-with an attached primary VNIC in that compartment and the region's VCN. It
-must carry no regional pool-instance ownership and belong to no live instance
-pool in the compartment; an unavailable OCI check refuses the apply.
-
-Provisioning does not prove voting readiness. Promote the hosts with
-`ts-orch member promote`, then run `ts-orch region status <label>` on a host
-connected to that region's environment mesh. This is the rebuild's quorum
-gate and exits unsuccessfully until `swarm quorum` is `ok`. Both `region plan`
-and `region status` read live SwarmKit membership through regional health
-requests over NATS and require at least 3 distinct node IDs, OCI instance IDs
-and hostnames. Each must be a current and desired manager, READY and
-Raft-reachable, with the region's admission label and an identity matching a
-RUNNING regional pool host in the private subnet or a verified external host.
-A worker-only external host never supplies a vote. Missing membership or an
-invalid external host keeps the gate closed. Without a label, the commands
-report every fleet region. Load beyond the fixed host count is absorbed by
+`nodes.min` plus its external hosts is below 3. All three hosts are promoted
+to managers (`ts-orch member promote`). Load beyond that is absorbed by
 replicas and the shape.
 
 ## What was removed

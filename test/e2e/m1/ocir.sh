@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/common.sh"
 source "$here/runtime.sh"
-cache_pins
 restore_runtime
 begin "regional OCIR selection pulled into containerd"
 runtime_dir=$work/containerd

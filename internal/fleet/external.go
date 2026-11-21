@@ -9,6 +9,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
+const externalHostNodeTag = "terrascale-host-node"
+
 func VerifyExternal(ctx context.Context, region Region, compute core.ComputeClient, management core.ComputeManagementClient, network core.VirtualNetworkClient, vcn string) (map[string]string, error) {
 	verified := map[string]string{}
 	if len(region.Nodes.External) == 0 {
@@ -27,7 +29,7 @@ func VerifyExternal(ctx context.Context, region Region, compute core.ComputeClie
 	}
 	for _, host := range region.Nodes.External {
 		matches := slices.DeleteFunc(slices.Clone(instances), func(in core.Instance) bool {
-			return deref(in.DisplayName) != host || gone(string(in.LifecycleState))
+			return in.FreeformTags[externalHostNodeTag] != host || gone(string(in.LifecycleState))
 		})
 		if len(matches) != 1 || deref(matches[0].Id) == "" {
 			return nil, fmt.Errorf("external host %s: expected one live OCI instance in %s, found %d", host, region.CompartmentID, len(matches))
@@ -37,8 +39,8 @@ func VerifyExternal(ctx context.Context, region Region, compute core.ComputeClie
 			return nil, fmt.Errorf("external host %s: read OCI identity: %w", host, err)
 		}
 		in := got.Instance
-		if deref(in.Id) != deref(matches[0].Id) || deref(in.DisplayName) != host || deref(in.CompartmentId) != region.CompartmentID || in.LifecycleState != core.InstanceLifecycleStateRunning {
-			return nil, fmt.Errorf("external host %s (%s): must be RUNNING in compartment %s with the declared name; observed %s in %s", host, deref(in.Id), region.CompartmentID, in.LifecycleState, deref(in.CompartmentId))
+		if deref(in.Id) != deref(matches[0].Id) || in.FreeformTags[externalHostNodeTag] != host || deref(in.CompartmentId) != region.CompartmentID || in.LifecycleState != core.InstanceLifecycleStateRunning {
+			return nil, fmt.Errorf("external host %s (%s): must be RUNNING in compartment %s with the declared host identity; observed %s in %s", host, deref(in.Id), region.CompartmentID, in.LifecycleState, deref(in.CompartmentId))
 		}
 		if region.owns("instance", "node", in.FreeformTags) {
 			return nil, fmt.Errorf("external host %s (%s): carries pool instance ownership", host, deref(in.Id))

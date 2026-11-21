@@ -122,7 +122,7 @@ func Failure() string {
 	return ""
 }
 
-func Observe(ctx context.Context) {
+func observe(ctx context.Context) {
 	err := Grow(ctx)
 	if ctx.Err() != nil {
 		return
@@ -140,6 +140,7 @@ func Observe(ctx context.Context) {
 }
 
 func Maintain(ctx context.Context) {
+	observe(ctx)
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
@@ -147,7 +148,7 @@ func Maintain(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			Observe(ctx)
+			observe(ctx)
 		}
 	}
 }

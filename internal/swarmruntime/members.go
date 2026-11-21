@@ -10,12 +10,10 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-// Member is one host of the region's cluster as its manager sees it.
 type Member struct {
 	Hostname, Role, State, Availability, Address string
 }
 
-// ListMembers lists the cluster's hosts by hostname.
 func ListMembers(ctx context.Context, client api.ControlClient) ([]Member, error) {
 	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 	if err != nil {

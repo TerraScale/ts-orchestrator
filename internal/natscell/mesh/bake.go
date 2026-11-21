@@ -239,7 +239,7 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	if err == nil {
 		n.collectImages(ctx)
 	}
-	slog.InfoContext(ctx, "regional rollout bake verdict", "region", n.cfg.region, "service", spec.Name, "generation", spec.Generation, "image", spec.Image, "bake", record.Bake)
+	slog.InfoContext(ctx, "regional rollout bake verdict", "region", n.cfg.region, "host", n.cfg.server, "service", spec.Name, "generation", spec.Generation, "image", spec.Image, "revision", record.Rollout.Revision, "bake", record.Bake)
 	return record, err
 }
 

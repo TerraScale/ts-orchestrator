@@ -86,16 +86,39 @@ three seed URLs per peer region, most of which name hosts that do not exist on
 a new fleet, so three founders expected six peers and never elected a leader. With
 the option set, a server whose metadata log is empty expects that many peers and
 starts its metadata node as an observer, so it never campaigns; the embedding
-mesh ends observer mode once the node has seen a leader, or once every founder is
-reachable and none has metadata state. Unset, behavior is unchanged.
+mesh ends observer mode once the node has seen a leader, or, on the one region
+founder its Vault founder record names, once no reachable server has metadata
+state. Unset, behavior is unchanged.
 
 `server/jetstream_cluster.go` also starts JetStream clustering with no
-configured route when the server has a named cluster listener and
-`JetStreamMetaBootSize` is 1. That is a one-region environment's founder: it has
-no seed regions and no join routes, and its metadata group is itself. Upstream
-refuses to start clustering without a configured route, so that founder had no
-JetStream and its joiners had no cluster listener to route to. A server with a
-multi-peer bootstrap size, or without the option, keeps upstream's check.
+configured route when the server has a named cluster listener and sets
+`JetStreamMetaBootSize`. The mesh adds every cross-region route at runtime
+with `Server.AddRoutes`, from the seed records peer regions publish in Vault,
+so a region's first host may start before any peer region has published one:
+the founder of a brand-new fleet, or a region whose peers' records are missing
+or refused. Upstream refuses to start clustering without a configured route,
+so that host had no JetStream and its joiners had no cluster listener to route
+to. Its metadata node starts as an observer and joins a group once routes
+arrive, unless it is the one founder the mesh's create-once founder record
+names. A server without the option keeps upstream's check.
+
+`server/raft.go` starts a Raft node's run loop at once when its cluster size is
+1, instead of waiting for a first route, leaf or gateway connection. A group of
+one needs no peer to elect itself, and the mesh's one founder of a brand-new
+fleet may start before any other host exists, so upstream's wait left that
+founder without a metadata leader until a second host came up. Groups of two or
+more still wait for routing.
+
+`server/route.go` no longer reuses a configured route's hostname as the TLS
+server name of a route dialed to a bare IP (a gossiped route) when the cluster
+TLS config sets `InsecureSkipVerify`. Upstream borrows that name only so
+hostname verification of gossiped routes can pass; a config that skips
+hostname verification does not need it. The mesh skips it and checks its CA in
+`VerifyConnection`, where it also binds a seed hostname's region to the
+region the peer certificate names, so a borrowed name would bind a gossiped
+route to the region of whichever seed was configured first. Routes dialed by
+hostname still send that hostname, and configs that verify hostnames keep
+upstream's behavior.
 
 `server/route.go` keeps a known server's JetStream configuration and usage
 stats when a route connection to that same server ID registers again. Upstream

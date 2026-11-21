@@ -24,12 +24,6 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	}
 	defer conn.Close()
 	watcher := api.NewWatchClient(conn)
-	if err := externalIdentityJourney(ctx); err != nil {
-		return err
-	}
-	if _, err := swarmruntime.AdmitNode(ctx, client, manager.ID(), swarmruntime.Admission{Region: "sa-saopaulo-1", HostID: "manager", InstanceID: "manager", Role: "manager"}); err != nil {
-		return err
-	}
 	if err := os.MkdirAll("/var/lib/ts-orch", 0o700); err != nil {
 		return err
 	}
@@ -101,9 +95,6 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	if err := awaitPromotionReady(ctx, client, watcher, 3, 3); err != nil {
 		return err
 	}
-	if err := regionalQuorumJourney(ctx, filepath.Join(state, "manager"), true); err != nil {
-		return err
-	}
 	if err := swarmruntime.PromoteManagers(ctx, client, watcher, workers[0].ID()); err == nil {
 		return fmt.Errorf("a follower was allowed to change manager membership")
 	}
@@ -140,12 +131,6 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 		return err
 	}
 	if err := awaitStoredRole(ctx, workerState, "container"); err != nil {
-		return err
-	}
-	if err := awaitPromotionReady(ctx, client, watcher, 3, 2); err != nil {
-		return err
-	}
-	if err := regionalQuorumJourney(ctx, filepath.Join(state, "manager"), false); err != nil {
 		return err
 	}
 	if output, err := command("leave", "worker-0"); err != nil {

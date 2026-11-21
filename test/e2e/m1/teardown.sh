@@ -5,6 +5,7 @@ lane_dir=$(cd "$(dirname "$0")" && pwd)
 group_file=${RUNNER_TEMP:?}/m1-lane-process-group
 baseline=$RUNNER_TEMP/m1-host-baseline
 unit_patterns=('ts-orch*' 'containerd*' 'netbird*' 'terrascale-*' 'ts-e2e-*' 'docker.service' 'docker.socket')
+metadata_unit=terrascale-ts-auth-metadata.service
 process_pattern='(^|/)(containerd(-shim[^ ]*)?|terrascale-orchestrator|ts-orch|netbird[^/ ]*|ntp_responder.py)( |$)'
 
 active_units() {
@@ -88,9 +89,9 @@ check_clean() {
 		echo "::error::Lane found leftover runtime processes: $processes"
 		failed=1
 	fi
-	listeners=$(sudo ss -H -ltnp 'sport = :8443')
+	listeners=$(sudo ss -H -ltnp 'sport = :8443 or sport = :18081 or sport = :18082')
 	if [[ -n $listeners ]]; then
-		echo "::error::Lane found leftover listener on port 8443: $listeners"
+		echo "::error::Lane found leftover e2e listeners: $listeners"
 		failed=1
 	fi
 	for probe in volume_mounts volume_loops volume_fstab lane_namespaces lane_links metadata_addresses; do
@@ -134,7 +135,7 @@ if [[ ${1:-} == check ]]; then
 fi
 [[ $# == 0 || ${1:-} == prepare ]]
 
-unit_names=$(systemctl list-units --all --plain --no-legend --state=loaded "${unit_patterns[@]}" | awk '$1 !~ /^containerd/ {print $1}')
+unit_names=$(systemctl list-units --all --plain --no-legend --state=loaded "${unit_patterns[@]}" | awk -v metadata="$metadata_unit" '$1 !~ /^containerd/ && $1 != metadata {print $1}')
 if [[ -n $unit_names ]]; then
 	mapfile -t units <<<"$unit_names"
 	sudo systemctl stop "${units[@]}"
@@ -170,7 +171,7 @@ if sudo test -S /run/containerd/containerd.sock; then
 		done <<<"$containers"
 	done <<<"$namespaces"
 fi
-unit_names=$(systemctl list-units --all --plain --no-legend --state=loaded 'containerd*' | awk '{print $1}')
+unit_names=$(systemctl list-units --all --plain --no-legend --state=loaded 'containerd*' "$metadata_unit" | awk '{print $1}')
 if [[ -n $unit_names ]]; then
 	mapfile -t units <<<"$unit_names"
 	sudo systemctl stop "${units[@]}"

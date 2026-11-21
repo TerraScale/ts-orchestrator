@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/pullrelease"
 	"github.com/moby/swarmkit/v2/ca"
 	"maps"
@@ -59,7 +58,6 @@ type Report struct {
 	Hosts     []releasepush.HostVersion `json:"hosts,omitempty"`
 	HostError string                    `json:"host_error,omitempty"`
 	Rollout   *pullrelease.Status       `json:"rollout,omitempty"`
-	Quorum    *fleet.QuorumObservation  `json:"quorum,omitempty"`
 }
 
 // Classify maps one reading to ok, degraded or down with its reasons.

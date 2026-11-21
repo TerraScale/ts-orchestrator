@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"debug/buildinfo"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -86,8 +87,12 @@ func main() {
 		runHost(os.Args[2:])
 		return
 	}
-	require(len(os.Args) == 3 && (os.Args[2] == "pull" || os.Args[2] == "handover" || os.Args[2] == "degraded" || os.Args[2] == "bake"), "usage: pull-update <ts-orch binary> pull|handover|degraded|bake")
-	journey(os.Args[1], os.Args[2])
+	if len(os.Args) == 4 && os.Args[2] == "transition" {
+		journey(os.Args[1], os.Args[2], os.Args[3])
+		return
+	}
+	require(len(os.Args) == 3 && (os.Args[2] == "pull" || os.Args[2] == "handover" || os.Args[2] == "degraded" || os.Args[2] == "bake"), "usage: pull-update <ts-orch binary> pull|handover|degraded|bake|transition <previous pull-update binary>")
+	journey(os.Args[1], os.Args[2], "")
 }
 
 func runHost(args []string) {
@@ -157,7 +162,7 @@ func runHost(args []string) {
 				return hosts, nil
 			},
 			Services: func(context.Context) ([]pullrelease.Service, error) {
-				return readServices(filepath.Join(filepath.Dir(dir), "services"))
+				return readServices(filepath.Join(filepath.Dir(dir), "services", region))
 			},
 			Source: h.Source, Channel: &ocirelease.Reader{Registry: h.Registry, Attest: h.Attest}, Attest: h.Attest, Client: h.Client,
 			Poll: every, HealthyFor: healthyFor, Deadline: deadline, BakeFor: healthyFor}
@@ -332,7 +337,7 @@ func startMesh(work string) []*server.Server {
 	return servers[1:]
 }
 
-func journey(bin, part string) {
+func journey(bin, part, previous string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	self, err := os.Executable()
@@ -341,6 +346,19 @@ func journey(bin, part string) {
 	must(err)
 	revision := releasepush.Revision()
 	require(regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(revision), "the journey binary needs a clean VCS revision, has %q", revision)
+	boot, bootRevision := selfBytes, revision
+	if previous != "" {
+		boot, err = os.ReadFile(previous)
+		must(err)
+		build, err := buildinfo.ReadFile(previous)
+		must(err)
+		for _, setting := range build.Settings {
+			if setting.Key == "vcs.revision" {
+				bootRevision = setting.Value
+			}
+		}
+		require(bootRevision != revision, "the previous binary must carry a distinct VCS revision")
+	}
 	work, err := os.MkdirTemp("", "pull-update-")
 	must(err)
 	defer os.RemoveAll(work)
@@ -371,8 +389,9 @@ func journey(bin, part string) {
 		}
 	}()
 	defer l.github.server.Close()
-	githubURL, keyFile, registryURLs := l.github.server.URL, "-", map[string]string{"sjc": "-", "fra": "-", "gru": "-"}
-	if part == "degraded" {
+	githubURL, keyFile, registryURLs := l.github.server.URL, "-", map[string]string{"gru": "-", "fra": "-", "sjc": "-"}
+	usesRegistry := part == "degraded" || part == "transition"
+	if usesRegistry {
 		l.offline, l.registries = newOfflineGitHub(), map[string]*regionRegistry{}
 		defer l.offline.server.Close()
 		key, path, certificate := principalKey(work)
@@ -382,7 +401,9 @@ func journey(bin, part string) {
 			defer l.registries[region].server.Close()
 			registryURLs[region] = l.registries[region].server.URL
 		}
-		l.first = l.channelRelease(100, "100", l.self, l.self)
+		l.revision = bootRevision
+		l.first = l.channelRelease(100, "100", boot, boot)
+		l.revision = revision
 		l.publishBeforeReceivers(ctx, l.first)
 	}
 	rootFile := filepath.Join(work, "trusted-root.json")
@@ -404,15 +425,15 @@ func journey(bin, part string) {
 		}
 	})
 	must(err)
-	polls := map[string]string{"gru": poll.String(), "fra": poll.String(), "sjc": poll.String()}
-	if part == "degraded" {
+	polls := map[string]string{"sjc": poll.String(), "fra": poll.String(), "gru": poll.String()}
+	if usesRegistry {
 		l.receive()
 		for region, receiver := range l.receivers {
 			defer receiver.Close()
 			polls[region] = pullrelease.DefaultPoll.String()
 		}
 	}
-	for _, region := range []string{"sjc", "fra", "gru"} {
+	for _, region := range []string{"gru", "fra", "sjc"} {
 		statuses := make(chan pullrelease.Status, 256)
 		l.progress[region] = statuses
 		_, err = l.conn.Subscribe(protocol.MeshPullProgressPrefix+region, func(m *nats.Msg) {
@@ -428,7 +449,7 @@ func journey(bin, part string) {
 			}
 			dir := filepath.Join(work, id)
 			must(os.MkdirAll(filepath.Join(dir, "bin"), 0o700))
-			must(os.WriteFile(filepath.Join(dir, "bin", "terrascale-orchestrator"), selfBytes, 0o755))
+			must(os.WriteFile(filepath.Join(dir, "bin", "terrascale-orchestrator"), boot, 0o755))
 			port := "0"
 			if suffix == "m" {
 				port = "-1"
@@ -441,15 +462,15 @@ func journey(bin, part string) {
 	for _, h := range l.hosts {
 		supervisors.Go(func() { h.supervise(ctx) })
 	}
-	base := hex.EncodeToString(sha256Of(selfBytes))
+	base := hex.EncodeToString(sha256Of(boot))
 	for range l.hosts {
 		l.waitReady(ctx, "", base)
 	}
-	for _, region := range []string{"sjc", "fra", "gru"} {
+	for _, region := range []string{"gru", "fra", "sjc"} {
 		owner := l.waitStatus(ctx, region, region+" elects one owner of its rollouts", func(s pullrelease.Status) bool { return s.Owner != "" })
 		fmt.Printf("%s: %s owns the rollouts\n", region, owner.Owner)
 	}
-	fmt.Println("cell up: sjc, fra and gru on one JetStream mesh, two managers and a worker each, on the base binary")
+	fmt.Println("cell up: gru, fra and sjc on one JetStream mesh, two managers and a worker each, on the base binary")
 
 	if part == "handover" {
 		l.handover(ctx)
@@ -463,6 +484,10 @@ func journey(bin, part string) {
 		l.channel(ctx)
 		return
 	}
+	if part == "transition" {
+		l.transition(ctx)
+		return
+	}
 	l.pulls(ctx)
 }
 
@@ -474,16 +499,16 @@ func (l *lane) pulls(ctx context.Context) {
 	l.github.mu.Unlock()
 	c100 := l.candidate("c100")
 	r0 := l.github.publish(older, "100", asset, c100, c100, l.sigstore.Bundle(sigstore.MainIdentity, older, "100", map[string][]byte{asset: c100}))
-	newer := l.waitStatus(ctx, "sjc", "sjc finds every host already newer than "+r0.tag, func(s pullrelease.Status) bool {
+	newer := l.waitStatus(ctx, "gru", "gru finds every host already newer than "+r0.tag, func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseNewer && s.Target != nil && s.Target.Tag() == r0.tag
 	})
 	require(!slices.Contains(newer.Bad, r0.tag) && len(newer.Hosts) == 3 && !slices.ContainsFunc(newer.Hosts, func(h pullrelease.HostProgress) bool {
 		return h.State != pullrelease.HostNewer || h.Version != original || h.Error != ""
 	}), "an older release must leave every host on its newer release, unrefused and not marked bad:\n%s", newer)
-	skipped := l.ask(ctx, "gru-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: l.release(r0)})
+	skipped := l.ask(ctx, "sjc-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: l.release(r0)})
 	require(skipped.State == releasepush.StateNewer && skipped.Version == original && skipped.Refusal == nil && skipped.Error == "",
-		"gru-w must skip the older release, replied %+v", skipped)
-	l.requireVersions(ctx, base, l.region("sjc", "fra", "gru")...)
+		"sjc-w must skip the older release, replied %+v", skipped)
+	l.requireVersions(ctx, base, l.region("gru", "fra", "sjc")...)
 	require(maps.Equal(before, l.starts()), "no host may restart for an older release: %v -> %v", before, l.starts())
 	fmt.Printf("older release %s -> every host already descends from it: nothing installed, not refused, not marked bad\n%s\n", r0.tag, newer)
 
@@ -494,24 +519,24 @@ func (l *lane) pulls(ctx context.Context) {
 	l.github.mu.Unlock()
 	l.revision = revision
 	r1 := l.publishGood("101", "c101")
-	sjc := l.waitStatus(ctx, "sjc", "sjc completes "+r1.tag, complete(r1))
-	fra := l.waitStatus(ctx, "fra", "fra completes "+r1.tag, complete(r1))
-	gru := l.waitStatus(ctx, "gru", "gru completes "+r1.tag, complete(r1))
-	require(!fra.Done.Before(sjc.Done.Add(healthyFor)) && !gru.Done.Before(sjc.Done.Add(healthyFor)), "a region bypassed the canary's completion and gate")
-	l.requireVersions(ctx, r1.digest, l.region("sjc", "fra", "gru")...)
-	for _, region := range []pullrelease.Status{fra, gru} {
+	gru := l.waitStatus(ctx, "gru", "gru passes "+r1.tag, passed(r1))
+	fra := l.waitStatus(ctx, "fra", "fra passes "+r1.tag, passed(r1))
+	sjc := l.waitStatus(ctx, "sjc", "sjc passes "+r1.tag, passed(r1))
+	ordered(gru, fra, sjc)
+	l.requireVersions(ctx, r1.digest, l.region("gru", "fra", "sjc")...)
+	for _, region := range []pullrelease.Status{fra, sjc} {
 		for _, row := range region.Hosts {
 			fetched := l.fetchedAt(row.ID, r1.tag)
 			require(!fetched.IsZero() && !fetched.After(row.Installed), "%s must fetch %s while its region waits for the canary, before its install at %s; fetched at %s", row.Host, r1.tag, row.Installed, fetched)
 		}
 	}
-	fmt.Printf("every fra and gru host fetched %s while its region waited for the canary, before its install\n", r1.tag)
+	fmt.Printf("every fra and sjc host fetched %s while its region waited for the canary, before its install\n", r1.tag)
 	l.github.mu.Lock()
 	compared, replied := l.github.compared[lineage], l.github.replied[lineage]
 	l.github.mu.Unlock()
 	require(replied > 1<<20 && compared >= 1 && compared <= len(l.hosts), "every host must check %s once against a comparison over 1 MiB: %d checks of %d bytes", lineage, compared, replied)
-	fmt.Printf("attested release %s pulled in sjc, then fra and gru; the canary's completion and gate persisted across hosts; %d lineage checks for %d hosts, each reply %d bytes\n%s\n%s\n%s\n",
-		r1.tag, compared, len(l.hosts), replied, sjc, fra, gru)
+	fmt.Printf("attested release %s pulled in gru, then fra, then sjc; the canary's completion and gate persisted across hosts; %d lineage checks for %d hosts, each reply %d bytes\n%s\n%s\n%s\n",
+		r1.tag, compared, len(l.hosts), replied, gru, fra, sjc)
 
 	wrongWorkflow := sigstore.Identity{Workflow: "TerraScale/ts-orchestrator/.github/workflows/lint-cache.yml@refs/heads/main", Ref: "refs/heads/main", Trigger: "push"}
 	wrongBranch := sigstore.Identity{Workflow: "TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/feature", Ref: "refs/heads/feature", Trigger: "push"}
@@ -546,27 +571,27 @@ func (l *lane) pulls(ctx context.Context) {
 	}
 	for _, refusal := range refusals {
 		release := l.github.publish(refusal.sha, refusal.run, asset, refusal.binary, refusal.served, refusal.bundle)
-		status := l.waitStatus(ctx, "sjc", "sjc refuses the "+refusal.name+" release", func(s pullrelease.Status) bool {
+		status := l.waitStatus(ctx, "gru", "gru refuses the "+refusal.name+" release", func(s pullrelease.Status) bool {
 			return s.Phase == pullrelease.PhaseRefused && s.Target != nil && s.Target.Tag() == release.tag
 		})
 		require(strings.Contains(status.Reason, refusal.reason), "%s: refusal %q lacks %q", refusal.name, status.Reason, refusal.reason)
 		if refusal.direct {
-			reply := l.ask(ctx, "gru-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: l.release(release)})
+			reply := l.ask(ctx, "sjc-w", releasepush.PullRequest{Op: releasepush.PullInstall, Release: l.release(release)})
 			require(reply.Refusal != nil && reply.Refusal.Kind == releasepush.RefusalIntegrity && strings.Contains(reply.Refusal.Reason, refusal.reason),
-				"%s: gru-w must refuse it itself, replied %+v", refusal.name, reply)
+				"%s: sjc-w must refuse it itself, replied %+v", refusal.name, reply)
 		}
 		fmt.Printf("%s release %s refused: %s\n", refusal.name, release.tag, status.Reason)
 	}
-	l.requireVersions(ctx, r1.digest, l.region("sjc", "fra", "gru")...)
+	l.requireVersions(ctx, r1.digest, l.region("gru", "fra", "sjc")...)
 	fmt.Println("refused releases -> no host changed")
 
 	starts := l.starts()
 	l.drainReady()
 	r10 := l.publishGood("110", "unhealthy")
-	gating := l.waitStatus(ctx, "sjc", "sjc gates its first host on the unhealthy "+r10.tag, gatingFirst(r10))
+	gating := l.waitStatus(ctx, "gru", "gru gates its first host on the unhealthy "+r10.tag, gatingFirst(r10))
 	failing := gating.Hosts[0].ID
 	must(os.WriteFile(filepath.Join(l.hosts[failing].dir, "refuse-stop"), nil, 0o600))
-	pending := l.waitStatus(ctx, "sjc", "sjc keeps "+r10.tag+" pending while "+failing+" refuses to stop", func(s pullrelease.Status) bool {
+	pending := l.waitStatus(ctx, "gru", "gru keeps "+r10.tag+" pending while "+failing+" refuses to stop", func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseRollingBack && strings.Contains(s.Reason, "restoring the previous binary failed")
 	})
 	require(!slices.Contains(pending.Bad, r10.tag) && pending.Hosts[0].State == pullrelease.HostRestoring && strings.Contains(pending.Reason, "quorum"),
@@ -575,13 +600,13 @@ func (l *lane) pulls(ctx context.Context) {
 	require(still.SHA256 == r10.digest, "%s must still run the failed candidate while its restore is refused, runs %s", failing, still.SHA256)
 	fmt.Printf("restore refused by PrepareStop -> rollback pending, release not marked bad, %s still on it\n%s\n", failing, pending)
 	must(os.Remove(filepath.Join(l.hosts[failing].dir, "refuse-stop")))
-	status := l.waitStatus(ctx, "sjc", "sjc rolls back the unhealthy "+r10.tag, func(s pullrelease.Status) bool {
+	status := l.waitStatus(ctx, "gru", "gru rolls back the unhealthy "+r10.tag, func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseRolledBack && s.Target != nil && s.Target.Tag() == r10.tag
 	})
 	require(slices.Contains(status.Bad, r10.tag) && strings.Contains(status.Reason, "unhealthy") && status.Hosts[0].ID == failing && status.Hosts[0].State == pullrelease.HostRolledBack,
 		"the failing host's gate must fail on health and be confirmed restored: %s", status)
-	l.requireVersions(ctx, r1.digest, l.region("sjc")...)
-	for _, id := range l.region("sjc") {
+	l.requireVersions(ctx, r1.digest, l.region("gru")...)
+	for _, id := range l.region("gru") {
 		want := starts[id]
 		if id == failing {
 			want += 3
@@ -591,10 +616,10 @@ func (l *lane) pulls(ctx context.Context) {
 	fmt.Printf("unhealthy candidate -> previous binary confirmed running, then marked bad; no other host restarted\n%s\n", status)
 
 	r11 := l.publishGood("111", "unhealthy")
-	gating = l.waitStatus(ctx, "sjc", "sjc gates its first host on the unhealthy "+r11.tag, gatingFirst(r11))
+	gating = l.waitStatus(ctx, "gru", "gru gates its first host on the unhealthy "+r11.tag, gatingFirst(r11))
 	stuck := gating.Hosts[0].ID
 	must(os.WriteFile(filepath.Join(l.hosts[stuck].dir, "refuse-stop"), nil, 0o600))
-	stalled := l.waitStatus(ctx, "sjc", "sjc stops holding the region once the rollback of "+r11.tag+" passes its bound", func(s pullrelease.Status) bool {
+	stalled := l.waitStatus(ctx, "gru", "gru stops holding the region once the rollback of "+r11.tag+" passes its bound", func(s pullrelease.Status) bool {
 		return s.Phase == pullrelease.PhaseStalled && s.Target != nil && s.Target.Tag() == r11.tag
 	})
 	require(slices.Contains(stalled.Bad, r11.tag) && strings.HasPrefix(stalled.Reason, "critical: ") && strings.Contains(stalled.Reason, "quorum"),
@@ -605,7 +630,7 @@ func (l *lane) pulls(ctx context.Context) {
 	must(os.Remove(filepath.Join(l.hosts[stuck].dir, "refuse-stop")))
 	restored := l.ask(ctx, stuck, releasepush.PullRequest{Op: releasepush.PullRollback, Release: l.release(r11), Reason: "operator restores the stalled host"})
 	require(restored.State == "restoring", "the operator's rollback of %s must restore its previous binary, replied %+v", stuck, restored)
-	l.waitReady(ctx, "sjc."+stuck, r1.digest)
+	l.waitReady(ctx, "gru."+stuck, r1.digest)
 	listings, unchanged, shortest := l.github.listingGaps()
 	require(unchanged > 0 && shortest >= poll, "an owner may list releases once per %s and repeat with its ETag: %d listings, %d unchanged, shortest gap %s", poll, listings, unchanged, shortest)
 	fmt.Printf("release discovery: %d listings by the region owners, %d answered 304, at least %s apart in each process\n", listings, unchanged, shortest)
@@ -754,19 +779,19 @@ func (l *lane) waitStatus(ctx context.Context, region, what string, done func(pu
 func (l *lane) handover(ctx context.Context) {
 	starts := l.starts()
 	candidate := l.publishGood("114", "c114")
-	first := l.waitStatus(ctx, "gru", "gru starts its ordered rollout", gatingFirst(candidate))
-	l.waitReady(ctx, "gru."+first.Hosts[0].ID, candidate.digest)
+	first := l.waitStatus(ctx, "sjc", "sjc starts its ordered rollout", gatingFirst(candidate))
+	l.waitReady(ctx, "sjc."+first.Hosts[0].ID, candidate.digest)
 	owner := first.Owner
 	l.hosts[owner].holdRestart()
 	l.hosts[owner].kill()
-	l.outages.mark("gru", owner, true)
-	handover := l.waitStatus(ctx, "gru", "the other manager takes over the same release", func(s pullrelease.Status) bool {
+	l.outages.mark("sjc", owner, true)
+	handover := l.waitStatus(ctx, "sjc", "the other manager takes over the same release", func(s pullrelease.Status) bool {
 		return s.Owner != owner && s.Target != nil && s.Target.Tag() == candidate.tag
 	})
 	l.hosts[owner].releaseRestart()
-	done := l.waitStatus(ctx, "gru", "gru completes the inherited rollout", complete(candidate))
-	l.requireVersions(ctx, candidate.digest, l.region("sjc", "fra", "gru")...)
-	for _, id := range l.region("gru") {
+	done := l.waitStatus(ctx, "sjc", "sjc completes the inherited rollout", complete(candidate))
+	l.requireVersions(ctx, candidate.digest, l.region("gru", "fra", "sjc")...)
+	for _, id := range l.region("sjc") {
 		want := starts[id] + 1
 		if id == owner {
 			want++
@@ -778,17 +803,24 @@ func (l *lane) handover(ctx context.Context) {
 }
 
 func (l *lane) finishBeforeNewer(ctx context.Context) {
-	peer := l.hosts["gru-m"]
+	peer := l.hosts["sjc-m"]
 	peer.holdRestart()
 	current := l.publishGood("115", "c115")
 	peer.stopped(ctx)
-	restarting := l.waitStatus(ctx, "gru", "gru restarts its JetStream peer gru-m on "+current.tag+" with the fleet restart lease", func(s pullrelease.Status) bool {
+	behind := filepath.Join(peer.dir, "mesh-behind")
+	must(os.WriteFile(behind, nil, 0o600))
+	restarting := l.waitStatus(ctx, "sjc", "sjc restarts its JetStream peer sjc-m on "+current.tag+" with the fleet restart lease", func(s pullrelease.Status) bool {
 		return s.Target != nil && s.Target.Tag() == current.tag && s.Restart == peer.id && slices.ContainsFunc(s.Hosts, func(h pullrelease.HostProgress) bool {
 			return h.ID == peer.id && (h.State == pullrelease.HostInstalling || h.State == pullrelease.HostGating)
 		})
 	})
 	held := time.Now()
 	newer := l.publishGood("116", "c116")
+	l.restartLease(ctx, func(hold map[string]string) bool {
+		return hold["region"] == "sjc" && hold["host"] == peer.id && hold["next"] == "gru"
+	})
+	heldBack := l.ask(ctx, "gru-m", releasepush.PullRequest{Op: releasepush.PullStatus})
+	require(heldBack.SHA256 == current.digest && heldBack.Error == "", "gru-m must stay up on %s while sjc-m holds the fleet restart lease: %+v", current.tag, heldBack)
 	interrupted := []*host{peer}
 	if restarting.Owner != peer.id {
 		owner := l.hosts[restarting.Owner]
@@ -800,25 +832,30 @@ func (l *lane) finishBeforeNewer(ctx context.Context) {
 	for _, h := range interrupted {
 		h.releaseRestart()
 	}
-	finished := l.waitStatus(ctx, "gru", "gru finishes the gate of gru-m on "+current.tag+" and releases the fleet restart lease before it waits on "+newer.tag, func(s pullrelease.Status) bool {
-		require(s.Target != nil && s.Target.Tag() == current.tag, "gru left %s before it finished gru-m's gate and released the fleet restart lease:\n%s", current.tag, s)
+	l.waitReady(ctx, "sjc."+peer.id, current.digest)
+	stillBehind := l.ask(ctx, peer.id, releasepush.PullRequest{Op: releasepush.PullStatus})
+	heldBack = l.ask(ctx, "gru-m", releasepush.PullRequest{Op: releasepush.PullStatus})
+	require(stillBehind.SHA256 == current.digest && stillBehind.Mesh != "ok" && heldBack.SHA256 == current.digest && heldBack.Error == "",
+		"gru-m must stay on %s until the restarted sjc peer catches up: sjc %+v, gru %+v", current.tag, stillBehind, heldBack)
+	must(os.Remove(behind))
+	finished := l.waitStatus(ctx, "sjc", "sjc finishes the gate of sjc-m on "+current.tag+" and releases the fleet restart lease before it waits on "+newer.tag, func(s pullrelease.Status) bool {
+		require(s.Target != nil && s.Target.Tag() == current.tag, "sjc left %s before it finished sjc-m's gate and released the fleet restart lease:\n%s", current.tag, s)
 		i := slices.IndexFunc(s.Hosts, func(h pullrelease.HostProgress) bool { return h.ID == peer.id })
 		return s.Restart == "" && i >= 0 && s.Hosts[i].State == pullrelease.HostDone
 	})
 	leased := time.Since(held)
 	row := finished.Hosts[slices.IndexFunc(finished.Hosts, func(h pullrelease.HostProgress) bool { return h.ID == peer.id })]
 	require(leased < leaseBound && row.Version == current.sha && row.SHA256 == current.digest && !row.Ready.Before(held) && row.Ready.After(row.Installed),
-		"gru must gate gru-m on %s after its owner was interrupted, then release the fleet restart lease within %s; held %s:\n%s", current.tag, leaseBound, leased, finished)
+		"sjc must gate sjc-m on %s after its owner was interrupted, then release the fleet restart lease within %s; held %s:\n%s", current.tag, leaseBound, leased, finished)
 	took := false
-	canary := l.waitStatus(ctx, "sjc", "the canary takes the fleet restart lease for sjc-m and passes "+newer.tag, func(s pullrelease.Status) bool {
-		took = took || s.Target != nil && s.Target.Tag() == newer.tag && s.Restart == "sjc-m"
+	canary := l.waitStatus(ctx, "gru", "the canary takes the fleet restart lease for gru-m and passes "+newer.tag, func(s pullrelease.Status) bool {
+		took = took || s.Target != nil && s.Target.Tag() == newer.tag && s.Restart == "gru-m"
 		return took && passed(newer)(s)
 	})
-	proceeds := l.waitStatus(ctx, "gru", "gru takes "+newer.tag+" and installs it after the canary passed it", func(s pullrelease.Status) bool {
-		return s.Target != nil && s.Target.Tag() == newer.tag && !started(s).IsZero()
-	})
-	require(!started(proceeds).Before(canary.Passed), "gru started %s before the canary passed it:\n%s\n%s", newer.tag, canary, proceeds)
-	fmt.Printf("%s published while gru-m restarted onto %s and its owner was interrupted -> gru finished gru-m's gate, released the fleet restart lease after %s, the canary took it and passed %s, and gru proceeds with it\n%s\n%s\n",
+	fra := l.waitStatus(ctx, "fra", "fra passes "+newer.tag, passed(newer))
+	proceeds := l.waitStatus(ctx, "sjc", "sjc passes "+newer.tag, passed(newer))
+	ordered(canary, fra, proceeds)
+	fmt.Printf("%s published while sjc-m restarted onto %s and its owner was interrupted -> sjc finished sjc-m's gate, released the fleet restart lease after %s, the canary took it and passed %s, and sjc proceeds with it\n%s\n%s\n",
 		newer.tag, current.tag, leased.Round(time.Second), newer.tag, finished, strings.Join(slices.Concat(canary.Timeline(), proceeds.Timeline()), "\n"))
 }
 

@@ -15,11 +15,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/test/e2e/m1/vaultrecords"
 	"github.com/nats-io/nats.go"
 )
 
@@ -180,8 +180,12 @@ func servePromotionMesh() error {
 	if index > 0 {
 		name = fmt.Sprintf("worker-%d", index-1)
 	}
+	records, err := vaultrecords.New(filepath.Join(filepath.Dir(state), "vault"))
+	if err != nil {
+		return err
+	}
 	node, err := mesh.StartRegionalHost(mesh.RegionalHost{
-		State: state, Region: "gru", Server: name, CA: ca, TerraBaseToken: fmt.Sprintf("%x", seed),
+		State: state, Region: "gru", Server: name, CA: ca, TerraBaseToken: fmt.Sprintf("%x", seed), Records: records,
 		Routes: routes, ClusterAddress: meshIP(index) + ":6222", Address: func() (string, error) { return meshIP(index), nil },
 	})
 	if err != nil {
@@ -200,8 +204,7 @@ func servePromotionMesh() error {
 	}
 	defer membership.Unsubscribe()
 	if err := regionhealth.Serve(conn, func() regionhealth.Report {
-		quorum := regionhealth.ReadQuorum(ctx, state)
-		return regionhealth.Report{State: regionhealth.StateOK, At: time.Now().UTC(), Quorum: &quorum}
+		return regionhealth.Report{State: regionhealth.StateOK, At: time.Now().UTC()}
 	}); err != nil {
 		return err
 	}
@@ -294,13 +297,6 @@ func oneRegionReply(conn *nats.Conn, subject string, payload []byte) error {
 			var report regionhealth.Report
 			if err := protocol.DecodeTolerant(message.Data, &report, 1<<20); err != nil || report.Region != "gru" || report.State != regionhealth.StateOK {
 				return fmt.Errorf("health returned an invalid region report: %s", message.Data)
-			}
-			if report.Quorum == nil {
-				return fmt.Errorf("health omitted live SwarmKit membership")
-			}
-			eligible := map[string]string{"manager": "manager", "instance-0": "worker-0", "instance-1": "worker-1"}
-			if check := fleet.QuorumCheck(fleet.Region{OCIRegion: "sa-saopaulo-1"}, *report.Quorum, eligible); check.State != fleet.Ok {
-				return fmt.Errorf("mesh health did not carry three ready managers: %+v", check)
 			}
 		}
 		replies++

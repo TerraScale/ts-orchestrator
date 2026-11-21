@@ -71,7 +71,7 @@ func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Fact
 	}
 	external, err := VerifyExternal(ctx, region, clients.Compute, clients.Management, network, deref(subnets[subnet].VcnId))
 	if err != nil {
-		return fmt.Errorf("refusing compute minimum %d: %w", region.Nodes.Min, err)
+		return fmt.Errorf("refusing external data volume reconciliation: %w", err)
 	}
 	domains, err := ids.ListAvailabilityDomains(ctx, identity.ListAvailabilityDomainsRequest{CompartmentId: compartment})
 	if err != nil {
