@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,17 +36,30 @@ var metaRoster = []struct {
 	role metaRole
 }{{"one", founder}, {"two", founder}, {"three", founder}, {"worker", worker}, {"four", manager}}
 
-const pendingPeer = "Fv5pEnDg"
+const (
+	pendingPeer  = "Fv5pEnDg"
+	isolatedSeed = "nats://10.79.0.250:6222"
+)
 
-func metaNode(work string, i int) error {
+func metaNode(work string, i, staleSize int, tendPeers bool) error {
 	ctx, cancel := plannedstop.NotifyContext(context.Background())
 	defer cancel()
 	self := metaRoster[i]
-	var routes []string
-	for j := range metaRoster {
+	roster := metaRoster
+	if !tendPeers {
+		roster = metaRoster[:3]
+	}
+	var routes []*url.URL
+	var configured []string
+	for j := range roster {
 		if j != i {
-			routes = append(routes, "nats://"+address(j)+":6222")
+			route := &url.URL{Scheme: "nats", Host: address(j) + ":6222"}
+			routes = append(routes, route)
+			configured = append(configured, route.String())
 		}
+	}
+	if staleSize > 0 {
+		configured = []string{isolatedSeed}
 	}
 	jetstream := ""
 	if self.role != worker {
@@ -58,7 +73,7 @@ port: 4223
 cluster { name: fabric, host: 0.0.0.0, port: 6222, routes: [%s] }
 accounts { SYS { users: [{user: monitor, password: fabric-monitor}] } }
 system_account: SYS
-`, self.name, jetstream, strings.Join(routes, ","))); err != nil {
+`, self.name, jetstream, strings.Join(configured, ","))); err != nil {
 		return err
 	}
 	options.NoSigs, options.SyncAlways = true, true
@@ -74,6 +89,17 @@ system_account: SYS
 	if !s.ReadyForConnections(10 * time.Second) {
 		return errors.New("embedded server did not start")
 	}
+	if staleSize > 0 {
+		if err := bounded("metadata group on the isolated server", 10*time.Second, func() bool { return metaRaftNode(s) != nil }); err != nil {
+			return err
+		}
+		if err := metaRaftNode(s).AdjustBootClusterSize(staleSize); err != nil {
+			return fmt.Errorf("stale boot size: %w", err)
+		}
+		s.AddRoutes(routes)
+	} else if self.role != worker {
+		go formMetaGroup(ctx, s, self.role)
+	}
 	monitor, err := nats.Connect("nats://127.0.0.1:4223", nats.UserInfo("monitor", "fabric-monitor"))
 	if err != nil {
 		return err
@@ -84,7 +110,7 @@ system_account: SYS
 	tending.Store(true)
 	var claimsMu sync.Mutex
 	managers := map[string]bool{}
-	for _, member := range metaRoster {
+	for _, member := range roster {
 		if member.role != worker {
 			managers[member.name] = true
 		}
@@ -94,8 +120,7 @@ system_account: SYS
 		defer claimsMu.Unlock()
 		return mesh.ClaimedPeers(slices.Collect(maps.Keys(managers))), nil
 	}
-	if self.role != worker {
-		go formMetaGroup(ctx, s, self.role)
+	if tendPeers && self.role != worker {
 		go func() {
 			tick := time.NewTicker(500 * time.Millisecond)
 			defer tick.Stop()
@@ -121,7 +146,7 @@ system_account: SYS
 			groups = *status
 		}
 		health := ""
-		if self.role != worker {
+		if tendPeers && self.role != worker {
 			if err := lifecycle.Health(r.Context()); err != nil {
 				health = err.Error()
 			}
@@ -175,13 +200,34 @@ system_account: SYS
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux.HandleFunc("/propose-add", func(w http.ResponseWriter, r *http.Request) {
+	propose := func(remove bool) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			meta := metaRaftNode(s)
+			if meta == nil {
+				http.Error(w, "metadata group missing", http.StatusConflict)
+				return
+			}
+			apply := meta.ProposeAddPeer
+			if remove {
+				apply = meta.ProposeRemovePeer
+			}
+			if err := apply(r.URL.Query().Get("id")); err != nil {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}
+	mux.HandleFunc("/propose-add", propose(false))
+	mux.HandleFunc("/propose-remove", propose(true))
+	mux.HandleFunc("/resize", func(w http.ResponseWriter, r *http.Request) {
 		meta := metaRaftNode(s)
-		if meta == nil {
-			http.Error(w, "metadata group missing", http.StatusConflict)
+		size, err := strconv.Atoi(r.URL.Query().Get("size"))
+		if meta == nil || err != nil {
+			http.Error(w, fmt.Sprintf("metadata group missing or invalid size: %v", err), http.StatusConflict)
 			return
 		}
-		if err := meta.ProposeAddPeer(r.URL.Query().Get("id")); err != nil {
+		if err := meta.AdjustClusterSize(size); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -331,7 +377,7 @@ func metaPeers(work string) error {
 		}
 	}()
 	launchAt := func(i int) error {
-		p, err := launch(work, "meta-node", metaRoster[i].name, i)
+		p, err := launch(work, "meta-node-peers", metaRoster[i].name, i)
 		processes[i] = p
 		return err
 	}

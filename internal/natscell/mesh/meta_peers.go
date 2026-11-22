@@ -64,7 +64,7 @@ func (n *FabricLifecycle) TendMeta(ctx context.Context, claims ManagerClaims) er
 	if !ok || leader.Term < local.Term {
 		return fmt.Errorf("raft group %s: no current leader observation: %v", metaGroup, err)
 	}
-	if local.Changing || leader.Changing || !sameMembers(local.Members, leader.Members) {
+	if local.Changing || leader.Changing || leader.Change != nil || !sameMembers(local.Members, leader.Members) {
 		n.observeDisagreement(false)
 		return nil
 	}
@@ -116,6 +116,7 @@ func metaDisagreement(members []MetaMember, leader raftGroup) (disagreeing []str
 		if member.Observer || !slices.Contains(leader.Members, member.ID) {
 			continue
 		}
+		pending = pending || member.Change != nil
 		ids := []string{member.ID}
 		for _, peer := range member.Peers {
 			ids = append(ids, peer.ID)
