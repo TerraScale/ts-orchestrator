@@ -212,10 +212,11 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		if len(args) > 1 && (args[1] == "add" || args[1] == "rm" || args[1] == "backups") {
 			return regionhost.Run(ctx, args[1:], output)
 		}
-		if err := region.Run(ctx, args[1:], commandio.NewWriter(output), os.Stderr); err != nil || len(args) != 2 || args[1] != "status" {
-			return err
+		regionError := region.Run(ctx, args[1:], commandio.NewWriter(output), os.Stderr, regionhealth.RegionQuorum)
+		if len(args) >= 2 && args[1] == "status" {
+			return errors.Join(regionError, regionhealth.PrintReconcile(ctx, "/var/lib/ts-orch", output))
 		}
-		return regionhealth.PrintReconcile(ctx, "/var/lib/ts-orch", output)
+		return regionError
 	case "netbird":
 		if len(args) > 1 && args[1] == "dns" {
 			return netbirddns.Run(ctx, args[2:], commandio.NewWriter(output))

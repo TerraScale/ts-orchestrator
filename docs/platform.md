@@ -127,12 +127,16 @@ The document is not signed separately. A change is a reviewed pull request;
 only a merged release, trusted through its GitHub build attestation, carries
 it to the nodes.
 
-A region has at least 3 nodes and, for now, at most 3. Validation refuses a
-minimum below 3, a maximum below the minimum, a maximum above 3, overlapping
-CIDRs, a duplicate label and a name outside the zone.
+The pool minimum plus the declared external-host count must be at least 3.
+The pool maximum must be at least its minimum and at most 3. Validation also
+refuses overlapping CIDRs, duplicate labels and names outside the zone. These
+bounds declare capacity; the runtime quorum gate proves voting readiness.
 
 `ts-orch region plan` compares the document with what exists in OCI and
 changes nothing; `ts-orch region status` prints the same in one line per
+region. Both accept an optional region label. Regions with external hosts
+also check live voting quorum; other regions retain their OCI comparison.
+`ts-orch region quorum <label>` is the explicit rebuild quorum gate for any
 region. A resource is document-made when `ociresource.Ownership{Owner:
 "terrascale"}.Owns` accepts its tags for its key: `terrascale-managed-by`
 `ts-orchestrator`, `terrascale-owner` `terrascale` and
@@ -412,13 +416,47 @@ it is empty.
 A node that stays unhealthy for too long is replaced.
 
 Today: replicas and the node count scale on the region leader. Every region
-keeps 3 voting hosts, so it survives losing one: sjc and fra hold 3 pool
+requires 3 voting hosts to survive losing one: sjc and fra hold 3 pool
 nodes (`nodes.min` = `nodes.max` = 3); gru holds 2 pool nodes plus the
 external host `ts-gru-1` (`nodes.external`), which runs NetBird management
 and monitoring outside the pool. The document refuses a region whose
-`nodes.min` plus its external hosts is below 3. All three hosts are promoted
-to managers (`ts-orch member promote`). Load beyond that is absorbed by
-replicas and the shape.
+`nodes.min` plus its declared external hosts is below 3. Before compute apply
+uses those pool bounds, the uniquely owned AVAILABLE regional VCN must match
+the document CIDR, and its private subnet and node NSG must belong to that VCN.
+Every external name must match the `terrascale-host-node` tag on exactly one
+live OCI instance. The pass re-reads the instance by ID and requires it to be
+RUNNING in the region's compartment, with an attached primary VNIC in that
+compartment and the region's VCN. It
+must carry no regional pool-instance ownership and belong to no live instance
+pool in the compartment; an unavailable OCI check refuses the apply. The same
+external instance IDs are rechecked immediately before a pool create or
+update, after the pool settles, and before compute reports success, and the
+final running pool members must be exactly the instances whose data volumes
+the pass bound. A changed identity, a replaced member or lost capacity refuses
+completion. Pool updates recompute growth
+from a fresh read and use its ETag, so a concurrent increase cannot become
+a reduction. Regions without external hosts (sjc, fra) run none of these
+checks and keep the plain compute pass.
+
+After provisioning, run `ts-orch member promote` on the regional Raft leader
+to promote eligible workers to three voting managers. Then run
+`ts-orch region quorum <label>` on a host connected to the region's environment
+mesh. The rebuild's quorum gate exits unsuccessfully until `swarm quorum` is
+`ok`. The explicit gate,
+and plan/status for a region with external hosts, read live SwarmKit membership
+through dedicated quorum requests on the existing NATS health subject after the
+region's OCI inventory and external-host checks finish. The gate requires
+at least 3 distinct node IDs, OCI instance IDs and hostnames. Each must be a
+current and desired manager, READY and Raft-reachable, with the region's
+admission label and an identity matching a
+RUNNING regional pool host in the private subnet or a verified external host.
+A worker-only external host never supplies a vote. Missing membership or an
+invalid external host keeps the gate closed. Regions without external hosts
+keep OCI-only plan/status behavior; use the explicit quorum command to gate
+their rebuilds. Status always retains reconcile visibility, including on a
+quorum failure. Ordinary health requests return the cached report without
+reading SwarmKit. Load beyond the fixed host count is absorbed by replicas
+and the shape.
 
 ## What was removed
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,15 +22,20 @@ import (
 
 const usage = `Usage: ts-orch region <command> [flags]
 
-  plan
+  plan [LABEL]
       Compare every region of the fleet document (deploy/fleet/fleet.json)
       with what exists in OCI: network, gateways, NSGs, instances, network
       load balancer, reserved address, DNS zone and steering policies.
       Document-made resources carry the ownership tags; others are hand-made.
       Reads OCI with the operator's ~/.oci/config, or the instance principal
-      where there is none; changes nothing.
-  status
-      The same comparison, one line per region.
+      where there is none; regions with external hosts also read live SwarmKit
+      membership over this host's mesh. Changes nothing. LABEL selects a region.
+  status [LABEL]
+      The same comparison, one line per region. Regions with external hosts
+      also require live voting quorum; other regions retain OCI-only status.
+  quorum LABEL
+      The rebuild gate: require three distinct ready, Raft-reachable managers
+      on verified regional OCI hosts. Reads live membership over the mesh.
   validate
       Load and validate the embedded fleet document; reads nothing else.
   apply  LABEL KIND...
@@ -56,16 +62,17 @@ const usage = `Usage: ts-orch region <command> [flags]
       With --wait, retry until then.
 `
 
-// Run dispatches the region commands.
-func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
+type QuorumReader func(context.Context, fleet.Region) fleet.QuorumObservation
+
+func Run(ctx context.Context, args []string, out, errOut io.Writer, quorums QuorumReader) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		_, err := io.WriteString(out, usage)
 		return err
 	}
 	command, args := args[0], args[1:]
 	switch command {
-	case "plan", "status", "validate":
-		return compareFleet(ctx, command, args, out)
+	case "plan", "status", "validate", "quorum":
+		return compareFleet(ctx, command, args, out, quorums)
 	case "apply":
 		return fleet.Apply(ctx, args, out)
 	}
@@ -115,9 +122,15 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	}
 }
 
-func compareFleet(ctx context.Context, command string, args []string, out io.Writer) error {
-	if len(args) != 0 {
-		return fmt.Errorf("ts-orch region %s takes no arguments", command)
+func compareFleet(ctx context.Context, command string, args []string, out io.Writer, quorums QuorumReader) error {
+	if command == "validate" && len(args) != 0 {
+		return fmt.Errorf("ts-orch region validate takes no arguments")
+	}
+	if command == "quorum" && len(args) != 1 {
+		return fmt.Errorf("usage: ts-orch region quorum LABEL")
+	}
+	if len(args) > 1 {
+		return fmt.Errorf("usage: ts-orch region %s [LABEL]", command)
 	}
 	document, err := fleet.Load()
 	if err != nil {
@@ -127,12 +140,31 @@ func compareFleet(ctx context.Context, command string, args []string, out io.Wri
 		_, err := fmt.Fprintf(out, "fleet document valid: %d regions, zone %s\n", len(document.Regions), document.DNS.Zone)
 		return err
 	}
-	reports, err := fleet.Plan(ctx, document)
+	label := ""
+	if len(args) == 1 {
+		label = args[0]
+		if _, err := document.Region(label); err != nil {
+			return err
+		}
+	}
+	reads := map[string]fleet.QuorumRead{}
+	for _, region := range document.All() {
+		if (label == "" || region.Label == label) && (command == "quorum" || len(region.Nodes.External) > 0) {
+			reads[region.OCIRegion] = func(ctx context.Context) fleet.QuorumObservation { return quorums(ctx, region) }
+		}
+	}
+	reports, err := fleet.Plan(ctx, document, reads, label)
 	if err != nil {
 		return err
 	}
 	if command == "status" {
-		return fleet.PrintStatus(out, reports)
+		return errors.Join(fleet.PrintStatus(out, reports), fleet.RequireQuorum(reports))
+	}
+	if command == "quorum" {
+		for i := range reports {
+			reports[i].Checks = slices.DeleteFunc(reports[i].Checks, func(check fleet.Check) bool { return check.Kind != "swarm quorum" })
+		}
+		return errors.Join(fleet.PrintPlan(out, reports), fleet.RequireQuorum(reports))
 	}
 	return fleet.PrintPlan(out, reports)
 }

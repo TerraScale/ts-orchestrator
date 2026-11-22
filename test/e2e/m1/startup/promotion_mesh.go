@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/fleet"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
@@ -203,8 +204,13 @@ func servePromotionMesh() error {
 		return err
 	}
 	defer membership.Unsubscribe()
-	if err := regionhealth.Serve(conn, func() regionhealth.Report {
-		return regionhealth.Report{State: regionhealth.StateOK, At: time.Now().UTC()}
+	if err := regionhealth.Serve(conn, func(request string) regionhealth.Report {
+		report := regionhealth.Report{State: regionhealth.StateOK, At: time.Now().UTC()}
+		if request == "quorum" {
+			quorum := regionhealth.ReadQuorum(ctx, state)
+			report.Quorum = &quorum
+		}
+		return report
 	}); err != nil {
 		return err
 	}
@@ -261,7 +267,7 @@ func checkRegionRequests(conn *nats.Conn) error {
 			return err
 		}
 	}
-	return nil
+	return oneRegionReply(conn, protocol.MeshHealthSubject, []byte("quorum"))
 }
 
 func oneRegionReply(conn *nats.Conn, subject string, payload []byte) error {
@@ -297,6 +303,19 @@ func oneRegionReply(conn *nats.Conn, subject string, payload []byte) error {
 			var report regionhealth.Report
 			if err := protocol.DecodeTolerant(message.Data, &report, 1<<20); err != nil || report.Region != "gru" || report.State != regionhealth.StateOK {
 				return fmt.Errorf("health returned an invalid region report: %s", message.Data)
+			}
+			if string(payload) != "quorum" {
+				if report.Quorum != nil {
+					return fmt.Errorf("ordinary health read SwarmKit membership")
+				}
+			} else if report.Quorum == nil {
+				return fmt.Errorf("quorum reply omitted live SwarmKit membership")
+			}
+			if report.Quorum != nil {
+				eligible := map[string]string{"manager": "manager", "instance-0": "worker-0", "instance-1": "worker-1"}
+				if check := fleet.QuorumCheck(fleet.Region{OCIRegion: "sa-saopaulo-1"}, *report.Quorum, eligible); check.State != fleet.Ok {
+					return fmt.Errorf("mesh health did not carry three ready managers: %+v", check)
+				}
 			}
 		}
 		replies++

@@ -24,6 +24,9 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	}
 	defer conn.Close()
 	watcher := api.NewWatchClient(conn)
+	if _, err := swarmruntime.AdmitNode(ctx, client, manager.ID(), swarmruntime.Admission{Region: "sa-saopaulo-1", HostID: "manager", InstanceID: "manager", Role: "manager"}); err != nil {
+		return err
+	}
 	if err := os.MkdirAll("/var/lib/ts-orch", 0o700); err != nil {
 		return err
 	}
@@ -95,6 +98,9 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	if err := awaitPromotionReady(ctx, client, watcher, 3, 3); err != nil {
 		return err
 	}
+	if err := regionalQuorumJourney(ctx, filepath.Join(state, "manager"), true, func(context.Context) error { return nil }); err != nil {
+		return err
+	}
 	if err := swarmruntime.PromoteManagers(ctx, client, watcher, workers[0].ID()); err == nil {
 		return fmt.Errorf("a follower was allowed to change manager membership")
 	}
@@ -120,17 +126,23 @@ func promotionJourney(ctx context.Context, state string, manager *swarmruntime.N
 	if err := awaitStoredRole(ctx, workerState, "manager"); err != nil {
 		return err
 	}
-	current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: workers[0].ID()})
-	if err != nil {
-		return err
+	demote := func(ctx context.Context) error {
+		current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: workers[0].ID()})
+		if err != nil {
+			return err
+		}
+		node := current.Node
+		spec := node.Spec.Copy()
+		spec.DesiredRole, spec.Availability = api.NodeRoleWorker, api.NodeAvailabilityDrain
+		if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec}); err != nil {
+			return err
+		}
+		if err := awaitStoredRole(ctx, workerState, "container"); err != nil {
+			return err
+		}
+		return awaitPromotionReady(ctx, client, watcher, 3, 2)
 	}
-	node := current.Node
-	spec := node.Spec.Copy()
-	spec.DesiredRole, spec.Availability = api.NodeRoleWorker, api.NodeAvailabilityDrain
-	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec}); err != nil {
-		return err
-	}
-	if err := awaitStoredRole(ctx, workerState, "container"); err != nil {
+	if err := regionalQuorumJourney(ctx, filepath.Join(state, "manager"), false, demote); err != nil {
 		return err
 	}
 	if output, err := command("leave", "worker-0"); err != nil {
