@@ -843,7 +843,7 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	evidence(ctx, roots[0], held, func(r receipt) bool { return r.Bake.Samples >= 1 })
 	setHealth(ctx, addresses[0], 18085, "503")
 	evidence(ctx, roots[0], held, func(r receipt) bool { return r.Bake.Reason != "" })
-	heldWaitCases(ctx, conn, root, spec.Image, held)
+	heldWaitCases(ctx, conn, root, spec.Image, order[0], held)
 	output, err := serviceCLI(ctx, names[0], launcher, roots[0], "rm", spec.Name)
 	require(err == nil, fmt.Sprintf("remove a service held at failed bake: %v %s", err, output))
 	observe(ctx, conn, func(s map[string]state) bool {
@@ -864,7 +864,10 @@ func journey(ctx context.Context, root, launcher, specFile string, installOnly b
 	require(retained.ReplacedBy == nil, "removal rewrote the failed bake as a replacement release")
 	logStep("a failed bake accepts service removal across every region, removes peers files and retains failure evidence")
 	scopedWaitCases(ctx, conn, root, roots[gru], names[gru], launcher, spec)
-	rollbackWaitCase(ctx, conn, roots[0], names[0], spec.Image)
+	rollbackRegions := strings.Split(rollbackScope, ",")
+	rollback := slices.IndexFunc(order, func(region string) bool { return slices.Contains(rollbackRegions, region) })
+	require(rollback >= 0, "rollback scope has no rollout region")
+	rollbackWaitCase(ctx, conn, roots[rollback], names[rollback], spec.Image, order[rollback])
 
 	ownerEpochCase(ctx, root, "gru", roots[slices.Index(order, "gru")], roots[slices.Index(order, "fra")])
 	fmt.Println("rollout journey passed")

@@ -33,6 +33,7 @@ import (
 
 const waitWorkflow = "TerraScale/terrascale/.github/workflows/ci.yml@refs/heads/main"
 const canaryWaitWorkflow = "TerraScale/ts-orchestrator/.github/workflows/app-canary.yml@refs/heads/main"
+const rollbackScope = "fra,sjc"
 
 type waitLab struct {
 	regions string
@@ -237,22 +238,22 @@ func freshWaitCase(ctx context.Context, conn *nats.Conn, root, gruAddress, image
 	logStep("after GRU stops serving during SJC's initial probe, final revalidation finds GRU unready at the same signed generation")
 }
 
-func heldWaitCases(ctx context.Context, conn *nats.Conn, root, image string, generation int64) {
+func heldWaitCases(ctx context.Context, conn *nats.Conn, root, image, heldRegion string, generation int64) {
 	lab, cleanup := startWaitLab(conn, root, waitWorkflow)
 	defer cleanup()
 	newer, cancel := context.WithCancel(ctx)
 	defer cancel()
-	var sjcProbes atomic.Int32
+	var heldProbes atomic.Int32
 	read := lab.observe
 	lab.observe = func(ctx context.Context, region, service, nonce string) (releasepush.AppReleaseObservation, error) {
 		proof, err := read(ctx, region, service, nonce)
-		if region == "sjc" && sjcProbes.Add(1) == 3 {
+		if region == heldRegion && heldProbes.Add(1) == 3 {
 			cancel()
 		}
 		return proof, err
 	}
 	err := lab.wait(ctx, io.Discard, "terrabase", image, "102", "")
-	expected := fmt.Sprintf("sjc: terrabase signed run 102 attempt 1 generation %d held at failed bake:", generation)
+	expected := fmt.Sprintf("%s: terrabase signed run 102 attempt 1 generation %d held at failed bake:", heldRegion, generation)
 	require(err != nil && strings.Contains(err.Error(), expected), fmt.Sprintf("signed failure did not name its region and release: %v", err))
 	err = lab.wait(newer, io.Discard, "terrabase", image, "103", "")
 	require(errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "held at failed bake"),
@@ -290,7 +291,7 @@ func scopedWaitCases(ctx context.Context, conn *nats.Conn, root, gruRoot, gruNam
 	logStep("operator GRU placement survives verified host pull; scoped wait passes and global wait immediately names undeclared FRA and SJC")
 }
 
-func rollbackWaitCase(ctx context.Context, conn *nats.Conn, root, namespace, image string) {
+func rollbackWaitCase(ctx context.Context, conn *nats.Conn, root, namespace, image, region string) {
 	const canary, run = "app-canary", "206"
 	image = strings.Replace(image, "terrabase@", "app-canary@", 1)
 	denyReadiness := func(operation string) {
@@ -324,14 +325,14 @@ func rollbackWaitCase(ctx context.Context, conn *nats.Conn, root, namespace, ima
 		require(result.State == "failed" && strings.Contains(result.Error, "rolled back to absence"), "signed canary did not roll back to absence: "+result.Error)
 		return true
 	})
-	proof, err := mesh.ReadAppRelease(ctx, conn, "sjc", canary, strings.Repeat("a", 64))
+	proof, err := mesh.ReadAppRelease(ctx, conn, region, canary, strings.Repeat("a", 64))
 	must(err)
 	require(proof.Release != nil && proof.Release.RunID == run && proof.Placement != nil && proof.Placement.RollbackOf == failedGeneration && !proof.Declared,
 		fmt.Sprintf("regional rollback lost signed identity or ancestry: %+v", proof))
 	lab, cleanup := startWaitLab(conn, root, canaryWaitWorkflow)
 	defer cleanup()
-	err = lab.wait(ctx, io.Discard, canary, image, run, "fra,sjc")
-	expected := fmt.Sprintf("app-canary signed run %s attempt 1 generation %d rolled back to absence in generation %d", run, proof.Placement.RollbackOf, proof.Placement.Generation)
+	err = lab.wait(ctx, io.Discard, canary, image, run, rollbackScope)
+	expected := fmt.Sprintf("%s: app-canary signed run %s attempt 1 generation %d rolled back to absence in generation %d", region, run, proof.Placement.RollbackOf, proof.Placement.Generation)
 	require(err != nil && strings.Contains(err.Error(), expected), fmt.Sprintf("signed waiter did not report the actual rollback: %v", err))
 	logStep("verified signed canary rolls back to absence and the scoped wait returns its exact regional rollback ancestry")
 }
