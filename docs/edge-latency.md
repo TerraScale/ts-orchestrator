@@ -123,6 +123,14 @@ while fresh HTTPS requests still succeed, waits for shutdown after the real
 20-second propagation interval, then checks HTTPS admission has stopped and
 the held response finishes successfully.
 
+C33 phase 1 changes only the desired NLB probe policy. This journey and the
+runtime retain the 20 s propagation window and 5 s HTTP shutdown allowance.
+The six-second bound in `internal/nlbhealth` is unused by runtime code. C33b
+must cover public admission closure separately from established work, including
+the dependent loopback :8081 path and Postgres command/idle transitions, before
+shortening that window. Observation cadences and their checks are listed in
+`docs/host-install.md`; none changes in phase 1.
+
 The same lane runs `edge-upstream.py` against an edge child with the production
 65,536 descriptor limit. Clients and backends run outside the edge process. Dedicated Go HTTP/2 load
 processes keep 128 requests on each explicitly owned connection, so TLS work

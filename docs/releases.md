@@ -337,6 +337,13 @@ at most 166 seconds after the reply. The pull leader checks the actual running
 revision, digest and health after restart. A second restart request while one is queued is
 coalesced.
 
+C33 phase 1 releases only the faster desired NLB health policy. After the
+release, ops applies and verifies that policy per region while the binary
+still uses 20 s of propagation plus 5 s of HTTP shutdown inside its unchanged
+30 s process budget. It performs no OCI policy read at stop. The derived
+six-second withdrawal bound is an unused constant for C33b, which must wait
+until the policy is live everywhere and old reconcilers are gone.
+
 Staging and the rename hold the same lock as probation confirmation and the
 probation deadline. A request is `current` only when the installed binary has
 the release's revision and digest; another build of the same commit is

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/nlbhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -18,12 +19,9 @@ import (
 var nlbPorts = []int{80, 443, 5432}
 
 const (
-	nlbHealthPort     = 80
-	nlbHealthPath     = "/readyz"
-	nlbHealthInterval = 10000
-	nlbHealthTimeout  = 5000
-	nlbHealthRetries  = 1
-	nlbPolicy         = networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple
+	nlbHealthPort = 80
+	nlbHealthPath = "/readyz"
+	nlbPolicy     = networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple
 )
 
 func (r Region) ownedTags(kind, name string) map[string]string {
@@ -195,7 +193,8 @@ func (p nlbPass) reservedAddress(ctx context.Context) (core.PublicIp, error) {
 func healthChecker() networkloadbalancer.HealthCheckerDetails {
 	return networkloadbalancer.HealthCheckerDetails{
 		Protocol: networkloadbalancer.HealthCheckProtocolsHttp, Port: common.Int(nlbHealthPort), UrlPath: common.String(nlbHealthPath),
-		ReturnCode: common.Int(200), IntervalInMillis: common.Int(nlbHealthInterval), TimeoutInMillis: common.Int(nlbHealthTimeout), Retries: common.Int(nlbHealthRetries),
+		ReturnCode: common.Int(200), IntervalInMillis: common.Int(int(nlbhealth.Interval / time.Millisecond)),
+		TimeoutInMillis: common.Int(int(nlbhealth.Timeout / time.Millisecond)), Retries: common.Int(nlbhealth.Retries),
 	}
 }
 
