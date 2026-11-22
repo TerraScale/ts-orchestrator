@@ -211,7 +211,8 @@ on HTTPS 443. The response contains host revisions, regional health, a mesh
 ping matrix and desired/running images. It has no mutation operation.
 
 - release hosts REVISION waits for every registered host to run that revision with its release confirmed and no rollback.
-- release wait --service NAME --image IMAGE waits for the selected image to serve.
+- release wait --service NAME --image IMAGE observes the aggregate serving digest.
+- release wait-signed --service NAME --image IMAGE proves the exact signed app generation and its authorized regional placement.
 - release digests --out FILE records complete, agreeing running digests.
 - release mesh-check verifies mesh and HTTPS evidence without NATS access.
 
@@ -220,15 +221,42 @@ package-only and regional OCIR references to the same digest satisfy the same
 gate. Missing, mutable, malformed and different digests fail the comparison.
 The mesh check includes both observed and desired references in a mismatch.
 
+The aggregate serving digest reflects the placement in the desired spec.
+Querying all regional endpoints with `release wait` can therefore report the
+same serving digest from every endpoint when the service only runs in GRU.
+The hosts still select and apply releases through their signed pull workflow.
+
+`release wait-signed` uses the same app workflow OIDC authorization with
+`view=app-release`. Before switching CI, complete the GRU-first runtime
+cutover and verify that each required HTTPS endpoint returns a fresh,
+service-scoped response from its regional manager under the existing
+workflow identity. Keep using `release wait` until that capability is live.
+
+The signed waiter takes the selection revision, run ID and attempt from
+the GitHub Actions environment or from `--revision`, `--run-id` and
+`--run-attempt`. It checks the selected digest, runtime and durable bake
+against the same signed desired generation on every required target. The
+regions file describes the configured fleet. An unscoped wait requires that
+whole fleet and reports any required target explicitly excluded by the
+signed generation. An approved recovery may pass `--scope gru` when the
+signed generation's placement is exactly GRU. The command prints
+`gru_ready` when GRU has matching evidence. After all regions report ready,
+it probes them again and emits `done` only when every region returns newer
+live readiness evidence for that same generation within the freshness
+window. Both events include the signed identity, target regions, bake pass
+times and live check times. A held failed bake or rollback for the selected
+release ends the wait with the region, signed run and attempt, and the
+affected generation.
+
 `release hosts` and `release wait` log a `Region release observation` record on
 stderr whenever a region's readiness, host inventory or app images change.
 Each record includes its region, UTC `observed_at`, HTTP status, health,
 registered host versions, desired/running images and readiness. A down host
-cannot confirm a host release. The first `ready:true` record for a region is
-its first observed healthy target proof. Subtract the PR's `mergedAt` from that
-timestamp for merge-to-region time; retain the workflow run and target revision
-with the measurement. Pending records expose the blocking state before a
-workflow deadline. Observation budgets and release gates are unchanged.
+cannot confirm a host release. For `release hosts`, the first `ready:true`
+record marks the first observation of a confirmed host release in that region.
+For a signed app, use that region's `passed_at` for the exact generation in
+`release wait-signed`. Subtract the PR's `mergedAt` from the corresponding
+timestamp and retain the signed run and revision with the measurement.
 
 Transport failures and undecodable responses during host restart remain pending
 until the existing observation deadline; authentication failure is terminal.

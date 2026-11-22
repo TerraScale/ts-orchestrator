@@ -366,12 +366,14 @@ func start(cfg config) (_ *Node, err error) {
 				Workers: node.joinedWorkers()})
 		},
 		StateSubject: func(m *nats.Msg) {
-			var request struct {
-				Nonce  string `json:"nonce"`
-				View   string `json:"view"`
-				Region string `json:"region"`
-			}
+			var request stateRequest
 			_ = protocol.DecodeTolerant(m.Data, &request, maxWire)
+			if request.View == appReleaseView {
+				if request.Region == cfg.region && request.Nonce != "" && serviceName.MatchString(request.Service) {
+					node.goWork(func() { node.respond(m, node.observeAppRelease(request)) })
+				}
+				return
+			}
 			if request.View == "deployments" {
 				if request.Region == cfg.region {
 					node.goWork(func() { node.respond(m, node.observeDeployments()) })
@@ -1057,29 +1059,11 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 		}
 		return applyResult{result: "skipped-not-targeted"}, nil
 	}
-	spec := *entry.Spec
-	spec.Generation, spec.Region, spec.Node = entry.Generation, n.cfg.region, n.cfg.server
-	spec.RollbackOf = entry.RollbackOf
-	spec.Deployment, spec.DeploymentFloor = entry.Deployment, state.Floor
+	spec, perNode, workersSettled := n.regionalServiceSpec(state)
 	spec.BootstrapStage = bootstrapStage
-	perNode := PerNode(&spec)
-	if perNode {
-		// One task per fully joined node: a worker counts only once it announces
-		// itself over the mesh and SwarmKit has it READY and ACTIVE, so a drained
-		// or half-joined worker is never a release target.
-		workers, settled := n.settledWorkers()
-		spec.Replicas = uint64(1 + len(workers))
-		if !spec.EveryNode() {
-			spec.Replicas = min(regionalReplicas(&spec), spec.Replicas)
-		}
-		if !settled {
-			if err := n.keepReplicas(ctx, spec); err != nil {
-				return applyResult{}, err
-			}
-		}
-		spec.WorkerAddresses = make(map[string]string, len(workers))
-		for _, worker := range workers {
-			spec.WorkerAddresses[worker.Node] = worker.Address
+	if perNode && !workersSettled {
+		if err := n.keepReplicas(ctx, spec); err != nil {
+			return applyResult{}, err
 		}
 	}
 	if spec.NeedsPeers() {
@@ -1102,6 +1086,27 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 		return applyResult{result: "applied", spec: spec, service: service, state: state}, nil
 	}
 	return applyResult{result: "unchanged", spec: spec, service: service, state: state}, nil
+}
+
+func (n *Node) regionalServiceSpec(state desiredState) (spec swarmruntime.ServiceSpec, perNode, workersSettled bool) {
+	entry := state.entry()
+	spec = *entry.Spec
+	spec.Generation, spec.Region, spec.Node = entry.Generation, n.cfg.region, n.cfg.server
+	spec.RollbackOf = entry.RollbackOf
+	spec.Deployment, spec.DeploymentFloor = entry.Deployment, state.Floor
+	if !PerNode(&spec) {
+		return spec, false, true
+	}
+	workers, settled := n.settledWorkers()
+	spec.Replicas = uint64(1 + len(workers))
+	if !spec.EveryNode() {
+		spec.Replicas = min(regionalReplicas(&spec), spec.Replicas)
+	}
+	spec.WorkerAddresses = make(map[string]string, len(workers))
+	for _, worker := range workers {
+		spec.WorkerAddresses[worker.Node] = worker.Address
+	}
+	return spec, true, settled
 }
 
 func (n *Node) respond(m *nats.Msg, value any) {

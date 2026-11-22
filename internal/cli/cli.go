@@ -90,6 +90,7 @@ const releaseUsage = `Usage: ts-orch release <command> [flags]
 
 ts-orch release hosts <revision> observes that every registered host runs the revision;
 ts-orch release wait --service <name> --image <ref@sha256> observes a pulled app rollout over authenticated HTTPS;
+ts-orch release wait-signed --service <name> --image <ref@sha256> proves the exact signed release and authorized regional readiness;
 ts-orch release digests --out <file> records every mesh service's running image (app-digests CI only);
 ts-orch release mesh-check reads mesh health, running digests and HTTPS in every region (CI only).
 ts-orch release manifest --sha <sha> --sequence <n> --out <file> builds a signed-release manifest from a CI release's binaries;
@@ -185,6 +186,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		}
 		if len(args) > 1 && args[1] == "wait" {
 			return releasepush.WaitApp(ctx, args[2:], output)
+		}
+		if len(args) > 1 && args[1] == "wait-signed" {
+			return releasepush.WaitSignedApp(ctx, args[2:], output)
 		}
 		if len(args) > 1 && args[1] == "digests" {
 			return releasepush.Digests(ctx, args[2:], output)
