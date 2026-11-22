@@ -52,6 +52,7 @@ type Nodes struct {
 	BootGB        int64
 	DataGB        int64
 	DataVPUsPerGB int64
+	External      map[string]string
 	Min, Max      int
 	SubnetID      string
 	NSGID         string
@@ -85,6 +86,13 @@ func (p Pass) say(verb, kind, name, detail string) {
 }
 
 func (p Pass) Run(ctx context.Context) error {
+	slots, err := p.dataVolumes(ctx)
+	if err != nil {
+		return err
+	}
+	if err := p.preflightExternal(ctx); err != nil {
+		return err
+	}
 	configuration, stale, err := p.configuration(ctx)
 	if err != nil {
 		return err
@@ -103,19 +111,18 @@ func (p Pass) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if p.VerifyCapacity == nil {
-		return p.volumes(ctx, instances)
+	if p.VerifyCapacity != nil {
+		if _, err := p.VerifyCapacity(ctx, ""); err != nil {
+			return err
+		}
+	}
+	if err := p.volumes(ctx, instances, slots); err != nil || p.VerifyCapacity == nil {
+		return err
 	}
 	return p.complete(ctx, pool, instances)
 }
 
 func (p Pass) complete(ctx context.Context, pool core.InstancePool, instances []core.InstanceSummary) error {
-	if _, err := p.VerifyCapacity(ctx, ""); err != nil {
-		return err
-	}
-	if err := p.volumes(ctx, instances); err != nil {
-		return err
-	}
 	bound := make([]string, 0, len(instances))
 	for _, instance := range instances {
 		bound = append(bound, deref(instance.Id))
@@ -474,13 +481,13 @@ type slot struct {
 	volume core.Volume
 }
 
-func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) error {
+func (p Pass) dataVolumes(ctx context.Context) (map[string]core.Volume, error) {
 	listed, err := all(func(page *string) ([]core.Volume, *string, error) {
 		r, err := p.Storage.ListVolumes(ctx, core.ListVolumesRequest{CompartmentId: &p.Compartment, Page: page})
 		return r.Items, r.OpcNextPage, err
 	})
 	if err != nil {
-		return fmt.Errorf("list volumes: %w", err)
+		return nil, fmt.Errorf("list volumes: %w", err)
 	}
 	slots := map[string]core.Volume{}
 	prefix := p.Key("volume", "data-").String()
@@ -495,11 +502,20 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) err
 				continue
 			}
 			if held, ok := slots[name]; ok {
-				return fmt.Errorf("%s names both %s and %s; refusing ambiguous data volume identity", p.Key("volume", name), *held.Id, *volume.Id)
+				return nil, fmt.Errorf("%s names both %s and %s; refusing ambiguous data volume identity", p.Key("volume", name), *held.Id, *volume.Id)
+			}
+			if volume.LifecycleState != core.VolumeLifecycleStateTerminating {
+				if err := p.checkSize(p.Key("volume", name).String(), volume); err != nil {
+					return nil, err
+				}
 			}
 			slots[name] = volume
 		}
 	}
+	return slots, nil
+}
+
+func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary, slots map[string]core.Volume) error {
 	attachments, err := p.attachments(ctx)
 	if err != nil {
 		return err
@@ -507,6 +523,9 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) err
 	attachedTo := map[string]string{}
 	for _, attachment := range attachments {
 		attachedTo[deref(attachment.GetVolumeId())] = deref(attachment.GetInstanceId())
+	}
+	if err := p.growExternal(ctx, attachments); err != nil {
+		return err
 	}
 	slices.SortFunc(instances, func(a, b core.InstanceSummary) int { return cmp.Compare(*a.Id, *b.Id) })
 	for _, instance := range instances {
@@ -522,16 +541,33 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) err
 		if err != nil {
 			return err
 		}
+		if chosen.name != "" && !attached && chosen.volume.LifecycleState != core.VolumeLifecycleStateAvailable {
+			if chosen.volume, err = p.available(ctx, chosen.volume); err != nil {
+				return fmt.Errorf("wait for %s: %w", p.Key("volume", chosen.name), err)
+			}
+		}
+		if chosen.name != "" {
+			if err := p.checkSize(p.Key("volume", chosen.name).String(), chosen.volume); err != nil {
+				return err
+			}
+		}
+		if chosen.name != "" && *chosen.volume.SizeInGBs < p.DataGB {
+			name := chosen.name
+			chosen.volume, err = p.grow(ctx, p.Key("volume", name).String(), chosen.volume.Id, func(v core.Volume) bool {
+				owner := v.FreeformTags[boundInstance]
+				return p.owns("volume", name, v.FreeformTags) && (owner == "" || owner == *current.Id)
+			})
+			if err != nil {
+				return err
+			}
+			slots[name] = chosen.volume
+		}
 		if !attached {
 			if chosen.name == "" {
 				if chosen, err = p.create(ctx, slots, current); err != nil {
 					return err
 				}
 				slots[chosen.name] = chosen.volume
-			} else if chosen.volume.LifecycleState != core.VolumeLifecycleStateAvailable {
-				if chosen.volume, err = p.available(ctx, chosen.volume); err != nil {
-					return fmt.Errorf("wait for %s: %w", p.Key("volume", chosen.name), err)
-				}
 			}
 			volume, err := p.bindingVolume(ctx, current, chosen)
 			if err != nil {
@@ -553,6 +589,59 @@ func (p Pass) volumes(ctx context.Context, instances []core.InstanceSummary) err
 		}
 	}
 	return nil
+}
+
+func (p Pass) checkSize(label string, volume core.Volume) error {
+	if volume.SizeInGBs == nil || *volume.SizeInGBs <= 0 {
+		return fmt.Errorf("%s has no observed data volume size", label)
+	}
+	if *volume.SizeInGBs > p.DataGB {
+		return fmt.Errorf("%s is %d GB: nodes.data_gb=%d would decrease storage; data volumes cannot shrink", label, *volume.SizeInGBs, p.DataGB)
+	}
+	return nil
+}
+
+func (p Pass) growthVolume(ctx context.Context, label string, id *string, eligible func(core.Volume) bool) (core.GetVolumeResponse, error) {
+	got, err := p.Storage.GetVolume(ctx, core.GetVolumeRequest{VolumeId: id})
+	if err != nil {
+		return got, fmt.Errorf("read %s before growth: %w", label, err)
+	}
+	volume := got.Volume
+	if deref(volume.Id) != deref(id) || deref(volume.CompartmentId) != p.Compartment || !eligible(volume) {
+		return got, fmt.Errorf("%s no longer matches the selected volume identity", label)
+	}
+	if err := p.checkSize(label, volume); err != nil {
+		return got, err
+	}
+	return got, nil
+}
+
+func (p Pass) grow(ctx context.Context, label string, id *string, eligible func(core.Volume) bool) (core.Volume, error) {
+	got, err := p.growthVolume(ctx, label, id, eligible)
+	if err != nil {
+		return core.Volume{}, err
+	}
+	volume := got.Volume
+	if *volume.SizeInGBs == p.DataGB {
+		return volume, nil
+	}
+	if got.Etag == nil || *got.Etag == "" || volume.LifecycleState != core.VolumeLifecycleStateAvailable {
+		return core.Volume{}, fmt.Errorf("%s needs an AVAILABLE volume with an ETag for online growth", label)
+	}
+	before := *volume.SizeInGBs
+	if _, err := p.Storage.UpdateVolume(ctx, core.UpdateVolumeRequest{VolumeId: volume.Id, IfMatch: got.Etag,
+		UpdateVolumeDetails: core.UpdateVolumeDetails{SizeInGBs: &p.DataGB}}); err != nil {
+		return core.Volume{}, fmt.Errorf("grow %s to %d GB: %w", label, p.DataGB, err)
+	}
+	if err := waitFor(ctx, func() (bool, error) {
+		got, err := p.Storage.GetVolume(ctx, core.GetVolumeRequest{VolumeId: id})
+		volume = got.Volume
+		return volume.LifecycleState == core.VolumeLifecycleStateAvailable && volume.SizeInGBs != nil && *volume.SizeInGBs >= p.DataGB, err
+	}); err != nil {
+		return core.Volume{}, fmt.Errorf("confirm growth of %s: %w", label, err)
+	}
+	p.say("grown", "volume", label, fmt.Sprintf("%s %d -> %d GB online", *volume.Id, before, *volume.SizeInGBs))
+	return volume, nil
 }
 
 func (p Pass) pick(slots map[string]core.Volume, attachedTo map[string]string, attachments []core.VolumeAttachment, instance core.Instance) (slot, bool, error) {

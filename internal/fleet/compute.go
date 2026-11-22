@@ -78,9 +78,10 @@ func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Fact
 		return fmt.Errorf("%s has no document-made private subnet %s or NSG %s; run ts-orch region apply %s network first",
 			region.Label, region.Key("subnet", "private-subnet"), region.Key("nsg", nodeNSG), region.Label)
 	}
+	var external map[string]string
 	var verifyCapacity func(context.Context, string) (map[string]string, error)
 	if vcn != nil {
-		external, err := VerifyExternal(ctx, region, clients.Compute, clients.Management, network, *vcn)
+		external, err = VerifyExternal(ctx, region, clients.Compute, clients.Management, network, *vcn)
 		if err != nil {
 			return fmt.Errorf("refusing compute minimum %d: %w", region.Nodes.Min, err)
 		}
@@ -107,7 +108,7 @@ func ApplyCompute(ctx context.Context, _ Fleet, region Region, f *ociclient.Fact
 	nodes := region.Nodes
 	return compute.Pass{Clients: clients, Ownership: ownership, Out: out, VerifyCapacity: verifyCapacity, Nodes: compute.Nodes{
 		Label: region.Label, Compartment: region.CompartmentID, Shape: nodes.Shape, OCPUs: nodes.OCPUs, MemoryGB: nodes.MemoryGB,
-		BootGB: nodes.BootGB, DataGB: nodes.DataGB, DataVPUsPerGB: nodes.DataVPUsPerGB, Min: nodes.Min, Max: nodes.Max,
+		BootGB: nodes.BootGB, DataGB: nodes.DataGB, DataVPUsPerGB: nodes.DataVPUsPerGB, Min: nodes.Min, Max: nodes.Max, External: external,
 		SubnetID: deref(subnets[subnet].Id), NSGID: deref(nsgs[nsg].Id), Places: places, Key: region.Key,
 		Launch: func(ctx context.Context) (compute.Launch, error) { return launch(ctx, clients.Compute, region) },
 	}}.Run(ctx)

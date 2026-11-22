@@ -10,6 +10,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "grow" {
+		if err := datamount.Grow(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	report, err := datamount.Read(context.Background())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

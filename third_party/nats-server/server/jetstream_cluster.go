@@ -2338,7 +2338,7 @@ func (js *jetStream) monitorCluster() {
 			// Check to see if we can adjust our cluster size down iff we are in mixed mode and we have
 			// seen a total that is what our original estimate was.
 			cs := n.ClusterSize()
-			if js, total := s.trackedJetStreamServers(); js < total && total >= cs && js != cs {
+			if js, total := s.trackedJetStreamServers(); s.getOpts().JetStreamMetaBootSize == 0 && js < total && total >= cs && js != cs {
 				s.Noticef("Adjusting JetStream expected peer set size to %d from original %d", js, cs)
 				n.AdjustBootClusterSize(js)
 			}
@@ -2349,7 +2349,7 @@ func (js *jetStream) monitorCluster() {
 // This is called on first leader transition to double check the peers and cluster set size.
 func (js *jetStream) checkClusterSize() {
 	s, n := js.server(), js.getMetaGroup()
-	if n == nil {
+	if n == nil || s.getOpts().JetStreamMetaBootSize > 0 {
 		return
 	}
 	// We will check that we have a correct cluster set size by checking for any non-js servers

@@ -24,6 +24,7 @@ func computeMutationJourney(ctx context.Context, region fleet.Region, factory *o
 	size, revision, reads, creates, updates, readsAfterBind := 0, 0, 0, 0, 0, 0
 	var sizes []int
 	configuration := "old-config"
+	const dataGB = 50
 	ownership := ociresource.Ownership{Owner: fleet.Owner}
 	pool := func() map[string]any {
 		return map[string]any{"id": "pool", "compartmentId": region.CompartmentID, "instanceConfigurationId": configuration, "size": size, "lifecycleState": "RUNNING", "freeformTags": ownership.Stamp(region.Key("instance-pool", "nodes"), 1, "journey").Freeform}
@@ -31,7 +32,7 @@ func computeMutationJourney(ctx context.Context, region fleet.Region, factory *o
 	volume := func(index int) map[string]any {
 		tags := ownership.Stamp(region.Key("volume", fmt.Sprintf("data-%d", index+1)), 1, "journey").Freeform
 		tags["terrascale-data-instance"] = fmt.Sprintf("pool-instance-%d", index)
-		return map[string]any{"id": fmt.Sprintf("volume-%d", index), "availabilityDomain": "AD-1", "lifecycleState": "AVAILABLE", "freeformTags": tags}
+		return map[string]any{"id": fmt.Sprintf("volume-%d", index), "availabilityDomain": "AD-1", "lifecycleState": "AVAILABLE", "sizeInGBs": dataGB, "freeformTags": tags}
 	}
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -42,6 +43,8 @@ func computeMutationJourney(ctx context.Context, region fleet.Region, factory *o
 		if mode == "stop-before-write" && resolved || mode == "stop-after-write" && creates > 0 || mode == "concurrent-growth" && reads >= 4 {
 			state = "STOPPED"
 		}
+		externalHost := map[string]any{"id": id, "displayName": "ts-gru-1", "compartmentId": region.CompartmentID, "lifecycleState": state,
+			"freeformTags": map[string]string{"terrascale-host-node": "ts-gru-1"}}
 		var body any
 		if member, found := strings.CutPrefix(r.URL.Path, "/20160918/instances/pool-instance-"); found {
 			body = map[string]any{"id": "pool-instance-" + member, "displayName": region.Label + "-node-" + member, "availabilityDomain": "AD-1", "lifecycleState": "RUNNING",
@@ -76,12 +79,12 @@ func computeMutationJourney(ctx context.Context, region fleet.Region, factory *o
 			resolved = true
 			body = compute.Launch{ImageID: "image"}
 		case "/20160918/instances":
-			body = []any{map[string]any{"id": id, "displayName": "ts-gru-1", "compartmentId": region.CompartmentID, "lifecycleState": state}}
+			body = []any{externalHost}
 		case "/20160918/instances/instance-0", "/20160918/instances/instance-replacement":
 			if mode == "etag-race" && reads >= 3 && size == 1 {
 				size, revision = 3, revision+1
 			}
-			body = map[string]any{"id": id, "displayName": "ts-gru-1", "compartmentId": region.CompartmentID, "lifecycleState": state}
+			body = externalHost
 		case "/20160918/vnicAttachments":
 			body = []any{map[string]any{"instanceId": id, "vnicId": "primary", "lifecycleState": "ATTACHED"}}
 		case "/20160918/vnics/primary":
@@ -186,7 +189,7 @@ func computeMutationJourney(ctx context.Context, region fleet.Region, factory *o
 			return err
 		}
 		pass := compute.Pass{Clients: clients, Ownership: ownership, Out: ociresource.Out{Same: io.Discard, Changed: io.Discard, Apply: true},
-			Nodes: compute.Nodes{Label: region.Label, Compartment: region.CompartmentID, Min: 2, Max: 3, Key: region.Key,
+			Nodes: compute.Nodes{Label: region.Label, Compartment: region.CompartmentID, Min: 2, Max: 3, DataGB: dataGB, Key: region.Key,
 				SubnetID: "private-subnet", Places: []compute.Place{{AvailabilityDomain: "AD-1", FaultDomains: []string{"FAULT-DOMAIN-1"}}},
 				Launch: func(ctx context.Context) (compute.Launch, error) {
 					request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.URL+"/launch", nil)

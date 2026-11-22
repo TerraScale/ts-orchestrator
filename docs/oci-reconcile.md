@@ -109,10 +109,11 @@ from the configuration's launch tags) and `<CELL>/volume/data-<n>`.
 | Size | Never lowered by this pass; in a region with external hosts, growth is recomputed after settling and protected by an ETag. The `nodes` kind grows and shrinks the pool one drained node at a time (`docs/platform.md`, "Node count: the nodes kind"). |
 | Data volumes | A node with an attached owned data volume keeps it. Otherwise it gets the lowest kept volume in its availability domain, or a new one (at most `nodes.max`). The volume records the node in `terrascale-data-instance`; the node's metadata gets `terrascale-data-volume`, `terrascale-data-may-format` (true only while `terrascale-data-instance` is empty or names this node) and `terrascale-data-uuid`, the filesystem UUID chosen at volume creation. |
 
-A reduced pool floor relies on each declared external host resolving uniquely
-to a RUNNING OCI instance in the compartment, with an attached primary VNIC
-in a subnet of the compartment and the owned regional VCN, and no regional
-pool-instance ownership or membership in a non-terminated compartment pool.
+A reduced pool floor relies on each declared external host matching the
+`terrascale-host-node` tag of exactly one live OCI instance in the compartment.
+The instance must be RUNNING with its primary VNIC attached in the compartment
+and the owned regional VCN. It must have no regional pool-instance ownership
+or membership in a non-terminated compartment pool.
 The pass pins those OCIDs and rechecks their eligibility at pool writes,
 after settling and before successful completion. Completion also requires the
 pool to be `RUNNING` at its size with its running members exactly the instance

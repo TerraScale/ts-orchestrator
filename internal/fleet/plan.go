@@ -399,10 +399,11 @@ func nodes(region Region, instances []core.Instance, subnetOf map[string]string,
 	want := region.Nodes
 	external := map[string]string{}
 	instances = slices.DeleteFunc(slices.Clone(instances), func(in core.Instance) bool {
-		if !slices.Contains(want.External, deref(in.DisplayName)) || gone(string(in.LifecycleState)) {
+		host := in.FreeformTags[externalHostNodeTag]
+		if !slices.Contains(want.External, host) || gone(string(in.LifecycleState)) {
 			return false
 		}
-		external[deref(in.DisplayName)] = strings.ToLower(string(in.LifecycleState))
+		external[host] = strings.ToLower(string(in.LifecycleState))
 		return true
 	})
 	items := collect(instances, func(in core.Instance) (item, string) {

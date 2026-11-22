@@ -29,6 +29,47 @@ Fixed on ts-gru-1 2026-10-21 and saved with `netfilter-persistent save`:
 ssh ts-gru-1 sudo iptables -S INPUT   # 80 and 443 ACCEPT before the REJECT
 ```
 
+## Grow database storage
+
+Increase the region's `nodes.data_gb` in `deploy/fleet/fleet.json`, then run
+the orchestrator built with that document:
+
+```sh
+ts-orch region apply <label> compute
+```
+
+The compute pass checks the sizes of owned pool data volumes and declared
+external data volumes before it updates the instance configuration, pool or
+volumes. It rejects a target below any existing size. For an external host
+such as `ts-gru-1`, it resolves one running instance by its
+`terrascale-host-node` tag and verifies its regional network and exclusion
+from all pools. The data volume is the exclusive writable attachment to
+that instance OCID at `/dev/oracleoci/oraclevdb`.
+
+The node checks for new capacity in the background as soon as the growth
+worker starts and every five seconds after that. Startup and serving use
+the already verified mount independently of rescan and resize. A reported
+error appears in the affected host's journal as `data filesystem growth
+failed` and can appear as a degraded reason in a regional health response
+from that host. Compare the three sizes on the affected host:
+
+```sh
+oci bv volume get --volume-id <volume ocid> --query 'data."size-in-gbs"'
+ssh ts-gru-1 sudo blockdev --getsize64 /dev/oracleoci/oraclevdb
+ssh ts-gru-1 sudo dumpe2fs -h /dev/oracleoci/oraclevdb 2>/dev/null | grep -E '^Block (count|size)'
+```
+
+The first is the OCI volume size in GB, the second the device capacity the
+host sees in bytes, the third the filesystem size (block count times block
+size). Growth is complete when the OCI size equals `nodes.data_gb` and the
+filesystem fills the device to the last whole block. An OCI size below the
+target means the compute pass did not grow the volume; its output names the
+refusal. A device smaller than the OCI size means the host has not seen the
+new capacity. A filesystem smaller than the device means the mounted
+filesystem has not grown to the published capacity. Check the affected
+host's `ts-orch` journal for recorded errors. A rescan can return without
+publishing new capacity or reporting an error. See [storage policy](storage.md#grow-node-storage).
+
 ## Install or upgrade
 
 Every main push publishes a CI release `ci-<sha>-run-<id>` with

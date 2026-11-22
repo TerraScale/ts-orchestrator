@@ -39,15 +39,17 @@ func externalIdentityJourney(ctx context.Context) error {
 			http.Error(w, "compute must refuse before an OCI mutation", http.StatusBadRequest)
 			return
 		}
-		instance := map[string]any{"id": "instance-0", "displayName": "ts-gru-1", "compartmentId": region.CompartmentID, "lifecycleState": "RUNNING"}
+		instanceTags := map[string]string{}
+		if mode == "owned" {
+			instanceTags = tags("instance", "node")
+		}
+		instanceTags["terrascale-host-node"] = "ts-gru-1"
+		instance := map[string]any{"id": "instance-0", "displayName": "ts-gru-1", "compartmentId": region.CompartmentID, "lifecycleState": "RUNNING", "freeformTags": instanceTags}
 		if mode == "stopped" {
 			instance["lifecycleState"] = "STOPPED"
 		}
 		if mode == "compartment" {
 			instance["compartmentId"] = "other-compartment"
-		}
-		if mode == "owned" {
-			instance["freeformTags"] = tags("instance", "node")
 		}
 		vcn := "regional-vcn"
 		if mode == "vcn" || mode == "copied-subnet" {

@@ -423,9 +423,10 @@ and monitoring outside the pool. The document refuses a region whose
 `nodes.min` plus its declared external hosts is below 3. Before compute apply
 uses those pool bounds, the uniquely owned AVAILABLE regional VCN must match
 the document CIDR, and its private subnet and node NSG must belong to that VCN.
-Every external name must resolve to exactly one live
-OCI instance, re-read by its instance ID: RUNNING, in the region's compartment,
-with an attached primary VNIC in that compartment and the region's VCN. It
+Every external name must match the `terrascale-host-node` tag on exactly one
+live OCI instance. The pass re-reads the instance by ID and requires it to be
+RUNNING in the region's compartment, with an attached primary VNIC in that
+compartment and the region's VCN. It
 must carry no regional pool-instance ownership and belong to no live instance
 pool in the compartment; an unavailable OCI check refuses the apply. The same
 external instance IDs are rechecked immediately before a pool create or

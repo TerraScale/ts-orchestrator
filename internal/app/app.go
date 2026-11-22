@@ -21,6 +21,7 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/moby/swarmkit/v2/api"
 
+	"github.com/TerraScale/ts-orchestrator/internal/datamount"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
@@ -73,6 +74,7 @@ func RunNode(ctx context.Context, args []string, output io.Writer) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	go datamount.Maintain(ctx)
 	swarmReady := make(chan struct{})
 	edgeDone := make(chan struct{})
 	var edgeErr error
