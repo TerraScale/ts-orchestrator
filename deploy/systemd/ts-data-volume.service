@@ -1,0 +1,17 @@
+[Unit]
+Description=TerraScale stateful data volume
+BindsTo=dev-oracleoci-oraclevdb.device
+After=dev-oracleoci-oraclevdb.device
+Before=ts-orch-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/systemd/systemd-makefs ext4 /dev/oracleoci/oraclevdb
+ExecStart=/usr/bin/mkdir -p /var/lib/ts-data
+ExecStart=/usr/bin/mount -o noatime /dev/oracleoci/oraclevdb /var/lib/ts-data
+ExecStart=/usr/lib/systemd/systemd-growfs /var/lib/ts-data
+ExecStop=/usr/bin/umount /var/lib/ts-data
+
+[Install]
+WantedBy=dev-oracleoci-oraclevdb.device

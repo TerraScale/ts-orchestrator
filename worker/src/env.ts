@@ -7,4 +7,27 @@ export interface Env {
   ORCH_HOST: string;
   ATLAS_HOST: string;
   LOCAL_DEV: string;
+  SESSION_SECRET?: string;
+  ALLOWED_SSH_KEYS?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  ALLOWED_GITHUB_USER_IDS?: string;
+  NODE_ENROLL_SECRET?: string;
+  PIN_SIGNING_KEY?: string;
+  PIN_TTL_S?: string;
+  STALE_AFTER_S?: string;
+  PLACEMENT_PUBLISH_KEYS?: string;
+  TOPOLOGY_PUBLISH_KEYS?: string;
+  DEV_ORIGINS?: string;
+  OCI_TENANCY_ID?: string;
+  OCI_USER_ID?: string;
+  OCI_FINGERPRINT?: string;
+  OCI_PRIVATE_KEY_PEM?: string;
+  OCI_BASE_URL?: string;
+  CF_DNS_API_TOKEN?: string;
+  CF_DNS_ZONE_ID?: string;
+  ACME_DIRECTORY_URL?: string;
+  ACME_ACCOUNT_EMAIL?: string;
+  TLS_DOMAINS?: string;
+  VERSION?: string;
 }

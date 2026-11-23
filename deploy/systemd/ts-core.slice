@@ -1,0 +1,6 @@
+[Unit]
+Description=TerraScale core services slice
+Before=slices.target
+
+[Slice]
+CPUWeight=500

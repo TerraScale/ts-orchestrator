@@ -1,0 +1,8 @@
+[Unit]
+Description=TerraScale application workloads slice
+Before=slices.target
+
+[Slice]
+CPUWeight=100
+MemoryHigh=85%
+ManagedOOMMemoryPressure=kill

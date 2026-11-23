@@ -1,0 +1,218 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+  WRANGLER_SEND_METRICS: "false"
+
+jobs:
+  dotnet:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Comment-free check
+        run: |
+          set -euo pipefail
+          found=0
+          git grep -nP '^\s*(//|/\*)|\s//\s' -- '*.cs' '*.ts' '*.json' '*.jsonc' && found=1
+          git grep -nP '<!--' -- '*.csproj' '*.props' '*.targets' '*.slnx' 'NuGet.config' && found=1
+          git grep -nP '^\s*#|\s#\s' -- '*.tf' '*.yml' '*.yaml' '*.toml' '*.slice' '*.service' && found=1
+          while IFS= read -r script; do
+            awk -v file="$script" 'NR == 1 && $0 == "#!/usr/bin/env bash" { next } /^[[:space:]]*#|[[:space:]]#[[:space:]]/ { print file ":" NR ": " $0; bad = 1 } END { exit bad }' "$script" || found=1
+          done < <(git ls-files '*.sh')
+          exit "$found"
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+
+      - name: Restore
+        run: dotnet restore TsOrch.slnx --locked-mode
+
+      - name: Format
+        run: dotnet format whitespace TsOrch.slnx --verify-no-changes
+
+      - name: Build
+        run: dotnet build TsOrch.slnx -c Release --no-restore
+
+      - name: Publish arch-neutral IL bundle
+        run: dotnet publish src/TsOrch.Cli -c Release --no-self-contained --no-build -o dist/ts-orch
+
+      - name: Package bundle
+        run: |
+          set -euo pipefail
+          bundle=dist/bundle
+          install -d "$bundle/systemd"
+          cp -a dist/ts-orch/. "$bundle/"
+          cp deploy/systemd/*.slice deploy/systemd/*.service "$bundle/systemd/"
+          cp deploy/cloud-init/docker-daemon.json "$bundle/"
+          mapfile -t entrypoints < <(grep -hoP '^ExecStart=/usr/bin/dotnet /opt/ts-orch/current/\K\S+' deploy/systemd/*.service | sort -u)
+          test "${#entrypoints[@]}" -gt 0
+          for entrypoint in "${entrypoints[@]}"; do
+            test -f "$bundle/$entrypoint"
+          done
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$(git log -1 --format=%ct)" -C "$bundle" -czf dist/ts-orch.tar.gz .
+          (cd dist && sha256sum ts-orch.tar.gz | tee ts-orch.tar.gz.sha256)
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: ts-orch-bundle
+          path: |
+            dist/ts-orch.tar.gz
+            dist/ts-orch.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  worker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Read Node version
+        id: node
+        working-directory: .
+        run: echo "version=$(grep -oP '^node = "\K[^"]+' .mise.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Wrangler dry-run
+        run: npx wrangler deploy --dry-run --outdir dist
+
+  infra:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tofu-plugin-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Read OpenTofu version
+        id: tofu
+        run: echo "version=$(grep -oP '^opentofu = "\K[^"]+' .mise.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4
+        with:
+          tofu_version: ${{ steps.tofu.outputs.version }}
+          tofu_wrapper: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .tofu-plugin-cache
+          key: tofu-plugins-${{ runner.os }}-${{ hashFiles('infra/.terraform.lock.hcl') }}
+
+      - name: Format
+        run: tofu -chdir=infra fmt -check -recursive
+
+      - name: Validate
+        run: |
+          set -euo pipefail
+          install -d "$TF_PLUGIN_CACHE_DIR"
+          tofu -chdir=infra init -backend=false -input=false -lockfile=readonly
+          tofu -chdir=infra validate
+
+      - name: Shellcheck
+        run: shellcheck -S warning deploy/cloud-init/node-boot.sh
+
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Read Node version
+        id: node
+        run: echo "version=$(grep -oP '^node = "\K[^"]+' .mise.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Docker E2E
+        run: bash e2e/run.sh
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [dotnet, worker, infra, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ts-orch-bundle
+          path: dist
+
+      - name: Publish v2 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v2-${GITHUB_SHA}"
+          [[ "$tag" =~ ^v2-[0-9a-f]{40}$ ]]
+          (cd dist && sha256sum -c ts-orch.tar.gz.sha256)
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$tag" dist/ts-orch.tar.gz dist/ts-orch.tar.gz.sha256 --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" dist/ts-orch.tar.gz dist/ts-orch.tar.gz.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$tag" \
+              --notes "ts-orch v2 arch-neutral IL bundle for ${GITHUB_SHA}" \
+              --prerelease \
+              --latest=false
+          fi
+
+  all-green:
+    if: always()
+    needs: [dotnet, worker, infra, e2e, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every gate
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$NEEDS"
+          jq -e 'to_entries | all(.value.result == "success" or (.key == "release" and .value.result == "skipped"))' <<< "$NEEDS" > /dev/null

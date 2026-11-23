@@ -32,6 +32,16 @@
           "Microsoft.Extensions.Logging.EventSource": "11.0.0"
         }
       },
+      "Microsoft.Extensions.Http": {
+        "type": "Direct",
+        "requested": "[11.0.0, )",
+        "resolved": "11.0.0",
+        "contentHash": "Pa5xJYtE5weFzv8sRwei1yvqCc05PareJABDtUSigzyj0xmrnG7ZU5VBy0hf5tgh7HN3/psGiOQouw5PLaQD8w==",
+        "dependencies": {
+          "Microsoft.Extensions.Diagnostics": "11.0.0",
+          "Microsoft.Extensions.Logging": "11.0.0"
+        }
+      },
       "Microsoft.Extensions.Configuration": {
         "type": "Transitive",
         "resolved": "11.0.0",
@@ -181,12 +191,6 @@
         "type": "Transitive",
         "resolved": "11.0.0",
         "contentHash": "lKore9DXE1q8o6ss6/M7++xBpn2FMS0axaAypBspYLqY5OT1ZRPLzFGwF18l61aXfXTPpwkx5tYh4zMUHoAv/g=="
-      },
-      "tsorch.oci": {
-        "type": "Project",
-        "dependencies": {
-          "TsOrch.Protocol": "[1.0.0, )"
-        }
       },
       "tsorch.protocol": {
         "type": "Project"

@@ -1,8 +1,10 @@
 namespace TsOrch.Oci;
 
 public sealed record class OciInstanceIdentity(
-    string TenancyId,
-    string CompartmentId,
-    string Region,
     string InstanceId,
-    string FaultDomain);
+    string Region,
+    string CompartmentId,
+    string FaultDomain,
+    string Shape,
+    string VcnIp,
+    string RealmDomain);

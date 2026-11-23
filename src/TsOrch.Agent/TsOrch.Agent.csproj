@@ -4,9 +4,13 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../TsOrch.Protocol/TsOrch.Protocol.csproj" />
-    <ProjectReference Include="../TsOrch.Oci/TsOrch.Oci.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="TsOrch.Protocol" />
   </ItemGroup>
 </Project>

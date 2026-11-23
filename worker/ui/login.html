@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noindex, nofollow">
+<title>Sign in · TerraScale Orchestrator</title>
+<script>
+(function () {
+  var saved = null;
+  try { saved = localStorage.getItem("ts-orch-theme"); } catch (e) {}
+  var theme = saved === "light" || saved === "dark" ? saved : (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  document.documentElement.setAttribute("data-theme", theme);
+})();
+</script>
+<style>
+:root {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius: 14px;
+}
+[data-theme="dark"] {
+  --bg: #07090d;
+  --bg-glow-1: rgba(56, 189, 248, 0.10);
+  --bg-glow-2: rgba(139, 92, 246, 0.10);
+  --card: rgba(17, 20, 27, 0.82);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --fg: #ecedee;
+  --muted: #8b919c;
+  --subtle: #5c626d;
+  --line: rgba(255, 255, 255, 0.07);
+  --btn-bg: #f5f5f6;
+  --btn-fg: #0a0b0d;
+  --btn-hover: #ffffff;
+  --btn2-bg: rgba(255, 255, 255, 0.04);
+  --btn2-border: rgba(255, 255, 255, 0.12);
+  --btn2-hover: rgba(255, 255, 255, 0.08);
+  --ok: #3ddc97;
+  --warn: #f5b84b;
+  --err: #ff6b6b;
+  --err-bg: rgba(255, 107, 107, 0.08);
+  --err-border: rgba(255, 107, 107, 0.28);
+  --accent: #7dd3fc;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 30px 80px -20px rgba(0, 0, 0, 0.7);
+  --grid: rgba(255, 255, 255, 0.035);
+}
+[data-theme="light"] {
+  --bg: #f6f7f9;
+  --bg-glow-1: rgba(14, 165, 233, 0.10);
+  --bg-glow-2: rgba(124, 58, 237, 0.08);
+  --card: rgba(255, 255, 255, 0.9);
+  --card-border: rgba(15, 23, 42, 0.09);
+  --fg: #0b0d12;
+  --muted: #5b6270;
+  --subtle: #8a909b;
+  --line: rgba(15, 23, 42, 0.08);
+  --btn-bg: #0b0d12;
+  --btn-fg: #ffffff;
+  --btn-hover: #1c1f27;
+  --btn2-bg: rgba(15, 23, 42, 0.02);
+  --btn2-border: rgba(15, 23, 42, 0.14);
+  --btn2-hover: rgba(15, 23, 42, 0.05);
+  --ok: #0f9d63;
+  --warn: #b7791f;
+  --err: #d93636;
+  --err-bg: rgba(217, 54, 54, 0.06);
+  --err-border: rgba(217, 54, 54, 0.25);
+  --accent: #0284c7;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 24px 60px -24px rgba(15, 23, 42, 0.25);
+  --grid: rgba(15, 23, 42, 0.04);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  min-height: 100vh;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+.backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(700px 400px at 15% -10%, var(--bg-glow-1), transparent 70%),
+    radial-gradient(600px 380px at 95% 110%, var(--bg-glow-2), transparent 70%),
+    linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 44px 44px;
+  mask-image: radial-gradient(ellipse at center, #000 40%, transparent 85%);
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 40%, transparent 85%);
+}
+.topbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  z-index: 1;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  background: var(--card);
+  backdrop-filter: blur(10px);
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--subtle);
+  position: relative;
+}
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.err { background: var(--err); }
+.dot.ok::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1px solid var(--ok);
+  opacity: 0;
+  animation: ping 2.2s ease-out infinite;
+}
+@keyframes ping {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(2); opacity: 0; }
+}
+.theme-toggle {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  background: var(--card);
+  backdrop-filter: blur(10px);
+}
+.theme-toggle button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.theme-toggle button[aria-pressed="true"] {
+  background: var(--btn2-hover);
+  color: var(--fg);
+}
+.theme-toggle svg { width: 13px; height: 13px; }
+main {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  padding: 36px 32px 28px;
+  animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+.logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, rgba(125, 211, 252, 0.18), rgba(167, 139, 250, 0.18));
+  border: 1px solid var(--card-border);
+}
+.logo svg { width: 26px; height: 26px; color: var(--fg); }
+h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.host {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.lede {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.banner {
+  display: none;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 12px;
+  margin-bottom: 18px;
+  border-radius: 10px;
+  border: 1px solid var(--err-border);
+  background: var(--err-bg);
+  color: var(--err);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.banner.show { display: flex; }
+.banner svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
+.banner strong { display: block; font-weight: 600; margin-bottom: 2px; }
+.banner span { color: var(--fg); opacity: 0.85; }
+.btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 44px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.08s ease, border-color 0.15s ease, opacity 0.15s ease;
+  user-select: none;
+}
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-primary {
+  border: 1px solid transparent;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+}
+.btn-primary:hover { background: var(--btn-hover); }
+.btn-primary svg { width: 18px; height: 18px; }
+.btn-secondary {
+  margin-top: 10px;
+  border: 1px dashed var(--btn2-border);
+  background: var(--btn2-bg);
+  color: var(--fg);
+}
+.btn-secondary:hover { background: var(--btn2-hover); }
+.btn-secondary svg { width: 16px; height: 16px; color: var(--warn); }
+.btn[aria-busy="true"] { opacity: 0.6; pointer-events: none; }
+.divider {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 8px;
+  color: var(--subtle);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.divider::before, .divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.dev { display: none; }
+.dev.show { display: block; }
+.divider.show { display: flex; }
+.dev-note {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--subtle);
+  text-align: center;
+}
+.meta {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--subtle);
+}
+.meta .lock { display: inline-flex; align-items: center; gap: 6px; }
+.meta svg { width: 12px; height: 12px; }
+footer {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--subtle);
+  padding: 18px;
+}
+@media (max-width: 480px) {
+  .card { padding: 28px 22px 22px; }
+  .topbar { padding: 14px 16px; }
+}
+</style>
+</head>
+<body>
+<div class="backdrop"></div>
+<header class="topbar">
+  <div class="status-pill" id="status" title="Backplane status">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">Checking backplane…</span>
+  </div>
+  <div class="theme-toggle" role="group" aria-label="Theme">
+    <button type="button" data-theme-set="dark" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      Dark
+    </button>
+    <button type="button" data-theme-set="light" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      Light
+    </button>
+  </div>
+</header>
+<main>
+  <section class="card" aria-labelledby="title">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 3 3 7.5 12 12l9-4.5L12 3z"/><path d="m3 12 9 4.5 9-4.5" opacity="0.7"/><path d="m3 16.5 9 4.5 9-4.5" opacity="0.4"/></svg>
+      </div>
+      <div>
+        <h1 id="title">TerraScale Orchestrator</h1>
+        <div class="host">orch.terrascale.tech</div>
+      </div>
+      <p class="lede">Private control plane for the TerraScale fleet. Sign in with an allowlisted GitHub account to continue.</p>
+    </div>
+    <div class="banner" id="error" role="alert">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+      <div><strong id="error-title">Sign-in failed</strong><span id="error-text"></span></div>
+    </div>
+    <a class="btn btn-primary" id="github" href="/auth/github/start">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.757-1.333-1.757-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+      Sign in with GitHub
+    </a>
+    <div class="divider" id="dev-divider">Local development</div>
+    <div class="dev" id="dev">
+      <button type="button" class="btn btn-secondary" id="dev-login">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></svg>
+        Local Dev Sign-In (Aspire)
+      </button>
+      <p class="dev-note">Visible only when the Worker runs with LOCAL_DEV on loopback.</p>
+    </div>
+    <div class="meta">
+      <span class="lock">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        OAuth PKCE · HttpOnly session
+      </span>
+      <span>Operators only</span>
+    </div>
+  </section>
+</main>
+<footer>TerraScale · Fleet backplane</footer>
+<script type="module">
+const root = document.documentElement;
+const themeButtons = document.querySelectorAll("[data-theme-set]");
+const syncTheme = () => {
+  const current = root.getAttribute("data-theme");
+  themeButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeSet === current)));
+};
+themeButtons.forEach((b) => b.addEventListener("click", () => {
+  root.setAttribute("data-theme", b.dataset.themeSet);
+  try { localStorage.setItem("ts-orch-theme", b.dataset.themeSet); } catch {}
+  syncTheme();
+}));
+syncTheme();
+const media = window.matchMedia("(prefers-color-scheme: light)");
+media.addEventListener("change", (e) => {
+  let saved = null;
+  try { saved = localStorage.getItem("ts-orch-theme"); } catch {}
+  if (saved !== "light" && saved !== "dark") {
+    root.setAttribute("data-theme", e.matches ? "light" : "dark");
+    syncTheme();
+  }
+});
+
+const messages = {
+  unauthorized: ["Access denied", "This GitHub account is not on the operator allowlist."],
+  forbidden: ["Access denied", "This GitHub account is not allowed to operate the fleet."],
+  oauth_failed: ["GitHub sign-in failed", "The OAuth exchange with GitHub did not complete. Please try again."],
+  state_mismatch: ["Sign-in expired", "The sign-in request expired or was tampered with. Please start again."],
+  access_denied: ["Authorization cancelled", "GitHub authorization was cancelled."],
+  session_expired: ["Session expired", "Your session has expired. Sign in again to continue."],
+  dev_login_failed: ["Local sign-in failed", "The local dev sign-in endpoint rejected the request."]
+};
+const params = new URLSearchParams(location.search);
+const showError = (code) => {
+  const entry = messages[code] ?? ["Sign-in failed", "Unexpected error: " + code];
+  document.getElementById("error-title").textContent = entry[0];
+  document.getElementById("error-text").textContent = entry[1];
+  document.getElementById("error").classList.add("show");
+};
+const errorCode = params.get("error");
+if (errorCode) showError(errorCode);
+
+const dot = document.getElementById("status-dot");
+const statusText = document.getElementById("status-text");
+const setStatus = (cls, text) => {
+  dot.className = "dot " + cls;
+  statusText.textContent = text;
+};
+
+const dev = document.getElementById("dev");
+const devDivider = document.getElementById("dev-divider");
+const devButton = document.getElementById("dev-login");
+devButton.addEventListener("click", async () => {
+  devButton.setAttribute("aria-busy", "true");
+  try {
+    const res = await fetch("/auth/dev-login", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json", "x-requested-with": "ts-orch-ui" },
+      body: "{}"
+    });
+    if (res.ok || res.type === "opaqueredirect" || res.redirected) {
+      location.replace("/");
+      return;
+    }
+    showError("dev_login_failed");
+  } catch {
+    showError("dev_login_failed");
+  } finally {
+    devButton.removeAttribute("aria-busy");
+  }
+});
+
+const probe = async () => {
+  try {
+    const res = await fetch("/api/me", { credentials: "same-origin", headers: { accept: "application/json" }, cache: "no-store" });
+    let data = {};
+    try { data = await res.json(); } catch {}
+    const user = data.user ?? data;
+    const authenticated = res.ok && data.authenticated !== false && Boolean(user.login ?? user.id ?? data.owner);
+    if (authenticated && !errorCode) {
+      location.replace("/");
+      return;
+    }
+    if (data.localDev === true) {
+      dev.classList.add("show");
+      devDivider.classList.add("show");
+      setStatus("warn", "Local dev backplane");
+    } else {
+      setStatus("ok", "Backplane online");
+    }
+  } catch {
+    setStatus("err", "Backplane unreachable");
+  }
+};
+probe();
+</script>
+</body>
+</html>

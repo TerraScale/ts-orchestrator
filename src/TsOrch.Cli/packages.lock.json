@@ -167,7 +167,7 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Extensions.Hosting": "[11.0.0, )",
-          "TsOrch.Oci": "[1.0.0, )",
+          "Microsoft.Extensions.Http": "[11.0.0, )",
           "TsOrch.Protocol": "[1.0.0, )"
         }
       },
@@ -209,6 +209,16 @@
           "Microsoft.Extensions.Logging.Debug": "11.0.0",
           "Microsoft.Extensions.Logging.EventLog": "11.0.0",
           "Microsoft.Extensions.Logging.EventSource": "11.0.0"
+        }
+      },
+      "Microsoft.Extensions.Http": {
+        "type": "CentralTransitive",
+        "requested": "[11.0.0, )",
+        "resolved": "11.0.0",
+        "contentHash": "Pa5xJYtE5weFzv8sRwei1yvqCc05PareJABDtUSigzyj0xmrnG7ZU5VBy0hf5tgh7HN3/psGiOQouw5PLaQD8w==",
+        "dependencies": {
+          "Microsoft.Extensions.Diagnostics": "11.0.0",
+          "Microsoft.Extensions.Logging": "11.0.0"
         }
       },
       "Yarp.ReverseProxy": {

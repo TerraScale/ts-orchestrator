@@ -1,0 +1,22 @@
+output "regions" {
+  description = "Per-region static foundation identifiers consumed by the backplane."
+  value = {
+    for label, region in module.region : label => {
+      nlb_ip                = region.nlb_ip
+      nlb_id                = region.nlb_id
+      instance_pool_id      = region.instance_pool_id
+      stateful_instance_ids = region.stateful_instance_ids
+      stateful_volume_ids   = region.stateful_volume_ids
+    }
+  }
+}
+
+output "geodns" {
+  description = "Geo-steered DNS zone, health monitor and regional API records."
+  value = {
+    zone_id           = module.geodns.zone_id
+    zone_nameservers  = module.geodns.nameservers
+    health_monitor_id = module.geodns.health_monitor_id
+    regional_api_fqdn = module.geodns.regional_api_fqdns
+  }
+}
