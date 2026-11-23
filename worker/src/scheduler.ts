@@ -420,6 +420,18 @@ export function expandRegionTemplate(value: string, region: string): string {
   return value.replaceAll("{region}", region);
 }
 
+function httpRoute(service: ServiceSpec, hostnames: string[], upstreams: HttpUpstream[]): HttpRouteEntry {
+  const route: HttpRouteEntry = {
+    serviceName: service.name,
+    hostnames,
+    upstreams: upstreams.map((upstream) => ({ ...upstream })),
+  };
+  if (service.pathPrefixes !== undefined && service.pathPrefixes.length > 0) route.pathPrefixes = [...service.pathPrefixes];
+  if (service.matchGrpc === true) route.matchGrpc = true;
+  if (service.blockedPaths !== undefined && service.blockedPaths.length > 0) route.blockedPaths = [...service.blockedPaths];
+  return route;
+}
+
 export function computeRoutes(
   region: string,
   services: ServiceSpec[],
@@ -448,9 +460,7 @@ export function computeRoutes(
     }
     upstreams.sort((a, b) => compareText(a.placementId, b.placementId));
     const hostnames = [...new Set(service.hostnames.map((hostname) => expandRegionTemplate(hostname, region)))];
-    if (hostnames.length > 0) {
-      httpRoutes.push({ serviceName: service.name, hostnames, upstreams: upstreams.map((u) => ({ ...u })) });
-    }
+    if (hostnames.length > 0) httpRoutes.push(httpRoute(service, hostnames, upstreams));
     if (service.postgres !== undefined) {
       const pgHostnames = [
         ...new Set(service.postgres.hostnames.map((hostname) => expandRegionTemplate(hostname, region))),

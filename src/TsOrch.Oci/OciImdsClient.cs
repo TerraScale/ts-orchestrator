@@ -26,6 +26,8 @@ public sealed class OciImdsClient(HttpClient httpClient, OciEnvironment environm
     private const string PoolKey = "ts_pool";
     private const string EnrollVaultKey = "ts_enroll_vault";
     private const string EnrollSecretKey = "ts_enroll_secret";
+    private const string NetBirdUrlKey = "ts_netbird_url";
+    private const string NetBirdSetupKeySecretKey = "ts_netbird_setup_key_secret";
     private const string InstancePath = "instance/";
     private const string VnicsPath = "vnics/";
 
@@ -130,7 +132,13 @@ public sealed class OciImdsClient(HttpClient httpClient, OciEnvironment environm
             instance.Shape,
             primary.PrivateIp,
             instance.RegionInfo.RealmDomainComponent,
-            new OciNodeMetadata(NonEmpty(metadata, RegionKey), pool, NonEmpty(metadata, EnrollVaultKey), NonEmpty(metadata, EnrollSecretKey)));
+            new OciNodeMetadata(
+                NonEmpty(metadata, RegionKey),
+                pool,
+                NonEmpty(metadata, EnrollVaultKey),
+                NonEmpty(metadata, EnrollSecretKey),
+                NonEmpty(metadata, NetBirdUrlKey),
+                NonEmpty(metadata, NetBirdSetupKeySecretKey)));
         Volatile.Write(ref _identity, identity);
         return identity;
     }

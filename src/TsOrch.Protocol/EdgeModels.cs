@@ -8,7 +8,10 @@ public sealed record class EdgeRoutesSnapshot(
 public sealed record class HttpRouteEntry(
     string ServiceName,
     IReadOnlyList<string> Hostnames,
-    IReadOnlyList<HttpUpstream> Upstreams);
+    IReadOnlyList<HttpUpstream> Upstreams,
+    IReadOnlyList<string>? PathPrefixes = null,
+    bool MatchGrpc = false,
+    IReadOnlyList<string>? BlockedPaths = null);
 
 public sealed record class HttpUpstream(string PlacementId, string NodeId, string Address, int Port, bool Local);
 

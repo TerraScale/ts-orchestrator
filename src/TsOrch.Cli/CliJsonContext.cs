@@ -50,6 +50,7 @@ internal sealed record class LogLine(string NodeId, string PlacementId, LogChann
     RespectNullableAnnotations = true,
     RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(CliSession))]
+[JsonSerializable(typeof(NetBirdStatusReport))]
 [JsonSerializable(typeof(ServicesDocument))]
 [JsonSerializable(typeof(SeedRequest))]
 [JsonSerializable(typeof(SeedResponse))]

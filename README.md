@@ -26,6 +26,20 @@ dotnet format whitespace TsOrch.slnx --verify-no-changes
 cd worker && npm ci && npx tsc --noEmit
 ```
 
+## NetBird
+
+`netbird-server` (management, signal, relay, STUN) and `netbird-dashboard` run in `gru` behind the edge at `netbird.terrascale.tech`, declared in `deploy/services/`. The edge blocks `/api/setup` publicly. `fleet.json` `netbird` names the management URL, DNS domain, network range, owner and the OCI Vault secrets for setup keys, admin PAT and owner password.
+
+```sh
+ts-orch netbird init --write-setup-keys-dir /tmp/netbird-keys
+ts-orch netbird join
+ts-orch netbird status
+```
+
+`init` is idempotent: it claims the initial owner if needed, configures `10.200.0.0/16` and `nb.ts.internal`, reconciles groups (`operators`, `ops-automation`, `<region>-servers`), replaces the default allow-all policy with least-privilege SSH and inter-server rules, and ensures valid reusable 90-day setup keys (writing any newly minted PAT or setup keys as `0600` files in `--write-setup-keys-dir` for OCI Vault upload without printing secrets). `join` fetches the operator setup key from OCI Vault (or `--setup-key-file`) and enrolls an operator machine via stdin.
+
+Every node installs the `netbird` package at boot. `ts-orch-netbird.timer` runs `ts-orch netbird enroll` 45 s after boot and every 15 minutes, joining the node with the setup key named in instance metadata (`ts_netbird_url`, `ts_netbird_setup_key_secret`). Nodes accept WireGuard on UDP 51820; `gru` nodes also accept STUN on UDP 3478 through the NLB.
+
 ## Releases
 
 v2 builds are tagged `v2-<sha>` only. Live v1 nodes follow `ci-*` release tags from `main` and ignore v2 tags until each region is cut over.

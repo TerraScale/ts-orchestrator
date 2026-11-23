@@ -46,6 +46,9 @@ module "region" {
   bundle_sha256       = var.orch_bundle_sha256
   enroll_vault_id     = local.fleet.oci.vault.vaultId
   enroll_secret_name  = "ts-orch-node-enroll"
+
+  netbird_management_url   = local.fleet.netbird.managementUrl
+  netbird_setup_key_secret = local.fleet.netbird.setupKeySecret
 }
 
 module "geodns" {
@@ -55,10 +58,13 @@ module "geodns" {
     oci = oci.dns
   }
 
-  compartment_id    = local.fleet.dns.compartmentId
-  zone              = local.fleet.dns.zone
-  steered_names     = local.fleet.dns.steeredNames
-  pinned_names      = { "auth.${local.fleet.dns.zone}" = one(local.auth.regions) }
+  compartment_id = local.fleet.dns.compartmentId
+  zone           = local.fleet.dns.zone
+  steered_names  = local.fleet.dns.steeredNames
+  pinned_names = {
+    "auth.${local.fleet.dns.zone}"    = one(local.auth.regions)
+    "netbird.${local.fleet.dns.zone}" = one(local.netbird.regions)
+  }
   ttl_seconds       = local.fleet.dns.ttlSeconds
   health_check_path = local.fleet.dns.healthCheckPath
   rollout_order     = local.fleet.rolloutOrder

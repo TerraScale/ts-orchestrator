@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
@@ -72,7 +73,14 @@ internal static class CliFiles
         CliFileReadInterrupted interrupted => CliDiagnostic.Unavailable($"Reading {interrupted.Path} failed: {interrupted.Detail}"),
     };
 
-    public static async Task<PrivateFileWrite> WritePrivateJsonAsync<T>(string path, T value, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
+    public static Task<PrivateFileWrite> WritePrivateJsonAsync<T>(string path, T value, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken) =>
+        WritePrivateAsync(path, (stream, token) => JsonSerializer.SerializeAsync(stream, value, typeInfo, token), cancellationToken);
+
+    public static Task<PrivateFileWrite> WritePrivateTextAsync(string path, string value, CancellationToken cancellationToken) =>
+        WritePrivateAsync(path, (stream, token) => stream.WriteAsync(Encoding.UTF8.GetBytes(value), token).AsTask(), cancellationToken);
+
+    private static async Task<PrivateFileWrite> WritePrivateAsync(
+        string path, Func<Stream, CancellationToken, Task> write, CancellationToken cancellationToken)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -97,9 +105,10 @@ internal static class CliFiles
             };
             await using (var stream = new FileStream(temporary, options))
             {
-                await JsonSerializer.SerializeAsync(stream, value, typeInfo, cancellationToken);
+                await write(stream, cancellationToken);
             }
 
+            File.SetUnixFileMode(temporary, OwnerReadWrite);
             File.Move(temporary, path, overwrite: true);
             return new PrivateFileWritten();
         }

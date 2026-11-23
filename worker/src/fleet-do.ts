@@ -37,6 +37,7 @@ import type {
   AtlasTopology,
   BackplaneMessage,
   ChaosRequest,
+  ConfigFileSpec,
   ContainerMetrics,
   CpuArch,
   DeployRequest,
@@ -56,6 +57,7 @@ import type {
   HelloMessage,
   MetricsPoint10s,
   MetricsPoint1m,
+  NetBirdConfig,
   NodeEnrollRequest,
   NodeEnrollResponse,
   NodeInfo,
@@ -442,6 +444,144 @@ function detailStrings(detail: Record<string, unknown>): Record<string, string> 
   return out;
 }
 
+function requiredToken(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || /\s/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const bare = hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+  const host = bare.endsWith(".") ? bare.slice(0, -1).toLowerCase() : bare.toLowerCase();
+  if (host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
+  const parts = host.split(".");
+  if (parts.length !== 4 || !parts.every((part) => /^(0|[1-9]\d{0,2})$/.test(part))) return false;
+  const octets = parts.map((part) => Number(part));
+  return octets.every((octet) => octet <= 255) && octets[0] === 127;
+}
+
+function isManagementUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.username !== "" || url.password !== "" || url.hostname.length === 0) return false;
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && isLoopbackHost(url.hostname);
+}
+
+function isIpv4(value: string): boolean {
+  const parts = value.split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((part) => /^(0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255);
+}
+
+function ipv6GroupCount(part: string): number | null {
+  if (part.length === 0) return 0;
+  const groups = part.split(":");
+  if (groups.some((group) => !/^[0-9a-fA-F]{1,4}$/.test(group))) return null;
+  return groups.length;
+}
+
+function isIpv6(value: string): boolean {
+  if (value.length === 0 || value.includes(":::")) return false;
+  const halves = value.split("::");
+  if (halves.length > 2) return false;
+  const left = ipv6GroupCount(halves[0] ?? "");
+  if (left === null) return false;
+  if (halves.length === 1) return left === 8;
+  const right = ipv6GroupCount(halves[1] ?? "");
+  return right !== null && left + right < 8;
+}
+
+function isCidr(value: string): boolean {
+  const slash = value.indexOf("/");
+  if (slash <= 0 || slash !== value.lastIndexOf("/")) return false;
+  const address = value.slice(0, slash);
+  const prefixText = value.slice(slash + 1);
+  if (!/^(0|[1-9]\d{0,2})$/.test(prefixText)) return false;
+  const prefix = Number(prefixText);
+  if (address.includes(":")) return prefix <= 128 && isIpv6(address);
+  return prefix <= 32 && isIpv4(address);
+}
+
+function parseNetBird(input: unknown): NetBirdConfig | string {
+  if (!isRecord(input)) return "fleet.netbird must be an object";
+  const managementUrl = requiredToken(input.managementUrl);
+  if (managementUrl === null || !isManagementUrl(managementUrl)) {
+    return "fleet.netbird.managementUrl must be an https URL or a loopback http URL";
+  }
+  const dnsDomain = requiredToken(input.dnsDomain);
+  if (dnsDomain === null) return "fleet.netbird.dnsDomain is required";
+  const networkRange = requiredToken(input.networkRange);
+  if (networkRange === null || !isCidr(networkRange)) return "fleet.netbird.networkRange must be a CIDR";
+  const setupKeySecret = requiredToken(input.setupKeySecret);
+  if (setupKeySecret === null) return "fleet.netbird.setupKeySecret is required";
+  const operatorsSetupKeySecret = requiredToken(input.operatorsSetupKeySecret);
+  if (operatorsSetupKeySecret === null) return "fleet.netbird.operatorsSetupKeySecret is required";
+  const adminPatSecret = requiredToken(input.adminPatSecret);
+  if (adminPatSecret === null) return "fleet.netbird.adminPatSecret is required";
+  const ownerEmail = requiredToken(input.ownerEmail);
+  if (ownerEmail === null) return "fleet.netbird.ownerEmail is required";
+  const ownerPasswordSecret = requiredToken(input.ownerPasswordSecret);
+  if (ownerPasswordSecret === null) return "fleet.netbird.ownerPasswordSecret is required";
+  return {
+    managementUrl,
+    dnsDomain,
+    networkRange,
+    setupKeySecret,
+    operatorsSetupKeySecret,
+    adminPatSecret,
+    ownerEmail,
+    ownerPasswordSecret,
+  };
+}
+
+function parseAbsolutePaths(value: unknown, label: string): string[] | string {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return `${label} must be a list of non-empty paths starting with /`;
+  const paths: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || item.length === 0 || !item.startsWith("/")) {
+      return `${label} must be a list of non-empty paths starting with /`;
+    }
+    paths.push(item);
+  }
+  return paths;
+}
+
+function configTargetProblem(target: string): string | null {
+  if (!target.startsWith("/")) return "must start with /";
+  if (target.split(/[\\/]/).includes("..")) return "must not contain .. segments";
+  return null;
+}
+
+function parseConfigFiles(name: string, value: unknown, secrets: ServiceSpec["secrets"]): ConfigFileSpec[] | string {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return `${name}: configFiles must be a list`;
+  const files: ConfigFileSpec[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.target !== "string" || typeof item.template !== "string") {
+      return `${name}: configFiles entries need target and template`;
+    }
+    const problem = configTargetProblem(item.target);
+    if (problem !== null) return `${name}: configFiles target ${problem}`;
+    if (item.template.length === 0) return `${name}: configFiles template must be non-empty`;
+    if (seen.has(item.target)) return `${name}: configFiles target ${item.target} is duplicated`;
+    seen.add(item.target);
+    for (const match of item.template.matchAll(/\{\{([^{}]*)\}\}/g)) {
+      const key = match[1] ?? "";
+      if (!Object.hasOwn(secrets, key)) return `${name}: configFiles template placeholder {{${key}}} is not a declared secret`;
+    }
+    files.push({ target: item.target, template: item.template });
+  }
+  return files;
+}
+
 function parseServiceSpec(input: unknown): ServiceSpec | string {
   if (!isRecord(input)) return "service must be an object";
   const { name, mode, priority, image, regions, port } = input;
@@ -529,6 +669,19 @@ function parseServiceSpec(input: unknown): ServiceSpec | string {
       scaleDownCooldownSeconds: positiveInt(input.autoscale.scaleDownCooldownSeconds, 600),
     };
   }
+  const pathPrefixes = parseAbsolutePaths(input.pathPrefixes, `${name}: pathPrefixes`);
+  if (typeof pathPrefixes === "string") return pathPrefixes;
+  if (pathPrefixes.length > 0) spec.pathPrefixes = pathPrefixes;
+  if (input.matchGrpc !== undefined) {
+    if (typeof input.matchGrpc !== "boolean") return `${name}: matchGrpc must be a boolean`;
+    if (input.matchGrpc) spec.matchGrpc = true;
+  }
+  const blockedPaths = parseAbsolutePaths(input.blockedPaths, `${name}: blockedPaths`);
+  if (typeof blockedPaths === "string") return blockedPaths;
+  if (blockedPaths.length > 0) spec.blockedPaths = blockedPaths;
+  const configFiles = parseConfigFiles(name, input.configFiles, secrets);
+  if (typeof configFiles === "string") return configFiles;
+  if (configFiles.length > 0) spec.configFiles = configFiles;
   return spec;
 }
 
@@ -544,6 +697,13 @@ function parseFleetConfig(input: unknown): FleetConfig | string {
   }
   if (!isRecord(input.atlas) || !Array.isArray(input.atlas.services)) return "fleet.atlas.services is required";
   if (input.rolloutOrder !== undefined && stringArray(input.rolloutOrder) === null) return "fleet.rolloutOrder must be a list";
+  if (!("netbird" in input) || input.netbird === undefined) {
+    delete input.netbird;
+  } else {
+    const netbird = parseNetBird(input.netbird);
+    if (typeof netbird === "string") return netbird;
+    input.netbird = netbird;
+  }
   return input as unknown as FleetConfig;
 }
 
@@ -860,6 +1020,11 @@ export class FleetDO extends DurableObject<Env> {
           return this.logs(request, url);
         case "/api/export":
           return json(this.exportState());
+        case "/api/fleet": {
+          const fleet = this.fleetConfig();
+          if (fleet === null) throw new HttpError(404, "not_found", "Fleet config is not seeded");
+          return json(fleet);
+        }
         default:
           break;
       }
@@ -2608,7 +2773,14 @@ export class FleetDO extends DurableObject<Env> {
         items.push({ service: name, kind: "added", fields: [] });
         continue;
       }
-      const keys = new Set([...Object.keys(spec), ...Object.keys(current)]);
+      const keys = new Set([
+        ...Object.keys(spec),
+        ...Object.keys(current),
+        "pathPrefixes",
+        "matchGrpc",
+        "blockedPaths",
+        "configFiles",
+      ]);
       const fields = [...keys]
         .filter(
           (key) =>

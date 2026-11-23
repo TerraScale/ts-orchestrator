@@ -58,6 +58,17 @@ export interface ErrorResponse {
   error: ErrorDetail;
 }
 
+export interface NetBirdConfig {
+  managementUrl: string;
+  dnsDomain: string;
+  networkRange: string;
+  setupKeySecret: string;
+  operatorsSetupKeySecret: string;
+  adminPatSecret: string;
+  ownerEmail: string;
+  ownerPasswordSecret: string;
+}
+
 export interface FleetConfig {
   backplane: BackplaneConfig;
   oci: OciConfig;
@@ -65,6 +76,7 @@ export interface FleetConfig {
   atlas: AtlasConfig;
   rolloutOrder: string[];
   regions: RegionConfig[];
+  netbird?: NetBirdConfig;
 }
 
 export interface BackplaneConfig {
@@ -157,6 +169,11 @@ export interface WorkerPool {
   shape: ComputeShape;
 }
 
+export interface ConfigFileSpec {
+  target: string;
+  template: string;
+}
+
 export interface ServiceSpec {
   name: string;
   mode: PlacementMode;
@@ -182,6 +199,10 @@ export interface ServiceSpec {
   args: string[];
   udpPorts: number[];
   autoscale?: AutoscaleSpec;
+  pathPrefixes?: string[];
+  matchGrpc?: boolean;
+  blockedPaths?: string[];
+  configFiles?: ConfigFileSpec[];
 }
 
 export interface SecretRef {
@@ -385,6 +406,9 @@ export interface HttpRouteEntry {
   serviceName: string;
   hostnames: string[];
   upstreams: HttpUpstream[];
+  pathPrefixes?: string[];
+  matchGrpc?: boolean;
+  blockedPaths?: string[];
 }
 
 export interface HttpUpstream {

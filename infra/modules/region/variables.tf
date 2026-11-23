@@ -39,6 +39,16 @@ variable "netbird_udp_ports" {
   default     = []
 }
 
+variable "netbird_management_url" {
+  type        = string
+  description = "NetBird management URL every node enrolls into."
+}
+
+variable "netbird_setup_key_secret" {
+  type        = string
+  description = "Name of the NetBird node setup key secret inside the enrollment OCI Vault."
+}
+
 variable "stateful_count" {
   type        = number
   description = "Number of stateful nodes with persistent data volumes."

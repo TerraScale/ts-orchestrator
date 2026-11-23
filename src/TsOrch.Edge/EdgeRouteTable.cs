@@ -17,6 +17,9 @@ public sealed partial class EdgeRouteTable(
 
     public EdgeRouteSnapshot Current => Volatile.Read(ref _current);
 
+    public EdgeRouteMatch ResolveHttpRoute(string host, PathString path, string? contentType) =>
+        Current.ResolveHttpRoute(host, path, contentType);
+
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         await ReloadAsync(cancellationToken);

@@ -14,7 +14,7 @@ internal static class McpCommand
     private static async Task<int> ServeAsync(CommandEnvironment environment, CancellationToken cancellationToken)
     {
         await environment.Error.WriteLineAsync($"ts-orch mcp {CliApp.Version}: serving read-only tools on stdio".AsMemory(), cancellationToken);
-        await new McpServer(new McpTools(environment.Api), environment.Console).RunAsync(cancellationToken);
+        await new McpServer(new McpTools(environment.Api, environment.TimeProvider), environment.Console).RunAsync(cancellationToken);
         return ExitCodes.Ok;
     }
 }

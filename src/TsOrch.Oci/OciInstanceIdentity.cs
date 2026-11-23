@@ -10,4 +10,10 @@ public sealed record class OciInstanceIdentity(
     string RealmDomain,
     OciNodeMetadata Node);
 
-public sealed record class OciNodeMetadata(string? Region, PoolKind? Pool, string? EnrollVault, string? EnrollSecretName);
+public sealed record class OciNodeMetadata(
+    string? Region,
+    PoolKind? Pool,
+    string? EnrollVault,
+    string? EnrollSecretName,
+    string? NetBirdUrl = null,
+    string? NetBirdSetupKeySecret = null);

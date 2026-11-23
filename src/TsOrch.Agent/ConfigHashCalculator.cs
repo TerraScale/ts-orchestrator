@@ -34,6 +34,14 @@ public static class ConfigHashCalculator
             AppendField(hash, "mount", mount.Source, mount.Target);
         }
 
+        if (service.ConfigFiles is { } configFiles)
+        {
+            foreach (var file in configFiles)
+            {
+                AppendField(hash, "config-file", file.Target, file.Template);
+            }
+        }
+
         AppendField(
             hash,
             "limits",

@@ -17,6 +17,7 @@ public sealed record class ImageState(
     RespectNullableAnnotations = true,
     RespectRequiredConstructorParameters = true,
     WriteIndented = true)]
+[JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(NodeRegistration))]
 [JsonSerializable(typeof(ImageState))]
 public sealed partial class AgentJsonContext : JsonSerializerContext;

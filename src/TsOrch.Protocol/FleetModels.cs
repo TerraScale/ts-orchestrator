@@ -97,7 +97,18 @@ public sealed record class FleetConfig(
     DnsConfig Dns,
     AtlasConfig Atlas,
     IReadOnlyList<string> RolloutOrder,
-    IReadOnlyList<RegionConfig> Regions);
+    IReadOnlyList<RegionConfig> Regions,
+    [property: JsonPropertyName("netbird")] NetBirdConfig? NetBird = null);
+
+public sealed record class NetBirdConfig(
+    string ManagementUrl,
+    string DnsDomain,
+    string NetworkRange,
+    string SetupKeySecret,
+    string OperatorsSetupKeySecret,
+    string AdminPatSecret,
+    string OwnerEmail,
+    string OwnerPasswordSecret);
 
 public sealed record class BackplaneConfig(string LocationHint, string OrchHost, string AtlasHost);
 
@@ -168,7 +179,13 @@ public sealed record class ServiceSpec(
     IReadOnlyList<string> Args,
     IReadOnlyList<int> UdpPorts,
     PostgresSpec? Postgres = null,
-    AutoscaleSpec? Autoscale = null);
+    AutoscaleSpec? Autoscale = null,
+    IReadOnlyList<string>? PathPrefixes = null,
+    bool MatchGrpc = false,
+    IReadOnlyList<string>? BlockedPaths = null,
+    IReadOnlyList<ConfigFileSpec>? ConfigFiles = null);
+
+public sealed record class ConfigFileSpec(string Target, string Template);
 
 public sealed record class SecretRef(string Vault, string Name);
 

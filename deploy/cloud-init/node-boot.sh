@@ -36,9 +36,7 @@ esac
 iptables -I INPUT -p tcp -m multiport --dports 80,443,5432 -j ACCEPT
 iptables -I INPUT -p udp --dport 443 -j ACCEPT
 iptables -I INPUT -s "$vcn_cidr" -j ACCEPT
-if [[ -n "$netbird_udp_ports" ]]; then
-  iptables -I INPUT -p udp -m multiport --dports "$netbird_udp_ports" -j ACCEPT
-fi
+iptables -I INPUT -p udp -m multiport --dports "51820${netbird_udp_ports:+,$netbird_udp_ports}" -j ACCEPT
 iptables -N DOCKER-USER
 iptables -A DOCKER-USER -d 169.254.169.254/32 -p udp --dport 53 -j RETURN
 iptables -A DOCKER-USER -d 169.254.169.254/32 -p tcp --dport 53 -j RETURN
@@ -74,15 +72,20 @@ Package: libmsquic
 Pin: origin packages.microsoft.com
 Pin-Priority: 500
 PIN
+curl -fsSL "https://pkgs.netbird.io/debian/public.key" -o /etc/apt/keyrings/netbird.asc
+chmod 0644 /etc/apt/keyrings/netbird.asc
+echo "deb [signed-by=/etc/apt/keyrings/netbird.asc] https://pkgs.netbird.io/debian stable main" >/etc/apt/sources.list.d/netbird.list
 add-apt-repository -y ppa:dotnet/backports
 
 apt-get update
-apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io aspnetcore-runtime-11.0 libmsquic systemd-oomd
+apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io aspnetcore-runtime-11.0 libmsquic netbird systemd-oomd
 
-systemctl enable --now docker.service systemd-oomd.service
+systemctl enable --now docker.service systemd-oomd.service netbird.service
 
-install -m 0644 "$orch_root"/current/systemd/*.slice "$orch_root"/current/systemd/*.service /etc/systemd/system/
+install -m 0644 "$orch_root"/current/systemd/*.slice "$orch_root"/current/systemd/*.service "$orch_root"/current/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
+systemctl enable --now ts-orch-netbird.timer
+systemctl start --no-block ts-orch-netbird.service
 
 if [[ "$pool" == stateful ]]; then
   install -d -m 0755 /etc/systemd/system/ts-orch-agent.service.d

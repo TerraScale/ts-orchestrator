@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace TsOrch.Cli;
 
-internal sealed class McpTools(OrchApi api)
+internal sealed class McpTools(OrchApi api, TimeProvider timeProvider)
 {
     private const int MaxLogLines = 2_000;
 
@@ -14,6 +14,10 @@ internal sealed class McpTools(OrchApi api)
             "status",
             "Fleet status: regions (health, Atlas DB counts, stateful/worker nodes, packing), nodes, services, placements and recent rollouts.",
             """{"type":"object","properties":{"region":{"type":"string","description":"Region label filter, e.g. gru"}},"additionalProperties":false}"""),
+        Define(
+            "netbird_status",
+            "NetBird local daemon status, IP, FQDN, peer count, and fleet enrollment readiness.",
+            """{"type":"object","properties":{},"additionalProperties":false}"""),
         Define(
             "logs",
             "Recent container log lines of a service, multiplexed from every node that runs it.",
@@ -38,6 +42,7 @@ internal sealed class McpTools(OrchApi api)
         name switch
         {
             "status" => Render(await api.GetTextAsync(Query.Build("/api/status", ("region", Text(arguments, "region"))), cancellationToken)),
+            "netbird_status" => await NetBirdStatusAsync(cancellationToken),
             "logs" => await LogsAsync(arguments, cancellationToken),
             "metrics" => await MetricsAsync(arguments, cancellationToken),
             "events" => await EventsAsync(arguments, cancellationToken),
@@ -55,6 +60,12 @@ internal sealed class McpTools(OrchApi api)
 
     private static McpToolCallResult Failure(CliDiagnostic diagnostic) =>
         new([new McpTextContent("text", $"{diagnostic.Code}: {diagnostic.Message}")], IsError: true);
+
+    private async Task<McpToolCallResult> NetBirdStatusAsync(CancellationToken cancellationToken)
+    {
+        var report = await new NetBirdStatus(api, timeProvider).ReadAsync(new NetBirdStatusOptions(), cancellationToken);
+        return new McpToolCallResult([new McpTextContent("text", report.ToJson())], IsError: report.Local is null && report.Fleet is null);
+    }
 
     private async Task<McpToolCallResult> LogsAsync(JsonElement? arguments, CancellationToken cancellationToken)
     {

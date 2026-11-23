@@ -58,6 +58,7 @@ public sealed partial class EdgeJsonContext : JsonSerializerContext;
     RespectRequiredConstructorParameters = true,
     AllowOutOfOrderMetadataProperties = true)]
 [JsonSerializable(typeof(ErrorResponse))]
+[JsonSerializable(typeof(FleetConfig))]
 [JsonSerializable(typeof(SshChallengeRequest))]
 [JsonSerializable(typeof(SshChallengeResponse))]
 [JsonSerializable(typeof(SshVerifyRequest))]

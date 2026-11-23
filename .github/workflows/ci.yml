@@ -38,7 +38,7 @@ jobs:
           found=0
           git grep -nP '^\s*(//|/\*)|\s//(\s|$)|\s/\*' -- '*.cs' '*.ts' '*.js' '*.mjs' '*.html' '*.json' '*.jsonc' && found=1
           git grep -nP '<!--' -- '*.html' '*.csproj' '*.props' '*.targets' '*.slnx' 'NuGet.config' && found=1
-          git grep -nP '^\s*#|\s#(\s|$)' -- '*.tf' '*.yml' '*.yaml' '*.toml' '*.slice' '*.service' && found=1
+          git grep -nP '^\s*#|\s#(\s|$)' -- '*.tf' '*.yml' '*.yaml' '*.toml' '*.slice' '*.service' '*.timer' && found=1
           while IFS= read -r script; do
             awk -v file="$script" 'NR == 1 && $0 == "#!/usr/bin/env bash" { next } /^[[:space:]]*#|[[:space:]]#[[:space:]]/ { print file ":" NR ": " $0; bad = 1 } END { exit bad }' "$script" || found=1
           done < <(git ls-files '*.sh')
@@ -68,7 +68,7 @@ jobs:
           bundle=dist/bundle
           install -d "$bundle/systemd"
           cp -a dist/ts-orch/. "$bundle/"
-          cp deploy/systemd/*.slice deploy/systemd/*.service "$bundle/systemd/"
+          cp deploy/systemd/*.slice deploy/systemd/*.service deploy/systemd/*.timer "$bundle/systemd/"
           cp deploy/cloud-init/docker-daemon.json "$bundle/"
           mapfile -t entrypoints < <(grep -hoP '^ExecStart=/usr/bin/dotnet /opt/ts-orch/current/\K\S+' deploy/systemd/*.service | sort -u)
           test "${#entrypoints[@]}" -gt 0
@@ -152,7 +152,7 @@ jobs:
         run: shellcheck -S warning deploy/cloud-init/node-boot.sh e2e/run.sh
 
       - name: Systemd units
-        run: systemd-analyze verify deploy/systemd/*.slice deploy/systemd/*.service
+        run: systemd-analyze verify deploy/systemd/*.slice deploy/systemd/*.service deploy/systemd/*.timer
 
   e2e:
     runs-on: ubuntu-24.04

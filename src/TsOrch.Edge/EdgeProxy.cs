@@ -20,6 +20,20 @@ public sealed partial class EdgeProxy(
         VersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
     };
 
+    private static readonly ForwarderRequestConfig GrpcRequestConfig = new()
+    {
+        ActivityTimeout = Timeout.InfiniteTimeSpan,
+        Version = HttpVersion.Version20,
+        VersionPolicy = HttpVersionPolicy.RequestVersionExact,
+    };
+
+    private static readonly ForwarderRequestConfig WebSocketRequestConfig = new()
+    {
+        ActivityTimeout = Timeout.InfiniteTimeSpan,
+        Version = HttpVersion.Version11,
+        VersionPolicy = HttpVersionPolicy.RequestVersionExact,
+    };
+
     private readonly HttpMessageInvoker _invoker = new(
         new SocketsHttpHandler
         {
@@ -34,20 +48,34 @@ public sealed partial class EdgeProxy(
         },
         disposeHandler: true);
 
-    public async Task ForwardAsync(HttpContext context)
+    public Task ForwardAsync(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (routes.Current.FindHttpRoute(context.Request.Host.Host) is not { } route)
+        var outcome = routes.ResolveHttpRoute(context.Request.Host.Host, context.Request.Path, context.Request.ContentType);
+        return outcome switch
         {
-            context.Response.StatusCode = StatusCodes.Status404NotFound;
-            return;
-        }
+            EdgeRoute route => ForwardMatchedAsync(context, route),
+            EdgeRouteBlocked => Respond(context, StatusCodes.Status403Forbidden),
+            EdgeRouteNotFound => Respond(context, StatusCodes.Status404NotFound),
+        };
+    }
 
+    private static Task Respond(HttpContext context, int statusCode)
+    {
+        context.Response.StatusCode = statusCode;
+        return Task.CompletedTask;
+    }
+
+    private async Task ForwardMatchedAsync(HttpContext context, EdgeRoute route)
+    {
+        var config = EdgeRouteSnapshot.IsGrpc(context.Request.ContentType)
+            ? GrpcRequestConfig
+            : context.WebSockets.IsWebSocketRequest ? WebSocketRequestConfig : RequestConfig;
         var startedAt = timeProvider.GetTimestamp();
         metrics.RequestStarted(route.ServiceName);
         try
         {
-            await ForwardToRouteAsync(context, route);
+            await ForwardToRouteAsync(context, route, config);
         }
         finally
         {
@@ -55,13 +83,13 @@ public sealed partial class EdgeProxy(
                 route.ServiceName,
                 context.Response.StatusCode,
                 timeProvider.GetElapsedTime(startedAt),
-                recordLatency: !context.WebSockets.IsWebSocketRequest);
+                recordLatency: ReferenceEquals(config, RequestConfig));
         }
     }
 
     public void Dispose() => _invoker.Dispose();
 
-    private async Task ForwardToRouteAsync(HttpContext context, EdgeRoute route)
+    private async Task ForwardToRouteAsync(HttpContext context, EdgeRoute route, ForwarderRequestConfig config)
     {
         if (circuitBreaker.Select(route.Upstreams, []) is not { } first)
         {
@@ -69,15 +97,15 @@ public sealed partial class EdgeProxy(
             return;
         }
 
-        if (route.Upstreams.Length < 2 || !IsRetryable(context))
+        if (route.Upstreams.Length < 2 || ReferenceEquals(config, GrpcRequestConfig) || IsRetryable(context) is false)
         {
-            await ForwardOnceAsync(context, first, retry: null);
+            await ForwardOnceAsync(context, first, config, retry: null);
             return;
         }
 
         var retry = new EdgeRetryFeature { InterceptBadGateway = true };
         context.Features.Set(retry);
-        if (await ForwardOnceAsync(context, first, retry) is ForwardOutcome.Completed)
+        if (await ForwardOnceAsync(context, first, config, retry) is ForwardOutcome.Completed)
         {
             return;
         }
@@ -92,16 +120,16 @@ public sealed partial class EdgeProxy(
         retry.InterceptBadGateway = false;
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Features.Set<IForwarderErrorFeature>(null);
-        await ForwardOnceAsync(context, sibling, retry);
+        await ForwardOnceAsync(context, sibling, config, retry);
     }
 
-    private async Task<ForwardOutcome> ForwardOnceAsync(HttpContext context, EdgeUpstream upstream, EdgeRetryFeature? retry)
+    private async Task<ForwardOutcome> ForwardOnceAsync(HttpContext context, EdgeUpstream upstream, ForwarderRequestConfig config, EdgeRetryFeature? retry)
     {
         retry?.BadGatewayIntercepted = false;
         ForwarderError error;
         using (circuitBreaker.Acquire(upstream))
         {
-            error = await forwarder.SendAsync(context, upstream.DestinationPrefix, _invoker, RequestConfig, EdgeHttpTransformer.Instance);
+            error = await forwarder.SendAsync(context, upstream.DestinationPrefix, _invoker, config, EdgeHttpTransformer.Instance);
         }
 
         var interceptedBadGateway = retry is { BadGatewayIntercepted: true };

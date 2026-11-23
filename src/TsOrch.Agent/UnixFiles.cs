@@ -81,6 +81,7 @@ internal static class UnixFiles
                 stream.Flush(flushToDisk: true);
             }
 
+            File.SetUnixFileMode(temporary, write.Mode);
             File.Move(temporary, write.Path, overwrite: true);
         }
         finally

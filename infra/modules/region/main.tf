@@ -15,7 +15,9 @@ locals {
   backend_sets         = { for port in local.public_tcp_ports : "tcp-${port}" => port }
   quic_backend_sets    = { for port in local.public_udp_ports : "udp-${port}" => port }
   netbird_backend_sets = { for port in var.netbird_udp_ports : "netbird-${port}" => port }
+  wireguard_udp_port   = 51820
   udp_backend_sets     = merge(local.quic_backend_sets, local.netbird_backend_sets)
+  node_udp_ingress     = merge(local.udp_backend_sets, contains(values(local.udp_backend_sets), local.wireguard_udp_port) ? {} : { "wireguard-${local.wireguard_udp_port}" = local.wireguard_udp_port })
   worker_backend_sets  = merge(local.backend_sets, local.quic_backend_sets)
   nlb_backend_sets     = merge(local.backend_sets, local.udp_backend_sets)
   shapes               = toset([var.stateful_shape.name, var.worker_shape.name])
@@ -36,14 +38,16 @@ locals {
   node_metadata = {
     for pool in ["stateful", "worker"] : pool => merge(
       {
-        user_data             = base64encode(var.boot_script)
-        ts_region             = var.label
-        ts_pool               = pool
-        ts_vcn_cidr           = var.vcn_cidr
-        ts_orch_bundle_url    = var.bundle_url
-        ts_orch_bundle_sha256 = var.bundle_sha256
-        ts_enroll_vault       = var.enroll_vault_id
-        ts_enroll_secret      = var.enroll_secret_name
+        user_data                   = base64encode(var.boot_script)
+        ts_region                   = var.label
+        ts_pool                     = pool
+        ts_vcn_cidr                 = var.vcn_cidr
+        ts_orch_bundle_url          = var.bundle_url
+        ts_orch_bundle_sha256       = var.bundle_sha256
+        ts_enroll_vault             = var.enroll_vault_id
+        ts_enroll_secret            = var.enroll_secret_name
+        ts_netbird_url              = var.netbird_management_url
+        ts_netbird_setup_key_secret = var.netbird_setup_key_secret
       },
       length(var.netbird_udp_ports) > 0 ? { ts_netbird_udp_ports = join(",", var.netbird_udp_ports) } : {}
     )
@@ -260,7 +264,7 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_tcp" {
 }
 
 resource "oci_core_network_security_group_security_rule" "node_ingress_udp" {
-  for_each = local.udp_backend_sets
+  for_each = local.node_udp_ingress
 
   network_security_group_id = oci_core_network_security_group.node.id
   direction                 = "INGRESS"

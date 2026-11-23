@@ -408,6 +408,11 @@ web_spec "registry.e2e.local/web:v1" > "$WORK/services/e2e-web.json"
 jq -e '[.regions[].label] | index("gru") != null and index("fra") != null and index("sjc") != null' "$WORK/status.json" >/dev/null || die "status does not list gru/fra/sjc"
 jq -e '[.services[].name] | index("e2e-web") != null' "$WORK/status.json" >/dev/null || die "status does not list e2e-web"
 ok "ts-orch seed + status --json reflect the fleet"
+api GET /api/fleet > "$WORK/fleet-live.json"
+jq -e --slurpfile want "$WORK/fleet.json" '. == $want[0] and (.netbird.managementUrl | startswith("https://"))' "$WORK/fleet-live.json" >/dev/null || die "GET /api/fleet does not return the seeded fleet.json"
+ok "GET /api/fleet returns the seeded fleet.json including netbird.managementUrl"
+"${TS[@]}" netbird --help > "$LOGS/netbird-help.txt" || die "ts-orch netbird --help failed"
+ok "ts-orch netbird --help succeeds"
 "${TS[@]}" diff -f "$WORK/services" | tee "$LOGS/diff.txt"
 ok "ts-orch diff ran against live desired state"
 
@@ -475,9 +480,12 @@ spawn upstream-b "$WORK" node "$WORK/e2e.mjs" upstream "$UP_B" bravo
 wait_for "upstream alpha" 30 curl -sf "http://127.0.0.1:$UP_A/"
 wait_for "upstream bravo" 30 curl -sf "http://127.0.0.1:$UP_B/"
 write_routes() {
-  jq -n --argjson revision "$1" --argjson port "$2" '{
+  jq -n --argjson revision "$1" --argjson port "$2" --argjson apiPort "$UP_A" '{
     revision: $revision,
-    httpRoutes: [{serviceName: "e2e-edge", hostnames: ["edge.localhost"], upstreams: [{placementId: "e2e-edge-1", nodeId: "e2e-s1", address: "127.0.0.1", port: $port, local: true}]}],
+    httpRoutes: [
+      {serviceName: "e2e-edge", hostnames: ["edge.localhost"], upstreams: [{placementId: "e2e-edge-1", nodeId: "e2e-s1", address: "127.0.0.1", port: $port, local: true}]},
+      {serviceName: "e2e-edge-api", hostnames: ["edge.localhost"], pathPrefixes: ["/api"], blockedPaths: ["/api/setup"], upstreams: [{placementId: "e2e-edge-api-1", nodeId: "e2e-s1", address: "127.0.0.1", port: $apiPort, local: true}]}
+    ],
     postgresRoutes: []
   }' > "$WORK/edge-run/routes.json.tmp"
   mv "$WORK/edge-run/routes.json.tmp" "$WORK/edge-run/routes.json"
@@ -494,6 +502,10 @@ wait_for "edge proxies edge.localhost to alpha" 30 proxied alpha
 write_routes 2 "$UP_B"
 wait_for "edge hot-reloads routes.json to bravo" 30 proxied bravo
 curl -sf --max-time 5 -k --resolve "edge.localhost:$EDGE_HTTPS:127.0.0.1" "https://edge.localhost:$EDGE_HTTPS/tls" | grep -q "upstream=bravo" || die "HTTPS proxying through the edge failed"
+expect_code 403 "edge blocks /api/setup on the public listener" -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/api/setup"
+curl -sf --max-time 5 -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/api/ping" | grep -q "upstream=alpha" || die "edge did not route /api/ping to the /api path-prefix route"
+curl -sf --max-time 5 -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/tls" | grep -q "upstream=bravo" || die "edge did not fall back to the catch-all route for /tls"
+ok "edge honors path prefixes, blocked paths and the catch-all fallback"
 SERVED="$(openssl s_client -connect "127.0.0.1:$EDGE_HTTPS" -servername edge.localhost </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256)"
 SHARED="$(openssl x509 -in "$WORK/edge-run/tls/cert.pem" -noout -fingerprint -sha256)"
 [[ "$SERVED" == "$SHARED" ]] || die "edge serves a different certificate than /api/tls/ensure issued"

@@ -2,8 +2,14 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace TsOrch.Cli;
 
+internal readonly union BackplaneFleet(FleetConfig, BackplaneProblem);
+
 internal sealed class OrchApi(OrchHttp http, OperatorAuth auth)
 {
+    public Task<BackplaneFleet> GetFleetAsync(CancellationToken cancellationToken) =>
+        GetAsync("/api/fleet", ApiJsonContext.Default.FleetConfig, static fleet => Task.FromResult<BackplaneFleet>(fleet),
+            static problem => problem, cancellationToken);
+
     public Task<TOutput> GetAsync<T, TOutput>(
         string pathAndQuery, JsonTypeInfo<T> responseType, Func<T, Task<TOutput>> handle, Func<BackplaneProblem, TOutput> fail,
         CancellationToken cancellationToken) where T : class =>

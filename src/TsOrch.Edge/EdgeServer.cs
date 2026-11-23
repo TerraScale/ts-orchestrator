@@ -23,6 +23,7 @@ public static class EdgeServer
         var app = builder.Build();
         var drain = app.Services.GetRequiredService<EdgeDrainCoordinator>();
         var proxy = app.Services.GetRequiredService<EdgeProxy>();
+        app.UseWebSockets();
         app.Run(context => EdgeDrainCoordinator.IsReadinessProbe(context.Request)
             ? drain.WriteReadinessAsync(context)
             : proxy.ForwardAsync(context));

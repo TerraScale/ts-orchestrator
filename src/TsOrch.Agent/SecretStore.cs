@@ -5,7 +5,7 @@ using TsOrch.Oci;
 
 namespace TsOrch.Agent;
 
-internal readonly union SecretMaterialization(SecretMount, AtomicWriteFailed);
+internal readonly union SecretMaterialization(SecretMounts, InvalidConfigFileTarget, ConfigFileSecretMissing, AtomicWriteFailed);
 
 public sealed record class ResolvedSecret(SecretRef Ref, long Version, string Value)
 {
@@ -16,7 +16,7 @@ public sealed record class ResolvedServiceSecrets(
     IReadOnlyDictionary<string, long> Versions,
     IReadOnlyDictionary<string, ResolvedSecret> Values);
 
-public sealed record class SecretMount(BindMount Mount, IReadOnlyDictionary<string, string> Env);
+internal sealed record class SecretMounts(IReadOnlyList<BindMount> Mounts, IReadOnlyDictionary<string, string> Env);
 
 public sealed record class InvalidSecretName(string Service, string Name)
 {
@@ -177,25 +177,67 @@ public sealed class SecretStore(OciVaultClient vault, AgentOptions options)
     internal async Task<SecretMaterialization> MaterializeAsync(
         string placementId,
         string configHash,
+        ServiceSpec service,
         ResolvedServiceSecrets secrets,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(secrets);
+        var outcome = ServiceConfigFiles.Render(service, secrets);
+        return outcome switch
+        {
+            IReadOnlyList<RenderedConfigFile> files => await WriteFilesAsync(placementId, configHash, secrets, files, cancellationToken),
+            InvalidConfigFileTarget invalid => invalid,
+            ConfigFileSecretMissing missing => missing,
+        };
+    }
+
+    private async Task<SecretMaterialization> WriteFilesAsync(
+        string placementId,
+        string configHash,
+        ResolvedServiceSecrets secrets,
+        IReadOnlyList<RenderedConfigFile> configs,
+        CancellationToken cancellationToken)
+    {
         var directory = GenerationDirectory(placementId, configHash);
+        var secretDirectory = configs.Count == 0 ? directory : Path.Combine(directory, "env");
+        List<string> directories = [options.SecretsDirectory, PlacementDirectory(placementId), directory];
+        List<BindMount> mounts = [];
         Dictionary<string, string> env = [with(StringComparer.Ordinal)];
         List<AtomicWrite> writes = [];
         foreach (var (name, secret) in secrets.Values.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
         {
             var envName = FileVariable(name);
             var fileName = envName[..^FileSuffix.Length];
-            writes.Add(new AtomicWrite(Path.Combine(directory, fileName), Encoding.UTF8.GetBytes(secret.Value), UnixFiles.OwnerReadWrite));
+            writes.Add(new AtomicWrite(Path.Combine(secretDirectory, fileName), Encoding.UTF8.GetBytes(secret.Value), UnixFiles.OwnerReadWrite));
             env[envName] = $"{ContainerSecretsDirectory}/{fileName}";
         }
 
-        var written = await UnixFiles.WriteAtomicAsync([options.SecretsDirectory, PlacementDirectory(placementId), directory], writes, cancellationToken);
+        if (env.Count > 0)
+        {
+            if (configs.Count > 0)
+            {
+                directories.Add(secretDirectory);
+            }
+
+            mounts.Add(new BindMount(secretDirectory, ContainerSecretsDirectory, ReadOnly: true));
+        }
+
+        if (configs.Count > 0)
+        {
+            var filesDirectory = Path.Combine(directory, "files");
+            directories.Add(filesDirectory);
+            for (var index = 0; index < configs.Count; index++)
+            {
+                var file = configs[index];
+                var path = Path.Combine(filesDirectory, string.Create(CultureInfo.InvariantCulture, $"{index}.cfg"));
+                writes.Add(new AtomicWrite(path, file.Content, UnixFiles.OwnerReadWrite));
+                mounts.Add(new BindMount(path, file.Target, ReadOnly: true));
+            }
+        }
+
+        var written = await UnixFiles.WriteAtomicAsync(directories, writes, cancellationToken);
         return written switch
         {
-            AtomicWriteCompleted => new SecretMount(new BindMount(directory, ContainerSecretsDirectory, ReadOnly: true), env),
+            AtomicWriteCompleted => new SecretMounts(mounts, env),
             AtomicWriteFailed failure => failure,
         };
     }

@@ -219,5 +219,15 @@
         }
       }
     }
-  ]
+  ],
+  "netbird": {
+    "managementUrl": "https://netbird.terrascale.tech",
+    "dnsDomain": "nb.ts.internal",
+    "networkRange": "10.200.0.0/16",
+    "setupKeySecret": "gru-1-netbird-setup-key",
+    "operatorsSetupKeySecret": "gru-1-netbird-operators-setup-key",
+    "adminPatSecret": "gru-1-netbird-admin-pat",
+    "ownerEmail": "mariogk@terrascale.tech",
+    "ownerPasswordSecret": "gru-1-netbird-owner-password"
+  }
 }

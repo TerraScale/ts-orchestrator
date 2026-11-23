@@ -21,7 +21,8 @@ internal static class CliCommands
         new("events", "ts-orch events [-f] [--region R] [--limit N]", "Show or follow fleet events", EventsCommand.Options, EventsCommand.RunAsync),
         new("exec", "ts-orch exec <node> <service> [--timeout S] -- <cmd...>", "Run a bounded diagnostic command in a container", RemoteExecCommand.Options, RemoteExecCommand.RunAsync),
         new("secrets", "ts-orch secrets check [-f PATH] | refresh <service>", "Verify OCI Vault secrets or trigger a secret reload", SecretsCommand.Options, SecretsCommand.RunAsync),
-        new("mcp", "ts-orch mcp", "Serve read-only MCP tools (status, logs, metrics, events, diff) on stdio", McpCommand.Options, McpCommand.RunAsync, InteractiveSigning: false),
+        new("netbird", NetBirdCommand.Usage, "Initialize, join, enroll, or inspect the NetBird network", NetBirdCommand.Options, NetBirdCommand.RunAsync, InteractiveSigning: false),
+        new("mcp", "ts-orch mcp", "Serve read-only MCP tools (status, logs, metrics, events, diff, netbird_status) on stdio", McpCommand.Options, McpCommand.RunAsync, InteractiveSigning: false),
     ];
 
     public static CliCommand? Find(string name) => All.FirstOrDefault(command => command.Name == name);

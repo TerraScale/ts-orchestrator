@@ -4,7 +4,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace TsOrch.Agent;
 
-internal readonly union PlacementPlanPreparation(PlacementPlan, SecretNameCollision, AtomicWriteFailed);
+internal readonly union PlacementPlanPreparation(PlacementPlan, SecretNameCollision, InvalidConfigFileTarget, ConfigFileSecretMissing, AtomicWriteFailed);
 
 public readonly record struct NonStatefulContainersDrained;
 
@@ -307,6 +307,8 @@ public sealed class ContainerReconciler(
         {
             PlacementPlan plan => SwapAsync(placement, plan, existing, cancellationToken),
             SecretNameCollision planFailure => SecretsUnavailableAsync(placement, existing, planFailure.Message, cancellationToken),
+            InvalidConfigFileTarget planFailure => SecretsUnavailableAsync(placement, existing, planFailure.Message, cancellationToken),
+            ConfigFileSecretMissing planFailure => SecretsUnavailableAsync(placement, existing, planFailure.Message, cancellationToken),
             AtomicWriteFailed planFailure => SecretsUnavailableAsync(placement, existing, planFailure.Message, cancellationToken),
         };
         await task;
@@ -409,15 +411,17 @@ public sealed class ContainerReconciler(
         var service = placement.Service;
         Dictionary<string, string> env = new(service.Env, StringComparer.Ordinal);
         List<BindMount> mounts = [.. service.Mounts.Select(static mount => new BindMount(mount.Source, mount.Target, ReadOnly: false))];
-        if (service.Secrets.Count == 0)
+        if (service.Secrets.Count == 0 && service.ConfigFiles is not { Count: > 0 })
         {
             return new PlacementPlan(placement, configHash, env, mounts);
         }
 
-        var outcome = await secrets.MaterializeAsync(placement.PlacementId, configHash, resolved, cancellationToken);
+        var outcome = await secrets.MaterializeAsync(placement.PlacementId, configHash, service, resolved, cancellationToken);
         return outcome switch
         {
-            SecretMount secretMount => WithSecrets(placement, configHash, env, mounts, secretMount),
+            SecretMounts secretMounts => WithSecrets(placement, configHash, env, mounts, secretMounts),
+            InvalidConfigFileTarget invalid => invalid,
+            ConfigFileSecretMissing missing => missing,
             AtomicWriteFailed failure => failure,
         };
     }
@@ -427,9 +431,9 @@ public sealed class ContainerReconciler(
         string configHash,
         Dictionary<string, string> env,
         List<BindMount> mounts,
-        SecretMount secretMount)
+        SecretMounts secretMounts)
     {
-        foreach (var (name, value) in secretMount.Env)
+        foreach (var (name, value) in secretMounts.Env)
         {
             if (!env.TryAdd(name, value))
             {
@@ -437,7 +441,7 @@ public sealed class ContainerReconciler(
             }
         }
 
-        mounts.Add(secretMount.Mount);
+        mounts.AddRange(secretMounts.Mounts);
         return new PlacementPlan(placement, configHash, env, mounts);
     }
 
