@@ -7,8 +7,8 @@ internal static class McpCommand
     public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.ExpectPositionals(0, "ts-orch mcp") switch
         {
-            Done => await ServeAsync(environment, cancellationToken),
-            Validation failure => environment.Fail(failure),
+            CommandPositionalsAccepted => await ServeAsync(environment, cancellationToken),
+            CommandPositionalsInvalid invalid => environment.Usage($"usage: {invalid.Usage}"),
         };
 
     private static async Task<int> ServeAsync(CommandEnvironment environment, CancellationToken cancellationToken)

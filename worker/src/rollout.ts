@@ -59,6 +59,7 @@ export function canaryThresholds(rollout: RolloutInfo): { max5xxPct: number; max
 
 export function canaryBreach(metrics: EdgeServiceMetrics | undefined, rollout: RolloutInfo): CanaryBreach | null {
   if (metrics === undefined) return null;
+  if (metrics.rps <= 0 && metrics.requests <= 0) return null;
   const { max5xxPct, maxP95Ms } = canaryThresholds(rollout);
   if (metrics.errorRate5xxPct > max5xxPct) return { metric: "5xx", value: metrics.errorRate5xxPct, threshold: max5xxPct };
   if (metrics.p95Ms > maxP95Ms) return { metric: "p95", value: metrics.p95Ms, threshold: maxP95Ms };
@@ -167,7 +168,8 @@ class Stepper {
   abort(region: string, reason: string, detail: Record<string, unknown>): void {
     const previous = this.state.previousImage;
     if (previous !== undefined) {
-      for (const placement of this.regionPlacements(region)) {
+      for (const placement of this.ctx.placements) {
+        if (placement.serviceName !== this.state.serviceName) continue;
         if (placement.desiredImage === this.state.targetImage) this.setImage(placement, previous);
       }
     }

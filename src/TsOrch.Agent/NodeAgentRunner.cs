@@ -64,23 +64,32 @@ public sealed class NodeAgentRunner(
         var failures = 0;
         while (!stoppingToken.IsCancellationRequested)
         {
-            failures = await enrollment.EnsureEnrolledAsync(stoppingToken) switch
+            var outcome = await enrollment.EnsureEnrolledAsync(stoppingToken);
+            failures = outcome switch
             {
-                NodeSession session => await RunSessionAsync(session, stoppingToken) switch
-                {
-                    SessionRejected => Forget(failures),
-                    SessionUnreachable => failures + 1,
-                    SessionDisconnected => 0,
-                },
-                Validation failure => EnrollFailed(failures, failure.Code, failure.Message),
-                Conflict failure => EnrollFailed(failures, failure.Code, failure.Message),
-                Unauthorized failure => EnrollFailed(failures, failure.Code, failure.Message),
-                Forbidden failure => EnrollFailed(failures, failure.Code, failure.Message),
-                Unavailable failure => EnrollFailed(failures, failure.Code, failure.Message),
-                InternalFailure failure => EnrollFailed(failures, failure.Code, failure.Message),
+                NodeSession session => await CountSessionFailuresAsync(session, failures, stoppingToken),
+                NodeIdentityIncomplete failure => EnrollFailed(failures, "identity_incomplete", failure.Message),
+                EnrollmentMetadataUnreadable failure => EnrollFailed(failures, "metadata_unreadable", failure.Message),
+                EnrollmentSecretUnconfigured failure => EnrollFailed(failures, "enrollment_secret_unconfigured", failure.Message),
+                EnrollmentSecretUnreadable failure => EnrollFailed(failures, "enrollment_secret_unreadable", failure.Message),
+                NodeRegistrationRejected failure => EnrollFailed(failures, "registration_rejected", failure.Message),
+                EnrollmentBackplaneUnavailable failure => EnrollFailed(failures, "backplane_unavailable", failure.Message),
+                EnrollmentResponseInvalid failure => EnrollFailed(failures, "response_invalid", failure.Message),
+                EnrollmentStateWriteFailed failure => EnrollFailed(failures, "state_write_failed", failure.Message),
             };
             await DelayAsync(Math.Max(1, failures), stoppingToken);
         }
+    }
+
+    private async Task<int> CountSessionFailuresAsync(NodeSession session, int failures, CancellationToken cancellationToken)
+    {
+        var outcome = await RunSessionAsync(session, cancellationToken);
+        return outcome switch
+        {
+            SessionRejected => Forget(failures),
+            SessionUnreachable => failures + 1,
+            SessionDisconnected => 0,
+        };
     }
 
     private int Forget(int failures)

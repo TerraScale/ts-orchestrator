@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Threading.Channels;
 
 namespace TsOrch.Agent;
@@ -70,13 +71,13 @@ public sealed class PlacementTracker(AgentOutbox outbox)
     }
 
     private static PlacementEvent ToEvent(PlacementReport report) =>
-        new(report.PlacementId, report.State, report.Image, report.ConfigHash, report.HostPort, report.Error);
+        new(report.PlacementId, report.State, report.Image, report.ConfigHash, report.HostPort, report.Error, report.PostgresHostPort);
 }
 
-public sealed class RouteObserver(TimeProvider timeProvider)
+public sealed class RouteObserver(AgentOptions options, TimeProvider timeProvider)
 {
     private readonly Lock _gate = new();
-    private readonly List<RouteWaiter> _waiters = [];
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
     private EdgeRoutesSnapshot? _current;
 
     public EdgeRoutesSnapshot? Current
@@ -93,7 +94,6 @@ public sealed class RouteObserver(TimeProvider timeProvider)
     public bool TryPublish(EdgeRoutesSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        List<RouteWaiter> satisfied = [];
         lock (_gate)
         {
             if (_current is { } current && current.Revision > snapshot.Revision)
@@ -102,20 +102,6 @@ public sealed class RouteObserver(TimeProvider timeProvider)
             }
 
             _current = snapshot;
-            foreach (var waiter in _waiters)
-            {
-                if (waiter.Predicate(snapshot))
-                {
-                    satisfied.Add(waiter);
-                }
-            }
-
-            _waiters.RemoveAll(satisfied.Contains);
-        }
-
-        foreach (var waiter in satisfied)
-        {
-            waiter.Completion.TrySetResult();
         }
 
         return true;
@@ -128,43 +114,59 @@ public sealed class RouteObserver(TimeProvider timeProvider)
             || snapshot.PostgresRoutes.Any(route => route.Upstreams.Any(upstream => upstream.PlacementId == placementId));
     }
 
-    public static bool IsRoutedTo(EdgeRoutesSnapshot snapshot, string placementId, int hostPort)
+    public static bool IsRoutedTo(EdgeRoutesSnapshot snapshot, string placementId, int? httpPort, int? postgresPort)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        return snapshot.HttpRoutes.Any(route => route.Upstreams.Any(upstream => upstream.PlacementId == placementId && upstream.Port == hostPort));
+        var http = snapshot.HttpRoutes.SelectMany(static route => route.Upstreams).Where(upstream => upstream.PlacementId == placementId);
+        var postgres = snapshot.PostgresRoutes.SelectMany(static route => route.Upstreams).Where(upstream => upstream.PlacementId == placementId);
+        return (httpPort is { } httpTarget ? http.Any() && http.All(upstream => upstream.Port == httpTarget) : !http.Any())
+            && (postgresPort is { } postgresTarget ? postgres.Any() && postgres.All(upstream => upstream.Port == postgresTarget) : !postgres.Any());
     }
 
     public async Task<bool> WaitUntilAsync(Func<EdgeRoutesSnapshot, bool> predicate, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(predicate);
-        var waiter = new RouteWaiter(predicate, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
-        lock (_gate)
-        {
-            if (_current is { } current && predicate(current))
-            {
-                return true;
-            }
-
-            _waiters.Add(waiter);
-        }
-
+        using var deadline = new CancellationTokenSource(timeout, timeProvider);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        using var timer = new PeriodicTimer(PollInterval, timeProvider);
         try
         {
-            await waiter.Completion.Task.WaitAsync(timeout, timeProvider, cancellationToken);
-            return true;
+            do
+            {
+                var applied = await ReadAppliedAsync(linked.Token);
+                if (applied is { } ack && Current is { } snapshot && ack.Revision >= snapshot.Revision && predicate(snapshot))
+                {
+                    return true;
+                }
+            }
+            while (await timer.WaitForNextTickAsync(linked.Token));
         }
-        catch (TimeoutException)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return false;
         }
-        finally
-        {
-            lock (_gate)
-            {
-                _waiters.Remove(waiter);
-            }
-        }
+
+        return false;
     }
 
-    private sealed record class RouteWaiter(Func<EdgeRoutesSnapshot, bool> Predicate, TaskCompletionSource Completion);
+    private async Task<EdgeAppliedRoutes?> ReadAppliedAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = new FileStream(options.AppliedRoutesFile, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 4096, FileOptions.Asynchronous);
+            return await JsonSerializer.DeserializeAsync(stream, EdgeJsonContext.Default.EdgeAppliedRoutes, cancellationToken);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }

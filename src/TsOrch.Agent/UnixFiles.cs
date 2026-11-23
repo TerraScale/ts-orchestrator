@@ -1,5 +1,14 @@
 namespace TsOrch.Agent;
 
+internal readonly record struct AtomicWriteCompleted;
+
+internal sealed record class AtomicWriteFailed(string Path, string Detail)
+{
+    public string Message => $"Writing {Path} failed: {Detail}";
+}
+
+internal readonly union AtomicWriteOutcome(AtomicWriteCompleted, AtomicWriteFailed);
+
 internal sealed record class AtomicWrite(string Path, ReadOnlyMemory<byte> Content, UnixFileMode Mode);
 
 internal static class UnixFiles
@@ -8,10 +17,10 @@ internal static class UnixFiles
     public const UnixFileMode WorldReadable = OwnerReadWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead;
     public const UnixFileMode OwnerOnlyDirectory = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
-    public static Task<Result<Done, InternalFailure>> WriteAtomicAsync(string path, ReadOnlyMemory<byte> content, UnixFileMode mode, CancellationToken cancellationToken) =>
+    public static Task<AtomicWriteOutcome> WriteAtomicAsync(string path, ReadOnlyMemory<byte> content, UnixFileMode mode, CancellationToken cancellationToken) =>
         WriteAtomicAsync([], [new AtomicWrite(path, content, mode)], cancellationToken);
 
-    public static async Task<Result<Done, InternalFailure>> WriteAtomicAsync(
+    public static async Task<AtomicWriteOutcome> WriteAtomicAsync(
         IReadOnlyList<string> privateDirectories,
         IReadOnlyList<AtomicWrite> writes,
         CancellationToken cancellationToken)
@@ -37,11 +46,11 @@ internal static class UnixFiles
                 await WriteOneAsync(write, cancellationToken);
             }
 
-            return new Done();
+            return new AtomicWriteCompleted();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return new InternalFailure($"Writing {current} failed: {exception.Message}");
+            return new AtomicWriteFailed(current, exception.Message);
         }
     }
 

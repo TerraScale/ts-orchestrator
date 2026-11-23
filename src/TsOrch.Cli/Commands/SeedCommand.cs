@@ -7,35 +7,36 @@ internal static class SeedCommand
     public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.ExpectPositionals(0, "ts-orch seed [--fleet PATH] [--services DIR] [--replace]") switch
         {
-            Done => await SpecFiles.LoadFleetAsync(arguments.Value("fleet") ?? SpecFiles.DefaultFleetPath, cancellationToken) switch
-            {
-                FleetConfig fleet => await SpecFiles.LoadServicesAsync(arguments.Value("services") ?? SpecFiles.DefaultServicesPath, cancellationToken) switch
-                {
-                    IReadOnlyList<ServiceSpec> services => await SeedAsync(new SeedRequest(fleet, services, arguments.Flag("replace")), environment, cancellationToken),
-                    NotFound failure => environment.Fail(failure),
-                    Validation failure => environment.Fail(failure),
-                    Forbidden failure => environment.Fail(failure),
-                    Unavailable failure => environment.Fail(failure),
-                },
-                NotFound failure => environment.Fail(failure),
-                Validation failure => environment.Fail(failure),
-                Forbidden failure => environment.Fail(failure),
-                Unavailable failure => environment.Fail(failure),
-            },
-            Validation failure => environment.Fail(failure),
+            CommandPositionalsAccepted => await LoadFleetAsync(arguments, environment, cancellationToken),
+            CommandPositionalsInvalid invalid => environment.Usage($"usage: {invalid.Usage}"),
         };
 
-    private static async Task<int> SeedAsync(SeedRequest request, CommandEnvironment environment, CancellationToken cancellationToken) =>
-        await environment.Api.PostAsync("/api/fleet/seed", request, CliJsonContext.Default.SeedRequest, CliJsonContext.Default.SeedResponse, cancellationToken) switch
+    private static async Task<int> LoadFleetAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken)
+    {
+        var read = await SpecFiles.LoadFleetAsync(arguments.Value("fleet") ?? SpecFiles.DefaultFleetPath, cancellationToken);
+        return read switch
         {
-            SeedResponse response => Report(response, environment.Out),
-            Validation failure => environment.Fail(failure),
-            NotFound failure => environment.Fail(failure),
-            Conflict failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
+            FleetConfig fleet => await LoadServicesAsync(arguments, fleet, environment, cancellationToken),
+            CliFileReadProblem failure => environment.Fail(CliFiles.Describe(failure)),
+            FleetDefinitionInvalid failure => environment.Fail(SpecFiles.Describe(failure)),
         };
+    }
+
+    private static async Task<int> LoadServicesAsync(CliArguments arguments, FleetConfig fleet, CommandEnvironment environment, CancellationToken cancellationToken)
+    {
+        var read = await SpecFiles.LoadServicesAsync(arguments.Value("services") ?? SpecFiles.DefaultServicesPath, cancellationToken);
+        return read switch
+        {
+            IReadOnlyList<ServiceSpec> services => await SeedAsync(new SeedRequest(fleet, services, arguments.Flag("replace")), environment, cancellationToken),
+            CliFileReadProblem failure => environment.Fail(CliFiles.Describe(failure)),
+            ServiceDefinitionInvalid failure => environment.Fail(SpecFiles.Describe(failure)),
+            DuplicateServiceDefinition failure => environment.Fail(SpecFiles.Describe(failure)),
+            ServiceDefinitionsMissing failure => environment.Fail(SpecFiles.Describe(failure)),
+        };
+    }
+
+    private static async Task<int> SeedAsync(SeedRequest request, CommandEnvironment environment, CancellationToken cancellationToken) =>
+        await environment.Api.PostAsync("/api/fleet/seed", request, CliJsonContext.Default.SeedRequest, CliJsonContext.Default.SeedResponse, response => Task.FromResult(Report(response, environment.Out)), environment.Fail, cancellationToken);
 
     private static int Report(SeedResponse response, TextWriter output)
     {

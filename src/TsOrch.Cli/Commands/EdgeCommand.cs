@@ -4,6 +4,10 @@ using TsOrch.Edge;
 
 namespace TsOrch.Cli;
 
+internal sealed record class InvalidEdgeCommandOptions(string Message);
+
+internal readonly union EdgeCommandOptions(EdgeServerOptions, InvalidEdgeCommandOptions);
+
 internal static class EdgeCommand
 {
     public static IReadOnlyList<CliOption> Options { get; } =
@@ -21,12 +25,12 @@ internal static class EdgeCommand
     public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.ExpectPositionals(0, "ts-orch edge [options]") switch
         {
-            Done => Configure(arguments) switch
+            CommandPositionalsAccepted => Configure(arguments) switch
             {
                 EdgeServerOptions options => await ServeAsync(options, environment, cancellationToken),
-                Validation failure => environment.Fail(failure),
+                InvalidEdgeCommandOptions invalid => environment.Usage(invalid.Message),
             },
-            Validation failure => environment.Fail(failure),
+            CommandPositionalsInvalid invalid => environment.Usage($"usage: {invalid.Usage}"),
         };
 
     private static async Task<int> ServeAsync(EdgeServerOptions options, CommandEnvironment environment, CancellationToken cancellationToken)
@@ -38,19 +42,19 @@ internal static class EdgeCommand
         return ExitCodes.Ok;
     }
 
-    private static Result<EdgeServerOptions, Validation> Configure(CliArguments arguments)
+    private static EdgeCommandOptions Configure(CliArguments arguments)
     {
-        List<Validation> failures = [];
+        List<string> failures = [];
         var runtimeDirectory = arguments.Setting("runtime-dir", "TS_ORCH_RUNTIME_DIR");
         if (runtimeDirectory is not null && !Path.IsPathRooted(runtimeDirectory))
         {
-            failures.Add(new Validation($"runtime directory must be an absolute path, got '{runtimeDirectory}'."));
+            failures.Add($"runtime directory must be an absolute path, got '{runtimeDirectory}'.");
         }
 
         var bind = arguments.Setting("bind", "TS_ORCH_EDGE_BIND");
         if (bind is not null && !IPAddress.TryParse(bind, out _))
         {
-            failures.Add(new Validation($"edge bind address must be an IP address, got '{bind}'."));
+            failures.Add($"edge bind address must be an IP address, got '{bind}'.");
         }
 
         var httpPort = Number(arguments.Setting("http-port", "TS_ORCH_EDGE_HTTP_PORT"), "http port", 1, IPEndPoint.MaxPort, failures);
@@ -61,7 +65,7 @@ internal static class EdgeCommand
         var http3 = Flag(arguments.Setting("http3", "TS_ORCH_EDGE_HTTP3"), "http3", failures);
         if (failures is [var first, ..])
         {
-            return first;
+            return new InvalidEdgeCommandOptions(first);
         }
 
         var defaults = new EdgeServerOptions();
@@ -80,31 +84,31 @@ internal static class EdgeCommand
         };
     }
 
-    private static int? Number(string? text, string label, int min, int max, List<Validation> failures) =>
+    private static int? Number(string? text, string label, int min, int max, List<string> failures) =>
         text is null
             ? null
             : CliArguments.ParseInt(label, text, min, max) switch
             {
                 int value => value,
-                Validation failure => RejectNumber(failures, failure),
+                InvalidCliInteger invalid => RejectNumber(failures, invalid.Message),
             };
 
-    private static bool? Flag(string? text, string label, List<Validation> failures) =>
+    private static bool? Flag(string? text, string label, List<string> failures) =>
         text is null
             ? null
             : CliArguments.ParseBool(label, text) switch
             {
                 bool value => value,
-                Validation failure => RejectFlag(failures, failure),
+                InvalidCliBoolean invalid => RejectFlag(failures, invalid.Message),
             };
 
-    private static int? RejectNumber(List<Validation> failures, Validation failure)
+    private static int? RejectNumber(List<string> failures, string failure)
     {
         failures.Add(failure);
         return null;
     }
 
-    private static bool? RejectFlag(List<Validation> failures, Validation failure)
+    private static bool? RejectFlag(List<string> failures, string failure)
     {
         failures.Add(failure);
         return null;

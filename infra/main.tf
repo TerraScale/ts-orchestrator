@@ -1,6 +1,7 @@
 locals {
   fleet          = jsondecode(file("${path.module}/../deploy/fleet.json"))
   netbird        = jsondecode(file("${path.module}/../deploy/services/netbird-server.json"))
+  auth           = jsondecode(file("${path.module}/../deploy/services/ts-auth.json"))
   regions        = { for region in local.fleet.regions : region.label => region }
   dns_oci_region = one([for region in local.fleet.regions : region.ociRegion if region.compartmentId == local.fleet.dns.compartmentId])
   bundle_url     = "https://github.com/TerraScale/ts-orchestrator/releases/download/${var.orch_release_tag}/ts-orch.tar.gz"
@@ -57,6 +58,7 @@ module "geodns" {
   compartment_id    = local.fleet.dns.compartmentId
   zone              = local.fleet.dns.zone
   steered_names     = local.fleet.dns.steeredNames
+  pinned_names      = { "auth.${local.fleet.dns.zone}" = one(local.auth.regions) }
   ttl_seconds       = local.fleet.dns.ttlSeconds
   health_check_path = local.fleet.dns.healthCheckPath
   rollout_order     = local.fleet.rolloutOrder

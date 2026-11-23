@@ -36,9 +36,14 @@ internal sealed class McpServer(McpTools tools, CliConsole console)
             return Failure(null, ParseError, "The message is not valid JSON.");
         }
 
-        var id = message.ValueKind == JsonValueKind.Object && message.TryGetProperty("id", out var idValue) && idValue.ValueKind is JsonValueKind.String or JsonValueKind.Number
-            ? idValue
-            : (JsonElement?)null;
+        JsonElement idValue = default;
+        var hasId = message.ValueKind == JsonValueKind.Object && message.TryGetProperty("id", out idValue);
+        if (hasId && idValue.ValueKind is not (JsonValueKind.String or JsonValueKind.Number or JsonValueKind.Null))
+        {
+            return Failure(null, InvalidRequest, "The request id must be a string, number, or null.");
+        }
+
+        JsonElement? id = hasId ? idValue : null;
         if (message.ValueKind != JsonValueKind.Object
             || !message.TryGetProperty("jsonrpc", out var version) || version.ValueKind != JsonValueKind.String || version.GetString() != JsonRpcVersion
             || !message.TryGetProperty("method", out var methodValue) || methodValue.ValueKind != JsonValueKind.String
@@ -48,23 +53,28 @@ internal sealed class McpServer(McpTools tools, CliConsole console)
         }
 
         JsonElement? parameters = message.TryGetProperty("params", out var paramsValue) ? paramsValue : null;
-        if (id is not { } requestId)
+        if (parameters is { ValueKind: not (JsonValueKind.Object or JsonValueKind.Array) })
         {
-            await console.Error.WriteLineAsync($"ts-orch mcp: notification {method}".AsMemory(), cancellationToken);
-            return null;
+            return Failure(id, InvalidParams, "The params member must be an object or array.");
         }
 
-        return method switch
+        if (!hasId)
         {
-            "initialize" => Success(requestId, JsonSerializer.SerializeToElement(Initialize(parameters), McpJsonContext.Default.McpInitializeResult)),
-            "ping" => Success(requestId, JsonSerializer.SerializeToElement(new McpEmptyResult(), McpJsonContext.Default.McpEmptyResult)),
-            "tools/list" => Success(requestId, JsonSerializer.SerializeToElement(new McpToolsListResult(tools.Definitions), McpJsonContext.Default.McpToolsListResult)),
-            "tools/call" => await CallToolAsync(requestId, parameters, cancellationToken),
-            _ => Failure(requestId, MethodNotFound, $"Method '{method}' is not supported."),
+            await console.Error.WriteLineAsync($"ts-orch mcp: notification {method}".AsMemory(), cancellationToken);
+        }
+
+        var response = method switch
+        {
+            "initialize" => Success(id, JsonSerializer.SerializeToElement(Initialize(parameters), McpJsonContext.Default.McpInitializeResult)),
+            "ping" => Success(id, JsonSerializer.SerializeToElement(new McpEmptyResult(), McpJsonContext.Default.McpEmptyResult)),
+            "tools/list" => Success(id, JsonSerializer.SerializeToElement(new McpToolsListResult(tools.Definitions), McpJsonContext.Default.McpToolsListResult)),
+            "tools/call" => await CallToolAsync(id, parameters, cancellationToken),
+            _ => Failure(id, MethodNotFound, $"Method '{method}' is not supported."),
         };
+        return hasId ? response : null;
     }
 
-    private async Task<JsonRpcResponse> CallToolAsync(JsonElement id, JsonElement? parameters, CancellationToken cancellationToken)
+    private async Task<JsonRpcResponse> CallToolAsync(JsonElement? id, JsonElement? parameters, CancellationToken cancellationToken)
     {
         if (parameters is not { ValueKind: JsonValueKind.Object } values
             || !values.TryGetProperty("name", out var nameValue)
@@ -108,7 +118,7 @@ internal sealed class McpServer(McpTools tools, CliConsole console)
         }
     }
 
-    private static JsonRpcResponse Success(JsonElement id, JsonElement result) => new(JsonRpcVersion, id, Result: result);
+    private static JsonRpcResponse Success(JsonElement? id, JsonElement result) => new(JsonRpcVersion, id, Result: result);
 
     private static JsonRpcResponse Failure(JsonElement? id, int code, string message) => new(JsonRpcVersion, id, Error: new JsonRpcError(code, message));
 }

@@ -1,7 +1,13 @@
 using System.Globalization;
-using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
+
+internal sealed record class MockVolumeShrinkRejected(string VolumeId, long CurrentSize, long RequestedSize)
+{
+    public string Message => string.Create(CultureInfo.InvariantCulture, $"Volume '{VolumeId}' cannot shrink from {CurrentSize} GB to {RequestedSize} GB.");
+}
+
+internal readonly union MockVolumeResize(VolumeDocument, MockVolumeShrinkRejected);
 
 internal sealed record class MockSecret(string SecretId, long Version, string Value, DateTimeOffset CreatedAt);
 
@@ -101,13 +107,13 @@ internal sealed class OciMockState(TimeProvider timeProvider)
         }
     }
 
-    public Result<VolumeDocument, Validation> UpdateVolume(string path, string volumeId, long sizeInGBs)
+    public MockVolumeResize UpdateVolume(string path, string volumeId, long sizeInGBs)
     {
         lock (_gate)
         {
             if (_volumes.TryGetValue(volumeId, out var current) && sizeInGBs < current)
             {
-                return new Validation($"Volume '{volumeId}' cannot shrink from {current.ToString(CultureInfo.InvariantCulture)} GB to {sizeInGBs.ToString(CultureInfo.InvariantCulture)} GB.");
+                return new MockVolumeShrinkRejected(volumeId, current, sizeInGBs);
             }
 
             _volumes[volumeId] = sizeInGBs;

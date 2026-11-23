@@ -2,6 +2,9 @@ using System.Diagnostics;
 
 namespace TsOrch.Cli;
 
+internal readonly union ServiceDiff(IReadOnlyList<DiffItem>, CliFileReadProblem, ServiceDefinitionInvalid,
+    DuplicateServiceDefinition, ServiceDefinitionsMissing, BackplaneProblem);
+
 internal static class DiffCommand
 {
     public static IReadOnlyList<CliOption> Options { get; } = [new("file", 'f', true)];
@@ -9,54 +12,47 @@ internal static class DiffCommand
     public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.ExpectPositionals(0, "ts-orch diff [-f PATH]") switch
         {
-            Done => await FetchAsync(environment.Api, arguments.Value("file") ?? SpecFiles.DefaultServicesPath, cancellationToken) switch
-            {
-                IReadOnlyList<DiffItem> items => Render(items, environment.Out),
-                Validation failure => environment.Fail(failure),
-                NotFound failure => environment.Fail(failure),
-                Conflict failure => environment.Fail(failure),
-                Unauthorized failure => environment.Fail(failure),
-                Forbidden failure => environment.Fail(failure),
-                Unavailable failure => environment.Fail(failure),
-            },
-            Validation failure => environment.Fail(failure),
+            CommandPositionalsAccepted => await RunDiffAsync(arguments.Value("file") ?? SpecFiles.DefaultServicesPath, environment, cancellationToken),
+            CommandPositionalsInvalid invalid => environment.Usage($"usage: {invalid.Usage}"),
         };
 
-    public static async Task<Result<IReadOnlyList<DiffItem>, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> FetchAsync(
-        OrchApi api,
-        string path,
-        CancellationToken cancellationToken)
+    private static async Task<int> RunDiffAsync(string path, CommandEnvironment environment, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(api);
-        return await SpecFiles.LoadServicesAsync(path, cancellationToken) switch
+        var outcome = await FetchAsync(environment.Api, path, cancellationToken);
+        return outcome switch
         {
-            IReadOnlyList<ServiceSpec> services => await DiffAsync(api, services, cancellationToken),
-            NotFound failure => failure,
-            Validation failure => failure,
-            Forbidden failure => failure,
-            Unavailable failure => failure,
+            IReadOnlyList<DiffItem> items => Render(items, environment.Out),
+            CliFileReadProblem failure => environment.Fail(CliFiles.Describe(failure)),
+            ServiceDefinitionInvalid failure => environment.Fail(SpecFiles.Describe(failure)),
+            DuplicateServiceDefinition failure => environment.Fail(SpecFiles.Describe(failure)),
+            ServiceDefinitionsMissing failure => environment.Fail(SpecFiles.Describe(failure)),
+            BackplaneProblem failure => environment.Fail(failure),
         };
     }
 
-    private static async Task<Result<IReadOnlyList<DiffItem>, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> DiffAsync(
-        OrchApi api,
-        IReadOnlyList<ServiceSpec> services,
-        CancellationToken cancellationToken) =>
-        await api.PostAsync(
+    public static async Task<ServiceDiff> FetchAsync(OrchApi api, string path, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+        var loaded = await SpecFiles.LoadServicesAsync(path, cancellationToken);
+        return loaded switch
+        {
+            IReadOnlyList<ServiceSpec> services => await DiffAsync(api, services, cancellationToken),
+            CliFileReadProblem failure => failure,
+            ServiceDefinitionInvalid failure => failure,
+            DuplicateServiceDefinition failure => failure,
+            ServiceDefinitionsMissing failure => failure,
+        };
+    }
+
+    private static Task<ServiceDiff> DiffAsync(OrchApi api, IReadOnlyList<ServiceSpec> services, CancellationToken cancellationToken) =>
+        api.PostAsync(
             "/api/services/diff",
             new ServicesDocument(services),
             CliJsonContext.Default.ServicesDocument,
             CliJsonContext.Default.DiffResponse,
-            cancellationToken) switch
-        {
-            DiffResponse response => new Result<IReadOnlyList<DiffItem>, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>(response.Diff),
-            Validation failure => failure,
-            NotFound failure => failure,
-            Conflict failure => failure,
-            Unauthorized failure => failure,
-            Forbidden failure => failure,
-            Unavailable failure => failure,
-        };
+            static response => Task.FromResult(new ServiceDiff(response.Diff)),
+            static failure => failure,
+            cancellationToken);
 
     private static int Render(IReadOnlyList<DiffItem> items, TextWriter output)
     {

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Extensions.Hosting;
 
 namespace TsOrch.Agent;
 
@@ -60,16 +61,97 @@ public sealed class HostMetricsCollector(
     DockerEngineClient docker,
     AgentOptions options,
     TimeProvider timeProvider,
-    ILogger<HostMetricsCollector> logger)
+    ILogger<HostMetricsCollector> logger) : BackgroundService
 {
+    private static readonly TimeSpan OomReconnectDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan StatsPollInterval = TimeSpan.FromSeconds(5);
     private const double BytesPerMiB = 1024d * 1024d;
     private const double BytesPerGiB = BytesPerMiB * 1024d;
     private const int MaxParallelStats = 4;
 
     private readonly Lock _gate = new();
     private readonly ConcurrentDictionary<string, ContainerSample> _containerSamples = [with(StringComparer.Ordinal)];
+    private readonly ConcurrentDictionary<string, (string Service, int Count)> _oomKills = new(StringComparer.Ordinal);
+    private IReadOnlyList<ContainerMetrics> _latestContainers = [];
     private CpuSample? _lastCpu;
     private NetSample? _lastNet;
+
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        Task.WhenAll(WatchOomsAsync(stoppingToken), SampleContainersAsync(stoppingToken));
+
+    public IReadOnlyList<ContainerMetrics> ContainerSnapshot()
+    {
+        var samples = Volatile.Read(ref _latestContainers)
+            .ToDictionary(static sample => sample.PlacementId, StringComparer.Ordinal);
+        foreach (var (placementId, oom) in _oomKills)
+        {
+            samples[placementId] = samples.TryGetValue(placementId, out var sample)
+                ? sample with { OomKills = oom.Count }
+                : new ContainerMetrics(placementId, oom.Service, 0, 0, 0, 0, 0, 0, 0, oom.Count);
+        }
+
+        return [.. samples.Values.OrderBy(static sample => sample.PlacementId, StringComparer.Ordinal)];
+    }
+
+    private async Task WatchOomsAsync(CancellationToken cancellationToken)
+    {
+        const long nanosecondsPerSecond = 1_000_000_000;
+        var cursor = timeProvider.GetUtcNow().ToUnixTimeSeconds() * nanosecondsPerSecond;
+        HashSet<string> seenAtCursor = [with(StringComparer.Ordinal)];
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var interrupted = await docker.WatchOomEventsAsync(cursor / nanosecondsPerSecond, oom =>
+            {
+                if (oom.TimeNano < cursor || oom.Actor?.Attributes is not { } labels
+                    || labels.GetValueOrDefault(ContainerLabels.Managed(options.LabelPrefix)) != "true"
+                    || !labels.TryGetValue(ContainerLabels.PlacementId(options.LabelPrefix), out var placementId)
+                    || !labels.TryGetValue(ContainerLabels.Service(options.LabelPrefix), out var service))
+                {
+                    return;
+                }
+
+                if (oom.TimeNano > cursor)
+                {
+                    cursor = oom.TimeNano;
+                    seenAtCursor.Clear();
+                }
+
+                if (seenAtCursor.Add(oom.Actor.ID))
+                {
+                    _oomKills.AddOrUpdate(placementId, static (_, name) => (name, 1),
+                        static (_, current, _) => (current.Service, current.Count + 1), service);
+                }
+            }, cancellationToken);
+            if (interrupted is not null)
+            {
+                AgentLog.OomSubscriptionInterrupted(logger, interrupted);
+                await Task.Delay(OomReconnectDelay, timeProvider, cancellationToken);
+            }
+        }
+    }
+
+    private async Task SampleContainersAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(StatsPollInterval, timeProvider);
+        do
+        {
+            var listed = await docker.ListManagedContainersAsync(options.LabelPrefix, cancellationToken);
+            var samples = listed switch
+            {
+                IReadOnlyList<ManagedContainer> containers => await CollectContainersAsync(containers, cancellationToken),
+                DockerDaemonUnavailable failure => ReportListFailure(failure.Message),
+                DockerResponseInvalid failure => ReportListFailure(failure.Message),
+            };
+            Volatile.Write(ref _latestContainers, samples);
+        }
+        while (await timer.WaitForNextTickAsync(cancellationToken));
+    }
+
+    private IReadOnlyList<ContainerMetrics> ReportListFailure(string reason)
+    {
+        AgentLog.ReconcileListFailed(logger, reason);
+        return [];
+    }
 
     public async Task<HostMetrics> CollectHostAsync(CancellationToken cancellationToken)
     {
@@ -106,7 +188,7 @@ public sealed class HostMetricsCollector(
             await ReadLoad1Async(cancellationToken));
     }
 
-    public async Task<IReadOnlyList<ContainerMetrics>> CollectContainersAsync(IReadOnlyList<ManagedContainer> containers, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<ContainerMetrics>> CollectContainersAsync(IReadOnlyList<ManagedContainer> containers, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(containers);
         var running = containers.Where(static container => container.Running).ToList();
@@ -128,7 +210,7 @@ public sealed class HostMetricsCollector(
             _containerSamples.TryRemove(stale, out _);
         }
 
-        return [.. collected.OrderBy(static metrics => metrics.PlacementId, StringComparer.Ordinal)];
+        return [.. collected.GroupBy(static metrics => metrics.PlacementId, StringComparer.Ordinal).Select(static group => group.First())];
     }
 
     public async Task<EdgeMetricsSnapshot?> ReadEdgeMetricsAsync(CancellationToken cancellationToken)
@@ -173,20 +255,28 @@ public sealed class HostMetricsCollector(
             volumes);
     }
 
-    private async Task<ContainerMetrics?> CollectContainerAsync(ManagedContainer container, CancellationToken cancellationToken) =>
-        await docker.GetContainerStatsAsync(container.Id, cancellationToken) switch
+    private async Task<ContainerMetrics?> CollectContainerAsync(ManagedContainer container, CancellationToken cancellationToken)
+    {
+        var read = await docker.GetContainerStatsAsync(container.Id, cancellationToken);
+        return read switch
         {
-            ContainerStatsSample stats => await docker.InspectContainerAsync(container.Id, cancellationToken) switch
-            {
-                ContainerState state => Measure(container, stats, state.RestartCount, state.OomKilled ? 1 : 0),
-                NotFound => Measure(container, stats, 0, 0),
-                Unavailable => Measure(container, stats, 0, 0),
-                InternalFailure => Measure(container, stats, 0, 0),
-            },
-            NotFound failure => StatsUnavailable(container, failure.Message),
-            Unavailable failure => StatsUnavailable(container, failure.Message),
-            InternalFailure failure => StatsUnavailable(container, failure.Message),
+            ContainerStatsSample stats => await MeasureAsync(container, stats, cancellationToken),
+            DockerResourceMissing failure => StatsUnavailable(container, failure.Message),
+            DockerDaemonUnavailable failure => StatsUnavailable(container, failure.Message),
+            DockerResponseInvalid failure => StatsUnavailable(container, failure.Message),
         };
+    }
+
+    private async Task<ContainerMetrics> MeasureAsync(ManagedContainer container, ContainerStatsSample stats, CancellationToken cancellationToken)
+    {
+        var inspected = await docker.InspectContainerAsync(container.Id, cancellationToken);
+        var restarts = inspected switch
+        {
+            ContainerState state => state.RestartCount,
+            DockerResourceMissing or DockerDaemonUnavailable or DockerResponseInvalid => 0,
+        };
+        return Measure(container, stats, restarts);
+    }
 
     private ContainerMetrics? StatsUnavailable(ManagedContainer container, string reason)
     {
@@ -194,7 +284,7 @@ public sealed class HostMetricsCollector(
         return null;
     }
 
-    private ContainerMetrics Measure(ManagedContainer container, ContainerStatsSample stats, int restarts, int oomKills)
+    private ContainerMetrics Measure(ManagedContainer container, ContainerStatsSample stats, int restarts)
     {
         var now = timeProvider.GetUtcNow();
         var sample = new ContainerSample(now, stats);
@@ -221,7 +311,7 @@ public sealed class HostMetricsCollector(
             rxBps,
             txBps,
             restarts,
-            oomKills);
+            OomKills: 0);
     }
 
     private static long PerSecond(long delta, TimeSpan elapsed) =>

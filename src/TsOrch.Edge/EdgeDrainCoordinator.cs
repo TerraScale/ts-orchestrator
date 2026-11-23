@@ -3,6 +3,8 @@ namespace TsOrch.Edge;
 public sealed partial class EdgeDrainCoordinator(
     EdgeServerOptions options,
     TimeProvider timeProvider,
+    EdgeRouteTable routes,
+    TlsCertificateStore certificates,
     ILogger<EdgeDrainCoordinator> logger) : IHostedLifecycleService
 {
     public const string ReadinessPath = "/readyz";
@@ -22,10 +24,12 @@ public sealed partial class EdgeDrainCoordinator(
     {
         ArgumentNullException.ThrowIfNull(context);
         context.Response.Headers.CacheControl = "no-store";
-        context.Response.StatusCode = IsDraining ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status200OK;
+        var draining = IsDraining;
+        var ready = !draining && routes.HasLoadedRoutes && certificates.HasValidConfiguredCertificate;
+        context.Response.StatusCode = ready ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable;
         return HttpMethods.IsHead(context.Request.Method)
             ? Task.CompletedTask
-            : context.Response.WriteAsync(IsDraining ? "draining" : "ok", context.RequestAborted);
+            : context.Response.WriteAsync(ready ? "ok" : draining ? "draining" : "starting", context.RequestAborted);
     }
 
     public void BeginDrain()

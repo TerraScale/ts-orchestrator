@@ -1,9 +1,26 @@
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
 namespace TsOrch.Cli;
+
+internal closed record class BackplaneProblem;
+
+internal sealed record class BackplaneRequestRejected(HttpStatusCode Status, string Message) : BackplaneProblem;
+
+internal sealed record class BackplaneTransportFailed(string Message) : BackplaneProblem;
+
+internal sealed record class BackplaneResponseInvalid(string Message) : BackplaneProblem;
+
+internal sealed record class BackplaneAuthenticationFailed(CliDiagnostic Diagnostic) : BackplaneProblem;
+
+internal readonly record struct BackplaneStreamCompleted;
+
+internal readonly union BackplaneText(string, BackplaneProblem);
+
+internal readonly union BackplaneStream(BackplaneStreamCompleted, BackplaneProblem);
 
 internal sealed class OrchHttp(HttpClient httpClient, TimeProvider timeProvider)
 {
@@ -27,201 +44,204 @@ internal sealed class OrchHttp(HttpClient httpClient, TimeProvider timeProvider)
 
     public static HttpContent JsonBody<T>(T value, JsonTypeInfo<T> typeInfo) => JsonContent.Create(value, typeInfo);
 
-    public Task<Result<T, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> SendJsonAsync<T>(
+    public async Task<TOutput> SendJsonAsync<T, TOutput>(
         HttpRequestMessage request,
         JsonTypeInfo<T> typeInfo,
         TimeSpan timeout,
+        Func<T, Task<TOutput>> handle,
+        Func<BackplaneProblem, TOutput> fail,
         CancellationToken cancellationToken)
-        where T : notnull =>
-        SendAsync(request, timeout, (content, token) => content.ReadFromJsonAsync(typeInfo, token), cancellationToken);
-
-    public Task<Result<string, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> SendTextAsync(
-        HttpRequestMessage request,
-        TimeSpan timeout,
-        CancellationToken cancellationToken) =>
-        SendAsync<string>(request, timeout, async (content, token) => await content.ReadAsStringAsync(token), cancellationToken);
-
-    public async Task<Result<Done, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> StreamJsonLinesAsync<T>(
-        HttpRequestMessage request,
-        JsonTypeInfo<T> typeInfo,
-        Func<T, CancellationToken, Task> onItem,
-        CancellationToken cancellationToken)
-        where T : notnull
+        where T : class
     {
-        ArgumentNullException.ThrowIfNull(onItem);
-        HttpResponseMessage response;
+        var outcome = await SendTextAsync(request, timeout, cancellationToken);
+        return outcome switch
+        {
+            string body => await HandleJsonAsync(body, Describe(request), typeInfo, handle, fail, cancellationToken),
+            BackplaneProblem problem => fail(problem),
+        };
+    }
+
+    private static async Task<TOutput> HandleJsonAsync<T, TOutput>(
+        string body,
+        string target,
+        JsonTypeInfo<T> typeInfo,
+        Func<T, Task<TOutput>> handle,
+        Func<BackplaneProblem, TOutput> fail,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var value = Decode(body, typeInfo, out var error);
+        return value is not null
+            ? await handle(value)
+            : fail(new BackplaneResponseInvalid($"{target} returned invalid JSON: {error}"));
+    }
+
+    internal static T? Decode<T>(string body, JsonTypeInfo<T> typeInfo, out string? error) where T : class
+    {
         try
         {
-            response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                using (response)
-                {
-                    return await FailureAsync<Done>(request, response, cancellationToken);
-                }
-            }
+            var value = JsonSerializer.Deserialize(body, typeInfo);
+            error = value is null ? "The document is null." : null;
+            return value;
         }
-        catch (Exception exception) when (exception is HttpRequestException or IOException)
+        catch (JsonException exception)
         {
-            return new Unavailable($"{Describe(request)} failed: {exception.Message}");
-        }
-
-        using (response)
-        {
-            return await ReadLinesAsync(request, response.Content, typeInfo, onItem, cancellationToken) switch
-            {
-                Done done => done,
-                Unavailable failure => failure,
-            };
+            error = exception.Message;
+            return null;
         }
     }
 
-    private static async Task<Result<Done, Unavailable>> ReadLinesAsync<T>(
-        HttpRequestMessage request,
-        HttpContent content,
-        JsonTypeInfo<T> typeInfo,
-        Func<T, CancellationToken, Task> onItem,
-        CancellationToken cancellationToken)
-        where T : notnull
-    {
-        Stream stream;
-        try
-        {
-            stream = await content.ReadAsStreamAsync(cancellationToken);
-        }
-        catch (Exception exception) when (exception is HttpRequestException or IOException)
-        {
-            return new Unavailable($"{Describe(request)} broke off: {exception.Message}");
-        }
-
-        await using (stream)
-        {
-            using var reader = new StreamReader(stream);
-            while (true)
-            {
-                string? line;
-                try
-                {
-                    line = await reader.ReadLineAsync(cancellationToken);
-                }
-                catch (Exception exception) when (exception is HttpRequestException or IOException)
-                {
-                    return new Unavailable($"{Describe(request)} broke off: {exception.Message}");
-                }
-
-                if (line is null)
-                {
-                    return new Done();
-                }
-
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    continue;
-                }
-
-                T? item;
-                try
-                {
-                    item = JsonSerializer.Deserialize(line, typeInfo);
-                }
-                catch (JsonException exception)
-                {
-                    return new Unavailable($"{Describe(request)} streamed malformed JSON: {exception.Message}");
-                }
-
-                if (item is null)
-                {
-                    return new Unavailable($"{Describe(request)} streamed an empty JSON line.");
-                }
-
-                await onItem(item, cancellationToken);
-            }
-        }
-    }
-
-    private async Task<Result<T, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> SendAsync<T>(
-        HttpRequestMessage request,
-        TimeSpan timeout,
-        Func<HttpContent, CancellationToken, Task<T?>> read,
-        CancellationToken cancellationToken)
-        where T : notnull
+    public async Task<BackplaneText> SendTextAsync(HttpRequestMessage request, TimeSpan timeout, CancellationToken cancellationToken)
     {
         using var deadline = new CancellationTokenSource(timeout, timeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         try
         {
             using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token);
-            if (!response.IsSuccessStatusCode)
-            {
-                return await FailureAsync<T>(request, response, linked.Token);
-            }
-
-            return await read(response.Content, linked.Token) is { } value
-                ? value
-                : new Unavailable($"{Describe(request)} returned an empty JSON document.");
+            return response.IsSuccessStatusCode
+                ? await response.Content.ReadAsStringAsync(linked.Token)
+                : await ReadRejectionAsync(request, response, linked.Token);
         }
         catch (HttpRequestException exception)
         {
-            return new Unavailable($"{Describe(request)} failed: {exception.Message}");
+            return new BackplaneTransportFailed($"{Describe(request)} failed: {exception.Message}");
         }
         catch (IOException exception)
         {
-            return new Unavailable($"{Describe(request)} broke off: {exception.Message}");
-        }
-        catch (JsonException exception)
-        {
-            return new Unavailable($"{Describe(request)} returned malformed JSON: {exception.Message}");
+            return new BackplaneTransportFailed($"{Describe(request)} broke off: {exception.Message}");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new Unavailable(string.Create(CultureInfo.InvariantCulture, $"{Describe(request)} timed out after {timeout.TotalSeconds:F0}s."));
+            return new BackplaneTransportFailed(string.Create(CultureInfo.InvariantCulture, $"{Describe(request)} timed out after {timeout.TotalSeconds:F0}s."));
         }
     }
 
-    private static async Task<Result<T, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> FailureAsync<T>(
+    public async Task<BackplaneStream> StreamJsonLinesAsync<T>(
+        HttpRequestMessage request,
+        JsonTypeInfo<T> typeInfo,
+        Func<T, CancellationToken, Task> onItem,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        var opened = await OpenStreamAsync(request, cancellationToken);
+        return opened switch
+        {
+            OpenBackplaneStream stream => await ReadLinesAsync(request, stream, typeInfo, onItem, cancellationToken),
+            BackplaneProblem problem => problem,
+        };
+    }
+
+    private async Task<BackplaneStreamOpening> OpenStreamAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        HttpResponseMessage? response = null;
+        try
+        {
+            response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return await ReadRejectionAsync(request, response, cancellationToken);
+            }
+
+            var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var opened = new OpenBackplaneStream(response, new StreamReader(stream));
+            response = null;
+            return opened;
+        }
+        catch (HttpRequestException exception)
+        {
+            return new BackplaneTransportFailed($"{Describe(request)} failed: {exception.Message}");
+        }
+        catch (IOException exception)
+        {
+            return new BackplaneTransportFailed($"{Describe(request)} broke off: {exception.Message}");
+        }
+        finally
+        {
+            response?.Dispose();
+        }
+    }
+
+    private static async Task<BackplaneStream> ReadLinesAsync<T>(
+        HttpRequestMessage request,
+        OpenBackplaneStream opened,
+        JsonTypeInfo<T> typeInfo,
+        Func<T, CancellationToken, Task> onItem,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        using var response = opened.Response;
+        using var reader = opened.Reader;
+        while (true)
+        {
+            var read = await ReadLineAsync(reader, cancellationToken);
+            var readLine = read switch
+            {
+                BackplaneStreamLine item => new StreamLineRead(item.Text, null),
+                BackplaneTransportFailed failed => new StreamLineRead(null, failed),
+            };
+            if (readLine.Failure is { } failure)
+            {
+                return new BackplaneTransportFailed($"{Describe(request)} broke off: {failure.Message}");
+            }
+
+            if (readLine.Text is not { } line)
+            {
+                return new BackplaneStreamCompleted();
+            }
+
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            if (Decode(line, typeInfo, out var error) is not { } itemValue)
+            {
+                return new BackplaneResponseInvalid($"{Describe(request)} streamed invalid JSON: {error}");
+            }
+
+            await onItem(itemValue, cancellationToken);
+        }
+    }
+
+    private static async Task<BackplaneLineRead> ReadLineAsync(StreamReader reader, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return new BackplaneStreamLine(await reader.ReadLineAsync(cancellationToken));
+        }
+        catch (IOException exception)
+        {
+            return new BackplaneTransportFailed(exception.Message);
+        }
+    }
+
+    private static async Task<BackplaneRequestRejected> ReadRejectionAsync(
         HttpRequestMessage request,
         HttpResponseMessage response,
         CancellationToken cancellationToken)
     {
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        var status = (int)response.StatusCode;
-        var message = ParseError(body) switch
+        var message = Decode(body, ApiJsonContext.Default.ErrorResponse, out _)?.Error switch
         {
             { Fix: { } fix } detail => $"{detail.Message} ({fix})",
             { } detail => detail.Message,
-            null => string.Create(
-                CultureInfo.InvariantCulture,
-                $"{Describe(request)} returned {status}: {(body.Length > MaxErrorBodyChars ? body[..MaxErrorBodyChars] : body)}"),
+            null => string.Create(CultureInfo.InvariantCulture,
+                $"{Describe(request)} returned {(int)response.StatusCode}: {(body.Length > MaxErrorBodyChars ? body[..MaxErrorBodyChars] : body)}"),
         };
-        return status switch
-        {
-            400 or 422 => new Validation(message),
-            401 => new Unauthorized(message),
-            403 => new Forbidden(message),
-            404 => new NotFound(message),
-            409 => new Conflict(message),
-            429 or >= 500 => new Unavailable(message),
-            _ => new Unavailable(string.Create(CultureInfo.InvariantCulture, $"{Describe(request)} returned unexpected {status}: {message}")),
-        };
-    }
-
-    private static ErrorDetail? ParseError(string body)
-    {
-        if (string.IsNullOrWhiteSpace(body))
-        {
-            return null;
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize(body, ApiJsonContext.Default.ErrorResponse)?.Error;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
+        return new BackplaneRequestRejected(response.StatusCode, message);
     }
 
     private static string Describe(HttpRequestMessage request) =>
         $"{request.Method.Method} {request.RequestUri?.GetLeftPart(UriPartial.Path)}";
+
+    private sealed record class OpenBackplaneStream(HttpResponseMessage Response, StreamReader Reader);
+
+    private sealed record class BackplaneStreamLine(string? Text);
+
+    private sealed record class StreamLineRead(string? Text, BackplaneTransportFailed? Failure);
+
+    private readonly union BackplaneStreamOpening(OpenBackplaneStream, BackplaneProblem);
+
+    private readonly union BackplaneLineRead(BackplaneStreamLine, BackplaneTransportFailed);
 }

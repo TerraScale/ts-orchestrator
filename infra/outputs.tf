@@ -18,5 +18,6 @@ output "geodns" {
     zone_nameservers  = module.geodns.nameservers
     health_monitor_id = module.geodns.health_monitor_id
     regional_api_fqdn = module.geodns.regional_api_fqdns
+    pinned_fqdns      = module.geodns.pinned_fqdns
   }
 }

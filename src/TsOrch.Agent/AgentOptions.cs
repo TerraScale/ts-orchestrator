@@ -1,5 +1,9 @@
 namespace TsOrch.Agent;
 
+public sealed record class InvalidAgentConfiguration(string Message);
+
+public readonly union AgentConfiguration(AgentOptions, InvalidAgentConfiguration);
+
 public sealed record class AgentOptions
 {
     public required Uri BackplaneUrl { get; init; }
@@ -58,6 +62,8 @@ public sealed record class AgentOptions
 
     public string RoutesFile => Path.Combine(RuntimeDirectory, "routes.json");
 
+    public string AppliedRoutesFile => Path.Combine(RuntimeDirectory, NodePaths.AppliedRoutesFileName);
+
     public string TlsDirectory => Path.Combine(RuntimeDirectory, "tls");
 
     public string TlsCertificateFile => Path.Combine(TlsDirectory, "cert.pem");
@@ -74,7 +80,7 @@ public sealed record class AgentOptions
 
     public string CurrentReleaseLink => Path.Combine(InstallDirectory, "current");
 
-    public Result<AgentOptions, Validation> Validate()
+    public AgentConfiguration Validate()
     {
         List<string> failures = [];
         if (!BackplaneUrl.IsAbsoluteUri || (BackplaneUrl.Scheme != Uri.UriSchemeHttps && BackplaneUrl.Scheme != Uri.UriSchemeHttp))
@@ -106,7 +112,7 @@ public sealed record class AgentOptions
         RequirePositive(failures, nameof(ReconnectMaxDelay), ReconnectMaxDelay);
         RequirePositive(failures, nameof(RouteSwitchTimeout), RouteSwitchTimeout);
         RequirePositive(failures, nameof(ContainerStopTimeout), ContainerStopTimeout);
-        return failures.Count == 0 ? this : new Validation(string.Join(" ", failures));
+        return failures.Count == 0 ? this : new InvalidAgentConfiguration(string.Join(" ", failures));
     }
 
     private static void RequirePath(List<string> failures, string name, string value)

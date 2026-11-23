@@ -7,16 +7,19 @@ terraform {
 }
 
 locals {
-  name               = "ts-${var.label}"
-  availability_names = data.oci_identity_availability_domains.this.availability_domains[*].name
-  fault_domains      = ["FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"]
-  public_tcp_ports   = [80, 443, 5432]
-  public_udp_ports   = [443]
-  backend_sets       = { for port in local.public_tcp_ports : "tcp-${port}" => port }
-  udp_backend_sets   = { for port in local.public_udp_ports : "udp-${port}" => port }
-  nlb_backend_sets   = merge(local.backend_sets, local.udp_backend_sets)
-  shapes             = toset([var.stateful_shape.name, var.worker_shape.name])
-  data_device        = "/dev/oracleoci/oraclevdb"
+  name                 = "ts-${var.label}"
+  availability_names   = data.oci_identity_availability_domains.this.availability_domains[*].name
+  fault_domains        = ["FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"]
+  public_tcp_ports     = [80, 443, 5432]
+  public_udp_ports     = [443]
+  backend_sets         = { for port in local.public_tcp_ports : "tcp-${port}" => port }
+  quic_backend_sets    = { for port in local.public_udp_ports : "udp-${port}" => port }
+  netbird_backend_sets = { for port in var.netbird_udp_ports : "netbird-${port}" => port }
+  udp_backend_sets     = merge(local.quic_backend_sets, local.netbird_backend_sets)
+  worker_backend_sets  = merge(local.backend_sets, local.quic_backend_sets)
+  nlb_backend_sets     = merge(local.backend_sets, local.udp_backend_sets)
+  shapes               = toset([var.stateful_shape.name, var.worker_shape.name])
+  data_device          = "/dev/oracleoci/oraclevdb"
 
   stateful_placement = [
     for index in range(var.stateful_count) : {
@@ -283,24 +286,6 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_vcn" {
   stateless                 = false
 }
 
-resource "oci_core_network_security_group_security_rule" "node_ingress_netbird_udp" {
-  for_each = toset([for port in var.netbird_udp_ports : tostring(port)])
-
-  network_security_group_id = oci_core_network_security_group.node.id
-  direction                 = "INGRESS"
-  protocol                  = "17"
-  source                    = "0.0.0.0/0"
-  source_type               = "CIDR_BLOCK"
-  stateless                 = false
-
-  udp_options {
-    destination_port_range {
-      min = tonumber(each.value)
-      max = tonumber(each.value)
-    }
-  }
-}
-
 resource "oci_core_network_security_group_security_rule" "node_egress_all" {
   network_security_group_id = oci_core_network_security_group.node.id
   direction                 = "EGRESS"
@@ -347,9 +332,9 @@ resource "oci_network_load_balancer_backend_set" "tcp" {
     port               = 80
     url_path           = "/readyz"
     return_code        = 200
-    interval_in_millis = 10000
-    timeout_in_millis  = 3000
-    retries            = 3
+    interval_in_millis = 3000
+    timeout_in_millis  = 2000
+    retries            = 2
   }
 }
 
@@ -377,9 +362,9 @@ resource "oci_network_load_balancer_backend_set" "udp" {
     port               = 80
     url_path           = "/readyz"
     return_code        = 200
-    interval_in_millis = 10000
-    timeout_in_millis  = 3000
-    retries            = 3
+    interval_in_millis = 3000
+    timeout_in_millis  = 2000
+    retries            = 2
   }
 }
 
@@ -449,12 +434,16 @@ resource "oci_core_instance" "stateful" {
 resource "oci_core_volume" "stateful_data" {
   count = var.stateful_count
 
-  compartment_id       = var.compartment_id
-  availability_domain  = local.stateful_placement[count.index].availability_domain
-  display_name         = "${local.name}-stateful-${count.index + 1}-data"
-  size_in_gbs          = var.stateful_data_gib
-  vpus_per_gb          = var.stateful_data_vpus
-  is_auto_tune_enabled = true
+  compartment_id      = var.compartment_id
+  availability_domain = local.stateful_placement[count.index].availability_domain
+  display_name        = "${local.name}-stateful-${count.index + 1}-data"
+  size_in_gbs         = var.stateful_data_gib
+  vpus_per_gb         = var.stateful_data_vpus
+
+  autotune_policies {
+    autotune_type   = "PERFORMANCE_BASED"
+    max_vpus_per_gb = "120"
+  }
 
   freeform_tags = {
     "ts-region" = var.label
@@ -564,7 +553,7 @@ resource "oci_core_instance_pool" "worker" {
   }
 
   dynamic "load_balancers" {
-    for_each = local.nlb_backend_sets
+    for_each = local.worker_backend_sets
 
     content {
       load_balancer_id = oci_network_load_balancer_network_load_balancer.this.id

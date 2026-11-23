@@ -309,6 +309,9 @@ if docker info >/dev/null 2>&1; then
   docker pull -q busybox:1.36.1 >/dev/null
   docker pull -q busybox:1.37.0 >/dev/null
 fi
+if [[ $DOCKER -eq 0 && "${CI:-false}" == "true" ]]; then
+  die "Docker is required in CI for Phase 6"
+fi
 
 log "Generating ephemeral Ed25519 operator key and ES256 Atlas keys"
 ssh-keygen -q -t ed25519 -N "" -C "ts-orch-e2e" -f "$WORK/id_ed25519"

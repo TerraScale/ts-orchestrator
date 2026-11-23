@@ -21,6 +21,32 @@ public sealed record class NodeSession(HostIdentity Identity, string NodeId, str
     public override string ToString() => $"{nameof(NodeSession)} {{ NodeId = {NodeId}, WebSocketUrl = {WebSocketUrl} }}";
 }
 
+public sealed record class NodeIdentityIncomplete(string Message);
+
+public sealed record class EnrollmentMetadataUnreadable(string Message);
+
+public sealed record class EnrollmentSecretUnconfigured(string Message);
+
+public sealed record class EnrollmentSecretUnreadable(string Message);
+
+public sealed record class NodeRegistrationRejected(int Status, string Message);
+
+public sealed record class EnrollmentBackplaneUnavailable(string Message);
+
+public sealed record class EnrollmentResponseInvalid(string Message);
+
+public sealed record class EnrollmentStateWriteFailed(string Path, string Message);
+
+public readonly union NodeEnrollmentOutcome(
+    NodeSession, NodeIdentityIncomplete, EnrollmentMetadataUnreadable, EnrollmentSecretUnconfigured, EnrollmentSecretUnreadable,
+    NodeRegistrationRejected, EnrollmentBackplaneUnavailable, EnrollmentResponseInvalid, EnrollmentStateWriteFailed);
+
+internal readonly union NodeIdentity(HostIdentity, NodeIdentityIncomplete, EnrollmentMetadataUnreadable);
+
+internal readonly union EnrollmentSecret(string, EnrollmentSecretUnconfigured, EnrollmentSecretUnreadable);
+
+internal readonly union NodeRegistrationResponse(NodeEnrollResponse, NodeRegistrationRejected, EnrollmentBackplaneUnavailable, EnrollmentResponseInvalid);
+
 public sealed class NodeEnrollment(
     OciImdsClient imds,
     OciVaultClient vault,
@@ -35,18 +61,19 @@ public sealed class NodeEnrollment(
 
     private static readonly FrozenDictionary<string, string> Labels = [];
 
-    public async Task<Result<NodeSession, Validation, Conflict, Unauthorized, Forbidden, Unavailable, InternalFailure>> EnsureEnrolledAsync(CancellationToken cancellationToken) =>
-        await ResolveIdentityAsync(cancellationToken) switch
+    public async Task<NodeEnrollmentOutcome> EnsureEnrolledAsync(CancellationToken cancellationToken)
+    {
+        var identity = await ResolveIdentityAsync(cancellationToken);
+        return identity switch
         {
-            HostIdentity identity => await LoadAsync(identity, cancellationToken) switch
-            {
-                NodeSession stored => Loaded(stored),
-                NotFound => await EnrollAsync(identity, cancellationToken),
-            },
-            Validation failure => failure,
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            HostIdentity host => await ResumeOrEnrollAsync(host, cancellationToken),
+            NodeIdentityIncomplete incomplete => incomplete,
+            EnrollmentMetadataUnreadable unreadable => unreadable,
         };
+    }
+
+    private async Task<NodeEnrollmentOutcome> ResumeOrEnrollAsync(HostIdentity identity, CancellationToken cancellationToken) =>
+        await LoadAsync(identity, cancellationToken) is { } session ? Loaded(session) : await EnrollAsync(identity, cancellationToken);
 
     public void Forget()
     {
@@ -61,7 +88,7 @@ public sealed class NodeEnrollment(
         return stored;
     }
 
-    private async Task<Result<HostIdentity, Validation, Unavailable, InternalFailure>> ResolveIdentityAsync(CancellationToken cancellationToken)
+    private async Task<NodeIdentity> ResolveIdentityAsync(CancellationToken cancellationToken)
     {
         var standalone = ociEnvironment switch
         {
@@ -72,27 +99,29 @@ public sealed class NodeEnrollment(
         {
             return options is { NodeIdOverride: { } nodeId, RegionOverride: { } region, VcnIpOverride: { } vcnIp, PoolKindOverride: { } poolKind }
                 ? new HostIdentity(nodeId, region, poolKind, vcnIp, StandaloneShape, StandaloneFaultDomain, Labels, ConfiguredEnrollSecret())
-                : new Validation($"{nameof(AgentOptions.PoolKindOverride)} is required when the node identity is set without OCI instance metadata.");
+                : new NodeIdentityIncomplete($"{nameof(AgentOptions.PoolKindOverride)} is required when the node identity is set without OCI instance metadata.");
         }
 
-        return await imds.GetIdentityAsync(cancellationToken) switch
+        var read = await imds.GetIdentityAsync(cancellationToken);
+        return read switch
         {
             OciInstanceIdentity instance => FromMetadata(instance),
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            ImdsRequestRejected failure => new EnrollmentMetadataUnreadable(failure.Message),
+            ImdsUnavailable failure => new EnrollmentMetadataUnreadable(failure.Message),
+            ImdsDocumentInvalid failure => new EnrollmentMetadataUnreadable(failure.Message),
         };
     }
 
-    private Result<HostIdentity, Validation, Unavailable, InternalFailure> FromMetadata(OciInstanceIdentity instance)
+    private NodeIdentity FromMetadata(OciInstanceIdentity instance)
     {
         if ((options.RegionOverride ?? instance.Node.Region) is not { } region)
         {
-            return new Validation($"OCI instance metadata carries no ts_region and {nameof(AgentOptions.RegionOverride)} is not set.");
+            return new NodeIdentityIncomplete($"OCI instance metadata carries no ts_region and {nameof(AgentOptions.RegionOverride)} is not set.");
         }
 
         if ((options.PoolKindOverride ?? instance.Node.Pool) is not { } poolKind)
         {
-            return new Validation($"OCI instance metadata carries no ts_pool and {nameof(AgentOptions.PoolKindOverride)} is not set.");
+            return new NodeIdentityIncomplete($"OCI instance metadata carries no ts_pool and {nameof(AgentOptions.PoolKindOverride)} is not set.");
         }
 
         var enrollSecret = ConfiguredEnrollSecret()
@@ -111,11 +140,11 @@ public sealed class NodeEnrollment(
     private SecretRef? ConfiguredEnrollSecret() =>
         options is { EnrollSecretVault: { } vaultId, EnrollSecretName: { } secretName } ? new SecretRef(vaultId, secretName) : null;
 
-    private async Task<Result<NodeSession, NotFound>> LoadAsync(HostIdentity identity, CancellationToken cancellationToken)
+    private async Task<NodeSession?> LoadAsync(HostIdentity identity, CancellationToken cancellationToken)
     {
         if (!File.Exists(options.NodeTokenFile) || !File.Exists(options.NodeStateFile))
         {
-            return new NotFound("No stored enrollment.");
+            return null;
         }
 
         try
@@ -136,33 +165,36 @@ public sealed class NodeEnrollment(
         }
     }
 
-    private NotFound Corrupt(string reason)
+    private NodeSession? Corrupt(string reason)
     {
         AgentLog.EnrollmentStateCorrupt(logger, reason);
-        return new NotFound(reason);
+        return null;
     }
 
-    private async Task<Result<NodeSession, Validation, Conflict, Unauthorized, Forbidden, Unavailable, InternalFailure>> EnrollAsync(
-        HostIdentity identity,
-        CancellationToken cancellationToken) =>
-        await ResolveEnrollSecretAsync(identity, cancellationToken) switch
+    private async Task<NodeEnrollmentOutcome> EnrollAsync(HostIdentity identity, CancellationToken cancellationToken)
+    {
+        var secret = await ResolveEnrollSecretAsync(identity, cancellationToken);
+        return secret switch
         {
-            string enrollSecret => await PostEnrollmentAsync(identity, enrollSecret, cancellationToken) switch
-            {
-                NodeEnrollResponse enrolled => await StoreAsync(identity, enrolled, cancellationToken),
-                Validation failure => failure,
-                Conflict failure => failure,
-                Unauthorized failure => failure,
-                Unavailable failure => failure,
-                InternalFailure failure => failure,
-            },
-            Validation failure => failure,
-            Forbidden failure => failure,
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            string value => await RegisterAsync(identity, value, cancellationToken),
+            EnrollmentSecretUnconfigured unconfigured => unconfigured,
+            EnrollmentSecretUnreadable unreadable => unreadable,
         };
+    }
 
-    private async Task<Result<string, Validation, Forbidden, Unavailable, InternalFailure>> ResolveEnrollSecretAsync(
+    private async Task<NodeEnrollmentOutcome> RegisterAsync(HostIdentity identity, string secret, CancellationToken cancellationToken)
+    {
+        var registered = await PostEnrollmentAsync(identity, secret, cancellationToken);
+        return registered switch
+        {
+            NodeEnrollResponse enrolled => await StoreAsync(identity, enrolled, cancellationToken),
+            NodeRegistrationRejected rejected => rejected,
+            EnrollmentBackplaneUnavailable unavailable => unavailable,
+            EnrollmentResponseInvalid invalid => invalid,
+        };
+    }
+
+    private async Task<EnrollmentSecret> ResolveEnrollSecretAsync(
         HostIdentity identity,
         CancellationToken cancellationToken)
     {
@@ -173,21 +205,29 @@ public sealed class NodeEnrollment(
 
         if (identity.EnrollSecret is not { } reference)
         {
-            return new Validation($"No enrollment secret: set {nameof(AgentOptions.EnrollSecret)}, {nameof(AgentOptions.EnrollSecretVault)} and {nameof(AgentOptions.EnrollSecretName)}, or the ts_enroll_vault and ts_enroll_secret instance metadata.");
+            return new EnrollmentSecretUnconfigured($"No enrollment secret: set {nameof(AgentOptions.EnrollSecret)}, {nameof(AgentOptions.EnrollSecretVault)} and {nameof(AgentOptions.EnrollSecretName)}, or the ts_enroll_vault and ts_enroll_secret instance metadata.");
         }
 
-        return await vault.GetSecretAsync(reference.Vault, reference.Name, cancellationToken) switch
+        var read = await vault.GetSecretAsync(reference.Vault, reference.Name, cancellationToken);
+        return read switch
         {
             VaultSecretBundle bundle => bundle.Value,
-            Validation failure => failure,
-            NotFound failure => new Validation($"Enrollment secret {reference.Name} is missing from vault {reference.Vault}: {failure.Message}"),
-            Forbidden failure => failure,
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            VaultRegionMissing failure => new EnrollmentSecretUnreadable(failure.Message),
+            VaultSecretMissing failure => new EnrollmentSecretUnreadable(failure.Message),
+            VaultAccessDenied failure => new EnrollmentSecretUnreadable(failure.Message),
+            VaultUnavailable failure => new EnrollmentSecretUnreadable(failure.Message),
+            VaultBundleInvalid failure => new EnrollmentSecretUnreadable(failure.Message),
+            ImdsRequestRejected failure => new EnrollmentSecretUnreadable(failure.Message),
+            ImdsUnavailable failure => new EnrollmentSecretUnreadable(failure.Message),
+            ImdsDocumentInvalid failure => new EnrollmentSecretUnreadable(failure.Message),
+            InvalidFederationCredentials failure => new EnrollmentSecretUnreadable(failure.Message),
+            FederationRejected failure => new EnrollmentSecretUnreadable(failure.Message),
+            FederationUnavailable failure => new EnrollmentSecretUnreadable(failure.Message),
+            FederationTokenInvalid failure => new EnrollmentSecretUnreadable(failure.Message),
         };
     }
 
-    private async Task<Result<NodeEnrollResponse, Validation, Conflict, Unauthorized, Unavailable, InternalFailure>> PostEnrollmentAsync(
+    private async Task<NodeRegistrationResponse> PostEnrollmentAsync(
         HostIdentity identity,
         string enrollSecret,
         CancellationToken cancellationToken)
@@ -207,23 +247,23 @@ public sealed class NodeEnrollment(
                 && !string.IsNullOrWhiteSpace(enrolled.Token)
                 && !string.IsNullOrWhiteSpace(enrolled.NodeId)
                 ? enrolled
-                : new InternalFailure("Backplane enrollment response was empty.");
+                : new EnrollmentResponseInvalid("Backplane enrollment response was empty.");
         }
         catch (HttpRequestException exception)
         {
-            return new Unavailable($"Backplane enrollment at {endpoint} is unreachable: {exception.Message}");
+            return new EnrollmentBackplaneUnavailable($"Backplane enrollment at {endpoint} is unreachable: {exception.Message}");
         }
         catch (JsonException exception)
         {
-            return new InternalFailure($"Backplane enrollment response was malformed: {exception.Message}");
+            return new EnrollmentResponseInvalid($"Backplane enrollment response was malformed: {exception.Message}");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new Unavailable($"Backplane enrollment at {endpoint} timed out.");
+            return new EnrollmentBackplaneUnavailable($"Backplane enrollment at {endpoint} timed out.");
         }
     }
 
-    private async Task<Result<NodeSession, Validation, Conflict, Unauthorized, Forbidden, Unavailable, InternalFailure>> StoreAsync(
+    private async Task<NodeEnrollmentOutcome> StoreAsync(
         HostIdentity identity,
         NodeEnrollResponse enrolled,
         CancellationToken cancellationToken)
@@ -240,8 +280,8 @@ public sealed class NodeEnrollment(
             cancellationToken);
         return written switch
         {
-            Done => Enrolled(new NodeSession(identity, enrolled.NodeId, enrolled.Token, ResolveWebSocketUrl(enrolled.WsUrl))),
-            InternalFailure failure => failure,
+            AtomicWriteCompleted => Enrolled(new NodeSession(identity, enrolled.NodeId, enrolled.Token, ResolveWebSocketUrl(enrolled.WsUrl))),
+            AtomicWriteFailed failure => new EnrollmentStateWriteFailed(failure.Path, failure.Message),
         };
     }
 
@@ -267,21 +307,16 @@ public sealed class NodeEnrollment(
         return builder.Uri;
     }
 
-    private static async Task<Result<NodeEnrollResponse, Validation, Conflict, Unauthorized, Unavailable, InternalFailure>> FailureAsync(
+    private static async Task<NodeRegistrationResponse> FailureAsync(
         HttpResponseMessage response,
         CancellationToken cancellationToken)
     {
         var status = (int)response.StatusCode;
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         var message = string.Create(CultureInfo.InvariantCulture, $"Backplane enrollment returned {status}: {ErrorMessage(body)}");
-        return status switch
-        {
-            401 => new Unauthorized(message),
-            400 or 422 => new Validation(message),
-            409 => new Conflict(message),
-            429 or >= 500 => new Unavailable(message),
-            _ => new InternalFailure(message),
-        };
+        return status is 429 or >= 500
+            ? new EnrollmentBackplaneUnavailable(message)
+            : new NodeRegistrationRejected(status, message);
     }
 
     private static string ErrorMessage(string body)

@@ -79,6 +79,18 @@ function compareText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+export function poolScaleUpCooldownKey(region: string): string {
+  return `pool-up:${region}`;
+}
+
+export function poolScaleDownCooldownKey(region: string): string {
+  return `pool-down:${region}`;
+}
+
+export function volumeGrowCooldownKey(nodeId: string): string {
+  return `volume:${nodeId}`;
+}
+
 function cooled(cooldowns: Map<string, number>, key: string, nowMs: number, windowMs: number): boolean {
   const last = cooldowns.get(key);
   return last === undefined || last + windowMs <= nowMs;
@@ -282,8 +294,8 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
       .sort((a, b) => compareText(a.id, b.id));
     const live = workers.filter((node) => node.status !== "down" && node.status !== "drained");
     const poolId = poolIdFor(input, region.label, workers);
-    const upKey = `pool-up:${region.label}`;
-    const downKey = `pool-down:${region.label}`;
+    const upKey = poolScaleUpCooldownKey(region.label);
+    const downKey = poolScaleDownCooldownKey(region.label);
     const unschedulable = input.unschedulable.filter((entry) => entry.region === region.label && entry.missing > 0);
     const activeNodes = regionNodes.filter((node) => node.status === "active" && !node.drainRequested);
     const hot = sustainedHot(activeNodes, input.metrics1m, input.nowMs);
@@ -307,7 +319,6 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
           newSize: live.length + 1,
           reason,
         });
-        cooldowns.set(upKey, input.nowMs);
       }
       continue;
     }
@@ -354,7 +365,6 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
       nodeId: candidate.id,
       reason: `headroom_fits_${activeWorkers.length - 1}_workers`,
     });
-    cooldowns.set(downKey, input.nowMs);
   }
   return actions;
 }
@@ -385,7 +395,7 @@ function evaluateVolumes(input: AutoscaleInput, cooldowns: Map<string, number>):
     const volume = node.volumes.find((entry) => entry.mountPath === DATA_VOLUME_PATH);
     const volumeId = node.labels[DATA_VOLUME_ID_LABEL];
     if (region === undefined || volume === undefined || volumeId === undefined || volumeId.length === 0) continue;
-    const key = `volume:${node.id}`;
+    const key = volumeGrowCooldownKey(node.id);
     if (!cooled(cooldowns, key, input.nowMs, VOLUME_COOLDOWN_MS)) continue;
     if (!sustainedDisk(node, volume.usedPct, input)) continue;
     actions.push({
@@ -398,7 +408,6 @@ function evaluateVolumes(input: AutoscaleInput, cooldowns: Map<string, number>):
       newSizeGiB: volume.sizeGiB + VOLUME_GROW_GIB,
       reason: `disk_usage_${Math.round(volume.usedPct)}pct`,
     });
-    cooldowns.set(key, input.nowMs);
   }
   return actions;
 }

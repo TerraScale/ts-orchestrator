@@ -40,7 +40,9 @@ internal static class CliApp
         {
             CliArguments { HelpRequested: true } => Help(console, command),
             CliArguments arguments => await command.RunAsync(arguments, environment, cancellationToken),
-            Validation failure => environment.Fail(failure),
+            UnknownCliOption unknown => environment.Usage($"Unknown option '{unknown.Name}'."),
+            CliOptionValueUnexpected unexpected => environment.Usage($"Option '--{unexpected.Name}' does not take a value."),
+            CliOptionValueMissing missing => environment.Usage($"Option '--{missing.Name}' needs a value."),
         };
     }
 

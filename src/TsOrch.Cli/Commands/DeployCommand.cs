@@ -10,22 +10,13 @@ internal static class DeployCommand
     public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.ExpectPositionals(2, UsageText) switch
         {
-            Done => await environment.Api.PostAsync(
+            CommandPositionalsAccepted => await environment.Api.PostAsync(
                 "/api/deploy",
                 new DeployRequest(arguments.Positionals[0], arguments.Positionals[1], arguments.Value("region")),
                 ApiJsonContext.Default.DeployRequest,
                 ApiJsonContext.Default.RolloutInfo,
-                cancellationToken) switch
-            {
-                RolloutInfo rollout => await StartedAsync(rollout, arguments.Flag("wait"), environment, cancellationToken),
-                Validation failure => environment.Fail(failure),
-                NotFound failure => environment.Fail(failure),
-                Conflict failure => environment.Fail(failure),
-                Unauthorized failure => environment.Fail(failure),
-                Forbidden failure => environment.Fail(failure),
-                Unavailable failure => environment.Fail(failure),
-            },
-            Validation failure => environment.Fail(failure),
+                rollout => StartedAsync(rollout, arguments.Flag("wait"), environment, cancellationToken), environment.Fail, cancellationToken),
+            CommandPositionalsInvalid invalid => environment.Usage($"usage: {invalid.Usage}"),
         };
 
     private static async Task<int> StartedAsync(RolloutInfo rollout, bool wait, CommandEnvironment environment, CancellationToken cancellationToken)
@@ -41,16 +32,11 @@ internal static class DeployCommand
         using var timer = new PeriodicTimer(PollInterval, environment.TimeProvider);
         while (!RolloutStates.IsTerminal(current.Phase) && await timer.WaitForNextTickAsync(cancellationToken))
         {
-            var exitCode = await environment.Api.GetAsync("/api/rollouts", CliJsonContext.Default.RolloutListResponse, cancellationToken) switch
-            {
-                RolloutListResponse list when list.Rollouts.FirstOrDefault(item => item.Id == rollout.Id) is { } refreshed => Advance(refreshed),
-                RolloutListResponse => environment.Fail(new NotFound($"Rollout {rollout.Id} is no longer listed by the backplane.")),
-                Validation failure => environment.Fail(failure),
-                NotFound failure => environment.Fail(failure),
-                Unauthorized failure => environment.Fail(failure),
-                Forbidden failure => environment.Fail(failure),
-                Unavailable failure => environment.Fail(failure),
-            };
+            var exitCode = await environment.Api.GetAsync("/api/rollouts", CliJsonContext.Default.RolloutListResponse,
+                list => Task.FromResult(list.Rollouts.FirstOrDefault(item => item.Id == rollout.Id) is { } refreshed
+                    ? Advance(refreshed)
+                    : environment.Fail(CliDiagnostic.Missing($"Rollout {rollout.Id} is no longer listed by the backplane."))),
+                failure => (int?)environment.FailRead(failure), cancellationToken);
             if (exitCode is { } failed)
             {
                 return failed;

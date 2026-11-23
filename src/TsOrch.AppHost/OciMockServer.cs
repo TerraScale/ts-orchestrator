@@ -4,26 +4,34 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
+
+internal sealed record class OciMockSeedSecretInvalid
+{
+    public static string Message => "--seed-secret expects NAME=VALUE.";
+}
+
+internal readonly union OciMockConfiguration(OciMockOptions, AppHostArgumentInvalid, AppHostFileUnreadable, OciMockSeedSecretInvalid);
+
+internal readonly union OciMockSeedSecrets(IReadOnlyDictionary<string, string>, AppHostFileUnreadable);
 
 internal sealed record class OciMockOptions(int Port, IReadOnlyDictionary<string, string> Secrets)
 {
     public const string Flag = "--oci-mock";
 
-    public static Result<OciMockOptions, Validation> Parse(IReadOnlyList<string> args) =>
+    public static OciMockConfiguration Parse(IReadOnlyList<string> args) =>
         AppHostArguments.Port(args, "--port") switch
         {
             int port => ServiceSecrets(AppHostArguments.Values(args, "--seed-services")) switch
             {
                 IReadOnlyDictionary<string, string> serviceSecrets => WithSeedSecrets(port, serviceSecrets, args),
-                Validation invalid => invalid,
+                AppHostFileUnreadable invalid => invalid,
             },
-            Validation invalid => invalid,
+            AppHostArgumentInvalid invalid => invalid,
         };
 
-    private static Result<OciMockOptions, Validation> WithSeedSecrets(int port, IReadOnlyDictionary<string, string> serviceSecrets, IReadOnlyList<string> args)
+    private static OciMockConfiguration WithSeedSecrets(int port, IReadOnlyDictionary<string, string> serviceSecrets, IReadOnlyList<string> args)
     {
         Dictionary<string, string> secrets = new(serviceSecrets, StringComparer.Ordinal);
         foreach (var pair in AppHostArguments.Values(args, "--seed-secret"))
@@ -31,7 +39,7 @@ internal sealed record class OciMockOptions(int Port, IReadOnlyDictionary<string
             var separator = pair.IndexOf('=', StringComparison.Ordinal);
             if (separator <= 0 || separator == pair.Length - 1)
             {
-                return new Validation($"--seed-secret expects NAME=VALUE, got '{pair}'.");
+                return new OciMockSeedSecretInvalid();
             }
 
             secrets[pair[..separator]] = pair[(separator + 1)..];
@@ -40,14 +48,14 @@ internal sealed record class OciMockOptions(int Port, IReadOnlyDictionary<string
         return new OciMockOptions(port, secrets);
     }
 
-    private static Result<IReadOnlyDictionary<string, string>, Validation> ServiceSecrets(IReadOnlyList<string> directories) =>
+    private static OciMockSeedSecrets ServiceSecrets(IReadOnlyList<string> directories) =>
         JsonFiles.ReadDirectories(directories) switch
         {
-            JsonFile[] files => new Result<IReadOnlyDictionary<string, string>, Validation>(ServiceSecrets(files)),
-            Validation invalid => new Validation($"--seed-services could not be read: {invalid.Message}"),
+            IReadOnlyList<JsonFile> files => new OciMockSeedSecrets(ServiceSecrets(files)),
+            AppHostFileUnreadable invalid => invalid,
         };
 
-    private static Dictionary<string, string> ServiceSecrets(JsonFile[] files)
+    private static Dictionary<string, string> ServiceSecrets(IReadOnlyList<JsonFile> files)
     {
         Dictionary<string, string> secrets = [with(StringComparer.Ordinal)];
         foreach (var file in files)
@@ -80,6 +88,7 @@ internal static class OciMockServer
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<OciMockState>();
         builder.Services.AddSingleton(static services => OciMockIdentity.Create(services.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton<OciMockFederation>();
         builder.Services.AddSingleton<OciMockRouter>();
 
         await using var app = builder.Build();

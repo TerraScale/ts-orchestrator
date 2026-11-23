@@ -532,7 +532,7 @@ class CloudflareDns {
     const response = await fetch(`${CLOUDFLARE_API}/zones/${encodeURIComponent(this.zoneId)}/dns_records`, {
       method: "POST",
       headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ type: "TXT", name, content: `"${content}"`, ttl: 60, comment: "ts-orch acme dns-01" }),
+      body: JSON.stringify({ type: "TXT", name, content, ttl: 60, comment: "ts-orch acme dns-01" }),
     });
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok || !isRecord(body) || body.success !== true || !isRecord(body.result) || typeof body.result.id !== "string")
@@ -541,10 +541,22 @@ class CloudflareDns {
   }
 
   async deleteRecord(id: string): Promise<void> {
-    await fetch(`${CLOUDFLARE_API}/zones/${encodeURIComponent(this.zoneId)}/dns_records/${encodeURIComponent(id)}`, {
+    const response = await fetch(`${CLOUDFLARE_API}/zones/${encodeURIComponent(this.zoneId)}/dns_records/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: { authorization: `Bearer ${this.token}` },
     });
+    if (response.status === 404) {
+      await response.body?.cancel();
+      return;
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new TlsManagerError(
+        "cloudflare_dns",
+        `Cloudflare DNS delete ${id} failed (${response.status}${text.length > 0 ? `: ${text.slice(0, 300)}` : ""})`,
+      );
+    }
+    await response.body?.cancel();
   }
 }
 
@@ -619,7 +631,13 @@ export async function issueAcmeCertificate(config: TlsManagerConfig): Promise<Tl
       notAfter: certificateNotAfter(chain),
     };
   } finally {
-    await Promise.allSettled(records.map((id) => dns.deleteRecord(id)));
+    const results = await Promise.allSettled(records.map((id) => dns.deleteRecord(id)));
+    for (const result of results) {
+      if (result.status === "rejected") {
+        const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        console.error("acme dns cleanup failed", reason);
+      }
+    }
   }
 }
 

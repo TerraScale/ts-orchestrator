@@ -14,22 +14,25 @@ internal static class SecretsCommand
         {
             ["check"] => CheckAsync(arguments.Value("file") ?? SpecFiles.DefaultServicesPath, environment, cancellationToken),
             ["refresh", var service] when arguments.Value("file") is null => RefreshAsync(service, environment, cancellationToken),
-            _ => Task.FromResult(environment.Fail(new Validation($"usage: {UsageText}"))),
+            _ => Task.FromResult(environment.Usage($"usage: {UsageText}")),
         };
 
-    private static async Task<int> CheckAsync(string path, CommandEnvironment environment, CancellationToken cancellationToken) =>
-        await SpecFiles.LoadServicesAsync(path, cancellationToken) switch
+    private static async Task<int> CheckAsync(string path, CommandEnvironment environment, CancellationToken cancellationToken)
+    {
+        var loaded = await SpecFiles.LoadServicesAsync(path, cancellationToken);
+        return loaded switch
         {
             IReadOnlyList<ServiceSpec> services => OciEnvironment.Resolve(mockUrlOverride: null) switch
             {
                 OciEnvironment ociEnvironment => await CheckAsync(services, ociEnvironment, environment, cancellationToken),
-                Validation failure => environment.Fail(failure),
+                InvalidOciMockEndpoint invalid => environment.Usage(invalid.Message),
             },
-            NotFound failure => environment.Fail(failure),
-            Validation failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
+            CliFileReadProblem failure => environment.Fail(CliFiles.Describe(failure)),
+            ServiceDefinitionInvalid failure => environment.Fail(SpecFiles.Describe(failure)),
+            DuplicateServiceDefinition failure => environment.Fail(SpecFiles.Describe(failure)),
+            ServiceDefinitionsMissing failure => environment.Fail(SpecFiles.Describe(failure)),
         };
+    }
 
     private static async Task<int> CheckAsync(
         IReadOnlyList<ServiceSpec> services,
@@ -39,7 +42,7 @@ internal static class SecretsCommand
     {
         using var httpClient = new HttpClient { Timeout = OciTimeout };
         using var oci = OciSetup.Create(httpClient, ociEnvironment, environment.TimeProvider);
-        Dictionary<SecretRef, Result<long, Validation, NotFound, Forbidden, Unavailable, InternalFailure>> versions = [];
+        Dictionary<SecretRef, SecretVersionCell> versions = [];
         var table = new TextTable("SERVICE", "ENV", "VAULT SECRET", "VERSION");
         var failures = 0;
         foreach (var service in services.OrderBy(static service => service.Name, StringComparer.Ordinal))
@@ -52,21 +55,8 @@ internal static class SecretsCommand
                     versions[reference] = version;
                 }
 
-                var cell = version switch
-                {
-                    long number => Display.Integer(number),
-                    Validation failure => Unreadable(failure.Message),
-                    NotFound failure => Unreadable(failure.Message),
-                    Forbidden failure => Unreadable(failure.Message),
-                    Unavailable failure => Unreadable(failure.Message),
-                    InternalFailure failure => Unreadable(failure.Message),
-                };
-                failures += version switch
-                {
-                    long => 0,
-                    Validation or NotFound or Forbidden or Unavailable or InternalFailure => 1,
-                };
-                table.Add(service.Name, name, reference.Name, cell);
+                failures += version.Readable ? 0 : 1;
+                table.Add(service.Name, name, reference.Name, version.Text);
             }
         }
 
@@ -75,18 +65,38 @@ internal static class SecretsCommand
         environment.Out.WriteLine($"{versions.Count} distinct secret(s) referenced, {failures} unreadable reference(s).");
         return failures == 0
             ? ExitCodes.Ok
-            : environment.Fail(new Unavailable($"{failures} secret reference(s) could not be read from OCI Vault."));
+            : environment.Fail(CliDiagnostic.Unavailable($"{failures} secret reference(s) could not be read from OCI Vault."));
     }
 
-    private static string Unreadable(string message) => $"UNREADABLE: {message}";
+    private static SecretVersionCell Unreadable(string message) => new($"UNREADABLE: {message}", Readable: false);
 
-    private static async Task<Result<long, Validation, NotFound, Forbidden, Unavailable, InternalFailure>> ReadVersionAsync(
-        OciVaultClient vault,
-        SecretRef reference,
-        CancellationToken cancellationToken) =>
-        string.IsNullOrWhiteSpace(reference.Vault) || string.IsNullOrWhiteSpace(reference.Name)
-            ? new Validation("Secret reference needs both a vault id and a secret name.")
-            : await vault.GetSecretVersionAsync(reference.Vault, reference.Name, cancellationToken);
+    private static async Task<SecretVersionCell> ReadVersionAsync(OciVaultClient vault, SecretRef reference, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(reference.Vault) || string.IsNullOrWhiteSpace(reference.Name))
+        {
+            return Unreadable("Secret reference needs both a vault id and a secret name.");
+        }
+
+        var read = await vault.GetSecretAsync(reference.Vault, reference.Name, cancellationToken);
+        return read switch
+        {
+            VaultSecretBundle bundle => new SecretVersionCell(Display.Integer(bundle.VersionNumber), Readable: true),
+            VaultRegionMissing failure => Unreadable(failure.Message),
+            VaultSecretMissing failure => Unreadable(failure.Message),
+            VaultAccessDenied failure => Unreadable(failure.Message),
+            VaultUnavailable failure => Unreadable(failure.Message),
+            VaultBundleInvalid failure => Unreadable(failure.Message),
+            ImdsRequestRejected failure => Unreadable(failure.Message),
+            ImdsUnavailable failure => Unreadable(failure.Message),
+            ImdsDocumentInvalid failure => Unreadable(failure.Message),
+            InvalidFederationCredentials failure => Unreadable(failure.Message),
+            FederationRejected failure => Unreadable(failure.Message),
+            FederationUnavailable failure => Unreadable(failure.Message),
+            FederationTokenInvalid failure => Unreadable(failure.Message),
+        };
+    }
+
+    private sealed record class SecretVersionCell(string Text, bool Readable);
 
     private static async Task<int> RefreshAsync(string service, CommandEnvironment environment, CancellationToken cancellationToken) =>
         await environment.Api.PostAsync(
@@ -94,16 +104,7 @@ internal static class SecretsCommand
             new SecretsRefreshRequest(service),
             CliJsonContext.Default.SecretsRefreshRequest,
             CliJsonContext.Default.SecretsRefreshResponse,
-            cancellationToken) switch
-        {
-            SecretsRefreshResponse response => Refreshed(response, environment.Out),
-            Validation failure => environment.Fail(failure),
-            NotFound failure => environment.Fail(failure),
-            Conflict failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
-        };
+            response => Task.FromResult(Refreshed(response, environment.Out)), environment.Fail, cancellationToken);
 
     private static int Refreshed(SecretsRefreshResponse response, TextWriter output)
     {

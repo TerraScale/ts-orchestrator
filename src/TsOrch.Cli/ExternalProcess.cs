@@ -5,9 +5,16 @@ namespace TsOrch.Cli;
 
 internal sealed record class ProcessResult(int ExitCode, string Stdout, string Stderr);
 
+internal sealed record class ProcessLaunchFailed(string Executable, string Detail)
+{
+    public string Message => $"{Executable} could not start: {Detail}";
+}
+
+internal readonly union ProcessExecution(ProcessResult, ProcessLaunchFailed);
+
 internal static class ExternalProcess
 {
-    public static async Task<Result<ProcessResult, Unavailable>> RunAsync(
+    public static async Task<ProcessExecution> RunAsync(
         string fileName,
         IReadOnlyList<string> arguments,
         bool inheritInput,
@@ -32,7 +39,7 @@ internal static class ExternalProcess
         }
         catch (Win32Exception exception)
         {
-            return new Unavailable($"{fileName} could not start: {exception.Message}");
+            return new ProcessLaunchFailed(fileName, exception.Message);
         }
 
         if (!inheritInput)

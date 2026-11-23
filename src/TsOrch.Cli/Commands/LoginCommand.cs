@@ -7,24 +7,29 @@ internal static class LoginCommand
     public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.ExpectPositionals(0, "ts-orch login [--key PATH] [--url URL]") switch
         {
-            Done => OperatorSettings.Resolve(arguments.Value("url"), arguments.Value("key")) switch
+            CommandPositionalsAccepted => OperatorSettings.Resolve(arguments.Value("url"), arguments.Value("key")) switch
             {
                 OperatorSettings settings => await LoginAsync(settings, environment, cancellationToken),
-                Validation failure => environment.Fail(failure),
+                InvalidBackplaneUrl invalid => environment.Usage(invalid.Message),
             },
-            Validation failure => environment.Fail(failure),
+            CommandPositionalsInvalid invalid => environment.Usage($"usage: {invalid.Usage}"),
         };
 
     private static async Task<int> LoginAsync(OperatorSettings settings, CommandEnvironment environment, CancellationToken cancellationToken)
     {
         var baseUrl = settings.ExplicitUrl ?? OperatorSettings.DefaultUrl;
-        return await SshLogin.LoginAsync(environment.Http, baseUrl, settings.KeyPath, settings.SessionFile, interactive: true, cancellationToken) switch
+        var outcome = await SshLogin.LoginAsync(environment.Http, baseUrl, settings.KeyPath, settings.SessionFile, interactive: true, cancellationToken);
+        return outcome switch
         {
             CliSession session => Report(session, settings, environment),
-            Validation failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
+            SshKeyInvalid invalid => environment.Usage(invalid.Message),
+            SshKeyUnreadable unreadable => environment.Fail(unreadable.Diagnostic),
+            ProcessLaunchFailed failed => environment.Fail(CliDiagnostic.Unavailable(failed.Message)),
+            SshChallengeNamespaceInvalid invalid => environment.Fail(SshLogin.Describe(invalid)),
+            SshSigningFailed failed => environment.Fail(SshLogin.Describe(failed)),
+            SshChallengeFileUnavailable unavailable => environment.Fail(SshLogin.Describe(unavailable)),
+            SshBackplaneRejected rejected => environment.Fail(SshLogin.Describe(rejected)),
+            SshSessionWriteFailed failed => environment.Fail(failed.Diagnostic),
         };
     }
 

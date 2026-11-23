@@ -4,6 +4,28 @@ namespace TsOrch.Cli;
 
 internal sealed record class CliOption(string Name, char? Short, bool TakesValue);
 
+internal sealed record class InvalidCliInteger(string Label, string Input, int Min, int Max)
+{
+    public string Message => string.Create(CultureInfo.InvariantCulture, $"{Label} must be an integer between {Min} and {Max}, got '{Input}'.");
+}
+
+internal sealed record class InvalidCliBoolean(string Label, string Input)
+{
+    public string Message => $"{Label} must be 'true' or 'false', got '{Input}'.";
+}
+
+internal sealed record class UnknownCliOption(string Name);
+
+internal sealed record class CliOptionValueMissing(string Name);
+
+internal sealed record class CliOptionValueUnexpected(string Name);
+
+internal readonly union CliInteger(int, InvalidCliInteger);
+
+internal readonly union CliBoolean(bool, InvalidCliBoolean);
+
+internal readonly union CliArgumentParse(CliArguments, UnknownCliOption, CliOptionValueMissing, CliOptionValueUnexpected);
+
 internal sealed class CliArguments
 {
     private const string HelpName = "help";
@@ -32,24 +54,24 @@ internal sealed class CliArguments
     public string? Setting(string name, string environmentVariable) =>
         Value(name) ?? (Environment.GetEnvironmentVariable(environmentVariable) is { Length: > 0 } fromEnvironment ? fromEnvironment : null);
 
-    public Result<int, Validation> Int(string name, int fallback, int min, int max) =>
+    public CliInteger Int(string name, int fallback, int min, int max) =>
         Value(name) is not { } text
             ? fallback
             : ParseInt($"--{name}", text, min, max);
 
-    public static Result<int, Validation> ParseInt(string label, string text, int min, int max) =>
+    public static CliInteger ParseInt(string label, string text, int min, int max) =>
         int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) && parsed >= min && parsed <= max
             ? parsed
-            : new Validation(string.Create(CultureInfo.InvariantCulture, $"{label} must be an integer between {min} and {max}, got '{text}'."));
+            : new InvalidCliInteger(label, text, min, max);
 
-    public static Result<bool, Validation> ParseBool(string label, string text) => text switch
+    public static CliBoolean ParseBool(string label, string text) => text switch
     {
         "true" => true,
         "false" => false,
-        _ => new Validation($"{label} must be 'true' or 'false', got '{text}'."),
+        _ => new InvalidCliBoolean(label, text),
     };
 
-    public static Result<CliArguments, Validation> Parse(IReadOnlyList<string> args, IReadOnlyList<CliOption> options)
+    public static CliArgumentParse Parse(IReadOnlyList<string> args, IReadOnlyList<CliOption> options)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(options);
@@ -87,14 +109,14 @@ internal sealed class CliArguments
             };
             if (option is null)
             {
-                return new Validation($"Unknown option '{lookup}'.");
+                return new UnknownCliOption(lookup);
             }
 
             if (!option.TakesValue)
             {
                 if (inline is not null)
                 {
-                    return new Validation($"Option '--{option.Name}' does not take a value.");
+                    return new CliOptionValueUnexpected(option.Name);
                 }
 
                 flags.Add(option.Name);
@@ -109,7 +131,7 @@ internal sealed class CliArguments
 
             if (index + 1 >= args.Count)
             {
-                return new Validation($"Option '--{option.Name}' needs a value.");
+                return new CliOptionValueMissing(option.Name);
             }
 
             values[option.Name] = args[++index];

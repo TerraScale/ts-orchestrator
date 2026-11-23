@@ -1,10 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 import { atlasStub } from "./atlas-do";
-import { b64urlDecode, b64urlEncode, validateAtlasPlacement, validateAtlasTopology } from "./atlas-pin";
+import { ATLAS_REQUIRED_SERVICES, b64urlDecode, b64urlEncode, validateAtlasPlacement, validateAtlasTopology } from "./atlas-pin";
 import {
   checkEnrollSecret,
   decodePrincipal,
   hashNodeToken,
+  localDevAllowed,
   mintSshSession,
   newNodeToken,
   nodeBearer,
@@ -18,9 +19,17 @@ import {
   verifySshLogin,
   type Principal,
 } from "./auth";
-import { evaluateAutoscale, INSTANCE_ID_LABEL, VOLUME_USAGE_THRESHOLD_PCT, type AutoscaleAction } from "./autoscaler";
+import {
+  evaluateAutoscale,
+  INSTANCE_ID_LABEL,
+  poolScaleDownCooldownKey,
+  poolScaleUpCooldownKey,
+  VOLUME_USAGE_THRESHOLD_PCT,
+  volumeGrowCooldownKey,
+  type AutoscaleAction,
+} from "./autoscaler";
 import type { Env } from "./env";
-import { OciRestClient } from "./oci-client";
+import { OciError, OciRestClient } from "./oci-client";
 import type {
   AgentMessage,
   AtlasPlacement,
@@ -181,6 +190,7 @@ type PlacementRow = {
   active_image: string | null;
   active_config_hash: string | null;
   host_port: number | null;
+  postgres_host_port: number | null;
   state: string;
   error: string | null;
   updated_at: number;
@@ -301,8 +311,6 @@ interface AtlasRoundtripChaos {
 
 type DevChaosRequest = ChaosRequest | AtlasPlacementChaos | AtlasRoundtripChaos;
 
-type WireDesiredPlacement = DesiredPlacement & { hostPort?: number };
-
 interface LogRequest {
   streamId: string;
   nodeId: string;
@@ -414,6 +422,17 @@ function round(value: number, digits = 1): number {
   return Math.round(value * factor) / factor;
 }
 
+function tcpPort(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 65535 ? value : null;
+}
+
+const SWAP_PROGRESS: ReadonlySet<string> = new Set(["pending", "pulling", "starting"]);
+
+function holdServing(row: PlacementRow, report: PlacementReport): boolean {
+  if (row.state !== "ready" || tcpPort(row.host_port) === null) return false;
+  return SWAP_PROGRESS.has(report.state);
+}
+
 function detailStrings(detail: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(detail)) {
@@ -488,13 +507,24 @@ function parseServiceSpec(input: unknown): ServiceSpec | string {
   };
   if (isRecord(input.postgres)) {
     const pgHosts = stringArray(input.postgres.hostnames);
-    if (typeof input.postgres.port !== "number" || pgHosts === null) return `${name}: postgres needs port and hostnames`;
-    spec.postgres = { port: input.postgres.port, hostnames: pgHosts };
+    const pgPort = input.postgres.port;
+    if (typeof pgPort !== "number" || !Number.isInteger(pgPort) || pgPort < 1 || pgPort > 65535 || pgHosts === null) {
+      return `${name}: postgres port must be an integer from 1 to 65535 and hostnames are required`;
+    }
+    spec.postgres = { port: pgPort, hostnames: pgHosts };
   }
   if (isRecord(input.autoscale)) {
+    const targetCpuPct = input.autoscale.targetCpuPct;
+    const targetP95Ms = input.autoscale.targetP95Ms;
+    if (typeof targetCpuPct !== "number" || !Number.isFinite(targetCpuPct) || targetCpuPct <= 0 || targetCpuPct > 100) {
+      return `${name}: autoscale.targetCpuPct must be a finite number greater than 0 and at most 100`;
+    }
+    if (typeof targetP95Ms !== "number" || !Number.isFinite(targetP95Ms) || targetP95Ms <= 0) {
+      return `${name}: autoscale.targetP95Ms must be a finite number greater than 0`;
+    }
     spec.autoscale = {
-      targetCpuPct: finite(input.autoscale.targetCpuPct, 0),
-      targetP95Ms: finite(input.autoscale.targetP95Ms, 0),
+      targetCpuPct,
+      targetP95Ms,
       scaleUpCooldownSeconds: positiveInt(input.autoscale.scaleUpCooldownSeconds, 120),
       scaleDownCooldownSeconds: positiveInt(input.autoscale.scaleDownCooldownSeconds, 600),
     };
@@ -537,7 +567,7 @@ export class FleetDO extends DurableObject<Env> {
       "CREATE TABLE IF NOT EXISTS regions (label TEXT PRIMARY KEY, oci_region TEXT NOT NULL, compartment_id TEXT NOT NULL, instance_pool_id TEXT, min_workers INTEGER NOT NULL DEFAULT 0, max_workers INTEGER NOT NULL DEFAULT 0, rollout_order INTEGER NOT NULL DEFAULT 0, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)",
       "CREATE TABLE IF NOT EXISTS nodes (id TEXT PRIMARY KEY, region TEXT NOT NULL, pool_kind TEXT NOT NULL, vcn_ip TEXT NOT NULL DEFAULT '', arch TEXT NOT NULL DEFAULT 'arm64', shape TEXT NOT NULL DEFAULT '', fault_domain TEXT NOT NULL DEFAULT '', cpu_total_m INTEGER NOT NULL DEFAULT 0, mem_total_mib INTEGER NOT NULL DEFAULT 0, disk_total_gib INTEGER NOT NULL DEFAULT 0, labels_json TEXT NOT NULL DEFAULT '{}', volumes_json TEXT NOT NULL DEFAULT '[]', token_hash TEXT, status TEXT NOT NULL DEFAULT 'pending', drain_requested INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER NOT NULL DEFAULT 0, agent_version TEXT NOT NULL DEFAULT '')",
       "CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY, mode TEXT NOT NULL, priority TEXT NOT NULL, image TEXT NOT NULL, spec_json TEXT NOT NULL, config_version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)",
-      "CREATE TABLE IF NOT EXISTS placements (id TEXT PRIMARY KEY, service_name TEXT NOT NULL, region TEXT NOT NULL, node_id TEXT, slot INTEGER NOT NULL, desired_image TEXT NOT NULL, desired_config_hash TEXT, active_image TEXT, active_config_hash TEXT, host_port INTEGER, state TEXT NOT NULL, error TEXT, updated_at INTEGER NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS placements (id TEXT PRIMARY KEY, service_name TEXT NOT NULL, region TEXT NOT NULL, node_id TEXT, slot INTEGER NOT NULL, desired_image TEXT NOT NULL, desired_config_hash TEXT, active_image TEXT, active_config_hash TEXT, host_port INTEGER, postgres_host_port INTEGER, state TEXT NOT NULL, error TEXT, updated_at INTEGER NOT NULL)",
       "CREATE INDEX IF NOT EXISTS placements_node ON placements (node_id)",
       "CREATE INDEX IF NOT EXISTS placements_service ON placements (service_name, region)",
       "CREATE TABLE IF NOT EXISTS rollouts (id TEXT PRIMARY KEY, service_name TEXT NOT NULL, target_image TEXT NOT NULL, previous_image TEXT, state TEXT NOT NULL, current_region TEXT, wave_json TEXT NOT NULL DEFAULT '{}', baseline_p95_ms REAL, baseline_5xx_pct REAL, canary_started_at INTEGER, started_at INTEGER NOT NULL, finished_at INTEGER, error TEXT)",
@@ -553,6 +583,10 @@ export class FleetDO extends DurableObject<Env> {
       "CREATE TABLE IF NOT EXISTS kv_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     ];
     for (const statement of statements) this.sql.exec(statement);
+    const columns = this.sql.exec<{ name: string }>("PRAGMA table_info(placements)").toArray();
+    if (!columns.some((column) => column.name === "postgres_host_port")) {
+      this.sql.exec("ALTER TABLE placements ADD COLUMN postgres_host_port INTEGER");
+    }
   }
 
   private getState<T>(key: string): T | null {
@@ -639,6 +673,7 @@ export class FleetDO extends DurableObject<Env> {
     if (row.active_image !== null) placement.activeImage = row.active_image;
     if (row.active_config_hash !== null) placement.activeConfigHash = row.active_config_hash;
     if (row.host_port !== null) placement.hostPort = row.host_port;
+    if (row.postgres_host_port !== null) placement.postgresHostPort = row.postgres_host_port;
     return placement;
   }
 
@@ -846,9 +881,9 @@ export class FleetDO extends DurableObject<Env> {
         case "/api/secrets/refresh":
           return json(await this.refreshSecrets(request, principal));
         case "/api/tls/ensure":
-          return json(await this.ensureTls());
+          return json(await this.ensureTls(url));
         case "/api/dev/chaos":
-          if (this.env.LOCAL_DEV !== "true") throw new HttpError(404, "not_found", "Not found");
+          if (!localDevAllowed(url, this.env)) throw new HttpError(404, "not_found", "Not found");
           return json(await this.chaos(request, principal));
         default:
           break;
@@ -916,14 +951,15 @@ export class FleetDO extends DurableObject<Env> {
     this.sql.exec("DELETE FROM auth_challenges WHERE id = ?", body.challengeId);
     const now = Date.now();
     if (row === undefined || row.expires_at < now) throw new HttpError(401, "unauthorized", "The challenge is unknown or expired", "Request a new challenge.");
-    const result = await verifySshLogin(this.env, {
+    const loginUrl = new URL(request.url);
+    const result = await verifySshLogin(this.env, loginUrl, {
       publicKey: body.publicKey,
       signature: body.signature,
       nonce: row.nonce,
       fingerprint: row.fingerprint,
     });
     if (!result.ok) throw new HttpError(result.status, result.code as ErrorCode, result.message);
-    const session = await mintSshSession(this.env, result.owner, result.role, result.fingerprint, now);
+    const session = await mintSshSession(this.env, result.owner, result.role, result.fingerprint, now, loginUrl);
     if (session === null) throw new HttpError(503, "unavailable", "SESSION_SECRET is not configured");
     const response: SshVerifyResponse = { token: session.token, owner: result.owner, role: result.role, expiresAt: session.expiresAt };
     return json(response);
@@ -1045,6 +1081,7 @@ export class FleetDO extends DurableObject<Env> {
             configHash: parsed.configHash,
           };
           if (parsed.hostPort !== undefined) report.hostPort = parsed.hostPort;
+          if (parsed.postgresHostPort !== undefined) report.postgresHostPort = parsed.postgresHostPort;
           if (parsed.error !== undefined) report.error = parsed.error;
           this.touchNode(attachment.nodeId, now);
           if (this.applyReport(attachment.nodeId, report, now)) this.pushRoutes(attachment.region);
@@ -1153,6 +1190,7 @@ export class FleetDO extends DurableObject<Env> {
     this.deleteState(`sent_desired:${attachment.nodeId}`);
     this.deleteState(`sent_routes:${attachment.nodeId}`);
     this.reconcile(now);
+    this.replayVolumeGrow(attachment.nodeId);
     const tls = await this.loadTls();
     if (tls !== null) this.sendTls(attachment.nodeId, tls);
     await this.publishTopology(now, false);
@@ -1306,24 +1344,41 @@ export class FleetDO extends DurableObject<Env> {
       .exec<PlacementRow>("SELECT * FROM placements WHERE id = ? AND node_id = ?", report.placementId, nodeId)
       .toArray()[0];
     if (row === undefined) return false;
-    const hostPort = typeof report.hostPort === "number" ? report.hostPort : row.host_port;
-    const image = typeof report.image === "string" && report.image.length > 0 ? report.image : row.active_image;
-    const configHash = typeof report.configHash === "string" && report.configHash.length > 0 ? report.configHash : row.active_config_hash;
-    const error = typeof report.error === "string" ? report.error.slice(0, 1024) : null;
-    if (row.state === report.state && row.host_port === hostPort && row.active_image === image && row.active_config_hash === configHash && row.error === error) {
+    const hold = holdServing(row, report);
+    const reportedHost = tcpPort(report.hostPort);
+    const reportedPg = tcpPort(report.postgresHostPort);
+    const state = hold ? "ready" : report.state;
+    const hostPort = hold ? row.host_port : reportedHost ?? row.host_port;
+    const postgresHostPort = reportedPg ?? row.postgres_host_port;
+    const image = hold ? row.active_image : typeof report.image === "string" && report.image.length > 0 ? report.image : row.active_image;
+    const configHash = hold
+      ? row.active_config_hash
+      : typeof report.configHash === "string" && report.configHash.length > 0
+        ? report.configHash
+        : row.active_config_hash;
+    const error = hold ? row.error : typeof report.error === "string" ? report.error.slice(0, 1024) : null;
+    if (
+      row.state === state &&
+      row.host_port === hostPort &&
+      row.postgres_host_port === postgresHostPort &&
+      row.active_image === image &&
+      row.active_config_hash === configHash &&
+      row.error === error
+    ) {
       return false;
     }
     this.sql.exec(
-      "UPDATE placements SET state = ?, host_port = ?, active_image = ?, active_config_hash = ?, error = ?, updated_at = ? WHERE id = ?",
-      report.state,
+      "UPDATE placements SET state = ?, host_port = ?, postgres_host_port = ?, active_image = ?, active_config_hash = ?, error = ?, updated_at = ? WHERE id = ?",
+      state,
       hostPort,
+      postgresHostPort,
       image,
       configHash,
       error,
       now,
       row.id,
     );
-    return row.state !== report.state || row.host_port !== hostPort || row.active_image !== image;
+    return row.state !== state || row.host_port !== hostPort || row.postgres_host_port !== postgresHostPort || row.active_image !== image;
   }
 
   private storeMetrics(attachment: Attachment, heartbeat: HeartbeatMessage, now: number): void {
@@ -1423,7 +1478,17 @@ export class FleetDO extends DurableObject<Env> {
       if (volume.mountPath === volumePath) volume.sizeGiB = finite(newSizeGiB, volume.sizeGiB);
     }
     this.sql.exec("UPDATE nodes SET volumes_json = ? WHERE id = ?", JSON.stringify(volumes), attachment.nodeId);
+    const pending = this.getState<{ mountPath?: string }>(`volume_grow:${attachment.nodeId}`);
+    const expected = pending !== null && typeof pending.mountPath === "string" && pending.mountPath.length > 0 ? pending.mountPath : DATA_VOLUME_PATH;
+    if (pending !== null && volumePath === expected) this.deleteState(`volume_grow:${attachment.nodeId}`);
     this.recordEvent("volume_grown", attachment.nodeId, { volumePath, newSizeGiB }, attachment.region);
+  }
+
+  private replayVolumeGrow(nodeId: string): void {
+    const pending = this.getState<{ mountPath?: string }>(`volume_grow:${nodeId}`);
+    if (pending === null) return;
+    const mountPath = typeof pending.mountPath === "string" && pending.mountPath.length > 0 ? pending.mountPath : DATA_VOLUME_PATH;
+    this.send(nodeId, { type: "grow_volume", mountPath });
   }
 
   private replicaOverrides(): Record<string, number> {
@@ -1453,6 +1518,8 @@ export class FleetDO extends DurableObject<Env> {
         .toArray()
         .map((row) => [row.name, String(row.config_version)]),
     );
+    const activeRollouts = this.loadRollouts(true);
+    const rolloutOrder = this.rolloutOrder();
     const unschedulable: UnschedulableEntry[] = [];
     const existing = new Map(placements.map((placement) => [placement.id, placement]));
     for (const placement of placements) {
@@ -1466,12 +1533,14 @@ export class FleetDO extends DurableObject<Env> {
         currentPlacements: placements.filter((placement) => placement.region === region.label),
         nowMs: now,
         heartbeatTimeoutMs: DEFAULT_HEARTBEAT_TIMEOUT_MS,
+        rollouts: activeRollouts,
+        rolloutOrder,
       });
       for (const desired of result.desired) {
         const current = existing.get(desired.id);
         if (current === undefined) {
           this.sql.exec(
-            "INSERT INTO placements (id, service_name, region, node_id, slot, desired_image, desired_config_hash, active_image, active_config_hash, host_port, state, error, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'pending', NULL, ?)",
+            "INSERT INTO placements (id, service_name, region, node_id, slot, desired_image, desired_config_hash, active_image, active_config_hash, host_port, postgres_host_port, state, error, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 'pending', NULL, ?)",
             desired.id,
             desired.serviceName,
             desired.region,
@@ -1480,14 +1549,21 @@ export class FleetDO extends DurableObject<Env> {
             desired.desiredImage,
             versions.get(desired.serviceName) ?? null,
             desired.hostPort,
+            desired.postgresHostPort ?? null,
             now,
           );
-        } else if (current.nodeId !== desired.nodeId || current.slot !== desired.slot || current.hostPort !== desired.hostPort) {
+        } else if (
+          current.nodeId !== desired.nodeId ||
+          current.slot !== desired.slot ||
+          current.hostPort !== desired.hostPort ||
+          current.postgresHostPort !== desired.postgresHostPort
+        ) {
           this.sql.exec(
-            "UPDATE placements SET node_id = ?, slot = ?, host_port = ?, updated_at = ? WHERE id = ?",
+            "UPDATE placements SET node_id = ?, slot = ?, host_port = ?, postgres_host_port = ?, updated_at = ? WHERE id = ?",
             desired.nodeId,
             desired.slot,
             desired.hostPort,
+            desired.postgresHostPort ?? null,
             now,
             desired.id,
           );
@@ -1513,17 +1589,18 @@ export class FleetDO extends DurableObject<Env> {
     const placements = this.loadPlacements();
     for (const node of this.loadNodes()) {
       if (!this.connected(node.id)) continue;
-      const desired: WireDesiredPlacement[] = placements
+      const desired: DesiredPlacement[] = placements
         .filter((placement) => placement.nodeId === node.id)
         .flatMap((placement) => {
           const service = services.get(placement.serviceName);
           if (service === undefined) return [];
-          const entry: WireDesiredPlacement = {
+          const entry: DesiredPlacement = {
             placementId: placement.id,
             slot: placement.slot,
             service: { ...service, image: placement.desiredImage },
           };
           if (placement.hostPort !== undefined) entry.hostPort = placement.hostPort;
+          if (service.postgres !== undefined && placement.postgresHostPort !== undefined) entry.postgresHostPort = placement.postgresHostPort;
           return [entry];
         });
       const fp = fingerprint(JSON.stringify(desired));
@@ -1612,9 +1689,12 @@ export class FleetDO extends DurableObject<Env> {
     if (last !== null && updated <= last.updated) return { published: false };
     const topology: AtlasTopology = { ...body, updated };
     const fleet = this.fleetConfig();
+    const configuredRequired = fleet?.atlas.requiredServices;
+    const requiredServices =
+      configuredRequired !== undefined && configuredRequired.length > 0 ? configuredRequired : ATLAS_REQUIRED_SERVICES;
     const valid = validateAtlasTopology(topology, {
       devOrigins: this.env.DEV_ORIGINS === "1" || this.env.LOCAL_DEV === "true",
-      requiredServices: fleet?.atlas.requiredServices ?? [],
+      requiredServices,
     });
     if (valid === null) {
       this.setState("topology_error", { at: now, message: "topology failed Atlas validation" });
@@ -1733,6 +1813,16 @@ export class FleetDO extends DurableObject<Env> {
     if (TERMINAL_PHASES.has(step.rollout.phase)) this.deleteState(`rollout_by:${step.rollout.id}`);
     const rollout = step.rollout;
     if (rollout.phase === "succeeded") {
+      if (rollout.region === undefined) {
+        this.sql.exec("UPDATE placements SET desired_image = ? WHERE service_name = ?", rollout.targetImage, rollout.serviceName);
+      } else {
+        this.sql.exec(
+          "UPDATE placements SET desired_image = ? WHERE service_name = ? AND region = ?",
+          rollout.targetImage,
+          rollout.serviceName,
+          rollout.region,
+        );
+      }
       const row = this.loadServiceRow(rollout.serviceName);
       if (row !== undefined) {
         const spec = this.serviceFromRow(row);
@@ -1861,7 +1951,8 @@ export class FleetDO extends DurableObject<Env> {
     let reschedule = false;
     for (const action of actions) {
       try {
-        if (await this.executeAction(action, oci, overrides, now)) reschedule = true;
+        if (await this.executeAction(action, oci, overrides, now, cooldowns)) reschedule = true;
+        this.setState("autoscale_cooldowns", Object.fromEntries(cooldowns));
       } catch (error) {
         console.error("autoscale action failed", action.kind, error);
         this.setState("last_autoscale_error", {
@@ -1874,11 +1965,29 @@ export class FleetDO extends DurableObject<Env> {
     if (reschedule) this.reconcile(now);
   }
 
+  private drainStillRequested(nodeId: string): boolean {
+    const row = this.loadNodeRow(nodeId);
+    return row !== undefined && row.drain_requested === 1;
+  }
+
+  private detachAlreadyGone(error: unknown): boolean {
+    if (!(error instanceof OciError)) return false;
+    if (error.status === 404) return true;
+    const text = `${error.code} ${error.message}`.toLowerCase();
+    return (
+      text.includes("already detached") ||
+      text.includes("not attached") ||
+      text.includes("no longer attached") ||
+      text.includes("is not a member")
+    );
+  }
+
   private async executeAction(
     action: AutoscaleAction,
     oci: OciRestClient | null,
     overrides: Record<string, number>,
     now: number,
+    cooldowns: Map<string, number>,
   ): Promise<boolean> {
     switch (action.kind) {
       case "scale_replicas": {
@@ -1900,17 +2009,30 @@ export class FleetDO extends DurableObject<Env> {
         if (oci === null) return false;
         await oci.updateInstancePool(action.ociRegion, action.poolId, action.newSize);
         this.recordEvent("pool_scale_up", action.poolId, { newSize: action.newSize, reason: action.reason }, action.region);
+        cooldowns.set(poolScaleUpCooldownKey(action.region), now);
         return false;
       }
       case "drain_for_scale_down": {
         if (oci === null) return false;
         await this.drainNode(action.nodeId, `autoscaler:${action.reason}`);
+        cooldowns.set(poolScaleDownCooldownKey(action.region), now);
         return false;
       }
       case "terminate_drained_worker": {
         if (oci === null) return false;
-        await oci.detachPoolInstance(action.ociRegion, action.poolId, action.instanceId, true);
-        await oci.terminateInstance(action.ociRegion, action.instanceId);
+        if (!this.drainStillRequested(action.nodeId)) return false;
+        try {
+          await oci.detachPoolInstance(action.ociRegion, action.poolId, action.instanceId, true);
+        } catch (error) {
+          if (!this.detachAlreadyGone(error)) throw error;
+        }
+        if (!this.drainStillRequested(action.nodeId)) return false;
+        try {
+          await oci.terminateInstance(action.ociRegion, action.instanceId);
+        } catch (error) {
+          if (!(error instanceof OciError) || error.status !== 404) throw error;
+        }
+        if (!this.drainStillRequested(action.nodeId)) return false;
         for (const ws of this.sockets(action.nodeId)) this.closeSocket(ws, 4010, "terminated");
         this.sql.exec("DELETE FROM placements WHERE node_id = ?", action.nodeId);
         this.sql.exec("DELETE FROM metrics_10s WHERE node_id = ?", action.nodeId);
@@ -1918,14 +2040,21 @@ export class FleetDO extends DurableObject<Env> {
         this.sql.exec("DELETE FROM nodes WHERE id = ?", action.nodeId);
         this.deleteState(`sent_desired:${action.nodeId}`);
         this.deleteState(`sent_routes:${action.nodeId}`);
+        this.deleteState(`volume_grow:${action.nodeId}`);
         this.recordEvent("pool_scale_down", action.nodeId, { instanceId: action.instanceId, poolId: action.poolId, reason: action.reason }, action.region);
         return true;
       }
       case "grow_volume": {
         if (oci === null) return false;
         await oci.updateVolumeSize(action.ociRegion, action.volumeId, action.newSizeGiB);
+        this.setState(`volume_grow:${action.nodeId}`, {
+          at: now,
+          newSizeGiB: action.newSizeGiB,
+          reason: action.reason,
+          mountPath: action.mountPath,
+        });
         this.send(action.nodeId, { type: "grow_volume", mountPath: action.mountPath });
-        this.setState(`volume_grow:${action.nodeId}`, { at: now, newSizeGiB: action.newSizeGiB, reason: action.reason });
+        cooldowns.set(volumeGrowCooldownKey(action.nodeId), now);
         return false;
       }
       default:
@@ -2188,7 +2317,13 @@ export class FleetDO extends DurableObject<Env> {
     const serviceName = url.searchParams.get("service");
     if (serviceName === null || serviceName.length === 0) throw new HttpError(400, "validation", "service is required");
     const nodeFilter = url.searchParams.get("node");
-    const tail = Math.min(Math.max(Number(url.searchParams.get("tail") ?? "100") || 100, 0), 10_000);
+    const tailText = url.searchParams.get("tail");
+    if (tailText !== null && !/^(0|[1-9][0-9]*)$/.test(tailText)) {
+      throw new HttpError(400, "validation", "tail must be a non-negative integer");
+    }
+    const parsedTail = tailText === null ? 100 : Number(tailText);
+    if (!Number.isSafeInteger(parsedTail) || parsedTail < 0) throw new HttpError(400, "validation", "tail must be a non-negative integer");
+    const tail = Math.min(parsedTail, 10_000);
     const follow = url.searchParams.get("follow") === "1" || url.searchParams.get("follow") === "true";
     const targets = this.loadPlacements().filter(
       (placement) =>
@@ -2530,6 +2665,15 @@ export class FleetDO extends DurableObject<Env> {
       .exec<RolloutRow>("SELECT * FROM rollouts WHERE service_name = ? ORDER BY started_at DESC LIMIT 20", body.service)
       .toArray()
       .map((row) => this.rolloutFromRow(row));
+    const activeGlobal = region !== undefined ? rows.find((rollout) => rollout.region === undefined && !TERMINAL_PHASES.has(rollout.phase)) : undefined;
+    if (activeGlobal !== undefined) {
+      throw new HttpError(
+        409,
+        "conflict",
+        `Global rollout ${activeGlobal.id} for ${body.service} is still ${activeGlobal.phase}`,
+        "Roll back the global rollout, or wait until it finishes.",
+      );
+    }
     const target = rows.find((rollout) => region === undefined || rollout.region === undefined || rollout.region === region);
     if (target === undefined) throw new HttpError(404, "not_found", `No rollout of ${body.service} to roll back`);
     if (target.phase === "rolled_back" || target.phase === "failed") {
@@ -2613,16 +2757,16 @@ export class FleetDO extends DurableObject<Env> {
     return nodeIds.filter((nodeId) => this.send(nodeId, { type: "refresh_secrets", serviceName }) > 0);
   }
 
-  private async tlsKey(): Promise<CryptoKey | null> {
-    const secret = sessionSecret(this.env);
+  private async tlsKey(requestUrl?: URL): Promise<CryptoKey | null> {
+    const secret = sessionSecret(this.env, requestUrl);
     if (secret === null) return null;
     const digest = await crypto.subtle.digest("SHA-256", encoder.encode(`${secret}:tls-key`));
     return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
   }
 
-  private async sealKey(pem: string): Promise<string> {
-    const key = await this.tlsKey();
-    if (key === null) return `plain.${pem}`;
+  private async sealKey(pem: string, requestUrl?: URL): Promise<string> {
+    const key = await this.tlsKey(requestUrl);
+    if (key === null) throw new HttpError(503, "unavailable", "TLS sealing key is not configured");
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(pem)));
     return `v1.${b64urlEncode(iv)}.${b64urlEncode(sealed)}`;
@@ -2668,7 +2812,7 @@ export class FleetDO extends DurableObject<Env> {
     return this.env.LOCAL_DEV === "true" ? ["localhost", "*.localhost"] : ["*.terrascale.tech", "*.api.terrascale.tech"];
   }
 
-  private async ensureTls(): Promise<unknown> {
+  private async ensureTls(requestUrl?: URL): Promise<unknown> {
     const now = Date.now();
     const current = await this.loadTls();
     const config: TlsManagerConfig = { domains: this.tlsDomains(), localDev: this.env.LOCAL_DEV === "true" };
@@ -2691,7 +2835,7 @@ export class FleetDO extends DurableObject<Env> {
         "INSERT INTO tls_certs (id, domains_json, cert_pem, key_pem_enc, not_after, renewed_at) VALUES ('shared', ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET domains_json = excluded.domains_json, cert_pem = excluded.cert_pem, key_pem_enc = excluded.key_pem_enc, not_after = excluded.not_after, renewed_at = excluded.renewed_at",
         JSON.stringify(bundle.domains),
         bundle.certPem,
-        await this.sealKey(bundle.keyPem),
+        await this.sealKey(bundle.keyPem, requestUrl),
         bundle.notAfter,
         now,
       );

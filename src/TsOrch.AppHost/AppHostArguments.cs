@@ -1,7 +1,12 @@
 using System.Globalization;
-using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
+
+internal sealed record class AppHostArgumentInvalid(string Message);
+
+internal readonly union AppHostPort(int, AppHostArgumentInvalid);
+
+internal readonly union AppHostUrl(Uri, AppHostArgumentInvalid);
 
 internal static class AppHostArguments
 {
@@ -34,31 +39,31 @@ internal static class AppHostArguments
         return values;
     }
 
-    public static Result<int, Validation> Port(IReadOnlyList<string> args, string name)
+    public static AppHostPort Port(IReadOnlyList<string> args, string name)
     {
         if (Value(args, name) is not { } raw)
         {
-            return new Validation($"{name} <port> is required.");
+            return new AppHostArgumentInvalid($"{name} <port> is required.");
         }
 
         if (!int.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var port) || port is < 1 or > 65535)
         {
-            return new Validation($"{name} must be a TCP port between 1 and 65535, got '{raw}'.");
+            return new AppHostArgumentInvalid($"{name} must be a TCP port between 1 and 65535, got '{raw}'.");
         }
 
         return port;
     }
 
-    public static Result<Uri, Validation> AbsoluteUrl(IReadOnlyList<string> args, string name)
+    public static AppHostUrl AbsoluteUrl(IReadOnlyList<string> args, string name)
     {
         if (Value(args, name) is not { } raw)
         {
-            return new Validation($"{name} <url> is required.");
+            return new AppHostArgumentInvalid($"{name} <url> is required.");
         }
 
         if (!Uri.TryCreate(raw, UriKind.Absolute, out var url) || (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps))
         {
-            return new Validation($"{name} must be an absolute http(s) URL, got '{raw}'.");
+            return new AppHostArgumentInvalid($"{name} must be an absolute http(s) URL, got '{raw}'.");
         }
 
         return url;

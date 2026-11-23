@@ -4,6 +4,10 @@ using TsOrch.Oci;
 
 namespace TsOrch.Cli;
 
+internal sealed record class InvalidAgentCommandOptions(string Message);
+
+internal readonly union AgentCommandOptions(AgentOptions, InvalidAgentCommandOptions);
+
 internal static class AgentCommand
 {
     public static IReadOnlyList<CliOption> Options { get; } =
@@ -29,20 +33,20 @@ internal static class AgentCommand
     public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.ExpectPositionals(0, "ts-orch agent [options]") switch
         {
-            Done => Configure(arguments) switch
+            CommandPositionalsAccepted => Configure(arguments) switch
             {
                 AgentOptions options => options.Validate() switch
                 {
                     AgentOptions validated => OciEnvironment.Resolve(arguments.Value("oci-mock-url")) switch
                     {
                         OciEnvironment ociEnvironment => await RunHostAsync(validated, ociEnvironment, environment, cancellationToken),
-                        Validation failure => environment.Fail(failure),
+                        InvalidOciMockEndpoint invalid => environment.Usage(invalid.Message),
                     },
-                    Validation failure => environment.Fail(failure),
+                    InvalidAgentConfiguration invalid => environment.Usage(invalid.Message),
                 },
-                Validation failure => environment.Fail(failure),
+                InvalidAgentCommandOptions invalid => environment.Usage(invalid.Message),
             },
-            Validation failure => environment.Fail(failure),
+            CommandPositionalsInvalid invalid => environment.Usage($"usage: {invalid.Usage}"),
         };
 
     private static async Task<int> RunHostAsync(AgentOptions options, OciEnvironment ociEnvironment, CommandEnvironment environment, CancellationToken cancellationToken)
@@ -54,40 +58,41 @@ internal static class AgentCommand
         return Environment.ExitCode;
     }
 
-    private static Result<AgentOptions, Validation> Configure(CliArguments arguments) =>
+    private static AgentCommandOptions Configure(CliArguments arguments) =>
         OperatorSettings.ParseUrl(arguments.Setting("backplane-url", "TS_ORCH_BACKPLANE_URL") ?? OperatorSettings.DefaultUrl.AbsoluteUri) switch
         {
             Uri backplaneUrl => Configure(arguments, backplaneUrl),
-            Validation failure => failure,
+            InvalidBackplaneUrl invalid => new InvalidAgentCommandOptions(invalid.Message),
         };
 
-    private static Result<AgentOptions, Validation> Configure(CliArguments arguments, Uri backplaneUrl)
+    private static AgentCommandOptions Configure(CliArguments arguments, Uri backplaneUrl)
     {
-        List<Validation> failures = [];
+        List<string> failures = [];
         var poolKind = arguments.Setting("pool-kind", "TS_ORCH_POOL_KIND") is { } poolText
-            ? ParsePoolKind(poolText) switch
+            ? poolText switch
             {
-                PoolKind parsed => parsed,
-                Validation failure => Reject<PoolKind?>(failures, failure),
+                "stateful" => PoolKind.Stateful,
+                "worker" => PoolKind.Worker,
+                _ => Reject<PoolKind?>(failures, $"pool kind must be 'stateful' or 'worker', got '{poolText}'."),
             }
             : null;
         var cgroupParent = arguments.Setting("cgroup-parent", "TS_ORCH_CGROUP_PARENT") is { } cgroupText
             ? CliArguments.ParseBool("cgroup parent", cgroupText) switch
             {
                 bool parsed => parsed,
-                Validation failure => Reject<bool?>(failures, failure),
+                InvalidCliBoolean invalid => Reject<bool?>(failures, invalid.Message),
             }
             : null;
         var heartbeatSeconds = arguments.Setting("heartbeat-seconds", "TS_ORCH_HEARTBEAT_SECONDS") is { } heartbeatText
             ? CliArguments.ParseInt("heartbeat seconds", heartbeatText, 1, 3_600) switch
             {
                 int parsed => parsed,
-                Validation failure => Reject<int?>(failures, failure),
+                InvalidCliInteger invalid => Reject<int?>(failures, invalid.Message),
             }
             : null;
         if (failures is [var first, ..])
         {
-            return first;
+            return new InvalidAgentCommandOptions(first);
         }
 
         var defaults = new AgentOptions { BackplaneUrl = backplaneUrl };
@@ -111,16 +116,9 @@ internal static class AgentCommand
         };
     }
 
-    private static T? Reject<T>(List<Validation> failures, Validation failure)
+    private static T? Reject<T>(List<string> failures, string failure)
     {
         failures.Add(failure);
         return default;
     }
-
-    private static Result<PoolKind, Validation> ParsePoolKind(string text) => text switch
-    {
-        "stateful" => PoolKind.Stateful,
-        "worker" => PoolKind.Worker,
-        _ => new Validation($"pool kind must be 'stateful' or 'worker', got '{text}'."),
-    };
 }

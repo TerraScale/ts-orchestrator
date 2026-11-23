@@ -484,7 +484,7 @@ async function publish(request: Request, env: Env): Promise<Response> {
 }
 
 function atlasRequest(url: URL, env: Env): boolean {
-  return url.hostname === env.ATLAS_HOST || (env.LOCAL_DEV === "true" && url.pathname.startsWith("/atlas/"));
+  return url.hostname === env.ATLAS_HOST || (localDevAllowed(url, env) && url.pathname.startsWith("/atlas/"));
 }
 
 async function handleAtlas(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
@@ -576,7 +576,11 @@ async function handleOrch(request: Request, env: Env, url: URL): Promise<Respons
   if (path.startsWith("/auth/")) {
     if (path === "/auth/github/start" && method === "GET") return githubStart(request, env);
     if (path === "/auth/github/callback" && method === "GET") return githubCallback(request, env);
-    if (path === "/auth/logout" && (method === "POST" || method === "GET")) return logout(request, env);
+    if (path === "/auth/logout") {
+      if (method !== "POST") return orchError("not_found", "Not found", 405);
+      if (!sameOrigin(request, url)) return orchError("forbidden", "Cross-site request rejected", 403);
+      return logout(request, env);
+    }
     if (path === "/auth/dev-login" && (method === "POST" || method === "GET")) {
       if (!localDevAllowed(url, env)) return orchError("not_found", "Not found", 404);
       return devLogin(request, env);
@@ -600,7 +604,7 @@ async function handleOrch(request: Request, env: Env, url: URL): Promise<Respons
     if ((principal.via === "github" || principal.via === "dev") && method !== "GET" && method !== "HEAD" && !sameOrigin(request, url)) {
       return orchError("forbidden", "Cross-site request rejected", 403);
     }
-    if (path === "/api/dev/chaos" && env.LOCAL_DEV !== "true") return orchError("not_found", "Not found", 404);
+    if (path === "/api/dev/chaos" && !localDevAllowed(url, env)) return orchError("not_found", "Not found", 404);
     const required = requiredRole(method, path);
     if (!roleAllows(principal.role, required)) {
       return orchError("forbidden", `The ${principal.role} role cannot perform this action`, 403, `Requires the ${required} role.`);
@@ -614,7 +618,7 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (atlasRequest(url, env)) return handleAtlas(request, env, ctx, url);
-    if (url.hostname !== env.ORCH_HOST && env.LOCAL_DEV !== "true") return orchError("not_found", "Not found", 404);
+    if (url.hostname !== env.ORCH_HOST && !localDevAllowed(url, env)) return orchError("not_found", "Not found", 404);
     try {
       return await handleOrch(request, env, url);
     } catch (error) {

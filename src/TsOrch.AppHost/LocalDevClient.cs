@@ -4,9 +4,30 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
+
+internal readonly record struct LocalWorkerReady;
+
+internal sealed record class LocalWorkerStartupTimedOut(string Message);
+
+internal sealed record class LocalDevNotEnabled(string Message);
+
+internal sealed record class LocalDevProbeInvalid(string Message);
+
+internal sealed record class LocalWorkerRequestRejected(string Message);
+
+internal sealed record class LocalWorkerAccessDenied(string Message);
+
+internal sealed record class LocalWorkerUnavailable(string Message);
+
+internal readonly union LocalWorkerStartup(LocalWorkerReady, LocalWorkerStartupTimedOut);
+
+internal readonly union LocalDevLogin(string, LocalDevNotEnabled, LocalWorkerUnavailable);
+
+internal readonly union LocalWorkerExchange(string, LocalWorkerRequestRejected, LocalWorkerAccessDenied, LocalWorkerUnavailable);
+
+internal readonly union LocalDevProbe(LocalWorkerReady, LocalDevNotEnabled, LocalDevProbeInvalid);
 
 internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timeProvider)
 {
@@ -16,32 +37,33 @@ internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timePro
     public static HttpClient CreateHttpClient() =>
         new(new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false }) { Timeout = TimeSpan.FromSeconds(30) };
 
-    public async Task<Result<Done, RequestTimeout>> WaitForLocalWorkerAsync(Uri workerUrl, TimeSpan timeout, CancellationToken cancellationToken)
+    public async Task<LocalWorkerStartup> WaitForLocalWorkerAsync(Uri workerUrl, TimeSpan timeout, CancellationToken cancellationToken)
     {
         var deadline = timeProvider.GetUtcNow() + timeout;
         var me = new Uri(workerUrl, "/api/me");
         while (true)
         {
-            var failure = await SendAsync(new HttpRequestMessage(HttpMethod.Get, me), cancellationToken) switch
+            var outcome = await SendAsync(new HttpRequestMessage(HttpMethod.Get, me), cancellationToken);
+            var failure = outcome switch
             {
                 string body => LocalDevReady(body) switch
                 {
-                    Done => null,
-                    PreconditionFailed notLocal => notLocal.Message,
-                    InternalFailure malformed => malformed.Message,
+                    LocalWorkerReady => null,
+                    LocalDevNotEnabled notLocal => notLocal.Message,
+                    LocalDevProbeInvalid malformed => malformed.Message,
                 },
-                Validation rejected => rejected.Message,
-                Unauthorized denied => denied.Message,
-                Unavailable unavailable => unavailable.Message,
+                LocalWorkerRequestRejected rejected => rejected.Message,
+                LocalWorkerAccessDenied denied => denied.Message,
+                LocalWorkerUnavailable unavailable => unavailable.Message,
             };
             if (failure is null)
             {
-                return new Done();
+                return new LocalWorkerReady();
             }
 
             if (timeProvider.GetUtcNow() >= deadline)
             {
-                return new RequestTimeout(string.Create(
+                return new LocalWorkerStartupTimedOut(string.Create(
                     CultureInfo.InvariantCulture,
                     $"The local worker at {me} was not ready within {timeout.TotalSeconds:F0}s: {failure}"));
             }
@@ -50,7 +72,7 @@ internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timePro
         }
     }
 
-    public async Task<Result<string, PreconditionFailed, Unavailable>> DevLoginAsync(Uri workerUrl, CancellationToken cancellationToken)
+    public async Task<LocalDevLogin> DevLoginAsync(Uri workerUrl, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(workerUrl, "/auth/dev-login"));
         try
@@ -58,7 +80,7 @@ internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timePro
             using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             if (response.StatusCode is not (HttpStatusCode.Found or HttpStatusCode.SeeOther))
             {
-                return new PreconditionFailed($"GET /auth/dev-login returned {(int)response.StatusCode}; the worker must run with LOCAL_DEV=true on loopback.");
+                return new LocalDevNotEnabled($"GET /auth/dev-login returned {(int)response.StatusCode}; the worker must run with LOCAL_DEV=true on loopback.");
             }
 
             var cookies = response.Headers.TryGetValues("Set-Cookie", out var values) ? values : [];
@@ -71,18 +93,18 @@ internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timePro
                 }
             }
 
-            return new PreconditionFailed("GET /auth/dev-login did not set the ts_orch_session cookie.");
+            return new LocalDevNotEnabled("GET /auth/dev-login did not set the ts_orch_session cookie.");
         }
         catch (HttpRequestException exception)
         {
-            return new Unavailable($"GET /auth/dev-login failed: {exception.Message}");
+            return new LocalWorkerUnavailable($"GET /auth/dev-login failed: {exception.Message}");
         }
     }
 
-    public Task<Result<string, Validation, Unauthorized, Unavailable>> PostJsonAsync<T>(Uri url, T body, JsonTypeInfo<T> typeInfo, string? sessionCookie, CancellationToken cancellationToken) =>
+    public Task<LocalWorkerExchange> PostJsonAsync<T>(Uri url, T body, JsonTypeInfo<T> typeInfo, string? sessionCookie, CancellationToken cancellationToken) =>
         PostAsync(url, JsonSerializer.Serialize(body, typeInfo), sessionCookie, cancellationToken);
 
-    public Task<Result<string, Validation, Unauthorized, Unavailable>> PostAsync(Uri url, string json, string? sessionCookie, CancellationToken cancellationToken)
+    public Task<LocalWorkerExchange> PostAsync(Uri url, string json, string? sessionCookie, CancellationToken cancellationToken)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
@@ -96,24 +118,24 @@ internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timePro
         return SendAsync(request, cancellationToken);
     }
 
-    private static Result<Done, PreconditionFailed, InternalFailure> LocalDevReady(string body)
+    private static LocalDevProbe LocalDevReady(string body)
     {
         try
         {
             return JsonSerializer.Deserialize(body, AppHostJsonContext.Default.MeDocument) switch
             {
-                { LocalDev: true } => new Done(),
-                { LocalDev: false } => new PreconditionFailed("The worker answered /api/me without localDev; start wrangler with LOCAL_DEV=true on 127.0.0.1."),
-                null => new InternalFailure("The worker answered /api/me with JSON null."),
+                { LocalDev: true } => new LocalWorkerReady(),
+                { LocalDev: false } => new LocalDevNotEnabled("The worker answered /api/me without localDev; start wrangler with LOCAL_DEV=true on 127.0.0.1."),
+                null => new LocalDevProbeInvalid("The worker answered /api/me with JSON null."),
             };
         }
         catch (JsonException exception)
         {
-            return new InternalFailure($"The worker answered /api/me with malformed JSON: {exception.Message}");
+            return new LocalDevProbeInvalid($"The worker answered /api/me with malformed JSON: {exception.Message}");
         }
     }
 
-    private async Task<Result<string, Validation, Unauthorized, Unavailable>> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    private async Task<LocalWorkerExchange> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         using (request)
         {
@@ -130,23 +152,23 @@ internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timePro
                 var message = $"{target} returned {(int)response.StatusCode}: {body}";
                 if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                 {
-                    return new Unauthorized(message);
+                    return new LocalWorkerAccessDenied(message);
                 }
 
                 if (response.StatusCode is HttpStatusCode.TooManyRequests or >= HttpStatusCode.InternalServerError)
                 {
-                    return new Unavailable(message);
+                    return new LocalWorkerUnavailable(message);
                 }
 
-                return new Validation(message);
+                return new LocalWorkerRequestRejected(message);
             }
             catch (HttpRequestException exception)
             {
-                return new Unavailable($"{target} failed: {exception.Message}");
+                return new LocalWorkerUnavailable($"{target} failed: {exception.Message}");
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                return new Unavailable($"{target} timed out.");
+                return new LocalWorkerUnavailable($"{target} timed out.");
             }
         }
     }

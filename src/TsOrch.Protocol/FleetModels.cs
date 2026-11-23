@@ -177,8 +177,8 @@ public sealed record class MountSpec(string Source, string Target);
 public sealed record class PostgresSpec(int Port, IReadOnlyList<string> Hostnames);
 
 public sealed record class AutoscaleSpec(
-    int TargetCpuPct,
-    int TargetP95Ms,
+    double TargetCpuPct,
+    double TargetP95Ms,
     int ScaleUpCooldownSeconds,
     int ScaleDownCooldownSeconds);
 
@@ -215,9 +215,15 @@ public sealed record class PlacementInfo(
     string? NodeId = null,
     string? ActiveImage = null,
     string? ActiveConfigHash = null,
-    int? HostPort = null);
+    int? HostPort = null,
+    int? PostgresHostPort = null);
 
-public sealed record class DesiredPlacement(string PlacementId, int Slot, ServiceSpec Service);
+public sealed record class DesiredPlacement(
+    string PlacementId,
+    int Slot,
+    ServiceSpec Service,
+    int? HostPort = null,
+    int? PostgresHostPort = null);
 
 public sealed record class PlacementReport(
     string PlacementId,
@@ -226,7 +232,8 @@ public sealed record class PlacementReport(
     string Image,
     string ConfigHash,
     int? HostPort = null,
-    string? Error = null);
+    string? Error = null,
+    int? PostgresHostPort = null);
 
 public sealed record class RolloutInfo(
     string Id,

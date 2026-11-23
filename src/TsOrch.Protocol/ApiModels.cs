@@ -166,3 +166,7 @@ public sealed record class AtlasResolveResponse(
 public sealed record class AtlasJwk(string Kty, string Crv, string X, string Y, string Kid, string Alg, string Use);
 
 public sealed record class AtlasKeysResponse(IReadOnlyList<AtlasJwk> Keys);
+
+public sealed record class ErrorDetail(string Code, string Message, string? Fix = null);
+
+public sealed record class ErrorResponse(ErrorDetail Error);

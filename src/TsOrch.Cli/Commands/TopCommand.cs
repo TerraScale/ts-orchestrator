@@ -12,8 +12,8 @@ internal static class TopCommand
     public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.ExpectPositionals(0, "ts-orch top [--region R] [--once]") switch
         {
-            Done => await WatchAsync(Query.Build("/api/top", ("region", arguments.Value("region"))), !arguments.Flag("once"), environment, cancellationToken),
-            Validation failure => environment.Fail(failure),
+            CommandPositionalsAccepted => await WatchAsync(Query.Build("/api/top", ("region", arguments.Value("region"))), !arguments.Flag("once"), environment, cancellationToken),
+            CommandPositionalsInvalid invalid => environment.Usage($"usage: {invalid.Usage}"),
         };
 
     private static async Task<int> WatchAsync(string path, bool live, CommandEnvironment environment, CancellationToken cancellationToken)
@@ -21,15 +21,7 @@ internal static class TopCommand
         using var timer = new PeriodicTimer(RefreshInterval, environment.TimeProvider);
         do
         {
-            var exitCode = await environment.Api.GetAsync(path, ApiJsonContext.Default.TopResponse, cancellationToken) switch
-            {
-                TopResponse top => Show(top, live, environment),
-                Validation failure => environment.Fail(failure),
-                NotFound failure => environment.Fail(failure),
-                Unauthorized failure => environment.Fail(failure),
-                Forbidden failure => environment.Fail(failure),
-                Unavailable failure => environment.Fail(failure),
-            };
+            var exitCode = await environment.Api.GetAsync(path, ApiJsonContext.Default.TopResponse, top => Task.FromResult(Show(top, live, environment)), failure => (int?)environment.FailRead(failure), cancellationToken);
             if (exitCode is { } failed)
             {
                 return failed;

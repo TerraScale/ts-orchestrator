@@ -46,7 +46,8 @@ public sealed record class PlacementEvent(
     string Image,
     string ConfigHash,
     int? HostPort = null,
-    string? Error = null) : AgentMessage;
+    string? Error = null,
+    int? PostgresHostPort = null) : AgentMessage;
 
 public sealed record class DrainComplete(string NodeId) : AgentMessage;
 

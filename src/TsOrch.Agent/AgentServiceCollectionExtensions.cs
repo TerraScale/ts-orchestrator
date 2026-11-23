@@ -54,6 +54,7 @@ public static class AgentServiceCollectionExtensions
             services.AddHostedService(static provider => provider.GetRequiredService<ContainerReconciler>());
             services.AddHostedService(static provider => provider.GetRequiredService<ImageGarbageCollector>());
             services.AddHostedService(static provider => provider.GetRequiredService<NodeMaintenance>());
+            services.AddHostedService(static provider => provider.GetRequiredService<HostMetricsCollector>());
             services.AddHostedService(static provider => provider.GetRequiredService<NodeAgentRunner>());
             return services;
         }

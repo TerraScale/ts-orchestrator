@@ -18,6 +18,11 @@ public sealed partial class TlsCertificateStore(
     private EdgeCertificate? _current;
     private (FileStamp Certificate, FileStamp Key) _stamp;
 
+    public bool HasValidConfiguredCertificate =>
+        Volatile.Read(ref _current) is { Configured: true, Leaf: var leaf }
+        && timeProvider.GetUtcNow().UtcDateTime >= leaf.NotBefore.ToUniversalTime()
+        && timeProvider.GetUtcNow().UtcDateTime <= leaf.NotAfter.ToUniversalTime();
+
     public X509Certificate2 Certificate => Loaded().Leaf;
 
     public SslServerAuthenticationOptions CreateServerOptions() =>
@@ -66,7 +71,15 @@ public sealed partial class TlsCertificateStore(
             chain.ImportFromPemFile(certificatePath);
             var intermediates = new X509Certificate2Collection(
                 chain.Where(certificate => !string.Equals(certificate.Thumbprint, leaf.Thumbprint, StringComparison.Ordinal)).ToArray());
-            var certificate = new EdgeCertificate(leaf, SslStreamCertificateContext.Create(leaf, intermediates, offline: true));
+            var now = timeProvider.GetUtcNow().UtcDateTime;
+            if (now < leaf.NotBefore.ToUniversalTime() || now > leaf.NotAfter.ToUniversalTime())
+            {
+                LogCertificateOutsideValidity(logger, leaf.Subject);
+                leaf.Dispose();
+                return;
+            }
+
+            var certificate = new EdgeCertificate(leaf, SslStreamCertificateContext.Create(leaf, intermediates, offline: true), Configured: true);
             Interlocked.Exchange(ref _current, certificate);
             LogCertificateLoaded(logger, leaf.Subject, leaf.NotAfter);
         }
@@ -90,7 +103,7 @@ public sealed partial class TlsCertificateStore(
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.1")], false));
         var now = timeProvider.GetUtcNow();
         var leaf = request.CreateSelfSigned(now.AddMinutes(-5), now.Add(FallbackLifetime));
-        return new EdgeCertificate(leaf, SslStreamCertificateContext.Create(leaf, null, offline: true));
+        return new EdgeCertificate(leaf, SslStreamCertificateContext.Create(leaf, null, offline: true), Configured: false);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Loaded TLS certificate {Subject} valid until {NotAfter}")]
@@ -102,5 +115,8 @@ public sealed partial class TlsCertificateStore(
     [LoggerMessage(Level = LogLevel.Warning, Message = "No TLS certificate in {Directory}; serving a temporary self-signed loopback certificate until sync_tls arrives")]
     private static partial void LogFallbackCertificate(ILogger logger, string directory);
 
-    private sealed record class EdgeCertificate(X509Certificate2 Leaf, SslStreamCertificateContext Context);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Rejected TLS certificate {Subject} outside its validity period")]
+    private static partial void LogCertificateOutsideValidity(ILogger logger, string subject);
+
+    private sealed record class EdgeCertificate(X509Certificate2 Leaf, SslStreamCertificateContext Context, bool Configured);
 }

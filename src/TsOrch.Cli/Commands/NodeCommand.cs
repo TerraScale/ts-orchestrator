@@ -14,19 +14,11 @@ internal static class NodeCommand
             ["ls"] => ListAsync(environment, cancellationToken),
             [var action and ("drain" or "activate"), var nodeId] => ChangeStateAsync(nodeId, action, environment, cancellationToken),
             ["reboot", var nodeId] => RebootAsync(nodeId, environment, cancellationToken),
-            _ => Task.FromResult(environment.Fail(new Validation($"usage: {UsageText}"))),
+            _ => Task.FromResult(environment.Usage($"usage: {UsageText}")),
         };
 
     private static async Task<int> ListAsync(CommandEnvironment environment, CancellationToken cancellationToken) =>
-        await environment.Api.GetAsync("/api/nodes", CliJsonContext.Default.NodeListResponse, cancellationToken) switch
-        {
-            NodeListResponse response => Render(response, environment),
-            Validation failure => environment.Fail(failure),
-            NotFound failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
-        };
+        await environment.Api.GetAsync("/api/nodes", CliJsonContext.Default.NodeListResponse, response => Task.FromResult(Render(response, environment)), environment.FailRead, cancellationToken);
 
     private static int Render(NodeListResponse response, CommandEnvironment environment)
     {
@@ -53,16 +45,7 @@ internal static class NodeCommand
     }
 
     private static async Task<int> ChangeStateAsync(string nodeId, string action, CommandEnvironment environment, CancellationToken cancellationToken) =>
-        await environment.Api.PostEmptyAsync($"/api/nodes/{Uri.EscapeDataString(nodeId)}/{action}", CliJsonContext.Default.NodeInfo, cancellationToken) switch
-        {
-            NodeInfo node => Changed(node, environment.Out),
-            Validation failure => environment.Fail(failure),
-            NotFound failure => environment.Fail(failure),
-            Conflict failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
-        };
+        await environment.Api.PostEmptyAsync($"/api/nodes/{Uri.EscapeDataString(nodeId)}/{action}", CliJsonContext.Default.NodeInfo, node => Task.FromResult(Changed(node, environment.Out)), environment.Fail, cancellationToken);
 
     private static int Changed(NodeInfo node, TextWriter output)
     {
@@ -71,16 +54,7 @@ internal static class NodeCommand
     }
 
     private static async Task<int> RebootAsync(string nodeId, CommandEnvironment environment, CancellationToken cancellationToken) =>
-        await environment.Api.PostEmptyAsync($"/api/nodes/{Uri.EscapeDataString(nodeId)}/reboot", CliJsonContext.Default.RebootResponse, cancellationToken) switch
-        {
-            RebootResponse response => Rebooted(response, environment.Out),
-            Validation failure => environment.Fail(failure),
-            NotFound failure => environment.Fail(failure),
-            Conflict failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
-        };
+        await environment.Api.PostEmptyAsync($"/api/nodes/{Uri.EscapeDataString(nodeId)}/reboot", CliJsonContext.Default.RebootResponse, response => Task.FromResult(Rebooted(response, environment.Out)), environment.Fail, cancellationToken);
 
     private static int Rebooted(RebootResponse response, TextWriter output)
     {

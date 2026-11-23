@@ -17,14 +17,16 @@ public sealed class EdgeConfigWriter(RouteObserver routes, AgentOptions options,
         }
 
         var snapshot = new EdgeRoutesSnapshot(message.Revision, message.HttpRoutes, message.PostgresRoutes);
-        var failure = await UnixFiles.WriteAtomicAsync(
+        routes.TryPublish(snapshot);
+        var written = await UnixFiles.WriteAtomicAsync(
             options.RoutesFile,
             JsonSerializer.SerializeToUtf8Bytes(snapshot, EdgeJsonContext.Default.EdgeRoutesSnapshot),
             UnixFiles.WorldReadable,
-            cancellationToken) switch
+            cancellationToken);
+        var failure = written switch
         {
-            Done => null,
-            InternalFailure written => written.Message,
+            AtomicWriteCompleted => null,
+            AtomicWriteFailed failed => failed.Message,
         };
         if (failure is not null)
         {
@@ -32,7 +34,6 @@ public sealed class EdgeConfigWriter(RouteObserver routes, AgentOptions options,
             return;
         }
 
-        routes.TryPublish(snapshot);
         AgentLog.RoutesWritten(logger, message.Revision);
     }
 
@@ -46,17 +47,18 @@ public sealed class EdgeConfigWriter(RouteObserver routes, AgentOptions options,
         }
 
         var bundle = new TlsBundle(message.Domains, message.CertPem, message.KeyPem, message.NotAfter);
-        var failure = await UnixFiles.WriteAtomicAsync(
+        var written = await UnixFiles.WriteAtomicAsync(
             [options.TlsDirectory],
             [
                 new AtomicWrite(options.TlsKeyFile, Encoding.UTF8.GetBytes(message.KeyPem), UnixFiles.OwnerReadWrite),
                 new AtomicWrite(options.TlsCertificateFile, Encoding.UTF8.GetBytes(message.CertPem), UnixFiles.OwnerReadWrite),
                 new AtomicWrite(options.TlsBundleFile, JsonSerializer.SerializeToUtf8Bytes(bundle, EdgeJsonContext.Default.TlsBundle), UnixFiles.OwnerReadWrite),
             ],
-            cancellationToken) switch
+            cancellationToken);
+        var failure = written switch
         {
-            Done => null,
-            InternalFailure written => written.Message,
+            AtomicWriteCompleted => null,
+            AtomicWriteFailed failed => failed.Message,
         };
         if (failure is not null)
         {

@@ -7,13 +7,13 @@ internal static class EventsCommand
     public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.ExpectPositionals(0, "ts-orch events [-f] [--region R] [--limit N]") switch
         {
-            Done => arguments.Int("limit", 100, 1, 2_000) switch
+            CommandPositionalsAccepted => arguments.Int("limit", 100, 1, 2_000) switch
             {
                 int limit when arguments.Flag("follow") => await FollowAsync(arguments.Value("region"), limit, environment, cancellationToken),
                 int limit => await ListAsync(arguments.Value("region"), limit, environment, cancellationToken),
-                Validation failure => environment.Fail(failure),
+                InvalidCliInteger invalid => environment.Usage(invalid.Message),
             },
-            Validation failure => environment.Fail(failure),
+            CommandPositionalsInvalid invalid => environment.Usage($"usage: {invalid.Usage}"),
         };
 
     public static string Path(string? region, int limit, bool follow) =>
@@ -22,7 +22,7 @@ internal static class EventsCommand
     private static async Task<int> FollowAsync(string? region, int limit, CommandEnvironment environment, CancellationToken cancellationToken)
     {
         var output = environment.Out;
-        return await environment.Api.StreamAsync(
+        var streamed = await environment.Api.StreamAsync(
             Path(region, limit, follow: true),
             CliJsonContext.Default.EventRecord,
             async (record, token) =>
@@ -30,27 +30,16 @@ internal static class EventsCommand
                 await output.WriteLineAsync(Format(record).AsMemory(), token);
                 await output.FlushAsync(token);
             },
-            cancellationToken) switch
+            cancellationToken);
+        return streamed switch
         {
-            Done => ExitCodes.Ok,
-            Validation failure => environment.Fail(failure),
-            NotFound failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
+            BackplaneStreamCompleted => ExitCodes.Ok,
+            BackplaneProblem failure => environment.FailRead(failure),
         };
     }
 
     private static async Task<int> ListAsync(string? region, int limit, CommandEnvironment environment, CancellationToken cancellationToken) =>
-        await environment.Api.GetAsync(Path(region, limit, follow: false), CliJsonContext.Default.EventListResponse, cancellationToken) switch
-        {
-            EventListResponse response => Print(response.Events, environment.Out),
-            Validation failure => environment.Fail(failure),
-            NotFound failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
-        };
+        await environment.Api.GetAsync(Path(region, limit, follow: false), CliJsonContext.Default.EventListResponse, response => Task.FromResult(Print(response.Events, environment.Out)), environment.FailRead, cancellationToken);
 
     private static int Print(IReadOnlyList<EventRecord> events, TextWriter output)
     {

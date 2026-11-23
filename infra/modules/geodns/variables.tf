@@ -18,6 +18,16 @@ variable "steered_names" {
   }
 }
 
+variable "pinned_names" {
+  type        = map(string)
+  description = "Fully qualified names inside the zone answered only by one region label, for services that run in a single region."
+
+  validation {
+    condition     = length(setintersection(keys(var.pinned_names), var.steered_names)) == 0
+    error_message = "pinned_names must not also appear in steered_names."
+  }
+}
+
 variable "ttl_seconds" {
   type        = number
   description = "TTL for steered answers and regional records."

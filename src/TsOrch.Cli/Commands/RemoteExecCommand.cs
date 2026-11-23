@@ -11,13 +11,13 @@ internal static class RemoteExecCommand
     {
         if (arguments.Positionals is not [var nodeId, var service] || arguments.Trailing.Count == 0)
         {
-            return environment.Fail(new Validation("usage: ts-orch exec <node> <service> [--timeout S] -- <cmd...>"));
+            return environment.Usage("usage: ts-orch exec <node> <service> [--timeout S] -- <cmd...>");
         }
 
         return arguments.Int("timeout", 30, 1, MaxTimeoutSeconds) switch
         {
             int timeoutSeconds => await ExecuteAsync(new ExecRequest(nodeId, service, arguments.Trailing, timeoutSeconds), environment, cancellationToken),
-            Validation failure => environment.Fail(failure),
+            InvalidCliInteger invalid => environment.Usage(invalid.Message),
         };
     }
 
@@ -28,16 +28,7 @@ internal static class RemoteExecCommand
             ApiJsonContext.Default.ExecRequest,
             ApiJsonContext.Default.ExecResponse,
             TimeSpan.FromSeconds(request.TimeoutSeconds) + ResponseAllowance,
-            cancellationToken) switch
-        {
-            ExecResponse response => await PrintAsync(response, environment, cancellationToken),
-            Validation failure => environment.Fail(failure),
-            NotFound failure => environment.Fail(failure),
-            Conflict failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
-        };
+            response => PrintAsync(response, environment, cancellationToken), environment.Fail, cancellationToken);
 
     private static async Task<int> PrintAsync(ExecResponse response, CommandEnvironment environment, CancellationToken cancellationToken)
     {

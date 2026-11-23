@@ -80,9 +80,11 @@ export function localDevAllowed(url: URL, env: Env): boolean {
   return env.LOCAL_DEV === "true" && isLoopbackHost(url.hostname);
 }
 
-export function sessionSecret(env: Env): string | null {
+export function sessionSecret(env: Env, url?: URL): string | null {
   if (env.SESSION_SECRET !== undefined && env.SESSION_SECRET.length >= 16) return env.SESSION_SECRET;
-  return env.LOCAL_DEV === "true" ? LOCAL_DEV_SECRET : null;
+  if (env.LOCAL_DEV !== "true") return null;
+  if (url === undefined) return LOCAL_DEV_SECRET;
+  return localDevAllowed(url, env) ? LOCAL_DEV_SECRET : null;
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -387,6 +389,7 @@ export async function verifySshSignature(
 
 export async function verifySshLogin(
   env: Env,
+  url: URL,
   input: { publicKey: string; signature: string; nonce: string; fingerprint: string },
 ): Promise<SshLoginResult> {
   const parsed = parseSshPublicKey(input.publicKey);
@@ -395,7 +398,7 @@ export async function verifySshLogin(
   if (input.fingerprint.length > 0 && input.fingerprint !== fingerprint) {
     return { ok: false, code: "unauthorized", message: "The key does not match the challenge fingerprint", status: 401 };
   }
-  const allowed = await parseAllowedSshKeys(env.ALLOWED_SSH_KEYS, env.LOCAL_DEV === "true" ? "admin" : "read");
+  const allowed = await parseAllowedSshKeys(env.ALLOWED_SSH_KEYS, localDevAllowed(url, env) ? "admin" : "read");
   const match = allowed.find((key) => timingSafeEqual(key.blob, parsed.blob));
   if (match === undefined) return { ok: false, code: "forbidden", message: "The SSH key is not allowed", status: 403 };
   const valid = await verifySshSignature(input.signature, encoder.encode(input.nonce), SSH_NAMESPACE, parsed.blob);
@@ -426,11 +429,11 @@ function parseGithubAllowlist(raw: string | undefined): Map<number, OperatorRole
 }
 
 export async function githubStart(request: Request, env: Env): Promise<Response> {
-  const secret = sessionSecret(env);
+  const url = new URL(request.url);
+  const secret = sessionSecret(env, url);
   if (env.GITHUB_CLIENT_ID === undefined || env.GITHUB_CLIENT_ID.length === 0 || secret === null) {
     return loginError("oauth_failed");
   }
-  const url = new URL(request.url);
   const state = randomToken(24);
   const verifier = randomToken(48);
   const challenge = b64urlEncode(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(verifier))));
@@ -452,7 +455,7 @@ export async function githubStart(request: Request, env: Env): Promise<Response>
 export async function githubCallback(request: Request, env: Env): Promise<Response> {
   const clearOauth = clearCookie(OAUTH_COOKIE, "/auth/github");
   const url = new URL(request.url);
-  const secret = sessionSecret(env);
+  const secret = sessionSecret(env, url);
   if (secret === null || !env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) return loginError("oauth_failed", [clearOauth]);
   const providerError = url.searchParams.get("error");
   if (providerError !== null) return loginError(providerError === "access_denied" ? "access_denied" : "oauth_failed", [clearOauth]);
@@ -537,7 +540,7 @@ export function logout(request?: Request, env?: Env): Response {
 
 export async function devLogin(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  const secret = sessionSecret(env);
+  const secret = sessionSecret(env, url);
   if (!localDevAllowed(url, env) || secret === null) {
     return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
   }
@@ -641,7 +644,7 @@ function bearerToken(request: Request): string | null {
 }
 
 export async function authenticateRequest(request: Request, env: Env, nowMs = Date.now()): Promise<Principal | null> {
-  const secret = sessionSecret(env);
+  const secret = sessionSecret(env, new URL(request.url));
   const bearer = bearerToken(request);
   if (bearer !== null) {
     if (bearer.startsWith(SESSION_PREFIX)) {
@@ -665,8 +668,9 @@ export async function mintSshSession(
   role: OperatorRole,
   fingerprint: string,
   nowMs: number,
+  url?: URL,
 ): Promise<{ token: string; expiresAt: number } | null> {
-  const secret = sessionSecret(env);
+  const secret = sessionSecret(env, url);
   if (secret === null) return null;
   return mintSessionToken(secret, { subject: `ssh:${fingerprint}`, owner, role, via: "ssh" }, SSH_SESSION_TTL_S, nowMs);
 }

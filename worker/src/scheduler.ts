@@ -8,8 +8,10 @@ import type {
   PostgresUpstream,
   PriorityTier,
   RegionConfig,
+  RolloutInfo,
   ServiceSpec,
 } from "./protocol";
+import { orderRegions } from "./rollout";
 
 export interface ScheduleInput {
   regions: RegionConfig[];
@@ -18,6 +20,8 @@ export interface ScheduleInput {
   currentPlacements: PlacementInfo[];
   nowMs: number;
   heartbeatTimeoutMs?: number;
+  rollouts?: RolloutInfo[];
+  rolloutOrder?: string[];
 }
 
 export interface DesiredPlacement {
@@ -28,6 +32,7 @@ export interface DesiredPlacement {
   slot: number;
   desiredImage: string;
   hostPort: number;
+  postgresHostPort?: number;
 }
 
 export interface UnschedulableEntry {
@@ -137,6 +142,34 @@ function allocatePort(load: NodeLoad): number | undefined {
   return undefined;
 }
 
+function isTcpPort(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 65535;
+}
+
+function claimPort(load: NodeLoad, port: number | undefined): boolean {
+  if (!isTcpPort(port) || load.ports.has(port)) return false;
+  load.ports.add(port);
+  return true;
+}
+
+const TERMINAL_ROLLOUT: ReadonlySet<string> = new Set(["succeeded", "rolled_back", "failed"]);
+
+function imageForNewPlacement(service: ServiceSpec, region: string, input: ScheduleInput): string {
+  const order = input.rolloutOrder ?? [];
+  for (const rollout of input.rollouts ?? []) {
+    if (rollout.serviceName !== service.name || TERMINAL_ROLLOUT.has(rollout.phase)) continue;
+    const current = rollout.currentRegion;
+    if (current === undefined) continue;
+    const sequence = orderRegions(rollout.region !== undefined ? [rollout.region] : service.regions, order);
+    const currentIndex = sequence.indexOf(current);
+    const regionIndex = sequence.indexOf(region);
+    if (regionIndex < 0) continue;
+    if (currentIndex >= 0 && regionIndex <= currentIndex) return rollout.targetImage;
+    if (currentIndex < 0 && region === current) return rollout.targetImage;
+  }
+  return service.image;
+}
+
 function placementId(serviceName: string, region: string, slot: number, nodeId: string): string {
   return `${serviceName}.${region}.${slot}.${nodeId}`;
 }
@@ -160,7 +193,7 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
   const removed = new Set<string>();
   const failedOver = new Set<string>();
   const keptKeys = new Set<string>();
-  const needsPort: { placement: DesiredPlacement; load: NodeLoad }[] = [];
+  const needsPort: { placement: DesiredPlacement; load: NodeLoad; http: boolean; postgres: boolean }[] = [];
   const sorted = [...input.currentPlacements].sort((a, b) => compareText(a.id, b.id));
 
   for (const placement of sorted) {
@@ -221,12 +254,14 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
       desiredImage: placement.desiredImage,
       hostPort: 0,
     };
-    if (placement.hostPort !== undefined && !load.ports.has(placement.hostPort)) {
-      load.ports.add(placement.hostPort);
-      kept.hostPort = placement.hostPort;
-    } else {
-      needsPort.push({ placement: kept, load });
+    const httpOk = claimPort(load, placement.hostPort);
+    if (httpOk && placement.hostPort !== undefined) kept.hostPort = placement.hostPort;
+    let postgresOk = service.postgres === undefined;
+    if (service.postgres !== undefined && claimPort(load, placement.postgresHostPort) && placement.postgresHostPort !== undefined) {
+      kept.postgresHostPort = placement.postgresHostPort;
+      postgresOk = true;
     }
+    if (!httpOk || !postgresOk) needsPort.push({ placement: kept, load, http: !httpOk, postgres: !postgresOk });
     desired.push(kept);
   }
 
@@ -239,16 +274,29 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
   };
 
   for (const item of needsPort) {
-    const port = allocatePort(item.load);
-    if (port === undefined) {
+    const drop = (): void => {
       const index = desired.indexOf(item.placement);
       if (index >= 0) desired.splice(index, 1);
       removed.add(item.placement.id);
       const service = servicesByName.get(item.placement.serviceName);
       if (service !== undefined) markMissing(service, item.placement.region, "host_ports_exhausted");
-      continue;
+    };
+    if (item.http) {
+      const port = allocatePort(item.load);
+      if (port === undefined) {
+        drop();
+        continue;
+      }
+      item.placement.hostPort = port;
     }
-    item.placement.hostPort = port;
+    if (item.postgres) {
+      const port = allocatePort(item.load);
+      if (port === undefined) {
+        drop();
+        continue;
+      }
+      item.placement.postgresHostPort = port;
+    }
   }
 
   const regions = [...input.regions].sort((a, b) => compareText(a.label, b.label));
@@ -263,16 +311,20 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
       const create = (load: NodeLoad, slot: number): boolean => {
         const port = allocatePort(load);
         if (port === undefined) return false;
+        const postgresHostPort = service.postgres !== undefined ? allocatePort(load) : undefined;
+        if (service.postgres !== undefined && postgresHostPort === undefined) return false;
         reserve(load, service);
-        desired.push({
+        const created: DesiredPlacement = {
           id: placementId(service.name, region.label, slot, load.node.id),
           serviceName: service.name,
           region: region.label,
           nodeId: load.node.id,
           slot,
-          desiredImage: service.image,
+          desiredImage: imageForNewPlacement(service, region.label, input),
           hostPort: port,
-        });
+        };
+        if (postgresHostPort !== undefined) created.postgresHostPort = postgresHostPort;
+        desired.push(created);
         return true;
       };
 
@@ -403,7 +455,21 @@ export function computeRoutes(
       const pgHostnames = [
         ...new Set(service.postgres.hostnames.map((hostname) => expandRegionTemplate(hostname, region))),
       ];
-      const pgUpstreams: PostgresUpstream[] = upstreams.map((u) => ({ ...u }));
+      const pgUpstreams: PostgresUpstream[] = [];
+      for (const placement of placements) {
+        if (placement.serviceName !== service.name || placement.region !== region || placement.state !== "ready") continue;
+        if (placement.nodeId === undefined || !isTcpPort(placement.postgresHostPort)) continue;
+        const node = nodesById.get(placement.nodeId);
+        if (node === undefined || node.status !== "active" || node.drainRequested) continue;
+        pgUpstreams.push({
+          placementId: placement.id,
+          nodeId: node.id,
+          address: node.vcnIp,
+          port: placement.postgresHostPort,
+          local: node.id === localNodeId,
+        });
+      }
+      pgUpstreams.sort((a, b) => compareText(a.placementId, b.placementId));
       postgresRoutes.push({
         serviceName: service.name,
         hostnames: pgHostnames,

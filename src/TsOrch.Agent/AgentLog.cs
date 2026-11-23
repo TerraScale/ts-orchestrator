@@ -5,7 +5,7 @@ internal static partial class AgentLog
     [LoggerMessage(1000, LogLevel.Information, "Placement {PlacementId} ready on {Image} ({ConfigHash}) host port {HostPort}")]
     public static partial void PlacementReady(ILogger logger, string placementId, string image, string configHash, int? hostPort);
 
-    [LoggerMessage(1001, LogLevel.Warning, "Edge routes did not switch placement {PlacementId} to port {HostPort} in time; retiring previous container anyway")]
+    [LoggerMessage(1001, LogLevel.Warning, "Edge did not acknowledge routes for placement {PlacementId} on port {HostPort}; keeping previous containers")]
     public static partial void RouteSwitchTimedOut(ILogger logger, string placementId, int hostPort);
 
     [LoggerMessage(1002, LogLevel.Warning, "Edge routes still referenced placement {PlacementId} after the drain window")]
@@ -58,6 +58,12 @@ internal static partial class AgentLog
 
     [LoggerMessage(1301, LogLevel.Information, "Drain complete")]
     public static partial void DrainCompleted(ILogger logger);
+
+    [LoggerMessage(1305, LogLevel.Warning, "Node drain incomplete: {Reason}")]
+    public static partial void DrainFailed(ILogger logger, string reason);
+
+    [LoggerMessage(1202, LogLevel.Warning, "Docker OOM event subscription interrupted: {Reason}")]
+    public static partial void OomSubscriptionInterrupted(ILogger logger, string reason);
 
     [LoggerMessage(1302, LogLevel.Information, "{MountPath} is not a dedicated block device mount; reporting current size without growing")]
     public static partial void VolumeGrowSkipped(ILogger logger, string mountPath);

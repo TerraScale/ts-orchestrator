@@ -1,14 +1,19 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
+
+internal sealed record class AppHostFileUnreadable(string Message);
+
+internal readonly union JsonFileRead(JsonFile, AppHostFileUnreadable);
+
+internal readonly union JsonDirectoryRead(IReadOnlyList<JsonFile>, AppHostFileUnreadable);
 
 internal sealed record class JsonFile(string Path, JsonNode? Node);
 
 internal static class JsonFiles
 {
-    public static Result<JsonFile, Validation> Read(string path)
+    public static JsonFileRead Read(string path)
     {
         try
         {
@@ -16,11 +21,11 @@ internal static class JsonFiles
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            return new Validation($"{path} could not be read: {exception.Message}");
+            return new AppHostFileUnreadable($"{path} could not be read: {exception.Message}");
         }
     }
 
-    public static Result<JsonFile[], Validation> ReadDirectories(IEnumerable<string> directories)
+    public static JsonDirectoryRead ReadDirectories(IEnumerable<string> directories)
     {
         try
         {
@@ -34,7 +39,7 @@ internal static class JsonFiles
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            return new Validation($"{string.Join(", ", directories)} could not be read: {exception.Message}");
+            return new AppHostFileUnreadable($"{string.Join(", ", directories)} could not be read: {exception.Message}");
         }
     }
 }

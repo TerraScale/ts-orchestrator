@@ -11,6 +11,7 @@ OOMScoreAdjust=-900
 ExecStart=/usr/bin/dotnet /opt/ts-orch/current/ts-orch.dll agent
 Restart=always
 RestartSec=1s
+ExecStopPost=/bin/sh -c 'if [ "$EXIT_STATUS" = "75" ]; then systemctl try-restart --no-block ts-orch-edge.service; fi'
 StateDirectory=ts-orch
 StateDirectoryMode=0700
 RuntimeDirectory=ts-orch

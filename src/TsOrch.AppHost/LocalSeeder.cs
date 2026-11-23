@@ -1,24 +1,29 @@
 using System.Text.Json.Nodes;
-using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
+
+internal readonly union LocalSeederConfiguration(LocalSeederOptions, AppHostArgumentInvalid);
+
+internal sealed record class LocalSeedDefinitionInvalid(string Message);
+
+internal readonly union LocalSeedRequest(SeedRequestDocument, LocalSeedDefinitionInvalid, AppHostFileUnreadable);
 
 internal sealed record class LocalSeederOptions(Uri WorkerUrl, string RepoRoot, string? LocalRegion, Uri? EdgeUrl)
 {
     public const string Flag = "--seed";
 
-    public static Result<LocalSeederOptions, Validation> Parse(IReadOnlyList<string> args) =>
+    public static LocalSeederConfiguration Parse(IReadOnlyList<string> args) =>
         AppHostArguments.AbsoluteUrl(args, "--worker-url") switch
         {
             Uri workerUrl => WithRepoRoot(workerUrl, args),
-            Validation invalid => invalid,
+            AppHostArgumentInvalid invalid => invalid,
         };
 
-    private static Result<LocalSeederOptions, Validation> WithRepoRoot(Uri workerUrl, IReadOnlyList<string> args)
+    private static LocalSeederConfiguration WithRepoRoot(Uri workerUrl, IReadOnlyList<string> args)
     {
         if (AppHostArguments.Value(args, "--repo-root") is not { Length: > 0 } repoRoot || !Directory.Exists(Path.Combine(repoRoot, "deploy")))
         {
-            return new Validation("--repo-root <dir> must point at the ts-orchestrator checkout containing deploy/.");
+            return new AppHostArgumentInvalid("--repo-root <dir> must point at the ts-orchestrator checkout containing deploy/.");
         }
 
         if (AppHostArguments.Value(args, "--edge-url") is null)
@@ -30,8 +35,8 @@ internal sealed record class LocalSeederOptions(Uri WorkerUrl, string RepoRoot, 
         {
             Uri edgeUrl => AppHostArguments.Value(args, "--local-region") is { Length: > 0 } region
                 ? new LocalSeederOptions(workerUrl, Path.GetFullPath(repoRoot), region, edgeUrl)
-                : new Validation("--edge-url requires --local-region <label>."),
-            Validation invalid => invalid,
+                : new AppHostArgumentInvalid("--edge-url requires --local-region <label>."),
+            AppHostArgumentInvalid invalid => invalid,
         };
     }
 }
@@ -53,8 +58,8 @@ internal sealed class LocalSeeder(LocalDevClient client, TextWriter stdout, Text
         var ready = await client.WaitForLocalWorkerAsync(options.WorkerUrl, WorkerStartupTimeout, cancellationToken);
         return ready switch
         {
-            Done => await LoginAndSeedAsync(options, cancellationToken),
-            RequestTimeout timedOut => Fail(timedOut.Message),
+            LocalWorkerReady => await LoginAndSeedAsync(options, cancellationToken),
+            LocalWorkerStartupTimedOut timedOut => Fail(timedOut.Message),
         };
     }
 
@@ -64,8 +69,8 @@ internal sealed class LocalSeeder(LocalDevClient client, TextWriter stdout, Text
         return login switch
         {
             string cookie => await SeedFleetAsync(options, cookie, cancellationToken),
-            PreconditionFailed notLocal => Fail(notLocal.Message),
-            Unavailable unavailable => Fail(unavailable.Message),
+            LocalDevNotEnabled notLocal => Fail(notLocal.Message),
+            LocalWorkerUnavailable unavailable => Fail(unavailable.Message),
         };
     }
 
@@ -73,7 +78,8 @@ internal sealed class LocalSeeder(LocalDevClient client, TextWriter stdout, Text
         BuildSeedRequest(options) switch
         {
             SeedRequestDocument document => await PostSeedAsync(options, cookie, document, cancellationToken),
-            Validation invalid => Fail(invalid.Message),
+            LocalSeedDefinitionInvalid invalid => Fail(invalid.Message),
+            AppHostFileUnreadable unreadable => Fail(unreadable.Message),
         };
 
     private async Task<int> PostSeedAsync(LocalSeederOptions options, string cookie, SeedRequestDocument document, CancellationToken cancellationToken)
@@ -87,9 +93,9 @@ internal sealed class LocalSeeder(LocalDevClient client, TextWriter stdout, Text
         return seeded switch
         {
             string body => await EnsureTlsAsync(options, cookie, body, cancellationToken),
-            Validation rejected => Fail(rejected.Message),
-            Unauthorized denied => Fail(denied.Message),
-            Unavailable unavailable => Fail(unavailable.Message),
+            LocalWorkerRequestRejected rejected => Fail(rejected.Message),
+            LocalWorkerAccessDenied denied => Fail(denied.Message),
+            LocalWorkerUnavailable unavailable => Fail(unavailable.Message),
         };
     }
 
@@ -100,9 +106,9 @@ internal sealed class LocalSeeder(LocalDevClient client, TextWriter stdout, Text
         return tls switch
         {
             string body => Succeed(body),
-            Validation rejected => Fail(rejected.Message),
-            Unauthorized denied => Fail(denied.Message),
-            Unavailable unavailable => Fail(unavailable.Message),
+            LocalWorkerRequestRejected rejected => Fail(rejected.Message),
+            LocalWorkerAccessDenied denied => Fail(denied.Message),
+            LocalWorkerUnavailable unavailable => Fail(unavailable.Message),
         };
     }
 
@@ -118,25 +124,25 @@ internal sealed class LocalSeeder(LocalDevClient client, TextWriter stdout, Text
         return 1;
     }
 
-    private static Result<SeedRequestDocument, Validation> BuildSeedRequest(LocalSeederOptions options)
+    private static LocalSeedRequest BuildSeedRequest(LocalSeederOptions options)
     {
         var deploy = Path.Combine(options.RepoRoot, "deploy");
         return JsonFiles.Read(Path.Combine(deploy, "fleet.json")) switch
         {
             JsonFile { Node: JsonObject fleet } when fleet["regions"] is JsonArray regions => WithPools(options, deploy, fleet, regions),
-            JsonFile => new Validation("deploy/fleet.json must be an object with a regions array."),
-            Validation invalid => invalid,
+            JsonFile => new LocalSeedDefinitionInvalid("deploy/fleet.json must be an object with a regions array."),
+            AppHostFileUnreadable unreadable => unreadable,
         };
     }
 
-    private static Result<SeedRequestDocument, Validation> WithPools(LocalSeederOptions options, string deploy, JsonObject fleet, JsonArray regions)
+    private static LocalSeedRequest WithPools(LocalSeederOptions options, string deploy, JsonObject fleet, JsonArray regions)
     {
         Dictionary<string, string> poolIds = [with(StringComparer.Ordinal)];
         foreach (var node in regions)
         {
             if (node is not JsonObject region || Text(region, "label") is not { } label || Text(region, "ociRegion") is not { } ociRegion)
             {
-                return new Validation("every deploy/fleet.json region needs label and ociRegion.");
+                return new LocalSeedDefinitionInvalid("every deploy/fleet.json region needs label and ociRegion.");
             }
 
             poolIds[label] = $"ocid1.instancepool.oc1.{ociRegion}.local-{label}";
@@ -150,19 +156,19 @@ internal sealed class LocalSeeder(LocalDevClient client, TextWriter stdout, Text
 
         return JsonFiles.ReadDirectories([Path.Combine(deploy, "services")]) switch
         {
-            JsonFile[] files => WithServices(fleet, poolIds, files),
-            Validation invalid => invalid,
+            IReadOnlyList<JsonFile> files => WithServices(fleet, poolIds, files),
+            AppHostFileUnreadable unreadable => unreadable,
         };
     }
 
-    private static Result<SeedRequestDocument, Validation> WithServices(JsonObject fleet, IReadOnlyDictionary<string, string> poolIds, JsonFile[] files)
+    private static LocalSeedRequest WithServices(JsonObject fleet, IReadOnlyDictionary<string, string> poolIds, IReadOnlyList<JsonFile> files)
     {
         List<JsonNode> services = [];
         foreach (var file in files)
         {
             if (file.Node is not JsonObject service)
             {
-                return new Validation($"{file.Path} must hold one service object.");
+                return new LocalSeedDefinitionInvalid($"{file.Path} must hold one service object.");
             }
 
             services.Add(service);

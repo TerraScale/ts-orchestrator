@@ -31,7 +31,8 @@ public sealed partial class FleetJsonContext : JsonSerializerContext;
     UseStringEnumConverter = true,
     RespectNullableAnnotations = true,
     RespectRequiredConstructorParameters = true,
-    AllowOutOfOrderMetadataProperties = true)]
+    AllowOutOfOrderMetadataProperties = true,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(AgentMessage))]
 [JsonSerializable(typeof(BackplaneMessage))]
 public sealed partial class WireJsonContext : JsonSerializerContext;
@@ -41,8 +42,10 @@ public sealed partial class WireJsonContext : JsonSerializerContext;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true,
     RespectNullableAnnotations = true,
-    RespectRequiredConstructorParameters = true)]
+    RespectRequiredConstructorParameters = true,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(EdgeRoutesSnapshot))]
+[JsonSerializable(typeof(EdgeAppliedRoutes))]
 [JsonSerializable(typeof(TlsBundle))]
 [JsonSerializable(typeof(EdgeMetricsSnapshot))]
 public sealed partial class EdgeJsonContext : JsonSerializerContext;

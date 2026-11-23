@@ -13,6 +13,11 @@ output "health_monitor_id" {
   value       = oci_health_checks_http_monitor.readyz.id
 }
 
+output "pinned_fqdns" {
+  description = "Single-region name to the region label whose NLB answers it."
+  value       = { for name, record in oci_dns_rrset.pinned : name => var.pinned_names[name] }
+}
+
 output "regional_api_fqdns" {
   description = "Region label to regional API A record name."
   value       = { for label, record in oci_dns_rrset.regional_api : label => record.domain }

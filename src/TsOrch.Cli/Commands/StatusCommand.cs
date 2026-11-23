@@ -9,28 +9,22 @@ internal static class StatusCommand
     public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.ExpectPositionals(0, "ts-orch status [--region R] [--json]") switch
         {
-            Done when arguments.Flag("json") => await environment.Api.GetTextAsync(Path(arguments), cancellationToken) switch
-            {
-                string json => Print(json, environment.Out),
-                Validation failure => environment.Fail(failure),
-                NotFound failure => environment.Fail(failure),
-                Unauthorized failure => environment.Fail(failure),
-                Forbidden failure => environment.Fail(failure),
-                Unavailable failure => environment.Fail(failure),
-            },
-            Done => await environment.Api.GetAsync(Path(arguments), ApiJsonContext.Default.StatusResponse, cancellationToken) switch
-            {
-                StatusResponse status => Render(status, environment.Out, environment.TimeProvider),
-                Validation failure => environment.Fail(failure),
-                NotFound failure => environment.Fail(failure),
-                Unauthorized failure => environment.Fail(failure),
-                Forbidden failure => environment.Fail(failure),
-                Unavailable failure => environment.Fail(failure),
-            },
-            Validation failure => environment.Fail(failure),
+            CommandPositionalsAccepted when arguments.Flag("json") => await PrintJsonAsync(Path(arguments), environment, cancellationToken),
+            CommandPositionalsAccepted => await environment.Api.GetAsync(Path(arguments), ApiJsonContext.Default.StatusResponse, status => Task.FromResult(Render(status, environment.Out, environment.TimeProvider)), environment.FailRead, cancellationToken),
+            CommandPositionalsInvalid invalid => environment.Usage($"usage: {invalid.Usage}"),
         };
 
     private static string Path(CliArguments arguments) => Query.Build("/api/status", ("region", arguments.Value("region")));
+
+    private static async Task<int> PrintJsonAsync(string path, CommandEnvironment environment, CancellationToken cancellationToken)
+    {
+        var read = await environment.Api.GetTextAsync(path, cancellationToken);
+        return read switch
+        {
+            string json => Print(json, environment.Out),
+            BackplaneProblem failure => environment.FailRead(failure),
+        };
+    }
 
     private static int Print(string json, TextWriter output)
     {

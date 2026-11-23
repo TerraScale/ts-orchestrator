@@ -73,7 +73,8 @@ public sealed record class DockerContainerSpec(
     IReadOnlyList<BindMount> Mounts,
     IReadOnlyList<string> Args,
     IReadOnlyList<PortMapping> Ports,
-    ContainerResources Resources);
+    ContainerResources Resources,
+    bool Stateful);
 
 public sealed record class PublishedPort(string HostIp, int HostPort, int ContainerPort, PortProtocol Protocol);
 
@@ -86,7 +87,8 @@ public sealed record class ManagedContainer(
     string ServiceName,
     string ConfigHash,
     bool Running,
-    IReadOnlyList<PublishedPort> Ports);
+    IReadOnlyList<PublishedPort> Ports,
+    bool? Stateful);
 
 public sealed record class ContainerState(
     string Id,
@@ -123,6 +125,8 @@ public static class ContainerLabels
     public static string Service(string prefix) => $"{prefix}.service";
 
     public static string ConfigHash(string prefix) => $"{prefix}.config-hash";
+
+    public static string Stateful(string prefix) => $"{prefix}.stateful";
 
     public static string Image(string prefix) => $"{prefix}.image";
 }
@@ -188,11 +192,17 @@ internal sealed record class DockerExecStartRequest(bool Detach, bool Tty);
 
 internal sealed record class DockerExecInspect(bool Running, int? ExitCode);
 
-internal sealed record class DockerErrorDetail(string? Message);
+internal sealed record class DockerErrorDetail([property: JsonPropertyName("message")] string? Message);
 
-internal sealed record class DockerProgressLine(string? Status, string? Error, DockerErrorDetail? ErrorDetail);
+internal sealed record class DockerProgressLine(
+    [property: JsonPropertyName("error")] string? Error,
+    [property: JsonPropertyName("errorDetail")] DockerErrorDetail? ErrorDetail);
 
-internal sealed record class DockerErrorResponse(string? Message);
+internal sealed record class DockerErrorResponse([property: JsonPropertyName("message")] string? Message);
+
+internal sealed record class DockerEventActor(string ID, IReadOnlyDictionary<string, string>? Attributes);
+
+internal sealed record class DockerOomEvent(DockerEventActor? Actor, [property: JsonPropertyName("timeNano")] long TimeNano);
 
 internal sealed record class DockerCpuUsage([property: JsonPropertyName("total_usage")] long TotalUsage);
 
@@ -229,4 +239,5 @@ internal sealed record class DockerStats(
 [JsonSerializable(typeof(DockerProgressLine))]
 [JsonSerializable(typeof(DockerErrorResponse))]
 [JsonSerializable(typeof(DockerStats))]
+[JsonSerializable(typeof(DockerOomEvent))]
 internal sealed partial class DockerJsonContext : JsonSerializerContext;

@@ -11,6 +11,9 @@ public sealed partial class EdgeRouteTable(
 {
     private EdgeRouteSnapshot _current = EdgeRouteSnapshot.Empty;
     private FileStamp _stamp;
+    private long? _acknowledgedRevision;
+
+    public bool HasLoadedRoutes => !ReferenceEquals(Current, EdgeRouteSnapshot.Empty);
 
     public EdgeRouteSnapshot Current => Volatile.Read(ref _current);
 
@@ -35,12 +38,24 @@ public sealed partial class EdgeRouteTable(
     private async Task ReloadAsync(CancellationToken cancellationToken)
     {
         var stamp = FileStamp.Read(options.RoutesFile);
-        if (!stamp.Exists || stamp == _stamp)
+        if (stamp.Exists && stamp != _stamp)
         {
-            return;
+            _stamp = stamp;
+            await LoadAsync(cancellationToken);
         }
 
-        _stamp = stamp;
+        var snapshot = Current;
+        if (HasLoadedRoutes && _acknowledgedRevision != snapshot.Revision)
+        {
+            if (await AcknowledgeAsync(snapshot.Revision, cancellationToken))
+            {
+                _acknowledgedRevision = snapshot.Revision;
+            }
+        }
+    }
+
+    private async Task LoadAsync(CancellationToken cancellationToken)
+    {
         EdgeRoutesSnapshot? routes;
         try
         {
@@ -70,6 +85,32 @@ public sealed partial class EdgeRouteTable(
         circuitBreaker.Retain(snapshot);
         LogRoutesLoaded(logger, snapshot.Revision, snapshot.HttpRoutes.Count, snapshot.PostgresRoutes.Count);
     }
+
+    private async Task<bool> AcknowledgeAsync(long revision, CancellationToken cancellationToken)
+    {
+        var path = Path.Join(Path.GetDirectoryName(options.RoutesFile), NodePaths.AppliedRoutesFileName);
+        var temporary = path + ".tmp";
+        var document = new EdgeAppliedRoutes(revision, timeProvider.GetUtcNow().ToUnixTimeMilliseconds());
+        try
+        {
+            await File.WriteAllBytesAsync(temporary, JsonSerializer.SerializeToUtf8Bytes(document, EdgeJsonContext.Default.EdgeAppliedRoutes), cancellationToken);
+            File.Move(temporary, path, overwrite: true);
+            return true;
+        }
+        catch (IOException exception)
+        {
+            LogAcknowledgementFailed(logger, revision, exception);
+            return false;
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            LogAcknowledgementFailed(logger, revision, exception);
+            return false;
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not acknowledge applied edge routes revision {Revision}")]
+    private static partial void LogAcknowledgementFailed(ILogger logger, long revision, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Loaded edge routes revision {Revision}: {HttpRoutes} HTTP, {PostgresRoutes} Postgres")]
     private static partial void LogRoutesLoaded(ILogger logger, long revision, int httpRoutes, int postgresRoutes);

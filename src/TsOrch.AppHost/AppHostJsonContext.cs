@@ -28,6 +28,17 @@ internal sealed record class SecretBundleDocument(
     string TimeCreated,
     SecretBundleContentDocument SecretBundleContent);
 
+internal sealed record class MockFederationRequest(
+    [property: JsonRequired] string Certificate,
+    [property: JsonRequired] string PublicKey,
+    [property: JsonRequired] IReadOnlyList<string> IntermediateCertificates,
+    [property: JsonRequired] string Purpose,
+    [property: JsonRequired] string FingerprintAlgorithm);
+
+internal sealed record class MockFederationResponse(string Token);
+
+internal sealed record class MockFederationClaims(long Exp, string PublicKey);
+
 internal sealed record class OciErrorDocument(string Code, string Message);
 
 internal sealed record class UpdateInstancePoolDocument(int Size);
@@ -101,6 +112,9 @@ internal sealed record class ChaosRequestDocument(
 [JsonSerializable(typeof(IReadOnlyList<ImdsVnicDocument>))]
 [JsonSerializable(typeof(SecretBundleDocument))]
 [JsonSerializable(typeof(OciErrorDocument))]
+[JsonSerializable(typeof(MockFederationRequest))]
+[JsonSerializable(typeof(MockFederationResponse))]
+[JsonSerializable(typeof(MockFederationClaims))]
 [JsonSerializable(typeof(UpdateInstancePoolDocument))]
 [JsonSerializable(typeof(DetachInstanceDocument))]
 [JsonSerializable(typeof(UpdateVolumeDocument))]

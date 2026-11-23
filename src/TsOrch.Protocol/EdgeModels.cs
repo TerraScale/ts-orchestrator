@@ -19,3 +19,5 @@ public sealed record class PostgresRouteEntry(
     IReadOnlyList<PostgresUpstream> Upstreams);
 
 public sealed record class PostgresUpstream(string PlacementId, string NodeId, string Address, int Port, bool Local);
+
+public sealed record class EdgeAppliedRoutes(long Revision, long AppliedAt);

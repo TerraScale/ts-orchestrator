@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -37,52 +38,43 @@ internal sealed class McpTools(OrchApi api)
         name switch
         {
             "status" => Render(await api.GetTextAsync(Query.Build("/api/status", ("region", Text(arguments, "region"))), cancellationToken)),
-            "logs" => Render(await LogsAsync(arguments, cancellationToken)),
-            "metrics" => Render(await MetricsAsync(arguments, cancellationToken)),
-            "events" => Render(await EventsAsync(arguments, cancellationToken)),
+            "logs" => await LogsAsync(arguments, cancellationToken),
+            "metrics" => await MetricsAsync(arguments, cancellationToken),
+            "events" => await EventsAsync(arguments, cancellationToken),
             "diff" => await DiffAsync(arguments, cancellationToken),
-            _ => Unknown(new NotFound($"Unknown tool '{name}'.")),
+            _ => Failure(CliDiagnostic.Missing($"Unknown tool '{name}'.")),
         };
 
-    private static McpToolCallResult Unknown(NotFound failure) => Failure(failure.Code, failure.Message);
-
-    private static McpToolCallResult Render(Result<string, Validation, NotFound, Unauthorized, Forbidden, Unavailable> outcome) => outcome switch
+    private static McpToolCallResult Render(BackplaneText outcome) => outcome switch
     {
         string text => Success(text),
-        Validation failure => Failure(failure.Code, failure.Message),
-        NotFound failure => Failure(failure.Code, failure.Message),
-        Unauthorized failure => Failure(failure.Code, failure.Message),
-        Forbidden failure => Failure(failure.Code, failure.Message),
-        Unavailable failure => Failure(failure.Code, failure.Message),
+        BackplaneProblem failure => Failure(CliDiagnostic.From(failure, unexpectedConflict: true)),
     };
 
     private static McpToolCallResult Success(string text) => new([new McpTextContent("text", text)], IsError: false);
 
-    private static McpToolCallResult Failure(string code, string message) => new([new McpTextContent("text", $"{code}: {message}")], IsError: true);
+    private static McpToolCallResult Failure(CliDiagnostic diagnostic) =>
+        new([new McpTextContent("text", $"{diagnostic.Code}: {diagnostic.Message}")], IsError: true);
 
-    private async Task<Result<string, Validation, NotFound, Unauthorized, Forbidden, Unavailable>> LogsAsync(JsonElement? arguments, CancellationToken cancellationToken)
+    private async Task<McpToolCallResult> LogsAsync(JsonElement? arguments, CancellationToken cancellationToken)
     {
         if (Text(arguments, "service") is not { } service)
         {
-            return new Validation("logs needs a 'service' argument.");
+            return Failure(CliDiagnostic.Usage("logs needs a 'service' argument."));
         }
 
         return Integer(arguments, "tail", 100, 0, MaxLogLines) switch
         {
             int tail => await CollectLogsAsync(service, Text(arguments, "node"), tail, cancellationToken),
-            Validation failure => failure,
+            InvalidMcpInteger invalid => Failure(CliDiagnostic.Usage(invalid.Message)),
         };
     }
 
-    private async Task<Result<string, Validation, NotFound, Unauthorized, Forbidden, Unavailable>> CollectLogsAsync(
-        string service,
-        string? node,
-        int tail,
-        CancellationToken cancellationToken)
+    private async Task<McpToolCallResult> CollectLogsAsync(string service, string? node, int tail, CancellationToken cancellationToken)
     {
         var lines = new StringBuilder();
         var count = 0;
-        return await api.StreamAsync(
+        var stream = await api.StreamAsync(
             LogsCommand.Path(service, node, tail, follow: false),
             CliJsonContext.Default.LogLine,
             (line, _) =>
@@ -94,48 +86,47 @@ internal sealed class McpTools(OrchApi api)
 
                 return Task.CompletedTask;
             },
-            cancellationToken) switch
+            cancellationToken);
+        return stream switch
         {
-            Done => count == 0 ? $"No log lines returned for {service}." : lines.ToString(),
-            Validation failure => failure,
-            NotFound failure => failure,
-            Unauthorized failure => failure,
-            Forbidden failure => failure,
-            Unavailable failure => failure,
+            BackplaneStreamCompleted => Success(count == 0 ? $"No log lines returned for {service}." : lines.ToString()),
+            BackplaneProblem failure => Failure(CliDiagnostic.From(failure, unexpectedConflict: true)),
         };
     }
 
-    private async Task<Result<string, Validation, NotFound, Unauthorized, Forbidden, Unavailable>> MetricsAsync(JsonElement? arguments, CancellationToken cancellationToken)
+    private async Task<McpToolCallResult> MetricsAsync(JsonElement? arguments, CancellationToken cancellationToken)
     {
         var window = Text(arguments, "window");
         if (window is not (null or "1h" or "48h"))
         {
-            return new Validation("metrics 'window' must be '1h' or '48h'.");
+            return Failure(CliDiagnostic.Usage("metrics 'window' must be '1h' or '48h'."));
         }
 
-        return await api.GetTextAsync(
+        return Render(await api.GetTextAsync(
             Query.Build("/api/metrics", ("region", Text(arguments, "region")), ("node", Text(arguments, "node")), ("window", window)),
-            cancellationToken);
+            cancellationToken));
     }
 
-    private async Task<Result<string, Validation, NotFound, Unauthorized, Forbidden, Unavailable>> EventsAsync(JsonElement? arguments, CancellationToken cancellationToken) =>
+    private async Task<McpToolCallResult> EventsAsync(JsonElement? arguments, CancellationToken cancellationToken) =>
         Integer(arguments, "limit", 100, 1, 2_000) switch
         {
-            int limit => await api.GetTextAsync(EventsCommand.Path(Text(arguments, "region"), limit, follow: false), cancellationToken),
-            Validation failure => failure,
+            int limit => Render(await api.GetTextAsync(EventsCommand.Path(Text(arguments, "region"), limit, follow: false), cancellationToken)),
+            InvalidMcpInteger invalid => Failure(CliDiagnostic.Usage(invalid.Message)),
         };
 
-    private async Task<McpToolCallResult> DiffAsync(JsonElement? arguments, CancellationToken cancellationToken) =>
-        await DiffCommand.FetchAsync(api, Text(arguments, "path") ?? SpecFiles.DefaultServicesPath, cancellationToken) switch
+    private async Task<McpToolCallResult> DiffAsync(JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        var outcome = await DiffCommand.FetchAsync(api, Text(arguments, "path") ?? SpecFiles.DefaultServicesPath, cancellationToken);
+        return outcome switch
         {
             IReadOnlyList<DiffItem> items => Success(JsonSerializer.Serialize(new DiffResponse(items), CliJsonContext.Default.DiffResponse)),
-            Validation failure => Failure(failure.Code, failure.Message),
-            NotFound failure => Failure(failure.Code, failure.Message),
-            Conflict failure => Failure(failure.Code, failure.Message),
-            Unauthorized failure => Failure(failure.Code, failure.Message),
-            Forbidden failure => Failure(failure.Code, failure.Message),
-            Unavailable failure => Failure(failure.Code, failure.Message),
+            CliFileReadProblem failure => Failure(CliFiles.Describe(failure)),
+            ServiceDefinitionInvalid failure => Failure(SpecFiles.Describe(failure)),
+            DuplicateServiceDefinition failure => Failure(SpecFiles.Describe(failure)),
+            ServiceDefinitionsMissing failure => Failure(SpecFiles.Describe(failure)),
+            BackplaneProblem failure => Failure(CliDiagnostic.From(failure)),
         };
+    }
 
     private static string? Text(JsonElement? arguments, string name) =>
         arguments is { ValueKind: JsonValueKind.Object } values
@@ -145,7 +136,7 @@ internal sealed class McpTools(OrchApi api)
             ? text
             : null;
 
-    private static Result<int, Validation> Integer(JsonElement? arguments, string name, int fallback, int min, int max)
+    private static McpInteger Integer(JsonElement? arguments, string name, int fallback, int min, int max)
     {
         if (arguments is not { ValueKind: JsonValueKind.Object } values || !values.TryGetProperty(name, out var value))
         {
@@ -154,8 +145,15 @@ internal sealed class McpTools(OrchApi api)
 
         return value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number) && number >= min && number <= max
             ? number
-            : new Validation($"'{name}' must be an integer between {min} and {max}.");
+            : new InvalidMcpInteger(name, min, max);
     }
+
+    private sealed record class InvalidMcpInteger(string Name, int Min, int Max)
+    {
+        public string Message => string.Create(CultureInfo.InvariantCulture, $"'{Name}' must be an integer between {Min} and {Max}.");
+    }
+
+    private readonly union McpInteger(int, InvalidMcpInteger);
 
     private static McpTool Define(string name, string description, string schema)
     {

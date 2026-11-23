@@ -6,8 +6,6 @@ namespace TsOrch.Agent;
 public sealed class NodeReportComposer(
     HostMetricsCollector metrics,
     PlacementTracker tracker,
-    DockerEngineClient docker,
-    AgentOptions options,
     TimeProvider timeProvider)
 {
     public static string AgentVersion { get; } =
@@ -38,17 +36,11 @@ public sealed class NodeReportComposer(
     public async Task<Heartbeat> ComposeHeartbeatAsync(CancellationToken cancellationToken)
     {
         var host = await metrics.CollectHostAsync(cancellationToken);
-        var containerMetrics = await docker.ListManagedContainersAsync(options.LabelPrefix, cancellationToken) switch
-        {
-            IReadOnlyList<ManagedContainer> containers => await metrics.CollectContainersAsync(containers, cancellationToken),
-            Unavailable => [],
-            InternalFailure => [],
-        };
         return new Heartbeat(
             timeProvider.GetUtcNow().ToUnixTimeMilliseconds(),
             tracker.Snapshot(),
             host,
-            containerMetrics,
+            metrics.ContainerSnapshot(),
             await metrics.ReadEdgeMetricsAsync(cancellationToken));
     }
 

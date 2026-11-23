@@ -34,11 +34,14 @@ case "$pool" in
 esac
 
 iptables -I INPUT -p tcp -m multiport --dports 80,443,5432 -j ACCEPT
+iptables -I INPUT -p udp --dport 443 -j ACCEPT
 iptables -I INPUT -s "$vcn_cidr" -j ACCEPT
 if [[ -n "$netbird_udp_ports" ]]; then
   iptables -I INPUT -p udp -m multiport --dports "$netbird_udp_ports" -j ACCEPT
 fi
 iptables -N DOCKER-USER
+iptables -A DOCKER-USER -d 169.254.169.254/32 -p udp --dport 53 -j RETURN
+iptables -A DOCKER-USER -d 169.254.169.254/32 -p tcp --dport 53 -j RETURN
 iptables -A DOCKER-USER -d 169.254.0.0/16 -j REJECT
 netfilter-persistent save
 
@@ -59,10 +62,22 @@ install -d -m 0755 /etc/apt/keyrings
 curl -fsSL "https://download.docker.com/linux/ubuntu/gpg" -o /etc/apt/keyrings/docker.asc
 chmod 0644 /etc/apt/keyrings/docker.asc
 echo "deb [arch=$deb_arch signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $VERSION_CODENAME stable" >/etc/apt/sources.list.d/docker.list
+curl -fsSL "https://packages.microsoft.com/keys/microsoft.asc" -o /etc/apt/keyrings/microsoft.asc
+chmod 0644 /etc/apt/keyrings/microsoft.asc
+echo "deb [arch=$deb_arch signed-by=/etc/apt/keyrings/microsoft.asc] https://packages.microsoft.com/ubuntu/$VERSION_ID/prod $VERSION_CODENAME main" >/etc/apt/sources.list.d/microsoft-prod.list
+cat >/etc/apt/preferences.d/microsoft-prod <<'PIN'
+Package: *
+Pin: origin packages.microsoft.com
+Pin-Priority: -10
+
+Package: libmsquic
+Pin: origin packages.microsoft.com
+Pin-Priority: 500
+PIN
 add-apt-repository -y ppa:dotnet/backports
 
 apt-get update
-apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io aspnetcore-runtime-11.0 systemd-oomd
+apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io aspnetcore-runtime-11.0 libmsquic systemd-oomd
 
 systemctl enable --now docker.service systemd-oomd.service
 

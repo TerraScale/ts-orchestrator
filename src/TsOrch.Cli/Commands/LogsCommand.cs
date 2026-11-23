@@ -7,12 +7,12 @@ internal static class LogsCommand
     public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.ExpectPositionals(1, "ts-orch logs <service> [--node ID] [--tail N] [-f]") switch
         {
-            Done => arguments.Int("tail", 100, 0, 10_000) switch
+            CommandPositionalsAccepted => arguments.Int("tail", 100, 0, 10_000) switch
             {
                 int tail => await StreamAsync(arguments, tail, environment, cancellationToken),
-                Validation failure => environment.Fail(failure),
+                InvalidCliInteger invalid => environment.Usage(invalid.Message),
             },
-            Validation failure => environment.Fail(failure),
+            CommandPositionalsInvalid invalid => environment.Usage($"usage: {invalid.Usage}"),
         };
 
     public static string Path(string service, string? node, int tail, bool follow) =>
@@ -27,7 +27,7 @@ internal static class LogsCommand
     {
         var node = arguments.Value("node");
         var output = environment.Out;
-        return await environment.Api.StreamAsync(
+        var streamed = await environment.Api.StreamAsync(
             Path(arguments.Positionals[0], node, tail, arguments.Flag("follow")),
             CliJsonContext.Default.LogLine,
             async (line, token) =>
@@ -35,14 +35,11 @@ internal static class LogsCommand
                 await output.WriteLineAsync((node is null ? $"{line.NodeId} | {line.Line}" : line.Line).AsMemory(), token);
                 await output.FlushAsync(token);
             },
-            cancellationToken) switch
+            cancellationToken);
+        return streamed switch
         {
-            Done => ExitCodes.Ok,
-            Validation failure => environment.Fail(failure),
-            NotFound failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
+            BackplaneStreamCompleted => ExitCodes.Ok,
+            BackplaneProblem failure => environment.FailRead(failure),
         };
     }
 }

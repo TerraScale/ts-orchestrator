@@ -36,7 +36,8 @@ public sealed partial class PostgresSniConnectionHandler(
         metrics.PostgresConnectionOpened();
         try
         {
-            await (await NegotiateAsync(connection) switch
+            var outcome = await NegotiateAsync(connection);
+            await (outcome switch
             {
                 NegotiationRejected rejected => RejectAsync(connection, rejected),
                 SniNegotiated negotiated => ForwardAsync(connection, negotiated.ServerName),

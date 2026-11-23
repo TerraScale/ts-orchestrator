@@ -6,12 +6,62 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace TsOrch.Agent;
 
+public readonly record struct DockerRequestCompleted;
+
+public sealed record class DockerResourceMissing(string Message);
+
+public sealed record class DockerResourceBusy(string Message);
+
+public sealed record class DockerDaemonUnavailable(string Message);
+
+public sealed record class DockerResponseInvalid(string Message);
+
+public sealed record class DockerExecCommandMissing(string Message);
+
+public sealed record class DockerExecTimedOut(string Message);
+
+public readonly union DockerImagePull(DockerRequestCompleted, DockerResourceMissing, DockerDaemonUnavailable, DockerResponseInvalid, DockerImagePullRejected);
+
+public sealed record class DockerImagePullRejected(string Image, string Error)
+{
+    public string Message => $"Pull of {Image} failed: {Error}";
+}
+
+public readonly union DockerContainerStart(DockerRequestCompleted, DockerResourceMissing, DockerDaemonUnavailable, DockerResponseInvalid);
+
+public readonly union DockerLogRead(DockerRequestCompleted, DockerResourceMissing, DockerDaemonUnavailable, DockerResponseInvalid);
+
+public readonly union DockerManagedContainers(IReadOnlyList<ManagedContainer>, DockerDaemonUnavailable, DockerResponseInvalid);
+
+public readonly union DockerContainerImageIds(IReadOnlySet<string>, DockerDaemonUnavailable, DockerResponseInvalid);
+
+public readonly union DockerContainerCreation(string, DockerResourceMissing, DockerResourceBusy, DockerDaemonUnavailable, DockerResponseInvalid);
+
+public readonly union DockerContainerStop(DockerRequestCompleted, DockerDaemonUnavailable, DockerResponseInvalid);
+
+public readonly union DockerContainerRemoval(DockerRequestCompleted, DockerResourceBusy, DockerDaemonUnavailable, DockerResponseInvalid);
+
+public readonly union DockerContainerInspection(ContainerState, DockerResourceMissing, DockerDaemonUnavailable, DockerResponseInvalid);
+
+public readonly union DockerContainerStats(ContainerStatsSample, DockerResourceMissing, DockerDaemonUnavailable, DockerResponseInvalid);
+
+public readonly union DockerExec(ExecOutput, DockerExecCommandMissing, DockerResourceMissing, DockerResourceBusy, DockerExecTimedOut, DockerDaemonUnavailable, DockerResponseInvalid);
+
+public readonly union DockerImageRemoval(DockerRequestCompleted, DockerResourceMissing, DockerResourceBusy, DockerDaemonUnavailable, DockerResponseInvalid);
+
+public readonly union DockerImages(IReadOnlyList<DockerImage>, DockerDaemonUnavailable, DockerResponseInvalid);
+
+internal readonly union DockerHttpExchange(HttpResponseMessage, DockerResourceMissing, DockerResourceBusy, DockerDaemonUnavailable, DockerResponseInvalid);
+
 public sealed class DockerEngineClient(AgentOptions options, TimeProvider timeProvider) : IDisposable
 {
     private const string ApiVersion = "v1.45";
     private const int MaxLogLineChars = 16 * 1024;
     private const int MaxExecOutputChars = 1024 * 1024;
     private const string EphemeralHostPort = "";
+    private static readonly TimeSpan ApiTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan PullTimeout = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan EventSubscriptionTimeout = TimeSpan.FromMinutes(5);
 
     private readonly HttpClient _http = new(CreateHandler(options.DockerSocketPath), disposeHandler: true)
     {
@@ -21,7 +71,7 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
 
     public void Dispose() => _http.Dispose();
 
-    public async Task<Result<Done, NotFound, Unavailable, InternalFailure>> PullImageAsync(string image, string? registryAuth, CancellationToken cancellationToken)
+    public async Task<DockerImagePull> PullImageAsync(string image, string? registryAuth, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(image);
         using var request = new HttpRequestMessage(HttpMethod.Post, $"images/create?fromImage={Uri.EscapeDataString(ImageReference.WithDefaultTag(image))}");
@@ -30,41 +80,61 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
             request.Headers.Add("X-Registry-Auth", registryAuth);
         }
 
-        return await SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken) switch
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        operation.CancelAfter(PullTimeout);
+        try
         {
-            HttpResponseMessage response => await ReadPullProgressAsync(response, image, cancellationToken),
-            NotFound failure => failure,
-            Conflict failure => new InternalFailure(failure.Message),
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
-        };
+            var outcome = await SendAsync(request, HttpCompletionOption.ResponseHeadersRead, operation.Token);
+            return outcome switch
+            {
+                HttpResponseMessage response => await ReadPullProgressAsync(response, image, operation.Token),
+                DockerResourceMissing failure => failure,
+                DockerResourceBusy failure => new DockerResponseInvalid(failure.Message),
+                DockerDaemonUnavailable failure => failure,
+                DockerResponseInvalid failure => failure,
+            };
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new DockerDaemonUnavailable("Image pull exceeded the Docker operation deadline.");
+        }
     }
 
-    public async Task<Result<IReadOnlyList<ManagedContainer>, Unavailable, InternalFailure>> ListManagedContainersAsync(string labelPrefix, CancellationToken cancellationToken)
+    public async Task<DockerManagedContainers> ListManagedContainersAsync(string labelPrefix, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(labelPrefix);
         var filters = $$"""{"label":["{{ContainerLabels.Managed(labelPrefix)}}=true"]}""";
-        return await GetJsonAsync($"containers/json?all=true&filters={Uri.EscapeDataString(filters)}", DockerJsonContext.Default.IReadOnlyListDockerContainerSummary, cancellationToken) switch
+        var outcome = await GetAsync($"containers/json?all=true&filters={Uri.EscapeDataString(filters)}", cancellationToken);
+        return outcome switch
         {
-            IReadOnlyList<DockerContainerSummary> listed => Managed(listed, labelPrefix),
-            NotFound failure => new InternalFailure(failure.Message),
-            Conflict failure => new InternalFailure(failure.Message),
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            HttpResponseMessage response => await ReadJsonAsync(response, DockerJsonContext.Default.IReadOnlyListDockerContainerSummary,
+                listed => Managed(listed, labelPrefix),
+                static failure => (DockerManagedContainers)failure,
+                static failure => (DockerManagedContainers)failure, cancellationToken),
+            DockerResourceMissing failure => new DockerResponseInvalid(failure.Message),
+            DockerResourceBusy failure => new DockerResponseInvalid(failure.Message),
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
     }
 
-    public async Task<Result<IReadOnlySet<string>, Unavailable, InternalFailure>> ListContainerImageIdsAsync(CancellationToken cancellationToken) =>
-        await GetJsonAsync("containers/json?all=true", DockerJsonContext.Default.IReadOnlyListDockerContainerSummary, cancellationToken) switch
+    public async Task<DockerContainerImageIds> ListContainerImageIdsAsync(CancellationToken cancellationToken)
+    {
+        var outcome = await GetAsync("containers/json?all=true", cancellationToken);
+        return outcome switch
         {
-            IReadOnlyList<DockerContainerSummary> listed => ImageIds(listed),
-            NotFound failure => new InternalFailure(failure.Message),
-            Conflict failure => new InternalFailure(failure.Message),
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            HttpResponseMessage response => await ReadJsonAsync(response, DockerJsonContext.Default.IReadOnlyListDockerContainerSummary,
+                static document => ImageIds(document),
+                static failure => (DockerContainerImageIds)failure,
+                static failure => (DockerContainerImageIds)failure, cancellationToken),
+            DockerResourceMissing failure => new DockerResponseInvalid(failure.Message),
+            DockerResourceBusy failure => new DockerResponseInvalid(failure.Message),
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
+    }
 
-    public async Task<Result<string, NotFound, Conflict, Unavailable, InternalFailure>> CreateContainerAsync(DockerContainerSpec spec, CancellationToken cancellationToken)
+    public async Task<DockerContainerCreation> CreateContainerAsync(DockerContainerSpec spec, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(spec);
         var labels = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -74,6 +144,7 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
             [ContainerLabels.Service(spec.LabelPrefix)] = spec.ServiceName,
             [ContainerLabels.ConfigHash(spec.LabelPrefix)] = spec.ConfigHash,
             [ContainerLabels.Image(spec.LabelPrefix)] = spec.Image,
+            [ContainerLabels.Stateful(spec.LabelPrefix)] = spec.Stateful ? "true" : "false",
         };
         Dictionary<string, DockerEmpty> exposed = [with(StringComparer.Ordinal)];
         Dictionary<string, IReadOnlyList<DockerPortBinding>> bindings = [with(StringComparer.Ordinal)];
@@ -106,77 +177,96 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
         {
             Content = JsonContent.Create(body, DockerJsonContext.Default.DockerCreateContainerRequest),
         };
-        return await SendForJsonAsync(request, DockerJsonContext.Default.DockerIdResponse, cancellationToken) switch
+        var outcome = await SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
+        return outcome switch
         {
-            DockerIdResponse response => response.Id,
-            NotFound failure => failure,
-            Conflict failure => failure,
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            HttpResponseMessage response => await ReadJsonAsync(response, DockerJsonContext.Default.DockerIdResponse,
+                static document => document.Id,
+                static failure => (DockerContainerCreation)failure,
+                static failure => (DockerContainerCreation)failure, cancellationToken),
+            DockerResourceMissing failure => failure,
+            DockerResourceBusy failure => failure,
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
     }
 
-    public async Task<Result<Done, NotFound, Unavailable, InternalFailure>> StartContainerAsync(string containerId, CancellationToken cancellationToken)
+    public async Task<DockerContainerStart> StartContainerAsync(string containerId, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"containers/{Uri.EscapeDataString(containerId)}/start");
-        return await SendForDoneAsync(request, cancellationToken) switch
+        var outcome = await SendForDoneAsync(request, cancellationToken);
+        return outcome switch
         {
-            Done done => done,
-            NotFound failure => failure,
-            Conflict failure => new InternalFailure(failure.Message),
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            DockerRequestCompleted done => done,
+            DockerResourceMissing failure => failure,
+            DockerResourceBusy failure => new DockerResponseInvalid(failure.Message),
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
     }
 
-    public async Task<Result<Done, Unavailable, InternalFailure>> StopContainerAsync(string containerId, int timeoutSeconds, CancellationToken cancellationToken)
+    public async Task<DockerContainerStop> StopContainerAsync(string containerId, int timeoutSeconds, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(timeoutSeconds);
         using var request = new HttpRequestMessage(HttpMethod.Post, string.Create(CultureInfo.InvariantCulture, $"containers/{Uri.EscapeDataString(containerId)}/stop?t={timeoutSeconds}"));
-        return await SendForDoneAsync(request, cancellationToken) switch
+        var outcome = await SendForDoneAsync(request, cancellationToken);
+        return outcome switch
         {
-            Done done => done,
-            NotFound => new Done(),
-            Conflict failure => new InternalFailure(failure.Message),
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            DockerRequestCompleted done => done,
+            DockerResourceMissing => new DockerRequestCompleted(),
+            DockerResourceBusy failure => new DockerResponseInvalid(failure.Message),
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
     }
 
-    public async Task<Result<Done, Conflict, Unavailable, InternalFailure>> RemoveContainerAsync(string containerId, bool force, CancellationToken cancellationToken)
+    public async Task<DockerContainerRemoval> RemoveContainerAsync(string containerId, bool force, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Delete, $"containers/{Uri.EscapeDataString(containerId)}?force={(force ? "true" : "false")}");
-        return await SendForDoneAsync(request, cancellationToken) switch
+        var outcome = await SendForDoneAsync(request, cancellationToken);
+        return outcome switch
         {
-            Done done => done,
-            NotFound => new Done(),
-            Conflict failure => failure,
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            DockerRequestCompleted done => done,
+            DockerResourceMissing => new DockerRequestCompleted(),
+            DockerResourceBusy failure => failure,
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
     }
 
-    public async Task<Result<ContainerState, NotFound, Unavailable, InternalFailure>> InspectContainerAsync(string containerId, CancellationToken cancellationToken) =>
-        await GetJsonAsync($"containers/{Uri.EscapeDataString(containerId)}/json", DockerJsonContext.Default.DockerContainerInspect, cancellationToken) switch
+    public async Task<DockerContainerInspection> InspectContainerAsync(string containerId, CancellationToken cancellationToken)
+    {
+        var outcome = await GetAsync($"containers/{Uri.EscapeDataString(containerId)}/json", cancellationToken);
+        return outcome switch
         {
-            DockerContainerInspect inspected => State(inspected),
-            NotFound failure => failure,
-            Conflict failure => new InternalFailure(failure.Message),
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            HttpResponseMessage response => await ReadJsonAsync(response, DockerJsonContext.Default.DockerContainerInspect,
+                static document => State(document),
+                static failure => (DockerContainerInspection)failure,
+                static failure => (DockerContainerInspection)failure, cancellationToken),
+            DockerResourceMissing failure => failure,
+            DockerResourceBusy failure => new DockerResponseInvalid(failure.Message),
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
+    }
 
-    public async Task<Result<ContainerStatsSample, NotFound, Unavailable, InternalFailure>> GetContainerStatsAsync(string containerId, CancellationToken cancellationToken) =>
-        await GetJsonAsync($"containers/{Uri.EscapeDataString(containerId)}/stats?stream=false&one-shot=true", DockerJsonContext.Default.DockerStats, cancellationToken) switch
+    public async Task<DockerContainerStats> GetContainerStatsAsync(string containerId, CancellationToken cancellationToken)
+    {
+        var outcome = await GetAsync($"containers/{Uri.EscapeDataString(containerId)}/stats?stream=false&one-shot=true", cancellationToken);
+        return outcome switch
         {
-            DockerStats stats => Sample(stats),
-            NotFound failure => failure,
-            Conflict failure => new InternalFailure(failure.Message),
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            HttpResponseMessage response => await ReadJsonAsync(response, DockerJsonContext.Default.DockerStats,
+                static document => Sample(document),
+                static failure => (DockerContainerStats)failure,
+                static failure => (DockerContainerStats)failure, cancellationToken),
+            DockerResourceMissing failure => failure,
+            DockerResourceBusy failure => new DockerResponseInvalid(failure.Message),
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
+    }
 
-    public async Task<Result<Done, NotFound, Unavailable, InternalFailure>> StreamLogsAsync(
+    public async Task<DockerLogRead> StreamLogsAsync(
         string containerId,
         int tail,
         bool follow,
@@ -188,17 +278,30 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
             string.Create(CultureInfo.InvariantCulture, $"containers/{Uri.EscapeDataString(containerId)}/logs?stdout=true&stderr=true&follow={(follow ? "true" : "false")}&tail={tail}"));
-        return await SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken) switch
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (!follow)
         {
-            HttpResponseMessage response => await ReadLogsAsync(response, containerId, onLine, cancellationToken),
-            NotFound failure => failure,
-            Conflict failure => new InternalFailure(failure.Message),
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
-        };
+            operation.CancelAfter(ApiTimeout);
+        }
+        try
+        {
+            var outcome = await SendAsync(request, HttpCompletionOption.ResponseHeadersRead, operation.Token);
+            return outcome switch
+            {
+                HttpResponseMessage response => await ReadLogsAsync(response, containerId, onLine, operation.Token),
+                DockerResourceMissing failure => failure,
+                DockerResourceBusy failure => new DockerResponseInvalid(failure.Message),
+                DockerDaemonUnavailable failure => failure,
+                DockerResponseInvalid failure => failure,
+            };
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new DockerDaemonUnavailable("Log read exceeded the Docker operation deadline.");
+        }
     }
 
-    public async Task<Result<ExecOutput, Validation, NotFound, Conflict, RequestTimeout, Unavailable, InternalFailure>> ExecOnceAsync(
+    public async Task<DockerExec> ExecOnceAsync(
         string containerId,
         IReadOnlyList<string> command,
         TimeSpan timeout,
@@ -207,7 +310,7 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
         ArgumentNullException.ThrowIfNull(command);
         if (command.Count == 0)
         {
-            return new Validation("Exec command must not be empty.");
+            return new DockerExecCommandMissing("Exec command must not be empty.");
         }
 
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
@@ -219,42 +322,86 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
         };
         try
         {
-            return await SendForJsonAsync(createRequest, DockerJsonContext.Default.DockerIdResponse, linked.Token) switch
+            var submitted = await SendAsync(createRequest, HttpCompletionOption.ResponseContentRead, linked.Token);
+            return submitted switch
             {
-                DockerIdResponse created => await RunExecAsync(created.Id, linked.Token) switch
-                {
-                    ExecOutput output => output,
-                    NotFound failure => failure,
-                    Conflict failure => failure,
-                    Unavailable failure => failure,
-                    InternalFailure failure => failure,
-                },
-                NotFound failure => failure,
-                Conflict failure => failure,
-                Unavailable failure => failure,
-                InternalFailure failure => failure,
+                HttpResponseMessage response => await ReadExecIdAsync(response, linked.Token),
+                DockerResourceMissing failure => failure,
+                DockerResourceBusy failure => failure,
+                DockerDaemonUnavailable failure => failure,
+                DockerResponseInvalid failure => failure,
             };
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new RequestTimeout(string.Create(CultureInfo.InvariantCulture, $"Exec in {containerId} exceeded {timeout.TotalSeconds:0} s."));
+            return new DockerExecTimedOut(string.Create(CultureInfo.InvariantCulture, $"Exec in {containerId} exceeded {timeout.TotalSeconds:0} s."));
         }
     }
 
-    public async Task<Result<IReadOnlyList<DockerImage>, Unavailable, InternalFailure>> ListImagesAsync(CancellationToken cancellationToken) =>
-        await GetJsonAsync("images/json", DockerJsonContext.Default.IReadOnlyListDockerImageSummary, cancellationToken) switch
+    public async Task<DockerImages> ListImagesAsync(CancellationToken cancellationToken)
+    {
+        var outcome = await GetAsync("images/json", cancellationToken);
+        return outcome switch
         {
-            IReadOnlyList<DockerImageSummary> listed => Images(listed),
-            NotFound failure => new InternalFailure(failure.Message),
-            Conflict failure => new InternalFailure(failure.Message),
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            HttpResponseMessage response => await ReadJsonAsync(response, DockerJsonContext.Default.IReadOnlyListDockerImageSummary,
+                static document => Images(document),
+                static failure => (DockerImages)failure,
+                static failure => (DockerImages)failure, cancellationToken),
+            DockerResourceMissing failure => new DockerResponseInvalid(failure.Message),
+            DockerResourceBusy failure => new DockerResponseInvalid(failure.Message),
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
+    }
 
-    public async Task<Result<Done, NotFound, Conflict, Unavailable, InternalFailure>> RemoveImageAsync(string imageId, CancellationToken cancellationToken)
+    public async Task<DockerImageRemoval> RemoveImageAsync(string imageId, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Delete, $"images/{Uri.EscapeDataString(imageId)}?force=false&noprune=false");
         return await SendForDoneAsync(request, cancellationToken);
+    }
+
+    internal async Task<string?> WatchOomEventsAsync(long since, Action<DockerOomEvent> onEvent, CancellationToken cancellationToken)
+    {
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        operation.CancelAfter(EventSubscriptionTimeout);
+        var filters = Uri.EscapeDataString("""{"type":["container"],"event":["oom"]}""");
+        using var request = new HttpRequestMessage(HttpMethod.Get, string.Create(CultureInfo.InvariantCulture, $"events?since={since}&filters={filters}"));
+        try
+        {
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, operation.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                return await ReadErrorMessageAsync(response, operation.Token);
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(operation.Token);
+            using var reader = new StreamReader(stream);
+            while (await reader.ReadLineAsync(operation.Token) is { } line)
+            {
+                if (line.Length > 0 && JsonSerializer.Deserialize(line, DockerJsonContext.Default.DockerOomEvent) is { } oom)
+                {
+                    onEvent(oom);
+                }
+            }
+
+            return "Docker OOM event stream closed.";
+        }
+        catch (HttpRequestException exception)
+        {
+            return exception.Message;
+        }
+        catch (IOException exception)
+        {
+            return exception.Message;
+        }
+        catch (JsonException exception)
+        {
+            return exception.Message;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
     }
 
     private static SocketsHttpHandler CreateHandler(string socketPath) => new()
@@ -280,7 +427,7 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
         },
     };
 
-    private static List<ManagedContainer> Managed(IReadOnlyList<DockerContainerSummary> listed, string labelPrefix)
+    private static DockerManagedContainers Managed(IReadOnlyList<DockerContainerSummary> listed, string labelPrefix)
     {
         List<ManagedContainer> containers = [with(capacity: listed.Count)];
         foreach (var summary in listed)
@@ -291,7 +438,7 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
                 || !labels.TryGetValue(ContainerLabels.ConfigHash(labelPrefix), out var configHash)
                 || !labels.TryGetValue(ContainerLabels.Image(labelPrefix), out var image))
             {
-                continue;
+                return new DockerResponseInvalid($"Managed container {summary.Id} is missing placement metadata.");
             }
 
             containers.Add(new ManagedContainer(
@@ -303,7 +450,8 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
                 serviceName,
                 configHash,
                 string.Equals(summary.State, "running", StringComparison.Ordinal),
-                [.. Published(summary.Ports ?? [])]));
+                [.. Published(summary.Ports ?? [])],
+                bool.TryParse(labels.GetValueOrDefault(ContainerLabels.Stateful(labelPrefix)), out var stateful) ? stateful : null));
         }
 
         return containers;
@@ -375,7 +523,7 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
             DateTimeOffset.FromUnixTimeSeconds(image.Created))),
     ];
 
-    private static async Task<Result<Done, NotFound, Unavailable, InternalFailure>> ReadPullProgressAsync(HttpResponseMessage response, string image, CancellationToken cancellationToken)
+    private static async Task<DockerImagePull> ReadPullProgressAsync(HttpResponseMessage response, string image, CancellationToken cancellationToken)
     {
         using (response)
         {
@@ -393,24 +541,24 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
                     var progress = JsonSerializer.Deserialize(line, DockerJsonContext.Default.DockerProgressLine);
                     if ((progress?.ErrorDetail?.Message ?? progress?.Error) is { } error)
                     {
-                        return new Unavailable($"Pull of {image} failed: {error}");
+                        return new DockerImagePullRejected(image, error);
                     }
                 }
 
-                return new Done();
+                return new DockerRequestCompleted();
             }
             catch (Exception exception) when (exception is HttpRequestException or IOException)
             {
-                return new Unavailable($"Pull of {image} failed: {exception.Message}");
+                return new DockerDaemonUnavailable($"Pull of {image} failed: {exception.Message}");
             }
             catch (JsonException exception)
             {
-                return new InternalFailure($"Pull of {image} returned malformed progress: {exception.Message}");
+                return new DockerResponseInvalid($"Pull of {image} returned malformed progress: {exception.Message}");
             }
         }
     }
 
-    private static async Task<Result<Done, NotFound, Unavailable, InternalFailure>> ReadLogsAsync(
+    private static async Task<DockerLogRead> ReadLogsAsync(
         HttpResponseMessage response,
         string containerId,
         Func<LogChannel, string, CancellationToken, ValueTask> onLine,
@@ -430,32 +578,49 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
             }
             catch (Exception exception) when (exception is HttpRequestException or IOException)
             {
-                return new Unavailable($"Log stream for {containerId} ended: {exception.Message}");
+                return new DockerDaemonUnavailable($"Log stream for {containerId} ended: {exception.Message}");
             }
 
             await stdout.FlushAsync((line, lineToken) => onLine(LogChannel.Stdout, line, lineToken), cancellationToken);
             await stderr.FlushAsync((line, lineToken) => onLine(LogChannel.Stderr, line, lineToken), cancellationToken);
-            return new Done();
+            return new DockerRequestCompleted();
         }
     }
 
-    private async Task<Result<ExecOutput, NotFound, Conflict, Unavailable, InternalFailure>> RunExecAsync(string execId, CancellationToken cancellationToken)
+    private async Task<DockerExec> ReadExecIdAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var identity = await ReadJsonAsync(response, DockerJsonContext.Default.DockerIdResponse,
+            static id => id.Id,
+            static failure => (DockerContainerCreation)failure,
+            static failure => (DockerContainerCreation)failure, cancellationToken);
+        return identity switch
+        {
+            string id => await RunExecAsync(id, cancellationToken),
+            DockerResourceMissing failure => failure,
+            DockerResourceBusy failure => failure,
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
+        };
+    }
+
+    private async Task<DockerExec> RunExecAsync(string execId, CancellationToken cancellationToken)
     {
         using var startRequest = new HttpRequestMessage(HttpMethod.Post, $"exec/{Uri.EscapeDataString(execId)}/start")
         {
             Content = JsonContent.Create(new DockerExecStartRequest(false, false), DockerJsonContext.Default.DockerExecStartRequest),
         };
-        return await SendAsync(startRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken) switch
+        var outcome = await SendAsync(startRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        return outcome switch
         {
             HttpResponseMessage started => await CaptureExecAsync(execId, started, cancellationToken),
-            NotFound failure => failure,
-            Conflict failure => failure,
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            DockerResourceMissing failure => failure,
+            DockerResourceBusy failure => failure,
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
     }
 
-    private async Task<Result<ExecOutput, NotFound, Conflict, Unavailable, InternalFailure>> CaptureExecAsync(string execId, HttpResponseMessage started, CancellationToken cancellationToken)
+    private async Task<DockerExec> CaptureExecAsync(string execId, HttpResponseMessage started, CancellationToken cancellationToken)
     {
         var stdout = new BoundedTextCapture(MaxExecOutputChars);
         var stderr = new BoundedTextCapture(MaxExecOutputChars);
@@ -475,18 +640,23 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
             }
             catch (Exception exception) when (exception is HttpRequestException or IOException)
             {
-                return new Unavailable($"Exec {execId} output broke off: {exception.Message}");
+                return new DockerDaemonUnavailable($"Exec {execId} output broke off: {exception.Message}");
             }
         }
 
-        return await GetJsonAsync($"exec/{Uri.EscapeDataString(execId)}/json", DockerJsonContext.Default.DockerExecInspect, cancellationToken) switch
+        var outcome = await GetAsync($"exec/{Uri.EscapeDataString(execId)}/json", cancellationToken);
+        return outcome switch
         {
-            DockerExecInspect { Running: false, ExitCode: { } exitCode } => new ExecOutput(exitCode, stdout.ToString(), stderr.ToString()),
-            DockerExecInspect => new Unavailable($"Exec {execId} output ended before the process exited."),
-            NotFound failure => failure,
-            Conflict failure => failure,
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            HttpResponseMessage response => await ReadJsonAsync(response, DockerJsonContext.Default.DockerExecInspect,
+                state => state is { Running: false, ExitCode: { } exitCode }
+                    ? new ExecOutput(exitCode, stdout.ToString(), stderr.ToString())
+                    : new DockerDaemonUnavailable($"Exec {execId} output ended before the process exited."),
+                static failure => (DockerExec)failure,
+                static failure => (DockerExec)failure, cancellationToken),
+            DockerResourceMissing failure => failure,
+            DockerResourceBusy failure => failure,
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
     }
 
@@ -507,79 +677,90 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
     private static PortProtocol ParseProtocol(string? value) =>
         string.Equals(value, "udp", StringComparison.OrdinalIgnoreCase) ? PortProtocol.Udp : PortProtocol.Tcp;
 
-    private async Task<Result<T, NotFound, Conflict, Unavailable, InternalFailure>> GetJsonAsync<T>(string path, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
-        where T : notnull
+    private async Task<DockerHttpExchange> GetAsync(string path, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
-        return await SendForJsonAsync(request, typeInfo, cancellationToken);
+        return await SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
     }
 
-    private async Task<Result<T, NotFound, Conflict, Unavailable, InternalFailure>> SendForJsonAsync<T>(HttpRequestMessage request, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
-        where T : notnull =>
-        await SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken) switch
-        {
-            HttpResponseMessage response => await ReadJsonAsync(response, request, typeInfo, cancellationToken),
-            NotFound failure => failure,
-            Conflict failure => failure,
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
-        };
-
-    private static async Task<Result<T, NotFound, Conflict, Unavailable, InternalFailure>> ReadJsonAsync<T>(
+    private static async Task<TOutcome> ReadJsonAsync<T, TOutcome>(
         HttpResponseMessage response,
-        HttpRequestMessage request,
         JsonTypeInfo<T> typeInfo,
+        Func<T, TOutcome> project,
+        Func<DockerDaemonUnavailable, TOutcome> unavailable,
+        Func<DockerResponseInvalid, TOutcome> invalid,
         CancellationToken cancellationToken)
-        where T : notnull
+        where T : class
     {
-        using (response)
+        using var ownedResponse = response;
+        T? document;
+        var endpoint = response.RequestMessage?.RequestUri?.AbsolutePath;
+        try
         {
-            try
-            {
-                return await response.Content.ReadFromJsonAsync(typeInfo, cancellationToken) is { } value
-                    ? value
-                    : new InternalFailure($"Docker returned an empty body for {request.RequestUri}.");
-            }
-            catch (Exception exception) when (exception is HttpRequestException or IOException)
-            {
-                return new Unavailable($"Docker response for {request.RequestUri} was unreadable: {exception.Message}");
-            }
-            catch (JsonException exception)
-            {
-                return new InternalFailure($"Docker response for {request.RequestUri} was malformed: {exception.Message}");
-            }
+            document = await response.Content.ReadFromJsonAsync(typeInfo, cancellationToken);
         }
+        catch (HttpRequestException exception)
+        {
+            return unavailable(new DockerDaemonUnavailable($"Docker response for {endpoint} was unreadable: {exception.Message}"));
+        }
+        catch (IOException exception)
+        {
+            return unavailable(new DockerDaemonUnavailable($"Docker response for {endpoint} was unreadable: {exception.Message}"));
+        }
+        catch (JsonException exception)
+        {
+            return invalid(new DockerResponseInvalid($"Docker response for {endpoint} was malformed: {exception.Message}"));
+        }
+
+        return document is not null
+            ? project(document)
+            : invalid(new DockerResponseInvalid($"Docker returned an empty body for {endpoint}."));
     }
 
-    private async Task<Result<Done, NotFound, Conflict, Unavailable, InternalFailure>> SendForDoneAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-        await SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken) switch
+    private async Task<DockerImageRemoval> SendForDoneAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var outcome = await SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
+        return outcome switch
         {
             HttpResponseMessage response => Release(response),
-            NotFound failure => failure,
-            Conflict failure => failure,
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
+            DockerResourceMissing failure => failure,
+            DockerResourceBusy failure => failure,
+            DockerDaemonUnavailable failure => failure,
+            DockerResponseInvalid failure => failure,
         };
 
-    private static Done Release(HttpResponseMessage response)
-    {
-        response.Dispose();
-        return new Done();
     }
 
-    private async Task<Result<HttpResponseMessage, NotFound, Conflict, Unavailable, InternalFailure>> SendAsync(
+    private static DockerRequestCompleted Release(HttpResponseMessage response)
+    {
+        response.Dispose();
+        return new DockerRequestCompleted();
+    }
+
+    private async Task<DockerHttpExchange> SendAsync(
         HttpRequestMessage request,
         HttpCompletionOption completion,
         CancellationToken cancellationToken)
     {
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (completion == HttpCompletionOption.ResponseContentRead)
+        {
+            operation.CancelAfter(ApiTimeout);
+        }
+
         HttpResponseMessage response;
         try
         {
-            response = await _http.SendAsync(request, completion, cancellationToken);
+            response = await _http.SendAsync(request, completion, operation.Token);
         }
         catch (Exception exception) when (exception is HttpRequestException or IOException)
         {
-            return new Unavailable($"Docker Engine is unreachable: {exception.Message}");
+            return new DockerDaemonUnavailable($"Docker Engine is unreachable: {exception.Message}");
+        }
+
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new DockerDaemonUnavailable($"Docker operation {request.Method} {request.RequestUri?.AbsolutePath} timed out.");
         }
 
         if (response.IsSuccessStatusCode || (int)response.StatusCode == 304)
@@ -592,10 +773,10 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
             var message = await ReadErrorMessageAsync(response, cancellationToken);
             return (int)response.StatusCode switch
             {
-                404 => new NotFound(message),
-                409 => new Conflict(message),
-                >= 500 => new Unavailable(message),
-                _ => new InternalFailure(message),
+                404 => new DockerResourceMissing(message),
+                409 => new DockerResourceBusy(message),
+                >= 500 => new DockerDaemonUnavailable(message),
+                _ => new DockerResponseInvalid(message),
             };
         }
     }

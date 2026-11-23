@@ -244,6 +244,7 @@ export interface PlacementInfo {
   activeImage?: string;
   activeConfigHash?: string;
   hostPort?: number;
+  postgresHostPort?: number;
   state: PlacementState;
   updatedAt: number;
 }
@@ -252,6 +253,8 @@ export interface DesiredPlacement {
   placementId: string;
   slot: number;
   service: ServiceSpec;
+  hostPort?: number;
+  postgresHostPort?: number;
 }
 
 export interface PlacementReport {
@@ -261,6 +264,7 @@ export interface PlacementReport {
   image: string;
   configHash: string;
   hostPort?: number;
+  postgresHostPort?: number;
   error?: string;
 }
 
@@ -437,6 +441,7 @@ export interface PlacementEventMessage {
   placementId: string;
   state: PlacementState;
   hostPort?: number;
+  postgresHostPort?: number;
   image: string;
   configHash: string;
   error?: string;

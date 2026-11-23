@@ -19,9 +19,44 @@ public sealed record class UpgradeAgentWork(string Version, string Url, string S
 
 public sealed record class ProcessOutput(int ExitCode, string Stdout, string Stderr);
 
+public sealed record class MaintenanceToolTimedOut(string Message);
+
+public sealed record class MaintenanceToolUnavailable(string Message);
+
+public readonly union ProcessExecution(ProcessOutput, MaintenanceToolTimedOut, MaintenanceToolUnavailable);
+
+public sealed record class VolumeGrowthRejected(string Message);
+
+public sealed record class VolumeMountMissing(string Message);
+
+public sealed record class VolumeGrowthFailed(string Message);
+
+public readonly union VolumeGrowth(VolumeGrown, VolumeGrowthRejected, VolumeMountMissing, VolumeGrowthFailed, MaintenanceToolTimedOut, MaintenanceToolUnavailable);
+
+public readonly record struct AgentUpgradeCompleted;
+
+public sealed record class AgentUpgradeRejected(string Message);
+
+public sealed record class AgentUpgradeIoFailed(string Message);
+
+public sealed record class AgentBundleUnavailable(string Message);
+
+public sealed record class AgentBundleDownloadTimedOut(string Message);
+
+public readonly union AgentUpgrade(AgentUpgradeCompleted, AgentUpgradeRejected, AgentUpgradeIoFailed,
+    AgentBundleUnavailable, AgentBundleDownloadTimedOut, MaintenanceToolTimedOut, MaintenanceToolUnavailable);
+
+internal readonly record struct AgentBundleVerified;
+
+internal readonly record struct AgentBundleExtracted;
+
+internal readonly union AgentBundleDownload(AgentBundleVerified, AgentUpgradeRejected, AgentUpgradeIoFailed, AgentBundleUnavailable, AgentBundleDownloadTimedOut);
+
+internal readonly union AgentBundleExtraction(AgentBundleExtracted, AgentUpgradeRejected, AgentUpgradeIoFailed);
+
 public static class ProcessRunner
 {
-    public static async Task<Result<ProcessOutput, RequestTimeout, Unavailable>> RunAsync(
+    public static async Task<ProcessExecution> RunAsync(
         string fileName,
         IReadOnlyList<string> arguments,
         TimeSpan timeout,
@@ -49,7 +84,7 @@ public static class ProcessRunner
         }
         catch (Win32Exception exception)
         {
-            return new Unavailable($"{fileName} could not start: {exception.Message}");
+            return new MaintenanceToolUnavailable($"{fileName} could not start: {exception.Message}");
         }
 
         using var timeoutSource = new CancellationTokenSource(timeout, timeProvider);
@@ -63,7 +98,7 @@ public static class ProcessRunner
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new RequestTimeout(string.Create(CultureInfo.InvariantCulture, $"{fileName} exceeded {timeout.TotalSeconds:0} s."));
+            return new MaintenanceToolTimedOut(string.Create(CultureInfo.InvariantCulture, $"{fileName} exceeded {timeout.TotalSeconds:0} s."));
         }
         finally
         {
@@ -120,12 +155,16 @@ public sealed class NodeMaintenance(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         AgentLog.DrainStarted(logger, reason);
-        await reconciler.DrainAsync(cancellationToken);
-        await outbox.EnqueueAsync(new DrainComplete(nodeId), cancellationToken);
-        AgentLog.DrainCompleted(logger);
+        var outcome = await reconciler.DrainAsync(cancellationToken);
+        await (outcome switch
+        {
+            NonStatefulContainersDrained => ReportDrainCompleteAsync(nodeId, cancellationToken),
+            NodeDrainIncomplete remaining => ReportDrainFailure($"Remaining placements: {string.Join(", ", remaining.PlacementIds)}"),
+            NodeDrainUnverified failure => ReportDrainFailure(failure.Message),
+        });
     }
 
-    public async Task<Result<VolumeGrown, Validation, NotFound, RequestTimeout, Unavailable, InternalFailure>> GrowVolumeAsync(
+    public async Task<VolumeGrowth> GrowVolumeAsync(
         string nodeId,
         string mountPath,
         CancellationToken cancellationToken)
@@ -133,12 +172,12 @@ public sealed class NodeMaintenance(
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         if (string.IsNullOrWhiteSpace(mountPath) || !Path.IsPathFullyQualified(mountPath) || Path.GetFullPath(mountPath) != mountPath.TrimEnd('/'))
         {
-            return new Validation($"Mount path {mountPath} must be an absolute normalized path.");
+            return new VolumeGrowthRejected($"Mount path {mountPath} must be an absolute normalized path.");
         }
 
         if (!Directory.Exists(mountPath))
         {
-            return new NotFound($"Mount path {mountPath} does not exist.");
+            return new VolumeMountMissing($"Mount path {mountPath} does not exist.");
         }
 
         var mounts = await MountTable.ReadAsync(cancellationToken);
@@ -154,7 +193,7 @@ public sealed class NodeMaintenance(
         var sysBlock = Path.Combine("/sys/class/block", deviceName);
         if (!Directory.Exists(sysBlock))
         {
-            return new Validation($"Block device {device} is not visible under /sys/class/block.");
+            return new VolumeGrowthRejected($"Block device {device} is not visible under /sys/class/block.");
         }
 
         var partitionFile = Path.Combine(sysBlock, "partition");
@@ -164,7 +203,7 @@ public sealed class NodeMaintenance(
             : deviceName;
         if (diskName is null)
         {
-            return new InternalFailure($"Cannot resolve the parent disk of {device}.");
+            return new VolumeGrowthFailed($"Cannot resolve the parent disk of {device}.");
         }
 
         var rescan = Path.Combine("/sys/class/block", diskName, "device", "rescan");
@@ -179,17 +218,18 @@ public sealed class NodeMaintenance(
         }
 
         var partitionNumber = (await File.ReadAllTextAsync(partitionFile, cancellationToken)).Trim();
-        return await ProcessRunner.RunAsync("growpart", [$"/dev/{diskName}", partitionNumber], ToolTimeout, timeProvider, cancellationToken) switch
+        var outcome = await ProcessRunner.RunAsync("growpart", [$"/dev/{diskName}", partitionNumber], ToolTimeout, timeProvider, cancellationToken);
+        return outcome switch
         {
             ProcessOutput { ExitCode: 0 } => await ResizeAsync(nodeId, mountPath, mount, device, cancellationToken),
             ProcessOutput output when output.Stdout.Contains("NOCHANGE", StringComparison.Ordinal) => await ResizeAsync(nodeId, mountPath, mount, device, cancellationToken),
-            ProcessOutput output => new InternalFailure($"growpart failed with {output.ExitCode}: {output.Stderr.Trim()}"),
-            RequestTimeout failure => failure,
-            Unavailable failure => failure,
+            ProcessOutput output => new VolumeGrowthFailed($"growpart failed with {output.ExitCode}: {output.Stderr.Trim()}"),
+            MaintenanceToolTimedOut failure => failure,
+            MaintenanceToolUnavailable failure => failure,
         };
     }
 
-    public async Task<Result<Done, Validation, RequestTimeout, Unavailable, InternalFailure>> UpgradeAgentAsync(
+    public async Task<AgentUpgrade> UpgradeAgentAsync(
         string version,
         string url,
         string sha256,
@@ -197,17 +237,17 @@ public sealed class NodeMaintenance(
     {
         if (!AgentNames.IsSafeToken(version))
         {
-            return new Validation($"Agent version {version} is not a safe path token.");
+            return new AgentUpgradeRejected($"Agent version {version} is not a safe path token.");
         }
 
         if (sha256.Length != 64 || !sha256.All(char.IsAsciiHexDigit))
         {
-            return new Validation("Agent bundle SHA-256 must be 64 hex characters.");
+            return new AgentUpgradeRejected("Agent bundle SHA-256 must be 64 hex characters.");
         }
 
         if (!Uri.TryCreate(url, UriKind.Absolute, out var source) || !(source.Scheme == Uri.UriSchemeHttps || (source.Scheme == Uri.UriSchemeHttp && source.IsLoopback)))
         {
-            return new Validation($"Agent bundle URL {url} must be https.");
+            return new AgentUpgradeRejected($"Agent bundle URL {url} must be https.");
         }
 
         var releaseDirectory = Path.Combine(options.ReleasesDirectory, version);
@@ -215,7 +255,7 @@ public sealed class NodeMaintenance(
         if (currentTarget == releaseDirectory)
         {
             AgentLog.UpgradeAlreadyCurrent(logger, version);
-            return new Done();
+            return new AgentUpgradeCompleted();
         }
 
         var token = Guid.NewGuid().ToString("N");
@@ -227,18 +267,14 @@ public sealed class NodeMaintenance(
             currentTarget);
         try
         {
-            return await DownloadVerifiedAsync(source, bundle.Archive, Convert.FromHexString(sha256), cancellationToken) switch
+            var outcome = await DownloadVerifiedAsync(source, bundle.Archive, Convert.FromHexString(sha256), cancellationToken);
+            return outcome switch
             {
-                Done => await ExtractAsync(bundle, cancellationToken) switch
-                {
-                    Done => await ActivateAsync(bundle, cancellationToken),
-                    Validation failure => failure,
-                    InternalFailure failure => failure,
-                },
-                Validation failure => failure,
-                RequestTimeout failure => failure,
-                Unavailable failure => failure,
-                InternalFailure failure => failure,
+                AgentBundleVerified => await ExtractAndActivateAsync(bundle, cancellationToken),
+                AgentUpgradeRejected failure => failure,
+                AgentBundleDownloadTimedOut failure => failure,
+                AgentBundleUnavailable failure => failure,
+                AgentUpgradeIoFailed failure => failure,
             };
         }
         finally
@@ -251,7 +287,18 @@ public sealed class NodeMaintenance(
         }
     }
 
-    private async Task<Result<VolumeGrown, Validation, NotFound, RequestTimeout, Unavailable, InternalFailure>> ResizeAsync(
+    private async Task<AgentUpgrade> ExtractAndActivateAsync(UpgradeBundle bundle, CancellationToken cancellationToken)
+    {
+        var extracted = await ExtractAsync(bundle, cancellationToken);
+        return extracted switch
+        {
+            AgentBundleExtracted => await ActivateAsync(bundle, cancellationToken),
+            AgentUpgradeRejected failure => failure,
+            AgentUpgradeIoFailed failure => failure,
+        };
+    }
+
+    private async Task<VolumeGrowth> ResizeAsync(
         string nodeId,
         string mountPath,
         MountEntry mount,
@@ -266,15 +313,16 @@ public sealed class NodeMaintenance(
         };
         if (command is not [var tool, .. var arguments])
         {
-            return new Validation($"File system {mount.FileSystem} on {mountPath} cannot be grown online.");
+            return new VolumeGrowthRejected($"File system {mount.FileSystem} on {mountPath} cannot be grown online.");
         }
 
-        return await ProcessRunner.RunAsync(tool, arguments, ToolTimeout, timeProvider, cancellationToken) switch
+        var outcome = await ProcessRunner.RunAsync(tool, arguments, ToolTimeout, timeProvider, cancellationToken);
+        return outcome switch
         {
             ProcessOutput { ExitCode: 0 } => Grown(nodeId, mountPath),
-            ProcessOutput output => new InternalFailure($"Resizing {mount.FileSystem} on {mountPath} failed with {output.ExitCode}: {output.Stderr.Trim()}"),
-            RequestTimeout failure => failure,
-            Unavailable failure => failure,
+            ProcessOutput output => new VolumeGrowthFailed($"Resizing {mount.FileSystem} on {mountPath} failed with {output.ExitCode}: {output.Stderr.Trim()}"),
+            MaintenanceToolTimedOut failure => failure,
+            MaintenanceToolUnavailable failure => failure,
         };
     }
 
@@ -285,19 +333,32 @@ public sealed class NodeMaintenance(
         return new VolumeGrown(nodeId, mountPath, size);
     }
 
+    private async Task ReportDrainCompleteAsync(string nodeId, CancellationToken cancellationToken)
+    {
+        await outbox.EnqueueAsync(new DrainComplete(nodeId), cancellationToken);
+        AgentLog.DrainCompleted(logger);
+    }
+
+    private Task ReportDrainFailure(string reason)
+    {
+        AgentLog.DrainFailed(logger, reason);
+        return Task.CompletedTask;
+    }
+
     private async Task RunDrainAsync(DrainWork work, CancellationToken cancellationToken) =>
         await DrainAsync(work.NodeId, work.Reason, cancellationToken);
 
     private async Task RunGrowVolumeAsync(GrowVolumeWork work, CancellationToken cancellationToken)
     {
-        var task = await GrowVolumeAsync(work.NodeId, work.MountPath, cancellationToken) switch
+        var outcome = await GrowVolumeAsync(work.NodeId, work.MountPath, cancellationToken);
+        var task = outcome switch
         {
             VolumeGrown message => outbox.EnqueueAsync(message, cancellationToken),
-            Validation failure => GrowFailed(work, failure.Message),
-            NotFound failure => GrowFailed(work, failure.Message),
-            RequestTimeout failure => GrowFailed(work, failure.Message),
-            Unavailable failure => GrowFailed(work, failure.Message),
-            InternalFailure failure => GrowFailed(work, failure.Message),
+            VolumeGrowthRejected failure => GrowFailed(work, failure.Message),
+            VolumeMountMissing failure => GrowFailed(work, failure.Message),
+            MaintenanceToolTimedOut failure => GrowFailed(work, failure.Message),
+            MaintenanceToolUnavailable failure => GrowFailed(work, failure.Message),
+            VolumeGrowthFailed failure => GrowFailed(work, failure.Message),
         };
         await task;
     }
@@ -310,13 +371,16 @@ public sealed class NodeMaintenance(
 
     private async Task RunUpgradeAsync(UpgradeAgentWork work, CancellationToken cancellationToken)
     {
-        var failure = await UpgradeAgentAsync(work.Version, work.Url, work.Sha256, cancellationToken) switch
+        var outcome = await UpgradeAgentAsync(work.Version, work.Url, work.Sha256, cancellationToken);
+        var failure = outcome switch
         {
-            Done => null,
-            Validation upgradeFailure => upgradeFailure.Message,
-            RequestTimeout upgradeFailure => upgradeFailure.Message,
-            Unavailable upgradeFailure => upgradeFailure.Message,
-            InternalFailure upgradeFailure => upgradeFailure.Message,
+            AgentUpgradeCompleted => null,
+            AgentUpgradeRejected upgradeFailure => upgradeFailure.Message,
+            MaintenanceToolTimedOut upgradeFailure => upgradeFailure.Message,
+            AgentBundleDownloadTimedOut upgradeFailure => upgradeFailure.Message,
+            AgentBundleUnavailable upgradeFailure => upgradeFailure.Message,
+            MaintenanceToolUnavailable upgradeFailure => upgradeFailure.Message,
+            AgentUpgradeIoFailed upgradeFailure => upgradeFailure.Message,
         };
         if (failure is not null)
         {
@@ -332,7 +396,7 @@ public sealed class NodeMaintenance(
         }
     }
 
-    private async Task<Result<Done, Validation, RequestTimeout, Unavailable, InternalFailure>> DownloadVerifiedAsync(
+    private async Task<AgentBundleDownload> DownloadVerifiedAsync(
         Uri source,
         string destination,
         byte[] expectedHash,
@@ -347,7 +411,7 @@ public sealed class NodeMaintenance(
             using var response = await client.GetAsync(source, HttpCompletionOption.ResponseHeadersRead, linked.Token);
             if (!response.IsSuccessStatusCode)
             {
-                return new Unavailable(string.Create(CultureInfo.InvariantCulture, $"Agent bundle download returned {(int)response.StatusCode}."));
+                return new AgentBundleUnavailable(string.Create(CultureInfo.InvariantCulture, $"Agent bundle download returned {(int)response.StatusCode}."));
             }
 
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -366,24 +430,24 @@ public sealed class NodeMaintenance(
             }
 
             return CryptographicOperations.FixedTimeEquals(hash.GetHashAndReset(), expectedHash)
-                ? new Done()
-                : new Validation("Agent bundle SHA-256 does not match the expected digest.");
+                ? new AgentBundleVerified()
+                : new AgentUpgradeRejected("Agent bundle SHA-256 does not match the expected digest.");
         }
         catch (HttpRequestException exception)
         {
-            return new Unavailable($"Agent bundle download failed: {exception.Message}");
+            return new AgentBundleUnavailable($"Agent bundle download failed: {exception.Message}");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return new InternalFailure($"Writing the agent bundle failed: {exception.Message}");
+            return new AgentUpgradeIoFailed($"Writing the agent bundle failed: {exception.Message}");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new RequestTimeout("Agent bundle download timed out.");
+            return new AgentBundleDownloadTimedOut("Agent bundle download timed out.");
         }
     }
 
-    private static async Task<Result<Done, Validation, InternalFailure>> ExtractAsync(UpgradeBundle bundle, CancellationToken cancellationToken)
+    private static async Task<AgentBundleExtraction> ExtractAsync(UpgradeBundle bundle, CancellationToken cancellationToken)
     {
         try
         {
@@ -395,16 +459,16 @@ public sealed class NodeMaintenance(
             }
 
             return Directory.EnumerateFileSystemEntries(bundle.Staging).Any()
-                ? new Done()
-                : new Validation($"Agent bundle {bundle.Version} is empty.");
+                ? new AgentBundleExtracted()
+                : new AgentUpgradeRejected($"Agent bundle {bundle.Version} is empty.");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            return new InternalFailure($"Extracting agent bundle {bundle.Version} failed: {exception.Message}");
+            return new AgentUpgradeIoFailed($"Extracting agent bundle {bundle.Version} failed: {exception.Message}");
         }
     }
 
-    private async Task<Result<Done, Validation, RequestTimeout, Unavailable, InternalFailure>> ActivateAsync(UpgradeBundle bundle, CancellationToken cancellationToken)
+    private async Task<AgentUpgrade> ActivateAsync(UpgradeBundle bundle, CancellationToken cancellationToken)
     {
         var temporaryLink = Path.Combine(options.InstallDirectory, $".current.{Guid.NewGuid():N}");
         try
@@ -419,15 +483,16 @@ public sealed class NodeMaintenance(
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return new InternalFailure($"Installing agent {bundle.Version} failed: {exception.Message}");
+            return new AgentUpgradeIoFailed($"Installing agent {bundle.Version} failed: {exception.Message}");
         }
 
-        return await ProcessRunner.RunAsync("mv", ["-T", "-f", temporaryLink, options.CurrentReleaseLink], ToolTimeout, timeProvider, cancellationToken) switch
+        var outcome = await ProcessRunner.RunAsync("mv", ["-T", "-f", temporaryLink, options.CurrentReleaseLink], ToolTimeout, timeProvider, cancellationToken);
+        return outcome switch
         {
             ProcessOutput { ExitCode: 0 } => Installed(bundle),
-            ProcessOutput output => Unlinked(temporaryLink, new InternalFailure($"Swapping {options.CurrentReleaseLink} failed: {output.Stderr.Trim()}")),
-            RequestTimeout failure => Unlinked(temporaryLink, failure),
-            Unavailable failure => Unlinked(temporaryLink, failure),
+            ProcessOutput output => Unlinked(temporaryLink, new AgentUpgradeIoFailed($"Swapping {options.CurrentReleaseLink} failed: {output.Stderr.Trim()}")),
+            MaintenanceToolTimedOut failure => Unlinked(temporaryLink, failure),
+            MaintenanceToolUnavailable failure => Unlinked(temporaryLink, failure),
         };
     }
 
@@ -437,7 +502,7 @@ public sealed class NodeMaintenance(
         return failure;
     }
 
-    private Result<Done, Validation, RequestTimeout, Unavailable, InternalFailure> Installed(UpgradeBundle bundle)
+    private AgentUpgrade Installed(UpgradeBundle bundle)
     {
         try
         {
@@ -452,11 +517,11 @@ public sealed class NodeMaintenance(
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return new InternalFailure($"Agent {bundle.Version} is installed but pruning old releases failed: {exception.Message}");
+            return new AgentUpgradeIoFailed($"Agent {bundle.Version} is installed but pruning old releases failed: {exception.Message}");
         }
 
         AgentLog.UpgradeInstalled(logger, bundle.Version);
-        return new Done();
+        return new AgentUpgradeCompleted();
     }
 
     private string? CurrentReleaseDirectory()

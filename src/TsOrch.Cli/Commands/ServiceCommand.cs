@@ -14,19 +14,11 @@ internal static class ServiceCommand
             ["ls"] when arguments.Value("file") is null => ListAsync(environment, cancellationToken),
             ["apply"] when arguments.Value("file") is { } path => ApplyAsync(path, environment, cancellationToken),
             ["rm", var name] when arguments.Value("file") is null => RemoveAsync(name, environment, cancellationToken),
-            _ => Task.FromResult(environment.Fail(new Validation($"usage: {UsageText}"))),
+            _ => Task.FromResult(environment.Usage($"usage: {UsageText}")),
         };
 
     private static async Task<int> ListAsync(CommandEnvironment environment, CancellationToken cancellationToken) =>
-        await environment.Api.GetAsync("/api/services", CliJsonContext.Default.ServiceListResponse, cancellationToken) switch
-        {
-            ServiceListResponse response => Render(response, environment.Out),
-            Validation failure => environment.Fail(failure),
-            NotFound failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
-        };
+        await environment.Api.GetAsync("/api/services", CliJsonContext.Default.ServiceListResponse, response => Task.FromResult(Render(response, environment.Out)), environment.FailRead, cancellationToken);
 
     private static int Render(ServiceListResponse response, TextWriter output)
     {
@@ -49,29 +41,24 @@ internal static class ServiceCommand
         return ExitCodes.Ok;
     }
 
-    private static async Task<int> ApplyAsync(string path, CommandEnvironment environment, CancellationToken cancellationToken) =>
-        await SpecFiles.LoadServicesAsync(path, cancellationToken) switch
+    private static async Task<int> ApplyAsync(string path, CommandEnvironment environment, CancellationToken cancellationToken)
+    {
+        var loaded = await SpecFiles.LoadServicesAsync(path, cancellationToken);
+        return loaded switch
         {
             IReadOnlyList<ServiceSpec> services => await environment.Api.PostAsync(
                 "/api/services",
                 new ServicesDocument(services),
                 CliJsonContext.Default.ServicesDocument,
                 CliJsonContext.Default.ApplyResponse,
-                cancellationToken) switch
-            {
-                ApplyResponse response => Report(response, environment.Out),
-                Validation failure => environment.Fail(failure),
-                NotFound failure => environment.Fail(failure),
-                Conflict failure => environment.Fail(failure),
-                Unauthorized failure => environment.Fail(failure),
-                Forbidden failure => environment.Fail(failure),
-                Unavailable failure => environment.Fail(failure),
-            },
-            NotFound failure => environment.Fail(failure),
-            Validation failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
+                response => Task.FromResult(Report(response, environment.Out)), environment.Fail, cancellationToken),
+            CliFileReadProblem failure => environment.Fail(CliFiles.Describe(failure)),
+            ServiceDefinitionInvalid failure => environment.Fail(SpecFiles.Describe(failure)),
+            DuplicateServiceDefinition failure => environment.Fail(SpecFiles.Describe(failure)),
+            ServiceDefinitionsMissing failure => environment.Fail(SpecFiles.Describe(failure)),
         };
+
+    }
 
     private static int Report(ApplyResponse response, TextWriter output)
     {
@@ -85,16 +72,7 @@ internal static class ServiceCommand
     }
 
     private static async Task<int> RemoveAsync(string name, CommandEnvironment environment, CancellationToken cancellationToken) =>
-        await environment.Api.DeleteAsync($"/api/services/{Uri.EscapeDataString(name)}", CliJsonContext.Default.DeletedServiceResponse, cancellationToken) switch
-        {
-            DeletedServiceResponse response => Deleted(response, environment.Out),
-            Validation failure => environment.Fail(failure),
-            NotFound failure => environment.Fail(failure),
-            Conflict failure => environment.Fail(failure),
-            Unauthorized failure => environment.Fail(failure),
-            Forbidden failure => environment.Fail(failure),
-            Unavailable failure => environment.Fail(failure),
-        };
+        await environment.Api.DeleteAsync($"/api/services/{Uri.EscapeDataString(name)}", CliJsonContext.Default.DeletedServiceResponse, response => Task.FromResult(Deleted(response, environment.Out)), environment.Fail, cancellationToken);
 
     private static int Deleted(DeletedServiceResponse response, TextWriter output)
     {

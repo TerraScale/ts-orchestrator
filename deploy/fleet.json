@@ -20,7 +20,6 @@
     "compartmentId": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
     "steeredNames": [
       "dash.edge.terrascale.tech",
-      "auth.edge.terrascale.tech",
       "api.edge.terrascale.tech",
       "mcp.edge.terrascale.tech",
       "platform.edge.terrascale.tech"

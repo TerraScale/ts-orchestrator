@@ -1,10 +1,11 @@
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using TsOrch.Oci;
 
 namespace TsOrch.Agent;
+
+internal readonly union SecretMaterialization(SecretMount, AtomicWriteFailed);
 
 public sealed record class ResolvedSecret(SecretRef Ref, long Version, string Value)
 {
@@ -17,38 +18,163 @@ public sealed record class ResolvedServiceSecrets(
 
 public sealed record class SecretMount(BindMount Mount, IReadOnlyDictionary<string, string> Env);
 
+public sealed record class InvalidSecretName(string Service, string Name)
+{
+    public string Message => $"Secret key '{Name}' of {Service} must produce a valid environment variable and a non-empty filename.";
+}
+
+public sealed record class SecretNameCollision(string Service, string FileVariable)
+{
+    public string Message => $"Secret file variable {FileVariable} of {Service} is defined more than once.";
+}
+
+public sealed record class InvalidServiceSecretReference(string Service, string Name)
+{
+    public string Message => $"Secret key {Name} of {Service} requires a vault id and secret name.";
+}
+
+public sealed record class SecretReadSuperseded(string Service)
+{
+    public string Message => $"Secrets for {Service} were invalidated during resolution.";
+}
+
+public sealed record class ServiceSecretUnreadable(SecretRef Reference, string Message);
+
+public readonly union ServiceSecretResolution(
+    ResolvedServiceSecrets, InvalidSecretName, SecretNameCollision, InvalidServiceSecretReference, SecretReadSuperseded, ServiceSecretUnreadable);
+
 public sealed class SecretStore(OciVaultClient vault, AgentOptions options)
 {
     public const string ContainerSecretsDirectory = "/run/secrets/ts-orch";
     private const string FileSuffix = "_FILE";
 
-    private readonly ConcurrentDictionary<SecretRef, ResolvedSecret> _cache = new();
+    private readonly Lock _cacheGate = new();
+    private readonly Dictionary<SecretRef, ResolvedSecret> _cache = [];
+    private long _generation;
 
     public void Invalidate(IEnumerable<SecretRef> secrets)
     {
         ArgumentNullException.ThrowIfNull(secrets);
-        foreach (var secret in secrets)
+        lock (_cacheGate)
         {
-            _cache.TryRemove(secret, out _);
+            _generation++;
+            foreach (var secret in secrets)
+            {
+                _cache.Remove(secret);
+            }
         }
     }
 
-    public void InvalidateAll() => _cache.Clear();
+    public void InvalidateAll()
+    {
+        lock (_cacheGate)
+        {
+            _generation++;
+            _cache.Clear();
+        }
+    }
 
-    public async Task<Result<ResolvedServiceSecrets, Validation, NotFound, Forbidden, Unavailable, InternalFailure>> ResolveAsync(
-        ServiceSpec service,
-        CancellationToken cancellationToken)
+    public async Task<ServiceSecretResolution> ResolveAsync(ServiceSpec service, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(service);
-        if (service.Secrets.Keys.FirstOrDefault(static name => !AgentNames.IsEnvironmentName(name)) is { } invalid)
+        HashSet<string> normalized = [with(StringComparer.Ordinal)];
+        foreach (var (name, reference) in service.Secrets)
         {
-            return new Validation($"Secret key {invalid} of {service.Name} is not a valid environment variable name.");
+            var fileVariable = FileVariable(name);
+            if (!AgentNames.IsEnvironmentName(name) || fileVariable.Length <= FileSuffix.Length)
+            {
+                return new InvalidSecretName(service.Name, name);
+            }
+
+            if (service.Env.ContainsKey(fileVariable) || !normalized.Add(fileVariable))
+            {
+                return new SecretNameCollision(service.Name, fileVariable);
+            }
+
+            if (string.IsNullOrWhiteSpace(reference.Vault) || string.IsNullOrWhiteSpace(reference.Name))
+            {
+                return new InvalidServiceSecretReference(service.Name, name);
+            }
         }
 
-        return await ResolveRemainingAsync([.. service.Secrets], [with(StringComparer.Ordinal)], cancellationToken);
+        long generation;
+        lock (_cacheGate)
+        {
+            generation = _generation;
+        }
+
+        Dictionary<string, ResolvedSecret> resolved = [with(StringComparer.Ordinal)];
+        foreach (var (name, reference) in service.Secrets)
+        {
+            ResolvedSecret? secret;
+            lock (_cacheGate)
+            {
+                if (generation != _generation)
+                {
+                    return new SecretReadSuperseded(service.Name);
+                }
+
+                secret = _cache.GetValueOrDefault(reference);
+            }
+
+            if (secret is null)
+            {
+                var read = await vault.GetSecretAsync(reference.Vault, reference.Name, cancellationToken);
+                var fetched = read switch
+                {
+                    VaultSecretBundle bundle => new SecretFetch(Remember(generation, reference, bundle), null),
+                    VaultRegionMissing failure => new SecretFetch(null, failure.Message),
+                    VaultSecretMissing failure => new SecretFetch(null, failure.Message),
+                    VaultAccessDenied failure => new SecretFetch(null, failure.Message),
+                    VaultUnavailable failure => new SecretFetch(null, failure.Message),
+                    VaultBundleInvalid failure => new SecretFetch(null, failure.Message),
+                    ImdsRequestRejected failure => new SecretFetch(null, failure.Message),
+                    ImdsUnavailable failure => new SecretFetch(null, failure.Message),
+                    ImdsDocumentInvalid failure => new SecretFetch(null, failure.Message),
+                    InvalidFederationCredentials failure => new SecretFetch(null, failure.Message),
+                    FederationRejected failure => new SecretFetch(null, failure.Message),
+                    FederationUnavailable failure => new SecretFetch(null, failure.Message),
+                    FederationTokenInvalid failure => new SecretFetch(null, failure.Message),
+                };
+                if (fetched.Error is { } error)
+                {
+                    return new ServiceSecretUnreadable(reference, error);
+                }
+
+                if (fetched.Secret is not { } loaded)
+                {
+                    return new SecretReadSuperseded(service.Name);
+                }
+
+                secret = loaded;
+            }
+
+            resolved.Add(name, secret);
+        }
+
+        lock (_cacheGate)
+        {
+            return generation == _generation
+                ? new ResolvedServiceSecrets(resolved.ToDictionary(static pair => pair.Key, static pair => pair.Value.Version, StringComparer.Ordinal), resolved)
+                : new SecretReadSuperseded(service.Name);
+        }
     }
 
-    public async Task<Result<SecretMount, InternalFailure>> MaterializeAsync(
+    private ResolvedSecret? Remember(long generation, SecretRef reference, VaultSecretBundle bundle)
+    {
+        lock (_cacheGate)
+        {
+            if (generation != _generation)
+            {
+                return null;
+            }
+
+            _cache.TryAdd(reference, new ResolvedSecret(reference, bundle.VersionNumber, bundle.Value));
+            return _cache[reference];
+        }
+    }
+
+    internal async Task<SecretMaterialization> MaterializeAsync(
         string placementId,
         string configHash,
         ResolvedServiceSecrets secrets,
@@ -60,7 +186,7 @@ public sealed class SecretStore(OciVaultClient vault, AgentOptions options)
         List<AtomicWrite> writes = [];
         foreach (var (name, secret) in secrets.Values.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
         {
-            var envName = name.EndsWith(FileSuffix, StringComparison.Ordinal) ? name : name + FileSuffix;
+            var envName = FileVariable(name);
             var fileName = envName[..^FileSuffix.Length];
             writes.Add(new AtomicWrite(Path.Combine(directory, fileName), Encoding.UTF8.GetBytes(secret.Value), UnixFiles.OwnerReadWrite));
             env[envName] = $"{ContainerSecretsDirectory}/{fileName}";
@@ -69,8 +195,8 @@ public sealed class SecretStore(OciVaultClient vault, AgentOptions options)
         var written = await UnixFiles.WriteAtomicAsync([options.SecretsDirectory, PlacementDirectory(placementId), directory], writes, cancellationToken);
         return written switch
         {
-            Done => new SecretMount(new BindMount(directory, ContainerSecretsDirectory, ReadOnly: true), env),
-            InternalFailure failure => failure,
+            AtomicWriteCompleted => new SecretMount(new BindMount(directory, ContainerSecretsDirectory, ReadOnly: true), env),
+            AtomicWriteFailed failure => failure,
         };
     }
 
@@ -112,48 +238,15 @@ public sealed class SecretStore(OciVaultClient vault, AgentOptions options)
         return Path.Combine(options.SecretsDirectory, placementId);
     }
 
-    private async Task<Result<ResolvedServiceSecrets, Validation, NotFound, Forbidden, Unavailable, InternalFailure>> ResolveRemainingAsync(
-        KeyValuePair<string, SecretRef>[] remaining,
-        Dictionary<string, ResolvedSecret> resolved,
-        CancellationToken cancellationToken)
-    {
-        if (remaining is not [var (name, reference), .. var rest])
-        {
-            return new ResolvedServiceSecrets(
-                resolved.ToDictionary(static pair => pair.Key, static pair => pair.Value.Version, StringComparer.Ordinal),
-                resolved);
-        }
-
-        if (_cache.TryGetValue(reference, out var cached))
-        {
-            resolved[name] = cached;
-            return await ResolveRemainingAsync(rest, resolved, cancellationToken);
-        }
-
-        return await vault.GetSecretAsync(reference.Vault, reference.Name, cancellationToken) switch
-        {
-            VaultSecretBundle bundle => await ResolveRemainingAsync(
-                rest,
-                Remember(resolved, name, _cache.GetOrAdd(reference, new ResolvedSecret(reference, bundle.VersionNumber, bundle.Value))),
-                cancellationToken),
-            Validation failure => failure,
-            NotFound failure => failure,
-            Forbidden failure => failure,
-            Unavailable failure => failure,
-            InternalFailure failure => failure,
-        };
-    }
-
-    private static Dictionary<string, ResolvedSecret> Remember(Dictionary<string, ResolvedSecret> resolved, string name, ResolvedSecret secret)
-    {
-        resolved[name] = secret;
-        return resolved;
-    }
+    private static string FileVariable(string name) =>
+        name.EndsWith(FileSuffix, StringComparison.Ordinal) ? name : name + FileSuffix;
 
     private string GenerationDirectory(string placementId, string configHash) =>
         Path.Combine(PlacementDirectory(placementId), GenerationName(configHash));
 
     private static string GenerationName(string configHash) => configHash[..Math.Min(16, configHash.Length)];
+
+    private sealed record class SecretFetch(ResolvedSecret? Secret, string? Error);
 }
 
 public static partial class AgentNames
@@ -162,9 +255,9 @@ public static partial class AgentNames
 
     public static bool IsEnvironmentName(string value) => !string.IsNullOrEmpty(value) && EnvironmentName().IsMatch(value);
 
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9_.-]*$")]
+    [GeneratedRegex(@"\A[A-Za-z0-9][A-Za-z0-9_.-]*\z")]
     private static partial Regex SafeToken();
 
-    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*$")]
+    [GeneratedRegex(@"\A[A-Za-z_][A-Za-z0-9_]*\z")]
     private static partial Regex EnvironmentName();
 }

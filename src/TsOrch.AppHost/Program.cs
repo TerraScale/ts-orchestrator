@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using TsOrch.AppHost;
-using TsOrch.Protocol;
 
 using var shutdown = new CancellationTokenSource();
 using var interrupt = PosixSignalRegistration.Create(PosixSignal.SIGINT, Stop);
@@ -11,7 +10,9 @@ if (AppHostArguments.Has(args, OciMockOptions.Flag))
     return OciMockOptions.Parse(args) switch
     {
         OciMockOptions options => await OciMockServer.RunAsync(options, shutdown.Token),
-        Validation invalid => Usage(invalid),
+        AppHostArgumentInvalid invalid => Usage(invalid.Message),
+        AppHostFileUnreadable invalid => Usage(invalid.Message),
+        OciMockSeedSecretInvalid => Usage(OciMockSeedSecretInvalid.Message),
     };
 }
 
@@ -20,7 +21,7 @@ if (AppHostArguments.Has(args, LocalSeederOptions.Flag))
     return LocalSeederOptions.Parse(args) switch
     {
         LocalSeederOptions options => await LocalSeeder.RunAsync(options, shutdown.Token),
-        Validation invalid => Usage(invalid),
+        AppHostArgumentInvalid invalid => Usage(invalid.Message),
     };
 }
 
@@ -34,9 +35,9 @@ void Stop(PosixSignalContext context)
     shutdown.Cancel();
 }
 
-static int Usage(Validation invalid)
+static int Usage(string message)
 {
-    Console.Error.WriteLine($"TsOrch.AppHost: {invalid.Message}");
+    Console.Error.WriteLine($"TsOrch.AppHost: {message}");
     Console.Error.WriteLine("usage: TsOrch.AppHost [--oci-mock --port <port> [--seed-secret NAME=VALUE]... [--seed-services <dir>]...] [--seed --worker-url <url> --repo-root <dir> [--local-region <label> --edge-url <url>]]");
     return 64;
 }

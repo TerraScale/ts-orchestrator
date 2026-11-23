@@ -47,6 +47,21 @@ resource "oci_dns_rrset" "regional_api" {
   }
 }
 
+resource "oci_dns_rrset" "pinned" {
+  for_each = var.pinned_names
+
+  zone_name_or_id = oci_dns_zone.this.id
+  domain          = each.key
+  rtype           = "A"
+
+  items {
+    domain = each.key
+    rtype  = "A"
+    rdata  = var.regions[each.value].nlb_ip
+    ttl    = var.ttl_seconds
+  }
+}
+
 resource "oci_health_checks_http_monitor" "readyz" {
   compartment_id      = var.compartment_id
   display_name        = "ts-edge-readyz"

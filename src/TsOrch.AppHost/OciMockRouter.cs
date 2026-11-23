@@ -4,14 +4,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
 
-internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity identity, ILogger<OciMockRouter> logger)
+internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity identity, OciMockFederation federation, ILogger<OciMockRouter> logger)
 {
     private const string ImdsBearer = "Bearer Oracle";
-    private const string VaultBearer = "Bearer ts-orch-local";
     private static readonly AppHostJsonContext Json = AppHostJsonContext.Default;
     private static readonly string[] SecretStages = ["CURRENT", "LATEST"];
     private static readonly string[] InstanceActions = ["STOP", "START", "SOFTRESET", "RESET", "SOFTSTOP", "SENDDIAGNOSTICINTERRUPT"];
@@ -32,6 +30,7 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
             ("GET", ["opc", "v2", "identity", "cert.pem"]) => ImdsTextAsync(context, identity.LeafCertificatePem),
             ("GET", ["opc", "v2", "identity", "key.pem"]) => ImdsTextAsync(context, identity.LeafPrivateKeyPem),
             ("GET", ["opc", "v2", "identity", "intermediate.pem"]) => ImdsTextAsync(context, identity.IntermediateCertificatePem),
+            ("POST", ["v1", "x509"]) => FederateAsync(context, context.RequestAborted),
             ("GET", ["20190301", "secretbundles", "actions", "getByName"]) => GetSecretBundleAsync(context),
             ("PUT", ["20160918", "instancePools", var poolId]) => UpdatePoolAsync(context, poolId),
             ("POST", ["20160918", "instancePools", var poolId, "actions", "detachInstance"]) => DetachInstanceAsync(context, poolId),
@@ -67,12 +66,39 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
         await context.Response.WriteAsync(pem, context.RequestAborted);
     }
 
+    private async Task FederateAsync(HttpContext context, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var body = new MemoryStream();
+            await context.Request.Body.CopyToAsync(body, cancellationToken);
+            var bytes = body.ToArray();
+            if (JsonSerializer.Deserialize(bytes, Json.MockFederationRequest) is not { } document)
+            {
+                await ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", "A federation document is required.");
+                return;
+            }
+
+            if (federation.Issue(context.Request, document, bytes) is not { } token)
+            {
+                await UnsignedAsync(context);
+                return;
+            }
+
+            await WriteJsonAsync(context, StatusCodes.Status200OK, new MockFederationResponse(token), Json.MockFederationResponse);
+        }
+        catch (JsonException exception)
+        {
+            await ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", exception.Message);
+        }
+    }
+
     private Task GetSecretBundleAsync(HttpContext context)
     {
         var request = context.Request;
-        if (!Authorized(request, VaultBearer))
+        if (!federation.VerifyVault(request))
         {
-            return ErrorAsync(context, StatusCodes.Status401Unauthorized, "NotAuthenticated", "oci-mock Vault requires 'Authorization: Bearer ts-orch-local'.");
+            return ErrorAsync(context, StatusCodes.Status401Unauthorized, "NotAuthenticated", "oci-mock Vault requires a valid instance-principal signature.");
         }
 
         var secretName = request.Query["secretName"].ToString();
@@ -104,13 +130,9 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
             return;
         }
 
-        var body = await ReadJsonAsync(context.Request, Json.UpdateInstancePoolDocument, context.RequestAborted);
-        await (body switch
-        {
-            UpdateInstancePoolDocument { Size: >= 0 } update => WritePoolAsync(context, state.UpdatePool(context.Request.Path, poolId, update.Size)),
-            UpdateInstancePoolDocument update => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", $"size must be non-negative, got {update.Size.ToString(CultureInfo.InvariantCulture)}."),
-            Validation invalid => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", invalid.Message),
-        });
+        await WithJsonBodyAsync(context, Json.UpdateInstancePoolDocument, update => update.Size >= 0
+            ? WritePoolAsync(context, state.UpdatePool(context.Request.Path, poolId, update.Size))
+            : ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", $"size must be non-negative, got {update.Size.ToString(CultureInfo.InvariantCulture)}."), context.RequestAborted);
     }
 
     private async Task DetachInstanceAsync(HttpContext context, string poolId)
@@ -121,13 +143,9 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
             return;
         }
 
-        var body = await ReadJsonAsync(context.Request, Json.DetachInstanceDocument, context.RequestAborted);
-        await (body switch
-        {
-            DetachInstanceDocument { InstanceId.Length: > 0 } detach => WritePoolAsync(context, state.DetachInstance(context.Request.Path, poolId, detach)),
-            DetachInstanceDocument => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", "instanceId is required."),
-            Validation invalid => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", invalid.Message),
-        });
+        await WithJsonBodyAsync(context, Json.DetachInstanceDocument, detach => detach.InstanceId.Length > 0
+            ? WritePoolAsync(context, state.DetachInstance(context.Request.Path, poolId, detach))
+            : ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", "instanceId is required."), context.RequestAborted);
     }
 
     private Task WritePoolAsync(HttpContext context, InstancePoolDocument pool)
@@ -176,20 +194,16 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
             return;
         }
 
-        var body = await ReadJsonAsync(context.Request, Json.UpdateVolumeDocument, context.RequestAborted);
-        await (body switch
-        {
-            UpdateVolumeDocument { SizeInGBs: > 0 } update => ResizeVolumeAsync(context, volumeId, update.SizeInGBs),
-            UpdateVolumeDocument update => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", $"sizeInGBs must be positive, got {update.SizeInGBs.ToString(CultureInfo.InvariantCulture)}."),
-            Validation invalid => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", invalid.Message),
-        });
+        await WithJsonBodyAsync(context, Json.UpdateVolumeDocument, update => update.SizeInGBs > 0
+            ? ResizeVolumeAsync(context, volumeId, update.SizeInGBs)
+            : ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", $"sizeInGBs must be positive, got {update.SizeInGBs.ToString(CultureInfo.InvariantCulture)}."), context.RequestAborted);
     }
 
     private Task ResizeVolumeAsync(HttpContext context, string volumeId, long sizeInGBs) =>
         state.UpdateVolume(context.Request.Path, volumeId, sizeInGBs) switch
         {
             VolumeDocument volume => WriteVolumeAsync(context, volume),
-            Validation rejected => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", rejected.Message),
+            MockVolumeShrinkRejected rejected => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", rejected.Message),
         };
 
     private Task WriteVolumeAsync(HttpContext context, VolumeDocument volume)
@@ -210,21 +224,30 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
         && header.Contains("keyId=\"", StringComparison.Ordinal)
         && header.Contains("signature=\"", StringComparison.Ordinal);
 
-    private static async Task<Result<T, Validation>> ReadJsonAsync<T>(HttpRequest request, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
+    private static async Task WithJsonBodyAsync<T>(
+        HttpContext context,
+        JsonTypeInfo<T> typeInfo,
+        Func<T, Task> handle,
+        CancellationToken cancellationToken) where T : class
     {
+        T? document;
         try
         {
-            if (await JsonSerializer.DeserializeAsync(request.Body, typeInfo, cancellationToken) is { } value)
-            {
-                return value;
-            }
-
-            return new Validation("Request body must be a JSON object, got null.");
+            document = await JsonSerializer.DeserializeAsync(context.Request.Body, typeInfo, cancellationToken);
         }
         catch (JsonException exception)
         {
-            return new Validation($"Request body is not valid JSON: {exception.Message}");
+            await ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", exception.Message);
+            return;
         }
+
+        if (document is null)
+        {
+            await ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", "Request body must be a JSON object.");
+            return;
+        }
+
+        await handle(document);
     }
 
     private static async Task WriteJsonAsync<T>(HttpContext context, int statusCode, T value, JsonTypeInfo<T> typeInfo)
