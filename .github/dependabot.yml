@@ -1,7 +1,16 @@
 version: 2
 updates:
-  - package-ecosystem: gomod
+  - package-ecosystem: nuget
     directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /worker
     schedule:
       interval: weekly
     open-pull-requests-limit: 0

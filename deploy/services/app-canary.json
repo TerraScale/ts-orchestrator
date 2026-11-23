@@ -1,0 +1,35 @@
+{
+  "name": "app-canary",
+  "mode": "replicated",
+  "priority": "low",
+  "image": "ghcr.io/terrascale/app-canary@sha256:2733561b8190982f1ea9b25657ce3f176c94fda0fd9ab26c984ce4e142c1f993",
+  "regions": [
+    "sjc",
+    "fra"
+  ],
+  "replicas": 1,
+  "minReplicas": 1,
+  "maxReplicas": 2,
+  "cpuRequestMilli": 50,
+  "cpuLimitMilli": 250,
+  "memRequestMiB": 32,
+  "memLimitMiB": 64,
+  "pidsLimit": 256,
+  "port": 8097,
+  "readyPath": "/readyz",
+  "readyTimeoutSeconds": 60,
+  "hostnames": [],
+  "env": {
+    "WHOAMI_PORT_NUMBER": "8097"
+  },
+  "secrets": {},
+  "mounts": [],
+  "args": [],
+  "udpPorts": [],
+  "autoscale": {
+    "targetCpuPct": 80,
+    "targetP95Ms": 250,
+    "scaleUpCooldownSeconds": 120,
+    "scaleDownCooldownSeconds": 600
+  }
+}

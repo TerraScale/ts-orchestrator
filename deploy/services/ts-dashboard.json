@@ -1,0 +1,63 @@
+{
+  "name": "ts-dashboard",
+  "mode": "replicated",
+  "priority": "normal",
+  "image": "ghcr.io/terrascale/ts-dashboard@sha256:923abba775a790bdacdb5806b99d4b42d6a25f1c158c1305a98ddc3f604007a9",
+  "regions": [
+    "gru",
+    "fra",
+    "sjc"
+  ],
+  "replicas": 1,
+  "minReplicas": 1,
+  "maxReplicas": 4,
+  "cpuRequestMilli": 200,
+  "cpuLimitMilli": 1000,
+  "memRequestMiB": 2048,
+  "memLimitMiB": 3072,
+  "pidsLimit": 1024,
+  "port": 8085,
+  "readyPath": "/readyz",
+  "readyTimeoutSeconds": 60,
+  "hostnames": [
+    "dash.terrascale.tech",
+    "mcp.terrascale.tech",
+    "platform.terrascale.tech"
+  ],
+  "env": {
+    "ASPNETCORE_URLS": "http://127.0.0.1:${PORT}",
+    "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp",
+    "TS_DASHBOARD_TERRABASE_URL": "http://127.0.0.1:8081"
+  },
+  "secrets": {
+    "STRIPE_SECRET_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-stripe-secret-key"
+    },
+    "STRIPE_WEBHOOK_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-stripe-webhook-secret"
+    },
+    "TERRABASE_PEER_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-peer-secret"
+    },
+    "TS_AUTH_DASHBOARD_CLIENT_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-dashboard-client-secret"
+    },
+    "TS_DASHBOARD_SESSION_ENCRYPTION_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-dashboard-session-encryption-key"
+    }
+  },
+  "mounts": [],
+  "args": [],
+  "udpPorts": [],
+  "autoscale": {
+    "targetCpuPct": 70,
+    "targetP95Ms": 250,
+    "scaleUpCooldownSeconds": 120,
+    "scaleDownCooldownSeconds": 600
+  }
+}

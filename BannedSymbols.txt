@@ -1,0 +1,23 @@
+N:Newtonsoft.Json;Use System.Text.Json with a source-generated JsonSerializerContext.
+N:Newtonsoft.Json.Linq;Use System.Text.Json.Nodes or JsonDocument.
+N:Newtonsoft.Json.Converters;Use System.Text.Json.Serialization converters.
+N:Newtonsoft.Json.Serialization;Use System.Text.Json.Serialization.
+P:System.DateTime.Now;Inject TimeProvider and call GetUtcNow().
+P:System.DateTime.UtcNow;Inject TimeProvider and call GetUtcNow().
+P:System.DateTime.Today;Inject TimeProvider and call GetUtcNow().
+P:System.DateTimeOffset.Now;Inject TimeProvider and call GetUtcNow().
+P:System.DateTimeOffset.UtcNow;Inject TimeProvider and call GetUtcNow().
+M:System.Threading.Thread.Sleep(System.Int32);Use await Task.Delay(delay, timeProvider, cancellationToken).
+M:System.Threading.Thread.Sleep(System.TimeSpan);Use await Task.Delay(delay, timeProvider, cancellationToken).
+T:System.Collections.Concurrent.BlockingCollection`1;Use a bounded System.Threading.Channels channel.
+P:System.Threading.Tasks.Task`1.Result;Await the task.
+M:System.Threading.Tasks.Task.Wait;Await the task.
+M:System.Threading.Tasks.Task.WaitAll(System.Threading.Tasks.Task[]);Await Task.WhenAll.
+M:System.Threading.Tasks.Task.WaitAny(System.Threading.Tasks.Task[]);Await Task.WhenAny.
+M:System.Text.RegularExpressions.Regex.#ctor(System.String);Use a [GeneratedRegex] partial method.
+M:System.Text.RegularExpressions.Regex.#ctor(System.String,System.Text.RegularExpressions.RegexOptions);Use a [GeneratedRegex] partial method.
+M:System.Text.Json.JsonSerializer.Serialize``1(``0,System.Text.Json.JsonSerializerOptions);Pass a source-generated JsonTypeInfo from a feature JsonSerializerContext.
+M:System.Text.Json.JsonSerializer.Deserialize``1(System.String,System.Text.Json.JsonSerializerOptions);Pass a source-generated JsonTypeInfo from a feature JsonSerializerContext.
+M:System.Text.Json.JsonSerializer.Deserialize``1(System.ReadOnlySpan{System.Byte},System.Text.Json.JsonSerializerOptions);Pass a source-generated JsonTypeInfo from a feature JsonSerializerContext.
+M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions);Pass a source-generated JsonTypeInfo from a feature JsonSerializerContext.
+M:System.Text.Json.JsonSerializer.DeserializeAsync``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken);Pass a source-generated JsonTypeInfo from a feature JsonSerializerContext.

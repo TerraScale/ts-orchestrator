@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>TsOrch.AppHost</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <IsPublishable>false</IsPublishable>
+    <UserSecretsId>ts-orch-apphost-local</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+    <PackageReference Include="Aspire.Hosting.Dotnet" />
+  </ItemGroup>
+</Project>

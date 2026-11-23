@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ts-orch",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-13",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "orch.terrascale.tech", "custom_domain": true },
+    { "pattern": "atlas.terrascale.tech", "custom_domain": true }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "FLEET_DO", "class_name": "FleetDO" },
+      { "name": "ATLAS_DO", "class_name": "AtlasDO" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FleetDO", "AtlasDO"] }],
+  "kv_namespaces": [{ "binding": "ATLAS_KV", "id": "00000000000000000000000000000000" }],
+  "r2_buckets": [{ "binding": "FLEET_BACKUPS", "bucket_name": "ts-orch-fleet-backups" }],
+  "triggers": { "crons": ["0 4 * * *"] },
+  "vars": {
+    "FLEET_DO_LOCATION_HINT": "sam",
+    "ORCH_HOST": "orch.terrascale.tech",
+    "ATLAS_HOST": "atlas.terrascale.tech",
+    "LOCAL_DEV": "false"
+  }
+}

@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TsOrch.Protocol/TsOrch.Protocol.csproj" />
+    <Project Path="src/TsOrch.Oci/TsOrch.Oci.csproj" />
+    <Project Path="src/TsOrch.Agent/TsOrch.Agent.csproj" />
+    <Project Path="src/TsOrch.Edge/TsOrch.Edge.csproj" />
+    <Project Path="src/TsOrch.Cli/TsOrch.Cli.csproj" />
+    <Project Path="src/TsOrch.AppHost/TsOrch.AppHost.csproj" />
+  </Folder>
+</Solution>
