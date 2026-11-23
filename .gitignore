@@ -15,3 +15,5 @@ coverage.out
 /.terrascale-develop-release/
 __pycache__/
 /terrascale-orchestrator
+
+.cloudflare/
