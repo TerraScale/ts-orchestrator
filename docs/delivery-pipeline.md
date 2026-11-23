@@ -202,7 +202,8 @@ The producer signs keylessly with its existing OIDC permission and pushes
 only an attestation referrer and tag under the existing package using its
 existing or explicitly approved packages permission. It adds no PAT, host
 secret, package or GitHub attestations permission. Main build-only publication
-creates no selection. TerraBase release-only remains a user decision.
+creates no selection. Agents dispatch TerraBase release-only themselves once the build-only digest comes
+from the current qualified main revision; no separate user approval is needed.
 
 ## Read-only release proof
 
