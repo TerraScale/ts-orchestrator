@@ -1,4 +1,0 @@
-http_server_request_duration_seconds_count
-terrascale_slo_requests_total
-alertmanager_cluster_members
-alertmanager_cluster_failed_peers

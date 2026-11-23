@@ -1,0 +1,474 @@
+using System.Collections.Concurrent;
+using System.Threading.Channels;
+using Microsoft.Extensions.Hosting;
+
+namespace TsOrch.Agent;
+
+internal readonly union PlacementPlanPreparation(PlacementPlan, SecretNameCollision, InvalidConfigFileTarget, ConfigFileSecretMissing, AtomicWriteFailed);
+
+public readonly record struct NonStatefulContainersDrained;
+
+public sealed record class NodeDrainUnverified(string Message);
+
+public sealed record class NodeDrainIncomplete(IReadOnlyList<string> PlacementIds);
+
+public readonly union NodeDrain(NonStatefulContainersDrained, NodeDrainIncomplete, NodeDrainUnverified);
+
+public sealed class ContainerReconciler(
+    DockerEngineClient docker,
+    SecretStore secrets,
+    ContainerSwapper swapper,
+    PlacementTracker tracker,
+    ImageHistoryStore images,
+    AgentOptions options,
+    TimeProvider timeProvider,
+    ILogger<ContainerReconciler> logger) : BackgroundService
+{
+    private const int MaxParallelPlacements = 4;
+    private static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMinutes(15);
+
+    private readonly Lock _desiredGate = new();
+    private readonly SemaphoreSlim _reconcileGate = new(1, 1);
+    private readonly ConcurrentDictionary<string, FailedAttempt> _failures = [with(StringComparer.Ordinal)];
+    private readonly Channel<ReconcileSignal> _signals = Channel.CreateBounded<ReconcileSignal>(new BoundedChannelOptions(1)
+    {
+        FullMode = BoundedChannelFullMode.DropWrite,
+        SingleReader = true,
+    });
+
+    private IReadOnlyList<DesiredPlacement>? _desired;
+    private long _desiredRevision = long.MinValue;
+
+    public override void Dispose()
+    {
+        _reconcileGate.Dispose();
+        base.Dispose();
+    }
+
+    public void ApplyDesired(SyncDesired desired)
+    {
+        ArgumentNullException.ThrowIfNull(desired);
+        lock (_desiredGate)
+        {
+            if (desired.Revision < _desiredRevision)
+            {
+                AgentLog.StaleDesiredIgnored(logger, desired.Revision, _desiredRevision);
+                return;
+            }
+
+            _desiredRevision = desired.Revision;
+            _desired = desired.Placements;
+        }
+
+        Signal();
+    }
+
+    public void RefreshSecrets(string serviceName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        List<DesiredPlacement> matching;
+        lock (_desiredGate)
+        {
+            matching = [.. (_desired ?? []).Where(placement => placement.Service.Name == serviceName)];
+        }
+
+        secrets.Invalidate(matching.SelectMany(static placement => placement.Service.Secrets.Values));
+        foreach (var placement in matching)
+        {
+            _failures.TryRemove(placement.PlacementId, out _);
+        }
+
+        AgentLog.SecretRefreshRequested(logger, serviceName, matching.Count);
+        Signal();
+    }
+
+    public async Task<NodeDrain> DrainAsync(CancellationToken cancellationToken)
+    {
+        await _reconcileGate.WaitAsync(cancellationToken);
+        try
+        {
+            IReadOnlyList<DesiredPlacement> desired;
+            lock (_desiredGate)
+            {
+                desired = _desired ?? [];
+                _desired = [.. desired.Where(static placement => placement.Service.Mode == PlacementMode.Stateful)];
+            }
+
+            var listed = await docker.ListManagedContainersAsync(options.LabelPrefix, cancellationToken);
+            return listed switch
+            {
+                IReadOnlyList<ManagedContainer> containers => await DrainContainersAsync(desired, containers, cancellationToken),
+                DockerDaemonUnavailable failed => new NodeDrainUnverified(failed.Message),
+                DockerResponseInvalid failed => new NodeDrainUnverified(failed.Message),
+            };
+        }
+        finally
+        {
+            _reconcileGate.Release();
+        }
+    }
+
+    private async Task<NodeDrain> DrainContainersAsync(IReadOnlyList<DesiredPlacement> desired, IReadOnlyList<ManagedContainer> containers, CancellationToken cancellationToken)
+    {
+        var stateful = desired.Where(static p => p.Service.Mode == PlacementMode.Stateful).Select(static p => p.PlacementId).ToHashSet(StringComparer.Ordinal);
+        foreach (var group in containers.Where(container => IsStateful(container, desired, stateful) == false).GroupBy(static container => container.PlacementId, StringComparer.Ordinal))
+        {
+            var retired = await swapper.RetireAsync([.. group], cancellationToken);
+            CompleteRetirement(group.Key, retired);
+        }
+
+        var listed = await docker.ListManagedContainersAsync(options.LabelPrefix, cancellationToken);
+        return listed switch
+        {
+            IReadOnlyList<ManagedContainer> remaining => VerifyDrain(desired, stateful, remaining),
+            DockerDaemonUnavailable failed => new NodeDrainUnverified(failed.Message),
+            DockerResponseInvalid failed => new NodeDrainUnverified(failed.Message),
+        };
+    }
+
+    private bool? IsStateful(ManagedContainer container, IReadOnlyList<DesiredPlacement> desired, HashSet<string> stateful) =>
+        container.Stateful ?? (stateful.Contains(container.PlacementId) ? true
+            : options.PoolKindOverride == PoolKind.Worker || desired.Any(p => p.PlacementId == container.PlacementId) ? false : null);
+
+    private NodeDrain VerifyDrain(IReadOnlyList<DesiredPlacement> desired, HashSet<string> stateful, IReadOnlyList<ManagedContainer> containers)
+    {
+        if (containers.Any(container => IsStateful(container, desired, stateful) is null))
+        {
+            return new NodeDrainUnverified("Managed containers without placement mode labels could not be classified.");
+        }
+
+        var remaining = containers.Where(container => IsStateful(container, desired, stateful) == false)
+            .Select(static container => container.PlacementId).Distinct(StringComparer.Ordinal).ToArray();
+        return remaining.Length == 0 ? new NonStatefulContainersDrained() : new NodeDrainIncomplete(remaining);
+    }
+
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        Task.WhenAll(
+            ReconcileLoopAsync(stoppingToken),
+            TickAsync(options.ReconcileInterval, Signal, stoppingToken),
+            TickAsync(
+                options.SecretCheckInterval,
+                () =>
+                {
+                    secrets.InvalidateAll();
+                    Signal();
+                },
+                stoppingToken));
+
+    private void Signal() => _signals.Writer.TryWrite(new ReconcileSignal());
+
+    private async Task TickAsync(TimeSpan interval, Action onTick, CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(interval, timeProvider);
+        while (await timer.WaitForNextTickAsync(cancellationToken))
+        {
+            onTick();
+        }
+    }
+
+    private async Task ReconcileLoopAsync(CancellationToken cancellationToken)
+    {
+        await foreach (var _ in _signals.Reader.ReadAllAsync(cancellationToken))
+        {
+            await ReconcileOnceAsync(cancellationToken);
+        }
+    }
+
+    private async Task ReconcileOnceAsync(CancellationToken cancellationToken)
+    {
+        await _reconcileGate.WaitAsync(cancellationToken);
+        try
+        {
+            IReadOnlyList<DesiredPlacement>? desired;
+            lock (_desiredGate)
+            {
+                desired = _desired;
+            }
+
+            if (desired is null)
+            {
+                return;
+            }
+
+            var outcome = await docker.ListManagedContainersAsync(options.LabelPrefix, cancellationToken);
+            var failure = outcome switch
+            {
+                IReadOnlyList<ManagedContainer> containers => await ReconcileAsync(desired, containers, cancellationToken),
+                DockerDaemonUnavailable listFailure => listFailure.Message,
+                DockerResponseInvalid listFailure => listFailure.Message,
+            };
+            if (failure is not null)
+            {
+                AgentLog.ReconcileListFailed(logger, failure);
+            }
+        }
+        finally
+        {
+            _reconcileGate.Release();
+        }
+    }
+
+    private async Task<string?> ReconcileAsync(IReadOnlyList<DesiredPlacement> desired, IReadOnlyList<ManagedContainer> containers, CancellationToken cancellationToken)
+    {
+        var byPlacement = containers
+            .GroupBy(static container => container.PlacementId, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => (IReadOnlyList<ManagedContainer>)[.. group], StringComparer.Ordinal);
+        await Parallel.ForEachAsync(
+            desired,
+            new ParallelOptions { MaxDegreeOfParallelism = MaxParallelPlacements, CancellationToken = cancellationToken },
+            async (placement, placementToken) => await ReconcilePlacementAsync(placement, byPlacement.GetValueOrDefault(placement.PlacementId) ?? [], placementToken));
+
+        var desiredIds = desired.Select(static placement => placement.PlacementId).ToHashSet(StringComparer.Ordinal);
+        foreach (var (placementId, orphaned) in byPlacement)
+        {
+            if (desiredIds.Contains(placementId))
+            {
+                continue;
+            }
+
+            AgentLog.PlacementRetiring(logger, placementId);
+            var retired = await swapper.RetireAsync(orphaned, cancellationToken);
+            CompleteRetirement(placementId, retired);
+        }
+
+        return null;
+    }
+
+    private void CompleteRetirement(string placementId, PlacementRetirement outcome)
+    {
+        var retired = outcome switch
+        {
+            PlacementRetired => true,
+            PlacementDrainPending or PlacementContainersRemain => false,
+        };
+        if (retired)
+        {
+            _failures.TryRemove(placementId, out _);
+            if (AgentNames.IsSafeToken(placementId))
+            {
+                secrets.DeletePlacement(placementId);
+            }
+        }
+    }
+
+    private async Task ReconcilePlacementAsync(DesiredPlacement placement, IReadOnlyList<ManagedContainer> existing, CancellationToken cancellationToken)
+    {
+        if (!AgentNames.IsSafeToken(placement.PlacementId))
+        {
+            await ReportFailureAsync(placement, string.Empty, $"Placement id {placement.PlacementId} is not a safe container name token.", cancellationToken);
+            return;
+        }
+
+        var outcome = await secrets.ResolveAsync(placement.Service, cancellationToken);
+        await (outcome switch
+        {
+            ResolvedServiceSecrets resolved => ApplyAsync(placement, existing, resolved, cancellationToken),
+            InvalidSecretName failure => SecretsUnavailableAsync(placement, existing, failure.Message, cancellationToken),
+            SecretNameCollision failure => SecretsUnavailableAsync(placement, existing, failure.Message, cancellationToken),
+            InvalidServiceSecretReference failure => SecretsUnavailableAsync(placement, existing, failure.Message, cancellationToken),
+            SecretReadSuperseded => Task.CompletedTask,
+            ServiceSecretUnreadable failure => SecretsUnavailableAsync(placement, existing, failure.Message, cancellationToken),
+        });
+    }
+
+    private async Task SecretsUnavailableAsync(DesiredPlacement placement, IReadOnlyList<ManagedContainer> existing, string reason, CancellationToken cancellationToken)
+    {
+        if (swapper.FindServing(placement, existing) is { } serving)
+        {
+            AgentLog.SecretResolveDeferred(logger, placement.PlacementId, reason);
+            await tracker.ReportAsync(
+                swapper.ServingReport(serving, placement.Service),
+                cancellationToken);
+            return;
+        }
+
+        await ReportFailureAsync(placement, string.Empty, reason, cancellationToken);
+    }
+
+    private async Task ApplyAsync(DesiredPlacement placement, IReadOnlyList<ManagedContainer> existing, ResolvedServiceSecrets resolved, CancellationToken cancellationToken)
+    {
+        var service = placement.Service;
+        var configHash = ConfigHashCalculator.Compute(service, resolved.Versions);
+        var current = existing.FirstOrDefault(container => container.Running && container.Image == service.Image && container.ConfigHash == configHash);
+        if (current is not null)
+        {
+            await KeepCurrentAsync(placement, current, existing, cancellationToken);
+            return;
+        }
+
+        if (_failures.TryGetValue(placement.PlacementId, out var failure) && failure.ConfigHash == configHash && timeProvider.GetUtcNow() < failure.RetryAt)
+        {
+            return;
+        }
+
+        var outcome = await BuildPlanAsync(placement, configHash, resolved, cancellationToken);
+        var task = outcome switch
+        {
+            PlacementPlan plan => SwapAsync(placement, plan, existing, cancellationToken),
+            SecretNameCollision planFailure => SecretsUnavailableAsync(placement, existing, planFailure.Message, cancellationToken),
+            InvalidConfigFileTarget planFailure => SecretsUnavailableAsync(placement, existing, planFailure.Message, cancellationToken),
+            ConfigFileSecretMissing planFailure => SecretsUnavailableAsync(placement, existing, planFailure.Message, cancellationToken),
+            AtomicWriteFailed planFailure => SecretsUnavailableAsync(placement, existing, planFailure.Message, cancellationToken),
+        };
+        await task;
+    }
+
+    private async Task SwapAsync(DesiredPlacement placement, PlacementPlan plan, IReadOnlyList<ManagedContainer> existing, CancellationToken cancellationToken)
+    {
+        var service = placement.Service;
+        AgentLog.PlacementSwapping(logger, placement.PlacementId, service.Image, plan.ConfigHash, plan.RequiresStopStart);
+        var outcome = await swapper.SwapAsync(plan, existing, RecordPulledAsync, cancellationToken);
+        var keep = outcome switch
+        {
+            PlacementPromoted promoted => await SwappedAsync(placement, promoted.LiveConfigurations, cancellationToken),
+            InvalidPlacementPort or PlacementDrainPending or PlacementImagePullFailed or PlacementCreateFailed or PlacementStartFailed or PlacementProbeFailed
+                => SwapFailed(placement, plan.ConfigHash, existing),
+        };
+        secrets.DeleteStaleGenerations(placement.PlacementId, keep);
+    }
+
+    private async Task<IReadOnlySet<string>> SwappedAsync(DesiredPlacement placement, IReadOnlySet<string> liveConfigurations, CancellationToken cancellationToken)
+    {
+        _failures.TryRemove(placement.PlacementId, out _);
+        var outcome = await images.RecordActiveAsync(placement.Service.Name, placement.Service.Image, cancellationToken);
+        var failure = outcome switch
+        {
+            ImageHistoryRecorded => null,
+            ImageHistoryUnreadable recordFailure => recordFailure.Message,
+            ImageHistoryWriteFailed recordFailure => recordFailure.Message,
+        };
+        if (failure is not null)
+        {
+            AgentLog.ImageHistoryFailed(logger, failure);
+        }
+
+        return liveConfigurations;
+    }
+
+    private HashSet<string> SwapFailed(DesiredPlacement placement, string configHash, IReadOnlyList<ManagedContainer> existing)
+    {
+        RecordFailure(placement.PlacementId, configHash);
+        return existing.Where(static container => container.Running).Select(static container => container.ConfigHash).ToHashSet(StringComparer.Ordinal);
+    }
+
+    private async Task RecordPulledAsync(string image, CancellationToken cancellationToken)
+    {
+        var outcome = await images.RecordPulledAsync(image, cancellationToken);
+        var failure = outcome switch
+        {
+            ImageHistoryRecorded => null,
+            ImageHistoryUnreadable recordFailure => recordFailure.Message,
+            ImageHistoryWriteFailed recordFailure => recordFailure.Message,
+        };
+        if (failure is not null)
+        {
+            AgentLog.ImageHistoryFailed(logger, failure);
+        }
+    }
+
+    private async Task KeepCurrentAsync(DesiredPlacement placement, ManagedContainer current, IReadOnlyList<ManagedContainer> existing, CancellationToken cancellationToken)
+    {
+        var report = ContainerSwapper.ReadyReport(current, placement.Service);
+        if (tracker.Find(placement.PlacementId) != report)
+        {
+            if (swapper.FindServing(placement, existing) is { } serving && serving.Id != current.Id)
+            {
+                await tracker.ReportAsync(swapper.ServingReport(serving, placement.Service), cancellationToken);
+            }
+
+            var readiness = await swapper.WaitReadyAsync(current.Id, placement.Service, cancellationToken);
+            var ready = readiness switch
+            {
+                PlacementPorts ports => report with { HostPort = ports.Http, PostgresHostPort = ports.Postgres },
+                PlacementProbeFailed => null,
+            };
+            if (ready is null)
+            {
+                await swapper.StopAndRemoveAsync(current.Id, cancellationToken);
+                await SecretsUnavailableAsync(placement, [.. existing.Where(container => container.Id != current.Id)], "Interrupted candidate failed readiness.", cancellationToken);
+                Signal();
+                return;
+            }
+
+            report = ready;
+            await tracker.ReportAsync(report, cancellationToken);
+        }
+
+        var keep = await swapper.RetirePreviousAsync(
+            placement, current.ConfigHash, [.. existing.Where(container => container.Id != current.Id)],
+            new PlacementPorts(report.HostPort, report.PostgresHostPort), cancellationToken);
+        await SwappedAsync(placement, keep, cancellationToken);
+        secrets.DeleteStaleGenerations(placement.PlacementId, keep);
+    }
+
+    private async Task<PlacementPlanPreparation> BuildPlanAsync(
+        DesiredPlacement placement,
+        string configHash,
+        ResolvedServiceSecrets resolved,
+        CancellationToken cancellationToken)
+    {
+        var service = placement.Service;
+        Dictionary<string, string> env = new(service.Env, StringComparer.Ordinal);
+        List<BindMount> mounts = [.. service.Mounts.Select(static mount => new BindMount(mount.Source, mount.Target, ReadOnly: false))];
+        if (service.Secrets.Count == 0 && service.ConfigFiles is not { Count: > 0 })
+        {
+            return new PlacementPlan(placement, configHash, env, mounts);
+        }
+
+        var outcome = await secrets.MaterializeAsync(placement.PlacementId, configHash, service, resolved, cancellationToken);
+        return outcome switch
+        {
+            SecretMounts secretMounts => WithSecrets(placement, configHash, env, mounts, secretMounts),
+            InvalidConfigFileTarget invalid => invalid,
+            ConfigFileSecretMissing missing => missing,
+            AtomicWriteFailed failure => failure,
+        };
+    }
+
+    private static PlacementPlanPreparation WithSecrets(
+        DesiredPlacement placement,
+        string configHash,
+        Dictionary<string, string> env,
+        List<BindMount> mounts,
+        SecretMounts secretMounts)
+    {
+        foreach (var (name, value) in secretMounts.Env)
+        {
+            if (!env.TryAdd(name, value))
+            {
+                return new SecretNameCollision(placement.Service.Name, name);
+            }
+        }
+
+        mounts.AddRange(secretMounts.Mounts);
+        return new PlacementPlan(placement, configHash, env, mounts);
+    }
+
+    private async Task ReportFailureAsync(DesiredPlacement placement, string configHash, string reason, CancellationToken cancellationToken)
+    {
+        AgentLog.PlacementFailed(logger, placement.PlacementId, placement.Service.Image, reason);
+        await tracker.ReportAsync(
+            new PlacementReport(placement.PlacementId, placement.Service.Name, PlacementState.Failed, placement.Service.Image, configHash, Error: reason),
+            cancellationToken);
+    }
+
+    private void RecordFailure(string placementId, string configHash)
+    {
+        var now = timeProvider.GetUtcNow();
+        _failures.AddOrUpdate(
+            placementId,
+            static (_, state) => new FailedAttempt(state.ConfigHash, 1, state.Now + FirstRetryDelay),
+            static (_, previous, state) =>
+            {
+                var attempts = previous.ConfigHash == state.ConfigHash ? previous.Attempts + 1 : 1;
+                var delay = TimeSpan.FromTicks(Math.Min(MaxRetryDelay.Ticks, FirstRetryDelay.Ticks << Math.Min(attempts - 1, 10)));
+                return new FailedAttempt(state.ConfigHash, attempts, state.Now + delay);
+            },
+            (ConfigHash: configHash, Now: now));
+    }
+
+    private readonly record struct ReconcileSignal;
+
+    private sealed record class FailedAttempt(string ConfigHash, int Attempts, DateTimeOffset RetryAt);
+}

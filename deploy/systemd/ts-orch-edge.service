@@ -1,0 +1,21 @@
+[Unit]
+Description=TerraScale orchestrator edge proxy
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+Slice=ts-orch.slice
+OOMScoreAdjust=-900
+ExecStart=/usr/bin/dotnet /opt/ts-orch/current/ts-orch.dll edge
+KillSignal=SIGTERM
+TimeoutStopSec=35s
+Restart=always
+RestartSec=1s
+RuntimeDirectory=ts-orch
+RuntimeDirectoryPreserve=yes
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

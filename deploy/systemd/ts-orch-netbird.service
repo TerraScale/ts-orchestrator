@@ -1,0 +1,9 @@
+[Unit]
+Description=TerraScale orchestrator NetBird enrollment
+Wants=network-online.target netbird.service
+After=network-online.target netbird.service
+
+[Service]
+Type=oneshot
+Slice=ts-orch.slice
+ExecStart=/usr/bin/dotnet /opt/ts-orch/current/ts-orch.dll netbird enroll

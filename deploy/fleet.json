@@ -1,0 +1,233 @@
+{
+  "backplane": {
+    "locationHint": "sam",
+    "orchHost": "orch.terrascale.tech",
+    "atlasHost": "atlas.terrascale.tech"
+  },
+  "oci": {
+    "tenancyId": "ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga",
+    "registry": {
+      "namespace": "grxnmoqvrcdv",
+      "repoPrefix": "terrascale"
+    },
+    "vault": {
+      "region": "sa-saopaulo-1",
+      "vaultId": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq"
+    }
+  },
+  "dns": {
+    "zone": "edge.terrascale.tech",
+    "compartmentId": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+    "steeredNames": [
+      "dash.edge.terrascale.tech",
+      "api.edge.terrascale.tech",
+      "mcp.edge.terrascale.tech",
+      "platform.edge.terrascale.tech"
+    ],
+    "ttlSeconds": 30,
+    "healthCheckPath": "/readyz"
+  },
+  "atlas": {
+    "requiredServices": [
+      "terrabase",
+      "auth",
+      "dashboard",
+      "status",
+      "docs"
+    ],
+    "services": [
+      {
+        "id": "terrabase",
+        "name": "TerraBase",
+        "url": "https://api.terrascale.tech",
+        "health": "https://api.terrascale.tech/readyz"
+      },
+      {
+        "id": "auth",
+        "name": "Auth",
+        "url": "https://auth.terrascale.tech",
+        "health": "https://auth.terrascale.tech/readyz"
+      },
+      {
+        "id": "dashboard",
+        "name": "Dashboard",
+        "url": "https://dash.terrascale.tech",
+        "health": "https://dash.terrascale.tech/readyz"
+      },
+      {
+        "id": "status",
+        "name": "Status",
+        "url": "https://status.terrascale.tech"
+      },
+      {
+        "id": "docs",
+        "name": "Docs",
+        "url": "https://docs.terrascale.tech"
+      }
+    ]
+  },
+  "rolloutOrder": [
+    "gru",
+    "fra",
+    "sjc"
+  ],
+  "regions": [
+    {
+      "label": "gru",
+      "ociRegion": "sa-saopaulo-1",
+      "compartmentId": "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq",
+      "location": {
+        "name": "São Paulo",
+        "country": "BR",
+        "lat": -23.55,
+        "lon": -46.63,
+        "continents": [
+          "SA",
+          "AN"
+        ]
+      },
+      "network": {
+        "vcnCidr": "10.251.0.0/24",
+        "publicSubnetCidr": "10.251.0.0/25",
+        "privateSubnetCidr": "10.251.0.192/26"
+      },
+      "endpoints": {
+        "api": "https://gru.api.terrascale.tech",
+        "auth": "https://gru.auth.terrascale.tech"
+      },
+      "pools": {
+        "stateful": {
+          "count": 2,
+          "shape": {
+            "name": "VM.Standard.A1.Flex",
+            "ocpus": 2,
+            "memoryGiB": 12,
+            "bootGiB": 50
+          },
+          "dataGiB": 50,
+          "dataVpusPerGiB": 10,
+          "externalNodes": [
+            "ts-gru-1"
+          ]
+        },
+        "worker": {
+          "min": 0,
+          "max": 50,
+          "shape": {
+            "name": "VM.Standard.A1.Flex",
+            "ocpus": 2,
+            "memoryGiB": 12,
+            "bootGiB": 50
+          }
+        }
+      }
+    },
+    {
+      "label": "fra",
+      "ociRegion": "eu-frankfurt-1",
+      "compartmentId": "ocid1.compartment.oc1..aaaaaaaavvrkl4p77rj3e2sigkf2vvpal45h5bnw7v4vlrphkwmqjabzbnca",
+      "location": {
+        "name": "Frankfurt",
+        "country": "DE",
+        "lat": 50.11,
+        "lon": 8.68,
+        "continents": [
+          "EU",
+          "AF"
+        ]
+      },
+      "network": {
+        "vcnCidr": "10.253.0.0/24",
+        "publicSubnetCidr": "10.253.0.0/25",
+        "privateSubnetCidr": "10.253.0.192/26"
+      },
+      "endpoints": {
+        "api": "https://fra.api.terrascale.tech",
+        "auth": "https://fra.auth.terrascale.tech"
+      },
+      "pools": {
+        "stateful": {
+          "count": 2,
+          "shape": {
+            "name": "VM.Standard.A1.Flex",
+            "ocpus": 2,
+            "memoryGiB": 12,
+            "bootGiB": 50
+          },
+          "dataGiB": 50,
+          "dataVpusPerGiB": 10,
+          "externalNodes": []
+        },
+        "worker": {
+          "min": 1,
+          "max": 50,
+          "shape": {
+            "name": "VM.Standard.A1.Flex",
+            "ocpus": 2,
+            "memoryGiB": 12,
+            "bootGiB": 50
+          }
+        }
+      }
+    },
+    {
+      "label": "sjc",
+      "ociRegion": "us-sanjose-1",
+      "compartmentId": "ocid1.compartment.oc1..aaaaaaaaysxjvhdqptflhspi7tqb2c44yhqifcjgfewxjhc2skelpiyugqva",
+      "location": {
+        "name": "San Jose",
+        "country": "US",
+        "lat": 37.34,
+        "lon": -121.89,
+        "continents": [
+          "NA",
+          "OC",
+          "AS"
+        ]
+      },
+      "network": {
+        "vcnCidr": "10.252.0.0/24",
+        "publicSubnetCidr": "10.252.0.0/25",
+        "privateSubnetCidr": "10.252.0.192/26"
+      },
+      "endpoints": {
+        "api": "https://sjc.api.terrascale.tech",
+        "auth": "https://sjc.auth.terrascale.tech"
+      },
+      "pools": {
+        "stateful": {
+          "count": 2,
+          "shape": {
+            "name": "VM.Standard.A1.Flex",
+            "ocpus": 2,
+            "memoryGiB": 12,
+            "bootGiB": 50
+          },
+          "dataGiB": 50,
+          "dataVpusPerGiB": 10,
+          "externalNodes": []
+        },
+        "worker": {
+          "min": 1,
+          "max": 50,
+          "shape": {
+            "name": "VM.Standard.A1.Flex",
+            "ocpus": 2,
+            "memoryGiB": 12,
+            "bootGiB": 50
+          }
+        }
+      }
+    }
+  ],
+  "netbird": {
+    "managementUrl": "https://netbird.terrascale.tech",
+    "dnsDomain": "nb.ts.internal",
+    "networkRange": "10.200.0.0/16",
+    "setupKeySecret": "gru-1-netbird-setup-key",
+    "operatorsSetupKeySecret": "gru-1-netbird-operators-setup-key",
+    "adminPatSecret": "gru-1-netbird-admin-pat",
+    "ownerEmail": "mariogk@terrascale.tech",
+    "ownerPasswordSecret": "gru-1-netbird-owner-password"
+  }
+}

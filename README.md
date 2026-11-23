@@ -1,120 +1,45 @@
-# TerraScale Orchestrator
+# ts-orchestrator v2
 
-The [platform design](docs/platform.md) is the source for the target design
-of the platform. Where today's code differs, that document says so.
+TerraScale's orchestrator and global discovery plane. It replaces the v1 Go daemon (SwarmKit, embedded NATS, vendored OCI SDK) with:
 
-Read the [required zero-configuration operating contract](docs/zero-configuration.md).
-Current configuration paths described below are implementation limitations, not
-production activation instructions.
+- **`worker/`**: one Cloudflare Worker with two isolated Durable Objects. `FleetDO` (SQLite, `locationHint: "sam"`) is the control backplane and serves only `orch.terrascale.tech`. `AtlasDO` keeps database placements and serves only `atlas.terrascale.tech/v1/*`. Public reads come from `ATLAS_KV`; nightly snapshots go to the `FLEET_BACKUPS` R2 bucket.
+- **`src/`**: the .NET 11 (C# 15, framework-dependent JIT) node binary `ts-orch`:
+  - `TsOrch.Protocol`: the locked wire contract, mirrored 1:1 in `worker/src/protocol.ts`.
+  - `TsOrch.Oci`: the OCI instance-principal signer and Vault client.
+  - `TsOrch.Agent`: the Docker and cgroup v2 reconciler.
+  - `TsOrch.Edge`: the Kestrel + YARP HTTPS and Postgres SNI edge.
+  - `TsOrch.Cli`: the operator CLI and MCP server.
+  - `TsOrch.AppHost`: the .NET Aspire local stack.
+- **`deploy/`**: the declarative production inventory (`fleet.json`, `services/*.json`).
 
-TerraScale Orchestrator is a Go orchestrator distributed as one binary. Every
-node runs one runtime, `terrascale-orchestrator node`
-([`deploy/m1/ts-orch.service`](deploy/m1/ts-orch.service)): a SwarmKit manager
-and worker with containerd, the HTTPS edge and the embedded NATS mesh between
-regions. CI publishes attested binaries and selected app images; hosts pull and verify them
-(see [network exposure](docs/network.md) and [platform design](docs/platform.md#releases)).
-`ts-deploy` is not the build or rollout engine for this repository.
+Every region has two node pools. The `stateful` pool (default 2 nodes) holds TerraBase data volumes. The `worker` pool is stateless and scales from 0 to 50 nodes. There is no manager quorum, no Raft and no NATS.
 
-Use **`ts-orch` as the operational CLI**. Implement new deployment,
-provisioning, bootstrap, release, and inspection tooling as Go subcommands in
-this executable instead of creating Python scripts or separate tools. CI and
-automation should call those commands. Operational tools and qualification
-drivers live in Go feature packages; shell wrappers select the environment
-and invoke the CLI. See [contributing](AGENTS.md) and [CLI boundaries](docs/cli.md).
+## Toolchain
 
-The [cluster visibility contract](docs/cluster-visibility.md) specifies the
-complete human/AI CLI and dashboard target: shared cluster APIs, metric discovery
-and history, Go templ + Datastar + ECharts, and one dashboard stylesheet.
+`mise install` provides .NET SDK 11.0.100, Node 22 and OpenTofu 1.13.9.
 
-The required production path admits private NetBird members automatically,
-discovers every region and infers local identity from execution location.
-**Current gap (TS-796):** first-controller/regional foundation still depends on
-explicit bootstrap inputs. The [legacy bootstrap inventory](docs/region-bootstrap.md)
-records those limits; it is not proof of automatic admission.
+## Checks
 
-`ts-infra` manages shared Email Delivery only. The operator prepares regional
-networking, IAM, and bootstrap inputs and starts controller A; `ts-orchestrator`
-then forms the same-cell B/C peers and manages ARM workload hosts and TerraBase
-deployment. The current `ts-infra` source and guarded workflow do not seed or
-manage regional resources.
-
-OCI Vault must automatically create, deliver and configure every first-party
-production secret. Vendor keys are stored once and discovered automatically.
-See [secrets](docs/secrets.md) for least-privilege and current delivery limits;
-existing storage/delivery evidence does not prove end-to-end automation.
-
-Open the [operator dashboard over NetBird](docs/dashboard/README.md#netbird-access)
-for the access contract, current gaps, and the
-`scripts/check-dashboard-access.sh` live check from each operator device.
-
-This is a greenfield Go implementation. It does not promise compatibility with
-the retired C# commands, configuration, NATS subjects, or state. The current
-implementation and its gaps are described in [the architecture notes](docs/architecture.md).
-
-## Build and verify
-
-CI is the merge gate; local checks are optional before push. Follow the
-[GitHub contribution workflow](AGENTS.md#shipping-code) for PRs and reviews.
-
-The `go` line of `go.mod` pins the Go version, and `.mise.toml` installs the same one:
-
-```bash
-mise trust .mise.toml  # first checkout only
-mise install
-umask 022
-nice -n 19 mise exec -- make lint
-nice -n 19 mise exec -- make build
-nice -n 19 mise exec -- make release-linux
+```sh
+dotnet build TsOrch.slnx -c Release
+dotnet format whitespace TsOrch.slnx --verify-no-changes
+cd worker && npm ci && npx tsc --noEmit
 ```
 
-`make lint` checks formatting, templ output, `go vet`, shell scripts and the repository policies; the only test here is the node E2E (`test/e2e/m1/run.sh`), and product behaviour is proven by the journey E2E in the terrascale repo.
-`make build` creates `dist/ts-orch` for the current host. The same executable runs
-the `node` runtime and the operator tooling:
+## NetBird
 
-```bash
-dist/ts-orch --help
-dist/ts-orch release --help
-dist/ts-orch region --help
-dist/ts-orch oci-region --help
+`netbird-server` (management, signal, relay, STUN) and `netbird-dashboard` run in `gru` behind the edge at `netbird.terrascale.tech`, declared in `deploy/services/`. The edge blocks `/api/setup` publicly. `fleet.json` `netbird` names the management URL, DNS domain, network range, owner and the OCI Vault secrets for setup keys, admin PAT and owner password.
+
+```sh
+ts-orch netbird init --write-setup-keys-dir /tmp/netbird-keys
+ts-orch netbird join
+ts-orch netbird status
 ```
 
-See [the unified CLI](docs/cli.md) for the commands and feature boundaries.
-See [the network address plan](docs/network/address-plan.md) for dedicated
-mesh/region/bridge reservations, the live audit and
-`scripts/check-network-coexistence.sh` (exit 0 requires both meshes and DNS
-on PCs/user clients, and NetBird connectivity on regional servers).
-Change a cell's servers and load balancer backends only with `ts-orch node`
-([node operations](docs/node-operations.md)), never with the `oci` CLI.
+`init` is idempotent: it claims the initial owner if needed, configures `10.200.0.0/16` and `nb.ts.internal`, reconciles groups (`operators`, `ops-automation`, `<region>-servers`), replaces the default allow-all policy with least-privilege SSH and inter-server rules, and ensures valid reusable 90-day setup keys (writing any newly minted PAT or setup keys as `0600` files in `--write-setup-keys-dir` for OCI Vault upload without printing secrets). `join` fetches the operator setup key from OCI Vault (or `--setup-key-file`) and enrolls an operator machine via stdin.
 
-`make release-linux` creates static Linux amd64 and arm64 executables and
-requires no Go runtime on the target machine. GitHub CI repeats the checks
-against the event's exact commit, verifies both ELF architectures and the
-embedded Git revision, and prints SHA-256 digests.
+Every node installs the `netbird` package at boot. `ts-orch-netbird.timer` runs `ts-orch netbird enroll` 45 s after boot and every 15 minutes, joining the node with the setup key named in instance metadata (`ts_netbird_url`, `ts_netbird_setup_key_secret`). Nodes accept WireGuard on UDP 51820; `gru` nodes also accept STUN on UDP 3478 through the NLB.
 
-See [release boundaries](docs/releases.md) for what CI proves
-and what still needs a separate release process.
+## Releases
 
-## Current limits
-
-Managed OCI placement can provision a host
-and retained volume. After the attachment is positively observed and the
-runtime artifact and managed mount path are ready, it publishes signed
-TerraBase desired state; the host verifies an existing exclusive mount of the
-retained filesystem, launches the member, and reports local process and mount
-status. Placement then holds at `awaiting-healthy`: it never claims a database
-member is serving, and the orchestrator does not discover, format, or mount the
-guest block device itself. Host image preparation, first-boot configuration,
-and signed enrollment remain operator steps.
-
-No live OCI account has been mutated. A create accepted by
-OCI whose result is lost before its recovery result is durably journaled stays
-unowned. Matching tags alone do not authorize adoption; manual inspection and
-reconciliation are required. Artifact uploads are bounded by a 2 GiB default
-quota, but interrupted or concurrent uploads can leave chunks in the store.
-There is no repository-managed cleanup path, automatic garbage collection, or
-admitted-object eviction. Once the quota is full, new uploads fail with
-`ErrArtifactStoreFull`.
-Live OCI mutation, scale-in, region decommission, production authority
-failover, signed release publication, and guest-level rollback remain outside
-the evidence currently available here. Do not use this repository as a
-production-ready cloud control plane.
+v2 builds are tagged `v2-<sha>` only. Live v1 nodes follow `ci-*` release tags from `main` and ignore v2 tags until each region is cut over.

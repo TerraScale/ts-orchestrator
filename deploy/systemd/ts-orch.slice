@@ -1,0 +1,9 @@
+[Unit]
+Description=TerraScale orchestrator control plane slice
+Before=slices.target
+
+[Slice]
+CPUWeight=10000
+IOWeight=10000
+MemoryMin=256M
+MemoryLow=512M

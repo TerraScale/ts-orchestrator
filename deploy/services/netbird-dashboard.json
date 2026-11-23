@@ -1,0 +1,41 @@
+{
+  "name": "netbird-dashboard",
+  "mode": "replicated",
+  "priority": "high",
+  "image": "docker.io/netbirdio/dashboard:v2.94.0@sha256:44a250c04d91b46aa666de4b2b25602f0580b64dee0682fedfb9d012cb020ff7",
+  "regions": [
+    "gru"
+  ],
+  "replicas": 1,
+  "minReplicas": 1,
+  "maxReplicas": 1,
+  "cpuRequestMilli": 100,
+  "cpuLimitMilli": 500,
+  "memRequestMiB": 64,
+  "memLimitMiB": 128,
+  "pidsLimit": 256,
+  "port": 80,
+  "readyPath": "/",
+  "readyTimeoutSeconds": 60,
+  "hostnames": [
+    "netbird.terrascale.tech"
+  ],
+  "env": {
+    "AUTH_AUDIENCE": "netbird-dashboard",
+    "AUTH_AUTHORITY": "https://netbird.terrascale.tech/oauth2",
+    "AUTH_CLIENT_ID": "netbird-dashboard",
+    "AUTH_CLIENT_SECRET": "",
+    "AUTH_REDIRECT_URI": "/nb-auth",
+    "AUTH_SILENT_REDIRECT_URI": "/nb-silent-auth",
+    "AUTH_SUPPORTED_SCOPES": "openid profile email groups",
+    "LETSENCRYPT_DOMAIN": "none",
+    "NETBIRD_MGMT_API_ENDPOINT": "https://netbird.terrascale.tech",
+    "NETBIRD_MGMT_GRPC_API_ENDPOINT": "https://netbird.terrascale.tech",
+    "NGINX_SSL_PORT": "443",
+    "USE_AUTH0": "false"
+  },
+  "secrets": {},
+  "mounts": [],
+  "args": [],
+  "udpPorts": []
+}

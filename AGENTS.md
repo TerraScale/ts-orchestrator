@@ -43,18 +43,27 @@
 
 # ts-orchestrator
 
-Go orchestrator replacing Kubernetes for TerraScale services. Ship one easy-to-update binary; group related and dependent code by feature.
+Cloudflare Worker control backplane + merged global Atlas discovery (`worker/`) paired with one framework-dependent .NET 11 / C# 15 arch-neutral IL binary (`ts-orch`) running as `ts-orch-agent` and `ts-orch-edge` on OCI nodes and as the operator CLI and MCP server. No manager quorum, no Raft and no NATS.
 
 ## Architecture and rules
 
-- Load the `use-modern-go` skill before editing Go code.
-- Manage regional OCI resources and scale TerraBase up and down. Regional controllers embed NATS and JetStream; use NATS for orchestrator communication. Regions form their clusters automatically.
-- Every feature is always on; every region serves automatically. No feature flags, enabled booleans, opt-in settings, deploy toggles or kill switches. Delete guarded paths. Values have one correct setting in code; no tuning knobs.
-- CI rejects switch-style configuration; unavoidable third-party names need a narrow allowance and one-line reason.
-- Discover NetBird members, regions, placement and releases automatically; infer node identity from execution location. Keep the bootstrap gap documented in `docs/region-bootstrap.md` rather than claiming it is solved. Create and deliver each service's production credentials automatically through the platform secret integration.
+- Load `workspace/skills/csharp/SKILL.md` before reading, writing or reviewing any C# or `.NET` file. Follow C# 15 specific named `readonly union` results beside each operation (no generic `Results.cs` or `Result<T, ...>` wrappers) with exhaustive `switch` expressions, zero `try`/`catch` in owned code, zero `IOptions<T>`, zero single-implementation interfaces, source-generated `System.Text.Json`, locked NuGet restores and zero warnings (`TreatWarningsAsErrors=true`).
+- Keep `src/TsOrch.Protocol/` and `worker/src/protocol.ts` 1:1 in sync.
+- Keep `orch.terrascale.tech` (`FleetDO` SQLite, `locationHint: "sam"`, authenticated control plane and built-in Login/Status UI) strictly isolated from `atlas.terrascale.tech` (`AtlasDO` + `ATLAS_KV`, public `/v1/*` contract matching `terrascale/sites/atlas/`). `/atlas/*` and `/auth/dev-login` exist only when `LOCAL_DEV=true` on loopback.
+- Every region runs two flat pools: `stateful` (persistent `/var/lib/ts-data` OCI Block Volumes with `prevent_destroy`, auto-tuning VPUs and online auto-grow at >75% sustained 5 min) and `worker` (0..50 stateless VMs, boot-volume only, never preemptible). Runtime secrets stay in OCI Vault via Instance Principal with SHA-256 `configHash` rotation; never store secret values in DO SQLite, logs or git.
+- Every feature is always on; every region serves automatically. No feature flags, enabled booleans, opt-in settings, deploy toggles or kill switches; delete guarded paths. Values have one correct setting in code; no tuning knobs.
+- Regenerate `worker/src/ui-assets.ts` whenever `worker/ui/login.html` or `worker/ui/index.html` changes so embedded assets stay byte-identical to source HTML.
+- Release tags for v2 are `v2-<sha>` prereleases only. Never publish `ci-*` tags from v2; live v1 nodes follow `ci-*` until each region cuts over.
 
 ## Layout and checks
 
-- Entry point: `cmd/terrascale-orchestrator`; features: `internal/`; deployment assets: `deploy/`; runbooks: `docs/`; vendored NATS: `third_party/nats-server` (`go.mod` replacement).
-- Build: `make build` produces `dist/ts-orch`; `make release-linux` builds Linux amd64/arm64.
-- Checks: `make lint` and `make release-check`. The only test is the node E2E (`test/e2e/m1/run.sh`, CI job `e2e-m1`); product behaviour is proven by the journey E2E in `terrascale`.
+- `worker/`: Cloudflare Worker (`src/` backplane + Atlas, `ui/` Login & Status UI, `wrangler.jsonc`). Local dev uses `npm run dev` (`--infer-origin-from-routes=false`).
+- `src/`: `TsOrch.Protocol`, `TsOrch.Oci`, `TsOrch.Agent`, `TsOrch.Edge`, `TsOrch.Cli` (operator CLI + `ts-orch mcp`) and `TsOrch.AppHost` (.NET Aspire local stack + `oci-mock`). Single solution `TsOrch.slnx`; build invariants live in `Directory.Build.props`, `Directory.Packages.props`, `.editorconfig`, `BannedSymbols.txt`, `global.json` and `NuGet.config`.
+- `deploy/`: declarative production inventory (`fleet.json`, `services/*.json`), cloud-init (`cloud-init/node-boot.sh`, `docker-daemon.json`) and systemd slices/units (`systemd/`).
+- `infra/`: OpenTofu (`1.13.9`) static regional OCI foundation (`modules/region`, `modules/geodns`) driven directly by `deploy/fleet.json`.
+- Local stack: `dotnet run --project src/TsOrch.AppHost`.
+- Checks (also run in `.github/workflows/ci.yml` ending in required `all-green`):
+  - .NET: `dotnet restore TsOrch.slnx --locked-mode && dotnet format whitespace TsOrch.slnx --verify-no-changes && dotnet build TsOrch.slnx -c Release --no-restore`
+  - Worker: `cd worker && npx tsc --noEmit && npx wrangler deploy --dry-run --outdir /tmp/ts-orch-dist`
+  - Infra & scripts: `tofu -chdir=infra fmt -check -recursive && tofu -chdir=infra init -backend=false -input=false -lockfile=readonly && tofu -chdir=infra validate && shellcheck -S warning deploy/cloud-init/node-boot.sh e2e/run.sh && systemd-analyze verify deploy/systemd/*.slice deploy/systemd/*.service`
+  - E2E: `bash e2e/run.sh` (CI job `e2e`); product behaviour is proven by the journey E2E in `terrascale`.

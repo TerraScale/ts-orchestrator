@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net11.0": {
+      "Microsoft.CodeAnalysis.BannedApiAnalyzers": {
+        "type": "Direct",
+        "requested": "[5.0.0, )",
+        "resolved": "5.0.0",
+        "contentHash": "HgXgTx6M2VqK2kwiA/Hl+XxMxn8JUxqx09u/U2wOEUOY47WYzUwer3e6sy0Y+NRY6S41CyXEP9Ew1wtRY/ubbQ=="
+      },
+      "Microsoft.NET.ILLink.Tasks": {
+        "type": "Direct",
+        "requested": "[11.0.0, )",
+        "resolved": "11.0.0",
+        "contentHash": "gK2aq4XvChj5kvozpPHrkfKkr7zc5Z4xoTrJb4GPZzDEPMlCk0TX632bwY3LsWcX2UVcVRQBBGzsBGC2lq6YhA=="
+      },
+      "tsorch.protocol": {
+        "type": "Project"
+      }
+    }
+  }
+}

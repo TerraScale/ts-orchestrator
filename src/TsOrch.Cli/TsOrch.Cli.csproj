@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>TsOrch.Cli</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>ts-orch</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../TsOrch.Protocol/TsOrch.Protocol.csproj" />
+    <ProjectReference Include="../TsOrch.Oci/TsOrch.Oci.csproj" />
+    <ProjectReference Include="../TsOrch.Agent/TsOrch.Agent.csproj" />
+    <ProjectReference Include="../TsOrch.Edge/TsOrch.Edge.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="TsOrch.Protocol" />
+  </ItemGroup>
+</Project>

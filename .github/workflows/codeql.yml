@@ -8,8 +8,6 @@ name: CodeQL
 permissions:
   contents: read
 
-# The newest run of a pull request or branch cancels its older runs (user
-# decision 2026-10-22); each merge-queue entry keeps its own run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name != 'merge_group' }}
@@ -30,26 +28,22 @@ jobs:
         include:
           - language: actions
             build-mode: none
-          - language: go
-            build-mode: autobuild
-          - language: javascript
+          - language: csharp
             build-mode: none
-          - language: python
-            build-mode: none
-          - language: rust
+          - language: javascript-typescript
             build-mode: none
     steps:
       - name: Check out default branch
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
       - name: Analyze
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
         with:
           category: /language:${{ matrix.language }}

@@ -1,0 +1,70 @@
+{
+  "name": "netbird-server",
+  "mode": "stateful",
+  "priority": "high",
+  "image": "docker.io/netbirdio/netbird-server:0.81.3@sha256:9b2f606efefa8ea176e2afbb35c79622ca318e2e605ff1a0f6cb7e158ac08336",
+  "regions": [
+    "gru"
+  ],
+  "replicas": 1,
+  "minReplicas": 1,
+  "maxReplicas": 1,
+  "cpuRequestMilli": 500,
+  "cpuLimitMilli": 1000,
+  "memRequestMiB": 1024,
+  "memLimitMiB": 1536,
+  "pidsLimit": 1024,
+  "port": 8095,
+  "readyPath": "/api/instance",
+  "readyTimeoutSeconds": 60,
+  "hostnames": [
+    "netbird.terrascale.tech"
+  ],
+  "env": {
+    "NB_SETUP_PAT_ENABLED": "true",
+    "NB_DISABLE_GEOLOCATION": "true"
+  },
+  "secrets": {
+    "NETBIRD_DATASTORE_ENCRYPTION_KEY": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-netbird-datastore-encryption-key"
+    },
+    "NETBIRD_RELAY_AUTH_SECRET": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-netbird-relay-auth-secret"
+    },
+    "NETBIRD_SESSION_COOKIE_KEY": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-netbird-session-cookie-key"
+    }
+  },
+  "mounts": [
+    {
+      "source": "/var/lib/ts-data/netbird",
+      "target": "/var/lib/netbird"
+    }
+  ],
+  "args": [
+    "--config",
+    "/etc/netbird/config.yaml"
+  ],
+  "udpPorts": [
+    3478
+  ],
+  "pathPrefixes": [
+    "/api",
+    "/oauth2",
+    "/relay",
+    "/ws-proxy"
+  ],
+  "matchGrpc": true,
+  "blockedPaths": [
+    "/api/setup"
+  ],
+  "configFiles": [
+    {
+      "target": "/etc/netbird/config.yaml",
+      "template": "server:\n  listenAddress: \":8095\"\n  exposedAddress: \"https://netbird.terrascale.tech:443\"\n  stunPorts:\n    - 3478\n  metricsPort: 9096\n  healthcheckAddress: \":9095\"\n  logLevel: \"info\"\n  logFile: \"console\"\n  dataDir: \"/var/lib/netbird\"\n  disableAnonymousMetrics: true\n  authSecret: {{NETBIRD_RELAY_AUTH_SECRET}}\n  auth:\n    issuer: \"https://netbird.terrascale.tech/oauth2\"\n    signKeyRefreshEnabled: true\n    sessionCookieEncryptionKey: {{NETBIRD_SESSION_COOKIE_KEY}}\n    dashboardRedirectURIs:\n      - \"https://netbird.terrascale.tech/nb-auth\"\n      - \"https://netbird.terrascale.tech/nb-silent-auth\"\n    cliRedirectURIs:\n      - \"http://localhost:53000/\"\n  reverseProxy:\n    trustedHTTPProxies:\n      - \"127.0.0.1/32\"\n      - \"172.16.0.0/12\"\n    trustedPeers:\n      - \"127.0.0.1/32\"\n      - \"172.16.0.0/12\"\n  store:\n    engine: \"sqlite\"\n    encryptionKey: {{NETBIRD_DATASTORE_ENCRYPTION_KEY}}\n"
+    }
+  ]
+}

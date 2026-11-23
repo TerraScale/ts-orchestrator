@@ -1,0 +1,9 @@
+[Unit]
+Description=Periodic TerraScale orchestrator NetBird enrollment
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=15m
+
+[Install]
+WantedBy=timers.target

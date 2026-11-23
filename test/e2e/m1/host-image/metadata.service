@@ -1,8 +1,0 @@
-[Unit]
-Description=Host image E2E OCI metadata and release endpoint
-Before=ts-node-init.service
-
-[Service]
-Type=notify
-ExecStartPre=/usr/sbin/ip address add 169.254.169.254/32 dev lo
-ExecStart=/usr/bin/python3 /opt/host-image/metadata.py

@@ -1,0 +1,75 @@
+{
+  "name": "ts-auth",
+  "mode": "replicated",
+  "priority": "normal",
+  "image": "ghcr.io/terrascale/ts-auth@sha256:de87ff2f64fdc7dd23bfa263c5018e67ae0277f9253307c52b40a4cc73de7419",
+  "regions": [
+    "gru"
+  ],
+  "replicas": 1,
+  "minReplicas": 1,
+  "maxReplicas": 4,
+  "cpuRequestMilli": 500,
+  "cpuLimitMilli": 1000,
+  "memRequestMiB": 2048,
+  "memLimitMiB": 3072,
+  "pidsLimit": 1024,
+  "port": 8090,
+  "readyPath": "/readyz",
+  "readyTimeoutSeconds": 60,
+  "hostnames": [
+    "auth.terrascale.tech"
+  ],
+  "env": {
+    "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login",
+    "TS_AUTH_DASHBOARD_REDIRECT_URIS": "https://dash.terrascale.tech/login/callback",
+    "TS_AUTH_LISTEN": "http://127.0.0.1:${PORT}",
+    "TS_AUTH_METRICS_LISTEN": "http://127.0.0.1:0",
+    "TS_AUTH_SMTP_HOST": "smtp.email.sa-saopaulo-1.oci.oraclecloud.com",
+    "TS_AUTH_SMTP_PORT": "587",
+    "TS_AUTH_TERRABASE_URL": "http://127.0.0.1:8081"
+  },
+  "secrets": {
+    "CLOUDFLARE_ACCOUNT_ID_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-cloudflare-account-id"
+    },
+    "CLOUDFLARE_EMAIL_TOKEN_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-cloudflare-email-token"
+    },
+    "TERRABASE_PEER_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-peer-secret"
+    },
+    "TS_AUTH_AUDIT_SIGNING_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-audit-signing-key"
+    },
+    "TS_AUTH_DASHBOARD_CLIENT_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-dashboard-client-secret"
+    },
+    "TS_AUTH_MASTER_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-master-key"
+    },
+    "TS_AUTH_SMTP_PASSWORD_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-smtp-password"
+    },
+    "TS_AUTH_SMTP_USERNAME_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-smtp-username"
+    }
+  },
+  "mounts": [],
+  "args": [],
+  "udpPorts": [],
+  "autoscale": {
+    "targetCpuPct": 70,
+    "targetP95Ms": 250,
+    "scaleUpCooldownSeconds": 120,
+    "scaleDownCooldownSeconds": 600
+  }
+}
