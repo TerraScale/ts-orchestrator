@@ -8,29 +8,36 @@ internal sealed class OperatorAuth(OrchHttp http, CliConsole console, TimeProvid
 
     private OperatorCredentials? _credentials;
 
-    public async Task<OrchResult<OperatorCredentials>> GetAsync(CancellationToken cancellationToken)
+    public async Task<Result<OperatorCredentials, Validation, Unauthorized, Forbidden, Unavailable>> GetAsync(CancellationToken cancellationToken)
     {
         if (_credentials is { } cached && (cached.ExpiresAt is not { } expiresAt || expiresAt - ExpiryMargin > timeProvider.GetUtcNow()))
         {
             return cached;
         }
 
-        if (!OperatorSettings.Resolve(urlOverride: null, keyOverride: null).TryGetValue(out var settings, out var settingsError))
+        return OperatorSettings.Resolve(urlOverride: null, keyOverride: null) switch
         {
-            return settingsError;
-        }
+            OperatorSettings settings => await SignInAsync(settings, cancellationToken),
+            Validation failure => failure,
+        };
+    }
 
+    private async Task<Result<OperatorCredentials, Validation, Unauthorized, Forbidden, Unavailable>> SignInAsync(
+        OperatorSettings settings,
+        CancellationToken cancellationToken)
+    {
         if (settings.Token is { } directToken)
         {
             return Remember(new OperatorCredentials(settings.ExplicitUrl ?? OperatorSettings.DefaultUrl, directToken, ExpiresAt: null));
         }
 
-        var stored = await CliFiles.ReadJsonAsync(settings.SessionFile, CliJsonContext.Default.CliSession, cancellationToken);
-        var session = stored switch
+        var session = await CliFiles.ReadJsonAsync(settings.SessionFile, CliJsonContext.Default.CliSession, cancellationToken) switch
         {
             CliSession found => found,
             NotFound => null,
-            OrchError error => Warn(error),
+            Validation failure => Warn(failure.Message),
+            Forbidden failure => Warn(failure.Message),
+            Unavailable failure => Warn(failure.Message),
         };
         var sessionUrl = session is not null && Uri.TryCreate(session.Url, UriKind.Absolute, out var parsed) ? parsed : null;
         var baseUrl = settings.ExplicitUrl ?? sessionUrl ?? OperatorSettings.DefaultUrl;
@@ -45,11 +52,13 @@ internal sealed class OperatorAuth(OrchHttp http, CliConsole console, TimeProvid
         }
 
         console.Error.WriteLine($"ts-orch: signing in to {baseUrl} with {settings.KeyPath}");
-        var login = await SshLogin.LoginAsync(http, baseUrl, settings.KeyPath, settings.SessionFile, interactive, cancellationToken);
-        return login switch
+        return await SshLogin.LoginAsync(http, baseUrl, settings.KeyPath, settings.SessionFile, interactive, cancellationToken) switch
         {
             CliSession fresh => Remember(new OperatorCredentials(baseUrl, fresh.Token, DateTimeOffset.FromUnixTimeMilliseconds(fresh.ExpiresAt))),
-            OrchError error => error,
+            Validation failure => failure,
+            Unauthorized failure => failure,
+            Forbidden failure => failure,
+            Unavailable failure => failure,
         };
     }
 
@@ -59,9 +68,9 @@ internal sealed class OperatorAuth(OrchHttp http, CliConsole console, TimeProvid
         return credentials;
     }
 
-    private CliSession? Warn(OrchError error)
+    private CliSession? Warn(string message)
     {
-        console.Error.WriteLine($"ts-orch: ignoring the cached session: {error.Message}");
+        console.Error.WriteLine($"ts-orch: ignoring the cached session: {message}");
         return null;
     }
 }

@@ -1,30 +1,28 @@
 using System.Collections.Concurrent;
-using Microsoft.Extensions.Options;
 
 namespace TsOrch.Agent;
 
 public sealed class ContainerSessions(
     DockerEngineClient docker,
     AgentOutbox outbox,
-    IOptions<AgentOptions> options,
+    AgentOptions options,
     ILogger<ContainerSessions> logger)
 {
     private const int MaxSessions = 32;
     private const int MaxTail = 10_000;
     private const int MaxExecSeconds = 300;
 
-    private readonly AgentOptions _options = options.Value;
-    private readonly ConcurrentDictionary<string, CancellationTokenSource> _logStreams = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _logStreams = [with(StringComparer.Ordinal)];
     private int _active;
 
-    public async ValueTask StartLogsAsync(StreamLogs request, CancellationToken sessionToken)
+    public async ValueTask StartLogsAsync(StreamLogs request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var source = CancellationTokenSource.CreateLinkedTokenSource(sessionToken);
+        var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (!_logStreams.TryAdd(request.RequestId, source))
         {
             source.Dispose();
-            await outbox.EnqueueAsync(new LogChunk(request.RequestId, LogChannel.Stderr, $"ts-orch: log stream {request.RequestId} is already running."), sessionToken);
+            await outbox.EnqueueAsync(new LogChunk(request.RequestId, LogChannel.Stderr, $"ts-orch: log stream {request.RequestId} is already running."), cancellationToken);
             return;
         }
 
@@ -32,7 +30,7 @@ public sealed class ContainerSessions(
         {
             _logStreams.TryRemove(request.RequestId, out _);
             source.Dispose();
-            await outbox.EnqueueAsync(new LogChunk(request.RequestId, LogChannel.Stderr, "ts-orch: too many concurrent sessions on this node."), sessionToken);
+            await outbox.EnqueueAsync(new LogChunk(request.RequestId, LogChannel.Stderr, "ts-orch: too many concurrent sessions on this node."), cancellationToken);
             return;
         }
 
@@ -50,16 +48,16 @@ public sealed class ContainerSessions(
         return ValueTask.CompletedTask;
     }
 
-    public async ValueTask StartExecAsync(ExecCommand request, CancellationToken sessionToken)
+    public async ValueTask StartExecAsync(ExecCommand request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!TryReserve())
         {
-            await outbox.EnqueueAsync(new ExecResult(request.RequestId, -1, string.Empty, "ts-orch: too many concurrent sessions on this node."), sessionToken);
+            await outbox.EnqueueAsync(new ExecResult(request.RequestId, -1, string.Empty, "ts-orch: too many concurrent sessions on this node."), cancellationToken);
             return;
         }
 
-        Track(request.RequestId, RunExecAsync(request, sessionToken));
+        Track(request.RequestId, RunExecAsync(request, cancellationToken));
     }
 
     private bool TryReserve()
@@ -80,7 +78,7 @@ public sealed class ContainerSessions(
                 Interlocked.Decrement(ref _active);
                 if (completed.Exception is { } exception)
                 {
-                    logger.SessionFaulted(requestId, exception.GetBaseException());
+                    AgentLog.SessionFaulted(logger, requestId, exception.GetBaseException());
                 }
             },
             CancellationToken.None,
@@ -91,28 +89,33 @@ public sealed class ContainerSessions(
     {
         try
         {
-            var token = source.Token;
-            var resolved = await FindContainerAsync(request.ContainerName, token);
-            if (!resolved.TryGetValue(out var container, out var error))
+            var cancellationToken = source.Token;
+            var failure = await FindContainerAsync(request.ContainerName, cancellationToken) switch
             {
-                await outbox.EnqueueAsync(new LogChunk(request.RequestId, LogChannel.Stderr, $"ts-orch: {error.Message}"), token);
-                return;
-            }
-
-            var streamed = await docker.StreamLogsAsync(
-                container.Id,
-                Math.Clamp(request.Tail, 0, MaxTail),
-                request.Follow,
-                (channel, line, lineToken) => outbox.EnqueueAsync(new LogChunk(request.RequestId, channel, line), lineToken),
-                token);
-            if (streamed is OrchError streamError)
+                ManagedContainer container => await docker.StreamLogsAsync(
+                    container.Id,
+                    Math.Clamp(request.Tail, 0, MaxTail),
+                    request.Follow,
+                    (channel, line, lineToken) => outbox.EnqueueAsync(new LogChunk(request.RequestId, channel, line), lineToken),
+                    cancellationToken) switch
+                {
+                    Done => null,
+                    NotFound streamFailure => streamFailure.Message,
+                    Unavailable streamFailure => streamFailure.Message,
+                    InternalFailure streamFailure => streamFailure.Message,
+                },
+                NotFound findFailure => findFailure.Message,
+                Unavailable findFailure => findFailure.Message,
+                InternalFailure findFailure => findFailure.Message,
+            };
+            if (failure is not null)
             {
-                await outbox.EnqueueAsync(new LogChunk(request.RequestId, LogChannel.Stderr, $"ts-orch: {streamError.Message}"), token);
+                await outbox.EnqueueAsync(new LogChunk(request.RequestId, LogChannel.Stderr, $"ts-orch: {failure}"), cancellationToken);
             }
         }
         catch (OperationCanceledException) when (source.IsCancellationRequested)
         {
-            logger.SessionStopped(request.RequestId);
+            AgentLog.SessionStopped(logger, request.RequestId);
         }
         finally
         {
@@ -121,39 +124,45 @@ public sealed class ContainerSessions(
         }
     }
 
-    private async Task RunExecAsync(ExecCommand request, CancellationToken sessionToken)
+    private async Task RunExecAsync(ExecCommand request, CancellationToken cancellationToken)
     {
-        var resolved = await FindContainerAsync(request.ContainerName, sessionToken);
-        if (!resolved.TryGetValue(out var container, out var error))
+        var result = await FindContainerAsync(request.ContainerName, cancellationToken) switch
         {
-            await outbox.EnqueueAsync(new ExecResult(request.RequestId, -1, string.Empty, $"ts-orch: {error.Message}"), sessionToken);
-            return;
-        }
+            ManagedContainer container => await ExecAsync(request, container, cancellationToken),
+            NotFound failure => Failed(request, failure.Message),
+            Unavailable failure => Failed(request, failure.Message),
+            InternalFailure failure => Failed(request, failure.Message),
+        };
+        await outbox.EnqueueAsync(result, cancellationToken);
+    }
 
+    private async Task<ExecResult> ExecAsync(ExecCommand request, ManagedContainer container, CancellationToken cancellationToken)
+    {
         var timeout = TimeSpan.FromSeconds(Math.Clamp(request.TimeoutSeconds, 1, MaxExecSeconds));
-        logger.ExecStarted(request.RequestId, container.Name);
-        var executed = await docker.ExecOnceAsync(container.Id, request.Command, timeout, sessionToken);
-        var result = executed switch
+        AgentLog.ExecStarted(logger, request.RequestId, container.Name);
+        return await docker.ExecOnceAsync(container.Id, request.Command, timeout, cancellationToken) switch
         {
             ExecOutput output => new ExecResult(request.RequestId, output.ExitCode, output.Stdout, output.Stderr),
-            OrchError failure => new ExecResult(request.RequestId, -1, string.Empty, $"ts-orch: {failure.Message}"),
+            Validation failure => Failed(request, failure.Message),
+            NotFound failure => Failed(request, failure.Message),
+            Conflict failure => Failed(request, failure.Message),
+            RequestTimeout failure => Failed(request, failure.Message),
+            Unavailable failure => Failed(request, failure.Message),
+            InternalFailure failure => Failed(request, failure.Message),
         };
-        await outbox.EnqueueAsync(result, sessionToken);
     }
 
-    private async Task<OrchResult<ManagedContainer>> FindContainerAsync(string containerName, CancellationToken cancellationToken)
-    {
-        var listed = await docker.ListManagedContainersAsync(_options.LabelPrefix, cancellationToken);
-        if (!listed.TryGetValue(out var containers, out var error))
+    private static ExecResult Failed(ExecCommand request, string message) => new(request.RequestId, -1, string.Empty, $"ts-orch: {message}");
+
+    private async Task<Result<ManagedContainer, NotFound, Unavailable, InternalFailure>> FindContainerAsync(string containerName, CancellationToken cancellationToken) =>
+        await docker.ListManagedContainersAsync(options.LabelPrefix, cancellationToken) switch
         {
-            return error;
-        }
-
-        var match = containers
-            .Where(static container => container.Running)
-            .FirstOrDefault(container => container.Name == containerName || container.PlacementId == containerName || container.ServiceName == containerName);
-        return match is null
-            ? new NotFound($"No running managed container matches {containerName}.")
-            : match;
-    }
+            IReadOnlyList<ManagedContainer> containers => containers
+                .Where(static container => container.Running)
+                .FirstOrDefault(container => container.Name == containerName || container.PlacementId == containerName || container.ServiceName == containerName) is { } match
+                ? match
+                : new NotFound($"No running managed container matches {containerName}."),
+            Unavailable failure => failure,
+            InternalFailure failure => failure,
+        };
 }

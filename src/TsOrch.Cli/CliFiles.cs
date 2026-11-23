@@ -22,7 +22,7 @@ internal static class CliFiles
         return Path.GetFullPath(expanded);
     }
 
-    public static async Task<OrchResult<string>> ReadTextAsync(string path, CancellationToken cancellationToken)
+    public static async Task<Result<string, NotFound, Forbidden, Unavailable>> ReadTextAsync(string path, CancellationToken cancellationToken)
     {
         if (!File.Exists(path))
         {
@@ -43,7 +43,7 @@ internal static class CliFiles
         }
     }
 
-    public static async Task<OrchResult<T>> ReadJsonAsync<T>(string path, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
+    public static async Task<Result<T, NotFound, Validation, Forbidden, Unavailable>> ReadJsonAsync<T>(string path, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
         where T : notnull
     {
         if (!File.Exists(path))
@@ -72,7 +72,7 @@ internal static class CliFiles
         }
     }
 
-    public static async Task<OrchResult<Done>> WritePrivateJsonAsync<T>(string path, T value, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
+    public static async Task<Result<Done, Validation, Forbidden, Unavailable>> WritePrivateJsonAsync<T>(string path, T value, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -120,12 +120,13 @@ internal static class CliFiles
         }
     }
 
-    public static async Task<OrchResult<string>> WithScratchFileAsync(
+    public static async Task<Result<string, Unauthorized, Forbidden, Unavailable>> WithScratchFileAsync(
         string name,
         string content,
-        Func<string, CancellationToken, Task<OrchResult<string>>> use,
+        Func<string, CancellationToken, Task<Result<string, Unauthorized, Forbidden, Unavailable>>> use,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(use);
         DirectoryInfo scratch;
         try
         {
@@ -139,16 +140,28 @@ internal static class CliFiles
         try
         {
             var path = Path.Combine(scratch.FullName, name);
-            await File.WriteAllTextAsync(path, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
-            return await use(path, cancellationToken);
-        }
-        catch (IOException exception)
-        {
-            return new Unavailable($"Using scratch directory {scratch.FullName} failed: {exception.Message}");
+            return await WriteScratchAsync(path, content, cancellationToken) switch
+            {
+                Done => await use(path, cancellationToken),
+                Unavailable failure => failure,
+            };
         }
         finally
         {
             scratch.Delete(recursive: true);
+        }
+    }
+
+    private static async Task<Result<Done, Unavailable>> WriteScratchAsync(string path, string content, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await File.WriteAllTextAsync(path, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
+            return new Done();
+        }
+        catch (IOException exception)
+        {
+            return new Unavailable($"Writing scratch file {path} failed: {exception.Message}");
         }
     }
 }

@@ -11,7 +11,10 @@ locals {
   availability_names = data.oci_identity_availability_domains.this.availability_domains[*].name
   fault_domains      = ["FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"]
   public_tcp_ports   = [80, 443, 5432]
+  public_udp_ports   = [443]
   backend_sets       = { for port in local.public_tcp_ports : "tcp-${port}" => port }
+  udp_backend_sets   = { for port in local.public_udp_ports : "udp-${port}" => port }
+  nlb_backend_sets   = merge(local.backend_sets, local.udp_backend_sets)
   shapes             = toset([var.stateful_shape.name, var.worker_shape.name])
   data_device        = "/dev/oracleoci/oraclevdb"
 
@@ -23,7 +26,7 @@ locals {
   ]
 
   stateful_backends = {
-    for pair in setproduct(keys(local.backend_sets), range(var.stateful_count)) :
+    for pair in setproduct(keys(local.nlb_backend_sets), range(var.stateful_count)) :
     "${pair[0]}-${pair[1]}" => { backend_set = pair[0], index = pair[1] }
   }
 
@@ -36,6 +39,8 @@ locals {
         ts_vcn_cidr           = var.vcn_cidr
         ts_orch_bundle_url    = var.bundle_url
         ts_orch_bundle_sha256 = var.bundle_sha256
+        ts_enroll_vault       = var.enroll_vault_id
+        ts_enroll_secret      = var.enroll_secret_name
       },
       length(var.netbird_udp_ports) > 0 ? { ts_netbird_udp_ports = join(",", var.netbird_udp_ports) } : {}
     )
@@ -197,6 +202,33 @@ resource "oci_core_network_security_group_security_rule" "nlb_ingress_tcp" {
   }
 }
 
+resource "oci_core_network_security_group_security_rule" "nlb_ingress_udp" {
+  for_each = local.udp_backend_sets
+
+  network_security_group_id = oci_core_network_security_group.nlb.id
+  direction                 = "INGRESS"
+  protocol                  = "17"
+  source                    = "0.0.0.0/0"
+  source_type               = "CIDR_BLOCK"
+  stateless                 = false
+
+  udp_options {
+    destination_port_range {
+      min = each.value
+      max = each.value
+    }
+  }
+}
+
+resource "oci_core_network_security_group_security_rule" "nlb_egress_nodes_udp" {
+  network_security_group_id = oci_core_network_security_group.nlb.id
+  direction                 = "EGRESS"
+  protocol                  = "17"
+  destination               = var.private_subnet_cidr
+  destination_type          = "CIDR_BLOCK"
+  stateless                 = false
+}
+
 resource "oci_core_network_security_group_security_rule" "nlb_egress_nodes" {
   network_security_group_id = oci_core_network_security_group.nlb.id
   direction                 = "EGRESS"
@@ -217,6 +249,24 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_tcp" {
   stateless                 = false
 
   tcp_options {
+    destination_port_range {
+      min = each.value
+      max = each.value
+    }
+  }
+}
+
+resource "oci_core_network_security_group_security_rule" "node_ingress_udp" {
+  for_each = local.udp_backend_sets
+
+  network_security_group_id = oci_core_network_security_group.node.id
+  direction                 = "INGRESS"
+  protocol                  = "17"
+  source                    = "0.0.0.0/0"
+  source_type               = "CIDR_BLOCK"
+  stateless                 = false
+
+  udp_options {
     destination_port_range {
       min = each.value
       max = each.value
@@ -313,6 +363,43 @@ resource "oci_network_load_balancer_listener" "tcp" {
   protocol                 = "TCP"
 }
 
+resource "oci_network_load_balancer_backend_set" "udp" {
+  for_each = local.udp_backend_sets
+
+  network_load_balancer_id = oci_network_load_balancer_network_load_balancer.this.id
+  name                     = each.key
+  policy                   = "FIVE_TUPLE"
+  is_preserve_source       = true
+  is_fail_open             = false
+
+  health_checker {
+    protocol           = "HTTP"
+    port               = 80
+    url_path           = "/readyz"
+    return_code        = 200
+    interval_in_millis = 10000
+    timeout_in_millis  = 3000
+    retries            = 3
+  }
+}
+
+resource "oci_network_load_balancer_listener" "udp" {
+  for_each = local.udp_backend_sets
+
+  network_load_balancer_id = oci_network_load_balancer_network_load_balancer.this.id
+  name                     = each.key
+  default_backend_set_name = oci_network_load_balancer_backend_set.udp[each.key].name
+  port                     = each.value
+  protocol                 = "UDP"
+}
+
+locals {
+  nlb_backend_set_names = merge(
+    { for key, set in oci_network_load_balancer_backend_set.tcp : key => set.name },
+    { for key, set in oci_network_load_balancer_backend_set.udp : key => set.name }
+  )
+}
+
 resource "oci_core_instance" "stateful" {
   count = var.stateful_count
 
@@ -401,9 +488,9 @@ resource "oci_network_load_balancer_backend" "stateful" {
   for_each = local.stateful_backends
 
   network_load_balancer_id = oci_network_load_balancer_network_load_balancer.this.id
-  backend_set_name         = oci_network_load_balancer_backend_set.tcp[each.value.backend_set].name
+  backend_set_name         = local.nlb_backend_set_names[each.value.backend_set]
   target_id                = oci_core_instance.stateful[each.value.index].id
-  port                     = local.backend_sets[each.value.backend_set]
+  port                     = local.nlb_backend_sets[each.value.backend_set]
 }
 
 resource "oci_core_instance_configuration" "worker" {
@@ -477,17 +564,17 @@ resource "oci_core_instance_pool" "worker" {
   }
 
   dynamic "load_balancers" {
-    for_each = local.backend_sets
+    for_each = local.nlb_backend_sets
 
     content {
       load_balancer_id = oci_network_load_balancer_network_load_balancer.this.id
-      backend_set_name = oci_network_load_balancer_backend_set.tcp[load_balancers.key].name
+      backend_set_name = local.nlb_backend_set_names[load_balancers.key]
       port             = load_balancers.value
       vnic_selection   = "PrimaryVnic"
     }
   }
 
-  depends_on = [oci_network_load_balancer_listener.tcp, oci_network_load_balancer_backend.stateful]
+  depends_on = [oci_network_load_balancer_listener.tcp, oci_network_load_balancer_listener.udp, oci_network_load_balancer_backend.stateful]
 
   lifecycle {
     ignore_changes = [size]

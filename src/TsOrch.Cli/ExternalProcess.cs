@@ -7,7 +7,7 @@ internal sealed record class ProcessResult(int ExitCode, string Stdout, string S
 
 internal static class ExternalProcess
 {
-    public static async Task<OrchResult<ProcessResult>> RunAsync(
+    public static async Task<Result<ProcessResult, Unavailable>> RunAsync(
         string fileName,
         IReadOnlyList<string> arguments,
         bool inheritInput,

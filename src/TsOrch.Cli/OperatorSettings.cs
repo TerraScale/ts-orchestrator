@@ -9,27 +9,23 @@ internal sealed record class OperatorSettings(Uri? ExplicitUrl, string? Token, s
 
     public static Uri DefaultUrl { get; } = new("https://orch.terrascale.tech/");
 
-    public static OrchResult<OperatorSettings> Resolve(string? urlOverride, string? keyOverride)
+    public static Result<OperatorSettings, Validation> Resolve(string? urlOverride, string? keyOverride)
     {
-        Uri? explicitUrl = null;
-        if ((urlOverride ?? Variable(UrlVariable)) is { } urlText)
+        var keyPath = CliFiles.ExpandHome(keyOverride ?? Variable(KeyVariable) ?? "~/.ssh/id_ed25519");
+        var sessionFile = CliFiles.ExpandHome(Variable(SessionVariable) ?? "~/.cache/ts-orch/session.json");
+        if ((urlOverride ?? Variable(UrlVariable)) is not { } urlText)
         {
-            if (!ParseUrl(urlText).TryGetValue(out var parsed, out var error))
-            {
-                return error;
-            }
-
-            explicitUrl = parsed;
+            return new OperatorSettings(null, Variable(TokenVariable), keyPath, sessionFile);
         }
 
-        return new OperatorSettings(
-            explicitUrl,
-            Variable(TokenVariable),
-            CliFiles.ExpandHome(keyOverride ?? Variable(KeyVariable) ?? "~/.ssh/id_ed25519"),
-            CliFiles.ExpandHome(Variable(SessionVariable) ?? "~/.cache/ts-orch/session.json"));
+        return ParseUrl(urlText) switch
+        {
+            Uri explicitUrl => new OperatorSettings(explicitUrl, Variable(TokenVariable), keyPath, sessionFile),
+            Validation failure => failure,
+        };
     }
 
-    public static OrchResult<Uri> ParseUrl(string text) =>
+    public static Result<Uri, Validation> ParseUrl(string text) =>
         Uri.TryCreate(text, UriKind.Absolute, out var url) && (url.Scheme == Uri.UriSchemeHttps || url.Scheme == Uri.UriSchemeHttp)
             ? url
             : new Validation($"'{text}' is not an absolute http(s) URL.");

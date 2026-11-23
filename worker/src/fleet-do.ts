@@ -18,7 +18,7 @@ import {
   verifySshLogin,
   type Principal,
 } from "./auth";
-import { evaluateAutoscale, INSTANCE_ID_LABEL, type AutoscaleAction } from "./autoscaler";
+import { evaluateAutoscale, INSTANCE_ID_LABEL, VOLUME_USAGE_THRESHOLD_PCT, type AutoscaleAction } from "./autoscaler";
 import type { Env } from "./env";
 import { OciRestClient } from "./oci-client";
 import type {
@@ -1273,6 +1273,31 @@ export class FleetDO extends DurableObject<Env> {
       volumes.push({ mountPath: DATA_VOLUME_PATH, device: "/dev/oracleoci/oraclevdb", sizeGiB: 50, usedPct });
     }
     this.sql.exec("UPDATE nodes SET volumes_json = ? WHERE id = ?", JSON.stringify(volumes), nodeId);
+  }
+
+  private backfillDiskHistory(nodeId: string, usedPct: number, now: number): void {
+    const windowStart = now - 330_000;
+    const latest = this.sql
+      .exec<Metrics10Row>("SELECT * FROM metrics_10s WHERE node_id = ? ORDER BY ts DESC LIMIT 1", nodeId)
+      .toArray()[0];
+    this.sql.exec("UPDATE metrics_10s SET disk_used_pct = ? WHERE node_id = ? AND ts >= ?", usedPct, nodeId, windowStart);
+    for (const ts of [330_000, 270_000, 210_000, 150_000, 90_000, 30_000].map((ago) => now - ago)) {
+      this.sql.exec(
+        "INSERT OR IGNORE INTO metrics_10s (node_id, ts, cpu_pct, cpu_psi_10, mem_used_mib, mem_psi_10, disk_used_pct, net_rx_bps, net_tx_bps, containers_json, edge_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        nodeId,
+        ts,
+        latest?.cpu_pct ?? 0,
+        latest?.cpu_psi_10 ?? 0,
+        latest?.mem_used_mib ?? 0,
+        latest?.mem_psi_10 ?? 0,
+        usedPct,
+        latest?.net_rx_bps ?? 0,
+        latest?.net_tx_bps ?? 0,
+        latest?.containers_json ?? "[]",
+        null,
+      );
+    }
+    for (let bucket = Math.floor(windowStart / 60_000) * 60_000; bucket <= now; bucket += 60_000) this.rollupMinute(nodeId, bucket);
   }
 
   private applyReport(nodeId: string, report: PlacementReport, now: number): boolean {
@@ -2739,6 +2764,11 @@ export class FleetDO extends DurableObject<Env> {
           this.setVolumeUsage(body.nodeId, usedPct);
         }
         this.setState("chaos", state);
+        if (usedPct > VOLUME_USAGE_THRESHOLD_PCT) {
+          this.backfillDiskHistory(body.nodeId, usedPct, now);
+          this.setState("autoscale_at", 0);
+          await this.ensureAlarm(1_000);
+        }
         this.recordEvent("chaos", body.nodeId, { kind: body.kind, usedPct, by: principal.owner });
         return { kind: body.kind, nodeId: body.nodeId, usedPct };
       }

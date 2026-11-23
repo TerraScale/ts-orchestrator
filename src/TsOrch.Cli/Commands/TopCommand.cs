@@ -9,35 +9,48 @@ internal static class TopCommand
 
     public static IReadOnlyList<CliOption> Options { get; } = [new("region", null, true), new("once", null, false)];
 
-    public static async Task<OrchResult<int>> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken)
-    {
-        if (!arguments.ExpectPositionals(0, "ts-orch top [--region R] [--once]").TryGetValue(out _, out var usageError))
+    public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
+        arguments.ExpectPositionals(0, "ts-orch top [--region R] [--once]") switch
         {
-            return usageError;
-        }
+            Done => await WatchAsync(Query.Build("/api/top", ("region", arguments.Value("region"))), !arguments.Flag("once"), environment, cancellationToken),
+            Validation failure => environment.Fail(failure),
+        };
 
-        var path = Query.Build("/api/top", ("region", arguments.Value("region")));
-        var live = !arguments.Flag("once");
+    private static async Task<int> WatchAsync(string path, bool live, CommandEnvironment environment, CancellationToken cancellationToken)
+    {
         using var timer = new PeriodicTimer(RefreshInterval, environment.TimeProvider);
         do
         {
-            var result = await environment.Api.GetAsync(path, ApiJsonContext.Default.TopResponse, cancellationToken);
-            if (!result.TryGetValue(out var top, out var error))
+            var exitCode = await environment.Api.GetAsync(path, ApiJsonContext.Default.TopResponse, cancellationToken) switch
             {
-                return error;
+                TopResponse top => Show(top, live, environment),
+                Validation failure => environment.Fail(failure),
+                NotFound failure => environment.Fail(failure),
+                Unauthorized failure => environment.Fail(failure),
+                Forbidden failure => environment.Fail(failure),
+                Unavailable failure => environment.Fail(failure),
+            };
+            if (exitCode is { } failed)
+            {
+                return failed;
             }
 
-            if (live && environment.Console.OutputIsTerminal)
-            {
-                environment.Out.Write(ClearScreen);
-            }
-
-            Render(top, environment.Out);
             await environment.Out.FlushAsync(cancellationToken);
         }
         while (live && await timer.WaitForNextTickAsync(cancellationToken));
 
         return ExitCodes.Ok;
+    }
+
+    private static int? Show(TopResponse top, bool live, CommandEnvironment environment)
+    {
+        if (live && environment.Console.OutputIsTerminal)
+        {
+            environment.Out.Write(ClearScreen);
+        }
+
+        Render(top, environment.Out);
+        return null;
     }
 
     private static void Render(TopResponse top, TextWriter output)

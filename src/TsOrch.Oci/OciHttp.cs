@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using TsOrch.Protocol;
 
 namespace TsOrch.Oci;
 
@@ -8,25 +7,25 @@ internal static class OciHttp
 {
     private const int MaxErrorBodyChars = 512;
 
-    public static async Task<OrchResult<T>> SendJsonAsync<T>(
+    public static async Task<Result<T, NotFound, Forbidden, Unavailable, InternalFailure>> SendJsonAsync<T>(
         HttpClient httpClient,
         HttpRequestMessage request,
         JsonTypeInfo<T> typeInfo,
         CancellationToken cancellationToken)
+        where T : notnull
     {
         try
         {
             using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                return await ErrorAsync(request, response, cancellationToken);
+                return await FailureAsync<T>(request, response, cancellationToken);
             }
 
             await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
-            var document = await JsonSerializer.DeserializeAsync(body, typeInfo, cancellationToken);
-            return document is null
-                ? new Internal($"{Describe(request)} returned an empty JSON document.")
-                : document;
+            return await JsonSerializer.DeserializeAsync(body, typeInfo, cancellationToken) is { } document
+                ? document
+                : new InternalFailure($"{Describe(request)} returned an empty JSON document.");
         }
         catch (HttpRequestException exception)
         {
@@ -34,7 +33,7 @@ internal static class OciHttp
         }
         catch (JsonException exception)
         {
-            return new Internal($"{Describe(request)} returned malformed JSON: {exception.Message}");
+            return new InternalFailure($"{Describe(request)} returned malformed JSON: {exception.Message}");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -42,7 +41,7 @@ internal static class OciHttp
         }
     }
 
-    public static async Task<OrchResult<string>> SendTextAsync(
+    public static async Task<Result<string, NotFound, Forbidden, Unavailable, InternalFailure>> SendTextAsync(
         HttpClient httpClient,
         HttpRequestMessage request,
         CancellationToken cancellationToken)
@@ -50,12 +49,9 @@ internal static class OciHttp
         try
         {
             using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return await ErrorAsync(request, response, cancellationToken);
-            }
-
-            return await response.Content.ReadAsStringAsync(cancellationToken);
+            return response.IsSuccessStatusCode
+                ? await response.Content.ReadAsStringAsync(cancellationToken)
+                : await FailureAsync<string>(request, response, cancellationToken);
         }
         catch (HttpRequestException exception)
         {
@@ -67,7 +63,7 @@ internal static class OciHttp
         }
     }
 
-    private static async Task<OrchError> ErrorAsync(
+    private static async Task<Result<T, NotFound, Forbidden, Unavailable, InternalFailure>> FailureAsync<T>(
         HttpRequestMessage request,
         HttpResponseMessage response,
         CancellationToken cancellationToken)
@@ -77,13 +73,10 @@ internal static class OciHttp
         var message = $"{Describe(request)} returned {(int)response.StatusCode}: {detail}";
         return (int)response.StatusCode switch
         {
-            400 => new Validation(message),
-            401 => new Unauthorized(message),
-            403 => new Forbidden(message),
             404 => new NotFound(message),
-            409 => new Conflict(message),
+            401 or 403 => new Forbidden(message),
             429 or >= 500 => new Unavailable(message),
-            _ => new Internal(message),
+            _ => new InternalFailure(message),
         };
     }
 

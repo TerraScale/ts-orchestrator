@@ -13,7 +13,7 @@ public sealed partial class EdgeMetricsCollector(
     private const int ReservoirCapacity = 2048;
 
     private readonly Lock _gate = new();
-    private readonly Dictionary<string, ServiceWindow> _services = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ServiceWindow> _services = [with(StringComparer.Ordinal)];
     private long _windowStartedAt = timeProvider.GetTimestamp();
     private int _postgresConnections;
 
@@ -59,7 +59,7 @@ public sealed partial class EdgeMetricsCollector(
         {
             windowSeconds = Math.Max(timeProvider.GetElapsedTime(_windowStartedAt, now).TotalSeconds, 0.001);
             _windowStartedAt = now;
-            services = new List<EdgeServiceMetrics>(_services.Count);
+            services = [with(capacity: _services.Count)];
             List<string>? idle = null;
             foreach (var (serviceName, window) in _services)
             {

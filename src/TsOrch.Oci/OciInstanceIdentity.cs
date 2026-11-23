@@ -7,4 +7,7 @@ public sealed record class OciInstanceIdentity(
     string FaultDomain,
     string Shape,
     string VcnIp,
-    string RealmDomain);
+    string RealmDomain,
+    OciNodeMetadata Node);
+
+public sealed record class OciNodeMetadata(string? Region, PoolKind? Pool, string? EnrollVault, string? EnrollSecretName);

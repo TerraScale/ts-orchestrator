@@ -8,7 +8,8 @@ internal sealed record class ImdsInstanceDocument(
     string CanonicalRegionName,
     string FaultDomain,
     string Shape,
-    ImdsRegionInfo RegionInfo);
+    ImdsRegionInfo RegionInfo,
+    IReadOnlyDictionary<string, string>? Metadata = null);
 
 internal sealed record class ImdsRegionInfo(string RealmDomainComponent);
 

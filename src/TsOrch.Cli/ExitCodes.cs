@@ -10,15 +10,4 @@ internal static class ExitCodes
     public const int NoPermission = 77;
     public const int Config = 78;
     public const int Interrupted = 130;
-
-    public static int For(OrchError error) => error switch
-    {
-        NotFound => Failure,
-        Conflict => Failure,
-        Validation => Usage,
-        Forbidden => NoPermission,
-        Unauthorized => NoPermission,
-        Unavailable => ServiceUnavailable,
-        Internal => InternalError,
-    };
 }

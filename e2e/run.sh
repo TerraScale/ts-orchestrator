@@ -416,7 +416,6 @@ wait_for "e2e-w1 active" 60 node_is e2e-w1 active
 service_ready() { api GET /api/status | jq -e --arg name "$1" --argjson want "$2" '.services[] | select(.name == $name) | .ready >= $want' >/dev/null; }
 wait_for "e2e-web 2/2 ready on simulated nodes" 90 service_ready e2e-web 2
 chaos '{"kind":"fill_disk","nodeId":"e2e-s1","usedPct":90}' >/dev/null
-DISK_STARTED=$SECONDS
 ok "fill_disk injected on e2e-s1 (volume grow verified later)"
 
 log "4a. Shared TLS via /api/tls/ensure -> sync_tls"
@@ -537,11 +536,9 @@ timeout 60 "${TS[@]}" logs e2e-web --node "$EXEC_NODE" --tail 5 > "$LOGS/logs-fa
 grep -q "simulated log line from $EXEC_NODE" "$LOGS/logs-fake.txt" || die "ts-orch logs did not stream node log chunks"
 ok "ts-orch logs streamed node output"
 
-log "5e. Disk >75% -> OCI UpdateVolume (5 minute sustain window)"
+log "5e. Disk >75% sustained 5 minutes (backfilled history) -> OCI UpdateVolume"
 volume_grown() { curl -sf "$OCI/_mock/state" | jq -e --arg id "$VOLUME_ID" '.volumes[$id] == 100 and ([.calls[] | select(.operation == "UpdateVolume" and .target == $id)] | length >= 1)' >/dev/null; }
-VOLUME_BUDGET=$((DISK_STARTED + 480 - SECONDS))
-(( VOLUME_BUDGET > 60 )) || VOLUME_BUDGET=60
-wait_for "oci-mock recorded UpdateVolume(100 GB) for $VOLUME_ID" "$VOLUME_BUDGET" volume_grown
+wait_for "oci-mock recorded UpdateVolume(100 GB) for $VOLUME_ID" 60 volume_grown
 grow_seen() { grep -q '"type":"grow_volume"' "$WORK/fake-s1.jsonl"; }
 wait_for "e2e-s1 received grow_volume" 60 grow_seen
 

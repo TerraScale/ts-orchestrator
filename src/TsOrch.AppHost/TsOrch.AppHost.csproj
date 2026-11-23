@@ -6,6 +6,9 @@
     <UserSecretsId>ts-orch-apphost-local</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../TsOrch.Protocol/TsOrch.Protocol.csproj" IsAspireProjectResource="false" />
+  </ItemGroup>
+  <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>

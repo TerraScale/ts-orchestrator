@@ -27,7 +27,7 @@ internal static class TlsClientHello
     public static ClientHelloStatus TryReadServerName(ReadOnlySequence<byte> buffer, out string? serverName)
     {
         serverName = null;
-        ReadOnlySpan<byte> data = buffer.IsSingleSegment ? buffer.FirstSpan : buffer.ToArray();
+        var data = buffer.IsSingleSegment ? buffer.FirstSpan : buffer.ToArray();
         var assembled = new ArrayBufferWriter<byte>();
         var offset = 0;
         while (true)

@@ -123,3 +123,13 @@ variable "bundle_sha256" {
   type        = string
   description = "SHA-256 of the ts-orch IL bundle."
 }
+
+variable "enroll_vault_id" {
+  type        = string
+  description = "OCI Vault OCID holding the node enrollment secret, read by nodes through instance principal."
+}
+
+variable "enroll_secret_name" {
+  type        = string
+  description = "Name of the node enrollment secret inside the OCI Vault."
+}

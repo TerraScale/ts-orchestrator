@@ -1,12 +1,10 @@
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 
 namespace TsOrch.Agent;
 
-public sealed class EdgeConfigWriter(RouteObserver routes, IOptions<AgentOptions> options, ILogger<EdgeConfigWriter> logger)
+public sealed class EdgeConfigWriter(RouteObserver routes, AgentOptions options, ILogger<EdgeConfigWriter> logger)
 {
-    private readonly AgentOptions _options = options.Value;
     private long _tlsRevision = long.MinValue;
 
     public async ValueTask WriteRoutesAsync(SyncRoutes message, CancellationToken cancellationToken)
@@ -14,27 +12,28 @@ public sealed class EdgeConfigWriter(RouteObserver routes, IOptions<AgentOptions
         ArgumentNullException.ThrowIfNull(message);
         if (routes.Current is { } current && current.Revision > message.Revision)
         {
-            logger.StaleRoutesIgnored(message.Revision, current.Revision);
+            AgentLog.StaleRoutesIgnored(logger, message.Revision, current.Revision);
             return;
         }
 
         var snapshot = new EdgeRoutesSnapshot(message.Revision, message.HttpRoutes, message.PostgresRoutes);
-        try
+        var failure = await UnixFiles.WriteAtomicAsync(
+            options.RoutesFile,
+            JsonSerializer.SerializeToUtf8Bytes(snapshot, EdgeJsonContext.Default.EdgeRoutesSnapshot),
+            UnixFiles.WorldReadable,
+            cancellationToken) switch
         {
-            await UnixFiles.WriteAtomicAsync(
-                _options.RoutesFile,
-                JsonSerializer.SerializeToUtf8Bytes(snapshot, EdgeJsonContext.Default.EdgeRoutesSnapshot),
-                UnixFiles.WorldReadable,
-                cancellationToken);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            Done => null,
+            InternalFailure written => written.Message,
+        };
+        if (failure is not null)
         {
-            logger.EdgeWriteFailed(_options.RoutesFile, exception.Message);
+            AgentLog.EdgeWriteFailed(logger, options.RoutesFile, failure);
             return;
         }
 
         routes.TryPublish(snapshot);
-        logger.RoutesWritten(message.Revision);
+        AgentLog.RoutesWritten(logger, message.Revision);
     }
 
     public async ValueTask WriteTlsAsync(SyncTls message, CancellationToken cancellationToken)
@@ -42,37 +41,30 @@ public sealed class EdgeConfigWriter(RouteObserver routes, IOptions<AgentOptions
         ArgumentNullException.ThrowIfNull(message);
         if (message.Revision < Interlocked.Read(ref _tlsRevision))
         {
-            logger.StaleTlsIgnored(message.Revision);
+            AgentLog.StaleTlsIgnored(logger, message.Revision);
             return;
         }
 
         var bundle = new TlsBundle(message.Domains, message.CertPem, message.KeyPem, message.NotAfter);
-        try
+        var failure = await UnixFiles.WriteAtomicAsync(
+            [options.TlsDirectory],
+            [
+                new AtomicWrite(options.TlsKeyFile, Encoding.UTF8.GetBytes(message.KeyPem), UnixFiles.OwnerReadWrite),
+                new AtomicWrite(options.TlsCertificateFile, Encoding.UTF8.GetBytes(message.CertPem), UnixFiles.OwnerReadWrite),
+                new AtomicWrite(options.TlsBundleFile, JsonSerializer.SerializeToUtf8Bytes(bundle, EdgeJsonContext.Default.TlsBundle), UnixFiles.OwnerReadWrite),
+            ],
+            cancellationToken) switch
         {
-            UnixFiles.CreatePrivateDirectory(_options.TlsDirectory);
-            await UnixFiles.WriteAtomicAsync(
-                _options.TlsKeyFile,
-                Encoding.UTF8.GetBytes(message.KeyPem),
-                UnixFiles.OwnerReadWrite,
-                cancellationToken);
-            await UnixFiles.WriteAtomicAsync(
-                _options.TlsCertificateFile,
-                Encoding.UTF8.GetBytes(message.CertPem),
-                UnixFiles.OwnerReadWrite,
-                cancellationToken);
-            await UnixFiles.WriteAtomicAsync(
-                _options.TlsBundleFile,
-                JsonSerializer.SerializeToUtf8Bytes(bundle, EdgeJsonContext.Default.TlsBundle),
-                UnixFiles.OwnerReadWrite,
-                cancellationToken);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            Done => null,
+            InternalFailure written => written.Message,
+        };
+        if (failure is not null)
         {
-            logger.EdgeWriteFailed(_options.TlsBundleFile, exception.Message);
+            AgentLog.EdgeWriteFailed(logger, options.TlsBundleFile, failure);
             return;
         }
 
         Interlocked.Exchange(ref _tlsRevision, message.Revision);
-        logger.TlsWritten(message.Revision);
+        AgentLog.TlsWritten(logger, message.Revision);
     }
 }

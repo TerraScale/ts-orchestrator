@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 
 namespace TsOrch.Agent;
 
@@ -59,7 +58,7 @@ public static class MountTable
 
 public sealed class HostMetricsCollector(
     DockerEngineClient docker,
-    IOptions<AgentOptions> options,
+    AgentOptions options,
     TimeProvider timeProvider,
     ILogger<HostMetricsCollector> logger)
 {
@@ -67,9 +66,8 @@ public sealed class HostMetricsCollector(
     private const double BytesPerGiB = BytesPerMiB * 1024d;
     private const int MaxParallelStats = 4;
 
-    private readonly AgentOptions _options = options.Value;
     private readonly Lock _gate = new();
-    private readonly ConcurrentDictionary<string, ContainerSample> _containerSamples = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ContainerSample> _containerSamples = [with(StringComparer.Ordinal)];
     private CpuSample? _lastCpu;
     private NetSample? _lastNet;
 
@@ -102,7 +100,7 @@ public sealed class HostMetricsCollector(
             (int)((memory.TotalKiB - memory.AvailableKiB) / 1024),
             await ReadPressureAsync("/proc/pressure/memory", cancellationToken),
             await ReadPressureAsync("/proc/pressure/io", cancellationToken),
-            Math.Round(Math.Max(DiskUsedPct("/"), DiskUsedPct(_options.DataVolumePath)), 2),
+            Math.Round(Math.Max(DiskUsedPct("/"), DiskUsedPct(options.DataVolumePath)), 2),
             rxBps,
             txBps,
             await ReadLoad1Async(cancellationToken));
@@ -135,19 +133,19 @@ public sealed class HostMetricsCollector(
 
     public async Task<EdgeMetricsSnapshot?> ReadEdgeMetricsAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_options.EdgeMetricsFile))
+        if (!File.Exists(options.EdgeMetricsFile))
         {
             return null;
         }
 
         try
         {
-            await using var stream = File.OpenRead(_options.EdgeMetricsFile);
+            await using var stream = File.OpenRead(options.EdgeMetricsFile);
             return await JsonSerializer.DeserializeAsync(stream, EdgeJsonContext.Default.EdgeMetricsSnapshot, cancellationToken);
         }
         catch (Exception exception) when (exception is JsonException or IOException)
         {
-            logger.EdgeMetricsUnreadable(_options.EdgeMetricsFile, exception.Message);
+            AgentLog.EdgeMetricsUnreadable(logger, options.EdgeMetricsFile, exception.Message);
             return null;
         }
     }
@@ -155,17 +153,17 @@ public sealed class HostMetricsCollector(
     public async Task<NodeCapacity> ReadCapacityAsync(CancellationToken cancellationToken)
     {
         var memory = await ReadMemInfoAsync(cancellationToken);
-        var dataPath = Directory.Exists(_options.DataVolumePath) ? _options.DataVolumePath : "/";
+        var dataPath = Directory.Exists(options.DataVolumePath) ? options.DataVolumePath : "/";
         var drive = new DriveInfo(dataPath);
         List<VolumeInfo> volumes = [];
-        if (Directory.Exists(_options.DataVolumePath))
+        if (Directory.Exists(options.DataVolumePath))
         {
-            var mount = MountTable.FindContaining(await MountTable.ReadAsync(cancellationToken), _options.DataVolumePath);
+            var mount = MountTable.FindContaining(await MountTable.ReadAsync(cancellationToken), options.DataVolumePath);
             volumes.Add(new VolumeInfo(
-                _options.DataVolumePath,
+                options.DataVolumePath,
                 mount?.Device ?? "unknown",
                 (int)Math.Round(drive.TotalSize / BytesPerGiB),
-                Math.Round(DiskUsedPct(_options.DataVolumePath), 2)));
+                Math.Round(DiskUsedPct(options.DataVolumePath), 2)));
         }
 
         return new NodeCapacity(
@@ -175,17 +173,29 @@ public sealed class HostMetricsCollector(
             volumes);
     }
 
-    private async Task<ContainerMetrics?> CollectContainerAsync(ManagedContainer container, CancellationToken cancellationToken)
-    {
-        var statsResult = await docker.GetContainerStatsAsync(container.Id, cancellationToken);
-        if (!statsResult.TryGetValue(out var stats, out var statsError))
+    private async Task<ContainerMetrics?> CollectContainerAsync(ManagedContainer container, CancellationToken cancellationToken) =>
+        await docker.GetContainerStatsAsync(container.Id, cancellationToken) switch
         {
-            logger.ContainerStatsUnavailable(container.Id, statsError.Message);
-            return null;
-        }
+            ContainerStatsSample stats => await docker.InspectContainerAsync(container.Id, cancellationToken) switch
+            {
+                ContainerState state => Measure(container, stats, state.RestartCount, state.OomKilled ? 1 : 0),
+                NotFound => Measure(container, stats, 0, 0),
+                Unavailable => Measure(container, stats, 0, 0),
+                InternalFailure => Measure(container, stats, 0, 0),
+            },
+            NotFound failure => StatsUnavailable(container, failure.Message),
+            Unavailable failure => StatsUnavailable(container, failure.Message),
+            InternalFailure failure => StatsUnavailable(container, failure.Message),
+        };
 
-        var inspected = await docker.InspectContainerAsync(container.Id, cancellationToken);
-        var (restarts, oomKills) = inspected.TryGetValue(out var state, out _) ? (state.RestartCount, state.OomKilled ? 1 : 0) : (0, 0);
+    private ContainerMetrics? StatsUnavailable(ManagedContainer container, string reason)
+    {
+        AgentLog.ContainerStatsUnavailable(logger, container.Id, reason);
+        return null;
+    }
+
+    private ContainerMetrics Measure(ManagedContainer container, ContainerStatsSample stats, int restarts, int oomKills)
+    {
         var now = timeProvider.GetUtcNow();
         var sample = new ContainerSample(now, stats);
         double cpuPct = 0;

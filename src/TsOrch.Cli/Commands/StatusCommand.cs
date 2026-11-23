@@ -6,37 +6,39 @@ internal static class StatusCommand
 {
     public static IReadOnlyList<CliOption> Options { get; } = [new("region", null, true), new("json", null, false)];
 
-    public static async Task<OrchResult<int>> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken)
-    {
-        if (!arguments.ExpectPositionals(0, "ts-orch status [--region R] [--json]").TryGetValue(out _, out var usageError))
+    public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
+        arguments.ExpectPositionals(0, "ts-orch status [--region R] [--json]") switch
         {
-            return usageError;
-        }
-
-        var path = Query.Build("/api/status", ("region", arguments.Value("region")));
-        if (arguments.Flag("json"))
-        {
-            var raw = await environment.Api.GetTextAsync(path, cancellationToken);
-            if (!raw.TryGetValue(out var json, out var rawError))
+            Done when arguments.Flag("json") => await environment.Api.GetTextAsync(Path(arguments), cancellationToken) switch
             {
-                return rawError;
-            }
+                string json => Print(json, environment.Out),
+                Validation failure => environment.Fail(failure),
+                NotFound failure => environment.Fail(failure),
+                Unauthorized failure => environment.Fail(failure),
+                Forbidden failure => environment.Fail(failure),
+                Unavailable failure => environment.Fail(failure),
+            },
+            Done => await environment.Api.GetAsync(Path(arguments), ApiJsonContext.Default.StatusResponse, cancellationToken) switch
+            {
+                StatusResponse status => Render(status, environment.Out, environment.TimeProvider),
+                Validation failure => environment.Fail(failure),
+                NotFound failure => environment.Fail(failure),
+                Unauthorized failure => environment.Fail(failure),
+                Forbidden failure => environment.Fail(failure),
+                Unavailable failure => environment.Fail(failure),
+            },
+            Validation failure => environment.Fail(failure),
+        };
 
-            environment.Out.WriteLine(json);
-            return ExitCodes.Ok;
-        }
+    private static string Path(CliArguments arguments) => Query.Build("/api/status", ("region", arguments.Value("region")));
 
-        var result = await environment.Api.GetAsync(path, ApiJsonContext.Default.StatusResponse, cancellationToken);
-        if (!result.TryGetValue(out var status, out var error))
-        {
-            return error;
-        }
-
-        Render(status, environment.Out, environment.TimeProvider);
+    private static int Print(string json, TextWriter output)
+    {
+        output.WriteLine(json);
         return ExitCodes.Ok;
     }
 
-    private static void Render(StatusResponse status, TextWriter output, TimeProvider timeProvider)
+    private static int Render(StatusResponse status, TextWriter output, TimeProvider timeProvider)
     {
         output.WriteLine($"REGIONS ({status.Regions.Count})");
         var regions = new TextTable("REGION", "HEALTH", "NODES", "READY", "STATEFUL", "WORKER", "CPU REQ/TOTAL", "MEM REQ/TOTAL GiB", "PACKING", "ATLAS DBS");
@@ -112,5 +114,6 @@ internal static class StatusCommand
         }
 
         rollouts.WriteTo(output);
+        return ExitCodes.Ok;
     }
 }

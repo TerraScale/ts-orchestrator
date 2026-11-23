@@ -1,10 +1,10 @@
 using System.Net;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
 
@@ -12,18 +12,18 @@ internal sealed record class OciMockOptions(int Port, IReadOnlyDictionary<string
 {
     public const string Flag = "--oci-mock";
 
-    public static Parsed<OciMockOptions> Parse(IReadOnlyList<string> args) =>
+    public static Result<OciMockOptions, Validation> Parse(IReadOnlyList<string> args) =>
         AppHostArguments.Port(args, "--port") switch
         {
             int port => ServiceSecrets(AppHostArguments.Values(args, "--seed-services")) switch
             {
                 IReadOnlyDictionary<string, string> serviceSecrets => WithSeedSecrets(port, serviceSecrets, args),
-                InvalidArguments invalid => invalid,
+                Validation invalid => invalid,
             },
-            InvalidArguments invalid => invalid,
+            Validation invalid => invalid,
         };
 
-    private static Parsed<OciMockOptions> WithSeedSecrets(int port, IReadOnlyDictionary<string, string> serviceSecrets, IReadOnlyList<string> args)
+    private static Result<OciMockOptions, Validation> WithSeedSecrets(int port, IReadOnlyDictionary<string, string> serviceSecrets, IReadOnlyList<string> args)
     {
         Dictionary<string, string> secrets = new(serviceSecrets, StringComparer.Ordinal);
         foreach (var pair in AppHostArguments.Values(args, "--seed-secret"))
@@ -31,7 +31,7 @@ internal sealed record class OciMockOptions(int Port, IReadOnlyDictionary<string
             var separator = pair.IndexOf('=', StringComparison.Ordinal);
             if (separator <= 0 || separator == pair.Length - 1)
             {
-                return new InvalidArguments($"--seed-secret expects NAME=VALUE, got '{pair}'.");
+                return new Validation($"--seed-secret expects NAME=VALUE, got '{pair}'.");
             }
 
             secrets[pair[..separator]] = pair[(separator + 1)..];
@@ -40,36 +40,33 @@ internal sealed record class OciMockOptions(int Port, IReadOnlyDictionary<string
         return new OciMockOptions(port, secrets);
     }
 
-    private static Parsed<IReadOnlyDictionary<string, string>> ServiceSecrets(IReadOnlyList<string> directories)
-    {
-        Dictionary<string, string> secrets = new(StringComparer.Ordinal);
-        try
+    private static Result<IReadOnlyDictionary<string, string>, Validation> ServiceSecrets(IReadOnlyList<string> directories) =>
+        JsonFiles.ReadDirectories(directories) switch
         {
-            foreach (var directory in directories)
-            {
-                foreach (var file in Directory.EnumerateFiles(directory, "*.json").Order(StringComparer.Ordinal))
-                {
-                    if (JsonNode.Parse(File.ReadAllText(file)) is not JsonObject service || service["secrets"] is not JsonObject references)
-                    {
-                        continue;
-                    }
+            JsonFile[] files => new Result<IReadOnlyDictionary<string, string>, Validation>(ServiceSecrets(files)),
+            Validation invalid => new Validation($"--seed-services could not be read: {invalid.Message}"),
+        };
 
-                    foreach (var (_, reference) in references)
-                    {
-                        if (reference is JsonObject entry && entry["name"] is JsonValue value && value.TryGetValue<string>(out var name) && name.Length > 0)
-                        {
-                            secrets[name] = $"local-{name}";
-                        }
-                    }
-                }
+    private static Dictionary<string, string> ServiceSecrets(JsonFile[] files)
+    {
+        Dictionary<string, string> secrets = [with(StringComparer.Ordinal)];
+        foreach (var file in files)
+        {
+            if (file.Node is not JsonObject service || service["secrets"] is not JsonObject references)
+            {
+                continue;
             }
 
-            return secrets;
+            foreach (var (_, reference) in references)
+            {
+                if (reference is JsonObject entry && entry["name"] is JsonValue value && value.TryGetValue<string>(out var name) && name.Length > 0)
+                {
+                    secrets[name] = $"local-{name}";
+                }
+            }
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return new InvalidArguments($"--seed-services could not be read: {exception.Message}");
-        }
+
+        return secrets;
     }
 }
 

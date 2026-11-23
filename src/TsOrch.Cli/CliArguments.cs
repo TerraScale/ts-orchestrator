@@ -32,31 +32,31 @@ internal sealed class CliArguments
     public string? Setting(string name, string environmentVariable) =>
         Value(name) ?? (Environment.GetEnvironmentVariable(environmentVariable) is { Length: > 0 } fromEnvironment ? fromEnvironment : null);
 
-    public OrchResult<int> Int(string name, int fallback, int min, int max) =>
+    public Result<int, Validation> Int(string name, int fallback, int min, int max) =>
         Value(name) is not { } text
             ? fallback
             : ParseInt($"--{name}", text, min, max);
 
-    public static OrchResult<int> ParseInt(string label, string text, int min, int max) =>
+    public static Result<int, Validation> ParseInt(string label, string text, int min, int max) =>
         int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) && parsed >= min && parsed <= max
             ? parsed
             : new Validation(string.Create(CultureInfo.InvariantCulture, $"{label} must be an integer between {min} and {max}, got '{text}'."));
 
-    public static OrchResult<bool> ParseBool(string label, string text) => text switch
+    public static Result<bool, Validation> ParseBool(string label, string text) => text switch
     {
         "true" => true,
         "false" => false,
         _ => new Validation($"{label} must be 'true' or 'false', got '{text}'."),
     };
 
-    public static OrchResult<CliArguments> Parse(IReadOnlyList<string> args, IReadOnlyList<CliOption> options)
+    public static Result<CliArguments, Validation> Parse(IReadOnlyList<string> args, IReadOnlyList<CliOption> options)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(options);
         List<string> positionals = [];
         List<string> trailing = [];
-        Dictionary<string, string> values = new(StringComparer.Ordinal);
-        HashSet<string> flags = new(StringComparer.Ordinal);
+        Dictionary<string, string> values = [with(StringComparer.Ordinal)];
+        HashSet<string> flags = [with(StringComparer.Ordinal)];
         for (var index = 0; index < args.Count; index++)
         {
             var token = args[index];

@@ -4,54 +4,63 @@ internal static class EventsCommand
 {
     public static IReadOnlyList<CliOption> Options { get; } = [new("follow", 'f', false), new("region", null, true), new("limit", null, true)];
 
-    public static async Task<OrchResult<int>> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken)
-    {
-        if (!arguments.ExpectPositionals(0, "ts-orch events [-f] [--region R] [--limit N]").TryGetValue(out _, out var usageError))
+    public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
+        arguments.ExpectPositionals(0, "ts-orch events [-f] [--region R] [--limit N]") switch
         {
-            return usageError;
-        }
-
-        if (!arguments.Int("limit", 100, 1, 2_000).TryGetValue(out var limit, out var limitError))
-        {
-            return limitError;
-        }
-
-        var region = arguments.Value("region");
-        var output = environment.Out;
-        if (arguments.Flag("follow"))
-        {
-            var streamed = await environment.Api.StreamAsync(
-                Path(region, limit, follow: true),
-                CliJsonContext.Default.EventRecord,
-                async (record, token) =>
-                {
-                    await output.WriteLineAsync(Format(record).AsMemory(), token);
-                    await output.FlushAsync(token);
-                },
-                cancellationToken);
-            return streamed switch
+            Done => arguments.Int("limit", 100, 1, 2_000) switch
             {
-                Done => ExitCodes.Ok,
-                OrchError error => error,
-            };
-        }
+                int limit when arguments.Flag("follow") => await FollowAsync(arguments.Value("region"), limit, environment, cancellationToken),
+                int limit => await ListAsync(arguments.Value("region"), limit, environment, cancellationToken),
+                Validation failure => environment.Fail(failure),
+            },
+            Validation failure => environment.Fail(failure),
+        };
 
-        var listed = await environment.Api.GetAsync(Path(region, limit, follow: false), CliJsonContext.Default.EventListResponse, cancellationToken);
-        if (!listed.TryGetValue(out var response, out var listError))
+    public static string Path(string? region, int limit, bool follow) =>
+        Query.Build("/api/events", ("region", region), ("limit", Display.Integer(limit)), ("follow", follow ? "1" : null));
+
+    private static async Task<int> FollowAsync(string? region, int limit, CommandEnvironment environment, CancellationToken cancellationToken)
+    {
+        var output = environment.Out;
+        return await environment.Api.StreamAsync(
+            Path(region, limit, follow: true),
+            CliJsonContext.Default.EventRecord,
+            async (record, token) =>
+            {
+                await output.WriteLineAsync(Format(record).AsMemory(), token);
+                await output.FlushAsync(token);
+            },
+            cancellationToken) switch
         {
-            return listError;
-        }
+            Done => ExitCodes.Ok,
+            Validation failure => environment.Fail(failure),
+            NotFound failure => environment.Fail(failure),
+            Unauthorized failure => environment.Fail(failure),
+            Forbidden failure => environment.Fail(failure),
+            Unavailable failure => environment.Fail(failure),
+        };
+    }
 
-        foreach (var record in response.Events)
+    private static async Task<int> ListAsync(string? region, int limit, CommandEnvironment environment, CancellationToken cancellationToken) =>
+        await environment.Api.GetAsync(Path(region, limit, follow: false), CliJsonContext.Default.EventListResponse, cancellationToken) switch
+        {
+            EventListResponse response => Print(response.Events, environment.Out),
+            Validation failure => environment.Fail(failure),
+            NotFound failure => environment.Fail(failure),
+            Unauthorized failure => environment.Fail(failure),
+            Forbidden failure => environment.Fail(failure),
+            Unavailable failure => environment.Fail(failure),
+        };
+
+    private static int Print(IReadOnlyList<EventRecord> events, TextWriter output)
+    {
+        foreach (var record in events)
         {
             output.WriteLine(Format(record));
         }
 
         return ExitCodes.Ok;
     }
-
-    public static string Path(string? region, int limit, bool follow) =>
-        Query.Build("/api/events", ("region", region), ("limit", Display.Integer(limit)), ("follow", follow ? "1" : null));
 
     private static string Format(EventRecord record)
     {

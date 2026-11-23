@@ -1,10 +1,8 @@
 using System.Buffers;
-using System.Diagnostics;
 using System.Net;
 using System.Net.WebSockets;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 
 namespace TsOrch.Agent;
 
@@ -52,7 +50,7 @@ public sealed class NodeAgentRunner(
     BackplaneDispatcher dispatcher,
     AgentOutbox outbox,
     NodeReportComposer reports,
-    IOptions<AgentOptions> options,
+    AgentOptions options,
     TimeProvider timeProvider,
     ILogger<NodeAgentRunner> logger) : BackgroundService
 {
@@ -61,87 +59,88 @@ public sealed class NodeAgentRunner(
     private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(5);
     private static readonly byte[] PingFrame = "ping"u8.ToArray();
 
-    private readonly AgentOptions _options = options.Value;
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var failures = 0;
         while (!stoppingToken.IsCancellationRequested)
         {
-            var enrolled = await enrollment.EnsureEnrolledAsync(stoppingToken);
-            if (!enrolled.TryGetValue(out var session, out var enrollError))
+            failures = await enrollment.EnsureEnrolledAsync(stoppingToken) switch
             {
-                logger.EnrollFailed(enrollError.Code, enrollError.Message);
-                await DelayAsync(++failures, stoppingToken);
-                continue;
-            }
-
-            var outcome = await RunSessionAsync(session, stoppingToken);
-            switch (outcome)
-            {
-                case SessionOutcome.Rejected:
-                    enrollment.Forget();
-                    failures++;
-                    break;
-                case SessionOutcome.Unreachable:
-                    failures++;
-                    break;
-                case SessionOutcome.Disconnected:
-                    failures = 0;
-                    break;
-                default:
-                    throw new UnreachableException();
-            }
-
+                NodeSession session => await RunSessionAsync(session, stoppingToken) switch
+                {
+                    SessionRejected => Forget(failures),
+                    SessionUnreachable => failures + 1,
+                    SessionDisconnected => 0,
+                },
+                Validation failure => EnrollFailed(failures, failure.Code, failure.Message),
+                Conflict failure => EnrollFailed(failures, failure.Code, failure.Message),
+                Unauthorized failure => EnrollFailed(failures, failure.Code, failure.Message),
+                Forbidden failure => EnrollFailed(failures, failure.Code, failure.Message),
+                Unavailable failure => EnrollFailed(failures, failure.Code, failure.Message),
+                InternalFailure failure => EnrollFailed(failures, failure.Code, failure.Message),
+            };
             await DelayAsync(Math.Max(1, failures), stoppingToken);
         }
+    }
+
+    private int Forget(int failures)
+    {
+        enrollment.Forget();
+        return failures + 1;
+    }
+
+    private int EnrollFailed(int failures, string code, string reason)
+    {
+        AgentLog.EnrollFailed(logger, code, reason);
+        return failures + 1;
     }
 
     private async Task DelayAsync(int attempt, CancellationToken cancellationToken)
     {
         var exponent = Math.Min(attempt - 1, 16);
-        var ceiling = Math.Min(_options.ReconnectMaxDelay.TotalMilliseconds, InitialBackoff.TotalMilliseconds * Math.Pow(2, exponent));
+        var ceiling = Math.Min(options.ReconnectMaxDelay.TotalMilliseconds, InitialBackoff.TotalMilliseconds * Math.Pow(2, exponent));
         var delay = TimeSpan.FromMilliseconds(ceiling * (0.8 + (Random.Shared.NextDouble() * 0.4)));
-        logger.Reconnecting(delay);
+        AgentLog.Reconnecting(logger, delay);
         await Task.Delay(delay, timeProvider, cancellationToken);
     }
 
-    private async Task<SessionOutcome> RunSessionAsync(NodeSession session, CancellationToken stoppingToken)
+    private async Task<SessionOutcome> RunSessionAsync(NodeSession session, CancellationToken cancellationToken)
     {
         using var socket = new ClientWebSocket();
         socket.Options.SetRequestHeader("Authorization", $"Bearer {session.Token}");
         socket.Options.KeepAliveInterval = TimeSpan.Zero;
         socket.Options.CollectHttpResponseDetails = true;
-        logger.Connecting(session.WebSocketUrl);
+        AgentLog.Connecting(logger, session.WebSocketUrl);
         try
         {
-            await socket.ConnectAsync(session.WebSocketUrl, stoppingToken);
+            await socket.ConnectAsync(session.WebSocketUrl, cancellationToken);
         }
         catch (Exception exception) when (exception is WebSocketException or HttpRequestException or IOException)
         {
             if (socket.HttpStatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
-                logger.ConnectRejected((int)socket.HttpStatusCode);
-                return SessionOutcome.Rejected;
+                AgentLog.ConnectRejected(logger, (int)socket.HttpStatusCode);
+                return new SessionRejected();
             }
 
-            logger.ConnectFailed(exception.Message);
-            return SessionOutcome.Unreachable;
+            AgentLog.ConnectFailed(logger, exception.Message);
+            return new SessionUnreachable();
         }
 
-        logger.Connected(session.NodeId);
+        AgentLog.Connected(logger, session.NodeId);
         using var sendGate = new SemaphoreSlim(1, 1);
-        using var sessionSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        using var sessionSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var token = sessionSource.Token;
         var sender = new FrameSender(socket, sendGate);
+        var hello = Serialize(await reports.ComposeHelloAsync(session, token));
         try
         {
-            await sender.SendAsync(Serialize(await reports.ComposeHelloAsync(session, token)), token);
+            await sender.SendAsync(hello, token);
         }
         catch (Exception exception) when (exception is WebSocketException or IOException)
         {
-            logger.ConnectFailed(exception.Message);
-            return SessionOutcome.Unreachable;
+            AgentLog.ConnectFailed(logger, exception.Message);
+            return new SessionUnreachable();
         }
 
         Task[] loops =
@@ -158,14 +157,14 @@ public sealed class NodeAgentRunner(
         {
             if (loop.Exception?.GetBaseException() is { } failure and not (WebSocketException or IOException))
             {
-                logger.SessionLoopFaulted(failure);
+                AgentLog.SessionLoopFaulted(logger, failure);
             }
         }
 
         await CloseAsync(socket);
-        stoppingToken.ThrowIfCancellationRequested();
-        logger.SessionEnded(session.NodeId);
-        return SessionOutcome.Disconnected;
+        cancellationToken.ThrowIfCancellationRequested();
+        AgentLog.SessionEnded(logger, session.NodeId);
+        return new SessionDisconnected();
     }
 
     private async Task ReceiveLoopAsync(ClientWebSocket socket, NodeSession session, CancellationToken cancellationToken)
@@ -186,7 +185,7 @@ public sealed class NodeAgentRunner(
                 buffer.Advance(received.Count);
                 if (buffer.WrittenCount > MaxMessageBytes)
                 {
-                    logger.MessageTooLarge(buffer.WrittenCount);
+                    AgentLog.MessageTooLarge(logger, buffer.WrittenCount);
                     await socket.CloseOutputAsync(WebSocketCloseStatus.MessageTooBig, "message too large", cancellationToken);
                     return;
                 }
@@ -205,7 +204,7 @@ public sealed class NodeAgentRunner(
             }
             catch (JsonException exception)
             {
-                logger.BackplaneMessageInvalid(exception.Message);
+                AgentLog.BackplaneMessageInvalid(logger, exception.Message);
                 continue;
             }
 
@@ -230,7 +229,7 @@ public sealed class NodeAgentRunner(
 
     private async Task KeepAliveLoopAsync(FrameSender sender, CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(_options.KeepAliveInterval, timeProvider);
+        using var timer = new PeriodicTimer(options.KeepAliveInterval, timeProvider);
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
             await sender.SendAsync(PingFrame, cancellationToken);
@@ -239,7 +238,7 @@ public sealed class NodeAgentRunner(
 
     private async Task HeartbeatLoopAsync(FrameSender sender, CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(_options.HeartbeatInterval, timeProvider);
+        using var timer = new PeriodicTimer(options.HeartbeatInterval, timeProvider);
         do
         {
             await sender.SendAsync(Serialize(await reports.ComposeHeartbeatAsync(cancellationToken)), cancellationToken);
@@ -261,19 +260,20 @@ public sealed class NodeAgentRunner(
         }
         catch (Exception exception) when (exception is WebSocketException or IOException or OperationCanceledException)
         {
-            logger.CloseFailed(exception.Message);
+            AgentLog.CloseFailed(logger, exception.Message);
         }
     }
 
     private static byte[] Serialize(AgentMessage message) =>
         JsonSerializer.SerializeToUtf8Bytes(message, WireJsonContext.Default.AgentMessage);
 
-    private enum SessionOutcome
-    {
-        Rejected,
-        Unreachable,
-        Disconnected,
-    }
+    private closed record class SessionOutcome;
+
+    private sealed record class SessionRejected : SessionOutcome;
+
+    private sealed record class SessionUnreachable : SessionOutcome;
+
+    private sealed record class SessionDisconnected : SessionOutcome;
 
     private sealed class FrameSender(ClientWebSocket socket, SemaphoreSlim gate)
     {

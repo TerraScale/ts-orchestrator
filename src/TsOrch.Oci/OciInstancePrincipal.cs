@@ -4,7 +4,6 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
-using TsOrch.Protocol;
 
 namespace TsOrch.Oci;
 
@@ -22,7 +21,7 @@ public sealed class OciInstancePrincipal(
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private OciSession? _session;
 
-    public async Task<OrchResult<Done>> AuthorizeAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    public async Task<Result<Done, Forbidden, Unavailable, InternalFailure>> AuthorizeAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         return environment switch
@@ -32,7 +31,7 @@ public sealed class OciInstancePrincipal(
         };
     }
 
-    public async Task<OrchResult<OciSigningKey>> GetSigningKeyAsync(CancellationToken cancellationToken)
+    public async Task<Result<OciSigningKey, Forbidden, Unavailable, InternalFailure>> GetSigningKeyAsync(CancellationToken cancellationToken)
     {
         if (CurrentSession() is { } current)
         {
@@ -47,14 +46,13 @@ public sealed class OciInstancePrincipal(
                 return refreshedConcurrently.Key;
             }
 
-            var sessionResult = await FederateAsync(cancellationToken);
-            if (!sessionResult.TryGetValue(out var session, out var error))
+            return await FederateAsync(cancellationToken) switch
             {
-                return error;
-            }
-
-            Volatile.Write(ref _session, session);
-            return session.Key;
+                OciSession session => Remember(session),
+                Forbidden failure => failure,
+                Unavailable failure => failure,
+                InternalFailure failure => failure,
+            };
         }
         finally
         {
@@ -74,16 +72,25 @@ public sealed class OciInstancePrincipal(
         return new Done();
     }
 
-    private async Task<OrchResult<Done>> SignAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        var keyResult = await GetSigningKeyAsync(cancellationToken);
-        if (!keyResult.TryGetValue(out var key, out var error))
+    private async Task<Result<Done, Forbidden, Unavailable, InternalFailure>> SignAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        await GetSigningKeyAsync(cancellationToken) switch
         {
-            return error;
-        }
+            OciSigningKey key => await SignWithAsync(request, key, cancellationToken),
+            Forbidden failure => failure,
+            Unavailable failure => failure,
+            InternalFailure failure => failure,
+        };
 
+    private async Task<Done> SignWithAsync(HttpRequestMessage request, OciSigningKey key, CancellationToken cancellationToken)
+    {
         await signer.SignAsync(request, key, cancellationToken);
         return new Done();
+    }
+
+    private OciSigningKey Remember(OciSession session)
+    {
+        Volatile.Write(ref _session, session);
+        return session.Key;
     }
 
     private OciSession? CurrentSession() =>
@@ -91,25 +98,29 @@ public sealed class OciInstancePrincipal(
             ? session
             : null;
 
-    private async Task<OrchResult<OciSession>> FederateAsync(CancellationToken cancellationToken)
+    private async Task<Result<OciSession, Forbidden, Unavailable, InternalFailure>> FederateAsync(CancellationToken cancellationToken) =>
+        await imds.GetIdentityAsync(cancellationToken) switch
+        {
+            OciInstanceIdentity identity => await imds.GetFederationMaterialAsync(cancellationToken) switch
+            {
+                OciFederationMaterial material => await FederateAsync(identity, material, cancellationToken),
+                Unavailable failure => failure,
+                InternalFailure failure => failure,
+            },
+            Unavailable failure => failure,
+            InternalFailure failure => failure,
+        };
+
+    private async Task<Result<OciSession, Forbidden, Unavailable, InternalFailure>> FederateAsync(
+        OciInstanceIdentity identity,
+        OciFederationMaterial material,
+        CancellationToken cancellationToken)
     {
-        var identityResult = await imds.GetIdentityAsync(cancellationToken);
-        if (!identityResult.TryGetValue(out var identity, out var identityError))
-        {
-            return identityError;
-        }
-
-        var materialResult = await imds.GetFederationMaterialAsync(cancellationToken);
-        if (!materialResult.TryGetValue(out var material, out var materialError))
-        {
-            return materialError;
-        }
-
         using var leaf = X509Certificate2.CreateFromPem(material.LeafCertificatePem);
         using var intermediate = X509Certificate2.CreateFromPem(material.IntermediateCertificatePem);
         if (TenancyId(leaf) is not { } tenancyId)
         {
-            return new Internal("OCI instance identity certificate carries no opc-tenant or opc-identity subject.");
+            return new InternalFailure("OCI instance identity certificate carries no opc-tenant or opc-identity subject.");
         }
 
         using var leafKey = RSA.Create();
@@ -134,20 +145,21 @@ public sealed class OciInstancePrincipal(
                 new OciSigningKey($"{tenancyId}/fed-x509-sha256/{Fingerprint(leaf)}", leafKey),
                 cancellationToken);
 
-            var responseResult = await OciHttp.SendJsonAsync(httpClient, request, OciJsonContext.Default.FederationResponseDocument, cancellationToken);
-            if (!responseResult.TryGetValue(out var response, out var responseError))
+            Result<OciSession, Forbidden, Unavailable, InternalFailure> federated = await OciHttp.SendJsonAsync(httpClient, request, OciJsonContext.Default.FederationResponseDocument, cancellationToken) switch
             {
-                return responseError;
-            }
-
-            if (ExpiresAt(response.Token) is not { } expiresAt)
+                FederationResponseDocument { Token: var token } when ExpiresAt(token) is { } expiresAt => new OciSession(new OciSigningKey("ST$" + token, sessionKey), expiresAt),
+                FederationResponseDocument => new InternalFailure("OCI federation returned a security token without a readable exp claim."),
+                NotFound failure => new InternalFailure(failure.Message),
+                Forbidden failure => failure,
+                Unavailable failure => failure,
+                InternalFailure failure => failure,
+            };
+            sessionKey = federated switch
             {
-                return new Internal("OCI federation returned a security token without a readable exp claim.");
-            }
-
-            var session = new OciSession(new OciSigningKey("ST$" + response.Token, sessionKey), expiresAt);
-            sessionKey = null;
-            return session;
+                OciSession => null,
+                Forbidden or Unavailable or InternalFailure => sessionKey,
+            };
+            return federated;
         }
         finally
         {

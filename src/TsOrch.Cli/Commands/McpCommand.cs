@@ -4,13 +4,15 @@ internal static class McpCommand
 {
     public static IReadOnlyList<CliOption> Options { get; } = [];
 
-    public static async Task<OrchResult<int>> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken)
-    {
-        if (!arguments.ExpectPositionals(0, "ts-orch mcp").TryGetValue(out _, out var usageError))
+    public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
+        arguments.ExpectPositionals(0, "ts-orch mcp") switch
         {
-            return usageError;
-        }
+            Done => await ServeAsync(environment, cancellationToken),
+            Validation failure => environment.Fail(failure),
+        };
 
+    private static async Task<int> ServeAsync(CommandEnvironment environment, CancellationToken cancellationToken)
+    {
         await environment.Error.WriteLineAsync($"ts-orch mcp {CliApp.Version}: serving read-only tools on stdio".AsMemory(), cancellationToken);
         await new McpServer(new McpTools(environment.Api), environment.Console).RunAsync(cancellationToken);
         return ExitCodes.Ok;

@@ -36,15 +36,11 @@ public sealed partial class PostgresSniConnectionHandler(
         metrics.PostgresConnectionOpened();
         try
         {
-            switch (await NegotiateAsync(connection))
+            await (await NegotiateAsync(connection) switch
             {
-                case NegotiationRejected rejected:
-                    LogNegotiationRejected(logger, connection.ConnectionId, rejected.Reason);
-                    break;
-                case SniNegotiated negotiated:
-                    await ForwardAsync(connection, negotiated.ServerName);
-                    break;
-            }
+                NegotiationRejected rejected => RejectAsync(connection, rejected),
+                SniNegotiated negotiated => ForwardAsync(connection, negotiated.ServerName),
+            });
         }
         catch (OperationCanceledException) when (connection.ConnectionClosed.IsCancellationRequested)
         {
@@ -54,6 +50,12 @@ public sealed partial class PostgresSniConnectionHandler(
         {
             metrics.PostgresConnectionClosed();
         }
+    }
+
+    private Task RejectAsync(ConnectionContext connection, NegotiationRejected rejected)
+    {
+        LogNegotiationRejected(logger, connection.ConnectionId, rejected.Reason);
+        return Task.CompletedTask;
     }
 
     private async Task<Negotiation> NegotiateAsync(ConnectionContext connection)
@@ -107,21 +109,19 @@ public sealed partial class PostgresSniConnectionHandler(
 
             var status = TlsClientHello.TryReadServerName(buffer, out var serverName);
             input.AdvanceTo(buffer.Start, status == ClientHelloStatus.NeedMoreData ? buffer.End : buffer.Start);
-            switch (status)
+            if (status == ClientHelloStatus.NeedMoreData && !read.IsCompleted && buffer.Length <= MaxClientHelloBytes)
             {
-                case ClientHelloStatus.Complete:
-                    return serverName is null
-                        ? new NegotiationRejected("TLS ClientHello carries no SNI server name")
-                        : new SniNegotiated(serverName);
-                case ClientHelloStatus.Invalid:
-                    return new NegotiationRejected("malformed TLS ClientHello");
-                case ClientHelloStatus.NeedMoreData when read.IsCompleted || buffer.Length > MaxClientHelloBytes:
-                    return new NegotiationRejected("incomplete TLS ClientHello");
-                case ClientHelloStatus.NeedMoreData:
-                    continue;
-                default:
-                    throw new UnreachableException();
+                continue;
             }
+
+            return status switch
+            {
+                ClientHelloStatus.Complete when serverName is null => new NegotiationRejected("TLS ClientHello carries no SNI server name"),
+                ClientHelloStatus.Complete => new SniNegotiated(serverName),
+                ClientHelloStatus.Invalid => new NegotiationRejected("malformed TLS ClientHello"),
+                ClientHelloStatus.NeedMoreData => new NegotiationRejected("incomplete TLS ClientHello"),
+                _ => throw new UnreachableException(),
+            };
         }
     }
 
@@ -215,9 +215,9 @@ public sealed partial class PostgresSniConnectionHandler(
         }
     }
 
-    private static async Task PumpAsync(IDuplexPipe client, UpstreamConnection upstream, CancellationToken connectionClosed)
+    private static async Task PumpAsync(IDuplexPipe client, UpstreamConnection upstream, CancellationToken cancellationToken)
     {
-        using var abort = CancellationTokenSource.CreateLinkedTokenSource(connectionClosed);
+        using var abort = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var upstreamReader = PipeReader.Create(upstream.Stream, new StreamPipeReaderOptions(leaveOpen: true));
         var upstreamWriter = PipeWriter.Create(upstream.Stream, new StreamPipeWriterOptions(leaveOpen: true));
         await Task.WhenAll(
@@ -242,7 +242,11 @@ public sealed partial class PostgresSniConnectionHandler(
                 await abort.CancelAsync();
             }
         }
-        catch (Exception exception) when (exception is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
+        catch (Exception exception) when (exception is IOException or SocketException or ObjectDisposedException)
+        {
+            await abort.CancelAsync();
+        }
+        catch (OperationCanceledException) when (abort.IsCancellationRequested)
         {
             await abort.CancelAsync();
         }

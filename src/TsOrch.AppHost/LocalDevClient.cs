@@ -1,14 +1,12 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
-
-internal sealed record class WorkerFailure(string Message);
-
-internal readonly union WorkerReply(string, WorkerFailure);
 
 internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timeProvider)
 {
@@ -18,33 +16,41 @@ internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timePro
     public static HttpClient CreateHttpClient() =>
         new(new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false }) { Timeout = TimeSpan.FromSeconds(30) };
 
-    public async Task<WorkerReply> WaitForLocalWorkerAsync(Uri workerUrl, TimeSpan timeout, CancellationToken cancellationToken)
+    public async Task<Result<Done, RequestTimeout>> WaitForLocalWorkerAsync(Uri workerUrl, TimeSpan timeout, CancellationToken cancellationToken)
     {
         var deadline = timeProvider.GetUtcNow() + timeout;
         var me = new Uri(workerUrl, "/api/me");
         while (true)
         {
-            var reply = await SendAsync(new HttpRequestMessage(HttpMethod.Get, me), cancellationToken);
-            var ready = reply switch
+            var failure = await SendAsync(new HttpRequestMessage(HttpMethod.Get, me), cancellationToken) switch
             {
-                string body => LocalDevReady(body),
-                WorkerFailure failure => failure,
+                string body => LocalDevReady(body) switch
+                {
+                    Done => null,
+                    PreconditionFailed notLocal => notLocal.Message,
+                    InternalFailure malformed => malformed.Message,
+                },
+                Validation rejected => rejected.Message,
+                Unauthorized denied => denied.Message,
+                Unavailable unavailable => unavailable.Message,
             };
-            var settled = ready switch
+            if (failure is null)
             {
-                string => true,
-                WorkerFailure => timeProvider.GetUtcNow() >= deadline,
-            };
-            if (settled)
+                return new Done();
+            }
+
+            if (timeProvider.GetUtcNow() >= deadline)
             {
-                return ready;
+                return new RequestTimeout(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The local worker at {me} was not ready within {timeout.TotalSeconds:F0}s: {failure}"));
             }
 
             await Task.Delay(PollInterval, timeProvider, cancellationToken);
         }
     }
 
-    public async Task<WorkerReply> DevLoginAsync(Uri workerUrl, CancellationToken cancellationToken)
+    public async Task<Result<string, PreconditionFailed, Unavailable>> DevLoginAsync(Uri workerUrl, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(workerUrl, "/auth/dev-login"));
         try
@@ -52,7 +58,7 @@ internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timePro
             using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             if (response.StatusCode is not (HttpStatusCode.Found or HttpStatusCode.SeeOther))
             {
-                return new WorkerFailure($"GET /auth/dev-login returned {(int)response.StatusCode}; the worker must run with LOCAL_DEV=true on loopback.");
+                return new PreconditionFailed($"GET /auth/dev-login returned {(int)response.StatusCode}; the worker must run with LOCAL_DEV=true on loopback.");
             }
 
             var cookies = response.Headers.TryGetValues("Set-Cookie", out var values) ? values : [];
@@ -65,18 +71,18 @@ internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timePro
                 }
             }
 
-            return new WorkerFailure("GET /auth/dev-login did not set the ts_orch_session cookie.");
+            return new PreconditionFailed("GET /auth/dev-login did not set the ts_orch_session cookie.");
         }
         catch (HttpRequestException exception)
         {
-            return new WorkerFailure($"GET /auth/dev-login failed: {exception.Message}");
+            return new Unavailable($"GET /auth/dev-login failed: {exception.Message}");
         }
     }
 
-    public Task<WorkerReply> PostJsonAsync<T>(Uri url, T body, JsonTypeInfo<T> typeInfo, string? sessionCookie, CancellationToken cancellationToken) =>
+    public Task<Result<string, Validation, Unauthorized, Unavailable>> PostJsonAsync<T>(Uri url, T body, JsonTypeInfo<T> typeInfo, string? sessionCookie, CancellationToken cancellationToken) =>
         PostAsync(url, JsonSerializer.Serialize(body, typeInfo), sessionCookie, cancellationToken);
 
-    public Task<WorkerReply> PostAsync(Uri url, string json, string? sessionCookie, CancellationToken cancellationToken)
+    public Task<Result<string, Validation, Unauthorized, Unavailable>> PostAsync(Uri url, string json, string? sessionCookie, CancellationToken cancellationToken)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
@@ -90,27 +96,28 @@ internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timePro
         return SendAsync(request, cancellationToken);
     }
 
-    private static WorkerReply LocalDevReady(string body)
+    private static Result<Done, PreconditionFailed, InternalFailure> LocalDevReady(string body)
     {
         try
         {
             return JsonSerializer.Deserialize(body, AppHostJsonContext.Default.MeDocument) switch
             {
-                { LocalDev: true } => body,
-                { LocalDev: false } => new WorkerFailure("The worker answered /api/me without localDev; start wrangler with LOCAL_DEV=true on 127.0.0.1."),
-                null => new WorkerFailure("The worker answered /api/me with JSON null."),
+                { LocalDev: true } => new Done(),
+                { LocalDev: false } => new PreconditionFailed("The worker answered /api/me without localDev; start wrangler with LOCAL_DEV=true on 127.0.0.1."),
+                null => new InternalFailure("The worker answered /api/me with JSON null."),
             };
         }
         catch (JsonException exception)
         {
-            return new WorkerFailure($"The worker answered /api/me with malformed JSON: {exception.Message}");
+            return new InternalFailure($"The worker answered /api/me with malformed JSON: {exception.Message}");
         }
     }
 
-    private async Task<WorkerReply> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    private async Task<Result<string, Validation, Unauthorized, Unavailable>> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         using (request)
         {
+            var target = $"{request.Method.Method} {request.RequestUri?.AbsolutePath}";
             try
             {
                 using var response = await httpClient.SendAsync(request, cancellationToken);
@@ -120,15 +127,26 @@ internal sealed class LocalDevClient(HttpClient httpClient, TimeProvider timePro
                     return body;
                 }
 
-                return new WorkerFailure($"{request.Method.Method} {request.RequestUri?.AbsolutePath} returned {(int)response.StatusCode}: {body}");
+                var message = $"{target} returned {(int)response.StatusCode}: {body}";
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                {
+                    return new Unauthorized(message);
+                }
+
+                if (response.StatusCode is HttpStatusCode.TooManyRequests or >= HttpStatusCode.InternalServerError)
+                {
+                    return new Unavailable(message);
+                }
+
+                return new Validation(message);
             }
             catch (HttpRequestException exception)
             {
-                return new WorkerFailure($"{request.Method.Method} {request.RequestUri?.AbsolutePath} failed: {exception.Message}");
+                return new Unavailable($"{target} failed: {exception.Message}");
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                return new WorkerFailure($"{request.Method.Method} {request.RequestUri?.AbsolutePath} timed out.");
+                return new Unavailable($"{target} timed out.");
             }
         }
     }

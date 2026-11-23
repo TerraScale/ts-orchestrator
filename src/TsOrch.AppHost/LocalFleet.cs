@@ -1,7 +1,5 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
-using Aspire.Hosting;
-using Aspire.Hosting.ApplicationModel;
 
 namespace TsOrch.AppHost;
 
@@ -10,11 +8,12 @@ internal sealed record class LocalNode(int Index, string PoolKind, int HttpPort,
 internal static class LocalFleet
 {
     public const string EnrollSecret = "ts-orch-local-enroll";
-    public const string EnrollSecretName = "ts-orch-node-enroll-secret";
+    public const string EnrollSecretName = "ts-orch-node-enroll";
     public const string VaultId = "ocid1.vault.oc1.sa-saopaulo-1.localdev";
     public const string Region = "gru";
 
     private const string CliProject = "../TsOrch.Cli/TsOrch.Cli.csproj";
+    private const string AppHostAssemblyFile = "TsOrch.AppHost.dll";
 
     public static DistributedApplication Build(string[] args)
     {
@@ -46,7 +45,7 @@ internal static class LocalFleet
                 new("NODE_ENROLL_SECRET", EnrollSecret),
             ]);
 
-        var appHostAssembly = typeof(LocalFleet).Assembly.Location;
+        var appHostAssembly = Path.Combine(AppContext.BaseDirectory, AppHostAssemblyFile);
         var dotnetRoot = Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", ".."));
         var ociMock = builder.AddExecutable("oci-mock", "dotnet", localRoot, appHostAssembly)
             .WithArgs(

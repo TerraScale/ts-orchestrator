@@ -1,55 +1,11 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using TsOrch.Agent;
 using TsOrch.Oci;
 
 namespace TsOrch.Cli;
 
-internal sealed record class AgentSettings(
-    Uri BackplaneUrl,
-    string? StateDirectory,
-    string? RuntimeDirectory,
-    string? InstallDirectory,
-    string? DockerSocketPath,
-    string? DataVolumePath,
-    string? EnrollSecret,
-    string? EnrollSecretVault,
-    string? EnrollSecretName,
-    AgentIdentityOverrides Identity,
-    string? LabelPrefix,
-    bool? EnableCgroupParent,
-    TimeSpan? HeartbeatInterval)
-{
-    public void ApplyTo(AgentOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        options.BackplaneUrl = BackplaneUrl;
-        options.StateDirectory = StateDirectory ?? options.StateDirectory;
-        options.RuntimeDirectory = RuntimeDirectory ?? options.RuntimeDirectory;
-        options.InstallDirectory = InstallDirectory ?? options.InstallDirectory;
-        options.DockerSocketPath = DockerSocketPath ?? options.DockerSocketPath;
-        options.DataVolumePath = DataVolumePath ?? options.DataVolumePath;
-        options.EnrollSecret = EnrollSecret;
-        options.EnrollSecretVault = EnrollSecretVault;
-        options.EnrollSecretName = EnrollSecretName;
-        options.NodeIdOverride = Identity.NodeId;
-        options.RegionOverride = Identity.Region;
-        options.PoolKindOverride = Identity.PoolKind;
-        options.VcnIpOverride = Identity.VcnIp;
-        options.LabelPrefix = LabelPrefix ?? options.LabelPrefix;
-        options.EnableCgroupParent = EnableCgroupParent ?? options.EnableCgroupParent;
-        options.HeartbeatInterval = HeartbeatInterval ?? options.HeartbeatInterval;
-    }
-}
-
 internal static class AgentCommand
 {
-    public const string RegionVariable = "TS_ORCH_REGION";
-    public const string PoolKindVariable = "TS_ORCH_POOL_KIND";
-
-    private const string OciHttpClientName = "ts-orch-oci";
-    private static readonly TimeSpan OciTimeout = TimeSpan.FromSeconds(30);
-
     public static IReadOnlyList<CliOption> Options { get; } =
     [
         new("backplane-url", null, true),
@@ -70,115 +26,98 @@ internal static class AgentCommand
         new("oci-mock-url", null, true),
     ];
 
-    public static async Task<OrchResult<int>> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken)
+    public static async Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
+        arguments.ExpectPositionals(0, "ts-orch agent [options]") switch
+        {
+            Done => Configure(arguments) switch
+            {
+                AgentOptions options => options.Validate() switch
+                {
+                    AgentOptions validated => OciEnvironment.Resolve(arguments.Value("oci-mock-url")) switch
+                    {
+                        OciEnvironment ociEnvironment => await RunHostAsync(validated, ociEnvironment, environment, cancellationToken),
+                        Validation failure => environment.Fail(failure),
+                    },
+                    Validation failure => environment.Fail(failure),
+                },
+                Validation failure => environment.Fail(failure),
+            },
+            Validation failure => environment.Fail(failure),
+        };
+
+    private static async Task<int> RunHostAsync(AgentOptions options, OciEnvironment ociEnvironment, CommandEnvironment environment, CancellationToken cancellationToken)
     {
-        if (!arguments.ExpectPositionals(0, "ts-orch agent [options]").TryGetValue(out _, out var usageError))
-        {
-            return usageError;
-        }
-
-        if (!Configure(arguments).TryGetValue(out var settings, out var settingsError))
-        {
-            return settingsError;
-        }
-
-        var probe = new AgentOptions();
-        settings.ApplyTo(probe);
-        var validation = new AgentOptionsValidator().Validate(name: null, probe);
-        if (validation.Failed)
-        {
-            return new Validation(validation.FailureMessage);
-        }
-
-        if (!OciSetup.ResolveEnvironment(arguments.Value("oci-mock-url")).TryGetValue(out var ociEnvironment, out var ociError))
-        {
-            return ociError;
-        }
-
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [], ContentRootPath = AppContext.BaseDirectory });
-        var services = builder.Services;
-        services.AddSingleton(environment.TimeProvider);
-        services.AddSingleton(ociEnvironment);
-        services.AddHttpClient(OciHttpClientName, static client => client.Timeout = OciTimeout);
-        services.AddSingleton(provider => OciSetup.Create(OciHttpClient(provider), ociEnvironment, provider.GetRequiredService<TimeProvider>()));
-        services.AddSingleton<ISecretProvider>(provider => new OciSecretProvider(provider.GetRequiredService<OciClients>().Vault));
-        services.AddSingleton<IHostIdentityProvider>(provider => new OciHostIdentityProvider(
-            provider.GetRequiredService<OciClients>().Imds,
-            new OrchHttp(OciHttpClient(provider), provider.GetRequiredService<TimeProvider>()),
-            ociEnvironment,
-            settings.Identity));
-        services.AddTsOrchAgent(settings.ApplyTo);
-
+        builder.Services.AddTsOrchAgent(options, ociEnvironment, environment.TimeProvider);
         using var host = builder.Build();
         await host.RunAsync(cancellationToken);
         return Environment.ExitCode;
     }
 
-    private static HttpClient OciHttpClient(IServiceProvider provider) =>
-        provider.GetRequiredService<IHttpClientFactory>().CreateClient(OciHttpClientName);
+    private static Result<AgentOptions, Validation> Configure(CliArguments arguments) =>
+        OperatorSettings.ParseUrl(arguments.Setting("backplane-url", "TS_ORCH_BACKPLANE_URL") ?? OperatorSettings.DefaultUrl.AbsoluteUri) switch
+        {
+            Uri backplaneUrl => Configure(arguments, backplaneUrl),
+            Validation failure => failure,
+        };
 
-    private static OrchResult<AgentSettings> Configure(CliArguments arguments)
+    private static Result<AgentOptions, Validation> Configure(CliArguments arguments, Uri backplaneUrl)
     {
-        var backplaneText = arguments.Setting("backplane-url", "TS_ORCH_BACKPLANE_URL") ?? OperatorSettings.DefaultUrl.AbsoluteUri;
-        if (!OperatorSettings.ParseUrl(backplaneText).TryGetValue(out var backplaneUrl, out var backplaneError))
-        {
-            return backplaneError;
-        }
-
-        PoolKind? poolKind = null;
-        if (arguments.Setting("pool-kind", PoolKindVariable) is { } poolText)
-        {
-            if (!ParsePoolKind(poolText).TryGetValue(out var parsedPool, out var poolError))
+        List<Validation> failures = [];
+        var poolKind = arguments.Setting("pool-kind", "TS_ORCH_POOL_KIND") is { } poolText
+            ? ParsePoolKind(poolText) switch
             {
-                return poolError;
+                PoolKind parsed => parsed,
+                Validation failure => Reject<PoolKind?>(failures, failure),
             }
-
-            poolKind = parsedPool;
-        }
-
-        bool? cgroupParent = null;
-        if (arguments.Setting("cgroup-parent", "TS_ORCH_CGROUP_PARENT") is { } cgroupText)
-        {
-            if (!CliArguments.ParseBool("cgroup parent", cgroupText).TryGetValue(out var parsedCgroup, out var cgroupError))
+            : null;
+        var cgroupParent = arguments.Setting("cgroup-parent", "TS_ORCH_CGROUP_PARENT") is { } cgroupText
+            ? CliArguments.ParseBool("cgroup parent", cgroupText) switch
             {
-                return cgroupError;
+                bool parsed => parsed,
+                Validation failure => Reject<bool?>(failures, failure),
             }
-
-            cgroupParent = parsedCgroup;
-        }
-
-        TimeSpan? heartbeat = null;
-        if (arguments.Setting("heartbeat-seconds", "TS_ORCH_HEARTBEAT_SECONDS") is { } heartbeatText)
-        {
-            if (!CliArguments.ParseInt("heartbeat seconds", heartbeatText, 1, 3_600).TryGetValue(out var seconds, out var heartbeatError))
+            : null;
+        var heartbeatSeconds = arguments.Setting("heartbeat-seconds", "TS_ORCH_HEARTBEAT_SECONDS") is { } heartbeatText
+            ? CliArguments.ParseInt("heartbeat seconds", heartbeatText, 1, 3_600) switch
             {
-                return heartbeatError;
+                int parsed => parsed,
+                Validation failure => Reject<int?>(failures, failure),
             }
-
-            heartbeat = TimeSpan.FromSeconds(seconds);
+            : null;
+        if (failures is [var first, ..])
+        {
+            return first;
         }
 
-        return new AgentSettings(
-            backplaneUrl,
-            arguments.Setting("state-dir", "TS_ORCH_STATE_DIR"),
-            arguments.Setting("runtime-dir", "TS_ORCH_RUNTIME_DIR"),
-            arguments.Setting("install-dir", "TS_ORCH_INSTALL_DIR"),
-            arguments.Setting("docker-socket", "TS_ORCH_DOCKER_SOCKET"),
-            arguments.Setting("data-volume", "TS_ORCH_DATA_VOLUME"),
-            Environment.GetEnvironmentVariable("TS_ORCH_ENROLL_SECRET") is { Length: > 0 } secret ? secret : null,
-            arguments.Setting("enroll-secret-vault", "TS_ORCH_ENROLL_SECRET_VAULT"),
-            arguments.Setting("enroll-secret-name", "TS_ORCH_ENROLL_SECRET_NAME"),
-            new AgentIdentityOverrides(
-                arguments.Setting("node-id", "TS_ORCH_NODE_ID"),
-                arguments.Setting("region", RegionVariable),
-                poolKind,
-                arguments.Setting("vcn-ip", "TS_ORCH_VCN_IP")),
-            arguments.Setting("label-prefix", "TS_ORCH_LABEL_PREFIX"),
-            cgroupParent,
-            heartbeat);
+        var defaults = new AgentOptions { BackplaneUrl = backplaneUrl };
+        return defaults with
+        {
+            StateDirectory = arguments.Setting("state-dir", "TS_ORCH_STATE_DIR") ?? defaults.StateDirectory,
+            RuntimeDirectory = arguments.Setting("runtime-dir", "TS_ORCH_RUNTIME_DIR") ?? defaults.RuntimeDirectory,
+            InstallDirectory = arguments.Setting("install-dir", "TS_ORCH_INSTALL_DIR") ?? defaults.InstallDirectory,
+            DockerSocketPath = arguments.Setting("docker-socket", "TS_ORCH_DOCKER_SOCKET") ?? defaults.DockerSocketPath,
+            DataVolumePath = arguments.Setting("data-volume", "TS_ORCH_DATA_VOLUME") ?? defaults.DataVolumePath,
+            EnrollSecret = Environment.GetEnvironmentVariable("TS_ORCH_ENROLL_SECRET") is { Length: > 0 } secret ? secret : null,
+            EnrollSecretVault = arguments.Setting("enroll-secret-vault", "TS_ORCH_ENROLL_SECRET_VAULT"),
+            EnrollSecretName = arguments.Setting("enroll-secret-name", "TS_ORCH_ENROLL_SECRET_NAME"),
+            NodeIdOverride = arguments.Setting("node-id", "TS_ORCH_NODE_ID"),
+            RegionOverride = arguments.Setting("region", "TS_ORCH_REGION"),
+            PoolKindOverride = poolKind,
+            VcnIpOverride = arguments.Setting("vcn-ip", "TS_ORCH_VCN_IP"),
+            LabelPrefix = arguments.Setting("label-prefix", "TS_ORCH_LABEL_PREFIX") ?? defaults.LabelPrefix,
+            EnableCgroupParent = cgroupParent ?? defaults.EnableCgroupParent,
+            HeartbeatInterval = heartbeatSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : defaults.HeartbeatInterval,
+        };
     }
 
-    private static OrchResult<PoolKind> ParsePoolKind(string text) => text switch
+    private static T? Reject<T>(List<Validation> failures, Validation failure)
+    {
+        failures.Add(failure);
+        return default;
+    }
+
+    private static Result<PoolKind, Validation> ParsePoolKind(string text) => text switch
     {
         "stateful" => PoolKind.Stateful,
         "worker" => PoolKind.Worker,

@@ -1,18 +1,16 @@
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 
 namespace TsOrch.Agent;
 
-public sealed class ImageHistoryStore(IOptions<AgentOptions> options) : IDisposable
+public sealed class ImageHistoryStore(AgentOptions options) : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly string _path = options.Value.ImageStateFile;
     private ImageState? _state;
 
     public void Dispose() => _gate.Dispose();
 
-    public async Task<ImageState> SnapshotAsync(CancellationToken cancellationToken)
+    public async Task<Result<ImageState, InternalFailure>> SnapshotAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -25,10 +23,10 @@ public sealed class ImageHistoryStore(IOptions<AgentOptions> options) : IDisposa
         }
     }
 
-    public Task RecordPulledAsync(string image, CancellationToken cancellationToken) =>
+    public Task<Result<Done, InternalFailure>> RecordPulledAsync(string image, CancellationToken cancellationToken) =>
         UpdateAsync(state => state.Pulled.Contains(image, StringComparer.Ordinal) ? state : state with { Pulled = [.. state.Pulled, image] }, cancellationToken);
 
-    public Task RecordActiveAsync(string serviceName, string image, CancellationToken cancellationToken) =>
+    public Task<Result<Done, InternalFailure>> RecordActiveAsync(string serviceName, string image, CancellationToken cancellationToken) =>
         UpdateAsync(
             state =>
             {
@@ -46,23 +44,19 @@ public sealed class ImageHistoryStore(IOptions<AgentOptions> options) : IDisposa
             },
             cancellationToken);
 
-    public Task ForgetPulledAsync(string image, CancellationToken cancellationToken) =>
+    public Task<Result<Done, InternalFailure>> ForgetPulledAsync(string image, CancellationToken cancellationToken) =>
         UpdateAsync(state => state with { Pulled = [.. state.Pulled.Where(pulled => pulled != image)] }, cancellationToken);
 
-    private async Task UpdateAsync(Func<ImageState, ImageState> update, CancellationToken cancellationToken)
+    private async Task<Result<Done, InternalFailure>> UpdateAsync(Func<ImageState, ImageState> update, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var current = await LoadAsync(cancellationToken);
-            var next = update(current);
-            if (ReferenceEquals(next, current))
+            return await LoadAsync(cancellationToken) switch
             {
-                return;
-            }
-
-            await UnixFiles.WriteAtomicAsync(_path, JsonSerializer.SerializeToUtf8Bytes(next, AgentJsonContext.Default.ImageState), UnixFiles.WorldReadable, cancellationToken);
-            _state = next;
+                ImageState current => await SaveAsync(current, update(current), cancellationToken),
+                InternalFailure failure => failure,
+            };
         }
         finally
         {
@@ -70,62 +64,99 @@ public sealed class ImageHistoryStore(IOptions<AgentOptions> options) : IDisposa
         }
     }
 
-    private async Task<ImageState> LoadAsync(CancellationToken cancellationToken)
+    private async Task<Result<Done, InternalFailure>> SaveAsync(ImageState current, ImageState next, CancellationToken cancellationToken)
+    {
+        if (ReferenceEquals(next, current))
+        {
+            return new Done();
+        }
+
+        return await UnixFiles.WriteAtomicAsync(options.ImageStateFile, JsonSerializer.SerializeToUtf8Bytes(next, AgentJsonContext.Default.ImageState), UnixFiles.WorldReadable, cancellationToken) switch
+        {
+            Done done => Remember(next, done),
+            InternalFailure failure => failure,
+        };
+    }
+
+    private Done Remember(ImageState state, Done done)
+    {
+        _state = state;
+        return done;
+    }
+
+    private async Task<Result<ImageState, InternalFailure>> LoadAsync(CancellationToken cancellationToken)
     {
         if (_state is not null)
         {
             return _state;
         }
 
-        if (!File.Exists(_path))
+        if (!File.Exists(options.ImageStateFile))
         {
             _state = new ImageState(new Dictionary<string, ServiceImageHistory>(StringComparer.Ordinal), []);
             return _state;
         }
 
-        await using var stream = File.OpenRead(_path);
-        _state = await JsonSerializer.DeserializeAsync(stream, AgentJsonContext.Default.ImageState, cancellationToken)
-            ?? throw new InvalidDataException($"{_path} is empty.");
-        return _state;
+        try
+        {
+            await using var stream = File.OpenRead(options.ImageStateFile);
+            if (await JsonSerializer.DeserializeAsync(stream, AgentJsonContext.Default.ImageState, cancellationToken) is not { } loaded)
+            {
+                return new InternalFailure($"{options.ImageStateFile} is empty.");
+            }
+
+            _state = loaded;
+            return loaded;
+        }
+        catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return new InternalFailure($"Reading {options.ImageStateFile} failed: {exception.Message}");
+        }
     }
 }
 
 public sealed class ImageGarbageCollector(
     DockerEngineClient docker,
     ImageHistoryStore history,
-    IOptions<AgentOptions> options,
+    AgentOptions options,
     TimeProvider timeProvider,
     ILogger<ImageGarbageCollector> logger) : BackgroundService
 {
-    private readonly AgentOptions _options = options.Value;
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(_options.ImageGcInterval, timeProvider);
+        using var timer = new PeriodicTimer(options.ImageGcInterval, timeProvider);
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             await CollectAsync(stoppingToken);
         }
     }
 
-    public async Task<OrchResult<int>> CollectAsync(CancellationToken cancellationToken)
+    private async Task CollectAsync(CancellationToken cancellationToken)
     {
-        var state = await history.SnapshotAsync(cancellationToken);
-        var imagesResult = await docker.ListImagesAsync(cancellationToken);
-        if (!imagesResult.TryGetValue(out var images, out var listError))
+        var failure = await history.SnapshotAsync(cancellationToken) switch
         {
-            logger.ImageGcFailed(listError.Message);
-            return listError;
-        }
-
-        var usedResult = await docker.ListContainerImageIdsAsync(cancellationToken);
-        if (!usedResult.TryGetValue(out var usedImageIds, out var usedError))
+            ImageState state => await docker.ListImagesAsync(cancellationToken) switch
+            {
+                IReadOnlyList<DockerImage> images => await docker.ListContainerImageIdsAsync(cancellationToken) switch
+                {
+                    IReadOnlySet<string> usedImageIds => await RemoveUnusedAsync(state, images, usedImageIds, cancellationToken),
+                    Unavailable usedFailure => usedFailure.Message,
+                    InternalFailure usedFailure => usedFailure.Message,
+                },
+                Unavailable listFailure => listFailure.Message,
+                InternalFailure listFailure => listFailure.Message,
+            },
+            InternalFailure stateFailure => stateFailure.Message,
+        };
+        if (failure is not null)
         {
-            logger.ImageGcFailed(usedError.Message);
-            return usedError;
+            AgentLog.ImageGcFailed(logger, failure);
         }
+    }
 
-        HashSet<string> retained = new(StringComparer.Ordinal);
+    private async Task<string?> RemoveUnusedAsync(ImageState state, IReadOnlyList<DockerImage> images, IReadOnlySet<string> usedImageIds, CancellationToken cancellationToken)
+    {
+        HashSet<string> retained = [with(StringComparer.Ordinal)];
         foreach (var service in state.Services.Values)
         {
             retained.Add(service.Active);
@@ -135,11 +166,10 @@ public sealed class ImageGarbageCollector(
             }
         }
 
-        var cutoff = timeProvider.GetUtcNow() - _options.ImageRetention;
-        var removed = 0;
+        var cutoff = timeProvider.GetUtcNow() - options.ImageRetention;
         foreach (var image in images)
         {
-            var pulledReferences = state.Pulled.Where(reference => Matches(image, reference)).ToList();
+            List<string> pulledReferences = [.. state.Pulled.Where(reference => Matches(image, reference))];
             if (pulledReferences.Count == 0
                 || usedImageIds.Contains(image.Id)
                 || retained.Any(reference => Matches(image, reference))
@@ -148,25 +178,40 @@ public sealed class ImageGarbageCollector(
                 continue;
             }
 
-            var removal = await docker.RemoveImageAsync(image.Id, cancellationToken);
-            switch (removal)
+            var skipped = await docker.RemoveImageAsync(image.Id, cancellationToken) switch
             {
-                case Done:
-                    removed++;
-                    foreach (var reference in pulledReferences)
-                    {
-                        await history.ForgetPulledAsync(reference, cancellationToken);
-                    }
-
-                    logger.ImageRemoved(image.Id);
-                    break;
-                case OrchError error:
-                    logger.ImageRemovalSkipped(image.Id, error.Message);
-                    break;
+                Done => await ForgetAsync(image, pulledReferences, cancellationToken),
+                NotFound removeFailure => removeFailure.Message,
+                Conflict removeFailure => removeFailure.Message,
+                Unavailable removeFailure => removeFailure.Message,
+                InternalFailure removeFailure => removeFailure.Message,
+            };
+            if (skipped is not null)
+            {
+                AgentLog.ImageRemovalSkipped(logger, image.Id, skipped);
             }
         }
 
-        return removed;
+        return null;
+    }
+
+    private async Task<string?> ForgetAsync(DockerImage image, IReadOnlyList<string> pulledReferences, CancellationToken cancellationToken)
+    {
+        AgentLog.ImageRemoved(logger, image.Id);
+        foreach (var reference in pulledReferences)
+        {
+            var failure = await history.ForgetPulledAsync(reference, cancellationToken) switch
+            {
+                Done => null,
+                InternalFailure forgetFailure => forgetFailure.Message,
+            };
+            if (failure is not null)
+            {
+                AgentLog.ImageHistoryFailed(logger, failure);
+            }
+        }
+
+        return null;
     }
 
     private static bool Matches(DockerImage image, string reference)

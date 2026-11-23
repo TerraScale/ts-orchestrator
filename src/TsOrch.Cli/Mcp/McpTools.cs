@@ -33,40 +33,57 @@ internal sealed class McpTools(OrchApi api)
 
     public bool Exists(string name) => Definitions.Any(tool => tool.Name == name);
 
-    public async Task<McpToolCallResult> CallAsync(string name, JsonElement? arguments, CancellationToken cancellationToken)
-    {
-        var outcome = name switch
+    public async Task<McpToolCallResult> CallAsync(string name, JsonElement? arguments, CancellationToken cancellationToken) =>
+        name switch
         {
-            "status" => await api.GetTextAsync(Query.Build("/api/status", ("region", Text(arguments, "region"))), cancellationToken),
-            "logs" => await LogsAsync(arguments, cancellationToken),
-            "metrics" => await MetricsAsync(arguments, cancellationToken),
-            "events" => await EventsAsync(arguments, cancellationToken),
+            "status" => Render(await api.GetTextAsync(Query.Build("/api/status", ("region", Text(arguments, "region"))), cancellationToken)),
+            "logs" => Render(await LogsAsync(arguments, cancellationToken)),
+            "metrics" => Render(await MetricsAsync(arguments, cancellationToken)),
+            "events" => Render(await EventsAsync(arguments, cancellationToken)),
             "diff" => await DiffAsync(arguments, cancellationToken),
-            _ => new NotFound($"Unknown tool '{name}'."),
+            _ => Unknown(new NotFound($"Unknown tool '{name}'.")),
         };
-        return outcome switch
-        {
-            string text => new McpToolCallResult([new McpTextContent("text", text)], IsError: false),
-            OrchError error => new McpToolCallResult([new McpTextContent("text", $"{error.Code}: {error.Message}")], IsError: true),
-        };
-    }
 
-    private async Task<OrchResult<string>> LogsAsync(JsonElement? arguments, CancellationToken cancellationToken)
+    private static McpToolCallResult Unknown(NotFound failure) => Failure(failure.Code, failure.Message);
+
+    private static McpToolCallResult Render(Result<string, Validation, NotFound, Unauthorized, Forbidden, Unavailable> outcome) => outcome switch
+    {
+        string text => Success(text),
+        Validation failure => Failure(failure.Code, failure.Message),
+        NotFound failure => Failure(failure.Code, failure.Message),
+        Unauthorized failure => Failure(failure.Code, failure.Message),
+        Forbidden failure => Failure(failure.Code, failure.Message),
+        Unavailable failure => Failure(failure.Code, failure.Message),
+    };
+
+    private static McpToolCallResult Success(string text) => new([new McpTextContent("text", text)], IsError: false);
+
+    private static McpToolCallResult Failure(string code, string message) => new([new McpTextContent("text", $"{code}: {message}")], IsError: true);
+
+    private async Task<Result<string, Validation, NotFound, Unauthorized, Forbidden, Unavailable>> LogsAsync(JsonElement? arguments, CancellationToken cancellationToken)
     {
         if (Text(arguments, "service") is not { } service)
         {
             return new Validation("logs needs a 'service' argument.");
         }
 
-        if (!Integer(arguments, "tail", 100, 0, MaxLogLines).TryGetValue(out var tail, out var tailError))
+        return Integer(arguments, "tail", 100, 0, MaxLogLines) switch
         {
-            return tailError;
-        }
+            int tail => await CollectLogsAsync(service, Text(arguments, "node"), tail, cancellationToken),
+            Validation failure => failure,
+        };
+    }
 
+    private async Task<Result<string, Validation, NotFound, Unauthorized, Forbidden, Unavailable>> CollectLogsAsync(
+        string service,
+        string? node,
+        int tail,
+        CancellationToken cancellationToken)
+    {
         var lines = new StringBuilder();
         var count = 0;
-        var streamed = await api.StreamAsync(
-            LogsCommand.Path(service, Text(arguments, "node"), tail, follow: false),
+        return await api.StreamAsync(
+            LogsCommand.Path(service, node, tail, follow: false),
             CliJsonContext.Default.LogLine,
             (line, _) =>
             {
@@ -77,15 +94,18 @@ internal sealed class McpTools(OrchApi api)
 
                 return Task.CompletedTask;
             },
-            cancellationToken);
-        return streamed switch
+            cancellationToken) switch
         {
             Done => count == 0 ? $"No log lines returned for {service}." : lines.ToString(),
-            OrchError error => error,
+            Validation failure => failure,
+            NotFound failure => failure,
+            Unauthorized failure => failure,
+            Forbidden failure => failure,
+            Unavailable failure => failure,
         };
     }
 
-    private async Task<OrchResult<string>> MetricsAsync(JsonElement? arguments, CancellationToken cancellationToken)
+    private async Task<Result<string, Validation, NotFound, Unauthorized, Forbidden, Unavailable>> MetricsAsync(JsonElement? arguments, CancellationToken cancellationToken)
     {
         var window = Text(arguments, "window");
         if (window is not (null or "1h" or "48h"))
@@ -98,25 +118,24 @@ internal sealed class McpTools(OrchApi api)
             cancellationToken);
     }
 
-    private async Task<OrchResult<string>> EventsAsync(JsonElement? arguments, CancellationToken cancellationToken)
-    {
-        if (!Integer(arguments, "limit", 100, 1, 2_000).TryGetValue(out var limit, out var limitError))
+    private async Task<Result<string, Validation, NotFound, Unauthorized, Forbidden, Unavailable>> EventsAsync(JsonElement? arguments, CancellationToken cancellationToken) =>
+        Integer(arguments, "limit", 100, 1, 2_000) switch
         {
-            return limitError;
-        }
-
-        return await api.GetTextAsync(EventsCommand.Path(Text(arguments, "region"), limit, follow: false), cancellationToken);
-    }
-
-    private async Task<OrchResult<string>> DiffAsync(JsonElement? arguments, CancellationToken cancellationToken)
-    {
-        var diff = await DiffCommand.FetchAsync(api, Text(arguments, "path") ?? SpecFiles.DefaultServicesPath, cancellationToken);
-        return diff switch
-        {
-            IReadOnlyList<DiffItem> items => JsonSerializer.Serialize(new DiffResponse(items), CliJsonContext.Default.DiffResponse),
-            OrchError error => error,
+            int limit => await api.GetTextAsync(EventsCommand.Path(Text(arguments, "region"), limit, follow: false), cancellationToken),
+            Validation failure => failure,
         };
-    }
+
+    private async Task<McpToolCallResult> DiffAsync(JsonElement? arguments, CancellationToken cancellationToken) =>
+        await DiffCommand.FetchAsync(api, Text(arguments, "path") ?? SpecFiles.DefaultServicesPath, cancellationToken) switch
+        {
+            IReadOnlyList<DiffItem> items => Success(JsonSerializer.Serialize(new DiffResponse(items), CliJsonContext.Default.DiffResponse)),
+            Validation failure => Failure(failure.Code, failure.Message),
+            NotFound failure => Failure(failure.Code, failure.Message),
+            Conflict failure => Failure(failure.Code, failure.Message),
+            Unauthorized failure => Failure(failure.Code, failure.Message),
+            Forbidden failure => Failure(failure.Code, failure.Message),
+            Unavailable failure => Failure(failure.Code, failure.Message),
+        };
 
     private static string? Text(JsonElement? arguments, string name) =>
         arguments is { ValueKind: JsonValueKind.Object } values
@@ -126,7 +145,7 @@ internal sealed class McpTools(OrchApi api)
             ? text
             : null;
 
-    private static OrchResult<int> Integer(JsonElement? arguments, string name, int fallback, int min, int max)
+    private static Result<int, Validation> Integer(JsonElement? arguments, string name, int fallback, int min, int max)
     {
         if (arguments is not { ValueKind: JsonValueKind.Object } values || !values.TryGetProperty(name, out var value))
         {

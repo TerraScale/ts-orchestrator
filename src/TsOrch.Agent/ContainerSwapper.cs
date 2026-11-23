@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Net;
-using Microsoft.Extensions.Options;
 
 namespace TsOrch.Agent;
 
@@ -24,7 +23,7 @@ public sealed class ContainerSwapper(
     IHttpClientFactory httpClientFactory,
     RouteObserver routes,
     PlacementTracker tracker,
-    IOptions<AgentOptions> options,
+    AgentOptions options,
     TimeProvider timeProvider,
     ILogger<ContainerSwapper> logger)
 {
@@ -32,9 +31,9 @@ public sealed class ContainerSwapper(
     private const int StatefulPortOffset = 10_000;
     private static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(1);
 
-    private readonly AgentOptions _options = options.Value;
+    private int StopTimeoutSeconds => (int)Math.Ceiling(options.ContainerStopTimeout.TotalSeconds);
 
-    public async Task<OrchResult<ManagedContainer>> SwapAsync(
+    public async Task<Result<ManagedContainer, Validation, NotFound, Conflict, Unavailable, InternalFailure>> SwapAsync(
         PlacementPlan plan,
         IReadOnlyList<ManagedContainer> existing,
         Func<string, CancellationToken, Task> onImagePulled,
@@ -43,40 +42,93 @@ public sealed class ContainerSwapper(
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(existing);
         ArgumentNullException.ThrowIfNull(onImagePulled);
-        var service = plan.Service;
         foreach (var stale in existing.Where(static container => !container.Running))
         {
-            await docker.RemoveContainerAsync(stale.Id, force: true, cancellationToken);
+            await RemoveAsync(stale.Id, cancellationToken);
         }
 
-        var previous = existing.Where(static container => container.Running).ToList();
+        List<ManagedContainer> previous = [.. existing.Where(static container => container.Running)];
         await ReportAsync(plan, PlacementState.Pulling, null, null, cancellationToken);
-        var pulled = await docker.PullImageAsync(service.Image, null, cancellationToken);
-        if (pulled is OrchError pullError)
+        return await docker.PullImageAsync(plan.Service.Image, null, cancellationToken) switch
         {
-            return await FailAsync(plan, pullError, previous, restartPrevious: false, cancellationToken);
+            Done => await AfterPullAsync(plan, previous, onImagePulled, cancellationToken),
+            NotFound failure => await FailAsync(plan, failure, failure.Message, previous, restartPrevious: false, cancellationToken),
+            Unavailable failure => await FailAsync(plan, failure, failure.Message, previous, restartPrevious: false, cancellationToken),
+            InternalFailure failure => await FailAsync(plan, failure, failure.Message, previous, restartPrevious: false, cancellationToken),
+        };
+    }
+
+    public async Task RetireAsync(IReadOnlyList<ManagedContainer> containers, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(containers);
+        if (containers is not [var first, ..])
+        {
+            return;
         }
 
-        await onImagePulled(service.Image, cancellationToken);
-        var portsResult = BuildPorts(plan);
-        if (!portsResult.TryGetValue(out var ports, out var portsError))
+        var reference = containers.FirstOrDefault(static container => container.Running) ?? first;
+        foreach (var container in containers.Where(static container => container.Running))
         {
-            return await FailAsync(plan, portsError, previous, restartPrevious: false, cancellationToken);
+            await DrainAsync(container, cancellationToken);
         }
 
+        foreach (var container in containers)
+        {
+            await StopAndRemoveAsync(container.Id, cancellationToken);
+        }
+
+        await tracker.RetireAsync(
+            new PlacementReport(reference.PlacementId, reference.ServiceName, PlacementState.Stopped, reference.Image, reference.ConfigHash),
+            cancellationToken);
+    }
+
+    public async Task StopAndRemoveAsync(string containerId, CancellationToken cancellationToken)
+    {
+        await StopAsync(containerId, cancellationToken);
+        await RemoveAsync(containerId, cancellationToken);
+    }
+
+    public static int? HttpHostPort(ManagedContainer container, ServiceSpec service)
+    {
+        ArgumentNullException.ThrowIfNull(container);
+        ArgumentNullException.ThrowIfNull(service);
+        return container.Ports.FirstOrDefault(port => port.ContainerPort == service.Port && port.Protocol == PortProtocol.Tcp)?.HostPort;
+    }
+
+    private async Task<Result<ManagedContainer, Validation, NotFound, Conflict, Unavailable, InternalFailure>> AfterPullAsync(
+        PlacementPlan plan,
+        IReadOnlyList<ManagedContainer> previous,
+        Func<string, CancellationToken, Task> onImagePulled,
+        CancellationToken cancellationToken)
+    {
+        await onImagePulled(plan.Service.Image, cancellationToken);
+        return BuildPorts(plan) switch
+        {
+            IReadOnlyList<PortMapping> ports => await CreateAsync(plan, previous, ports, cancellationToken),
+            Validation failure => await FailAsync(plan, failure, failure.Message, previous, restartPrevious: false, cancellationToken),
+        };
+    }
+
+    private async Task<Result<ManagedContainer, Validation, NotFound, Conflict, Unavailable, InternalFailure>> CreateAsync(
+        PlacementPlan plan,
+        IReadOnlyList<ManagedContainer> previous,
+        IReadOnlyList<PortMapping> ports,
+        CancellationToken cancellationToken)
+    {
         if (plan.RequiresStopStart)
         {
             foreach (var old in previous)
             {
                 await DrainAsync(old, cancellationToken);
-                await docker.StopContainerAsync(old.Id, StopTimeoutSeconds, cancellationToken);
+                await StopAsync(old.Id, cancellationToken);
             }
         }
 
+        var service = plan.Service;
         var spec = new DockerContainerSpec(
             ContainerName(plan),
             service.Image,
-            _options.LabelPrefix,
+            options.LabelPrefix,
             plan.PlacementId,
             service.Name,
             plan.ConfigHash,
@@ -84,37 +136,58 @@ public sealed class ContainerSwapper(
             plan.Mounts,
             service.Args,
             ports,
-            ContainerResources.For(service, _options.EnableCgroupParent));
-        var createdResult = await docker.CreateContainerAsync(spec, cancellationToken);
-        if (!createdResult.TryGetValue(out var containerId, out var createError))
+            ContainerResources.For(service, options.EnableCgroupParent));
+        return await docker.CreateContainerAsync(spec, cancellationToken) switch
         {
-            return await FailAsync(plan, createError, previous, plan.RequiresStopStart, cancellationToken);
-        }
+            string containerId => await StartAsync(plan, previous, spec, containerId, cancellationToken),
+            NotFound failure => await FailAsync(plan, failure, failure.Message, previous, plan.RequiresStopStart, cancellationToken),
+            Conflict failure => await FailAsync(plan, failure, failure.Message, previous, plan.RequiresStopStart, cancellationToken),
+            Unavailable failure => await FailAsync(plan, failure, failure.Message, previous, plan.RequiresStopStart, cancellationToken),
+            InternalFailure failure => await FailAsync(plan, failure, failure.Message, previous, plan.RequiresStopStart, cancellationToken),
+        };
+    }
 
+    private async Task<Result<ManagedContainer, Validation, NotFound, Conflict, Unavailable, InternalFailure>> StartAsync(
+        PlacementPlan plan,
+        IReadOnlyList<ManagedContainer> previous,
+        DockerContainerSpec spec,
+        string containerId,
+        CancellationToken cancellationToken)
+    {
         await ReportAsync(plan, PlacementState.Starting, null, null, cancellationToken);
-        var started = await docker.StartContainerAsync(containerId, cancellationToken);
-        if (started is OrchError startError)
+        return await docker.StartContainerAsync(containerId, cancellationToken) switch
         {
-            await docker.RemoveContainerAsync(containerId, force: true, cancellationToken);
-            return await FailAsync(plan, startError, previous, plan.RequiresStopStart, cancellationToken);
-        }
+            Done => await WaitReadyAsync(containerId, plan.Service, cancellationToken) switch
+            {
+                int hostPort => await PromoteAsync(plan, previous, spec, containerId, hostPort, cancellationToken),
+                NotFound failure => await AbandonAsync(plan, failure, failure.Message, previous, containerId, cancellationToken),
+                Unavailable failure => await AbandonAsync(plan, failure, failure.Message, previous, containerId, cancellationToken),
+                InternalFailure failure => await AbandonAsync(plan, failure, failure.Message, previous, containerId, cancellationToken),
+            },
+            NotFound failure => await AbandonAsync(plan, failure, failure.Message, previous, containerId, cancellationToken),
+            Unavailable failure => await AbandonAsync(plan, failure, failure.Message, previous, containerId, cancellationToken),
+            InternalFailure failure => await AbandonAsync(plan, failure, failure.Message, previous, containerId, cancellationToken),
+        };
+    }
 
-        var readyResult = await WaitReadyAsync(containerId, service, cancellationToken);
-        if (!readyResult.TryGetValue(out var hostPort, out var readyError))
-        {
-            await docker.RemoveContainerAsync(containerId, force: true, cancellationToken);
-            return await FailAsync(plan, readyError, previous, plan.RequiresStopStart, cancellationToken);
-        }
-
+    private async Task<ManagedContainer> PromoteAsync(
+        PlacementPlan plan,
+        IReadOnlyList<ManagedContainer> previous,
+        DockerContainerSpec spec,
+        string containerId,
+        int hostPort,
+        CancellationToken cancellationToken)
+    {
+        var service = plan.Service;
         int? reportedPort = hostPort > 0 ? hostPort : null;
         await ReportAsync(plan, PlacementState.Ready, reportedPort, null, cancellationToken);
-        logger.PlacementReady(plan.PlacementId, service.Image, plan.ConfigHash, reportedPort);
+        AgentLog.PlacementReady(logger, plan.PlacementId, service.Image, plan.ConfigHash, reportedPort);
         if (!plan.RequiresStopStart && previous.Count > 0 && reportedPort is { } port && service.Hostnames.Count > 0)
         {
-            var switched = await routes.WaitUntilAsync(snapshot => RouteObserver.IsRoutedTo(snapshot, plan.PlacementId, port), _options.RouteSwitchTimeout, cancellationToken);
+            var switched = await routes.WaitUntilAsync(snapshot => RouteObserver.IsRoutedTo(snapshot, plan.PlacementId, port), options.RouteSwitchTimeout, cancellationToken);
             if (!switched)
             {
-                logger.RouteSwitchTimedOut(plan.PlacementId, port);
+                AgentLog.RouteSwitchTimedOut(logger, plan.PlacementId, port);
             }
         }
 
@@ -122,10 +195,10 @@ public sealed class ContainerSwapper(
         {
             if (!plan.RequiresStopStart)
             {
-                await docker.StopContainerAsync(old.Id, StopTimeoutSeconds, cancellationToken);
+                await StopAsync(old.Id, cancellationToken);
             }
 
-            await docker.RemoveContainerAsync(old.Id, force: true, cancellationToken);
+            await RemoveAsync(old.Id, cancellationToken);
         }
 
         return new ManagedContainer(
@@ -140,39 +213,42 @@ public sealed class ContainerSwapper(
             reportedPort is { } published ? [new PublishedPort("0.0.0.0", published, service.Port, PortProtocol.Tcp)] : []);
     }
 
-    public async Task RetireAsync(IReadOnlyList<ManagedContainer> containers, CancellationToken cancellationToken)
+    private async Task<TFailure> AbandonAsync<TFailure>(
+        PlacementPlan plan,
+        TFailure failure,
+        string message,
+        IReadOnlyList<ManagedContainer> previous,
+        string containerId,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(containers);
-        if (containers.Count == 0)
-        {
-            return;
-        }
-
-        var reference = containers.FirstOrDefault(static container => container.Running) ?? containers[0];
-        foreach (var container in containers.Where(static container => container.Running))
-        {
-            await DrainAsync(container, cancellationToken);
-        }
-
-        foreach (var container in containers)
-        {
-            await docker.StopContainerAsync(container.Id, StopTimeoutSeconds, cancellationToken);
-            await docker.RemoveContainerAsync(container.Id, force: true, cancellationToken);
-        }
-
-        await tracker.RetireAsync(
-            new PlacementReport(reference.PlacementId, reference.ServiceName, PlacementState.Stopped, reference.Image, reference.ConfigHash),
-            cancellationToken);
+        await RemoveAsync(containerId, cancellationToken);
+        return await FailAsync(plan, failure, message, previous, plan.RequiresStopStart, cancellationToken);
     }
 
-    public static int? HttpHostPort(ManagedContainer container, ServiceSpec service)
+    private async Task<TFailure> FailAsync<TFailure>(
+        PlacementPlan plan,
+        TFailure failure,
+        string message,
+        IReadOnlyList<ManagedContainer> previous,
+        bool restartPrevious,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(container);
-        ArgumentNullException.ThrowIfNull(service);
-        return container.Ports.FirstOrDefault(port => port.ContainerPort == service.Port && port.Protocol == PortProtocol.Tcp)?.HostPort;
-    }
+        AgentLog.PlacementFailed(logger, plan.PlacementId, plan.Service.Image, message);
+        await ReportAsync(plan, PlacementState.Failed, null, message, cancellationToken);
+        foreach (var old in previous)
+        {
+            if (restartPrevious)
+            {
+                await RestartAsync(old.Id, cancellationToken);
+            }
 
-    private int StopTimeoutSeconds => (int)Math.Ceiling(_options.ContainerStopTimeout.TotalSeconds);
+            await tracker.ReportAsync(
+                new PlacementReport(old.PlacementId, old.ServiceName, PlacementState.Ready, old.Image, old.ConfigHash, HttpHostPort(old, plan.Service)),
+                cancellationToken);
+        }
+
+        return failure;
+    }
 
     private async Task DrainAsync(ManagedContainer container, CancellationToken cancellationToken)
     {
@@ -181,68 +257,93 @@ public sealed class ContainerSwapper(
             cancellationToken);
         if (routes.Current is { } current && RouteObserver.IsRouted(current, container.PlacementId))
         {
-            var drained = await routes.WaitUntilAsync(snapshot => !RouteObserver.IsRouted(snapshot, container.PlacementId), _options.RouteSwitchTimeout, cancellationToken);
+            var drained = await routes.WaitUntilAsync(snapshot => !RouteObserver.IsRouted(snapshot, container.PlacementId), options.RouteSwitchTimeout, cancellationToken);
             if (!drained)
             {
-                logger.RouteDrainTimedOut(container.PlacementId);
+                AgentLog.RouteDrainTimedOut(logger, container.PlacementId);
             }
         }
     }
 
-    private async Task<OrchResult<ManagedContainer>> FailAsync(
-        PlacementPlan plan,
-        OrchError error,
-        IReadOnlyList<ManagedContainer> previous,
-        bool restartPrevious,
-        CancellationToken cancellationToken)
+    private async Task StopAsync(string containerId, CancellationToken cancellationToken)
     {
-        logger.PlacementFailed(plan.PlacementId, plan.Service.Image, error.Message);
-        await ReportAsync(plan, PlacementState.Failed, null, error.Message, cancellationToken);
-        foreach (var old in previous)
+        var failure = await docker.StopContainerAsync(containerId, StopTimeoutSeconds, cancellationToken) switch
         {
-            if (restartPrevious)
-            {
-                await docker.StartContainerAsync(old.Id, cancellationToken);
-            }
+            Done => null,
+            Unavailable stopFailure => stopFailure.Message,
+            InternalFailure stopFailure => stopFailure.Message,
+        };
+        LogCleanupFailure(containerId, failure);
+    }
 
-            await tracker.ReportAsync(
-                new PlacementReport(old.PlacementId, old.ServiceName, PlacementState.Ready, old.Image, old.ConfigHash, HttpHostPort(old, plan.Service)),
-                cancellationToken);
+    private async Task RemoveAsync(string containerId, CancellationToken cancellationToken)
+    {
+        var failure = await docker.RemoveContainerAsync(containerId, force: true, cancellationToken) switch
+        {
+            Done => null,
+            Conflict removeFailure => removeFailure.Message,
+            Unavailable removeFailure => removeFailure.Message,
+            InternalFailure removeFailure => removeFailure.Message,
+        };
+        LogCleanupFailure(containerId, failure);
+    }
+
+    private async Task RestartAsync(string containerId, CancellationToken cancellationToken)
+    {
+        var failure = await docker.StartContainerAsync(containerId, cancellationToken) switch
+        {
+            Done => null,
+            NotFound startFailure => startFailure.Message,
+            Unavailable startFailure => startFailure.Message,
+            InternalFailure startFailure => startFailure.Message,
+        };
+        LogCleanupFailure(containerId, failure);
+    }
+
+    private void LogCleanupFailure(string containerId, string? failure)
+    {
+        if (failure is not null)
+        {
+            AgentLog.ContainerCleanupFailed(logger, containerId, failure);
         }
-
-        return error;
     }
 
     private ValueTask ReportAsync(PlacementPlan plan, PlacementState state, int? hostPort, string? error, CancellationToken cancellationToken) =>
         tracker.ReportAsync(new PlacementReport(plan.PlacementId, plan.Service.Name, state, plan.Service.Image, plan.ConfigHash, hostPort, error), cancellationToken);
 
     private string ContainerName(PlacementPlan plan) =>
-        $"{_options.LabelPrefix}-{plan.PlacementId}-{plan.ConfigHash[..12]}";
+        $"{options.LabelPrefix}-{plan.PlacementId}-{plan.ConfigHash[..12]}";
 
-    private static OrchResult<IReadOnlyList<PortMapping>> BuildPorts(PlacementPlan plan)
+    private static Result<IReadOnlyList<PortMapping>, Validation> BuildPorts(PlacementPlan plan)
     {
         var service = plan.Service;
-        List<PortMapping> ports = [];
+        List<int> tcpPorts = [];
         if (service.Port > 0)
         {
-            var mapped = MapTcp(plan, service.Port);
-            if (!mapped.TryGetValue(out var mapping, out var error))
-            {
-                return error;
-            }
-
-            ports.Add(mapping);
+            tcpPorts.Add(service.Port);
         }
 
         if (service.Postgres is { } postgres)
         {
-            var mapped = MapTcp(plan, postgres.Port);
-            if (!mapped.TryGetValue(out var mapping, out var error))
+            tcpPorts.Add(postgres.Port);
+        }
+
+        List<PortMapping> ports = [];
+        foreach (var containerPort in tcpPorts)
+        {
+            if (!plan.RequiresStopStart)
             {
-                return error;
+                ports.Add(new PortMapping("0.0.0.0", null, containerPort, PortProtocol.Tcp));
+                continue;
             }
 
-            ports.Add(mapping);
+            var hostPort = StatefulPortOffset + containerPort + plan.Desired.Slot;
+            if (hostPort is <= 0 or > IPEndPoint.MaxPort)
+            {
+                return new Validation(string.Create(CultureInfo.InvariantCulture, $"Slot port {hostPort} for {plan.PlacementId} is outside the TCP port range."));
+            }
+
+            ports.Add(new PortMapping("0.0.0.0", hostPort, containerPort, PortProtocol.Tcp));
         }
 
         foreach (var udpPort in service.UdpPorts)
@@ -253,55 +354,48 @@ public sealed class ContainerSwapper(
         return ports;
     }
 
-    private static OrchResult<PortMapping> MapTcp(PlacementPlan plan, int containerPort)
-    {
-        if (!plan.RequiresStopStart)
-        {
-            return new PortMapping("0.0.0.0", null, containerPort, PortProtocol.Tcp);
-        }
-
-        var hostPort = StatefulPortOffset + containerPort + plan.Desired.Slot;
-        return hostPort is > 0 and <= IPEndPoint.MaxPort
-            ? new PortMapping("0.0.0.0", hostPort, containerPort, PortProtocol.Tcp)
-            : new Validation(string.Create(CultureInfo.InvariantCulture, $"Slot port {hostPort} for {plan.PlacementId} is outside the TCP port range."));
-    }
-
-    private async Task<OrchResult<int>> WaitReadyAsync(string containerId, ServiceSpec service, CancellationToken cancellationToken)
+    private async Task<Result<int, NotFound, Unavailable, InternalFailure>> WaitReadyAsync(string containerId, ServiceSpec service, CancellationToken cancellationToken)
     {
         var deadline = timeProvider.GetUtcNow() + TimeSpan.FromSeconds(Math.Max(1, service.ReadyTimeoutSeconds));
         var readyPath = string.IsNullOrEmpty(service.ReadyPath) ? "/" : service.ReadyPath;
         using var client = httpClientFactory.CreateClient(ProbeClientName);
-        while (true)
+        return await PollReadyAsync(new ReadyProbe(containerId, service, readyPath, deadline, client), cancellationToken);
+    }
+
+    private async Task<Result<int, NotFound, Unavailable, InternalFailure>> PollReadyAsync(ReadyProbe probe, CancellationToken cancellationToken) =>
+        await docker.InspectContainerAsync(probe.ContainerId, cancellationToken) switch
         {
-            var inspected = await docker.InspectContainerAsync(containerId, cancellationToken);
-            if (!inspected.TryGetValue(out var state, out var inspectError))
-            {
-                return inspectError;
-            }
+            ContainerState state => await CheckReadyAsync(probe, state, cancellationToken),
+            NotFound failure => failure,
+            Unavailable failure => failure,
+            InternalFailure failure => failure,
+        };
 
-            if (!state.Running)
-            {
-                return new Unavailable(string.Create(CultureInfo.InvariantCulture, $"Container exited with code {state.ExitCode}{(state.OomKilled ? " (OOM killed)" : string.Empty)} before becoming ready."));
-            }
-
-            if (service.Port <= 0)
-            {
-                return 0;
-            }
-
-            var hostPort = state.Ports.FirstOrDefault(port => port.ContainerPort == service.Port && port.Protocol == PortProtocol.Tcp)?.HostPort;
-            if (hostPort is { } port && await ProbeAsync(client, port, readyPath, cancellationToken))
-            {
-                return port;
-            }
-
-            if (timeProvider.GetUtcNow() >= deadline)
-            {
-                return new Unavailable(string.Create(CultureInfo.InvariantCulture, $"{readyPath} did not return 200 within {service.ReadyTimeoutSeconds} s."));
-            }
-
-            await Task.Delay(ProbeInterval, timeProvider, cancellationToken);
+    private async Task<Result<int, NotFound, Unavailable, InternalFailure>> CheckReadyAsync(ReadyProbe probe, ContainerState state, CancellationToken cancellationToken)
+    {
+        if (!state.Running)
+        {
+            return new Unavailable(string.Create(CultureInfo.InvariantCulture, $"Container exited with code {state.ExitCode}{(state.OomKilled ? " (OOM killed)" : string.Empty)} before becoming ready."));
         }
+
+        if (probe.Service.Port <= 0)
+        {
+            return 0;
+        }
+
+        var hostPort = state.Ports.FirstOrDefault(port => port.ContainerPort == probe.Service.Port && port.Protocol == PortProtocol.Tcp)?.HostPort;
+        if (hostPort is { } port && await ProbeAsync(probe.Client, port, probe.ReadyPath, cancellationToken))
+        {
+            return port;
+        }
+
+        if (timeProvider.GetUtcNow() >= probe.Deadline)
+        {
+            return new Unavailable(string.Create(CultureInfo.InvariantCulture, $"{probe.ReadyPath} did not return 200 within {probe.Service.ReadyTimeoutSeconds} s."));
+        }
+
+        await Task.Delay(ProbeInterval, timeProvider, cancellationToken);
+        return await PollReadyAsync(probe, cancellationToken);
     }
 
     private static async Task<bool> ProbeAsync(HttpClient client, int hostPort, string readyPath, CancellationToken cancellationToken)
@@ -321,4 +415,6 @@ public sealed class ContainerSwapper(
             return false;
         }
     }
+
+    private sealed record class ReadyProbe(string ContainerId, ServiceSpec Service, string ReadyPath, DateTimeOffset Deadline, HttpClient Client);
 }

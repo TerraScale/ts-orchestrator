@@ -8,9 +8,14 @@
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
     <InvariantGlobalization>true</InvariantGlobalization>
     <Deterministic>true</Deterministic>
     <Features>$(Features);runtime-async=on</Features>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <SelfContained>false</SelfContained>
     <PublishAot>false</PublishAot>
     <IsPackable>false</IsPackable>

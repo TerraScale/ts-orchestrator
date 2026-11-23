@@ -1,5 +1,4 @@
-using Aspire.Hosting;
-using Aspire.Hosting.ApplicationModel;
+using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
 
@@ -52,13 +51,18 @@ internal static class LocalChaosCommandExtensions
     {
         using var httpClient = LocalDevClient.CreateHttpClient();
         var client = new LocalDevClient(httpClient, TimeProvider.System);
-        var bumped = command.BumpsSecret
-            ? await client.PostAsync(new Uri(targets.OciMockUrl, $"/_mock/secrets/{Uri.EscapeDataString(targets.RotatedSecret)}/bump"), "{}", null, cancellationToken)
-            : "skipped";
+        if (!command.BumpsSecret)
+        {
+            return await SendChaosAsync(client, command, targets, cancellationToken);
+        }
+
+        var bumped = await client.PostAsync(new Uri(targets.OciMockUrl, $"/_mock/secrets/{Uri.EscapeDataString(targets.RotatedSecret)}/bump"), "{}", null, cancellationToken);
         return bumped switch
         {
             string => await SendChaosAsync(client, command, targets, cancellationToken),
-            WorkerFailure failure => CommandResults.Failure(failure.Message),
+            Validation rejected => CommandResults.Failure(rejected.Message),
+            Unauthorized denied => CommandResults.Failure(denied.Message),
+            Unavailable unavailable => CommandResults.Failure(unavailable.Message),
         };
     }
 
@@ -68,7 +72,8 @@ internal static class LocalChaosCommandExtensions
         return login switch
         {
             string cookie => await PostChaosAsync(client, command.Request(targets), targets.WorkerUrl, cookie, cancellationToken),
-            WorkerFailure failure => CommandResults.Failure(failure.Message),
+            PreconditionFailed notLocal => CommandResults.Failure(notLocal.Message),
+            Unavailable unavailable => CommandResults.Failure(unavailable.Message),
         };
     }
 
@@ -83,7 +88,9 @@ internal static class LocalChaosCommandExtensions
         return reply switch
         {
             string body => CommandResults.Success(body),
-            WorkerFailure failure => CommandResults.Failure(failure.Message),
+            Validation rejected => CommandResults.Failure(rejected.Message),
+            Unauthorized denied => CommandResults.Failure(denied.Message),
+            Unavailable unavailable => CommandResults.Failure(unavailable.Message),
         };
     }
 }

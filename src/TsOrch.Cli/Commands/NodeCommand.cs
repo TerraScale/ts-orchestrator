@@ -8,23 +8,28 @@ internal static class NodeCommand
 
     public static IReadOnlyList<CliOption> Options { get; } = [];
 
-    public static Task<OrchResult<int>> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
+    public static Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.Positionals switch
         {
             ["ls"] => ListAsync(environment, cancellationToken),
             [var action and ("drain" or "activate"), var nodeId] => ChangeStateAsync(nodeId, action, environment, cancellationToken),
             ["reboot", var nodeId] => RebootAsync(nodeId, environment, cancellationToken),
-            _ => Task.FromResult<OrchResult<int>>(new Validation($"usage: {UsageText}")),
+            _ => Task.FromResult(environment.Fail(new Validation($"usage: {UsageText}"))),
         };
 
-    private static async Task<OrchResult<int>> ListAsync(CommandEnvironment environment, CancellationToken cancellationToken)
-    {
-        var listed = await environment.Api.GetAsync("/api/nodes", CliJsonContext.Default.NodeListResponse, cancellationToken);
-        if (!listed.TryGetValue(out var response, out var error))
+    private static async Task<int> ListAsync(CommandEnvironment environment, CancellationToken cancellationToken) =>
+        await environment.Api.GetAsync("/api/nodes", CliJsonContext.Default.NodeListResponse, cancellationToken) switch
         {
-            return error;
-        }
+            NodeListResponse response => Render(response, environment),
+            Validation failure => environment.Fail(failure),
+            NotFound failure => environment.Fail(failure),
+            Unauthorized failure => environment.Fail(failure),
+            Forbidden failure => environment.Fail(failure),
+            Unavailable failure => environment.Fail(failure),
+        };
 
+    private static int Render(NodeListResponse response, CommandEnvironment environment)
+    {
         var table = new TextTable("NODE", "REGION", "POOL", "STATUS", "DRAIN", "VCN IP", "ARCH", "SHAPE", "FAULT DOMAIN", "CPU", "MEM GiB", "LAST SEEN");
         foreach (var node in response.Nodes.OrderBy(static node => node.Region, StringComparer.Ordinal).ThenBy(static node => node.Id, StringComparer.Ordinal))
         {
@@ -47,27 +52,39 @@ internal static class NodeCommand
         return ExitCodes.Ok;
     }
 
-    private static async Task<OrchResult<int>> ChangeStateAsync(string nodeId, string action, CommandEnvironment environment, CancellationToken cancellationToken)
-    {
-        var changed = await environment.Api.PostEmptyAsync($"/api/nodes/{Uri.EscapeDataString(nodeId)}/{action}", CliJsonContext.Default.NodeInfo, cancellationToken);
-        if (!changed.TryGetValue(out var node, out var error))
+    private static async Task<int> ChangeStateAsync(string nodeId, string action, CommandEnvironment environment, CancellationToken cancellationToken) =>
+        await environment.Api.PostEmptyAsync($"/api/nodes/{Uri.EscapeDataString(nodeId)}/{action}", CliJsonContext.Default.NodeInfo, cancellationToken) switch
         {
-            return error;
-        }
+            NodeInfo node => Changed(node, environment.Out),
+            Validation failure => environment.Fail(failure),
+            NotFound failure => environment.Fail(failure),
+            Conflict failure => environment.Fail(failure),
+            Unauthorized failure => environment.Fail(failure),
+            Forbidden failure => environment.Fail(failure),
+            Unavailable failure => environment.Fail(failure),
+        };
 
-        environment.Out.WriteLine($"Node {node.Id}: {node.Status.WireName}{(node.DrainRequested ? ", drain requested" : string.Empty)}");
+    private static int Changed(NodeInfo node, TextWriter output)
+    {
+        output.WriteLine($"Node {node.Id}: {node.Status.WireName}{(node.DrainRequested ? ", drain requested" : string.Empty)}");
         return ExitCodes.Ok;
     }
 
-    private static async Task<OrchResult<int>> RebootAsync(string nodeId, CommandEnvironment environment, CancellationToken cancellationToken)
-    {
-        var rebooted = await environment.Api.PostEmptyAsync($"/api/nodes/{Uri.EscapeDataString(nodeId)}/reboot", CliJsonContext.Default.RebootResponse, cancellationToken);
-        if (!rebooted.TryGetValue(out var response, out var error))
+    private static async Task<int> RebootAsync(string nodeId, CommandEnvironment environment, CancellationToken cancellationToken) =>
+        await environment.Api.PostEmptyAsync($"/api/nodes/{Uri.EscapeDataString(nodeId)}/reboot", CliJsonContext.Default.RebootResponse, cancellationToken) switch
         {
-            return error;
-        }
+            RebootResponse response => Rebooted(response, environment.Out),
+            Validation failure => environment.Fail(failure),
+            NotFound failure => environment.Fail(failure),
+            Conflict failure => environment.Fail(failure),
+            Unauthorized failure => environment.Fail(failure),
+            Forbidden failure => environment.Fail(failure),
+            Unavailable failure => environment.Fail(failure),
+        };
 
-        environment.Out.WriteLine($"Node {response.NodeId}: {response.Action} requested for instance {response.InstanceId}");
+    private static int Rebooted(RebootResponse response, TextWriter output)
+    {
+        output.WriteLine($"Node {response.NodeId}: {response.Action} requested for instance {response.InstanceId}");
         return ExitCodes.Ok;
     }
 }

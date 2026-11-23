@@ -43,10 +43,6 @@ internal sealed record class SecretsRefreshResponse(string Service, IReadOnlyLis
 
 internal sealed record class LogLine(string NodeId, string PlacementId, LogChannel Stream, string Line);
 
-internal sealed record class ImdsNodeMetadata(
-    [property: JsonPropertyName("ts_region")] string? Region = null,
-    [property: JsonPropertyName("ts_pool")] PoolKind? Pool = null);
-
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -70,7 +66,6 @@ internal sealed record class ImdsNodeMetadata(
 [JsonSerializable(typeof(SecretsRefreshRequest))]
 [JsonSerializable(typeof(SecretsRefreshResponse))]
 [JsonSerializable(typeof(LogLine))]
-[JsonSerializable(typeof(ImdsNodeMetadata))]
 [JsonSerializable(typeof(HealthState))]
 [JsonSerializable(typeof(PoolKind))]
 [JsonSerializable(typeof(CpuArch))]

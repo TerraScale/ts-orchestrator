@@ -31,33 +31,22 @@ internal static class CliApp
             return ExitCodes.Usage;
         }
 
-        var parsed = CliArguments.Parse([.. args.Skip(1)], command.Options);
-        if (!parsed.TryGetValue(out var arguments, out var parseError))
-        {
-            return Report(console, command, parseError);
-        }
-
-        if (arguments.HelpRequested)
-        {
-            console.Out.Write(CliCommands.Help(command));
-            return ExitCodes.Ok;
-        }
-
         using var httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"ts-orch/{Version.Split('+')[0]}");
         var http = new OrchHttp(httpClient, timeProvider);
         var api = new OrchApi(http, new OperatorAuth(http, console, timeProvider, command.InteractiveSigning));
-        var outcome = await command.RunAsync(arguments, new CommandEnvironment(console, timeProvider, http, api), cancellationToken);
-        return outcome switch
+        var environment = new CommandEnvironment(command.Name, console, timeProvider, http, api);
+        return CliArguments.Parse([.. args.Skip(1)], command.Options) switch
         {
-            int exitCode => exitCode,
-            OrchError error => Report(console, command, error),
+            CliArguments { HelpRequested: true } => Help(console, command),
+            CliArguments arguments => await command.RunAsync(arguments, environment, cancellationToken),
+            Validation failure => environment.Fail(failure),
         };
     }
 
-    private static int Report(CliConsole console, CliCommand command, OrchError error)
+    private static int Help(CliConsole console, CliCommand command)
     {
-        console.Error.WriteLine($"ts-orch {command.Name}: {error.Message}");
-        return ExitCodes.For(error);
+        console.Out.Write(CliCommands.Help(command));
+        return ExitCodes.Ok;
     }
 }

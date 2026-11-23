@@ -8,23 +8,28 @@ internal static class ServiceCommand
 
     public static IReadOnlyList<CliOption> Options { get; } = [new("file", 'f', true)];
 
-    public static Task<OrchResult<int>> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
+    public static Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.Positionals switch
         {
             ["ls"] when arguments.Value("file") is null => ListAsync(environment, cancellationToken),
             ["apply"] when arguments.Value("file") is { } path => ApplyAsync(path, environment, cancellationToken),
             ["rm", var name] when arguments.Value("file") is null => RemoveAsync(name, environment, cancellationToken),
-            _ => Task.FromResult<OrchResult<int>>(new Validation($"usage: {UsageText}")),
+            _ => Task.FromResult(environment.Fail(new Validation($"usage: {UsageText}"))),
         };
 
-    private static async Task<OrchResult<int>> ListAsync(CommandEnvironment environment, CancellationToken cancellationToken)
-    {
-        var listed = await environment.Api.GetAsync("/api/services", CliJsonContext.Default.ServiceListResponse, cancellationToken);
-        if (!listed.TryGetValue(out var response, out var error))
+    private static async Task<int> ListAsync(CommandEnvironment environment, CancellationToken cancellationToken) =>
+        await environment.Api.GetAsync("/api/services", CliJsonContext.Default.ServiceListResponse, cancellationToken) switch
         {
-            return error;
-        }
+            ServiceListResponse response => Render(response, environment.Out),
+            Validation failure => environment.Fail(failure),
+            NotFound failure => environment.Fail(failure),
+            Unauthorized failure => environment.Fail(failure),
+            Forbidden failure => environment.Fail(failure),
+            Unavailable failure => environment.Fail(failure),
+        };
 
+    private static int Render(ServiceListResponse response, TextWriter output)
+    {
         var table = new TextTable("SERVICE", "MODE", "PRIORITY", "REPLICAS", "CPU m", "MEM MiB", "PORT", "REGIONS", "IMAGE");
         foreach (var service in response.Services.OrderBy(static service => service.Name, StringComparer.Ordinal))
         {
@@ -40,47 +45,60 @@ internal static class ServiceCommand
                 service.Image);
         }
 
-        table.WriteTo(environment.Out);
+        table.WriteTo(output);
         return ExitCodes.Ok;
     }
 
-    private static async Task<OrchResult<int>> ApplyAsync(string path, CommandEnvironment environment, CancellationToken cancellationToken)
+    private static async Task<int> ApplyAsync(string path, CommandEnvironment environment, CancellationToken cancellationToken) =>
+        await SpecFiles.LoadServicesAsync(path, cancellationToken) switch
+        {
+            IReadOnlyList<ServiceSpec> services => await environment.Api.PostAsync(
+                "/api/services",
+                new ServicesDocument(services),
+                CliJsonContext.Default.ServicesDocument,
+                CliJsonContext.Default.ApplyResponse,
+                cancellationToken) switch
+            {
+                ApplyResponse response => Report(response, environment.Out),
+                Validation failure => environment.Fail(failure),
+                NotFound failure => environment.Fail(failure),
+                Conflict failure => environment.Fail(failure),
+                Unauthorized failure => environment.Fail(failure),
+                Forbidden failure => environment.Fail(failure),
+                Unavailable failure => environment.Fail(failure),
+            },
+            NotFound failure => environment.Fail(failure),
+            Validation failure => environment.Fail(failure),
+            Forbidden failure => environment.Fail(failure),
+            Unavailable failure => environment.Fail(failure),
+        };
+
+    private static int Report(ApplyResponse response, TextWriter output)
     {
-        var loaded = await SpecFiles.LoadServicesAsync(path, cancellationToken);
-        if (!loaded.TryGetValue(out var services, out var loadError))
-        {
-            return loadError;
-        }
-
-        var applied = await environment.Api.PostAsync(
-            "/api/services",
-            new ServicesDocument(services),
-            CliJsonContext.Default.ServicesDocument,
-            CliJsonContext.Default.ApplyResponse,
-            cancellationToken);
-        if (!applied.TryGetValue(out var response, out var error))
-        {
-            return error;
-        }
-
         foreach (var service in response.Applied)
         {
             var rollout = service.RolloutId is { } id ? $" (rollout {id} started)" : string.Empty;
-            environment.Out.WriteLine($"{service.Name}: {service.Result.WireName}{rollout}");
+            output.WriteLine($"{service.Name}: {service.Result.WireName}{rollout}");
         }
 
         return ExitCodes.Ok;
     }
 
-    private static async Task<OrchResult<int>> RemoveAsync(string name, CommandEnvironment environment, CancellationToken cancellationToken)
-    {
-        var removed = await environment.Api.DeleteAsync($"/api/services/{Uri.EscapeDataString(name)}", CliJsonContext.Default.DeletedServiceResponse, cancellationToken);
-        if (!removed.TryGetValue(out var response, out var error))
+    private static async Task<int> RemoveAsync(string name, CommandEnvironment environment, CancellationToken cancellationToken) =>
+        await environment.Api.DeleteAsync($"/api/services/{Uri.EscapeDataString(name)}", CliJsonContext.Default.DeletedServiceResponse, cancellationToken) switch
         {
-            return error;
-        }
+            DeletedServiceResponse response => Deleted(response, environment.Out),
+            Validation failure => environment.Fail(failure),
+            NotFound failure => environment.Fail(failure),
+            Conflict failure => environment.Fail(failure),
+            Unauthorized failure => environment.Fail(failure),
+            Forbidden failure => environment.Fail(failure),
+            Unavailable failure => environment.Fail(failure),
+        };
 
-        environment.Out.WriteLine($"Deleted service {response.Deleted}.");
+    private static int Deleted(DeletedServiceResponse response, TextWriter output)
+    {
+        output.WriteLine($"Deleted service {response.Deleted}.");
         return ExitCodes.Ok;
     }
 }

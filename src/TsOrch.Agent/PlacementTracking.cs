@@ -24,7 +24,7 @@ public sealed class AgentOutbox
 public sealed class PlacementTracker(AgentOutbox outbox)
 {
     private readonly Lock _gate = new();
-    private readonly Dictionary<string, PlacementReport> _reports = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PlacementReport> _reports = [with(StringComparer.Ordinal)];
 
     public async ValueTask ReportAsync(PlacementReport report, CancellationToken cancellationToken)
     {

@@ -1,7 +1,5 @@
 using System.Globalization;
-using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
@@ -29,55 +27,122 @@ internal sealed class OrchHttp(HttpClient httpClient, TimeProvider timeProvider)
 
     public static HttpContent JsonBody<T>(T value, JsonTypeInfo<T> typeInfo) => JsonContent.Create(value, typeInfo);
 
-    public Task<OrchResult<T>> SendJsonAsync<T>(HttpRequestMessage request, JsonTypeInfo<T> typeInfo, TimeSpan timeout, CancellationToken cancellationToken)
+    public Task<Result<T, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> SendJsonAsync<T>(
+        HttpRequestMessage request,
+        JsonTypeInfo<T> typeInfo,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
         where T : notnull =>
-        SendAsync<T>(
-            request,
-            timeout,
-            async (content, token) => await content.ReadFromJsonAsync(typeInfo, token) is { } value
-                ? value
-                : new Internal($"{Describe(request)} returned an empty JSON document."),
-            cancellationToken);
+        SendAsync(request, timeout, (content, token) => content.ReadFromJsonAsync(typeInfo, token), cancellationToken);
 
-    public Task<OrchResult<string>> SendTextAsync(HttpRequestMessage request, TimeSpan timeout, CancellationToken cancellationToken) =>
+    public Task<Result<string, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> SendTextAsync(
+        HttpRequestMessage request,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
         SendAsync<string>(request, timeout, async (content, token) => await content.ReadAsStringAsync(token), cancellationToken);
 
-    public Task<OrchResult<Done>> StreamJsonLinesAsync<T>(
+    public async Task<Result<Done, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> StreamJsonLinesAsync<T>(
         HttpRequestMessage request,
         JsonTypeInfo<T> typeInfo,
         Func<T, CancellationToken, Task> onItem,
         CancellationToken cancellationToken)
-        where T : notnull =>
-        SendAsync<Done>(
-            request,
-            Timeout.InfiniteTimeSpan,
-            async (content, token) =>
+        where T : notnull
+    {
+        ArgumentNullException.ThrowIfNull(onItem);
+        HttpResponseMessage response;
+        try
+        {
+            response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!response.IsSuccessStatusCode)
             {
-                await using var stream = await content.ReadAsStreamAsync(token);
-                using var reader = new StreamReader(stream);
-                while (await reader.ReadLineAsync(token) is { } line)
+                using (response)
                 {
-                    if (string.IsNullOrWhiteSpace(line))
-                    {
-                        continue;
-                    }
+                    return await FailureAsync<Done>(request, response, cancellationToken);
+                }
+            }
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException)
+        {
+            return new Unavailable($"{Describe(request)} failed: {exception.Message}");
+        }
 
-                    if (JsonSerializer.Deserialize(line, typeInfo) is not { } item)
-                    {
-                        return new Internal($"{Describe(request)} streamed an empty JSON line.");
-                    }
+        using (response)
+        {
+            return await ReadLinesAsync(request, response.Content, typeInfo, onItem, cancellationToken) switch
+            {
+                Done done => done,
+                Unavailable failure => failure,
+            };
+        }
+    }
 
-                    await onItem(item, token);
+    private static async Task<Result<Done, Unavailable>> ReadLinesAsync<T>(
+        HttpRequestMessage request,
+        HttpContent content,
+        JsonTypeInfo<T> typeInfo,
+        Func<T, CancellationToken, Task> onItem,
+        CancellationToken cancellationToken)
+        where T : notnull
+    {
+        Stream stream;
+        try
+        {
+            stream = await content.ReadAsStreamAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException)
+        {
+            return new Unavailable($"{Describe(request)} broke off: {exception.Message}");
+        }
+
+        await using (stream)
+        {
+            using var reader = new StreamReader(stream);
+            while (true)
+            {
+                string? line;
+                try
+                {
+                    line = await reader.ReadLineAsync(cancellationToken);
+                }
+                catch (Exception exception) when (exception is HttpRequestException or IOException)
+                {
+                    return new Unavailable($"{Describe(request)} broke off: {exception.Message}");
                 }
 
-                return new Done();
-            },
-            cancellationToken);
+                if (line is null)
+                {
+                    return new Done();
+                }
 
-    private async Task<OrchResult<T>> SendAsync<T>(
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                T? item;
+                try
+                {
+                    item = JsonSerializer.Deserialize(line, typeInfo);
+                }
+                catch (JsonException exception)
+                {
+                    return new Unavailable($"{Describe(request)} streamed malformed JSON: {exception.Message}");
+                }
+
+                if (item is null)
+                {
+                    return new Unavailable($"{Describe(request)} streamed an empty JSON line.");
+                }
+
+                await onItem(item, cancellationToken);
+            }
+        }
+    }
+
+    private async Task<Result<T, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> SendAsync<T>(
         HttpRequestMessage request,
         TimeSpan timeout,
-        Func<HttpContent, CancellationToken, Task<OrchResult<T>>> read,
+        Func<HttpContent, CancellationToken, Task<T?>> read,
         CancellationToken cancellationToken)
         where T : notnull
     {
@@ -86,9 +151,14 @@ internal sealed class OrchHttp(HttpClient httpClient, TimeProvider timeProvider)
         try
         {
             using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token);
-            return response.IsSuccessStatusCode
-                ? await read(response.Content, linked.Token)
-                : await FailureAsync(request, response, linked.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                return await FailureAsync<T>(request, response, linked.Token);
+            }
+
+            return await read(response.Content, linked.Token) is { } value
+                ? value
+                : new Unavailable($"{Describe(request)} returned an empty JSON document.");
         }
         catch (HttpRequestException exception)
         {
@@ -100,7 +170,7 @@ internal sealed class OrchHttp(HttpClient httpClient, TimeProvider timeProvider)
         }
         catch (JsonException exception)
         {
-            return new Internal($"{Describe(request)} returned malformed JSON: {exception.Message}");
+            return new Unavailable($"{Describe(request)} returned malformed JSON: {exception.Message}");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -108,38 +178,30 @@ internal sealed class OrchHttp(HttpClient httpClient, TimeProvider timeProvider)
         }
     }
 
-    private static async Task<OrchError> FailureAsync(HttpRequestMessage request, HttpResponseMessage response, CancellationToken cancellationToken)
+    private static async Task<Result<T, Validation, NotFound, Conflict, Unauthorized, Forbidden, Unavailable>> FailureAsync<T>(
+        HttpRequestMessage request,
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
     {
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         var status = (int)response.StatusCode;
-        var detail = ParseError(body);
-        var message = detail switch
+        var message = ParseError(body) switch
         {
-            { Fix: { } fix } => $"{detail.Message} ({fix})",
-            { } => detail.Message,
+            { Fix: { } fix } detail => $"{detail.Message} ({fix})",
+            { } detail => detail.Message,
             null => string.Create(
                 CultureInfo.InvariantCulture,
                 $"{Describe(request)} returned {status}: {(body.Length > MaxErrorBodyChars ? body[..MaxErrorBodyChars] : body)}"),
         };
-        return detail?.Code switch
+        return status switch
         {
-            "not_found" => new NotFound(message),
-            "validation" => new Validation(message),
-            "conflict" => new Conflict(message),
-            "forbidden" => new Forbidden(message),
-            "unauthorized" => new Unauthorized(message),
-            "unavailable" => new Unavailable(message),
-            "internal" => new Internal(message),
-            _ => response.StatusCode switch
-            {
-                HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity => new Validation(message),
-                HttpStatusCode.Unauthorized => new Unauthorized(message),
-                HttpStatusCode.Forbidden => new Forbidden(message),
-                HttpStatusCode.NotFound => new NotFound(message),
-                HttpStatusCode.Conflict => new Conflict(message),
-                HttpStatusCode.TooManyRequests or >= HttpStatusCode.InternalServerError => new Unavailable(message),
-                _ => new Internal(message),
-            },
+            400 or 422 => new Validation(message),
+            401 => new Unauthorized(message),
+            403 => new Forbidden(message),
+            404 => new NotFound(message),
+            409 => new Conflict(message),
+            429 or >= 500 => new Unavailable(message),
+            _ => new Unavailable(string.Create(CultureInfo.InvariantCulture, $"{Describe(request)} returned unexpected {status}: {message}")),
         };
     }
 

@@ -24,7 +24,7 @@ internal sealed class FileChangeMonitor : IDisposable
         _watcher.Deleted += OnFileSystemEvent;
         _watcher.Renamed += OnFileSystemEvent;
         _watcher.EnableRaisingEvents = true;
-        _poll = timeProvider.CreateTimer(static state => ((FileChangeMonitor)state!).Signal(), this, PollInterval, PollInterval);
+        _poll = timeProvider.CreateTimer(_ => Signal(), null, PollInterval, PollInterval);
     }
 
     public IAsyncEnumerable<bool> ReadAllAsync(CancellationToken cancellationToken) => _signals.Reader.ReadAllAsync(cancellationToken);

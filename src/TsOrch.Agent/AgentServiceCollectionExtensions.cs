@@ -1,22 +1,39 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Options;
+using TsOrch.Oci;
 
 namespace TsOrch.Agent;
 
 public static class AgentServiceCollectionExtensions
 {
+    public const string OciClientName = "ts-orch-oci";
+
     extension(IServiceCollection services)
     {
-        public IServiceCollection AddTsOrchAgent(Action<AgentOptions> configure)
+        public IServiceCollection AddTsOrchAgent(AgentOptions options, OciEnvironment ociEnvironment, TimeProvider timeProvider)
         {
-            ArgumentNullException.ThrowIfNull(configure);
-            services.AddOptions<AgentOptions>().Configure(configure).ValidateOnStart();
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<AgentOptions>, AgentOptionsValidator>());
-            services.TryAddSingleton(TimeProvider.System);
+            ArgumentNullException.ThrowIfNull(options);
+            ArgumentNullException.ThrowIfNull(ociEnvironment);
+            ArgumentNullException.ThrowIfNull(timeProvider);
+            services.AddSingleton(options);
+            services.AddSingleton(ociEnvironment);
+            services.AddSingleton(timeProvider);
+            services.AddHttpClient(OciClientName, static client => client.Timeout = TimeSpan.FromSeconds(30));
             services.AddHttpClient(NodeEnrollment.BackplaneClientName, static client => client.Timeout = TimeSpan.FromSeconds(30));
             services.AddHttpClient(ContainerSwapper.ProbeClientName, static client => client.Timeout = TimeSpan.FromSeconds(5));
             services.AddHttpClient(NodeMaintenance.DownloadClientName, static client => client.Timeout = Timeout.InfiniteTimeSpan);
+            services.AddSingleton(static provider => new OciImdsClient(OciHttpClient(provider), provider.GetRequiredService<OciEnvironment>()));
+            services.AddSingleton<OciRequestSigner>();
+            services.AddSingleton(static provider => new OciInstancePrincipal(
+                OciHttpClient(provider),
+                provider.GetRequiredService<OciEnvironment>(),
+                provider.GetRequiredService<OciImdsClient>(),
+                provider.GetRequiredService<OciRequestSigner>(),
+                provider.GetRequiredService<TimeProvider>()));
+            services.AddSingleton(static provider => new OciVaultClient(
+                OciHttpClient(provider),
+                provider.GetRequiredService<OciEnvironment>(),
+                provider.GetRequiredService<OciImdsClient>(),
+                provider.GetRequiredService<OciInstancePrincipal>()));
             services.AddSingleton<DockerEngineClient>();
             services.AddSingleton<AgentOutbox>();
             services.AddSingleton<PlacementTracker>();
@@ -41,4 +58,7 @@ public static class AgentServiceCollectionExtensions
             return services;
         }
     }
+
+    private static HttpClient OciHttpClient(IServiceProvider provider) =>
+        provider.GetRequiredService<IHttpClientFactory>().CreateClient(OciClientName);
 }

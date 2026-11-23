@@ -4,12 +4,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
-
-internal sealed record class InvalidBody(string Message);
-
-internal readonly union JsonBody<T>(T, InvalidBody);
 
 internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity identity, ILogger<OciMockRouter> logger)
 {
@@ -23,7 +20,7 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
     {
         ArgumentNullException.ThrowIfNull(context);
         var request = context.Request;
-        string[] segments = request.Path.Value is { } path ? path.Split('/', StringSplitOptions.RemoveEmptyEntries) : [];
+        var segments = request.Path.Value is { } path ? path.Split('/', StringSplitOptions.RemoveEmptyEntries) : [];
         context.Response.Headers["opc-request-id"] = Convert.ToHexStringLower(Guid.NewGuid().ToByteArray());
         return (request.Method, segments) switch
         {
@@ -112,7 +109,7 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
         {
             UpdateInstancePoolDocument { Size: >= 0 } update => WritePoolAsync(context, state.UpdatePool(context.Request.Path, poolId, update.Size)),
             UpdateInstancePoolDocument update => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", $"size must be non-negative, got {update.Size.ToString(CultureInfo.InvariantCulture)}."),
-            InvalidBody invalid => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", invalid.Message),
+            Validation invalid => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", invalid.Message),
         });
     }
 
@@ -129,7 +126,7 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
         {
             DetachInstanceDocument { InstanceId.Length: > 0 } detach => WritePoolAsync(context, state.DetachInstance(context.Request.Path, poolId, detach)),
             DetachInstanceDocument => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", "instanceId is required."),
-            InvalidBody invalid => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", invalid.Message),
+            Validation invalid => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", invalid.Message),
         });
     }
 
@@ -184,7 +181,7 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
         {
             UpdateVolumeDocument { SizeInGBs: > 0 } update => ResizeVolumeAsync(context, volumeId, update.SizeInGBs),
             UpdateVolumeDocument update => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", $"sizeInGBs must be positive, got {update.SizeInGBs.ToString(CultureInfo.InvariantCulture)}."),
-            InvalidBody invalid => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", invalid.Message),
+            Validation invalid => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", invalid.Message),
         });
     }
 
@@ -192,11 +189,7 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
         state.UpdateVolume(context.Request.Path, volumeId, sizeInGBs) switch
         {
             VolumeDocument volume => WriteVolumeAsync(context, volume),
-            VolumeShrinkRejected rejected => ErrorAsync(
-                context,
-                StatusCodes.Status400BadRequest,
-                "InvalidParameter",
-                $"Volume '{volumeId}' cannot shrink from {rejected.CurrentSizeGiB.ToString(CultureInfo.InvariantCulture)} GB to {sizeInGBs.ToString(CultureInfo.InvariantCulture)} GB."),
+            Validation rejected => ErrorAsync(context, StatusCodes.Status400BadRequest, "InvalidParameter", rejected.Message),
         };
 
     private Task WriteVolumeAsync(HttpContext context, VolumeDocument volume)
@@ -217,7 +210,7 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
         && header.Contains("keyId=\"", StringComparison.Ordinal)
         && header.Contains("signature=\"", StringComparison.Ordinal);
 
-    private static async Task<JsonBody<T>> ReadJsonAsync<T>(HttpRequest request, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
+    private static async Task<Result<T, Validation>> ReadJsonAsync<T>(HttpRequest request, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken)
     {
         try
         {
@@ -226,11 +219,11 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
                 return value;
             }
 
-            return new InvalidBody("Request body must be a JSON object, got null.");
+            return new Validation("Request body must be a JSON object, got null.");
         }
         catch (JsonException exception)
         {
-            return new InvalidBody($"Request body is not valid JSON: {exception.Message}");
+            return new Validation($"Request body is not valid JSON: {exception.Message}");
         }
     }
 

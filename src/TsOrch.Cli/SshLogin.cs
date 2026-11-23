@@ -14,7 +14,7 @@ internal static class SshLogin
     private const string KeyType = "ssh-ed25519";
     private const int Ed25519KeyLength = 32;
 
-    public static async Task<OrchResult<CliSession>> LoginAsync(
+    public static async Task<Result<CliSession, Validation, Unauthorized, Forbidden, Unavailable>> LoginAsync(
         OrchHttp http,
         Uri baseUrl,
         string keyPath,
@@ -23,53 +23,13 @@ internal static class SshLogin
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(http);
-        var keyResult = await ReadPublicKeyAsync(keyPath, interactive, cancellationToken);
-        if (!keyResult.TryGetValue(out var key, out var keyError))
+        return await ReadPublicKeyAsync(keyPath, interactive, cancellationToken) switch
         {
-            return keyError;
-        }
-
-        using var challengeRequest = OrchHttp.CreateRequest(
-            HttpMethod.Post,
-            baseUrl,
-            "/api/auth/ssh/challenge",
-            token: null,
-            OrchHttp.JsonBody(new SshChallengeRequest(key.Fingerprint), ApiJsonContext.Default.SshChallengeRequest));
-        var challengeResult = await http.SendJsonAsync(challengeRequest, ApiJsonContext.Default.SshChallengeResponse, OrchHttp.DefaultTimeout, cancellationToken);
-        if (!challengeResult.TryGetValue(out var challenge, out var challengeError))
-        {
-            return challengeError;
-        }
-
-        if (challenge.Namespace != SignatureNamespace)
-        {
-            return new Validation($"The backplane asked for SSH namespace '{challenge.Namespace}', expected '{SignatureNamespace}'.");
-        }
-
-        var signatureResult = await SignAsync(keyPath, challenge.Nonce, interactive, cancellationToken);
-        if (!signatureResult.TryGetValue(out var signature, out var signatureError))
-        {
-            return signatureError;
-        }
-
-        using var verifyRequest = OrchHttp.CreateRequest(
-            HttpMethod.Post,
-            baseUrl,
-            "/api/auth/ssh/verify",
-            token: null,
-            OrchHttp.JsonBody(new SshVerifyRequest(challenge.ChallengeId, key.Line, signature), ApiJsonContext.Default.SshVerifyRequest));
-        var verifyResult = await http.SendJsonAsync(verifyRequest, ApiJsonContext.Default.SshVerifyResponse, OrchHttp.DefaultTimeout, cancellationToken);
-        if (!verifyResult.TryGetValue(out var verified, out var verifyError))
-        {
-            return verifyError;
-        }
-
-        var session = new CliSession(baseUrl.AbsoluteUri, verified.Token, verified.ExpiresAt, verified.Owner, verified.Role);
-        var saved = await CliFiles.WritePrivateJsonAsync(sessionFile, session, CliJsonContext.Default.CliSession, cancellationToken);
-        return saved switch
-        {
-            Done => session,
-            OrchError error => error,
+            SshPublicKey key => await ChallengeAsync(http, baseUrl, key, keyPath, sessionFile, interactive, cancellationToken),
+            Validation failure => failure,
+            Unauthorized failure => failure,
+            Forbidden failure => failure,
+            Unavailable failure => failure,
         };
     }
 
@@ -78,36 +38,133 @@ internal static class SshLogin
     private static string PublicKeyPath(string keyPath) =>
         keyPath.EndsWith(".pub", StringComparison.Ordinal) ? keyPath : keyPath + ".pub";
 
-    private static async Task<OrchResult<SshPublicKey>> ReadPublicKeyAsync(string keyPath, bool interactive, CancellationToken cancellationToken)
+    private static async Task<Result<CliSession, Validation, Unauthorized, Forbidden, Unavailable>> ChallengeAsync(
+        OrchHttp http,
+        Uri baseUrl,
+        SshPublicKey key,
+        string keyPath,
+        string sessionFile,
+        bool interactive,
+        CancellationToken cancellationToken)
     {
-        var publicKeyPath = PublicKeyPath(keyPath);
-        var text = File.Exists(publicKeyPath)
-            ? await CliFiles.ReadTextAsync(publicKeyPath, cancellationToken)
-            : await DerivePublicKeyAsync(keyPath, interactive, cancellationToken);
-        return text switch
+        using var request = OrchHttp.CreateRequest(
+            HttpMethod.Post,
+            baseUrl,
+            "/api/auth/ssh/challenge",
+            token: null,
+            OrchHttp.JsonBody(new SshChallengeRequest(key.Fingerprint), ApiJsonContext.Default.SshChallengeRequest));
+        return await http.SendJsonAsync(request, ApiJsonContext.Default.SshChallengeResponse, OrchHttp.DefaultTimeout, cancellationToken) switch
         {
-            string line => ParsePublicKey(line, publicKeyPath),
-            OrchError error => error,
+            SshChallengeResponse challenge when challenge.Namespace != SignatureNamespace =>
+                new Validation($"The backplane asked for SSH namespace '{challenge.Namespace}', expected '{SignatureNamespace}'."),
+            SshChallengeResponse challenge => await SignAsync(keyPath, challenge.Nonce, interactive, cancellationToken) switch
+            {
+                string signature => await VerifyAsync(http, baseUrl, key, challenge, signature, sessionFile, cancellationToken),
+                Unauthorized failure => failure,
+                Forbidden failure => failure,
+                Unavailable failure => failure,
+            },
+            Validation failure => failure,
+            NotFound failure => new Unauthorized(failure.Message),
+            Conflict failure => new Unavailable(failure.Message),
+            Unauthorized failure => failure,
+            Forbidden failure => failure,
+            Unavailable failure => failure,
         };
     }
 
-    private static async Task<OrchResult<string>> DerivePublicKeyAsync(string keyPath, bool interactive, CancellationToken cancellationToken)
+    private static async Task<Result<CliSession, Validation, Unauthorized, Forbidden, Unavailable>> VerifyAsync(
+        OrchHttp http,
+        Uri baseUrl,
+        SshPublicKey key,
+        SshChallengeResponse challenge,
+        string signature,
+        string sessionFile,
+        CancellationToken cancellationToken)
+    {
+        using var request = OrchHttp.CreateRequest(
+            HttpMethod.Post,
+            baseUrl,
+            "/api/auth/ssh/verify",
+            token: null,
+            OrchHttp.JsonBody(new SshVerifyRequest(challenge.ChallengeId, key.Line, signature), ApiJsonContext.Default.SshVerifyRequest));
+        return await http.SendJsonAsync(request, ApiJsonContext.Default.SshVerifyResponse, OrchHttp.DefaultTimeout, cancellationToken) switch
+        {
+            SshVerifyResponse verified => await SaveAsync(
+                new CliSession(baseUrl.AbsoluteUri, verified.Token, verified.ExpiresAt, verified.Owner, verified.Role),
+                sessionFile,
+                cancellationToken),
+            Validation failure => failure,
+            NotFound failure => new Unauthorized(failure.Message),
+            Conflict failure => new Unavailable(failure.Message),
+            Unauthorized failure => failure,
+            Forbidden failure => failure,
+            Unavailable failure => failure,
+        };
+    }
+
+    private static async Task<Result<CliSession, Validation, Unauthorized, Forbidden, Unavailable>> SaveAsync(
+        CliSession session,
+        string sessionFile,
+        CancellationToken cancellationToken) =>
+        await CliFiles.WritePrivateJsonAsync(sessionFile, session, CliJsonContext.Default.CliSession, cancellationToken) switch
+        {
+            Done => session,
+            Validation failure => failure,
+            Forbidden failure => failure,
+            Unavailable failure => failure,
+        };
+
+    private static async Task<Result<SshPublicKey, Validation, Unauthorized, Forbidden, Unavailable>> ReadPublicKeyAsync(
+        string keyPath,
+        bool interactive,
+        CancellationToken cancellationToken)
+    {
+        var publicKeyPath = PublicKeyPath(keyPath);
+        if (File.Exists(publicKeyPath))
+        {
+            return await CliFiles.ReadTextAsync(publicKeyPath, cancellationToken) switch
+            {
+                string line => ParsePublicKey(line, publicKeyPath) switch
+                {
+                    SshPublicKey key => key,
+                    Validation failure => failure,
+                },
+                NotFound failure => new Validation(failure.Message),
+                Forbidden failure => failure,
+                Unavailable failure => failure,
+            };
+        }
+
+        return await DerivePublicKeyAsync(keyPath, interactive, cancellationToken) switch
+        {
+            string line => ParsePublicKey(line, publicKeyPath) switch
+            {
+                SshPublicKey key => key,
+                Validation failure => failure,
+            },
+            Validation failure => failure,
+            Unauthorized failure => failure,
+            Unavailable failure => failure,
+        };
+    }
+
+    private static async Task<Result<string, Validation, Unauthorized, Unavailable>> DerivePublicKeyAsync(string keyPath, bool interactive, CancellationToken cancellationToken)
     {
         if (!File.Exists(keyPath))
         {
-            return new NotFound($"SSH key {keyPath} does not exist; pass --key or set {OperatorSettings.KeyVariable}.");
+            return new Validation($"SSH key {keyPath} does not exist; pass --key or set {OperatorSettings.KeyVariable}.");
         }
 
-        var derived = await ExternalProcess.RunAsync("ssh-keygen", ["-y", "-f", keyPath], interactive, cancellationToken);
-        return derived switch
+        return await ExternalProcess.RunAsync("ssh-keygen", ["-y", "-f", keyPath], interactive, cancellationToken) switch
         {
             ProcessResult { ExitCode: 0 } output => output.Stdout,
             ProcessResult output => new Unauthorized($"ssh-keygen could not read the public key of {keyPath}: {output.Stderr.Trim()}"),
-            OrchError error => error,
+            Unavailable failure => failure,
         };
     }
 
-    private static OrchResult<SshPublicKey> ParsePublicKey(string text, string source)
+    private static Result<SshPublicKey, Validation> ParsePublicKey(string text, string source)
     {
         var fields = text.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var typeIndex = Array.IndexOf(fields, KeyType);
@@ -136,23 +193,25 @@ internal static class SshLogin
             && BinaryPrimitives.ReadUInt32BigEndian(blob[(4 + type.Length)..]) == Ed25519KeyLength;
     }
 
-    private static Task<OrchResult<string>> SignAsync(string keyPath, string nonce, bool interactive, CancellationToken cancellationToken) =>
+    private static Task<Result<string, Unauthorized, Forbidden, Unavailable>> SignAsync(string keyPath, string nonce, bool interactive, CancellationToken cancellationToken) =>
         CliFiles.WithScratchFileAsync(
             "challenge",
             nonce,
-            async (challengeFile, token) =>
+            async (challengeFile, token) => await ExternalProcess.RunAsync(
+                "ssh-keygen",
+                ["-Y", "sign", "-n", SignatureNamespace, "-f", keyPath, challengeFile],
+                interactive,
+                token) switch
             {
-                var signed = await ExternalProcess.RunAsync(
-                    "ssh-keygen",
-                    ["-Y", "sign", "-n", SignatureNamespace, "-f", keyPath, challengeFile],
-                    interactive,
-                    token);
-                return signed switch
+                ProcessResult { ExitCode: 0 } => await CliFiles.ReadTextAsync(challengeFile + ".sig", token) switch
                 {
-                    ProcessResult { ExitCode: 0 } => await CliFiles.ReadTextAsync(challengeFile + ".sig", token),
-                    ProcessResult output => new Unauthorized($"ssh-keygen could not sign the login challenge with {keyPath}: {output.Stderr.Trim()}"),
-                    OrchError error => error,
-                };
+                    string signature => signature,
+                    NotFound failure => new Unavailable(failure.Message),
+                    Forbidden failure => failure,
+                    Unavailable failure => failure,
+                },
+                ProcessResult output => new Unauthorized($"ssh-keygen could not sign the login challenge with {keyPath}: {output.Stderr.Trim()}"),
+                Unavailable failure => failure,
             },
             cancellationToken);
 }

@@ -43,6 +43,8 @@ module "region" {
   boot_script         = local.boot_script
   bundle_url          = local.bundle_url
   bundle_sha256       = var.orch_bundle_sha256
+  enroll_vault_id     = local.fleet.oci.vault.vaultId
+  enroll_secret_name  = "ts-orch-node-enroll"
 }
 
 module "geodns" {

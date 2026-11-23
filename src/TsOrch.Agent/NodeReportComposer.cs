@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
-using Microsoft.Extensions.Options;
 
 namespace TsOrch.Agent;
 
@@ -8,14 +7,12 @@ public sealed class NodeReportComposer(
     HostMetricsCollector metrics,
     PlacementTracker tracker,
     DockerEngineClient docker,
-    IOptions<AgentOptions> options,
+    AgentOptions options,
     TimeProvider timeProvider)
 {
     public static string AgentVersion { get; } =
         typeof(NodeReportComposer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? throw new InvalidOperationException("TsOrch.Agent has no informational version.");
-
-    private readonly AgentOptions _options = options.Value;
 
     public async Task<Hello> ComposeHelloAsync(NodeSession session, CancellationToken cancellationToken)
     {
@@ -41,10 +38,12 @@ public sealed class NodeReportComposer(
     public async Task<Heartbeat> ComposeHeartbeatAsync(CancellationToken cancellationToken)
     {
         var host = await metrics.CollectHostAsync(cancellationToken);
-        var listed = await docker.ListManagedContainersAsync(_options.LabelPrefix, cancellationToken);
-        IReadOnlyList<ContainerMetrics> containerMetrics = listed.TryGetValue(out var containers, out _)
-            ? await metrics.CollectContainersAsync(containers, cancellationToken)
-            : [];
+        var containerMetrics = await docker.ListManagedContainersAsync(options.LabelPrefix, cancellationToken) switch
+        {
+            IReadOnlyList<ManagedContainer> containers => await metrics.CollectContainersAsync(containers, cancellationToken),
+            Unavailable => [],
+            InternalFailure => [],
+        };
         return new Heartbeat(
             timeProvider.GetUtcNow().ToUnixTimeMilliseconds(),
             tracker.Snapshot(),

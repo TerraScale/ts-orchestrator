@@ -5,18 +5,19 @@ public closed record class OciEnvironment
     public const string MockUrlVariable = "TS_ORCH_OCI_MOCK_URL";
     public const string MockBearerToken = "ts-orch-local";
 
-    public static OciEnvironment FromEnvironment()
+    public static Result<OciEnvironment, Validation> Resolve(string? mockUrlOverride)
     {
-        var value = Environment.GetEnvironmentVariable(MockUrlVariable);
+        var (source, value) = mockUrlOverride is null
+            ? (MockUrlVariable, Environment.GetEnvironmentVariable(MockUrlVariable))
+            : ("--oci-mock-url", mockUrlOverride);
         if (string.IsNullOrWhiteSpace(value))
         {
             return new OciCloud();
         }
 
-        var normalized = value.EndsWith('/') ? value : value + "/";
-        return Uri.TryCreate(normalized, UriKind.Absolute, out var baseUrl)
+        return Uri.TryCreate(value.EndsWith('/') ? value : value + "/", UriKind.Absolute, out var baseUrl)
             ? new OciMock(baseUrl)
-            : throw new InvalidOperationException($"{MockUrlVariable} must be an absolute URL, got '{value}'.");
+            : new Validation($"{source} must be an absolute URL, got '{value}'.");
     }
 }
 

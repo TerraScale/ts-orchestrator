@@ -5,4 +5,7 @@
   <ItemGroup>
     <ProjectReference Include="../TsOrch.Protocol/TsOrch.Protocol.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Using Include="TsOrch.Protocol" />
+  </ItemGroup>
 </Project>

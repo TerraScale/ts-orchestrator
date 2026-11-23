@@ -1,22 +1,19 @@
 using System.Globalization;
+using TsOrch.Protocol;
 
 namespace TsOrch.AppHost;
 
 internal sealed record class MockSecret(string SecretId, long Version, string Value, DateTimeOffset CreatedAt);
-
-internal sealed record class VolumeShrinkRejected(long CurrentSizeGiB);
-
-internal readonly union VolumeResize(VolumeDocument, VolumeShrinkRejected);
 
 internal sealed class OciMockState(TimeProvider timeProvider)
 {
     private const int MaxRecordedCalls = 1000;
 
     private readonly Lock _gate = new();
-    private readonly Dictionary<string, int> _pools = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, long> _volumes = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _instances = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, MockSecret> _secrets = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _pools = [with(StringComparer.Ordinal)];
+    private readonly Dictionary<string, long> _volumes = [with(StringComparer.Ordinal)];
+    private readonly Dictionary<string, string> _instances = [with(StringComparer.Ordinal)];
+    private readonly Dictionary<string, MockSecret> _secrets = [with(StringComparer.Ordinal)];
     private readonly Queue<OciCallRecord> _calls = new();
     private long _sequence;
 
@@ -104,13 +101,13 @@ internal sealed class OciMockState(TimeProvider timeProvider)
         }
     }
 
-    public VolumeResize UpdateVolume(string path, string volumeId, long sizeInGBs)
+    public Result<VolumeDocument, Validation> UpdateVolume(string path, string volumeId, long sizeInGBs)
     {
         lock (_gate)
         {
             if (_volumes.TryGetValue(volumeId, out var current) && sizeInGBs < current)
             {
-                return new VolumeShrinkRejected(current);
+                return new Validation($"Volume '{volumeId}' cannot shrink from {current.ToString(CultureInfo.InvariantCulture)} GB to {sizeInGBs.ToString(CultureInfo.InvariantCulture)} GB.");
             }
 
             _volumes[volumeId] = sizeInGBs;
