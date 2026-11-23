@@ -230,6 +230,8 @@ export interface NodeInfo {
   drainRequested: boolean;
   lastSeenAt: number;
   agentVersion: string;
+  cpuRequestedMilli?: number;
+  memRequestedMiB?: number;
 }
 
 export interface PlacementInfo {

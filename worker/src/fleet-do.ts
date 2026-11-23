@@ -2097,6 +2097,20 @@ export class FleetDO extends DurableObject<Env> {
           ready: own.filter((placement) => placement.state === "ready").length,
         };
       });
+    const nodeCpu = new Map<string, number>();
+    const nodeMem = new Map<string, number>();
+    for (const placement of placements) {
+      if (placement.nodeId === undefined || INACTIVE_PLACEMENT_STATES.has(placement.state)) continue;
+      const service = servicesByName.get(placement.serviceName);
+      if (service === undefined) continue;
+      nodeCpu.set(placement.nodeId, (nodeCpu.get(placement.nodeId) ?? 0) + service.cpuRequestMilli);
+      nodeMem.set(placement.nodeId, (nodeMem.get(placement.nodeId) ?? 0) + service.memRequestMiB);
+    }
+    const statusNodes: NodeInfo[] = nodes.map((node) => ({
+      ...node,
+      cpuRequestedMilli: nodeCpu.get(node.id) ?? 0,
+      memRequestedMiB: nodeMem.get(node.id) ?? 0,
+    }));
     const rollouts = this.loadRollouts(false, 20).filter(
       (rollout) => regionFilter === null || rollout.region === undefined || rollout.region === regionFilter,
     );
@@ -2104,7 +2118,7 @@ export class FleetDO extends DurableObject<Env> {
     const response: StatusResponse = {
       ts: now,
       regions: summaries,
-      nodes,
+      nodes: statusNodes,
       services: serviceSummaries,
       placements,
       rollouts,

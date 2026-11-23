@@ -200,7 +200,9 @@ public sealed record class NodeInfo(
     NodeStatus Status,
     bool DrainRequested,
     long LastSeenAt,
-    string AgentVersion);
+    string AgentVersion,
+    int? CpuRequestedMilli = null,
+    int? MemRequestedMiB = null);
 
 public sealed record class PlacementInfo(
     string Id,

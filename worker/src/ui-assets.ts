@@ -6,6 +6,7 @@ export const LOGIN_HTML: string = `<!doctype html>
 <meta name="color-scheme" content="dark light">
 <meta name="robots" content="noindex, nofollow">
 <title>Sign in · TerraScale Orchestrator</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 2 7 12 12 22 7 12 2'/%3E%3Cpolyline points='2 12 12 17 22 12'/%3E%3Cpolyline points='2 17 12 22 22 17'/%3E%3C/svg%3E">
 <script>
 (function () {
   var saved = null;
@@ -490,6 +491,7 @@ export const INDEX_HTML: string = `<!doctype html>
 <meta name="color-scheme" content="dark light">
 <meta name="robots" content="noindex, nofollow">
 <title>Status · TerraScale Orchestrator</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 2 7 12 12 22 7 12 2'/%3E%3Cpolyline points='2 12 12 17 22 12'/%3E%3Cpolyline points='2 17 12 22 22 17'/%3E%3C/svg%3E">
 <script>
 (function () {
   var saved = null;
@@ -914,7 +916,8 @@ td.r, th.r { text-align: right; }
 .pk.req { background: var(--s1); }
 .pk.use { width: 2px; height: 10px; background: var(--usage); }
 .actions { display: inline-flex; gap: 6px; }
-.split { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(320px, 1fr); gap: 12px; align-items: start; }
+.split { display: grid; grid-template-columns: minmax(0, 1.95fr) minmax(320px, 420px); gap: 12px; align-items: start; }
+.split table th, .split table td { padding: 9px 10px; }
 .dist { display: inline-flex; gap: 4px; }
 .dist span { font-family: var(--font-mono); font-size: 11px; padding: 1px 5px; border-radius: 4px; background: var(--chip); color: var(--muted); }
 .dist span.ok { color: var(--ok); background: var(--ok-bg); }
@@ -931,6 +934,7 @@ td.r, th.r { text-align: right; }
 .wave { display: grid; gap: 6px; }
 .wave .wbar { height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; position: relative; }
 .wave.done .wbar { background: var(--ok); }
+.wave.active .wbar { background: color-mix(in srgb, var(--accent) 30%, var(--track)); }
 .wave.active .wbar::after {
   content: "";
   position: absolute;
@@ -1939,7 +1943,7 @@ const shortImage = (img) => {
   const at = img.indexOf("@");
   const name = at >= 0 ? img.slice(0, at) : img;
   const repo = name.split("/").pop();
-  const digest = at >= 0 ? img.slice(at + 1).replace("sha256:", "").slice(0, 12) : "";
+  const digest = at >= 0 ? img.slice(at + 1).replace("sha256:", "").slice(0, 8) : "";
   return '<span class="digest" title="' + esc(img) + '">' + esc(repo) + (digest ? "<i>@</i>" + esc(digest) : "") + "</span>";
 };
 

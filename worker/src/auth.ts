@@ -192,12 +192,12 @@ export function readCookie(request: Request, name: string): string | null {
   return null;
 }
 
-export function sessionCookie(value: string, maxAgeSeconds: number, path = "/", name = SESSION_COOKIE): string {
-  return `${name}=${value}; Path=${path}; Max-Age=${maxAgeSeconds}; HttpOnly; Secure; SameSite=Lax`;
+export function sessionCookie(value: string, maxAgeSeconds: number, path = "/", name = SESSION_COOKIE, secure = true): string {
+  return `${name}=${value}; Path=${path}; Max-Age=${maxAgeSeconds}; HttpOnly${secure ? "; Secure" : ""}; SameSite=Lax`;
 }
 
-export function clearCookie(name: string, path = "/"): string {
-  return `${name}=; Path=${path}; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+export function clearCookie(name: string, path = "/", secure = true): string {
+  return `${name}=; Path=${path}; Max-Age=0; HttpOnly${secure ? "; Secure" : ""}; SameSite=Lax`;
 }
 
 class SshReader {
@@ -524,8 +524,15 @@ export async function githubCallback(request: Request, env: Env): Promise<Respon
   return redirect("/", [clearOauth, sessionCookie(token, UI_SESSION_TTL_S)]);
 }
 
-export function logout(): Response {
-  return redirect("/", [clearCookie(SESSION_COOKIE), clearCookie(OAUTH_COOKIE, "/auth/github")]);
+export function logout(request?: Request, env?: Env): Response {
+  const secure =
+    request === undefined || env === undefined
+      ? true
+      : (() => {
+          const url = new URL(request.url);
+          return !(localDevAllowed(url, env) && url.protocol === "http:");
+        })();
+  return redirect("/", [clearCookie(SESSION_COOKIE, "/", secure), clearCookie(OAUTH_COOKIE, "/auth/github", secure)]);
 }
 
 export async function devLogin(request: Request, env: Env): Promise<Response> {
@@ -540,7 +547,7 @@ export async function devLogin(request: Request, env: Env): Promise<Response> {
     UI_SESSION_TTL_S,
     Date.now(),
   );
-  return redirect("/", [sessionCookie(token, UI_SESSION_TTL_S)]);
+  return redirect("/", [sessionCookie(token, UI_SESSION_TTL_S, "/", SESSION_COOKIE, url.protocol === "https:")]);
 }
 
 interface OidcKeyCache {

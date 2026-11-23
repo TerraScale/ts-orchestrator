@@ -576,7 +576,7 @@ async function handleOrch(request: Request, env: Env, url: URL): Promise<Respons
   if (path.startsWith("/auth/")) {
     if (path === "/auth/github/start" && method === "GET") return githubStart(request, env);
     if (path === "/auth/github/callback" && method === "GET") return githubCallback(request, env);
-    if (path === "/auth/logout" && (method === "POST" || method === "GET")) return logout();
+    if (path === "/auth/logout" && (method === "POST" || method === "GET")) return logout(request, env);
     if (path === "/auth/dev-login" && (method === "POST" || method === "GET")) {
       if (!localDevAllowed(url, env)) return orchError("not_found", "Not found", 404);
       return devLogin(request, env);
