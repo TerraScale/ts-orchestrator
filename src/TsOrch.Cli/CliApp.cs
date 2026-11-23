@@ -1,61 +1,63 @@
-using System.Collections.Frozen;
 using System.Reflection;
 
 namespace TsOrch.Cli;
 
-public static class CliApp
+internal static class CliApp
 {
-    private static readonly FrozenSet<string> Commands = FrozenSet.Create(
-        StringComparer.Ordinal,
-        "login",
-        "agent",
-        "edge",
-        "status",
-        "top",
-        "diff",
-        "deploy",
-        "rollback",
-        "service",
-        "node",
-        "logs",
-        "events",
-        "exec",
-        "secrets",
-        "mcp");
+    public static string Version { get; } =
+        typeof(CliApp).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? throw new InvalidOperationException("ts-orch is built without an informational version.");
 
-    public static int Run(IReadOnlyList<string> args, TextWriter stdout, TextWriter stderr)
+    public static async Task<int> RunAsync(IReadOnlyList<string> args, CliConsole console, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(args);
-        ArgumentNullException.ThrowIfNull(stdout);
-        ArgumentNullException.ThrowIfNull(stderr);
-
-        if (args.Count == 0 || args[0] is "help" or "--help" or "-h")
+        ArgumentNullException.ThrowIfNull(console);
+        if (args is [] or ["help" or "--help" or "-h", ..])
         {
-            stdout.WriteLine(Usage());
-            return 0;
+            console.Out.Write(CliCommands.Usage());
+            return ExitCodes.Ok;
         }
 
-        if (args[0] is "version" or "--version")
+        if (args is ["version" or "--version", ..])
         {
-            stdout.WriteLine(Version());
-            return 0;
+            console.Out.WriteLine(Version);
+            return ExitCodes.Ok;
         }
 
-        if (Commands.Contains(args[0]))
+        if (CliCommands.Find(args[0]) is not { } command)
         {
-            stderr.WriteLine($"ts-orch {args[0]}: not available in this build");
-            return 69;
+            console.Error.WriteLine($"ts-orch: unknown command '{args[0]}'");
+            console.Error.Write(CliCommands.Usage());
+            return ExitCodes.Usage;
         }
 
-        stderr.WriteLine($"ts-orch: unknown command '{args[0]}'");
-        stderr.WriteLine(Usage());
-        return 64;
+        var parsed = CliArguments.Parse([.. args.Skip(1)], command.Options);
+        if (!parsed.TryGetValue(out var arguments, out var parseError))
+        {
+            return Report(console, command, parseError);
+        }
+
+        if (arguments.HelpRequested)
+        {
+            console.Out.Write(CliCommands.Help(command));
+            return ExitCodes.Ok;
+        }
+
+        using var httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"ts-orch/{Version.Split('+')[0]}");
+        var http = new OrchHttp(httpClient, timeProvider);
+        var api = new OrchApi(http, new OperatorAuth(http, console, timeProvider, command.InteractiveSigning));
+        var outcome = await command.RunAsync(arguments, new CommandEnvironment(console, timeProvider, http, api), cancellationToken);
+        return outcome switch
+        {
+            int exitCode => exitCode,
+            OrchError error => Report(console, command, error),
+        };
     }
 
-    private static string Version() =>
-        typeof(CliApp).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-        ?? throw new InvalidOperationException("ts-orch is built without an informational version");
-
-    private static string Usage() =>
-        "usage: ts-orch <command>\ncommands: " + string.Join(", ", Commands.Order(StringComparer.Ordinal)) + ", version";
+    private static int Report(CliConsole console, CliCommand command, OrchError error)
+    {
+        console.Error.WriteLine($"ts-orch {command.Name}: {error.Message}");
+        return ExitCodes.For(error);
+    }
 }

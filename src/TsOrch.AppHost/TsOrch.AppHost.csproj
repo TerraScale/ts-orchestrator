@@ -6,6 +6,9 @@
     <UserSecretsId>ts-orch-apphost-local</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Aspire.Hosting.AppHost" />
     <PackageReference Include="Aspire.Hosting.Dotnet" />
   </ItemGroup>
