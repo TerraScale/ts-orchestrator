@@ -21,6 +21,12 @@ export class OciError extends Error {
 }
 
 type Bytes = Uint8Array<ArrayBuffer>;
+type OciResponse = { data: unknown; headers: Headers };
+
+function object(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
+  return undefined;
+}
 
 const API_VERSION = "20160918";
 const OCI_TIMEOUT_MS = 15_000;
@@ -88,9 +94,9 @@ export class OciRestClient {
   }
 
   async getInstancePool(ociRegion: string, poolId: string): Promise<{ size?: number } | null> {
-    const result = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`);
-    if (typeof result !== "object" || result === null || Array.isArray(result)) return null;
-    const record = result as Record<string, unknown>;
+    const { data } = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`);
+    const record = object(data);
+    if (record === undefined) return null;
     return typeof record.size === "number" ? { size: record.size } : {};
   }
 
@@ -98,21 +104,60 @@ export class OciRestClient {
     return this.#request(ociRegion, "PUT", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`, { size });
   }
 
-  detachPoolInstance(ociRegion: string, poolId: string, instanceId: string, decrementSize: boolean): Promise<unknown> {
+  detachPoolInstance(ociRegion: string, poolId: string, instanceId: string): Promise<unknown> {
     return this.#request(
       ociRegion,
       "POST",
       `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/actions/detachInstance`,
-      { instanceId, isDecrementSize: decrementSize, isAutoTerminate: false },
+      { instanceId, isDecrementSize: true, isAutoTerminate: true },
     );
   }
 
-  terminateInstance(ociRegion: string, instanceId: string, preserveBootVolume = false): Promise<unknown> {
-    return this.#request(
-      ociRegion,
-      "DELETE",
-      `/${API_VERSION}/instances/${encodeURIComponent(instanceId)}?preserveBootVolume=${preserveBootVolume ? "true" : "false"}`,
-    );
+  async statefulIdentity(
+    ociRegion: string,
+    region: string,
+    compartmentId: string,
+    instanceId: string,
+  ): Promise<{ volumeId: string; index: string | null } | null> {
+    const instance = await this.#request(ociRegion, "GET", `/${API_VERSION}/instances/${encodeURIComponent(instanceId)}`);
+    const record = object(instance.data);
+    const metadata = object(record?.metadata);
+    const volumeId = metadata?.ts_data_volume_id;
+    if (
+      record?.id !== instanceId ||
+      record.compartmentId !== compartmentId ||
+      metadata?.ts_region !== region ||
+      metadata.ts_pool !== "stateful" ||
+      typeof volumeId !== "string" ||
+      !volumeId.startsWith("ocid1.volume.")
+    ) return null;
+    const index = metadata.ts_stateful_index;
+    return { volumeId, index: typeof index === "string" && /^(0|[1-9]\d*)$/.test(index) ? index : null };
+  }
+
+  async statefulDataVolume(
+    ociRegion: string,
+    region: string,
+    compartmentId: string,
+    instanceId: string,
+  ): Promise<{ id: string; sizeGiB: number; etag: string } | null> {
+    const identity = await this.statefulIdentity(ociRegion, region, compartmentId, instanceId);
+    if (identity === null) return null;
+    const { volumeId } = identity;
+    const query = new URLSearchParams({ compartmentId, instanceId, volumeId });
+    const attachments = await this.#request(ociRegion, "GET", `/${API_VERSION}/volumeAttachments?${query}`);
+    if (!Array.isArray(attachments.data) || !attachments.data.some((entry: unknown) => {
+      const attachment = object(entry);
+      return attachment?.instanceId === instanceId && attachment.volumeId === volumeId &&
+        attachment.lifecycleState === "ATTACHED" && attachment.isReadOnly === false && attachment.isShareable === false;
+    })) return null;
+
+    const volume = await this.#request(ociRegion, "GET", `/${API_VERSION}/volumes/${encodeURIComponent(volumeId)}`);
+    const data = object(volume.data);
+    const sizeGiB = data?.sizeInGBs;
+    const etag = volume.headers.get("etag");
+    if (data?.id !== volumeId || typeof sizeGiB !== "number" || !Number.isSafeInteger(sizeGiB) || sizeGiB <= 0 || !etag) return null;
+    return { id: volumeId, sizeGiB, etag };
   }
 
   instanceAction(ociRegion: string, instanceId: string, action: OciInstanceAction): Promise<unknown> {
@@ -124,8 +169,8 @@ export class OciRestClient {
     );
   }
 
-  updateVolumeSize(ociRegion: string, volumeId: string, sizeInGBs: number): Promise<unknown> {
-    return this.#request(ociRegion, "PUT", `/${API_VERSION}/volumes/${encodeURIComponent(volumeId)}`, { sizeInGBs });
+  updateVolumeSize(ociRegion: string, volumeId: string, sizeInGBs: number, etag: string): Promise<unknown> {
+    return this.#request(ociRegion, "PUT", `/${API_VERSION}/volumes/${encodeURIComponent(volumeId)}`, { sizeInGBs }, etag);
   }
 
   baseUrl(ociRegion: string): string {
@@ -176,10 +221,11 @@ export class OciRestClient {
     return headers;
   }
 
-  async #request(ociRegion: string, method: string, path: string, payload?: unknown): Promise<unknown> {
+  async #request(ociRegion: string, method: string, path: string, payload?: unknown, etag?: string): Promise<OciResponse> {
     const url = new URL(`${this.baseUrl(ociRegion)}${path}`);
     const body = method === "POST" || method === "PUT" ? (payload === null || payload === undefined ? "" : JSON.stringify(payload)) : undefined;
     const headers = await this.signedHeaders(method, url, body);
+    if (etag !== undefined) headers.set("if-match", etag);
     const signal = AbortSignal.timeout(OCI_TIMEOUT_MS);
     const response = await fetch(url.toString(), body === undefined ? { method, headers, signal } : { method, headers, body, signal });
     const text = await response.text();
@@ -196,11 +242,11 @@ export class OciRestClient {
       }
       throw new OciError(response.status, code, `OCI ${method} ${url.pathname} failed (${response.status} ${code}): ${message}`, requestId);
     }
-    if (text.length === 0) return null;
+    if (text.length === 0) return { data: null, headers: response.headers };
     try {
-      return JSON.parse(text) as unknown;
+      return { data: JSON.parse(text) as unknown, headers: response.headers };
     } catch {
-      return text;
+      return { data: text, headers: response.headers };
     }
   }
 }

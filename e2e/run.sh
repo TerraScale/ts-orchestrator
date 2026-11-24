@@ -88,7 +88,7 @@ done
 
 cat > "$WORK/e2e.mjs" <<'JS'
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { createServer as createTcpServer, connect as connectTcp } from "node:net";
 import { connect as connectTls } from "node:tls";
 import { createHash } from "node:crypto";
@@ -213,7 +213,39 @@ async function pgTlsProbe(port, sni) {
   console.log(result);
 }
 
-async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir, volumeId) {
+function ociBackplane(port, upstream, instanceId, volumeId, compartmentId) {
+  createServer(async (request, response) => {
+    const url = new URL(request.url, upstream);
+    const send = (body, headers = {}) => {
+      response.writeHead(200, { "Content-Type": "application/json", ...headers });
+      response.end(JSON.stringify(body));
+    };
+    if (request.method === "GET" && url.pathname === `/20160918/instances/${instanceId}`) {
+      send({ id: instanceId, compartmentId, metadata: { ts_region: "gru", ts_pool: "stateful", ts_stateful_index: "0", ts_data_volume_id: volumeId } });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/20160918/volumeAttachments") {
+      const attached = url.searchParams.get("instanceId") === instanceId &&
+        url.searchParams.get("volumeId") === volumeId && url.searchParams.get("compartmentId") === compartmentId;
+      send(attached ? [{ instanceId, volumeId, lifecycleState: "ATTACHED", isReadOnly: false, isShareable: false }] : []);
+      return;
+    }
+    if (request.method === "GET" && url.pathname === `/20160918/volumes/${volumeId}`) {
+      const state = await fetch(new URL("/_mock/state", upstream)).then((reply) => reply.json());
+      const sizeInGBs = state.volumes[volumeId] ?? 50;
+      send({ id: volumeId, sizeInGBs }, { ETag: `"${sizeInGBs}"` });
+      return;
+    }
+    const proxied = httpRequest(url, { method: request.method, headers: request.headers }, (reply) => {
+      response.writeHead(reply.statusCode, reply.headers);
+      reply.pipe(response);
+    });
+    proxied.once("error", () => response.destroy());
+    request.pipe(proxied);
+  }).listen(Number(port), "127.0.0.1");
+}
+
+async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
   const record = (entry) => appendFileSync(logFile, `${JSON.stringify({ at: Date.now(), ...entry })}\n`);
   const enroll = await fetch(`${url}/api/nodes/enroll`, {
     method: "POST",
@@ -240,20 +272,21 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir, volu
       configHash: hash(placement.service),
       hostPort: hostPort(placement.placementId),
     }));
-  const heartbeat = () => {
+  const heartbeat = (cpuPct = 5, padding = "") => {
     const ts = Date.now();
     const services = [...new Set([...desired.values()].map((placement) => placement.service.name))];
     send({
       type: "heartbeat",
       ts,
       placements: reports(),
-      hostMetrics: { ts, cpuPct: 5, cpuPsi10: 0, memTotalMiB: 16384, memUsedMiB: 2048, memPsi10: 0, ioPsi10: 0, diskUsedPct: 10, netRxBps: 0, netTxBps: 0, load1: 0.1 },
+      hostMetrics: { ts, cpuPct, cpuPsi10: 0, memTotalMiB: 16384, memUsedMiB: 2048, memPsi10: 0, ioPsi10: 0, diskUsedPct: 10, netRxBps: 0, netTxBps: 0, load1: 0.1 },
       containerMetrics: [],
       edgeMetrics: {
         ts,
         windowSeconds: 10,
         services: services.map((serviceName) => ({ serviceName, rps: 5, errorRate5xxPct: 0, p50Ms: 3, p95Ms: 12, p99Ms: 20, requests: 50, responses5xx: 0, activeConnections: 1 })),
         postgresConnections: 0,
+        ...(padding ? { padding } : {}),
       },
     });
   };
@@ -271,11 +304,13 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir, volu
       cpuTotalMilli: 4000,
       memTotalMiB: 16384,
       diskTotalGiB: 100,
-      labels: volumeId ? { "oci.data-volume-id": volumeId } : {},
+      labels: { "oci.instance-id": "agent-fixture", "oci.data-volume-id": "agent-fixture", "oci.stateful-index": "9", source: "e2e" },
       volumes: poolKind === "stateful" ? [{ mountPath: "/var/lib/ts-data", device: "/dev/oracleoci/oraclevdb", sizeGiB: 50, usedPct: 10 }] : [],
       agentVersion: "e2e-simulated",
     });
+    if (poolKind === "worker") heartbeat(92, "é".repeat(32_768));
     heartbeat();
+    if (poolKind === "worker") heartbeat(91);
     setInterval(heartbeat, 3000);
     setInterval(() => socket.send("ping"), 15000);
   });
@@ -335,6 +370,7 @@ switch (command) {
   case "upstream": upstream(...args); break;
   case "pg-upstream": pgUpstream(...args); break;
   case "pg-tls-probe": await pgTlsProbe(...args); break;
+  case "oci-backplane": ociBackplane(...args); break;
   case "fake-node": await fakeNode(...args); break;
   default: throw new Error(`unknown helper command ${command}`);
 }
@@ -385,8 +421,11 @@ WEB_SECRET_VALUE="e2e-web-$(openssl rand -hex 12)"
 BOX_SECRET_VALUE="e2e-box-$(openssl rand -hex 12)"
 VAULT_ID="ocid1.vault.oc1.sa-saopaulo-1.e2e"
 VOLUME_ID="ocid1.volume.oc1.sa-saopaulo-1.e2e-data-1"
-read -r OCI_PORT WORKER_PORT INSPECTOR_PORT EDGE_HTTP EDGE_HTTPS EDGE_PG UP_A UP_B UP_PG AG_HTTP AG_HTTPS AG_PG < <(helper ports 12)
+STATEFUL_INSTANCE="ocid1.instance.oc1.sa-saopaulo-1.e2e-stateful-1"
+STATEFUL_NODE="gru-s-$(printf '%s' "$STATEFUL_INSTANCE" | openssl dgst -sha256 -r | cut -c 1-10)"
+read -r OCI_PORT WORKER_OCI_PORT WORKER_PORT INSPECTOR_PORT EDGE_HTTP EDGE_HTTPS EDGE_PG UP_A UP_B UP_PG AG_HTTP AG_HTTPS AG_PG < <(helper ports 13)
 OCI="http://127.0.0.1:$OCI_PORT"
+WORKER_OCI="http://127.0.0.1:$WORKER_OCI_PORT"
 W="http://127.0.0.1:$WORKER_PORT"
 ok "keys and ports ready"
 
@@ -399,12 +438,15 @@ wait_for "oci-mock /healthz" 60 curl -sf "$OCI/healthz"
 expect_code 401 "IMDS rejects calls without the Oracle bearer" "$OCI/opc/v2/instance/"
 curl -sf -H "Authorization: Bearer Oracle" "$OCI/opc/v2/identity/cert.pem" | openssl x509 -noout -subject | grep -q "opc-tenant:" || die "IMDS identity certificate lacks opc-tenant"
 ok "IMDS identity certificate carries opc-tenant"
+COMPARTMENT_ID="$(jq -er '.regions[] | select(.label == "gru") | .compartmentId' "$ROOT/deploy/fleet.json")"
+spawn oci-backplane "$WORK" node "$WORK/e2e.mjs" oci-backplane "$WORKER_OCI_PORT" "$OCI" "$STATEFUL_INSTANCE" "$VOLUME_ID" "$COMPARTMENT_ID"
+wait_for "worker OCI fixture /healthz" 30 curl -sf "$WORKER_OCI/healthz"
 
 log "Starting wrangler dev (orch + atlas) against oci-mock"
 {
   printf "LOCAL_DEV='true'\n"
   printf "DEV_ORIGINS='1'\n"
-  printf "OCI_BASE_URL='%s'\n" "$OCI"
+  printf "OCI_BASE_URL='%s'\n" "$WORKER_OCI"
   printf "NODE_ENROLL_SECRET='%s'\n" "$ENROLL_SECRET"
   printf "SESSION_SECRET='%s'\n" "$SESSION_SECRET"
   printf "ALLOWED_SSH_KEYS='%s'\n" "$(cat "$WORK/id_ed25519.pub")"
@@ -423,8 +465,11 @@ ok "worker reports localDev"
 log "1. Hostname and route isolation"
 expect_code 404 "/atlas/api/status is not reachable through the Atlas surface" "$W/atlas/api/status"
 expect_code 404 "/atlas/auth/dev-login is not reachable through the Atlas surface" "$W/atlas/auth/dev-login"
-curl -sf "$W/" > "$WORK/login.html"
+curl -sf -D "$WORK/login.headers" "$W/" > "$WORK/login.html"
 grep -q "Sign in with GitHub" "$WORK/login.html" || die "unauthenticated / did not serve the login page"
+grep -qi '^strict-transport-security: max-age=31536000' "$WORK/login.headers" || die "login page omitted HSTS"
+UI_NONCE="$(sed -n "s/.*script-src 'nonce-\([^']*\)' 'strict-dynamic'.*/\1/p" "$WORK/login.headers")"
+[[ -n "$UI_NONCE" ]] && grep -q "<script nonce=\"$UI_NONCE\"" "$WORK/login.html" || die "login CSP does not authorize the embedded script"
 ok "unauthenticated / serves the login page"
 curl -s -D "$WORK/dev-login.headers" -o /dev/null "$W/auth/dev-login"
 COOKIE="$(tr -d '\r' < "$WORK/dev-login.headers" | sed -n 's/^[Ss]et-[Cc]ookie: \(ts_orch_session=[^;]*\).*/\1/p' | head -n 1)"
@@ -480,16 +525,25 @@ ok "ts-orch diff ran against live desired state"
 
 log "5a. Real FleetDO enrollment and WS heartbeats (simulated stateful + worker nodes)"
 mkdir -p "$WORK/edge-run"
-spawn fake-s1 "$WORK" node "$WORK/e2e.mjs" fake-node "$W" "$ENROLL_SECRET" e2e-s1 stateful "$WORK/fake-s1.jsonl" "$WORK/edge-run/tls" "$VOLUME_ID"
+spawn fake-s1 "$WORK" node "$WORK/e2e.mjs" fake-node "$W" "$ENROLL_SECRET" "$STATEFUL_INSTANCE" stateful "$WORK/fake-s1.jsonl" "$WORK/edge-run/tls"
 spawn fake-w1 "$WORK" node "$WORK/e2e.mjs" fake-node "$W" "$ENROLL_SECRET" e2e-w1 worker "$WORK/fake-w1.jsonl"
 node_status() { api GET /api/nodes | jq -er --arg id "$1" '.nodes[] | select(.id == $id) | .status'; }
 node_is() { [[ "$(node_status "$1")" == "$2" ]]; }
-wait_for "e2e-s1 active" 60 node_is e2e-s1 active
+wait_for "$STATEFUL_NODE active" 60 node_is "$STATEFUL_NODE" active
 wait_for "e2e-w1 active" 60 node_is e2e-w1 active
+api GET /api/nodes | jq -e --arg id "$STATEFUL_NODE" --arg instance "$STATEFUL_INSTANCE" --arg volume "$VOLUME_ID" \
+  '.nodes[] | select(.id == $id) | .labels | .source == "e2e" and .["oci.instance-id"] == $instance and
+    .["oci.data-volume-id"] == $volume and .["oci.stateful-index"] == "0" and (has("oci.instance-pool-id") | not)' \
+  >/dev/null || die "hello changed reserved OCI labels"
+worker_metrics() { api GET '/api/metrics?node=e2e-w1' | jq -e '.points | length > 0' >/dev/null; }
+wait_for "worker metrics available" 30 worker_metrics
+api GET '/api/metrics?node=e2e-w1' | jq -e \
+  '.points | all(.cpuPct == 5 and (.ts % 10000 == 0)) and (map(.ts) | unique | length) == length' \
+  >/dev/null || die "rapid or oversized heartbeats affected the 10-second metrics"
 service_ready() { api GET /api/status | jq -e --arg name "$1" --argjson want "$2" '.services[] | select(.name == $name) | .ready >= $want' >/dev/null; }
 wait_for "e2e-web 2/2 ready on simulated nodes" 90 service_ready e2e-web 2
-chaos '{"kind":"fill_disk","nodeId":"e2e-s1","usedPct":90}' >/dev/null
-ok "fill_disk injected on e2e-s1 (volume grow verified later)"
+chaos "$(jq -cn --arg id "$STATEFUL_NODE" '{kind: "fill_disk", nodeId: $id, usedPct: 90}')" >/dev/null
+ok "fill_disk injected on $STATEFUL_NODE (volume grow verified later)"
 
 log "4a. Shared TLS via /api/tls/ensure -> sync_tls"
 api POST /api/tls/ensure --data '{}' | tee "$LOGS/tls-ensure.json" | jq -e '.domains | length > 0' >/dev/null
@@ -624,10 +678,15 @@ ok "Vault rotation propagated (version 2)"
 
 log "5d. Backplane exec and logs through simulated node"
 "${TS[@]}" node ls > "$LOGS/node-ls.txt"
-{ grep -q "e2e-s1" "$LOGS/node-ls.txt" && grep -q "e2e-w1" "$LOGS/node-ls.txt"; } || die "ts-orch node ls is missing nodes"
+{ grep -q "$STATEFUL_NODE" "$LOGS/node-ls.txt" && grep -q "e2e-w1" "$LOGS/node-ls.txt"; } || die "ts-orch node ls is missing nodes"
 EXEC_NODE="$(api GET /api/status | jq -er '[.placements[] | select(.serviceName == "e2e-web" and .state == "ready")][0].nodeId')"
 timeout 60 "${TS[@]}" exec "$EXEC_NODE" e2e-web -- echo hello > "$LOGS/exec-fake.txt"
 grep -q "simulated:echo hello" "$LOGS/exec-fake.txt" || die "ts-orch exec did not round-trip through the node WebSocket"
+EXEC_OWNER="$(api GET /api/me | jq -er .owner)"
+api GET /api/events | jq -e --arg node "$EXEC_NODE" --arg owner "$EXEC_OWNER" \
+  'any(.events[]; .kind == "container_exec" and .region == "gru" and
+    (.detail | .by == $owner and .nodeId == $node and .service == "e2e-web" and (.container | length > 0) and .command == "echo"))' \
+  >/dev/null || die "exec did not audit the operator, container and executable with arguments redacted"
 ok "ts-orch exec round-tripped"
 timeout 60 "${TS[@]}" logs e2e-web --node "$EXEC_NODE" --tail 5 > "$LOGS/logs-fake.txt"
 grep -q "simulated log line from $EXEC_NODE" "$LOGS/logs-fake.txt" || die "ts-orch logs did not stream node log chunks"
@@ -637,7 +696,7 @@ log "5e. Disk >75% sustained 5 minutes (backfilled history) -> OCI UpdateVolume"
 volume_grown() { curl -sf "$OCI/_mock/state" | jq -e --arg id "$VOLUME_ID" '.volumes[$id] == 100 and ([.calls[] | select(.operation == "UpdateVolume" and .target == $id)] | length >= 1)' >/dev/null; }
 wait_for "oci-mock recorded UpdateVolume(100 GB) for $VOLUME_ID" 60 volume_grown
 grow_seen() { grep -q '"type":"grow_volume"' "$WORK/fake-s1.jsonl"; }
-wait_for "e2e-s1 received grow_volume" 60 grow_seen
+wait_for "$STATEFUL_NODE received grow_volume" 60 grow_seen
 
 log "5f. Node drain"
 "${TS[@]}" node drain e2e-w1 > "$LOGS/drain-fake.txt"
@@ -654,7 +713,7 @@ log "6. Real ts-orch agent + edge against Docker"
 for pid in "${GROUPS_TO_STOP[@]}"; do
   if grep -qs "fake-node" "/proc/$pid/cmdline"; then kill -TERM -- "-$pid" 2>/dev/null || true; fi
 done
-chaos '{"kind":"kill_node","nodeId":"e2e-s1"}' >/dev/null
+chaos "$(jq -cn --arg id "$STATEFUL_NODE" '{kind: "kill_node", nodeId: $id}')" >/dev/null
 chaos '{"kind":"kill_node","nodeId":"e2e-w1"}' >/dev/null
 wait_for "simulated nodes are down" 30 node_is e2e-w1 down
 mkdir -p "$WORK/agent/run" "$WORK/agent/state" "$WORK/agent/install" "$WORK/agent/data"

@@ -41,9 +41,6 @@ export type AutoscaleAction =
       region: string;
       ociRegion: string;
       nodeId: string;
-      volumeId: string;
-      mountPath: string;
-      newSizeGiB: number;
       reason: string;
     };
 
@@ -58,11 +55,11 @@ export const POOL_DOWN_MARGIN = 0.3;
 export const VOLUME_USAGE_THRESHOLD_PCT = 75;
 export const VOLUME_SUSTAIN_MS = 300_000;
 export const VOLUME_GROW_GIB = 50;
+export const VOLUME_MAX_GIB = 1024;
 export const VOLUME_COOLDOWN_MS = 1_800_000;
 export const HOT_CPU_PCT = 80;
 export const HOT_PSI = 25;
 export const HOT_MEM_RATIO = 0.85;
-export const POOL_ID_LABEL = "oci.instance-pool-id";
 export const INSTANCE_ID_LABEL = "oci.instance-id";
 export const DATA_VOLUME_ID_LABEL = "oci.data-volume-id";
 
@@ -90,6 +87,10 @@ export function poolScaleDownCooldownKey(region: string): string {
 
 export function volumeGrowCooldownKey(nodeId: string): string {
   return `volume:${nodeId}`;
+}
+
+export function hasVolumeGrowthBudget(last: number | undefined, now: number): boolean {
+  return last === undefined || now - last >= VOLUME_COOLDOWN_MS;
 }
 
 function cooled(cooldowns: Map<string, number>, key: string, nowMs: number, windowMs: number): boolean {
@@ -228,16 +229,6 @@ function activePlacementCount(nodeId: string, placements: PlacementInfo[]): numb
   return placements.filter((p) => p.nodeId === nodeId && !INACTIVE_STATES.has(p.state)).length;
 }
 
-function poolIdFor(input: AutoscaleInput, region: string, workers: NodeInfo[]): string | undefined {
-  const configured = input.poolIds?.get(region);
-  if (configured !== undefined && configured.length > 0) return configured;
-  for (const worker of workers) {
-    const label = worker.labels[POOL_ID_LABEL];
-    if (label !== undefined && label.length > 0) return label;
-  }
-  return undefined;
-}
-
 function fitsWithout(
   input: AutoscaleInput,
   region: string,
@@ -295,7 +286,8 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
       .filter((node) => node.poolKind === "worker")
       .sort((a, b) => compareText(a.id, b.id));
     const live = workers.filter((node) => node.status !== "down" && node.status !== "drained");
-    const poolId = poolIdFor(input, region.label, workers);
+    const poolId = input.poolIds?.get(region.label);
+    if (poolId === undefined) continue;
     const upKey = poolScaleUpCooldownKey(region.label);
     const downKey = poolScaleDownCooldownKey(region.label);
     const unschedulable = input.unschedulable.filter((entry) => entry.region === region.label && entry.missing > 0);
@@ -304,7 +296,6 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
 
     if (unschedulable.length > 0 || hot) {
       if (
-        poolId !== undefined &&
         live.length < region.pools.worker.max &&
         cooled(cooldowns, upKey, input.nowMs, POOL_UP_COOLDOWN_MS)
       ) {
@@ -336,7 +327,7 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
       if (remainingActiveWorkers < minWorkers) continue;
       if (activePlacementCount(worker.id, input.placements) > 0) continue;
       const instanceId = worker.labels[INSTANCE_ID_LABEL];
-      if (instanceId === undefined || instanceId.length === 0 || poolId === undefined) continue;
+      if (instanceId === undefined || instanceId.length === 0) continue;
       actions.push({
         kind: "terminate_drained_worker",
         region: region.label,
@@ -400,19 +391,15 @@ function evaluateVolumes(input: AutoscaleInput, cooldowns: Map<string, number>):
   for (const node of nodes) {
     const region = regionsByLabel.get(node.region);
     const volume = node.volumes.find((entry) => entry.mountPath === DATA_VOLUME_PATH);
-    const volumeId = node.labels[DATA_VOLUME_ID_LABEL];
-    if (region === undefined || volume === undefined || volumeId === undefined || volumeId.length === 0) continue;
+    if (region === undefined || volume === undefined) continue;
     const key = volumeGrowCooldownKey(node.id);
-    if (!cooled(cooldowns, key, input.nowMs, VOLUME_COOLDOWN_MS)) continue;
+    if (!hasVolumeGrowthBudget(cooldowns.get(key), input.nowMs)) continue;
     if (!sustainedDisk(node, volume.usedPct, input)) continue;
     actions.push({
       kind: "grow_volume",
       region: region.label,
       ociRegion: region.ociRegion,
       nodeId: node.id,
-      volumeId,
-      mountPath: DATA_VOLUME_PATH,
-      newSizeGiB: volume.sizeGiB + VOLUME_GROW_GIB,
       reason: `disk_usage_${Math.round(volume.usedPct)}pct`,
     });
   }
