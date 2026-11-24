@@ -12,14 +12,20 @@ locals {
   fault_domains        = ["FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"]
   public_tcp_ports     = [80, 443, 5432]
   public_udp_ports     = [443]
-  backend_sets         = { for port in local.public_tcp_ports : "tcp-${port}" => port }
-  quic_backend_sets    = { for port in local.public_udp_ports : "udp-${port}" => port }
   netbird_backend_sets = { for port in var.netbird_udp_ports : "netbird-${port}" => port }
   wireguard_udp_port   = 51820
-  udp_backend_sets     = merge(local.quic_backend_sets, local.netbird_backend_sets)
-  node_udp_ingress     = merge(local.udp_backend_sets, contains(values(local.udp_backend_sets), local.wireguard_udp_port) ? {} : { "wireguard-${local.wireguard_udp_port}" = local.wireguard_udp_port })
-  worker_backend_sets  = merge(local.backend_sets, local.quic_backend_sets)
-  nlb_backend_sets     = merge(local.backend_sets, local.udp_backend_sets)
+  tcp_ingress_ports    = { for port in local.public_tcp_ports : "tcp-${port}" => port }
+  udp_ingress_ports    = merge({ for port in local.public_udp_ports : "udp-${port}" => port }, local.netbird_backend_sets)
+  node_udp_ingress     = merge(local.udp_ingress_ports, contains(values(local.udp_ingress_ports), local.wireguard_udp_port) ? {} : { "wireguard-${local.wireguard_udp_port}" = local.wireguard_udp_port })
+  dual_ports           = setintersection(toset(local.public_tcp_ports), toset(local.public_udp_ports))
+  tcp_only_ports       = setsubtract(toset(local.public_tcp_ports), local.dual_ports)
+  udp_only_ports       = setsubtract(toset(local.public_udp_ports), local.dual_ports)
+  tcp_backend_sets     = { for port in local.tcp_only_ports : "tcp-${port}" => port }
+  dual_backend_sets    = { for port in local.dual_ports : "tcp-udp-${port}" => port }
+  udp_only_sets        = { for port in local.udp_only_ports : "udp-${port}" => port }
+  udp_backend_sets     = merge(local.udp_only_sets, local.netbird_backend_sets)
+  worker_backend_sets  = merge(local.tcp_backend_sets, local.dual_backend_sets, local.udp_only_sets)
+  nlb_backend_sets     = merge(local.tcp_backend_sets, local.dual_backend_sets, local.udp_backend_sets)
   shapes               = toset([var.stateful_shape.name, var.worker_shape.name])
   data_device          = "/dev/oracleoci/oraclevdb"
 
@@ -199,7 +205,7 @@ resource "oci_core_network_security_group" "node" {
 }
 
 resource "oci_core_network_security_group_security_rule" "nlb_ingress_tcp" {
-  for_each = local.backend_sets
+  for_each = local.tcp_ingress_ports
 
   network_security_group_id = oci_core_network_security_group.nlb.id
   direction                 = "INGRESS"
@@ -217,7 +223,7 @@ resource "oci_core_network_security_group_security_rule" "nlb_ingress_tcp" {
 }
 
 resource "oci_core_network_security_group_security_rule" "nlb_ingress_udp" {
-  for_each = local.udp_backend_sets
+  for_each = local.udp_ingress_ports
 
   network_security_group_id = oci_core_network_security_group.nlb.id
   direction                 = "INGRESS"
@@ -253,7 +259,7 @@ resource "oci_core_network_security_group_security_rule" "nlb_egress_nodes" {
 }
 
 resource "oci_core_network_security_group_security_rule" "node_ingress_tcp" {
-  for_each = local.backend_sets
+  for_each = local.tcp_ingress_ports
 
   network_security_group_id = oci_core_network_security_group.node.id
   direction                 = "INGRESS"
@@ -330,7 +336,7 @@ resource "oci_network_load_balancer_network_load_balancer" "this" {
 }
 
 resource "oci_network_load_balancer_backend_set" "tcp" {
-  for_each = local.backend_sets
+  for_each = local.tcp_backend_sets
 
   network_load_balancer_id = oci_network_load_balancer_network_load_balancer.this.id
   name                     = each.key
@@ -350,13 +356,43 @@ resource "oci_network_load_balancer_backend_set" "tcp" {
 }
 
 resource "oci_network_load_balancer_listener" "tcp" {
-  for_each = local.backend_sets
+  for_each = local.tcp_backend_sets
 
   network_load_balancer_id = oci_network_load_balancer_network_load_balancer.this.id
   name                     = each.key
   default_backend_set_name = oci_network_load_balancer_backend_set.tcp[each.key].name
   port                     = each.value
   protocol                 = "TCP"
+}
+
+resource "oci_network_load_balancer_backend_set" "tcp_udp" {
+  for_each = local.dual_backend_sets
+
+  network_load_balancer_id = oci_network_load_balancer_network_load_balancer.this.id
+  name                     = each.key
+  policy                   = "FIVE_TUPLE"
+  is_preserve_source       = true
+  is_fail_open             = false
+
+  health_checker {
+    protocol           = "HTTP"
+    port               = 80
+    url_path           = "/readyz"
+    return_code        = 200
+    interval_in_millis = 15000
+    timeout_in_millis  = 3000
+    retries            = 1
+  }
+}
+
+resource "oci_network_load_balancer_listener" "tcp_udp" {
+  for_each = local.dual_backend_sets
+
+  network_load_balancer_id = oci_network_load_balancer_network_load_balancer.this.id
+  name                     = each.key
+  default_backend_set_name = oci_network_load_balancer_backend_set.tcp_udp[each.key].name
+  port                     = each.value
+  protocol                 = "TCP_AND_UDP"
 }
 
 resource "oci_network_load_balancer_backend_set" "udp" {
@@ -392,6 +428,7 @@ resource "oci_network_load_balancer_listener" "udp" {
 locals {
   nlb_backend_set_names = merge(
     { for key, set in oci_network_load_balancer_backend_set.tcp : key => set.name },
+    { for key, set in oci_network_load_balancer_backend_set.tcp_udp : key => set.name },
     { for key, set in oci_network_load_balancer_backend_set.udp : key => set.name }
   )
 }
@@ -580,7 +617,7 @@ resource "oci_core_instance_pool" "worker" {
     }
   }
 
-  depends_on = [oci_network_load_balancer_listener.tcp, oci_network_load_balancer_listener.udp, oci_network_load_balancer_backend.stateful]
+  depends_on = [oci_network_load_balancer_listener.tcp, oci_network_load_balancer_listener.tcp_udp, oci_network_load_balancer_listener.udp, oci_network_load_balancer_backend.stateful]
 
   lifecycle {
     ignore_changes = [size]
