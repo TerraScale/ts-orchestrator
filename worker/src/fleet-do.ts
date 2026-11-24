@@ -1740,16 +1740,13 @@ export class FleetDO extends DurableObject<Env> {
         : row.active_config_hash;
     const error = hold ? row.error : typeof report.error === "string" ? report.error.slice(0, 1024) : null;
     const hasCandidate = typeof report.candidateImage === "string" && report.candidateImage.length > 0;
-    const candidateImage = hasCandidate
-      ? report.candidateImage!
-      : !hold && state === "ready" && image === row.desired_image
-        ? null
-        : row.candidate_image;
+    const clearStaleCandidate = !hold && image === row.desired_image && (state === "ready" || state === "failed");
+    const candidateImage = hasCandidate ? report.candidateImage! : clearStaleCandidate ? null : row.candidate_image;
     const candidateError = hasCandidate
       ? typeof report.candidateError === "string"
         ? report.candidateError.slice(0, 1024)
         : null
-      : !hold && state === "ready" && image === row.desired_image
+      : clearStaleCandidate
         ? null
         : row.candidate_error;
     if (

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using TsOrch.Oci;
 
 namespace TsOrch.Agent;
@@ -66,6 +67,7 @@ public sealed class ContainerSwapper(
     public const string ProbeClientName = "ts-orch-probe";
     private const int FailureLogTailLines = 10;
     private const int MaxFailureLogChars = 512;
+    private static readonly TimeSpan FailureLogTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(1);
 
     private string? _ociRegion;
@@ -718,33 +720,83 @@ public sealed class ContainerSwapper(
 
     private async Task<string> ReadFailureLogsAsync(string containerId, CancellationToken cancellationToken)
     {
-        List<string> lines = [];
-        _ = await docker.StreamLogsAsync(
+        var buffer = new StringBuilder(MaxFailureLogChars * 2);
+        var read = await docker.StreamLogsAsync(
             containerId,
             FailureLogTailLines,
             follow: false,
             (_, line, _) =>
             {
-                var cleaned = SanitizeLogLine(line);
+                var cleaned = SanitizeTail(line, MaxFailureLogChars);
                 if (cleaned.Length > 0)
                 {
-                    lines.Add(cleaned);
+                    if (buffer.Length > 0)
+                    {
+                        buffer.Append(" | ");
+                    }
+
+                    buffer.Append(cleaned);
+                    if (buffer.Length > MaxFailureLogChars)
+                    {
+                        buffer.Remove(0, buffer.Length - MaxFailureLogChars);
+                    }
                 }
 
                 return ValueTask.CompletedTask;
             },
-            cancellationToken);
-        if (lines.Count == 0)
+            cancellationToken,
+            FailureLogTimeout);
+        var failure = read switch
+        {
+            DockerRequestCompleted => null,
+            DockerResourceMissing missing => missing.Message,
+            DockerDaemonUnavailable unavailable => unavailable.Message,
+            DockerResponseInvalid invalid => invalid.Message,
+        };
+        if (failure is not null)
+        {
+            AgentLog.FailureLogReadFailed(logger, containerId, failure);
+        }
+
+        return buffer.ToString().Trim();
+    }
+
+    private static string SanitizeTail(string line, int maxChars)
+    {
+        var start = 0;
+        var end = line.Length;
+        while (start < end && (char.IsWhiteSpace(line[start]) || char.IsControl(line[start])))
+        {
+            start++;
+        }
+
+        while (end > start && (char.IsWhiteSpace(line[end - 1]) || char.IsControl(line[end - 1])))
+        {
+            end--;
+        }
+
+        var length = end - start;
+        if (length <= 0)
         {
             return string.Empty;
         }
 
-        var combined = string.Join(" | ", lines);
-        return combined.Length <= MaxFailureLogChars ? combined : combined[^MaxFailureLogChars..];
-    }
+        if (length > maxChars)
+        {
+            start = end - maxChars;
+            length = maxChars;
+        }
 
-    private static string SanitizeLogLine(string line) =>
-        string.Concat(line.Select(static ch => char.IsControl(ch) ? ' ' : ch)).Trim();
+        return string.Create(length, (line, start), static (span, state) =>
+        {
+            var source = state.line.AsSpan(state.start, span.Length);
+            for (var index = 0; index < source.Length; index++)
+            {
+                var ch = source[index];
+                span[index] = char.IsControl(ch) ? ' ' : ch;
+            }
+        });
+    }
 
     private static PlacementPorts Ports(IReadOnlyList<PublishedPort> ports, ServiceSpec service) =>
         new(

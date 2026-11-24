@@ -338,18 +338,23 @@ public sealed partial class DockerEngineClient(AgentOptions options, TimeProvide
         int tail,
         bool follow,
         Func<LogChannel, string, CancellationToken, ValueTask> onLine,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
         ArgumentNullException.ThrowIfNull(onLine);
         ArgumentOutOfRangeException.ThrowIfNegative(tail);
+        if (timeout is { } customTimeout)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(customTimeout, TimeSpan.Zero);
+        }
+
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
             string.Create(CultureInfo.InvariantCulture, $"containers/{Uri.EscapeDataString(containerId)}/logs?stdout=true&stderr=true&follow={(follow ? "true" : "false")}&tail={tail}"));
-        using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        if (!follow)
-        {
-            operation.CancelAfter(ApiTimeout);
-        }
+        using var deadline = follow ? null : new CancellationTokenSource(timeout ?? ApiTimeout, timeProvider);
+        using var operation = deadline is null
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+            : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         try
         {
             var outcome = await SendAsync(request, HttpCompletionOption.ResponseHeadersRead, operation.Token);

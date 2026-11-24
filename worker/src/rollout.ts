@@ -247,7 +247,7 @@ class Stepper {
       }
       if (targetFailed(canary, target)) {
         const detail: Record<string, unknown> = { placementId: canary.id };
-        if (canary.candidateError !== undefined) detail.error = canary.candidateError;
+        if (candidateFailed(canary, target)) detail.error = canary.candidateError;
         this.abort(region, "canary_failed", detail);
         return;
       }
@@ -266,7 +266,7 @@ class Stepper {
       const canary = this.canaryOf(placements);
       if (canary === undefined || targetFailed(canary, target)) {
         const detail: Record<string, unknown> = canary === undefined ? {} : { placementId: canary.id };
-        if (canary?.candidateError !== undefined) detail.error = canary.candidateError;
+        if (canary !== undefined && candidateFailed(canary, target)) detail.error = canary.candidateError;
         this.abort(region, "canary_failed", detail);
         return;
       }
@@ -294,7 +294,7 @@ class Stepper {
       const failed = inflight.find((p) => targetFailed(p, target));
       if (failed !== undefined) {
         const detail: Record<string, unknown> = { placementId: failed.id };
-        if (failed.candidateError !== undefined) detail.error = failed.candidateError;
+        if (candidateFailed(failed, target)) detail.error = failed.candidateError;
         this.abort(region, "wave_failed", detail);
         return;
       }
