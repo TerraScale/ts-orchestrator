@@ -2600,8 +2600,8 @@ export class FleetDO extends DurableObject<Env> {
       case "scale_pool_up": {
         if (oci === null) return false;
         const pool = await oci.getInstancePool(action.ociRegion, action.poolId);
-        const newSize = Math.min(action.maxSize, Math.max(pool.size, action.observedWorkers) + 1);
-        if (newSize > pool.size) {
+        if (pool.size <= action.observedWorkers && pool.size < action.maxSize) {
+          const newSize = Math.min(action.maxSize, action.observedWorkers + 1);
           await oci.updateInstancePool(action.ociRegion, action.poolId, newSize, pool.etag);
           this.recordEvent("pool_scale_up", action.poolId, { newSize, reason: action.reason }, action.region);
         }
@@ -3553,15 +3553,19 @@ export class FleetDO extends DurableObject<Env> {
     const sealed = row.key_pem_enc;
     let keyPem: string | null;
     if (sealed.startsWith("plain.")) {
-      console.error("Unencrypted TLS key detected in the fleet store; sealing it before use");
       keyPem = sealed.slice("plain.".length);
-      const encrypted = await this.sealKey(keyPem, requestUrl);
-      const updated = this.sql.exec<{ id: string }>(
-        "UPDATE tls_certs SET key_pem_enc = ? WHERE id = 'shared' AND key_pem_enc = ? RETURNING id",
-        encrypted,
-        sealed,
-      ).toArray()[0];
-      if (updated === undefined) return this.loadTls(requestUrl);
+      try {
+        const encrypted = await this.sealKey(keyPem, requestUrl);
+        const updated = this.sql.exec<{ id: string }>(
+          "UPDATE tls_certs SET key_pem_enc = ? WHERE id = 'shared' AND key_pem_enc = ? RETURNING id",
+          encrypted,
+          sealed,
+        ).toArray()[0];
+        if (updated === undefined) return this.loadTls(requestUrl);
+        console.warn("Sealed a plaintext TLS key in the fleet store");
+      } catch (error) {
+        console.error("Could not seal the stored TLS key; using the existing key", error);
+      }
     } else {
       keyPem = await this.openKey(sealed);
     }

@@ -302,13 +302,7 @@ class Stepper {
     }
 
     if (this.state.phase === "waves") {
-      const inflight = this.ctx.placements.filter((p) =>
-        p.serviceName === this.state.serviceName &&
-        p.region === region &&
-        p.desiredImage === target &&
-        p.nodeId !== undefined &&
-        (!runningTarget(p, target) || this.nodesById.get(p.nodeId)?.status === "down"),
-      );
+      const inflight = placements.filter((p) => p.desiredImage === target && !runningTarget(p, target));
       const failed = inflight.find((p) => targetFailed(p, target));
       if (failed !== undefined) {
         const detail: Record<string, unknown> = { placementId: failed.id };

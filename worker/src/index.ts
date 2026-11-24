@@ -52,7 +52,9 @@ const ATLAS_CORS_HEADERS: Record<string, string> = {
   "Access-Control-Max-Age": "86400",
 };
 const MEMORY_TTL_MS = 5_000;
-const KV_TTL_MS = 60_000;
+const TOPOLOGY_KV_TTL_MS = 60_000;
+const PLACEMENT_MISS_TTL_MS = 5_000;
+const PLACEMENT_MISSES_KEEP = 1_024;
 const STORE_TIMEOUT_MS = 2_500;
 const MAX_PUBLISH_BYTES = 128 * 1024;
 const PUBLIC_API_PATHS: ReadonlySet<string> = new Set(["/api/auth/ssh/challenge", "/api/auth/ssh/verify", "/api/nodes/enroll"]);
@@ -79,6 +81,7 @@ interface ReadResult<T> {
 }
 
 const memory = new Map<string, MemoryEntry>();
+const placementMisses = new Map<string, number>();
 
 function atlasError(code: string, message: string, fix: string, status: number, extra?: Record<string, string>): Response {
   return Response.json({ error: { code, message, fix } }, { status, headers: { ...ATLAS_CORS_HEADERS, ...extra } });
@@ -95,6 +98,15 @@ function remember(key: string, entry: AtlasCacheRecord<AtlasRecord>): void {
     if (oldest.done !== true) memory.delete(oldest.value);
   }
   memory.set(key, { ...entry, remembered: Date.now() });
+}
+
+function rememberPlacementMiss(key: string): void {
+  placementMisses.delete(key);
+  if (placementMisses.size >= PLACEMENT_MISSES_KEEP) {
+    const oldest = placementMisses.keys().next();
+    if (oldest.done !== true) placementMisses.delete(oldest.value);
+  }
+  placementMisses.set(key, Date.now());
 }
 
 function current(at: number, ttl: number): boolean {
@@ -129,19 +141,22 @@ async function load<T extends AtlasRecord>(
   key: string,
   read: () => Promise<T | null>,
 ): Promise<ReadResult<T>> {
+  const placement = key !== TOPOLOGY_KEY;
   let cached = memory.get(key);
   if (cached !== undefined && current(cached.remembered, MEMORY_TTL_MS) && available(cached.doc)) {
     return { doc: cached.doc as T, cache: "HIT", stale: false };
+  }
+  const missedAt = placementMisses.get(key);
+  if (missedAt !== undefined && current(missedAt, PLACEMENT_MISS_TTL_MS)) {
+    return { doc: null, cache: "HIT", stale: false };
   }
   try {
     const kv = await env.ATLAS_KV.get<AtlasCacheRecord<T>>(key, "json");
     const latest = memory.get(key) ?? cached;
     cached = latest;
-    if (kv?.doc != null && typeof kv.at === "number" &&
-        (latest === undefined || kv.doc.updated > latest.doc.updated ||
-         (kv.doc.updated === latest.doc.updated && kv.at >= latest.at))) {
+    if (kv?.doc != null && typeof kv.at === "number" && (latest === undefined || kv.doc.updated >= latest.doc.updated)) {
       cached = { ...kv, remembered: 0 };
-      if (current(kv.at, KV_TTL_MS) && available(kv.doc)) {
+      if ((placement || current(kv.at, TOPOLOGY_KV_TTL_MS)) && available(kv.doc)) {
         remember(key, kv);
         return { doc: kv.doc, cache: "HIT", stale: false };
       }
@@ -163,6 +178,7 @@ async function load<T extends AtlasRecord>(
     return { doc: latest.doc as T, cache: "HIT", stale: false };
   }
   if (doc !== null) remember(key, cacheRecord(doc));
+  if (placement && (doc === null || !available(doc))) rememberPlacementMiss(key);
   return { doc, cache: "MISS", stale: false };
 }
 
@@ -470,6 +486,7 @@ async function publish(request: Request, env: Env): Promise<Response> {
     );
   } finally {
     memory.clear();
+    placementMisses.clear();
   }
 }
 
