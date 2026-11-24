@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using TsOrch.Oci;
 
 namespace TsOrch.Agent;
 
@@ -17,7 +18,7 @@ public sealed record class PlacementPlan(
     public bool RequiresStopStart => Service.Mode == PlacementMode.Stateful || Service.Mounts.Count > 0 || Service.UdpPorts.Count > 0;
 }
 
-public sealed record class PlacementPromoted(IReadOnlySet<string> LiveConfigurations);
+public sealed record class PlacementPromoted(IReadOnlySet<string> LiveConfigurations, string PulledImage);
 
 public sealed record class InvalidPlacementPort(string PlacementId, int Port)
 {
@@ -52,6 +53,9 @@ public readonly union PlacementRetirement(PlacementRetired, PlacementDrainPendin
 
 public sealed class ContainerSwapper(
     DockerEngineClient docker,
+    OciRegistryAuthClient registryAuth,
+    OciImdsClient imds,
+    OciEnvironment ociEnvironment,
     IHttpClientFactory httpClientFactory,
     RouteObserver routes,
     PlacementTracker tracker,
@@ -61,6 +65,8 @@ public sealed class ContainerSwapper(
 {
     public const string ProbeClientName = "ts-orch-probe";
     private static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(1);
+
+    private string? _ociRegion;
 
     private int StopTimeoutSeconds => (int)Math.Ceiling(options.ContainerStopTimeout.TotalSeconds);
 
@@ -251,21 +257,17 @@ public sealed class ContainerSwapper(
             await ReportAsync(plan, PlacementState.Pulling, null, null, null, null, cancellationToken);
         }
 
-        var pulled = await docker.PullImageAsync(plan.Service.Image, null, cancellationToken);
-        var pullError = pulled switch
+        var pullOutcome = await PullImageForPlanAsync(plan.Service.Image, cancellationToken);
+        if (pullOutcome is not string pulledImage)
         {
-            DockerRequestCompleted => null,
-            DockerResourceMissing failure => failure.Message,
-            DockerDaemonUnavailable failure => failure.Message,
-            DockerResponseInvalid failure => failure.Message,
-            DockerImagePullRejected failure => failure.Message,
-        };
-        if (pullError is not null)
-        {
-            return new PlacementImagePullFailed(plan.Service.Image, pullError);
+            return pullOutcome switch
+            {
+                PlacementImagePullFailed pullFailure => pullFailure,
+                _ => new PlacementImagePullFailed(plan.Service.Image, "Unexpected image pull state."),
+            };
         }
 
-        await onImagePulled(plan.Service.Image, cancellationToken);
+        await onImagePulled(pulledImage, cancellationToken);
         List<ManagedContainer> previous = [.. existing.Where(static container => container.Running)];
         if (plan.RequiresStopStart && previous is [var first, ..])
         {
@@ -285,23 +287,123 @@ public sealed class ContainerSwapper(
             }
         }
 
-        var candidate = await LaunchAsync(plan, ports, serving is null || plan.RequiresStopStart, cancellationToken);
+        var candidate = await LaunchAsync(plan, pulledImage, ports, serving is null || plan.RequiresStopStart, cancellationToken);
         return candidate switch
         {
-            ReadyCandidate ready => await PromoteAsync(plan, previous, ready, cancellationToken),
+            ReadyCandidate ready => await PromoteAsync(plan, pulledImage, previous, ready, cancellationToken),
             PlacementCreateFailed failed => await RestoreAsync(plan, serving, failed, failed.Message, cancellationToken),
             PlacementStartFailed failed => await RestoreAsync(plan, serving, failed, failed.Message, cancellationToken),
             PlacementProbeFailed failed => await RestoreAsync(plan, serving, failed, failed.Message, cancellationToken),
         };
     }
 
-    private async Task<CandidateLaunch> LaunchAsync(PlacementPlan plan, IReadOnlyList<PortMapping> ports, bool reportStarting, CancellationToken cancellationToken)
+    private async Task<ImagePullAttempt> PullImageForPlanAsync(string canonicalImage, CancellationToken cancellationToken)
+    {
+        if (OciRegistryAuthClient.ExtractOciRegistryHost(canonicalImage) is null)
+        {
+            var plain = await docker.PullImageAsync(canonicalImage, null, cancellationToken);
+            return MapDockerPull(canonicalImage, plain);
+        }
+
+        if (await ResolveLocalOciImageAsync(canonicalImage, cancellationToken) is { } localImage)
+        {
+            var localOutcome = await PullOciImageAsync(localImage, cancellationToken);
+            if (localOutcome is string pulledLocal)
+            {
+                return pulledLocal;
+            }
+        }
+
+        return await PullOciImageAsync(canonicalImage, cancellationToken);
+    }
+
+    private async Task<string?> ResolveLocalOciImageAsync(string canonicalImage, CancellationToken cancellationToken)
+    {
+        if (ociEnvironment is not OciCloud)
+        {
+            return null;
+        }
+
+        var region = Volatile.Read(ref _ociRegion);
+        if (region is null)
+        {
+            if (await imds.GetIdentityAsync(cancellationToken) is OciInstanceIdentity identity && !string.IsNullOrWhiteSpace(identity.Region))
+            {
+                region = identity.Region;
+                Volatile.Write(ref _ociRegion, region);
+            }
+        }
+
+        return region is null ? null : OciRegistryAuthClient.RewriteForRegion(canonicalImage, region);
+    }
+
+    private async Task<ImagePullAttempt> PullOciImageAsync(string image, CancellationToken cancellationToken)
+    {
+        if (OciRegistryAuthClient.ExtractOciRegistryHost(image) is not { } host)
+        {
+            return new PlacementImagePullFailed(image, $"OCIR image '{image}' has no valid OCIR registry host.");
+        }
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var auth = await registryAuth.GetDockerAuthHeaderAsync(host, cancellationToken);
+            if (auth is not DockerRegistryAuth credentials)
+            {
+                return new PlacementImagePullFailed(image, DescribeRegistryAuthFailure(auth));
+            }
+
+            var pulled = await docker.PullImageAsync(image, credentials.HeaderValue, cancellationToken);
+            if (pulled is DockerImagePullRejected rejected && attempt == 0 && IsRegistryAuthError(rejected.Error))
+            {
+                await registryAuth.InvalidateHostAsync(host, cancellationToken);
+                continue;
+            }
+
+            return MapDockerPull(image, pulled);
+        }
+
+        return new PlacementImagePullFailed(image, $"OCIR pull of '{image}' exhausted auth retries.");
+    }
+
+    private static ImagePullAttempt MapDockerPull(string image, DockerImagePull outcome) => outcome switch
+    {
+        DockerRequestCompleted => image,
+        DockerResourceMissing failure => new PlacementImagePullFailed(image, failure.Message),
+        DockerDaemonUnavailable failure => new PlacementImagePullFailed(image, failure.Message),
+        DockerResponseInvalid failure => new PlacementImagePullFailed(image, failure.Message),
+        DockerImagePullRejected failure => new PlacementImagePullFailed(image, failure.Message),
+    };
+
+    private static bool IsRegistryAuthError(string error) =>
+        error.Contains("401", StringComparison.Ordinal)
+        || error.Contains("403", StringComparison.Ordinal)
+        || error.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+        || error.Contains("authentication required", StringComparison.OrdinalIgnoreCase)
+        || error.Contains("denied", StringComparison.OrdinalIgnoreCase);
+
+    private static string DescribeRegistryAuthFailure(RegistryAuthLookup lookup) => lookup switch
+    {
+        RegistryAuthDenied denied => denied.Message,
+        RegistryAuthUnavailable unavailable => unavailable.Message,
+        RegistryAuthInvalid invalid => invalid.Message,
+        ImdsRequestRejected rejected => rejected.Message,
+        ImdsUnavailable unavailable => unavailable.Message,
+        ImdsDocumentInvalid invalid => invalid.Message,
+        InvalidFederationCredentials invalid => invalid.Message,
+        FederationRejected rejected => rejected.Message,
+        FederationUnavailable unavailable => unavailable.Message,
+        FederationTokenInvalid invalid => invalid.Message,
+        _ => "OCIR registry authorization failed.",
+    };
+
+    private async Task<CandidateLaunch> LaunchAsync(PlacementPlan plan, string pulledImage, IReadOnlyList<PortMapping> ports, bool reportStarting, CancellationToken cancellationToken)
     {
         var spec = new DockerContainerSpec(
             $"{options.LabelPrefix}-{plan.PlacementId}-{plan.ConfigHash[..12]}",
             plan.Service.Image, options.LabelPrefix, plan.PlacementId, plan.Service.Name, plan.ConfigHash,
             plan.Env, plan.Mounts, plan.Service.Args, ports, ContainerResources.For(plan.Service, options.EnableCgroupParent),
-            Stateful: plan.Service.Mode == PlacementMode.Stateful);
+            Stateful: plan.Service.Mode == PlacementMode.Stateful,
+            PullImage: pulledImage);
         var created = await docker.CreateContainerAsync(spec, cancellationToken);
         return created switch
         {
@@ -351,12 +453,14 @@ public sealed class ContainerSwapper(
         };
     }
 
-    private async Task<PlacementPromoted> PromoteAsync(PlacementPlan plan, IReadOnlyList<ManagedContainer> previous, ReadyCandidate ready, CancellationToken cancellationToken)
+    private async Task<PlacementPromoted> PromoteAsync(PlacementPlan plan, string pulledImage, IReadOnlyList<ManagedContainer> previous, ReadyCandidate ready, CancellationToken cancellationToken)
     {
         await ReportAsync(plan, PlacementState.Ready, ready.Ports, null, null, null, cancellationToken);
         AgentLog.PlacementReady(logger, plan.PlacementId, plan.Service.Image, plan.ConfigHash, ready.Ports.Http);
-        return new PlacementPromoted(await RetirePreviousAsync(plan.Desired, plan.ConfigHash, previous, ready.Ports, cancellationToken));
+        return new PlacementPromoted(await RetirePreviousAsync(plan.Desired, plan.ConfigHash, previous, ready.Ports, cancellationToken), pulledImage);
     }
+
+    private readonly union ImagePullAttempt(string, PlacementImagePullFailed);
 
     private async Task<T> RestoreAsync<T>(PlacementPlan plan, ManagedContainer? serving, T failure, string failureMessage, CancellationToken cancellationToken)
     {

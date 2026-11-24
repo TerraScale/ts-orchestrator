@@ -623,3 +623,16 @@ resource "oci_core_instance_pool" "worker" {
     ignore_changes = [size]
   }
 }
+
+resource "oci_artifacts_container_repository" "this" {
+  for_each = toset(var.ocir_repositories)
+
+  compartment_id = var.compartment_id
+  display_name   = each.key
+  is_public      = false
+  is_immutable   = false
+
+  freeform_tags = {
+    "ts-region" = var.label
+  }
+}

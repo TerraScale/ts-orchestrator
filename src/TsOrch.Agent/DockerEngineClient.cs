@@ -213,7 +213,7 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
         }
 
         var body = new DockerCreateContainerRequest(
-            spec.Image,
+            spec.PullImage ?? spec.Image,
             [.. spec.Env.OrderBy(static pair => pair.Key, StringComparer.Ordinal).Select(static pair => $"{pair.Key}={pair.Value}")],
             spec.Args.Count == 0 ? null : spec.Args,
             labels,
