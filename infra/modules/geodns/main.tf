@@ -127,15 +127,6 @@ resource "oci_dns_steering_policy" "geo" {
   rules {
     rule_type = "PRIORITY"
 
-    dynamic "default_answer_data" {
-      for_each = var.regions
-
-      content {
-        answer_condition = "answer.pool == '${default_answer_data.key}'"
-        value            = lookup(local.fallback_rank, default_answer_data.key, length(var.rollout_order))
-      }
-    }
-
     dynamic "cases" {
       for_each = local.region_cases
 
@@ -149,6 +140,17 @@ resource "oci_dns_steering_policy" "geo" {
             answer_condition = "answer.pool == '${answer_data.key}'"
             value            = answer_data.key == cases.key ? 0 : 1 + lookup(local.fallback_rank, answer_data.key, length(var.rollout_order))
           }
+        }
+      }
+    }
+
+    cases {
+      dynamic "answer_data" {
+        for_each = var.regions
+
+        content {
+          answer_condition = "answer.pool == '${answer_data.key}'"
+          value            = lookup(local.fallback_rank, answer_data.key, length(var.rollout_order))
         }
       }
     }
