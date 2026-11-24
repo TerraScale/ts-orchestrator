@@ -32,6 +32,7 @@ export interface CanaryBreach {
 export const DEFAULT_CANARY_BAKE_MS = 15_000;
 export const WAVE_FRACTION = 0.25;
 export const CANARY_READY_GRACE_MS = 120_000;
+const MAX_WAVE_READY_MS = 30 * 60_000;
 export const MIN_CANARY_REQUESTS = 20;
 
 type RolloutEvent = RolloutStep["events"][number];
@@ -270,7 +271,12 @@ class Stepper {
         this.abort(region, "canary_failed", detail);
         return;
       }
-      const breach = canaryBreach(this.metricsFor(canary.nodeId, this.state.canaryStartedAt), this.state);
+      if (!runningTarget(canary, target)) {
+        this.abort(region, "canary_lost_readiness", { placementId: canary.id });
+        return;
+      }
+      const metrics = this.metricsFor(canary.nodeId, this.state.canaryStartedAt);
+      const breach = canaryBreach(metrics, this.state);
       if (breach !== null) {
         this.abort(region, `canary_${breach.metric}_breach`, {
           placementId: canary.id,
@@ -281,16 +287,28 @@ class Stepper {
         return;
       }
       const bake = this.ctx.canaryBakeMs ?? DEFAULT_CANARY_BAKE_MS;
-      if (this.ctx.nowMs - (this.state.canaryStartedAt ?? this.ctx.nowMs) < bake) return;
+      this.state.canaryStartedAt ??= this.ctx.nowMs;
+      if (this.ctx.nowMs - this.state.canaryStartedAt < bake) return;
       this.state.phase = "waves";
       delete this.state.waveStartedAt;
       this.events.push(
-        event("canary_passed", this.state.serviceName, { rolloutId: this.state.id, placementId: canary.id }, region),
+        event("canary_passed", this.state.serviceName, {
+          rolloutId: this.state.id,
+          placementId: canary.id,
+          requests: metrics?.requests ?? 0,
+          evaluatedTraffic: (metrics?.requests ?? 0) >= MIN_CANARY_REQUESTS,
+        }, region),
       );
     }
 
     if (this.state.phase === "waves") {
-      const inflight = placements.filter((p) => p.desiredImage === target && !runningTarget(p, target));
+      const inflight = this.ctx.placements.filter((p) =>
+        p.serviceName === this.state.serviceName &&
+        p.region === region &&
+        p.desiredImage === target &&
+        p.nodeId !== undefined &&
+        (!runningTarget(p, target) || this.nodesById.get(p.nodeId)?.status === "down"),
+      );
       const failed = inflight.find((p) => targetFailed(p, target));
       if (failed !== undefined) {
         const detail: Record<string, unknown> = { placementId: failed.id };
@@ -299,10 +317,9 @@ class Stepper {
         return;
       }
       if (inflight.length > 0) {
-        const waveStartedAt = this.state.waveStartedAt ?? this.ctx.nowMs;
-        this.state.waveStartedAt = waveStartedAt;
-        const limit = this.ctx.service.readyTimeoutSeconds * 1000 + CANARY_READY_GRACE_MS;
-        if (this.ctx.nowMs - waveStartedAt > limit) {
+        this.state.waveStartedAt ??= this.state.canaryStartedAt ?? this.state.startedAt;
+        const limit = Math.min(this.ctx.service.readyTimeoutSeconds * 1000 + CANARY_READY_GRACE_MS, MAX_WAVE_READY_MS);
+        if (this.ctx.nowMs - this.state.waveStartedAt >= limit) {
           this.abort(region, "wave_not_ready", { placementIds: inflight.map((p) => p.id) });
         }
         return;

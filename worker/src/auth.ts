@@ -127,7 +127,10 @@ function hmacKey(secret: string): Promise<CryptoKey> {
     key = crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
       "sign",
       "verify",
-    ]);
+    ]).catch((error: unknown) => {
+      if (hmacKeys.get(secret) === key) hmacKeys.delete(secret);
+      throw error;
+    });
     hmacKeys.set(secret, key);
   }
   return key;

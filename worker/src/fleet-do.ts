@@ -34,7 +34,7 @@ import {
   type AutoscaleAction,
 } from "./autoscaler";
 import type { Env } from "./env";
-import { OciRestClient } from "./oci-client";
+import { isOciRegion, OciRestClient } from "./oci-client";
 import type {
   AgentMessage,
   AtlasPlacement,
@@ -125,6 +125,8 @@ const IDLE_ALARM_INTERVAL_MS = 30_000;
 const METRICS_10S_RETENTION_MS = 3600_000;
 const METRICS_1M_RETENTION_MS = 48 * 3600_000;
 const EVENTS_KEEP = 2000;
+const ROLLOUT_HISTORY_KEEP = 200;
+const SERVICE_ROLLBACK_HISTORY_KEEP = 20;
 const TOPOLOGY_REFRESH_MS = 20_000;
 const AUTOSCALE_INTERVAL_MS = 30_000;
 const EDGE_FRESH_MS = 30_000;
@@ -410,15 +412,6 @@ function parseJson<T>(text: string | null, fallback: T): T {
   }
 }
 
-function fingerprint(text: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return `${hash.toString(16)}:${text.length}`;
-}
-
 function finite(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -511,7 +504,10 @@ function isManagementUrl(value: string): boolean {
 function isIpv4(value: string): boolean {
   const parts = value.split(".");
   if (parts.length !== 4) return false;
-  return parts.every((part) => /^(0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255);
+  return parts.every((part) => {
+    const octet = Number(part);
+    return Number.isInteger(octet) && octet >= 0 && octet <= 255 && String(octet) === part;
+  });
 }
 
 function vcnAddress(ip: string, cidr: string | undefined, localDev: boolean): boolean {
@@ -555,7 +551,7 @@ function metricsBucket(ts: number): number {
 function ipv6GroupCount(part: string): number | null {
   if (part.length === 0) return 0;
   const groups = part.split(":");
-  if (groups.some((group) => !/^[0-9a-fA-F]{1,4}$/.test(group))) return null;
+  if (groups.some((group) => group.length === 0 || group.length > 4 || /[^0-9a-fA-F]/.test(group))) return null;
   return groups.length;
 }
 
@@ -834,7 +830,8 @@ function parseFleetConfig(input: unknown): FleetConfig | string {
   if (!Array.isArray(input.regions) || input.regions.length === 0) return "fleet.regions must be a non-empty list";
   for (const region of input.regions) {
     if (!isRecord(region) || typeof region.label !== "string" || !REGION_RE.test(region.label)) return "every region needs a label";
-    if (typeof region.ociRegion !== "string" || typeof region.compartmentId !== "string") return `${region.label}: ociRegion and compartmentId are required`;
+    if (typeof region.ociRegion !== "string" || !isOciRegion(region.ociRegion)) return `${region.label}: ociRegion is invalid`;
+    if (typeof region.compartmentId !== "string") return `${region.label}: compartmentId is required`;
     if (region.instancePoolId !== undefined && typeof region.instancePoolId !== "string") {
       return `${region.label}: instancePoolId must be a string`;
     }
@@ -862,6 +859,8 @@ export class FleetDO extends DurableObject<Env> {
   private readonly eventSubscribers = new Set<EventSubscriber>();
   private ociClient: Promise<OciRestClient | null> | undefined;
   private tlsEnsureInFlight: Promise<unknown> | undefined;
+  private nodeSyncPending = Promise.resolve();
+  private topologyPublishPending = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -1131,10 +1130,11 @@ export class FleetDO extends DurableObject<Env> {
     return this.sockets(nodeId).length > 0;
   }
 
-  private send(nodeId: string, message: BackplaneMessage): number {
+  private send(nodeId: string, message: BackplaneMessage, sockets = this.sockets(nodeId)): number {
     const payload = JSON.stringify(message);
     let sent = 0;
-    for (const ws of this.sockets(nodeId)) {
+    for (const ws of sockets) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
       try {
         ws.send(payload);
         sent++;
@@ -1445,7 +1445,8 @@ export class FleetDO extends DurableObject<Env> {
       hint !== null
         ? this.loadNodeRow(hint)
         : this.sql.exec<NodeRow>("SELECT * FROM nodes WHERE token_hash = ?", await hashNodeToken(token)).toArray()[0];
-    if (row === undefined || !(await verifyNodeToken(token, row.token_hash))) {
+    if (row === undefined || !(await verifyNodeToken(token, row.token_hash)) ||
+        this.loadNodeRow(row.id)?.token_hash !== row.token_hash) {
       return errorJson(401, "unauthorized", "Invalid node token", "Re-enroll the node.");
     }
     for (const ws of this.sockets(row.id)) this.closeSocket(ws, 4001, "replaced");
@@ -1505,13 +1506,13 @@ export class FleetDO extends DurableObject<Env> {
           if (parsed.error !== undefined) report.error = parsed.error;
           this.touchNode(attachment.nodeId, now);
           if (this.applyReport(attachment.nodeId, report, now)) {
-            this.pushRoutes(attachment.poolKind === "stateful" ? undefined : attachment.region);
+            await this.syncNodes("routes", attachment.poolKind === "stateful" ? undefined : attachment.region);
           }
           await this.advanceRollouts(now);
           break;
         }
         case "drain_complete":
-          this.onDrainComplete(attachment, now);
+          await this.onDrainComplete(attachment, now);
           break;
         case "volume_grown":
           this.onVolumeGrown(attachment, parsed.volumePath, parsed.newSizeGiB);
@@ -1616,7 +1617,8 @@ export class FleetDO extends DurableObject<Env> {
     this.recordEvent("node_connected", attachment.nodeId, { previous, agentVersion: hello.agentVersion, status }, attachment.region);
     this.deleteState(`sent_desired:${attachment.nodeId}`);
     this.deleteState(`sent_routes:${attachment.nodeId}`);
-    this.reconcile(now);
+    if (status === "draining") this.send(attachment.nodeId, { type: "drain", reason: row.drain_reason ?? "draining" });
+    await this.reconcile(now);
     this.replayVolumeGrow(attachment.nodeId);
     const tls = await this.loadTls();
     if (tls !== null) this.sendTls(attachment.nodeId, tls);
@@ -1731,12 +1733,12 @@ export class FleetDO extends DurableObject<Env> {
     const chaosDisk = this.chaosState(now).disk[attachment.nodeId];
     if (chaosDisk !== undefined) this.setVolumeUsage(attachment.nodeId, chaosDisk.usedPct);
     if (reconcileNeeded) {
-      this.reconcile(now);
+      await this.reconcile(now);
       await this.publishTopology(now, false);
     } else if (netbirdChanged) {
-      this.pushRoutes();
+      await this.syncNodes("routes");
     } else if (routesChanged) {
-      this.pushRoutes(attachment.poolKind === "stateful" ? undefined : attachment.region);
+      await this.syncNodes("routes", attachment.poolKind === "stateful" ? undefined : attachment.region);
       await this.publishTopology(now, false);
     }
     await this.advanceRollouts(now);
@@ -1933,12 +1935,12 @@ export class FleetDO extends DurableObject<Env> {
     );
   }
 
-  private onDrainComplete(attachment: Attachment, now: number): void {
+  private async onDrainComplete(attachment: Attachment, now: number): Promise<void> {
     const row = this.loadNodeRow(attachment.nodeId);
     if (row === undefined) return;
     this.sql.exec("UPDATE nodes SET status = 'drained', drain_requested = 1, last_seen_at = ? WHERE id = ?", now, attachment.nodeId);
     this.recordEvent("node_drained", attachment.nodeId, {}, attachment.region);
-    this.reconcile(now);
+    await this.reconcile(now);
   }
 
   private onVolumeGrown(attachment: Attachment, volumePath: string, newSizeGiB: number): void {
@@ -2009,7 +2011,7 @@ export class FleetDO extends DurableObject<Env> {
       });
   }
 
-  private reconcile(now: number): void {
+  private async reconcile(now: number): Promise<void> {
     const regions = this.loadRegions();
     const labels = new Set(regions.map((region) => region.label));
     const nodes = this.loadNodes();
@@ -2094,15 +2096,24 @@ export class FleetDO extends DurableObject<Env> {
       }
       this.setState("unschedulable", unschedulable);
     });
-    this.pushRoutes();
-    this.pushDesired();
+    await this.syncNodes("all");
   }
 
-  private pushDesired(): void {
+  private syncNodes(kind: "all" | "desired" | "routes", region?: string): Promise<void> {
+    const sync = this.nodeSyncPending.then(async () => {
+      if (kind !== "desired") await this.pushRoutes(region);
+      if (kind !== "routes") await this.pushDesired();
+    });
+    this.nodeSyncPending = sync.then(() => undefined, () => undefined);
+    return sync;
+  }
+
+  private async pushDesired(): Promise<void> {
     const services = new Map(this.loadServices().map((service) => [service.name, service]));
     const placements = this.loadPlacements();
     for (const node of this.loadNodes()) {
-      if (!this.connected(node.id)) continue;
+      const sockets = this.sockets(node.id);
+      if (sockets.length === 0) continue;
       const desired: DesiredPlacement[] = placements
         .filter((placement) => placement.nodeId === node.id)
         .flatMap((placement) => {
@@ -2120,20 +2131,21 @@ export class FleetDO extends DurableObject<Env> {
           }
           return [entry];
         });
-      const fp = fingerprint(JSON.stringify(desired));
+      const fp = await sha256Hex(JSON.stringify(desired));
       const key = `sent_desired:${node.id}`;
       if (this.getState<string>(key) === fp) continue;
-      if (this.send(node.id, { type: "sync_desired", revision: this.nextRevision(), placements: desired }) > 0) this.setState(key, fp);
+      if (this.send(node.id, { type: "sync_desired", revision: this.nextRevision(), placements: desired }, sockets) > 0) this.setState(key, fp);
     }
   }
 
-  private pushRoutes(onlyRegion?: string): void {
+  private async pushRoutes(onlyRegion?: string): Promise<void> {
     const services = this.loadServices();
     const placements = this.loadPlacements();
     const nodes = this.loadNodes();
     for (const node of nodes) {
       if (onlyRegion !== undefined && node.region !== onlyRegion) continue;
-      if (!this.connected(node.id)) continue;
+      const sockets = this.sockets(node.id);
+      if (sockets.length === 0) continue;
       const routes = computeRoutes(node.region, services, placements, nodes, node.id);
       const clusterPeers = computeClusterPeers(nodes, placements, services, node.id);
       const payload = {
@@ -2142,14 +2154,14 @@ export class FleetDO extends DurableObject<Env> {
         ...(routes.internalRoutes.length > 0 ? { internalRoutes: routes.internalRoutes } : {}),
         ...(clusterPeers.length > 0 ? { clusterPeers } : {}),
       };
-      const fp = fingerprint(JSON.stringify(payload));
+      const fp = await sha256Hex(JSON.stringify(payload));
       const key = `sent_routes:${node.id}`;
       if (this.getState<string>(key) === fp) continue;
       const sent = this.send(node.id, {
         type: "sync_routes",
         revision: this.nextRevision(),
         ...payload,
-      });
+      }, sockets);
       if (sent > 0) this.setState(key, fp);
     }
   }
@@ -2203,10 +2215,17 @@ export class FleetDO extends DurableObject<Env> {
     return { v: 1, regions: atlasRegions, services: fleet.atlas.services };
   }
 
-  private async publishTopology(now: number, force: boolean): Promise<{ published: boolean; result?: unknown; error?: string }> {
+  private publishTopology(now: number, force: boolean): Promise<{ published: boolean; result?: unknown; error?: string }> {
+    const publish = this.topologyPublishPending.then(() => this.publishTopologySnapshot(now, force));
+    this.topologyPublishPending = publish.then(() => undefined, () => undefined);
+    return publish;
+  }
+
+  private async publishTopologySnapshot(at: number, force: boolean): Promise<{ published: boolean; result?: unknown; error?: string }> {
+    const now = Math.max(at, Date.now());
     const body = this.buildTopology(now);
     if (body === null) return { published: false, error: "fleet_not_seeded" };
-    const fp = fingerprint(JSON.stringify(body));
+    const fp = await sha256Hex(JSON.stringify(body));
     const last = this.getState<{ fp: string; updated: number; at: number }>("topology_published");
     const changed = last === null || last.fp !== fp;
     const nowSeconds = Math.floor(now / 1000);
@@ -2244,21 +2263,41 @@ export class FleetDO extends DurableObject<Env> {
     }
   }
 
+  private async runMaintenanceTask(task: string, run: () => unknown, errorKey?: string): Promise<void> {
+    try {
+      await run();
+    } catch (error) {
+      console.error("fleet alarm task failed", task, error);
+      if (errorKey !== undefined) {
+        try {
+          this.setState(errorKey, { at: Date.now(), message: error instanceof Error ? error.message : String(error) });
+        } catch (storageError) {
+          console.error("fleet alarm error could not be recorded", task, storageError);
+        }
+      }
+    }
+  }
+
   override async alarm(): Promise<void> {
     const now = Date.now();
     try {
-      this.markDownNodes(now);
-      this.prune(now);
-      this.reconcile(now);
-      await this.advanceRollouts(now);
-      this.retryPendingVolumeGrows(now);
-      await this.runAutoscaler(now);
-      await this.maybeAutoEnsureTls(now);
-      await this.publishTopology(now, false);
-    } catch (error) {
-      console.error("fleet alarm failed", error);
+      await this.runMaintenanceTask("mark_down_nodes", () => this.markDownNodes(now));
+      await this.runMaintenanceTask("prune", () => this.prune(now));
+      await this.runMaintenanceTask("reconcile", () => this.reconcile(now));
+      await this.runMaintenanceTask("rollouts", () => this.advanceRollouts(now));
+      await this.runMaintenanceTask("pending_volume_grows", () => this.retryPendingVolumeGrows(now));
+      this.ctx.waitUntil(this.runMaintenanceTask("tls", () => this.maybeAutoEnsureTls(now), "tls_error"));
+      await Promise.all([
+        this.runMaintenanceTask("autoscaler", () => this.runAutoscaler(now), "last_autoscale_error"),
+        this.runMaintenanceTask("topology", () => this.publishTopology(now, false), "topology_error"),
+      ]);
     } finally {
-      await this.scheduleNextAlarm();
+      try {
+        await this.scheduleNextAlarm();
+      } catch (error) {
+        console.error("fleet alarm scheduling failed; scheduling the next regular tick", error);
+        await this.ctx.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
+      }
     }
   }
 
@@ -2279,6 +2318,22 @@ export class FleetDO extends DurableObject<Env> {
     this.sql.exec("DELETE FROM metrics_1m WHERE ts < ?", now - METRICS_1M_RETENTION_MS);
     this.sql.exec("DELETE FROM auth_challenges WHERE expires_at < ?", now);
     this.sql.exec("DELETE FROM events WHERE id <= (SELECT id FROM events ORDER BY id DESC LIMIT 1 OFFSET ?)", EVENTS_KEEP);
+    this.ctx.storage.transactionSync(() => {
+      const removed = this.sql.exec<{ id: string }>(
+        `WITH service_history AS (
+          SELECT r.id, ROW_NUMBER() OVER (PARTITION BY r.service_name ORDER BY r.started_at DESC, r.id DESC) AS position
+          FROM rollouts r JOIN services s ON s.name = r.service_name
+        )
+        DELETE FROM rollouts
+        WHERE state IN ('succeeded', 'rolled_back', 'failed')
+          AND id NOT IN (SELECT id FROM rollouts ORDER BY started_at DESC, id DESC LIMIT ?)
+          AND id NOT IN (SELECT id FROM service_history WHERE position <= ?)
+        RETURNING id`,
+        ROLLOUT_HISTORY_KEEP,
+        SERVICE_ROLLBACK_HISTORY_KEEP,
+      ).toArray();
+      for (const { id } of removed) this.deleteState(`rollout_by:${id}`);
+    });
   }
 
   private latestEdgeByNode(now: number): Map<string, NodeEdgeMetrics> {
@@ -2408,8 +2463,7 @@ export class FleetDO extends DurableObject<Env> {
       }
     }
     if (changed) {
-      this.pushRoutes();
-      this.pushDesired();
+      await this.syncNodes("all");
     }
     const wakeAt = this.nextBakeDeadline(now);
     if (wakeAt !== null) await this.ensureAlarm(Math.max(250, wakeAt - Date.now()));
@@ -2446,7 +2500,10 @@ export class FleetDO extends DurableObject<Env> {
           privateKeyPem: `-----BEGIN PRIVATE KEY-----\n${lines.join("\n")}\n-----END PRIVATE KEY-----\n`,
           baseUrlOverride: base,
         });
-      })();
+      })().catch((error: unknown) => {
+        this.ociClient = undefined;
+        throw error;
+      });
     }
     return this.ociClient;
   }
@@ -2508,7 +2565,7 @@ export class FleetDO extends DurableObject<Env> {
         });
       }
     }
-    if (reschedule) this.reconcile(now);
+    if (reschedule) await this.reconcile(now);
   }
 
   private async enrolledInstanceId(row: NodeRow): Promise<string | null> {
@@ -2543,12 +2600,11 @@ export class FleetDO extends DurableObject<Env> {
       case "scale_pool_up": {
         if (oci === null) return false;
         const pool = await oci.getInstancePool(action.ociRegion, action.poolId);
-        if (pool?.size !== undefined && pool.size >= action.newSize) {
-          cooldowns.set(poolScaleUpCooldownKey(action.region), now);
-          return false;
+        const newSize = Math.min(action.maxSize, Math.max(pool.size, action.observedWorkers) + 1);
+        if (newSize > pool.size) {
+          await oci.updateInstancePool(action.ociRegion, action.poolId, newSize, pool.etag);
+          this.recordEvent("pool_scale_up", action.poolId, { newSize, reason: action.reason }, action.region);
         }
-        await oci.updateInstancePool(action.ociRegion, action.poolId, action.newSize);
-        this.recordEvent("pool_scale_up", action.poolId, { newSize: action.newSize, reason: action.reason }, action.region);
         cooldowns.set(poolScaleUpCooldownKey(action.region), now);
         return false;
       }
@@ -2829,6 +2885,8 @@ export class FleetDO extends DurableObject<Env> {
       unschedulable,
       atlas: { databases: counts, topology: this.getState("topology_published"), error: this.getState("topology_error") },
       tls: tls === undefined ? null : { domains: parseJson<string[]>(tls.domains_json, []), notAfter: tls.not_after, renewedAt: tls.renewed_at },
+      tls_error: this.getState("tls_error"),
+      last_autoscale_error: this.getState("last_autoscale_error"),
       localDev: this.env.LOCAL_DEV === "true",
       version: this.env.VERSION ?? "dev",
     };
@@ -3101,8 +3159,8 @@ export class FleetDO extends DurableObject<Env> {
       }
       this.recordEvent("chaos", "fleet_seed", { by: principal.owner, regions: labels, added, replaced, skipped });
     });
-    this.reconcile(now);
-    this.ctx.waitUntil(this.maybeAutoEnsureTls(now));
+    await this.reconcile(now);
+    this.ctx.waitUntil(this.runMaintenanceTask("tls", () => this.maybeAutoEnsureTls(now), "tls_error"));
     const topology = await this.publishTopology(now, true);
     await this.ensureAlarm(ALARM_INTERVAL_MS);
     return { regions: labels, services: { added, replaced, skipped }, topology };
@@ -3165,7 +3223,7 @@ export class FleetDO extends DurableObject<Env> {
         applied.push(entry);
       }
     });
-    this.reconcile(now);
+    await this.reconcile(now);
     await this.advanceRollouts(now);
     await this.ensureAlarm(ALARM_INTERVAL_MS);
     return { applied };
@@ -3185,7 +3243,7 @@ export class FleetDO extends DurableObject<Env> {
       this.setState("replica_overrides", overrides);
       this.recordEvent("replica_scale_down", name, { reason: "service_deleted", by: principal.owner });
     });
-    this.reconcile(now);
+    await this.reconcile(now);
     await this.publishTopology(now, false);
     return { deleted: name };
   }
@@ -3271,7 +3329,7 @@ export class FleetDO extends DurableObject<Env> {
     if (typeof body.service !== "string") throw new HttpError(400, "validation", "service is required");
     const region = typeof body.region === "string" ? body.region : undefined;
     const rows = this.sql
-      .exec<RolloutRow>("SELECT * FROM rollouts WHERE service_name = ? ORDER BY started_at DESC LIMIT 20", body.service)
+      .exec<RolloutRow>("SELECT * FROM rollouts WHERE service_name = ? ORDER BY started_at DESC, id DESC LIMIT ?", body.service, SERVICE_ROLLBACK_HISTORY_KEEP)
       .toArray()
       .map((row) => this.rolloutFromRow(row));
     const activeGlobal = region !== undefined ? rows.find((rollout) => rollout.region === undefined && !TERMINAL_PHASES.has(rollout.phase)) : undefined;
@@ -3299,7 +3357,7 @@ export class FleetDO extends DurableObject<Env> {
     if (target.phase === "succeeded" && target.previousImage !== undefined && region === undefined) {
       this.setServiceImage(target.serviceName, target.previousImage, now);
     }
-    this.pushDesired();
+    await this.syncNodes("desired");
     await this.ensureAlarm(ALARM_INTERVAL_MS);
     return step.rollout;
   }
@@ -3312,7 +3370,7 @@ export class FleetDO extends DurableObject<Env> {
     this.send(nodeId, { type: "drain", reason });
     this.recordEvent("node_drained", nodeId, { phase: "requested", reason }, row.region);
     const now = Date.now();
-    this.reconcile(now);
+    await this.reconcile(now);
     await this.publishTopology(now, false);
     await this.ensureAlarm(ALARM_INTERVAL_MS);
     return this.nodeFromRow(this.loadNodeRow(nodeId) ?? row);
@@ -3326,7 +3384,7 @@ export class FleetDO extends DurableObject<Env> {
     const status: NodeStatus = live ? "active" : row.status === "pending" ? "pending" : "down";
     this.sql.exec("UPDATE nodes SET drain_requested = 0, drain_reason = NULL, status = ? WHERE id = ?", status, nodeId);
     this.recordEvent("node_connected", nodeId, { phase: "activated", status }, row.region);
-    this.reconcile(now);
+    await this.reconcile(now);
     await this.publishTopology(now, false);
     return this.nodeFromRow(this.loadNodeRow(nodeId) ?? row);
   }
@@ -3334,7 +3392,10 @@ export class FleetDO extends DurableObject<Env> {
   private async deleteNode(nodeId: string, force: boolean, principal: Principal): Promise<{ deleted: string }> {
     const row = this.loadNodeRow(nodeId);
     if (row === undefined) throw new HttpError(404, "not_found", `Node ${nodeId} does not exist`);
-    if (!force) {
+    if (!force && row.pool_kind === "stateful" && (row.status !== "down" || this.connected(nodeId))) {
+      throw new HttpError(409, "conflict", `Stateful node ${nodeId} must be down and disconnected`, "Decommission the node first or pass --force.");
+    }
+    if (!force && row.pool_kind !== "stateful") {
       if (row.status === "active") {
         throw new HttpError(409, "conflict", `Node ${nodeId} is still active`, "Drain the node first or pass --force.");
       }
@@ -3358,7 +3419,7 @@ export class FleetDO extends DurableObject<Env> {
       this.deleteState(`volume_grow:${nodeId}`);
       this.recordEvent("node_lost", nodeId, { phase: "removed", force, by: principal.owner }, row.region);
     });
-    this.reconcile(now);
+    await this.reconcile(now);
     await this.publishTopology(now, false);
     return { deleted: nodeId };
   }
@@ -3472,7 +3533,6 @@ export class FleetDO extends DurableObject<Env> {
   }
 
   private async openKey(sealed: string): Promise<string | null> {
-    if (sealed.startsWith("plain.")) return sealed.slice("plain.".length);
     const primary = await this.tlsKey();
     if (primary !== null) {
       const opened = await this.openKeyWith(sealed, primary);
@@ -3487,10 +3547,24 @@ export class FleetDO extends DurableObject<Env> {
     return null;
   }
 
-  private async loadTls(): Promise<TlsBundle | null> {
+  private async loadTls(requestUrl?: URL): Promise<TlsBundle | null> {
     const row = this.sql.exec<TlsRow>("SELECT * FROM tls_certs WHERE id = 'shared'").toArray()[0];
     if (row === undefined) return null;
-    const keyPem = await this.openKey(row.key_pem_enc);
+    const sealed = row.key_pem_enc;
+    let keyPem: string | null;
+    if (sealed.startsWith("plain.")) {
+      console.error("Unencrypted TLS key detected in the fleet store; sealing it before use");
+      keyPem = sealed.slice("plain.".length);
+      const encrypted = await this.sealKey(keyPem, requestUrl);
+      const updated = this.sql.exec<{ id: string }>(
+        "UPDATE tls_certs SET key_pem_enc = ? WHERE id = 'shared' AND key_pem_enc = ? RETURNING id",
+        encrypted,
+        sealed,
+      ).toArray()[0];
+      if (updated === undefined) return this.loadTls(requestUrl);
+    } else {
+      keyPem = await this.openKey(sealed);
+    }
     if (keyPem === null) return null;
     return { domains: parseJson<string[]>(row.domains_json, []), certPem: row.cert_pem, keyPem, notAfter: row.not_after };
   }
@@ -3555,11 +3629,7 @@ export class FleetDO extends DurableObject<Env> {
     if ((await this.loadTls()) !== null) return;
     const lastError = this.getState<{ at?: number }>("tls_error");
     if (lastError !== null && typeof lastError.at === "number" && now - lastError.at < TLS_RETRY_BACKOFF_MS) return;
-    try {
-      await this.ensureTls();
-    } catch (error) {
-      console.error("automatic TLS provisioning failed", error);
-    }
+    await this.ensureTls();
   }
 
   private async ensureTls(requestUrl?: URL): Promise<unknown> {
@@ -3573,7 +3643,7 @@ export class FleetDO extends DurableObject<Env> {
 
   private async ensureTlsInner(requestUrl?: URL): Promise<unknown> {
     const now = Date.now();
-    const current = await this.loadTls();
+    const current = await this.loadTls(requestUrl);
     const directoryUrl = this.env.ACME_DIRECTORY_URL ?? LETS_ENCRYPT_DIRECTORY;
     const config: TlsManagerConfig = {
       domains: this.tlsDomains(),
@@ -3631,7 +3701,7 @@ export class FleetDO extends DurableObject<Env> {
       services: this.loadServices(),
       nodes: this.loadNodes(),
       placements: this.loadPlacements(),
-      rollouts: this.loadRollouts(false, 200),
+      rollouts: this.loadRollouts(false, ROLLOUT_HISTORY_KEEP),
       replicaOverrides: this.replicaOverrides(),
       tlsCerts: tls.map((row) => ({
         id: row.id,
@@ -3656,7 +3726,7 @@ export class FleetDO extends DurableObject<Env> {
         this.sql.exec("UPDATE nodes SET status = 'down', last_seen_at = 0 WHERE id = ?", body.nodeId);
         this.recordEvent("chaos", body.nodeId, { kind: body.kind, by: principal.owner }, row.region);
         this.recordEvent("node_lost", body.nodeId, { reason: "chaos" }, row.region);
-        this.reconcile(now);
+        await this.reconcile(now);
         await this.publishTopology(now, false);
         return { kind: body.kind, nodeId: body.nodeId };
       }

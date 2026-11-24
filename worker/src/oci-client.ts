@@ -81,6 +81,11 @@ function base64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+export function isOciRegion(value: string): boolean {
+  return value.length > 0 && value.length <= 63 && !/[^a-z0-9-]/.test(value) &&
+    !value.startsWith("-") && !value.endsWith("-");
+}
+
 export class OciRestClient {
   readonly #credentials: OciCredentials;
   #key: Promise<CryptoKey> | undefined;
@@ -93,15 +98,18 @@ export class OciRestClient {
     return `${this.#credentials.tenancyId}/${this.#credentials.userId}/${this.#credentials.fingerprint}`;
   }
 
-  async getInstancePool(ociRegion: string, poolId: string): Promise<{ size?: number } | null> {
-    const { data } = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`);
-    const record = object(data);
-    if (record === undefined) return null;
-    return typeof record.size === "number" ? { size: record.size } : {};
+  async getInstancePool(ociRegion: string, poolId: string): Promise<{ size: number; etag: string }> {
+    const { data, headers } = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`);
+    const size = object(data)?.size;
+    const etag = headers.get("etag");
+    if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0 || !etag) {
+      throw new Error("OCI instance pool response is missing a valid size or ETag");
+    }
+    return { size, etag };
   }
 
-  updateInstancePool(ociRegion: string, poolId: string, size: number): Promise<unknown> {
-    return this.#request(ociRegion, "PUT", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`, { size });
+  updateInstancePool(ociRegion: string, poolId: string, size: number, etag: string): Promise<unknown> {
+    return this.#request(ociRegion, "PUT", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`, { size }, etag);
   }
 
   detachPoolInstance(ociRegion: string, poolId: string, instanceId: string): Promise<unknown> {
@@ -174,6 +182,7 @@ export class OciRestClient {
   }
 
   baseUrl(ociRegion: string): string {
+    if (!isOciRegion(ociRegion)) throw new Error("Invalid OCI region");
     const override = this.#credentials.baseUrlOverride;
     if (override !== undefined && override.length > 0) return override.replace(/\/+$/, "");
     return `https://iaas.${ociRegion}.oraclecloud.com`;
@@ -187,7 +196,10 @@ export class OciRestClient {
         { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
         false,
         ["sign"],
-      );
+      ).catch((error: unknown) => {
+        this.#key = undefined;
+        throw error;
+      });
     }
     return this.#key;
   }

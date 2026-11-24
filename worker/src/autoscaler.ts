@@ -23,7 +23,8 @@ export type AutoscaleAction =
       ociRegion: string;
       compartmentId: string;
       poolId: string;
-      newSize: number;
+      observedWorkers: number;
+      maxSize: number;
       reason: string;
     }
   | { kind: "drain_for_scale_down"; region: string; nodeId: string; reason: string }
@@ -285,7 +286,7 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
     const workers = regionNodes
       .filter((node) => node.poolKind === "worker")
       .sort((a, b) => compareText(a.id, b.id));
-    const live = workers.filter((node) => node.status !== "down" && node.status !== "drained");
+    const observedWorkers = workers.filter((node) => node.status !== "down").length;
     const poolId = input.poolIds?.get(region.label);
     if (poolId === undefined) continue;
     const upKey = poolScaleUpCooldownKey(region.label);
@@ -296,7 +297,7 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
 
     if (unschedulable.length > 0 || hot) {
       if (
-        live.length < region.pools.worker.max &&
+        observedWorkers < region.pools.worker.max &&
         cooled(cooldowns, upKey, input.nowMs, POOL_UP_COOLDOWN_MS)
       ) {
         const reason =
@@ -309,7 +310,8 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
           ociRegion: region.ociRegion,
           compartmentId: region.compartmentId,
           poolId,
-          newSize: live.length + 1,
+          observedWorkers,
+          maxSize: region.pools.worker.max,
           reason,
         });
       }
