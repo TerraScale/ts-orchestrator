@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Net.Sockets;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
@@ -18,19 +19,23 @@ public static class EdgeServer
         builder.Services.AddRateLimiter(limiter =>
         {
             limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            limiter.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, bool>(context =>
+            limiter.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, (bool Exempt, IPAddress? Peer)>(context =>
             {
                 var port = context.Connection.LocalPort;
-                return (options.InternalTerraBasePort > 0 && port == options.InternalTerraBasePort)
+                if ((options.InternalTerraBasePort > 0 && port == options.InternalTerraBasePort)
                     || (options.InternalPlatformPort > 0 && port == options.InternalPlatformPort)
-                    || (port == options.HttpPort && EdgeDrainCoordinator.IsReadinessProbe(context.Request))
-                    ? RateLimitPartition.GetNoLimiter(false)
-                    : RateLimitPartition.GetTokenBucketLimiter(true, static _ => new TokenBucketRateLimiterOptions
+                    || (port == options.HttpPort && EdgeDrainCoordinator.IsReadinessProbe(context.Request)))
+                {
+                    return RateLimitPartition.GetNoLimiter<(bool Exempt, IPAddress? Peer)>((true, null));
+                }
+
+                return RateLimitPartition.GetTokenBucketLimiter((false, RateLimitPeer(context.Connection.RemoteIpAddress)),
+                    static _ => new TokenBucketRateLimiterOptions
                     {
-                        TokenLimit = 4_000,
-                        TokensPerPeriod = 200,
+                        TokenLimit = 1_500,
+                        TokensPerPeriod = 75,
                         ReplenishmentPeriod = TimeSpan.FromMilliseconds(100),
-                        AutoReplenishment = true,
+                        AutoReplenishment = false,
                         QueueLimit = 0,
                     });
             });
@@ -59,6 +64,24 @@ public static class EdgeServer
         await app.RunAsync(cancellationToken);
     }
 
+    private static IPAddress? RateLimitPeer(IPAddress? address)
+    {
+        if (address is not { AddressFamily: AddressFamily.InterNetworkV6 })
+        {
+            return address;
+        }
+
+        if (address.IsIPv4MappedToIPv6)
+        {
+            return address.MapToIPv4();
+        }
+
+        Span<byte> prefix = stackalloc byte[16];
+        address.TryWriteBytes(prefix, out _);
+        prefix[8..].Clear();
+        return new IPAddress(prefix);
+    }
+
     private static void ConfigureLogging(LoggerFilterOptions filters)
     {
         filters.Rules.Insert(0, new LoggerFilterRule(null, null, filters.MinLevel, null));
@@ -72,8 +95,9 @@ public static class EdgeServer
     }
 
     private static bool AllowsFrameworkLog(string? category, LogLevel level) =>
-        category is null || (!category.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase)
-            && !category.StartsWith("Yarp", StringComparison.OrdinalIgnoreCase)
+        category is null || (!category.StartsWith("Yarp", StringComparison.OrdinalIgnoreCase)
+            && !category.StartsWith("Microsoft.AspNetCore.Hosting.Diagnostics", StringComparison.OrdinalIgnoreCase)
+            && !category.StartsWith("Microsoft.AspNetCore.HttpLogging", StringComparison.OrdinalIgnoreCase)
             && (level >= LogLevel.Warning || !category.StartsWith("Microsoft", StringComparison.OrdinalIgnoreCase)));
 
     private static Task DispatchAsync(HttpContext context, EdgeServerOptions options, EdgeDrainCoordinator drain, EdgeProxy proxy)

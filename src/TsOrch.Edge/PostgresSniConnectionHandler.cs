@@ -20,6 +20,8 @@ public sealed partial class PostgresSniConnectionHandler(
 {
     private const int MaxConnections = 1_024;
     private const int MaxConnectionsPerPeer = 128;
+    private const int MaxHandshakes = 128;
+    private const int MaxHandshakesPerPeer = 32;
     private const int CopyBufferSize = 16 * 1024;
     private const int NegotiationLength = 8;
     private const int SslRequestCode = 80877103;
@@ -28,6 +30,7 @@ public sealed partial class PostgresSniConnectionHandler(
 
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan IdleCheckInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan AdmissionWarningInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(3);
     private static readonly byte[] SslAccepted = [(byte)'S'];
@@ -37,8 +40,9 @@ public sealed partial class PostgresSniConnectionHandler(
         "ts-orch edge requires TLS with SNI for Postgres connections; connect with sslmode=require or stronger");
 
     private readonly Lock _connectionGate = new();
-    private readonly Dictionary<IPAddress, int> _connectionsByPeer = [];
-    private int _connectionCount;
+    private readonly Dictionary<IPAddress, AdmissionCounts> _admissionByPeer = [];
+    private AdmissionCounts _admission;
+    private long? _lastAdmissionWarning;
 
     public override async Task OnConnectedAsync(ConnectionContext connection)
     {
@@ -57,7 +61,7 @@ public sealed partial class PostgresSniConnectionHandler(
         metrics.PostgresConnectionOpened();
         try
         {
-            var outcome = await NegotiateAsync(connection);
+            var outcome = await NegotiateAsync(connection, peer);
             await (outcome switch
             {
                 NegotiationRejected rejected => RejectAsync(connection, rejected),
@@ -71,41 +75,64 @@ public sealed partial class PostgresSniConnectionHandler(
         finally
         {
             metrics.PostgresConnectionClosed();
-            Release(peer);
+            ReleaseConnection(peer);
         }
     }
 
     private bool TryAdmit(IPAddress peer)
     {
+        AdmissionCounts total;
+        AdmissionCounts peerCounts;
         lock (_connectionGate)
         {
-            var active = _connectionsByPeer.GetValueOrDefault(peer);
-            if (_connectionCount >= MaxConnections || active >= MaxConnectionsPerPeer)
+            total = _admission;
+            peerCounts = _admissionByPeer.GetValueOrDefault(peer);
+            if (total.Connections < MaxConnections && peerCounts.Connections < MaxConnectionsPerPeer
+                && total.Handshakes < MaxHandshakes && peerCounts.Handshakes < MaxHandshakesPerPeer)
+            {
+                _admission = new(total.Connections + 1, total.Handshakes + 1);
+                _admissionByPeer[peer] = new(peerCounts.Connections + 1, peerCounts.Handshakes + 1);
+                return true;
+            }
+
+            var now = timeProvider.GetTimestamp();
+            if (_lastAdmissionWarning is { } last && timeProvider.GetElapsedTime(last, now) < AdmissionWarningInterval)
             {
                 return false;
             }
 
-            _connectionsByPeer[peer] = active + 1;
-            _connectionCount++;
-            return true;
+            _lastAdmissionWarning = now;
         }
+
+        LogAdmissionRejected(logger, total.Connections, peerCounts.Connections, total.Handshakes, peerCounts.Handshakes);
+        return false;
     }
 
-    private void Release(IPAddress peer)
+    private void ReleaseHandshake(IPAddress peer)
     {
         lock (_connectionGate)
         {
-            var remaining = _connectionsByPeer[peer] - 1;
-            if (remaining == 0)
+            var peerCounts = _admissionByPeer[peer];
+            _admissionByPeer[peer] = peerCounts with { Handshakes = peerCounts.Handshakes - 1 };
+            _admission = _admission with { Handshakes = _admission.Handshakes - 1 };
+        }
+    }
+
+    private void ReleaseConnection(IPAddress peer)
+    {
+        lock (_connectionGate)
+        {
+            var peerCounts = _admissionByPeer[peer];
+            if (peerCounts.Connections == 1)
             {
-                _connectionsByPeer.Remove(peer);
+                _admissionByPeer.Remove(peer);
             }
             else
             {
-                _connectionsByPeer[peer] = remaining;
+                _admissionByPeer[peer] = peerCounts with { Connections = peerCounts.Connections - 1 };
             }
 
-            _connectionCount--;
+            _admission = _admission with { Connections = _admission.Connections - 1 };
         }
     }
 
@@ -115,7 +142,7 @@ public sealed partial class PostgresSniConnectionHandler(
         return Task.CompletedTask;
     }
 
-    private async Task<Negotiation> NegotiateAsync(ConnectionContext connection)
+    private async Task<Negotiation> NegotiateAsync(ConnectionContext connection, IPAddress peer)
     {
         using var timeout = new CancellationTokenSource(HandshakeTimeout, timeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, connection.ConnectionClosed);
@@ -132,6 +159,10 @@ public sealed partial class PostgresSniConnectionHandler(
         catch (OperationCanceledException) when (timeout.IsCancellationRequested && !connection.ConnectionClosed.IsCancellationRequested)
         {
             return new NegotiationRejected("client did not complete TLS handshake before the timeout");
+        }
+        finally
+        {
+            ReleaseHandshake(peer);
         }
     }
 
@@ -393,6 +424,9 @@ public sealed partial class PostgresSniConnectionHandler(
         writer.Write([(byte)0]);
     }
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Postgres admission rejected at a connection or handshake limit. Connections: {Connections} total, {PeerConnections} for peer. Handshakes: {Handshakes} total, {PeerHandshakes} for peer.")]
+    private static partial void LogAdmissionRejected(ILogger logger, int connections, int peerConnections, int handshakes, int peerHandshakes);
+
     [LoggerMessage(Level = LogLevel.Information, Message = "Postgres connection {ConnectionId} rejected: {Reason}")]
     private static partial void LogNegotiationRejected(ILogger logger, string connectionId, string reason);
 
@@ -407,6 +441,8 @@ public sealed partial class PostgresSniConnectionHandler(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Postgres upstream {Address}:{Port} connect failed")]
     private static partial void LogUpstreamConnectFailed(ILogger logger, string address, int port, Exception exception);
+
+    private readonly record struct AdmissionCounts(int Connections, int Handshakes);
 
     private closed record class Negotiation;
 
