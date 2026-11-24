@@ -82,6 +82,7 @@ public enum EventKind
     [JsonStringEnumMemberName("secret_rotated")] SecretRotated,
     [JsonStringEnumMemberName("tls_renewed")] TlsRenewed,
     [JsonStringEnumMemberName("chaos")] Chaos,
+    [JsonStringEnumMemberName("container_exec")] ContainerExec,
 }
 
 public enum HealthState
