@@ -40,7 +40,7 @@ public sealed partial class EdgeProxy(
 
     private static readonly ForwarderRequestConfig EventStreamRequestConfig = new()
     {
-        ActivityTimeout = Timeout.InfiniteTimeSpan,
+        ActivityTimeout = TimeSpan.FromMinutes(5),
         Version = HttpVersion.Version11,
         VersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
     };
@@ -208,7 +208,8 @@ public sealed partial class EdgeProxy(
                 route.ServiceName,
                 context.Response.StatusCode,
                 timeProvider.GetElapsedTime(startedAt),
-                recordLatency: (ReferenceEquals(config, RequestConfig) || ReferenceEquals(config, InternalHttp2RequestConfig))
+                recordLatency: !ReferenceEquals(config, GrpcRequestConfig)
+                    && !ReferenceEquals(config, WebSocketRequestConfig)
                     && !IsEventStreamResponse(context.Response));
         }
     }
