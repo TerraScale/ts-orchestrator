@@ -17,9 +17,11 @@ public static class AgentServiceCollectionExtensions
             services.AddSingleton(options);
             services.AddSingleton(ociEnvironment);
             services.AddSingleton(timeProvider);
-            services.AddHttpClient(OciClientName, static client => client.Timeout = TimeSpan.FromSeconds(30));
+            services.AddHttpClient(OciClientName, static client => client.Timeout = TimeSpan.FromSeconds(30))
+                .ConfigurePrimaryHttpMessageHandler(static () => new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = false });
             services.AddHttpClient(NodeEnrollment.BackplaneClientName, static client => client.Timeout = TimeSpan.FromSeconds(30));
-            services.AddHttpClient(ContainerSwapper.ProbeClientName, static client => client.Timeout = TimeSpan.FromSeconds(5));
+            services.AddHttpClient(ContainerSwapper.ProbeClientName, static client => client.Timeout = TimeSpan.FromSeconds(5))
+                .ConfigurePrimaryHttpMessageHandler(static () => new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = false });
             services.AddHttpClient(NodeMaintenance.DownloadClientName, static client => client.Timeout = Timeout.InfiniteTimeSpan);
             services.AddSingleton(static provider => new OciImdsClient(OciHttpClient(provider), provider.GetRequiredService<OciEnvironment>()));
             services.AddSingleton<OciRequestSigner>();
@@ -57,7 +59,6 @@ public static class AgentServiceCollectionExtensions
             services.AddSingleton<BackplaneDispatcher>();
             services.AddSingleton<NodeAgentRunner>();
             services.AddHostedService(static provider => provider.GetRequiredService<ContainerReconciler>());
-            services.AddHostedService(static provider => provider.GetRequiredService<ImageGarbageCollector>());
             services.AddHostedService(static provider => provider.GetRequiredService<NodeMaintenance>());
             services.AddHostedService(static provider => provider.GetRequiredService<HostMetricsCollector>());
             services.AddHostedService(static provider => provider.GetRequiredService<NodeAgentRunner>());

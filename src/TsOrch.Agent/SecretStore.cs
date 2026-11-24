@@ -43,7 +43,7 @@ public sealed record class ServiceSecretUnreadable(SecretRef Reference, string M
 public readonly union ServiceSecretResolution(
     ResolvedServiceSecrets, InvalidSecretName, SecretNameCollision, InvalidServiceSecretReference, SecretReadSuperseded, ServiceSecretUnreadable);
 
-public sealed class SecretStore(OciVaultClient vault, AgentOptions options)
+public sealed class SecretStore(OciVaultClient vault, AgentOptions options, ILogger<SecretStore> logger)
 {
     public const string ContainerSecretsDirectory = "/run/secrets/ts-orch";
     private const string FileSuffix = "_FILE";
@@ -270,6 +270,30 @@ public sealed class SecretStore(OciVaultClient vault, AgentOptions options)
             {
                 Directory.Delete(generation, recursive: true);
             }
+        }
+    }
+
+    public void DeleteOrphanedPlacements(IReadOnlySet<string> retainedPlacements)
+    {
+        if (!Directory.Exists(options.SecretsDirectory))
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var directory in Directory.EnumerateDirectories(options.SecretsDirectory))
+            {
+                var placementId = Path.GetFileName(directory);
+                if (AgentNames.IsSafeToken(placementId) && !retainedPlacements.Contains(placementId))
+                {
+                    DeletePlacement(placementId);
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            AgentLog.SecretCleanupFailed(logger, options.SecretsDirectory, exception.Message);
         }
     }
 

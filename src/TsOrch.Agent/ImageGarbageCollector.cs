@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Microsoft.Extensions.Hosting;
 
 namespace TsOrch.Agent;
 
@@ -16,7 +15,7 @@ public readonly union ImageHistorySnapshot(ImageState, ImageHistoryUnreadable);
 
 public readonly union ImageHistoryUpdate(ImageHistoryRecorded, ImageHistoryUnreadable, ImageHistoryWriteFailed);
 
-public sealed class ImageHistoryStore(AgentOptions options) : IDisposable
+public sealed class ImageHistoryStore(AgentOptions options, TimeProvider timeProvider) : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private ImageState? _state;
@@ -28,7 +27,12 @@ public sealed class ImageHistoryStore(AgentOptions options) : IDisposable
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            return await LoadAsync(cancellationToken);
+            var loaded = await LoadAsync(cancellationToken);
+            return loaded switch
+            {
+                ImageState state => await StampUntrackedAsync(state, cancellationToken),
+                ImageHistoryUnreadable failure => failure,
+            };
         }
         finally
         {
@@ -37,7 +41,20 @@ public sealed class ImageHistoryStore(AgentOptions options) : IDisposable
     }
 
     public Task<ImageHistoryUpdate> RecordPulledAsync(string image, CancellationToken cancellationToken) =>
-        UpdateAsync(state => state.Pulled.Contains(image, StringComparer.Ordinal) ? state : state with { Pulled = [.. state.Pulled, image] }, cancellationToken);
+        UpdateAsync(
+            state =>
+            {
+                var timestamps = new Dictionary<string, DateTimeOffset>(state.PulledAt ?? Enumerable.Empty<KeyValuePair<string, DateTimeOffset>>(), StringComparer.Ordinal)
+                {
+                    [image] = timeProvider.GetUtcNow(),
+                };
+                return state with
+                {
+                    Pulled = state.Pulled.Contains(image, StringComparer.Ordinal) ? state.Pulled : [.. state.Pulled, image],
+                    PulledAt = timestamps,
+                };
+            },
+            cancellationToken);
 
     public Task<ImageHistoryUpdate> RecordActiveAsync(string serviceName, string image, CancellationToken cancellationToken) =>
         UpdateAsync(
@@ -58,7 +75,39 @@ public sealed class ImageHistoryStore(AgentOptions options) : IDisposable
             cancellationToken);
 
     public Task<ImageHistoryUpdate> ForgetPulledAsync(string image, CancellationToken cancellationToken) =>
-        UpdateAsync(state => state with { Pulled = [.. state.Pulled.Where(pulled => pulled != image)] }, cancellationToken);
+        UpdateAsync(
+            state =>
+            {
+                var timestamps = new Dictionary<string, DateTimeOffset>(state.PulledAt ?? Enumerable.Empty<KeyValuePair<string, DateTimeOffset>>(), StringComparer.Ordinal);
+                timestamps.Remove(image);
+                return state with { Pulled = [.. state.Pulled.Where(pulled => pulled != image)], PulledAt = timestamps };
+            },
+            cancellationToken);
+
+    private async Task<ImageHistorySnapshot> StampUntrackedAsync(ImageState state, CancellationToken cancellationToken)
+    {
+        var unknown = state.Pulled.Where(image => state.PulledAt?.ContainsKey(image) is not true).ToArray();
+        if (unknown.Length == 0)
+        {
+            return state;
+        }
+
+        var timestamps = new Dictionary<string, DateTimeOffset>(state.PulledAt ?? Enumerable.Empty<KeyValuePair<string, DateTimeOffset>>(), StringComparer.Ordinal);
+        var observedAt = timeProvider.GetUtcNow();
+        foreach (var image in unknown)
+        {
+            timestamps[image] = observedAt;
+        }
+
+        var next = state with { PulledAt = timestamps };
+        var saved = await SaveAsync(state, next, cancellationToken);
+        return saved switch
+        {
+            ImageHistoryRecorded => next,
+            ImageHistoryUnreadable failure => failure,
+            ImageHistoryWriteFailed failure => new ImageHistoryUnreadable(failure.Message),
+        };
+    }
 
     private async Task<ImageHistoryUpdate> UpdateAsync(Func<ImageState, ImageState> update, CancellationToken cancellationToken)
     {
@@ -135,18 +184,9 @@ public sealed class ImageGarbageCollector(
     ImageHistoryStore history,
     AgentOptions options,
     TimeProvider timeProvider,
-    ILogger<ImageGarbageCollector> logger) : BackgroundService
+    ILogger<ImageGarbageCollector> logger)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        using var timer = new PeriodicTimer(options.ImageGcInterval, timeProvider);
-        while (await timer.WaitForNextTickAsync(stoppingToken))
-        {
-            await CollectAsync(stoppingToken);
-        }
-    }
-
-    private async Task CollectAsync(CancellationToken cancellationToken)
+    internal async Task CollectAsync(CancellationToken cancellationToken)
     {
         var outcome = await history.SnapshotAsync(cancellationToken);
         var failure = outcome switch
@@ -201,7 +241,7 @@ public sealed class ImageGarbageCollector(
             if (pulledReferences.Count == 0
                 || usedImageIds.Contains(image.Id)
                 || retained.Any(reference => Matches(image, reference))
-                || image.Created > cutoff)
+                || pulledReferences.Any(reference => state.PulledAt?.TryGetValue(reference, out var pulledAt) is not true || pulledAt > cutoff))
             {
                 continue;
             }

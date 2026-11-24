@@ -195,6 +195,12 @@ public sealed class HostMetricsCollector(
     private async Task<IReadOnlyList<ContainerMetrics>> CollectContainersAsync(IReadOnlyList<ManagedContainer> containers, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(containers);
+        var placements = containers.Select(static container => container.PlacementId).ToHashSet(StringComparer.Ordinal);
+        foreach (var stale in _oomKills.Keys.Where(id => !placements.Contains(id)))
+        {
+            _oomKills.TryRemove(stale, out _);
+        }
+
         var running = containers.Where(static container => container.Running).ToList();
         ConcurrentBag<ContainerMetrics> collected = [];
         await Parallel.ForEachAsync(

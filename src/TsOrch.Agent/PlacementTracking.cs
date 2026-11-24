@@ -15,6 +15,13 @@ public sealed class AgentOutbox
 
     public ChannelReader<AgentMessage> Reader => _channel.Reader;
 
+    internal static Channel<LogChunk> CreateFollowedLogChannel() =>
+        Channel.CreateBounded<LogChunk>(new BoundedChannelOptions(256)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+        });
+
     public ValueTask EnqueueAsync(AgentMessage message, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);

@@ -8,12 +8,18 @@ namespace TsOrch.Agent;
 
 public static class ConfigHashCalculator
 {
-    public static string Compute(ServiceSpec service, IReadOnlyDictionary<string, long> secretVersions)
+    public static string Compute(ServiceSpec service, IReadOnlyDictionary<string, long> secretVersions, PlacementNetwork network)
     {
         ArgumentNullException.ThrowIfNull(service);
         ArgumentNullException.ThrowIfNull(secretVersions);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         AppendField(hash, "image", service.Image);
+        AppendField(hash, "container-policy", "1", network.VcnIp);
+        if (service.ClusterPeers && network.NetBirdIp is { } peerAddress)
+        {
+            AppendField(hash, "peer-address", peerAddress);
+        }
+
         foreach (var (key, value) in service.Env.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
         {
             AppendField(hash, "env", key, value);
