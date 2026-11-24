@@ -25,6 +25,7 @@ import {
   evaluateAutoscale,
   hasVolumeGrowthBudget,
   INSTANCE_ID_LABEL,
+  POOL_ENROLLMENT_GRACE_MS,
   poolScaleDownCooldownKey,
   poolScaleUpCooldownKey,
   VOLUME_GROW_GIB,
@@ -94,6 +95,7 @@ import {
   advanceRollout,
   createRollout,
   DEFAULT_CANARY_BAKE_MS,
+  MAX_CANARY_BAKE_MS,
   orderRegions,
   rollbackRollout,
   type NodeEdgeMetrics,
@@ -1156,7 +1158,8 @@ export class FleetDO extends DurableObject<Env> {
     let earliest: number | null = null;
     for (const rollout of rollouts) {
       if (rollout.phase !== "baking" || rollout.canaryStartedAt === undefined) continue;
-      const deadline = Math.max(now + 250, rollout.canaryStartedAt + DEFAULT_CANARY_BAKE_MS + 100);
+      const minimum = rollout.canaryStartedAt + DEFAULT_CANARY_BAKE_MS;
+      const deadline = now < minimum ? minimum : Math.max(now + 250, rollout.canaryStartedAt + MAX_CANARY_BAKE_MS);
       if (earliest === null || deadline < earliest) earliest = deadline;
     }
     return earliest;
@@ -1706,32 +1709,50 @@ export class FleetDO extends DurableObject<Env> {
 
   private async onHeartbeat(attachment: Attachment, heartbeat: HeartbeatMessage, now: number): Promise<void> {
     const row = this.loadNodeRow(attachment.nodeId);
-    if (row === undefined || now - row.last_heartbeat_at < MIN_HEARTBEAT_INTERVAL_MS) return;
-    const status = this.liveStatus(row);
-    const nextNetbirdIp =
-      typeof heartbeat.netbirdIp === "string" && heartbeat.netbirdIp.length > 0 ? heartbeat.netbirdIp : row.netbird_ip;
-    const netbirdChanged = nextNetbirdIp !== row.netbird_ip;
-    this.sql.exec(
-      "UPDATE nodes SET last_seen_at = ?, last_heartbeat_at = ?, status = ?, netbird_ip = ?, volumes_json = ? WHERE id = ?",
-      now,
-      now,
-      status,
-      nextNetbirdIp,
-      reportedVolumes(heartbeat.volumes) ?? row.volumes_json,
-      attachment.nodeId,
-    );
+    if (row === undefined) return;
+    const throttled = now - row.last_heartbeat_at < MIN_HEARTBEAT_INTERVAL_MS;
+    const rolloutPlacements = throttled
+      ? new Set(this.sql.exec<{ id: string }>(
+        "SELECT p.id FROM placements p JOIN rollouts r ON p.service_name = r.service_name AND p.region = r.current_region WHERE p.node_id = ? AND r.state IN ('canary', 'baking', 'waves')",
+        row.id,
+      ).toArray().map(({ id }) => id))
+      : null;
+    if (rolloutPlacements?.size === 0) return;
+
     let reconcileNeeded = false;
-    if (row.status === "down" || row.status === "pending") {
-      this.recordEvent("node_connected", attachment.nodeId, { previous: row.status }, attachment.region);
-      reconcileNeeded = true;
+    let netbirdChanged = false;
+    if (!throttled) {
+      const status = this.liveStatus(row);
+      const nextNetbirdIp =
+        typeof heartbeat.netbirdIp === "string" && heartbeat.netbirdIp.length > 0 ? heartbeat.netbirdIp : row.netbird_ip;
+      netbirdChanged = nextNetbirdIp !== row.netbird_ip;
+      this.sql.exec(
+        "UPDATE nodes SET last_seen_at = ?, last_heartbeat_at = ?, status = ?, netbird_ip = ?, volumes_json = ? WHERE id = ?",
+        now,
+        now,
+        status,
+        nextNetbirdIp,
+        reportedVolumes(heartbeat.volumes) ?? row.volumes_json,
+        attachment.nodeId,
+      );
+      if (row.status === "down" || row.status === "pending") {
+        this.recordEvent("node_connected", attachment.nodeId, { previous: row.status }, attachment.region);
+        reconcileNeeded = true;
+      }
     }
     let routesChanged = false;
     for (const report of Array.isArray(heartbeat.placements) ? heartbeat.placements : []) {
+      if (rolloutPlacements !== null && (!isRecord(report) || !rolloutPlacements.has(report.placementId))) continue;
       if (this.applyReport(attachment.nodeId, report, now)) routesChanged = true;
     }
-    if (isRecord(heartbeat.hostMetrics)) this.storeMetrics(attachment, heartbeat, now);
-    const chaosDisk = this.chaosState(now).disk[attachment.nodeId];
-    if (chaosDisk !== undefined) this.setVolumeUsage(attachment.nodeId, chaosDisk.usedPct);
+    let edge: NodeEdgeMetrics | undefined;
+    if (!throttled) {
+      if (isRecord(heartbeat.hostMetrics)) this.storeMetrics(attachment, heartbeat, now);
+      const chaosDisk = this.chaosState(now).disk[attachment.nodeId];
+      if (chaosDisk !== undefined) this.setVolumeUsage(attachment.nodeId, chaosDisk.usedPct);
+    } else if (isRecord(heartbeat.hostMetrics)) {
+      edge = this.nodeEdgeMetrics(this.applyChaos(attachment.nodeId, heartbeat, now).edge, now);
+    }
     if (reconcileNeeded) {
       await this.reconcile(now);
       await this.publishTopology(now, false);
@@ -1741,7 +1762,7 @@ export class FleetDO extends DurableObject<Env> {
       await this.syncNodes("routes", attachment.poolKind === "stateful" ? undefined : attachment.region);
       await this.publishTopology(now, false);
     }
-    await this.advanceRollouts(now);
+    await this.advanceRollouts(now, edge === undefined ? undefined : { nodeId: attachment.nodeId, edge });
   }
 
   private setVolumeUsage(nodeId: string, usedPct: number): void {
@@ -2336,21 +2357,24 @@ export class FleetDO extends DurableObject<Env> {
     });
   }
 
+  private nodeEdgeMetrics(snapshot: EdgeMetricsSnapshot | null | undefined, receivedAt: number): NodeEdgeMetrics | undefined {
+    if (!snapshot || !Array.isArray(snapshot.services)) return undefined;
+    let ts = finite(snapshot.ts, receivedAt);
+    if (ts < 1e12) ts *= 1000;
+    return { ts, windowSeconds: Math.max(0, finite(snapshot.windowSeconds)), services: snapshot.services };
+  }
+
   private latestEdgeByNode(now: number): Map<string, NodeEdgeMetrics> {
     const rows = this.sql
       .exec<{ node_id: string; ts: number; edge_json: string | null }>(
-        "SELECT m.node_id, m.ts, m.edge_json FROM metrics_10s m JOIN (SELECT node_id, MAX(ts) AS ts FROM metrics_10s WHERE ts >= ? GROUP BY node_id) latest ON latest.node_id = m.node_id AND latest.ts = m.ts",
+        "SELECT m.node_id, m.ts, m.edge_json FROM metrics_10s m JOIN (SELECT node_id, MAX(ts) AS ts FROM metrics_10s WHERE ts >= ? AND edge_json IS NOT NULL GROUP BY node_id) latest ON latest.node_id = m.node_id AND latest.ts = m.ts",
         now - EDGE_FRESH_MS,
       )
       .toArray();
     const out = new Map<string, NodeEdgeMetrics>();
     for (const row of rows) {
-      const edge = parseJson<EdgeMetricsSnapshot | null>(row.edge_json, null);
-      if (edge === null || !Array.isArray(edge.services)) continue;
-      let ts = finite(edge.ts, row.ts);
-      if (ts < 1e12) ts *= 1000;
-      const windowSeconds = Math.max(0, finite(edge.windowSeconds, 0));
-      out.set(row.node_id, { ts, windowSeconds, services: edge.services });
+      const edge = this.nodeEdgeMetrics(parseJson<EdgeMetricsSnapshot | null>(row.edge_json, null), row.ts);
+      if (edge !== undefined) out.set(row.node_id, edge);
     }
     return out;
   }
@@ -2434,13 +2458,16 @@ export class FleetDO extends DurableObject<Env> {
     this.sql.exec("UPDATE services SET image = ?, spec_json = ?, updated_at = ? WHERE name = ?", image, JSON.stringify(spec), now, name);
   }
 
-  private async advanceRollouts(now: number): Promise<void> {
+  private async advanceRollouts(now: number, heartbeat?: { nodeId: string; edge: NodeEdgeMetrics }): Promise<void> {
     const rollouts = this.loadRollouts(true);
     if (rollouts.length === 0) return;
     const nodes = this.loadNodes();
     const services = new Map(this.loadServices().map((service) => [service.name, service]));
     const order = this.rolloutOrder();
     const metrics = this.latestEdgeByNode(now);
+    if (heartbeat !== undefined && heartbeat.edge.ts >= (metrics.get(heartbeat.nodeId)?.ts ?? 0)) {
+      metrics.set(heartbeat.nodeId, heartbeat.edge);
+    }
     let changed = false;
     for (const rollout of rollouts) {
       const service = services.get(rollout.serviceName);
@@ -2600,12 +2627,29 @@ export class FleetDO extends DurableObject<Env> {
       case "scale_pool_up": {
         if (oci === null) return false;
         const pool = await oci.getInstancePool(action.ociRegion, action.poolId);
-        if (pool.size <= action.observedWorkers && pool.size < action.maxSize) {
-          const newSize = Math.min(action.maxSize, action.observedWorkers + 1);
-          await oci.updateInstancePool(action.ociRegion, action.poolId, newSize, pool.etag);
-          this.recordEvent("pool_scale_up", action.poolId, { newSize, reason: action.reason }, action.region);
+        const cooldownKey = poolScaleUpCooldownKey(action.region);
+        if (pool.size >= action.maxSize) {
+          cooldowns.set(cooldownKey, now);
+          return false;
         }
-        cooldowns.set(poolScaleUpCooldownKey(action.region), now);
+        if (pool.size > action.observedWorkers) {
+          const members = await oci.listInstancePoolInstances(action.ociRegion, action.poolId, action.compartmentId);
+          const enrolled = new Set(this.sql.exec<{ instance_id: string | null }>(
+            `SELECT json_extract(labels_json, '$."oci.instance-id"') AS instance_id FROM nodes WHERE region = ? AND pool_kind = 'worker' AND status != 'pending'`,
+            action.region,
+          ).toArray().map(({ instance_id }) => instance_id));
+          const bootCutoff = Date.now() - POOL_ENROLLMENT_GRACE_MS;
+          const enrolling = members.some(({ id, state, createdAt }) =>
+            !enrolled.has(id) && createdAt > bootCutoff && (state === "PROVISIONING" || state === "STARTING" || state === "RUNNING"),
+          );
+          const poolProvisioning = members.length < pool.size &&
+            (pool.state === "PROVISIONING" || pool.state === "STARTING" || pool.state === "SCALING");
+          if (enrolling || poolProvisioning) return false;
+        }
+        const newSize = Math.min(action.maxSize, Math.max(pool.size, action.observedWorkers) + 1);
+        await oci.updateInstancePool(action.ociRegion, action.poolId, newSize, pool.etag);
+        this.recordEvent("pool_scale_up", action.poolId, { newSize, reason: action.reason }, action.region);
+        cooldowns.set(cooldownKey, now);
         return false;
       }
       case "drain_for_scale_down": {

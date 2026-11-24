@@ -22,6 +22,7 @@ export class OciError extends Error {
 
 type Bytes = Uint8Array<ArrayBuffer>;
 type OciResponse = { data: unknown; headers: Headers };
+type PoolInstance = { id: string; state: string; createdAt: number };
 
 function object(value: unknown): Record<string, unknown> | undefined {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
@@ -98,14 +99,39 @@ export class OciRestClient {
     return `${this.#credentials.tenancyId}/${this.#credentials.userId}/${this.#credentials.fingerprint}`;
   }
 
-  async getInstancePool(ociRegion: string, poolId: string): Promise<{ size: number; etag: string }> {
+  async getInstancePool(ociRegion: string, poolId: string): Promise<{ size: number; state: string; etag: string }> {
     const { data, headers } = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`);
-    const size = object(data)?.size;
+    const record = object(data);
+    const size = record?.size;
+    const state = record?.lifecycleState;
     const etag = headers.get("etag");
-    if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0 || !etag) {
-      throw new Error("OCI instance pool response is missing a valid size or ETag");
+    if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0 || typeof state !== "string" || !etag) {
+      throw new Error("OCI instance pool response is missing a valid size, lifecycle state, or ETag");
     }
-    return { size, etag };
+    return { size, state, etag };
+  }
+
+  async listInstancePoolInstances(ociRegion: string, poolId: string, compartmentId: string): Promise<PoolInstance[]> {
+    const query = new URLSearchParams({ compartmentId, limit: "50" });
+    const instances: PoolInstance[] = [];
+    const seenPages = new Set<string>();
+    while (true) {
+      const { data, headers } = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/instances?${query}`);
+      if (!Array.isArray(data)) throw new Error("OCI instance pool response is missing its member list");
+      for (const entry of data) {
+        const record = object(entry);
+        const createdAt = typeof record?.timeCreated === "string" ? Date.parse(record.timeCreated) : NaN;
+        if (typeof record?.id !== "string" || typeof record.state !== "string" || !Number.isFinite(createdAt)) {
+          throw new Error("OCI instance pool member is missing its identity, state, or creation time");
+        }
+        instances.push({ id: record.id, state: record.state.toUpperCase(), createdAt });
+      }
+      const page = headers.get("opc-next-page");
+      if (!page) return instances;
+      if (seenPages.has(page)) throw new Error("OCI instance pool pagination repeated a page token");
+      seenPages.add(page);
+      query.set("page", page);
+    }
   }
 
   updateInstancePool(ociRegion: string, poolId: string, size: number, etag: string): Promise<unknown> {

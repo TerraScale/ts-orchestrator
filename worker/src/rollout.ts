@@ -30,6 +30,7 @@ export interface CanaryBreach {
 }
 
 export const DEFAULT_CANARY_BAKE_MS = 15_000;
+export const MAX_CANARY_BAKE_MS = 60_000;
 export const WAVE_FRACTION = 0.25;
 export const CANARY_READY_GRACE_MS = 120_000;
 const MAX_WAVE_READY_MS = 30 * 60_000;
@@ -210,15 +211,6 @@ class Stepper {
     return placements.find((p) => p.desiredImage === this.state.targetImage);
   }
 
-  metricsFor(nodeId: string | undefined, sinceMs?: number): EdgeServiceMetrics | undefined {
-    if (nodeId === undefined) return undefined;
-    const sample = this.ctx.latestMetricsByNode.get(nodeId);
-    if (sample === undefined) return undefined;
-    const windowStartMs = sample.ts - sample.windowSeconds * 1000;
-    if (sinceMs !== undefined && windowStartMs < sinceMs) return undefined;
-    return sample.services.find((m) => m.serviceName === this.state.serviceName);
-  }
-
   run(): void {
     if (this.state.phase === "pending") {
       this.events.push(
@@ -275,7 +267,12 @@ class Stepper {
         this.abort(region, "canary_lost_readiness", { placementId: canary.id });
         return;
       }
-      const metrics = this.metricsFor(canary.nodeId, this.state.canaryStartedAt);
+      this.state.canaryStartedAt ??= this.ctx.nowMs;
+      const sample = canary.nodeId === undefined ? undefined : this.ctx.latestMetricsByNode.get(canary.nodeId);
+      const serviceMetrics = sample?.services.find((metrics) => metrics.serviceName === this.state.serviceName);
+      const metrics = sample !== undefined && sample.ts - sample.windowSeconds * 1000 >= this.state.canaryStartedAt
+        ? serviceMetrics
+        : undefined;
       const breach = canaryBreach(metrics, this.state);
       if (breach !== null) {
         this.abort(region, `canary_${breach.metric}_breach`, {
@@ -286,9 +283,12 @@ class Stepper {
         });
         return;
       }
-      const bake = this.ctx.canaryBakeMs ?? DEFAULT_CANARY_BAKE_MS;
-      this.state.canaryStartedAt ??= this.ctx.nowMs;
-      if (this.ctx.nowMs - this.state.canaryStartedAt < bake) return;
+      const elapsed = this.ctx.nowMs - this.state.canaryStartedAt;
+      if (elapsed < (this.ctx.canaryBakeMs ?? DEFAULT_CANARY_BAKE_MS)) return;
+      const evaluatedTraffic = (metrics?.requests ?? 0) >= MIN_CANARY_REQUESTS;
+      const expectsTrafficMetrics = serviceMetrics !== undefined ||
+        this.ctx.service.hostnames.length > 0 || this.ctx.service.internalPort !== undefined;
+      if (!evaluatedTraffic && expectsTrafficMetrics && elapsed < MAX_CANARY_BAKE_MS) return;
       this.state.phase = "waves";
       delete this.state.waveStartedAt;
       this.events.push(
@@ -296,7 +296,7 @@ class Stepper {
           rolloutId: this.state.id,
           placementId: canary.id,
           requests: metrics?.requests ?? 0,
-          evaluatedTraffic: (metrics?.requests ?? 0) >= MIN_CANARY_REQUESTS,
+          evaluatedTraffic,
         }, region),
       );
     }
