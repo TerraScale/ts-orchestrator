@@ -15,6 +15,8 @@ public sealed partial class EdgeProxy(
     TimeProvider timeProvider,
     ILogger<EdgeProxy> logger) : IDisposable
 {
+    private const string EventStreamMediaType = "text/event-stream";
+
     private static readonly ForwarderRequestConfig RequestConfig = new()
     {
         ActivityTimeout = TimeSpan.FromSeconds(100),
@@ -34,6 +36,13 @@ public sealed partial class EdgeProxy(
         ActivityTimeout = Timeout.InfiniteTimeSpan,
         Version = HttpVersion.Version20,
         VersionPolicy = HttpVersionPolicy.RequestVersionExact,
+    };
+
+    private static readonly ForwarderRequestConfig EventStreamRequestConfig = new()
+    {
+        ActivityTimeout = TimeSpan.FromMinutes(5),
+        Version = HttpVersion.Version11,
+        VersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
     };
 
     private static readonly ForwarderRequestConfig WebSocketRequestConfig = new()
@@ -123,6 +132,102 @@ public sealed partial class EdgeProxy(
             || (octets[0] == 192 && octets[1] == 168);
     }
 
+    internal static bool IsEventStreamRequest(HttpRequest request)
+    {
+        foreach (var accept in request.Headers.Accept)
+        {
+            if (AcceptsEventStream(accept))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool AcceptsEventStream(ReadOnlySpan<char> accept)
+    {
+        while (true)
+        {
+            var end = IndexOfUnquoted(accept, ',');
+            var mediaRange = end < 0 ? accept : accept[..end];
+            if (IsEventStreamMediaType(mediaRange, out var parameters) && HasPositiveQuality(parameters))
+            {
+                return true;
+            }
+
+            if (end < 0)
+            {
+                return false;
+            }
+
+            accept = accept[(end + 1)..];
+        }
+    }
+
+    private static bool HasPositiveQuality(ReadOnlySpan<char> parameters)
+    {
+        while (true)
+        {
+            var end = IndexOfUnquoted(parameters, ';');
+            var parameter = end < 0 ? parameters : parameters[..end];
+            var separator = parameter.IndexOf('=');
+            if (separator > 0 && parameter[..separator].Trim().Equals("q", StringComparison.OrdinalIgnoreCase))
+            {
+                return IsPositiveQuality(parameter[(separator + 1)..].Trim());
+            }
+
+            if (end < 0)
+            {
+                return true;
+            }
+
+            parameters = parameters[(end + 1)..];
+        }
+    }
+
+    private static bool IsPositiveQuality(ReadOnlySpan<char> quality) => quality switch
+    {
+        ['1'] => true,
+        ['1', '.', .. var zeros] => zeros.Length <= 3 && !zeros.ContainsAnyExcept('0'),
+        ['0', '.', .. var digits] => digits.Length <= 3 && !digits.ContainsAnyExceptInRange('0', '9') && digits.ContainsAnyExcept('0'),
+        _ => false,
+    };
+
+    private static bool IsEventStreamMediaType(ReadOnlySpan<char> value, out ReadOnlySpan<char> parameters)
+    {
+        var separator = value.IndexOf(';');
+        parameters = separator < 0 ? [] : value[(separator + 1)..];
+        var mediaType = separator < 0 ? value : value[..separator];
+        return mediaType.Trim().Equals(EventStreamMediaType, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int IndexOfUnquoted(ReadOnlySpan<char> value, char delimiter)
+    {
+        var quoted = false;
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (quoted && character == '\\')
+            {
+                index++;
+            }
+            else if (character == '"')
+            {
+                quoted = !quoted;
+            }
+            else if (!quoted && character == delimiter)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool IsEventStreamResponse(HttpResponse response) =>
+        response.ContentType is { } contentType && IsEventStreamMediaType(contentType, out _);
+
     private static Task Respond(HttpContext context, int statusCode)
     {
         context.Response.StatusCode = statusCode;
@@ -135,7 +240,9 @@ public sealed partial class EdgeProxy(
             ? GrpcRequestConfig
             : forceHttp2
                 ? InternalHttp2RequestConfig
-                : context.WebSockets.IsWebSocketRequest ? WebSocketRequestConfig : RequestConfig;
+                : context.WebSockets.IsWebSocketRequest
+                    ? WebSocketRequestConfig
+                    : IsEventStreamRequest(context.Request) ? EventStreamRequestConfig : RequestConfig;
         var startedAt = timeProvider.GetTimestamp();
         metrics.RequestStarted(route.ServiceName);
         try
@@ -148,7 +255,9 @@ public sealed partial class EdgeProxy(
                 route.ServiceName,
                 context.Response.StatusCode,
                 timeProvider.GetElapsedTime(startedAt),
-                recordLatency: ReferenceEquals(config, RequestConfig) || ReferenceEquals(config, InternalHttp2RequestConfig));
+                recordLatency: !ReferenceEquals(config, GrpcRequestConfig)
+                    && !ReferenceEquals(config, WebSocketRequestConfig)
+                    && !IsEventStreamResponse(context.Response));
         }
     }
 
