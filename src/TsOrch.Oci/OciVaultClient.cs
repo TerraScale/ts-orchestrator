@@ -6,7 +6,7 @@ namespace TsOrch.Oci;
 
 public sealed record class VaultRegionMissing(string VaultId)
 {
-    public string Message => $"Vault id '{VaultId}' does not carry a region segment.";
+    public string Message => $"Vault id '{VaultId}' does not carry a valid region segment.";
 }
 
 public sealed record class VaultSecretMissing(string VaultId, string SecretName, string Message);
@@ -51,7 +51,10 @@ public sealed class OciVaultClient(
         var read = await imds.GetIdentityAsync(cancellationToken);
         return read switch
         {
-            OciInstanceIdentity identity => await FetchBundleAsync(new Uri($"https://secrets.vaults.{region}.oci.{identity.RealmDomain}/"), vaultId, secretName, cancellationToken),
+            OciInstanceIdentity identity when Uri.CheckHostName(identity.RealmDomain) == UriHostNameType.Dns
+                && Uri.TryCreate($"https://secrets.vaults.{region}.oci.{identity.RealmDomain}/", UriKind.Absolute, out var endpoint)
+                => await FetchBundleAsync(endpoint, vaultId, secretName, cancellationToken),
+            OciInstanceIdentity => new VaultUnavailable(vaultId, "OCI instance metadata supplied an invalid realm domain."),
             ImdsRequestRejected rejected => rejected,
             ImdsUnavailable unavailable => unavailable,
             ImdsDocumentInvalid invalid => invalid,
@@ -80,7 +83,7 @@ public sealed class OciVaultClient(
                 };
             }
 
-            var response = await OciHttp.SendAsync(httpClient, request, cancellationToken);
+            var response = await OciHttp.SendAsync(httpClient, environment, request, cancellationToken);
             if (response is OciHttpRejected { Status: HttpStatusCode.Unauthorized } && attempt == 0)
             {
                 await principal.InvalidateSessionAsync(cancellationToken);
@@ -95,6 +98,7 @@ public sealed class OciVaultClient(
                 OciHttpRejected { Status: HttpStatusCode.TooManyRequests or >= HttpStatusCode.InternalServerError } rejected => new VaultUnavailable(vaultId, rejected.Message),
                 OciHttpRejected rejected => new VaultBundleInvalid(secretName, rejected.Message),
                 OciConnectionLost lost => new VaultUnavailable(vaultId, lost.Message),
+                OciResponseTooLarge failure => new VaultBundleInvalid(secretName, failure.Message),
                 OciResponseTimedOut => new VaultUnavailable(vaultId, "OCI Vault response timed out."),
             };
         }
@@ -120,7 +124,12 @@ public sealed class OciVaultClient(
 
     private static string? VaultRegion(string vaultId)
     {
-        var segments = vaultId.Split('.');
-        return segments is ["ocid1", "vault", _, { Length: > 0 } region, ..] ? region : null;
+        var segments = vaultId.Split('.', 5);
+        return segments is ["ocid1", "vault", { Length: > 0 }, { Length: > 0 and <= 63 } region, { Length: > 0 }]
+            && char.IsAsciiLetterLower(region[0])
+            && char.IsAsciiLetterOrDigit(region[^1])
+            && region.All(static c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-')
+            ? region
+            : null;
     }
 }

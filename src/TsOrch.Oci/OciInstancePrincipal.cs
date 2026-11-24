@@ -238,12 +238,13 @@ public sealed class OciInstancePrincipal(
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         await signer.SignAsync(request, leafKey, cancellationToken, includeHost: false);
 
-        var response = await OciHttp.SendAsync(httpClient, request, cancellationToken);
+        var response = await OciHttp.SendAsync(httpClient, environment, request, cancellationToken);
         return response switch
         {
             OciPayload payload => ReadSession(payload.Body, sessionKey),
             OciHttpRejected rejected => (FederationExchange)new FederationRejected(rejected.Status, rejected.Message),
             OciConnectionLost lost => (FederationExchange)new FederationUnavailable(lost.Message),
+            OciResponseTooLarge failure => (FederationExchange)new FederationUnavailable(failure.Message),
             OciResponseTimedOut => (FederationExchange)new FederationUnavailable("OCI federation response timed out."),
         };
     }

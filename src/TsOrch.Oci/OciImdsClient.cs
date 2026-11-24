@@ -163,12 +163,13 @@ public sealed class OciImdsClient(HttpClient httpClient, OciEnvironment environm
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(BaseUrl, path));
         request.Headers.Authorization = ImdsAuthorization;
-        var outcome = await OciHttp.SendAsync(httpClient, request, cancellationToken);
+        var outcome = await OciHttp.SendAsync(httpClient, environment, request, cancellationToken);
         return outcome switch
         {
             OciPayload payload => payload,
             OciHttpRejected rejected => new ImdsRequestRejected(path, rejected.Status, rejected.Message),
             OciConnectionLost lost => new ImdsUnavailable(path, lost.Message),
+            OciResponseTooLarge failure => new ImdsUnavailable(path, failure.Message),
             OciResponseTimedOut => new ImdsUnavailable(path, $"OCI instance metadata {path} timed out."),
         };
     }
