@@ -16,6 +16,12 @@ StateDirectory=ts-orch
 StateDirectoryMode=0700
 RuntimeDirectory=ts-orch
 RuntimeDirectoryPreserve=yes
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
 LimitNOFILE=1048576
 
 [Install]
