@@ -30,10 +30,10 @@ internal sealed class CliArguments
 {
     private const string HelpName = "help";
 
-    private readonly Dictionary<string, string> _values;
+    private readonly Dictionary<string, List<string>> _values;
     private readonly HashSet<string> _flags;
 
-    private CliArguments(List<string> positionals, List<string> trailing, Dictionary<string, string> values, HashSet<string> flags)
+    private CliArguments(List<string> positionals, List<string> trailing, Dictionary<string, List<string>> values, HashSet<string> flags)
     {
         Positionals = positionals;
         Trailing = trailing;
@@ -47,7 +47,9 @@ internal sealed class CliArguments
 
     public bool HelpRequested => _flags.Contains(HelpName);
 
-    public string? Value(string name) => _values.GetValueOrDefault(name);
+    public string? Value(string name) => _values.TryGetValue(name, out var list) && list.Count > 0 ? list[^1] : null;
+
+    public IReadOnlyList<string> Values(string name) => _values.TryGetValue(name, out var list) ? list : [];
 
     public bool Flag(string name) => _flags.Contains(name);
 
@@ -77,7 +79,7 @@ internal sealed class CliArguments
         ArgumentNullException.ThrowIfNull(options);
         List<string> positionals = [];
         List<string> trailing = [];
-        Dictionary<string, string> values = [with(StringComparer.Ordinal)];
+        Dictionary<string, List<string>> values = [with(StringComparer.Ordinal)];
         HashSet<string> flags = [with(StringComparer.Ordinal)];
         for (var index = 0; index < args.Count; index++)
         {
@@ -125,7 +127,7 @@ internal sealed class CliArguments
 
             if (inline is not null)
             {
-                values[option.Name] = inline;
+                AddValue(values, option.Name, inline);
                 continue;
             }
 
@@ -134,10 +136,21 @@ internal sealed class CliArguments
                 return new CliOptionValueMissing(option.Name);
             }
 
-            values[option.Name] = args[++index];
+            AddValue(values, option.Name, args[++index]);
         }
 
         return new CliArguments(positionals, trailing, values, flags);
+    }
+
+    private static void AddValue(Dictionary<string, List<string>> values, string name, string value)
+    {
+        if (!values.TryGetValue(name, out var list))
+        {
+            list = [];
+            values[name] = list;
+        }
+
+        list.Add(value);
     }
 
     private static (string Lookup, string? Inline) SplitToken(string token)

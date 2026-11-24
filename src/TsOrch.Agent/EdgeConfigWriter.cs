@@ -16,12 +16,28 @@ public sealed class EdgeConfigWriter(RouteObserver routes, AgentOptions options,
             return;
         }
 
-        var snapshot = new EdgeRoutesSnapshot(message.Revision, message.HttpRoutes, message.PostgresRoutes);
+        var snapshot = new EdgeRoutesSnapshot(message.Revision, message.HttpRoutes, message.PostgresRoutes, message.InternalRoutes);
         routes.TryPublish(snapshot);
+        List<DirectoryMode> directories = [new(options.RuntimeDirectory, UnixFiles.WorldReadableDirectory)];
+        List<AtomicWrite> writes =
+        [
+            new(
+                options.RoutesFile,
+                JsonSerializer.SerializeToUtf8Bytes(snapshot, EdgeJsonContext.Default.EdgeRoutesSnapshot),
+                UnixFiles.WorldReadable),
+        ];
+        if (message.ClusterPeers is { } peers)
+        {
+            directories.Add(new(options.PeersDirectory, UnixFiles.WorldReadableDirectory));
+            writes.Add(new(
+                options.PeersFile,
+                JsonSerializer.SerializeToUtf8Bytes(peers, EdgeJsonContext.Default.IReadOnlyListClusterPeer),
+                UnixFiles.WorldReadable));
+        }
+
         var written = await UnixFiles.WriteAtomicAsync(
-            options.RoutesFile,
-            JsonSerializer.SerializeToUtf8Bytes(snapshot, EdgeJsonContext.Default.EdgeRoutesSnapshot),
-            UnixFiles.WorldReadable,
+            directories,
+            writes,
             cancellationToken);
         var failure = written switch
         {
@@ -35,6 +51,10 @@ public sealed class EdgeConfigWriter(RouteObserver routes, AgentOptions options,
         }
 
         AgentLog.RoutesWritten(logger, message.Revision);
+        if (message.ClusterPeers is { } writtenPeers)
+        {
+            AgentLog.PeersWritten(logger, message.Revision, writtenPeers.Count);
+        }
     }
 
     public async ValueTask WriteTlsAsync(SyncTls message, CancellationToken cancellationToken)

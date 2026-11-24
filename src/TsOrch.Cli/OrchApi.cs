@@ -30,7 +30,12 @@ internal sealed class OrchApi(OrchHttp http, OperatorAuth auth)
     public Task<TOutput> PostEmptyAsync<TResponse, TOutput>(
         string path, JsonTypeInfo<TResponse> responseType, Func<TResponse, Task<TOutput>> handle, Func<BackplaneProblem, TOutput> fail,
         CancellationToken cancellationToken) where TResponse : class =>
-        SendJsonAsync(HttpMethod.Post, path, null, responseType, OrchHttp.DefaultTimeout, handle, fail, cancellationToken);
+        PostEmptyAsync(path, responseType, OrchHttp.DefaultTimeout, handle, fail, cancellationToken);
+
+    public Task<TOutput> PostEmptyAsync<TResponse, TOutput>(
+        string path, JsonTypeInfo<TResponse> responseType, TimeSpan timeout, Func<TResponse, Task<TOutput>> handle, Func<BackplaneProblem, TOutput> fail,
+        CancellationToken cancellationToken) where TResponse : class =>
+        SendJsonAsync(HttpMethod.Post, path, null, responseType, timeout, handle, fail, cancellationToken);
 
     public Task<TOutput> DeleteAsync<TResponse, TOutput>(
         string path, JsonTypeInfo<TResponse> responseType, Func<TResponse, Task<TOutput>> handle, Func<BackplaneProblem, TOutput> fail,

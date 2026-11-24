@@ -1,8 +1,9 @@
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Diagnostics;
 using System.IO.Pipelines;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Text;
 using Microsoft.AspNetCore.Connections;
 
@@ -10,6 +11,7 @@ namespace TsOrch.Edge;
 
 public sealed partial class PostgresSniConnectionHandler(
     EdgeRouteTable routes,
+    TlsCertificateStore certificates,
     UpstreamCircuitBreaker circuitBreaker,
     EdgeMetricsCollector metrics,
     TimeProvider timeProvider,
@@ -19,16 +21,14 @@ public sealed partial class PostgresSniConnectionHandler(
     private const int SslRequestCode = 80877103;
     private const int GssEncRequestCode = 80877104;
     private const byte TlsHandshakeRecord = 0x16;
-    private const int MaxClientHelloBytes = 80 * 1024;
 
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(3);
-    private static readonly byte[] SslRequest = [0x00, 0x00, 0x00, 0x08, 0x04, 0xd2, 0x16, 0x2f];
     private static readonly byte[] SslAccepted = [(byte)'S'];
     private static readonly byte[] EncryptionDeclined = [(byte)'N'];
     private static readonly byte[] TlsRequiredError = BuildErrorResponse(
         "28000",
-        "ts-orch edge routes Postgres by TLS SNI; connect with sslmode=require or stronger");
+        "ts-orch edge requires TLS with SNI for Postgres connections; connect with sslmode=require or stronger");
 
     public override async Task OnConnectedAsync(ConnectionContext connection)
     {
@@ -40,7 +40,7 @@ public sealed partial class PostgresSniConnectionHandler(
             await (outcome switch
             {
                 NegotiationRejected rejected => RejectAsync(connection, rejected),
-                SniNegotiated negotiated => ForwardAsync(connection, negotiated.ServerName),
+                TlsSessionNegotiated negotiated => ForwardAsync(connection, negotiated),
             });
         }
         catch (OperationCanceledException) when (connection.ConnectionClosed.IsCancellationRequested)
@@ -65,64 +65,99 @@ public sealed partial class PostgresSniConnectionHandler(
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, connection.ConnectionClosed);
         try
         {
-            return await ReadClientHelloAsync(connection.Transport, linked.Token);
+            var sslReady = await NegotiatePostgresTlsAsync(connection.Transport, linked.Token);
+            if (sslReady is not null)
+            {
+                return sslReady;
+            }
+
+            return await AuthenticateClientTlsAsync(connection.Transport, linked.Token);
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested && !connection.ConnectionClosed.IsCancellationRequested)
         {
-            return new NegotiationRejected("client sent no TLS ClientHello before the handshake timeout");
+            return new NegotiationRejected("client did not complete TLS handshake before the timeout");
         }
     }
 
-    private static async Task<Negotiation> ReadClientHelloAsync(IDuplexPipe transport, CancellationToken cancellationToken)
+    private static async Task<NegotiationRejected?> NegotiatePostgresTlsAsync(IDuplexPipe transport, CancellationToken cancellationToken)
     {
         var input = transport.Input;
-        var tlsAccepted = false;
         while (true)
         {
             var read = await input.ReadAsync(cancellationToken);
             var buffer = read.Buffer;
-            if (!tlsAccepted && !buffer.IsEmpty && buffer.FirstSpan[0] != TlsHandshakeRecord)
+            if (!buffer.IsEmpty && buffer.FirstSpan[0] == TlsHandshakeRecord)
             {
-                if (buffer.Length < NegotiationLength)
-                {
-                    input.AdvanceTo(buffer.Start, buffer.End);
-                    if (read.IsCompleted)
-                    {
-                        return new NegotiationRejected("client closed during Postgres negotiation");
-                    }
+                input.AdvanceTo(buffer.Start);
+                return null;
+            }
 
-                    continue;
+            if (buffer.Length < NegotiationLength)
+            {
+                input.AdvanceTo(buffer.Start, buffer.End);
+                if (read.IsCompleted)
+                {
+                    return new NegotiationRejected("client closed during Postgres negotiation");
                 }
 
-                var (length, code) = ReadNegotiation(buffer);
-                if (length != NegotiationLength || code is not (SslRequestCode or GssEncRequestCode))
-                {
-                    input.AdvanceTo(buffer.Start);
-                    await transport.Output.WriteAsync(TlsRequiredError, cancellationToken);
-                    return new NegotiationRejected("client did not request TLS");
-                }
-
-                input.AdvanceTo(buffer.GetPosition(NegotiationLength));
-                tlsAccepted = code == SslRequestCode;
-                await transport.Output.WriteAsync(tlsAccepted ? SslAccepted : EncryptionDeclined, cancellationToken);
                 continue;
             }
 
-            var status = TlsClientHello.TryReadServerName(buffer, out var serverName);
-            input.AdvanceTo(buffer.Start, status == ClientHelloStatus.NeedMoreData ? buffer.End : buffer.Start);
-            if (status == ClientHelloStatus.NeedMoreData && !read.IsCompleted && buffer.Length <= MaxClientHelloBytes)
+            var (length, code) = ReadNegotiation(buffer);
+            if (length != NegotiationLength || code is not (SslRequestCode or GssEncRequestCode))
             {
-                continue;
+                input.AdvanceTo(buffer.Start);
+                await transport.Output.WriteAsync(TlsRequiredError, cancellationToken);
+                return new NegotiationRejected("client did not request TLS");
             }
 
-            return status switch
+            input.AdvanceTo(buffer.GetPosition(NegotiationLength));
+            var accepted = code == SslRequestCode;
+            await transport.Output.WriteAsync(accepted ? SslAccepted : EncryptionDeclined, cancellationToken);
+            if (accepted)
             {
-                ClientHelloStatus.Complete when serverName is null => new NegotiationRejected("TLS ClientHello carries no SNI server name"),
-                ClientHelloStatus.Complete => new SniNegotiated(serverName),
-                ClientHelloStatus.Invalid => new NegotiationRejected("malformed TLS ClientHello"),
-                ClientHelloStatus.NeedMoreData => new NegotiationRejected("incomplete TLS ClientHello"),
-                _ => throw new UnreachableException(),
-            };
+                return null;
+            }
+        }
+    }
+
+    private async Task<Negotiation> AuthenticateClientTlsAsync(IDuplexPipe transport, CancellationToken cancellationToken)
+    {
+        var duplex = new DuplexPipeStream(transport);
+        var sslStream = new SslStream(duplex, leaveInnerStreamOpen: true);
+        var transferred = false;
+        string? serverName = null;
+        try
+        {
+            await sslStream.AuthenticateAsServerAsync(
+                (_, clientHelloInfo, _, _) =>
+                {
+                    serverName = clientHelloInfo.ServerName;
+                    var serverOptions = certificates.CreateServerOptions();
+                    serverOptions.ApplicationProtocols = [new SslApplicationProtocol("postgresql")];
+                    return ValueTask.FromResult(serverOptions);
+                },
+                null,
+                cancellationToken);
+            if (string.IsNullOrWhiteSpace(serverName))
+            {
+                return new NegotiationRejected("TLS ClientHello carries no SNI server name");
+            }
+
+            transferred = true;
+            return new TlsSessionNegotiated(serverName, sslStream, duplex);
+        }
+        catch (Exception exception) when (exception is AuthenticationException or IOException or InvalidOperationException)
+        {
+            return new NegotiationRejected($"TLS handshake failed: {exception.Message}");
+        }
+        finally
+        {
+            if (!transferred)
+            {
+                await sslStream.DisposeAsync();
+                await duplex.DisposeAsync();
+            }
         }
     }
 
@@ -133,24 +168,28 @@ public sealed partial class PostgresSniConnectionHandler(
         return (BinaryPrimitives.ReadInt32BigEndian(header), BinaryPrimitives.ReadInt32BigEndian(header[4..]));
     }
 
-    private async Task ForwardAsync(ConnectionContext connection, string serverName)
+    private async Task ForwardAsync(ConnectionContext connection, TlsSessionNegotiated negotiated)
     {
-        if (routes.Current.FindPostgresRoute(serverName) is not { } route)
+        await using (negotiated.Duplex)
+        await using (negotiated.TlsStream)
         {
-            LogNoRoute(logger, connection.ConnectionId, serverName);
-            return;
-        }
+            if (routes.Current.FindPostgresRoute(negotiated.ServerName) is not { } route)
+            {
+                LogNoRoute(logger, connection.ConnectionId, negotiated.ServerName);
+                return;
+            }
 
-        if (await ConnectAsync(route, connection.ConnectionClosed) is not { } upstream)
-        {
-            LogNoUpstream(logger, connection.ConnectionId, route.ServiceName);
-            return;
-        }
+            if (await ConnectAsync(route, connection.ConnectionClosed) is not { } upstream)
+            {
+                LogNoUpstream(logger, connection.ConnectionId, route.ServiceName);
+                return;
+            }
 
-        await using (upstream.Stream)
-        using (circuitBreaker.Acquire(upstream.Upstream))
-        {
-            await PumpAsync(connection.Transport, upstream, connection.ConnectionClosed);
+            await using (upstream.Stream)
+            using (circuitBreaker.Acquire(upstream.Upstream))
+            {
+                await PumpAsync(negotiated.TlsStream, upstream, connection.ConnectionClosed);
+            }
         }
     }
 
@@ -183,15 +222,6 @@ public sealed partial class PostgresSniConnectionHandler(
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, cancellationToken);
             await socket.ConnectAsync(upstream.Address, upstream.Port, linked.Token);
             stream = new NetworkStream(socket, ownsSocket: true);
-            await stream.WriteAsync(SslRequest, linked.Token);
-            var reply = new byte[1];
-            await stream.ReadExactlyAsync(reply, linked.Token);
-            if (reply[0] != SslAccepted[0])
-            {
-                LogUpstreamDeclinedTls(logger, upstream.Address, upstream.Port);
-                return null;
-            }
-
             var connection = new UpstreamConnection(upstream, socket, stream);
             socket = null;
             stream = null;
@@ -216,27 +246,36 @@ public sealed partial class PostgresSniConnectionHandler(
         }
     }
 
-    private static async Task PumpAsync(IDuplexPipe client, UpstreamConnection upstream, CancellationToken cancellationToken)
+    private static async Task PumpAsync(SslStream client, UpstreamConnection upstream, CancellationToken cancellationToken)
     {
         using var abort = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var upstreamReader = PipeReader.Create(upstream.Stream, new StreamPipeReaderOptions(leaveOpen: true));
-        var upstreamWriter = PipeWriter.Create(upstream.Stream, new StreamPipeWriterOptions(leaveOpen: true));
         await Task.WhenAll(
-            CopyAsync(client.Input, upstreamWriter, () => upstream.Socket.Shutdown(SocketShutdown.Send), abortWhenDone: false, abort),
-            CopyAsync(upstreamReader, client.Output, static () => { }, abortWhenDone: true, abort));
+            CopyStreamAsync(client, upstream.Stream, () => HalfClose(upstream.Socket), abortWhenDone: false, abort),
+            CopyStreamAsync(upstream.Stream, client, static () => { }, abortWhenDone: true, abort));
     }
 
-    private static async Task CopyAsync(
-        PipeReader source,
-        PipeWriter destination,
+    private static void HalfClose(Socket socket)
+    {
+        try
+        {
+            socket.Shutdown(SocketShutdown.Send);
+        }
+        catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
+        {
+        }
+    }
+
+    private static async Task CopyStreamAsync(
+        Stream source,
+        Stream destination,
         Action halfClose,
         bool abortWhenDone,
         CancellationTokenSource abort)
     {
         try
         {
-            await source.CopyToAsync(destination, abort.Token);
-            await destination.CompleteAsync();
+            await source.CopyToAsync(destination, 16 * 1024, abort.Token);
+            await destination.FlushAsync(abort.Token);
             halfClose();
             if (abortWhenDone)
             {
@@ -250,11 +289,6 @@ public sealed partial class PostgresSniConnectionHandler(
         catch (OperationCanceledException) when (abort.IsCancellationRequested)
         {
             await abort.CancelAsync();
-        }
-        finally
-        {
-            await source.CompleteAsync();
-            await destination.CompleteAsync();
         }
     }
 
@@ -292,17 +326,80 @@ public sealed partial class PostgresSniConnectionHandler(
     [LoggerMessage(Level = LogLevel.Error, Message = "Postgres connection {ConnectionId} found no reachable upstream for {ServiceName}")]
     private static partial void LogNoUpstream(ILogger logger, string connectionId, string serviceName);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Postgres upstream {Address}:{Port} declined TLS negotiation")]
-    private static partial void LogUpstreamDeclinedTls(ILogger logger, string address, int port);
-
     [LoggerMessage(Level = LogLevel.Warning, Message = "Postgres upstream {Address}:{Port} connect failed")]
     private static partial void LogUpstreamConnectFailed(ILogger logger, string address, int port, Exception exception);
 
     private closed record class Negotiation;
 
-    private sealed record class SniNegotiated(string ServerName) : Negotiation;
+    private sealed record class TlsSessionNegotiated(string ServerName, SslStream TlsStream, DuplexPipeStream Duplex) : Negotiation;
 
     private sealed record class NegotiationRejected(string Reason) : Negotiation;
 
     private sealed record class UpstreamConnection(EdgeUpstream Upstream, Socket Socket, NetworkStream Stream);
+
+    private sealed class DuplexPipeStream(IDuplexPipe pipe) : Stream
+    {
+        private readonly Stream _input = pipe.Input.AsStream(leaveOpen: true);
+        private readonly Stream _output = pipe.Output.AsStream(leaveOpen: true);
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => true;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() => _output.Flush();
+
+        public override Task FlushAsync(CancellationToken cancellationToken) => _output.FlushAsync(cancellationToken);
+
+        public override int Read(byte[] buffer, int offset, int count) => _input.Read(buffer, offset, count);
+
+        public override int Read(Span<byte> buffer) => _input.Read(buffer);
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            _input.ReadAsync(buffer, offset, count, cancellationToken);
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            _input.ReadAsync(buffer, cancellationToken);
+
+        public override void Write(byte[] buffer, int offset, int count) => _output.Write(buffer, offset, count);
+
+        public override void Write(ReadOnlySpan<byte> buffer) => _output.Write(buffer);
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            _output.WriteAsync(buffer, offset, count, cancellationToken);
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
+            _output.WriteAsync(buffer, cancellationToken);
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _input.Dispose();
+                _output.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            await _input.DisposeAsync();
+            await _output.DisposeAsync();
+            await base.DisposeAsync();
+        }
+    }
 }

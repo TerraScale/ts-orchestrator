@@ -9,9 +9,11 @@ public sealed class OciRequestSigner(TimeProvider timeProvider)
 {
     private const string ContentSha256Header = "x-content-sha256";
     private const string BodylessHeaders = "date (request-target) host";
+    private const string BodylessHeadersWithoutHost = "date (request-target)";
     private const string BodyHeaders = "date (request-target) host content-length content-type x-content-sha256";
+    private const string BodyHeadersWithoutHost = "date (request-target) content-length content-type x-content-sha256";
 
-    public async Task SignAsync(HttpRequestMessage request, OciSigningKey key, CancellationToken cancellationToken)
+    public async Task SignAsync(HttpRequestMessage request, OciSigningKey key, CancellationToken cancellationToken, bool includeHost = true)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(key);
@@ -25,10 +27,13 @@ public sealed class OciRequestSigner(TimeProvider timeProvider)
 
         var signingString = new StringBuilder()
             .Append("date: ").Append(date.ToString("r", CultureInfo.InvariantCulture)).Append('\n')
-            .Append("(request-target): ").Append(RequestTargetMethod(request.Method)).Append(' ').Append(uri.PathAndQuery).Append('\n')
-            .Append("host: ").Append(uri.Authority);
+            .Append("(request-target): ").Append(RequestTargetMethod(request.Method)).Append(' ').Append(uri.PathAndQuery);
+        if (includeHost)
+        {
+            signingString.Append("\nhost: ").Append(uri.Authority);
+        }
 
-        var signedHeaders = BodylessHeaders;
+        var signedHeaders = includeHost ? BodylessHeaders : BodylessHeadersWithoutHost;
         if (CarriesBody(request.Method))
         {
             var content = request.Content ??= new ByteArrayContent([]);
@@ -42,7 +47,7 @@ public sealed class OciRequestSigner(TimeProvider timeProvider)
                 .Append("\ncontent-length: ").Append(body.Length.ToString(CultureInfo.InvariantCulture))
                 .Append("\ncontent-type: ").Append(content.Headers.ContentType)
                 .Append("\nx-content-sha256: ").Append(contentSha256);
-            signedHeaders = BodyHeaders;
+            signedHeaders = includeHost ? BodyHeaders : BodyHeadersWithoutHost;
         }
 
         var signature = key.PrivateKey.SignData(

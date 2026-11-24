@@ -63,7 +63,6 @@ public sealed partial class TlsCertificateStore(
             return;
         }
 
-        _stamp = stamp;
         try
         {
             var leaf = X509Certificate2.CreateFromPemFile(certificatePath, keyPath);
@@ -81,6 +80,7 @@ public sealed partial class TlsCertificateStore(
 
             var certificate = new EdgeCertificate(leaf, SslStreamCertificateContext.Create(leaf, intermediates, offline: true), Configured: true);
             Interlocked.Exchange(ref _current, certificate);
+            _stamp = stamp;
             LogCertificateLoaded(logger, leaf.Subject, leaf.NotAfter);
         }
         catch (Exception exception) when (exception is CryptographicException or IOException or UnauthorizedAccessException or ArgumentException)

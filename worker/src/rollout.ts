@@ -1,12 +1,18 @@
 import type { EdgeServiceMetrics, EventKind, NodeInfo, PlacementInfo, RolloutInfo, RolloutPhase, ServiceSpec } from "./protocol";
 
+export interface NodeEdgeMetrics {
+  ts: number;
+  windowSeconds: number;
+  services: EdgeServiceMetrics[];
+}
+
 export interface RolloutContext {
   rollout: RolloutInfo;
   service: ServiceSpec;
   placements: PlacementInfo[];
   nodes: NodeInfo[];
   rolloutOrder: string[];
-  latestMetricsByNode: Map<string, EdgeServiceMetrics[]>;
+  latestMetricsByNode: Map<string, NodeEdgeMetrics>;
   nowMs: number;
   canaryBakeMs?: number;
 }
@@ -23,9 +29,10 @@ export interface CanaryBreach {
   threshold: number;
 }
 
-export const DEFAULT_CANARY_BAKE_MS = 45_000;
+export const DEFAULT_CANARY_BAKE_MS = 15_000;
 export const WAVE_FRACTION = 0.25;
 export const CANARY_READY_GRACE_MS = 120_000;
+export const MIN_CANARY_REQUESTS = 20;
 
 type RolloutEvent = RolloutStep["events"][number];
 
@@ -59,7 +66,7 @@ export function canaryThresholds(rollout: RolloutInfo): { max5xxPct: number; max
 
 export function canaryBreach(metrics: EdgeServiceMetrics | undefined, rollout: RolloutInfo): CanaryBreach | null {
   if (metrics === undefined) return null;
-  if (metrics.rps <= 0 && metrics.requests <= 0) return null;
+  if (metrics.requests < MIN_CANARY_REQUESTS) return null;
   const { max5xxPct, maxP95Ms } = canaryThresholds(rollout);
   if (metrics.errorRate5xxPct > max5xxPct) return { metric: "5xx", value: metrics.errorRate5xxPct, threshold: max5xxPct };
   if (metrics.p95Ms > maxP95Ms) return { metric: "p95", value: metrics.p95Ms, threshold: maxP95Ms };
@@ -67,7 +74,11 @@ export function canaryBreach(metrics: EdgeServiceMetrics | undefined, rollout: R
 }
 
 function runningTarget(placement: PlacementInfo, target: string): boolean {
-  return placement.state === "ready" && (placement.activeImage === undefined || placement.activeImage === target);
+  return placement.state === "ready" && placement.activeImage === target;
+}
+
+function candidateFailed(placement: PlacementInfo, target: string): boolean {
+  return placement.candidateImage === target && placement.candidateError !== undefined && placement.candidateError.length > 0;
 }
 
 export function createRollout(
@@ -147,6 +158,7 @@ class Stepper {
     this.setImage(canary, this.state.targetImage);
     this.state.phase = "canary";
     this.state.canaryStartedAt = this.ctx.nowMs;
+    delete this.state.waveStartedAt;
     this.events.push(
       event(
         "canary_started",
@@ -160,6 +172,7 @@ class Stepper {
   succeed(): void {
     this.state.phase = "succeeded";
     this.state.finishedAt = this.ctx.nowMs;
+    delete this.state.waveStartedAt;
     this.events.push(
       event("rollout_succeeded", this.state.serviceName, { rolloutId: this.state.id, image: this.state.targetImage }),
     );
@@ -170,11 +183,13 @@ class Stepper {
     if (previous !== undefined) {
       for (const placement of this.ctx.placements) {
         if (placement.serviceName !== this.state.serviceName) continue;
+        if (this.state.region !== undefined && placement.region !== this.state.region) continue;
         if (placement.desiredImage === this.state.targetImage) this.setImage(placement, previous);
       }
     }
     this.state.phase = previous === undefined ? "failed" : "rolled_back";
     this.state.finishedAt = this.ctx.nowMs;
+    delete this.state.waveStartedAt;
     this.state.error = reason;
     this.events.push(
       event(
@@ -190,9 +205,13 @@ class Stepper {
     return placements.find((p) => p.desiredImage === this.state.targetImage);
   }
 
-  metricsFor(nodeId: string | undefined): EdgeServiceMetrics | undefined {
+  metricsFor(nodeId: string | undefined, sinceMs?: number): EdgeServiceMetrics | undefined {
     if (nodeId === undefined) return undefined;
-    return this.ctx.latestMetricsByNode.get(nodeId)?.find((m) => m.serviceName === this.state.serviceName);
+    const sample = this.ctx.latestMetricsByNode.get(nodeId);
+    if (sample === undefined) return undefined;
+    const windowStartMs = sample.ts - sample.windowSeconds * 1000;
+    if (sinceMs !== undefined && windowStartMs < sinceMs) return undefined;
+    return sample.services.find((m) => m.serviceName === this.state.serviceName);
   }
 
   run(): void {
@@ -222,8 +241,10 @@ class Stepper {
         this.startRegion(index);
         return;
       }
-      if (canary.state === "failed") {
-        this.abort(region, "canary_failed", { placementId: canary.id });
+      if (canary.state === "failed" || candidateFailed(canary, target)) {
+        const detail: Record<string, unknown> = { placementId: canary.id };
+        if (canary.candidateError !== undefined) detail.error = canary.candidateError;
+        this.abort(region, "canary_failed", detail);
         return;
       }
       if (runningTarget(canary, target)) {
@@ -239,11 +260,13 @@ class Stepper {
 
     if (this.state.phase === "baking") {
       const canary = this.canaryOf(placements);
-      if (canary === undefined || canary.state === "failed") {
-        this.abort(region, "canary_failed", canary === undefined ? {} : { placementId: canary.id });
+      if (canary === undefined || canary.state === "failed" || candidateFailed(canary, target)) {
+        const detail: Record<string, unknown> = canary === undefined ? {} : { placementId: canary.id };
+        if (canary?.candidateError !== undefined) detail.error = canary.candidateError;
+        this.abort(region, "canary_failed", detail);
         return;
       }
-      const breach = canaryBreach(this.metricsFor(canary.nodeId), this.state);
+      const breach = canaryBreach(this.metricsFor(canary.nodeId, this.state.canaryStartedAt), this.state);
       if (breach !== null) {
         this.abort(region, `canary_${breach.metric}_breach`, {
           placementId: canary.id,
@@ -256,6 +279,7 @@ class Stepper {
       const bake = this.ctx.canaryBakeMs ?? DEFAULT_CANARY_BAKE_MS;
       if (this.ctx.nowMs - (this.state.canaryStartedAt ?? this.ctx.nowMs) < bake) return;
       this.state.phase = "waves";
+      delete this.state.waveStartedAt;
       this.events.push(
         event("canary_passed", this.state.serviceName, { rolloutId: this.state.id, placementId: canary.id }, region),
       );
@@ -263,19 +287,31 @@ class Stepper {
 
     if (this.state.phase === "waves") {
       const inflight = placements.filter((p) => p.desiredImage === target && !runningTarget(p, target));
-      const failed = inflight.find((p) => p.state === "failed");
+      const failed = inflight.find((p) => p.state === "failed" || candidateFailed(p, target));
       if (failed !== undefined) {
-        this.abort(region, "wave_failed", { placementId: failed.id });
+        const detail: Record<string, unknown> = { placementId: failed.id };
+        if (failed.candidateError !== undefined) detail.error = failed.candidateError;
+        this.abort(region, "wave_failed", detail);
         return;
       }
-      if (inflight.length > 0) return;
+      if (inflight.length > 0) {
+        const waveStartedAt = this.state.waveStartedAt ?? this.ctx.nowMs;
+        this.state.waveStartedAt = waveStartedAt;
+        const limit = this.ctx.service.readyTimeoutSeconds * 1000 + CANARY_READY_GRACE_MS;
+        if (this.ctx.nowMs - waveStartedAt > limit) {
+          this.abort(region, "wave_not_ready", { placementIds: inflight.map((p) => p.id) });
+        }
+        return;
+      }
+      delete this.state.waveStartedAt;
       const pending = placements.filter((p) => p.desiredImage !== target);
       if (pending.length === 0) {
         this.startRegion(index + 1);
         return;
       }
-      const size = Math.max(1, Math.ceil(pending.length * WAVE_FRACTION));
+      const size = Math.max(1, Math.ceil(placements.length * WAVE_FRACTION));
       for (const placement of pending.slice(0, size)) this.setImage(placement, target);
+      this.state.waveStartedAt = this.ctx.nowMs;
     }
   }
 }

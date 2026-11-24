@@ -71,7 +71,17 @@ public sealed class PlacementTracker(AgentOutbox outbox)
     }
 
     private static PlacementEvent ToEvent(PlacementReport report) =>
-        new(report.PlacementId, report.State, report.Image, report.ConfigHash, report.HostPort, report.Error, report.PostgresHostPort);
+        new(
+            report.PlacementId,
+            report.State,
+            report.Image,
+            report.ConfigHash,
+            report.HostPort,
+            report.Error,
+            report.PostgresHostPort,
+            report.InternalHostPort,
+            report.CandidateImage,
+            report.CandidateError);
 }
 
 public sealed class RouteObserver(AgentOptions options, TimeProvider timeProvider)
@@ -111,16 +121,19 @@ public sealed class RouteObserver(AgentOptions options, TimeProvider timeProvide
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         return snapshot.HttpRoutes.Any(route => route.Upstreams.Any(upstream => upstream.PlacementId == placementId))
-            || snapshot.PostgresRoutes.Any(route => route.Upstreams.Any(upstream => upstream.PlacementId == placementId));
+            || snapshot.PostgresRoutes.Any(route => route.Upstreams.Any(upstream => upstream.PlacementId == placementId))
+            || (snapshot.InternalRoutes is { } internalRoutes && internalRoutes.Any(route => route.Upstreams.Any(upstream => upstream.PlacementId == placementId)));
     }
 
-    public static bool IsRoutedTo(EdgeRoutesSnapshot snapshot, string placementId, int? httpPort, int? postgresPort)
+    public static bool IsRoutedTo(EdgeRoutesSnapshot snapshot, string placementId, int? httpPort, int? postgresPort, int? internalPort = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var http = snapshot.HttpRoutes.SelectMany(static route => route.Upstreams).Where(upstream => upstream.PlacementId == placementId);
         var postgres = snapshot.PostgresRoutes.SelectMany(static route => route.Upstreams).Where(upstream => upstream.PlacementId == placementId);
+        var internalUpstreams = (snapshot.InternalRoutes ?? []).SelectMany(static route => route.Upstreams).Where(upstream => upstream.PlacementId == placementId);
         return (httpPort is { } httpTarget ? http.Any() && http.All(upstream => upstream.Port == httpTarget) : !http.Any())
-            && (postgresPort is { } postgresTarget ? postgres.Any() && postgres.All(upstream => upstream.Port == postgresTarget) : !postgres.Any());
+            && (postgresPort is { } postgresTarget ? postgres.Any() && postgres.All(upstream => upstream.Port == postgresTarget) : !postgres.Any())
+            && (internalPort is { } internalTarget ? internalUpstreams.Any() && internalUpstreams.All(upstream => upstream.Port == internalTarget) : !internalUpstreams.Any());
     }
 
     public async Task<bool> WaitUntilAsync(Func<EdgeRoutesSnapshot, bool> predicate, TimeSpan timeout, CancellationToken cancellationToken)

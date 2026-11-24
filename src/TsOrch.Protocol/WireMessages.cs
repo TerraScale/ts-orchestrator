@@ -31,14 +31,17 @@ public sealed record class Hello(
     int DiskTotalGiB,
     IReadOnlyDictionary<string, string> Labels,
     IReadOnlyList<VolumeInfo> Volumes,
-    string AgentVersion) : AgentMessage;
+    string AgentVersion,
+    string? NetbirdIp = null) : AgentMessage;
 
 public sealed record class Heartbeat(
     long Ts,
     IReadOnlyList<PlacementReport> Placements,
     HostMetrics HostMetrics,
     IReadOnlyList<ContainerMetrics> ContainerMetrics,
-    EdgeMetricsSnapshot? EdgeMetrics = null) : AgentMessage;
+    EdgeMetricsSnapshot? EdgeMetrics = null,
+    string? NetbirdIp = null,
+    IReadOnlyList<VolumeInfo>? Volumes = null) : AgentMessage;
 
 public sealed record class PlacementEvent(
     string PlacementId,
@@ -47,7 +50,10 @@ public sealed record class PlacementEvent(
     string ConfigHash,
     int? HostPort = null,
     string? Error = null,
-    int? PostgresHostPort = null) : AgentMessage;
+    int? PostgresHostPort = null,
+    int? InternalHostPort = null,
+    string? CandidateImage = null,
+    string? CandidateError = null) : AgentMessage;
 
 public sealed record class DrainComplete(string NodeId) : AgentMessage;
 
@@ -75,7 +81,9 @@ public sealed record class SyncDesired(long Revision, IReadOnlyList<DesiredPlace
 public sealed record class SyncRoutes(
     long Revision,
     IReadOnlyList<HttpRouteEntry> HttpRoutes,
-    IReadOnlyList<PostgresRouteEntry> PostgresRoutes) : BackplaneMessage;
+    IReadOnlyList<PostgresRouteEntry> PostgresRoutes,
+    IReadOnlyList<InternalRouteEntry>? InternalRoutes = null,
+    IReadOnlyList<ClusterPeer>? ClusterPeers = null) : BackplaneMessage;
 
 public sealed record class SyncTls(
     long Revision,

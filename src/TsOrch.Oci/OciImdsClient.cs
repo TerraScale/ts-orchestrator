@@ -28,6 +28,9 @@ public sealed class OciImdsClient(HttpClient httpClient, OciEnvironment environm
     private const string EnrollSecretKey = "ts_enroll_secret";
     private const string NetBirdUrlKey = "ts_netbird_url";
     private const string NetBirdSetupKeySecretKey = "ts_netbird_setup_key_secret";
+    private const string DataVolumeIdKey = "ts_data_volume_id";
+    private const string InstancePoolIdKey = "ts_instance_pool_id";
+    private const string StatefulIndexKey = "ts_stateful_index";
     private const string InstancePath = "instance/";
     private const string VnicsPath = "vnics/";
 
@@ -138,7 +141,10 @@ public sealed class OciImdsClient(HttpClient httpClient, OciEnvironment environm
                 NonEmpty(metadata, EnrollVaultKey),
                 NonEmpty(metadata, EnrollSecretKey),
                 NonEmpty(metadata, NetBirdUrlKey),
-                NonEmpty(metadata, NetBirdSetupKeySecretKey)));
+                NonEmpty(metadata, NetBirdSetupKeySecretKey),
+                NonEmpty(metadata, DataVolumeIdKey),
+                NonEmpty(metadata, InstancePoolIdKey),
+                NonEmpty(metadata, StatefulIndexKey)));
         Volatile.Write(ref _identity, identity);
         return identity;
     }

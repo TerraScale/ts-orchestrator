@@ -17,6 +17,9 @@ internal static class EdgeCommand
         new("http-port", null, true),
         new("https-port", null, true),
         new("postgres-port", null, true),
+        new("internal-terrabase-port", null, true),
+        new("internal-platform-port", null, true),
+        new("https-redirect", null, true),
         new("drain-seconds", null, true),
         new("shutdown-seconds", null, true),
         new("http3", null, true),
@@ -60,6 +63,9 @@ internal static class EdgeCommand
         var httpPort = Number(arguments.Setting("http-port", "TS_ORCH_EDGE_HTTP_PORT"), "http port", 1, IPEndPoint.MaxPort, failures);
         var httpsPort = Number(arguments.Setting("https-port", "TS_ORCH_EDGE_HTTPS_PORT"), "https port", 1, IPEndPoint.MaxPort, failures);
         var postgresPort = Number(arguments.Setting("postgres-port", "TS_ORCH_EDGE_POSTGRES_PORT"), "postgres port", 1, IPEndPoint.MaxPort, failures);
+        var internalTerraBasePort = Number(arguments.Setting("internal-terrabase-port", "TS_ORCH_EDGE_INTERNAL_TERRABASE_PORT"), "internal terrabase port", 0, IPEndPoint.MaxPort, failures);
+        var internalPlatformPort = Number(arguments.Setting("internal-platform-port", "TS_ORCH_EDGE_INTERNAL_PLATFORM_PORT"), "internal platform port", 0, IPEndPoint.MaxPort, failures);
+        var httpsRedirect = Flag(arguments.Setting("https-redirect", "TS_ORCH_EDGE_HTTPS_REDIRECT"), "https redirect", failures);
         var drainSeconds = Number(arguments.Setting("drain-seconds", "TS_ORCH_EDGE_DRAIN_SECONDS"), "drain seconds", 0, 3_600, failures);
         var shutdownSeconds = Number(arguments.Setting("shutdown-seconds", "TS_ORCH_EDGE_SHUTDOWN_SECONDS"), "shutdown seconds", 0, 3_600, failures);
         var http3 = Flag(arguments.Setting("http3", "TS_ORCH_EDGE_HTTP3"), "http3", failures);
@@ -78,6 +84,9 @@ internal static class EdgeCommand
             HttpPort = httpPort ?? defaults.HttpPort,
             HttpsPort = httpsPort ?? defaults.HttpsPort,
             PostgresPort = postgresPort ?? defaults.PostgresPort,
+            InternalTerraBasePort = internalTerraBasePort ?? defaults.InternalTerraBasePort,
+            InternalPlatformPort = internalPlatformPort ?? defaults.InternalPlatformPort,
+            RedirectHttpToHttps = httpsRedirect ?? defaults.RedirectHttpToHttps,
             DrainDelay = drainSeconds is { } drain ? TimeSpan.FromSeconds(drain) : defaults.DrainDelay,
             ShutdownTimeout = shutdownSeconds is { } shutdown ? TimeSpan.FromSeconds(shutdown) : defaults.ShutdownTimeout,
             EnableHttp3 = http3 ?? defaults.EnableHttp3,

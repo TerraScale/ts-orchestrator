@@ -124,6 +124,11 @@ variable "boot_script" {
   description = "Arch-neutral cloud-init node boot script."
 }
 
+variable "release_tag" {
+  type        = string
+  description = "GitHub release tag of the ts-orch IL bundle."
+}
+
 variable "bundle_url" {
   type        = string
   description = "Download URL of the ts-orch IL bundle."
@@ -132,6 +137,12 @@ variable "bundle_url" {
 variable "bundle_sha256" {
   type        = string
   description = "SHA-256 of the ts-orch IL bundle."
+}
+
+variable "custom_image_id" {
+  type        = string
+  description = "Optional pre-baked custom Ubuntu 24.04 ARM64 OCI image OCID for this region."
+  default     = ""
 }
 
 variable "enroll_vault_id" {

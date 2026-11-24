@@ -12,6 +12,8 @@ public sealed class BackplaneDispatcher(
     EdgeConfigWriter edge,
     ContainerSessions sessions)
 {
+    public void SetNodeIdentity(string nodeId, string region) => reconciler.SetNodeIdentity(nodeId, region);
+
     public async ValueTask DispatchAsync(BackplaneMessage message, NodeSession session, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);
@@ -56,6 +58,7 @@ public sealed class NodeAgentRunner(
 {
     private const int MaxMessageBytes = 16 * 1024 * 1024;
     private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(5);
     private static readonly byte[] PingFrame = "ping"u8.ToArray();
 
@@ -115,25 +118,35 @@ public sealed class NodeAgentRunner(
 
     private async Task<SessionOutcome> RunSessionAsync(NodeSession session, CancellationToken cancellationToken)
     {
+        dispatcher.SetNodeIdentity(session.NodeId, session.Identity.Region);
         using var socket = new ClientWebSocket();
         socket.Options.SetRequestHeader("Authorization", $"Bearer {session.Token}");
         socket.Options.KeepAliveInterval = TimeSpan.Zero;
         socket.Options.CollectHttpResponseDetails = true;
         AgentLog.Connecting(logger, session.WebSocketUrl);
-        try
+        using (var connectTimeout = new CancellationTokenSource(ConnectTimeout, timeProvider))
+        using (var connectToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, connectTimeout.Token))
         {
-            await socket.ConnectAsync(session.WebSocketUrl, cancellationToken);
-        }
-        catch (Exception exception) when (exception is WebSocketException or HttpRequestException or IOException)
-        {
-            if (socket.HttpStatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            try
             {
-                AgentLog.ConnectRejected(logger, (int)socket.HttpStatusCode);
-                return new SessionRejected();
+                await socket.ConnectAsync(session.WebSocketUrl, connectToken.Token);
             }
+            catch (Exception exception) when (exception is WebSocketException or HttpRequestException or IOException)
+            {
+                if (socket.HttpStatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                {
+                    AgentLog.ConnectRejected(logger, (int)socket.HttpStatusCode);
+                    return new SessionRejected();
+                }
 
-            AgentLog.ConnectFailed(logger, exception.Message);
-            return new SessionUnreachable();
+                AgentLog.ConnectFailed(logger, exception.Message);
+                return new SessionUnreachable();
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                AgentLog.ConnectFailed(logger, "WebSocket connect timed out.");
+                return new SessionUnreachable();
+            }
         }
 
         AgentLog.Connected(logger, session.NodeId);
@@ -152,11 +165,12 @@ public sealed class NodeAgentRunner(
             return new SessionUnreachable();
         }
 
+        var activity = new SessionActivity(timeProvider.GetTimestamp());
         Task[] loops =
         [
-            ReceiveLoopAsync(socket, session, token),
+            ReceiveLoopAsync(socket, session, activity, token),
             PumpOutboxAsync(sender, token),
-            KeepAliveLoopAsync(sender, token),
+            KeepAliveLoopAsync(sender, activity, token),
             HeartbeatLoopAsync(sender, token),
         ];
         await Task.WhenAny(loops);
@@ -176,7 +190,7 @@ public sealed class NodeAgentRunner(
         return new SessionDisconnected();
     }
 
-    private async Task ReceiveLoopAsync(ClientWebSocket socket, NodeSession session, CancellationToken cancellationToken)
+    private async Task ReceiveLoopAsync(ClientWebSocket socket, NodeSession session, SessionActivity activity, CancellationToken cancellationToken)
     {
         var buffer = new ArrayBufferWriter<byte>(64 * 1024);
         while (true)
@@ -186,6 +200,7 @@ public sealed class NodeAgentRunner(
             do
             {
                 received = await socket.ReceiveAsync(buffer.GetMemory(16 * 1024), cancellationToken);
+                activity.Touch(timeProvider.GetTimestamp());
                 if (received.MessageType == WebSocketMessageType.Close)
                 {
                     return;
@@ -236,11 +251,18 @@ public sealed class NodeAgentRunner(
         }
     }
 
-    private async Task KeepAliveLoopAsync(FrameSender sender, CancellationToken cancellationToken)
+    private async Task KeepAliveLoopAsync(FrameSender sender, SessionActivity activity, CancellationToken cancellationToken)
     {
+        var watchdogLimit = TimeSpan.FromTicks((long)(options.KeepAliveInterval.Ticks * 2.5));
         using var timer = new PeriodicTimer(options.KeepAliveInterval, timeProvider);
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
+            if (timeProvider.GetElapsedTime(activity.LastReceivedTimestamp) > watchdogLimit)
+            {
+                AgentLog.SessionWatchdogExpired(logger, watchdogLimit);
+                return;
+            }
+
             await sender.SendAsync(PingFrame, cancellationToken);
         }
     }
@@ -283,6 +305,15 @@ public sealed class NodeAgentRunner(
     private sealed record class SessionUnreachable : SessionOutcome;
 
     private sealed record class SessionDisconnected : SessionOutcome;
+
+    private sealed class SessionActivity(long initialTimestamp)
+    {
+        private long _lastReceivedTimestamp = initialTimestamp;
+
+        public long LastReceivedTimestamp => Volatile.Read(ref _lastReceivedTimestamp);
+
+        public void Touch(long timestamp) => Volatile.Write(ref _lastReceivedTimestamp, timestamp);
+    }
 
     private sealed class FrameSender(ClientWebSocket socket, SemaphoreSlim gate)
     {

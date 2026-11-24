@@ -1,6 +1,9 @@
 import type {
+  ClusterPeer,
   HttpRouteEntry,
+  HttpRouteRule,
   HttpUpstream,
+  InternalRouteEntry,
   NodeInfo,
   PlacementInfo,
   PlacementMode,
@@ -33,6 +36,7 @@ export interface DesiredPlacement {
   desiredImage: string;
   hostPort: number;
   postgresHostPort?: number;
+  internalHostPort?: number;
 }
 
 export interface UnschedulableEntry {
@@ -164,8 +168,8 @@ function imageForNewPlacement(service: ServiceSpec, region: string, input: Sched
     const currentIndex = sequence.indexOf(current);
     const regionIndex = sequence.indexOf(region);
     if (regionIndex < 0) continue;
-    if (currentIndex >= 0 && regionIndex <= currentIndex) return rollout.targetImage;
-    if (currentIndex < 0 && region === current) return rollout.targetImage;
+    if (currentIndex >= 0 && regionIndex < currentIndex) return rollout.targetImage;
+    if (regionIndex === currentIndex && rollout.phase === "waves") return rollout.targetImage;
   }
   return service.image;
 }
@@ -193,7 +197,7 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
   const removed = new Set<string>();
   const failedOver = new Set<string>();
   const keptKeys = new Set<string>();
-  const needsPort: { placement: DesiredPlacement; load: NodeLoad; http: boolean; postgres: boolean }[] = [];
+  const needsPort: { placement: DesiredPlacement; load: NodeLoad; service: ServiceSpec; http: boolean; postgres: boolean; internal: boolean }[] = [];
   const sorted = [...input.currentPlacements].sort((a, b) => compareText(a.id, b.id));
 
   for (const placement of sorted) {
@@ -261,7 +265,19 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
       kept.postgresHostPort = placement.postgresHostPort;
       postgresOk = true;
     }
-    if (!httpOk || !postgresOk) needsPort.push({ placement: kept, load, http: !httpOk, postgres: !postgresOk });
+    const separateInternal = service.internalPort !== undefined && service.internalPort !== service.port;
+    let internalOk = !separateInternal;
+    if (service.internalPort !== undefined && service.internalPort === service.port) {
+      if (httpOk) kept.internalHostPort = kept.hostPort;
+    } else if (separateInternal) {
+      if (claimPort(load, placement.internalHostPort) && placement.internalHostPort !== undefined) {
+        kept.internalHostPort = placement.internalHostPort;
+        internalOk = true;
+      }
+    }
+    if (!httpOk || !postgresOk || !internalOk) {
+      needsPort.push({ placement: kept, load, service, http: !httpOk, postgres: !postgresOk, internal: !internalOk });
+    }
     desired.push(kept);
   }
 
@@ -278,8 +294,7 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
       const index = desired.indexOf(item.placement);
       if (index >= 0) desired.splice(index, 1);
       removed.add(item.placement.id);
-      const service = servicesByName.get(item.placement.serviceName);
-      if (service !== undefined) markMissing(service, item.placement.region, "host_ports_exhausted");
+      markMissing(item.service, item.placement.region, "host_ports_exhausted");
     };
     if (item.http) {
       const port = allocatePort(item.load);
@@ -288,6 +303,7 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
         continue;
       }
       item.placement.hostPort = port;
+      if (item.service.internalPort === item.service.port) item.placement.internalHostPort = port;
     }
     if (item.postgres) {
       const port = allocatePort(item.load);
@@ -296,6 +312,15 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
         continue;
       }
       item.placement.postgresHostPort = port;
+    }
+    if (item.internal) {
+      const preferred = item.service.mode === "stateful" ? item.service.internalPort : undefined;
+      const port = preferred !== undefined && claimPort(item.load, preferred) ? preferred : allocatePort(item.load);
+      if (port === undefined) {
+        drop();
+        continue;
+      }
+      item.placement.internalHostPort = port;
     }
   }
 
@@ -313,6 +338,17 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
         if (port === undefined) return false;
         const postgresHostPort = service.postgres !== undefined ? allocatePort(load) : undefined;
         if (service.postgres !== undefined && postgresHostPort === undefined) return false;
+        let internalHostPort: number | undefined;
+        if (service.internalPort !== undefined) {
+          if (service.internalPort === service.port) {
+            internalHostPort = port;
+          } else if (service.mode === "stateful" && claimPort(load, service.internalPort)) {
+            internalHostPort = service.internalPort;
+          } else {
+            internalHostPort = allocatePort(load);
+            if (internalHostPort === undefined) return false;
+          }
+        }
         reserve(load, service);
         const created: DesiredPlacement = {
           id: placementId(service.name, region.label, slot, load.node.id),
@@ -324,6 +360,7 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
           hostPort: port,
         };
         if (postgresHostPort !== undefined) created.postgresHostPort = postgresHostPort;
+        if (internalHostPort !== undefined) created.internalHostPort = internalHostPort;
         desired.push(created);
         return true;
       };
@@ -364,16 +401,27 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
         let reason: string;
         if (service.mode === "stateful") {
           reason = "no_stateful_node_with_data_volume";
+          const requiresPrimaryStateful = service.replicas === 1 && service.udpPorts.includes(3478);
           candidates = regionLoads
             .filter(
               (load) =>
                 load.node.poolKind === "stateful" &&
                 nodeSchedulable(load.node, input.nowMs, timeout) &&
                 hasDataVolume(load.node) &&
+                (!requiresPrimaryStateful ||
+                  load.node.labels["oci.stateful-index"] === undefined ||
+                  load.node.labels["oci.stateful-index"] === "0") &&
                 (load.services.get(service.name) ?? 0) === 0 &&
                 fits(load, service),
             )
-            .sort((a, b) => headroom(b) - headroom(a) || compareText(a.node.id, b.node.id));
+            .sort(
+              (a, b) =>
+                (service.replicas === 1
+                  ? (a.node.labels["oci.stateful-index"] === "0" ? 0 : 1) - (b.node.labels["oci.stateful-index"] === "0" ? 0 : 1)
+                  : 0) ||
+                headroom(b) - headroom(a) ||
+                compareText(a.node.id, b.node.id),
+            );
         } else {
           reason = regionLoads.some((load) => nodeSchedulable(load.node, input.nowMs, timeout))
             ? "insufficient_capacity"
@@ -420,7 +468,7 @@ export function expandRegionTemplate(value: string, region: string): string {
   return value.replaceAll("{region}", region);
 }
 
-function httpRoute(service: ServiceSpec, hostnames: string[], upstreams: HttpUpstream[]): HttpRouteEntry {
+function httpRoute(service: ServiceSpec, hostnames: string[], upstreams: HttpUpstream[], rule?: HttpRouteRule): HttpRouteEntry {
   const route: HttpRouteEntry = {
     serviceName: service.name,
     hostnames,
@@ -429,6 +477,13 @@ function httpRoute(service: ServiceSpec, hostnames: string[], upstreams: HttpUps
   if (service.pathPrefixes !== undefined && service.pathPrefixes.length > 0) route.pathPrefixes = [...service.pathPrefixes];
   if (service.matchGrpc === true) route.matchGrpc = true;
   if (service.blockedPaths !== undefined && service.blockedPaths.length > 0) route.blockedPaths = [...service.blockedPaths];
+  if (rule !== undefined) {
+    if (rule.pathPatterns.length > 0) route.pathPatterns = [...rule.pathPatterns];
+    if (rule.methods !== undefined && rule.methods.length > 0) route.methods = [...rule.methods];
+  } else {
+    if (service.pathPatterns !== undefined && service.pathPatterns.length > 0) route.pathPatterns = [...service.pathPatterns];
+    if (service.methods !== undefined && service.methods.length > 0) route.methods = [...service.methods];
+  }
   return route;
 }
 
@@ -438,10 +493,11 @@ export function computeRoutes(
   placements: PlacementInfo[],
   nodes: NodeInfo[],
   localNodeId?: string,
-): { httpRoutes: HttpRouteEntry[]; postgresRoutes: PostgresRouteEntry[] } {
+): { httpRoutes: HttpRouteEntry[]; postgresRoutes: PostgresRouteEntry[]; internalRoutes: InternalRouteEntry[] } {
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const httpRoutes: HttpRouteEntry[] = [];
   const postgresRoutes: PostgresRouteEntry[] = [];
+  const internalRoutes: InternalRouteEntry[] = [];
   const sortedServices = [...services].filter((s) => s.regions.includes(region)).sort((a, b) => compareText(a.name, b.name));
   for (const service of sortedServices) {
     const upstreams: HttpUpstream[] = [];
@@ -460,7 +516,33 @@ export function computeRoutes(
     }
     upstreams.sort((a, b) => compareText(a.placementId, b.placementId));
     const hostnames = [...new Set(service.hostnames.map((hostname) => expandRegionTemplate(hostname, region)))];
-    if (hostnames.length > 0) httpRoutes.push(httpRoute(service, hostnames, upstreams));
+    if (hostnames.length > 0) {
+      if (service.routeRules !== undefined && service.routeRules.length > 0) {
+        for (const rule of service.routeRules) httpRoutes.push(httpRoute(service, hostnames, upstreams, rule));
+      } else {
+        httpRoutes.push(httpRoute(service, hostnames, upstreams));
+      }
+    }
+    if (service.internalPort !== undefined) {
+      const internalUpstreams: HttpUpstream[] = [];
+      for (const placement of placements) {
+        if (placement.serviceName !== service.name || placement.region !== region || placement.state !== "ready") continue;
+        const internalPort =
+          placement.internalHostPort ?? (service.internalPort === service.port ? placement.hostPort : undefined);
+        if (placement.nodeId === undefined || !isTcpPort(internalPort)) continue;
+        const node = nodesById.get(placement.nodeId);
+        if (node === undefined || node.status !== "active" || node.drainRequested) continue;
+        internalUpstreams.push({
+          placementId: placement.id,
+          nodeId: node.id,
+          address: node.vcnIp,
+          port: internalPort,
+          local: node.id === localNodeId,
+        });
+      }
+      internalUpstreams.sort((a, b) => compareText(a.placementId, b.placementId));
+      internalRoutes.push({ serviceName: service.name, upstreams: internalUpstreams });
+    }
     if (service.postgres !== undefined) {
       const pgHostnames = [
         ...new Set(service.postgres.hostnames.map((hostname) => expandRegionTemplate(hostname, region))),
@@ -488,5 +570,41 @@ export function computeRoutes(
       });
     }
   }
-  return { httpRoutes, postgresRoutes };
+  return { httpRoutes, postgresRoutes, internalRoutes };
+}
+
+export function computeClusterPeers(
+  nodes: NodeInfo[],
+  placements: PlacementInfo[],
+  services: ServiceSpec[],
+  localNodeId?: string,
+): ClusterPeer[] {
+  const clusterServices = services.filter((service) => service.clusterPeers === true);
+  if (clusterServices.length === 0) return [];
+  const statefulNodes = nodes
+    .filter((node) => node.poolKind === "stateful" && node.status === "active" && !node.drainRequested)
+    .sort((a, b) => compareText(a.region, b.region) || compareText(a.id, b.id));
+  const peers: ClusterPeer[] = [];
+  for (const node of statefulNodes) {
+    const service = clusterServices.find((candidate) => candidate.regions.includes(node.region));
+    if (service === undefined) continue;
+    const host =
+      node.id === localNodeId
+        ? "0.0.0.0"
+        : node.netbirdIp !== undefined && node.netbirdIp.length > 0
+          ? node.netbirdIp
+          : node.vcnIp;
+    if (host.length === 0) continue;
+    const placement = placements.find(
+      (candidate) => candidate.nodeId === node.id && candidate.serviceName === service.name && candidate.state !== "stopped",
+    );
+    peers.push({
+      nodeId: node.id,
+      region: node.region,
+      host,
+      quicPort: service.udpPorts[0] ?? 8443,
+      internalHttpPort: placement?.internalHostPort ?? service.internalPort ?? 8081,
+    });
+  }
+  return peers;
 }

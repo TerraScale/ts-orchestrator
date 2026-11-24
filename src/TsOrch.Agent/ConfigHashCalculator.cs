@@ -63,6 +63,16 @@ public static class ConfigHashCalculator
             AppendField(hash, "postgres", Invariant(postgres.Port));
         }
 
+        if (service.InternalPort is { } internalPort)
+        {
+            AppendField(hash, "internal-port", Invariant(internalPort));
+        }
+
+        if (service.ClusterPeers)
+        {
+            AppendField(hash, "cluster-peers", "true");
+        }
+
         return Convert.ToHexStringLower(hash.GetHashAndReset());
     }
 

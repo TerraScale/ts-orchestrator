@@ -8,6 +8,7 @@ export interface Env {
   ATLAS_HOST: string;
   LOCAL_DEV: string;
   SESSION_SECRET?: string;
+  TLS_SEALING_KEY?: string;
   ALLOWED_SSH_KEYS?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;

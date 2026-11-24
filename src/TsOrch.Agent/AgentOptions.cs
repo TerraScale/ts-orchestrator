@@ -54,6 +54,8 @@ public sealed record class AgentOptions
 
     public bool EnableCgroupParent { get; init; } = true;
 
+    public string? RegistryAuth { get; init; }
+
     public string NodeTokenFile => Path.Combine(StateDirectory, "node.token");
 
     public string NodeStateFile => Path.Combine(StateDirectory, "node.json");
@@ -61,6 +63,10 @@ public sealed record class AgentOptions
     public string ImageStateFile => Path.Combine(StateDirectory, "images.json");
 
     public string RoutesFile => Path.Combine(RuntimeDirectory, "routes.json");
+
+    public string PeersDirectory => Path.Combine(RuntimeDirectory, "peers");
+
+    public string PeersFile => Path.Combine(PeersDirectory, Path.GetFileName(NodePaths.PeersFile));
 
     public string AppliedRoutesFile => Path.Combine(RuntimeDirectory, NodePaths.AppliedRoutesFileName);
 

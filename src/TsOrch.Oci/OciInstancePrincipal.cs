@@ -30,7 +30,9 @@ public sealed class OciInstancePrincipal(
     TimeProvider timeProvider) : IDisposable
 {
     private const string OrganizationalUnitOid = "2.5.4.11";
+    private const int MaxFederationAttempts = 3;
     private static readonly TimeSpan RefreshMargin = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan FederationRetryBaseDelay = TimeSpan.FromMilliseconds(500);
 
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private OciSession? _session;
@@ -58,6 +60,20 @@ public sealed class OciInstancePrincipal(
                 FederationUnavailable unavailable => unavailable,
                 FederationTokenInvalid invalid => invalid,
             };
+        }
+        finally
+        {
+            _refreshGate.Release();
+        }
+    }
+
+    public async Task InvalidateSessionAsync(CancellationToken cancellationToken)
+    {
+        await _refreshGate.WaitAsync(cancellationToken);
+        try
+        {
+            _session?.Key.PrivateKey.Dispose();
+            _session = null;
         }
         finally
         {
@@ -119,18 +135,31 @@ public sealed class OciInstancePrincipal(
 
     private static FederationMaterial DecodeMaterial(OciFederationMaterial material)
     {
+        var intermediateChain = new X509Certificate2Collection();
         try
         {
             using var leaf = X509Certificate2.CreateFromPem(material.LeafCertificatePem, material.LeafPrivateKeyPem);
-            using var intermediate = X509Certificate2.CreateFromPem(material.IntermediateCertificatePem);
+            intermediateChain.ImportFromPem(material.IntermediateCertificatePem);
+            if (intermediateChain.Count == 0)
+            {
+                return new InvalidFederationCredentials("OCI instance identity intermediate PEM contains no certificates.");
+            }
+
             if (TenancyId(leaf) is not { Length: > 0 } tenancyId || leaf.GetRSAPrivateKey() is not { } key)
             {
                 return new InvalidFederationCredentials("OCI instance identity requires an RSA key and an opc-tenant or opc-identity subject.");
             }
 
+            List<string> intermediates = [with(capacity: intermediateChain.Count)];
+            foreach (var certificate in intermediateChain)
+            {
+                intermediates.Add(Convert.ToBase64String(certificate.RawData));
+            }
+
             return new FederationCredentials(
                 new OciSigningKey($"{tenancyId}/fed-x509-sha256/{Fingerprint(leaf)}", key),
-                Convert.ToBase64String(leaf.RawData), Convert.ToBase64String(intermediate.RawData));
+                Convert.ToBase64String(leaf.RawData),
+                intermediates);
         }
         catch (CryptographicException exception)
         {
@@ -139,6 +168,13 @@ public sealed class OciInstancePrincipal(
         catch (ArgumentException exception)
         {
             return new InvalidFederationCredentials($"OCI instance identity PEM is invalid: {exception.Message}");
+        }
+        finally
+        {
+            foreach (var certificate in intermediateChain)
+            {
+                certificate.Dispose();
+            }
         }
     }
 
@@ -149,33 +185,37 @@ public sealed class OciInstancePrincipal(
         var transferred = false;
         try
         {
-            var document = new FederationRequestDocument(credentials.Certificate,
-                Convert.ToBase64String(sessionKey.ExportSubjectPublicKeyInfo()), [credentials.Intermediate], "DEFAULT", "SHA256");
+            var document = new FederationRequestDocument(
+                credentials.Certificate,
+                Convert.ToBase64String(sessionKey.ExportSubjectPublicKeyInfo()),
+                credentials.Intermediates,
+                "DEFAULT",
+                "SHA256");
+            var body = JsonSerializer.SerializeToUtf8Bytes(document, OciJsonContext.Default.FederationRequestDocument);
             var endpoint = environment switch
             {
                 OciMock mock => new Uri(mock.BaseUrl, "v1/x509"),
                 OciCloud => new Uri($"https://auth.{identity.Region}.{identity.RealmDomain}/v1/x509"),
             };
-            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-            request.Content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(document, OciJsonContext.Default.FederationRequestDocument));
-            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-            await signer.SignAsync(request, credentials.Key, cancellationToken);
 
-            var response = await OciHttp.SendAsync(httpClient, request, cancellationToken);
-            var exchange = response switch
+            for (var attempt = 0; attempt < MaxFederationAttempts; attempt++)
             {
-                OciPayload payload => ReadSession(payload.Body, sessionKey),
-                OciHttpRejected rejected => (FederationExchange)new FederationRejected(rejected.Status, rejected.Message),
-                OciConnectionLost lost => (FederationExchange)new FederationUnavailable(lost.Message),
-                OciResponseTimedOut => (FederationExchange)new FederationUnavailable("OCI federation response timed out."),
-            };
-            return exchange switch
-            {
-                OciSession session => TransferSession(session, ref transferred),
-                FederationRejected rejected => rejected,
-                FederationUnavailable unavailable => unavailable,
-                FederationTokenInvalid invalid => invalid,
-            };
+                var exchange = await SendFederationAttemptAsync(endpoint, body, credentials.Key, sessionKey, cancellationToken);
+                if (!ShouldRetry(exchange) || attempt + 1 >= MaxFederationAttempts)
+                {
+                    return exchange switch
+                    {
+                        OciSession session => TransferSession(session, ref transferred),
+                        FederationRejected rejected => rejected,
+                        FederationUnavailable unavailable => unavailable,
+                        FederationTokenInvalid invalid => invalid,
+                    };
+                }
+
+                await Task.Delay(TimeSpan.FromTicks(FederationRetryBaseDelay.Ticks * (attempt + 1)), timeProvider, cancellationToken);
+            }
+
+            return new FederationUnavailable("OCI federation did not execute.");
         }
         finally
         {
@@ -185,6 +225,35 @@ public sealed class OciInstancePrincipal(
             }
         }
     }
+
+    private async Task<FederationExchange> SendFederationAttemptAsync(
+        Uri endpoint,
+        byte[] body,
+        OciSigningKey leafKey,
+        RSA sessionKey,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        request.Content = new ByteArrayContent(body);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        await signer.SignAsync(request, leafKey, cancellationToken, includeHost: false);
+
+        var response = await OciHttp.SendAsync(httpClient, request, cancellationToken);
+        return response switch
+        {
+            OciPayload payload => ReadSession(payload.Body, sessionKey),
+            OciHttpRejected rejected => (FederationExchange)new FederationRejected(rejected.Status, rejected.Message),
+            OciConnectionLost lost => (FederationExchange)new FederationUnavailable(lost.Message),
+            OciResponseTimedOut => (FederationExchange)new FederationUnavailable("OCI federation response timed out."),
+        };
+    }
+
+    private static bool ShouldRetry(FederationExchange exchange) => exchange switch
+    {
+        FederationUnavailable => true,
+        FederationRejected { Status: HttpStatusCode.TooManyRequests or >= HttpStatusCode.InternalServerError } => true,
+        OciSession or FederationRejected or FederationTokenInvalid => false,
+    };
 
     private static OciSession TransferSession(OciSession session, ref bool transferred)
     {
@@ -252,7 +321,7 @@ public sealed class OciInstancePrincipal(
 
     private sealed record class OciSession(OciSigningKey Key, DateTimeOffset ExpiresAt);
 
-    private sealed record class FederationCredentials(OciSigningKey Key, string Certificate, string Intermediate);
+    private sealed record class FederationCredentials(OciSigningKey Key, string Certificate, IReadOnlyList<string> Intermediates);
 
     private readonly union FederationMaterial(FederationCredentials, InvalidFederationCredentials);
 

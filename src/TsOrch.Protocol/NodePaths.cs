@@ -9,5 +9,7 @@ public static class NodePaths
     public const string RoutesFile = "/run/ts-orch/routes.json";
     public const string TlsDirectory = "/run/ts-orch/tls";
     public const string EdgeMetricsFile = "/run/ts-orch/edge-metrics.json";
+    public const string PeersDirectory = "/run/ts-orch/peers";
+    public const string PeersFile = "/run/ts-orch/peers/peers.json";
     public const string DataVolume = "/var/lib/ts-data";
 }

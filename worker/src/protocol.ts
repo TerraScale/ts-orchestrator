@@ -122,6 +122,7 @@ export interface RegionConfig {
   network: RegionNetwork;
   endpoints: RegionEndpoints;
   pools: RegionPools;
+  instancePoolId?: string;
 }
 
 export interface RegionLocation {
@@ -160,13 +161,17 @@ export interface StatefulPool {
   shape: ComputeShape;
   dataGiB: number;
   dataVpusPerGiB: number;
-  externalNodes: string[];
 }
 
 export interface WorkerPool {
   min: number;
   max: number;
   shape: ComputeShape;
+}
+
+export interface HttpRouteRule {
+  pathPatterns: string[];
+  methods?: string[];
 }
 
 export interface ConfigFileSpec {
@@ -203,6 +208,11 @@ export interface ServiceSpec {
   matchGrpc?: boolean;
   blockedPaths?: string[];
   configFiles?: ConfigFileSpec[];
+  internalPort?: number;
+  clusterPeers?: boolean;
+  pathPatterns?: string[];
+  methods?: string[];
+  routeRules?: HttpRouteRule[];
 }
 
 export interface SecretRef {
@@ -253,6 +263,7 @@ export interface NodeInfo {
   agentVersion: string;
   cpuRequestedMilli?: number;
   memRequestedMiB?: number;
+  netbirdIp?: string;
 }
 
 export interface PlacementInfo {
@@ -266,6 +277,9 @@ export interface PlacementInfo {
   activeConfigHash?: string;
   hostPort?: number;
   postgresHostPort?: number;
+  internalHostPort?: number;
+  candidateImage?: string;
+  candidateError?: string;
   state: PlacementState;
   updatedAt: number;
 }
@@ -276,6 +290,7 @@ export interface DesiredPlacement {
   service: ServiceSpec;
   hostPort?: number;
   postgresHostPort?: number;
+  internalHostPort?: number;
 }
 
 export interface PlacementReport {
@@ -286,6 +301,9 @@ export interface PlacementReport {
   configHash: string;
   hostPort?: number;
   postgresHostPort?: number;
+  internalHostPort?: number;
+  candidateImage?: string;
+  candidateError?: string;
   error?: string;
 }
 
@@ -302,6 +320,7 @@ export interface RolloutInfo {
   baselineP95Ms?: number;
   baseline5xxPct?: number;
   canaryStartedAt?: number;
+  waveStartedAt?: number;
   startedAt: number;
   finishedAt?: number;
   error?: string;
@@ -400,6 +419,7 @@ export interface EdgeRoutesSnapshot {
   revision: number;
   httpRoutes: HttpRouteEntry[];
   postgresRoutes: PostgresRouteEntry[];
+  internalRoutes?: InternalRouteEntry[];
 }
 
 export interface HttpRouteEntry {
@@ -409,6 +429,8 @@ export interface HttpRouteEntry {
   pathPrefixes?: string[];
   matchGrpc?: boolean;
   blockedPaths?: string[];
+  pathPatterns?: string[];
+  methods?: string[];
 }
 
 export interface HttpUpstream {
@@ -417,6 +439,19 @@ export interface HttpUpstream {
   address: string;
   port: number;
   local: boolean;
+}
+
+export interface InternalRouteEntry {
+  serviceName: string;
+  upstreams: HttpUpstream[];
+}
+
+export interface ClusterPeer {
+  nodeId: string;
+  region: string;
+  host: string;
+  quicPort: number;
+  internalHttpPort: number;
 }
 
 export interface PostgresRouteEntry {
@@ -449,6 +484,7 @@ export interface HelloMessage {
   labels: Record<string, string>;
   volumes: VolumeInfo[];
   agentVersion: string;
+  netbirdIp?: string;
 }
 
 export interface HeartbeatMessage {
@@ -458,6 +494,8 @@ export interface HeartbeatMessage {
   hostMetrics: HostMetrics;
   containerMetrics: ContainerMetrics[];
   edgeMetrics?: EdgeMetricsSnapshot;
+  netbirdIp?: string;
+  volumes?: VolumeInfo[];
 }
 
 export interface PlacementEventMessage {
@@ -466,6 +504,9 @@ export interface PlacementEventMessage {
   state: PlacementState;
   hostPort?: number;
   postgresHostPort?: number;
+  internalHostPort?: number;
+  candidateImage?: string;
+  candidateError?: string;
   image: string;
   configHash: string;
   error?: string;
@@ -518,6 +559,8 @@ export interface SyncRoutesMessage {
   revision: number;
   httpRoutes: HttpRouteEntry[];
   postgresRoutes: PostgresRouteEntry[];
+  internalRoutes?: InternalRouteEntry[];
+  clusterPeers?: ClusterPeer[];
 }
 
 export interface SyncTlsMessage {

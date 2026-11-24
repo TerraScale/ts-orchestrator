@@ -12,6 +12,7 @@ export interface AutoscaleInput {
   cooldowns: Map<string, number>;
   nowMs: number;
   poolIds?: Map<string, string>;
+  drainReasons?: Map<string, string>;
 }
 
 export type AutoscaleAction =
@@ -124,7 +125,8 @@ function replicaSignals(
     psi.push(Math.max(point.cpuPsi10, point.memPsi10));
     for (const container of point.containers) {
       if (!placementIds.has(container.placementId)) continue;
-      cpu.push(container.cpuPct);
+      const normalizedCpu = service.cpuLimitMilli > 0 ? (container.cpuPct * 1000) / service.cpuLimitMilli : container.cpuPct;
+      cpu.push(normalizedCpu);
       if (container.memLimitMiB > 0) mem.push(container.memUsedMiB / container.memLimitMiB);
     }
     const edge = point.edge?.services.find((entry) => entry.serviceName === service.name);
@@ -324,9 +326,14 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
     }
 
     let terminating = false;
+    const minWorkers = Math.max(0, region.pools.worker.min);
+    let remainingActiveWorkers = workers.filter((worker) => worker.status === "active" && !worker.drainRequested).length;
     for (const worker of workers) {
       if (!worker.drainRequested) continue;
       if (worker.status !== "drained" && worker.status !== "down") continue;
+      const drainReason = input.drainReasons?.get(worker.id);
+      if (drainReason === undefined || !drainReason.startsWith("autoscaler:")) continue;
+      if (remainingActiveWorkers < minWorkers) continue;
       if (activePlacementCount(worker.id, input.placements) > 0) continue;
       const instanceId = worker.labels[INSTANCE_ID_LABEL];
       if (instanceId === undefined || instanceId.length === 0 || poolId === undefined) continue;

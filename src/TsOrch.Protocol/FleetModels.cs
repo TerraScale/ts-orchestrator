@@ -134,7 +134,8 @@ public sealed record class RegionConfig(
     RegionLocation Location,
     RegionNetwork Network,
     RegionEndpoints Endpoints,
-    RegionPools Pools);
+    RegionPools Pools,
+    string? InstancePoolId = null);
 
 public sealed record class RegionLocation(string Name, string Country, double Lat, double Lon, IReadOnlyList<string> Continents);
 
@@ -150,10 +151,13 @@ public sealed record class StatefulPool(
     int Count,
     ComputeShape Shape,
     int DataGiB,
-    int DataVpusPerGiB,
-    IReadOnlyList<string> ExternalNodes);
+    int DataVpusPerGiB);
 
 public sealed record class WorkerPool(int Min, int Max, ComputeShape Shape);
+
+public sealed record class HttpRouteRule(
+    IReadOnlyList<string> PathPatterns,
+    IReadOnlyList<string>? Methods = null);
 
 public sealed record class ServiceSpec(
     string Name,
@@ -183,7 +187,12 @@ public sealed record class ServiceSpec(
     IReadOnlyList<string>? PathPrefixes = null,
     bool MatchGrpc = false,
     IReadOnlyList<string>? BlockedPaths = null,
-    IReadOnlyList<ConfigFileSpec>? ConfigFiles = null);
+    IReadOnlyList<ConfigFileSpec>? ConfigFiles = null,
+    int? InternalPort = null,
+    bool ClusterPeers = false,
+    IReadOnlyList<string>? PathPatterns = null,
+    IReadOnlyList<string>? Methods = null,
+    IReadOnlyList<HttpRouteRule>? RouteRules = null);
 
 public sealed record class ConfigFileSpec(string Target, string Template);
 
@@ -219,7 +228,8 @@ public sealed record class NodeInfo(
     long LastSeenAt,
     string AgentVersion,
     int? CpuRequestedMilli = null,
-    int? MemRequestedMiB = null);
+    int? MemRequestedMiB = null,
+    string? NetbirdIp = null);
 
 public sealed record class PlacementInfo(
     string Id,
@@ -233,14 +243,18 @@ public sealed record class PlacementInfo(
     string? ActiveImage = null,
     string? ActiveConfigHash = null,
     int? HostPort = null,
-    int? PostgresHostPort = null);
+    int? PostgresHostPort = null,
+    int? InternalHostPort = null,
+    string? CandidateImage = null,
+    string? CandidateError = null);
 
 public sealed record class DesiredPlacement(
     string PlacementId,
     int Slot,
     ServiceSpec Service,
     int? HostPort = null,
-    int? PostgresHostPort = null);
+    int? PostgresHostPort = null,
+    int? InternalHostPort = null);
 
 public sealed record class PlacementReport(
     string PlacementId,
@@ -250,7 +264,10 @@ public sealed record class PlacementReport(
     string ConfigHash,
     int? HostPort = null,
     string? Error = null,
-    int? PostgresHostPort = null);
+    int? PostgresHostPort = null,
+    int? InternalHostPort = null,
+    string? CandidateImage = null,
+    string? CandidateError = null);
 
 public sealed record class RolloutInfo(
     string Id,
@@ -266,6 +283,7 @@ public sealed record class RolloutInfo(
     double? BaselineP95Ms = null,
     double? Baseline5xxPct = null,
     long? CanaryStartedAt = null,
+    long? WaveStartedAt = null,
     long? FinishedAt = null,
     string? Error = null);
 

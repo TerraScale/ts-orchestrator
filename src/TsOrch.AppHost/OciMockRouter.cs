@@ -31,7 +31,8 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
             ("GET", ["opc", "v2", "identity", "key.pem"]) => ImdsTextAsync(context, identity.LeafPrivateKeyPem),
             ("GET", ["opc", "v2", "identity", "intermediate.pem"]) => ImdsTextAsync(context, identity.IntermediateCertificatePem),
             ("POST", ["v1", "x509"]) => FederateAsync(context, context.RequestAborted),
-            ("GET", ["20190301", "secretbundles", "actions", "getByName"]) => GetSecretBundleAsync(context),
+            ("POST", ["20190301", "secretbundles", "actions", "getByName"]) => GetSecretBundleAsync(context),
+            ("GET", ["20160918", "instancePools", var poolId]) => GetPoolAsync(context, poolId),
             ("PUT", ["20160918", "instancePools", var poolId]) => UpdatePoolAsync(context, poolId),
             ("POST", ["20160918", "instancePools", var poolId, "actions", "detachInstance"]) => DetachInstanceAsync(context, poolId),
             ("DELETE", ["20160918", "instances", var instanceId]) => TerminateInstanceAsync(context, instanceId),
@@ -121,6 +122,11 @@ internal sealed partial class OciMockRouter(OciMockState state, OciMockIdentity 
             new SecretBundleContentDocument("BASE64", Convert.ToBase64String(Encoding.UTF8.GetBytes(secret.Value))));
         return WriteJsonAsync(context, StatusCodes.Status200OK, bundle, Json.SecretBundleDocument);
     }
+
+    private Task GetPoolAsync(HttpContext context, string poolId) =>
+        Signed(context.Request)
+            ? WriteJsonAsync(context, StatusCodes.Status200OK, state.GetPool(poolId), Json.InstancePoolDocument)
+            : UnsignedAsync(context);
 
     private async Task UpdatePoolAsync(HttpContext context, string poolId)
     {

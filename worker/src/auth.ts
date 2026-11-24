@@ -18,6 +18,8 @@ export const PRINCIPAL_HEADER = "X-TsOrch-Principal";
 const SESSION_PREFIX = "ts1.";
 const OAUTH_TTL_S = 600;
 const CLOCK_SKEW_S = 60;
+const FETCH_TIMEOUT_MS = 15_000;
+const OIDC_REPOSITORIES: ReadonlySet<string> = new Set(["TerraScale/terrascale", "TerraScale/ts-orchestrator"]);
 const LOCAL_DEV_SECRET = "ts-orch-local-dev-session-secret";
 const ROLE_RANK: Record<OperatorRole, number> = { read: 0, deploy: 1, admin: 2 };
 const encoder = new TextEncoder();
@@ -490,6 +492,7 @@ export async function githubCallback(request: Request, env: Env): Promise<Respon
         redirect_uri: `${url.origin}/auth/github/callback`,
         code_verifier: stored.verifier,
       }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const body: unknown = await exchange.json();
     if (!exchange.ok || !isRecord(body) || typeof body.access_token !== "string") return loginError("oauth_failed", [clearOauth]);
@@ -506,6 +509,7 @@ export async function githubCallback(request: Request, env: Env): Promise<Respon
         "User-Agent": "ts-orch",
         "X-GitHub-Api-Version": "2022-11-28",
       },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const body: unknown = await response.json();
     if (!response.ok || !isRecord(body)) return loginError("oauth_failed", [clearOauth]);
@@ -567,7 +571,10 @@ async function loadOidcKeys(force: boolean): Promise<OidcKeyCache> {
   if (oidcKeys !== undefined && force && now - oidcKeys.fetchedAt < 60_000) return oidcKeys;
   if (oidcFetch === undefined) {
     oidcFetch = (async () => {
-      const response = await fetch(OIDC_JWKS_URL, { headers: { Accept: "application/json", "User-Agent": "ts-orch" } });
+      const response = await fetch(OIDC_JWKS_URL, {
+        headers: { Accept: "application/json", "User-Agent": "ts-orch" },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
       if (!response.ok) throw new Error(`oidc_jwks_${response.status}`);
       const body: unknown = await response.json();
       const keys = new Map<string, CryptoKey>();
@@ -631,8 +638,10 @@ export async function verifyGithubOidc(token: string, nowMs: number): Promise<Pr
   if (typeof claims.nbf === "number" && claims.nbf - CLOCK_SKEW_S > now) return null;
   if (typeof claims.iat === "number" && claims.iat - CLOCK_SKEW_S > now) return null;
   if (claims.repository_owner !== OIDC_OWNER || claims.ref !== OIDC_REF) return null;
+  if (typeof claims.repository !== "string" || !OIDC_REPOSITORIES.has(claims.repository)) return null;
+  if (claims.event_name === "pull_request_target") return null;
   const subject = typeof claims.sub === "string" ? claims.sub : "github-actions";
-  const owner = typeof claims.repository === "string" ? claims.repository : "github-actions";
+  const owner = claims.repository;
   return { subject, owner, role: "deploy", via: "oidc", exp: claims.exp * 1000 };
 }
 

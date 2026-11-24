@@ -48,6 +48,7 @@ public sealed partial class WireJsonContext : JsonSerializerContext;
 [JsonSerializable(typeof(EdgeAppliedRoutes))]
 [JsonSerializable(typeof(TlsBundle))]
 [JsonSerializable(typeof(EdgeMetricsSnapshot))]
+[JsonSerializable(typeof(IReadOnlyList<ClusterPeer>))]
 public sealed partial class EdgeJsonContext : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(

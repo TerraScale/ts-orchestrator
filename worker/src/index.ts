@@ -52,6 +52,7 @@ const ATLAS_CORS_HEADERS: Record<string, string> = {
 };
 const MEMORY_TTL_MS = 5_000;
 const KV_TTL_MS = 60_000;
+const KV_EXPIRATION_TTL_S = 86_400;
 const STORE_TIMEOUT_MS = 2_500;
 const MAX_PUBLISH_BYTES = 128 * 1024;
 const PUBLIC_API_PATHS: ReadonlySet<string> = new Set(["/api/auth/ssh/challenge", "/api/auth/ssh/verify", "/api/nodes/enroll"]);
@@ -160,13 +161,15 @@ async function load<T extends AtlasRecord>(
     if (cached !== undefined) return { doc: cached.doc as T | null, cache: "HIT", stale: true };
     throw error;
   }
-  const entry = cacheRecord(doc);
-  remember(key, entry);
-  ctx.waitUntil(
-    env.ATLAS_KV.put(key, JSON.stringify(entry)).catch((error: unknown) => {
-      console.error("atlas KV refill failed", error);
-    }),
-  );
+  if (doc !== null) {
+    const entry = cacheRecord(doc);
+    remember(key, entry);
+    ctx.waitUntil(
+      env.ATLAS_KV.put(key, JSON.stringify(entry), { expirationTtl: KV_EXPIRATION_TTL_S }).catch((error: unknown) => {
+        console.error("atlas KV refill failed", error);
+      }),
+    );
+  }
   return { doc, cache: "MISS", stale: false };
 }
 

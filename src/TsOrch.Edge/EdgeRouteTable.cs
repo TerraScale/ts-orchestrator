@@ -17,8 +17,8 @@ public sealed partial class EdgeRouteTable(
 
     public EdgeRouteSnapshot Current => Volatile.Read(ref _current);
 
-    public EdgeRouteMatch ResolveHttpRoute(string host, PathString path, string? contentType) =>
-        Current.ResolveHttpRoute(host, path, contentType);
+    public EdgeRouteMatch ResolveHttpRoute(string host, string method, PathString path, string? contentType) =>
+        Current.ResolveHttpRoute(host, method, path, contentType);
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -41,10 +41,9 @@ public sealed partial class EdgeRouteTable(
     private async Task ReloadAsync(CancellationToken cancellationToken)
     {
         var stamp = FileStamp.Read(options.RoutesFile);
-        if (stamp.Exists && stamp != _stamp)
+        if (stamp.Exists && stamp != _stamp && await LoadAsync(cancellationToken))
         {
             _stamp = stamp;
-            await LoadAsync(cancellationToken);
         }
 
         var snapshot = Current;
@@ -57,7 +56,7 @@ public sealed partial class EdgeRouteTable(
         }
     }
 
-    private async Task LoadAsync(CancellationToken cancellationToken)
+    private async Task<bool> LoadAsync(CancellationToken cancellationToken)
     {
         EdgeRoutesSnapshot? routes;
         try
@@ -74,19 +73,20 @@ public sealed partial class EdgeRouteTable(
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
             LogRoutesRejected(logger, options.RoutesFile, exception);
-            return;
+            return false;
         }
 
         if (routes is null)
         {
             LogRoutesEmpty(logger, options.RoutesFile);
-            return;
+            return false;
         }
 
         var snapshot = EdgeRouteSnapshot.From(routes);
         Interlocked.Exchange(ref _current, snapshot);
         circuitBreaker.Retain(snapshot);
         LogRoutesLoaded(logger, snapshot.Revision, snapshot.HttpRoutes.Count, snapshot.PostgresRoutes.Count);
+        return true;
     }
 
     private async Task<bool> AcknowledgeAsync(long revision, CancellationToken cancellationToken)

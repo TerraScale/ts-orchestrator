@@ -2,7 +2,7 @@
   "name": "ts-dashboard",
   "mode": "replicated",
   "priority": "normal",
-  "image": "ghcr.io/terrascale/ts-dashboard@sha256:923abba775a790bdacdb5806b99d4b42d6a25f1c158c1305a98ddc3f604007a9",
+  "image": "ghcr.io/terrascale/terrascale-dashboard:main",
   "regions": [
     "gru",
     "fra",
@@ -11,10 +11,10 @@
   "replicas": 1,
   "minReplicas": 1,
   "maxReplicas": 4,
-  "cpuRequestMilli": 200,
+  "cpuRequestMilli": 150,
   "cpuLimitMilli": 1000,
-  "memRequestMiB": 2048,
-  "memLimitMiB": 3072,
+  "memRequestMiB": 512,
+  "memLimitMiB": 2048,
   "pidsLimit": 1024,
   "port": 8085,
   "readyPath": "/readyz",
@@ -25,9 +25,10 @@
     "platform.terrascale.tech"
   ],
   "env": {
-    "ASPNETCORE_URLS": "http://127.0.0.1:${PORT}",
+    "ASPNETCORE_URLS": "http://0.0.0.0:8085",
     "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp",
-    "TS_DASHBOARD_TERRABASE_URL": "http://127.0.0.1:8081"
+    "TS_DASHBOARD_PLATFORM_URL": "http://host.docker.internal:18082",
+    "TS_DASHBOARD_TERRABASE_URL": "http://host.docker.internal:18081"
   },
   "secrets": {
     "STRIPE_SECRET_KEY_FILE": {

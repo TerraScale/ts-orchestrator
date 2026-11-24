@@ -17,3 +17,9 @@ variable "orch_bundle_sha256" {
     error_message = "orch_bundle_sha256 must be 64 lowercase hex characters."
   }
 }
+
+variable "custom_image_ids" {
+  type        = map(string)
+  description = "Optional map of region label to pre-baked custom Ubuntu 24.04 ARM64 OCI image OCID."
+  default     = {}
+}

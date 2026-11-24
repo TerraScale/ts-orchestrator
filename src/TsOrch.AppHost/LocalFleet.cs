@@ -120,6 +120,8 @@ internal static class LocalFleet
                 .WithEnvironment("TS_ORCH_EDGE_HTTP_PORT", Text(node.HttpPort))
                 .WithEnvironment("TS_ORCH_EDGE_HTTPS_PORT", Text(node.HttpsPort))
                 .WithEnvironment("TS_ORCH_EDGE_POSTGRES_PORT", Text(node.PostgresPort))
+                .WithEnvironment("TS_ORCH_EDGE_INTERNAL_TERRABASE_PORT", "0")
+                .WithEnvironment("TS_ORCH_EDGE_INTERNAL_PLATFORM_PORT", "0")
                 .WithEnvironment("TS_ORCH_EDGE_DRAIN_SECONDS", "2")
                 .WithEnvironment("TS_ORCH_EDGE_SHUTDOWN_SECONDS", "5")
                 .WithEnvironment("TS_ORCH_EDGE_HTTP3", "false")

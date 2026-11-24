@@ -9,10 +9,10 @@
   "replicas": 1,
   "minReplicas": 1,
   "maxReplicas": 4,
-  "cpuRequestMilli": 500,
+  "cpuRequestMilli": 250,
   "cpuLimitMilli": 1000,
-  "memRequestMiB": 2048,
-  "memLimitMiB": 3072,
+  "memRequestMiB": 512,
+  "memLimitMiB": 2048,
   "pidsLimit": 1024,
   "port": 8090,
   "readyPath": "/readyz",
@@ -23,11 +23,13 @@
   "env": {
     "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login",
     "TS_AUTH_DASHBOARD_REDIRECT_URIS": "https://dash.terrascale.tech/login/callback",
-    "TS_AUTH_LISTEN": "http://127.0.0.1:${PORT}",
+    "TS_AUTH_LISTEN": "http://0.0.0.0:8090",
     "TS_AUTH_METRICS_LISTEN": "http://127.0.0.1:0",
     "TS_AUTH_SMTP_HOST": "smtp.email.sa-saopaulo-1.oci.oraclecloud.com",
     "TS_AUTH_SMTP_PORT": "587",
-    "TS_AUTH_TERRABASE_URL": "http://127.0.0.1:8081"
+    "TS_AUTH_TERRABASE_URL": "http://host.docker.internal:18081",
+    "TS_AUTH_TRUSTED_PROXIES": "127.0.0.1/32,172.16.0.0/12,10.0.0.0/8",
+    "TS_REGION": "gru"
   },
   "secrets": {
     "CLOUDFLARE_ACCOUNT_ID_FILE": {
