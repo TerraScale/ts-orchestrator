@@ -15,6 +15,8 @@ public sealed partial class EdgeProxy(
     TimeProvider timeProvider,
     ILogger<EdgeProxy> logger) : IDisposable
 {
+    private const string EventStreamMediaType = "text/event-stream";
+
     private static readonly ForwarderRequestConfig RequestConfig = new()
     {
         ActivityTimeout = TimeSpan.FromSeconds(100),
@@ -34,6 +36,13 @@ public sealed partial class EdgeProxy(
         ActivityTimeout = Timeout.InfiniteTimeSpan,
         Version = HttpVersion.Version20,
         VersionPolicy = HttpVersionPolicy.RequestVersionExact,
+    };
+
+    private static readonly ForwarderRequestConfig EventStreamRequestConfig = new()
+    {
+        ActivityTimeout = Timeout.InfiniteTimeSpan,
+        Version = HttpVersion.Version11,
+        VersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
     };
 
     private static readonly ForwarderRequestConfig WebSocketRequestConfig = new()
@@ -123,6 +132,55 @@ public sealed partial class EdgeProxy(
             || (octets[0] == 192 && octets[1] == 168);
     }
 
+    internal static bool IsEventStreamRequest(HttpRequest request)
+    {
+        foreach (var accept in request.Headers.Accept)
+        {
+            if (AcceptsEventStream(accept))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool AcceptsEventStream(ReadOnlySpan<char> accept)
+    {
+        foreach (var range in accept.Split(','))
+        {
+            var mediaRange = accept[range];
+            var parametersStart = mediaRange.IndexOf(';');
+            var mediaType = parametersStart < 0 ? mediaRange.Trim() : mediaRange[..parametersStart].Trim();
+            if (mediaType.Equals(EventStreamMediaType, StringComparison.OrdinalIgnoreCase)
+                && (parametersStart < 0 || HasNonZeroQuality(mediaRange[(parametersStart + 1)..])))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasNonZeroQuality(ReadOnlySpan<char> parameters)
+    {
+        foreach (var range in parameters.Split(';'))
+        {
+            var parameter = parameters[range];
+            var separator = parameter.IndexOf('=');
+            if (separator > 0 && parameter[..separator].Trim().Equals("q", StringComparison.OrdinalIgnoreCase))
+            {
+                return !double.TryParse(parameter[(separator + 1)..].Trim(), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var quality)
+                    || quality > 0;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsEventStreamResponse(HttpResponse response) =>
+        response.ContentType?.StartsWith(EventStreamMediaType, StringComparison.OrdinalIgnoreCase) is true;
+
     private static Task Respond(HttpContext context, int statusCode)
     {
         context.Response.StatusCode = statusCode;
@@ -135,7 +193,9 @@ public sealed partial class EdgeProxy(
             ? GrpcRequestConfig
             : forceHttp2
                 ? InternalHttp2RequestConfig
-                : context.WebSockets.IsWebSocketRequest ? WebSocketRequestConfig : RequestConfig;
+                : context.WebSockets.IsWebSocketRequest
+                    ? WebSocketRequestConfig
+                    : IsEventStreamRequest(context.Request) ? EventStreamRequestConfig : RequestConfig;
         var startedAt = timeProvider.GetTimestamp();
         metrics.RequestStarted(route.ServiceName);
         try
@@ -148,7 +208,8 @@ public sealed partial class EdgeProxy(
                 route.ServiceName,
                 context.Response.StatusCode,
                 timeProvider.GetElapsedTime(startedAt),
-                recordLatency: ReferenceEquals(config, RequestConfig) || ReferenceEquals(config, InternalHttp2RequestConfig));
+                recordLatency: (ReferenceEquals(config, RequestConfig) || ReferenceEquals(config, InternalHttp2RequestConfig))
+                    && !IsEventStreamResponse(context.Response));
         }
     }
 
