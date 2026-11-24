@@ -2,7 +2,7 @@
   "name": "ts-dashboard",
   "mode": "replicated",
   "priority": "normal",
-  "image": "ghcr.io/terrascale/terrascale-dashboard:main",
+  "image": "ghcr.io/terrascale/terrascale-dashboard@sha256:e0b4005a9b3be14c20ea654d9c9b752e596a92a0bf4ed35121b8b570434fa2c3",
   "regions": [
     "gru",
     "fra",
