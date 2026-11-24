@@ -23,7 +23,7 @@ public sealed record class EdgeServerOptions
 
     public string MetricsFile { get; init => field = ValidPath(value); } = NodePaths.EdgeMetricsFile;
 
-    public TimeSpan DrainDelay { get; init => field = NonNegative(value); } = TimeSpan.FromSeconds(15);
+    public TimeSpan DrainDelay { get; init => field = NonNegative(value); } = TimeSpan.FromSeconds(35);
 
     public TimeSpan ShutdownTimeout { get; init => field = NonNegative(value); } = TimeSpan.FromSeconds(10);
 

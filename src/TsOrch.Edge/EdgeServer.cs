@@ -14,6 +14,7 @@ public static class EdgeServer
         var builder = WebApplication.CreateSlimBuilder();
         builder.Services.AddTsOrchEdge(options);
         builder.Services.Configure<HostOptions>(host => host.ShutdownTimeout = options.DrainDelay + options.ShutdownTimeout);
+        builder.WebHost.UseKestrelHttpsConfiguration();
         if (options.EnableHttp3)
         {
             builder.WebHost.UseQuic();

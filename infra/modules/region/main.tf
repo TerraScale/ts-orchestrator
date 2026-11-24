@@ -26,7 +26,7 @@ locals {
   stateful_placement = [
     for index in range(var.stateful_count) : {
       availability_domain = local.availability_names[index % length(local.availability_names)]
-      fault_domain        = local.fault_domains[index % length(local.fault_domains)]
+      fault_domain        = var.stateful_fault_domains[index % length(var.stateful_fault_domains)]
     }
   ]
 
@@ -343,9 +343,9 @@ resource "oci_network_load_balancer_backend_set" "tcp" {
     port               = 80
     url_path           = "/readyz"
     return_code        = 200
-    interval_in_millis = 3000
-    timeout_in_millis  = 2000
-    retries            = 2
+    interval_in_millis = 15000
+    timeout_in_millis  = 3000
+    retries            = 1
   }
 }
 
@@ -373,9 +373,9 @@ resource "oci_network_load_balancer_backend_set" "udp" {
     port               = 80
     url_path           = "/readyz"
     return_code        = 200
-    interval_in_millis = 3000
-    timeout_in_millis  = 2000
-    retries            = 2
+    interval_in_millis = 15000
+    timeout_in_millis  = 3000
+    retries            = 1
   }
 }
 
@@ -444,7 +444,7 @@ resource "oci_core_instance" "stateful" {
   }
 
   lifecycle {
-    ignore_changes = [metadata, source_details[0].source_id]
+    ignore_changes = [metadata, source_details[0].source_id, fault_domain]
   }
 }
 
