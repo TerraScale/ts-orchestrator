@@ -64,6 +64,8 @@ public sealed class ContainerSwapper(
     ILogger<ContainerSwapper> logger)
 {
     public const string ProbeClientName = "ts-orch-probe";
+    private const int FailureLogTailLines = 10;
+    private const int MaxFailureLogChars = 512;
     private static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(1);
 
     private string? _ociRegion;
@@ -674,11 +676,13 @@ public sealed class ContainerSwapper(
                     initialRestartCount ??= container.RestartCount;
                     if (!container.Running || container.RestartCount > initialRestartCount.Value || string.Equals(container.Status, "restarting", StringComparison.OrdinalIgnoreCase))
                     {
+                        var tail = await ReadFailureLogsAsync(containerId, cancellationToken);
+                        var baseMessage = string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"Container failed before becoming ready (status={container.Status}, exitCode={container.ExitCode}, restarts={container.RestartCount}{(container.OomKilled ? ", OOM killed" : string.Empty)}).");
                         return new PlacementProbeFailed(
                             containerId,
-                            string.Create(
-                                CultureInfo.InvariantCulture,
-                                $"Container failed before becoming ready (status={container.Status}, exitCode={container.ExitCode}, restarts={container.RestartCount}{(container.OomKilled ? ", OOM killed" : string.Empty)})."));
+                            string.IsNullOrEmpty(tail) ? baseMessage : $"{baseMessage} Logs: {tail}");
                     }
                 }
 
@@ -699,14 +703,48 @@ public sealed class ContainerSwapper(
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return TimedOut(containerId, timeout, inspectionError);
+            return await TimedOutAsync(containerId, timeout, inspectionError, cancellationToken);
         }
 
-        return TimedOut(containerId, timeout, inspectionError);
+        return await TimedOutAsync(containerId, timeout, inspectionError, cancellationToken);
     }
 
-    private static PlacementProbeFailed TimedOut(string containerId, TimeSpan timeout, string? inspectionError) =>
-        new(containerId, string.Create(CultureInfo.InvariantCulture, $"Readiness checks did not pass within {timeout.TotalSeconds} s.{(inspectionError is { } error ? $" Last Docker error: {error}" : string.Empty)}"));
+    private async Task<PlacementProbeFailed> TimedOutAsync(string containerId, TimeSpan timeout, string? inspectionError, CancellationToken cancellationToken)
+    {
+        var tail = await ReadFailureLogsAsync(containerId, cancellationToken);
+        var baseMessage = string.Create(CultureInfo.InvariantCulture, $"Readiness checks did not pass within {timeout.TotalSeconds} s.{(inspectionError is { } error ? $" Last Docker error: {error}" : string.Empty)}");
+        return new PlacementProbeFailed(containerId, string.IsNullOrEmpty(tail) ? baseMessage : $"{baseMessage} Logs: {tail}");
+    }
+
+    private async Task<string> ReadFailureLogsAsync(string containerId, CancellationToken cancellationToken)
+    {
+        List<string> lines = [];
+        _ = await docker.StreamLogsAsync(
+            containerId,
+            FailureLogTailLines,
+            follow: false,
+            (_, line, _) =>
+            {
+                var cleaned = SanitizeLogLine(line);
+                if (cleaned.Length > 0)
+                {
+                    lines.Add(cleaned);
+                }
+
+                return ValueTask.CompletedTask;
+            },
+            cancellationToken);
+        if (lines.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var combined = string.Join(" | ", lines);
+        return combined.Length <= MaxFailureLogChars ? combined : combined[^MaxFailureLogChars..];
+    }
+
+    private static string SanitizeLogLine(string line) =>
+        string.Concat(line.Select(static ch => char.IsControl(ch) ? ' ' : ch)).Trim();
 
     private static PlacementPorts Ports(IReadOnlyList<PublishedPort> ports, ServiceSpec service) =>
         new(

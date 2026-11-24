@@ -2272,7 +2272,7 @@ export class FleetDO extends DurableObject<Env> {
     this.ctx.storage.transactionSync(() => {
       for (const update of step.imageUpdates) {
         this.sql.exec(
-          "UPDATE placements SET desired_image = ?, candidate_image = NULL, candidate_error = NULL, updated_at = ? WHERE id = ?",
+          "UPDATE placements SET desired_image = ?, state = CASE WHEN state = 'failed' THEN 'pending' ELSE state END, error = CASE WHEN state = 'failed' THEN NULL ELSE error END, candidate_image = NULL, candidate_error = NULL, updated_at = ? WHERE id = ?",
           update.targetImage,
           now,
           update.placementId,
