@@ -37,6 +37,10 @@ internal sealed record class OciDockerTokenDocument(
     string Token,
     [property: JsonPropertyName("expires_in")] int? ExpiresIn = null);
 
+internal sealed record class OciDockerTokenClaims(string? Sub = null);
+
+internal sealed record class OciDockerTokenSubject(string? UserId = null, string? TenantId = null);
+
 internal sealed record class DockerRegistryAuthDocument(string Username, string Password);
 
 [JsonSourceGenerationOptions(
@@ -51,5 +55,7 @@ internal sealed record class DockerRegistryAuthDocument(string Username, string 
 [JsonSerializable(typeof(SecurityTokenClaims))]
 [JsonSerializable(typeof(SecretBundleDocument))]
 [JsonSerializable(typeof(OciDockerTokenDocument))]
+[JsonSerializable(typeof(OciDockerTokenClaims))]
+[JsonSerializable(typeof(OciDockerTokenSubject))]
 [JsonSerializable(typeof(DockerRegistryAuthDocument))]
 internal sealed partial class OciJsonContext : JsonSerializerContext;

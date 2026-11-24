@@ -1,4 +1,6 @@
+using System.Buffers.Text;
 using System.Net;
+using System.Text;
 using System.Text.Json;
 
 namespace TsOrch.Oci;
@@ -24,6 +26,7 @@ public sealed class OciRegistryAuthClient(
 {
     private const string OciRegistrySuffix = ".ocir.io";
     private const string BearerUsername = "BEARER_TOKEN";
+    private const string AnonymousPrefix = "anon-";
     private static readonly TimeSpan DefaultLifetime = TimeSpan.FromHours(1);
     private static readonly TimeSpan RefreshMargin = TimeSpan.FromMinutes(5);
 
@@ -40,13 +43,7 @@ public sealed class OciRegistryAuthClient(
         }
 
         var host = image[..slash];
-        if (!host.EndsWith(OciRegistrySuffix, StringComparison.OrdinalIgnoreCase) || host.Length <= OciRegistrySuffix.Length)
-        {
-            return null;
-        }
-
-        var region = host[..^OciRegistrySuffix.Length];
-        return IsRegionToken(region) ? host.ToLowerInvariant() : null;
+        return IsValidOciRegistryHost(host) ? host.ToLowerInvariant() : null;
     }
 
     public static string? RewriteForRegion(string image, string ociRegion)
@@ -75,18 +72,24 @@ public sealed class OciRegistryAuthClient(
     public async Task<RegistryAuthLookup> GetDockerAuthHeaderAsync(string host, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        if (!IsValidOciRegistryHost(host))
+        {
+            return new RegistryAuthInvalid(host, $"Registry host '{host}' is not a valid OCIR host.");
+        }
+
+        var normalizedHost = host.ToLowerInvariant();
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            if (_cache.TryGetValue(host, out var cached) && cached.RefreshAt > timeProvider.GetUtcNow())
+            if (_cache.TryGetValue(normalizedHost, out var cached) && cached.RefreshAt > timeProvider.GetUtcNow())
             {
                 return new DockerRegistryAuth(cached.HeaderValue);
             }
 
-            var fetched = await FetchTokenAsync(host, cancellationToken);
+            var fetched = await FetchTokenAsync(normalizedHost, cancellationToken);
             if (fetched is CachedRegistryAuth fresh)
             {
-                _cache[host] = fresh;
+                _cache[normalizedHost] = fresh;
                 return new DockerRegistryAuth(fresh.HeaderValue);
             }
 
@@ -102,7 +105,7 @@ public sealed class OciRegistryAuthClient(
                 FederationRejected rejected => rejected,
                 FederationUnavailable unavailable => unavailable,
                 FederationTokenInvalid invalid => invalid,
-                _ => new RegistryAuthUnavailable(host, "Unexpected OCIR token lookup state."),
+                _ => new RegistryAuthUnavailable(normalizedHost, "Unexpected OCIR token lookup state."),
             };
         }
         finally
@@ -123,6 +126,8 @@ public sealed class OciRegistryAuthClient(
         {
             _gate.Release();
         }
+
+        await principal.InvalidateSessionAsync(cancellationToken);
     }
 
     public void Dispose() => _gate.Dispose();
@@ -161,14 +166,26 @@ public sealed class OciRegistryAuthClient(
                 continue;
             }
 
+            if (response is OciPayload payload)
+            {
+                var decoded = Decode(payload.Body, host);
+                if (decoded is RegistryAuthDenied { Status: HttpStatusCode.Unauthorized } && attempt == 0)
+                {
+                    await principal.InvalidateSessionAsync(cancellationToken);
+                    continue;
+                }
+
+                return decoded;
+            }
+
             return response switch
             {
-                OciPayload payload => Decode(payload.Body, host),
                 OciHttpRejected { Status: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } rejected => new RegistryAuthDenied(host, rejected.Status, rejected.Message),
                 OciHttpRejected { Status: HttpStatusCode.TooManyRequests or >= HttpStatusCode.InternalServerError } rejected => new RegistryAuthUnavailable(host, rejected.Message),
                 OciHttpRejected rejected => new RegistryAuthInvalid(host, rejected.Message),
                 OciConnectionLost lost => new RegistryAuthUnavailable(host, lost.Message),
                 OciResponseTimedOut => new RegistryAuthUnavailable(host, $"OCIR token request to {host} timed out."),
+                _ => new RegistryAuthUnavailable(host, $"OCIR token request to {host} failed."),
             };
         }
 
@@ -183,6 +200,11 @@ public sealed class OciRegistryAuthClient(
             return new RegistryAuthInvalid(host, error ?? $"OCIR token response from {host} returned no token.");
         }
 
+        if (IsAnonymousJwt(document.Token))
+        {
+            return new RegistryAuthDenied(host, HttpStatusCode.Unauthorized, $"OCIR host {host} returned an anonymous docker token.");
+        }
+
         var authJson = JsonSerializer.SerializeToUtf8Bytes(
             new DockerRegistryAuthDocument(BearerUsername, document.Token),
             OciJsonContext.Default.DockerRegistryAuthDocument);
@@ -192,6 +214,37 @@ public sealed class OciRegistryAuthClient(
         var margin = lifetime > TimeSpan.FromMinutes(10) ? RefreshMargin : TimeSpan.FromTicks(lifetime.Ticks / 4);
         return new CachedRegistryAuth(Convert.ToBase64String(authJson), timeProvider.GetUtcNow() + lifetime - margin);
     }
+
+    private static bool IsAnonymousJwt(string token)
+    {
+        var segments = token.Split('.');
+        if (segments.Length != 3 || !Base64Url.IsValid(segments[1]))
+        {
+            return false;
+        }
+
+        var claimsJson = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(segments[1]));
+        var claims = OciHttp.Decode(claimsJson, OciJsonContext.Default.OciDockerTokenClaims, out _);
+        if (claims?.Sub is not { Length: > 0 } sub)
+        {
+            return false;
+        }
+
+        if (sub.StartsWith(AnonymousPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var subject = OciHttp.Decode(sub, OciJsonContext.Default.OciDockerTokenSubject, out _);
+        return subject is not null
+            && ((subject.UserId is { Length: > 0 } userId && userId.StartsWith(AnonymousPrefix, StringComparison.OrdinalIgnoreCase))
+                || (subject.TenantId is { Length: > 0 } tenantId && tenantId.StartsWith(AnonymousPrefix, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static bool IsValidOciRegistryHost(string host) =>
+        host.EndsWith(OciRegistrySuffix, StringComparison.OrdinalIgnoreCase)
+        && host.Length > OciRegistrySuffix.Length
+        && IsRegionToken(host[..^OciRegistrySuffix.Length]);
 
     private static bool IsRegionToken(string value)
     {

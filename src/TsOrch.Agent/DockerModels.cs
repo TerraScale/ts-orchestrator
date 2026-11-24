@@ -90,7 +90,8 @@ public sealed record class ManagedContainer(
     bool Running,
     IReadOnlyList<PublishedPort> Ports,
     bool? Stateful,
-    long Created = 0);
+    long Created = 0,
+    string? PulledImage = null);
 
 public sealed record class ContainerState(
     string Id,

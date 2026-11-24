@@ -415,7 +415,7 @@ public sealed class ContainerReconciler(
         var keep = await swapper.RetirePreviousAsync(
             placement, current.ConfigHash, [.. existing.Where(container => container.Id != current.Id)],
             new PlacementPorts(report.HostPort, report.PostgresHostPort, report.InternalHostPort), cancellationToken);
-        await SwappedAsync(placement, keep, current.ImageId is { Length: > 0 } ? current.ImageId : placement.Service.Image, cancellationToken);
+        await SwappedAsync(placement, keep, current.PulledImage ?? current.Image, cancellationToken);
         secrets.DeleteStaleGenerations(placement.PlacementId, keep);
     }
 

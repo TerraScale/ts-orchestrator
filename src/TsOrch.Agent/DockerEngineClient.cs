@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using System.Text.RegularExpressions;
 
 namespace TsOrch.Agent;
 
@@ -53,7 +54,7 @@ public readonly union DockerImages(IReadOnlyList<DockerImage>, DockerDaemonUnava
 
 internal readonly union DockerHttpExchange(HttpResponseMessage, DockerResourceMissing, DockerResourceBusy, DockerDaemonUnavailable, DockerResponseInvalid);
 
-public sealed class DockerEngineClient(AgentOptions options, TimeProvider timeProvider) : IDisposable
+public sealed partial class DockerEngineClient(AgentOptions options, TimeProvider timeProvider) : IDisposable
 {
     private const string ApiVersion = "v1.45";
     private const int MaxLogLineChars = 16 * 1024;
@@ -139,9 +140,18 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
         }
     }
 
+    internal static bool IsAuthRejection(string error) =>
+        HttpAuthStatusPattern().IsMatch(error)
+        || error.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+        || error.Contains("authentication required", StringComparison.OrdinalIgnoreCase)
+        || error.Contains("denied", StringComparison.OrdinalIgnoreCase);
+
+    [GeneratedRegex(@"\b40[13]\b", RegexOptions.CultureInvariant)]
+    private static partial Regex HttpAuthStatusPattern();
+
     private static bool IsTransientPullFailure(DockerImagePull outcome) => outcome switch
     {
-        DockerDaemonUnavailable => true,
+        DockerDaemonUnavailable unavailable => !IsAuthRejection(unavailable.Message),
         DockerImagePullRejected rejected => IsTransientRegistryError(rejected.Error),
         DockerRequestCompleted or DockerResourceMissing or DockerResponseInvalid => false,
     };
@@ -509,7 +519,8 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
                 string.Equals(summary.State, "running", StringComparison.Ordinal),
                 [.. Published(summary.Ports ?? [])],
                 bool.TryParse(labels.GetValueOrDefault(ContainerLabels.Stateful(labelPrefix)), out var stateful) ? stateful : null,
-                summary.Created));
+                summary.Created,
+                summary.Image is { Length: > 0 } pulled ? pulled : image));
         }
 
         return containers;

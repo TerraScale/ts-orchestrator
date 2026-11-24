@@ -312,6 +312,11 @@ public sealed class ContainerSwapper(
             {
                 return pulledLocal;
             }
+
+            if (localOutcome is PlacementImagePullFailed localFailure)
+            {
+                AgentLog.RegionalMirrorFallback(logger, localImage, canonicalImage, localFailure.Message);
+            }
         }
 
         return await PullOciImageAsync(canonicalImage, cancellationToken);
@@ -353,13 +358,26 @@ public sealed class ContainerSwapper(
             }
 
             var pulled = await docker.PullImageAsync(image, credentials.HeaderValue, cancellationToken);
-            if (pulled is DockerImagePullRejected rejected && attempt == 0 && IsRegistryAuthError(rejected.Error))
+            var error = pulled switch
+            {
+                DockerRequestCompleted => null,
+                DockerResourceMissing failure => failure.Message,
+                DockerDaemonUnavailable failure => failure.Message,
+                DockerResponseInvalid failure => failure.Message,
+                DockerImagePullRejected failure => failure.Message,
+            };
+            if (error is null)
+            {
+                return image;
+            }
+
+            if (attempt == 0 && DockerEngineClient.IsAuthRejection(error))
             {
                 await registryAuth.InvalidateHostAsync(host, cancellationToken);
                 continue;
             }
 
-            return MapDockerPull(image, pulled);
+            return new PlacementImagePullFailed(image, error);
         }
 
         return new PlacementImagePullFailed(image, $"OCIR pull of '{image}' exhausted auth retries.");
@@ -373,13 +391,6 @@ public sealed class ContainerSwapper(
         DockerResponseInvalid failure => new PlacementImagePullFailed(image, failure.Message),
         DockerImagePullRejected failure => new PlacementImagePullFailed(image, failure.Message),
     };
-
-    private static bool IsRegistryAuthError(string error) =>
-        error.Contains("401", StringComparison.Ordinal)
-        || error.Contains("403", StringComparison.Ordinal)
-        || error.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
-        || error.Contains("authentication required", StringComparison.OrdinalIgnoreCase)
-        || error.Contains("denied", StringComparison.OrdinalIgnoreCase);
 
     private static string DescribeRegistryAuthFailure(RegistryAuthLookup lookup) => lookup switch
     {
