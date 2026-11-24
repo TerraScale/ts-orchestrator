@@ -27,3 +27,11 @@ variable "custom_image_ids" {
     sjc = "ocid1.image.oc1.us-sanjose-1.aaaaaaaavsrlon6pg5wlot3baxyo6ivavuw5snwpqa52dkhxx7sddtnujbcq"
   }
 }
+
+variable "stateful_fault_domains" {
+  type        = map(list(string))
+  description = "Optional map of region label to ordered OCI fault domains for stateful instances."
+  default = {
+    gru = ["FAULT-DOMAIN-2", "FAULT-DOMAIN-3", "FAULT-DOMAIN-1"]
+  }
+}

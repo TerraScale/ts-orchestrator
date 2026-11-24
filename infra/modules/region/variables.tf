@@ -60,6 +60,17 @@ variable "stateful_count" {
   }
 }
 
+variable "stateful_fault_domains" {
+  type        = list(string)
+  description = "Ordered OCI fault domains assigned round-robin to stateful instances."
+  default     = ["FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"]
+
+  validation {
+    condition     = length(var.stateful_fault_domains) >= 1
+    error_message = "stateful_fault_domains must list at least one fault domain."
+  }
+}
+
 variable "stateful_shape" {
   type = object({
     name      = string

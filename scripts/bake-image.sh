@@ -286,8 +286,9 @@ bake_region() {
         if oci compute console-history get-content --region "$oci_region" --instance-console-history-id "$hist_id" --length 1048576 --file "$console_file" >/dev/null 2>&1; then
           if grep -qE "reboot: Power down|Reached target poweroff\\.target" "$console_file"; then
             echo "[$label] guest halted cleanly; issuing OCI STOP" >&2
-            oci compute instance action --region "$oci_region" --instance-id "$instance_id" --action STOP >/dev/null 2>&1 || true
-            stop_requested=1
+            if oci compute instance action --region "$oci_region" --instance-id "$instance_id" --action STOP >/dev/null 2>&1; then
+              stop_requested=1
+            fi
           fi
         fi
       fi
