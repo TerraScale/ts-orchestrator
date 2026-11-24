@@ -534,7 +534,15 @@ public sealed class ContainerReconciler(
     {
         AgentLog.PlacementFailed(logger, placement.PlacementId, placement.Service.Image, reason);
         await tracker.ReportAsync(
-            new PlacementReport(placement.PlacementId, placement.Service.Name, PlacementState.Failed, placement.Service.Image, configHash, Error: reason),
+            new PlacementReport(
+                placement.PlacementId,
+                placement.Service.Name,
+                PlacementState.Failed,
+                placement.Service.Image,
+                configHash,
+                Error: reason,
+                CandidateImage: placement.Service.Image,
+                CandidateError: reason),
             cancellationToken);
     }
 

@@ -1740,16 +1740,13 @@ export class FleetDO extends DurableObject<Env> {
         : row.active_config_hash;
     const error = hold ? row.error : typeof report.error === "string" ? report.error.slice(0, 1024) : null;
     const hasCandidate = typeof report.candidateImage === "string" && report.candidateImage.length > 0;
-    const candidateImage = hasCandidate
-      ? report.candidateImage!
-      : !hold && state === "ready" && image === row.desired_image
-        ? null
-        : row.candidate_image;
+    const clearStaleCandidate = !hold && image === row.desired_image && (state === "ready" || state === "failed");
+    const candidateImage = hasCandidate ? report.candidateImage! : clearStaleCandidate ? null : row.candidate_image;
     const candidateError = hasCandidate
       ? typeof report.candidateError === "string"
         ? report.candidateError.slice(0, 1024)
         : null
-      : !hold && state === "ready" && image === row.desired_image
+      : clearStaleCandidate
         ? null
         : row.candidate_error;
     if (
@@ -2272,7 +2269,7 @@ export class FleetDO extends DurableObject<Env> {
     this.ctx.storage.transactionSync(() => {
       for (const update of step.imageUpdates) {
         this.sql.exec(
-          "UPDATE placements SET desired_image = ?, candidate_image = NULL, candidate_error = NULL, updated_at = ? WHERE id = ?",
+          "UPDATE placements SET desired_image = ?, state = CASE WHEN state = 'failed' THEN 'pending' ELSE state END, error = CASE WHEN state = 'failed' THEN NULL ELSE error END, candidate_image = NULL, candidate_error = NULL, updated_at = ? WHERE id = ?",
           update.targetImage,
           now,
           update.placementId,

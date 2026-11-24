@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using TsOrch.Oci;
 
 namespace TsOrch.Agent;
@@ -64,6 +65,9 @@ public sealed class ContainerSwapper(
     ILogger<ContainerSwapper> logger)
 {
     public const string ProbeClientName = "ts-orch-probe";
+    private const int FailureLogTailLines = 10;
+    private const int MaxFailureLogChars = 512;
+    private static readonly TimeSpan FailureLogTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(1);
 
     private string? _ociRegion;
@@ -674,11 +678,13 @@ public sealed class ContainerSwapper(
                     initialRestartCount ??= container.RestartCount;
                     if (!container.Running || container.RestartCount > initialRestartCount.Value || string.Equals(container.Status, "restarting", StringComparison.OrdinalIgnoreCase))
                     {
+                        var tail = await ReadFailureLogsAsync(containerId, cancellationToken);
+                        var baseMessage = string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"Container failed before becoming ready (status={container.Status}, exitCode={container.ExitCode}, restarts={container.RestartCount}{(container.OomKilled ? ", OOM killed" : string.Empty)}).");
                         return new PlacementProbeFailed(
                             containerId,
-                            string.Create(
-                                CultureInfo.InvariantCulture,
-                                $"Container failed before becoming ready (status={container.Status}, exitCode={container.ExitCode}, restarts={container.RestartCount}{(container.OomKilled ? ", OOM killed" : string.Empty)})."));
+                            string.IsNullOrEmpty(tail) ? baseMessage : $"{baseMessage} Logs: {tail}");
                     }
                 }
 
@@ -699,14 +705,98 @@ public sealed class ContainerSwapper(
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return TimedOut(containerId, timeout, inspectionError);
+            return await TimedOutAsync(containerId, timeout, inspectionError, cancellationToken);
         }
 
-        return TimedOut(containerId, timeout, inspectionError);
+        return await TimedOutAsync(containerId, timeout, inspectionError, cancellationToken);
     }
 
-    private static PlacementProbeFailed TimedOut(string containerId, TimeSpan timeout, string? inspectionError) =>
-        new(containerId, string.Create(CultureInfo.InvariantCulture, $"Readiness checks did not pass within {timeout.TotalSeconds} s.{(inspectionError is { } error ? $" Last Docker error: {error}" : string.Empty)}"));
+    private async Task<PlacementProbeFailed> TimedOutAsync(string containerId, TimeSpan timeout, string? inspectionError, CancellationToken cancellationToken)
+    {
+        var tail = await ReadFailureLogsAsync(containerId, cancellationToken);
+        var baseMessage = string.Create(CultureInfo.InvariantCulture, $"Readiness checks did not pass within {timeout.TotalSeconds} s.{(inspectionError is { } error ? $" Last Docker error: {error}" : string.Empty)}");
+        return new PlacementProbeFailed(containerId, string.IsNullOrEmpty(tail) ? baseMessage : $"{baseMessage} Logs: {tail}");
+    }
+
+    private async Task<string> ReadFailureLogsAsync(string containerId, CancellationToken cancellationToken)
+    {
+        var buffer = new StringBuilder(MaxFailureLogChars * 2);
+        var read = await docker.StreamLogsAsync(
+            containerId,
+            FailureLogTailLines,
+            follow: false,
+            (_, line, _) =>
+            {
+                var cleaned = SanitizeTail(line, MaxFailureLogChars);
+                if (cleaned.Length > 0)
+                {
+                    if (buffer.Length > 0)
+                    {
+                        buffer.Append(" | ");
+                    }
+
+                    buffer.Append(cleaned);
+                    if (buffer.Length > MaxFailureLogChars)
+                    {
+                        buffer.Remove(0, buffer.Length - MaxFailureLogChars);
+                    }
+                }
+
+                return ValueTask.CompletedTask;
+            },
+            cancellationToken,
+            FailureLogTimeout);
+        var failure = read switch
+        {
+            DockerRequestCompleted => null,
+            DockerResourceMissing missing => missing.Message,
+            DockerDaemonUnavailable unavailable => unavailable.Message,
+            DockerResponseInvalid invalid => invalid.Message,
+        };
+        if (failure is not null)
+        {
+            AgentLog.FailureLogReadFailed(logger, containerId, failure);
+        }
+
+        return buffer.ToString().Trim();
+    }
+
+    private static string SanitizeTail(string line, int maxChars)
+    {
+        var start = 0;
+        var end = line.Length;
+        while (start < end && (char.IsWhiteSpace(line[start]) || char.IsControl(line[start])))
+        {
+            start++;
+        }
+
+        while (end > start && (char.IsWhiteSpace(line[end - 1]) || char.IsControl(line[end - 1])))
+        {
+            end--;
+        }
+
+        var length = end - start;
+        if (length <= 0)
+        {
+            return string.Empty;
+        }
+
+        if (length > maxChars)
+        {
+            start = end - maxChars;
+            length = maxChars;
+        }
+
+        return string.Create(length, (line, start), static (span, state) =>
+        {
+            var source = state.line.AsSpan(state.start, span.Length);
+            for (var index = 0; index < source.Length; index++)
+            {
+                var ch = source[index];
+                span[index] = char.IsControl(ch) ? ' ' : ch;
+            }
+        });
+    }
 
     private static PlacementPorts Ports(IReadOnlyList<PublishedPort> ports, ServiceSpec service) =>
         new(

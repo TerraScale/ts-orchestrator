@@ -81,6 +81,10 @@ function candidateFailed(placement: PlacementInfo, target: string): boolean {
   return placement.candidateImage === target && placement.candidateError !== undefined && placement.candidateError.length > 0;
 }
 
+function targetFailed(placement: PlacementInfo, target: string): boolean {
+  return (placement.state === "failed" && placement.activeImage === target) || candidateFailed(placement, target);
+}
+
 export function createRollout(
   service: ServiceSpec,
   targetImage: string,
@@ -241,9 +245,9 @@ class Stepper {
         this.startRegion(index);
         return;
       }
-      if (canary.state === "failed" || candidateFailed(canary, target)) {
+      if (targetFailed(canary, target)) {
         const detail: Record<string, unknown> = { placementId: canary.id };
-        if (canary.candidateError !== undefined) detail.error = canary.candidateError;
+        if (candidateFailed(canary, target)) detail.error = canary.candidateError;
         this.abort(region, "canary_failed", detail);
         return;
       }
@@ -260,9 +264,9 @@ class Stepper {
 
     if (this.state.phase === "baking") {
       const canary = this.canaryOf(placements);
-      if (canary === undefined || canary.state === "failed" || candidateFailed(canary, target)) {
+      if (canary === undefined || targetFailed(canary, target)) {
         const detail: Record<string, unknown> = canary === undefined ? {} : { placementId: canary.id };
-        if (canary?.candidateError !== undefined) detail.error = canary.candidateError;
+        if (canary !== undefined && candidateFailed(canary, target)) detail.error = canary.candidateError;
         this.abort(region, "canary_failed", detail);
         return;
       }
@@ -287,10 +291,10 @@ class Stepper {
 
     if (this.state.phase === "waves") {
       const inflight = placements.filter((p) => p.desiredImage === target && !runningTarget(p, target));
-      const failed = inflight.find((p) => p.state === "failed" || candidateFailed(p, target));
+      const failed = inflight.find((p) => targetFailed(p, target));
       if (failed !== undefined) {
         const detail: Record<string, unknown> = { placementId: failed.id };
-        if (failed.candidateError !== undefined) detail.error = failed.candidateError;
+        if (candidateFailed(failed, target)) detail.error = failed.candidateError;
         this.abort(region, "wave_failed", detail);
         return;
       }
