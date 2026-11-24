@@ -85,7 +85,7 @@ resource "oci_health_checks_http_monitor" "readyz" {
   port                = 80
   path                = var.health_check_path
   interval_in_seconds = 30
-  timeout_in_seconds  = 5
+  timeout_in_seconds  = 10
   is_enabled          = true
   targets             = [for label in sort(keys(var.regions)) : var.regions[label].nlb_ip]
 }
