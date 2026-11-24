@@ -66,8 +66,8 @@ variable "stateful_fault_domains" {
   default     = ["FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"]
 
   validation {
-    condition     = length(var.stateful_fault_domains) >= 1
-    error_message = "stateful_fault_domains must list at least one fault domain."
+    condition     = length(var.stateful_fault_domains) >= 1 && alltrue([for fd in var.stateful_fault_domains : can(regex("^FAULT-DOMAIN-[1-3]$", fd))])
+    error_message = "stateful_fault_domains must contain one or more OCI fault domains (FAULT-DOMAIN-1 through FAULT-DOMAIN-3)."
   }
 }
 

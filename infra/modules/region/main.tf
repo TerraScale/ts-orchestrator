@@ -345,7 +345,7 @@ resource "oci_network_load_balancer_backend_set" "tcp" {
     return_code        = 200
     interval_in_millis = 15000
     timeout_in_millis  = 3000
-    retries            = 2
+    retries            = 1
   }
 }
 
@@ -375,7 +375,7 @@ resource "oci_network_load_balancer_backend_set" "udp" {
     return_code        = 200
     interval_in_millis = 15000
     timeout_in_millis  = 3000
-    retries            = 2
+    retries            = 1
   }
 }
 

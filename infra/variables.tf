@@ -32,6 +32,6 @@ variable "stateful_fault_domains" {
   type        = map(list(string))
   description = "Optional map of region label to ordered OCI fault domains for stateful instances."
   default = {
-    gru = ["FAULT-DOMAIN-2", "FAULT-DOMAIN-3", "FAULT-DOMAIN-1"]
+    gru = ["FAULT-DOMAIN-3", "FAULT-DOMAIN-2", "FAULT-DOMAIN-1"]
   }
 }

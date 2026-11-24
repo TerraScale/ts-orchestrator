@@ -11,7 +11,7 @@ OOMScoreAdjust=-900
 Environment=TS_ORCH_EDGE_HTTPS_REDIRECT=true
 ExecStart=/usr/bin/dotnet /opt/ts-orch/current/ts-orch.dll edge
 KillSignal=SIGTERM
-TimeoutStopSec=35s
+TimeoutStopSec=55s
 Restart=always
 RestartSec=1s
 RuntimeDirectory=ts-orch
