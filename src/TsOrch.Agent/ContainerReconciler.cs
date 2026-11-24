@@ -338,17 +338,17 @@ public sealed class ContainerReconciler(
         var outcome = await swapper.SwapAsync(plan, existing, RecordPulledAsync, cancellationToken);
         var keep = outcome switch
         {
-            PlacementPromoted promoted => await SwappedAsync(placement, promoted.LiveConfigurations, cancellationToken),
+            PlacementPromoted promoted => await SwappedAsync(placement, promoted.LiveConfigurations, promoted.PulledImage, cancellationToken),
             InvalidPlacementPort or PlacementDrainPending or PlacementImagePullFailed or PlacementCreateFailed or PlacementStartFailed or PlacementProbeFailed
                 => SwapFailed(placement, plan.ConfigHash, existing),
         };
         secrets.DeleteStaleGenerations(placement.PlacementId, keep);
     }
 
-    private async Task<IReadOnlySet<string>> SwappedAsync(DesiredPlacement placement, IReadOnlySet<string> liveConfigurations, CancellationToken cancellationToken)
+    private async Task<IReadOnlySet<string>> SwappedAsync(DesiredPlacement placement, IReadOnlySet<string> liveConfigurations, string pulledImage, CancellationToken cancellationToken)
     {
         _failures.TryRemove(placement.PlacementId, out _);
-        var outcome = await images.RecordActiveAsync(placement.Service.Name, placement.Service.Image, cancellationToken);
+        var outcome = await images.RecordActiveAsync(placement.Service.Name, pulledImage, cancellationToken);
         var failure = outcome switch
         {
             ImageHistoryRecorded => null,
@@ -415,7 +415,7 @@ public sealed class ContainerReconciler(
         var keep = await swapper.RetirePreviousAsync(
             placement, current.ConfigHash, [.. existing.Where(container => container.Id != current.Id)],
             new PlacementPorts(report.HostPort, report.PostgresHostPort, report.InternalHostPort), cancellationToken);
-        await SwappedAsync(placement, keep, cancellationToken);
+        await SwappedAsync(placement, keep, current.PulledImage ?? current.Image, cancellationToken);
         secrets.DeleteStaleGenerations(placement.PlacementId, keep);
     }
 

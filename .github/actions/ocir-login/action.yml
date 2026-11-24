@@ -1,0 +1,70 @@
+name: OCIR login
+description: Exchange this job's GitHub OIDC token for an OCI UPST of ts-ci-ocir and log docker in to each region's OCIR.
+inputs:
+  regions:
+    description: Space-separated OCI region names, such as "us-sanjose-1 eu-frankfurt-1 sa-saopaulo-1".
+    required: true
+  domain-url:
+    description: The identity domain URL, vars.OCI_IDENTITY_DOMAIN_URL.
+    required: true
+  client-id:
+    description: The token-exchange app's client ID, vars.OCI_TOKEN_EXCHANGE_CLIENT_ID.
+    required: true
+  client-secret:
+    description: The token-exchange app's client secret, secrets.OCI_TOKEN_EXCHANGE_CLIENT_SECRET.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        REGIONS: ${{ inputs.regions }}
+        DOMAIN_URL: ${{ inputs.domain-url }}
+        CLIENT_ID: ${{ inputs.client-id }}
+        CLIENT_SECRET: ${{ inputs.client-secret }}
+      run: |
+        set -euo pipefail
+        work=$(mktemp -d)
+        chmod 700 "$work"
+        trap 'rm -rf "$work"' EXIT
+        domain_url=${DOMAIN_URL%/}
+        oidc_sep='?'
+        if [[ "$ACTIONS_ID_TOKEN_REQUEST_URL" == *\?* ]]; then
+          oidc_sep='&'
+        fi
+        printf 'header = "Authorization: bearer %s"\n' "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" > "$work/oidc.cfg"
+        chmod 600 "$work/oidc.cfg"
+        jwt=$(curl -sSf -K "$work/oidc.cfg" "${ACTIONS_ID_TOKEN_REQUEST_URL}${oidc_sep}audience=terrascale-ocir" | jq -er '.value')
+        echo "::add-mask::$jwt"
+        openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$work/key.pem" 2>/dev/null
+        public_key=$(openssl pkey -in "$work/key.pem" -pubout -outform DER | base64 -w0)
+        printf 'user = "%s:%s"\n' "$CLIENT_ID" "$CLIENT_SECRET" > "$work/upst.cfg"
+        printf 'data-urlencode = "grant_type=urn:ietf:params:oauth:grant-type:token-exchange"\n' >> "$work/upst.cfg"
+        printf 'data-urlencode = "requested_token_type=urn:oci:token-type:oci-upst"\n' >> "$work/upst.cfg"
+        printf 'data-urlencode = "subject_token_type=jwt"\n' >> "$work/upst.cfg"
+        printf 'data-urlencode = "subject_token=%s"\n' "$jwt" >> "$work/upst.cfg"
+        printf 'data-urlencode = "public_key=%s"\n' "$public_key" >> "$work/upst.cfg"
+        chmod 600 "$work/upst.cfg"
+        upst=$(curl -sSf -K "$work/upst.cfg" "${domain_url}/oauth2/v1/token" | jq -er '.token')
+        echo "::add-mask::$upst"
+        for region in $REGIONS; do
+          host="$region.ocir.io"
+          date=$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S GMT')
+          signature=$(printf 'date: %s\n(request-target): get /20180419/docker/token\nhost: %s' "$date" "$host" | openssl dgst -sha256 -sign "$work/key.pem" | base64 -w0)
+          printf 'header = "date: %s"\n' "$date" > "$work/ocir.cfg"
+          printf 'header = "Authorization: Signature version=\\"1\\",headers=\\"date (request-target) host\\",keyId=\\"ST$%s\\",algorithm=\\"rsa-sha256\\",signature=\\"%s\\""\n' "$upst" "$signature" >> "$work/ocir.cfg"
+          chmod 600 "$work/ocir.cfg"
+          token=$(curl -sSf -K "$work/ocir.cfg" "https://$host/20180419/docker/token" | jq -er '.token')
+          echo "::add-mask::$token"
+          payload_b64=$(printf '%s' "$token" | cut -d. -f2 | tr '_-' '/+')
+          case "$(( ${#payload_b64} % 4 ))" in
+            2) payload_b64+='==' ;;
+            3) payload_b64+='=' ;;
+          esac
+          sub=$(printf '%s' "$payload_b64" | base64 -d | jq -er '.sub')
+          if [[ "$sub" == anon-* ]] || printf '%s' "$sub" | jq -e '((.userId // "") | startswith("anon-")) or ((.tenantId // "") | startswith("anon-"))' >/dev/null 2>&1; then
+            echo "OCIR token exchange returned an anonymous token for $host" >&2
+            exit 1
+          fi
+          printf '%s' "$token" | docker login "$host" -u BEARER_TOKEN --password-stdin
+        done

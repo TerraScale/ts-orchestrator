@@ -165,3 +165,9 @@ variable "enroll_secret_name" {
   type        = string
   description = "Name of the node enrollment secret inside the OCI Vault."
 }
+
+variable "ocir_repositories" {
+  type        = list(string)
+  description = "Private OCIR repository display names provisioned in this region's compartment."
+  default     = []
+}

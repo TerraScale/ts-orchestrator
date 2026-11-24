@@ -38,6 +38,9 @@ internal static partial class AgentLog
     [LoggerMessage(1011, LogLevel.Warning, "Recording image history failed: {Reason}")]
     public static partial void ImageHistoryFailed(ILogger logger, string reason);
 
+    [LoggerMessage(1012, LogLevel.Warning, "Regional OCIR mirror pull for {MirrorImage} failed ({Reason}); falling back to {CanonicalImage}")]
+    public static partial void RegionalMirrorFallback(ILogger logger, string mirrorImage, string canonicalImage, string reason);
+
     [LoggerMessage(1100, LogLevel.Warning, "Image GC failed: {Reason}")]
     public static partial void ImageGcFailed(ILogger logger, string reason);
 

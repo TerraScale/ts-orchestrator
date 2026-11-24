@@ -57,6 +57,12 @@ module "region" {
 
   netbird_management_url   = local.fleet.netbird.managementUrl
   netbird_setup_key_secret = local.fleet.netbird.setupKeySecret
+  ocir_repositories = [
+    "${local.fleet.oci.registry.repoPrefix}/terrabase",
+    "${local.fleet.oci.registry.repoPrefix}/ts-platform",
+    "${local.fleet.oci.registry.repoPrefix}/ts-auth",
+    "${local.fleet.oci.registry.repoPrefix}/terrascale-dashboard",
+  ]
 }
 
 module "geodns" {

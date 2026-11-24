@@ -21,8 +21,25 @@ resource "oci_identity_policy" "ts_orch_nodes" {
   provider       = oci.home
   compartment_id = local.fleet.oci.tenancyId
   name           = "ts-orch-nodes-policy"
-  description    = "Allow TerraScale orchestrator nodes to read Vault secret bundles"
+  description    = "Allow TerraScale orchestrator nodes to read Vault secret bundles and regional OCIR repositories"
+  statements = concat(
+    [
+      "Allow dynamic-group ${oci_identity_dynamic_group.ts_orch_nodes.name} to read secret-bundles in compartment id ${local.vault_compartment_id}",
+    ],
+    [
+      for region in local.fleet.regions :
+      "Allow dynamic-group ${oci_identity_dynamic_group.ts_orch_nodes.name} to read repos in compartment id ${region.compartmentId}"
+    ]
+  )
+}
+
+resource "oci_identity_policy" "ts_ci_ocir" {
+  provider       = oci.home
+  compartment_id = local.fleet.oci.tenancyId
+  name           = "ts-ci-ocir"
+  description    = "Allow GitHub Actions OIDC service user ts-ci-ocir to manage regional OCIR repositories"
   statements = [
-    "Allow dynamic-group ${oci_identity_dynamic_group.ts_orch_nodes.name} to read secret-bundles in compartment id ${local.vault_compartment_id}"
+    for region in local.fleet.regions :
+    "Allow group 'Default'/'ts-ci-ocir' to manage repos in compartment id ${region.compartmentId}"
   ]
 }

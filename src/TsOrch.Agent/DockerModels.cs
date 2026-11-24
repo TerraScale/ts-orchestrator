@@ -74,7 +74,8 @@ public sealed record class DockerContainerSpec(
     IReadOnlyList<string> Args,
     IReadOnlyList<PortMapping> Ports,
     ContainerResources Resources,
-    bool Stateful);
+    bool Stateful,
+    string? PullImage = null);
 
 public sealed record class PublishedPort(string HostIp, int HostPort, int ContainerPort, PortProtocol Protocol);
 
@@ -89,7 +90,8 @@ public sealed record class ManagedContainer(
     bool Running,
     IReadOnlyList<PublishedPort> Ports,
     bool? Stateful,
-    long Created = 0);
+    long Created = 0,
+    string? PulledImage = null);
 
 public sealed record class ContainerState(
     string Id,

@@ -34,6 +34,11 @@ public static class AgentServiceCollectionExtensions
                 provider.GetRequiredService<OciEnvironment>(),
                 provider.GetRequiredService<OciImdsClient>(),
                 provider.GetRequiredService<OciInstancePrincipal>()));
+            services.AddSingleton(static provider => new OciRegistryAuthClient(
+                OciHttpClient(provider),
+                provider.GetRequiredService<OciEnvironment>(),
+                provider.GetRequiredService<OciInstancePrincipal>(),
+                provider.GetRequiredService<TimeProvider>()));
             services.AddSingleton<DockerEngineClient>();
             services.AddSingleton<AgentOutbox>();
             services.AddSingleton<PlacementTracker>();
