@@ -31,7 +31,6 @@ export type EventKind =
   | "failover"
   | "oom_kill"
   | "volume_grown"
-  | "container_exec"
   | "secret_rotated"
   | "tls_renewed"
   | "chaos";

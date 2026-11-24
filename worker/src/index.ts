@@ -22,7 +22,6 @@ import {
   localDevAllowed,
   logout,
   PRINCIPAL_HEADER,
-  randomToken,
   roleAllows,
   type Principal,
 } from "./auth";
@@ -519,25 +518,10 @@ async function handleAtlas(request: Request, env: Env, ctx: ExecutionContext, ur
 }
 
 function html(body: string): Response {
-  const nonce = randomToken(16);
-  const policy = [
-    "default-src 'none'",
-    `script-src 'nonce-${nonce}' 'strict-dynamic'`,
-    `style-src 'nonce-${nonce}'`,
-    "style-src-attr 'unsafe-inline'",
-    "img-src 'self' data:",
-    "connect-src 'self'",
-    "base-uri 'none'",
-    "object-src 'none'",
-    "frame-ancestors 'none'",
-    "form-action 'self'",
-  ].join("; ");
-  return new Response(body.replace(/<(script|style)(?=[\s>])/g, `<$1 nonce="${nonce}"`), {
+  return new Response(body, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
-      "Content-Security-Policy": policy,
-      "Strict-Transport-Security": "max-age=31536000",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "DENY",
       "Referrer-Policy": "same-origin",
