@@ -318,7 +318,7 @@ public sealed partial class EdgeProxy(
 
         if (error != ForwarderError.None)
         {
-            LogForwardFailed(logger, upstream.DestinationPrefix, error, context.Features.Get<IForwarderErrorFeature>()?.Exception);
+            LogForwardFailed(logger, upstream.DestinationPrefix, error);
         }
 
         var retryable = retry is not null
@@ -360,7 +360,7 @@ public sealed partial class EdgeProxy(
     private static partial void LogRetrying(ILogger logger, string serviceName, string failed, string sibling);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Forwarding to {Destination} failed with {Error}")]
-    private static partial void LogForwardFailed(ILogger logger, string destination, ForwarderError error, Exception? exception);
+    private static partial void LogForwardFailed(ILogger logger, string destination, ForwarderError error);
 
     private enum ForwardOutcome
     {
