@@ -4,7 +4,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace TsOrch.Agent;
 
-internal static class DockerExecProcess
+internal static partial class DockerExecProcess
 {
     private const int PidFdOpen = 434;
     private const int PidFdSendSignal = 424;
@@ -142,9 +142,9 @@ internal static class DockerExecProcess
     private static string SignalError(int error) =>
         string.Create(CultureInfo.InvariantCulture, $"Signaling exec process failed (errno {error}).");
 
-    [DllImport("libc", EntryPoint = "syscall")]
-    private static extern long OpenPidFd(long number, int pid, uint flags);
+    [LibraryImport("libc", EntryPoint = "syscall")]
+    private static partial long OpenPidFd(long number, int pid, uint flags);
 
-    [DllImport("libc", EntryPoint = "syscall", SetLastError = true)]
-    private static extern long SendPidFdSignal(long number, SafeFileHandle pidFd, int signal, nint info, uint flags);
+    [LibraryImport("libc", EntryPoint = "syscall", SetLastError = true)]
+    private static partial long SendPidFdSignal(long number, SafeFileHandle pidFd, int signal, nint info, uint flags);
 }

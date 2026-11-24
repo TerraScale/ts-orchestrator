@@ -428,11 +428,9 @@ public sealed class ContainerSwapper(
             plan.Service.Image, options.LabelPrefix, plan.PlacementId, plan.Service.Name, plan.ConfigHash,
             plan.Env, plan.Mounts, plan.Service.Args, ports, ContainerResources.For(plan.Service, options.EnableCgroupParent),
             Stateful: plan.Service.Mode == PlacementMode.Stateful,
-            CapAdd: plan.Service.Name == "netbird-dashboard"
-                && plan.Service.Image.StartsWith("docker.io/netbirdio/dashboard:", StringComparison.Ordinal)
-                ? ["CHOWN", "DAC_OVERRIDE", "KILL", "NET_BIND_SERVICE", "SETGID", "SETUID"]
-                : [],
-            PullImage: pulledImage);
+            CapAdd: ContainerCapabilities(plan.Service),
+            PullImage: pulledImage,
+            NetBirdIp: plan.Service.ClusterPeers ? plan.Network.NetBirdIp : null);
         var created = await docker.CreateContainerAsync(spec, cancellationToken);
         return created switch
         {
@@ -444,6 +442,11 @@ public sealed class ContainerSwapper(
         };
     }
 
+    private static IReadOnlyList<string> ContainerCapabilities(ServiceSpec service) =>
+        service.Name == "netbird-dashboard"
+            ? ["CHOWN", "DAC_OVERRIDE", "KILL", "NET_BIND_SERVICE", "SETGID", "SETUID"]
+            : [];
+
     private async Task<CandidateLaunch> StartAsync(PlacementPlan plan, string id, bool reportStarting, CancellationToken cancellationToken)
     {
         if (reportStarting)
@@ -454,7 +457,7 @@ public sealed class ContainerSwapper(
         var started = await docker.StartContainerAsync(id, cancellationToken);
         var outcome = started switch
         {
-            DockerRequestCompleted => await ProbeCandidateAsync(plan.Service, id, cancellationToken),
+            DockerRequestCompleted => await ProbeCandidateAsync(plan, id, cancellationToken),
             DockerResourceMissing failure => (CandidateLaunch)new PlacementStartFailed(id, failure.Message),
             DockerDaemonUnavailable failure => (CandidateLaunch)new PlacementStartFailed(id, failure.Message),
             DockerResponseInvalid failure => (CandidateLaunch)new PlacementStartFailed(id, failure.Message),
@@ -472,9 +475,9 @@ public sealed class ContainerSwapper(
         return outcome;
     }
 
-    private async Task<CandidateLaunch> ProbeCandidateAsync(ServiceSpec service, string id, CancellationToken cancellationToken)
+    private async Task<CandidateLaunch> ProbeCandidateAsync(PlacementPlan plan, string id, CancellationToken cancellationToken)
     {
-        var readiness = await WaitReadyAsync(id, service, cancellationToken);
+        var readiness = await WaitReadyAsync(id, plan.Service, plan.Network.VcnIp, cancellationToken);
         return readiness switch
         {
             PlacementPorts ports => new ReadyCandidate(ports),
@@ -505,7 +508,7 @@ public sealed class ContainerSwapper(
             };
             if (error is null)
             {
-                var readiness = await WaitReadyAsync(serving.Id, plan.Service, cancellationToken, allowExistingRestarts: true);
+                var readiness = await WaitReadyAsync(serving.Id, plan.Service, plan.Network.VcnIp, cancellationToken, allowExistingRestarts: true);
                 var restoredPorts = readiness switch
                 {
                     PlacementPorts ports => ports,
@@ -693,6 +696,7 @@ public sealed class ContainerSwapper(
     public async Task<PlacementReadiness> WaitReadyAsync(
         string containerId,
         ServiceSpec service,
+        string vcnIp,
         CancellationToken cancellationToken,
         bool allowExistingRestarts = false)
     {
@@ -743,12 +747,12 @@ public sealed class ContainerSwapper(
                 {
                     var ports = Ports(running.Ports, service);
                     var httpReady = service.Port <= 0 || readyPath is not null
-                        && TcpEndpoint(running.Ports, service.Port) is { } http
+                        && TcpEndpoint(running.Ports, service.Port, vcnIp) is { } http
                         && await ProbeHttpAsync(client, http, readyPath, linked.Token);
-                    var postgresReady = service.Postgres is not { } pg || TcpEndpoint(running.Ports, pg.Port) is { } postgres
+                    var postgresReady = service.Postgres is not { } pg || TcpEndpoint(running.Ports, pg.Port, vcnIp) is { } postgres
                         && await ProbeTcpAsync(postgres, linked.Token);
                     var internalReady = service.InternalPort is not { } ip || ip <= 0
-                        || TcpEndpoint(running.Ports, ip) is { } internalEndpoint && (ip == service.Port || await ProbeTcpAsync(internalEndpoint, linked.Token));
+                        || TcpEndpoint(running.Ports, ip, vcnIp) is { } internalEndpoint && (ip == service.Port || await ProbeTcpAsync(internalEndpoint, linked.Token));
                     if (httpReady && postgresReady && internalReady)
                     {
                         return ports;
@@ -869,9 +873,10 @@ public sealed class ContainerSwapper(
             ports.Postgres,
             desired.Service.InternalPort is > 0 ? ports.Internal : null);
 
-    private static IPEndPoint? TcpEndpoint(IReadOnlyList<PublishedPort> ports, int containerPort)
+    private static IPEndPoint? TcpEndpoint(IReadOnlyList<PublishedPort> ports, int containerPort, string vcnIp)
     {
-        var mapping = ports.FirstOrDefault(port => port.ContainerPort == containerPort && port.Protocol == PortProtocol.Tcp);
+        var candidates = ports.Where(port => port.ContainerPort == containerPort && port.Protocol == PortProtocol.Tcp);
+        var mapping = candidates.FirstOrDefault(port => port.HostIp == vcnIp) ?? candidates.FirstOrDefault();
         if (mapping is null || mapping.HostPort is < 1 or > IPEndPoint.MaxPort || !IPAddress.TryParse(mapping.HostIp, out var bound))
         {
             return null;

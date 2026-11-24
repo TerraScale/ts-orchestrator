@@ -76,7 +76,8 @@ public sealed record class DockerContainerSpec(
     ContainerResources Resources,
     bool Stateful,
     IReadOnlyList<string> CapAdd,
-    string? PullImage = null);
+    string? PullImage = null,
+    string? NetBirdIp = null);
 
 public sealed record class PublishedPort(string HostIp, int HostPort, int ContainerPort, PortProtocol Protocol);
 
@@ -92,7 +93,8 @@ public sealed record class ManagedContainer(
     IReadOnlyList<PublishedPort> Ports,
     bool? Stateful,
     long Created = 0,
-    string? PulledImage = null);
+    string? PulledImage = null,
+    string? NetBirdIp = null);
 
 public sealed record class ContainerState(
     string Id,
@@ -133,6 +135,8 @@ public static class ContainerLabels
     public static string Stateful(string prefix) => $"{prefix}.stateful";
 
     public static string Image(string prefix) => $"{prefix}.image";
+
+    public static string NetBirdIp(string prefix) => $"{prefix}.netbird-ip";
 }
 
 internal sealed record class DockerEmpty;

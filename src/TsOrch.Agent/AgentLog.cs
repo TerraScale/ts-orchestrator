@@ -44,6 +44,9 @@ internal static partial class AgentLog
     [LoggerMessage(1013, LogLevel.Debug, "Reading failure logs for container {ContainerId} failed: {Reason}")]
     public static partial void FailureLogReadFailed(ILogger logger, string containerId, string reason);
 
+    [LoggerMessage(1014, LogLevel.Warning, "Waiting for NetBird address {Address} before replacing placement {PlacementId}")]
+    public static partial void WaitingForNetBirdBinding(ILogger logger, string placementId, string address);
+
     [LoggerMessage(1100, LogLevel.Warning, "Image GC failed: {Reason}")]
     public static partial void ImageGcFailed(ILogger logger, string reason);
 

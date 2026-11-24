@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Sockets;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 
@@ -46,6 +47,7 @@ public sealed class ContainerReconciler(
     private string? _nodeId;
     private string? _region;
     private string? _vcnIp;
+    private string? _netBirdIp;
 
     public void SetNodeIdentity(string nodeId, HostIdentity identity)
     {
@@ -260,7 +262,8 @@ public sealed class ContainerReconciler(
             return $"Node VCN address '{vcnIp}' must be a concrete IP address.";
         }
 
-        var network = new PlacementNetwork(address.ToString(), IPAddress.IsLoopback(address) ? null : NodeReportComposer.FindNetBirdIpv4());
+        var observedNetBirdIp = IPAddress.IsLoopback(address) ? null : NodeReportComposer.FindNetBirdIpv4();
+        var network = ResolvePlacementNetwork(address, observedNetBirdIp, containers);
         var byPlacement = containers
             .GroupBy(static container => container.PlacementId, StringComparer.Ordinal)
             .ToDictionary(static group => group.Key, static group => (IReadOnlyList<ManagedContainer>)[.. group], StringComparer.Ordinal);
@@ -287,6 +290,30 @@ public sealed class ContainerReconciler(
 
         return null;
     }
+
+    private PlacementNetwork ResolvePlacementNetwork(IPAddress address, string? observedNetBirdIp, IReadOnlyList<ManagedContainer> containers)
+    {
+        var vcnIp = address.ToString();
+        if (IPAddress.IsLoopback(address))
+        {
+            return new PlacementNetwork(vcnIp, null);
+        }
+
+        _netBirdIp = ValidNetBirdIp(observedNetBirdIp) ?? _netBirdIp
+            ?? containers.OrderByDescending(static container => container.Running)
+                .ThenByDescending(static container => container.Created)
+                .Select(static container => ValidNetBirdIp(container.NetBirdIp))
+                .FirstOrDefault(static ip => ip is not null);
+        return new PlacementNetwork(vcnIp, _netBirdIp == vcnIp ? null : _netBirdIp);
+    }
+
+    private static string? ValidNetBirdIp(string? value) =>
+        IPAddress.TryParse(value, out var address)
+            && address.AddressFamily == AddressFamily.InterNetwork
+            && !address.Equals(IPAddress.Any)
+            && !IPAddress.IsLoopback(address)
+            ? address.ToString()
+            : null;
 
     private void CompleteRetirement(string placementId, PlacementRetirement outcome)
     {
@@ -364,12 +391,28 @@ public sealed class ContainerReconciler(
         var current = existing.FirstOrDefault(container => container.Running && container.Image == service.Image && container.ConfigHash == configHash);
         if (current is not null)
         {
-            await KeepCurrentAsync(placement, current, existing, cancellationToken);
+            await KeepCurrentAsync(placement, current, existing, network.VcnIp, cancellationToken);
             return;
         }
 
         if (_failures.TryGetValue(placement.PlacementId, out var failure) && failure.ConfigHash == configHash && timeProvider.GetUtcNow() < failure.RetryAt)
         {
+            return;
+        }
+
+        if (service.ClusterPeers && network.NetBirdIp is { } netBirdIp && NodeReportComposer.FindNetBirdIpv4() != netBirdIp)
+        {
+            AgentLog.WaitingForNetBirdBinding(logger, placement.PlacementId, netBirdIp);
+            if (swapper.FindServing(placement, existing) is { } serving)
+            {
+                await tracker.ReportAsync(swapper.ServingReport(serving, service), cancellationToken);
+            }
+            else
+            {
+                await tracker.ReportAsync(new PlacementReport(placement.PlacementId, service.Name, PlacementState.Pending, service.Image,
+                    configHash, Error: $"Waiting for the NetBird bind address {netBirdIp}."), cancellationToken);
+            }
+
             return;
         }
 
@@ -438,7 +481,7 @@ public sealed class ContainerReconciler(
         }
     }
 
-    private async Task KeepCurrentAsync(DesiredPlacement placement, ManagedContainer current, IReadOnlyList<ManagedContainer> existing, CancellationToken cancellationToken)
+    private async Task KeepCurrentAsync(DesiredPlacement placement, ManagedContainer current, IReadOnlyList<ManagedContainer> existing, string vcnIp, CancellationToken cancellationToken)
     {
         var report = ContainerSwapper.ReadyReport(current, placement.Service);
         if (tracker.Find(placement.PlacementId) != report)
@@ -448,7 +491,7 @@ public sealed class ContainerReconciler(
                 await tracker.ReportAsync(swapper.ServingReport(serving, placement.Service), cancellationToken);
             }
 
-            var readiness = await swapper.WaitReadyAsync(current.Id, placement.Service, cancellationToken, allowExistingRestarts: true);
+            var readiness = await swapper.WaitReadyAsync(current.Id, placement.Service, vcnIp, cancellationToken, allowExistingRestarts: true);
             var (ports, failure) = readiness switch
             {
                 PlacementPorts ready => (ready, (PlacementProbeFailed?)null),

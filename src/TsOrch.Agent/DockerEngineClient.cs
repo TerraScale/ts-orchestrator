@@ -216,6 +216,11 @@ public sealed partial class DockerEngineClient(AgentOptions options, TimeProvide
             [ContainerLabels.Image(spec.LabelPrefix)] = spec.Image,
             [ContainerLabels.Stateful(spec.LabelPrefix)] = spec.Stateful ? "true" : "false",
         };
+        if (spec.NetBirdIp is { } netBirdIp)
+        {
+            labels.Add(ContainerLabels.NetBirdIp(spec.LabelPrefix), netBirdIp);
+        }
+
         Dictionary<string, DockerEmpty> exposed = [with(StringComparer.Ordinal)];
         Dictionary<string, IReadOnlyList<DockerPortBinding>> bindings = [with(StringComparer.Ordinal)];
         foreach (var port in spec.Ports)
@@ -533,7 +538,8 @@ public sealed partial class DockerEngineClient(AgentOptions options, TimeProvide
                 [.. Published(summary.Ports ?? [])],
                 bool.TryParse(labels.GetValueOrDefault(ContainerLabels.Stateful(labelPrefix)), out var stateful) ? stateful : null,
                 summary.Created,
-                summary.Image is { Length: > 0 } pulled ? pulled : image));
+                summary.Image is { Length: > 0 } pulled ? pulled : image,
+                labels.GetValueOrDefault(ContainerLabels.NetBirdIp(labelPrefix))));
         }
 
         return containers;

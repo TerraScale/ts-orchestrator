@@ -34,12 +34,12 @@ internal static class OciHttp
     });
 
     public static async Task<OciHttpExchange> SendAsync(
-        HttpClient mockClient,
+        HttpClient httpClient,
         OciEnvironment environment,
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
-        var client = environment is OciCloud ? CloudClient : mockClient;
+        var client = environment is OciCloud ? CloudClient : httpClient;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(OperationTimeout);
         try
