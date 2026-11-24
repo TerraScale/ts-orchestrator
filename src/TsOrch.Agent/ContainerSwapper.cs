@@ -40,7 +40,7 @@ public readonly union PlacementSwap(
 
 internal readonly union PlacementBindings(IReadOnlyList<PortMapping>, InvalidPlacementPort);
 
-public sealed record class PlacementPorts(int? Http, int? Postgres);
+public sealed record class PlacementPorts(int? Http, int? Postgres, int? Internal = null);
 
 public readonly union PlacementReadiness(PlacementPorts, PlacementProbeFailed);
 
@@ -77,7 +77,7 @@ public sealed class ContainerSwapper(
         var serving = FindServing(plan.Desired, existing);
         if (serving is not null)
         {
-            await tracker.ReportAsync(ServingReport(serving, plan.Service), cancellationToken);
+            await tracker.ReportAsync(ServingReport(serving, plan.Service) with { CandidateImage = null, CandidateError = null }, cancellationToken);
         }
 
         var bindings = BuildPorts(plan);
@@ -101,7 +101,14 @@ public sealed class ContainerSwapper(
             AgentLog.PlacementFailed(logger, plan.PlacementId, plan.Service.Image, message);
             if (serving is null)
             {
-                await ReportAsync(plan, PlacementState.Failed, null, message, cancellationToken);
+                await ReportAsync(plan, PlacementState.Failed, null, message, plan.Service.Image, message, cancellationToken);
+            }
+            else if (tracker.Find(plan.PlacementId) is { State: PlacementState.Ready } activeReport
+                && activeReport.CandidateError is null)
+            {
+                await tracker.ReportAsync(
+                    activeReport with { CandidateImage = plan.Service.Image, CandidateError = message },
+                    cancellationToken);
             }
         }
 
@@ -137,6 +144,8 @@ public sealed class ContainerSwapper(
         snapshot.HttpRoutes.SelectMany(static route => route.Upstreams).Any(upstream => upstream.PlacementId == container.PlacementId
             && container.Ports.Any(port => port.Protocol == PortProtocol.Tcp && port.HostPort == upstream.Port))
         || snapshot.PostgresRoutes.SelectMany(static route => route.Upstreams).Any(upstream => upstream.PlacementId == container.PlacementId
+            && container.Ports.Any(port => port.Protocol == PortProtocol.Tcp && port.HostPort == upstream.Port))
+        || (snapshot.InternalRoutes ?? []).SelectMany(static route => route.Upstreams).Any(upstream => upstream.PlacementId == container.PlacementId
             && container.Ports.Any(port => port.Protocol == PortProtocol.Tcp && port.HostPort == upstream.Port));
 
     public static PlacementReport ReadyReport(ManagedContainer container, ServiceSpec service)
@@ -144,7 +153,15 @@ public sealed class ContainerSwapper(
         ArgumentNullException.ThrowIfNull(container);
         ArgumentNullException.ThrowIfNull(service);
         var ports = Ports(container.Ports, service);
-        return new PlacementReport(container.PlacementId, container.ServiceName, PlacementState.Ready, container.Image, container.ConfigHash, ports.Http, PostgresHostPort: ports.Postgres);
+        return new PlacementReport(
+            container.PlacementId,
+            container.ServiceName,
+            PlacementState.Ready,
+            container.Image,
+            container.ConfigHash,
+            ports.Http,
+            PostgresHostPort: ports.Postgres,
+            InternalHostPort: ports.Internal);
     }
 
     public async Task<IReadOnlySet<string>> RetirePreviousAsync(
@@ -159,9 +176,10 @@ public sealed class ContainerSwapper(
         ArgumentNullException.ThrowIfNull(ports);
         HashSet<string> keep = [with(StringComparer.Ordinal), currentConfigHash];
         if (previous.Any(static container => container.Running)
+            && HasEdgeRoutes(desired.Service)
             && !await routes.WaitUntilAsync(snapshot => PointsTo(snapshot, desired, ports), options.RouteSwitchTimeout, cancellationToken))
         {
-            AgentLog.RouteSwitchTimedOut(logger, desired.PlacementId, ports.Http ?? ports.Postgres ?? 0);
+            AgentLog.RouteSwitchTimedOut(logger, desired.PlacementId, ports.Http ?? ports.Postgres ?? ports.Internal ?? 0);
             keep.UnionWith(previous.Select(static container => container.ConfigHash));
             return keep;
         }
@@ -177,7 +195,7 @@ public sealed class ContainerSwapper(
         return keep;
     }
 
-    public async Task<PlacementRetirement> RetireAsync(IReadOnlyList<ManagedContainer> containers, CancellationToken cancellationToken)
+    public async Task<PlacementRetirement> RetireAsync(IReadOnlyList<ManagedContainer> containers, ServiceSpec? service, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(containers);
         if (containers is not [var first, ..])
@@ -186,7 +204,7 @@ public sealed class ContainerSwapper(
         }
 
         var reference = containers.FirstOrDefault(static container => container.Running) ?? first;
-        if (reference.Running && !await DrainAsync(reference, cancellationToken))
+        if (reference.Running && !await DrainAsync(reference, service, cancellationToken))
         {
             return new PlacementDrainPending(reference.PlacementId);
         }
@@ -230,7 +248,7 @@ public sealed class ContainerSwapper(
 
         if (serving is null)
         {
-            await ReportAsync(plan, PlacementState.Pulling, null, null, cancellationToken);
+            await ReportAsync(plan, PlacementState.Pulling, null, null, null, null, cancellationToken);
         }
 
         var pulled = await docker.PullImageAsync(plan.Service.Image, null, cancellationToken);
@@ -251,7 +269,7 @@ public sealed class ContainerSwapper(
         List<ManagedContainer> previous = [.. existing.Where(static container => container.Running)];
         if (plan.RequiresStopStart && previous is [var first, ..])
         {
-            if (!await DrainAsync(serving ?? first, cancellationToken))
+            if (!await DrainAsync(serving ?? first, plan.Service, cancellationToken))
             {
                 if (serving is not null)
                 {
@@ -271,9 +289,9 @@ public sealed class ContainerSwapper(
         return candidate switch
         {
             ReadyCandidate ready => await PromoteAsync(plan, previous, ready, cancellationToken),
-            PlacementCreateFailed failed => await RestoreAsync(plan, serving, failed, cancellationToken),
-            PlacementStartFailed failed => await RestoreAsync(plan, serving, failed, cancellationToken),
-            PlacementProbeFailed failed => await RestoreAsync(plan, serving, failed, cancellationToken),
+            PlacementCreateFailed failed => await RestoreAsync(plan, serving, failed, failed.Message, cancellationToken),
+            PlacementStartFailed failed => await RestoreAsync(plan, serving, failed, failed.Message, cancellationToken),
+            PlacementProbeFailed failed => await RestoreAsync(plan, serving, failed, failed.Message, cancellationToken),
         };
     }
 
@@ -299,7 +317,7 @@ public sealed class ContainerSwapper(
     {
         if (reportStarting)
         {
-            await ReportAsync(plan, PlacementState.Starting, null, null, cancellationToken);
+            await ReportAsync(plan, PlacementState.Starting, null, null, null, null, cancellationToken);
         }
 
         var started = await docker.StartContainerAsync(id, cancellationToken);
@@ -335,12 +353,12 @@ public sealed class ContainerSwapper(
 
     private async Task<PlacementPromoted> PromoteAsync(PlacementPlan plan, IReadOnlyList<ManagedContainer> previous, ReadyCandidate ready, CancellationToken cancellationToken)
     {
-        await ReportAsync(plan, PlacementState.Ready, ready.Ports, null, cancellationToken);
+        await ReportAsync(plan, PlacementState.Ready, ready.Ports, null, null, null, cancellationToken);
         AgentLog.PlacementReady(logger, plan.PlacementId, plan.Service.Image, plan.ConfigHash, ready.Ports.Http);
         return new PlacementPromoted(await RetirePreviousAsync(plan.Desired, plan.ConfigHash, previous, ready.Ports, cancellationToken));
     }
 
-    private async Task<T> RestoreAsync<T>(PlacementPlan plan, ManagedContainer? serving, T failure, CancellationToken cancellationToken)
+    private async Task<T> RestoreAsync<T>(PlacementPlan plan, ManagedContainer? serving, T failure, string failureMessage, CancellationToken cancellationToken)
     {
         if (plan.RequiresStopStart && serving is not null)
         {
@@ -355,35 +373,58 @@ public sealed class ContainerSwapper(
             if (error is null)
             {
                 var readiness = await WaitReadyAsync(serving.Id, plan.Service, cancellationToken);
-                var available = readiness switch
+                var restoredPorts = readiness switch
                 {
-                    PlacementPorts => true,
-                    PlacementProbeFailed failed => LogCleanupFailure(serving.Id, failed.Message),
+                    PlacementPorts ports => ports,
+                    PlacementProbeFailed failed => FailRestore(serving.Id, failed.Message),
                 };
-                if (available)
+                if (restoredPorts is not null)
                 {
-                    await tracker.ReportAsync(ServingReport(serving, plan.Service), cancellationToken);
+                    await tracker.ReportAsync(
+                        new PlacementReport(
+                            serving.PlacementId,
+                            serving.ServiceName,
+                            PlacementState.Ready,
+                            serving.Image,
+                            serving.ConfigHash,
+                            restoredPorts.Http,
+                            PostgresHostPort: restoredPorts.Postgres,
+                            InternalHostPort: restoredPorts.Internal,
+                            CandidateImage: plan.Service.Image,
+                            CandidateError: failureMessage),
+                        cancellationToken);
                 }
                 else
                 {
-                    await ReportAsync(plan, PlacementState.Failed, null, "Previous container did not recover.", cancellationToken);
+                    await ReportAsync(plan, PlacementState.Failed, null, "Previous container did not recover.", plan.Service.Image, failureMessage, cancellationToken);
                 }
             }
             else
             {
                 LogCleanupFailure(serving.Id, error);
-                await ReportAsync(plan, PlacementState.Failed, null, error, cancellationToken);
+                await ReportAsync(plan, PlacementState.Failed, null, error, plan.Service.Image, failureMessage, cancellationToken);
             }
         }
 
         return failure;
     }
 
-    private async Task<bool> DrainAsync(ManagedContainer container, CancellationToken cancellationToken)
+    private PlacementPorts? FailRestore(string containerId, string message)
     {
+        LogCleanupFailure(containerId, message);
+        return null;
+    }
+
+    private async Task<bool> DrainAsync(ManagedContainer container, ServiceSpec? service, CancellationToken cancellationToken)
+    {
+        if (service is not null && !HasEdgeRoutes(service))
+        {
+            return true;
+        }
+
         var report = tracker.Find(container.PlacementId) ?? new PlacementReport(container.PlacementId, container.ServiceName, PlacementState.Ready, container.Image, container.ConfigHash);
         await tracker.ReportAsync(report with { State = PlacementState.Draining }, cancellationToken);
-        if (routes.Current is null || !await routes.WaitUntilAsync(snapshot => !RouteObserver.IsRouted(snapshot, container.PlacementId), options.RouteSwitchTimeout, cancellationToken))
+        if (!await routes.WaitUntilAsync(snapshot => !RouteObserver.IsRouted(snapshot, container.PlacementId), options.RouteSwitchTimeout, cancellationToken))
         {
             AgentLog.RouteDrainTimedOut(logger, container.PlacementId);
             return false;
@@ -391,6 +432,9 @@ public sealed class ContainerSwapper(
 
         return true;
     }
+
+    private static bool HasEdgeRoutes(ServiceSpec service) =>
+        service.Hostnames.Count > 0 || service.Postgres is not null || service.InternalPort is > 0;
 
     private async Task StopAsync(string containerId, CancellationToken cancellationToken)
     {
@@ -425,8 +469,28 @@ public sealed class ContainerSwapper(
         return false;
     }
 
-    private ValueTask ReportAsync(PlacementPlan plan, PlacementState state, PlacementPorts? ports, string? error, CancellationToken cancellationToken) =>
-        tracker.ReportAsync(new PlacementReport(plan.PlacementId, plan.Service.Name, state, plan.Service.Image, plan.ConfigHash, ports?.Http, error, ports?.Postgres), cancellationToken);
+    private ValueTask ReportAsync(
+        PlacementPlan plan,
+        PlacementState state,
+        PlacementPorts? ports,
+        string? error,
+        string? candidateImage,
+        string? candidateError,
+        CancellationToken cancellationToken) =>
+        tracker.ReportAsync(
+            new PlacementReport(
+                plan.PlacementId,
+                plan.Service.Name,
+                state,
+                plan.Service.Image,
+                plan.ConfigHash,
+                ports?.Http,
+                error,
+                ports?.Postgres,
+                ports?.Internal,
+                candidateImage,
+                candidateError),
+            cancellationToken);
 
     private static PlacementBindings BuildPorts(PlacementPlan plan)
     {
@@ -441,6 +505,11 @@ public sealed class ContainerSwapper(
         if (service.Postgres is { } postgres)
         {
             tcp.Add((postgres.Port, plan.Desired.PostgresHostPort));
+        }
+
+        if (service.InternalPort is { } internalPort and > 0 && internalPort != service.Port)
+        {
+            tcp.Add((internalPort, plan.Desired.InternalHostPort ?? (plan.RequiresStopStart ? internalPort : null)));
         }
 
         foreach (var (containerPort, assignedPort) in tcp)
@@ -480,16 +549,24 @@ public sealed class ContainerSwapper(
                     DockerResponseInvalid failure => new ReadinessInspection(null, failure.Message),
                 };
                 inspectionError = state.Error;
-                if (state.Container is { Running: false } exited)
+                if (state.Container is { } container
+                    && (!container.Running || container.RestartCount > 0 || string.Equals(container.Status, "restarting", StringComparison.OrdinalIgnoreCase)))
                 {
-                    return new PlacementProbeFailed(containerId, string.Create(CultureInfo.InvariantCulture, $"Container exited with code {exited.ExitCode}{(exited.OomKilled ? " (OOM killed)" : string.Empty)} before becoming ready."));
+                    return new PlacementProbeFailed(
+                        containerId,
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"Container failed before becoming ready (status={container.Status}, exitCode={container.ExitCode}, restarts={container.RestartCount}{(container.OomKilled ? ", OOM killed" : string.Empty)})."));
                 }
 
                 if (state.Container is { } running)
                 {
                     var ports = Ports(running.Ports, service);
-                    if ((service.Port <= 0 || ports.Http is { } http && await ProbeHttpAsync(client, http, readyPath, linked.Token))
-                        && (service.Postgres is null || ports.Postgres is { } postgres && await ProbeTcpAsync(postgres, linked.Token)))
+                    var httpReady = service.Port <= 0 || ports.Http is { } http && await ProbeHttpAsync(client, http, readyPath, linked.Token);
+                    var postgresReady = service.Postgres is null || ports.Postgres is { } postgres && await ProbeTcpAsync(postgres, linked.Token);
+                    var internalReady = service.InternalPort is not { } ip || ip <= 0
+                        || ports.Internal is { } internalPort && (ip == service.Port || await ProbeTcpAsync(internalPort, linked.Token));
+                    if (httpReady && postgresReady && internalReady)
                     {
                         return ports;
                     }
@@ -509,13 +586,21 @@ public sealed class ContainerSwapper(
         new(containerId, string.Create(CultureInfo.InvariantCulture, $"Readiness checks did not pass within {timeout.TotalSeconds} s.{(inspectionError is { } error ? $" Last Docker error: {error}" : string.Empty)}"));
 
     private static PlacementPorts Ports(IReadOnlyList<PublishedPort> ports, ServiceSpec service) =>
-        new(TcpHostPort(ports, service.Port), service.Postgres is { } postgres ? TcpHostPort(ports, postgres.Port) : null);
+        new(
+            TcpHostPort(ports, service.Port),
+            service.Postgres is { } postgres ? TcpHostPort(ports, postgres.Port) : null,
+            service.InternalPort is { } internalPort and > 0 ? TcpHostPort(ports, internalPort) : null);
 
     private static int? TcpHostPort(IReadOnlyList<PublishedPort> ports, int port) =>
         ports.FirstOrDefault(published => published.ContainerPort == port && published.Protocol == PortProtocol.Tcp)?.HostPort;
 
     private static bool PointsTo(EdgeRoutesSnapshot snapshot, DesiredPlacement desired, PlacementPorts ports) =>
-        RouteObserver.IsRoutedTo(snapshot, desired.PlacementId, desired.Service.Hostnames.Count > 0 ? ports.Http : null, ports.Postgres);
+        RouteObserver.IsRoutedTo(
+            snapshot,
+            desired.PlacementId,
+            desired.Service.Hostnames.Count > 0 ? ports.Http : null,
+            ports.Postgres,
+            desired.Service.InternalPort is > 0 ? ports.Internal : null);
 
     private static async Task<bool> ProbeHttpAsync(HttpClient client, int hostPort, string readyPath, CancellationToken cancellationToken)
     {

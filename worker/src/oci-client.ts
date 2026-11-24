@@ -23,6 +23,7 @@ export class OciError extends Error {
 type Bytes = Uint8Array<ArrayBuffer>;
 
 const API_VERSION = "20160918";
+const OCI_TIMEOUT_MS = 15_000;
 const RSA_ENCRYPTION_OID = Uint8Array.of(0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01);
 
 function concat(...parts: Uint8Array[]): Bytes {
@@ -52,7 +53,8 @@ function tlv(tag: number, ...content: Uint8Array[]): Bytes {
 }
 
 function pemBody(pem: string): { label: string; der: Bytes } {
-  const match = /-----BEGIN ([A-Z ]+)-----([\s\S]+?)-----END \1-----/.exec(pem);
+  const normalized = pem.replace(/\\n/g, "\n");
+  const match = /-----BEGIN ([A-Z ]+)-----([\s\S]+?)-----END \1-----/.exec(normalized);
   if (match === null || match[1] === undefined || match[2] === undefined) throw new Error("OCI private key is not PEM");
   const binary = atob(match[2].replace(/\s+/g, ""));
   return { label: match[1], der: Uint8Array.from(binary, (char) => char.charCodeAt(0)) };
@@ -85,6 +87,13 @@ export class OciRestClient {
     return `${this.#credentials.tenancyId}/${this.#credentials.userId}/${this.#credentials.fingerprint}`;
   }
 
+  async getInstancePool(ociRegion: string, poolId: string): Promise<{ size?: number } | null> {
+    const result = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`);
+    if (typeof result !== "object" || result === null || Array.isArray(result)) return null;
+    const record = result as Record<string, unknown>;
+    return typeof record.size === "number" ? { size: record.size } : {};
+  }
+
   updateInstancePool(ociRegion: string, poolId: string, size: number): Promise<unknown> {
     return this.#request(ociRegion, "PUT", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`, { size });
   }
@@ -98,7 +107,7 @@ export class OciRestClient {
     );
   }
 
-  terminateInstance(ociRegion: string, instanceId: string, preserveBootVolume = true): Promise<unknown> {
+  terminateInstance(ociRegion: string, instanceId: string, preserveBootVolume = false): Promise<unknown> {
     return this.#request(
       ociRegion,
       "DELETE",
@@ -171,7 +180,8 @@ export class OciRestClient {
     const url = new URL(`${this.baseUrl(ociRegion)}${path}`);
     const body = method === "POST" || method === "PUT" ? (payload === null || payload === undefined ? "" : JSON.stringify(payload)) : undefined;
     const headers = await this.signedHeaders(method, url, body);
-    const response = await fetch(url.toString(), body === undefined ? { method, headers } : { method, headers, body });
+    const signal = AbortSignal.timeout(OCI_TIMEOUT_MS);
+    const response = await fetch(url.toString(), body === undefined ? { method, headers, signal } : { method, headers, body, signal });
     const text = await response.text();
     const requestId = response.headers.get("opc-request-id");
     if (!response.ok) {

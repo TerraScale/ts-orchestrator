@@ -30,10 +30,16 @@ locals {
     }
   ]
 
-  stateful_backends = {
-    for pair in setproduct(keys(local.nlb_backend_sets), range(var.stateful_count)) :
-    "${pair[0]}-${pair[1]}" => { backend_set = pair[0], index = pair[1] }
-  }
+  stateful_backends = merge(
+    {
+      for pair in setproduct(keys(local.worker_backend_sets), range(var.stateful_count)) :
+      "${pair[0]}-${pair[1]}" => { backend_set = pair[0], index = pair[1] }
+    },
+    {
+      for key in keys(local.netbird_backend_sets) :
+      "${key}-0" => { backend_set = key, index = 0 }
+    }
+  )
 
   node_metadata = {
     for pool in ["stateful", "worker"] : pool => merge(
@@ -42,6 +48,7 @@ locals {
         ts_region                   = var.label
         ts_pool                     = pool
         ts_vcn_cidr                 = var.vcn_cidr
+        ts_orch_release_tag         = var.release_tag
         ts_orch_bundle_url          = var.bundle_url
         ts_orch_bundle_sha256       = var.bundle_sha256
         ts_enroll_vault             = var.enroll_vault_id
@@ -397,7 +404,12 @@ resource "oci_core_instance" "stateful" {
   fault_domain        = local.stateful_placement[count.index].fault_domain
   display_name        = "${local.name}-stateful-${count.index + 1}"
   shape               = var.stateful_shape.name
-  metadata            = local.node_metadata.stateful
+  metadata = merge(
+    local.node_metadata.stateful,
+    {
+      ts_data_volume_id = oci_core_volume.stateful_data[count.index].id
+    }
+  )
 
   freeform_tags = {
     "ts-region" = var.label
@@ -411,7 +423,7 @@ resource "oci_core_instance" "stateful" {
 
   source_details {
     source_type             = "image"
-    source_id               = data.oci_core_images.ubuntu[var.stateful_shape.name].images[0].id
+    source_id               = var.custom_image_id != "" ? var.custom_image_id : data.oci_core_images.ubuntu[var.stateful_shape.name].images[0].id
     boot_volume_size_in_gbs = var.stateful_shape.bootGiB
   }
 
@@ -446,7 +458,7 @@ resource "oci_core_volume" "stateful_data" {
 
   autotune_policies {
     autotune_type   = "PERFORMANCE_BASED"
-    max_vpus_per_gb = "120"
+    max_vpus_per_gb = "20"
   }
 
   freeform_tags = {
@@ -510,7 +522,7 @@ resource "oci_core_instance_configuration" "worker" {
 
       source_details {
         source_type             = "image"
-        image_id                = data.oci_core_images.ubuntu[var.worker_shape.name].images[0].id
+        image_id                = var.custom_image_id != "" ? var.custom_image_id : data.oci_core_images.ubuntu[var.worker_shape.name].images[0].id
         boot_volume_size_in_gbs = var.worker_shape.bootGiB
       }
 

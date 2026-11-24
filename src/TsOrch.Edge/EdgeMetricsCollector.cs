@@ -8,7 +8,7 @@ public sealed partial class EdgeMetricsCollector(
     TimeProvider timeProvider,
     ILogger<EdgeMetricsCollector> logger) : BackgroundService
 {
-    public static readonly TimeSpan FlushInterval = TimeSpan.FromSeconds(5);
+    public static readonly TimeSpan FlushInterval = TimeSpan.FromSeconds(10);
 
     private const int ReservoirCapacity = 2048;
 

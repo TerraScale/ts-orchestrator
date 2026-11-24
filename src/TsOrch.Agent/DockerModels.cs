@@ -88,7 +88,8 @@ public sealed record class ManagedContainer(
     string ConfigHash,
     bool Running,
     IReadOnlyList<PublishedPort> Ports,
-    bool? Stateful);
+    bool? Stateful,
+    long Created = 0);
 
 public sealed record class ContainerState(
     string Id,
@@ -96,7 +97,8 @@ public sealed record class ContainerState(
     bool OomKilled,
     int ExitCode,
     int RestartCount,
-    IReadOnlyList<PublishedPort> Ports);
+    IReadOnlyList<PublishedPort> Ports,
+    string Status = "");
 
 public sealed record class DockerImage(
     string Id,
@@ -140,6 +142,7 @@ internal sealed record class DockerRestartPolicy(string Name);
 internal sealed record class DockerHostConfig(
     IReadOnlyList<string> Binds,
     IReadOnlyDictionary<string, IReadOnlyList<DockerPortBinding>> PortBindings,
+    IReadOnlyList<string> ExtraHosts,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CgroupParent,
     long MemoryReservation,
     long Memory,
@@ -168,9 +171,10 @@ internal sealed record class DockerContainerSummary(
     string? ImageID,
     IReadOnlyDictionary<string, string>? Labels,
     string? State,
-    IReadOnlyList<DockerSummaryPort>? Ports);
+    IReadOnlyList<DockerSummaryPort>? Ports,
+    long Created = 0);
 
-internal sealed record class DockerInspectState(bool Running, bool OOMKilled, int ExitCode);
+internal sealed record class DockerInspectState(bool Running, bool OOMKilled, int ExitCode, string? Status = null);
 
 internal sealed record class DockerNetworkSettings(IReadOnlyDictionary<string, IReadOnlyList<DockerPortBinding>?>? Ports);
 

@@ -22,3 +22,8 @@ output "regional_api_fqdns" {
   description = "Region label to regional API A record name."
   value       = { for label, record in oci_dns_rrset.regional_api : label => record.domain }
 }
+
+output "regional_pg_fqdns" {
+  description = "Region label to regional PostgreSQL A record name."
+  value       = { for label, record in oci_dns_rrset.regional_pg : label => record.domain }
+}

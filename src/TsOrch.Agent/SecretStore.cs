@@ -184,7 +184,7 @@ public sealed class SecretStore(OciVaultClient vault, AgentOptions options)
         var outcome = ServiceConfigFiles.Render(service, secrets);
         return outcome switch
         {
-            IReadOnlyList<RenderedConfigFile> files => await WriteFilesAsync(placementId, configHash, secrets, files, cancellationToken),
+            IReadOnlyList<RenderedConfigFile> files => await WriteFilesAsync(placementId, configHash, service, secrets, files, cancellationToken),
             InvalidConfigFileTarget invalid => invalid,
             ConfigFileSecretMissing missing => missing,
         };
@@ -193,21 +193,33 @@ public sealed class SecretStore(OciVaultClient vault, AgentOptions options)
     private async Task<SecretMaterialization> WriteFilesAsync(
         string placementId,
         string configHash,
+        ServiceSpec service,
         ResolvedServiceSecrets secrets,
         IReadOnlyList<RenderedConfigFile> configs,
         CancellationToken cancellationToken)
     {
         var directory = GenerationDirectory(placementId, configHash);
         var secretDirectory = configs.Count == 0 ? directory : Path.Combine(directory, "env");
-        List<string> directories = [options.SecretsDirectory, PlacementDirectory(placementId), directory];
+        var templateSecrets = ServiceConfigFiles.ReferencedSecrets(service);
+        List<DirectoryMode> directories =
+        [
+            new(options.SecretsDirectory, UnixFiles.OwnerOnlyDirectory),
+            new(PlacementDirectory(placementId), UnixFiles.OwnerOnlyDirectory),
+            new(directory, configs.Count == 0 ? UnixFiles.WorldReadableDirectory : UnixFiles.OwnerOnlyDirectory),
+        ];
         List<BindMount> mounts = [];
         Dictionary<string, string> env = [with(StringComparer.Ordinal)];
         List<AtomicWrite> writes = [];
         foreach (var (name, secret) in secrets.Values.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
         {
+            if (!name.EndsWith(FileSuffix, StringComparison.Ordinal) && templateSecrets.Contains(name))
+            {
+                continue;
+            }
+
             var envName = FileVariable(name);
             var fileName = envName[..^FileSuffix.Length];
-            writes.Add(new AtomicWrite(Path.Combine(secretDirectory, fileName), Encoding.UTF8.GetBytes(secret.Value), UnixFiles.OwnerReadWrite));
+            writes.Add(new AtomicWrite(Path.Combine(secretDirectory, fileName), Encoding.UTF8.GetBytes(secret.Value), UnixFiles.WorldReadable));
             env[envName] = $"{ContainerSecretsDirectory}/{fileName}";
         }
 
@@ -215,7 +227,7 @@ public sealed class SecretStore(OciVaultClient vault, AgentOptions options)
         {
             if (configs.Count > 0)
             {
-                directories.Add(secretDirectory);
+                directories.Add(new DirectoryMode(secretDirectory, UnixFiles.WorldReadableDirectory));
             }
 
             mounts.Add(new BindMount(secretDirectory, ContainerSecretsDirectory, ReadOnly: true));
@@ -224,12 +236,12 @@ public sealed class SecretStore(OciVaultClient vault, AgentOptions options)
         if (configs.Count > 0)
         {
             var filesDirectory = Path.Combine(directory, "files");
-            directories.Add(filesDirectory);
+            directories.Add(new DirectoryMode(filesDirectory, UnixFiles.WorldReadableDirectory));
             for (var index = 0; index < configs.Count; index++)
             {
                 var file = configs[index];
                 var path = Path.Combine(filesDirectory, string.Create(CultureInfo.InvariantCulture, $"{index}.cfg"));
-                writes.Add(new AtomicWrite(path, file.Content, UnixFiles.OwnerReadWrite));
+                writes.Add(new AtomicWrite(path, file.Content, UnixFiles.WorldReadable));
                 mounts.Add(new BindMount(path, file.Target, ReadOnly: true));
             }
         }

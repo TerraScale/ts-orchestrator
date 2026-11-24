@@ -18,6 +18,11 @@ output "stateful_instance_ids" {
   value       = oci_core_instance.stateful[*].id
 }
 
+output "stateful_private_ips" {
+  description = "Private VCN IPv4 addresses of stateful nodes."
+  value       = oci_core_instance.stateful[*].private_ip
+}
+
 output "stateful_volume_ids" {
   description = "Persistent stateful data volume OCIDs the backplane grows online."
   value       = oci_core_volume.stateful_data[*].id

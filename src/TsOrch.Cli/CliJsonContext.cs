@@ -13,7 +13,11 @@ internal sealed record class CliSession(string Url, string Token, long ExpiresAt
 
 internal sealed record class ServicesDocument(IReadOnlyList<ServiceSpec> Services);
 
-internal sealed record class SeedRequest(FleetConfig Fleet, IReadOnlyList<ServiceSpec> Services, bool ReplaceServices);
+internal sealed record class SeedRequest(
+    FleetConfig Fleet,
+    IReadOnlyList<ServiceSpec> Services,
+    bool ReplaceServices,
+    IReadOnlyDictionary<string, string>? InstancePoolIds = null);
 
 internal sealed record class SeedServices(IReadOnlyList<string> Added, IReadOnlyList<string> Replaced, IReadOnlyList<string> Skipped);
 
@@ -34,6 +38,27 @@ internal sealed record class AppliedService(string Name, ApplyOutcome Result, st
 internal sealed record class ApplyResponse(IReadOnlyList<AppliedService> Applied);
 
 internal sealed record class DeletedServiceResponse(string Deleted);
+
+internal sealed record class DeletedNodeResponse(string Deleted);
+
+internal sealed record class NodeUpgradeRequest(string Version, string Url, string Sha256, string? NodeId = null);
+
+internal sealed record class NodeUpgradeResponse(string Version, IReadOnlyList<string> Nodes);
+
+internal sealed record class TlsErrorInfo(long At, string Message);
+
+internal sealed record class TlsStatusResponse(
+    bool Configured,
+    IReadOnlyList<string> Domains,
+    long? NotAfter = null,
+    long? RenewedAt = null,
+    TlsErrorInfo? Error = null);
+
+internal sealed record class TlsEnsureResponse(
+    bool Renewed,
+    IReadOnlyList<string> Domains,
+    long NotAfter,
+    IReadOnlyList<string> PushedTo);
 
 internal sealed record class RebootResponse(string NodeId, string InstanceId, string Action);
 
@@ -63,6 +88,11 @@ internal sealed record class LogLine(string NodeId, string PlacementId, LogChann
 [JsonSerializable(typeof(DiffResponse))]
 [JsonSerializable(typeof(ApplyResponse))]
 [JsonSerializable(typeof(DeletedServiceResponse))]
+[JsonSerializable(typeof(DeletedNodeResponse))]
+[JsonSerializable(typeof(NodeUpgradeRequest))]
+[JsonSerializable(typeof(NodeUpgradeResponse))]
+[JsonSerializable(typeof(TlsStatusResponse))]
+[JsonSerializable(typeof(TlsEnsureResponse))]
 [JsonSerializable(typeof(RebootResponse))]
 [JsonSerializable(typeof(SecretsRefreshRequest))]
 [JsonSerializable(typeof(SecretsRefreshResponse))]

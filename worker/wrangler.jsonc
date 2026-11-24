@@ -16,7 +16,7 @@
     ]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FleetDO", "AtlasDO"] }],
-  "kv_namespaces": [{ "binding": "ATLAS_KV", "id": "00000000000000000000000000000000" }],
+  "kv_namespaces": [{ "binding": "ATLAS_KV", "id": "a39928e22c484da28d46e0913aef03f7" }],
   "r2_buckets": [{ "binding": "FLEET_BACKUPS", "bucket_name": "ts-orch-fleet-backups" }],
   "triggers": { "crons": ["0 4 * * *"] },
   "vars": {

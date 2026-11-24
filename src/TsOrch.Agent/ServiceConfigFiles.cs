@@ -58,6 +58,25 @@ internal static partial class ServiceConfigFiles
         return (IReadOnlyList<RenderedConfigFile>)rendered;
     }
 
+    public static HashSet<string> ReferencedSecrets(ServiceSpec service)
+    {
+        HashSet<string> referenced = [with(StringComparer.Ordinal)];
+        if (service.ConfigFiles is not { Count: > 0 } files)
+        {
+            return referenced;
+        }
+
+        foreach (var file in files)
+        {
+            foreach (Match placeholder in SecretPlaceholder().Matches(file.Template))
+            {
+                referenced.Add(placeholder.Groups[1].Value);
+            }
+        }
+
+        return referenced;
+    }
+
     private static bool IsValidTarget(string target) =>
         target.Length > 1 && target.StartsWith('/') && target.EndsWith('/') is false
         && target.Contains("..", StringComparison.Ordinal) is false

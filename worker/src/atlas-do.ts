@@ -195,7 +195,7 @@ export class AtlasDO extends DurableObject<Env> {
 
   private async refreshCache(key: string, doc: AtlasTopology | AtlasPlacement): Promise<void> {
     try {
-      await this.env.ATLAS_KV.put(key, JSON.stringify(cacheRecord(doc)));
+      await this.env.ATLAS_KV.put(key, JSON.stringify(cacheRecord(doc)), { expirationTtl: 86_400 });
     } catch (error) {
       console.error("atlas KV refresh failed after SQLite accepted the write", error);
     }

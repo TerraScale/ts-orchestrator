@@ -22,9 +22,10 @@
       "dash.edge.terrascale.tech",
       "api.edge.terrascale.tech",
       "mcp.edge.terrascale.tech",
-      "platform.edge.terrascale.tech"
+      "platform.edge.terrascale.tech",
+      "pg.edge.terrascale.tech"
     ],
-    "ttlSeconds": 30,
+    "ttlSeconds": 60,
     "healthCheckPath": "/readyz"
   },
   "atlas": {
@@ -93,7 +94,7 @@
       },
       "endpoints": {
         "api": "https://gru.api.terrascale.tech",
-        "auth": "https://gru.auth.terrascale.tech"
+        "auth": "https://auth.terrascale.tech"
       },
       "pools": {
         "stateful": {
@@ -105,10 +106,7 @@
             "bootGiB": 50
           },
           "dataGiB": 50,
-          "dataVpusPerGiB": 10,
-          "externalNodes": [
-            "ts-gru-1"
-          ]
+          "dataVpusPerGiB": 10
         },
         "worker": {
           "min": 0,
@@ -125,7 +123,7 @@
     {
       "label": "fra",
       "ociRegion": "eu-frankfurt-1",
-      "compartmentId": "ocid1.compartment.oc1..aaaaaaaavvrkl4p77rj3e2sigkf2vvpal45h5bnw7v4vlrphkwmqjabzbnca",
+      "compartmentId": "ocid1.compartment.oc1..aaaaaaaadokfrnf3xr77g4i3ovwjvgazsoqwyiesu2j3azhufvifs7bndy7a",
       "location": {
         "name": "Frankfurt",
         "country": "DE",
@@ -143,23 +141,22 @@
       },
       "endpoints": {
         "api": "https://fra.api.terrascale.tech",
-        "auth": "https://fra.auth.terrascale.tech"
+        "auth": "https://auth.terrascale.tech"
       },
       "pools": {
         "stateful": {
           "count": 2,
           "shape": {
             "name": "VM.Standard.A1.Flex",
-            "ocpus": 2,
-            "memoryGiB": 12,
+            "ocpus": 1,
+            "memoryGiB": 6,
             "bootGiB": 50
           },
           "dataGiB": 50,
-          "dataVpusPerGiB": 10,
-          "externalNodes": []
+          "dataVpusPerGiB": 10
         },
         "worker": {
-          "min": 1,
+          "min": 0,
           "max": 50,
           "shape": {
             "name": "VM.Standard.A1.Flex",
@@ -173,7 +170,7 @@
     {
       "label": "sjc",
       "ociRegion": "us-sanjose-1",
-      "compartmentId": "ocid1.compartment.oc1..aaaaaaaaysxjvhdqptflhspi7tqb2c44yhqifcjgfewxjhc2skelpiyugqva",
+      "compartmentId": "ocid1.compartment.oc1..aaaaaaaawbdkzdq5wcw2vstkzn4eiqanslqqglpzh3dexvjemgdjnf4zw3fq",
       "location": {
         "name": "San Jose",
         "country": "US",
@@ -192,23 +189,22 @@
       },
       "endpoints": {
         "api": "https://sjc.api.terrascale.tech",
-        "auth": "https://sjc.auth.terrascale.tech"
+        "auth": "https://auth.terrascale.tech"
       },
       "pools": {
         "stateful": {
           "count": 2,
           "shape": {
             "name": "VM.Standard.A1.Flex",
-            "ocpus": 2,
-            "memoryGiB": 12,
+            "ocpus": 1,
+            "memoryGiB": 6,
             "bootGiB": 50
           },
           "dataGiB": 50,
-          "dataVpusPerGiB": 10,
-          "externalNodes": []
+          "dataVpusPerGiB": 10
         },
         "worker": {
-          "min": 1,
+          "min": 0,
           "max": 50,
           "shape": {
             "name": "VM.Standard.A1.Flex",

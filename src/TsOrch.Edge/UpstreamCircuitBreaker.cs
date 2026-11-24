@@ -82,6 +82,7 @@ public sealed class UpstreamCircuitBreaker(TimeProvider timeProvider)
         ArgumentNullException.ThrowIfNull(snapshot);
         var live = snapshot.HttpRoutes
             .Concat(snapshot.PostgresRoutes)
+            .Concat(snapshot.InternalRoutes)
             .SelectMany(static route => route.Upstreams)
             .Select(static upstream => (upstream.Address, upstream.Port))
             .ToHashSet();

@@ -11,6 +11,12 @@ public sealed record class EdgeServerOptions
 
     public int PostgresPort { get; init => field = ValidPort(value); } = 5432;
 
+    public int InternalTerraBasePort { get; init => field = ValidOptionalPort(value); } = 18081;
+
+    public int InternalPlatformPort { get; init => field = ValidOptionalPort(value); } = 18082;
+
+    public bool RedirectHttpToHttps { get; init; }
+
     public string RoutesFile { get; init => field = ValidPath(value); } = NodePaths.RoutesFile;
 
     public string TlsDirectory { get; init => field = ValidPath(value); } = NodePaths.TlsDirectory;
@@ -34,6 +40,13 @@ public sealed record class EdgeServerOptions
     private static int ValidPort(int port)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(port);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(port, IPEndPoint.MaxPort);
+        return port;
+    }
+
+    private static int ValidOptionalPort(int port)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(port);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(port, IPEndPoint.MaxPort);
         return port;
     }

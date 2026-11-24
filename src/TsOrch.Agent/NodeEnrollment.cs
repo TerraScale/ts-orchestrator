@@ -126,6 +126,17 @@ public sealed class NodeEnrollment(
 
         var enrollSecret = ConfiguredEnrollSecret()
             ?? (instance.Node is { EnrollVault: { } metadataVault, EnrollSecretName: { } metadataName } ? new SecretRef(metadataVault, metadataName) : null);
+        Dictionary<string, string> labels = [with(StringComparer.Ordinal)];
+        if (instance.Node.DataVolumeId is { } volumeId)
+        {
+            labels["oci.data-volume-id"] = volumeId;
+        }
+
+        if (instance.Node.InstancePoolId is { } poolId)
+        {
+            labels["oci.instance-pool-id"] = poolId;
+        }
+
         return new HostIdentity(
             options.NodeIdOverride ?? instance.InstanceId,
             region,
@@ -133,7 +144,7 @@ public sealed class NodeEnrollment(
             options.VcnIpOverride ?? instance.VcnIp,
             instance.Shape,
             instance.FaultDomain,
-            Labels,
+            labels,
             enrollSecret);
     }
 

@@ -1,0 +1,89 @@
+{
+  "name": "ts-platform",
+  "mode": "replicated",
+  "priority": "high",
+  "image": "ghcr.io/terrascale/ts-platform:main",
+  "regions": [
+    "gru",
+    "fra",
+    "sjc"
+  ],
+  "replicas": 1,
+  "minReplicas": 1,
+  "maxReplicas": 4,
+  "cpuRequestMilli": 150,
+  "cpuLimitMilli": 1000,
+  "memRequestMiB": 512,
+  "memLimitMiB": 1536,
+  "pidsLimit": 1024,
+  "port": 8082,
+  "internalPort": 8082,
+  "readyPath": "/readyz",
+  "readyTimeoutSeconds": 60,
+  "hostnames": [
+    "api.terrascale.tech",
+    "{region}.api.terrascale.tech"
+  ],
+  "routeRules": [
+    {
+      "pathPatterns": [
+        "^/v1/projects/[^/]+/(buckets(/.*)?|databases/[^/]+/(functions(/.*)?|tables/[^/]+/shape(/.*)?))$"
+      ]
+    },
+    {
+      "pathPatterns": [
+        "^/v1/projects/[^/]+/databases/[^/]+/tables/[^/]+/rows/[^/]+$"
+      ],
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    }
+  ],
+  "env": {
+    "TERRABASE_AUTH_AUDIENCE": "https://api.terrascale.tech",
+    "TERRABASE_AUTH_ISSUER": "https://auth.terrascale.tech/terrascale",
+    "TERRABASE_FILES_S3_ENDPOINT": "https://6cd3f3639e928077593d9b470765efeb.r2.cloudflarestorage.com",
+    "TS_PLATFORM_PORT": "8082",
+    "TS_PLATFORM_TERRABASE_URL": "http://host.docker.internal:18081"
+  },
+  "secrets": {
+    "TERRABASE_FILES_S3_ACCESS_KEY_ID_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-files-access-key-id"
+    },
+    "TERRABASE_FILES_S3_SECRET_ACCESS_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-files-secret-key"
+    },
+    "TERRABASE_MASTER_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-master-key"
+    },
+    "TERRABASE_PEER_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-peer-secret"
+    },
+    "TERRABASE_SHAPES_ACCESS_KEY_ID_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-shapes-access-key-id"
+    },
+    "TERRABASE_SHAPES_CDN_API_TOKEN_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-shapes-cdn-api-token"
+    },
+    "TERRABASE_SHAPES_SECRET_ACCESS_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-shapes-secret-access-key"
+    }
+  },
+  "mounts": [],
+  "args": [],
+  "udpPorts": [],
+  "autoscale": {
+    "targetCpuPct": 70,
+    "targetP95Ms": 250,
+    "scaleUpCooldownSeconds": 120,
+    "scaleDownCooldownSeconds": 600
+  }
+}

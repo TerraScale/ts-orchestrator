@@ -4,16 +4,16 @@ namespace TsOrch.Cli;
 
 internal static class ServiceCommand
 {
-    private const string UsageText = "ts-orch service ls | apply -f <file-or-dir> | rm <name>";
+    private const string UsageText = "ts-orch service ls | apply -f <file-or-dir> [--wait] | rm <name>";
 
-    public static IReadOnlyList<CliOption> Options { get; } = [new("file", 'f', true)];
+    public static IReadOnlyList<CliOption> Options { get; } = [new("file", 'f', true), new("wait", null, false)];
 
     public static Task<int> RunAsync(CliArguments arguments, CommandEnvironment environment, CancellationToken cancellationToken) =>
         arguments.Positionals switch
         {
-            ["ls"] when arguments.Value("file") is null => ListAsync(environment, cancellationToken),
-            ["apply"] when arguments.Value("file") is { } path => ApplyAsync(path, environment, cancellationToken),
-            ["rm", var name] when arguments.Value("file") is null => RemoveAsync(name, environment, cancellationToken),
+            ["ls"] when arguments.Value("file") is null && !arguments.Flag("wait") => ListAsync(environment, cancellationToken),
+            ["apply"] when arguments.Value("file") is { } path => ApplyAsync(path, arguments.Flag("wait"), environment, cancellationToken),
+            ["rm", var name] when arguments.Value("file") is null && !arguments.Flag("wait") => RemoveAsync(name, environment, cancellationToken),
             _ => Task.FromResult(environment.Usage($"usage: {UsageText}")),
         };
 
@@ -41,7 +41,7 @@ internal static class ServiceCommand
         return ExitCodes.Ok;
     }
 
-    private static async Task<int> ApplyAsync(string path, CommandEnvironment environment, CancellationToken cancellationToken)
+    private static async Task<int> ApplyAsync(string path, bool wait, CommandEnvironment environment, CancellationToken cancellationToken)
     {
         var loaded = await SpecFiles.LoadServicesAsync(path, cancellationToken);
         return loaded switch
@@ -51,21 +51,37 @@ internal static class ServiceCommand
                 new ServicesDocument(services),
                 CliJsonContext.Default.ServicesDocument,
                 CliJsonContext.Default.ApplyResponse,
-                response => Task.FromResult(Report(response, environment.Out)), environment.Fail, cancellationToken),
+                response => AppliedAsync(response, wait, environment, cancellationToken), environment.Fail, cancellationToken),
             CliFileReadProblem failure => environment.Fail(CliFiles.Describe(failure)),
             ServiceDefinitionInvalid failure => environment.Fail(SpecFiles.Describe(failure)),
             DuplicateServiceDefinition failure => environment.Fail(SpecFiles.Describe(failure)),
             ServiceDefinitionsMissing failure => environment.Fail(SpecFiles.Describe(failure)),
         };
-
     }
 
-    private static int Report(ApplyResponse response, TextWriter output)
+    private static async Task<int> AppliedAsync(ApplyResponse response, bool wait, CommandEnvironment environment, CancellationToken cancellationToken)
     {
         foreach (var service in response.Applied)
         {
             var rollout = service.RolloutId is { } id ? $" (rollout {id} started)" : string.Empty;
-            output.WriteLine($"{service.Name}: {service.Result.WireName}{rollout}");
+            environment.Out.WriteLine($"{service.Name}: {service.Result.WireName}{rollout}");
+        }
+
+        if (!wait)
+        {
+            return ExitCodes.Ok;
+        }
+
+        foreach (var service in response.Applied)
+        {
+            if (service.RolloutId is { Length: > 0 } rolloutId)
+            {
+                var exitCode = await RolloutStates.WaitForRolloutAsync(rolloutId, null, environment, cancellationToken);
+                if (exitCode != ExitCodes.Ok)
+                {
+                    return exitCode;
+                }
+            }
         }
 
         return ExitCodes.Ok;

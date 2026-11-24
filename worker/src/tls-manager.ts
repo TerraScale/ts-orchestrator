@@ -1,5 +1,10 @@
 import type { TlsBundle } from "./protocol";
 
+export interface AcmeAccountState {
+  kid: string;
+  jwk: JsonWebKey;
+}
+
 export interface TlsManagerConfig {
   cfApiToken?: string;
   cfZoneId?: string;
@@ -7,6 +12,8 @@ export interface TlsManagerConfig {
   acmeDirectoryUrl?: string;
   accountEmail?: string;
   localDev?: boolean;
+  account?: AcmeAccountState;
+  onAccountCreated?: (account: AcmeAccountState) => Promise<void> | void;
 }
 
 export class TlsManagerError extends Error {
@@ -27,6 +34,7 @@ export const LOCAL_DEV_VALIDITY_DAYS = 365;
 export const DNS_PROPAGATION_MS = 20_000;
 
 const DAY_MS = 86_400_000;
+const FETCH_TIMEOUT_MS = 15_000;
 const POLL_INTERVAL_MS = 3_000;
 const POLL_ATTEMPTS = 60;
 const OID_EC_PUBLIC_KEY = "1.2.840.10045.2.1";
@@ -197,6 +205,15 @@ async function signDer(privateKey: CryptoKey, data: Bytes): Promise<Bytes> {
 
 async function generateKeyPair(): Promise<CryptoKeyPair> {
   return (await crypto.subtle.generateKey(EC_ALGORITHM, true, ["sign", "verify"])) as CryptoKeyPair;
+}
+
+async function importAccountKey(jwk: JsonWebKey): Promise<CryptoKeyPair> {
+  const privateKey = await crypto.subtle.importKey("jwk", jwk, EC_ALGORITHM, true, ["sign"]);
+  const publicJwk: JsonWebKey = { kty: "EC", crv: "P-256", ext: true };
+  if (jwk.x !== undefined) publicJwk.x = jwk.x;
+  if (jwk.y !== undefined) publicJwk.y = jwk.y;
+  const publicKey = await crypto.subtle.importKey("jwk", publicJwk, EC_ALGORITHM, true, ["verify"]);
+  return { privateKey, publicKey };
 }
 
 async function spki(publicKey: CryptoKey): Promise<Bytes> {
@@ -384,11 +401,14 @@ class AcmeClient {
   constructor(
     readonly directoryUrl: string,
     readonly accountKey: CryptoKeyPair,
-  ) {}
+    kid?: string,
+  ) {
+    this.#kid = kid;
+  }
 
   async directory(): Promise<AcmeDirectory> {
     if (this.#directory !== undefined) return this.#directory;
-    const response = await fetch(this.directoryUrl);
+    const response = await fetch(this.directoryUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!response.ok) throw new TlsManagerError("acme_directory", `ACME directory returned ${response.status}`);
     const body: unknown = await response.json();
     if (
@@ -422,7 +442,10 @@ class AcmeClient {
       this.#nonce = undefined;
       return nonce;
     }
-    const response = await fetch((await this.directory()).newNonce, { method: "HEAD" });
+    const response = await fetch((await this.directory()).newNonce, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
     const nonce = response.headers.get("replay-nonce");
     if (nonce === null) throw new TlsManagerError("acme_nonce", "ACME server returned no nonce");
     return nonce;
@@ -441,6 +464,7 @@ class AcmeClient {
       method: "POST",
       headers: { "content-type": "application/jose+json", accept },
       body: JSON.stringify({ protected: protectedHeader, payload: encodedPayload, signature: b64url(signature) }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const replay = response.headers.get("replay-nonce");
     if (replay !== null) this.#nonce = replay;
@@ -462,13 +486,14 @@ class AcmeClient {
     return { response, body, text };
   }
 
-  async register(email: string | undefined): Promise<void> {
+  async register(email: string | undefined): Promise<string> {
     const payload: Record<string, unknown> = { termsOfServiceAgreed: true };
     if (email !== undefined && email.length > 0) payload.contact = [`mailto:${email}`];
     const result = await this.post((await this.directory()).newAccount, payload);
     const location = result.response.headers.get("location");
     if (location === null) throw new TlsManagerError("acme_account", "ACME account has no location");
     this.#kid = location;
+    return location;
   }
 
   async newOrder(domains: string[]): Promise<{ url: string; order: AcmeOrder }> {
@@ -533,6 +558,7 @@ class CloudflareDns {
       method: "POST",
       headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
       body: JSON.stringify({ type: "TXT", name, content, ttl: 60, comment: "ts-orch acme dns-01" }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok || !isRecord(body) || body.success !== true || !isRecord(body.result) || typeof body.result.id !== "string")
@@ -544,6 +570,7 @@ class CloudflareDns {
     const response = await fetch(`${CLOUDFLARE_API}/zones/${encodeURIComponent(this.zoneId)}/dns_records/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: { authorization: `Bearer ${this.token}` },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (response.status === 404) {
       await response.body?.cancel();
@@ -576,8 +603,17 @@ export async function issueAcmeCertificate(config: TlsManagerConfig): Promise<Tl
   if (!config.cfApiToken || !config.cfZoneId)
     throw new TlsManagerError("cloudflare_config", "Cloudflare API token and zone id are required for DNS-01");
   const dns = new CloudflareDns(config.cfApiToken, config.cfZoneId);
-  const acme = new AcmeClient(config.acmeDirectoryUrl ?? LETS_ENCRYPT_DIRECTORY, await generateKeyPair());
-  await acme.register(config.accountEmail);
+  const directoryUrl = config.acmeDirectoryUrl ?? LETS_ENCRYPT_DIRECTORY;
+  let acme: AcmeClient;
+  if (config.account !== undefined) {
+    acme = new AcmeClient(directoryUrl, await importAccountKey(config.account.jwk), config.account.kid);
+  } else {
+    const accountKeys = await generateKeyPair();
+    acme = new AcmeClient(directoryUrl, accountKeys);
+    const kid = await acme.register(config.accountEmail);
+    const jwk = (await crypto.subtle.exportKey("jwk", accountKeys.privateKey)) as JsonWebKey;
+    await config.onAccountCreated?.({ kid, jwk });
+  }
   const { url: orderUrl, order } = await acme.newOrder(domains);
   const thumbprint = await acme.thumbprint();
   const records: string[] = [];
@@ -598,29 +634,36 @@ export async function issueAcmeCertificate(config: TlsManagerConfig): Promise<Tl
     for (const entry of pending) {
       await acme.post(entry.challenge.url, {});
     }
-    for (const entry of pending) {
-      await pollUntil(
-        () => acme.getAuthorization(entry.authzUrl),
-        (authz) => authz.status === "valid",
-        (authz) => authz.status === "invalid" || authz.status === "revoked" || authz.status === "expired",
-        `Authorization ${entry.authzUrl}`,
-      );
-    }
+    await Promise.all(
+      pending.map((entry) =>
+        pollUntil(
+          () => acme.getAuthorization(entry.authzUrl),
+          (authz) => authz.status === "valid",
+          (authz) => authz.status === "invalid" || authz.status === "revoked" || authz.status === "expired",
+          `Authorization ${entry.authzUrl}`,
+        ),
+      ),
+    );
     const certificateKeys = await generateKeyPair();
     const csr = await createCsr(domains, certificateKeys);
-    await pollUntil(
+    const readyOrder = await pollUntil(
       () => acme.getOrder(orderUrl),
       (current) => current.status === "ready" || current.status === "valid",
       (current) => current.status === "invalid",
       "Order readiness",
     );
-    await acme.post(order.finalize, { csr: b64url(csr) });
-    const finalized = await pollUntil(
-      () => acme.getOrder(orderUrl),
-      (current) => current.status === "valid" && current.certificate !== undefined,
-      (current) => current.status === "invalid",
-      "Order finalization",
-    );
+    let finalized = readyOrder;
+    if (readyOrder.status !== "valid") {
+      await acme.post(order.finalize, { csr: b64url(csr) });
+    }
+    if (finalized.status !== "valid" || finalized.certificate === undefined) {
+      finalized = await pollUntil(
+        () => acme.getOrder(orderUrl),
+        (current) => current.status === "valid" && current.certificate !== undefined,
+        (current) => current.status === "invalid",
+        "Order finalization",
+      );
+    }
     const certificateUrl = finalized.certificate;
     if (certificateUrl === undefined) throw new TlsManagerError("acme_certificate", "ACME order has no certificate URL");
     const chain = (await acme.post(certificateUrl, null, "application/pem-certificate-chain")).text;

@@ -19,6 +19,11 @@ provider "oci" {
   region = local.dns_oci_region
 }
 
+provider "oci" {
+  alias  = "home"
+  region = local.fleet.oci.vault.region
+}
+
 module "region" {
   source   = "./modules/region"
   for_each = local.regions
@@ -42,8 +47,10 @@ module "region" {
   worker_max          = each.value.pools.worker.max
   worker_shape        = each.value.pools.worker.shape
   boot_script         = local.boot_script
+  release_tag         = var.orch_release_tag
   bundle_url          = local.bundle_url
   bundle_sha256       = var.orch_bundle_sha256
+  custom_image_id     = lookup(var.custom_image_ids, each.key, "")
   enroll_vault_id     = local.fleet.oci.vault.vaultId
   enroll_secret_name  = "ts-orch-node-enroll"
 

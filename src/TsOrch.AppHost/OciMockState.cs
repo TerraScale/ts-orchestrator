@@ -56,6 +56,14 @@ internal sealed class OciMockState(TimeProvider timeProvider)
         }
     }
 
+    public InstancePoolDocument GetPool(string poolId)
+    {
+        lock (_gate)
+        {
+            return new InstancePoolDocument(poolId, _pools.GetValueOrDefault(poolId), "RUNNING");
+        }
+    }
+
     public InstancePoolDocument UpdatePool(string path, string poolId, int size)
     {
         lock (_gate)

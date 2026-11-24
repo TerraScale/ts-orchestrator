@@ -171,6 +171,7 @@ public sealed class ContainerSessions(
         {
             IReadOnlyList<ManagedContainer> containers => containers
                 .Where(static container => container.Running)
+                .OrderByDescending(static container => container.Created)
                 .FirstOrDefault(container => container.Name == containerName || container.PlacementId == containerName || container.ServiceName == containerName) is { } match
                 ? match
                 : new SessionContainerMissing($"No running managed container matches {containerName}."),

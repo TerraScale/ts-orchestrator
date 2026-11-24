@@ -79,6 +79,8 @@ public sealed class HostMetricsCollector(
     protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
         Task.WhenAll(WatchOomsAsync(stoppingToken), SampleContainersAsync(stoppingToken));
 
+    public void ForgetPlacement(string placementId) => _oomKills.TryRemove(placementId, out _);
+
     public IReadOnlyList<ContainerMetrics> ContainerSnapshot()
     {
         var samples = Volatile.Read(ref _latestContainers)
@@ -174,6 +176,8 @@ public sealed class HostMetricsCollector(
             _lastNet = net ?? _lastNet;
         }
 
+        var volumes = await ReadVolumesAsync(cancellationToken);
+        var dataPct = volumes.Count > 0 ? volumes[0].UsedPct : 0d;
         return new HostMetrics(
             now.ToUnixTimeMilliseconds(),
             Math.Round(cpuPct, 2),
@@ -182,7 +186,7 @@ public sealed class HostMetricsCollector(
             (int)((memory.TotalKiB - memory.AvailableKiB) / 1024),
             await ReadPressureAsync("/proc/pressure/memory", cancellationToken),
             await ReadPressureAsync("/proc/pressure/io", cancellationToken),
-            Math.Round(Math.Max(DiskUsedPct("/"), DiskUsedPct(options.DataVolumePath)), 2),
+            Math.Round(Math.Max(DiskUsedPct("/"), dataPct), 2),
             rxBps,
             txBps,
             await ReadLoad1Async(cancellationToken));
@@ -232,22 +236,40 @@ public sealed class HostMetricsCollector(
         }
     }
 
-    public async Task<NodeCapacity> ReadCapacityAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<VolumeInfo>> ReadVolumesAsync(CancellationToken cancellationToken)
     {
-        var memory = await ReadMemInfoAsync(cancellationToken);
-        var dataPath = Directory.Exists(options.DataVolumePath) ? options.DataVolumePath : "/";
-        var drive = new DriveInfo(dataPath);
-        List<VolumeInfo> volumes = [];
-        if (Directory.Exists(options.DataVolumePath))
+        if (!Directory.Exists(options.DataVolumePath))
         {
-            var mount = MountTable.FindContaining(await MountTable.ReadAsync(cancellationToken), options.DataVolumePath);
-            volumes.Add(new VolumeInfo(
+            return [];
+        }
+
+        var normalizedDataPath = Path.GetFullPath(options.DataVolumePath).TrimEnd('/');
+        var mounts = await MountTable.ReadAsync(cancellationToken);
+        var mount = MountTable.FindContaining(mounts, normalizedDataPath);
+        if (string.Equals(normalizedDataPath, NodePaths.DataVolume, StringComparison.Ordinal)
+            && (mount is null || !string.Equals(mount.MountPoint.TrimEnd('/'), NodePaths.DataVolume, StringComparison.Ordinal)
+                || !mount.Device.StartsWith("/dev/", StringComparison.Ordinal)))
+        {
+            return [];
+        }
+
+        var drive = new DriveInfo(normalizedDataPath);
+        return
+        [
+            new VolumeInfo(
                 options.DataVolumePath,
                 mount?.Device ?? "unknown",
                 (int)Math.Round(drive.TotalSize / BytesPerGiB),
-                Math.Round(DiskUsedPct(options.DataVolumePath), 2)));
-        }
+                Math.Round(DiskUsedPct(normalizedDataPath), 2)),
+        ];
+    }
 
+    public async Task<NodeCapacity> ReadCapacityAsync(CancellationToken cancellationToken)
+    {
+        var memory = await ReadMemInfoAsync(cancellationToken);
+        var volumes = await ReadVolumesAsync(cancellationToken);
+        var diskPath = volumes.Count > 0 ? options.DataVolumePath : "/";
+        var drive = new DriveInfo(diskPath);
         return new NodeCapacity(
             Environment.ProcessorCount * 1000,
             (int)(memory.TotalKiB / 1024),

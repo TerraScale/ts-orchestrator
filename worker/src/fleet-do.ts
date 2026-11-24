@@ -9,6 +9,7 @@ import {
   mintSshSession,
   newNodeToken,
   nodeBearer,
+  parseAllowedSshKeys,
   PRINCIPAL_HEADER,
   randomToken,
   sessionSecret,
@@ -55,6 +56,7 @@ import type {
   HealthState,
   HeartbeatMessage,
   HelloMessage,
+  HttpRouteRule,
   MetricsPoint10s,
   MetricsPoint1m,
   NetBirdConfig,
@@ -84,10 +86,19 @@ import type {
   TopResponse,
   VolumeInfo,
 } from "./protocol";
-import { advanceRollout, createRollout, orderRegions, rollbackRollout, type RolloutStep } from "./rollout";
+import {
+  advanceRollout,
+  createRollout,
+  DEFAULT_CANARY_BAKE_MS,
+  orderRegions,
+  rollbackRollout,
+  type NodeEdgeMetrics,
+  type RolloutStep,
+} from "./rollout";
 import {
   allocatableCpuMilli,
   allocatableMemMiB,
+  computeClusterPeers,
   computeRoutes,
   computeSchedule,
   DATA_VOLUME_PATH,
@@ -97,7 +108,7 @@ import {
   type ScheduleResult,
   type UnschedulableEntry,
 } from "./scheduler";
-import { ensureCertificate, type TlsManagerConfig } from "./tls-manager";
+import { ensureCertificate, LETS_ENCRYPT_DIRECTORY, type AcmeAccountState, type TlsManagerConfig } from "./tls-manager";
 
 export const FLEET_DO_NAME = "fleet";
 
@@ -122,6 +133,15 @@ const STREAM_MAX_MS = 3600_000;
 const KEEPALIVE_MS = 15_000;
 const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_CHALLENGES = 1000;
+const VOLUME_GROW_RETRY_MS = 15_000;
+const VOLUME_GROW_MAX_MS = 30 * 60_000;
+const TLS_RETRY_BACKOFF_MS = 60_000;
+const DEFAULT_PROD_TLS_DOMAINS = [
+  "*.terrascale.tech",
+  "*.api.terrascale.tech",
+  "*.pg.terrascale.tech",
+  "*.auth.terrascale.tech",
+];
 const TERMINAL_PHASES: ReadonlySet<RolloutPhase> = new Set(["succeeded", "rolled_back", "failed"]);
 const INACTIVE_PLACEMENT_STATES: ReadonlySet<PlacementState> = new Set(["stopped", "failed", "unschedulable"]);
 const EVENT_KINDS: ReadonlySet<string> = new Set<EventKind>([
@@ -166,6 +186,7 @@ type NodeRow = {
   region: string;
   pool_kind: string;
   vcn_ip: string;
+  netbird_ip: string | null;
   arch: string;
   shape: string;
   fault_domain: string;
@@ -177,6 +198,7 @@ type NodeRow = {
   token_hash: string | null;
   status: string;
   drain_requested: number;
+  drain_reason: string | null;
   last_seen_at: number;
   agent_version: string;
 };
@@ -193,6 +215,9 @@ type PlacementRow = {
   active_config_hash: string | null;
   host_port: number | null;
   postgres_host_port: number | null;
+  internal_host_port: number | null;
+  candidate_image: string | null;
+  candidate_error: string | null;
   state: string;
   error: string | null;
   updated_at: number;
@@ -553,6 +578,53 @@ function parseAbsolutePaths(value: unknown, label: string): string[] | string {
   return paths;
 }
 
+function parseRegexList(value: unknown, label: string): string[] | string {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return `${label} must be a list of regular expressions`;
+  const patterns: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || item.length === 0) return `${label} entries must be non-empty regular expressions`;
+    try {
+      new RegExp(item);
+    } catch {
+      return `${label} contains an invalid regular expression: ${item}`;
+    }
+    patterns.push(item);
+  }
+  return patterns;
+}
+
+function parseHttpMethods(value: unknown, label: string): string[] | string {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return `${label} must be a list of HTTP methods`;
+  const methods: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !/^[A-Za-z]+$/.test(item)) {
+      return `${label} entries must be valid HTTP method names`;
+    }
+    methods.push(item.toUpperCase());
+  }
+  return methods;
+}
+
+function parseRouteRules(name: string, value: unknown): HttpRouteRule[] | string {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return `${name}: routeRules must be a list`;
+  const rules: HttpRouteRule[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) return `${name}: routeRules entries must be objects`;
+    const patterns = parseRegexList(item.pathPatterns, `${name}: routeRules.pathPatterns`);
+    if (typeof patterns === "string") return patterns;
+    if (patterns.length === 0) return `${name}: routeRules entries require non-empty pathPatterns`;
+    const methods = parseHttpMethods(item.methods, `${name}: routeRules.methods`);
+    if (typeof methods === "string") return methods;
+    const rule: HttpRouteRule = { pathPatterns: patterns };
+    if (methods.length > 0) rule.methods = methods;
+    rules.push(rule);
+  }
+  return rules;
+}
+
 function configTargetProblem(target: string): string | null {
   if (!target.startsWith("/")) return "must start with /";
   if (target.split(/[\\/]/).includes("..")) return "must not contain .. segments";
@@ -682,6 +754,30 @@ function parseServiceSpec(input: unknown): ServiceSpec | string {
   const configFiles = parseConfigFiles(name, input.configFiles, secrets);
   if (typeof configFiles === "string") return configFiles;
   if (configFiles.length > 0) spec.configFiles = configFiles;
+  if (input.internalPort !== undefined) {
+    if (
+      typeof input.internalPort !== "number" ||
+      !Number.isInteger(input.internalPort) ||
+      input.internalPort < 1 ||
+      input.internalPort > 65535
+    ) {
+      return `${name}: internalPort must be 1-65535`;
+    }
+    spec.internalPort = input.internalPort;
+  }
+  if (input.clusterPeers !== undefined) {
+    if (typeof input.clusterPeers !== "boolean") return `${name}: clusterPeers must be a boolean`;
+    if (input.clusterPeers) spec.clusterPeers = true;
+  }
+  const pathPatterns = parseRegexList(input.pathPatterns, `${name}: pathPatterns`);
+  if (typeof pathPatterns === "string") return pathPatterns;
+  if (pathPatterns.length > 0) spec.pathPatterns = pathPatterns;
+  const methods = parseHttpMethods(input.methods, `${name}: methods`);
+  if (typeof methods === "string") return methods;
+  if (methods.length > 0) spec.methods = methods;
+  const routeRules = parseRouteRules(name, input.routeRules);
+  if (typeof routeRules === "string") return routeRules;
+  if (routeRules.length > 0) spec.routeRules = routeRules;
   return spec;
 }
 
@@ -691,6 +787,9 @@ function parseFleetConfig(input: unknown): FleetConfig | string {
   for (const region of input.regions) {
     if (!isRecord(region) || typeof region.label !== "string" || !REGION_RE.test(region.label)) return "every region needs a label";
     if (typeof region.ociRegion !== "string" || typeof region.compartmentId !== "string") return `${region.label}: ociRegion and compartmentId are required`;
+    if (region.instancePoolId !== undefined && typeof region.instancePoolId !== "string") {
+      return `${region.label}: instancePoolId must be a string`;
+    }
     if (!isRecord(region.location) || !isRecord(region.endpoints) || !isRecord(region.pools)) {
       return `${region.label}: location, endpoints and pools are required`;
     }
@@ -714,6 +813,7 @@ export class FleetDO extends DurableObject<Env> {
   private readonly logStreams = new Map<string, LogStream>();
   private readonly eventSubscribers = new Set<EventSubscriber>();
   private ociClient: Promise<OciRestClient | null> | undefined;
+  private tlsEnsureInFlight: Promise<unknown> | undefined;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -725,9 +825,9 @@ export class FleetDO extends DurableObject<Env> {
   private migrate(): void {
     const statements = [
       "CREATE TABLE IF NOT EXISTS regions (label TEXT PRIMARY KEY, oci_region TEXT NOT NULL, compartment_id TEXT NOT NULL, instance_pool_id TEXT, min_workers INTEGER NOT NULL DEFAULT 0, max_workers INTEGER NOT NULL DEFAULT 0, rollout_order INTEGER NOT NULL DEFAULT 0, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)",
-      "CREATE TABLE IF NOT EXISTS nodes (id TEXT PRIMARY KEY, region TEXT NOT NULL, pool_kind TEXT NOT NULL, vcn_ip TEXT NOT NULL DEFAULT '', arch TEXT NOT NULL DEFAULT 'arm64', shape TEXT NOT NULL DEFAULT '', fault_domain TEXT NOT NULL DEFAULT '', cpu_total_m INTEGER NOT NULL DEFAULT 0, mem_total_mib INTEGER NOT NULL DEFAULT 0, disk_total_gib INTEGER NOT NULL DEFAULT 0, labels_json TEXT NOT NULL DEFAULT '{}', volumes_json TEXT NOT NULL DEFAULT '[]', token_hash TEXT, status TEXT NOT NULL DEFAULT 'pending', drain_requested INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER NOT NULL DEFAULT 0, agent_version TEXT NOT NULL DEFAULT '')",
+      "CREATE TABLE IF NOT EXISTS nodes (id TEXT PRIMARY KEY, region TEXT NOT NULL, pool_kind TEXT NOT NULL, vcn_ip TEXT NOT NULL DEFAULT '', netbird_ip TEXT, arch TEXT NOT NULL DEFAULT 'arm64', shape TEXT NOT NULL DEFAULT '', fault_domain TEXT NOT NULL DEFAULT '', cpu_total_m INTEGER NOT NULL DEFAULT 0, mem_total_mib INTEGER NOT NULL DEFAULT 0, disk_total_gib INTEGER NOT NULL DEFAULT 0, labels_json TEXT NOT NULL DEFAULT '{}', volumes_json TEXT NOT NULL DEFAULT '[]', token_hash TEXT, status TEXT NOT NULL DEFAULT 'pending', drain_requested INTEGER NOT NULL DEFAULT 0, drain_reason TEXT, last_seen_at INTEGER NOT NULL DEFAULT 0, agent_version TEXT NOT NULL DEFAULT '')",
       "CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY, mode TEXT NOT NULL, priority TEXT NOT NULL, image TEXT NOT NULL, spec_json TEXT NOT NULL, config_version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)",
-      "CREATE TABLE IF NOT EXISTS placements (id TEXT PRIMARY KEY, service_name TEXT NOT NULL, region TEXT NOT NULL, node_id TEXT, slot INTEGER NOT NULL, desired_image TEXT NOT NULL, desired_config_hash TEXT, active_image TEXT, active_config_hash TEXT, host_port INTEGER, postgres_host_port INTEGER, state TEXT NOT NULL, error TEXT, updated_at INTEGER NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS placements (id TEXT PRIMARY KEY, service_name TEXT NOT NULL, region TEXT NOT NULL, node_id TEXT, slot INTEGER NOT NULL, desired_image TEXT NOT NULL, desired_config_hash TEXT, active_image TEXT, active_config_hash TEXT, host_port INTEGER, postgres_host_port INTEGER, internal_host_port INTEGER, candidate_image TEXT, candidate_error TEXT, state TEXT NOT NULL, error TEXT, updated_at INTEGER NOT NULL)",
       "CREATE INDEX IF NOT EXISTS placements_node ON placements (node_id)",
       "CREATE INDEX IF NOT EXISTS placements_service ON placements (service_name, region)",
       "CREATE TABLE IF NOT EXISTS rollouts (id TEXT PRIMARY KEY, service_name TEXT NOT NULL, target_image TEXT NOT NULL, previous_image TEXT, state TEXT NOT NULL, current_region TEXT, wave_json TEXT NOT NULL DEFAULT '{}', baseline_p95_ms REAL, baseline_5xx_pct REAL, canary_started_at INTEGER, started_at INTEGER NOT NULL, finished_at INTEGER, error TEXT)",
@@ -743,9 +843,25 @@ export class FleetDO extends DurableObject<Env> {
       "CREATE TABLE IF NOT EXISTS kv_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     ];
     for (const statement of statements) this.sql.exec(statement);
-    const columns = this.sql.exec<{ name: string }>("PRAGMA table_info(placements)").toArray();
-    if (!columns.some((column) => column.name === "postgres_host_port")) {
+    const nodeColumns = this.sql.exec<{ name: string }>("PRAGMA table_info(nodes)").toArray();
+    if (!nodeColumns.some((column) => column.name === "netbird_ip")) {
+      this.sql.exec("ALTER TABLE nodes ADD COLUMN netbird_ip TEXT");
+    }
+    if (!nodeColumns.some((column) => column.name === "drain_reason")) {
+      this.sql.exec("ALTER TABLE nodes ADD COLUMN drain_reason TEXT");
+    }
+    const placementColumns = this.sql.exec<{ name: string }>("PRAGMA table_info(placements)").toArray();
+    if (!placementColumns.some((column) => column.name === "postgres_host_port")) {
       this.sql.exec("ALTER TABLE placements ADD COLUMN postgres_host_port INTEGER");
+    }
+    if (!placementColumns.some((column) => column.name === "internal_host_port")) {
+      this.sql.exec("ALTER TABLE placements ADD COLUMN internal_host_port INTEGER");
+    }
+    if (!placementColumns.some((column) => column.name === "candidate_image")) {
+      this.sql.exec("ALTER TABLE placements ADD COLUMN candidate_image TEXT");
+    }
+    if (!placementColumns.some((column) => column.name === "candidate_error")) {
+      this.sql.exec("ALTER TABLE placements ADD COLUMN candidate_error TEXT");
     }
   }
 
@@ -791,7 +907,7 @@ export class FleetDO extends DurableObject<Env> {
   }
 
   private nodeFromRow(row: NodeRow): NodeInfo {
-    return {
+    const node: NodeInfo = {
       id: row.id,
       region: row.region,
       poolKind: row.pool_kind as PoolKind,
@@ -809,6 +925,8 @@ export class FleetDO extends DurableObject<Env> {
       lastSeenAt: row.last_seen_at,
       agentVersion: row.agent_version,
     };
+    if (row.netbird_ip !== null && row.netbird_ip.length > 0) node.netbirdIp = row.netbird_ip;
+    return node;
   }
 
   private loadNodes(): NodeInfo[] {
@@ -834,6 +952,9 @@ export class FleetDO extends DurableObject<Env> {
     if (row.active_config_hash !== null) placement.activeConfigHash = row.active_config_hash;
     if (row.host_port !== null) placement.hostPort = row.host_port;
     if (row.postgres_host_port !== null) placement.postgresHostPort = row.postgres_host_port;
+    if (row.internal_host_port !== null) placement.internalHostPort = row.internal_host_port;
+    if (row.candidate_image !== null) placement.candidateImage = row.candidate_image;
+    if (row.candidate_error !== null) placement.candidateError = row.candidate_error;
     return placement;
   }
 
@@ -857,7 +978,7 @@ export class FleetDO extends DurableObject<Env> {
   }
 
   private rolloutFromRow(row: RolloutRow): RolloutInfo {
-    const wave = parseJson<{ region?: string; currentWave?: number; totalWaves?: number }>(row.wave_json, {});
+    const wave = parseJson<{ region?: string; currentWave?: number; totalWaves?: number; waveStartedAt?: number }>(row.wave_json, {});
     const rollout: RolloutInfo = {
       id: row.id,
       serviceName: row.service_name,
@@ -868,6 +989,7 @@ export class FleetDO extends DurableObject<Env> {
       startedAt: row.started_at,
     };
     if (typeof wave.region === "string") rollout.region = wave.region;
+    if (typeof wave.waveStartedAt === "number") rollout.waveStartedAt = wave.waveStartedAt;
     if (row.previous_image !== null) rollout.previousImage = row.previous_image;
     if (row.current_region !== null) rollout.currentRegion = row.current_region;
     if (row.baseline_p95_ms !== null) rollout.baselineP95Ms = row.baseline_p95_ms;
@@ -896,7 +1018,12 @@ export class FleetDO extends DurableObject<Env> {
       rollout.previousImage ?? null,
       rollout.phase,
       rollout.currentRegion ?? null,
-      JSON.stringify({ region: rollout.region, currentWave: rollout.currentWave, totalWaves: rollout.totalWaves }),
+      JSON.stringify({
+        region: rollout.region,
+        currentWave: rollout.currentWave,
+        totalWaves: rollout.totalWaves,
+        waveStartedAt: rollout.waveStartedAt,
+      }),
       rollout.baselineP95Ms ?? null,
       rollout.baseline5xxPct ?? null,
       rollout.canaryStartedAt ?? null,
@@ -963,19 +1090,37 @@ export class FleetDO extends DurableObject<Env> {
 
   private async ensureAlarm(delayMs = 1_000): Promise<void> {
     const current = await this.ctx.storage.getAlarm();
-    const target = Date.now() + delayMs;
+    const target = Date.now() + Math.max(250, delayMs);
     if (current === null || current > target) await this.ctx.storage.setAlarm(target);
   }
 
+  private nextBakeDeadline(now: number): number | null {
+    const rollouts = this.loadRollouts(true);
+    let earliest: number | null = null;
+    for (const rollout of rollouts) {
+      if (rollout.phase !== "baking" || rollout.canaryStartedAt === undefined) continue;
+      const deadline = Math.max(now + 250, rollout.canaryStartedAt + DEFAULT_CANARY_BAKE_MS + 100);
+      if (earliest === null || deadline < earliest) earliest = deadline;
+    }
+    return earliest;
+  }
+
   private async scheduleNextAlarm(): Promise<void> {
+    const now = Date.now();
+    const bakeDeadline = this.nextBakeDeadline(now);
     const nodes = this.sql.exec<CountRow>("SELECT COUNT(*) AS count FROM nodes").toArray()[0]?.count ?? 0;
     const rollouts =
       this.sql
         .exec<CountRow>("SELECT COUNT(*) AS count FROM rollouts WHERE state NOT IN ('succeeded', 'rolled_back', 'failed')")
         .toArray()[0]?.count ?? 0;
     const regions = this.sql.exec<CountRow>("SELECT COUNT(*) AS count FROM regions").toArray()[0]?.count ?? 0;
-    if (nodes > 0 || rollouts > 0 || this.logStreams.size > 0) await this.ctx.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
-    else if (regions > 0) await this.ctx.storage.setAlarm(Date.now() + IDLE_ALARM_INTERVAL_MS);
+    if (bakeDeadline !== null) {
+      await this.ctx.storage.setAlarm(Math.min(bakeDeadline, now + ALARM_INTERVAL_MS));
+    } else if (nodes > 0 || rollouts > 0 || this.logStreams.size > 0) {
+      await this.ctx.storage.setAlarm(now + ALARM_INTERVAL_MS);
+    } else if (regions > 0) {
+      await this.ctx.storage.setAlarm(now + IDLE_ALARM_INTERVAL_MS);
+    }
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -984,7 +1129,7 @@ export class FleetDO extends DurableObject<Env> {
     const method = request.method;
     try {
       if (path === "/ws/node") return await this.acceptNode(request, url);
-      if (method === "POST" && path === "/api/auth/ssh/challenge") return await this.sshChallenge(request);
+      if (method === "POST" && path === "/api/auth/ssh/challenge") return await this.sshChallenge(request, url);
       if (method === "POST" && path === "/api/auth/ssh/verify") return await this.sshVerify(request);
       if (method === "POST" && path === "/api/nodes/enroll") return await this.enrollNode(request, url);
       const principal = decodePrincipal(request.headers.get(PRINCIPAL_HEADER));
@@ -1016,6 +1161,8 @@ export class FleetDO extends DurableObject<Env> {
           return json({ nodes: this.loadNodes() });
         case "/api/rollouts":
           return json({ rollouts: this.loadRollouts(false) });
+        case "/api/tls":
+          return json(this.tlsStatus());
         case "/api/logs":
           return this.logs(request, url);
         case "/api/export":
@@ -1047,6 +1194,8 @@ export class FleetDO extends DurableObject<Env> {
           return json(await this.refreshSecrets(request, principal));
         case "/api/tls/ensure":
           return json(await this.ensureTls(url));
+        case "/api/nodes/upgrade":
+          return json(this.upgradeNodes(await this.readJson(request), url, principal));
         case "/api/dev/chaos":
           if (!localDevAllowed(url, this.env)) throw new HttpError(404, "not_found", "Not found");
           return json(await this.chaos(request, principal));
@@ -1063,6 +1212,11 @@ export class FleetDO extends DurableObject<Env> {
       }
     }
     if (method === "DELETE") {
+      const nodeMatch = /^\/api\/nodes\/([^/]+)$/.exec(path);
+      if (nodeMatch !== null) {
+        const nodeId = decodeURIComponent(nodeMatch[1] ?? "");
+        return json(await this.deleteNode(nodeId, url.searchParams.get("force") === "true", principal));
+      }
       const match = /^\/api\/services\/([^/]+)$/.exec(path);
       const name = match !== null ? decodeURIComponent(match[1] ?? "") : path === "/api/services" ? url.searchParams.get("name") : null;
       if (name !== null) return json(await this.deleteService(name, principal));
@@ -1073,20 +1227,45 @@ export class FleetDO extends DurableObject<Env> {
   private async readJson(request: Request): Promise<unknown> {
     const length = Number(request.headers.get("Content-Length") ?? "0");
     if (length > MAX_JSON_BYTES) throw new HttpError(413, "validation", "Body is too large");
-    const text = await request.text();
-    if (text.length > MAX_JSON_BYTES) throw new HttpError(413, "validation", "Body is too large");
-    if (text.trim().length === 0) return {};
+    const reader = request.body?.getReader();
+    if (reader === undefined) return {};
+    const chunks: Uint8Array[] = [];
+    let total = 0;
     try {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) break;
+        total += next.value.byteLength;
+        if (total > MAX_JSON_BYTES) throw new HttpError(413, "validation", "Body is too large");
+        chunks.push(next.value);
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
+    if (total === 0) return {};
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    try {
+      const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(merged);
+      if (text.trim().length === 0) return {};
       return JSON.parse(text) as unknown;
     } catch {
       throw new HttpError(400, "validation", "Body must be JSON");
     }
   }
 
-  private async sshChallenge(request: Request): Promise<Response> {
+  private async sshChallenge(request: Request, url: URL): Promise<Response> {
     const body = (await this.readJson(request)) as Partial<SshChallengeRequest>;
-    const fp = typeof body.fingerprint === "string" ? body.fingerprint : "";
-    if (fp.length > 128) throw new HttpError(400, "validation", "fingerprint is too long");
+    const fp = typeof body.fingerprint === "string" ? body.fingerprint.trim() : "";
+    if (fp.length === 0 || fp.length > 128) throw new HttpError(400, "validation", "fingerprint is required");
+    const allowed = await parseAllowedSshKeys(this.env.ALLOWED_SSH_KEYS, localDevAllowed(url, this.env) ? "admin" : "read");
+    if (!allowed.some((key) => key.fingerprint === fp)) {
+      throw new HttpError(403, "forbidden", "The SSH key is not allowed");
+    }
     const now = Date.now();
     this.sql.exec("DELETE FROM auth_challenges WHERE expires_at < ?", now);
     const count = this.sql.exec<CountRow>("SELECT COUNT(*) AS count FROM auth_challenges").toArray()[0]?.count ?? 0;
@@ -1247,9 +1426,15 @@ export class FleetDO extends DurableObject<Env> {
           };
           if (parsed.hostPort !== undefined) report.hostPort = parsed.hostPort;
           if (parsed.postgresHostPort !== undefined) report.postgresHostPort = parsed.postgresHostPort;
+          if (parsed.internalHostPort !== undefined) report.internalHostPort = parsed.internalHostPort;
+          if (parsed.candidateImage !== undefined) report.candidateImage = parsed.candidateImage;
+          if (parsed.candidateError !== undefined) report.candidateError = parsed.candidateError;
           if (parsed.error !== undefined) report.error = parsed.error;
           this.touchNode(attachment.nodeId, now);
-          if (this.applyReport(attachment.nodeId, report, now)) this.pushRoutes(attachment.region);
+          if (this.applyReport(attachment.nodeId, report, now)) {
+            this.pushRoutes(attachment.poolKind === "stateful" ? undefined : attachment.region);
+          }
+          await this.advanceRollouts(now);
           break;
         }
         case "drain_complete":
@@ -1332,9 +1517,11 @@ export class FleetDO extends DurableObject<Env> {
     }
     const previous = row.status;
     const status = this.liveStatus(row);
+    const netbirdIp = typeof hello.netbirdIp === "string" && hello.netbirdIp.length > 0 ? hello.netbirdIp : row.netbird_ip;
     this.sql.exec(
-      "UPDATE nodes SET vcn_ip = ?, arch = ?, shape = ?, fault_domain = ?, cpu_total_m = ?, mem_total_mib = ?, disk_total_gib = ?, labels_json = ?, volumes_json = ?, agent_version = ?, status = ?, last_seen_at = ? WHERE id = ?",
+      "UPDATE nodes SET vcn_ip = ?, netbird_ip = ?, arch = ?, shape = ?, fault_domain = ?, cpu_total_m = ?, mem_total_mib = ?, disk_total_gib = ?, labels_json = ?, volumes_json = ?, agent_version = ?, status = ?, last_seen_at = ? WHERE id = ?",
       typeof hello.vcnIp === "string" && hello.vcnIp.length > 0 ? hello.vcnIp : row.vcn_ip,
+      netbirdIp,
       hello.arch === "x64" ? "x64" : "arm64",
       String(hello.shape ?? ""),
       String(hello.faultDomain ?? ""),
@@ -1388,10 +1575,15 @@ export class FleetDO extends DurableObject<Env> {
     let edge = heartbeat.edgeMetrics;
     const cpu = chaos.cpu[nodeId];
     if (cpu !== undefined) {
+      const limits = new Map(this.loadServices().map((service) => [service.name, service.cpuLimitMilli]));
       host.cpuPct = Math.max(finite(host.cpuPct), cpu.cpuPct);
       host.cpuPsi10 = Math.max(finite(host.cpuPsi10), cpu.cpuPct >= 90 ? 40 : cpu.cpuPct >= 75 ? 20 : 5);
       host.load1 = Math.max(finite(host.load1), cpu.cpuPct / 25);
-      containers = containers.map((container) => ({ ...container, cpuPct: Math.max(container.cpuPct, cpu.cpuPct) }));
+      containers = containers.map((container) => {
+        const limitMilli = limits.get(container.serviceName) ?? 1000;
+        const scaled = limitMilli > 0 ? (cpu.cpuPct * limitMilli) / 1000 : cpu.cpuPct;
+        return { ...container, cpuPct: Math.max(container.cpuPct, scaled) };
+      });
     }
     const disk = chaos.disk[nodeId];
     if (disk !== undefined) host.diskUsedPct = disk.usedPct;
@@ -1439,7 +1631,27 @@ export class FleetDO extends DurableObject<Env> {
     const row = this.loadNodeRow(attachment.nodeId);
     if (row === undefined) return;
     const status = this.liveStatus(row);
-    this.sql.exec("UPDATE nodes SET last_seen_at = ?, status = ? WHERE id = ?", now, status, attachment.nodeId);
+    const nextNetbirdIp =
+      typeof heartbeat.netbirdIp === "string" && heartbeat.netbirdIp.length > 0 ? heartbeat.netbirdIp : row.netbird_ip;
+    const netbirdChanged = nextNetbirdIp !== row.netbird_ip;
+    if (Array.isArray(heartbeat.volumes)) {
+      this.sql.exec(
+        "UPDATE nodes SET last_seen_at = ?, status = ?, netbird_ip = ?, volumes_json = ? WHERE id = ?",
+        now,
+        status,
+        nextNetbirdIp,
+        JSON.stringify(heartbeat.volumes),
+        attachment.nodeId,
+      );
+    } else {
+      this.sql.exec(
+        "UPDATE nodes SET last_seen_at = ?, status = ?, netbird_ip = ? WHERE id = ?",
+        now,
+        status,
+        nextNetbirdIp,
+        attachment.nodeId,
+      );
+    }
     let reconcileNeeded = false;
     if (row.status === "down" || row.status === "pending") {
       this.recordEvent("node_connected", attachment.nodeId, { previous: row.status }, attachment.region);
@@ -1455,10 +1667,13 @@ export class FleetDO extends DurableObject<Env> {
     if (reconcileNeeded) {
       this.reconcile(now);
       await this.publishTopology(now, false);
+    } else if (netbirdChanged) {
+      this.pushRoutes();
     } else if (routesChanged) {
-      this.pushRoutes(attachment.region);
+      this.pushRoutes(attachment.poolKind === "stateful" ? undefined : attachment.region);
       await this.publishTopology(now, false);
     }
+    await this.advanceRollouts(now);
   }
 
   private setVolumeUsage(nodeId: string, usedPct: number): void {
@@ -1512,9 +1727,11 @@ export class FleetDO extends DurableObject<Env> {
     const hold = holdServing(row, report);
     const reportedHost = tcpPort(report.hostPort);
     const reportedPg = tcpPort(report.postgresHostPort);
+    const reportedInternal = tcpPort(report.internalHostPort);
     const state = hold ? "ready" : report.state;
     const hostPort = hold ? row.host_port : reportedHost ?? row.host_port;
     const postgresHostPort = reportedPg ?? row.postgres_host_port;
+    const internalHostPort = hold ? row.internal_host_port : reportedInternal ?? row.internal_host_port;
     const image = hold ? row.active_image : typeof report.image === "string" && report.image.length > 0 ? report.image : row.active_image;
     const configHash = hold
       ? row.active_config_hash
@@ -1522,28 +1739,53 @@ export class FleetDO extends DurableObject<Env> {
         ? report.configHash
         : row.active_config_hash;
     const error = hold ? row.error : typeof report.error === "string" ? report.error.slice(0, 1024) : null;
+    const hasCandidate = typeof report.candidateImage === "string" && report.candidateImage.length > 0;
+    const candidateImage = hasCandidate
+      ? report.candidateImage!
+      : !hold && state === "ready" && image === row.desired_image
+        ? null
+        : row.candidate_image;
+    const candidateError = hasCandidate
+      ? typeof report.candidateError === "string"
+        ? report.candidateError.slice(0, 1024)
+        : null
+      : !hold && state === "ready" && image === row.desired_image
+        ? null
+        : row.candidate_error;
     if (
       row.state === state &&
       row.host_port === hostPort &&
       row.postgres_host_port === postgresHostPort &&
+      row.internal_host_port === internalHostPort &&
       row.active_image === image &&
       row.active_config_hash === configHash &&
+      row.candidate_image === candidateImage &&
+      row.candidate_error === candidateError &&
       row.error === error
     ) {
       return false;
     }
     this.sql.exec(
-      "UPDATE placements SET state = ?, host_port = ?, postgres_host_port = ?, active_image = ?, active_config_hash = ?, error = ?, updated_at = ? WHERE id = ?",
+      "UPDATE placements SET state = ?, host_port = ?, postgres_host_port = ?, internal_host_port = ?, active_image = ?, active_config_hash = ?, candidate_image = ?, candidate_error = ?, error = ?, updated_at = ? WHERE id = ?",
       state,
       hostPort,
       postgresHostPort,
+      internalHostPort,
       image,
       configHash,
+      candidateImage,
+      candidateError,
       error,
       now,
       row.id,
     );
-    return row.state !== state || row.host_port !== hostPort || row.postgres_host_port !== postgresHostPort || row.active_image !== image;
+    return (
+      row.state !== state ||
+      row.host_port !== hostPort ||
+      row.postgres_host_port !== postgresHostPort ||
+      row.internal_host_port !== internalHostPort ||
+      row.active_image !== image
+    );
   }
 
   private storeMetrics(attachment: Attachment, heartbeat: HeartbeatMessage, now: number): void {
@@ -1576,7 +1818,7 @@ export class FleetDO extends DurableObject<Env> {
       ts,
       finite(host.cpuPct),
       finite(host.cpuPsi10),
-      finite(host.memUsedMiB),
+      Math.round(finite(host.memUsedMiB)),
       finite(host.memPsi10),
       finite(host.diskUsedPct),
       finite(host.netRxBps),
@@ -1619,7 +1861,7 @@ export class FleetDO extends DurableObject<Env> {
       round(average(cpu), 2),
       round(percentile(cpu, 95), 2),
       round(average(rows.map((row) => row.cpu_psi_10)), 2),
-      round(average(rows.map((row) => row.mem_used_mib)), 1),
+      Math.round(average(rows.map((row) => row.mem_used_mib))),
       round(Math.max(...rows.map((row) => row.disk_used_pct)), 2),
       round(average(rps), 2),
       requests > 0 ? round((errors / requests) * 100, 3) : 0,
@@ -1643,9 +1885,14 @@ export class FleetDO extends DurableObject<Env> {
       if (volume.mountPath === volumePath) volume.sizeGiB = finite(newSizeGiB, volume.sizeGiB);
     }
     this.sql.exec("UPDATE nodes SET volumes_json = ? WHERE id = ?", JSON.stringify(volumes), attachment.nodeId);
-    const pending = this.getState<{ mountPath?: string }>(`volume_grow:${attachment.nodeId}`);
+    const pending = this.getState<{ mountPath?: string; newSizeGiB?: number; at?: number; lastSentAt?: number }>(
+      `volume_grow:${attachment.nodeId}`,
+    );
     const expected = pending !== null && typeof pending.mountPath === "string" && pending.mountPath.length > 0 ? pending.mountPath : DATA_VOLUME_PATH;
-    if (pending !== null && volumePath === expected) this.deleteState(`volume_grow:${attachment.nodeId}`);
+    const targetGiB = typeof pending?.newSizeGiB === "number" ? pending.newSizeGiB : 0;
+    if (pending !== null && volumePath === expected && (targetGiB <= 0 || newSizeGiB >= targetGiB - 2)) {
+      this.deleteState(`volume_grow:${attachment.nodeId}`);
+    }
     this.recordEvent("volume_grown", attachment.nodeId, { volumePath, newSizeGiB }, attachment.region);
   }
 
@@ -1654,6 +1901,34 @@ export class FleetDO extends DurableObject<Env> {
     if (pending === null) return;
     const mountPath = typeof pending.mountPath === "string" && pending.mountPath.length > 0 ? pending.mountPath : DATA_VOLUME_PATH;
     this.send(nodeId, { type: "grow_volume", mountPath });
+  }
+
+  private retryPendingVolumeGrows(now: number): void {
+    const rows = this.sql
+      .exec<{ key: string; value: string }>("SELECT key, value FROM kv_state WHERE key LIKE 'volume_grow:%'")
+      .toArray();
+    for (const row of rows) {
+      const nodeId = row.key.slice("volume_grow:".length);
+      const pending = parseJson<{ mountPath?: string; newSizeGiB?: number; at?: number; lastSentAt?: number; reason?: string } | null>(
+        row.value,
+        null,
+      );
+      if (pending === null) {
+        this.deleteState(row.key);
+        continue;
+      }
+      const startedAt = typeof pending.at === "number" ? pending.at : now;
+      if (now - startedAt > VOLUME_GROW_MAX_MS) {
+        this.deleteState(row.key);
+        continue;
+      }
+      const lastSentAt = typeof pending.lastSentAt === "number" ? pending.lastSentAt : startedAt;
+      if (now - lastSentAt < VOLUME_GROW_RETRY_MS || !this.connected(nodeId)) continue;
+      const mountPath = typeof pending.mountPath === "string" && pending.mountPath.length > 0 ? pending.mountPath : DATA_VOLUME_PATH;
+      if (this.send(nodeId, { type: "grow_volume", mountPath }) > 0) {
+        this.setState(row.key, { ...pending, lastSentAt: now });
+      }
+    }
   }
 
   private replicaOverrides(): Record<string, number> {
@@ -1687,64 +1962,74 @@ export class FleetDO extends DurableObject<Env> {
     const rolloutOrder = this.rolloutOrder();
     const unschedulable: UnschedulableEntry[] = [];
     const existing = new Map(placements.map((placement) => [placement.id, placement]));
-    for (const placement of placements) {
-      if (!labels.has(placement.region)) this.sql.exec("DELETE FROM placements WHERE id = ?", placement.id);
-    }
-    for (const region of regions) {
-      const result: ScheduleResult = computeSchedule({
-        regions: [region],
-        nodes: nodes.filter((node) => node.region === region.label),
-        services: this.servicesForRegion(services, region.label, overrides),
-        currentPlacements: placements.filter((placement) => placement.region === region.label),
-        nowMs: now,
-        heartbeatTimeoutMs: DEFAULT_HEARTBEAT_TIMEOUT_MS,
-        rollouts: activeRollouts,
-        rolloutOrder,
-      });
-      for (const desired of result.desired) {
-        const current = existing.get(desired.id);
-        if (current === undefined) {
-          this.sql.exec(
-            "INSERT INTO placements (id, service_name, region, node_id, slot, desired_image, desired_config_hash, active_image, active_config_hash, host_port, postgres_host_port, state, error, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 'pending', NULL, ?)",
-            desired.id,
-            desired.serviceName,
-            desired.region,
-            desired.nodeId,
-            desired.slot,
-            desired.desiredImage,
-            versions.get(desired.serviceName) ?? null,
-            desired.hostPort,
-            desired.postgresHostPort ?? null,
-            now,
-          );
-        } else if (
-          current.nodeId !== desired.nodeId ||
-          current.slot !== desired.slot ||
-          current.hostPort !== desired.hostPort ||
-          current.postgresHostPort !== desired.postgresHostPort
-        ) {
-          this.sql.exec(
-            "UPDATE placements SET node_id = ?, slot = ?, host_port = ?, postgres_host_port = ?, updated_at = ? WHERE id = ?",
-            desired.nodeId,
-            desired.slot,
-            desired.hostPort,
-            desired.postgresHostPort ?? null,
-            now,
-            desired.id,
-          );
-        }
-        const version = versions.get(desired.serviceName);
-        if (version !== undefined) {
-          this.sql.exec("UPDATE placements SET desired_config_hash = ? WHERE id = ? AND desired_config_hash IS NOT ?", version, desired.id, version);
-        }
+    this.ctx.storage.transactionSync(() => {
+      for (const placement of placements) {
+        if (!labels.has(placement.region)) this.sql.exec("DELETE FROM placements WHERE id = ?", placement.id);
       }
-      for (const id of result.removedIds) this.sql.exec("DELETE FROM placements WHERE id = ?", id);
-      for (const nodeId of result.failedOverNodeIds) {
-        this.recordEvent("failover", nodeId, { reason: "node_unavailable" }, region.label);
+      for (const region of regions) {
+        const result: ScheduleResult = computeSchedule({
+          regions: [region],
+          nodes: nodes.filter((node) => node.region === region.label),
+          services: this.servicesForRegion(services, region.label, overrides),
+          currentPlacements: placements.filter((placement) => placement.region === region.label),
+          nowMs: now,
+          heartbeatTimeoutMs: DEFAULT_HEARTBEAT_TIMEOUT_MS,
+          rollouts: activeRollouts,
+          rolloutOrder,
+        });
+        for (const desired of result.desired) {
+          const current = existing.get(desired.id);
+          if (current === undefined) {
+            this.sql.exec(
+              "INSERT INTO placements (id, service_name, region, node_id, slot, desired_image, desired_config_hash, active_image, active_config_hash, host_port, postgres_host_port, internal_host_port, state, error, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'pending', NULL, ?)",
+              desired.id,
+              desired.serviceName,
+              desired.region,
+              desired.nodeId,
+              desired.slot,
+              desired.desiredImage,
+              versions.get(desired.serviceName) ?? null,
+              desired.hostPort,
+              desired.postgresHostPort ?? null,
+              desired.internalHostPort ?? null,
+              now,
+            );
+          } else if (
+            current.nodeId !== desired.nodeId ||
+            current.slot !== desired.slot ||
+            current.hostPort !== desired.hostPort ||
+            current.postgresHostPort !== desired.postgresHostPort ||
+            current.internalHostPort !== desired.internalHostPort
+          ) {
+            this.sql.exec(
+              "UPDATE placements SET node_id = ?, slot = ?, host_port = ?, postgres_host_port = ?, internal_host_port = ?, updated_at = ? WHERE id = ?",
+              desired.nodeId,
+              desired.slot,
+              desired.hostPort,
+              desired.postgresHostPort ?? null,
+              desired.internalHostPort ?? null,
+              now,
+              desired.id,
+            );
+          }
+          const version = versions.get(desired.serviceName);
+          if (version !== undefined) {
+            this.sql.exec(
+              "UPDATE placements SET desired_config_hash = ? WHERE id = ? AND desired_config_hash IS NOT ?",
+              version,
+              desired.id,
+              version,
+            );
+          }
+        }
+        for (const id of result.removedIds) this.sql.exec("DELETE FROM placements WHERE id = ?", id);
+        for (const nodeId of result.failedOverNodeIds) {
+          this.recordEvent("failover", nodeId, { reason: "node_unavailable" }, region.label);
+        }
+        unschedulable.push(...result.unschedulable);
       }
-      unschedulable.push(...result.unschedulable);
-    }
-    this.setState("unschedulable", unschedulable);
+      this.setState("unschedulable", unschedulable);
+    });
     this.pushDesired();
     this.pushRoutes();
   }
@@ -1766,6 +2051,9 @@ export class FleetDO extends DurableObject<Env> {
           };
           if (placement.hostPort !== undefined) entry.hostPort = placement.hostPort;
           if (service.postgres !== undefined && placement.postgresHostPort !== undefined) entry.postgresHostPort = placement.postgresHostPort;
+          if (service.internalPort !== undefined && placement.internalHostPort !== undefined) {
+            entry.internalHostPort = placement.internalHostPort;
+          }
           return [entry];
         });
       const fp = fingerprint(JSON.stringify(desired));
@@ -1779,18 +2067,24 @@ export class FleetDO extends DurableObject<Env> {
     const services = this.loadServices();
     const placements = this.loadPlacements();
     const nodes = this.loadNodes();
+    const clusterPeers = computeClusterPeers(nodes, placements, services);
     for (const node of nodes) {
       if (onlyRegion !== undefined && node.region !== onlyRegion) continue;
       if (!this.connected(node.id)) continue;
       const routes = computeRoutes(node.region, services, placements, nodes, node.id);
-      const fp = fingerprint(JSON.stringify(routes));
+      const payload = {
+        httpRoutes: routes.httpRoutes,
+        postgresRoutes: routes.postgresRoutes,
+        ...(routes.internalRoutes.length > 0 ? { internalRoutes: routes.internalRoutes } : {}),
+        ...(clusterPeers.length > 0 ? { clusterPeers } : {}),
+      };
+      const fp = fingerprint(JSON.stringify(payload));
       const key = `sent_routes:${node.id}`;
       if (this.getState<string>(key) === fp) continue;
       const sent = this.send(node.id, {
         type: "sync_routes",
         revision: this.nextRevision(),
-        httpRoutes: routes.httpRoutes,
-        postgresRoutes: routes.postgresRoutes,
+        ...payload,
       });
       if (sent > 0) this.setState(key, fp);
     }
@@ -1810,15 +2104,18 @@ export class FleetDO extends DurableObject<Env> {
         service.regions.includes(region.label) &&
         service.hostnames.some((hostname) => expandRegionTemplate(hostname, region.label) === apiHost),
     );
-    return fronting.every((service) =>
-      placements.some(
-        (placement) =>
-          placement.serviceName === service.name &&
-          placement.region === region.label &&
-          placement.state === "ready" &&
-          placement.nodeId !== undefined &&
-          alive.has(placement.nodeId),
-      ),
+    return (
+      fronting.length > 0 &&
+      fronting.every((service) =>
+        placements.some(
+          (placement) =>
+            placement.serviceName === service.name &&
+            placement.region === region.label &&
+            placement.state === "ready" &&
+            placement.nodeId !== undefined &&
+            alive.has(placement.nodeId),
+        ),
+      )
     );
   }
 
@@ -1890,7 +2187,9 @@ export class FleetDO extends DurableObject<Env> {
       this.prune(now);
       this.reconcile(now);
       await this.advanceRollouts(now);
+      this.retryPendingVolumeGrows(now);
       await this.runAutoscaler(now);
+      await this.maybeAutoEnsureTls(now);
       await this.publishTopology(now, false);
     } catch (error) {
       console.error("fleet alarm failed", error);
@@ -1918,17 +2217,21 @@ export class FleetDO extends DurableObject<Env> {
     this.sql.exec("DELETE FROM events WHERE id <= (SELECT id FROM events ORDER BY id DESC LIMIT 1 OFFSET ?)", EVENTS_KEEP);
   }
 
-  private latestEdgeByNode(now: number): Map<string, EdgeServiceMetrics[]> {
+  private latestEdgeByNode(now: number): Map<string, NodeEdgeMetrics> {
     const rows = this.sql
-      .exec<{ node_id: string; edge_json: string | null }>(
-        "SELECT m.node_id, m.edge_json FROM metrics_10s m JOIN (SELECT node_id, MAX(ts) AS ts FROM metrics_10s WHERE ts >= ? GROUP BY node_id) latest ON latest.node_id = m.node_id AND latest.ts = m.ts",
+      .exec<{ node_id: string; ts: number; edge_json: string | null }>(
+        "SELECT m.node_id, m.ts, m.edge_json FROM metrics_10s m JOIN (SELECT node_id, MAX(ts) AS ts FROM metrics_10s WHERE ts >= ? GROUP BY node_id) latest ON latest.node_id = m.node_id AND latest.ts = m.ts",
         now - EDGE_FRESH_MS,
       )
       .toArray();
-    const out = new Map<string, EdgeServiceMetrics[]>();
+    const out = new Map<string, NodeEdgeMetrics>();
     for (const row of rows) {
       const edge = parseJson<EdgeMetricsSnapshot | null>(row.edge_json, null);
-      if (edge !== null && Array.isArray(edge.services)) out.set(row.node_id, edge.services);
+      if (edge === null || !Array.isArray(edge.services)) continue;
+      let ts = finite(edge.ts, row.ts);
+      if (ts < 1e12) ts *= 1000;
+      const windowSeconds = Math.max(0, finite(edge.windowSeconds, 0));
+      out.set(row.node_id, { ts, windowSeconds, services: edge.services });
     }
     return out;
   }
@@ -1966,36 +2269,43 @@ export class FleetDO extends DurableObject<Env> {
   }
 
   private applyStep(step: RolloutStep, now: number): void {
-    for (const update of step.imageUpdates) {
-      this.sql.exec("UPDATE placements SET desired_image = ?, updated_at = ? WHERE id = ?", update.targetImage, now, update.placementId);
-    }
-    this.saveRollout(step.rollout);
-    const initiator = this.getState<Record<string, string>>(`rollout_by:${step.rollout.id}`) ?? {};
-    for (const event of step.events) {
-      const detail = event.kind === "deploy_started" ? { ...event.detail, ...initiator } : event.detail;
-      this.recordEvent(this.eventKind(event.kind), event.subject, detail, event.region);
-    }
-    if (TERMINAL_PHASES.has(step.rollout.phase)) this.deleteState(`rollout_by:${step.rollout.id}`);
-    const rollout = step.rollout;
-    if (rollout.phase === "succeeded") {
-      if (rollout.region === undefined) {
-        this.sql.exec("UPDATE placements SET desired_image = ? WHERE service_name = ?", rollout.targetImage, rollout.serviceName);
-      } else {
+    this.ctx.storage.transactionSync(() => {
+      for (const update of step.imageUpdates) {
         this.sql.exec(
-          "UPDATE placements SET desired_image = ? WHERE service_name = ? AND region = ?",
-          rollout.targetImage,
-          rollout.serviceName,
-          rollout.region,
+          "UPDATE placements SET desired_image = ?, candidate_image = NULL, candidate_error = NULL, updated_at = ? WHERE id = ?",
+          update.targetImage,
+          now,
+          update.placementId,
         );
       }
-      const row = this.loadServiceRow(rollout.serviceName);
-      if (row !== undefined) {
-        const spec = this.serviceFromRow(row);
-        if (rollout.region === undefined || spec.regions.every((region) => region === rollout.region)) {
-          this.setServiceImage(rollout.serviceName, rollout.targetImage, now);
+      this.saveRollout(step.rollout);
+      const initiator = this.getState<Record<string, string>>(`rollout_by:${step.rollout.id}`) ?? {};
+      for (const event of step.events) {
+        const detail = event.kind === "deploy_started" ? { ...event.detail, ...initiator } : event.detail;
+        this.recordEvent(this.eventKind(event.kind), event.subject, detail, event.region);
+      }
+      if (TERMINAL_PHASES.has(step.rollout.phase)) this.deleteState(`rollout_by:${step.rollout.id}`);
+      const rollout = step.rollout;
+      if (rollout.phase === "succeeded") {
+        if (rollout.region === undefined) {
+          this.sql.exec("UPDATE placements SET desired_image = ? WHERE service_name = ?", rollout.targetImage, rollout.serviceName);
+        } else {
+          this.sql.exec(
+            "UPDATE placements SET desired_image = ? WHERE service_name = ? AND region = ?",
+            rollout.targetImage,
+            rollout.serviceName,
+            rollout.region,
+          );
+        }
+        const row = this.loadServiceRow(rollout.serviceName);
+        if (row !== undefined) {
+          const spec = this.serviceFromRow(row);
+          if (rollout.region === undefined || spec.regions.every((region) => region === rollout.region)) {
+            this.setServiceImage(rollout.serviceName, rollout.targetImage, now);
+          }
         }
       }
-    }
+    });
   }
 
   private setServiceImage(name: string, image: string, now: number): void {
@@ -2037,6 +2347,8 @@ export class FleetDO extends DurableObject<Env> {
       this.pushDesired();
       this.pushRoutes();
     }
+    const wakeAt = this.nextBakeDeadline(now);
+    if (wakeAt !== null) await this.ensureAlarm(Math.max(250, wakeAt - Date.now()));
   }
 
   private async oci(): Promise<OciRestClient | null> {
@@ -2092,6 +2404,10 @@ export class FleetDO extends DurableObject<Env> {
     const metrics1m = this.metricsPoints1m(now - 3600_000);
     const poolIds = new Map<string, string>();
     for (const row of regionRows) if (row.instance_pool_id !== null && row.instance_pool_id.length > 0) poolIds.set(row.label, row.instance_pool_id);
+    const drainReasons = new Map<string, string>();
+    for (const row of this.sql.exec<{ id: string; drain_reason: string | null }>("SELECT id, drain_reason FROM nodes WHERE drain_reason IS NOT NULL").toArray()) {
+      if (row.drain_reason !== null) drainReasons.set(row.id, row.drain_reason);
+    }
     let cooldowns = new Map(Object.entries(this.getState<Record<string, number>>("autoscale_cooldowns") ?? {}));
     const actions: AutoscaleAction[] = [];
     for (const region of regions) {
@@ -2106,6 +2422,7 @@ export class FleetDO extends DurableObject<Env> {
         cooldowns,
         nowMs: now,
         poolIds,
+        drainReasons,
       });
       cooldowns = result.updatedCooldowns;
       actions.push(...result.actions);
@@ -2172,6 +2489,11 @@ export class FleetDO extends DurableObject<Env> {
       }
       case "scale_pool_up": {
         if (oci === null) return false;
+        const pool = await oci.getInstancePool(action.ociRegion, action.poolId);
+        if (pool?.size !== undefined && pool.size >= action.newSize) {
+          cooldowns.set(poolScaleUpCooldownKey(action.region), now);
+          return false;
+        }
         await oci.updateInstancePool(action.ociRegion, action.poolId, action.newSize);
         this.recordEvent("pool_scale_up", action.poolId, { newSize: action.newSize, reason: action.reason }, action.region);
         cooldowns.set(poolScaleUpCooldownKey(action.region), now);
@@ -2193,20 +2515,22 @@ export class FleetDO extends DurableObject<Env> {
         }
         if (!this.drainStillRequested(action.nodeId)) return false;
         try {
-          await oci.terminateInstance(action.ociRegion, action.instanceId);
+          await oci.terminateInstance(action.ociRegion, action.instanceId, false);
         } catch (error) {
           if (!(error instanceof OciError) || error.status !== 404) throw error;
         }
         if (!this.drainStillRequested(action.nodeId)) return false;
         for (const ws of this.sockets(action.nodeId)) this.closeSocket(ws, 4010, "terminated");
-        this.sql.exec("DELETE FROM placements WHERE node_id = ?", action.nodeId);
-        this.sql.exec("DELETE FROM metrics_10s WHERE node_id = ?", action.nodeId);
-        this.sql.exec("DELETE FROM metrics_1m WHERE node_id = ?", action.nodeId);
-        this.sql.exec("DELETE FROM nodes WHERE id = ?", action.nodeId);
-        this.deleteState(`sent_desired:${action.nodeId}`);
-        this.deleteState(`sent_routes:${action.nodeId}`);
-        this.deleteState(`volume_grow:${action.nodeId}`);
-        this.recordEvent("pool_scale_down", action.nodeId, { instanceId: action.instanceId, poolId: action.poolId, reason: action.reason }, action.region);
+        this.ctx.storage.transactionSync(() => {
+          this.sql.exec("DELETE FROM placements WHERE node_id = ?", action.nodeId);
+          this.sql.exec("DELETE FROM metrics_10s WHERE node_id = ?", action.nodeId);
+          this.sql.exec("DELETE FROM metrics_1m WHERE node_id = ?", action.nodeId);
+          this.sql.exec("DELETE FROM nodes WHERE id = ?", action.nodeId);
+          this.deleteState(`sent_desired:${action.nodeId}`);
+          this.deleteState(`sent_routes:${action.nodeId}`);
+          this.deleteState(`volume_grow:${action.nodeId}`);
+          this.recordEvent("pool_scale_down", action.nodeId, { instanceId: action.instanceId, poolId: action.poolId, reason: action.reason }, action.region);
+        });
         return true;
       }
       case "grow_volume": {
@@ -2214,6 +2538,7 @@ export class FleetDO extends DurableObject<Env> {
         await oci.updateVolumeSize(action.ociRegion, action.volumeId, action.newSizeGiB);
         this.setState(`volume_grow:${action.nodeId}`, {
           at: now,
+          lastSentAt: now,
           newSizeGiB: action.newSizeGiB,
           reason: action.reason,
           mountPath: action.mountPath,
@@ -2636,45 +2961,58 @@ export class FleetDO extends DurableObject<Env> {
     if (typeof fleet === "string") throw new HttpError(400, "validation", fleet);
     const replace = body.replaceServices === true;
     const poolIds = isRecord(body.instancePoolIds) ? body.instancePoolIds : {};
-    const now = Date.now();
-    this.setState("fleet_config", fleet);
-    const order = fleet.rolloutOrder ?? [];
-    const labels = fleet.regions.map((region) => region.label);
-    for (const [index, region] of fleet.regions.entries()) {
-      const poolId = poolIds[region.label];
-      const orderIndex = order.indexOf(region.label);
-      this.sql.exec(
-        "INSERT INTO regions (label, oci_region, compartment_id, instance_pool_id, min_workers, max_workers, rollout_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(label) DO UPDATE SET oci_region = excluded.oci_region, compartment_id = excluded.compartment_id, instance_pool_id = COALESCE(excluded.instance_pool_id, regions.instance_pool_id), min_workers = excluded.min_workers, max_workers = excluded.max_workers, rollout_order = excluded.rollout_order, config_json = excluded.config_json, updated_at = excluded.updated_at",
-        region.label,
-        region.ociRegion,
-        region.compartmentId,
-        typeof poolId === "string" && poolId.length > 0 ? poolId : null,
-        positiveInt(region.pools.worker?.min, 0),
-        positiveInt(region.pools.worker?.max, 0),
-        orderIndex >= 0 ? orderIndex : order.length + index,
-        JSON.stringify(region),
-        now,
-      );
-    }
-    const placeholders = labels.map(() => "?").join(", ");
-    this.sql.exec(`DELETE FROM regions WHERE label NOT IN (${placeholders})`, ...labels);
-    const added: string[] = [];
-    const replaced: string[] = [];
-    const skipped: string[] = [];
     const servicesInput = Array.isArray(body.services) ? body.services : [];
+    const specs: ServiceSpec[] = [];
     for (const input of servicesInput) {
       const spec = parseServiceSpec(input);
       if (typeof spec === "string") throw new HttpError(400, "validation", spec);
-      const existing = this.loadServiceRow(spec.name);
-      if (existing !== undefined && !replace) {
-        skipped.push(spec.name);
-        continue;
-      }
-      this.upsertService(spec, existing, now);
-      (existing === undefined ? added : replaced).push(spec.name);
+      specs.push(spec);
     }
-    this.recordEvent("chaos", "fleet_seed", { by: principal.owner, regions: labels, added, replaced, skipped });
+    const now = Date.now();
+    const order = fleet.rolloutOrder ?? [];
+    const labels = fleet.regions.map((region) => region.label);
+    const added: string[] = [];
+    const replaced: string[] = [];
+    const skipped: string[] = [];
+    this.ctx.storage.transactionSync(() => {
+      this.setState("fleet_config", fleet);
+      for (const [index, region] of fleet.regions.entries()) {
+        const overridePoolId = poolIds[region.label];
+        const poolId =
+          typeof overridePoolId === "string" && overridePoolId.length > 0
+            ? overridePoolId
+            : typeof region.instancePoolId === "string" && region.instancePoolId.length > 0
+              ? region.instancePoolId
+              : null;
+        const orderIndex = order.indexOf(region.label);
+        this.sql.exec(
+          "INSERT INTO regions (label, oci_region, compartment_id, instance_pool_id, min_workers, max_workers, rollout_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(label) DO UPDATE SET oci_region = excluded.oci_region, compartment_id = excluded.compartment_id, instance_pool_id = COALESCE(excluded.instance_pool_id, regions.instance_pool_id), min_workers = excluded.min_workers, max_workers = excluded.max_workers, rollout_order = excluded.rollout_order, config_json = excluded.config_json, updated_at = excluded.updated_at",
+          region.label,
+          region.ociRegion,
+          region.compartmentId,
+          poolId,
+          positiveInt(region.pools.worker?.min, 0),
+          positiveInt(region.pools.worker?.max, 0),
+          orderIndex >= 0 ? orderIndex : order.length + index,
+          JSON.stringify(region),
+          now,
+        );
+      }
+      const placeholders = labels.map(() => "?").join(", ");
+      this.sql.exec(`DELETE FROM regions WHERE label NOT IN (${placeholders})`, ...labels);
+      for (const spec of specs) {
+        const existing = this.loadServiceRow(spec.name);
+        if (existing !== undefined && !replace) {
+          skipped.push(spec.name);
+          continue;
+        }
+        this.upsertService(spec, existing, now);
+        (existing === undefined ? added : replaced).push(spec.name);
+      }
+      this.recordEvent("chaos", "fleet_seed", { by: principal.owner, regions: labels, added, replaced, skipped });
+    });
     this.reconcile(now);
+    await this.maybeAutoEnsureTls(now);
     const topology = await this.publishTopology(now, true);
     await this.ensureAlarm(ALARM_INTERVAL_MS);
     return { regions: labels, services: { added, replaced, skipped }, topology };
@@ -2711,30 +3049,32 @@ export class FleetDO extends DurableObject<Env> {
     }
     const now = Date.now();
     const applied: { name: string; result: "added" | "changed" | "unchanged"; rolloutId?: string }[] = [];
-    for (const spec of specs) {
-      const existing = this.loadServiceRow(spec.name);
-      if (existing === undefined) {
-        this.upsertService(spec, undefined, now);
-        applied.push({ name: spec.name, result: "added" });
-        continue;
+    this.ctx.storage.transactionSync(() => {
+      for (const spec of specs) {
+        const existing = this.loadServiceRow(spec.name);
+        if (existing === undefined) {
+          this.upsertService(spec, undefined, now);
+          applied.push({ name: spec.name, result: "added" });
+          continue;
+        }
+        const live = this.serviceFromRow(existing);
+        const hasPlacements =
+          (this.sql.exec<CountRow>("SELECT COUNT(*) AS count FROM placements WHERE service_name = ?", spec.name).toArray()[0]?.count ?? 0) > 0;
+        const imageChanged = live.image !== spec.image;
+        const stored = imageChanged && hasPlacements ? { ...spec, image: live.image } : spec;
+        const unchanged = JSON.stringify(stored) === existing.spec_json && !imageChanged;
+        if (!unchanged) this.upsertService(stored, existing, now);
+        const entry: { name: string; result: "added" | "changed" | "unchanged"; rolloutId?: string } = {
+          name: spec.name,
+          result: unchanged ? "unchanged" : "changed",
+        };
+        if (imageChanged && hasPlacements) {
+          const rollout = this.startRollout(stored, spec.image, undefined, principal, now);
+          entry.rolloutId = rollout.id;
+        }
+        applied.push(entry);
       }
-      const live = this.serviceFromRow(existing);
-      const hasPlacements =
-        (this.sql.exec<CountRow>("SELECT COUNT(*) AS count FROM placements WHERE service_name = ?", spec.name).toArray()[0]?.count ?? 0) > 0;
-      const imageChanged = live.image !== spec.image;
-      const stored = imageChanged && hasPlacements ? { ...spec, image: live.image } : spec;
-      const unchanged = JSON.stringify(stored) === existing.spec_json && !imageChanged;
-      if (!unchanged) this.upsertService(stored, existing, now);
-      const entry: { name: string; result: "added" | "changed" | "unchanged"; rolloutId?: string } = {
-        name: spec.name,
-        result: unchanged ? "unchanged" : "changed",
-      };
-      if (imageChanged && hasPlacements) {
-        const rollout = this.startRollout(stored, spec.image, undefined, principal, now);
-        entry.rolloutId = rollout.id;
-      }
-      applied.push(entry);
-    }
+    });
     this.reconcile(now);
     await this.advanceRollouts(now);
     await this.ensureAlarm(ALARM_INTERVAL_MS);
@@ -2745,14 +3085,16 @@ export class FleetDO extends DurableObject<Env> {
     const row = this.loadServiceRow(name);
     if (row === undefined) throw new HttpError(404, "not_found", `Service ${name} does not exist`);
     const now = Date.now();
-    this.sql.exec("DELETE FROM services WHERE name = ?", name);
-    for (const rollout of this.loadRollouts(true).filter((item) => item.serviceName === name)) {
-      this.saveRollout({ ...rollout, phase: "failed", finishedAt: now, error: "service_deleted" });
-    }
-    const overrides = this.replicaOverrides();
-    for (const key of Object.keys(overrides)) if (key.startsWith(`${name}|`)) delete overrides[key];
-    this.setState("replica_overrides", overrides);
-    this.recordEvent("replica_scale_down", name, { reason: "service_deleted", by: principal.owner });
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM services WHERE name = ?", name);
+      for (const rollout of this.loadRollouts(true).filter((item) => item.serviceName === name)) {
+        this.saveRollout({ ...rollout, phase: "failed", finishedAt: now, error: "service_deleted" });
+      }
+      const overrides = this.replicaOverrides();
+      for (const key of Object.keys(overrides)) if (key.startsWith(`${name}|`)) delete overrides[key];
+      this.setState("replica_overrides", overrides);
+      this.recordEvent("replica_scale_down", name, { reason: "service_deleted", by: principal.owner });
+    });
     this.reconcile(now);
     await this.publishTopology(now, false);
     return { deleted: name };
@@ -2780,6 +3122,11 @@ export class FleetDO extends DurableObject<Env> {
         "matchGrpc",
         "blockedPaths",
         "configFiles",
+        "internalPort",
+        "clusterPeers",
+        "pathPatterns",
+        "methods",
+        "routeRules",
       ]);
       const fields = [...keys]
         .filter(
@@ -2871,7 +3218,7 @@ export class FleetDO extends DurableObject<Env> {
     const row = this.loadNodeRow(nodeId);
     if (row === undefined) throw new HttpError(404, "not_found", `Node ${nodeId} does not exist`);
     const status: NodeStatus = row.status === "down" ? "down" : row.status === "drained" ? "drained" : "draining";
-    this.sql.exec("UPDATE nodes SET drain_requested = 1, status = ? WHERE id = ?", status, nodeId);
+    this.sql.exec("UPDATE nodes SET drain_requested = 1, drain_reason = ?, status = ? WHERE id = ?", reason, status, nodeId);
     this.send(nodeId, { type: "drain", reason });
     this.recordEvent("node_drained", nodeId, { phase: "requested", reason }, row.region);
     const now = Date.now();
@@ -2887,11 +3234,83 @@ export class FleetDO extends DurableObject<Env> {
     const now = Date.now();
     const live = this.connected(nodeId) && now - row.last_seen_at <= DEFAULT_HEARTBEAT_TIMEOUT_MS;
     const status: NodeStatus = live ? "active" : row.status === "pending" ? "pending" : "down";
-    this.sql.exec("UPDATE nodes SET drain_requested = 0, status = ? WHERE id = ?", status, nodeId);
+    this.sql.exec("UPDATE nodes SET drain_requested = 0, drain_reason = NULL, status = ? WHERE id = ?", status, nodeId);
     this.recordEvent("node_connected", nodeId, { phase: "activated", status }, row.region);
     this.reconcile(now);
     await this.publishTopology(now, false);
     return this.nodeFromRow(this.loadNodeRow(nodeId) ?? row);
+  }
+
+  private async deleteNode(nodeId: string, force: boolean, principal: Principal): Promise<{ deleted: string }> {
+    const row = this.loadNodeRow(nodeId);
+    if (row === undefined) throw new HttpError(404, "not_found", `Node ${nodeId} does not exist`);
+    if (!force) {
+      if (row.status === "active") {
+        throw new HttpError(409, "conflict", `Node ${nodeId} is still active`, "Drain the node first or pass --force.");
+      }
+      const activePlacements =
+        this.sql
+          .exec<CountRow>("SELECT COUNT(*) AS count FROM placements WHERE node_id = ? AND state != 'stopped'", nodeId)
+          .toArray()[0]?.count ?? 0;
+      if (activePlacements > 0) {
+        throw new HttpError(409, "conflict", `Node ${nodeId} still has ${activePlacements} placement(s)`, "Drain the node first or pass --force.");
+      }
+    }
+    for (const ws of this.sockets(nodeId)) this.closeSocket(ws, 4010, "removed");
+    const now = Date.now();
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM placements WHERE node_id = ?", nodeId);
+      this.sql.exec("DELETE FROM metrics_10s WHERE node_id = ?", nodeId);
+      this.sql.exec("DELETE FROM metrics_1m WHERE node_id = ?", nodeId);
+      this.sql.exec("DELETE FROM nodes WHERE id = ?", nodeId);
+      this.deleteState(`sent_desired:${nodeId}`);
+      this.deleteState(`sent_routes:${nodeId}`);
+      this.deleteState(`volume_grow:${nodeId}`);
+      this.recordEvent("node_lost", nodeId, { phase: "removed", force, by: principal.owner }, row.region);
+    });
+    this.reconcile(now);
+    await this.publishTopology(now, false);
+    return { deleted: nodeId };
+  }
+
+  private upgradeNodes(body: unknown, requestUrl: URL, principal: Principal): { version: string; nodes: string[] } {
+    if (!isRecord(body)) throw new HttpError(400, "validation", "Body must be an object");
+    const version = requiredToken(body.version);
+    const urlText = requiredToken(body.url);
+    const sha256 = requiredToken(body.sha256);
+    if (version === null || urlText === null || sha256 === null) {
+      throw new HttpError(400, "validation", "version, url and sha256 are required");
+    }
+    if (!/^[0-9a-f]{64}$/i.test(sha256)) {
+      throw new HttpError(400, "validation", "sha256 must be 64 hexadecimal characters");
+    }
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(urlText);
+    } catch {
+      throw new HttpError(400, "validation", "url must be a valid URL");
+    }
+    const allowHttp = localDevAllowed(requestUrl, this.env) && isLoopbackHost(parsedUrl.hostname);
+    if (parsedUrl.protocol !== "https:" && !(allowHttp && parsedUrl.protocol === "http:")) {
+      throw new HttpError(400, "validation", "url must use https");
+    }
+    const targetNodeId = typeof body.nodeId === "string" && body.nodeId.length > 0 ? body.nodeId : undefined;
+    let targets: NodeInfo[];
+    if (targetNodeId !== undefined) {
+      const row = this.loadNodeRow(targetNodeId);
+      if (row === undefined) throw new HttpError(404, "not_found", `Node ${targetNodeId} does not exist`);
+      targets = [this.nodeFromRow(row)];
+    } else {
+      targets = this.loadNodes();
+    }
+    const sentTo: string[] = [];
+    for (const node of targets) {
+      if (this.send(node.id, { type: "upgrade_agent", version, url: urlText, sha256: sha256.toLowerCase() }) > 0) {
+        sentTo.push(node.id);
+      }
+    }
+    this.recordEvent("chaos", "agent_upgrade", { version, nodes: sentTo, by: principal.owner });
+    return { version, nodes: sentTo };
   }
 
   private async rebootNode(nodeId: string, principal: Principal): Promise<unknown> {
@@ -2929,11 +3348,18 @@ export class FleetDO extends DurableObject<Env> {
     return nodeIds.filter((nodeId) => this.send(nodeId, { type: "refresh_secrets", serviceName }) > 0);
   }
 
-  private async tlsKey(requestUrl?: URL): Promise<CryptoKey | null> {
-    const secret = sessionSecret(this.env, requestUrl);
-    if (secret === null) return null;
+  private async deriveSealKey(secret: string): Promise<CryptoKey> {
     const digest = await crypto.subtle.digest("SHA-256", encoder.encode(`${secret}:tls-key`));
     return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  }
+
+  private async tlsKey(requestUrl?: URL): Promise<CryptoKey | null> {
+    if (this.env.TLS_SEALING_KEY !== undefined && this.env.TLS_SEALING_KEY.length >= 16) {
+      return this.deriveSealKey(this.env.TLS_SEALING_KEY);
+    }
+    const secret = sessionSecret(this.env, requestUrl);
+    if (secret === null) return null;
+    return this.deriveSealKey(secret);
   }
 
   private async sealKey(pem: string, requestUrl?: URL): Promise<string> {
@@ -2944,12 +3370,9 @@ export class FleetDO extends DurableObject<Env> {
     return `v1.${b64urlEncode(iv)}.${b64urlEncode(sealed)}`;
   }
 
-  private async openKey(sealed: string): Promise<string | null> {
-    if (sealed.startsWith("plain.")) return sealed.slice("plain.".length);
+  private async openKeyWith(sealed: string, key: CryptoKey): Promise<string | null> {
     const [version, iv, data] = sealed.split(".");
     if (version !== "v1" || iv === undefined || data === undefined) return null;
-    const key = await this.tlsKey();
-    if (key === null) return null;
     try {
       const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64urlDecode(iv) }, key, b64urlDecode(data));
       return new TextDecoder().decode(plain);
@@ -2958,12 +3381,47 @@ export class FleetDO extends DurableObject<Env> {
     }
   }
 
+  private async openKey(sealed: string): Promise<string | null> {
+    if (sealed.startsWith("plain.")) return sealed.slice("plain.".length);
+    const primary = await this.tlsKey();
+    if (primary !== null) {
+      const opened = await this.openKeyWith(sealed, primary);
+      if (opened !== null) return opened;
+    }
+    if (this.env.TLS_SEALING_KEY !== undefined && this.env.TLS_SEALING_KEY.length >= 16) {
+      const fallbackSecret = sessionSecret(this.env);
+      if (fallbackSecret !== null && fallbackSecret !== this.env.TLS_SEALING_KEY) {
+        return this.openKeyWith(sealed, await this.deriveSealKey(fallbackSecret));
+      }
+    }
+    return null;
+  }
+
   private async loadTls(): Promise<TlsBundle | null> {
     const row = this.sql.exec<TlsRow>("SELECT * FROM tls_certs WHERE id = 'shared'").toArray()[0];
     if (row === undefined) return null;
     const keyPem = await this.openKey(row.key_pem_enc);
     if (keyPem === null) return null;
     return { domains: parseJson<string[]>(row.domains_json, []), certPem: row.cert_pem, keyPem, notAfter: row.not_after };
+  }
+
+  private tlsStatus(): unknown {
+    const row = this.sql.exec<TlsRow>("SELECT * FROM tls_certs WHERE id = 'shared'").toArray()[0];
+    const error = this.getState<{ at: number; message: string }>("tls_error");
+    if (row === undefined) {
+      return {
+        configured: false,
+        domains: this.tlsDomains(),
+        ...(error !== null ? { error } : {}),
+      };
+    }
+    return {
+      configured: true,
+      domains: parseJson<string[]>(row.domains_json, []),
+      notAfter: row.not_after,
+      renewedAt: row.renewed_at,
+      ...(error !== null ? { error } : {}),
+    };
   }
 
   private sendTls(nodeId: string, bundle: TlsBundle): void {
@@ -2981,17 +3439,65 @@ export class FleetDO extends DurableObject<Env> {
     const raw = this.env.TLS_DOMAINS;
     const domains = (raw ?? "").split(/[\s,]+/).filter((domain) => domain.length > 0);
     if (domains.length > 0) return domains;
-    return this.env.LOCAL_DEV === "true" ? ["localhost", "*.localhost"] : ["*.terrascale.tech", "*.api.terrascale.tech"];
+    return this.env.LOCAL_DEV === "true" ? ["localhost", "*.localhost"] : [...DEFAULT_PROD_TLS_DOMAINS];
+  }
+
+  private async loadAcmeAccount(directoryUrl: string): Promise<AcmeAccountState | undefined> {
+    const sealed = this.getState<string>("acme_account");
+    if (sealed === null) return undefined;
+    const plain = await this.openKey(sealed);
+    if (plain === null) return undefined;
+    const parsed = parseJson<{ directoryUrl?: string; kid?: string; jwk?: JsonWebKey } | null>(plain, null);
+    if (parsed === null || parsed.directoryUrl !== directoryUrl || typeof parsed.kid !== "string" || !isRecord(parsed.jwk)) {
+      return undefined;
+    }
+    return { kid: parsed.kid, jwk: parsed.jwk };
+  }
+
+  private async saveAcmeAccount(directoryUrl: string, account: AcmeAccountState, requestUrl?: URL): Promise<void> {
+    const sealed = await this.sealKey(JSON.stringify({ directoryUrl, kid: account.kid, jwk: account.jwk }), requestUrl);
+    this.setState("acme_account", sealed);
+  }
+
+  private async maybeAutoEnsureTls(now: number): Promise<void> {
+    if (this.env.LOCAL_DEV === "true" || !this.env.CF_DNS_API_TOKEN || !this.env.CF_DNS_ZONE_ID) return;
+    if (this.tlsEnsureInFlight !== undefined) return;
+    if ((await this.loadTls()) !== null) return;
+    const lastError = this.getState<{ at?: number }>("tls_error");
+    if (lastError !== null && typeof lastError.at === "number" && now - lastError.at < TLS_RETRY_BACKOFF_MS) return;
+    try {
+      await this.ensureTls();
+    } catch (error) {
+      console.error("automatic TLS provisioning failed", error);
+    }
   }
 
   private async ensureTls(requestUrl?: URL): Promise<unknown> {
+    if (this.tlsEnsureInFlight !== undefined) return this.tlsEnsureInFlight;
+    const work = this.ensureTlsInner(requestUrl).finally(() => {
+      this.tlsEnsureInFlight = undefined;
+    });
+    this.tlsEnsureInFlight = work;
+    return work;
+  }
+
+  private async ensureTlsInner(requestUrl?: URL): Promise<unknown> {
     const now = Date.now();
     const current = await this.loadTls();
-    const config: TlsManagerConfig = { domains: this.tlsDomains(), localDev: this.env.LOCAL_DEV === "true" };
+    const directoryUrl = this.env.ACME_DIRECTORY_URL ?? LETS_ENCRYPT_DIRECTORY;
+    const config: TlsManagerConfig = {
+      domains: this.tlsDomains(),
+      localDev: this.env.LOCAL_DEV === "true",
+      onAccountCreated: async (account) => {
+        await this.saveAcmeAccount(directoryUrl, account, requestUrl);
+      },
+    };
     if (this.env.CF_DNS_API_TOKEN) config.cfApiToken = this.env.CF_DNS_API_TOKEN;
     if (this.env.CF_DNS_ZONE_ID) config.cfZoneId = this.env.CF_DNS_ZONE_ID;
     if (this.env.ACME_DIRECTORY_URL) config.acmeDirectoryUrl = this.env.ACME_DIRECTORY_URL;
     if (this.env.ACME_ACCOUNT_EMAIL) config.accountEmail = this.env.ACME_ACCOUNT_EMAIL;
+    const storedAccount = await this.loadAcmeAccount(directoryUrl);
+    if (storedAccount !== undefined) config.account = storedAccount;
     let outcome: { renewed: boolean; bundle: TlsBundle };
     try {
       outcome = await ensureCertificate(config, current, now);

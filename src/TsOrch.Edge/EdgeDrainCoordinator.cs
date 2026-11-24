@@ -13,6 +13,12 @@ public sealed partial class EdgeDrainCoordinator(
 
     public bool IsDraining => Volatile.Read(ref _draining) == 1;
 
+    public bool IsReadinessRequest(HttpContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return context.Connection.LocalPort == options.HttpPort && IsReadinessProbe(context.Request);
+    }
+
     public static bool IsReadinessProbe(HttpRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);

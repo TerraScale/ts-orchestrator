@@ -16,4 +16,6 @@ public sealed record class OciNodeMetadata(
     string? EnrollVault,
     string? EnrollSecretName,
     string? NetBirdUrl = null,
-    string? NetBirdSetupKeySecret = null);
+    string? NetBirdSetupKeySecret = null,
+    string? DataVolumeId = null,
+    string? InstancePoolId = null);

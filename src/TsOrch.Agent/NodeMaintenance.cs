@@ -35,6 +35,8 @@ public readonly union VolumeGrowth(VolumeGrown, VolumeGrowthRejected, VolumeMoun
 
 public readonly record struct AgentUpgradeCompleted;
 
+public readonly record struct AgentUpgradeAlreadyCurrent;
+
 public sealed record class AgentUpgradeRejected(string Message);
 
 public sealed record class AgentUpgradeIoFailed(string Message);
@@ -43,7 +45,7 @@ public sealed record class AgentBundleUnavailable(string Message);
 
 public sealed record class AgentBundleDownloadTimedOut(string Message);
 
-public readonly union AgentUpgrade(AgentUpgradeCompleted, AgentUpgradeRejected, AgentUpgradeIoFailed,
+public readonly union AgentUpgrade(AgentUpgradeCompleted, AgentUpgradeAlreadyCurrent, AgentUpgradeRejected, AgentUpgradeIoFailed,
     AgentBundleUnavailable, AgentBundleDownloadTimedOut, MaintenanceToolTimedOut, MaintenanceToolUnavailable);
 
 internal readonly record struct AgentBundleVerified;
@@ -255,7 +257,7 @@ public sealed class NodeMaintenance(
         if (currentTarget == releaseDirectory)
         {
             AgentLog.UpgradeAlreadyCurrent(logger, version);
-            return new AgentUpgradeCompleted();
+            return new AgentUpgradeAlreadyCurrent();
         }
 
         var token = Guid.NewGuid().ToString("N");
@@ -372,15 +374,16 @@ public sealed class NodeMaintenance(
     private async Task RunUpgradeAsync(UpgradeAgentWork work, CancellationToken cancellationToken)
     {
         var outcome = await UpgradeAgentAsync(work.Version, work.Url, work.Sha256, cancellationToken);
-        var failure = outcome switch
+        var (shouldRestart, failure) = outcome switch
         {
-            AgentUpgradeCompleted => null,
-            AgentUpgradeRejected upgradeFailure => upgradeFailure.Message,
-            MaintenanceToolTimedOut upgradeFailure => upgradeFailure.Message,
-            AgentBundleDownloadTimedOut upgradeFailure => upgradeFailure.Message,
-            AgentBundleUnavailable upgradeFailure => upgradeFailure.Message,
-            MaintenanceToolUnavailable upgradeFailure => upgradeFailure.Message,
-            AgentUpgradeIoFailed upgradeFailure => upgradeFailure.Message,
+            AgentUpgradeCompleted => (true, (string?)null),
+            AgentUpgradeAlreadyCurrent => (false, (string?)null),
+            AgentUpgradeRejected upgradeFailure => (false, upgradeFailure.Message),
+            MaintenanceToolTimedOut upgradeFailure => (false, upgradeFailure.Message),
+            AgentBundleDownloadTimedOut upgradeFailure => (false, upgradeFailure.Message),
+            AgentBundleUnavailable upgradeFailure => (false, upgradeFailure.Message),
+            MaintenanceToolUnavailable upgradeFailure => (false, upgradeFailure.Message),
+            AgentUpgradeIoFailed upgradeFailure => (false, upgradeFailure.Message),
         };
         if (failure is not null)
         {
@@ -388,7 +391,7 @@ public sealed class NodeMaintenance(
             return;
         }
 
-        if (CurrentReleaseDirectory() == Path.Combine(options.ReleasesDirectory, work.Version))
+        if (shouldRestart && CurrentReleaseDirectory() == Path.Combine(options.ReleasesDirectory, work.Version))
         {
             AgentLog.UpgradeRestarting(logger, work.Version);
             Environment.ExitCode = UpgradeExitCode;
@@ -489,7 +492,7 @@ public sealed class NodeMaintenance(
         var outcome = await ProcessRunner.RunAsync("mv", ["-T", "-f", temporaryLink, options.CurrentReleaseLink], ToolTimeout, timeProvider, cancellationToken);
         return outcome switch
         {
-            ProcessOutput { ExitCode: 0 } => Installed(bundle),
+            ProcessOutput { ExitCode: 0 } => await InstalledAsync(bundle, cancellationToken),
             ProcessOutput output => Unlinked(temporaryLink, new AgentUpgradeIoFailed($"Swapping {options.CurrentReleaseLink} failed: {output.Stderr.Trim()}")),
             MaintenanceToolTimedOut failure => Unlinked(temporaryLink, failure),
             MaintenanceToolUnavailable failure => Unlinked(temporaryLink, failure),
@@ -502,8 +505,9 @@ public sealed class NodeMaintenance(
         return failure;
     }
 
-    private AgentUpgrade Installed(UpgradeBundle bundle)
+    private async Task<AgentUpgrade> InstalledAsync(UpgradeBundle bundle, CancellationToken cancellationToken)
     {
+        await RefreshSystemdUnitsAsync(bundle.ReleaseDirectory, cancellationToken);
         try
         {
             foreach (var release in Directory.EnumerateDirectories(options.ReleasesDirectory))
@@ -522,6 +526,56 @@ public sealed class NodeMaintenance(
 
         AgentLog.UpgradeInstalled(logger, bundle.Version);
         return new AgentUpgradeCompleted();
+    }
+
+    private async Task RefreshSystemdUnitsAsync(string releaseDirectory, CancellationToken cancellationToken)
+    {
+        var unitsDirectory = Path.Combine(releaseDirectory, "systemd");
+        if (!Environment.IsPrivilegedProcess || !Directory.Exists(unitsDirectory) || !Directory.Exists("/etc/systemd/system"))
+        {
+            return;
+        }
+
+        try
+        {
+            var copied = false;
+            foreach (var pattern in new[] { "*.slice", "*.service", "*.timer" })
+            {
+                foreach (var source in Directory.EnumerateFiles(unitsDirectory, pattern))
+                {
+                    var destination = Path.Combine("/etc/systemd/system", Path.GetFileName(source));
+                    var bytes = await File.ReadAllBytesAsync(source, cancellationToken);
+                    var write = await UnixFiles.WriteAtomicAsync(destination, bytes, UnixFiles.WorldReadable, cancellationToken);
+                    if (write is AtomicWriteFailed failed)
+                    {
+                        AgentLog.SystemdReloadFailed(logger, failed.Message);
+                        return;
+                    }
+
+                    copied = true;
+                }
+            }
+
+            if (copied)
+            {
+                var reload = await ProcessRunner.RunAsync("systemctl", ["daemon-reload"], ToolTimeout, timeProvider, cancellationToken);
+                var error = reload switch
+                {
+                    ProcessOutput { ExitCode: 0 } => null,
+                    ProcessOutput output => $"systemctl daemon-reload exited {output.ExitCode}: {output.Stderr.Trim()}",
+                    MaintenanceToolTimedOut timedOut => timedOut.Message,
+                    MaintenanceToolUnavailable unavailable => unavailable.Message,
+                };
+                if (error is not null)
+                {
+                    AgentLog.SystemdReloadFailed(logger, error);
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            AgentLog.SystemdReloadFailed(logger, exception.Message);
+        }
     }
 
     private string? CurrentReleaseDirectory()

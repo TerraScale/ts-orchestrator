@@ -11,7 +11,7 @@ namespace TsOrch.AppHost;
 
 internal sealed class OciMockFederation(OciMockIdentity identity, TimeProvider timeProvider)
 {
-    private const string GetHeaders = "date (request-target) host";
+    private const string FederationHeaders = "date (request-target) content-length content-type x-content-sha256";
     private const string PostHeaders = "date (request-target) host content-length content-type x-content-sha256";
 
     private readonly byte[] _tokenKey = RandomNumberGenerator.GetBytes(32);
@@ -36,7 +36,7 @@ internal sealed class OciMockFederation(OciMockIdentity identity, TimeProvider t
         {
             var fingerprint = string.Join(':', leaf.GetCertHash(HashAlgorithmName.SHA256).Select(static octet => octet.ToString("X2", CultureInfo.InvariantCulture)));
             var keyId = $"{OciMockIdentity.TenancyId}/fed-x509-sha256/{fingerprint}";
-            if (!Verify(request, keyId, leafKey, PostHeaders, body))
+            if (!Verify(request, keyId, leafKey, FederationHeaders, includeHost: false, body))
             {
                 return null;
             }
@@ -80,10 +80,10 @@ internal sealed class OciMockFederation(OciMockIdentity identity, TimeProvider t
         }
 
         using var key = RSA.Create();
-        return ImportKey(key, claims.PublicKey) && Verify(request, $"ST${token}", key, GetHeaders, []);
+        return ImportKey(key, claims.PublicKey) && Verify(request, $"ST${token}", key, PostHeaders, includeHost: true, []);
     }
 
-    private static bool Verify(HttpRequest request, string keyId, RSA key, string headers, ReadOnlySpan<byte> body)
+    private static bool Verify(HttpRequest request, string keyId, RSA key, string headers, bool includeHost, ReadOnlySpan<byte> body)
     {
         var prefix = $"Signature version=\"1\",keyId=\"{keyId}\",algorithm=\"rsa-sha256\",headers=\"{headers}\",signature=\"";
         var authorization = request.Headers.Authorization.ToString();
@@ -96,19 +96,20 @@ internal sealed class OciMockFederation(OciMockIdentity identity, TimeProvider t
             return false;
         }
 
-        var canonical = $"date: {date}\n(request-target): {request.Method.ToLowerInvariant()} {target}\nhost: {request.Host}";
-        if (headers == PostHeaders)
+        var canonical = $"date: {date}\n(request-target): {request.Method.ToLowerInvariant()} {target}";
+        if (includeHost)
         {
-            var digest = Convert.ToBase64String(SHA256.HashData(body));
-            if (request.Headers["x-content-sha256"].ToString() != digest
-                || request.ContentLength != body.Length || request.ContentType is not { } contentType)
-            {
-                return false;
-            }
-
-            canonical += string.Create(CultureInfo.InvariantCulture, $"\ncontent-length: {body.Length}\ncontent-type: {contentType}\nx-content-sha256: {digest}");
+            canonical += $"\nhost: {request.Host}";
         }
 
+        var digest = Convert.ToBase64String(SHA256.HashData(body));
+        if (request.Headers["x-content-sha256"].ToString() != digest
+            || request.ContentLength != body.Length || request.ContentType is not { } contentType)
+        {
+            return false;
+        }
+
+        canonical += string.Create(CultureInfo.InvariantCulture, $"\ncontent-length: {body.Length}\ncontent-type: {contentType}\nx-content-sha256: {digest}");
         return key.VerifyData(Encoding.ASCII.GetBytes(canonical), Convert.FromBase64String(authorization[prefix.Length..^1]), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
     }
 

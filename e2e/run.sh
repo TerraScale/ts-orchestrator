@@ -89,6 +89,8 @@ done
 cat > "$WORK/e2e.mjs" <<'JS'
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { createServer as createTcpServer, connect as connectTcp } from "node:net";
+import { connect as connectTls } from "node:tls";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
@@ -166,6 +168,49 @@ function upstream(port, name) {
     response.writeHead(200, { "Content-Type": "text/plain" });
     response.end(`upstream=${name} host=${request.headers.host} path=${request.url}\n`);
   }).listen(Number(port), "127.0.0.1");
+}
+
+function pgUpstream(port) {
+  createTcpServer((socket) => {
+    let seen = "";
+    socket.on("data", (chunk) => {
+      if (chunk.length >= 8 && chunk.readInt32BE(0) === 8 && chunk.readInt32BE(4) === 80877103) {
+        socket.end("UNEXPECTED_SSLREQUEST\n");
+        return;
+      }
+      seen += chunk.toString("utf8");
+      if (seen.includes("hello-pg\n")) socket.end("pg-plain-ok\n");
+    });
+  }).listen(Number(port), "127.0.0.1");
+}
+
+async function pgTlsProbe(port, sni) {
+  const result = await new Promise((resolve, reject) => {
+    const raw = connectTcp(Number(port), "127.0.0.1");
+    raw.setTimeout(10000, () => reject(new Error("pg probe timeout")));
+    raw.once("error", reject);
+    raw.once("connect", () => {
+      const sslRequest = Buffer.alloc(8);
+      sslRequest.writeInt32BE(8, 0);
+      sslRequest.writeInt32BE(80877103, 4);
+      raw.write(sslRequest);
+    });
+    raw.once("data", (chunk) => {
+      if (chunk.length !== 1 || chunk[0] !== 0x53) {
+        reject(new Error(`expected S response to SSLRequest, got ${chunk.toString("hex")}`));
+        return;
+      }
+      const secure = connectTls({ socket: raw, servername: sni, rejectUnauthorized: false });
+      let reply = "";
+      secure.once("error", reject);
+      secure.once("secureConnect", () => secure.write("hello-pg\n"));
+      secure.on("data", (data) => {
+        reply += data.toString("utf8");
+      });
+      secure.once("end", () => resolve(reply.trim()));
+    });
+  });
+  console.log(result);
 }
 
 async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir, volumeId) {
@@ -288,6 +333,8 @@ switch (command) {
   case "publish": await publish(...args); break;
   case "verify-pin": await verifyPin(...args); break;
   case "upstream": upstream(...args); break;
+  case "pg-upstream": pgUpstream(...args); break;
+  case "pg-tls-probe": await pgTlsProbe(...args); break;
   case "fake-node": await fakeNode(...args); break;
   default: throw new Error(`unknown helper command ${command}`);
 }
@@ -295,14 +342,29 @@ JS
 helper() { node "$WORK/e2e.mjs" "$@"; }
 
 log "Building ts-orch CLI and TsOrch.AppHost"
-dotnet publish "$ROOT/src/TsOrch.Cli" -c Release --no-self-contained -o "$WORK/cli" -v quiet
+if [[ -n "${TS_ORCH_CLI_DIR:-}" && -f "$TS_ORCH_CLI_DIR/ts-orch.dll" ]]; then
+  TS=(dotnet "$TS_ORCH_CLI_DIR/ts-orch.dll")
+else
+  dotnet publish "$ROOT/src/TsOrch.Cli" -c Release --no-self-contained -o "$WORK/cli" -v quiet
+  TS=(dotnet "$WORK/cli/ts-orch.dll")
+fi
 dotnet build "$ROOT/src/TsOrch.AppHost" -c Release -o "$WORK/apphost" -v quiet
 [[ -d "$ROOT/worker/node_modules" ]] || npm ci --prefix "$ROOT/worker" --no-audit --no-fund
-TS=(dotnet "$WORK/cli/ts-orch.dll")
 APPHOST=(dotnet "$WORK/apphost/TsOrch.AppHost.dll")
 ok "build complete"
 
 DOCKER=0
+DOCKER_SOCKET="${TS_ORCH_DOCKER_SOCKET:-}"
+if [[ -z "$DOCKER_SOCKET" ]]; then
+  if [[ -S /var/run/docker.sock ]]; then
+    DOCKER_SOCKET=/var/run/docker.sock
+  elif [[ -S "/run/user/$(id -u)/podman/podman.sock" ]]; then
+    DOCKER_SOCKET="/run/user/$(id -u)/podman/podman.sock"
+  fi
+fi
+if [[ -n "$DOCKER_SOCKET" && -z "${DOCKER_HOST:-}" ]]; then
+  export DOCKER_HOST="unix://$DOCKER_SOCKET"
+fi
 if docker info >/dev/null 2>&1; then
   DOCKER=1
   DOCKER_PREFIX="ts-orch-e2e-$$"
@@ -323,7 +385,7 @@ WEB_SECRET_VALUE="e2e-web-$(openssl rand -hex 12)"
 BOX_SECRET_VALUE="e2e-box-$(openssl rand -hex 12)"
 VAULT_ID="ocid1.vault.oc1.sa-saopaulo-1.e2e"
 VOLUME_ID="ocid1.volume.oc1.sa-saopaulo-1.e2e-data-1"
-read -r OCI_PORT WORKER_PORT INSPECTOR_PORT EDGE_HTTP EDGE_HTTPS EDGE_PG UP_A UP_B AG_HTTP AG_HTTPS AG_PG < <(helper ports 11)
+read -r OCI_PORT WORKER_PORT INSPECTOR_PORT EDGE_HTTP EDGE_HTTPS EDGE_PG UP_A UP_B UP_PG AG_HTTP AG_HTTPS AG_PG < <(helper ports 12)
 OCI="http://127.0.0.1:$OCI_PORT"
 W="http://127.0.0.1:$WORKER_PORT"
 ok "keys and ports ready"
@@ -398,7 +460,7 @@ web_spec() {
     name: "e2e-web", mode: "replicated", priority: "normal", image: $image, regions: ["gru"],
     replicas: 2, minReplicas: 2, maxReplicas: 2, cpuRequestMilli: 50, cpuLimitMilli: 250,
     memRequestMiB: 32, memLimitMiB: 64, pidsLimit: 64, port: 8080, readyPath: "/readyz",
-    readyTimeoutSeconds: 60, hostnames: ["web.localhost"], env: {E2E: "1"},
+    readyTimeoutSeconds: 60, hostnames: ["web.localhost", "127.0.0.1"], env: {E2E: "1"},
     secrets: {E2E_TOKEN_FILE: {vault: $vault, name: "e2e-web-token"}}, mounts: [], args: [], udpPorts: []
   }'
 }
@@ -431,6 +493,8 @@ ok "fill_disk injected on e2e-s1 (volume grow verified later)"
 
 log "4a. Shared TLS via /api/tls/ensure -> sync_tls"
 api POST /api/tls/ensure --data '{}' | tee "$LOGS/tls-ensure.json" | jq -e '.domains | length > 0' >/dev/null
+"${TS[@]}" tls status > "$LOGS/tls-status.txt"
+grep -q "localhost" "$LOGS/tls-status.txt" || die "ts-orch tls status did not list domains"
 wait_for "sync_tls delivered cert.pem to the edge runtime dir" 60 test -s "$WORK/edge-run/tls/cert.pem"
 openssl x509 -in "$WORK/edge-run/tls/cert.pem" -noout -checkend 86400 >/dev/null || die "shared TLS certificate expires within a day"
 
@@ -474,26 +538,31 @@ jq -e '.iss == "atlas.terrascale.tech" and .project == "e2eproj" and .database =
 ok "/v1/resolve returned region, api and an ES256 pin verified against /v1/keys"
 expect_code 404 "Atlas host serves only /v1/* routes" "$W/atlas/v1/status"
 
-log "4b. Real ts-orch edge: readiness, YARP proxy, live route reload, TLS, SIGTERM drain"
+log "4b. Real ts-orch edge: readiness, YARP proxy, live route reload, TLS, Postgres TLS, SIGTERM drain"
 spawn upstream-a "$WORK" node "$WORK/e2e.mjs" upstream "$UP_A" alpha
 spawn upstream-b "$WORK" node "$WORK/e2e.mjs" upstream "$UP_B" bravo
+spawn upstream-pg "$WORK" node "$WORK/e2e.mjs" pg-upstream "$UP_PG"
 wait_for "upstream alpha" 30 curl -sf "http://127.0.0.1:$UP_A/"
 wait_for "upstream bravo" 30 curl -sf "http://127.0.0.1:$UP_B/"
 write_routes() {
-  jq -n --argjson revision "$1" --argjson port "$2" --argjson apiPort "$UP_A" '{
+  jq -n --argjson revision "$1" --argjson port "$2" --argjson apiPort "$UP_A" --argjson pgPort "$UP_PG" '{
     revision: $revision,
     httpRoutes: [
       {serviceName: "e2e-edge", hostnames: ["edge.localhost"], upstreams: [{placementId: "e2e-edge-1", nodeId: "e2e-s1", address: "127.0.0.1", port: $port, local: true}]},
-      {serviceName: "e2e-edge-api", hostnames: ["edge.localhost"], pathPrefixes: ["/api"], blockedPaths: ["/api/setup"], upstreams: [{placementId: "e2e-edge-api-1", nodeId: "e2e-s1", address: "127.0.0.1", port: $apiPort, local: true}]}
+      {serviceName: "e2e-edge-api", hostnames: ["edge.localhost"], pathPrefixes: ["/api"], blockedPaths: ["/api/setup"], upstreams: [{placementId: "e2e-edge-api-1", nodeId: "e2e-s1", address: "127.0.0.1", port: $apiPort, local: true}]},
+      {serviceName: "e2e-edge-rows", hostnames: ["edge.localhost"], pathPatterns: ["^/v1/rows/[^/]+$"], methods: ["GET", "HEAD"], upstreams: [{placementId: "e2e-edge-rows-1", nodeId: "e2e-s1", address: "127.0.0.1", port: $apiPort, local: true}]}
     ],
-    postgresRoutes: []
+    postgresRoutes: [
+      {serviceName: "e2e-pg", hostnames: ["pg.localhost"], listenPort: 6432, upstreams: [{placementId: "e2e-pg-1", nodeId: "e2e-s1", address: "127.0.0.1", port: $pgPort, local: true}]}
+    ]
   }' > "$WORK/edge-run/routes.json.tmp"
   mv "$WORK/edge-run/routes.json.tmp" "$WORK/edge-run/routes.json"
 }
 write_routes 1 "$UP_A"
 TS_ORCH_RUNTIME_DIR="$WORK/edge-run" TS_ORCH_EDGE_BIND=127.0.0.1 TS_ORCH_EDGE_HTTP_PORT="$EDGE_HTTP" \
-  TS_ORCH_EDGE_HTTPS_PORT="$EDGE_HTTPS" TS_ORCH_EDGE_POSTGRES_PORT="$EDGE_PG" TS_ORCH_EDGE_DRAIN_SECONDS=4 \
-  TS_ORCH_EDGE_SHUTDOWN_SECONDS=5 TS_ORCH_EDGE_HTTP3=false \
+  TS_ORCH_EDGE_HTTPS_PORT="$EDGE_HTTPS" TS_ORCH_EDGE_POSTGRES_PORT="$EDGE_PG" \
+  TS_ORCH_EDGE_INTERNAL_TERRABASE_PORT=0 TS_ORCH_EDGE_INTERNAL_PLATFORM_PORT=0 \
+  TS_ORCH_EDGE_DRAIN_SECONDS=4 TS_ORCH_EDGE_SHUTDOWN_SECONDS=5 TS_ORCH_EDGE_HTTP3=false \
   spawn edge "$WORK" "${TS[@]}" edge
 EDGE_PID=$SPAWNED
 wait_for "edge /readyz 200" 60 curl -sf "http://127.0.0.1:$EDGE_HTTP/readyz"
@@ -502,10 +571,20 @@ wait_for "edge proxies edge.localhost to alpha" 30 proxied alpha
 write_routes 2 "$UP_B"
 wait_for "edge hot-reloads routes.json to bravo" 30 proxied bravo
 curl -sf --max-time 5 -k --resolve "edge.localhost:$EDGE_HTTPS:127.0.0.1" "https://edge.localhost:$EDGE_HTTPS/tls" | grep -q "upstream=bravo" || die "HTTPS proxying through the edge failed"
+curl -sf --max-time 5 -k --resolve "edge.localhost:$EDGE_HTTPS:127.0.0.1" "https://edge.localhost:$EDGE_HTTPS/readyz" | grep -q "upstream=bravo" || die "HTTPS /readyz did not proxy through to upstream"
+ok "HTTPS /readyz proxies through to upstream while HTTP /readyz serves edge readiness"
 expect_code 403 "edge blocks /api/setup on the public listener" -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/api/setup"
+expect_code 403 "edge blocks /api//setup canonicalized path" --path-as-is -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/api//setup"
+expect_code 403 "edge blocks /API/setup case-insensitively" -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/API/setup"
+expect_code 403 "edge blocks /api/%73etup percent-encoded path" --path-as-is -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/api/%73etup"
 curl -sf --max-time 5 -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/api/ping" | grep -q "upstream=alpha" || die "edge did not route /api/ping to the /api path-prefix route"
+curl -sf --max-time 5 -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/v1/rows/42" | grep -q "upstream=alpha" || die "edge did not route GET /v1/rows/42 to the pattern+method route"
+curl -sf --max-time 5 -X POST -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/v1/rows/42" | grep -q "upstream=bravo" || die "edge did not fall through POST /v1/rows/42 to the catch-all route"
 curl -sf --max-time 5 -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/tls" | grep -q "upstream=bravo" || die "edge did not fall back to the catch-all route for /tls"
-ok "edge honors path prefixes, blocked paths and the catch-all fallback"
+ok "edge honors path prefixes, regex+method routes, blocked-path canonicalization and catch-all fallback"
+PG_REPLY="$(helper pg-tls-probe "$EDGE_PG" pg.localhost)"
+[[ "$PG_REPLY" == "pg-plain-ok" ]] || die "edge Postgres TLS termination returned unexpected reply: $PG_REPLY"
+ok "edge terminates Postgres TLS on port 5432 and bridges plaintext to upstream"
 SERVED="$(openssl s_client -connect "127.0.0.1:$EDGE_HTTPS" -servername edge.localhost </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256)"
 SHARED="$(openssl x509 -in "$WORK/edge-run/tls/cert.pem" -noout -fingerprint -sha256)"
 [[ "$SERVED" == "$SHARED" ]] || die "edge serves a different certificate than /api/tls/ensure issued"
@@ -580,11 +659,12 @@ chaos '{"kind":"kill_node","nodeId":"e2e-w1"}' >/dev/null
 wait_for "simulated nodes are down" 30 node_is e2e-w1 down
 mkdir -p "$WORK/agent/run" "$WORK/agent/state" "$WORK/agent/install" "$WORK/agent/data"
 TS_ORCH_RUNTIME_DIR="$WORK/agent/run" TS_ORCH_EDGE_BIND=127.0.0.1 TS_ORCH_EDGE_HTTP_PORT="$AG_HTTP" \
-  TS_ORCH_EDGE_HTTPS_PORT="$AG_HTTPS" TS_ORCH_EDGE_POSTGRES_PORT="$AG_PG" TS_ORCH_EDGE_DRAIN_SECONDS=2 \
-  TS_ORCH_EDGE_SHUTDOWN_SECONDS=5 TS_ORCH_EDGE_HTTP3=false \
+  TS_ORCH_EDGE_HTTPS_PORT="$AG_HTTPS" TS_ORCH_EDGE_POSTGRES_PORT="$AG_PG" \
+  TS_ORCH_EDGE_INTERNAL_TERRABASE_PORT=0 TS_ORCH_EDGE_INTERNAL_PLATFORM_PORT=0 \
+  TS_ORCH_EDGE_DRAIN_SECONDS=2 TS_ORCH_EDGE_SHUTDOWN_SECONDS=5 TS_ORCH_EDGE_HTTP3=false \
   spawn agent-edge "$WORK" "${TS[@]}" edge
 TS_ORCH_BACKPLANE_URL="$W" TS_ORCH_STATE_DIR="$WORK/agent/state" TS_ORCH_RUNTIME_DIR="$WORK/agent/run" \
-  TS_ORCH_INSTALL_DIR="$WORK/agent/install" TS_ORCH_DOCKER_SOCKET=/var/run/docker.sock \
+  TS_ORCH_INSTALL_DIR="$WORK/agent/install" TS_ORCH_DOCKER_SOCKET="$DOCKER_SOCKET" \
   TS_ORCH_DATA_VOLUME="$WORK/agent/data" TS_ORCH_ENROLL_SECRET_VAULT="$VAULT_ID" \
   TS_ORCH_ENROLL_SECRET_NAME=e2e-node-enroll TS_ORCH_NODE_ID=e2e-agent TS_ORCH_REGION=gru \
   TS_ORCH_POOL_KIND=worker TS_ORCH_VCN_IP=127.0.0.1 TS_ORCH_LABEL_PREFIX="$DOCKER_PREFIX" \

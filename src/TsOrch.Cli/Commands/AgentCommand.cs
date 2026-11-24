@@ -112,6 +112,7 @@ internal static class AgentCommand
             VcnIpOverride = arguments.Setting("vcn-ip", "TS_ORCH_VCN_IP"),
             LabelPrefix = arguments.Setting("label-prefix", "TS_ORCH_LABEL_PREFIX") ?? defaults.LabelPrefix,
             EnableCgroupParent = cgroupParent ?? defaults.EnableCgroupParent,
+            RegistryAuth = Environment.GetEnvironmentVariable("TS_ORCH_REGISTRY_AUTH") is { Length: > 0 } registryAuth ? registryAuth : null,
             HeartbeatInterval = heartbeatSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : defaults.HeartbeatInterval,
         };
     }

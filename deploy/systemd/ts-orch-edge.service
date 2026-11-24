@@ -8,6 +8,7 @@ StartLimitIntervalSec=0
 Type=exec
 Slice=ts-orch.slice
 OOMScoreAdjust=-900
+Environment=TS_ORCH_EDGE_HTTPS_REDIRECT=true
 ExecStart=/usr/bin/dotnet /opt/ts-orch/current/ts-orch.dll edge
 KillSignal=SIGTERM
 TimeoutStopSec=35s

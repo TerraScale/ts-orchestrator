@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -30,18 +33,49 @@ public sealed class NodeReportComposer(
             capacity.DiskTotalGiB,
             identity.Labels,
             capacity.Volumes,
-            AgentVersion);
+            AgentVersion,
+            FindNetBirdIpv4());
     }
 
     public async Task<Heartbeat> ComposeHeartbeatAsync(CancellationToken cancellationToken)
     {
         var host = await metrics.CollectHostAsync(cancellationToken);
+        var volumes = await metrics.ReadVolumesAsync(cancellationToken);
         return new Heartbeat(
             timeProvider.GetUtcNow().ToUnixTimeMilliseconds(),
             tracker.Snapshot(),
             host,
             metrics.ContainerSnapshot(),
-            await metrics.ReadEdgeMetricsAsync(cancellationToken));
+            await metrics.ReadEdgeMetricsAsync(cancellationToken),
+            FindNetBirdIpv4(),
+            volumes);
+    }
+
+    public static string? FindNetBirdIpv4()
+    {
+        try
+        {
+            foreach (var iface in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (!string.Equals(iface.Name, "wt0", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                foreach (var unicast in iface.GetIPProperties().UnicastAddresses)
+                {
+                    if (unicast.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(unicast.Address))
+                    {
+                        return unicast.Address.ToString();
+                    }
+                }
+            }
+        }
+        catch (NetworkInformationException)
+        {
+        }
+
+        return null;
     }
 
     private static CpuArch CurrentArch() => RuntimeInformation.OSArchitecture switch

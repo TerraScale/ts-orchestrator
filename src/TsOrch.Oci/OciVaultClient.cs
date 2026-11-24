@@ -60,36 +60,46 @@ public sealed class OciVaultClient(
 
     private async Task<VaultSecretLookup> FetchBundleAsync(Uri baseUrl, string vaultId, string secretName, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            new Uri(baseUrl, $"20190301/secretbundles/actions/getByName?secretName={Uri.EscapeDataString(secretName)}&vaultId={Uri.EscapeDataString(vaultId)}"));
-        var authorization = await principal.AuthorizeAsync(request, cancellationToken);
-        return authorization switch
+        var uri = new Uri(baseUrl, $"20190301/secretbundles/actions/getByName?secretName={Uri.EscapeDataString(secretName)}&vaultId={Uri.EscapeDataString(vaultId)}");
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            OciRequestSigned => await ReadBundleAsync(request, vaultId, secretName, cancellationToken),
-            ImdsRequestRejected rejected => rejected,
-            ImdsUnavailable unavailable => unavailable,
-            ImdsDocumentInvalid invalid => invalid,
-            InvalidFederationCredentials invalid => invalid,
-            FederationRejected rejected => rejected,
-            FederationUnavailable unavailable => unavailable,
-            FederationTokenInvalid invalid => invalid,
-        };
-    }
+            using var request = new HttpRequestMessage(HttpMethod.Post, uri);
+            var authorization = await principal.AuthorizeAsync(request, cancellationToken);
+            if (authorization is not OciRequestSigned)
+            {
+                return authorization switch
+                {
+                    ImdsRequestRejected rejected => rejected,
+                    ImdsUnavailable unavailable => unavailable,
+                    ImdsDocumentInvalid invalid => invalid,
+                    InvalidFederationCredentials invalid => invalid,
+                    FederationRejected rejected => rejected,
+                    FederationUnavailable unavailable => unavailable,
+                    FederationTokenInvalid invalid => invalid,
+                    _ => new VaultUnavailable(vaultId, "Unexpected OCI authorization state."),
+                };
+            }
 
-    private async Task<VaultSecretLookup> ReadBundleAsync(HttpRequestMessage request, string vaultId, string secretName, CancellationToken cancellationToken)
-    {
-        var response = await OciHttp.SendAsync(httpClient, request, cancellationToken);
-        return response switch
-        {
-            OciPayload payload => Decode(payload.Body, secretName),
-            OciHttpRejected { Status: HttpStatusCode.NotFound } rejected => new VaultSecretMissing(vaultId, secretName, rejected.Message),
-            OciHttpRejected { Status: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } rejected => new VaultAccessDenied(vaultId, rejected.Status, rejected.Message),
-            OciHttpRejected { Status: HttpStatusCode.TooManyRequests or >= HttpStatusCode.InternalServerError } rejected => new VaultUnavailable(vaultId, rejected.Message),
-            OciHttpRejected rejected => new VaultBundleInvalid(secretName, rejected.Message),
-            OciConnectionLost lost => new VaultUnavailable(vaultId, lost.Message),
-            OciResponseTimedOut => new VaultUnavailable(vaultId, "OCI Vault response timed out."),
-        };
+            var response = await OciHttp.SendAsync(httpClient, request, cancellationToken);
+            if (response is OciHttpRejected { Status: HttpStatusCode.Unauthorized } && attempt == 0)
+            {
+                await principal.InvalidateSessionAsync(cancellationToken);
+                continue;
+            }
+
+            return response switch
+            {
+                OciPayload payload => Decode(payload.Body, secretName),
+                OciHttpRejected { Status: HttpStatusCode.NotFound } rejected => new VaultSecretMissing(vaultId, secretName, rejected.Message),
+                OciHttpRejected { Status: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } rejected => new VaultAccessDenied(vaultId, rejected.Status, rejected.Message),
+                OciHttpRejected { Status: HttpStatusCode.TooManyRequests or >= HttpStatusCode.InternalServerError } rejected => new VaultUnavailable(vaultId, rejected.Message),
+                OciHttpRejected rejected => new VaultBundleInvalid(secretName, rejected.Message),
+                OciConnectionLost lost => new VaultUnavailable(vaultId, lost.Message),
+                OciResponseTimedOut => new VaultUnavailable(vaultId, "OCI Vault response timed out."),
+            };
+        }
+
+        return new VaultUnavailable(vaultId, "OCI Vault request exhausted retries.");
     }
 
     private static VaultSecretLookup Decode(string payload, string secretName)

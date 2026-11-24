@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using Microsoft.AspNetCore.Http.Features;
 using Yarp.ReverseProxy.Forwarder;
@@ -6,6 +7,7 @@ using Yarp.ReverseProxy.Forwarder;
 namespace TsOrch.Edge;
 
 public sealed partial class EdgeProxy(
+    EdgeServerOptions options,
     EdgeRouteTable routes,
     UpstreamCircuitBreaker circuitBreaker,
     EdgeMetricsCollector metrics,
@@ -18,6 +20,13 @@ public sealed partial class EdgeProxy(
         ActivityTimeout = TimeSpan.FromSeconds(100),
         Version = HttpVersion.Version11,
         VersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
+    };
+
+    private static readonly ForwarderRequestConfig InternalHttp2RequestConfig = new()
+    {
+        ActivityTimeout = TimeSpan.FromSeconds(100),
+        Version = HttpVersion.Version20,
+        VersionPolicy = HttpVersionPolicy.RequestVersionExact,
     };
 
     private static readonly ForwarderRequestConfig GrpcRequestConfig = new()
@@ -33,6 +42,8 @@ public sealed partial class EdgeProxy(
         Version = HttpVersion.Version11,
         VersionPolicy = HttpVersionPolicy.RequestVersionExact,
     };
+
+    private readonly string _altSvcHeader = string.Create(CultureInfo.InvariantCulture, $"h3=\":{options.HttpsPort}\"; ma=86400");
 
     private readonly HttpMessageInvoker _invoker = new(
         new SocketsHttpHandler
@@ -51,13 +62,65 @@ public sealed partial class EdgeProxy(
     public Task ForwardAsync(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        var outcome = routes.ResolveHttpRoute(context.Request.Host.Host, context.Request.Path, context.Request.ContentType);
+        if (options.EnableHttp3 && context.Connection.LocalPort == options.HttpsPort)
+        {
+            context.Response.OnStarting(static state =>
+            {
+                var (httpContext, headerValue) = ((HttpContext, string))state;
+                httpContext.Response.Headers.AltSvc = headerValue;
+                return Task.CompletedTask;
+            }, (context, _altSvcHeader));
+        }
+
+        var outcome = routes.ResolveHttpRoute(context.Request.Host.Host, context.Request.Method, context.Request.Path, context.Request.ContentType);
         return outcome switch
         {
-            EdgeRoute route => ForwardMatchedAsync(context, route),
+            EdgeRoute route => ForwardMatchedAsync(context, route, forceHttp2: false),
             EdgeRouteBlocked => Respond(context, StatusCodes.Status403Forbidden),
             EdgeRouteNotFound => Respond(context, StatusCodes.Status404NotFound),
         };
+    }
+
+    public Task ForwardInternalAsync(HttpContext context, string serviceName, bool http2Upstream)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (!IsPrivateAddress(context.Connection.RemoteIpAddress))
+        {
+            return Respond(context, StatusCodes.Status403Forbidden);
+        }
+
+        return routes.Current.FindInternalRoute(serviceName) is { } route
+            ? ForwardMatchedAsync(context, route, forceHttp2: http2Upstream)
+            : Respond(context, StatusCodes.Status503ServiceUnavailable);
+    }
+
+    internal static bool IsPrivateAddress(IPAddress? remote)
+    {
+        if (remote is null)
+        {
+            return false;
+        }
+
+        var address = remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote;
+        if (IPAddress.IsLoopback(address))
+        {
+            return true;
+        }
+
+        if (address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            return false;
+        }
+
+        Span<byte> octets = stackalloc byte[4];
+        if (!address.TryWriteBytes(octets, out var written) || written != 4)
+        {
+            return false;
+        }
+
+        return octets[0] == 10
+            || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
+            || (octets[0] == 192 && octets[1] == 168);
     }
 
     private static Task Respond(HttpContext context, int statusCode)
@@ -66,11 +129,13 @@ public sealed partial class EdgeProxy(
         return Task.CompletedTask;
     }
 
-    private async Task ForwardMatchedAsync(HttpContext context, EdgeRoute route)
+    private async Task ForwardMatchedAsync(HttpContext context, EdgeRoute route, bool forceHttp2)
     {
         var config = EdgeRouteSnapshot.IsGrpc(context.Request.ContentType)
             ? GrpcRequestConfig
-            : context.WebSockets.IsWebSocketRequest ? WebSocketRequestConfig : RequestConfig;
+            : forceHttp2
+                ? InternalHttp2RequestConfig
+                : context.WebSockets.IsWebSocketRequest ? WebSocketRequestConfig : RequestConfig;
         var startedAt = timeProvider.GetTimestamp();
         metrics.RequestStarted(route.ServiceName);
         try
@@ -83,7 +148,7 @@ public sealed partial class EdgeProxy(
                 route.ServiceName,
                 context.Response.StatusCode,
                 timeProvider.GetElapsedTime(startedAt),
-                recordLatency: ReferenceEquals(config, RequestConfig));
+                recordLatency: ReferenceEquals(config, RequestConfig) || ReferenceEquals(config, InternalHttp2RequestConfig));
         }
     }
 

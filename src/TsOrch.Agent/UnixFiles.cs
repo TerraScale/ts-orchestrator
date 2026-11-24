@@ -11,17 +11,28 @@ internal readonly union AtomicWriteOutcome(AtomicWriteCompleted, AtomicWriteFail
 
 internal sealed record class AtomicWrite(string Path, ReadOnlyMemory<byte> Content, UnixFileMode Mode);
 
+internal sealed record class DirectoryMode(string Path, UnixFileMode Mode);
+
 internal static class UnixFiles
 {
     public const UnixFileMode OwnerReadWrite = UnixFileMode.UserRead | UnixFileMode.UserWrite;
     public const UnixFileMode WorldReadable = OwnerReadWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead;
     public const UnixFileMode OwnerOnlyDirectory = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+    public const UnixFileMode WorldReadableDirectory = OwnerOnlyDirectory
+        | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
+        | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
 
     public static Task<AtomicWriteOutcome> WriteAtomicAsync(string path, ReadOnlyMemory<byte> content, UnixFileMode mode, CancellationToken cancellationToken) =>
-        WriteAtomicAsync([], [new AtomicWrite(path, content, mode)], cancellationToken);
+        WriteAtomicAsync((IReadOnlyList<DirectoryMode>)[], [new AtomicWrite(path, content, mode)], cancellationToken);
+
+    public static Task<AtomicWriteOutcome> WriteAtomicAsync(
+        IReadOnlyList<string> privateDirectories,
+        IReadOnlyList<AtomicWrite> writes,
+        CancellationToken cancellationToken) =>
+        WriteAtomicAsync([.. privateDirectories.Select(static path => new DirectoryMode(path, OwnerOnlyDirectory))], writes, cancellationToken);
 
     public static async Task<AtomicWriteOutcome> WriteAtomicAsync(
-        IReadOnlyList<string> privateDirectories,
+        IReadOnlyList<DirectoryMode> directories,
         IReadOnlyList<AtomicWrite> writes,
         CancellationToken cancellationToken)
     {
@@ -33,11 +44,11 @@ internal static class UnixFiles
         var current = string.Empty;
         try
         {
-            foreach (var directory in privateDirectories)
+            foreach (var directory in directories)
             {
-                current = directory;
-                Directory.CreateDirectory(directory, OwnerOnlyDirectory);
-                File.SetUnixFileMode(directory, OwnerOnlyDirectory);
+                current = directory.Path;
+                Directory.CreateDirectory(directory.Path, directory.Mode);
+                File.SetUnixFileMode(directory.Path, directory.Mode);
             }
 
             foreach (var write in writes)

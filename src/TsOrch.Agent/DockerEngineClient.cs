@@ -59,9 +59,12 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
     private const int MaxLogLineChars = 16 * 1024;
     private const int MaxExecOutputChars = 1024 * 1024;
     private const string EphemeralHostPort = "";
+    private const int MaxPullAttempts = 3;
     private static readonly TimeSpan ApiTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan PullTimeout = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan PullRetryBaseDelay = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan EventSubscriptionTimeout = TimeSpan.FromMinutes(5);
+    private static readonly string[] DefaultExtraHosts = ["host.docker.internal:host-gateway"];
 
     private readonly HttpClient _http = new(CreateHandler(options.DockerSocketPath), disposeHandler: true)
     {
@@ -74,8 +77,44 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
     public async Task<DockerImagePull> PullImageAsync(string image, string? registryAuth, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(image);
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"images/create?fromImage={Uri.EscapeDataString(ImageReference.WithDefaultTag(image))}");
-        if (registryAuth is not null)
+        if (image.Contains("@sha256:", StringComparison.Ordinal) && await ImageExistsAsync(image, cancellationToken))
+        {
+            return new DockerRequestCompleted();
+        }
+
+        var authHeader = registryAuth ?? options.RegistryAuth;
+        var reference = ImageReference.WithDefaultTag(image);
+        DockerImagePull outcome = new DockerDaemonUnavailable("Image pull did not execute.");
+        for (var attempt = 0; attempt < MaxPullAttempts; attempt++)
+        {
+            outcome = await PullImageOnceAsync(image, reference, authHeader, cancellationToken);
+            if (!IsTransientPullFailure(outcome) || attempt + 1 >= MaxPullAttempts)
+            {
+                return outcome;
+            }
+
+            await Task.Delay(TimeSpan.FromTicks(PullRetryBaseDelay.Ticks * (attempt + 1)), timeProvider, cancellationToken);
+        }
+
+        return outcome;
+    }
+
+    private async Task<bool> ImageExistsAsync(string image, CancellationToken cancellationToken)
+    {
+        var outcome = await GetAsync($"images/{Uri.EscapeDataString(image)}/json", cancellationToken);
+        if (outcome is HttpResponseMessage response)
+        {
+            response.Dispose();
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task<DockerImagePull> PullImageOnceAsync(string image, string reference, string? registryAuth, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"images/create?fromImage={Uri.EscapeDataString(reference)}");
+        if (!string.IsNullOrWhiteSpace(registryAuth))
         {
             request.Headers.Add("X-Registry-Auth", registryAuth);
         }
@@ -99,6 +138,23 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
             return new DockerDaemonUnavailable("Image pull exceeded the Docker operation deadline.");
         }
     }
+
+    private static bool IsTransientPullFailure(DockerImagePull outcome) => outcome switch
+    {
+        DockerDaemonUnavailable => true,
+        DockerImagePullRejected rejected => IsTransientRegistryError(rejected.Error),
+        DockerRequestCompleted or DockerResourceMissing or DockerResponseInvalid => false,
+    };
+
+    private static bool IsTransientRegistryError(string error) =>
+        error.Contains("timeout", StringComparison.OrdinalIgnoreCase)
+        || error.Contains("EOF", StringComparison.OrdinalIgnoreCase)
+        || error.Contains("connection reset", StringComparison.OrdinalIgnoreCase)
+        || error.Contains("temporary failure", StringComparison.OrdinalIgnoreCase)
+        || error.Contains("502", StringComparison.Ordinal)
+        || error.Contains("503", StringComparison.Ordinal)
+        || error.Contains("504", StringComparison.Ordinal)
+        || error.Contains("429", StringComparison.Ordinal);
 
     public async Task<DockerManagedContainers> ListManagedContainersAsync(string labelPrefix, CancellationToken cancellationToken)
     {
@@ -165,6 +221,7 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
             new DockerHostConfig(
                 [.. spec.Mounts.Select(static mount => mount.ReadOnly ? $"{mount.Source}:{mount.Target}:ro" : $"{mount.Source}:{mount.Target}")],
                 bindings,
+                DefaultExtraHosts,
                 spec.Resources.CgroupParent,
                 spec.Resources.MemoryReservationBytes,
                 spec.Resources.MemoryBytes,
@@ -209,7 +266,7 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
     {
         ArgumentOutOfRangeException.ThrowIfNegative(timeoutSeconds);
         using var request = new HttpRequestMessage(HttpMethod.Post, string.Create(CultureInfo.InvariantCulture, $"containers/{Uri.EscapeDataString(containerId)}/stop?t={timeoutSeconds}"));
-        var outcome = await SendForDoneAsync(request, cancellationToken);
+        var outcome = await SendForDoneAsync(request, cancellationToken, TimeSpan.FromSeconds(timeoutSeconds + 15));
         return outcome switch
         {
             DockerRequestCompleted done => done,
@@ -451,7 +508,8 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
                 configHash,
                 string.Equals(summary.State, "running", StringComparison.Ordinal),
                 [.. Published(summary.Ports ?? [])],
-                bool.TryParse(labels.GetValueOrDefault(ContainerLabels.Stateful(labelPrefix)), out var stateful) ? stateful : null));
+                bool.TryParse(labels.GetValueOrDefault(ContainerLabels.Stateful(labelPrefix)), out var stateful) ? stateful : null,
+                summary.Created));
         }
 
         return containers;
@@ -490,7 +548,7 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
             }
         }
 
-        return new ContainerState(inspected.Id, inspected.State.Running, inspected.State.OOMKilled, inspected.State.ExitCode, inspected.RestartCount, ports);
+        return new ContainerState(inspected.Id, inspected.State.Running, inspected.State.OOMKilled, inspected.State.ExitCode, inspected.RestartCount, ports, inspected.State.Status ?? string.Empty);
     }
 
     private static ContainerStatsSample Sample(DockerStats stats)
@@ -717,9 +775,12 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
             : invalid(new DockerResponseInvalid($"Docker returned an empty body for {endpoint}."));
     }
 
-    private async Task<DockerImageRemoval> SendForDoneAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    private async Task<DockerImageRemoval> SendForDoneAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
-        var outcome = await SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
+        var outcome = await SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken, timeout);
         return outcome switch
         {
             HttpResponseMessage response => Release(response),
@@ -728,7 +789,6 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
             DockerDaemonUnavailable failure => failure,
             DockerResponseInvalid failure => failure,
         };
-
     }
 
     private static DockerRequestCompleted Release(HttpResponseMessage response)
@@ -740,12 +800,13 @@ public sealed class DockerEngineClient(AgentOptions options, TimeProvider timePr
     private async Task<DockerHttpExchange> SendAsync(
         HttpRequestMessage request,
         HttpCompletionOption completion,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
         using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (completion == HttpCompletionOption.ResponseContentRead)
         {
-            operation.CancelAfter(ApiTimeout);
+            operation.CancelAfter(timeout ?? ApiTimeout);
         }
 
         HttpResponseMessage response;

@@ -20,6 +20,7 @@ public sealed class ContainerReconciler(
     ContainerSwapper swapper,
     PlacementTracker tracker,
     ImageHistoryStore images,
+    HostMetricsCollector metrics,
     AgentOptions options,
     TimeProvider timeProvider,
     ILogger<ContainerReconciler> logger) : BackgroundService
@@ -27,6 +28,7 @@ public sealed class ContainerReconciler(
     private const int MaxParallelPlacements = 4;
     private static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan ChownTimeout = TimeSpan.FromSeconds(10);
 
     private readonly Lock _desiredGate = new();
     private readonly SemaphoreSlim _reconcileGate = new(1, 1);
@@ -39,6 +41,19 @@ public sealed class ContainerReconciler(
 
     private IReadOnlyList<DesiredPlacement>? _desired;
     private long _desiredRevision = long.MinValue;
+    private string? _nodeId;
+    private string? _region;
+
+    public void SetNodeIdentity(string nodeId, string region)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(region);
+        lock (_desiredGate)
+        {
+            _nodeId = nodeId;
+            _region = region;
+        }
+    }
 
     public override void Dispose()
     {
@@ -112,9 +127,10 @@ public sealed class ContainerReconciler(
     private async Task<NodeDrain> DrainContainersAsync(IReadOnlyList<DesiredPlacement> desired, IReadOnlyList<ManagedContainer> containers, CancellationToken cancellationToken)
     {
         var stateful = desired.Where(static p => p.Service.Mode == PlacementMode.Stateful).Select(static p => p.PlacementId).ToHashSet(StringComparer.Ordinal);
+        var desiredByPlacement = desired.ToDictionary(static p => p.PlacementId, static p => p.Service, StringComparer.Ordinal);
         foreach (var group in containers.Where(container => IsStateful(container, desired, stateful) == false).GroupBy(static container => container.PlacementId, StringComparer.Ordinal))
         {
-            var retired = await swapper.RetireAsync([.. group], cancellationToken);
+            var retired = await swapper.RetireAsync([.. group], desiredByPlacement.GetValueOrDefault(group.Key), cancellationToken);
             CompleteRetirement(group.Key, retired);
         }
 
@@ -228,7 +244,7 @@ public sealed class ContainerReconciler(
             }
 
             AgentLog.PlacementRetiring(logger, placementId);
-            var retired = await swapper.RetireAsync(orphaned, cancellationToken);
+            var retired = await swapper.RetireAsync(orphaned, service: null, cancellationToken);
             CompleteRetirement(placementId, retired);
         }
 
@@ -245,6 +261,7 @@ public sealed class ContainerReconciler(
         if (retired)
         {
             _failures.TryRemove(placementId, out _);
+            metrics.ForgetPlacement(placementId);
             if (AgentNames.IsSafeToken(placementId))
             {
                 secrets.DeletePlacement(placementId);
@@ -380,7 +397,7 @@ public sealed class ContainerReconciler(
             var readiness = await swapper.WaitReadyAsync(current.Id, placement.Service, cancellationToken);
             var ready = readiness switch
             {
-                PlacementPorts ports => report with { HostPort = ports.Http, PostgresHostPort = ports.Postgres },
+                PlacementPorts ports => report with { HostPort = ports.Http, PostgresHostPort = ports.Postgres, InternalHostPort = ports.Internal },
                 PlacementProbeFailed => null,
             };
             if (ready is null)
@@ -397,7 +414,7 @@ public sealed class ContainerReconciler(
 
         var keep = await swapper.RetirePreviousAsync(
             placement, current.ConfigHash, [.. existing.Where(container => container.Id != current.Id)],
-            new PlacementPorts(report.HostPort, report.PostgresHostPort), cancellationToken);
+            new PlacementPorts(report.HostPort, report.PostgresHostPort, report.InternalHostPort), cancellationToken);
         await SwappedAsync(placement, keep, cancellationToken);
         secrets.DeleteStaleGenerations(placement.PlacementId, keep);
     }
@@ -410,7 +427,49 @@ public sealed class ContainerReconciler(
     {
         var service = placement.Service;
         Dictionary<string, string> env = new(service.Env, StringComparer.Ordinal);
-        List<BindMount> mounts = [.. service.Mounts.Select(static mount => new BindMount(mount.Source, mount.Target, ReadOnly: false))];
+        string? nodeId;
+        string? region;
+        lock (_desiredGate)
+        {
+            nodeId = _nodeId;
+            region = _region;
+        }
+
+        if (region is not null)
+        {
+            env.TryAdd("TS_REGION", region);
+        }
+
+        if (nodeId is not null)
+        {
+            env.TryAdd("TS_NODE", nodeId);
+        }
+
+        List<BindMount> mounts = [];
+        foreach (var mount in service.Mounts)
+        {
+            await EnsureHostMountDirectoryAsync(mount.Source, cancellationToken);
+            mounts.Add(new BindMount(mount.Source, mount.Target, ReadOnly: false));
+        }
+
+        if (service.ClusterPeers)
+        {
+            if (!File.Exists(options.PeersFile))
+            {
+                var seeded = await UnixFiles.WriteAtomicAsync(
+                    [new DirectoryMode(options.RuntimeDirectory, UnixFiles.WorldReadableDirectory)],
+                    [new AtomicWrite(options.PeersFile, "[]"u8.ToArray(), UnixFiles.WorldReadable)],
+                    cancellationToken);
+                if (seeded is AtomicWriteFailed peerFailure)
+                {
+                    return peerFailure;
+                }
+            }
+
+            mounts.Add(new BindMount(options.PeersFile, NodePaths.PeersFile, ReadOnly: true));
+            env.TryAdd("TS_PEERS_FILE", NodePaths.PeersFile);
+        }
+
         if (service.Secrets.Count == 0 && service.ConfigFiles is not { Count: > 0 })
         {
             return new PlacementPlan(placement, configHash, env, mounts);
@@ -424,6 +483,29 @@ public sealed class ContainerReconciler(
             ConfigFileSecretMissing missing => missing,
             AtomicWriteFailed failure => failure,
         };
+    }
+
+    private async Task EnsureHostMountDirectoryAsync(string sourcePath, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath) || !Path.IsPathFullyQualified(sourcePath))
+        {
+            return;
+        }
+
+        var existed = Directory.Exists(sourcePath);
+        if (!existed)
+        {
+            Directory.CreateDirectory(sourcePath);
+        }
+
+        var normalized = Path.GetFullPath(sourcePath).TrimEnd('/');
+        var dataRoot = Path.GetFullPath(options.DataVolumePath).TrimEnd('/');
+        if (Environment.IsPrivilegedProcess
+            && normalized.StartsWith(dataRoot + "/", StringComparison.Ordinal)
+            && (!existed || normalized.EndsWith("/terrabase", StringComparison.Ordinal)))
+        {
+            await ProcessRunner.RunAsync("chown", ["1654:1654", normalized], ChownTimeout, timeProvider, cancellationToken);
+        }
     }
 
     private static PlacementPlanPreparation WithSecrets(

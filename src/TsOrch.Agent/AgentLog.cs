@@ -59,8 +59,11 @@ internal static partial class AgentLog
     [LoggerMessage(1301, LogLevel.Information, "Drain complete")]
     public static partial void DrainCompleted(ILogger logger);
 
-    [LoggerMessage(1305, LogLevel.Warning, "Node drain incomplete: {Reason}")]
+    [LoggerMessage(1309, LogLevel.Warning, "Node drain incomplete: {Reason}")]
     public static partial void DrainFailed(ILogger logger, string reason);
+
+    [LoggerMessage(1310, LogLevel.Warning, "Refreshing systemd units after agent upgrade failed: {Reason}")]
+    public static partial void SystemdReloadFailed(ILogger logger, string reason);
 
     [LoggerMessage(1202, LogLevel.Warning, "Docker OOM event subscription interrupted: {Reason}")]
     public static partial void OomSubscriptionInterrupted(ILogger logger, string reason);
@@ -131,8 +134,14 @@ internal static partial class AgentLog
     [LoggerMessage(1509, LogLevel.Debug, "WebSocket close failed: {Reason}")]
     public static partial void CloseFailed(ILogger logger, string reason);
 
+    [LoggerMessage(1510, LogLevel.Warning, "Backplane WebSocket receive watchdog expired after {Timeout}; reconnecting")]
+    public static partial void SessionWatchdogExpired(ILogger logger, TimeSpan timeout);
+
     [LoggerMessage(1600, LogLevel.Debug, "Wrote edge routes revision {Revision}")]
     public static partial void RoutesWritten(ILogger logger, long revision);
+
+    [LoggerMessage(1605, LogLevel.Debug, "Wrote {PeerCount} cluster peers for revision {Revision}")]
+    public static partial void PeersWritten(ILogger logger, long revision, int peerCount);
 
     [LoggerMessage(1601, LogLevel.Warning, "Ignoring routes revision {Revision} older than {Current}")]
     public static partial void StaleRoutesIgnored(ILogger logger, long revision, long current);

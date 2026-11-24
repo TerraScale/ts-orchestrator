@@ -2,7 +2,7 @@
 Description=TerraScale stateful data volume
 BindsTo=dev-oracleoci-oraclevdb.device
 After=dev-oracleoci-oraclevdb.device
-Before=ts-orch-agent.service
+Before=docker.service ts-orch-agent.service
 
 [Service]
 Type=oneshot
@@ -11,6 +11,8 @@ ExecStart=/usr/lib/systemd/systemd-makefs ext4 /dev/oracleoci/oraclevdb
 ExecStart=/usr/bin/mkdir -p /var/lib/ts-data
 ExecStart=/usr/bin/mount -o noatime /dev/oracleoci/oraclevdb /var/lib/ts-data
 ExecStart=/usr/lib/systemd/systemd-growfs /var/lib/ts-data
+ExecStartPost=/usr/bin/install -d -m 0755 -o 1654 -g 1654 /var/lib/ts-data/terrabase
+ExecStartPost=/usr/bin/install -d -m 0755 /var/lib/ts-data/netbird
 ExecStop=/usr/bin/umount /var/lib/ts-data
 
 [Install]

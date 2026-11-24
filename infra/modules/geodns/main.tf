@@ -47,6 +47,21 @@ resource "oci_dns_rrset" "regional_api" {
   }
 }
 
+resource "oci_dns_rrset" "regional_pg" {
+  for_each = var.regions
+
+  zone_name_or_id = oci_dns_zone.this.id
+  domain          = "${each.key}.pg.${var.zone}"
+  rtype           = "A"
+
+  items {
+    domain = "${each.key}.pg.${var.zone}"
+    rtype  = "A"
+    rdata  = each.value.nlb_ip
+    ttl    = var.ttl_seconds
+  }
+}
+
 resource "oci_dns_rrset" "pinned" {
   for_each = var.pinned_names
 
@@ -69,7 +84,7 @@ resource "oci_health_checks_http_monitor" "readyz" {
   method              = "GET"
   port                = 80
   path                = var.health_check_path
-  interval_in_seconds = 10
+  interval_in_seconds = 30
   timeout_in_seconds  = 5
   is_enabled          = true
   targets             = [for label in sort(keys(var.regions)) : var.regions[label].nlb_ip]
