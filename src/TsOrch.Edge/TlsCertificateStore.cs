@@ -65,9 +65,10 @@ public sealed partial class TlsCertificateStore(
 
         try
         {
-            var leaf = X509Certificate2.CreateFromPemFile(certificatePath, keyPath);
+            var certificatePem = File.ReadAllText(certificatePath);
+            var leaf = X509Certificate2.CreateFromPem(certificatePem, File.ReadAllText(keyPath));
             var chain = new X509Certificate2Collection();
-            chain.ImportFromPemFile(certificatePath);
+            chain.ImportFromPem(certificatePem);
             var intermediates = new X509Certificate2Collection(
                 chain.Where(certificate => !string.Equals(certificate.Thumbprint, leaf.Thumbprint, StringComparison.Ordinal)).ToArray());
             var now = timeProvider.GetUtcNow().UtcDateTime;

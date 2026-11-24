@@ -165,6 +165,11 @@ async function verifyPin(jwksFile, pin) {
 
 function upstream(port, name) {
   createServer((request, response) => {
+    if (request.url?.startsWith("/forwarding?")) {
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify(request.headers));
+      return;
+    }
     response.writeHead(200, { "Content-Type": "text/plain" });
     response.end(`upstream=${name} host=${request.headers.host} path=${request.url}\n`);
   }).listen(Number(port), "127.0.0.1");
@@ -617,7 +622,8 @@ TS_ORCH_RUNTIME_DIR="$WORK/edge-run" TS_ORCH_EDGE_BIND=127.0.0.1 TS_ORCH_EDGE_HT
   TS_ORCH_EDGE_HTTPS_PORT="$EDGE_HTTPS" TS_ORCH_EDGE_POSTGRES_PORT="$EDGE_PG" \
   TS_ORCH_EDGE_INTERNAL_TERRABASE_PORT=0 TS_ORCH_EDGE_INTERNAL_PLATFORM_PORT=0 \
   TS_ORCH_EDGE_DRAIN_SECONDS=4 TS_ORCH_EDGE_SHUTDOWN_SECONDS=5 TS_ORCH_EDGE_HTTP3=false \
-  spawn edge "$WORK" "${TS[@]}" edge
+  spawn edge "$WORK" env 'Logging__Console__LogLevel__Yarp.ReverseProxy.Forwarder.HttpForwarder=Trace' \
+  "${TS[@]}" edge
 EDGE_PID=$SPAWNED
 wait_for "edge /readyz 200" 60 curl -sf "http://127.0.0.1:$EDGE_HTTP/readyz"
 proxied() { curl -sf --max-time 5 -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/probe" | grep -q "upstream=$1"; }
@@ -627,6 +633,17 @@ wait_for "edge hot-reloads routes.json to bravo" 30 proxied bravo
 curl -sf --max-time 5 -k --resolve "edge.localhost:$EDGE_HTTPS:127.0.0.1" "https://edge.localhost:$EDGE_HTTPS/tls" | grep -q "upstream=bravo" || die "HTTPS proxying through the edge failed"
 curl -sf --max-time 5 -k --resolve "edge.localhost:$EDGE_HTTPS:127.0.0.1" "https://edge.localhost:$EDGE_HTTPS/readyz" | grep -q "upstream=bravo" || die "HTTPS /readyz did not proxy through to upstream"
 ok "HTTPS /readyz proxies through to upstream while HTTP /readyz serves edge readiness"
+curl -sf --max-time 5 -k --resolve "edge.localhost:$EDGE_HTTPS:127.0.0.1" \
+  -H 'X-Forwarded-For: 192.0.2.1, 192.0.2.2' -H 'X-Real-IP: 192.0.2.3' \
+  -H 'X-Forwarded-Proto: http' -H 'X-Forwarded-Host: spoof.invalid' -H 'Forwarded: for=192.0.2.4' \
+  "https://edge.localhost:$EDGE_HTTPS/forwarding?code=edge-query-marker" | \
+  jq -e --arg host "edge.localhost:$EDGE_HTTPS" '.["x-forwarded-for"] == "127.0.0.1" and
+    .["x-real-ip"] == "127.0.0.1" and .["x-forwarded-proto"] == "https" and .["x-forwarded-host"] == $host and
+    (has("forwarded") | not)' >/dev/null || die "edge forwarded client-controlled proxy headers"
+if grep -q 'edge-query-marker' "$LOGS/edge.log"; then
+  die "edge logged a request query parameter"
+fi
+ok "edge replaces client forwarding headers and keeps query values out of logs"
 expect_code 403 "edge blocks /api/setup on the public listener" -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/api/setup"
 expect_code 403 "edge blocks /api//setup canonicalized path" --path-as-is -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/api//setup"
 expect_code 403 "edge blocks /API/setup case-insensitively" -H "Host: edge.localhost" "http://127.0.0.1:$EDGE_HTTP/API/setup"

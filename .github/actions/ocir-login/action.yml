@@ -24,10 +24,12 @@ runs:
         CLIENT_SECRET: ${{ inputs.client-secret }}
       run: |
         set -euo pipefail
+        client_credentials="$CLIENT_ID:$CLIENT_SECRET"
+        unset CLIENT_SECRET
         work=$(mktemp -d)
         chmod 700 "$work"
         trap 'rm -rf "$work"' EXIT
-        domain_url=${DOMAIN_URL%/}
+        identity_domain=${DOMAIN_URL%/}
         oidc_sep='?'
         if [[ "$ACTIONS_ID_TOKEN_REQUEST_URL" == *\?* ]]; then
           oidc_sep='&'
@@ -38,14 +40,19 @@ runs:
         echo "::add-mask::$jwt"
         openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$work/key.pem" 2>/dev/null
         public_key=$(openssl pkey -in "$work/key.pem" -pubout -outform DER | base64 -w0)
-        printf 'user = "%s:%s"\n' "$CLIENT_ID" "$CLIENT_SECRET" > "$work/upst.cfg"
-        printf 'data-urlencode = "grant_type=urn:ietf:params:oauth:grant-type:token-exchange"\n' >> "$work/upst.cfg"
-        printf 'data-urlencode = "requested_token_type=urn:oci:token-type:oci-upst"\n' >> "$work/upst.cfg"
-        printf 'data-urlencode = "subject_token_type=jwt"\n' >> "$work/upst.cfg"
-        printf 'data-urlencode = "subject_token=%s"\n' "$jwt" >> "$work/upst.cfg"
-        printf 'data-urlencode = "public_key=%s"\n' "$public_key" >> "$work/upst.cfg"
-        chmod 600 "$work/upst.cfg"
-        upst=$(curl -sSf -K "$work/upst.cfg" "${domain_url}/oauth2/v1/token" | jq -er '.token')
+        upst=$(
+          {
+            printf 'header = "Authorization: Basic '
+            printf '%s' "$client_credentials" | base64 -w0
+            printf '"\n'
+            printf 'data-urlencode = "grant_type=urn:ietf:params:oauth:grant-type:token-exchange"\n'
+            printf 'data-urlencode = "requested_token_type=urn:oci:token-type:oci-upst"\n'
+            printf 'data-urlencode = "subject_token_type=jwt"\n'
+            printf 'data-urlencode = "subject_token=%s"\n' "$jwt"
+            printf 'data-urlencode = "public_key=%s"\n' "$public_key"
+          } | curl -sSf -K - "${identity_domain}/oauth2/v1/token" | jq -er '.token'
+        )
+        unset client_credentials
         echo "::add-mask::$upst"
         for region in $REGIONS; do
           host="$region.ocir.io"
