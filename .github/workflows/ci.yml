@@ -69,6 +69,7 @@ jobs:
           install -d "$bundle/systemd"
           cp -a dist/ts-orch/. "$bundle/"
           cp deploy/systemd/*.slice deploy/systemd/*.service deploy/systemd/*.timer "$bundle/systemd/"
+          install -m 0644 deploy/systemd/prepare-data-volume.sh "$bundle/systemd/"
           cp deploy/cloud-init/docker-daemon.json "$bundle/"
           mapfile -t entrypoints < <(grep -hoP '^ExecStart=/usr/bin/dotnet /opt/ts-orch/current/\K\S+' deploy/systemd/*.service | sort -u)
           test "${#entrypoints[@]}" -gt 0
@@ -149,7 +150,7 @@ jobs:
           tofu -chdir=infra validate
 
       - name: Shellcheck
-        run: shellcheck -S warning deploy/cloud-init/node-boot.sh e2e/run.sh scripts/bake-image.sh
+        run: shellcheck -S warning deploy/cloud-init/node-boot.sh deploy/systemd/prepare-data-volume.sh e2e/run.sh scripts/bake-image.sh
 
       - name: Systemd units
         run: systemd-analyze verify deploy/systemd/*.slice deploy/systemd/*.service deploy/systemd/*.timer
