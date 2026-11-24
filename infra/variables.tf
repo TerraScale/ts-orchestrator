@@ -21,5 +21,9 @@ variable "orch_bundle_sha256" {
 variable "custom_image_ids" {
   type        = map(string)
   description = "Optional map of region label to pre-baked custom Ubuntu 24.04 ARM64 OCI image OCID."
-  default     = {}
+  default = {
+    gru = "ocid1.image.oc1.sa-saopaulo-1.aaaaaaaavqf64imac4jjxl3zbkgticz3djjatvc6nbnb3kt5hr4l2cf4zqoa"
+    fra = "ocid1.image.oc1.eu-frankfurt-1.aaaaaaaa5osmauerfqyfpgo7kbpnzodzwi7oanlaen2y32ovngli7ubep3jq"
+    sjc = "ocid1.image.oc1.us-sanjose-1.aaaaaaaavsrlon6pg5wlot3baxyo6ivavuw5snwpqa52dkhxx7sddtnujbcq"
+  }
 }
