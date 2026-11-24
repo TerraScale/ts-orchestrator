@@ -8,7 +8,7 @@
   ],
   "replicas": 1,
   "minReplicas": 1,
-  "maxReplicas": 4,
+  "maxReplicas": 2,
   "cpuRequestMilli": 250,
   "cpuLimitMilli": 1000,
   "memRequestMiB": 512,
@@ -70,7 +70,7 @@
   "udpPorts": [],
   "autoscale": {
     "targetCpuPct": 70,
-    "targetP95Ms": 250,
+    "targetP95Ms": 1000,
     "scaleUpCooldownSeconds": 120,
     "scaleDownCooldownSeconds": 600
   }
