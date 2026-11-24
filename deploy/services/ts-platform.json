@@ -2,7 +2,7 @@
   "name": "ts-platform",
   "mode": "replicated",
   "priority": "high",
-  "image": "ghcr.io/terrascale/ts-platform@sha256:6fc554d92a72678ebaeb880c98e9a88793b39e71d96539ea78e84e836bde2311",
+  "image": "sa-saopaulo-1.ocir.io/grxnmoqvrcdv/terrascale/ts-platform@sha256:7f4044c9bb0d965a2cdd1eb56771e4f881f4b85cc1061cb38516ef46664c85ad",
   "regions": [
     "gru",
     "fra",

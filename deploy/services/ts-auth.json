@@ -2,7 +2,7 @@
   "name": "ts-auth",
   "mode": "replicated",
   "priority": "normal",
-  "image": "ghcr.io/terrascale/ts-auth@sha256:0995900b2bfde82fa167053a8087b679ddb8f6eca06613f761be2d3955bb44fc",
+  "image": "sa-saopaulo-1.ocir.io/grxnmoqvrcdv/terrascale/ts-auth@sha256:7d41e746ddc8fc5b52d3ca4228d1448a29095b7add31c0789688af65b945304d",
   "regions": [
     "gru"
   ],

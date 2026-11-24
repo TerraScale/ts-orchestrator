@@ -2,7 +2,7 @@
   "name": "terrabase",
   "mode": "stateful",
   "priority": "high",
-  "image": "ghcr.io/terrascale/terrabase@sha256:b1893d1b4298b3076bc9c09278f4f272b761656e851e5a272e66a89c1629a625",
+  "image": "sa-saopaulo-1.ocir.io/grxnmoqvrcdv/terrascale/terrabase@sha256:e9b6cbc9c4dcec8508b09ae88c895eacf1a7a4e729097626be80b76a7cfed8e3",
   "regions": [
     "gru",
     "fra",
