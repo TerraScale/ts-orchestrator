@@ -2585,18 +2585,33 @@ export class FleetDO extends DurableObject<Env> {
       case "grow_volume": {
         if (oci === null) return false;
         const row = this.loadNodeRow(action.nodeId);
-        if (row === undefined || row.pool_kind !== "stateful" || row.region !== action.region) return false;
+        if (row === undefined || row.pool_kind !== "stateful" || row.region !== action.region || row.status === "down") return false;
         const region = this.sql.exec<RegionRow>("SELECT * FROM regions WHERE label = ?", row.region).toArray()[0];
         if (region === undefined || region.oci_region !== action.ociRegion) return false;
+        const storedLabels = parseJson<Record<string, string>>(row.labels_json, {});
+        const knownVolumeId = storedLabels[DATA_VOLUME_ID_LABEL];
+        if (knownVolumeId !== undefined && !hasVolumeGrowthBudget(this.getState<number>(`volume_resize_at:${knownVolumeId}`) ?? undefined, now)) {
+          cooldowns.set(volumeGrowCooldownKey(action.nodeId), now);
+          return false;
+        }
         const instanceId = await this.enrolledInstanceId(row);
-        if (instanceId === null) return false;
+        if (instanceId === null) {
+          cooldowns.set(volumeGrowCooldownKey(action.nodeId), now);
+          return false;
+        }
         const volume = await oci.statefulDataVolume(region.oci_region, region.label, region.compartment_id, instanceId);
-        if (volume === null || volume.sizeGiB >= VOLUME_MAX_GIB) return false;
+        if (volume === null || volume.sizeGiB >= VOLUME_MAX_GIB) {
+          cooldowns.set(volumeGrowCooldownKey(action.nodeId), now);
+          return false;
+        }
         const current = this.loadNodeRow(action.nodeId);
         if (current === undefined || current.token_hash !== row.token_hash || current.status === "down") return false;
         const budget = `volume_resize_at:${volume.id}`;
         const requestedAt = Date.now();
-        if (!hasVolumeGrowthBudget(this.getState<number>(budget) ?? undefined, requestedAt)) return false;
+        if (!hasVolumeGrowthBudget(this.getState<number>(budget) ?? undefined, requestedAt)) {
+          cooldowns.set(volumeGrowCooldownKey(action.nodeId), now);
+          return false;
+        }
         const newSizeGiB = Math.min(VOLUME_MAX_GIB, volume.sizeGiB + VOLUME_GROW_GIB);
         const labels = { ...parseJson<Record<string, string>>(current.labels_json, {}), [DATA_VOLUME_ID_LABEL]: volume.id };
         this.sql.exec("UPDATE nodes SET labels_json = ? WHERE id = ?", JSON.stringify(labels), action.nodeId);
