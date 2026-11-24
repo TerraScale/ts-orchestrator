@@ -136,7 +136,7 @@ EOF
 
 bake_region() {
   local label="$1"
-  local oci_region compartment_id ad base_image vcn_id igw_id rt_id subnet_id instance_id image_id image_name
+  local compartment_id ad base_image image_id image_name
   oci_region="$(jq -er --arg label "$label" '.regions[] | select(.label == $label) | .ociRegion' "$FLEET_JSON")"
   compartment_id="$(jq -er --arg label "$label" '.regions[] | select(.label == $label) | .compartmentId' "$FLEET_JSON")"
   image_name="${IMAGE_PREFIX}-${label}-${STAMP}"
@@ -147,24 +147,27 @@ bake_region() {
   instance_id=""
 
   cleanup_region() {
+    trap - EXIT
     set +e
-    if [[ -n "$instance_id" ]]; then
+    if [[ -n "${instance_id:-}" ]]; then
       oci compute instance terminate --region "$oci_region" --instance-id "$instance_id" --preserve-boot-volume false --force --wait-for-state TERMINATED >/dev/null 2>&1 || true
     fi
-    if [[ -n "$subnet_id" ]]; then
+    if [[ -n "${subnet_id:-}" ]]; then
       oci network subnet delete --region "$oci_region" --subnet-id "$subnet_id" --force --wait-for-state TERMINATED >/dev/null 2>&1 || true
     fi
-    if [[ -n "$rt_id" ]]; then
+    if [[ -n "${rt_id:-}" ]]; then
       oci network route-table update --region "$oci_region" --rt-id "$rt_id" --route-rules '[]' --force >/dev/null 2>&1 || true
     fi
-    if [[ -n "$igw_id" ]]; then
+    if [[ -n "${igw_id:-}" ]]; then
       oci network internet-gateway delete --region "$oci_region" --ig-id "$igw_id" --force --wait-for-state TERMINATED >/dev/null 2>&1 || true
     fi
-    if [[ -n "$vcn_id" ]]; then
+    if [[ -n "${vcn_id:-}" ]]; then
       oci network vcn delete --region "$oci_region" --vcn-id "$vcn_id" --force --wait-for-state TERMINATED >/dev/null 2>&1 || true
     fi
   }
-  trap cleanup_region EXIT INT TERM
+  trap cleanup_region EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   echo "[$label] resolving availability domain and Ubuntu 24.04 ARM64 image in $oci_region" >&2
   ad="$(oci iam availability-domain list --region "$oci_region" --compartment-id "$TENANCY_ID" --query 'data[0].name' --raw-output)"
