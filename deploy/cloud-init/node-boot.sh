@@ -8,8 +8,16 @@ readonly data_device=/dev/oracleoci/oraclevdb
 readonly -a apt_lock_opts=(-o DPkg::Lock::Timeout=300)
 
 case "$(uname -m)" in
-  x86_64) deb_arch=amd64 ;;
-  aarch64) deb_arch=arm64 ;;
+  x86_64)
+    deb_arch=amd64
+    dotnet_rid=linux-x64
+    dotnet_sha512=4f94d65a7c534b82d25153e1c740d1a87d9bcbc9187935d69fb14f9dde5fb284e69302bde3fe2818ff96e9ac0c62d4385aaa68d8f6f3cb6002aa39c859a252f3
+    ;;
+  aarch64)
+    deb_arch=arm64
+    dotnet_rid=linux-arm64
+    dotnet_sha512=11a625c5a16627cfb301795670f3ee21deb40b0d1f16aca401251b3b5ab10205cb5ef84cdaa2725a4e6a9a627ecb9ee582318b76081503975fedab884ef7ea48
+    ;;
   *)
     echo "unsupported architecture: $(uname -m)" >&2
     exit 1
@@ -18,7 +26,7 @@ esac
 
 if [[ ! -f /etc/ts-orch-baked ]]; then
   apt-get "${apt_lock_opts[@]}" update
-  apt-get "${apt_lock_opts[@]}" install -y --no-install-recommends ca-certificates curl jq gnupg software-properties-common iptables-persistent
+  apt-get "${apt_lock_opts[@]}" install -y --no-install-recommends ca-certificates curl jq gnupg libicu74 iptables-persistent
 fi
 
 metadata="$(curl -fsS -H 'Authorization: Bearer Oracle' http://169.254.169.254/opc/v2/instance/metadata/)"
@@ -85,10 +93,17 @@ PIN
   curl -fsSL "https://pkgs.netbird.io/debian/public.key" -o /etc/apt/keyrings/netbird.asc
   chmod 0644 /etc/apt/keyrings/netbird.asc
   echo "deb [signed-by=/etc/apt/keyrings/netbird.asc] https://pkgs.netbird.io/debian stable main" >/etc/apt/sources.list.d/netbird.list
-  add-apt-repository -y ppa:dotnet/backports
 
   apt-get "${apt_lock_opts[@]}" update
-  apt-get "${apt_lock_opts[@]}" install -y --no-install-recommends docker-ce docker-ce-cli containerd.io aspnetcore-runtime-11.0 libmsquic netbird systemd-oomd
+  apt-get "${apt_lock_opts[@]}" install -y --no-install-recommends docker-ce docker-ce-cli containerd.io libmsquic netbird systemd-oomd
+
+  dotnet_dir="$(mktemp -d)"
+  curl -fsSL "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/11.0.0/aspnetcore-runtime-11.0.0-${dotnet_rid}.tar.gz" -o "$dotnet_dir/aspnetcore.tar.gz"
+  echo "${dotnet_sha512}  ${dotnet_dir}/aspnetcore.tar.gz" | sha512sum -c -
+  install -d -m 0755 /usr/share/dotnet
+  tar -xzf "$dotnet_dir/aspnetcore.tar.gz" -C /usr/share/dotnet
+  ln -sfn /usr/share/dotnet/dotnet /usr/bin/dotnet
+  rm -rf "$dotnet_dir"
 fi
 
 systemctl enable --now docker.service systemd-oomd.service netbird.service

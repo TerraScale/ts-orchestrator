@@ -86,12 +86,20 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt_lock=(-o DPkg::Lock::Timeout=300)
 case "\$(uname -m)" in
-  x86_64) deb_arch=amd64 ;;
-  aarch64) deb_arch=arm64 ;;
+  x86_64)
+    deb_arch=amd64
+    dotnet_rid=linux-x64
+    dotnet_sha512=4f94d65a7c534b82d25153e1c740d1a87d9bcbc9187935d69fb14f9dde5fb284e69302bde3fe2818ff96e9ac0c62d4385aaa68d8f6f3cb6002aa39c859a252f3
+    ;;
+  aarch64)
+    deb_arch=arm64
+    dotnet_rid=linux-arm64
+    dotnet_sha512=11a625c5a16627cfb301795670f3ee21deb40b0d1f16aca401251b3b5ab10205cb5ef84cdaa2725a4e6a9a627ecb9ee582318b76081503975fedab884ef7ea48
+    ;;
   *) exit 1 ;;
 esac
 apt-get "\${apt_lock[@]}" update
-apt-get "\${apt_lock[@]}" install -y --no-install-recommends ca-certificates curl jq gnupg software-properties-common iptables-persistent
+apt-get "\${apt_lock[@]}" install -y --no-install-recommends ca-certificates curl jq gnupg libicu74 iptables-persistent
 install -d -m 0755 /etc/docker /etc/apt/keyrings
 printf '%s' '$DAEMON_B64' | base64 -d >/etc/docker/daemon.json
 chmod 0644 /etc/docker/daemon.json
@@ -114,9 +122,16 @@ PIN
 curl -fsSL "https://pkgs.netbird.io/debian/public.key" -o /etc/apt/keyrings/netbird.asc
 chmod 0644 /etc/apt/keyrings/netbird.asc
 echo "deb [signed-by=/etc/apt/keyrings/netbird.asc] https://pkgs.netbird.io/debian stable main" >/etc/apt/sources.list.d/netbird.list
-add-apt-repository -y ppa:dotnet/backports
 apt-get "\${apt_lock[@]}" update
-apt-get "\${apt_lock[@]}" install -y --no-install-recommends docker-ce docker-ce-cli containerd.io aspnetcore-runtime-11.0 libmsquic netbird systemd-oomd
+apt-get "\${apt_lock[@]}" install -y --no-install-recommends docker-ce docker-ce-cli containerd.io libmsquic netbird systemd-oomd
+dotnet_dir="\$(mktemp -d)"
+curl -fsSL "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/11.0.0/aspnetcore-runtime-11.0.0-\${dotnet_rid}.tar.gz" -o "\$dotnet_dir/aspnetcore.tar.gz"
+echo "\${dotnet_sha512}  \${dotnet_dir}/aspnetcore.tar.gz" | sha512sum -c -
+install -d -m 0755 /usr/share/dotnet
+tar -xzf "\$dotnet_dir/aspnetcore.tar.gz" -C /usr/share/dotnet
+ln -sfn /usr/share/dotnet/dotnet /usr/bin/dotnet
+rm -rf "\$dotnet_dir"
+/usr/bin/dotnet --list-runtimes
 apt-get "\${apt_lock[@]}" clean
 rm -rf /var/lib/apt/lists/*
 systemctl stop netbird.service docker.service containerd.service || true
@@ -130,7 +145,7 @@ if [[ -f /var/lib/dbus/machine-id ]]; then
 fi
 cloud-init clean --logs || rm -rf /var/lib/cloud/instances
 sync
-systemctl poweroff
+systemctl --no-block poweroff
 EOF
 } >"$USER_DATA_FILE"
 
@@ -153,16 +168,31 @@ bake_region() {
       oci compute instance terminate --region "$oci_region" --instance-id "$instance_id" --preserve-boot-volume false --force --wait-for-state TERMINATED >/dev/null 2>&1 || true
     fi
     if [[ -n "${subnet_id:-}" ]]; then
-      oci network subnet delete --region "$oci_region" --subnet-id "$subnet_id" --force --wait-for-state TERMINATED >/dev/null 2>&1 || true
+      for _ in 1 2 3 4 5 6; do
+        if oci network subnet delete --region "$oci_region" --subnet-id "$subnet_id" --force --wait-for-state TERMINATED >/dev/null 2>&1; then
+          break
+        fi
+        sleep 5
+      done
     fi
     if [[ -n "${rt_id:-}" ]]; then
       oci network route-table update --region "$oci_region" --rt-id "$rt_id" --route-rules '[]' --force >/dev/null 2>&1 || true
     fi
     if [[ -n "${igw_id:-}" ]]; then
-      oci network internet-gateway delete --region "$oci_region" --ig-id "$igw_id" --force --wait-for-state TERMINATED >/dev/null 2>&1 || true
+      for _ in 1 2 3 4; do
+        if oci network internet-gateway delete --region "$oci_region" --ig-id "$igw_id" --force --wait-for-state TERMINATED >/dev/null 2>&1; then
+          break
+        fi
+        sleep 5
+      done
     fi
     if [[ -n "${vcn_id:-}" ]]; then
-      oci network vcn delete --region "$oci_region" --vcn-id "$vcn_id" --force --wait-for-state TERMINATED >/dev/null 2>&1 || true
+      for _ in 1 2 3 4; do
+        if oci network vcn delete --region "$oci_region" --vcn-id "$vcn_id" --force --wait-for-state TERMINATED >/dev/null 2>&1; then
+          break
+        fi
+        sleep 5
+      done
     fi
   }
   trap cleanup_region EXIT
@@ -237,6 +267,8 @@ bake_region() {
   echo "[$label] waiting for cloud-init bake and clean poweroff ($instance_id)" >&2
   local deadline=$((SECONDS + TIMEOUT_SECONDS))
   local state=""
+  local stop_requested=0
+  local next_console_check=$((SECONDS + 60))
   while (( SECONDS < deadline )); do
     state="$(oci compute instance get --region "$oci_region" --instance-id "$instance_id" --query 'data."lifecycle-state"' --raw-output)"
     if [[ "$state" == "STOPPED" ]]; then
@@ -245,6 +277,20 @@ bake_region() {
     if [[ "$state" == "TERMINATED" || "$state" == "TERMINATING" ]]; then
       echo "[$label] builder VM entered unexpected state: $state" >&2
       exit 1
+    fi
+    if [[ "$state" == "RUNNING" && $stop_requested -eq 0 ]] && (( SECONDS >= next_console_check )); then
+      next_console_check=$((SECONDS + 30))
+      local hist_id console_file
+      console_file="$WORK/console-${label}.log"
+      if hist_id="$(oci compute console-history capture --region "$oci_region" --instance-id "$instance_id" --wait-for-state SUCCEEDED --query 'data.id' --raw-output 2>/dev/null)"; then
+        if oci compute console-history get-content --region "$oci_region" --instance-console-history-id "$hist_id" --length 1048576 --file "$console_file" >/dev/null 2>&1; then
+          if grep -qE "reboot: Power down|Reached target poweroff\\.target" "$console_file"; then
+            echo "[$label] guest halted cleanly; issuing OCI STOP" >&2
+            oci compute instance action --region "$oci_region" --instance-id "$instance_id" --action STOP >/dev/null 2>&1 || true
+            stop_requested=1
+          fi
+        fi
+      fi
     fi
     sleep 10
   done
