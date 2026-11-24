@@ -147,39 +147,86 @@ public sealed partial class EdgeProxy(
 
     private static bool AcceptsEventStream(ReadOnlySpan<char> accept)
     {
-        foreach (var range in accept.Split(','))
+        while (true)
         {
-            var mediaRange = accept[range];
-            var parametersStart = mediaRange.IndexOf(';');
-            var mediaType = parametersStart < 0 ? mediaRange.Trim() : mediaRange[..parametersStart].Trim();
-            if (mediaType.Equals(EventStreamMediaType, StringComparison.OrdinalIgnoreCase)
-                && (parametersStart < 0 || HasNonZeroQuality(mediaRange[(parametersStart + 1)..])))
+            var end = IndexOfUnquoted(accept, ',');
+            var mediaRange = end < 0 ? accept : accept[..end];
+            if (IsEventStreamMediaType(mediaRange, out var parameters) && HasPositiveQuality(parameters))
             {
                 return true;
             }
-        }
 
-        return false;
+            if (end < 0)
+            {
+                return false;
+            }
+
+            accept = accept[(end + 1)..];
+        }
     }
 
-    private static bool HasNonZeroQuality(ReadOnlySpan<char> parameters)
+    private static bool HasPositiveQuality(ReadOnlySpan<char> parameters)
     {
-        foreach (var range in parameters.Split(';'))
+        while (true)
         {
-            var parameter = parameters[range];
+            var end = IndexOfUnquoted(parameters, ';');
+            var parameter = end < 0 ? parameters : parameters[..end];
             var separator = parameter.IndexOf('=');
             if (separator > 0 && parameter[..separator].Trim().Equals("q", StringComparison.OrdinalIgnoreCase))
             {
-                return !double.TryParse(parameter[(separator + 1)..].Trim(), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var quality)
-                    || quality > 0;
+                return IsPositiveQuality(parameter[(separator + 1)..].Trim());
+            }
+
+            if (end < 0)
+            {
+                return true;
+            }
+
+            parameters = parameters[(end + 1)..];
+        }
+    }
+
+    private static bool IsPositiveQuality(ReadOnlySpan<char> quality) => quality switch
+    {
+        ['1'] => true,
+        ['1', '.', .. var zeros] => zeros.Length <= 3 && !zeros.ContainsAnyExcept('0'),
+        ['0', '.', .. var digits] => digits.Length <= 3 && !digits.ContainsAnyExceptInRange('0', '9') && digits.ContainsAnyExcept('0'),
+        _ => false,
+    };
+
+    private static bool IsEventStreamMediaType(ReadOnlySpan<char> value, out ReadOnlySpan<char> parameters)
+    {
+        var separator = value.IndexOf(';');
+        parameters = separator < 0 ? [] : value[(separator + 1)..];
+        var mediaType = separator < 0 ? value : value[..separator];
+        return mediaType.Trim().Equals(EventStreamMediaType, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int IndexOfUnquoted(ReadOnlySpan<char> value, char delimiter)
+    {
+        var quoted = false;
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (quoted && character == '\\')
+            {
+                index++;
+            }
+            else if (character == '"')
+            {
+                quoted = !quoted;
+            }
+            else if (!quoted && character == delimiter)
+            {
+                return index;
             }
         }
 
-        return true;
+        return -1;
     }
 
     private static bool IsEventStreamResponse(HttpResponse response) =>
-        response.ContentType?.StartsWith(EventStreamMediaType, StringComparison.OrdinalIgnoreCase) is true;
+        response.ContentType is { } contentType && IsEventStreamMediaType(contentType, out _);
 
     private static Task Respond(HttpContext context, int statusCode)
     {
