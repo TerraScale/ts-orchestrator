@@ -372,7 +372,7 @@ public sealed class ContainerSwapper(
             };
             if (error is null)
             {
-                var readiness = await WaitReadyAsync(serving.Id, plan.Service, cancellationToken);
+                var readiness = await WaitReadyAsync(serving.Id, plan.Service, cancellationToken, allowExistingRestarts: true);
                 var restoredPorts = readiness switch
                 {
                     PlacementPorts ports => ports,
@@ -526,7 +526,11 @@ public sealed class ContainerSwapper(
         return ports;
     }
 
-    public async Task<PlacementReadiness> WaitReadyAsync(string containerId, ServiceSpec service, CancellationToken cancellationToken)
+    public async Task<PlacementReadiness> WaitReadyAsync(
+        string containerId,
+        ServiceSpec service,
+        CancellationToken cancellationToken,
+        bool allowExistingRestarts = false)
     {
         ArgumentNullException.ThrowIfNull(service);
         var timeout = TimeSpan.FromSeconds(Math.Max(1, service.ReadyTimeoutSeconds));
@@ -535,6 +539,7 @@ public sealed class ContainerSwapper(
         using var client = httpClientFactory.CreateClient(ProbeClientName);
         using var timer = new PeriodicTimer(ProbeInterval, timeProvider);
         var readyPath = string.IsNullOrEmpty(service.ReadyPath) ? "/" : service.ReadyPath;
+        int? initialRestartCount = allowExistingRestarts ? null : 0;
         string? inspectionError = null;
         try
         {
@@ -549,14 +554,17 @@ public sealed class ContainerSwapper(
                     DockerResponseInvalid failure => new ReadinessInspection(null, failure.Message),
                 };
                 inspectionError = state.Error;
-                if (state.Container is { } container
-                    && (!container.Running || container.RestartCount > 0 || string.Equals(container.Status, "restarting", StringComparison.OrdinalIgnoreCase)))
+                if (state.Container is { } container)
                 {
-                    return new PlacementProbeFailed(
-                        containerId,
-                        string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"Container failed before becoming ready (status={container.Status}, exitCode={container.ExitCode}, restarts={container.RestartCount}{(container.OomKilled ? ", OOM killed" : string.Empty)})."));
+                    initialRestartCount ??= container.RestartCount;
+                    if (!container.Running || container.RestartCount > initialRestartCount.Value || string.Equals(container.Status, "restarting", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new PlacementProbeFailed(
+                            containerId,
+                            string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"Container failed before becoming ready (status={container.Status}, exitCode={container.ExitCode}, restarts={container.RestartCount}{(container.OomKilled ? ", OOM killed" : string.Empty)})."));
+                    }
                 }
 
                 if (state.Container is { } running)

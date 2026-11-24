@@ -133,7 +133,9 @@ public sealed partial class PostgresSniConnectionHandler(
                 (_, clientHelloInfo, _, _) =>
                 {
                     serverName = clientHelloInfo.ServerName;
-                    return ValueTask.FromResult(certificates.CreateServerOptions());
+                    var serverOptions = certificates.CreateServerOptions();
+                    serverOptions.ApplicationProtocols = [new SslApplicationProtocol("postgresql")];
+                    return ValueTask.FromResult(serverOptions);
                 },
                 null,
                 cancellationToken);

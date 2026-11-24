@@ -37,7 +37,7 @@
     "AWS_REGION": "sa-saopaulo-1",
     "BUCKET_NAME": "terrascale-gru-backups",
     "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp",
-    "TERRABASE_ATLAS_URL": "https://atlas.terrascale.tech/v1/publish",
+    "TERRABASE_ATLAS_URL": "https://atlas.terrascale.tech",
     "TERRABASE_AUTH_AUDIENCE": "https://api.terrascale.tech",
     "TERRABASE_AUTH_ISSUER": "https://auth.terrascale.tech/terrascale",
     "TERRABASE_BACKUP_RETENTION_DAYS": "hobby=7,pro=7,enterprise=7",

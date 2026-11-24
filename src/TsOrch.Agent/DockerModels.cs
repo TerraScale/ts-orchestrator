@@ -31,7 +31,7 @@ public sealed record class ContainerResources(
             enableCgroupParent ? CgroupSliceFor(service.Priority) : null,
             service.MemRequestMiB * BytesPerMiB,
             service.MemLimitMiB * BytesPerMiB,
-            service.CpuLimitMilli * 1_000_000L,
+            Math.Min(service.CpuLimitMilli * 1_000_000L, Math.Max(1, Environment.ProcessorCount) * 1_000_000_000L),
             CpuSharesFor(service.Priority),
             service.PidsLimit,
             OomScoreAdjFor(service.Priority));

@@ -137,6 +137,11 @@ public sealed class NodeEnrollment(
             labels["oci.instance-pool-id"] = poolId;
         }
 
+        if (instance.Node.StatefulIndex is { } statefulIndex)
+        {
+            labels["oci.stateful-index"] = statefulIndex;
+        }
+
         return new HostIdentity(
             options.NodeIdOverride ?? instance.InstanceId,
             region,

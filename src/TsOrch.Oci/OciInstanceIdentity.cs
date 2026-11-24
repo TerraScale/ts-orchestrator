@@ -18,4 +18,5 @@ public sealed record class OciNodeMetadata(
     string? NetBirdUrl = null,
     string? NetBirdSetupKeySecret = null,
     string? DataVolumeId = null,
-    string? InstancePoolId = null);
+    string? InstancePoolId = null,
+    string? StatefulIndex = null);

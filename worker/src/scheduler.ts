@@ -401,16 +401,27 @@ export function computeSchedule(input: ScheduleInput): ScheduleResult {
         let reason: string;
         if (service.mode === "stateful") {
           reason = "no_stateful_node_with_data_volume";
+          const requiresPrimaryStateful = service.replicas === 1 && service.udpPorts.includes(3478);
           candidates = regionLoads
             .filter(
               (load) =>
                 load.node.poolKind === "stateful" &&
                 nodeSchedulable(load.node, input.nowMs, timeout) &&
                 hasDataVolume(load.node) &&
+                (!requiresPrimaryStateful ||
+                  load.node.labels["oci.stateful-index"] === undefined ||
+                  load.node.labels["oci.stateful-index"] === "0") &&
                 (load.services.get(service.name) ?? 0) === 0 &&
                 fits(load, service),
             )
-            .sort((a, b) => headroom(b) - headroom(a) || compareText(a.node.id, b.node.id));
+            .sort(
+              (a, b) =>
+                (service.replicas === 1
+                  ? (a.node.labels["oci.stateful-index"] === "0" ? 0 : 1) - (b.node.labels["oci.stateful-index"] === "0" ? 0 : 1)
+                  : 0) ||
+                headroom(b) - headroom(a) ||
+                compareText(a.node.id, b.node.id),
+            );
         } else {
           reason = regionLoads.some((load) => nodeSchedulable(load.node, input.nowMs, timeout))
             ? "insufficient_capacity"
@@ -566,6 +577,7 @@ export function computeClusterPeers(
   nodes: NodeInfo[],
   placements: PlacementInfo[],
   services: ServiceSpec[],
+  localNodeId?: string,
 ): ClusterPeer[] {
   const clusterServices = services.filter((service) => service.clusterPeers === true);
   if (clusterServices.length === 0) return [];
@@ -576,7 +588,12 @@ export function computeClusterPeers(
   for (const node of statefulNodes) {
     const service = clusterServices.find((candidate) => candidate.regions.includes(node.region));
     if (service === undefined) continue;
-    const host = node.netbirdIp !== undefined && node.netbirdIp.length > 0 ? node.netbirdIp : node.vcnIp;
+    const host =
+      node.id === localNodeId
+        ? "0.0.0.0"
+        : node.netbirdIp !== undefined && node.netbirdIp.length > 0
+          ? node.netbirdIp
+          : node.vcnIp;
     if (host.length === 0) continue;
     const placement = placements.find(
       (candidate) => candidate.nodeId === node.id && candidate.serviceName === service.name && candidate.state !== "stopped",

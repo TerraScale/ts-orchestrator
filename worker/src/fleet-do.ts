@@ -2030,8 +2030,8 @@ export class FleetDO extends DurableObject<Env> {
       }
       this.setState("unschedulable", unschedulable);
     });
-    this.pushDesired();
     this.pushRoutes();
+    this.pushDesired();
   }
 
   private pushDesired(): void {
@@ -2067,11 +2067,11 @@ export class FleetDO extends DurableObject<Env> {
     const services = this.loadServices();
     const placements = this.loadPlacements();
     const nodes = this.loadNodes();
-    const clusterPeers = computeClusterPeers(nodes, placements, services);
     for (const node of nodes) {
       if (onlyRegion !== undefined && node.region !== onlyRegion) continue;
       if (!this.connected(node.id)) continue;
       const routes = computeRoutes(node.region, services, placements, nodes, node.id);
+      const clusterPeers = computeClusterPeers(nodes, placements, services, node.id);
       const payload = {
         httpRoutes: routes.httpRoutes,
         postgresRoutes: routes.postgresRoutes,
@@ -2344,8 +2344,8 @@ export class FleetDO extends DurableObject<Env> {
       }
     }
     if (changed) {
-      this.pushDesired();
       this.pushRoutes();
+      this.pushDesired();
     }
     const wakeAt = this.nextBakeDeadline(now);
     if (wakeAt !== null) await this.ensureAlarm(Math.max(250, wakeAt - Date.now()));
@@ -3012,7 +3012,7 @@ export class FleetDO extends DurableObject<Env> {
       this.recordEvent("chaos", "fleet_seed", { by: principal.owner, regions: labels, added, replaced, skipped });
     });
     this.reconcile(now);
-    await this.maybeAutoEnsureTls(now);
+    this.ctx.waitUntil(this.maybeAutoEnsureTls(now));
     const topology = await this.publishTopology(now, true);
     await this.ensureAlarm(ALARM_INTERVAL_MS);
     return { regions: labels, services: { added, replaced, skipped }, topology };

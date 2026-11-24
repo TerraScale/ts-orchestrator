@@ -394,7 +394,7 @@ public sealed class ContainerReconciler(
                 await tracker.ReportAsync(swapper.ServingReport(serving, placement.Service), cancellationToken);
             }
 
-            var readiness = await swapper.WaitReadyAsync(current.Id, placement.Service, cancellationToken);
+            var readiness = await swapper.WaitReadyAsync(current.Id, placement.Service, cancellationToken, allowExistingRestarts: true);
             var ready = readiness switch
             {
                 PlacementPorts ports => report with { HostPort = ports.Http, PostgresHostPort = ports.Postgres, InternalHostPort = ports.Internal },
@@ -457,7 +457,10 @@ public sealed class ContainerReconciler(
             if (!File.Exists(options.PeersFile))
             {
                 var seeded = await UnixFiles.WriteAtomicAsync(
-                    [new DirectoryMode(options.RuntimeDirectory, UnixFiles.WorldReadableDirectory)],
+                    [
+                        new DirectoryMode(options.RuntimeDirectory, UnixFiles.WorldReadableDirectory),
+                        new DirectoryMode(options.PeersDirectory, UnixFiles.WorldReadableDirectory),
+                    ],
                     [new AtomicWrite(options.PeersFile, "[]"u8.ToArray(), UnixFiles.WorldReadable)],
                     cancellationToken);
                 if (seeded is AtomicWriteFailed peerFailure)
@@ -466,7 +469,7 @@ public sealed class ContainerReconciler(
                 }
             }
 
-            mounts.Add(new BindMount(options.PeersFile, NodePaths.PeersFile, ReadOnly: true));
+            mounts.Add(new BindMount(options.PeersDirectory, NodePaths.PeersDirectory, ReadOnly: true));
             env.TryAdd("TS_PEERS_FILE", NodePaths.PeersFile);
         }
 

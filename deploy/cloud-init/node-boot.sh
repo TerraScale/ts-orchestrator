@@ -5,7 +5,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 readonly orch_root=/opt/ts-orch
 readonly data_device=/dev/oracleoci/oraclevdb
-readonly apt_lock_opt="-o DPkg::Lock::Timeout=300"
+readonly -a apt_lock_opts=(-o DPkg::Lock::Timeout=300)
 
 case "$(uname -m)" in
   x86_64) deb_arch=amd64 ;;
@@ -17,8 +17,8 @@ case "$(uname -m)" in
 esac
 
 if [[ ! -f /etc/ts-orch-baked ]]; then
-  apt-get "$apt_lock_opt" update
-  apt-get "$apt_lock_opt" install -y --no-install-recommends ca-certificates curl jq gnupg software-properties-common iptables-persistent
+  apt-get "${apt_lock_opts[@]}" update
+  apt-get "${apt_lock_opts[@]}" install -y --no-install-recommends ca-certificates curl jq gnupg software-properties-common iptables-persistent
 fi
 
 metadata="$(curl -fsS -H 'Authorization: Bearer Oracle' http://169.254.169.254/opc/v2/instance/metadata/)"
@@ -39,6 +39,7 @@ case "$pool" in
 esac
 
 iptables -I INPUT -i wt0 -j ACCEPT
+iptables -I INPUT -i docker0 -p tcp -m multiport --dports 18081,18082 -j ACCEPT
 iptables -I INPUT -p tcp -m multiport --dports 80,443,5432 -j ACCEPT
 iptables -I INPUT -p udp --dport 443 -j ACCEPT
 iptables -I INPUT -s "$vcn_cidr" -j ACCEPT
@@ -86,8 +87,8 @@ PIN
   echo "deb [signed-by=/etc/apt/keyrings/netbird.asc] https://pkgs.netbird.io/debian stable main" >/etc/apt/sources.list.d/netbird.list
   add-apt-repository -y ppa:dotnet/backports
 
-  apt-get "$apt_lock_opt" update
-  apt-get "$apt_lock_opt" install -y --no-install-recommends docker-ce docker-ce-cli containerd.io aspnetcore-runtime-11.0 libmsquic netbird systemd-oomd
+  apt-get "${apt_lock_opts[@]}" update
+  apt-get "${apt_lock_opts[@]}" install -y --no-install-recommends docker-ce docker-ce-cli containerd.io aspnetcore-runtime-11.0 libmsquic netbird systemd-oomd
 fi
 
 systemctl enable --now docker.service systemd-oomd.service netbird.service

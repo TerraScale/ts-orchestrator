@@ -64,7 +64,9 @@ public sealed record class AgentOptions
 
     public string RoutesFile => Path.Combine(RuntimeDirectory, "routes.json");
 
-    public string PeersFile => Path.Combine(RuntimeDirectory, Path.GetFileName(NodePaths.PeersFile));
+    public string PeersDirectory => Path.Combine(RuntimeDirectory, "peers");
+
+    public string PeersFile => Path.Combine(PeersDirectory, Path.GetFileName(NodePaths.PeersFile));
 
     public string AppliedRoutesFile => Path.Combine(RuntimeDirectory, NodePaths.AppliedRoutesFileName);
 

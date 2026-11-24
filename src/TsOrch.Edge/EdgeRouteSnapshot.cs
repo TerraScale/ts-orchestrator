@@ -266,8 +266,14 @@ public sealed class EdgeRouteSnapshot
                 || !TryHexNibble(input[index + 1], out var hi)
                 || !TryHexNibble(input[index + 2], out var lo))
             {
-                output = string.Empty;
-                return false;
+                if (bytes.Count > 0)
+                {
+                    builder.Append(Encoding.UTF8.GetString(CollectionsMarshal.AsSpan(bytes)));
+                    bytes.Clear();
+                }
+
+                builder.Append('%');
+                continue;
             }
 
             var decodedByte = (byte)((hi << 4) | lo);

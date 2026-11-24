@@ -408,6 +408,7 @@ resource "oci_core_instance" "stateful" {
     local.node_metadata.stateful,
     {
       ts_data_volume_id = oci_core_volume.stateful_data[count.index].id
+      ts_stateful_index = tostring(count.index)
     }
   )
 

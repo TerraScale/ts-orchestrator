@@ -41,6 +41,7 @@
     }
   ],
   "env": {
+    "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp",
     "TERRABASE_AUTH_AUDIENCE": "https://api.terrascale.tech",
     "TERRABASE_AUTH_ISSUER": "https://auth.terrascale.tech/terrascale",
     "TERRABASE_FILES_S3_ENDPOINT": "https://6cd3f3639e928077593d9b470765efeb.r2.cloudflarestorage.com",

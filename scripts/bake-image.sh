@@ -84,14 +84,14 @@ USER_DATA_FILE="$WORK/bake-cloud-init.sh"
   cat <<EOF
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
-apt_lock="-o DPkg::Lock::Timeout=300"
+apt_lock=(-o DPkg::Lock::Timeout=300)
 case "\$(uname -m)" in
   x86_64) deb_arch=amd64 ;;
   aarch64) deb_arch=arm64 ;;
   *) exit 1 ;;
 esac
-apt-get "\$apt_lock" update
-apt-get "\$apt_lock" install -y --no-install-recommends ca-certificates curl jq gnupg software-properties-common iptables-persistent
+apt-get "\${apt_lock[@]}" update
+apt-get "\${apt_lock[@]}" install -y --no-install-recommends ca-certificates curl jq gnupg software-properties-common iptables-persistent
 install -d -m 0755 /etc/docker /etc/apt/keyrings
 printf '%s' '$DAEMON_B64' | base64 -d >/etc/docker/daemon.json
 chmod 0644 /etc/docker/daemon.json
@@ -115,10 +115,12 @@ curl -fsSL "https://pkgs.netbird.io/debian/public.key" -o /etc/apt/keyrings/netb
 chmod 0644 /etc/apt/keyrings/netbird.asc
 echo "deb [signed-by=/etc/apt/keyrings/netbird.asc] https://pkgs.netbird.io/debian stable main" >/etc/apt/sources.list.d/netbird.list
 add-apt-repository -y ppa:dotnet/backports
-apt-get "\$apt_lock" update
-apt-get "\$apt_lock" install -y --no-install-recommends docker-ce docker-ce-cli containerd.io aspnetcore-runtime-11.0 libmsquic netbird systemd-oomd
-apt-get "\$apt_lock" clean
+apt-get "\${apt_lock[@]}" update
+apt-get "\${apt_lock[@]}" install -y --no-install-recommends docker-ce docker-ce-cli containerd.io aspnetcore-runtime-11.0 libmsquic netbird systemd-oomd
+apt-get "\${apt_lock[@]}" clean
 rm -rf /var/lib/apt/lists/*
+systemctl stop netbird.service docker.service containerd.service || true
+rm -rf /etc/netbird/* /var/lib/netbird/*
 printf 'baked_at=%s\ngit_sha=%s\n' '$STAMP' '$GIT_SHA' >/etc/ts-orch-baked
 chmod 0644 /etc/ts-orch-baked
 rm -f /etc/ssh/ssh_host_* /home/ubuntu/.ssh/authorized_keys /root/.ssh/authorized_keys
@@ -162,7 +164,7 @@ bake_region() {
       oci network vcn delete --region "$oci_region" --vcn-id "$vcn_id" --force --wait-for-state TERMINATED >/dev/null 2>&1 || true
     fi
   }
-  trap cleanup_region EXIT
+  trap cleanup_region EXIT INT TERM
 
   echo "[$label] resolving availability domain and Ubuntu 24.04 ARM64 image in $oci_region" >&2
   ad="$(oci iam availability-domain list --region "$oci_region" --compartment-id "$TENANCY_ID" --query 'data[0].name' --raw-output)"

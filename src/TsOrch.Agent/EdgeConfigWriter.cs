@@ -18,6 +18,7 @@ public sealed class EdgeConfigWriter(RouteObserver routes, AgentOptions options,
 
         var snapshot = new EdgeRoutesSnapshot(message.Revision, message.HttpRoutes, message.PostgresRoutes, message.InternalRoutes);
         routes.TryPublish(snapshot);
+        List<DirectoryMode> directories = [new(options.RuntimeDirectory, UnixFiles.WorldReadableDirectory)];
         List<AtomicWrite> writes =
         [
             new(
@@ -27,6 +28,7 @@ public sealed class EdgeConfigWriter(RouteObserver routes, AgentOptions options,
         ];
         if (message.ClusterPeers is { } peers)
         {
+            directories.Add(new(options.PeersDirectory, UnixFiles.WorldReadableDirectory));
             writes.Add(new(
                 options.PeersFile,
                 JsonSerializer.SerializeToUtf8Bytes(peers, EdgeJsonContext.Default.IReadOnlyListClusterPeer),
@@ -34,7 +36,7 @@ public sealed class EdgeConfigWriter(RouteObserver routes, AgentOptions options,
         }
 
         var written = await UnixFiles.WriteAtomicAsync(
-            [new DirectoryMode(options.RuntimeDirectory, UnixFiles.WorldReadableDirectory)],
+            directories,
             writes,
             cancellationToken);
         var failure = written switch
