@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Net;
+using System.Net.Sockets;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
@@ -12,7 +14,32 @@ public static class EdgeServer
     {
         ArgumentNullException.ThrowIfNull(options);
         var builder = WebApplication.CreateSlimBuilder();
+        builder.Services.PostConfigure<LoggerFilterOptions>(ConfigureLogging);
         builder.Services.AddTsOrchEdge(options);
+        builder.Services.AddRateLimiter(limiter =>
+        {
+            limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            limiter.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, (bool Exempt, IPAddress? Peer)>(context =>
+            {
+                var port = context.Connection.LocalPort;
+                if ((options.InternalTerraBasePort > 0 && port == options.InternalTerraBasePort)
+                    || (options.InternalPlatformPort > 0 && port == options.InternalPlatformPort)
+                    || (port == options.HttpPort && EdgeDrainCoordinator.IsReadinessProbe(context.Request)))
+                {
+                    return RateLimitPartition.GetNoLimiter<(bool Exempt, IPAddress? Peer)>((true, null));
+                }
+
+                return RateLimitPartition.GetTokenBucketLimiter((false, RateLimitPeer(context.Connection.RemoteIpAddress)),
+                    static _ => new TokenBucketRateLimiterOptions
+                    {
+                        TokenLimit = 1_500,
+                        TokensPerPeriod = 75,
+                        ReplenishmentPeriod = TimeSpan.FromMilliseconds(100),
+                        AutoReplenishment = false,
+                        QueueLimit = 0,
+                    });
+            });
+        });
         builder.Services.Configure<HostOptions>(host => host.ShutdownTimeout = options.DrainDelay + options.ShutdownTimeout);
         builder.WebHost.UseKestrelHttpsConfiguration();
         if (options.EnableHttp3)
@@ -25,6 +52,7 @@ public static class EdgeServer
         var app = builder.Build();
         var drain = app.Services.GetRequiredService<EdgeDrainCoordinator>();
         var proxy = app.Services.GetRequiredService<EdgeProxy>();
+        app.UseRateLimiter();
         app.UseWebSockets();
         app.Run(context => DispatchAsync(context, options, drain, proxy));
         return app;
@@ -35,6 +63,42 @@ public static class EdgeServer
         await using var app = Build(options);
         await app.RunAsync(cancellationToken);
     }
+
+    private static IPAddress? RateLimitPeer(IPAddress? address)
+    {
+        if (address is not { AddressFamily: AddressFamily.InterNetworkV6 })
+        {
+            return address;
+        }
+
+        if (address.IsIPv4MappedToIPv6)
+        {
+            return address.MapToIPv4();
+        }
+
+        Span<byte> prefix = stackalloc byte[16];
+        address.TryWriteBytes(prefix, out _);
+        prefix[8..].Clear();
+        return new IPAddress(prefix);
+    }
+
+    private static void ConfigureLogging(LoggerFilterOptions filters)
+    {
+        filters.Rules.Insert(0, new LoggerFilterRule(null, null, filters.MinLevel, null));
+        for (var index = 0; index < filters.Rules.Count; index++)
+        {
+            var rule = filters.Rules[index];
+            filters.Rules[index] = new LoggerFilterRule(rule.ProviderName, rule.CategoryName, rule.LogLevel,
+                (provider, category, level) => AllowsFrameworkLog(category, level)
+                    && (rule.Filter is not { } filter || filter(provider, category, level)));
+        }
+    }
+
+    private static bool AllowsFrameworkLog(string? category, LogLevel level) =>
+        category is null || (!category.StartsWith("Yarp", StringComparison.OrdinalIgnoreCase)
+            && !category.StartsWith("Microsoft.AspNetCore.Hosting.Diagnostics", StringComparison.OrdinalIgnoreCase)
+            && !category.StartsWith("Microsoft.AspNetCore.HttpLogging", StringComparison.OrdinalIgnoreCase)
+            && (level >= LogLevel.Warning || !category.StartsWith("Microsoft", StringComparison.OrdinalIgnoreCase)));
 
     private static Task DispatchAsync(HttpContext context, EdgeServerOptions options, EdgeDrainCoordinator drain, EdgeProxy proxy)
     {
@@ -81,7 +145,12 @@ public static class EdgeServer
     private static void ConfigureKestrel(KestrelServerOptions kestrel, EdgeServerOptions options)
     {
         kestrel.AddServerHeader = false;
-        kestrel.Limits.MaxRequestBodySize = null;
+        kestrel.Limits.MaxConcurrentConnections = 8_192;
+        kestrel.Limits.MaxConcurrentUpgradedConnections = 2_048;
+        kestrel.Limits.Http2.MaxStreamsPerConnection = 100;
+        kestrel.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(2);
+        kestrel.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(15);
+        kestrel.Limits.MaxRequestBodySize = 128L * 1024 * 1024;
         var address = IPAddress.Parse(options.BindAddress);
         var certificates = kestrel.ApplicationServices.GetRequiredService<TlsCertificateStore>();
 

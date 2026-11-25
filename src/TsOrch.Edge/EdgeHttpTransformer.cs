@@ -12,6 +12,7 @@ internal sealed class EdgeRetryFeature
 
 internal sealed class EdgeHttpTransformer : HttpTransformer
 {
+    private const string RealIp = "X-Real-IP";
     private const string ForwardedFor = "X-Forwarded-For";
     private const string ForwardedProto = "X-Forwarded-Proto";
     private const string ForwardedHost = "X-Forwarded-Host";
@@ -27,12 +28,16 @@ internal sealed class EdgeHttpTransformer : HttpTransformer
         await base.TransformRequestAsync(httpContext, proxyRequest, destinationPrefix, cancellationToken);
         var host = httpContext.Request.Host.Value;
         proxyRequest.Headers.Host = host;
+        proxyRequest.Headers.Remove("Forwarded");
+        proxyRequest.Headers.Remove(RealIp);
         proxyRequest.Headers.Remove(ForwardedFor);
         proxyRequest.Headers.Remove(ForwardedProto);
         proxyRequest.Headers.Remove(ForwardedHost);
         if (httpContext.Connection.RemoteIpAddress is { } remote)
         {
-            proxyRequest.Headers.TryAddWithoutValidation(ForwardedFor, (remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote).ToString());
+            var peer = (remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote).ToString();
+            proxyRequest.Headers.TryAddWithoutValidation(ForwardedFor, peer);
+            proxyRequest.Headers.TryAddWithoutValidation(RealIp, peer);
         }
 
         proxyRequest.Headers.TryAddWithoutValidation(ForwardedProto, httpContext.Request.Scheme);
