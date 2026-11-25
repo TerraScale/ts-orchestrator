@@ -25,8 +25,10 @@ import {
   evaluateAutoscale,
   hasVolumeGrowthBudget,
   INSTANCE_ID_LABEL,
+  INSTANCE_POOL_ID_LABEL,
   oldestUnjoinedMember,
   planPoolScaleUp,
+  PENDING_HELLO_GRACE_MS,
   POOL_ENROLLMENT_GRACE_MS,
   REAPED_INSTANCE_TOMBSTONE_MS,
   poolEnrollmentFailureKey,
@@ -1423,6 +1425,9 @@ export class FleetDO extends DurableObject<Env> {
     const conflict = () => new HttpError(409, "conflict", "The node is already registered", "Remove the existing registration before enrolling again.");
     if (alreadyRegistered()) throw conflict();
     const labels: Record<string, string> = { [INSTANCE_ID_LABEL]: instanceId };
+    if (poolKind === "worker" && regionRow.instance_pool_id !== null && regionRow.instance_pool_id.length > 0) {
+      labels[INSTANCE_POOL_ID_LABEL] = regionRow.instance_pool_id;
+    }
     if (poolKind === "stateful" && instanceId.startsWith("ocid1.instance.")) {
       const oci = await this.oci();
       const identity = await oci?.statefulIdentity(regionRow.oci_region, region, regionRow.compartment_id, instanceId);
@@ -1508,7 +1513,7 @@ export class FleetDO extends DurableObject<Env> {
         this.execWaiters.get(parsed.requestId)?.nodeId !== attachment.nodeId)) return;
     const now = Date.now();
     const sender = this.loadNodeRow(attachment.nodeId);
-    if (sender !== undefined && this.nodeReapingOrReaped(sender, now)) {
+    if (sender === undefined || this.nodeReapingOrReaped(sender, now)) {
       this.closeSocket(ws, 4010, "terminating");
       return;
     }
@@ -2639,12 +2644,15 @@ export class FleetDO extends DurableObject<Env> {
     listedPools: ReadonlyMap<string, readonly PoolInstance[]>,
   ): Promise<void> {
     const members = listedPools.get(action.poolId) ?? await oci.listInstancePoolInstances(action.ociRegion, action.poolId, action.compartmentId);
-    const bootCutoff = Date.now() - POOL_ENROLLMENT_GRACE_MS;
+    if (this.regionPoolId(action.region) !== action.poolId) return;
+    const selectedAt = Date.now();
+    const bootCutoff = selectedAt - POOL_ENROLLMENT_GRACE_MS;
     const aged = members.filter(({ state, createdAt }) => state === "RUNNING" && createdAt <= bootCutoff);
     const protectedInstances = new Set<string | null>(this.reapingInstances);
     for (const { instance_id } of this.sql.exec<{ instance_id: string | null }>(
-      `SELECT json_extract(labels_json, '$."oci.instance-id"') AS instance_id FROM nodes WHERE region = ? AND pool_kind = 'worker' AND status != 'pending'`,
+      `SELECT json_extract(labels_json, '$."oci.instance-id"') AS instance_id FROM nodes WHERE region = ? AND pool_kind = 'worker' AND (status != 'pending' OR enrolled_at > ?)`,
       action.region,
+      selectedAt - PENDING_HELLO_GRACE_MS,
     ).toArray()) protectedInstances.add(instance_id);
     const target = oldestUnjoinedMember(aged, protectedInstances);
     if (target === undefined) return;
@@ -2693,6 +2701,7 @@ export class FleetDO extends DurableObject<Env> {
       if (!agedRegions.has(region.label) || poolId === null || poolId.length === 0) continue;
       try {
         const members = await oci.listInstancePoolInstances(region.oci_region, poolId, region.compartment_id);
+        if (this.regionPoolId(region.label) !== poolId) continue;
         listed.set(poolId, members);
         this.sweepRegionOrphans(region.label, poolId, new Set(members.map(({ id }) => id)), enrolledBefore);
       } catch (error) {
@@ -2704,8 +2713,6 @@ export class FleetDO extends DurableObject<Env> {
   }
 
   private sweepRegionOrphans(region: string, poolId: string, poolMembers: ReadonlySet<string>, enrolledBefore: number): void {
-    const current = this.sql.exec<{ instance_pool_id: string | null }>("SELECT instance_pool_id FROM regions WHERE label = ?", region).toArray()[0];
-    if (current?.instance_pool_id !== poolId) return;
     const orphans = this.sql.exec<{ id: string; instance_id: string | null }>(
       `SELECT id, json_extract(labels_json, '$."oci.instance-id"') AS instance_id FROM nodes
        WHERE region = ? AND pool_kind = 'worker' AND status = 'pending' AND enrolled_at <= ?
@@ -2730,6 +2737,10 @@ export class FleetDO extends DurableObject<Env> {
         this.recordEvent("node_lost", id, { instanceId, poolId, reason: "left_pool_before_join" }, region);
       }
     });
+  }
+
+  private regionPoolId(region: string): string | null {
+    return this.sql.exec<{ instance_pool_id: string | null }>("SELECT instance_pool_id FROM regions WHERE label = ?", region).toArray()[0]?.instance_pool_id ?? null;
   }
 
   private isReapingOrReaped(instanceId: string, now: number): boolean {

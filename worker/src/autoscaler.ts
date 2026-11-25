@@ -51,6 +51,7 @@ export const POOL_UP_SUSTAIN_MS = 180_000;
 export const POOL_UP_COOLDOWN_MS = 600_000;
 export const POOL_ENROLLMENT_GRACE_MS = 900_000;
 export const REAPED_INSTANCE_TOMBSTONE_MS = 1_800_000;
+export const PENDING_HELLO_GRACE_MS = 60_000;
 export const POOL_DOWN_WINDOW_MS = 900_000;
 export const POOL_DOWN_COOLDOWN_MS = 900_000;
 export const POOL_DOWN_MARGIN = 0.3;
@@ -67,6 +68,7 @@ export const POOL_HOT_PSI_CPU_PCT = 60;
 export const POOL_ENROLLMENT_FAILURE_BACKOFF_MS = 21_600_000;
 export const OCI_POOL_RUNNING_STATE = "RUNNING";
 export const INSTANCE_ID_LABEL = "oci.instance-id";
+export const INSTANCE_POOL_ID_LABEL = "oci.instance-pool-id";
 export const DATA_VOLUME_ID_LABEL = "oci.data-volume-id";
 
 const MINUTE_MS = 60_000;
