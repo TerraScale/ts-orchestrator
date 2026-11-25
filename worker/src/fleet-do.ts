@@ -25,7 +25,9 @@ import {
   evaluateAutoscale,
   hasVolumeGrowthBudget,
   INSTANCE_ID_LABEL,
+  planPoolScaleUp,
   POOL_ENROLLMENT_GRACE_MS,
+  poolEnrollmentFailureKey,
   poolScaleDownCooldownKey,
   poolScaleUpCooldownKey,
   VOLUME_GROW_GIB,
@@ -167,6 +169,7 @@ const EVENT_KINDS: ReadonlySet<string> = new Set<EventKind>([
   "replica_scale_down",
   "pool_scale_up",
   "pool_scale_down",
+  "pool_scale_blocked",
   "node_enrolled",
   "node_connected",
   "node_lost",
@@ -1419,6 +1422,7 @@ export class FleetDO extends DurableObject<Env> {
     if (inserted.length === 0) {
       throw conflict();
     }
+    if (poolKind === "worker") this.deleteState(poolEnrollmentFailureKey(region));
     this.recordEvent("node_enrolled", nodeId, { instanceId, poolKind, vcnIp }, region);
     await this.ensureAlarm(ALARM_INTERVAL_MS);
     const response: NodeEnrollResponse = {
@@ -2601,6 +2605,30 @@ export class FleetDO extends DurableObject<Env> {
     return row.id === await nodeIdFor(instanceId, row.region, row.pool_kind) ? instanceId : null;
   }
 
+  private async reapUnjoinedWorkers(
+    action: Extract<AutoscaleAction, { kind: "scale_pool_up" }>,
+    oci: OciRestClient,
+    failureKey: string,
+  ): Promise<void> {
+    const members = await oci.listInstancePoolInstances(action.ociRegion, action.poolId, action.compartmentId);
+    const enrolled = new Set(this.sql.exec<{ instance_id: string | null }>(
+      `SELECT json_extract(labels_json, '$."oci.instance-id"') AS instance_id FROM nodes WHERE region = ? AND pool_kind = 'worker'`,
+      action.region,
+    ).toArray().map(({ instance_id }) => instance_id));
+    const bootCutoff = Date.now() - POOL_ENROLLMENT_GRACE_MS;
+    const stale = members.filter(({ id, state, createdAt }) => !enrolled.has(id) && createdAt <= bootCutoff && state === "RUNNING");
+    for (const member of stale) {
+      await oci.detachPoolInstance(action.ociRegion, action.poolId, member.id);
+      this.setState(failureKey, Date.now());
+      this.recordEvent(
+        "pool_scale_down",
+        member.id,
+        { instanceId: member.id, poolId: action.poolId, reason: "enrollment_timeout", createdAt: new Date(member.createdAt).toISOString() },
+        action.region,
+      );
+    }
+  }
+
   private async executeAction(
     action: AutoscaleAction,
     oci: OciRestClient | null,
@@ -2626,30 +2654,34 @@ export class FleetDO extends DurableObject<Env> {
       }
       case "scale_pool_up": {
         if (oci === null) return false;
-        const pool = await oci.getInstancePool(action.ociRegion, action.poolId);
         const cooldownKey = poolScaleUpCooldownKey(action.region);
-        if (pool.size >= action.maxSize) {
-          cooldowns.set(cooldownKey, now);
+        const failureKey = poolEnrollmentFailureKey(action.region);
+        const pool = await oci.getInstancePool(action.ociRegion, action.poolId);
+        const registeredWorkers = this.sql.exec<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM nodes WHERE region = ? AND pool_kind = 'worker' AND status NOT IN ('down', 'pending')",
+          action.region,
+        ).one().n;
+        const plan = planPoolScaleUp({
+          ociPoolSize: pool.size,
+          ociPoolState: pool.state,
+          registeredWorkers,
+          maxSize: action.maxSize,
+          enrollmentFailedAt: this.getState<number>(failureKey) ?? undefined,
+          nowMs: now,
+        });
+        cooldowns.set(cooldownKey, now);
+        if (plan.kind === "scale") {
+          await oci.updateInstancePool(action.ociRegion, action.poolId, plan.newSize, pool.etag);
+          this.recordEvent("pool_scale_up", action.poolId, { from: pool.size, newSize: plan.newSize, registeredWorkers, reason: action.reason }, action.region);
           return false;
         }
-        if (pool.size > action.observedWorkers) {
-          const members = await oci.listInstancePoolInstances(action.ociRegion, action.poolId, action.compartmentId);
-          const enrolled = new Set(this.sql.exec<{ instance_id: string | null }>(
-            `SELECT json_extract(labels_json, '$."oci.instance-id"') AS instance_id FROM nodes WHERE region = ? AND pool_kind = 'worker' AND status != 'pending'`,
-            action.region,
-          ).toArray().map(({ instance_id }) => instance_id));
-          const bootCutoff = Date.now() - POOL_ENROLLMENT_GRACE_MS;
-          const enrolling = members.some(({ id, state, createdAt }) =>
-            !enrolled.has(id) && createdAt > bootCutoff && (state === "PROVISIONING" || state === "STARTING" || state === "RUNNING"),
-          );
-          const poolProvisioning = members.length < pool.size &&
-            (pool.state === "PROVISIONING" || pool.state === "STARTING" || pool.state === "SCALING");
-          if (enrolling || poolProvisioning) return false;
-        }
-        const newSize = Math.min(action.maxSize, Math.max(pool.size, action.observedWorkers) + 1);
-        await oci.updateInstancePool(action.ociRegion, action.poolId, newSize, pool.etag);
-        this.recordEvent("pool_scale_up", action.poolId, { newSize, reason: action.reason }, action.region);
-        cooldowns.set(cooldownKey, now);
+        this.recordEvent(
+          "pool_scale_blocked",
+          action.poolId,
+          { reason: plan.reason, ociPoolSize: pool.size, poolState: pool.state, registeredWorkers, maxSize: action.maxSize, trigger: action.reason },
+          action.region,
+        );
+        if (plan.reason === "unjoined_workers_pending") await this.reapUnjoinedWorkers(action, oci, failureKey);
         return false;
       }
       case "drain_for_scale_down": {

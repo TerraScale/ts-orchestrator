@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json.Nodes;
 
 namespace TsOrch.AppHost;
 
@@ -56,7 +57,13 @@ internal sealed record class OciMockIdentity(
             OciRegion,
             "VM.Standard.A1.Flex",
             "Running",
-            new ImdsRegionInfoDocument("OC1", "oraclecloud.com", "GRU", OciRegion));
+            new ImdsRegionInfoDocument("OC1", "oraclecloud.com", "GRU", OciRegion),
+            new JsonObject
+            {
+                ["ts_region"] = "gru",
+                ["ts_pool"] = "worker",
+                ["compute_management"] = new JsonObject { ["instance_configuration"] = new JsonObject { ["state"] = "SUCCEEDED" } },
+            });
         IReadOnlyList<ImdsVnicDocument> vnics =
         [
             new ImdsVnicDocument("ocid1.vnic.oc1.sa-saopaulo-1.localdev", "127.0.0.1", "02:00:17:00:00:01", "127.0.0.1", "127.0.0.0/8"),
