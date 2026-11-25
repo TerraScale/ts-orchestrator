@@ -26,7 +26,7 @@ export type AutoscaleAction =
       maxSize: number;
       reason: string;
     }
-  | { kind: "drain_for_scale_down"; region: string; nodeId: string; reason: string }
+  | { kind: "drain_for_scale_down"; region: string; poolId: string; nodeId: string; reason: string }
   | {
       kind: "terminate_drained_worker";
       region: string;
@@ -128,12 +128,12 @@ export function poolEnrollmentFailureKey(region: string): string {
   return `pool_enrollment_failed_at:${region}`;
 }
 
-export function poolScaleUpCooldownKey(region: string): string {
-  return `pool-up:${region}`;
+export function poolScaleUpCooldownKey(region: string, poolId: string): string {
+  return `pool-up:${region}:${poolId}`;
 }
 
-export function poolScaleDownCooldownKey(region: string): string {
-  return `pool-down:${region}`;
+export function poolScaleDownCooldownKey(region: string, poolId: string): string {
+  return `pool-down:${region}:${poolId}`;
 }
 
 export function volumeGrowCooldownKey(nodeId: string): string {
@@ -339,8 +339,8 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
       .filter((node) => node.poolKind === "worker" && node.labels[INSTANCE_POOL_ID_LABEL] === poolId)
       .sort((a, b) => compareText(a.id, b.id));
     const observedWorkers = workers.filter((node) => node.status !== "down" && node.status !== "pending").length;
-    const upKey = poolScaleUpCooldownKey(region.label);
-    const downKey = poolScaleDownCooldownKey(region.label);
+    const upKey = poolScaleUpCooldownKey(region.label, poolId);
+    const downKey = poolScaleDownCooldownKey(region.label, poolId);
     const unschedulable = input.unschedulable.filter((entry) => entry.region === region.label && entry.missing > 0);
     const activeNodes = regionNodes.filter((node) => node.status === "active" && !node.drainRequested);
     const hot = sustainedHot(activeNodes, input.metrics1m, input.nowMs);
@@ -411,6 +411,7 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
     actions.push({
       kind: "drain_for_scale_down",
       region: region.label,
+      poolId,
       nodeId: candidate.id,
       reason: `headroom_fits_${activeWorkers.length - 1}_workers`,
     });

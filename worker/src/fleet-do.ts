@@ -2608,9 +2608,9 @@ export class FleetDO extends DurableObject<Env> {
     const last = this.getState<number>("autoscale_at") ?? 0;
     if (now - last < AUTOSCALE_INTERVAL_MS) return;
     this.setState("autoscale_at", now);
+    if (this.loadRegionRows().length === 0) return;
+    const listedPools = await this.reconcilePoolMembership(this.loadRegionRows(), now);
     const regionRows = this.loadRegionRows();
-    if (regionRows.length === 0) return;
-    const listedPools = await this.reconcilePoolMembership(regionRows, now);
     const regions = this.loadRegions();
     const nodes = this.loadNodes();
     if (nodes.length === 0) return;
@@ -2645,14 +2645,14 @@ export class FleetDO extends DurableObject<Env> {
       cooldowns = result.updatedCooldowns;
       actions.push(...result.actions);
     }
-    this.setState("autoscale_cooldowns", Object.fromEntries(cooldowns));
+    this.saveCooldowns(cooldowns);
     if (actions.length === 0) return;
     const oci = await this.oci();
     let reschedule = false;
     for (const action of actions) {
       try {
         if (await this.executeAction(action, oci, overrides, now, cooldowns, listedPools)) reschedule = true;
-        this.setState("autoscale_cooldowns", Object.fromEntries(cooldowns));
+        this.saveCooldowns(cooldowns);
       } catch (error) {
         console.error("autoscale action failed", action.kind, error);
         this.setState("last_autoscale_error", {
@@ -2799,8 +2799,9 @@ export class FleetDO extends DurableObject<Env> {
       members = listed;
     }
     const current = this.workerLabelRows(row.region).find(({ id }) => id === row.id);
-    if (current === undefined || current.token_hash !== row.token_hash || current.status !== "pending" || this.regionPoolId(row.region) !== poolId) return "not_member";
+    if (current === undefined || current.token_hash !== row.token_hash || this.regionPoolId(row.region) !== poolId) return "not_member";
     if (current.labels[INSTANCE_POOL_ID_LABEL] !== undefined) return current.labels[INSTANCE_POOL_ID_LABEL] === poolId ? "verified" : "not_member";
+    if (current.status !== "pending") return "not_member";
     if (members !== null && (instanceId === undefined || !members.has(instanceId))) return "not_member";
     return this.stampPoolLabel(current, poolId) ? "verified" : "not_member";
   }
@@ -2832,8 +2833,10 @@ export class FleetDO extends DurableObject<Env> {
     this.poolAbortControllers.delete(region);
     this.deleteState(poolEnrollmentFailureKey(region));
     const cooldowns = this.getState<Record<string, number>>("autoscale_cooldowns") ?? {};
-    delete cooldowns[poolScaleUpCooldownKey(region)];
-    delete cooldowns[poolScaleDownCooldownKey(region)];
+    for (const key of Object.keys(cooldowns)) {
+      if ((key.startsWith(`pool-up:${region}:`) || key.startsWith(`pool-down:${region}:`)) &&
+          key !== poolScaleUpCooldownKey(region, poolId) && key !== poolScaleDownCooldownKey(region, poolId)) delete cooldowns[key];
+    }
     this.setState("autoscale_cooldowns", cooldowns);
     const obsolete = this.workerLabelRows(region).filter(({ status, labels }) => status === "pending" && labels[INSTANCE_POOL_ID_LABEL] !== poolId);
     for (const { id } of obsolete) {
@@ -2841,6 +2844,13 @@ export class FleetDO extends DurableObject<Env> {
       this.deleteNodeRows(id);
       this.recordEvent("node_lost", id, { poolId, reason: "pool_replaced" }, region);
     }
+  }
+
+  private saveCooldowns(cooldowns: ReadonlyMap<string, number>): void {
+    const currentPoolKeys = new Set(this.loadRegionRows().flatMap(({ label, instance_pool_id: poolId }) =>
+      poolId === null || poolId.length === 0 ? [] : [poolScaleUpCooldownKey(label, poolId), poolScaleDownCooldownKey(label, poolId)]));
+    this.setState("autoscale_cooldowns", Object.fromEntries(
+      [...cooldowns].filter(([key]) => !(key.startsWith("pool-up:") || key.startsWith("pool-down:")) || currentPoolKeys.has(key))));
   }
 
   private poolSignal(region: string): AbortSignal {
@@ -2910,7 +2920,7 @@ export class FleetDO extends DurableObject<Env> {
       }
       case "scale_pool_up": {
         if (oci === null) return false;
-        const cooldownKey = poolScaleUpCooldownKey(action.region);
+        const cooldownKey = poolScaleUpCooldownKey(action.region, action.poolId);
         const failureKey = poolEnrollmentFailureKey(action.region);
         if (this.regionPoolId(action.region) !== action.poolId) return false;
         const pool = await oci.getInstancePool(action.ociRegion, action.poolId);
@@ -2948,13 +2958,13 @@ export class FleetDO extends DurableObject<Env> {
         if (plan.reason === "unjoined_workers_pending") await this.reapUnjoinedWorker(action, oci, failureKey, listedPools);
         if (this.regionPoolId(action.region) !== action.poolId) return false;
         cooldowns.set(cooldownKey, now);
-        this.setState("autoscale_cooldowns", Object.fromEntries(cooldowns));
+        this.saveCooldowns(cooldowns);
         return false;
       }
       case "drain_for_scale_down": {
         if (oci === null) return false;
         await this.drainNode(action.nodeId, `autoscaler:${action.reason}`);
-        cooldowns.set(poolScaleDownCooldownKey(action.region), now);
+        cooldowns.set(poolScaleDownCooldownKey(action.region, action.poolId), now);
         return false;
       }
       case "terminate_drained_worker": {
