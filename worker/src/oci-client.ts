@@ -138,12 +138,14 @@ export class OciRestClient {
     return this.#request(ociRegion, "PUT", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`, { size }, etag, abort);
   }
 
-  detachPoolInstance(ociRegion: string, poolId: string, instanceId: string): Promise<unknown> {
+  detachPoolInstance(ociRegion: string, poolId: string, instanceId: string, abort?: AbortSignal): Promise<unknown> {
     return this.#request(
       ociRegion,
       "POST",
       `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/actions/detachInstance`,
       { instanceId, isDecrementSize: true, isAutoTerminate: true },
+      undefined,
+      abort,
     );
   }
 
